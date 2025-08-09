@@ -35,10 +35,10 @@ export default function ArtworkDetail() {
         <>
           <h2 className="mb-4 text-xl font-semibold">{data.title}</h2>
           {data.artist?.name && <div className="mb-6 text-sm text-gray-600">{data.artist.name}</div>}
-          {/* 竖直瀑布流展示，每张图占满容器宽度，按原图宽高比显示 */}
-          <div className="mx-auto max-w-3xl space-y-4">
+          {/* 竖直瀑布流展示，去掉图片间距 */}
+          <div className="mx-auto max-w-3xl">
             {(data.images || []).map((img: any) => (
-              <div key={img.id} className="overflow-hidden rounded-lg bg-gray-100">
+              <div key={img.id} className="overflow-hidden bg-gray-100">
                 <img src={`/api/v1/images/${img.path}`} alt={data.title} loading="lazy" className="w-full h-auto object-contain" />
               </div>
             ))}

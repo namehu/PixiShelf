@@ -11,7 +11,7 @@ const queryClient = new QueryClient()
 
 function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
       <header className="sticky top-0 z-10 bg-white/70 backdrop-blur shadow-sm">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <Link to="/" className="text-xl font-semibold text-brand-700">Artisan Shelf</Link>
@@ -22,8 +22,8 @@ function Layout({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
-      <footer className="border-t bg-white">
+      <main className="mx-auto max-w-6xl px-4 py-8 flex-1 w-full">{children}</main>
+      <footer className="border-t bg-white mt-auto">
         <div className="mx-auto max-w-6xl px-4 py-6 text-sm text-gray-500">© {new Date().getFullYear()} Artisan Shelf</div>
       </footer>
     </div>

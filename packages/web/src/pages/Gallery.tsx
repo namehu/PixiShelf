@@ -21,6 +21,10 @@ export default function Gallery() {
   const pageSize = 24
   const { data, isLoading, isError } = useArtworks(page, pageSize)
 
+  const totalPages = Math.max(1, Math.ceil((data?.total || 0) / pageSize))
+  const canPrev = page > 1
+  const canNext = page < totalPages
+
   return (
     <section>
       <h2 className="mb-4 text-xl font-semibold">作品</h2>
@@ -40,9 +44,10 @@ export default function Gallery() {
             {data.items.map((aw) => {
               const cover = aw.images?.[0]
               const imgSrc = cover ? `/api/v1/images/${cover.path}` : undefined
+              const count = Array.isArray(aw.images) ? aw.images.length : undefined
               return (
                 <Link key={aw.id} to={`/artworks/${aw.id}`} className="group block">
-                  <div className="aspect-[4/3] overflow-hidden rounded-lg bg-gray-100">
+                  <div className="relative aspect-[4/3] overflow-hidden rounded-lg bg-gray-100">
                     {imgSrc ? (
                       <img
                         src={imgSrc}
@@ -52,6 +57,9 @@ export default function Gallery() {
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-gray-400">No Image</div>
+                    )}
+                    {typeof count === 'number' && count > 1 && (
+                      <div className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">{count}</div>
                     )}
                   </div>
                   <div className="mt-2 truncate text-sm font-medium text-gray-900">{aw.title}</div>
@@ -63,13 +71,25 @@ export default function Gallery() {
             )}
           </div>
           <div className="mt-6 flex items-center justify-center gap-3">
-            <Link to={`/?page=${Math.max(1, page - 1)}`} className="rounded border px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50" aria-disabled={page <= 1}>
-              上一页
-            </Link>
-            <span className="text-sm text-gray-600">{page} / {Math.max(1, Math.ceil((data.total || 0) / pageSize))}</span>
-            <Link to={`/?page=${page + 1}`} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">
-              下一页
-            </Link>
+            {canPrev ? (
+              <Link to={`/?page=${page - 1}`} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">
+                上一页
+              </Link>
+            ) : (
+              <span className="rounded border px-3 py-1 text-sm text-gray-400 opacity-60 cursor-not-allowed select-none" aria-disabled="true">
+                上一页
+              </span>
+            )}
+            <span className="text-sm text-gray-600">{page} / {totalPages}</span>
+            {canNext ? (
+              <Link to={`/?page=${page + 1}`} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">
+                下一页
+              </Link>
+            ) : (
+              <span className="rounded border px-3 py-1 text-sm text-gray-400 opacity-60 cursor-not-allowed select-none" aria-disabled="true">
+                下一页
+              </span>
+            )}
           </div>
         </>
       )}

@@ -1,5 +1,5 @@
 import React from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 
 // 命名规范：组件用 PascalCase，文件名 Settings.tsx（PascalCase）
 
@@ -9,6 +9,21 @@ type ScanResult = {
   newArtworks: number
   newImages: number
   errors: string[]
+}
+
+type Health = { status: string; scanPath: string | null }
+
+function useHealth() {
+  return useQuery({
+    queryKey: ['health'],
+    queryFn: async () => {
+      const res = await fetch('/api/v1/health', {
+        headers: { 'Authorization': `Bearer ${import.meta.env.VITE_API_KEY ?? ''}` },
+      })
+      if (!res.ok) throw new Error('health failed')
+      return res.json() as Promise<Health>
+    },
+  })
 }
 
 function useManualScan() {
@@ -33,6 +48,7 @@ function useManualScan() {
 }
 
 export default function Settings() {
+  const { data: health } = useHealth()
   const scan = useManualScan()
   const [elapsed, setElapsed] = React.useState(0)
 
@@ -59,6 +75,10 @@ export default function Settings() {
       <h2 className="text-xl font-semibold">设置</h2>
 
       <div className="rounded-lg border bg-white p-5">
+        <div className="mb-2 text-sm text-gray-600">
+          扫描路径：
+          <span className="font-mono">{health?.scanPath || '未配置（请在 API 的 .env 中设置 SCAN_PATH）'}</span>
+        </div>
         <div className="mb-3 flex items-center justify-between">
           <div>
             <div className="text-base font-medium">手动扫描</div>

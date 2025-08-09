@@ -61,7 +61,7 @@ server.addHook('preHandler', async (req, reply) => {
 })
 
 // Health check
-server.get('/api/v1/health', async () => ({ status: 'ok' }))
+server.get('/api/v1/health', async () => ({ status: 'ok', scanPath: process.env.SCAN_PATH || null }))
 
 // Manual scan endpoint
 server.post('/api/v1/scan', async (req, reply) => {
