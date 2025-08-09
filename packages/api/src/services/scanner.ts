@@ -204,7 +204,7 @@ export class FileScanner {
 
       // 尝试提取艺术家信息（父目录作为艺术家名）
       let artist = null
-      if (parentDir && parentDir !== path.basename(process.env.SCAN_PATH || '')) {
+      if (parentDir && this.scanRootAbs && parentDir !== path.basename(this.scanRootAbs)) {
         artist = await this.findOrCreateArtist(parentDir)
       }
 
@@ -275,10 +275,9 @@ export class FileScanner {
     try {
       // 计算相对扫描根目录的相对路径（用于容器挂载路径统一）
       let relPath = imagePath
-      const root = this.scanRootAbs || (process.env.SCAN_PATH ? path.resolve(process.env.SCAN_PATH) : null)
+      const root = this.scanRootAbs
       if (root) {
         const maybeRel = path.relative(root, imagePath)
-        // 当无法求出合理相对路径时，path.relative 可能返回包含 '..' 的路径，此时仍保留原路径
         if (!maybeRel.startsWith('..')) {
           relPath = maybeRel.replace(/\\/g, '/')
         }

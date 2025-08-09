@@ -7,6 +7,7 @@ import cron from 'node-cron'
 import path from 'path'
 import fs from 'fs'
 import mime from 'mime-types'
+import { SettingService } from './services/setting'
 
 dotenv.config()
 
@@ -27,6 +28,14 @@ try {
   server.log.error({ err }, 'Failed to connect to database with Prisma')
 }
 
+const settingService = new SettingService(prisma)
+await settingService.initDefaults()
+
+// 扫描任务控制
+let scanning = false
+let cancelRequested = false
+let lastProgressMessage: string | null = null
+
 // Unified error handler
 server.setErrorHandler((error, _req, reply) => {
   const statusCode = (error as any).statusCode || 500
@@ -37,15 +46,16 @@ server.setErrorHandler((error, _req, reply) => {
 
 // API key auth preHandler for protected routes
 server.addHook('preHandler', async (req, reply) => {
-  // 仅保护非 GET /health 和 GET /images/* 的 API
+  // always allow image serving without API key
+  if (typeof req.url === 'string' && req.url.startsWith('/api/v1/images/')) return
+
   const openPaths = [
     { method: 'GET', url: '/api/v1/health' },
-    { method: 'GET', url: /^\/api\/v1\/images\// },
   ] as const
   const isOpen = openPaths.some((p) => {
     if (p.method !== req.method) return false
     if (typeof p.url === 'string') return p.url === req.url
-    return p.url.test(req.url)
+    return (p.url as any).test ? (p.url as any).test(req.url) : false
   })
   if (isOpen) return
 
@@ -54,7 +64,6 @@ server.addHook('preHandler', async (req, reply) => {
   let token = typeof header === 'string' && header.startsWith('Bearer ')
     ? header.slice(7)
     : typeof header === 'string' ? header : undefined
-  // 兼容 SSE 等无法自定义 Header 的场景，允许通过查询参数传递 token（apiKey 或 token）
   if (!token) {
     const q: any = (req as any).query || {}
     token = q.apiKey || q.token
@@ -66,30 +75,76 @@ server.addHook('preHandler', async (req, reply) => {
 })
 
 // Health check
-server.get('/api/v1/health', async () => ({ status: 'ok', scanPath: process.env.SCAN_PATH || null }))
+server.get('/api/v1/health', async () => ({ status: 'ok', scanPath: await settingService.getScanPath() }))
+
+// 扫描状态
+server.get('/api/v1/scan/status', async () => ({ scanning, message: lastProgressMessage }))
+
+// Settings endpoints for scanPath
+server.get('/api/v1/settings/scan-path', async () => {
+  const value = await settingService.getScanPath()
+  return { scanPath: value }
+})
+
+server.put('/api/v1/settings/scan-path', async (req, reply) => {
+  const body = req.body as { scanPath?: string }
+  const scanPath = body?.scanPath?.trim()
+  if (!scanPath) return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'scanPath is required' })
+  await settingService.setScanPath(scanPath)
+  return { success: true }
+})
 
 // Manual scan endpoint
 server.post('/api/v1/scan', async (req, reply) => {
-  const scanPath = process.env.SCAN_PATH
+  const scanPath = await settingService.getScanPath()
   if (!scanPath) {
     reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'SCAN_PATH is not configured' })
     return
   }
-  
-  const body = req.body as { force?: boolean }
-  const forceUpdate = body?.force === true
-  
-  const scanner = new FileScanner(prisma, server.log)
-  const result = await scanner.scan({ 
-    scanPath, 
-    forceUpdate 
-  })
-  return { success: true, result }
+
+  if (scanning) {
+    return reply.code(409).send({ statusCode: 409, error: 'Conflict', message: 'Scan already in progress' })
+  }
+  cancelRequested = false
+  scanning = true
+  lastProgressMessage = '初始化…'
+  try {
+    const body = req.body as { force?: boolean }
+    const forceUpdate = body?.force === true
+
+    const scanner = new FileScanner(prisma, server.log)
+    const result = await scanner.scan({
+      scanPath,
+      forceUpdate,
+      onProgress: (p) => {
+        lastProgressMessage = p?.message || null
+        if (cancelRequested) {
+          throw new Error('Scan cancelled')
+        }
+      }
+    })
+    return { success: true, result }
+  } catch (err: any) {
+    if (err?.message === 'Scan cancelled') {
+      return reply.code(499).send({ statusCode: 499, error: 'Client Closed Request', message: 'Scan cancelled' })
+    }
+    throw err
+  } finally {
+    scanning = false
+    lastProgressMessage = null
+  }
 })
 
-// SSE endpoint for scan progress
+server.post('/api/v1/scan/cancel', async (_req, _reply) => {
+  if (!scanning) return { success: true, cancelled: false }
+  cancelRequested = true
+  lastProgressMessage = '正在取消…'
+  return { success: true, cancelled: true }
+})
+
+// SSE endpoint for scan progress (with cancel)
 server.get('/api/v1/scan/stream', async (req, reply) => {
-  const scanPath = process.env.SCAN_PATH
+  const scanPath = await settingService.getScanPath()
   if (!scanPath) {
     reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'SCAN_PATH is not configured' })
     return
@@ -98,7 +153,6 @@ server.get('/api/v1/scan/stream', async (req, reply) => {
   const { force } = req.query as { force?: string }
   const forceUpdate = force === 'true'
 
-  // Set SSE headers
   reply.raw.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -107,25 +161,47 @@ server.get('/api/v1/scan/stream', async (req, reply) => {
     'Access-Control-Allow-Headers': 'Cache-Control'
   })
 
-  const sendEvent = (data: any) => {
+  const sendEvent = (event: string, data: any) => {
+    reply.raw.write(`event: ${event}\n`)
     reply.raw.write(`data: ${JSON.stringify(data)}\n\n`)
   }
 
+  if (scanning) {
+    sendEvent('error', { success: false, error: 'Scan already in progress' })
+    reply.raw.end()
+    return
+  }
+
+  scanning = true
+  cancelRequested = false
+  lastProgressMessage = '初始化…'
+
   try {
     const scanner = new FileScanner(prisma, server.log)
-    
+
     const result = await scanner.scan({
       scanPath,
       forceUpdate,
       onProgress: (progress) => {
-        sendEvent({ type: 'progress', data: progress })
+        lastProgressMessage = progress?.message || null
+        if (cancelRequested) {
+          throw new Error('Scan cancelled')
+        }
+        sendEvent('progress', progress)
       }
     })
 
-    sendEvent({ type: 'complete', data: { success: true, result } })
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-    sendEvent({ type: 'error', data: { success: false, error: errorMsg } })
+    sendEvent('complete', { success: true, result })
+  } catch (error: any) {
+    if (error?.message === 'Scan cancelled') {
+      sendEvent('cancelled', { success: false, error: 'Scan cancelled' })
+    } else {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      sendEvent('error', { success: false, error: errorMsg })
+    }
+  } finally {
+    scanning = false
+    lastProgressMessage = null
   }
 
   reply.raw.end()
@@ -172,7 +248,7 @@ server.get('/api/v1/artists', async () => {
 
 // Secure image serving
 server.get('/api/v1/images/*', async (req, reply) => {
-  const scanRoot = process.env.SCAN_PATH
+  const scanRoot = await settingService.getScanPath()
   if (!scanRoot) {
     return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'SCAN_PATH is not configured' })
   }
@@ -180,69 +256,58 @@ server.get('/api/v1/images/*', async (req, reply) => {
   const antiHotlink = (process.env.ANTI_HOTLINK || 'false').toLowerCase() === 'true'
   const allowedReferers = (process.env.ALLOWED_IMAGE_REFERERS || '').split(',').map(s => s.trim()).filter(Boolean)
 
-  // param name is '*' for wildcard
   const wildcard = (req.params as any)['*'] as string
   if (!wildcard) return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'Missing image path' })
 
-  // Normalize and prevent path traversal
-  const platformPath = wildcard.replace(/\\/g, '/').split('/').filter(Boolean).join('/')
-  const absPath = path.resolve(scanRoot, platformPath)
-  const normalizedRoot = path.resolve(scanRoot)
-  if (!absPath.startsWith(normalizedRoot)) {
-    return reply.code(403).send({ statusCode: 403, error: 'Forbidden', message: 'Invalid path' })
-  }
-
-  // Anti-hotlinking (basic)
-  if (antiHotlink) {
-    const referer = req.headers['referer'] as string | undefined
-    if (!referer || (allowedReferers.length > 0 && !allowedReferers.some(prefix => referer.startsWith(prefix)))) {
-      return reply.code(403).send({ statusCode: 403, error: 'Forbidden', message: 'Hotlinking not allowed' })
-    }
-  }
-
+  let decoded = wildcard
   try {
-    await fs.promises.access(absPath, fs.constants.R_OK)
-    const stat = await fs.promises.stat(absPath)
-    if (!stat.isFile()) return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'File not found' })
+    decoded = decodeURIComponent(wildcard)
+  } catch {}
 
-    const contentType = mime.lookup(absPath) || 'application/octet-stream'
-    reply.header('Content-Type', contentType as string)
-    reply.header('Content-Length', stat.size.toString())
+  const platformPath = decoded.replace(/\\/g, '/').split('/').filter(Boolean).join('/')
+  const absPath = path.resolve(scanRoot, platformPath)
 
-    const stream = fs.createReadStream(absPath)
-    return reply.send(stream)
-  } catch (err) {
-    server.log.warn({ err, absPath }, 'Failed to serve image')
-    return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'File not found' })
+  if (!absPath.startsWith(path.resolve(scanRoot))) {
+    return reply.code(403).send({ statusCode: 403, error: 'Forbidden', message: 'Access outside scan root is not allowed' })
   }
+
+  if (!fs.existsSync(absPath)) {
+    return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Image not found' })
+  }
+
+  const stat = fs.statSync(absPath)
+  if (!stat.isFile()) {
+    return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Not a file' })
+  }
+
+  // Caching headers
+  const lastModified = stat.mtime.toUTCString()
+  const etag = `W/"${stat.size}-${stat.mtimeMs}"`
+  reply.header('Last-Modified', lastModified)
+  reply.header('ETag', etag)
+  reply.header('Cache-Control', 'public, max-age=31536000, immutable')
+
+  const ifNoneMatch = req.headers['if-none-match']
+  const ifModifiedSince = req.headers['if-modified-since']
+  if ((ifNoneMatch && ifNoneMatch === etag) || (ifModifiedSince && new Date(ifModifiedSince).getTime() >= stat.mtime.getTime())) {
+    return reply.code(304).send()
+  }
+
+  const mimeType = mime.lookup(absPath) || 'application/octet-stream'
+  const data = await fs.promises.readFile(absPath)
+  reply.header('Content-Type', mimeType)
+  reply.header('Content-Length', String(data.length))
+  return reply.send(data)
 })
 
-const port = Number(process.env.API_PORT || 3001)
-const host = process.env.API_HOST || '0.0.0.0'
-
-// Schedule cron job for periodic scans
-const intervalHours = Number(process.env.SCAN_INTERVAL_HOURS || '0')
-if (intervalHours > 0 && process.env.SCAN_PATH) {
-  const cronExpr = `0 */${intervalHours} * * *`
-  cron.schedule(cronExpr, async () => {
-    try {
-      const scanner = new FileScanner(prisma, server.log)
-      await scanner.scan({ scanPath: process.env.SCAN_PATH! })
-    } catch (err) {
-      server.log.error({ err }, 'Scheduled scan failed')
-    }
-  })
-  server.log.info(`Scheduled scan enabled: every ${intervalHours} hours`)
-}
-
-server.addHook('onClose', async () => {
-  await prisma.$disconnect()
-})
+// Start server
+const port = Number(process.env.PORT) || 3002
+const host = process.env.HOST || '0.0.0.0'
 
 server
   .listen({ port, host })
   .then((address) => {
-    server.log.info(`API server listening on ${address}`)
+    server.log.info(`Server listening at ${address}`)
   })
   .catch((err) => {
     server.log.error(err)

@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 
 function useArtworks(page: number, pageSize: number) {
   return useQuery({
@@ -20,11 +20,44 @@ function useArtworks(page: number, pageSize: number) {
   })
 }
 
+function useScanStatus() {
+  return useQuery({
+    queryKey: ['scanStatus'],
+    queryFn: async () => {
+      const res = await fetch('/api/v1/scan/status', {
+        headers: { 'Authorization': `Bearer ${import.meta.env.VITE_API_KEY ?? ''}` },
+      })
+      if (!res.ok) throw new Error('Failed to fetch scan status')
+      return res.json() as Promise<{ scanning: boolean; message: string | null }>
+    },
+    refetchInterval: (q) => {
+      const data = q.state.data as any
+      return data?.scanning ? 1000 : false
+    },
+  })
+}
+
+function useCancelScan() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/v1/scan/cancel', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${import.meta.env.VITE_API_KEY ?? ''}` },
+      })
+      if (!res.ok) throw new Error('取消失败')
+      return res.json() as Promise<{ success: boolean; cancelled: boolean }>
+    },
+  })
+}
+
 export default function Gallery() {
   const [search] = useSearchParams()
   const page = Number(search.get('page') || '1')
   const pageSize = 24
   const { data, isLoading, isError } = useArtworks(page, pageSize)
+
+  const { data: status } = useScanStatus()
+  const cancelScan = useCancelScan()
 
   const totalPages = Math.max(1, Math.ceil((data?.total || 0) / pageSize))
   const canPrev = page > 1
@@ -33,6 +66,23 @@ export default function Gallery() {
   return (
     <section>
       <h2 className="mb-4 text-xl font-semibold">作品</h2>
+
+      {status?.scanning && (
+        <div className="mb-4 rounded border bg-yellow-50 p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-yellow-800">{status.message || '正在扫描…'}</div>
+            <button
+              onClick={() => cancelScan.mutate()}
+              disabled={cancelScan.isPending}
+              className="rounded border border-red-600 px-2 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >{cancelScan.isPending ? '取消中' : '取消扫描'}</button>
+          </div>
+          <div className="mt-2 h-1 w-full overflow-hidden rounded bg-yellow-200">
+            <div className="h-1 w-1/3 animate-[progress_1.2s_ease-in-out_infinite] rounded bg-yellow-500" />
+          </div>
+        </div>
+      )}
+
       {isLoading && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {Array.from({ length: pageSize }).map((_, i) => (
@@ -99,6 +149,14 @@ export default function Gallery() {
           </div>
         </>
       )}
+
+      <style>{`
+        @keyframes progress {
+          0% { transform: translateX(-100%); }
+          50% { transform: translateX(0%); }
+          100% { transform: translateX(100%); }
+        }
+      `}</style>
     </section>
   )
 }
