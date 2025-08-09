@@ -57,7 +57,7 @@ export class FileScanner {
       // 记录规范化后的扫描根目录，供相对路径换算
       this.scanRootAbs = path.resolve(scanPath)
 
-      this.logger.info(`Starting scan of: ${scanPath}`, { forceUpdate })
+      this.logger.info({ scanPath, forceUpdate }, `Starting scan of: ${scanPath}`)
       onProgress?.({ phase: 'scanning', message: '开始扫描目录...', percentage: 0 })
 
       // 检查扫描路径是否存在
@@ -83,7 +83,7 @@ export class FileScanner {
       result.removedArtworks = removedCount
 
       onProgress?.({ phase: 'complete', message: '扫描完成', percentage: 100 })
-      this.logger.info('Scan completed', result)
+      this.logger.info({ result }, 'Scan completed')
       return result
 
     } catch (error) {
@@ -248,26 +248,71 @@ export class FileScanner {
 
   private async findOrCreateArtist(artistName: string) {
     try {
-      // 查找现有艺术家
+      // 解析艺术家名称，尝试拆分为用户名和用户ID
+      const { displayName, username, userId } = this.parseArtistName(artistName)
+
+      // 查找现有艺术家 - 按用户名和用户ID组合或原始名称查找
       let artist = await this.prisma.artist.findFirst({
-        where: { name: artistName }
+        where: {
+          OR: [
+            // 如果解析成功，按 username + userId 查找
+            ...(username && userId ? [{ username, userId }] : []),
+            // 兜底按原始名称查找
+            { name: artistName }
+          ]
+        }
       })
 
       if (!artist) {
         // 创建新艺术家
         artist = await this.prisma.artist.create({
           data: {
-            name: artistName,
-            bio: `Artist discovered from directory: ${artistName}`
+            name: displayName,
+            username: username,
+            userId: userId,
+            bio: username && userId 
+              ? `Artist: ${username} (ID: ${userId})` 
+              : `Artist discovered from directory: ${artistName}`
           }
         })
-        this.logger.info(`Created new artist: ${artistName}`)
+        this.logger.info(`Created new artist: ${displayName}${username && userId ? ` (${username}-${userId})` : ''}`)
       }
 
       return artist
     } catch (error) {
       this.logger.error({ error, artistName }, 'Failed to find or create artist')
       return null
+    }
+  }
+
+  /**
+   * 解析艺术家名称，尝试从"用户名-用户ID"格式中提取信息
+   * @param artistName 原始艺术家名称
+   * @returns 解析结果：显示名称、用户名、用户ID
+   */
+  private parseArtistName(artistName: string): { displayName: string; username: string | null; userId: string | null } {
+    // 匹配 "用户名-数字ID" 或 "用户名-字母数字ID" 格式
+    const match = artistName.match(/^(.+?)-(\d+|[a-zA-Z0-9]+)$/)
+    
+    if (match) {
+      const username = match[1].trim()
+      const userId = match[2].trim()
+      
+      // 确保用户名不为空，用户ID看起来合理（至少2位）
+      if (username.length > 0 && userId.length >= 1) {
+        return {
+          displayName: username, // 使用用户名作为显示名称
+          username: username,
+          userId: userId
+        }
+      }
+    }
+    
+    // 如果解析失败，返回原始名称
+    return {
+      displayName: artistName,
+      username: null,
+      userId: null
     }
   }
 

@@ -9,11 +9,15 @@ datasource db {
 
 model Artist {
   id        Int       @id @default(autoincrement())
-  name      String
+  name      String    // 显示名称（原始值或解析后的用户名）
+  username  String?   // 解析出的用户名部分
+  userId    String?   // 解析出的用户ID部分
   bio       String?
   artworks  Artwork[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  @@unique([username, userId], name: "unique_username_userid")
 }
 
 model Artwork {
