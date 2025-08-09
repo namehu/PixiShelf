@@ -6,8 +6,13 @@ function useArtworks(page: number, pageSize: number) {
   return useQuery({
     queryKey: ['artworks', page, pageSize],
     queryFn: async () => {
-      const res = await fetch(`/api/v1/artworks?page=${page}&pageSize=${pageSize}`, {
-        headers: { 'Authorization': `Bearer ${import.meta.env.VITE_API_KEY ?? ''}` },
+      const apiKey = import.meta.env.VITE_API_KEY ?? ''
+      const url = new URL('/api/v1/artworks', window.location.origin)
+      url.searchParams.set('page', String(page))
+      url.searchParams.set('pageSize', String(pageSize))
+      if (apiKey) url.searchParams.set('apiKey', apiKey as string)
+      const res = await fetch(url.toString(), {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
       })
       if (!res.ok) throw new Error('Failed to fetch artworks')
       return res.json() as Promise<{ items: any[]; total: number; page: number; pageSize: number }>
@@ -44,7 +49,8 @@ export default function Gallery() {
             {data.items.map((aw) => {
               const cover = aw.images?.[0]
               const imgSrc = cover ? `/api/v1/images/${cover.path}` : undefined
-              const count = Array.isArray(aw.images) ? aw.images.length : undefined
+              const count = aw._count?.images as number | undefined
+              const artistName = aw.artist?.name as string | undefined
               return (
                 <Link key={aw.id} to={`/artworks/${aw.id}`} className="group block">
                   <div className="relative aspect-[4/3] overflow-hidden rounded-lg bg-gray-100">
@@ -62,9 +68,9 @@ export default function Gallery() {
                       <div className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">{count}</div>
                     )}
                   </div>
-                  <div className="mt-2 truncate text-sm font-medium text-gray-900">{aw.title}</div>
-                  {aw.artist?.name && (
-                    <div className="truncate text-xs text-gray-500">{aw.artist.name}</div>
+                  <div className="mt-2 truncate text-sm font-medium text-gray-900" title={aw.title}>{aw.title}</div>
+                  {artistName && (
+                    <div className="truncate text-xs text-gray-500" title={artistName}>{artistName}</div>
                   )}
                 </Link>
               )}

@@ -6,6 +6,16 @@ import { FastifyInstance } from 'fastify'
 export interface ScanOptions {
   scanPath: string
   supportedExtensions?: string[]
+  forceUpdate?: boolean
+  onProgress?: (progress: ScanProgress) => void
+}
+
+export interface ScanProgress {
+  phase: 'scanning' | 'creating' | 'cleanup' | 'complete'
+  message: string
+  current?: number
+  total?: number
+  percentage?: number
 }
 
 export interface ScanResult {
@@ -13,6 +23,7 @@ export interface ScanResult {
   foundImages: number
   newArtworks: number
   newImages: number
+  removedArtworks: number
   errors: string[]
 }
 
@@ -33,17 +44,21 @@ export class FileScanner {
       foundImages: 0,
       newArtworks: 0,
       newImages: 0,
+      removedArtworks: 0,
       errors: []
     }
 
     try {
       const scanPath = options.scanPath
       const extensions = options.supportedExtensions || this.supportedExtensions
+      const forceUpdate = options.forceUpdate || false
+      const onProgress = options.onProgress
 
       // 记录规范化后的扫描根目录，供相对路径换算
       this.scanRootAbs = path.resolve(scanPath)
 
-      this.logger.info(`Starting scan of: ${scanPath}`)
+      this.logger.info(`Starting scan of: ${scanPath}`, { forceUpdate })
+      onProgress?.({ phase: 'scanning', message: '开始扫描目录...', percentage: 0 })
 
       // 检查扫描路径是否存在
       try {
@@ -52,9 +67,22 @@ export class FileScanner {
         throw new Error(`Scan path does not exist: ${scanPath}`)
       }
 
-      // 递归扫描目录
-      await this.scanDirectory(scanPath, extensions, result)
+      // 如果强制更新，先清理所有相关数据
+      if (forceUpdate) {
+        onProgress?.({ phase: 'cleanup', message: '强制更新：清理现有数据...', percentage: 10 })
+        await this.cleanupExistingData()
+      }
 
+      // 递归扫描目录
+      onProgress?.({ phase: 'scanning', message: '扫描文件中...', percentage: 20 })
+      await this.scanDirectory(scanPath, extensions, result, onProgress)
+
+      // 扫描完成后清理无图片的作品
+      onProgress?.({ phase: 'cleanup', message: '清理无图片的作品...', percentage: 90 })
+      const removedCount = await this.cleanupEmptyArtworks()
+      result.removedArtworks = removedCount
+
+      onProgress?.({ phase: 'complete', message: '扫描完成', percentage: 100 })
       this.logger.info('Scan completed', result)
       return result
 
@@ -66,10 +94,66 @@ export class FileScanner {
     }
   }
 
-  private async scanDirectory(dirPath: string, extensions: string[], result: ScanResult): Promise<void> {
+  private async cleanupExistingData(): Promise<void> {
+    try {
+      // 删除所有图片记录
+      await this.prisma.image.deleteMany({})
+      // 删除所有作品记录
+      await this.prisma.artwork.deleteMany({})
+      // 删除所有艺术家记录
+      await this.prisma.artist.deleteMany({})
+      this.logger.info('Cleaned up existing data for force update')
+    } catch (error) {
+      this.logger.error({ error }, 'Failed to cleanup existing data')
+      throw error
+    }
+  }
+
+  private async cleanupEmptyArtworks(): Promise<number> {
+    try {
+      // 查找没有图片的作品
+      const emptyArtworks = await this.prisma.artwork.findMany({
+        where: {
+          images: {
+            none: {}
+          }
+        },
+        select: { id: true, title: true }
+      })
+
+      if (emptyArtworks.length > 0) {
+        // 删除这些作品
+        const artworkIds = emptyArtworks.map(a => a.id)
+        await this.prisma.artwork.deleteMany({
+          where: { id: { in: artworkIds } }
+        })
+        
+        this.logger.info(`Removed ${emptyArtworks.length} artworks without images`)
+        return emptyArtworks.length
+      }
+
+      return 0
+    } catch (error) {
+      this.logger.error({ error }, 'Failed to cleanup empty artworks')
+      return 0
+    }
+  }
+
+  private async scanDirectory(
+    dirPath: string, 
+    extensions: string[], 
+    result: ScanResult, 
+    onProgress?: (progress: ScanProgress) => void
+  ): Promise<void> {
     try {
       const entries = await fs.readdir(dirPath, { withFileTypes: true })
       result.scannedDirectories++
+
+      onProgress?.({ 
+        phase: 'scanning', 
+        message: `扫描目录: ${path.relative(this.scanRootAbs || '', dirPath)}`,
+        current: result.scannedDirectories
+      })
 
       const images: string[] = []
       const subdirectories: string[] = []
@@ -94,12 +178,16 @@ export class FileScanner {
 
       // 如果当前目录有图片，创建 Artwork
       if (images.length > 0) {
+        onProgress?.({ 
+          phase: 'creating', 
+          message: `创建作品: ${path.basename(dirPath)} (${images.length}张图片)`
+        })
         await this.createArtworkFromDirectory(dirPath, images, result)
       }
 
       // 递归扫描子目录
       for (const subDir of subdirectories) {
-        await this.scanDirectory(subDir, extensions, result)
+        await this.scanDirectory(subDir, extensions, result, onProgress)
       }
 
     } catch (error) {

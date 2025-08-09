@@ -51,9 +51,14 @@ server.addHook('preHandler', async (req, reply) => {
 
   const apiKey = process.env.API_KEY
   const header = req.headers['authorization'] || req.headers['x-api-key']
-  const token = typeof header === 'string' && header.startsWith('Bearer ')
+  let token = typeof header === 'string' && header.startsWith('Bearer ')
     ? header.slice(7)
     : typeof header === 'string' ? header : undefined
+  // 兼容 SSE 等无法自定义 Header 的场景，允许通过查询参数传递 token（apiKey 或 token）
+  if (!token) {
+    const q: any = (req as any).query || {}
+    token = q.apiKey || q.token
+  }
 
   if (!apiKey || token !== apiKey) {
     reply.code(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Invalid API key' })
@@ -70,9 +75,60 @@ server.post('/api/v1/scan', async (req, reply) => {
     reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'SCAN_PATH is not configured' })
     return
   }
+  
+  const body = req.body as { force?: boolean }
+  const forceUpdate = body?.force === true
+  
   const scanner = new FileScanner(prisma, server.log)
-  const result = await scanner.scan({ scanPath })
+  const result = await scanner.scan({ 
+    scanPath, 
+    forceUpdate 
+  })
   return { success: true, result }
+})
+
+// SSE endpoint for scan progress
+server.get('/api/v1/scan/stream', async (req, reply) => {
+  const scanPath = process.env.SCAN_PATH
+  if (!scanPath) {
+    reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'SCAN_PATH is not configured' })
+    return
+  }
+
+  const { force } = req.query as { force?: string }
+  const forceUpdate = force === 'true'
+
+  // Set SSE headers
+  reply.raw.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control'
+  })
+
+  const sendEvent = (data: any) => {
+    reply.raw.write(`data: ${JSON.stringify(data)}\n\n`)
+  }
+
+  try {
+    const scanner = new FileScanner(prisma, server.log)
+    
+    const result = await scanner.scan({
+      scanPath,
+      forceUpdate,
+      onProgress: (progress) => {
+        sendEvent({ type: 'progress', data: progress })
+      }
+    })
+
+    sendEvent({ type: 'complete', data: { success: true, result } })
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+    sendEvent({ type: 'error', data: { success: false, error: errorMsg } })
+  }
+
+  reply.raw.end()
 })
 
 // Basic list endpoints (skeleton)
@@ -91,6 +147,7 @@ server.get('/api/v1/artworks', async (req) => {
           orderBy: { id: 'asc' },
         },
         artist: true,
+        _count: { select: { images: true } },
       },
     }),
     prisma.artwork.count(),
