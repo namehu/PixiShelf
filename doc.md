@@ -134,24 +134,26 @@ model Artwork {
 
 ### 阶段一: 项目初始化与环境搭建 (V1.0)
 * [✔] 构思项目名称并细化架构设计。
-* [ ] 初始化 `pnpm` monorepo，包含 `api`, `web`, `shared`。
-* [ ] 配置 `ESLint`, `Prettier`, `Husky`。
-* [ ] 添加 `MIT` 许可证和 `CONTRIBUTING.md` 模板。
-* [ ] 编写 `docker-compose.yml`，运行 `postgres-db` 服务。
-* [ ] 在 `api` 包中配置 `Prisma`，定义 `schema.prisma` 并成功连接数据库。
+* [✔] 初始化 `pnpm` monorepo，包含 `api`, `web`, `shared`。
+* [✔] 配置 `ESLint`, `Prettier`, `Husky`。
+* [✔] 添加 `MIT` 许可证和 `CONTRIBUTING.md` 模板。
+* [✔] 编写 `docker-compose.yml`，运行 `postgres-db` 服务。
+* [✔] 在 `api` 包中配置 `Prisma`，定义 `schema.prisma` 并成功连接数据库。
 
 ### 阶段二: 后端核心功能 (V1.0)
-* [ ] 实现文件扫描服务 (`scanner.ts`) 及手动触发API。
-* [ ] 实现所有版本化的 (`/api/v1/...`) 核心API。
-* [ ] 实现安全的图片服务路由。
-* [ ] 集成基础的日志和错误处理机制。
-* [ ] 实现基于环境变量的API令牌认证。
+* [✔] 实现文件扫描服务 (`scanner.ts`) 及手动触发API。
+* [✔] 实现所有版本化的 (`/api/v1/...`) 核心API。
+* [✔] 实现安全的图片服务路由。
+* [✔] 集成基础的日志和错误处理机制。
+* [✔] 实现基于环境变量的API令牌认证。
 
 ### 阶段三: 前端核心功能 (V1.0)
 * [ ] 开发主画廊页和作品详情页。
 * [ ] 实现骨架屏 (Skeleton) 加载效果和图片懒加载。
 * [ ] 完成基础的响应式设计。
 * [ ] 接入后端API，完成数据联调。
+* [ ] 实现用户登录与注册功能。
+* [ ] 实现用户认证与授权。
 * [ ] (可选) 增加 i18n 基础框架 (`react-i18next`)。
 
 ### 后续里程碑 (V1.x / V2.0)
