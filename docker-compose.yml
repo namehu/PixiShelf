@@ -34,6 +34,9 @@ services:
       DATABASE_URL: postgresql://artisan:password@postgres:5432/artisan_shelf
       API_PORT: 3001
       NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME:-admin}
+      INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-admin123}
     ports:
       - "3001:3001"
     volumes:

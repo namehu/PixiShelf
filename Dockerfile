@@ -29,7 +29,7 @@ COPY --from=api-build /app/packages/api/dist ./
 COPY --from=api-build /app/packages/api/package.json ./package.json
 RUN pnpm install --prod --frozen-lockfile
 EXPOSE 3001
-CMD ["node", "index.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node index.js"]
 
 # Production Web stage
 FROM nginx:alpine AS web

@@ -1,5 +1,6 @@
 import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { apiJson, apiRequest, createEventSourceWithAuth } from '../api'
 
 type ScanResult = {
   scannedDirectories: number
@@ -20,15 +21,16 @@ type ScanProgress = {
   percentage?: number
 }
 
+function authHeader() {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 function useHealth() {
   return useQuery({
     queryKey: ['health'],
     queryFn: async () => {
-      const res = await fetch('/api/v1/health', {
-        headers: { 'Authorization': `Bearer ${import.meta.env.VITE_API_KEY ?? ''}` },
-      })
-      if (!res.ok) throw new Error('health failed')
-      return res.json() as Promise<Health>
+      return apiJson<Health>('/api/v1/health')
     },
   })
 }
@@ -39,28 +41,15 @@ function useScanPath() {
     query: useQuery({
       queryKey: ['scanPath'],
       queryFn: async () => {
-        const res = await fetch('/api/v1/settings/scan-path', {
-          headers: { 'Authorization': `Bearer ${import.meta.env.VITE_API_KEY ?? ''}` },
-        })
-        if (!res.ok) throw new Error('获取扫描路径失败')
-        return res.json() as Promise<{ scanPath: string | null }>
+        return apiJson<{ scanPath: string | null }>('/api/v1/settings/scan-path')
       },
     }),
     update: useMutation({
       mutationFn: async (scanPath: string) => {
-        const res = await fetch('/api/v1/settings/scan-path', {
+        return apiJson('/api/v1/settings/scan-path', {
           method: 'PUT',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_API_KEY ?? ''}` 
-          },
           body: JSON.stringify({ scanPath })
         })
-        if (!res.ok) {
-          const err = await res.json()
-          throw new Error(err.message || '保存失败')
-        }
-        return res.json()
       },
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ['scanPath'] })
@@ -73,24 +62,10 @@ function useScanPath() {
 function useManualScan() {
   return useMutation({
     mutationFn: async (force?: boolean) => {
-      const res = await fetch('/api/v1/scan', {
+      return apiJson<{ success: boolean; result: ScanResult }>('/api/v1/scan', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_API_KEY ?? ''}`
-        },
         body: JSON.stringify({ force: !!force })
       })
-      const text = await res.text()
-      if (!res.ok) {
-        try {
-          const j = JSON.parse(text)
-          throw new Error(j.message || '扫描失败')
-        } catch {
-          throw new Error(text || '扫描失败')
-        }
-      }
-      return JSON.parse(text) as { success: boolean; result: ScanResult }
     },
   })
 }
@@ -98,15 +73,20 @@ function useManualScan() {
 function useCancelScan() {
   return useMutation({
     mutationFn: async () => {
-      const res = await fetch('/api/v1/scan/cancel', {
+      return apiJson<{ success: boolean; cancelled: boolean }>('/api/v1/scan/cancel', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${import.meta.env.VITE_API_KEY ?? ''}` }
       })
-      if (!res.ok) throw new Error('取消失败')
-      return res.json() as Promise<{ success: boolean; cancelled: boolean }>
     },
   })
 }
+
+function secondsToText(s: number) {
+  const mm = String(Math.floor(s / 60)).padStart(2, '0')
+  const ss = String(s % 60).padStart(2, '0')
+  return `${mm}:${ss}`
+}
+
+const useEventSource = typeof window !== 'undefined' ? (url: string) => new EventSource(url) : null
 
 export default function Settings() {
   const { data: health } = useHealth()
@@ -134,14 +114,6 @@ export default function Settings() {
     return () => timer && clearInterval(timer)
   }, [scan.isPending, streaming])
 
-  const secondsToText = (s: number) => {
-    const mm = String(Math.floor(s / 60)).padStart(2, '0')
-    const ss = String(s % 60).padStart(2, '0')
-    return `${mm}:${ss}`
-  }
-
-  const result = scan.data?.result
-
   const startEditing = () => {
     setEditPath(scanPath.query.data?.scanPath || '')
     setEditing(true)
@@ -161,16 +133,14 @@ export default function Settings() {
     setStreamError(null)
     setRetryCount(0)
 
-    const token = (import.meta.env.VITE_API_KEY ?? '') as string
     const qs = new URLSearchParams()
     if (force) qs.set('force', 'true')
-    if (token) qs.set('apiKey', token)
     const url = `/api/v1/scan/stream${qs.toString() ? `?${qs.toString()}` : ''}`
-    
-    const connectSSE = () => {
-      const es = new EventSource(url, { withCredentials: false } as any)
 
-      es.addEventListener('progress', (ev) => {
+    const connectSSE = () => {
+      const es = createEventSourceWithAuth(url)
+
+      es.addEventListener('progress', (ev: any) => {
         try {
           const data = JSON.parse(ev.data) as ScanProgress
           setProgress(data)
@@ -179,7 +149,7 @@ export default function Settings() {
         }
       })
 
-      es.addEventListener('complete', (ev) => {
+      es.addEventListener('complete', (ev: any) => {
         try {
           const data = JSON.parse(ev.data) as { success: boolean; result: ScanResult }
           setStreamResult(data.result)
@@ -190,7 +160,7 @@ export default function Settings() {
         }
       })
 
-      es.addEventListener('error', (ev) => {
+      es.addEventListener('error', (ev: any) => {
         try {
           const data = JSON.parse(ev.data) as { success: boolean; error: string }
           setStreamError(data.error || '未知错误')
@@ -201,7 +171,7 @@ export default function Settings() {
         }
       })
 
-      es.addEventListener('cancelled', (ev) => {
+      es.addEventListener('cancelled', (ev: any) => {
         try {
           const data = JSON.parse(ev.data) as { success: boolean; error: string }
           setStreamError('扫描已取消')
@@ -212,7 +182,7 @@ export default function Settings() {
         }
       })
 
-      es.onerror = () => {
+      ;(es as any).onerror = () => {
         if (retryCount < 3) {
           setRetryCount(prev => prev + 1)
           setTimeout(() => {
@@ -235,6 +205,7 @@ export default function Settings() {
         if (data.cancelled) {
           setStreaming(false)
           setStreamError('扫描已取消')
+          setProgress(null)
         }
       }
     })
@@ -275,90 +246,14 @@ export default function Settings() {
               >
                 {scanPath.update.isPending ? '保存中' : '保存'}
               </button>
-              <button
-                onClick={() => setEditing(false)}
-                className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                取消
-              </button>
-            </div>
-          )}
-          {scanPath.update.isError && (
-            <div className="mt-2 text-sm text-red-600">
-              {(scanPath.update.error as Error)?.message}
             </div>
           )}
         </div>
 
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <div className="text-base font-medium">手动扫描</div>
-            <div className="text-sm text-gray-500">扫描指定目录下的图片并同步到库中。</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => scan.mutate(false)}
-              disabled={scan.isPending || streaming || !scanPath.query.data?.scanPath}
-              className="rounded bg-brand-600 px-4 py-2 text-white hover:bg-brand-700 disabled:opacity-50"
-            >{scan.isPending ? '扫描中…' : '开始扫描'}</button>
-            <button
-              onClick={() => scan.mutate(true)}
-              disabled={scan.isPending || streaming || !scanPath.query.data?.scanPath}
-              className="rounded border border-brand-600 px-3 py-2 text-brand-700 hover:bg-brand-50 disabled:opacity-50"
-              title="强制全量更新：清空现有数据后重建"
-            >强制全量</button>
-            {(scan.isPending) && (
-              <button
-                onClick={cancelCurrentScan}
-                disabled={cancelScan.isPending}
-                className="rounded border border-red-600 px-3 py-2 text-red-700 hover:bg-red-50 disabled:opacity-50"
-              >
-                {cancelScan.isPending ? '取消中' : '取消'}
-              </button>
-            )}
-          </div>
+        <div className="flex items-center gap-3 text-sm text-gray-600">
+          <div>后端健康：<span className={health?.status === 'ok' ? 'text-green-700' : 'text-red-700'}>{health?.status || '加载中…'}</span></div>
+          <div>扫描路径：<span className="font-mono">{scanPath.query.data?.scanPath || '未配置'}</span></div>
         </div>
-
-        {(scan.isIdle && !scan.data && !scan.isError && !streaming && !streamResult) && (
-          <div className="text-sm text-gray-600">状态：未开始</div>
-        )}
-
-        {(scan.isPending) && (
-          <div className="space-y-2">
-            <div className="h-2 w-full overflow-hidden rounded bg-gray-200">
-              <div className="h-2 w-1/3 animate-[progress_1.2s_ease-in-out_infinite] rounded bg-brand-500" />
-            </div>
-            <div className="text-sm text-gray-600">扫描进行中… 已用时 {secondsToText(elapsed)}</div>
-          </div>
-        )}
-
-        {scan.isError && (
-          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            扫描失败：{(scan.error as Error)?.message || '未知错误'}
-          </div>
-        )}
-
-        {result && (
-          <div className="mt-3 space-y-2 text-sm">
-            <div className="text-green-700">扫描完成</div>
-            <ul className="grid grid-cols-2 gap-2">
-              <li className="rounded border bg-gray-50 p-2">扫描目录：<span className="font-medium">{result.scannedDirectories}</span></li>
-              <li className="rounded border bg-gray-50 p-2">发现图片：<span className="font-medium">{result.foundImages}</span></li>
-              <li className="rounded border bg-gray-50 p-2">新增作品：<span className="font-medium">{result.newArtworks}</span></li>
-              <li className="rounded border bg-gray-50 p-2">新增图片：<span className="font-medium">{result.newImages}</span></li>
-              {typeof result.removedArtworks === 'number' && <li className="rounded border bg-gray-50 p-2">删除空作品：<span className="font-medium">{result.removedArtworks}</span></li>}
-            </ul>
-            {result.errors?.length > 0 && (
-              <details className="rounded border bg-yellow-50 p-3">
-                <summary className="cursor-pointer text-yellow-800">错误 {result.errors.length} 条（展开查看）</summary>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-yellow-900">
-                  {result.errors.slice(0, 20).map((e, i) => <li key={i}>{e}</li>)}
-                  {result.errors.length > 20 && <li>… 仅展示前 20 条</li>}
-                </ul>
-              </details>
-            )}
-          </div>
-        )}
       </div>
 
       <div className="rounded-lg border bg-white p-5">

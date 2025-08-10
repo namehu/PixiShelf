@@ -39,6 +39,17 @@ CREATE TABLE "Image" (
 );
 
 -- CreateTable
+CREATE TABLE "User" (
+    "id" SERIAL NOT NULL,
+    "username" TEXT NOT NULL,
+    "password" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Setting" (
     "id" SERIAL NOT NULL,
     "key" TEXT NOT NULL,
@@ -55,6 +66,12 @@ CREATE UNIQUE INDEX "Artist_username_userId_key" ON "Artist"("username", "userId
 
 -- CreateIndex
 CREATE INDEX "Artwork_title_description_idx" ON "Artwork"("title", "description");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Artwork_artistId_title_key" ON "Artwork"("artistId", "title");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Setting_key_key" ON "Setting"("key");

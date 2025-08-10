@@ -1,16 +1,13 @@
 import React from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { apiJson } from '../api'
 
 function useArtwork(id: string) {
   return useQuery({
     queryKey: ['artwork', id],
     queryFn: async () => {
-      const res = await fetch(`/api/v1/artworks/${id}`, {
-        headers: { 'Authorization': `Bearer ${import.meta.env.VITE_API_KEY ?? ''}` },
-      })
-      if (!res.ok) throw new Error('Failed to fetch artwork')
-      return res.json() as Promise<any>
+      return apiJson<any>(`/api/v1/artworks/${id}`)
     },
   })
 }

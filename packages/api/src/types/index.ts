@@ -16,6 +16,9 @@ declare module 'fastify' {
     settingService: SettingService
     appState: AppState
   }
+  interface FastifyRequest {
+    user?: { id: number; username: string }
+  }
 }
 
 // 路由插件类型
