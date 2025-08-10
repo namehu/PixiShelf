@@ -11,7 +11,7 @@ export interface ScanOptions {
 }
 
 export interface ScanProgress {
-  phase: 'scanning' | 'creating' | 'cleanup' | 'complete'
+  phase: 'counting' | 'scanning' | 'creating' | 'cleanup' | 'complete'
   message: string
   current?: number
   total?: number
@@ -73,16 +73,31 @@ export class FileScanner {
         await this.cleanupExistingData()
       }
 
-      // 递归扫描目录
-      onProgress?.({ phase: 'scanning', message: '扫描文件中...', percentage: 20 })
-      await this.scanDirectory(scanPath, extensions, result, onProgress)
+      // 第一遍：仅统计总工作量（有图片的目录数量 + 图片总数）
+      onProgress?.({ phase: 'counting', message: '预扫描：统计目录与图片数量...', percentage: 0 })
+      const { totalWorkUnits, totalDirs, totalImages } = await this.countWork(scanPath, extensions, onProgress)
+
+      // 第二遍：正式扫描并按 current/total 平滑推进进度
+      let processedWorkUnits = 0
+      const progressUpdate = (increment: number, message: string, phase: ScanProgress['phase'] = 'scanning') => {
+        processedWorkUnits += increment
+        const percentage = totalWorkUnits > 0 ? Math.min(99, Math.floor((processedWorkUnits / totalWorkUnits) * 100)) : undefined
+        const detailedMessage = `${message} [${processedWorkUnits}/${totalWorkUnits}] (${percentage || 0}%)`
+        onProgress?.({ phase, message: detailedMessage, current: processedWorkUnits, total: totalWorkUnits, percentage })
+      }
+
+      const scanStartMessage = `开始扫描 ${totalDirs} 个目录，${totalImages} 张图片...`
+      onProgress?.({ phase: 'scanning', message: scanStartMessage, current: 0, total: totalWorkUnits, percentage: totalWorkUnits > 0 ? 0 : undefined })
+      await this.scanDirectoryWithProgress(scanPath, extensions, result, progressUpdate)
 
       // 扫描完成后清理无图片的作品
-      onProgress?.({ phase: 'cleanup', message: '清理无图片的作品...', percentage: 90 })
+      const cleanupMessage = `清理无图片的作品... [${processedWorkUnits}/${totalWorkUnits}] (99%)`
+      onProgress?.({ phase: 'cleanup', message: cleanupMessage, percentage: 99 })
       const removedCount = await this.cleanupEmptyArtworks()
       result.removedArtworks = removedCount
 
-      onProgress?.({ phase: 'complete', message: '扫描完成', percentage: 100 })
+      const completeMessage = `扫描完成！处理了 ${result.scannedDirectories} 个目录，创建了 ${result.newArtworks} 个作品，${result.newImages} 张图片`
+      onProgress?.({ phase: 'complete', message: completeMessage, percentage: 100 })
       this.logger.info({ result }, 'Scan completed')
       return result
 
@@ -91,6 +106,137 @@ export class FileScanner {
       result.errors.push(errorMsg)
       this.logger.error({ error }, 'Scan failed')
       return result
+    }
+  }
+
+  // 预扫描统计工作量：工作单元 = 有图片的目录数量 + 图片总数，用于平滑进度
+  private async countWork(dirPath: string, extensions: string[], onProgress?: (progress: ScanProgress) => void): Promise<{ totalWorkUnits: number; totalDirs: number; totalImages: number }> {
+    let totalDirsWithImages = 0
+    let totalImages = 0
+    let scannedDirs = 0
+
+    const walk = async (p: string) => {
+      try {
+        const entries = await fs.readdir(p, { withFileTypes: true })
+        scannedDirs++
+        
+        // 每扫描100个目录更新一次进度提示
+        if (scannedDirs % 100 === 0) {
+          const currentPath = path.relative(this.scanRootAbs || '', p)
+          onProgress?.({ phase: 'counting', message: `预扫描中... 已检查 ${scannedDirs} 个目录，当前：${currentPath}`, percentage: undefined })
+        }
+
+        const images: string[] = []
+        const subdirectories: string[] = []
+
+        for (const entry of entries) {
+          const fullPath = path.join(p, entry.name)
+          if (entry.isFile()) {
+            const ext = path.extname(entry.name).toLowerCase()
+            if (extensions.includes(ext)) {
+              images.push(fullPath)
+            }
+          } else if (entry.isDirectory()) {
+            if (!entry.name.startsWith('.') && !entry.name.startsWith('$')) {
+              subdirectories.push(fullPath)
+            }
+          }
+        }
+
+        if (images.length > 0) {
+          totalDirsWithImages += 1
+          totalImages += images.length
+        }
+
+        for (const sub of subdirectories) {
+          await walk(sub)
+        }
+      } catch (e) {
+        // 统计阶段只记录错误，不中断
+        const msg = e instanceof Error ? e.message : String(e)
+        this.logger.warn({ error: msg, dirPath: p }, 'Counting pass failed on directory')
+        const failPath = path.relative(this.scanRootAbs || '', p)
+        onProgress?.({ phase: 'counting', message: `统计失败: ${failPath} - ${msg}`, percentage: undefined })
+      }
+    }
+
+    await walk(dirPath)
+
+    const totalWorkUnits = totalDirsWithImages + totalImages
+    const summaryMessage = `统计完成：发现 ${totalDirsWithImages} 个有图片的目录，共 ${totalImages} 张图片，总工作量 ${totalWorkUnits}`
+    onProgress?.({ phase: 'counting', message: summaryMessage, current: totalWorkUnits, total: totalWorkUnits, percentage: 0 })
+    return { totalWorkUnits, totalDirs: totalDirsWithImages, totalImages }
+  }
+
+  // 带进度的正式扫描：每处理一个有图片的目录 +1，每保存一张图片 +1
+  private async scanDirectoryWithProgress(
+    dirPath: string,
+    extensions: string[],
+    result: ScanResult,
+    progressUpdate: (increment: number, message: string, phase?: ScanProgress['phase']) => void
+  ): Promise<void> {
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true })
+
+      const images: string[] = []
+      const subdirectories: string[] = []
+
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name)
+        if (entry.isFile()) {
+          const ext = path.extname(entry.name).toLowerCase()
+          if (extensions.includes(ext)) {
+            images.push(fullPath)
+          }
+        } else if (entry.isDirectory()) {
+          if (!entry.name.startsWith('.') && !entry.name.startsWith('$')) {
+            subdirectories.push(fullPath)
+          }
+        }
+      }
+
+      if (images.length > 0) {
+        result.scannedDirectories++
+        const relPath = path.relative(this.scanRootAbs || '', dirPath)
+        progressUpdate(1, `处理目录: ${relPath} (${images.length}张图片)`, 'scanning')
+
+        await this.createArtworkFromDirectoryWithProgress(dirPath, images, result, progressUpdate)
+      }
+
+      for (const sub of subdirectories) {
+        await this.scanDirectoryWithProgress(sub, extensions, result, progressUpdate)
+      }
+    } catch (error) {
+      const errorMsg = `Failed to scan directory ${dirPath}: ${error instanceof Error ? error.message : 'Unknown error'}`
+      result.errors.push(errorMsg)
+      this.logger.warn({ error, dirPath }, 'Directory scan failed')
+    }
+  }
+
+  private async createArtworkFromDirectoryWithProgress(
+    dirPath: string,
+    imagePaths: string[],
+    result: ScanResult,
+    progressUpdate: (increment: number, message: string, phase?: ScanProgress['phase']) => void
+  ): Promise<void> {
+    try {
+      const beforeNewArtworks = result.newArtworks
+      await this.createArtworkFromDirectory(dirPath, imagePaths, result)
+      const artworkCreated = result.newArtworks > beforeNewArtworks
+
+      const dirName = path.basename(dirPath)
+      const statusText = artworkCreated ? '新建' : '已存在'
+
+      // 保存图片记录：每张图片 +1
+      for (let i = 0; i < imagePaths.length; i++) {
+        const imageName = path.basename(imagePaths[i])
+        // createArtworkFromDirectory 已经调用了 createImageRecord，因此这里只是进度推进
+        progressUpdate(1, `${statusText}作品 "${dirName}" - 图片 ${i + 1}/${imagePaths.length}: ${imageName}`, 'creating')
+      }
+    } catch (error) {
+      const errorMsg = `Failed to create artwork for ${dirPath}: ${error instanceof Error ? error.message : 'Unknown error'}`
+      result.errors.push(errorMsg)
+      this.logger.error({ error, dirPath }, 'Artwork creation failed')
     }
   }
 
