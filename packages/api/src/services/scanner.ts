@@ -16,6 +16,7 @@ export interface ScanProgress {
   current?: number
   total?: number
   percentage?: number
+  estimatedSecondsRemaining?: number
 }
 
 export interface ScanResult {
@@ -79,11 +80,16 @@ export class FileScanner {
 
       // 第二遍：正式扫描并按 current/total 平滑推进进度
       let processedWorkUnits = 0
+      const scanStartTs = Date.now()
       const progressUpdate = (increment: number, message: string, phase: ScanProgress['phase'] = 'scanning') => {
         processedWorkUnits += increment
         const percentage = totalWorkUnits > 0 ? Math.min(99, Math.floor((processedWorkUnits / totalWorkUnits) * 100)) : undefined
+        const elapsedSec = Math.max(0.001, (Date.now() - scanStartTs) / 1000)
+        const rate = processedWorkUnits > 0 ? processedWorkUnits / elapsedSec : 0
+        const remainingUnits = Math.max(0, totalWorkUnits - processedWorkUnits)
+        const estSeconds = rate > 0 ? Math.ceil(remainingUnits / rate) : undefined
         const detailedMessage = `${message} [${processedWorkUnits}/${totalWorkUnits}] (${percentage || 0}%)`
-        onProgress?.({ phase, message: detailedMessage, current: processedWorkUnits, total: totalWorkUnits, percentage })
+        onProgress?.({ phase, message: detailedMessage, current: processedWorkUnits, total: totalWorkUnits, percentage, estimatedSecondsRemaining: estSeconds })
       }
 
       const scanStartMessage = `开始扫描 ${totalDirs} 个目录，${totalImages} 张图片...`
