@@ -47,6 +47,3 @@ temp/
 
 # Coverage directory used by tools like istanbul
 coverage/
-
-# Prisma
-packages/api/prisma/migrations/
