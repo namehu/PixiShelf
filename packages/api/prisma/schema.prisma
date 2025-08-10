@@ -32,6 +32,7 @@ model Artwork {
   updatedAt   DateTime  @updatedAt
 
   @@index([title, description])
+  @@unique([artistId, title], name: "unique_artist_title")
 }
 
 model Image {

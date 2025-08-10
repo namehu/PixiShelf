@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs'
 import path from 'path'
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, Prisma } from '@prisma/client'
 import { FastifyInstance } from 'fastify'
 
 export interface ScanOptions {
@@ -208,30 +208,34 @@ export class FileScanner {
         artist = await this.findOrCreateArtist(parentDir)
       }
 
-      // 检查是否已存在相同路径的 Artwork
-      const existingArtwork = await this.prisma.artwork.findFirst({
-        where: {
-          title: dirName,
-          // 可以添加更精确的路径检查
-        }
-      })
-
+      // 检查是否已存在相同路径的 Artwork（并发安全：create + catch P2002）
       let artwork
-      if (existingArtwork) {
-        artwork = existingArtwork
-        this.logger.info(`Using existing artwork: ${dirName}`)
-      } else {
-        // 创建新的 Artwork
+      try {
         artwork = await this.prisma.artwork.create({
           data: {
             title: dirName,
             description: `Images from ${dirPath}`,
             tags: [parentDir].filter(Boolean),
-            artistId: artist?.id
+            artistId: artist?.id ?? null
           }
         })
         result.newArtworks++
         this.logger.info(`Created new artwork: ${dirName}`)
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          // 命中唯一约束 (artistId, title) 冲突，查找既有记录
+          const existingArtwork = await this.prisma.artwork.findFirst({
+            where: { title: dirName, artistId: artist?.id ?? null }
+          })
+          if (existingArtwork) {
+            artwork = existingArtwork
+            this.logger.info(`Using existing artwork after conflict: ${dirName}`)
+          } else {
+            throw e
+          }
+        } else {
+          throw e
+        }
       }
 
       // 处理图片
@@ -251,31 +255,50 @@ export class FileScanner {
       // 解析艺术家名称，尝试拆分为用户名和用户ID
       const { displayName, username, userId } = this.parseArtistName(artistName)
 
-      // 查找现有艺术家 - 按用户名和用户ID组合或原始名称查找
-      let artist = await this.prisma.artist.findFirst({
-        where: {
-          OR: [
-            // 如果解析成功，按 username + userId 查找
-            ...(username && userId ? [{ username, userId }] : []),
-            // 兜底按原始名称查找
-            { name: artistName }
-          ]
+      // 如果解析出了 username + userId，使用 upsert 基于复合唯一键避免竞态
+      if (username && userId) {
+        // 某些 Prisma 版本可能不会在 WhereUniqueInput 暴露复合唯一字段名，
+        // 我们降级为 tryCreate + catch P2002 再 find 的方式以保证类型安全与并发安全
+        try {
+          const created = await this.prisma.artist.create({
+            data: {
+              name: displayName,
+              username,
+              userId,
+              bio: `Artist: ${username} (ID: ${userId})`
+            }
+          })
+          return created
+        } catch (e) {
+          // 如果是重复键错误，则查询并返回已有记录
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            const existing = await this.prisma.artist.findUnique({
+              where: {
+                // 在 d.ts 中该字段名通常生成为复合唯一约束的别名：unique_username_userid
+                unique_username_userid: { username, userId }
+              } as any // 兼容类型不暴露的情况
+            })
+            if (existing) return existing
+          }
+          throw e
         }
+      }
+
+      // 否则按原始名称兜底（name 非唯一，无法使用 upsert）
+      let artist = await this.prisma.artist.findFirst({
+        where: { name: artistName }
       })
 
       if (!artist) {
-        // 创建新艺术家
         artist = await this.prisma.artist.create({
           data: {
             name: displayName,
-            username: username,
-            userId: userId,
-            bio: username && userId 
-              ? `Artist: ${username} (ID: ${userId})` 
-              : `Artist discovered from directory: ${artistName}`
+            username: null,
+            userId: null,
+            bio: `Artist discovered from directory: ${artistName}`
           }
         })
-        this.logger.info(`Created new artist: ${displayName}${username && userId ? ` (${username}-${userId})` : ''}`)
+        this.logger.info(`Created new artist: ${displayName}`)
       }
 
       return artist
