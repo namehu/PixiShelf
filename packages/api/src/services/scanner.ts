@@ -96,12 +96,12 @@ export class FileScanner {
 
   private async cleanupExistingData(): Promise<void> {
     try {
-      // 删除所有图片记录
-      await this.prisma.image.deleteMany({})
-      // 删除所有作品记录
-      await this.prisma.artwork.deleteMany({})
-      // 删除所有艺术家记录
-      await this.prisma.artist.deleteMany({})
+      // 使用事务确保原子性：先删 Image，再删 Artwork，最后删 Artist
+      await this.prisma.$transaction([
+        this.prisma.image.deleteMany({}),
+        this.prisma.artwork.deleteMany({}),
+        this.prisma.artist.deleteMany({})
+      ])
       this.logger.info('Cleaned up existing data for force update')
     } catch (error) {
       this.logger.error({ error }, 'Failed to cleanup existing data')
