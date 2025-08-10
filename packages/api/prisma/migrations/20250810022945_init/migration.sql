@@ -2,6 +2,8 @@
 CREATE TABLE "Artist" (
     "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
+    "username" TEXT,
+    "userId" TEXT,
     "bio" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -36,8 +38,26 @@ CREATE TABLE "Image" (
     CONSTRAINT "Image_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "Setting" (
+    "id" SERIAL NOT NULL,
+    "key" TEXT NOT NULL,
+    "value" TEXT,
+    "type" TEXT NOT NULL DEFAULT 'string',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Setting_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Artist_username_userId_key" ON "Artist"("username", "userId");
+
 -- CreateIndex
 CREATE INDEX "Artwork_title_description_idx" ON "Artwork"("title", "description");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Setting_key_key" ON "Setting"("key");
 
 -- AddForeignKey
 ALTER TABLE "Artwork" ADD CONSTRAINT "Artwork_artistId_fkey" FOREIGN KEY ("artistId") REFERENCES "Artist"("id") ON DELETE SET NULL ON UPDATE CASCADE;
