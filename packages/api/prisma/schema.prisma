@@ -24,15 +24,36 @@ model Artwork {
   id          Int       @id @default(autoincrement())
   title       String
   description String?
-  tags        String[]
   images      Image[]
   artist      Artist?   @relation(fields: [artistId], references: [id])
   artistId    Int?
+  artworkTags ArtworkTag[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([title, description])
   @@unique([artistId, title], name: "unique_artist_title")
+}
+
+model Tag {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  artworkTags ArtworkTag[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([name])
+}
+
+model ArtworkTag {
+  id        Int      @id @default(autoincrement())
+  artwork   Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  artworkId Int
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tagId     Int
+  createdAt DateTime @default(now())
+
+  @@unique([artworkId, tagId])
 }
 
 model Image {

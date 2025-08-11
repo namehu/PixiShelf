@@ -1,15 +1,18 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiJson, apiRequest } from "../api";
 
-function useArtworks(page: number, pageSize: number) {
+function useArtworks(page: number, pageSize: number, tags?: string[]) {
   return useQuery({
-    queryKey: ["artworks", page, pageSize],
+    queryKey: ["artworks", page, pageSize, tags],
     queryFn: async () => {
       const url = new URL("/api/v1/artworks", window.location.origin);
       url.searchParams.set("page", String(page));
       url.searchParams.set("pageSize", String(pageSize));
+      if (tags && tags.length > 0) {
+        url.searchParams.set("tags", tags.join(","));
+      }
       return apiJson<{
         items: any[];
         total: number;
@@ -40,7 +43,12 @@ export default function Gallery() {
   const queryClient = useQueryClient();
   const page = parseInt(sp.get("page") || "1", 10);
   const pageSize = 24;
-  const { data, isLoading, isError } = useArtworks(page, pageSize);
+  
+  // 标签过滤状态
+  const [tagInput, setTagInput] = useState("");
+  const selectedTags = sp.get("tags")?.split(",").filter(Boolean) || [];
+  
+  const { data, isLoading, isError } = useArtworks(page, pageSize, selectedTags.length > 0 ? selectedTags : undefined);
 
   const scanner = useMutation({
     mutationFn: async () => {
@@ -58,7 +66,41 @@ export default function Gallery() {
 
   const scanStatus = useScanStatus();
 
-  const goto = (p: number) => setSp({ page: String(p) });
+  const goto = (p: number) => {
+    const newSp = new URLSearchParams(sp);
+    newSp.set("page", String(p));
+    setSp(newSp);
+  };
+
+  const addTag = (tag: string) => {
+    const trimmed = tag.trim();
+    if (!trimmed || selectedTags.includes(trimmed)) return;
+    
+    const newSp = new URLSearchParams(sp);
+    const newTags = [...selectedTags, trimmed];
+    newSp.set("tags", newTags.join(","));
+    newSp.set("page", "1"); // 重置到第一页
+    setSp(newSp);
+    setTagInput("");
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    const newSp = new URLSearchParams(sp);
+    const newTags = selectedTags.filter(tag => tag !== tagToRemove);
+    if (newTags.length > 0) {
+      newSp.set("tags", newTags.join(","));
+    } else {
+      newSp.delete("tags");
+    }
+    newSp.set("page", "1"); // 重置到第一页
+    setSp(newSp);
+  };
+
+  const handleTagInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      addTag(tagInput);
+    }
+  };
 
   return (
     <section>
@@ -80,6 +122,48 @@ export default function Gallery() {
         </div>
       </div>
 
+      {/* 标签过滤区域 */}
+      <div className="mb-6 space-y-3">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="输入标签进行过滤..."
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={handleTagInputKeyDown}
+            className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <button
+            onClick={() => addTag(tagInput)}
+            disabled={!tagInput.trim()}
+            className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:bg-gray-400"
+          >
+            添加
+          </button>
+        </div>
+        
+        {/* 已选择的标签 */}
+        {selectedTags.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            <span className="text-sm text-gray-600">过滤标签:</span>
+            {selectedTags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800"
+              >
+                #{tag}
+                <button
+                  onClick={() => removeTag(tag)}
+                  className="ml-1 text-blue-600 hover:text-blue-800"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
       {isLoading && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {Array.from({ length: pageSize }).map((_, i) => (
@@ -93,6 +177,11 @@ export default function Gallery() {
       {isError && <div className="text-red-600">加载失败，请确认已登录。</div>}
       {data && (
         <>
+          <div className="mb-4 text-sm text-gray-600">
+            共找到 {data.total} 个作品
+            {selectedTags.length > 0 && ` (筛选条件: ${selectedTags.map(t => `#${t}`).join(", ")})`}
+          </div>
+          
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {data.items.map((aw) => {
               const id = aw.id;
@@ -122,6 +211,22 @@ export default function Gallery() {
                       title={artistName}
                     >
                       {artistName}
+                    </div>
+                  )}
+                  {/* 显示作品标签 */}
+                  {aw.tags && aw.tags.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {aw.tags.slice(0, 3).map((tag: string, index: number) => (
+                        <span
+                          key={index}
+                          className="inline-block rounded bg-gray-100 px-1 py-0.5 text-xs text-gray-700"
+                        >
+                          #{tag}
+                        </span>
+                      ))}
+                      {aw.tags.length > 3 && (
+                        <span className="text-xs text-gray-500">+{aw.tags.length - 3}</span>
+                      )}
                     </div>
                   )}
                 </Link>

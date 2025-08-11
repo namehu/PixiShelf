@@ -31,7 +31,19 @@ export default function ArtworkDetail() {
       {data && (
         <>
           <h2 className="mb-4 text-xl font-semibold">{data.title}</h2>
-          {data.artist?.name && <div className="mb-6 text-sm text-gray-600">{data.artist.name}</div>}
+          {data.artist?.name && <div className="mb-2 text-sm text-gray-600">{data.artist.name}</div>}
+          {data.tags && data.tags.length > 0 && (
+            <div className="mb-6 flex flex-wrap gap-2">
+              {data.tags.map((tag: string, index: number) => (
+                <span
+                  key={index}
+                  className="inline-block rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800"
+                >
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
           {/* 竖直瀑布流展示，去掉图片间距 */}
           <div className="mx-auto max-w-3xl">
             {(data.images || []).map((img: any) => (
