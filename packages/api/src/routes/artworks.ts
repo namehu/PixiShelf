@@ -29,7 +29,7 @@ export default async function artworksRoutes(server: FastifyInstance) {
       // 查询总数（用于分页）
       const total = await server.prisma.artwork.count({ where: whereClause })
 
-      // 查询作品列表（仅取首张图片，返回图片数量）
+      // 查询作品列表（仅取首张图片，同时获取图片总数）
       const artworks = await server.prisma.artwork.findMany({
         where: whereClause,
         include: {
@@ -43,12 +43,20 @@ export default async function artworksRoutes(server: FastifyInstance) {
         take: pageSize
       })
 
-      // 转换数据格式，将多对多关系的标签转换为字符串数组
-      const items = artworks.map((artwork) => ({
-        ...artwork,
-        tags: artwork.artworkTags.map((at) => at.tag.name),
-        artworkTags: undefined as any
-      }))
+      // 转换数据格式，将多对多关系的标签转换为字符串数组，并添加图片总数
+      const items = artworks.map((artwork) => {
+        const result = {
+          ...artwork,
+          tags: artwork.artworkTags.map((at) => at.tag.name),
+          imageCount: artwork._count?.images || 0,
+          artworkTags: undefined as any,
+          _count: undefined as any
+        }
+        // 删除undefined字段
+        delete result.artworkTags
+        delete result._count
+        return result
+      })
 
       return reply.send({ items, total, page, pageSize })
     } catch (error) {

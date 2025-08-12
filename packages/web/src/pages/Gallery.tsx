@@ -43,12 +43,16 @@ export default function Gallery() {
   const queryClient = useQueryClient();
   const page = parseInt(sp.get("page") || "1", 10);
   const pageSize = 24;
-  
+
   // 标签过滤状态
   const [tagInput, setTagInput] = useState("");
   const selectedTags = sp.get("tags")?.split(",").filter(Boolean) || [];
-  
-  const { data, isLoading, isError } = useArtworks(page, pageSize, selectedTags.length > 0 ? selectedTags : undefined);
+
+  const { data, isLoading, isError } = useArtworks(
+    page,
+    pageSize,
+    selectedTags.length > 0 ? selectedTags : undefined
+  );
 
   const scanner = useMutation({
     mutationFn: async () => {
@@ -75,7 +79,7 @@ export default function Gallery() {
   const addTag = (tag: string) => {
     const trimmed = tag.trim();
     if (!trimmed || selectedTags.includes(trimmed)) return;
-    
+
     const newSp = new URLSearchParams(sp);
     const newTags = [...selectedTags, trimmed];
     newSp.set("tags", newTags.join(","));
@@ -86,7 +90,7 @@ export default function Gallery() {
 
   const removeTag = (tagToRemove: string) => {
     const newSp = new URLSearchParams(sp);
-    const newTags = selectedTags.filter(tag => tag !== tagToRemove);
+    const newTags = selectedTags.filter((tag) => tag !== tagToRemove);
     if (newTags.length > 0) {
       newSp.set("tags", newTags.join(","));
     } else {
@@ -141,7 +145,7 @@ export default function Gallery() {
             添加
           </button>
         </div>
-        
+
         {/* 已选择的标签 */}
         {selectedTags.length > 0 && (
           <div className="flex flex-wrap gap-2">
@@ -179,9 +183,10 @@ export default function Gallery() {
         <>
           <div className="mb-4 text-sm text-gray-600">
             共找到 {data.total} 个作品
-            {selectedTags.length > 0 && ` (筛选条件: ${selectedTags.map(t => `#${t}`).join(", ")})`}
+            {selectedTags.length > 0 &&
+              ` (筛选条件: ${selectedTags.map((t) => `#${t}`).join(", ")})`}
           </div>
-          
+
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {data.items.map((aw) => {
               const id = aw.id;
@@ -190,10 +195,11 @@ export default function Gallery() {
                 ? `/api/v1/images/${encodeURIComponent(cover.path)}`
                 : "";
               const artistName = aw.artist?.name as string | undefined;
+              const imageCount = aw.imageCount || aw.images?.length || 0;
 
               return (
                 <Link key={id} to={`/artworks/${id}`} className="group block">
-                  <div className="aspect-[4/3] w-full overflow-hidden rounded-lg bg-gray-100">
+                  <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-gray-100">
                     {src ? (
                       <img
                         src={src}
@@ -203,6 +209,12 @@ export default function Gallery() {
                     ) : (
                       <div className="h-full w-full bg-gray-200" />
                     )}
+                    {/* 图片数量角标 */}
+                    {imageCount > 1 && (
+                      <div className="absolute top-2 right-2 rounded bg-black bg-opacity-70 px-2 py-1 text-xs font-medium text-white">
+                        {imageCount}
+                      </div>
+                    )}
                   </div>
                   <div className="mt-2 text-sm text-gray-800">{aw.title}</div>
                   {artistName && (
@@ -211,22 +223,6 @@ export default function Gallery() {
                       title={artistName}
                     >
                       {artistName}
-                    </div>
-                  )}
-                  {/* 显示作品标签 */}
-                  {aw.tags && aw.tags.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {aw.tags.slice(0, 3).map((tag: string, index: number) => (
-                        <span
-                          key={index}
-                          className="inline-block rounded bg-gray-100 px-1 py-0.5 text-xs text-gray-700"
-                        >
-                          #{tag}
-                        </span>
-                      ))}
-                      {aw.tags.length > 3 && (
-                        <span className="text-xs text-gray-500">+{aw.tags.length - 3}</span>
-                      )}
                     </div>
                   )}
                 </Link>
