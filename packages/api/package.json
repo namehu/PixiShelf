@@ -18,6 +18,7 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@pixishelf/shared": "workspace:*",
     "@prisma/client": "^5.17.0",
     "dotenv": "^16.4.5",
     "fastify": "^4.26.2",

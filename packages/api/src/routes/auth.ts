@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import { LoginRequest, LoginResponse } from '@pixishelf/shared'
 
 export default async function authRoutes(server: FastifyInstance) {
   const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret'
@@ -10,7 +11,7 @@ export default async function authRoutes(server: FastifyInstance) {
 
   // Login
   server.post('/api/v1/auth/login', async (req, reply) => {
-    const body = req.body as { username?: string; password?: string }
+    const body = req.body as LoginRequest
     const username = (body?.username || '').trim()
     const password = body?.password || ''
     if (!username || !password) {
@@ -28,6 +29,7 @@ export default async function authRoutes(server: FastifyInstance) {
     }
 
     const token = jwt.sign({ sub: user.id, username: user.username }, JWT_SECRET, { expiresIn: TOKEN_TTL_SECONDS })
-    return { token, user: { id: user.id, username: user.username } }
+    const response: LoginResponse = { token, user: { id: user.id, username: user.username } }
+    return response
   })
 }

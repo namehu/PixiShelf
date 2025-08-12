@@ -2,13 +2,14 @@ import React from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { apiJson } from '../api'
+import { Artwork } from '@pixishelf/shared'
 
 function useArtwork(id: string) {
   return useQuery({
     queryKey: ['artwork', id],
-    queryFn: async () => {
-      return apiJson<any>(`/api/v1/artworks/${id}`)
-    },
+    queryFn: async (): Promise<Artwork> => {
+      return apiJson<Artwork>(`/api/v1/artworks/${id}`)
+    }
   })
 }
 
@@ -48,7 +49,12 @@ export default function ArtworkDetail() {
           <div className="mx-auto max-w-3xl">
             {(data.images || []).map((img: any) => (
               <div key={img.id} className="overflow-hidden bg-gray-100">
-                <img src={`/api/v1/images/${img.path}`} alt={data.title} loading="lazy" className="w-full h-auto object-contain" />
+                <img
+                  src={`/api/v1/images/${img.path}`}
+                  alt={data.title}
+                  loading="lazy"
+                  className="w-full h-auto object-contain"
+                />
               </div>
             ))}
           </div>

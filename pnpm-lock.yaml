@@ -47,6 +47,9 @@ importers:
       '@fastify/cors':
         specifier: ^9.0.1
         version: 9.0.1
+      '@pixishelf/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@prisma/client':
         specifier: ^5.17.0
         version: 5.22.0(prisma@5.22.0)
@@ -120,6 +123,9 @@ importers:
 
   packages/web:
     dependencies:
+      '@pixishelf/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@tanstack/react-query':
         specifier: ^5.52.1
         version: 5.84.2(react@18.3.1)

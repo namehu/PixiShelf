@@ -1,4 +1,6 @@
 import { FastifyInstance } from 'fastify'
+import { ArtworksResponse, Artwork } from '@pixishelf/shared'
+import { asApiResponse, asPaginatedResponse } from '../types/response'
 
 export default async function artworksRoutes(server: FastifyInstance) {
   // GET /api/v1/artworks - 获取所有作品列表（分页+标签过滤）
@@ -58,7 +60,9 @@ export default async function artworksRoutes(server: FastifyInstance) {
         return result
       })
 
-      return reply.send({ items, total, page, pageSize })
+      // 使用类型转换辅助函数，实际转换由插件处理
+      const response: ArtworksResponse = asPaginatedResponse({ items, total, page, pageSize })
+      return reply.send(response)
     } catch (error) {
       server.log.error({ error }, 'Error fetching artworks')
       return reply.code(500).send({ error: 'Failed to fetch artworks' })
@@ -93,8 +97,10 @@ export default async function artworksRoutes(server: FastifyInstance) {
         tags: artwork.artworkTags.map((at) => at.tag.name),
         artworkTags: undefined as any
       }
+      delete (formattedArtwork as any).artworkTags
 
-      return reply.send(formattedArtwork)
+      // 使用类型转换辅助函数，实际转换由插件处理
+      return reply.send(asApiResponse(formattedArtwork))
     } catch (error) {
       server.log.error({ error }, 'Error fetching artwork')
       return reply.code(500).send({ error: 'Failed to fetch artwork' })
