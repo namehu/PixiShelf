@@ -607,7 +607,7 @@ export class FileScanner {
     return sections.some((s) => s.toLowerCase() === lower);
   }
 
-  // 收集目录下的所有图片文件 - 增强错误处理
+  // 收集目录下的所有图片文件
   private async collectImagesFromDirectory(
     dirPath: string,
     extensions: string[]
@@ -615,98 +615,22 @@ export class FileScanner {
     const images: string[] = [];
 
     try {
-      // 首先检查路径是否可访问
-      if (!(await this.isPathAccessible(dirPath))) {
-        return images;
-      }
-
       // 规范化路径，处理可能的空格和特殊字符
       const normalizedPath = path.normalize(dirPath);
-      
-      // 使用更安全的方式读取目录
-      let entries;
-      try {
-        entries = await fs.readdir(normalizedPath, { withFileTypes: true });
-      } catch (fsError) {
-        // 如果readdir失败，尝试使用不同的编码方式
-        this.logger.warn(
-          { 
-            error: fsError instanceof Error ? fsError.message : 'Unknown error', 
-            dirPath: normalizedPath,
-            originalPath: dirPath 
-          },
-          `Failed to read directory with withFileTypes, trying alternative method: ${normalizedPath}`
-        );
-        
-        try {
-          // 尝试不使用withFileTypes选项
-          const fileNames = await fs.readdir(normalizedPath);
-          entries = [];
-          
-          // 手动检查每个文件类型
-          for (const fileName of fileNames) {
-            try {
-              const filePath = path.join(normalizedPath, fileName);
-              const stat = await fs.stat(filePath);
-              entries.push({
-                name: fileName,
-                isFile: () => stat.isFile(),
-                isDirectory: () => stat.isDirectory()
-              });
-            } catch (statError) {
-              this.logger.warn(
-                { 
-                  error: statError instanceof Error ? statError.message : 'Unknown error', 
-                  fileName, 
-                  dirPath: normalizedPath 
-                },
-                `Failed to stat file: ${fileName}`
-              );
-              continue;
-            }
-          }
-        } catch (fallbackError) {
-          this.logger.error(
-            { 
-              error: fallbackError instanceof Error ? fallbackError.message : 'Unknown error', 
-              dirPath: normalizedPath,
-              originalPath: dirPath 
-            },
-            `All methods failed to read directory: ${normalizedPath}`
-          );
-          return images;
-        }
-      }
+      const entries = await fs.readdir(normalizedPath, { withFileTypes: true });
 
-      // 收集图片文件
       for (const entry of entries) {
-        try {
-          if (entry.isFile && entry.isFile()) {
-            const ext = path.extname(entry.name).toLowerCase();
-            if (extensions.includes(ext)) {
-              images.push(path.join(dirPath, entry.name));
-            }
+        if (entry.isFile()) {
+          const ext = path.extname(entry.name).toLowerCase();
+          if (extensions.includes(ext)) {
+            images.push(path.join(dirPath, entry.name));
           }
-        } catch (entryError) {
-          this.logger.warn(
-            { 
-              error: entryError instanceof Error ? entryError.message : 'Unknown error', 
-              entryName: entry.name, 
-              dirPath: normalizedPath 
-            },
-            `Failed to check entry: ${entry.name}`
-          );
-          continue;
         }
       }
     } catch (error) {
-      this.logger.error(
-        { 
-          error: error instanceof Error ? error.message : 'Unknown error', 
-          dirPath,
-          stack: error instanceof Error ? error.stack : undefined
-        },
-        `Critical error in collectImagesFromDirectory: ${dirPath}`
+      this.logger.warn(
+        { error, dirPath },
+        "Failed to collect images from directory"
       );
     }
 
