@@ -1,4 +1,4 @@
-# Artisan Shelf - 项目计划与架构设计 V1.2
+# PixiShelf - 项目计划与架构设计 V1.2
 
 ---
 
@@ -30,7 +30,7 @@
 
 *(增加 `.github` 用于 CI/CD)*
 ```plaintext
-artisan-shelf/
+pixishelf/
 ├── .github/
 │   └── workflows/           # CI/CD 工作流 (e.g., lint, test, build)
 ├── .husky/                  # Git hooks 配置

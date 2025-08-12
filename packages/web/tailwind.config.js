@@ -1,23 +1,27 @@
-/***********************************************
- * Tailwind CSS Configuration for Artisan Shelf *
- ***********************************************/
+/**
+ * Tailwind CSS Configuration for PixiShelf *
+ */
+
 /** @type {import('tailwindcss').Config} */
-module.exports = {
-  content: ['./index.html', './src/**/*.{ts,tsx,jsx,js}'],
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
   theme: {
     extend: {
       colors: {
         brand: {
-          50: '#f5f8ff',
-          100: '#e6effe',
-          200: '#cddffd',
-          300: '#a8c6fb',
-          400: '#7ea6f7',
-          500: '#5b86ef',
-          600: '#476be3',
-          700: '#3a56cc',
-          800: '#3346a6',
-          900: '#2d3b85',
+          50: '#f0f9ff',
+          100: '#e0f2fe',
+          200: '#bae6fd',
+          300: '#7dd3fc',
+          400: '#38bdf8',
+          500: '#0ea5e9',
+          600: '#0284c7',
+          700: '#0369a1',
+          800: '#075985',
+          900: '#0c4a6e',
         },
       },
     },

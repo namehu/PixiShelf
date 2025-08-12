@@ -1,6 +1,7 @@
 {
-  "name": "@artisan-shelf/shared",
+  "name": "@pixishelf/shared",
   "version": "0.1.0",
+  "description": "Shared types and utilities for PixiShelf",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

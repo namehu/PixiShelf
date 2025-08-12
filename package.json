@@ -1,5 +1,5 @@
 {
-  "name": "artisan-shelf",
+  "name": "pixishelf",
   "version": "1.0.0",
   "description": "A modern personal web gallery for local image collections",
   "private": true,
@@ -12,7 +12,7 @@
     "prepare": "husky install"
   },
   "keywords": ["gallery", "images", "monorepo", "react", "fastify"],
-  "author": "Artisan Shelf Team",
+  "author": "PixiShelf Team",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.8.0",
