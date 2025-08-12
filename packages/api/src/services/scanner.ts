@@ -26,6 +26,8 @@ export interface ScanResult {
   newImages: number;
   removedArtworks: number;
   errors: string[];
+  // +++ 新增字段，用于告知前端哪些目录被跳过了 +++
+  skippedDirectories: Array<{ path: string; reason: string }>;
 }
 
 interface MetadataInfo {
@@ -52,6 +54,24 @@ export class FileScanner {
     this.logger = logger;
   }
 
+  // +++ 新增名称验证函数 +++
+  /**
+   * 检查文件名/目录名是否只包含安全的字符。
+   * @param name 要检查的名称
+   * @returns 如果名称安全则返回 true，否则返回 false
+   */
+  private isValidName(name: string): boolean {
+    // 这个正则表达式允许:
+    // - a-z, A-Z, 0-9 (字母数字)
+    // - _-.() (下划线, 连字符, 点, 括号)
+    // - 空格
+    // - \u4e00-\u9fa5 (中文字符)
+    // - \u3040-\u30ff (日文字符 Hiragana & Katakana)
+    // 其他所有字符 (如 Emoji, 特殊符号, 数学字体) 都会导致验证失败。
+    const safeNameRegex = /^[a-zA-Z0-9\s_\-.()\u4e00-\u9fa5\u3040-\u30ff]+$/;
+    return safeNameRegex.test(name);
+  }
+
   async scan(options: ScanOptions): Promise<ScanResult> {
     const result: ScanResult = {
       scannedDirectories: 0,
@@ -60,6 +80,7 @@ export class FileScanner {
       newImages: 0,
       removedArtworks: 0,
       errors: [],
+      skippedDirectories: [], // +++ 初始化新增字段 +++
     };
 
     try {
@@ -168,7 +189,7 @@ export class FileScanner {
       const removedCount = await this.cleanupEmptyArtworks();
       result.removedArtworks = removedCount;
 
-      const completeMessage = `扫描完成！处理了 ${result.scannedDirectories} 个目录，创建了 ${result.newArtworks} 个作品，${result.newImages} 张图片`;
+      const completeMessage = `扫描完成！处理了 ${result.scannedDirectories} 个目录，创建了 ${result.newArtworks} 个作品，${result.newImages} 张图片。跳过了 ${result.skippedDirectories.length} 个命名不规范的目录。`;
       onProgress?.({
         phase: "complete",
         message: completeMessage,
@@ -202,6 +223,14 @@ export class FileScanner {
       const artistEntries = await fs.readdir(rootPath, { withFileTypes: true });
 
       for (const artistEntry of artistEntries) {
+        // +++ 改动点：在这里加入名称验证 +++
+        if (!this.isValidName(artistEntry.name)) {
+          this.logger.warn(
+            `预扫描：跳过不规范的艺术家目录名: ${artistEntry.name}`
+          );
+          continue; // 跳过此目录
+        }
+
         // 跳过隐藏目录和文件
         if (
           artistEntry.name.startsWith(".") ||
@@ -230,6 +259,14 @@ export class FileScanner {
           });
 
           for (const artworkEntry of artworkEntries) {
+            // +++ 改动点：在这里也加入名称验证 +++
+            if (!this.isValidName(artworkEntry.name)) {
+              this.logger.warn(
+                `预扫描：跳过不规范的作品目录名: ${path.join(artistPath, artworkEntry.name)}`
+              );
+              continue; // 跳过此目录
+            }
+
             if (
               artworkEntry.name.startsWith(".") ||
               artworkEntry.name.startsWith("$") ||
@@ -279,7 +316,9 @@ export class FileScanner {
     extensions: string[]
   ): Promise<boolean> {
     try {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      // 规范化路径，处理可能的空格和特殊字符
+      const normalizedPath = path.normalize(dirPath);
+      const entries = await fs.readdir(normalizedPath, { withFileTypes: true });
       for (const entry of entries) {
         if (
           entry.isFile() &&
@@ -290,6 +329,11 @@ export class FileScanner {
       }
       return false;
     } catch (error) {
+      this.logger.warn(
+        // @ts-ignore
+        { error: error.message, dirPath },
+        `Failed to read directory: ${dirPath}`
+      );
       return false;
     }
   }
@@ -309,6 +353,17 @@ export class FileScanner {
       const artistEntries = await fs.readdir(rootPath, { withFileTypes: true });
 
       for (const artistEntry of artistEntries) {
+        const artistPath = path.join(rootPath, artistEntry.name);
+
+        // +++ 改动点：在这里加入名称验证和记录 +++
+        if (!this.isValidName(artistEntry.name)) {
+          const reason = "艺术家目录名包含不支持的字符";
+          this.logger.warn(`${reason}: ${artistPath}`);
+          result.skippedDirectories.push({ path: artistPath, reason });
+          progressUpdate(1, `跳过目录: ${artistEntry.name}`);
+          continue;
+        }
+
         // 跳过隐藏目录和文件
         if (
           artistEntry.name.startsWith(".") ||
@@ -318,7 +373,6 @@ export class FileScanner {
           continue;
         }
 
-        const artistPath = path.join(rootPath, artistEntry.name);
         result.scannedDirectories++;
 
         progressUpdate(1, `处理艺术家目录: ${artistEntry.name}`);
@@ -365,6 +419,17 @@ export class FileScanner {
       });
 
       for (const artworkEntry of artworkEntries) {
+        const artworkPath = path.join(artistPath, artworkEntry.name);
+
+        // +++ 改动点：在这里加入名称验证和记录 +++
+        if (!this.isValidName(artworkEntry.name)) {
+          const reason = "作品目录名包含不支持的字符";
+          this.logger.warn(`${reason}: ${artworkPath}`);
+          result.skippedDirectories.push({ path: artworkPath, reason });
+          progressUpdate(1, `跳过目录: ${artworkEntry.name}`);
+          continue;
+        }
+
         // 跳过隐藏目录和文件
         if (
           artworkEntry.name.startsWith(".") ||
@@ -373,8 +438,6 @@ export class FileScanner {
         ) {
           continue;
         }
-
-        const artworkPath = path.join(artistPath, artworkEntry.name);
 
         // 收集该作品目录下的图片
         const images = await this.collectImagesFromDirectory(
@@ -552,7 +615,9 @@ export class FileScanner {
     const images: string[] = [];
 
     try {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      // 规范化路径，处理可能的空格和特殊字符
+      const normalizedPath = path.normalize(dirPath);
+      const entries = await fs.readdir(normalizedPath, { withFileTypes: true });
 
       for (const entry of entries) {
         if (entry.isFile()) {
