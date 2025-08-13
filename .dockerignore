@@ -4,9 +4,10 @@ node_modules
 
 # Build outputs
 dist
-build
 **/dist
 **/build
+# Allow nginx config
+!build/nginx.conf
 
 # Environment files
 .env
