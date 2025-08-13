@@ -88,8 +88,8 @@ pnpm install
 #### 3.1 创建环境变量文件
 
 ```bash
-# 复制示例环境变量文件
-cp .env.example packages/api/.env
+# 复制环境变量模板文件
+cp .env.template packages/api/.env
 ```
 
 #### 3.2 配置API环境变量

@@ -7,9 +7,13 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:3002',
+        target: process.env.VITE_API_URL || 'http://localhost:3002',
         changeOrigin: true,
       },
     },
+  },
+  define: {
+    // 确保环境变量在构建时被正确替换
+    __API_URL__: JSON.stringify(process.env.VITE_API_URL || 'http://localhost:3002'),
   },
 })
