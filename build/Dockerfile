@@ -76,7 +76,7 @@ COPY build/nginx.conf /etc/nginx/nginx.conf
 
 # 添加非root用户以提高安全性
 RUN addgroup -g 1001 -S nodejs && \
-	adduser -S nginx -u 1001 -G nodejs
+	adduser -S webuser -u 1001 -G nodejs
 
 EXPOSE 80
 # 健康检查
