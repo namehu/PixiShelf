@@ -51,10 +51,10 @@ COPY --from=api-build /app/packages/shared ./packages/shared
 RUN pnpm install --prod --no-frozen-lockfile
 
 # 生成Prisma客户端
-RUN pnpm prisma generate
+RUN npx prisma generate
 
 EXPOSE 3002
-CMD ["sh", "-c", "pnpm prisma migrate deploy && node index.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node index.js"]
 
 # Production Web stage
 FROM nginx:alpine AS web
