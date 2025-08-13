@@ -37,8 +37,8 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://pixishelf:${POSTGRES_PASSWORD}@postgres:5432/pixishelf
       JWT_SECRET: ${JWT_SECRET}
-      INIT_ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      INIT_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME:-admin}
+      INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:admin123}
       SCAN_PATH: /app/data
     volumes:
       - ${SCAN_PATH}:/app/data:ro  # 只读挂载图片目录

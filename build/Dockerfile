@@ -39,6 +39,9 @@ RUN pnpm --filter="@pixishelf/web" build
 # Production API stage - 最小化生产镜像
 FROM node:18-alpine AS api
 WORKDIR /app
+
+# 安装必要的系统依赖，包括OpenSSL
+RUN apk add --no-cache openssl openssl-dev
 RUN npm install -g pnpm@8
 
 # 复制必要的配置文件
@@ -56,6 +59,10 @@ COPY --from=api-build /app/packages/api/prisma ./packages/api/prisma
 
 # 设置工作目录到API包
 WORKDIR /app/packages/api
+
+# 设置Prisma环境变量
+ENV PRISMA_CLI_BINARY_TARGETS="linux-musl"
+ENV PRISMA_QUERY_ENGINE_BINARY="/app/packages/api/node_modules/.prisma/client/libquery_engine-linux-musl.so.node"
 
 # 生成Prisma客户端
 RUN npx prisma generate
