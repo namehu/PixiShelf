@@ -47,7 +47,7 @@ COPY packages/api/package.json ./packages/api/
 COPY packages/shared/package.json ./packages/shared/
 
 # 仅安装生产依赖
-RUN pnpm install --prod --frozen-lockfile
+RUN pnpm install --prod --frozen-lockfile --ignore-scripts
 
 # 复制构建产物
 COPY --from=api-build /app/packages/api/dist ./packages/api/dist
