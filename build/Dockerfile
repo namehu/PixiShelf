@@ -15,7 +15,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages ./packages
 COPY package.json pnpm-workspace.yaml ./
 COPY packages/ ./packages/
-RUN pnpm --filter=api build
+# 先构建 shared 包
+RUN pnpm --filter="@pixishelf/shared" build
+RUN pnpm --filter="@pixishelf/api" build
 
 # Build stage for Web
 FROM base AS web-build
@@ -23,10 +25,12 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages ./packages
 COPY package.json pnpm-workspace.yaml ./
 COPY packages/ ./packages/
+# 先构建 shared 包
+RUN pnpm --filter="@pixishelf/shared" build
 # 设置构建时的API URL
 ARG VITE_API_URL=http://localhost:3002
 ENV VITE_API_URL=$VITE_API_URL
-RUN pnpm --filter=web build
+RUN pnpm --filter="@pixishelf/web" build
 
 # Production API stage
 FROM node:18-alpine AS api
@@ -47,10 +51,10 @@ COPY --from=api-build /app/packages/shared ./packages/shared
 RUN pnpm install --prod --no-frozen-lockfile
 
 # 生成Prisma客户端
-RUN npx prisma generate
+RUN pnpm prisma generate
 
 EXPOSE 3002
-CMD ["sh", "-c", "npx prisma migrate deploy && node index.js"]
+CMD ["sh", "-c", "pnpm prisma migrate deploy && node index.js"]
 
 # Production Web stage
 FROM nginx:alpine AS web
