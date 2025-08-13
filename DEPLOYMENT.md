@@ -68,11 +68,9 @@ IMAGE_TAG=latest  # 或指定版本如 v1.0.0
 # 安全配置 (必须修改)
 POSTGRES_PASSWORD=your-secure-password
 JWT_SECRET=your-jwt-secret-32-chars-min
-ADMIN_PASSWORD=your-admin-password
 
 # 路径配置
 SCAN_PATH=/path/to/your/artwork/directory
-WEB_PORT=80
 ```
 
 ### 4. 部署应用
@@ -168,9 +166,8 @@ nano .env
 **重要配置项：**
 - `POSTGRES_PASSWORD`: 数据库密码（必须修改）
 - `JWT_SECRET`: JWT密钥（必须修改，至少32字符）
-- `ADMIN_PASSWORD`: 管理员密码（必须修改）
+- `INIT_ADMIN_PASSWORD`: 管理员密码（必须修改）
 - `SCAN_PATH`: 图片目录的绝对路径
-- `API_BASE_URL`: API访问地址
 
 ### 4. 部署应用
 

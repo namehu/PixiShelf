@@ -5,7 +5,7 @@ dotenv.config()
 
 const start = async () => {
   const server = await buildServer()
-  const port = Number(process.env.API_PORT || process.env.PORT || 3002)
+  const port = Number(process.env.PORT || 3002)
   const host = process.env.HOST || '0.0.0.0'
   server
     .listen({ port, host })

@@ -2,15 +2,16 @@
 node_modules/
 .pnpm-store/
 
-# Build outputs
-dist/
-build/
-*.tsbuildinfo
-
 # Environment variables
 .env
 .env.*
-!.env.template
+
+# Build outputs
+packages/**/build/
+dist/
+!build/
+!build/.env.*
+*.tsbuildinfo
 
 # IDE
 .vscode/

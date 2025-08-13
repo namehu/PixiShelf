@@ -32,7 +32,7 @@ export async function buildServer() {
     const username = process.env.INIT_ADMIN_USERNAME || 'admin'
     const existing = await prisma.user.findFirst({ where: { username } })
     if (!existing) {
-      const initialPassword = process.env.INIT_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || 'admin123'
+      const initialPassword = process.env.INIT_ADMIN_PASSWORD || 'admin123'
       const salt = await bcrypt.genSalt(10)
       const hash = await bcrypt.hash(initialPassword, salt)
       await prisma.user.create({ data: { username, password: hash } })

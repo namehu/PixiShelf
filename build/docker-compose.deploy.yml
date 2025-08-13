@@ -1,0 +1,79 @@
+version: '3.8'
+
+# 生产部署用的 Docker Compose 文件
+# 使用预构建的镜像，不进行本地构建
+# 默认加载同目录下的 .env 文件
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: pixishelf-db
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: pixishelf
+      POSTGRES_USER: pixishelf
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - pixishelf-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pixishelf -d pixishelf"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # Backend API service - 使用预构建镜像
+  api:
+    image: ${DOCKER_REGISTRY:-ghcr.io}/${DOCKER_USERNAME}/${IMAGE_NAME:-pixishelf}-api:${IMAGE_TAG:-latest}
+    container_name: pixishelf-api
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://pixishelf:${POSTGRES_PASSWORD}@postgres:5432/pixishelf
+      JWT_SECRET: ${JWT_SECRET}
+      INIT_ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      INIT_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      SCAN_PATH: /app/data
+    volumes:
+      - ${SCAN_PATH}:/app/data:ro  # 只读挂载图片目录
+    networks:
+      - pixishelf-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Frontend web service - 使用预构建镜像
+  web:
+    image: ${DOCKER_REGISTRY:-ghcr.io}/${DOCKER_USERNAME}/${IMAGE_NAME:-pixishelf}-web:${IMAGE_TAG:-latest}
+    container_name: pixishelf-web
+    ports:
+      - "80:80"  # 可配置的Web端口
+    networks:
+      - pixishelf-network
+    depends_on:
+      - api
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+
+networks:
+  pixishelf-network:
+    driver: bridge
