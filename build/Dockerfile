@@ -1,7 +1,7 @@
 # Base image for Node.js
 FROM node:18-alpine AS base
 WORKDIR /app
-RUN npm install -g pnpm
+RUN npm install -g pnpm@8
 
 # Dependencies stage
 FROM base AS deps
@@ -29,7 +29,7 @@ RUN pnpm build --filter=web
 # Production API stage
 FROM node:18-alpine AS api
 WORKDIR /app
-RUN npm install -g pnpm
+RUN npm install -g pnpm@8
 
 # 复制构建产物和必要文件
 COPY --from=api-build /app/packages/api/dist ./
