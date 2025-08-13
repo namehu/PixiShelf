@@ -40,7 +40,7 @@ pids/
 *.sqlite
 
 # Docker
-.dockerignore
+# .dockerignore
 
 # Temporary folders
 tmp/
