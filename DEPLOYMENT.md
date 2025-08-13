@@ -36,7 +36,7 @@
 ```bash
 # 下载最新版本的部署文件
 wget https://github.com/your-username/PixiShelf/releases/latest/download/docker-compose.deploy.yml
-wget https://github.com/your-username/PixiShelf/releases/latest/download/.env.template
+wget https://github.com/your-username/PixiShelf/releases/latest/download/.env.example
 wget https://github.com/your-username/PixiShelf/releases/latest/download/DEPLOYMENT.md
 ```
 
@@ -44,17 +44,17 @@ wget https://github.com/your-username/PixiShelf/releases/latest/download/DEPLOYM
 
 ```bash
 git clone https://github.com/your-username/PixiShelf.git
-cd PixiShelf
+cd PixiShelf/build
 ```
 
 ### 3. 配置环境变量
 
 ```bash
 # 复制环境配置模板
-cp .env.template .env.deploy
+cp .env.example .env
 
 # 编辑配置文件
-nano .env.deploy
+nano .env
 ```
 
 **重要配置项：**
@@ -79,14 +79,14 @@ WEB_PORT=80
 
 ```bash
 # 拉取最新镜像并启动服务
-docker-compose --env-file .env.deploy -f build/docker-compose.deploy.yml pull
-docker-compose --env-file .env.deploy -f build/docker-compose.deploy.yml up -d
+docker-compose -f docker-compose.deploy.yml pull
+docker-compose -f docker-compose.deploy.yml up -d
 
 # 查看服务状态
-docker-compose -f build/docker-compose.deploy.yml ps
+docker-compose -f docker-compose.deploy.yml ps
 
 # 查看日志
-docker-compose -f build/docker-compose.deploy.yml logs -f
+docker-compose -f docker-compose.deploy.yml logs -f
 ```
 
 ### 5. 验证部署
@@ -129,13 +129,13 @@ git push origin v1.0.0
 
 ```bash
 # 更新到最新版本
-docker-compose --env-file .env.deploy -f build/docker-compose.deploy.yml pull
-docker-compose --env-file .env.deploy -f build/docker-compose.deploy.yml up -d
+docker-compose -f docker-compose.deploy.yml pull
+docker-compose -f docker-compose.deploy.yml up -d
 
 # 或更新到指定版本
-echo "IMAGE_TAG=v1.0.0" >> .env.deploy
-docker-compose --env-file .env.deploy -f build/docker-compose.deploy.yml pull
-docker-compose --env-file .env.deploy -f build/docker-compose.deploy.yml up -d
+echo "IMAGE_TAG=v1.0.0" >> .env
+docker-compose -f docker-compose.deploy.yml pull
+docker-compose -f docker-compose.deploy.yml up -d
 ```
 
 ---
@@ -159,10 +159,10 @@ cd PixiShelf
 
 ```bash
 # 复制环境配置模板
-cp .env.template .env.prod
+cp build/.env.example .env
 
 # 编辑配置文件
-nano .env.prod
+nano .env
 ```
 
 **重要配置项：**
@@ -175,14 +175,17 @@ nano .env.prod
 ### 4. 部署应用
 
 ```bash
+# 进入构建目录
+cd build
+
 # 使用生产环境配置启动
-docker-compose --env-file .env.prod -f build/docker-compose.yml up -d
+docker-compose -f docker-compose.yml up -d
 
 # 查看服务状态
-docker-compose -f build/docker-compose.yml ps
+docker-compose -f docker-compose.yml ps
 
 # 查看日志
-docker-compose -f build/docker-compose.yml logs -f
+docker-compose -f docker-compose.yml logs -f
 ```
 
 ## 🔧 开发环境
@@ -290,8 +293,11 @@ PixiShelf/
 # 拉取最新代码
 git pull
 
+# 进入构建目录
+cd build
+
 # 重新构建并启动
-docker-compose --env-file .env.prod -f build/docker-compose.yml up -d --build
+docker-compose -f docker-compose.yml up -d --build
 
 # 清理旧镜像
 docker image prune -f
@@ -302,11 +308,11 @@ docker image prune -f
 ### 查看日志
 ```bash
 # 查看所有服务日志
-docker-compose -f build/docker-compose.yml logs -f
+docker-compose -f docker-compose.yml logs -f
 
 # 查看特定服务日志
-docker-compose -f build/docker-compose.yml logs -f api
-docker-compose -f build/docker-compose.yml logs -f web
+docker-compose -f docker-compose.yml logs -f api
+docker-compose -f docker-compose.yml logs -f web
 ```
 
 ### 健康检查
@@ -338,13 +344,13 @@ curl http://localhost/health
 ### 重置部署
 ```bash
 # 停止所有服务
-docker-compose -f build/docker-compose.yml down
+docker-compose -f docker-compose.yml down
 
 # 删除数据卷（注意：会丢失数据）
-docker volume rm pixishelf_postgres_data
+docker volume rm build_postgres_data
 
 # 重新启动
-docker-compose --env-file .env.prod -f build/docker-compose.yml up -d
+docker-compose -f docker-compose.yml up -d
 ```
 
 ## 📞 支持

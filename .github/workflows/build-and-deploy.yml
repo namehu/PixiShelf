@@ -97,7 +97,7 @@ jobs:
           generate_release_notes: true
           files: |
             build/docker-compose.deploy.yml
-            .env.template
+            build/.env.example
             DEPLOYMENT.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

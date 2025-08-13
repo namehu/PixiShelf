@@ -89,7 +89,7 @@ pnpm install
 
 ```bash
 # 复制环境变量模板文件
-cp .env.template packages/api/.env
+cp build/.env.example packages/api/.env
 ```
 
 #### 3.2 配置API环境变量
