@@ -63,8 +63,6 @@ function secondsToText(s: number) {
   return `${mm}:${ss}`
 }
 
-const useEventSource = typeof window !== 'undefined' ? (url: string) => new EventSource(url) : null
-
 export default function Settings() {
   const { data: health } = useHealth()
   const scanPath = useScanPath()

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiJson, apiRequest } from '../api'
+import { apiJson } from '../api'
 import { ArtworksResponse } from '@pixishelf/shared'
 
 function useArtworks(page: number, pageSize: number, tags?: string[]) {
@@ -113,14 +113,24 @@ export default function Gallery() {
             {scanner.isPending ? (
               <>
                 <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
                 </svg>
                 扫描中
               </>
             ) : (
               <>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
                 </svg>
                 触发扫描
               </>
@@ -140,8 +150,18 @@ export default function Gallery() {
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1">
             <div className="relative">
-              <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              <svg
+                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
               <input
                 type="text"
@@ -170,7 +190,12 @@ export default function Gallery() {
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
+                />
               </svg>
               <span className="text-sm font-medium text-neutral-700">活跃过滤器</span>
             </div>
@@ -182,7 +207,12 @@ export default function Gallery() {
                   onClick={() => removeTag(tag)}
                 >
                   #{tag}
-                  <svg className="w-3 h-3 ml-1 opacity-60 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg
+                    className="w-3 h-3 ml-1 opacity-60 group-hover:opacity-100 transition-opacity"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </span>
@@ -210,21 +240,23 @@ export default function Gallery() {
           </div>
         </div>
       )}
-      
+
       {/* Error State */}
       {isError && (
         <div className="card p-8 text-center">
           <div className="w-16 h-16 mx-auto mb-4 bg-error-50 rounded-full flex items-center justify-center">
             <svg className="w-8 h-8 text-error-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
           </div>
           <h3 className="text-lg font-semibold text-neutral-900 mb-2">加载失败</h3>
           <p className="text-neutral-600 mb-4">无法加载画廊内容，请检查网络连接或确认已登录。</p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="btn-primary"
-          >
+          <button onClick={() => window.location.reload()} className="btn-primary">
             重新加载
           </button>
         </div>
@@ -237,16 +269,17 @@ export default function Gallery() {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <svg className="w-5 h-5 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
                 </svg>
-                <span className="text-lg font-semibold text-neutral-900">
-                  {data.total.toLocaleString()} 个作品
-                </span>
+                <span className="text-lg font-semibold text-neutral-900">{data.total.toLocaleString()} 个作品</span>
               </div>
               {selectedTags.length > 0 && (
-                <div className="text-sm text-neutral-600">
-                  筛选结果: {selectedTags.map((t) => `#${t}`).join(', ')}
-                </div>
+                <div className="text-sm text-neutral-600">筛选结果: {selectedTags.map((t) => `#${t}`).join(', ')}</div>
               )}
             </div>
           </div>
@@ -266,20 +299,25 @@ export default function Gallery() {
                     {/* Image */}
                     <div className="relative aspect-[3/4] w-full overflow-hidden bg-neutral-100">
                       {src ? (
-                        <img
-                          src={src}
-                          alt={aw.title}
-                          className="h-full w-full object-cover"
-                          loading="lazy"
-                        />
+                        <img src={src} alt={aw.title} className="h-full w-full object-cover" loading="lazy" />
                       ) : (
                         <div className="h-full w-full bg-neutral-200 flex items-center justify-center">
-                          <svg className="w-8 h-8 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          <svg
+                            className="w-8 h-8 text-neutral-400"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                            />
                           </svg>
                         </div>
                       )}
-                      
+
                       {/* Image count badge */}
                       {imageCount > 1 && (
                         <div className="absolute top-3 right-3 bg-black/70 backdrop-blur-sm text-white px-2 py-1 rounded-lg text-xs font-medium">
@@ -287,12 +325,10 @@ export default function Gallery() {
                         </div>
                       )}
                     </div>
-                    
+
                     {/* Content */}
                     <div className="p-4 space-y-2">
-                      <h3 className="font-medium text-neutral-900 line-clamp-2">
-                        {aw.title}
-                      </h3>
+                      <h3 className="font-medium text-neutral-900 line-clamp-2">{aw.title}</h3>
                       {artistName && (
                         <p className="text-sm text-neutral-600 truncate" title={artistName}>
                           {artistName}
@@ -310,10 +346,10 @@ export default function Gallery() {
             <div className="card p-6">
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="text-sm text-neutral-600">
-                  显示第 {((page - 1) * pageSize) + 1} - {Math.min(page * pageSize, data.total)} 项，
-                  共 {data.total.toLocaleString()} 项
+                  显示第 {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, data.total)} 项， 共{' '}
+                  {data.total.toLocaleString()} 项
                 </div>
-                
+
                 <div className="flex items-center gap-2">
                   <button
                     disabled={page <= 1}
@@ -325,7 +361,7 @@ export default function Gallery() {
                     </svg>
                     上一页
                   </button>
-                  
+
                   <div className="flex items-center gap-1">
                     {/* Page numbers */}
                     {(() => {
@@ -333,21 +369,19 @@ export default function Gallery() {
                       const pages = []
                       const showPages = 5
                       let start = Math.max(1, page - Math.floor(showPages / 2))
-                      let end = Math.min(totalPages, start + showPages - 1)
-                      
+                      const end = Math.min(totalPages, start + showPages - 1)
+
                       if (end - start + 1 < showPages) {
                         start = Math.max(1, end - showPages + 1)
                       }
-                      
+
                       for (let i = start; i <= end; i++) {
                         pages.push(
                           <button
                             key={i}
                             onClick={() => goto(i)}
                             className={`w-10 h-10 rounded-lg text-sm font-medium transition-colors ${
-                              i === page
-                                ? 'bg-primary-600 text-white'
-                                : 'text-neutral-600 hover:bg-neutral-100'
+                              i === page ? 'bg-primary-600 text-white' : 'text-neutral-600 hover:bg-neutral-100'
                             }`}
                           >
                             {i}
@@ -357,7 +391,7 @@ export default function Gallery() {
                       return pages
                     })()}
                   </div>
-                  
+
                   <button
                     disabled={page >= Math.ceil(data.total / pageSize)}
                     onClick={() => goto(page + 1)}

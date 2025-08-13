@@ -103,9 +103,6 @@ DATABASE_URL="postgresql://pixishelf:password@localhost:5432/pixishelf"
 # JWT密钥（请更改为安全的随机字符串）
 JWT_SECRET="your-secure-jwt-secret-here"
 
-# API密钥（请更改为安全的随机字符串）
-API_KEY="your-secure-api-key-here"
-
 # 管理员账户初始化
 INIT_ADMIN_USERNAME="admin"
 INIT_ADMIN_PASSWORD="admin123"

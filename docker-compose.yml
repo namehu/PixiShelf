@@ -33,7 +33,6 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://pixishelf:password@postgres:5432/pixishelf
-      API_KEY: your-secure-api-key-here
       JWT_SECRET: your-jwt-secret-here
       SCAN_PATH: /app/data
     volumes:
