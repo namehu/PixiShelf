@@ -42,7 +42,7 @@ WORKDIR /app
 RUN npm install -g pnpm@8
 
 # 复制必要的配置文件
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/api/package.json ./packages/api/
 COPY packages/shared/package.json ./packages/shared/
 
