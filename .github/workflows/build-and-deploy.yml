@@ -107,6 +107,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
     strategy:
       matrix:
         target: [api, web]
@@ -120,6 +124,6 @@ jobs:
           output: 'trivy-results-${{ matrix.target }}.sarif'
 
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-results-${{ matrix.target }}.sarif'
