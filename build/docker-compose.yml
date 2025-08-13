@@ -35,7 +35,6 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://pixishelf:password@postgres:5432/pixishelf
       JWT_SECRET: your-jwt-secret-here-change-in-production
-      API_KEY: your-api-key-here-change-in-production
       INIT_ADMIN_USERNAME: admin
       INIT_ADMIN_PASSWORD: admin123
       SCAN_PATH: /app/data
