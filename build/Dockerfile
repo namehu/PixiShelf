@@ -60,8 +60,8 @@ COPY --from=api-build /app/packages/api/prisma ./packages/api/prisma
 # 设置工作目录到API包
 WORKDIR /app/packages/api
 
-# 生成Prisma客户端（使用项目中的prisma版本）
-RUN pnpm prisma generate
+# 生成Prisma客户端（使用package.json中的script）
+RUN pnpm run db:generate
 
 EXPOSE 3002
 # 健康检查
