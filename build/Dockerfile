@@ -49,8 +49,8 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/api/package.json ./packages/api/
 COPY packages/shared/package.json ./packages/shared/
 
-# 仅安装生产依赖
-RUN pnpm install --prod --frozen-lockfile --ignore-scripts
+# 安装所有依赖（需要prisma等工具）
+RUN pnpm install
 
 # 复制构建产物
 COPY --from=api-build /app/packages/api/dist ./packages/api/dist
