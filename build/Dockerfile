@@ -12,8 +12,8 @@ RUN mkdir -p packages/api packages/web packages/shared
 COPY packages/api/package.json packages/api/package.json
 COPY packages/web/package.json packages/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
-# 安装所有依赖
-RUN pnpm install --frozen-lockfile
+# 安装所有依赖（包括devDependencies，因为需要prisma等构建工具）
+RUN pnpm install
 
 # Source stage - 复制源代码
 FROM deps AS source
@@ -60,8 +60,8 @@ COPY --from=api-build /app/packages/api/prisma ./packages/api/prisma
 # 设置工作目录到API包
 WORKDIR /app/packages/api
 
-# 生成Prisma客户端（使用package.json中的script）
-RUN pnpm run db:generate
+# 生成Prisma客户端（使用pnpm exec调用根目录的prisma）
+RUN pnpm exec prisma generate
 
 EXPOSE 3002
 # 健康检查
