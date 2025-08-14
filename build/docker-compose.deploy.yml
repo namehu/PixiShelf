@@ -38,7 +38,7 @@ services:
       DATABASE_URL: postgresql://pixishelf:${POSTGRES_PASSWORD}@postgres:5432/pixishelf
       JWT_SECRET: ${JWT_SECRET}
       INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME:-admin}
-      INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:admin123}
+      INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-admin123}
       SCAN_PATH: /app/data
     volumes:
       - ${SCAN_PATH}:/app/data:ro  # 只读挂载图片目录
@@ -48,7 +48,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3002/health || exit 1"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 3002 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -65,7 +65,7 @@ services:
     image: ${DOCKER_REGISTRY:-ghcr.io}/${DOCKER_USERNAME}/${IMAGE_NAME:-pixishelf}-web:${IMAGE_TAG:-latest}
     container_name: pixishelf-web
     ports:
-      - "80:80"  # 可配置的Web端口
+      - "3001:80"  # 可配置的Web端口
     networks:
       - pixishelf-network
     depends_on:
