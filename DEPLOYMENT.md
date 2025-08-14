@@ -37,6 +37,7 @@
 # 下载最新版本的部署文件
 wget https://github.com/your-username/PixiShelf/releases/latest/download/docker-compose.deploy.yml
 wget https://github.com/your-username/PixiShelf/releases/latest/download/.env.example
+wget https://github.com/your-username/PixiShelf/releases/latest/download/init.sql
 wget https://github.com/your-username/PixiShelf/releases/latest/download/DEPLOYMENT.md
 ```
 
