@@ -75,6 +75,8 @@ export default function Settings() {
   const [elapsed, setElapsed] = React.useState(0)
   const [progress, setProgress] = React.useState<ScanProgress | null>(null)
   const [streaming, setStreaming] = React.useState(false)
+  const streamingRef = React.useRef(streaming)
+  React.useEffect(() => { streamingRef.current = streaming }, [streaming])
   const [streamResult, setStreamResult] = React.useState<ScanResult | null>(null)
   const [streamError, setStreamError] = React.useState<string | null>(null)
   const [retryCount, setRetryCount] = React.useState(0)
@@ -84,6 +86,7 @@ export default function Settings() {
   const [showDetailedLogs, setShowDetailedLogs] = React.useState(false)
   const [autoScroll, setAutoScroll] = React.useState(true)
   const logsEndRef = React.useRef<HTMLDivElement>(null)
+  const esRef = React.useRef<EventSource | null>(null)
 
   // 新增：添加日志条目的函数
   const addLogEntry = React.useCallback((type: LogEntry['type'], data: any, message: string) => {
@@ -127,6 +130,13 @@ export default function Settings() {
 
   const startStream = React.useCallback(
     (force?: boolean) => {
+      // 若已存在连接，先关闭
+      if (esRef.current) {
+        try { esRef.current.close() } catch {}
+        esRef.current = null
+        addLogEntry('connection', null, '关闭已有的 SSE 连接')
+      }
+
       setStreaming(true)
       setProgress(null)
       setStreamResult(null)
@@ -142,6 +152,11 @@ export default function Settings() {
 
       const connectSSE = () => {
         const es = createEventSourceWithAuth(url)
+        esRef.current = es
+
+        es.addEventListener('open', () => {
+          addLogEntry('connection', null, 'SSE 连接已建立')
+        })
 
         es.addEventListener('progress', (ev: any) => {
           try {
@@ -168,6 +183,8 @@ export default function Settings() {
               `扫描完成: 新增${data.result.newArtworks}个作品，${data.result.newImages}张图片`
             )
             es.close()
+            esRef.current = null
+            addLogEntry('connection', null, 'SSE 连接已关闭')
           } catch (e) {
             console.warn('Failed to parse complete event:', e)
             addLogEntry('error', { error: e, rawData: ev.data }, '解析完成事件失败')
@@ -184,6 +201,8 @@ export default function Settings() {
             setStreaming(false)
             addLogEntry('error', data, `扫描错误: ${data.error || '未知错误'}`)
             es.close()
+            esRef.current = null
+            addLogEntry('connection', null, 'SSE 连接已关闭')
           } catch (e) {
             console.warn('Failed to parse error event:', e)
             addLogEntry('error', { error: e, rawData: ev.data }, '解析错误事件失败')
@@ -200,6 +219,8 @@ export default function Settings() {
             setStreaming(false)
             addLogEntry('cancelled', data, '扫描已取消')
             es.close()
+            esRef.current = null
+            addLogEntry('connection', null, 'SSE 连接已关闭')
           } catch (e) {
             console.warn('Failed to parse cancelled event:', e)
             addLogEntry('error', { error: e, rawData: ev.data }, '解析取消事件失败')
@@ -211,7 +232,7 @@ export default function Settings() {
             addLogEntry('connection', { retryCount: retryCount + 1 }, `连接中断，准备第${retryCount + 1}次重连`)
             setTimeout(
               () => {
-                if (streaming) connectSSE()
+                if (streamingRef.current) connectSSE()
               },
               2000 * (retryCount + 1)
             )
@@ -221,6 +242,8 @@ export default function Settings() {
             addLogEntry('error', { retryCount }, '连接中断，重试次数已达上限')
           }
           es.close()
+          esRef.current = null
+          addLogEntry('connection', null, 'SSE 连接已关闭')
         }
       }
 
@@ -233,6 +256,12 @@ export default function Settings() {
     cancelScan.mutate(undefined, {
       onSuccess: (data) => {
         if (data.cancelled) {
+          // 主动关闭当前 SSE 连接，避免等待服务器推送取消事件
+          if (esRef.current) {
+            try { esRef.current.close() } catch {}
+            esRef.current = null
+            addLogEntry('connection', null, '用户取消：关闭 SSE 连接')
+          }
           setStreaming(false)
           setStreamError('扫描已取消')
           setProgress(null)
@@ -241,6 +270,16 @@ export default function Settings() {
       }
     })
   }
+
+  // 新增：组件卸载时清理 SSE 连接
+  React.useEffect(() => {
+    return () => {
+      if (esRef.current) {
+        try { esRef.current.close() } catch {}
+        esRef.current = null
+      }
+    }
+  }, [])
 
   // 新增：清空日志函数
   const clearLogs = () => {
