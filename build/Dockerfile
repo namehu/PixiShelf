@@ -61,8 +61,14 @@ COPY --from=api-build /app/packages/api/prisma ./packages/api/prisma
 WORKDIR /app/packages/api
 
 # 设置Prisma环境变量
-ENV PRISMA_CLI_BINARY_TARGETS="linux-musl"
-ENV PRISMA_QUERY_ENGINE_BINARY="/app/packages/api/node_modules/.prisma/client/libquery_engine-linux-musl.so.node"
+ENV PRISMA_CLI_BINARY_TARGETS="linux-musl-openssl-3.0.x"
+ENV PRISMA_QUERY_ENGINE_BINARY="/app/packages/api/node_modules/.prisma/client/libquery_engine-linux-musl-openssl-3.0.x.so.node"
+ENV PRISMA_SCHEMA_ENGINE_BINARY="/app/packages/api/node_modules/@prisma/engines/schema-engine-linux-musl-openssl-3.0.x"
+ENV PRISMA_INTROSPECTION_ENGINE_BINARY="/app/packages/api/node_modules/@prisma/engines/introspection-engine-linux-musl-openssl-3.0.x"
+ENV PRISMA_FMT_BINARY="/app/packages/api/node_modules/@prisma/engines/prisma-fmt-linux-musl-openssl-3.0.x"
+
+# 安装Prisma引擎
+RUN pnpm add @prisma/engines
 
 # 生成Prisma客户端
 RUN npx prisma generate
