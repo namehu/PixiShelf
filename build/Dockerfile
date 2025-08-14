@@ -57,18 +57,11 @@ COPY --from=api-build /app/packages/api/dist ./packages/api/dist
 COPY --from=shared-build /app/packages/shared/dist ./packages/shared/dist
 COPY --from=api-build /app/packages/api/prisma ./packages/api/prisma
 
-# 设置Prisma环境变量
-ENV PRISMA_CLI_BINARY_TARGETS="linux-musl-openssl-3.0.x"
-ENV PRISMA_QUERY_ENGINE_BINARY="/app/packages/api/node_modules/.prisma/client/libquery_engine-linux-musl-openssl-3.0.x.so.node"
-ENV PRISMA_SCHEMA_ENGINE_BINARY="/app/packages/api/node_modules/prisma/libquery_engine-linux-musl-openssl-3.0.x"
-ENV PRISMA_INTROSPECTION_ENGINE_BINARY="/app/packages/api/node_modules/prisma/introspection-engine-linux-musl-openssl-3.0.x"
-ENV PRISMA_FMT_BINARY="/app/packages/api/node_modules/prisma/prisma-fmt-linux-musl-openssl-3.0.x"
-
 # 设置工作目录到API包
 WORKDIR /app/packages/api
 
-# 生成Prisma客户端
-RUN npx prisma generate
+# 生成Prisma客户端（使用项目中的prisma版本）
+RUN pnpm prisma generate
 
 EXPOSE 3002
 # 健康检查
