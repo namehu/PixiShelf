@@ -1,7 +1,12 @@
 import { promises as fs } from "fs";
 import path from "path";
+import os from "os";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { FastifyInstance } from "fastify";
+import { ConcurrencyController } from "./scanner/ConcurrencyController";
+import { BatchProcessor } from "./scanner/BatchProcessor";
+import { CacheManager } from "./scanner/CacheManager";
+import { PerformanceMetrics, ScanTask, TaskResult } from "./scanner/types";
 
 export interface ScanOptions {
   scanPath: string;
@@ -48,31 +53,607 @@ export class FileScanner {
     ".tiff",
   ];
   private scanRootAbs: string | null = null;
+  
+  // 性能优化组件
+  private concurrencyController!: ConcurrencyController;
+  private batchProcessor!: BatchProcessor;
+  private cacheManager!: CacheManager;
+  private performanceMetrics!: PerformanceMetrics;
+  private enableOptimizations: boolean = true;
 
-  constructor(prisma: PrismaClient, logger: FastifyInstance["log"]) {
+  constructor(
+    prisma: PrismaClient, 
+    logger: FastifyInstance["log"],
+    options: { enableOptimizations?: boolean; maxConcurrency?: number } = {}
+  ) {
     this.prisma = prisma;
     this.logger = logger;
+    this.enableOptimizations = options.enableOptimizations ?? true;
+    
+    // 初始化性能优化组件
+    this.concurrencyController = new ConcurrencyController(options.maxConcurrency);
+    this.cacheManager = new CacheManager(this.supportedExtensions);
+    this.batchProcessor = new BatchProcessor(
+       this.prisma,
+       this.logger,
+       { batchSize: 500 },
+       (progress) => {
+         this.logger.debug({ progress }, 'Batch processing progress');
+       }
+     );
+     
+     this.initializePerformanceMetrics();
+   }
+
+   /**
+    * 优化的扫描方法
+    */
+  private async scanOptimized(
+    scanPath: string,
+    extensions: string[],
+    result: ScanResult,
+    onProgress?: (progress: ScanProgress) => void
+  ): Promise<void> {
+    onProgress?.({
+      phase: "counting",
+      message: "并发扫描：收集目录结构...",
+      percentage: 0,
+    });
+
+    // 并发收集所有扫描任务
+     const scanTasks = await this.collectScanTasksConcurrently(scanPath, extensions, result);
+     this.performanceMetrics.totalFiles = scanTasks.length;
+
+    onProgress?.({
+      phase: "scanning",
+      message: `开始并发处理 ${scanTasks.length} 个任务...`,
+      current: 0,
+      total: scanTasks.length,
+      percentage: 0,
+    });
+
+    // 并发处理扫描任务
+    let processedTasks = 0;
+    const startTime = Date.now();
+    
+    const taskBatches = this.createTaskBatches(scanTasks, 100); // 每批100个任务
+    
+    for (let batchIndex = 0; batchIndex < taskBatches.length; batchIndex++) {
+      const batch = taskBatches[batchIndex];
+      
+      const batchResults = await this.concurrencyController.executeAllSettled(
+        batch.map(task => () => this.processScanTask(task, extensions))
+      );
+
+      // 处理批次结果
+      for (const taskResult of batchResults) {
+        processedTasks++;
+        this.performanceMetrics.processedFiles++;
+        
+        if (taskResult.status === 'fulfilled') {
+          const { success, data, skipped, reason } = taskResult.value;
+          if (success && data) {
+            this.addToResult(data, result);
+          } else if (skipped && reason) {
+            result.skippedDirectories.push({ path: data?.path || '', reason });
+            this.performanceMetrics.skippedFiles++;
+          }
+        } else {
+          result.errors.push(taskResult.reason?.message || 'Unknown task error');
+          this.performanceMetrics.errorFiles++;
+        }
+
+        // 更新进度
+        if (processedTasks % 50 === 0 || processedTasks === scanTasks.length) {
+          const percentage = Math.floor((processedTasks / scanTasks.length) * 90); // 留10%给批量插入
+          const elapsedSec = (Date.now() - startTime) / 1000;
+          const rate = processedTasks / elapsedSec;
+          const remainingTasks = scanTasks.length - processedTasks;
+          const estSeconds = rate > 0 ? Math.ceil(remainingTasks / rate) : undefined;
+          
+          onProgress?.({
+            phase: "scanning",
+            message: `已处理 ${processedTasks}/${scanTasks.length} 个任务`,
+            current: processedTasks,
+            total: scanTasks.length,
+            percentage,
+            estimatedSecondsRemaining: estSeconds,
+          });
+        }
+      }
+
+      // 定期刷新批量处理器
+      if (this.batchProcessor.shouldFlush()) {
+        onProgress?.({
+          phase: "creating",
+          message: "批量插入数据...",
+          percentage: Math.floor((processedTasks / scanTasks.length) * 90),
+        });
+        
+        const batchResult = await this.batchProcessor.flush();
+        this.updateResultFromBatch(batchResult, result);
+        this.performanceMetrics.databaseStats.batchOperations++;
+      }
+
+      // 更新并发统计
+      const concurrencyStatus = this.concurrencyController.getStatus();
+      this.performanceMetrics.concurrencyStats.currentQueueLength = concurrencyStatus.queued;
+      this.performanceMetrics.concurrencyStats.peakQueueLength = Math.max(
+        this.performanceMetrics.concurrencyStats.peakQueueLength,
+        concurrencyStatus.queued
+      );
+    }
+
+    // 最终批量处理
+    onProgress?.({
+      phase: "creating",
+      message: "完成批量数据插入...",
+      percentage: 95,
+    });
+    
+    const finalBatchResult = await this.batchProcessor.flush();
+    this.updateResultFromBatch(finalBatchResult, result);
   }
 
-  // +++ 新增名称验证函数 +++
   /**
-   * 检查文件名/目录名是否只包含安全的字符。
+   * 传统扫描方法（保持向后兼容）
+   */
+  private async scanLegacy(
+    scanPath: string,
+    extensions: string[],
+    result: ScanResult,
+    onProgress?: (progress: ScanProgress) => void
+  ): Promise<void> {
+    // 第一遍：扫描根目录下的艺术家文件夹
+    onProgress?.({
+      phase: "counting",
+      message: "预扫描：统计艺术家和作品目录...",
+      percentage: 0,
+    });
+    const { totalWorkUnits, artistCount, artworkCount } =
+      await this.countArtistsAndArtworks(scanPath, extensions, onProgress);
+
+    // 第二遍：正式扫描并按目录结构处理
+    let processedWorkUnits = 0;
+    const scanStartTs = Date.now();
+    const progressUpdate = (
+      increment: number,
+      message: string,
+      phase: ScanProgress["phase"] = "scanning"
+    ) => {
+      processedWorkUnits += increment;
+      const percentage =
+        totalWorkUnits > 0
+          ? Math.min(
+              99,
+              Math.floor((processedWorkUnits / totalWorkUnits) * 100)
+            )
+          : undefined;
+      const elapsedSec = Math.max(0.001, (Date.now() - scanStartTs) / 1000);
+      const rate =
+        processedWorkUnits > 0 ? processedWorkUnits / elapsedSec : 0;
+      const remainingUnits = Math.max(0, totalWorkUnits - processedWorkUnits);
+      const estSeconds =
+        rate > 0 ? Math.ceil(remainingUnits / rate) : undefined;
+      const detailedMessage = `${message} [${processedWorkUnits}/${totalWorkUnits}] (${percentage || 0}%)`;
+      onProgress?.({
+        phase,
+        message: detailedMessage,
+        current: processedWorkUnits,
+        total: totalWorkUnits,
+        percentage,
+        estimatedSecondsRemaining: estSeconds,
+      });
+    };
+
+    const scanStartMessage = `开始扫描 ${artistCount} 个艺术家目录，${artworkCount} 个作品目录...`;
+    onProgress?.({
+      phase: "scanning",
+      message: scanStartMessage,
+      current: 0,
+      total: totalWorkUnits,
+      percentage: totalWorkUnits > 0 ? 0 : undefined,
+    });
+
+    // 按照新的目录结构扫描
+    await this.scanArtistDirectories(
+      scanPath,
+      extensions,
+      result,
+      progressUpdate
+    );
+  }
+
+  /**
+   * 最终处理阶段
+   */
+  private async finalizeScan(
+    result: ScanResult,
+    onProgress?: (progress: ScanProgress) => void
+  ): Promise<void> {
+    onProgress?.({
+      phase: "cleanup",
+      message: "清理无图片的作品...",
+      percentage: 99,
+    });
+    
+    const removedCount = await this.cleanupEmptyArtworks();
+    result.removedArtworks = removedCount;
+  }
+
+  /**
+   * 并发收集扫描任务
+   */
+  private async collectScanTasksConcurrently(
+    rootPath: string,
+    extensions: string[],
+    result: ScanResult
+  ): Promise<ScanTask[]> {
+    const tasks: ScanTask[] = [];
+    
+    try {
+      const artistEntries = await fs.readdir(rootPath, { withFileTypes: true });
+      
+      // 处理艺术家目录，记录跳过的目录
+      const validArtistEntries: typeof artistEntries = [];
+      
+      for (const entry of artistEntries) {
+        const artistPath = path.join(rootPath, entry.name);
+        
+        if (!entry.isDirectory()) continue;
+        
+        if (this.cacheManager.isHiddenOrSystemFile(entry.name)) continue;
+        
+        if (!this.isValidName(entry.name)) {
+          const reason = "艺术家目录名包含不支持的字符";
+          this.logger.warn(`${reason}: ${artistPath}`);
+          result.skippedDirectories.push({ path: artistPath, reason });
+          continue;
+        }
+        
+        validArtistEntries.push(entry);
+      }
+      
+      // 并发处理有效的艺术家目录
+      const artistTasks = validArtistEntries
+        .map(entry => () => this.collectArtistTasks(rootPath, entry.name, extensions, result));
+      
+      const artistTaskResults = await this.concurrencyController.executeAllSettled(artistTasks);
+      
+      for (const taskResult of artistTaskResults) {
+        if (taskResult.status === 'fulfilled') {
+          tasks.push(...taskResult.value);
+        }
+      }
+    } catch (error) {
+      this.logger.error({ error, rootPath }, 'Failed to collect scan tasks');
+    }
+    
+    return tasks;
+  }
+
+  /**
+   * 收集单个艺术家的任务
+   */
+  private async collectArtistTasks(
+    rootPath: string,
+    artistName: string,
+    extensions: string[],
+    result: ScanResult
+  ): Promise<ScanTask[]> {
+    const tasks: ScanTask[] = [];
+    const artistPath = path.join(rootPath, artistName);
+    
+    // 添加艺术家任务
+    tasks.push({
+      type: 'artist',
+      path: artistPath,
+      metadata: { name: artistName },
+    });
+    
+    try {
+      const artworkEntries = await fs.readdir(artistPath, { withFileTypes: true });
+      
+      for (const artworkEntry of artworkEntries) {
+        const artworkPath = path.join(artistPath, artworkEntry.name);
+        
+        if (!artworkEntry.isDirectory()) continue;
+        
+        if (this.cacheManager.isHiddenOrSystemFile(artworkEntry.name)) continue;
+        
+        if (!this.isValidName(artworkEntry.name)) {
+          const reason = "作品目录名包含不支持的字符";
+          this.logger.warn(`${reason}: ${artworkPath}`);
+          result.skippedDirectories.push({ path: artworkPath, reason });
+          continue;
+        }
+        
+        // 检查是否有图片文件
+        const hasImages = await this.hasImageFiles(artworkPath, extensions);
+        if (hasImages) {
+          tasks.push({
+            type: 'artwork',
+            path: artworkPath,
+            parentPath: artistPath,
+            metadata: {
+              title: artworkEntry.name,
+              artistName: artistName,
+            },
+          });
+        }
+      }
+    } catch (error) {
+      this.logger.warn({ error, artistPath }, 'Failed to collect artwork tasks');
+    }
+    
+    return tasks;
+  }
+
+  /**
+   * 处理单个扫描任务
+   */
+  private async processScanTask(
+    task: ScanTask,
+    extensions: string[]
+  ): Promise<TaskResult> {
+    try {
+      switch (task.type) {
+        case 'artist':
+          return await this.processArtistTask(task);
+        case 'artwork':
+          return await this.processArtworkTask(task, extensions);
+        default:
+          return {
+            success: false,
+            error: `Unknown task type: ${task.type}`,
+          };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        data: { path: task.path },
+      };
+    }
+  }
+
+  /**
+   * 处理艺术家任务
+   */
+  private async processArtistTask(task: ScanTask): Promise<TaskResult> {
+    const artistData = this.cacheManager.parseArtistName(task.metadata.name);
+    
+    this.batchProcessor.addArtist({
+      name: artistData.displayName,
+      username: artistData.username,
+      userId: artistData.userId,
+      bio: artistData.username && artistData.userId 
+        ? `Artist: ${artistData.username} (ID: ${artistData.userId})`
+        : `Artist discovered from directory: ${task.metadata.name}`,
+    });
+    
+    return {
+      success: true,
+      data: { type: 'artist', name: artistData.displayName },
+    };
+  }
+
+  /**
+   * 处理作品任务
+   */
+  private async processArtworkTask(
+    task: ScanTask,
+    extensions: string[]
+  ): Promise<TaskResult> {
+    const { title, artistName } = task.metadata;
+    
+    // 收集图片
+    const images = await this.collectImagesFromDirectory(task.path, extensions);
+    if (images.length === 0) {
+      return {
+        success: false,
+        skipped: true,
+        reason: '没有找到图片文件',
+        data: { path: task.path },
+      };
+    }
+    
+    // 解析元数据
+    const metadata = await this.parseMetadata(task.path);
+    
+    // 添加到批量处理器
+    this.batchProcessor.addArtwork({
+      title,
+      description: metadata.description,
+      artistId: 0, // 将在批量处理时解析
+      artistName,
+    });
+    
+    // 添加图片
+    for (const imagePath of images) {
+      const stats = await fs.stat(imagePath);
+      const relativePath = this.cacheManager.getRelativePath(imagePath, this.scanRootAbs!);
+      
+      this.batchProcessor.addImage({
+        path: relativePath,
+        size: stats.size,
+        artworkTitle: title,
+        artistName,
+      });
+    }
+    
+    // 添加标签
+    for (const tagName of metadata.tags) {
+      const cleanedTag = this.cacheManager.cleanTagPrefix(tagName);
+      if (cleanedTag) {
+        this.batchProcessor.addTag({ name: cleanedTag });
+        this.batchProcessor.addArtworkTag(title, artistName, cleanedTag);
+      }
+    }
+    
+    return {
+      success: true,
+      data: {
+        type: 'artwork',
+        title,
+        artistName,
+        imageCount: images.length,
+        tagCount: metadata.tags.length,
+      },
+    };
+  }
+
+  /**
+   * 创建任务批次
+   */
+  private createTaskBatches<T>(tasks: T[], batchSize: number): T[][] {
+    const batches: T[][] = [];
+    for (let i = 0; i < tasks.length; i += batchSize) {
+      batches.push(tasks.slice(i, i + batchSize));
+    }
+    return batches;
+  }
+
+  /**
+   * 将任务结果添加到扫描结果
+   */
+  private addToResult(data: any, result: ScanResult): void {
+    if (data.type === 'artwork') {
+      result.scannedDirectories++;
+      result.foundImages += data.imageCount || 0;
+    }
+  }
+
+  /**
+   * 从批量处理结果更新扫描结果
+   */
+  private updateResultFromBatch(batchResult: any, result: ScanResult): void {
+    result.newArtworks += batchResult.artworksCreated || 0;
+    result.newImages += batchResult.imagesCreated || 0;
+    result.errors.push(...(batchResult.errors || []).map((e: any) => e.error));
+    
+    // 更新数据库统计
+    this.performanceMetrics.databaseStats.totalInserts += 
+      (batchResult.artistsCreated || 0) +
+      (batchResult.artworksCreated || 0) +
+      (batchResult.imagesCreated || 0) +
+      (batchResult.tagsCreated || 0);
+  }
+
+  /**
+   * 更新内存使用统计
+   */
+  private updateMemoryUsage(): void {
+    const memUsage = process.memoryUsage();
+    this.performanceMetrics.memoryUsage = {
+      heapUsed: memUsage.heapUsed,
+      heapTotal: memUsage.heapTotal,
+      external: memUsage.external,
+      rss: memUsage.rss,
+    };
+  }
+
+  /**
+   * 计算吞吐量
+   */
+  private calculateThroughput(): number {
+    if (!this.performanceMetrics.endTime || !this.performanceMetrics.startTime) {
+      return 0;
+    }
+    
+    const elapsedSeconds = (this.performanceMetrics.endTime - this.performanceMetrics.startTime) / 1000;
+    return elapsedSeconds > 0 ? this.performanceMetrics.processedFiles / elapsedSeconds : 0;
+  }
+
+  /**
+   * 获取性能报告
+   */
+  private getPerformanceReport(): any {
+    const cacheStats = this.cacheManager.getStats();
+    const concurrencyStatus = this.concurrencyController.getStatus();
+    
+    return {
+      ...this.performanceMetrics,
+      cacheStats,
+      concurrencyStatus,
+      optimizationsEnabled: this.enableOptimizations,
+    };
+  }
+
+  /**
+   * 获取性能指标（公共方法）
+   */
+  getPerformanceMetrics(): PerformanceMetrics {
+    return { ...this.performanceMetrics };
+  }
+
+  /**
+   * 获取缓存统计（公共方法）
+   */
+  getCacheStats() {
+    return this.cacheManager.getStats();
+  }
+
+  /**
+   * 获取并发状态（公共方法）
+   */
+  getConcurrencyStatus() {
+     return this.concurrencyController.getStatus();
+   }
+
+  /**
+   * 初始化性能指标
+   */
+  private initializePerformanceMetrics(): void {
+    this.performanceMetrics = {
+      startTime: 0,
+      totalFiles: 0,
+      processedFiles: 0,
+      skippedFiles: 0,
+      errorFiles: 0,
+      throughput: 0,
+      memoryUsage: {
+        heapUsed: 0,
+        heapTotal: 0,
+        external: 0,
+        rss: 0,
+      },
+      concurrencyStats: {
+        maxConcurrent: 0,
+        avgConcurrent: 0,
+        peakQueueLength: 0,
+        currentQueueLength: 0,
+      },
+      databaseStats: {
+        totalQueries: 0,
+        batchOperations: 0,
+        avgBatchSize: 0,
+        totalInserts: 0,
+        totalUpdates: 0,
+      },
+    };
+  }
+
+  /**
+   * 检查文件名/目录名是否只包含安全的字符（优化版本）
    * @param name 要检查的名称
    * @returns 如果名称安全则返回 true，否则返回 false
    */
   private isValidName(name: string): boolean {
-    // 这个正则表达式允许:
-    // - a-z, A-Z, 0-9 (字母数字)
-    // - _-.() (下划线, 连字符, 点, 括号)
-    // - 空格
-    // - \u4e00-\u9fa5 (中文字符)
-    // - \u3040-\u30ff (日文字符 Hiragana & Katakana)
-    // 其他所有字符 (如 Emoji, 特殊符号, 数学字体) 都会导致验证失败。
+    if (this.enableOptimizations) {
+      return this.cacheManager.isValidName(name);
+    }
+    
+    // 回退到原始实现
     const safeNameRegex = /^[a-zA-Z0-9\s_\-.()\u4e00-\u9fa5\u3040-\u30ff]+$/;
     return safeNameRegex.test(name);
   }
 
   async scan(options: ScanOptions): Promise<ScanResult> {
+    // 初始化性能监控
+    this.performanceMetrics.startTime = Date.now();
+    this.updateMemoryUsage();
+    
     const result: ScanResult = {
       scannedDirectories: 0,
       foundImages: 0,
@@ -80,23 +661,28 @@ export class FileScanner {
       newImages: 0,
       removedArtworks: 0,
       errors: [],
-      skippedDirectories: [], // +++ 初始化新增字段 +++
+      skippedDirectories: [],
     };
 
     try {
       const scanPath = options.scanPath;
-      const extensions =
-        options.supportedExtensions || this.supportedExtensions;
+      const extensions = options.supportedExtensions || this.supportedExtensions;
       const forceUpdate = options.forceUpdate || false;
       const onProgress = options.onProgress;
 
-      // 记录规范化后的扫描根目录，供相对路径换算
+      // 记录规范化后的扫描根目录
       this.scanRootAbs = path.resolve(scanPath);
 
       this.logger.info(
-        { scanPath, forceUpdate },
-        `Starting V2.2 scan of: ${scanPath}`
+        { 
+          scanPath, 
+          forceUpdate, 
+          enableOptimizations: this.enableOptimizations,
+          maxConcurrency: this.concurrencyController.getStatus().maxConcurrency 
+        },
+        `Starting optimized scan of: ${scanPath}`
       );
+      
       onProgress?.({
         phase: "scanning",
         message: "开始扫描目录...",
@@ -120,87 +706,38 @@ export class FileScanner {
         await this.cleanupExistingData();
       }
 
-      // 第一遍：扫描根目录下的艺术家文件夹
-      onProgress?.({
-        phase: "counting",
-        message: "预扫描：统计艺术家和作品目录...",
-        percentage: 0,
-      });
-      const { totalWorkUnits, artistCount, artworkCount } =
-        await this.countArtistsAndArtworks(scanPath, extensions, onProgress);
+      // 选择扫描策略
+      if (this.enableOptimizations) {
+        await this.scanOptimized(scanPath, extensions, result, onProgress);
+      } else {
+        await this.scanLegacy(scanPath, extensions, result, onProgress);
+      }
 
-      // 第二遍：正式扫描并按目录结构处理
-      let processedWorkUnits = 0;
-      const scanStartTs = Date.now();
-      const progressUpdate = (
-        increment: number,
-        message: string,
-        phase: ScanProgress["phase"] = "scanning"
-      ) => {
-        processedWorkUnits += increment;
-        const percentage =
-          totalWorkUnits > 0
-            ? Math.min(
-                99,
-                Math.floor((processedWorkUnits / totalWorkUnits) * 100)
-              )
-            : undefined;
-        const elapsedSec = Math.max(0.001, (Date.now() - scanStartTs) / 1000);
-        const rate =
-          processedWorkUnits > 0 ? processedWorkUnits / elapsedSec : 0;
-        const remainingUnits = Math.max(0, totalWorkUnits - processedWorkUnits);
-        const estSeconds =
-          rate > 0 ? Math.ceil(remainingUnits / rate) : undefined;
-        const detailedMessage = `${message} [${processedWorkUnits}/${totalWorkUnits}] (${percentage || 0}%)`;
-        onProgress?.({
-          phase,
-          message: detailedMessage,
-          current: processedWorkUnits,
-          total: totalWorkUnits,
-          percentage,
-          estimatedSecondsRemaining: estSeconds,
-        });
-      };
-
-      const scanStartMessage = `开始扫描 ${artistCount} 个艺术家目录，${artworkCount} 个作品目录...`;
-      onProgress?.({
-        phase: "scanning",
-        message: scanStartMessage,
-        current: 0,
-        total: totalWorkUnits,
-        percentage: totalWorkUnits > 0 ? 0 : undefined,
-      });
-
-      // 按照新的目录结构扫描
-      await this.scanArtistDirectories(
-        scanPath,
-        extensions,
-        result,
-        progressUpdate
-      );
-
-      // 扫描完成后清理无图片的作品
-      const cleanupMessage = `清理无图片的作品... [${processedWorkUnits}/${totalWorkUnits}] (99%)`;
-      onProgress?.({
-        phase: "cleanup",
-        message: cleanupMessage,
-        percentage: 99,
-      });
-      const removedCount = await this.cleanupEmptyArtworks();
-      result.removedArtworks = removedCount;
-
+      // 最终处理
+      await this.finalizeScan(result, onProgress);
+      
+      // 更新性能指标
+      this.performanceMetrics.endTime = Date.now();
+      this.performanceMetrics.throughput = this.calculateThroughput();
+      
       const completeMessage = `扫描完成！处理了 ${result.scannedDirectories} 个目录，创建了 ${result.newArtworks} 个作品，${result.newImages} 张图片。跳过了 ${result.skippedDirectories.length} 个命名不规范的目录。`;
       onProgress?.({
         phase: "complete",
         message: completeMessage,
         percentage: 100,
       });
-      this.logger.info({ result }, "Scan completed");
+      
+      this.logger.info({ 
+        result, 
+        performanceMetrics: this.getPerformanceReport() 
+      }, "Scan completed");
+      
       return result;
     } catch (error) {
+      this.performanceMetrics.errorFiles++;
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
       result.errors.push(errorMsg);
-      this.logger.error({ error }, "Scan failed");
+      this.logger.error({ error, performanceMetrics: this.performanceMetrics }, "Scan failed");
       return result;
     }
   }
@@ -860,16 +1397,18 @@ export class FileScanner {
   }
 
   /**
-   * 解析艺术家名称，支持多种格式：
-   * - "用户名 (用户ID)" 格式，如 "Aisey (102941617)"
-   * - "用户名-用户ID" 格式
-   * - 原始名称
+   * 解析艺术家名称（优化版本）
    */
   private parseArtistName(artistName: string): {
     displayName: string;
     username: string | null;
     userId: string | null;
   } {
+    if (this.enableOptimizations) {
+      return this.cacheManager.parseArtistName(artistName);
+    }
+    
+    // 回退到原始实现
     // 优先匹配 "用户名 (用户ID)" 格式
     let match = artistName.match(/^(.+?)\s*\((\d+)\)$/);
 
@@ -893,7 +1432,6 @@ export class FileScanner {
       const username = match[1].trim();
       const userId = match[2].trim();
 
-      // 确保用户名不为空，用户ID看起来合理（至少2位）
       if (username.length > 0 && userId.length >= 1) {
         return {
           displayName: username,

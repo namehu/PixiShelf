@@ -2,7 +2,10 @@ import { FastifyInstance } from 'fastify'
 import { FileScanner } from '../services/scanner'
 
 export default async function scanRoutes(server: FastifyInstance) {
-  server.get('/api/v1/scan/status', async () => ({ scanning: server.appState.scanning, message: server.appState.lastProgressMessage }))
+  server.get('/api/v1/scan/status', async () => ({
+    scanning: server.appState.scanning,
+    message: server.appState.lastProgressMessage
+  }))
 
   server.post('/api/v1/scan', async (req, reply) => {
     const scanPath = await server.settingService.getScanPath()
@@ -21,7 +24,10 @@ export default async function scanRoutes(server: FastifyInstance) {
       const body = req.body as { force?: boolean }
       const forceUpdate = body?.force === true
 
-      const scanner = new FileScanner(server.prisma, server.log)
+      const scanner = new FileScanner(server.prisma, server.log, {
+        enableOptimizations: true, // 重新启用优化模式，已修复跳过目录提示问题
+        maxConcurrency: 8 // 可选：自定义并发数
+      })
       const result = await scanner.scan({
         scanPath,
         forceUpdate,
@@ -30,8 +36,26 @@ export default async function scanRoutes(server: FastifyInstance) {
           if (server.appState.cancelRequested) {
             throw new Error('Scan cancelled')
           }
+
+          // 添加性能监控
+          const metrics = scanner.getPerformanceMetrics()
+          server.log.debug(
+            {
+              p,
+              metrics: {
+                throughput: metrics.throughput,
+                memoryUsage: metrics.memoryUsage.heapUsed,
+                concurrency: scanner.getConcurrencyStatus()
+              }
+            },
+            'Scan progress with metrics'
+          )
         }
       })
+
+      const metrics = scanner.getPerformanceMetrics()
+      const cacheStats = scanner.getCacheStats()
+      console.log('性能报告:', { metrics, cacheStats })
       return { success: true, result }
     } catch (err: any) {
       if (err?.message === 'Scan cancelled') {
@@ -64,7 +88,7 @@ export default async function scanRoutes(server: FastifyInstance) {
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Cache-Control'
     })
@@ -85,7 +109,10 @@ export default async function scanRoutes(server: FastifyInstance) {
     server.appState.lastProgressMessage = '初始化…'
 
     try {
-      const scanner = new FileScanner(server.prisma, server.log)
+      const scanner = new FileScanner(server.prisma, server.log, {
+        enableOptimizations: true, // 重新启用优化模式，已修复跳过目录提示问题
+        maxConcurrency: 8 // 可选：自定义并发数
+      })
 
       const result = await scanner.scan({
         scanPath,
@@ -96,10 +123,28 @@ export default async function scanRoutes(server: FastifyInstance) {
             throw new Error('Scan cancelled')
           }
           sendEvent('progress', progress)
+
+          // 添加性能监控
+          const metrics = scanner.getPerformanceMetrics()
+          server.log.debug(
+            {
+              progress,
+              metrics: {
+                throughput: metrics.throughput,
+                memoryUsage: metrics.memoryUsage.heapUsed,
+                concurrency: scanner.getConcurrencyStatus()
+              }
+            },
+            'Scan progress with metrics'
+          )
         }
       })
 
       sendEvent('complete', { success: true, result })
+
+      const metrics = scanner.getPerformanceMetrics()
+      const cacheStats = scanner.getCacheStats()
+      console.log('性能报告:', { metrics, cacheStats })
     } catch (error: any) {
       if (error?.message === 'Scan cancelled') {
         sendEvent('cancelled', { success: false, error: 'Scan cancelled' })
