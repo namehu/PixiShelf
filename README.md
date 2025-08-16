@@ -114,10 +114,6 @@ SCAN_PATH="/path/to/your/artwork/directory"
 PORT=3002
 NODE_ENV=development
 
-# 图片处理配置
-THUMBNAIL_SIZES=150,300,600
-IMAGE_CACHE_PATH="./cache/images"
-SCAN_INTERVAL_HOURS=24
 ```
 
 #### 3.3 配置Web环境变量

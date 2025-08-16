@@ -9,9 +9,9 @@ services:
     image: postgres:15
     container_name: pixishelf-db
     environment:
+      POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: pixishelf
-      POSTGRES_USER: pixishelf
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
@@ -35,10 +35,11 @@ services:
       - "3002:3002"
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://pixishelf:${POSTGRES_PASSWORD}@postgres:5432/pixishelf
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
+
       JWT_SECRET: ${JWT_SECRET}
-      INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME:-admin}
-      INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-admin123}
+      INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME}
+      INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD}
       SCAN_PATH: /app/data
     volumes:
       - ${SCAN_PATH}:/app/data:ro  # 只读挂载图片目录
