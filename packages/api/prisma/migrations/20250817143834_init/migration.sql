@@ -16,12 +16,31 @@ CREATE TABLE "Artwork" (
     "id" SERIAL NOT NULL,
     "title" TEXT NOT NULL,
     "description" TEXT,
-    "tags" TEXT[],
     "artistId" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Artwork_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Tag" (
+    "id" SERIAL NOT NULL,
+    "name" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Tag_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ArtworkTag" (
+    "id" SERIAL NOT NULL,
+    "artworkId" INTEGER NOT NULL,
+    "tagId" INTEGER NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ArtworkTag_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -31,6 +50,7 @@ CREATE TABLE "Image" (
     "width" INTEGER,
     "height" INTEGER,
     "size" INTEGER,
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
     "artworkId" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -71,6 +91,18 @@ CREATE INDEX "Artwork_title_description_idx" ON "Artwork"("title", "description"
 CREATE UNIQUE INDEX "Artwork_artistId_title_key" ON "Artwork"("artistId", "title");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Tag_name_key" ON "Tag"("name");
+
+-- CreateIndex
+CREATE INDEX "Tag_name_idx" ON "Tag"("name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ArtworkTag_artworkId_tagId_key" ON "ArtworkTag"("artworkId", "tagId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Image_artworkId_path_key" ON "Image"("artworkId", "path");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
 
 -- CreateIndex
@@ -78,6 +110,12 @@ CREATE UNIQUE INDEX "Setting_key_key" ON "Setting"("key");
 
 -- AddForeignKey
 ALTER TABLE "Artwork" ADD CONSTRAINT "Artwork_artistId_fkey" FOREIGN KEY ("artistId") REFERENCES "Artist"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ArtworkTag" ADD CONSTRAINT "ArtworkTag_artworkId_fkey" FOREIGN KEY ("artworkId") REFERENCES "Artwork"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ArtworkTag" ADD CONSTRAINT "ArtworkTag_tagId_fkey" FOREIGN KEY ("tagId") REFERENCES "Tag"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Image" ADD CONSTRAINT "Image_artworkId_fkey" FOREIGN KEY ("artworkId") REFERENCES "Artwork"("id") ON DELETE SET NULL ON UPDATE CASCADE;
