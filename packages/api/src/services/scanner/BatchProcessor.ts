@@ -336,20 +336,38 @@ export class BatchProcessor {
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
       try {
-        const createData = batch.map(({ tempId, ...data }) => data);
-        const createdArtworks = await this.prisma.artwork.createManyAndReturn({
-          data: createData,
-        });
-
-        // 更新映射
-        for (let j = 0; j < createdArtworks.length; j++) {
-          const artwork = createdArtworks[j];
-          const tempId = batch[j].tempId;
+        // 使用 upsert 方式处理每个作品，避免唯一约束冲突
+        for (const item of batch) {
+          const { tempId, ...artworkData } = item;
+          
+          const artwork = await this.prisma.artwork.upsert({
+             where: {
+               unique_artist_title: {
+                 artistId: artworkData.artistId,
+                 title: artworkData.title
+               }
+             },
+             update: {
+               description: artworkData.description
+             },
+             create: artworkData
+           });
+          
           this.entityMapping.artworks.set(tempId, artwork.id);
+          
+          // 只有在创建新作品时才增加计数
+          // 注意：upsert 不会告诉我们是创建还是更新，所以我们需要检查
+          const wasCreated = await this.prisma.artwork.findFirst({
+            where: { id: artwork.id },
+            select: { createdAt: true, updatedAt: true }
+          });
+          
+          if (wasCreated && wasCreated.createdAt.getTime() === wasCreated.updatedAt.getTime()) {
+            result.artworksCreated++;
+          }
         }
-
-        result.artworksCreated += createdArtworks.length;
-        this.reportProgress('artworks', (i + 1) * this.config.batchSize, this.batchData.artworks.length, 2, 5, `Created ${result.artworksCreated} artworks`);
+        
+        this.reportProgress('artworks', (i + 1) * this.config.batchSize, this.batchData.artworks.length, 2, 5, `Processed ${result.artworksCreated} artworks`);
       } catch (error) {
         await this.handleBatchError('artwork', batch, error, result);
       }
@@ -513,9 +531,29 @@ export class BatchProcessor {
         break;
       case 'artwork':
         const { tempId, ...artworkData } = item;
-        const artwork = await this.prisma.artwork.create({ data: artworkData });
-        this.entityMapping.artworks.set(tempId, artwork.id);
-        result.artworksCreated++;
+        try {
+          const artwork = await this.prisma.artwork.create({ data: artworkData });
+          this.entityMapping.artworks.set(tempId, artwork.id);
+          result.artworksCreated++;
+        } catch (e) {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            // 唯一约束冲突，查找已存在的作品
+            const existingArtwork = await this.prisma.artwork.findFirst({
+              where: { 
+                title: artworkData.title, 
+                artistId: artworkData.artistId 
+              }
+            });
+            if (existingArtwork) {
+              this.entityMapping.artworks.set(tempId, existingArtwork.id);
+              // 不增加 artworksCreated 计数，因为是已存在的
+            } else {
+              throw e; // 如果找不到已存在的作品，重新抛出错误
+            }
+          } else {
+            throw e;
+          }
+        }
         break;
       case 'tag':
         const tag = await this.prisma.tag.create({ data: item });

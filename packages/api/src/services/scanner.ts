@@ -664,12 +664,7 @@ export class FileScanner {
 
       // 如果强制更新，先清理所有相关数据
       if (forceUpdate) {
-        onProgress?.({
-          phase: 'cleanup',
-          message: '强制更新：清理现有数据...',
-          percentage: 10
-        })
-        await this.cleanupExistingData()
+        await this.cleanupExistingData(onProgress)
       }
 
       // 选择扫描策略
@@ -724,77 +719,98 @@ export class FileScanner {
     let artistCount = 0
     let artworkCount = 0
     let scannedDirs = 0
+    const startTime = Date.now()
+
+    onProgress?.({
+      phase: 'counting',
+      message: '开始快速预扫描目录结构...',
+      percentage: 0
+    })
 
     try {
       const artistEntries = await fs.readdir(rootPath, { withFileTypes: true })
+      const validArtistEntries = artistEntries.filter(entry => 
+        this.isValidName(entry.name) && 
+        !entry.name.startsWith('.') && 
+        !entry.name.startsWith('$') && 
+        entry.isDirectory()
+      )
 
-      for (const artistEntry of artistEntries) {
-        // +++ 改动点：在这里加入名称验证 +++
-        if (!this.isValidName(artistEntry.name)) {
-          this.logger.warn(`预扫描：跳过不规范的艺术家目录名: ${artistEntry.name}`)
-          continue // 跳过此目录
-        }
+      onProgress?.({
+        phase: 'counting',
+        message: `发现 ${validArtistEntries.length} 个艺术家目录，开始统计作品...`,
+        percentage: 10
+      })
 
-        // 跳过隐藏目录和文件
-        if (artistEntry.name.startsWith('.') || artistEntry.name.startsWith('$') || !artistEntry.isDirectory()) {
-          continue
-        }
-
-        const artistPath = path.join(rootPath, artistEntry.name)
-        scannedDirs++
-        artistCount++
-
-        // 每扫描50个目录更新一次进度提示
-        if (scannedDirs % 50 === 0) {
-          onProgress?.({
-            phase: 'counting',
-            message: `预扫描中... 已检查 ${scannedDirs} 个艺术家目录，当前：${artistEntry.name}`,
-            percentage: undefined
-          })
-        }
-
-        try {
-          const artworkEntries = await fs.readdir(artistPath, {
-            withFileTypes: true
-          })
-
-          for (const artworkEntry of artworkEntries) {
-            // +++ 改动点：在这里也加入名称验证 +++
-            if (!this.isValidName(artworkEntry.name)) {
-              this.logger.warn(`预扫描：跳过不规范的作品目录名: ${path.join(artistPath, artworkEntry.name)}`)
-              continue // 跳过此目录
+      // 使用并发处理来加速预扫描
+      const concurrencyLimit = 10 // 限制并发数避免文件系统过载
+      const batches = this.createTaskBatches(validArtistEntries, concurrencyLimit)
+      
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex]
+        
+        // 并发处理当前批次
+        const batchPromises = batch.map(async (artistEntry) => {
+          const artistPath = path.join(rootPath, artistEntry.name)
+          let localArtworkCount = 0
+          
+          try {
+            const artworkEntries = await fs.readdir(artistPath, { withFileTypes: true })
+            
+            // 快速统计：只检查目录数量，不深入检查图片文件
+            for (const artworkEntry of artworkEntries) {
+              if (this.isValidName(artworkEntry.name) && 
+                  !artworkEntry.name.startsWith('.') && 
+                  !artworkEntry.name.startsWith('$') && 
+                  artworkEntry.isDirectory()) {
+                localArtworkCount++
+              }
             }
-
-            if (artworkEntry.name.startsWith('.') || artworkEntry.name.startsWith('$') || !artworkEntry.isDirectory()) {
-              continue
-            }
-
-            const artworkPath = path.join(artistPath, artworkEntry.name)
-
-            // 检查是否有图片文件
-            const hasImages = await this.hasImageFiles(artworkPath, extensions)
-            if (hasImages) {
-              artworkCount++
-            }
+          } catch (error) {
+            this.logger.warn({ error, artistPath }, 'Failed to scan artist directory during counting')
           }
-        } catch (error) {
-          this.logger.warn({ error, artistPath }, 'Failed to scan artist directory during counting')
+          
+          return { artistName: artistEntry.name, artworkCount: localArtworkCount }
+        })
+        
+        const batchResults = await Promise.all(batchPromises)
+        
+        // 累计结果
+        for (const result of batchResults) {
+          artistCount++
+          artworkCount += result.artworkCount
+          scannedDirs++
         }
+        
+        // 更新进度
+        const progress = 10 + (batchIndex + 1) / batches.length * 80
+        const elapsed = Date.now() - startTime
+        const estimated = elapsed / (batchIndex + 1) * (batches.length - batchIndex - 1)
+        
+        onProgress?.({
+          phase: 'counting',
+          message: `预扫描进度: ${scannedDirs}/${validArtistEntries.length} 艺术家目录，发现 ${artworkCount} 个作品目录`,
+          percentage: Math.round(progress),
+          estimatedSecondsRemaining: Math.round(estimated / 1000)
+        })
       }
     } catch (error) {
       this.logger.warn({ error, rootPath }, 'Failed to scan root directory during counting')
     }
 
     const totalWorkUnits = artistCount + artworkCount
-    const summaryMessage = `统计完成：发现 ${artistCount} 个艺术家目录，${artworkCount} 个作品目录，总工作量 ${totalWorkUnits}`
+    const elapsed = Date.now() - startTime
+    const summaryMessage = `预扫描完成！发现 ${artistCount} 个艺术家，${artworkCount} 个作品目录，耗时 ${Math.round(elapsed/1000)}秒`
+    
     onProgress?.({
       phase: 'counting',
       message: summaryMessage,
       current: totalWorkUnits,
       total: totalWorkUnits,
-      percentage: 0
+      percentage: 100
     })
 
+    this.logger.info({ artistCount, artworkCount, totalWorkUnits, elapsed }, 'Directory counting completed')
     return { totalWorkUnits, artistCount, artworkCount }
   }
 
@@ -1205,14 +1221,61 @@ export class FileScanner {
     }
   }
 
-  private async cleanupExistingData(): Promise<void> {
+  private async cleanupExistingData(onProgress?: (progress: ScanProgress) => void): Promise<void> {
     try {
-      // 使用事务确保原子性：先删 Image，再删 Artwork，最后删 Artist
-      await this.prisma.$transaction([
-        this.prisma.image.deleteMany({}),
-        this.prisma.artwork.deleteMany({}),
-        this.prisma.artist.deleteMany({})
-      ])
+      onProgress?.({
+        phase: 'cleanup',
+        message: '正在清理现有数据...',
+        percentage: 0
+      })
+      
+      // 分步删除，提供进度反馈
+      this.logger.info('Starting cleanup: deleting images...')
+      onProgress?.({
+        phase: 'cleanup',
+        message: '正在删除图片数据...',
+        percentage: 10
+      })
+      await this.prisma.image.deleteMany({})
+      
+      this.logger.info('Cleanup: deleting artwork tags...')
+      onProgress?.({
+        phase: 'cleanup',
+        message: '正在删除作品标签关联...',
+        percentage: 30
+      })
+      await this.prisma.artworkTag.deleteMany({})
+      
+      this.logger.info('Cleanup: deleting artworks...')
+      onProgress?.({
+        phase: 'cleanup',
+        message: '正在删除作品数据...',
+        percentage: 60
+      })
+      await this.prisma.artwork.deleteMany({})
+      
+      this.logger.info('Cleanup: deleting artists...')
+      onProgress?.({
+        phase: 'cleanup',
+        message: '正在删除艺术家数据...',
+        percentage: 80
+      })
+      await this.prisma.artist.deleteMany({})
+      
+      this.logger.info('Cleanup: deleting tags...')
+      onProgress?.({
+        phase: 'cleanup',
+        message: '正在删除标签数据...',
+        percentage: 90
+      })
+      await this.prisma.tag.deleteMany({})
+      
+      onProgress?.({
+        phase: 'cleanup',
+        message: '数据清理完成',
+        percentage: 100
+      })
+      
       this.logger.info('Cleaned up existing data for force update')
     } catch (error) {
       this.logger.error({ error }, 'Failed to cleanup existing data')
