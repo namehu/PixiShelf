@@ -10,7 +10,14 @@ export default async function scanRoutes(server: FastifyInstance) {
 
 
 
-  server.post('/api/v1/scan/cancel', async (_req, _reply) => {
+  server.post('/api/v1/scan/cancel', {
+    preHandler: async (request, reply) => {
+      // 对于这个接口，我们不需要解析请求体，直接跳过
+      if (request.headers['content-type'] === 'application/json' && !request.body) {
+        request.body = {}
+      }
+    }
+  }, async (_req, _reply) => {
     if (!server.appState.scanning) return { success: true, cancelled: false }
     server.appState.cancelRequested = true
     server.appState.lastProgressMessage = '正在取消…'
