@@ -33,7 +33,7 @@ program
   .command('validate')
   .description('验证当前配置')
   .option('-v, --verbose', '显示详细信息')
-  .action(async (options) => {
+  .action(async (options: { verbose?: boolean }) => {
     try {
       console.log('🔍 正在验证配置...');
       
@@ -92,7 +92,7 @@ program
   .option('-s, --section <section>', '显示特定配置节 (server, database, scanner, auth, log, monitoring)')
   .option('-p, --path <path>', '显示特定配置路径 (例如: scanner.maxConcurrency)')
   .option('--summary', '只显示配置摘要')
-  .action(async (options) => {
+  .action(async (options: { section?: string; path?: string; summary?: boolean }) => {
     try {
       await initializeConfig();
       
@@ -140,7 +140,7 @@ program
   .description('导出配置到文件')
   .argument('<file>', '输出文件路径')
   .option('-f, --format <format>', '输出格式 (json, yaml)', 'json')
-  .action(async (file, options) => {
+  .action(async (file: string, options: { format?: string }) => {
     try {
       await initializeConfig();
       
@@ -177,10 +177,10 @@ program
   .command('env-example')
   .description('生成环境变量示例文件')
   .option('-o, --output <file>', '输出文件路径', '.env.example')
-  .action(async (options) => {
+  .action(async (options: { output?: string }) => {
     try {
       const envExample = getEnvExample();
-      const outputPath = path.resolve(options.output);
+      const outputPath = path.resolve(options.output || '.env.example');
       
       await fs.writeFile(outputPath, envExample, 'utf-8');
       console.log(`✅ 环境变量示例已生成: ${outputPath}`);
@@ -196,7 +196,7 @@ program
   .command('health')
   .description('检查配置健康状态')
   .option('--exit-code', '根据健康状态设置退出码')
-  .action(async (options) => {
+  .action(async (options: { exitCode?: boolean }) => {
     try {
       await initializeConfig();
       

@@ -45,7 +45,8 @@ const start = async () => {
         // 输出配置摘要
         if (config.isDevelopment) {
           const summary = getConfigSummary()
-          server.log.debug('Configuration summary:', summary)
+          server.log.debug('Configuration summary:')
+          server.log.debug(summary)
         }
       })
       .catch((err) => {

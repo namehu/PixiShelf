@@ -93,7 +93,7 @@ export const envVarMapping: EnvVarMapping = {
   'server.port': {
     envVar: 'PORT',
     type: 'number',
-    defaultValue: 3001,
+    defaultValue: 3002,
     validate: (value) => value > 0 && value <= 65535,
   },
   'server.host': {
