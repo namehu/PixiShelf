@@ -28,8 +28,9 @@ export class CacheManager {
    * 预编译常用的正则表达式
    */
   private precompileRegexes(): void {
-    // 文件名验证正则表达式
-    this.nameValidationRegex = /^[a-zA-Z0-9\s_\-.()一-龥぀-ヿ]+$/;
+    // 文件名验证正则表达式 - 更严格的验证
+    // 只允许：字母、数字、空格、下划线、连字符、点、括号、中文、日文假名
+    this.nameValidationRegex = /^[a-zA-Z0-9\s_\-.()\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff]+$/;
     this.regexCache.set('nameValidation', this.nameValidationRegex);
 
     // 艺术家名称解析正则表达式

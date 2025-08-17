@@ -15,7 +15,13 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "config": "tsx src/scripts/config-cli.ts",
+    "config:validate": "npm run config validate",
+    "config:health": "npm run config health",
+    "config:show": "npm run config show",
+    "config:env-example": "npm run config env-example",
+    "config:wizard": "npm run config wizard"
   },
   "dependencies": {
     "@pixishelf/shared": "workspace:*",
@@ -28,7 +34,8 @@
     "mime-types": "^2.1.35",
     "node-cron": "^3.0.3",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "commander": "^11.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.8.0",

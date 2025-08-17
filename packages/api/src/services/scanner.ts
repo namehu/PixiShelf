@@ -1,93 +1,77 @@
-import { promises as fs } from "fs";
-import path from "path";
-import os from "os";
-import { PrismaClient, Prisma } from "@prisma/client";
-import { FastifyInstance } from "fastify";
-import { ConcurrencyController } from "./scanner/ConcurrencyController";
-import { BatchProcessor } from "./scanner/BatchProcessor";
-import { CacheManager } from "./scanner/CacheManager";
-import { PerformanceMetrics, ScanTask, TaskResult } from "./scanner/types";
+import { promises as fs } from 'fs'
+import path from 'path'
+import os from 'os'
+import { PrismaClient, Prisma } from '@prisma/client'
+import { FastifyInstance } from 'fastify'
+import { ConcurrencyController } from './scanner/ConcurrencyController'
+import { BatchProcessor } from './scanner/BatchProcessor'
+import { CacheManager } from './scanner/CacheManager'
+import { PerformanceMetrics, ScanTask, TaskResult } from './scanner/types'
+import { config } from '../config'
 
 export interface ScanOptions {
-  scanPath: string;
-  supportedExtensions?: string[];
-  forceUpdate?: boolean;
-  onProgress?: (progress: ScanProgress) => void;
+  scanPath: string
+  supportedExtensions?: string[]
+  forceUpdate?: boolean
+  onProgress?: (progress: ScanProgress) => void
 }
 
 export interface ScanProgress {
-  phase: "counting" | "scanning" | "creating" | "cleanup" | "complete";
-  message: string;
-  current?: number;
-  total?: number;
-  percentage?: number;
-  estimatedSecondsRemaining?: number;
+  phase: 'counting' | 'scanning' | 'creating' | 'cleanup' | 'complete'
+  message: string
+  current?: number
+  total?: number
+  percentage?: number
+  estimatedSecondsRemaining?: number
 }
 
 export interface ScanResult {
-  scannedDirectories: number;
-  foundImages: number;
-  newArtworks: number;
-  newImages: number;
-  removedArtworks: number;
-  errors: string[];
+  scannedDirectories: number
+  foundImages: number
+  newArtworks: number
+  newImages: number
+  removedArtworks: number
+  errors: string[]
   // +++ 新增字段，用于告知前端哪些目录被跳过了 +++
-  skippedDirectories: Array<{ path: string; reason: string }>;
+  skippedDirectories: Array<{ path: string; reason: string }>
 }
 
 interface MetadataInfo {
-  description?: string;
-  tags: string[];
+  description?: string
+  tags: string[]
 }
 
 export class FileScanner {
-  private prisma: PrismaClient;
-  private logger: FastifyInstance["log"];
-  private supportedExtensions = [
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".gif",
-    ".webp",
-    ".bmp",
-    ".tiff",
-  ];
-  private scanRootAbs: string | null = null;
-  
+  private prisma: PrismaClient
+  private logger: FastifyInstance['log']
+  private supportedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff']
+  private scanRootAbs: string | null = null
+
   // 性能优化组件
-  private concurrencyController!: ConcurrencyController;
-  private batchProcessor!: BatchProcessor;
-  private cacheManager!: CacheManager;
-  private performanceMetrics!: PerformanceMetrics;
-  private enableOptimizations: boolean = true;
+  private concurrencyController!: ConcurrencyController
+  private batchProcessor!: BatchProcessor
+  private cacheManager!: CacheManager
+  private performanceMetrics!: PerformanceMetrics
+  private enableOptimizations: boolean = true
 
-  constructor(
-    prisma: PrismaClient, 
-    logger: FastifyInstance["log"],
-    options: { enableOptimizations?: boolean; maxConcurrency?: number } = {}
-  ) {
-    this.prisma = prisma;
-    this.logger = logger;
-    this.enableOptimizations = options.enableOptimizations ?? true;
-    
+  constructor(prisma: PrismaClient, logger: FastifyInstance['log']) {
+    this.prisma = prisma
+    this.logger = logger
+    this.enableOptimizations = config.scanner.enableOptimizations ?? true
+
     // 初始化性能优化组件
-    this.concurrencyController = new ConcurrencyController(options.maxConcurrency);
-    this.cacheManager = new CacheManager(this.supportedExtensions);
-    this.batchProcessor = new BatchProcessor(
-       this.prisma,
-       this.logger,
-       { batchSize: 500 },
-       (progress) => {
-         this.logger.debug({ progress }, 'Batch processing progress');
-       }
-     );
-     
-     this.initializePerformanceMetrics();
-   }
+    this.concurrencyController = new ConcurrencyController(config.scanner.maxConcurrency)
+    this.cacheManager = new CacheManager(this.supportedExtensions)
+    this.batchProcessor = new BatchProcessor(this.prisma, this.logger, { batchSize: 500 }, (progress) => {
+      this.logger.debug({ progress }, 'Batch processing progress')
+    })
 
-   /**
-    * 优化的扫描方法
-    */
+    this.initializePerformanceMetrics()
+  }
+
+  /**
+   * 优化的扫描方法
+   */
   private async scanOptimized(
     scanPath: string,
     extensions: string[],
@@ -95,104 +79,104 @@ export class FileScanner {
     onProgress?: (progress: ScanProgress) => void
   ): Promise<void> {
     onProgress?.({
-      phase: "counting",
-      message: "并发扫描：收集目录结构...",
-      percentage: 0,
-    });
+      phase: 'counting',
+      message: '并发扫描：收集目录结构...',
+      percentage: 0
+    })
 
     // 并发收集所有扫描任务
-     const scanTasks = await this.collectScanTasksConcurrently(scanPath, extensions, result);
-     this.performanceMetrics.totalFiles = scanTasks.length;
+    const scanTasks = await this.collectScanTasksConcurrently(scanPath, extensions, result)
+    this.performanceMetrics.totalFiles = scanTasks.length
 
     onProgress?.({
-      phase: "scanning",
+      phase: 'scanning',
       message: `开始并发处理 ${scanTasks.length} 个任务...`,
       current: 0,
       total: scanTasks.length,
-      percentage: 0,
-    });
+      percentage: 0
+    })
 
     // 并发处理扫描任务
-    let processedTasks = 0;
-    const startTime = Date.now();
-    
-    const taskBatches = this.createTaskBatches(scanTasks, 100); // 每批100个任务
-    
+    let processedTasks = 0
+    const startTime = Date.now()
+
+    const taskBatches = this.createTaskBatches(scanTasks, 100) // 每批100个任务
+
     for (let batchIndex = 0; batchIndex < taskBatches.length; batchIndex++) {
-      const batch = taskBatches[batchIndex];
-      
+      const batch = taskBatches[batchIndex]
+
       const batchResults = await this.concurrencyController.executeAllSettled(
-        batch.map(task => () => this.processScanTask(task, extensions))
-      );
+        batch.map((task) => () => this.processScanTask(task, extensions))
+      )
 
       // 处理批次结果
       for (const taskResult of batchResults) {
-        processedTasks++;
-        this.performanceMetrics.processedFiles++;
-        
+        processedTasks++
+        this.performanceMetrics.processedFiles++
+
         if (taskResult.status === 'fulfilled') {
-          const { success, data, skipped, reason } = taskResult.value;
+          const { success, data, skipped, reason } = taskResult.value
           if (success && data) {
-            this.addToResult(data, result);
+            this.addToResult(data, result)
           } else if (skipped && reason) {
-            result.skippedDirectories.push({ path: data?.path || '', reason });
-            this.performanceMetrics.skippedFiles++;
+            result.skippedDirectories.push({ path: data?.path || '', reason })
+            this.performanceMetrics.skippedFiles++
           }
         } else {
-          result.errors.push(taskResult.reason?.message || 'Unknown task error');
-          this.performanceMetrics.errorFiles++;
+          result.errors.push(taskResult.reason?.message || 'Unknown task error')
+          this.performanceMetrics.errorFiles++
         }
 
         // 更新进度
         if (processedTasks % 50 === 0 || processedTasks === scanTasks.length) {
-          const percentage = Math.floor((processedTasks / scanTasks.length) * 90); // 留10%给批量插入
-          const elapsedSec = (Date.now() - startTime) / 1000;
-          const rate = processedTasks / elapsedSec;
-          const remainingTasks = scanTasks.length - processedTasks;
-          const estSeconds = rate > 0 ? Math.ceil(remainingTasks / rate) : undefined;
-          
+          const percentage = Math.floor((processedTasks / scanTasks.length) * 90) // 留10%给批量插入
+          const elapsedSec = (Date.now() - startTime) / 1000
+          const rate = processedTasks / elapsedSec
+          const remainingTasks = scanTasks.length - processedTasks
+          const estSeconds = rate > 0 ? Math.ceil(remainingTasks / rate) : undefined
+
           onProgress?.({
-            phase: "scanning",
+            phase: 'scanning',
             message: `已处理 ${processedTasks}/${scanTasks.length} 个任务`,
             current: processedTasks,
             total: scanTasks.length,
             percentage,
-            estimatedSecondsRemaining: estSeconds,
-          });
+            estimatedSecondsRemaining: estSeconds
+          })
         }
       }
 
       // 定期刷新批量处理器
       if (this.batchProcessor.shouldFlush()) {
         onProgress?.({
-          phase: "creating",
-          message: "批量插入数据...",
-          percentage: Math.floor((processedTasks / scanTasks.length) * 90),
-        });
-        
-        const batchResult = await this.batchProcessor.flush();
-        this.updateResultFromBatch(batchResult, result);
-        this.performanceMetrics.databaseStats.batchOperations++;
+          phase: 'creating',
+          message: '批量插入数据...',
+          percentage: Math.floor((processedTasks / scanTasks.length) * 90)
+        })
+
+        const batchResult = await this.batchProcessor.flush()
+        this.updateResultFromBatch(batchResult, result)
+        this.performanceMetrics.databaseStats.batchOperations++
       }
 
       // 更新并发统计
-      const concurrencyStatus = this.concurrencyController.getStatus();
-      this.performanceMetrics.concurrencyStats.currentQueueLength = concurrencyStatus.queued;
+      const concurrencyStatus = this.concurrencyController.getStatus()
+      this.performanceMetrics.concurrencyStats.currentQueueLength = concurrencyStatus.queued
       this.performanceMetrics.concurrencyStats.peakQueueLength = Math.max(
         this.performanceMetrics.concurrencyStats.peakQueueLength,
         concurrencyStatus.queued
-      );
+      )
     }
 
     // 最终批量处理
     onProgress?.({
-      phase: "creating",
-      message: "完成批量数据插入...",
-      percentage: 95,
-    });
-    
-    const finalBatchResult = await this.batchProcessor.flush();
-    this.updateResultFromBatch(finalBatchResult, result);
+      phase: 'creating',
+      message: '完成批量数据插入...',
+      percentage: 95
+    })
+
+    const finalBatchResult = await this.batchProcessor.flush()
+    this.updateResultFromBatch(finalBatchResult, result)
   }
 
   /**
@@ -206,79 +190,63 @@ export class FileScanner {
   ): Promise<void> {
     // 第一遍：扫描根目录下的艺术家文件夹
     onProgress?.({
-      phase: "counting",
-      message: "预扫描：统计艺术家和作品目录...",
-      percentage: 0,
-    });
-    const { totalWorkUnits, artistCount, artworkCount } =
-      await this.countArtistsAndArtworks(scanPath, extensions, onProgress);
+      phase: 'counting',
+      message: '预扫描：统计艺术家和作品目录...',
+      percentage: 0
+    })
+    const { totalWorkUnits, artistCount, artworkCount } = await this.countArtistsAndArtworks(
+      scanPath,
+      extensions,
+      onProgress
+    )
 
     // 第二遍：正式扫描并按目录结构处理
-    let processedWorkUnits = 0;
-    const scanStartTs = Date.now();
-    const progressUpdate = (
-      increment: number,
-      message: string,
-      phase: ScanProgress["phase"] = "scanning"
-    ) => {
-      processedWorkUnits += increment;
+    let processedWorkUnits = 0
+    const scanStartTs = Date.now()
+    const progressUpdate = (increment: number, message: string, phase: ScanProgress['phase'] = 'scanning') => {
+      processedWorkUnits += increment
       const percentage =
-        totalWorkUnits > 0
-          ? Math.min(
-              99,
-              Math.floor((processedWorkUnits / totalWorkUnits) * 100)
-            )
-          : undefined;
-      const elapsedSec = Math.max(0.001, (Date.now() - scanStartTs) / 1000);
-      const rate =
-        processedWorkUnits > 0 ? processedWorkUnits / elapsedSec : 0;
-      const remainingUnits = Math.max(0, totalWorkUnits - processedWorkUnits);
-      const estSeconds =
-        rate > 0 ? Math.ceil(remainingUnits / rate) : undefined;
-      const detailedMessage = `${message} [${processedWorkUnits}/${totalWorkUnits}] (${percentage || 0}%)`;
+        totalWorkUnits > 0 ? Math.min(99, Math.floor((processedWorkUnits / totalWorkUnits) * 100)) : undefined
+      const elapsedSec = Math.max(0.001, (Date.now() - scanStartTs) / 1000)
+      const rate = processedWorkUnits > 0 ? processedWorkUnits / elapsedSec : 0
+      const remainingUnits = Math.max(0, totalWorkUnits - processedWorkUnits)
+      const estSeconds = rate > 0 ? Math.ceil(remainingUnits / rate) : undefined
+      const detailedMessage = `${message} [${processedWorkUnits}/${totalWorkUnits}] (${percentage || 0}%)`
       onProgress?.({
         phase,
         message: detailedMessage,
         current: processedWorkUnits,
         total: totalWorkUnits,
         percentage,
-        estimatedSecondsRemaining: estSeconds,
-      });
-    };
+        estimatedSecondsRemaining: estSeconds
+      })
+    }
 
-    const scanStartMessage = `开始扫描 ${artistCount} 个艺术家目录，${artworkCount} 个作品目录...`;
+    const scanStartMessage = `开始扫描 ${artistCount} 个艺术家目录，${artworkCount} 个作品目录...`
     onProgress?.({
-      phase: "scanning",
+      phase: 'scanning',
       message: scanStartMessage,
       current: 0,
       total: totalWorkUnits,
-      percentage: totalWorkUnits > 0 ? 0 : undefined,
-    });
+      percentage: totalWorkUnits > 0 ? 0 : undefined
+    })
 
     // 按照新的目录结构扫描
-    await this.scanArtistDirectories(
-      scanPath,
-      extensions,
-      result,
-      progressUpdate
-    );
+    await this.scanArtistDirectories(scanPath, extensions, result, progressUpdate)
   }
 
   /**
    * 最终处理阶段
    */
-  private async finalizeScan(
-    result: ScanResult,
-    onProgress?: (progress: ScanProgress) => void
-  ): Promise<void> {
+  private async finalizeScan(result: ScanResult, onProgress?: (progress: ScanProgress) => void): Promise<void> {
     onProgress?.({
-      phase: "cleanup",
-      message: "清理无图片的作品...",
-      percentage: 99,
-    });
-    
-    const removedCount = await this.cleanupEmptyArtworks();
-    result.removedArtworks = removedCount;
+      phase: 'cleanup',
+      message: '清理无图片的作品...',
+      percentage: 99
+    })
+
+    const removedCount = await this.cleanupEmptyArtworks()
+    result.removedArtworks = removedCount
   }
 
   /**
@@ -289,47 +257,48 @@ export class FileScanner {
     extensions: string[],
     result: ScanResult
   ): Promise<ScanTask[]> {
-    const tasks: ScanTask[] = [];
-    
+    const tasks: ScanTask[] = []
+
     try {
-      const artistEntries = await fs.readdir(rootPath, { withFileTypes: true });
-      
+      const artistEntries = await fs.readdir(rootPath, { withFileTypes: true })
+
       // 处理艺术家目录，记录跳过的目录
-      const validArtistEntries: typeof artistEntries = [];
-      
+      const validArtistEntries: typeof artistEntries = []
+
       for (const entry of artistEntries) {
-        const artistPath = path.join(rootPath, entry.name);
-        
-        if (!entry.isDirectory()) continue;
-        
-        if (this.cacheManager.isHiddenOrSystemFile(entry.name)) continue;
-        
+        const artistPath = path.join(rootPath, entry.name)
+
+        if (!entry.isDirectory()) continue
+
+        if (this.cacheManager.isHiddenOrSystemFile(entry.name)) continue
+
         if (!this.isValidName(entry.name)) {
-          const reason = "艺术家目录名包含不支持的字符";
-          this.logger.warn(`${reason}: ${artistPath}`);
-          result.skippedDirectories.push({ path: artistPath, reason });
-          continue;
+          const reason = '艺术家目录名包含不支持的字符'
+          this.logger.warn(`${reason}: ${artistPath}`)
+          result.skippedDirectories.push({ path: artistPath, reason })
+          continue
         }
-        
-        validArtistEntries.push(entry);
+
+        validArtistEntries.push(entry)
       }
-      
+
       // 并发处理有效的艺术家目录
-      const artistTasks = validArtistEntries
-        .map(entry => () => this.collectArtistTasks(rootPath, entry.name, extensions, result));
-      
-      const artistTaskResults = await this.concurrencyController.executeAllSettled(artistTasks);
-      
+      const artistTasks = validArtistEntries.map(
+        (entry) => () => this.collectArtistTasks(rootPath, entry.name, extensions, result)
+      )
+
+      const artistTaskResults = await this.concurrencyController.executeAllSettled(artistTasks)
+
       for (const taskResult of artistTaskResults) {
         if (taskResult.status === 'fulfilled') {
-          tasks.push(...taskResult.value);
+          tasks.push(...taskResult.value)
         }
       }
     } catch (error) {
-      this.logger.error({ error, rootPath }, 'Failed to collect scan tasks');
+      this.logger.error({ error, rootPath }, 'Failed to collect scan tasks')
     }
-    
-    return tasks;
+
+    return tasks
   }
 
   /**
@@ -341,35 +310,35 @@ export class FileScanner {
     extensions: string[],
     result: ScanResult
   ): Promise<ScanTask[]> {
-    const tasks: ScanTask[] = [];
-    const artistPath = path.join(rootPath, artistName);
-    
+    const tasks: ScanTask[] = []
+    const artistPath = path.join(rootPath, artistName)
+
     // 添加艺术家任务
     tasks.push({
       type: 'artist',
       path: artistPath,
-      metadata: { name: artistName },
-    });
-    
+      metadata: { name: artistName }
+    })
+
     try {
-      const artworkEntries = await fs.readdir(artistPath, { withFileTypes: true });
-      
+      const artworkEntries = await fs.readdir(artistPath, { withFileTypes: true })
+
       for (const artworkEntry of artworkEntries) {
-        const artworkPath = path.join(artistPath, artworkEntry.name);
-        
-        if (!artworkEntry.isDirectory()) continue;
-        
-        if (this.cacheManager.isHiddenOrSystemFile(artworkEntry.name)) continue;
-        
+        const artworkPath = path.join(artistPath, artworkEntry.name)
+
+        if (!artworkEntry.isDirectory()) continue
+
+        if (this.cacheManager.isHiddenOrSystemFile(artworkEntry.name)) continue
+
         if (!this.isValidName(artworkEntry.name)) {
-          const reason = "作品目录名包含不支持的字符";
-          this.logger.warn(`${reason}: ${artworkPath}`);
-          result.skippedDirectories.push({ path: artworkPath, reason });
-          continue;
+          const reason = '作品目录名包含不支持的字符'
+          this.logger.warn(`${reason}: ${artworkPath}`)
+          result.skippedDirectories.push({ path: artworkPath, reason })
+          continue
         }
-        
+
         // 检查是否有图片文件
-        const hasImages = await this.hasImageFiles(artworkPath, extensions);
+        const hasImages = await this.hasImageFiles(artworkPath, extensions)
         if (hasImages) {
           tasks.push({
             type: 'artwork',
@@ -377,43 +346,40 @@ export class FileScanner {
             parentPath: artistPath,
             metadata: {
               title: artworkEntry.name,
-              artistName: artistName,
-            },
-          });
+              artistName: artistName
+            }
+          })
         }
       }
     } catch (error) {
-      this.logger.warn({ error, artistPath }, 'Failed to collect artwork tasks');
+      this.logger.warn({ error, artistPath }, 'Failed to collect artwork tasks')
     }
-    
-    return tasks;
+
+    return tasks
   }
 
   /**
    * 处理单个扫描任务
    */
-  private async processScanTask(
-    task: ScanTask,
-    extensions: string[]
-  ): Promise<TaskResult> {
+  private async processScanTask(task: ScanTask, extensions: string[]): Promise<TaskResult> {
     try {
       switch (task.type) {
         case 'artist':
-          return await this.processArtistTask(task);
+          return await this.processArtistTask(task)
         case 'artwork':
-          return await this.processArtworkTask(task, extensions);
+          return await this.processArtworkTask(task, extensions)
         default:
           return {
             success: false,
-            error: `Unknown task type: ${task.type}`,
-          };
+            error: `Unknown task type: ${task.type}`
+          }
       }
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
-        data: { path: task.path },
-      };
+        data: { path: task.path }
+      }
     }
   }
 
@@ -421,76 +387,74 @@ export class FileScanner {
    * 处理艺术家任务
    */
   private async processArtistTask(task: ScanTask): Promise<TaskResult> {
-    const artistData = this.cacheManager.parseArtistName(task.metadata.name);
-    
+    const artistData = this.cacheManager.parseArtistName(task.metadata.name)
+
     this.batchProcessor.addArtist({
       name: artistData.displayName,
       username: artistData.username,
       userId: artistData.userId,
-      bio: artistData.username && artistData.userId 
-        ? `Artist: ${artistData.username} (ID: ${artistData.userId})`
-        : `Artist discovered from directory: ${task.metadata.name}`,
-    });
-    
+      bio:
+        artistData.username && artistData.userId
+          ? `Artist: ${artistData.username} (ID: ${artistData.userId})`
+          : `Artist discovered from directory: ${task.metadata.name}`
+    })
+
     return {
       success: true,
-      data: { type: 'artist', name: artistData.displayName },
-    };
+      data: { type: 'artist', name: artistData.displayName }
+    }
   }
 
   /**
    * 处理作品任务
    */
-  private async processArtworkTask(
-    task: ScanTask,
-    extensions: string[]
-  ): Promise<TaskResult> {
-    const { title, artistName } = task.metadata;
-    
+  private async processArtworkTask(task: ScanTask, extensions: string[]): Promise<TaskResult> {
+    const { title, artistName } = task.metadata
+
     // 收集图片
-    const images = await this.collectImagesFromDirectory(task.path, extensions);
+    const images = await this.collectImagesFromDirectory(task.path, extensions)
     if (images.length === 0) {
       return {
         success: false,
         skipped: true,
         reason: '没有找到图片文件',
-        data: { path: task.path },
-      };
+        data: { path: task.path }
+      }
     }
-    
+
     // 解析元数据
-    const metadata = await this.parseMetadata(task.path);
-    
+    const metadata = await this.parseMetadata(task.path)
+
     // 添加到批量处理器
     this.batchProcessor.addArtwork({
       title,
       description: metadata.description,
       artistId: 0, // 将在批量处理时解析
-      artistName,
-    });
-    
+      artistName
+    })
+
     // 添加图片
     for (const imagePath of images) {
-      const stats = await fs.stat(imagePath);
-      const relativePath = this.cacheManager.getRelativePath(imagePath, this.scanRootAbs!);
-      
+      const stats = await fs.stat(imagePath)
+      const relativePath = this.cacheManager.getRelativePath(imagePath, this.scanRootAbs!)
+
       this.batchProcessor.addImage({
         path: relativePath,
         size: stats.size,
         artworkTitle: title,
-        artistName,
-      });
+        artistName
+      })
     }
-    
+
     // 添加标签
     for (const tagName of metadata.tags) {
-      const cleanedTag = this.cacheManager.cleanTagPrefix(tagName);
+      const cleanedTag = this.cacheManager.cleanTagPrefix(tagName)
       if (cleanedTag) {
-        this.batchProcessor.addTag({ name: cleanedTag });
-        this.batchProcessor.addArtworkTag(title, artistName, cleanedTag);
+        this.batchProcessor.addTag({ name: cleanedTag })
+        this.batchProcessor.addArtworkTag(title, artistName, cleanedTag)
       }
     }
-    
+
     return {
       success: true,
       data: {
@@ -498,20 +462,20 @@ export class FileScanner {
         title,
         artistName,
         imageCount: images.length,
-        tagCount: metadata.tags.length,
-      },
-    };
+        tagCount: metadata.tags.length
+      }
+    }
   }
 
   /**
    * 创建任务批次
    */
   private createTaskBatches<T>(tasks: T[], batchSize: number): T[][] {
-    const batches: T[][] = [];
+    const batches: T[][] = []
     for (let i = 0; i < tasks.length; i += batchSize) {
-      batches.push(tasks.slice(i, i + batchSize));
+      batches.push(tasks.slice(i, i + batchSize))
     }
-    return batches;
+    return batches
   }
 
   /**
@@ -519,8 +483,8 @@ export class FileScanner {
    */
   private addToResult(data: any, result: ScanResult): void {
     if (data.type === 'artwork') {
-      result.scannedDirectories++;
-      result.foundImages += data.imageCount || 0;
+      result.scannedDirectories++
+      result.foundImages += data.imageCount || 0
     }
   }
 
@@ -528,29 +492,29 @@ export class FileScanner {
    * 从批量处理结果更新扫描结果
    */
   private updateResultFromBatch(batchResult: any, result: ScanResult): void {
-    result.newArtworks += batchResult.artworksCreated || 0;
-    result.newImages += batchResult.imagesCreated || 0;
-    result.errors.push(...(batchResult.errors || []).map((e: any) => e.error));
-    
+    result.newArtworks += batchResult.artworksCreated || 0
+    result.newImages += batchResult.imagesCreated || 0
+    result.errors.push(...(batchResult.errors || []).map((e: any) => e.error))
+
     // 更新数据库统计
-    this.performanceMetrics.databaseStats.totalInserts += 
+    this.performanceMetrics.databaseStats.totalInserts +=
       (batchResult.artistsCreated || 0) +
       (batchResult.artworksCreated || 0) +
       (batchResult.imagesCreated || 0) +
-      (batchResult.tagsCreated || 0);
+      (batchResult.tagsCreated || 0)
   }
 
   /**
    * 更新内存使用统计
    */
   private updateMemoryUsage(): void {
-    const memUsage = process.memoryUsage();
+    const memUsage = process.memoryUsage()
     this.performanceMetrics.memoryUsage = {
       heapUsed: memUsage.heapUsed,
       heapTotal: memUsage.heapTotal,
       external: memUsage.external,
-      rss: memUsage.rss,
-    };
+      rss: memUsage.rss
+    }
   }
 
   /**
@@ -558,48 +522,48 @@ export class FileScanner {
    */
   private calculateThroughput(): number {
     if (!this.performanceMetrics.endTime || !this.performanceMetrics.startTime) {
-      return 0;
+      return 0
     }
-    
-    const elapsedSeconds = (this.performanceMetrics.endTime - this.performanceMetrics.startTime) / 1000;
-    return elapsedSeconds > 0 ? this.performanceMetrics.processedFiles / elapsedSeconds : 0;
+
+    const elapsedSeconds = (this.performanceMetrics.endTime - this.performanceMetrics.startTime) / 1000
+    return elapsedSeconds > 0 ? this.performanceMetrics.processedFiles / elapsedSeconds : 0
   }
 
   /**
    * 获取性能报告
    */
   private getPerformanceReport(): any {
-    const cacheStats = this.cacheManager.getStats();
-    const concurrencyStatus = this.concurrencyController.getStatus();
-    
+    const cacheStats = this.cacheManager.getStats()
+    const concurrencyStatus = this.concurrencyController.getStatus()
+
     return {
       ...this.performanceMetrics,
       cacheStats,
       concurrencyStatus,
-      optimizationsEnabled: this.enableOptimizations,
-    };
+      optimizationsEnabled: this.enableOptimizations
+    }
   }
 
   /**
    * 获取性能指标（公共方法）
    */
   getPerformanceMetrics(): PerformanceMetrics {
-    return { ...this.performanceMetrics };
+    return { ...this.performanceMetrics }
   }
 
   /**
    * 获取缓存统计（公共方法）
    */
   getCacheStats() {
-    return this.cacheManager.getStats();
+    return this.cacheManager.getStats()
   }
 
   /**
    * 获取并发状态（公共方法）
    */
   getConcurrencyStatus() {
-     return this.concurrencyController.getStatus();
-   }
+    return this.concurrencyController.getStatus()
+  }
 
   /**
    * 初始化性能指标
@@ -616,22 +580,22 @@ export class FileScanner {
         heapUsed: 0,
         heapTotal: 0,
         external: 0,
-        rss: 0,
+        rss: 0
       },
       concurrencyStats: {
         maxConcurrent: 0,
         avgConcurrent: 0,
         peakQueueLength: 0,
-        currentQueueLength: 0,
+        currentQueueLength: 0
       },
       databaseStats: {
         totalQueries: 0,
         batchOperations: 0,
         avgBatchSize: 0,
         totalInserts: 0,
-        totalUpdates: 0,
-      },
-    };
+        totalUpdates: 0
+      }
+    }
   }
 
   /**
@@ -641,19 +605,19 @@ export class FileScanner {
    */
   private isValidName(name: string): boolean {
     if (this.enableOptimizations) {
-      return this.cacheManager.isValidName(name);
+      return this.cacheManager.isValidName(name)
     }
-    
+
     // 回退到原始实现
-    const safeNameRegex = /^[a-zA-Z0-9\s_\-.()\u4e00-\u9fa5\u3040-\u30ff]+$/;
-    return safeNameRegex.test(name);
+    const safeNameRegex = /^[a-zA-Z0-9\s_\-.()\u4e00-\u9fa5\u3040-\u30ff]+$/
+    return safeNameRegex.test(name)
   }
 
   async scan(options: ScanOptions): Promise<ScanResult> {
     // 初始化性能监控
-    this.performanceMetrics.startTime = Date.now();
-    this.updateMemoryUsage();
-    
+    this.performanceMetrics.startTime = Date.now()
+    this.updateMemoryUsage()
+
     const result: ScanResult = {
       scannedDirectories: 0,
       foundImages: 0,
@@ -661,84 +625,87 @@ export class FileScanner {
       newImages: 0,
       removedArtworks: 0,
       errors: [],
-      skippedDirectories: [],
-    };
+      skippedDirectories: []
+    }
 
     try {
-      const scanPath = options.scanPath;
-      const extensions = options.supportedExtensions || this.supportedExtensions;
-      const forceUpdate = options.forceUpdate || false;
-      const onProgress = options.onProgress;
+      const scanPath = options.scanPath
+      const extensions = options.supportedExtensions || this.supportedExtensions
+      const forceUpdate = options.forceUpdate || false
+      const onProgress = options.onProgress
 
       // 记录规范化后的扫描根目录
-      this.scanRootAbs = path.resolve(scanPath);
+      this.scanRootAbs = path.resolve(scanPath)
 
       this.logger.info(
-        { 
-          scanPath, 
-          forceUpdate, 
+        {
+          scanPath,
+          forceUpdate,
           enableOptimizations: this.enableOptimizations,
-          maxConcurrency: this.concurrencyController.getStatus().maxConcurrency 
+          maxConcurrency: this.concurrencyController.getStatus().maxConcurrency
         },
         `Starting optimized scan of: ${scanPath}`
-      );
-      
+      )
+
       onProgress?.({
-        phase: "scanning",
-        message: "开始扫描目录...",
-        percentage: 0,
-      });
+        phase: 'scanning',
+        message: '开始扫描目录...',
+        percentage: 0
+      })
 
       // 检查扫描路径是否存在
       try {
-        await fs.access(scanPath);
+        await fs.access(scanPath)
       } catch (error) {
-        throw new Error(`Scan path does not exist: ${scanPath}`);
+        throw new Error(`Scan path does not exist: ${scanPath}`)
       }
 
       // 如果强制更新，先清理所有相关数据
       if (forceUpdate) {
         onProgress?.({
-          phase: "cleanup",
-          message: "强制更新：清理现有数据...",
-          percentage: 10,
-        });
-        await this.cleanupExistingData();
+          phase: 'cleanup',
+          message: '强制更新：清理现有数据...',
+          percentage: 10
+        })
+        await this.cleanupExistingData()
       }
 
       // 选择扫描策略
       if (this.enableOptimizations) {
-        await this.scanOptimized(scanPath, extensions, result, onProgress);
+        await this.scanOptimized(scanPath, extensions, result, onProgress)
       } else {
-        await this.scanLegacy(scanPath, extensions, result, onProgress);
+        await this.scanLegacy(scanPath, extensions, result, onProgress)
       }
 
       // 最终处理
-      await this.finalizeScan(result, onProgress);
-      
+      await this.finalizeScan(result, onProgress)
+
       // 更新性能指标
-      this.performanceMetrics.endTime = Date.now();
-      this.performanceMetrics.throughput = this.calculateThroughput();
-      
-      const completeMessage = `扫描完成！处理了 ${result.scannedDirectories} 个目录，创建了 ${result.newArtworks} 个作品，${result.newImages} 张图片。跳过了 ${result.skippedDirectories.length} 个命名不规范的目录。`;
+      this.performanceMetrics.endTime = Date.now()
+      this.performanceMetrics.throughput = this.calculateThroughput()
+
+      const completeMessage = `扫描完成！处理了 ${result.scannedDirectories} 个目录，创建了 ${result.newArtworks} 个作品，${result.newImages} 张图片。跳过了 ${result.skippedDirectories.length} 个命名不规范的目录。`
       onProgress?.({
-        phase: "complete",
+        phase: 'complete',
         message: completeMessage,
-        percentage: 100,
-      });
-      
-      this.logger.info({ 
-        result, 
-        performanceMetrics: this.getPerformanceReport() 
-      }, "Scan completed");
-      
-      return result;
+        percentage: 100
+      })
+
+      this.logger.info(
+        {
+          result,
+          performanceMetrics: this.getPerformanceReport()
+        },
+        'Scan completed'
+      )
+
+      return result
     } catch (error) {
-      this.performanceMetrics.errorFiles++;
-      const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      result.errors.push(errorMsg);
-      this.logger.error({ error, performanceMetrics: this.performanceMetrics }, "Scan failed");
-      return result;
+      this.performanceMetrics.errorFiles++
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      result.errors.push(errorMsg)
+      this.logger.error({ error, performanceMetrics: this.performanceMetrics }, 'Scan failed')
+      return result
     }
   }
 
@@ -748,130 +715,106 @@ export class FileScanner {
     extensions: string[],
     onProgress?: (progress: ScanProgress) => void
   ): Promise<{
-    totalWorkUnits: number;
-    artistCount: number;
-    artworkCount: number;
+    totalWorkUnits: number
+    artistCount: number
+    artworkCount: number
   }> {
-    let artistCount = 0;
-    let artworkCount = 0;
-    let scannedDirs = 0;
+    let artistCount = 0
+    let artworkCount = 0
+    let scannedDirs = 0
 
     try {
-      const artistEntries = await fs.readdir(rootPath, { withFileTypes: true });
+      const artistEntries = await fs.readdir(rootPath, { withFileTypes: true })
 
       for (const artistEntry of artistEntries) {
         // +++ 改动点：在这里加入名称验证 +++
         if (!this.isValidName(artistEntry.name)) {
-          this.logger.warn(
-            `预扫描：跳过不规范的艺术家目录名: ${artistEntry.name}`
-          );
-          continue; // 跳过此目录
+          this.logger.warn(`预扫描：跳过不规范的艺术家目录名: ${artistEntry.name}`)
+          continue // 跳过此目录
         }
 
         // 跳过隐藏目录和文件
-        if (
-          artistEntry.name.startsWith(".") ||
-          artistEntry.name.startsWith("$") ||
-          !artistEntry.isDirectory()
-        ) {
-          continue;
+        if (artistEntry.name.startsWith('.') || artistEntry.name.startsWith('$') || !artistEntry.isDirectory()) {
+          continue
         }
 
-        const artistPath = path.join(rootPath, artistEntry.name);
-        scannedDirs++;
-        artistCount++;
+        const artistPath = path.join(rootPath, artistEntry.name)
+        scannedDirs++
+        artistCount++
 
         // 每扫描50个目录更新一次进度提示
         if (scannedDirs % 50 === 0) {
           onProgress?.({
-            phase: "counting",
+            phase: 'counting',
             message: `预扫描中... 已检查 ${scannedDirs} 个艺术家目录，当前：${artistEntry.name}`,
-            percentage: undefined,
-          });
+            percentage: undefined
+          })
         }
 
         try {
           const artworkEntries = await fs.readdir(artistPath, {
-            withFileTypes: true,
-          });
+            withFileTypes: true
+          })
 
           for (const artworkEntry of artworkEntries) {
             // +++ 改动点：在这里也加入名称验证 +++
             if (!this.isValidName(artworkEntry.name)) {
-              this.logger.warn(
-                `预扫描：跳过不规范的作品目录名: ${path.join(artistPath, artworkEntry.name)}`
-              );
-              continue; // 跳过此目录
+              this.logger.warn(`预扫描：跳过不规范的作品目录名: ${path.join(artistPath, artworkEntry.name)}`)
+              continue // 跳过此目录
             }
 
-            if (
-              artworkEntry.name.startsWith(".") ||
-              artworkEntry.name.startsWith("$") ||
-              !artworkEntry.isDirectory()
-            ) {
-              continue;
+            if (artworkEntry.name.startsWith('.') || artworkEntry.name.startsWith('$') || !artworkEntry.isDirectory()) {
+              continue
             }
 
-            const artworkPath = path.join(artistPath, artworkEntry.name);
+            const artworkPath = path.join(artistPath, artworkEntry.name)
 
             // 检查是否有图片文件
-            const hasImages = await this.hasImageFiles(artworkPath, extensions);
+            const hasImages = await this.hasImageFiles(artworkPath, extensions)
             if (hasImages) {
-              artworkCount++;
+              artworkCount++
             }
           }
         } catch (error) {
-          this.logger.warn(
-            { error, artistPath },
-            "Failed to scan artist directory during counting"
-          );
+          this.logger.warn({ error, artistPath }, 'Failed to scan artist directory during counting')
         }
       }
     } catch (error) {
-      this.logger.warn(
-        { error, rootPath },
-        "Failed to scan root directory during counting"
-      );
+      this.logger.warn({ error, rootPath }, 'Failed to scan root directory during counting')
     }
 
-    const totalWorkUnits = artistCount + artworkCount;
-    const summaryMessage = `统计完成：发现 ${artistCount} 个艺术家目录，${artworkCount} 个作品目录，总工作量 ${totalWorkUnits}`;
+    const totalWorkUnits = artistCount + artworkCount
+    const summaryMessage = `统计完成：发现 ${artistCount} 个艺术家目录，${artworkCount} 个作品目录，总工作量 ${totalWorkUnits}`
     onProgress?.({
-      phase: "counting",
+      phase: 'counting',
       message: summaryMessage,
       current: totalWorkUnits,
       total: totalWorkUnits,
-      percentage: 0,
-    });
+      percentage: 0
+    })
 
-    return { totalWorkUnits, artistCount, artworkCount };
+    return { totalWorkUnits, artistCount, artworkCount }
   }
 
   // 检查目录是否包含图片文件
-  private async hasImageFiles(
-    dirPath: string,
-    extensions: string[]
-  ): Promise<boolean> {
+  private async hasImageFiles(dirPath: string, extensions: string[]): Promise<boolean> {
     try {
       // 规范化路径，处理可能的空格和特殊字符
-      const normalizedPath = path.normalize(dirPath);
-      const entries = await fs.readdir(normalizedPath, { withFileTypes: true });
+      const normalizedPath = path.normalize(dirPath)
+      const entries = await fs.readdir(normalizedPath, { withFileTypes: true })
       for (const entry of entries) {
-        if (
-          entry.isFile() &&
-          extensions.includes(path.extname(entry.name).toLowerCase())
-        ) {
-          return true;
+        if (entry.isFile() && extensions.includes(path.extname(entry.name).toLowerCase())) {
+          return true
         }
       }
-      return false;
+      return false
     } catch (error) {
       this.logger.warn(
         // @ts-ignore
         { error: error.message, dirPath },
         `Failed to read directory: ${dirPath}`
-      );
-      return false;
+      )
+      return false
     }
   }
 
@@ -880,61 +823,47 @@ export class FileScanner {
     rootPath: string,
     extensions: string[],
     result: ScanResult,
-    progressUpdate: (
-      increment: number,
-      message: string,
-      phase?: ScanProgress["phase"]
-    ) => void
+    progressUpdate: (increment: number, message: string, phase?: ScanProgress['phase']) => void
   ): Promise<void> {
     try {
-      const artistEntries = await fs.readdir(rootPath, { withFileTypes: true });
+      const artistEntries = await fs.readdir(rootPath, { withFileTypes: true })
 
       for (const artistEntry of artistEntries) {
-        const artistPath = path.join(rootPath, artistEntry.name);
+        const artistPath = path.join(rootPath, artistEntry.name)
 
         // +++ 改动点：在这里加入名称验证和记录 +++
         if (!this.isValidName(artistEntry.name)) {
-          const reason = "艺术家目录名包含不支持的字符";
-          this.logger.warn(`${reason}: ${artistPath}`);
-          result.skippedDirectories.push({ path: artistPath, reason });
-          progressUpdate(1, `跳过目录: ${artistEntry.name}`);
-          continue;
+          const reason = '艺术家目录名包含不支持的字符'
+          this.logger.warn(`${reason}: ${artistPath}`)
+          result.skippedDirectories.push({ path: artistPath, reason })
+          progressUpdate(1, `跳过目录: ${artistEntry.name}`)
+          continue
         }
 
         // 跳过隐藏目录和文件
-        if (
-          artistEntry.name.startsWith(".") ||
-          artistEntry.name.startsWith("$") ||
-          !artistEntry.isDirectory()
-        ) {
-          continue;
+        if (artistEntry.name.startsWith('.') || artistEntry.name.startsWith('$') || !artistEntry.isDirectory()) {
+          continue
         }
 
-        result.scannedDirectories++;
+        result.scannedDirectories++
 
-        progressUpdate(1, `处理艺术家目录: ${artistEntry.name}`);
+        progressUpdate(1, `处理艺术家目录: ${artistEntry.name}`)
 
         // 创建或获取艺术家
-        const artist = await this.findOrCreateArtist(artistEntry.name);
+        const artist = await this.findOrCreateArtist(artistEntry.name)
 
         if (!artist) {
-          result.errors.push(`Failed to create artist: ${artistEntry.name}`);
-          continue;
+          result.errors.push(`Failed to create artist: ${artistEntry.name}`)
+          continue
         }
 
         // 扫描艺术家目录下的作品
-        await this.scanArtworkDirectories(
-          artistPath,
-          artist.id,
-          extensions,
-          result,
-          progressUpdate
-        );
+        await this.scanArtworkDirectories(artistPath, artist.id, extensions, result, progressUpdate)
       }
     } catch (error) {
-      const errorMsg = `Failed to scan artist directories: ${error instanceof Error ? error.message : "Unknown error"}`;
-      result.errors.push(errorMsg);
-      this.logger.error({ error, rootPath }, "Artist directories scan failed");
+      const errorMsg = `Failed to scan artist directories: ${error instanceof Error ? error.message : 'Unknown error'}`
+      result.errors.push(errorMsg)
+      this.logger.error({ error, rootPath }, 'Artist directories scan failed')
     }
   }
 
@@ -944,75 +873,50 @@ export class FileScanner {
     artistId: number,
     extensions: string[],
     result: ScanResult,
-    progressUpdate: (
-      increment: number,
-      message: string,
-      phase?: ScanProgress["phase"]
-    ) => void
+    progressUpdate: (increment: number, message: string, phase?: ScanProgress['phase']) => void
   ): Promise<void> {
     try {
       const artworkEntries = await fs.readdir(artistPath, {
-        withFileTypes: true,
-      });
+        withFileTypes: true
+      })
 
       for (const artworkEntry of artworkEntries) {
-        const artworkPath = path.join(artistPath, artworkEntry.name);
+        const artworkPath = path.join(artistPath, artworkEntry.name)
 
         // +++ 改动点：在这里加入名称验证和记录 +++
         if (!this.isValidName(artworkEntry.name)) {
-          const reason = "作品目录名包含不支持的字符";
-          this.logger.warn(`${reason}: ${artworkPath}`);
-          result.skippedDirectories.push({ path: artworkPath, reason });
-          progressUpdate(1, `跳过目录: ${artworkEntry.name}`);
-          continue;
+          const reason = '作品目录名包含不支持的字符'
+          this.logger.warn(`${reason}: ${artworkPath}`)
+          result.skippedDirectories.push({ path: artworkPath, reason })
+          progressUpdate(1, `跳过目录: ${artworkEntry.name}`)
+          continue
         }
 
         // 跳过隐藏目录和文件
-        if (
-          artworkEntry.name.startsWith(".") ||
-          artworkEntry.name.startsWith("$") ||
-          !artworkEntry.isDirectory()
-        ) {
-          continue;
+        if (artworkEntry.name.startsWith('.') || artworkEntry.name.startsWith('$') || !artworkEntry.isDirectory()) {
+          continue
         }
 
         // 收集该作品目录下的图片
-        const images = await this.collectImagesFromDirectory(
-          artworkPath,
-          extensions
-        );
+        const images = await this.collectImagesFromDirectory(artworkPath, extensions)
 
         if (images.length === 0) {
-          continue; // 跳过没有图片的目录
+          continue // 跳过没有图片的目录
         }
 
-        result.foundImages += images.length;
-        progressUpdate(
-          1,
-          `处理作品目录: ${artworkEntry.name} (${images.length}张图片)`,
-          "creating"
-        );
+        result.foundImages += images.length
+        progressUpdate(1, `处理作品目录: ${artworkEntry.name} (${images.length}张图片)`, 'creating')
 
         // 解析元数据
-        const metadata = await this.parseMetadata(artworkPath);
+        const metadata = await this.parseMetadata(artworkPath)
 
         // 创建作品记录
-        await this.createArtworkFromDirectoryV2(
-          artworkPath,
-          artworkEntry.name,
-          artistId,
-          images,
-          metadata,
-          result
-        );
+        await this.createArtworkFromDirectoryV2(artworkPath, artworkEntry.name, artistId, images, metadata, result)
       }
     } catch (error) {
-      const errorMsg = `Failed to scan artwork directories in ${artistPath}: ${error instanceof Error ? error.message : "Unknown error"}`;
-      result.errors.push(errorMsg);
-      this.logger.error(
-        { error, artistPath },
-        "Artwork directories scan failed"
-      );
+      const errorMsg = `Failed to scan artwork directories in ${artistPath}: ${error instanceof Error ? error.message : 'Unknown error'}`
+      result.errors.push(errorMsg)
+      this.logger.error({ error, artistPath }, 'Artwork directories scan failed')
     }
   }
 
@@ -1020,158 +924,148 @@ export class FileScanner {
   private async parseMetadata(artworkPath: string): Promise<MetadataInfo> {
     const metadata: MetadataInfo = {
       description: undefined,
-      tags: [],
-    };
+      tags: []
+    }
 
-    const normalizeSection = (line: string) => line.trim().replace(/:$/, "");
+    const normalizeSection = (line: string) => line.trim().replace(/:$/, '')
 
     try {
-      const entries = await fs.readdir(artworkPath);
+      const entries = await fs.readdir(artworkPath)
       const metadataFile = entries.find((entry) => {
-        const lower = entry.toLowerCase();
+        const lower = entry.toLowerCase()
         // 兼容 *_metadata.txt、*-metadata.txt 与 metadata.txt
-        if (/(-|_)?meta\.txt$/.test(lower)) return true;
+        if (/(-|_)?meta\.txt$/.test(lower)) return true
 
-        return (
-          lower.endsWith("_metadata.txt") ||
-          lower.endsWith("-metadata.txt") ||
-          lower === "metadata.txt"
-        );
-      });
+        return lower.endsWith('_metadata.txt') || lower.endsWith('-metadata.txt') || lower === 'metadata.txt'
+      })
 
       if (!metadataFile) {
-        return metadata;
+        return metadata
       }
 
-      const metadataPath = path.join(artworkPath, metadataFile);
-      const content = await fs.readFile(metadataPath, "utf-8");
+      const metadataPath = path.join(artworkPath, metadataFile)
+      const content = await fs.readFile(metadataPath, 'utf-8')
 
       // 解析元数据文件内容（兼容 CRLF）
-      const lines = content.split(/\r?\n/).map((line) => line.trim());
-      let i = 0;
+      const lines = content.split(/\r?\n/).map((line) => line.trim())
+      let i = 0
 
       while (i < lines.length) {
-        const raw = lines[i];
-        const section = normalizeSection(raw);
+        const raw = lines[i]
+        const section = normalizeSection(raw)
 
         // 处理 Description 段，可能为空或多行
-        if (section === "Description") {
-          i += 1;
-          const descLines: string[] = [];
+        if (section === 'Description') {
+          i += 1
+          const descLines: string[] = []
 
           // 收集描述内容直到遇到下一个段落标题或文件结束
           while (i < lines.length) {
-            const peek = lines[i];
-            const peekNorm = normalizeSection(peek);
+            const peek = lines[i]
+            const peekNorm = normalizeSection(peek)
 
             // 如果遇到已知的段落标题，停止收集描述
             if (this.isMetadataSection(peek)) {
-              break;
+              break
             }
 
             // 即使是空行也收集（保持原始格式）
-            descLines.push(peek);
-            i += 1;
+            descLines.push(peek)
+            i += 1
           }
 
-          const desc = descLines.join("\n").trim();
+          const desc = descLines.join('\n').trim()
           if (desc) {
-            metadata.description = desc;
+            metadata.description = desc
           }
           // 不要 continue，让外层循环处理当前的段落标题
-          continue;
+          continue
         }
 
         // 处理 Tags 段
-        if (section === "Tags") {
-          i += 1;
+        if (section === 'Tags') {
+          i += 1
           while (i < lines.length) {
-            const tagLineRaw = lines[i];
+            const tagLineRaw = lines[i]
 
             // 如果遇到下一个段落标题，停止处理标签
             if (this.isMetadataSection(tagLineRaw)) {
-              break;
+              break
             }
 
             // 只有非空行才处理
             if (tagLineRaw.trim()) {
               // 支持以 # 或 - 开头的标记
-              let t = tagLineRaw.trim();
-              if (t.startsWith("#")) t = t.slice(1);
-              else if (t.startsWith("- ")) t = t.slice(2);
-              t = t.trim();
-              if (t) metadata.tags.push(t);
+              let t = tagLineRaw.trim()
+              if (t.startsWith('#')) t = t.slice(1)
+              else if (t.startsWith('- ')) t = t.slice(2)
+              t = t.trim()
+              if (t) metadata.tags.push(t)
             }
-            i += 1;
+            i += 1
           }
           // Tags 处理完毕，不需要继续
-          break;
+          break
         }
 
-        i += 1;
+        i += 1
       }
 
       this.logger.debug(
         `Parsed metadata for ${artworkPath}: ${metadata.tags.length} tags, description: ${!!metadata.description}`
-      );
+      )
     } catch (error) {
-      this.logger.warn({ error, artworkPath }, "Failed to parse metadata file");
+      this.logger.warn({ error, artworkPath }, 'Failed to parse metadata file')
     }
 
-    return metadata;
+    return metadata
   }
 
   // 检查是否是元数据文件的段落标题（大小写不敏感，兼容冒号）
   private isMetadataSection(line: string): boolean {
     const sections = [
-      "ID",
-      "URL",
-      "Original",
-      "Thumbnail",
-      "xRestrict",
-      "AI",
-      "User",
-      "UserID",
-      "Title",
-      "Description",
-      "Tags",
-      "Size",
-      "Bookmark",
-      "Date",
-    ];
-    const normalized = line.trim().replace(/:$/, "");
-    const lower = normalized.toLowerCase();
-    return sections.some((s) => s.toLowerCase() === lower);
+      'ID',
+      'URL',
+      'Original',
+      'Thumbnail',
+      'xRestrict',
+      'AI',
+      'User',
+      'UserID',
+      'Title',
+      'Description',
+      'Tags',
+      'Size',
+      'Bookmark',
+      'Date'
+    ]
+    const normalized = line.trim().replace(/:$/, '')
+    const lower = normalized.toLowerCase()
+    return sections.some((s) => s.toLowerCase() === lower)
   }
 
   // 收集目录下的所有图片文件
-  private async collectImagesFromDirectory(
-    dirPath: string,
-    extensions: string[]
-  ): Promise<string[]> {
-    const images: string[] = [];
+  private async collectImagesFromDirectory(dirPath: string, extensions: string[]): Promise<string[]> {
+    const images: string[] = []
 
     try {
       // 规范化路径，处理可能的空格和特殊字符
-      const normalizedPath = path.normalize(dirPath);
-      const entries = await fs.readdir(normalizedPath, { withFileTypes: true });
+      const normalizedPath = path.normalize(dirPath)
+      const entries = await fs.readdir(normalizedPath, { withFileTypes: true })
 
       for (const entry of entries) {
         if (entry.isFile()) {
-          const ext = path.extname(entry.name).toLowerCase();
+          const ext = path.extname(entry.name).toLowerCase()
           if (extensions.includes(ext)) {
-            images.push(path.join(dirPath, entry.name));
+            images.push(path.join(dirPath, entry.name))
           }
         }
       }
     } catch (error) {
-      this.logger.warn(
-        { error, dirPath },
-        "Failed to collect images from directory"
-      );
+      this.logger.warn({ error, dirPath }, 'Failed to collect images from directory')
     }
 
-    return images;
+    return images
   }
 
   // 创建作品记录（V2.2 版本 - 使用多对多标签关系）
@@ -1185,99 +1079,88 @@ export class FileScanner {
   ): Promise<void> {
     try {
       // 检查是否已存在相同的作品（基于 artistId + title 的唯一约束）
-      let artwork;
+      let artwork
       try {
         artwork = await this.prisma.artwork.create({
           data: {
             title: artworkTitle,
             description: metadata.description || null,
-            artistId: artistId,
-          },
-        });
-        result.newArtworks++;
-        this.logger.info(`Created new artwork: ${artworkTitle}`);
+            artistId: artistId
+          }
+        })
+        result.newArtworks++
+        this.logger.info(`Created new artwork: ${artworkTitle}`)
       } catch (e) {
-        if (
-          e instanceof Prisma.PrismaClientKnownRequestError &&
-          e.code === "P2002"
-        ) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
           // 命中唯一约束 (artistId, title) 冲突，查找既有记录并更新元数据
           artwork = await this.prisma.artwork.findFirst({
-            where: { title: artworkTitle, artistId: artistId },
-          });
+            where: { title: artworkTitle, artistId: artistId }
+          })
 
           if (artwork) {
             // 更新已存在的作品的描述
             artwork = await this.prisma.artwork.update({
               where: { id: artwork.id },
               data: {
-                description: metadata.description || artwork.description,
-              },
-            });
-            this.logger.info(`Updated existing artwork: ${artworkTitle}`);
+                description: metadata.description || artwork.description
+              }
+            })
+            this.logger.info(`Updated existing artwork: ${artworkTitle}`)
           } else {
-            throw e;
+            throw e
           }
         } else {
-          throw e;
+          throw e
         }
       }
 
       // 处理标签（多对多关系）
       if (metadata.tags.length > 0) {
-        await this.updateArtworkTags(artwork.id, metadata.tags);
+        await this.updateArtworkTags(artwork.id, metadata.tags)
       }
 
       // 处理图片
       for (const imagePath of imagePaths) {
-        await this.createImageRecord(imagePath, artwork.id, result);
+        await this.createImageRecord(imagePath, artwork.id, result)
       }
     } catch (error) {
-      const errorMsg = `Failed to create artwork for ${artworkPath}: ${error instanceof Error ? error.message : "Unknown error"}`;
-      result.errors.push(errorMsg);
-      this.logger.error({ error, artworkPath }, "Artwork creation failed");
+      const errorMsg = `Failed to create artwork for ${artworkPath}: ${error instanceof Error ? error.message : 'Unknown error'}`
+      result.errors.push(errorMsg)
+      this.logger.error({ error, artworkPath }, 'Artwork creation failed')
     }
   }
 
   // 更新作品标签（多对多关系）
-  private async updateArtworkTags(
-    artworkId: number,
-    tagNames: string[]
-  ): Promise<void> {
+  private async updateArtworkTags(artworkId: number, tagNames: string[]): Promise<void> {
     try {
       // 首先删除该作品的所有现有标签关联
       await this.prisma.artworkTag.deleteMany({
-        where: { artworkId },
-      });
+        where: { artworkId }
+      })
 
       // 为每个标签创建或查找记录，然后建立关联
       for (const tagName of tagNames) {
-        if (!tagName.trim()) continue;
+        if (!tagName.trim()) continue
 
         // 查找或创建标签
         const tag = await this.prisma.tag.upsert({
           where: { name: tagName.trim() },
           update: {},
-          create: { name: tagName.trim() },
-        });
+          create: { name: tagName.trim() }
+        })
 
         // 创建作品-标签关联
         await this.prisma.artworkTag.create({
           data: {
             artworkId,
-            tagId: tag.id,
-          },
-        });
+            tagId: tag.id
+          }
+        })
       }
 
-      this.logger.debug(
-        `Updated tags for artwork ${artworkId}: ${tagNames.length} tags`
-      );
+      this.logger.debug(`Updated tags for artwork ${artworkId}: ${tagNames.length} tags`)
     } catch (error) {
-      this.logger.error(
-        { error, artworkId, tagNames },
-        "Failed to update artwork tags"
-      );
+      this.logger.error({ error, artworkId, tagNames }, 'Failed to update artwork tags')
     }
   }
 
@@ -1287,12 +1170,12 @@ export class FileScanner {
       await this.prisma.$transaction([
         this.prisma.image.deleteMany({}),
         this.prisma.artwork.deleteMany({}),
-        this.prisma.artist.deleteMany({}),
-      ]);
-      this.logger.info("Cleaned up existing data for force update");
+        this.prisma.artist.deleteMany({})
+      ])
+      this.logger.info('Cleaned up existing data for force update')
     } catch (error) {
-      this.logger.error({ error }, "Failed to cleanup existing data");
-      throw error;
+      this.logger.error({ error }, 'Failed to cleanup existing data')
+      throw error
     }
   }
 
@@ -1302,37 +1185,34 @@ export class FileScanner {
       const emptyArtworks = await this.prisma.artwork.findMany({
         where: {
           images: {
-            none: {},
-          },
+            none: {}
+          }
         },
-        select: { id: true, title: true },
-      });
+        select: { id: true, title: true }
+      })
 
       if (emptyArtworks.length > 0) {
         // 删除这些作品
-        const artworkIds = emptyArtworks.map((a) => a.id);
+        const artworkIds = emptyArtworks.map((a) => a.id)
         await this.prisma.artwork.deleteMany({
-          where: { id: { in: artworkIds } },
-        });
+          where: { id: { in: artworkIds } }
+        })
 
-        this.logger.info(
-          `Removed ${emptyArtworks.length} artworks without images`
-        );
-        return emptyArtworks.length;
+        this.logger.info(`Removed ${emptyArtworks.length} artworks without images`)
+        return emptyArtworks.length
       }
 
-      return 0;
+      return 0
     } catch (error) {
-      this.logger.error({ error }, "Failed to cleanup empty artworks");
-      return 0;
+      this.logger.error({ error }, 'Failed to cleanup empty artworks')
+      return 0
     }
   }
 
   private async findOrCreateArtist(artistName: string) {
     try {
       // 解析艺术家名称，尝试拆分为用户名和用户ID
-      const { displayName, username, userId } =
-        this.parseArtistName(artistName);
+      const { displayName, username, userId } = this.parseArtistName(artistName)
 
       // 如果解析出了 username + userId，使用 upsert 基于复合唯一键避免竞态
       if (username && userId) {
@@ -1342,37 +1222,32 @@ export class FileScanner {
               name: displayName,
               username,
               userId,
-              bio: `Artist: ${username} (ID: ${userId})`,
-            },
-          });
-          this.logger.info(
-            `Created new artist: ${displayName} (${username}, ${userId})`
-          );
-          return created;
+              bio: `Artist: ${username} (ID: ${userId})`
+            }
+          })
+          this.logger.info(`Created new artist: ${displayName} (${username}, ${userId})`)
+          return created
         } catch (e) {
           // 如果是重复键错误，则查询并返回已有记录
-          if (
-            e instanceof Prisma.PrismaClientKnownRequestError &&
-            e.code === "P2002"
-          ) {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
             const existing = await this.prisma.artist.findUnique({
               where: {
-                unique_username_userid: { username, userId },
-              } as any,
-            });
+                unique_username_userid: { username, userId }
+              } as any
+            })
             if (existing) {
-              this.logger.debug(`Found existing artist: ${displayName}`);
-              return existing;
+              this.logger.debug(`Found existing artist: ${displayName}`)
+              return existing
             }
           }
-          throw e;
+          throw e
         }
       }
 
       // 否则按原始名称兜底（name 非唯一，无法使用 upsert）
       let artist = await this.prisma.artist.findFirst({
-        where: { name: artistName },
-      });
+        where: { name: artistName }
+      })
 
       if (!artist) {
         artist = await this.prisma.artist.create({
@@ -1380,19 +1255,16 @@ export class FileScanner {
             name: displayName,
             username: null,
             userId: null,
-            bio: `Artist discovered from directory: ${artistName}`,
-          },
-        });
-        this.logger.info(`Created new artist: ${displayName}`);
+            bio: `Artist discovered from directory: ${artistName}`
+          }
+        })
+        this.logger.info(`Created new artist: ${displayName}`)
       }
 
-      return artist;
+      return artist
     } catch (error) {
-      this.logger.error(
-        { error, artistName },
-        "Failed to find or create artist"
-      );
-      return null;
+      this.logger.error({ error, artistName }, 'Failed to find or create artist')
+      return null
     }
   }
 
@@ -1400,44 +1272,44 @@ export class FileScanner {
    * 解析艺术家名称（优化版本）
    */
   private parseArtistName(artistName: string): {
-    displayName: string;
-    username: string | null;
-    userId: string | null;
+    displayName: string
+    username: string | null
+    userId: string | null
   } {
     if (this.enableOptimizations) {
-      return this.cacheManager.parseArtistName(artistName);
+      return this.cacheManager.parseArtistName(artistName)
     }
-    
+
     // 回退到原始实现
     // 优先匹配 "用户名 (用户ID)" 格式
-    let match = artistName.match(/^(.+?)\s*\((\d+)\)$/);
+    let match = artistName.match(/^(.+?)\s*\((\d+)\)$/)
 
     if (match) {
-      const username = match[1].trim();
-      const userId = match[2].trim();
+      const username = match[1].trim()
+      const userId = match[2].trim()
 
       if (username.length > 0 && userId.length >= 1) {
         return {
           displayName: username,
           username: username,
-          userId: userId,
-        };
+          userId: userId
+        }
       }
     }
 
     // 次优匹配 "用户名-数字ID" 或 "用户名-字母数字ID" 格式
-    match = artistName.match(/^(.+?)-(\d+|[a-zA-Z0-9]+)$/);
+    match = artistName.match(/^(.+?)-(\d+|[a-zA-Z0-9]+)$/)
 
     if (match) {
-      const username = match[1].trim();
-      const userId = match[2].trim();
+      const username = match[1].trim()
+      const userId = match[2].trim()
 
       if (username.length > 0 && userId.length >= 1) {
         return {
           displayName: username,
           username: username,
-          userId: userId,
-        };
+          userId: userId
+        }
       }
     }
 
@@ -1445,55 +1317,51 @@ export class FileScanner {
     return {
       displayName: artistName,
       username: null,
-      userId: null,
-    };
+      userId: null
+    }
   }
 
-  private async createImageRecord(
-    imagePath: string,
-    artworkId: number,
-    result: ScanResult
-  ): Promise<void> {
+  private async createImageRecord(imagePath: string, artworkId: number, result: ScanResult): Promise<void> {
     try {
       // 计算相对扫描根目录的相对路径（用于容器挂载路径统一）
-      let relPath = imagePath;
-      const root = this.scanRootAbs;
+      let relPath = imagePath
+      const root = this.scanRootAbs
       if (root) {
-        const maybeRel = path.relative(root, imagePath);
-        if (!maybeRel.startsWith("..")) {
-          relPath = maybeRel.replace(/\\/g, "/");
+        const maybeRel = path.relative(root, imagePath)
+        if (!maybeRel.startsWith('..')) {
+          relPath = maybeRel.replace(/\\/g, '/')
         }
       }
 
       // 去重：兼容历史绝对路径与新的相对路径
       const existingImage = await this.prisma.image.findFirst({
-        where: { OR: [{ path: relPath }, { path: imagePath }] },
-      });
+        where: { OR: [{ path: relPath }, { path: imagePath }] }
+      })
 
       if (existingImage) {
-        this.logger.debug(`Image already exists: ${relPath}`);
-        return;
+        this.logger.debug(`Image already exists: ${relPath}`)
+        return
       }
 
       // 获取图片文件信息
-      const stats = await fs.stat(imagePath);
+      const stats = await fs.stat(imagePath)
 
       // 创建图片记录（统一保存相对路径）
       await this.prisma.image.create({
         data: {
           path: relPath,
           size: stats.size,
-          artworkId: artworkId,
+          artworkId: artworkId
           // width 和 height 将在后续版本中通过 sharp 获取
-        },
-      });
+        }
+      })
 
-      result.newImages++;
-      this.logger.debug(`Created image record: ${path.basename(imagePath)}`);
+      result.newImages++
+      this.logger.debug(`Created image record: ${path.basename(imagePath)}`)
     } catch (error) {
-      const errorMsg = `Failed to create image record for ${imagePath}: ${error instanceof Error ? error.message : "Unknown error"}`;
-      result.errors.push(errorMsg);
-      this.logger.warn({ error, imagePath }, "Image record creation failed");
+      const errorMsg = `Failed to create image record for ${imagePath}: ${error instanceof Error ? error.message : 'Unknown error'}`
+      result.errors.push(errorMsg)
+      this.logger.warn({ error, imagePath }, 'Image record creation failed')
     }
   }
 }

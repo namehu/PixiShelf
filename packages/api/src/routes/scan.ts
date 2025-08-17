@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { FileScanner } from '../services/scanner'
+import { config } from '../config'
 
 export default async function scanRoutes(server: FastifyInstance) {
   server.get('/api/v1/scan/status', async () => ({
@@ -24,10 +25,7 @@ export default async function scanRoutes(server: FastifyInstance) {
       const body = req.body as { force?: boolean }
       const forceUpdate = body?.force === true
 
-      const scanner = new FileScanner(server.prisma, server.log, {
-        enableOptimizations: true, // 重新启用优化模式，已修复跳过目录提示问题
-        maxConcurrency: 8 // 可选：自定义并发数
-      })
+      const scanner = new FileScanner(server.prisma, server.log)
       const result = await scanner.scan({
         scanPath,
         forceUpdate,
@@ -109,10 +107,7 @@ export default async function scanRoutes(server: FastifyInstance) {
     server.appState.lastProgressMessage = '初始化…'
 
     try {
-      const scanner = new FileScanner(server.prisma, server.log, {
-        enableOptimizations: true, // 重新启用优化模式，已修复跳过目录提示问题
-        maxConcurrency: 8 // 可选：自定义并发数
-      })
+      const scanner = new FileScanner(server.prisma, server.log)
 
       const result = await scanner.scan({
         scanPath,
