@@ -36,16 +36,7 @@ function useScanPath() {
   }
 }
 
-function useManualScan() {
-  return useMutation({
-    mutationFn: async (force?: boolean) => {
-      return apiJson<{ success: boolean; result: ScanResult }>('/api/v1/scan', {
-        method: 'POST',
-        body: JSON.stringify({ force: !!force })
-      })
-    }
-  })
-}
+
 
 function useCancelScan() {
   return useMutation({
@@ -66,7 +57,6 @@ function secondsToText(s: number) {
 export default function Settings() {
   const { data: health } = useHealth()
   const scanPath = useScanPath()
-  const scan = useManualScan()
   const cancelScan = useCancelScan()
 
   const [editPath, setEditPath] = React.useState('')
@@ -108,13 +98,13 @@ export default function Settings() {
 
   React.useEffect(() => {
     let timer: any
-    if (scan.isPending || streaming) {
+    if (streaming) {
       setElapsed(0)
       const started = Date.now()
       timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000)
     }
     return () => timer && clearInterval(timer)
-  }, [scan.isPending, streaming])
+  }, [streaming])
 
   const startEditing = () => {
     setEditPath(scanPath.query.data?.scanPath || '')
@@ -363,14 +353,14 @@ export default function Settings() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => startStream(false)}
-              disabled={scan.isPending || streaming || !scanPath.query.data?.scanPath}
+              disabled={streaming || !scanPath.query.data?.scanPath}
               className="rounded bg-brand-600 px-4 py-2 text-white hover:bg-brand-700 disabled:opacity-50"
             >
               {streaming ? '进行中…' : '开始（SSE）'}
             </button>
             <button
               onClick={() => startStream(true)}
-              disabled={scan.isPending || streaming || !scanPath.query.data?.scanPath}
+              disabled={streaming || !scanPath.query.data?.scanPath}
               className="rounded border border-brand-600 px-3 py-2 text-brand-700 hover:bg-brand-50 disabled:opacity-50"
               title="强制全量更新：清空现有数据后重建（SSE）"
             >
