@@ -434,17 +434,26 @@ export class BatchProcessor {
       };
     });
 
-    const batches = this.createBatches(imagesWithIds, this.config.batchSize);
+    // 批次内去重（按 artworkId + path）避免重复插入
+    const seen = new Set<string>();
+    const dedupedImages = imagesWithIds.filter(img => {
+      const key = `${img.artworkId}::${img.path}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const batches = this.createBatches(dedupedImages, this.config.batchSize);
     
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
       try {
-        await this.prisma.image.createMany({
+        const createRes = await this.prisma.image.createMany({
           data: batch,
           skipDuplicates: true,
         });
 
-        result.imagesCreated += batch.length;
+        result.imagesCreated += createRes.count;
         this.reportProgress('images', (i + 1) * this.config.batchSize, this.batchData.images.length, 4, 5, `Created ${result.imagesCreated} images`);
       } catch (error) {
         await this.handleBatchError('image', batch, error, result);
@@ -480,12 +489,12 @@ export class BatchProcessor {
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
       try {
-        await this.prisma.artworkTag.createMany({
+        const createRes = await this.prisma.artworkTag.createMany({
           data: batch,
           skipDuplicates: true,
         });
 
-        result.artworkTagsCreated += batch.length;
+        result.artworkTagsCreated += createRes.count;
         this.reportProgress('relations', (i + 1) * this.config.batchSize, this.batchData.artworkTags.length, 5, 5, `Created ${result.artworkTagsCreated} relations`);
       } catch (error) {
         await this.handleBatchError('artworkTag', batch, error, result);
@@ -524,10 +533,42 @@ export class BatchProcessor {
   private async processSingleItem(type: string, item: any, result: BatchResult): Promise<void> {
     switch (type) {
       case 'artist':
-        const artist = await this.prisma.artist.create({ data: item });
-        const key = this.getArtistKeyFromDb(artist);
-        this.entityMapping.artists.set(key, artist.id);
-        result.artistsCreated++;
+        try {
+          const artist = await this.prisma.artist.create({ data: item });
+          const key = this.getArtistKeyFromDb(artist);
+          this.entityMapping.artists.set(key, artist.id);
+          result.artistsCreated++;
+        } catch (e) {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            // 唯一约束冲突，查找已存在的艺术家
+            let existingArtist = null as null | { id: number; name: string; username: string | null; userId: string | null };
+            if (item.username && item.userId) {
+              existingArtist = await this.prisma.artist.findUnique({
+                where: {
+                  unique_username_userid: {
+                    username: item.username,
+                    userId: item.userId,
+                  },
+                },
+                select: { id: true, name: true, username: true, userId: true },
+              });
+            } else if (item.name) {
+              existingArtist = await this.prisma.artist.findFirst({
+                where: { name: item.name },
+                select: { id: true, name: true, username: true, userId: true },
+              });
+            }
+            if (existingArtist) {
+              const key = this.getArtistKeyFromDb(existingArtist);
+              this.entityMapping.artists.set(key, existingArtist.id);
+              // 不增加 artistsCreated 计数，因为是已存在的
+            } else {
+              throw e;
+            }
+          } else {
+            throw e;
+          }
+        }
         break;
       case 'artwork':
         const { tempId, ...artworkData } = item;
@@ -556,13 +597,36 @@ export class BatchProcessor {
         }
         break;
       case 'tag':
-        const tag = await this.prisma.tag.create({ data: item });
-        this.entityMapping.tags.set(tag.name, tag.id);
-        result.tagsCreated++;
+        try {
+          const tag = await this.prisma.tag.create({ data: item });
+          this.entityMapping.tags.set(tag.name, tag.id);
+          result.tagsCreated++;
+        } catch (e) {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            const existingTag = await this.prisma.tag.findUnique({ where: { name: item.name } });
+            if (existingTag) {
+              this.entityMapping.tags.set(existingTag.name, existingTag.id);
+              // 不增加 tagsCreated 计数，因为是已存在的
+            } else {
+              throw e;
+            }
+          } else {
+            throw e;
+          }
+        }
         break;
       case 'image':
-        await this.prisma.image.create({ data: item });
-        result.imagesCreated++;
+        try {
+          await this.prisma.image.create({ data: item });
+          result.imagesCreated++;
+        } catch (e) {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            // 基于唯一约束跳过重复图片
+            // 不增加 imagesCreated
+          } else {
+            throw e;
+          }
+        }
         break;
       case 'artworkTag':
         await this.prisma.artworkTag.create({ data: item });

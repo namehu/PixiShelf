@@ -68,6 +68,8 @@ model Image {
   artworkId Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([artworkId, path], name: "unique_artwork_path")
 }
 
 model User {
