@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { apiJson } from '../api'
 import { ArtworksResponse } from '@pixishelf/shared'
 
@@ -34,7 +34,6 @@ function useScanStatus() {
 
 export default function Gallery() {
   const [sp, setSp] = useSearchParams()
-  const queryClient = useQueryClient()
   const page = parseInt(sp.get('page') || '1', 10)
   const pageSize = 24
 
@@ -43,20 +42,6 @@ export default function Gallery() {
   const selectedTags = sp.get('tags')?.split(',').filter(Boolean) || []
 
   const { data, isLoading, isError } = useArtworks(page, pageSize, selectedTags.length > 0 ? selectedTags : undefined)
-
-  const scanner = useMutation({
-    mutationFn: async () => {
-      return apiJson('/api/v1/scan', {
-        method: 'POST',
-        body: JSON.stringify({ force: false })
-      })
-    },
-    onSuccess: () => {
-      // 强制刷新扫描状态与作品列表
-      queryClient.invalidateQueries({ queryKey: ['scanStatus'] })
-      queryClient.invalidateQueries({ queryKey: ['artworks'] })
-    }
-  })
 
   const scanStatus = useScanStatus()
 
@@ -104,45 +89,12 @@ export default function Gallery() {
           <h1 className="text-3xl font-bold text-neutral-900">画廊</h1>
           <p className="text-neutral-600 mt-1">探索你的艺术收藏</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            className="btn-primary flex items-center gap-2"
-            onClick={() => scanner.mutate()}
-            disabled={scanner.isPending}
-          >
-            {scanner.isPending ? (
-              <>
-                <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
-                扫描中
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
-                触发扫描
-              </>
-            )}
-          </button>
-          {scanStatus.data?.scanning && (
-            <div className="flex items-center gap-2 text-sm text-neutral-600 bg-primary-50 px-3 py-2 rounded-lg border border-primary-200">
-              <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse" />
-              扫描中：{scanStatus.data.message || '处理中...'}
-            </div>
-          )}
-        </div>
+        {scanStatus.data?.scanning && (
+          <div className="flex items-center gap-2 text-sm text-neutral-600 bg-primary-50 px-3 py-2 rounded-lg border border-primary-200">
+            <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse" />
+            扫描中：{scanStatus.data.message || '处理中...'}
+          </div>
+        )}
       </div>
 
       {/* Search and Filter Section */}
@@ -328,7 +280,7 @@ export default function Gallery() {
 
                     {/* Content */}
                     <div className="p-4 space-y-2">
-                      <h3 className="font-medium text-neutral-900 line-clamp-2">{aw.title}</h3>
+                      <h3 className="font-medium text-neutral-900 truncate" title={aw.title}>{aw.title}</h3>
                       {artistName && (
                         <p className="text-sm text-neutral-600 truncate" title={artistName}>
                           {artistName}
