@@ -63,6 +63,7 @@ model Image {
   width     Int?
   height    Int?
   size      Int?
+  sortOrder Int      @default(0) // 图片在作品中的排序顺序
   artwork   Artwork? @relation(fields: [artworkId], references: [id])
   artworkId Int?
   createdAt DateTime @default(now())

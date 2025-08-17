@@ -411,6 +411,7 @@ export class BatchProcessor {
       return {
         path: image.path,
         size: image.size,
+        sortOrder: image.sortOrder || 0,
         artworkId,
       };
     });

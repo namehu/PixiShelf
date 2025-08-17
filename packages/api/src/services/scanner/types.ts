@@ -28,6 +28,7 @@ export interface ArtworkData {
 export interface ImageData {
   path: string;
   size: number;
+  sortOrder?: number; // 图片在作品中的排序顺序
   artworkId?: number;
   artworkTitle?: string; // 用于批量处理时的关联
   artistName?: string; // 用于批量处理时的关联

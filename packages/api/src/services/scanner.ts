@@ -433,14 +433,16 @@ export class FileScanner {
       artistName
     })
 
-    // 添加图片
-    for (const imagePath of images) {
+    // 添加图片（按排序顺序）
+    for (let i = 0; i < images.length; i++) {
+      const imagePath = images[i]
       const stats = await fs.stat(imagePath)
       const relativePath = this.cacheManager.getRelativePath(imagePath, this.scanRootAbs!)
 
       this.batchProcessor.addImage({
         path: relativePath,
         size: stats.size,
+        sortOrder: i,
         artworkTitle: title,
         artistName
       })
@@ -1061,11 +1063,50 @@ export class FileScanner {
           }
         }
       }
+
+      // 使用自然排序算法对图片文件进行排序
+      images.sort(this.naturalSort)
     } catch (error) {
       this.logger.warn({ error, dirPath }, 'Failed to collect images from directory')
     }
 
     return images
+  }
+
+  /**
+   * 自然排序算法，正确处理文件名中的数字
+   * 例如：p1.jpg, p2.jpg, p10.jpg 而不是 p1.jpg, p10.jpg, p2.jpg
+   */
+  private naturalSort(a: string, b: string): number {
+    const aName = path.basename(a)
+    const bName = path.basename(b)
+    
+    // 将字符串分割为数字和非数字部分
+    const aParts = aName.split(/([0-9]+)/)
+    const bParts = bName.split(/([0-9]+)/)
+    
+    const maxLength = Math.max(aParts.length, bParts.length)
+    
+    for (let i = 0; i < maxLength; i++) {
+      const aPart = aParts[i] || ''
+      const bPart = bParts[i] || ''
+      
+      // 如果两个部分都是数字，按数值比较
+      if (/^[0-9]+$/.test(aPart) && /^[0-9]+$/.test(bPart)) {
+        const aNum = parseInt(aPart, 10)
+        const bNum = parseInt(bPart, 10)
+        if (aNum !== bNum) {
+          return aNum - bNum
+        }
+      } else {
+        // 否则按字符串比较
+        if (aPart !== bPart) {
+          return aPart.localeCompare(bPart)
+        }
+      }
+    }
+    
+    return 0
   }
 
   // 创建作品记录（V2.2 版本 - 使用多对多标签关系）
@@ -1119,9 +1160,9 @@ export class FileScanner {
         await this.updateArtworkTags(artwork.id, metadata.tags)
       }
 
-      // 处理图片
-      for (const imagePath of imagePaths) {
-        await this.createImageRecord(imagePath, artwork.id, result)
+      // 处理图片（按排序顺序）
+      for (let i = 0; i < imagePaths.length; i++) {
+        await this.createImageRecord(imagePaths[i], artwork.id, i, result)
       }
     } catch (error) {
       const errorMsg = `Failed to create artwork for ${artworkPath}: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -1321,7 +1362,7 @@ export class FileScanner {
     }
   }
 
-  private async createImageRecord(imagePath: string, artworkId: number, result: ScanResult): Promise<void> {
+  private async createImageRecord(imagePath: string, artworkId: number, sortOrder: number, result: ScanResult): Promise<void> {
     try {
       // 计算相对扫描根目录的相对路径（用于容器挂载路径统一）
       let relPath = imagePath
@@ -1351,6 +1392,7 @@ export class FileScanner {
         data: {
           path: relPath,
           size: stats.size,
+          sortOrder: sortOrder,
           artworkId: artworkId
           // width 和 height 将在后续版本中通过 sharp 获取
         }

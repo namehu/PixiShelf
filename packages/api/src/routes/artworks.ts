@@ -31,11 +31,11 @@ export default async function artworksRoutes(server: FastifyInstance) {
       // 查询总数（用于分页）
       const total = await server.prisma.artwork.count({ where: whereClause })
 
-      // 查询作品列表（仅取首张图片，同时获取图片总数）
+      // 查询作品列表（仅取首张图片，按sortOrder排序）
       const artworks = await server.prisma.artwork.findMany({
         where: whereClause,
         include: {
-          images: { take: 1, orderBy: { id: 'asc' } },
+          images: { take: 1, orderBy: { sortOrder: 'asc' } },
           artist: true,
           artworkTags: { include: { tag: true } },
           _count: { select: { images: true } }
@@ -81,7 +81,7 @@ export default async function artworksRoutes(server: FastifyInstance) {
       const artwork = await server.prisma.artwork.findUnique({
         where: { id: artworkId },
         include: {
-          images: true,
+          images: { orderBy: { sortOrder: 'asc' } },
           artist: true,
           artworkTags: { include: { tag: true } }
         }
