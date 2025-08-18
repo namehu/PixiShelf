@@ -1,6 +1,6 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { createBrowserRouter, RouterProvider, Link, Navigate, useNavigate } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider, Link, Navigate, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Gallery from './pages/Gallery'
 import ArtworkDetail from './pages/ArtworkDetail'
@@ -26,9 +26,36 @@ const AuthContext = React.createContext<{ token: string | null; setToken: (t: st
 function Layout({ children }: { children: React.ReactNode }) {
   const auth = React.useContext(AuthContext)!
   const navigate = useNavigate()
+  const location = useLocation()
+  const [sp, setSp] = useSearchParams()
+  const [tagInput, setTagInput] = React.useState('')
+  
   const logout = () => {
     auth.setToken(null)
     navigate('/login')
+  }
+  
+  const isGalleryPage = location.pathname === '/'
+  
+  const addTag = (tag: string) => {
+    const trimmed = tag.trim()
+    if (!trimmed) return
+    
+    const selectedTags = sp.get('tags')?.split(',').filter(Boolean) || []
+    if (selectedTags.includes(trimmed)) return
+
+    const newSp = new URLSearchParams(sp)
+    const newTags = [...selectedTags, trimmed]
+    newSp.set('tags', newTags.join(','))
+    newSp.set('page', '1')
+    setSp(newSp)
+    setTagInput('')
+  }
+  
+  const handleTagInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      addTag(tagInput)
+    }
   }
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col">
@@ -45,6 +72,45 @@ function Layout({ children }: { children: React.ReactNode }) {
                 PixiShelf
               </span>
             </Link>
+            
+            {/* Search Bar - Only show on gallery page */}
+            {isGalleryPage && (
+              <div className="hidden md:flex flex-1 max-w-md mx-8">
+                <div className="relative w-full">
+                  <svg
+                    className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                  <input
+                    type="text"
+                    placeholder="输入标签进行过滤..."
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={handleTagInputKeyDown}
+                    className="input pl-10 pr-12 w-full"
+                  />
+                  {tagInput && (
+                    <button
+                      onClick={() => addTag(tagInput)}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 text-primary-600 hover:text-primary-700 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
             
             {/* Navigation */}
             <nav className="hidden md:flex items-center space-x-1">
