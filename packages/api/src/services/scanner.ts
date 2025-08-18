@@ -5,7 +5,10 @@ import { PrismaClient, Prisma } from '@prisma/client'
 import { FastifyInstance } from 'fastify'
 import { ConcurrencyController } from './scanner/ConcurrencyController'
 import { BatchProcessor } from './scanner/BatchProcessor'
+import { StreamingBatchProcessor } from './scanner/StreamingBatchProcessor'
 import { CacheManager } from './scanner/CacheManager'
+import { ProgressTracker, DetailedProgress } from './scanner/ProgressTracker'
+import { PerformanceMonitor } from './scanner/PerformanceMonitor'
 import { PerformanceMetrics, ScanTask, TaskResult } from './scanner/types'
 import { config } from '../config'
 
@@ -50,13 +53,20 @@ export class FileScanner {
   // 性能优化组件
   private concurrencyController!: ConcurrencyController
   private batchProcessor!: BatchProcessor
+  private streamingBatchProcessor!: StreamingBatchProcessor
   private cacheManager!: CacheManager
+  private progressTracker!: ProgressTracker
+  private performanceMonitor!: PerformanceMonitor
   private performanceMetrics!: PerformanceMetrics
   private enableOptimizations: boolean = true
+  private useStreamingBatch: boolean = true
 
-  constructor(prisma: PrismaClient, logger: FastifyInstance['log']) {
+  constructor(prisma: PrismaClient, logger: FastifyInstance['log'], options?: {
+    enableStreaming?: boolean
+  }) {
     this.prisma = prisma
     this.logger = logger
+    this.useStreamingBatch = options?.enableStreaming ?? true
     this.enableOptimizations = config.scanner.enableOptimizations ?? true
 
     // 初始化性能优化组件
@@ -65,6 +75,7 @@ export class FileScanner {
     this.batchProcessor = new BatchProcessor(this.prisma, this.logger, { batchSize: 500 }, (progress) => {
       this.logger.debug({ progress }, 'Batch processing progress')
     })
+    this.streamingBatchProcessor = new StreamingBatchProcessor(this.prisma, this.logger)
 
     this.initializePerformanceMetrics()
   }
@@ -78,23 +89,13 @@ export class FileScanner {
     result: ScanResult,
     onProgress?: (progress: ScanProgress) => void
   ): Promise<void> {
-    onProgress?.({
-      phase: 'counting',
-      message: '并发扫描：收集目录结构...',
-      percentage: 0
-    })
+    // 并发收集扫描任务
+    this.progressTracker.setPhase('scanning')
 
-    // 并发收集所有扫描任务
     const scanTasks = await this.collectScanTasksConcurrently(scanPath, extensions, result)
     this.performanceMetrics.totalFiles = scanTasks.length
 
-    onProgress?.({
-      phase: 'scanning',
-      message: `开始并发处理 ${scanTasks.length} 个任务...`,
-      current: 0,
-      total: scanTasks.length,
-      percentage: 0
-    })
+    this.progressTracker.updateScanningProgress(0, scanTasks.length)
 
     // 并发处理扫描任务
     let processedTasks = 0
@@ -106,7 +107,7 @@ export class FileScanner {
       const batch = taskBatches[batchIndex]
 
       const batchResults = await this.concurrencyController.executeAllSettled(
-        batch.map((task) => () => this.processScanTask(task, extensions))
+        batch.map((task) => () => this.processScanTaskStreaming(task, extensions))
       )
 
       // 处理批次结果
@@ -117,9 +118,10 @@ export class FileScanner {
         if (taskResult.status === 'fulfilled') {
           const { success, data, skipped, reason } = taskResult.value
           if (success && data) {
-            this.addToResult(data, result)
+            this.addToResultStreaming(data, result)
           } else if (skipped && reason) {
-            result.skippedDirectories.push({ path: data?.path || '', reason })
+            const reasonStr = reason instanceof Error ? reason.message : reason
+            result.skippedDirectories.push({ path: data?.path || '', reason: reasonStr })
             this.performanceMetrics.skippedFiles++
           }
         } else {
@@ -127,36 +129,11 @@ export class FileScanner {
           this.performanceMetrics.errorFiles++
         }
 
-        // 更新进度
-        if (processedTasks % 50 === 0 || processedTasks === scanTasks.length) {
-          const percentage = Math.floor((processedTasks / scanTasks.length) * 90) // 留10%给批量插入
-          const elapsedSec = (Date.now() - startTime) / 1000
-          const rate = processedTasks / elapsedSec
-          const remainingTasks = scanTasks.length - processedTasks
-          const estSeconds = rate > 0 ? Math.ceil(remainingTasks / rate) : undefined
-
-          onProgress?.({
-            phase: 'scanning',
-            message: `已处理 ${processedTasks}/${scanTasks.length} 个任务`,
-            current: processedTasks,
-            total: scanTasks.length,
-            percentage,
-            estimatedSecondsRemaining: estSeconds
-          })
+        // 更新扫描进度
+        if (processedTasks % 10 === 0 || processedTasks === scanTasks.length) {
+          this.progressTracker.updateScanningProgress(processedTasks, scanTasks.length)
+          this.performanceMonitor.updateProgress() // 通知性能监控器
         }
-      }
-
-      // 定期刷新批量处理器
-      if (this.batchProcessor.shouldFlush()) {
-        onProgress?.({
-          phase: 'creating',
-          message: '批量插入数据...',
-          percentage: Math.floor((processedTasks / scanTasks.length) * 90)
-        })
-
-        const batchResult = await this.batchProcessor.flush()
-        this.updateResultFromBatch(batchResult, result)
-        this.performanceMetrics.databaseStats.batchOperations++
       }
 
       // 更新并发统计
@@ -168,14 +145,16 @@ export class FileScanner {
       )
     }
 
-    // 最终批量处理
-    onProgress?.({
-      phase: 'creating',
-      message: '完成批量数据插入...',
-      percentage: 95
-    })
-
-    const finalBatchResult = await this.batchProcessor.flush()
+    // 最终化批量处理
+    this.progressTracker.setPhase('finalizing')
+    
+    let finalBatchResult: any
+    if (this.useStreamingBatch) {
+      finalBatchResult = await this.streamingBatchProcessor.finalize()
+    } else {
+      finalBatchResult = await this.batchProcessor.flush()
+    }
+    
     this.updateResultFromBatch(finalBatchResult, result)
   }
 
@@ -384,12 +363,59 @@ export class FileScanner {
   }
 
   /**
+   * 处理单个扫描任务（流式版本）
+   */
+  private async processScanTaskStreaming(task: ScanTask, extensions: string[]): Promise<TaskResult> {
+    try {
+      switch (task.type) {
+        case 'artist':
+          return await this.processArtistTaskStreaming(task)
+        case 'artwork':
+          return await this.processArtworkTaskStreaming(task, extensions)
+        default:
+          return {
+            success: false,
+            error: `Unknown task type: ${task.type}`
+          }
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        data: { path: task.path }
+      }
+    }
+  }
+
+  /**
    * 处理艺术家任务
    */
   private async processArtistTask(task: ScanTask): Promise<TaskResult> {
     const artistData = this.cacheManager.parseArtistName(task.metadata.name)
 
     this.batchProcessor.addArtist({
+      name: artistData.displayName,
+      username: artistData.username,
+      userId: artistData.userId,
+      bio:
+        artistData.username && artistData.userId
+          ? `Artist: ${artistData.username} (ID: ${artistData.userId})`
+          : `Artist discovered from directory: ${task.metadata.name}`
+    })
+
+    return {
+      success: true,
+      data: { type: 'artist', name: artistData.displayName }
+    }
+  }
+
+  /**
+   * 处理艺术家任务（流式版本）
+   */
+  private async processArtistTaskStreaming(task: ScanTask): Promise<TaskResult> {
+    const artistData = this.cacheManager.parseArtistName(task.metadata.name)
+
+    this.streamingBatchProcessor.addArtist({
       name: artistData.displayName,
       username: artistData.username,
       userId: artistData.userId,
@@ -470,6 +496,70 @@ export class FileScanner {
   }
 
   /**
+   * 处理作品任务（流式版本）
+   */
+  private async processArtworkTaskStreaming(task: ScanTask, extensions: string[]): Promise<TaskResult> {
+    const { title, artistName } = task.metadata
+
+    // 收集图片
+    const images = await this.collectImagesFromDirectory(task.path, extensions)
+    if (images.length === 0) {
+      return {
+        success: false,
+        skipped: true,
+        reason: '没有找到图片文件',
+        data: { path: task.path }
+      }
+    }
+
+    // 解析元数据
+    const metadata = await this.parseMetadata(task.path)
+
+    // 添加到流式批量处理器
+    this.streamingBatchProcessor.addArtwork({
+      title,
+      description: metadata.description,
+      artistId: 0, // 将在批量处理时解析
+      artistName
+    })
+
+    // 添加图片（按排序顺序）
+    for (let i = 0; i < images.length; i++) {
+      const imagePath = images[i]
+      const stats = await fs.stat(imagePath)
+      const relativePath = this.cacheManager.getRelativePath(imagePath, this.scanRootAbs!)
+
+      this.streamingBatchProcessor.addImage({
+        path: relativePath,
+        size: stats.size,
+        sortOrder: i,
+        artworkTitle: title,
+        artistName
+      })
+    }
+
+    // 添加标签
+    for (const tagName of metadata.tags) {
+      const cleanedTag = this.cacheManager.cleanTagPrefix(tagName)
+      if (cleanedTag) {
+        this.streamingBatchProcessor.addTag({ name: cleanedTag })
+        this.streamingBatchProcessor.addArtworkTag(title, artistName, cleanedTag)
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        type: 'artwork',
+        title,
+        artistName,
+        imageCount: images.length,
+        tagCount: metadata.tags.length
+      }
+    }
+  }
+
+  /**
    * 创建任务批次
    */
   private createTaskBatches<T>(tasks: T[], batchSize: number): T[][] {
@@ -484,6 +574,16 @@ export class FileScanner {
    * 将任务结果添加到扫描结果
    */
   private addToResult(data: any, result: ScanResult): void {
+    if (data.type === 'artwork') {
+      result.scannedDirectories++
+      result.foundImages += data.imageCount || 0
+    }
+  }
+
+  /**
+   * 将任务结果添加到扫描结果（流式版本）
+   */
+  private addToResultStreaming(data: any, result: ScanResult): void {
     if (data.type === 'artwork') {
       result.scannedDirectories++
       result.foundImages += data.imageCount || 0
@@ -639,21 +739,80 @@ export class FileScanner {
       // 记录规范化后的扫描根目录
       this.scanRootAbs = path.resolve(scanPath)
 
+      // 初始化进度跟踪器
+      this.progressTracker = new ProgressTracker(
+        this.logger,
+        onProgress,
+        (detailedProgress) => {
+          this.logger.debug({ detailedProgress }, 'Detailed progress update')
+        }
+      )
+
+      // 初始化流式批量处理器（如果启用）
+      if (this.useStreamingBatch) {
+        this.streamingBatchProcessor = new StreamingBatchProcessor(
+          this.prisma,
+          this.logger,
+          {
+            microBatchSize: 50,
+            maxConcurrentFlushes: 3,
+            flushInterval: 2000,
+            progressUpdateInterval: 1000,
+          },
+          (detailedProgress) => {
+            this.progressTracker.updateBatchingProgress(detailedProgress.batching)
+          }
+        )
+      }
+
+      // 初始化性能监控器
+      this.performanceMonitor = new PerformanceMonitor(this.logger, {
+        monitoringInterval: 2000,
+        enableRealTimeAlerts: true,
+        enableMetricsCollection: true,
+        alertThresholds: {
+          blockingDuration: 5000,
+          memoryUsage: 85,
+          databaseFailureRate: 5,
+          averageQueryTime: 3000,
+          connectionPoolUsage: 80,
+          queueLength: 1000,
+          throughputDrop: 50,
+        },
+      })
+
+      // 注册组件到性能监控器
+      this.performanceMonitor.registerComponents({
+        concurrencyController: this.concurrencyController,
+        progressTracker: this.progressTracker,
+        streamingBatchProcessor: this.useStreamingBatch ? this.streamingBatchProcessor : undefined,
+        dbOptimizer: this.useStreamingBatch ? this.streamingBatchProcessor['dbOptimizer'] : undefined,
+      })
+
+      // 启动性能监控
+      this.performanceMonitor.startMonitoring()
+
+      // 监听性能事件
+      this.performanceMonitor.on('alert', (alert) => {
+        this.logger.warn({ alert }, `Performance alert: ${alert.message}`)
+      })
+
+      this.performanceMonitor.on('blockingDetected', (data) => {
+        this.logger.error({ data }, 'Blocking detected in scan process')
+      })
+
       this.logger.info(
         {
           scanPath,
           forceUpdate,
           enableOptimizations: this.enableOptimizations,
+          useStreamingBatch: this.useStreamingBatch,
           maxConcurrency: this.concurrencyController.getStatus().maxConcurrency
         },
         `Starting optimized scan of: ${scanPath}`
       )
 
-      onProgress?.({
-        phase: 'scanning',
-        message: '开始扫描目录...',
-        percentage: 0
-      })
+      this.progressTracker.setPhase('scanning')
 
       // 检查扫描路径是否存在
       try {
@@ -664,7 +823,9 @@ export class FileScanner {
 
       // 如果强制更新，先清理所有相关数据
       if (forceUpdate) {
-        await this.cleanupExistingData(onProgress)
+        await this.cleanupExistingData((progress) => {
+          onProgress?.(progress)
+        })
       }
 
       // 选择扫描策略
@@ -703,6 +864,21 @@ export class FileScanner {
       result.errors.push(errorMsg)
       this.logger.error({ error, performanceMetrics: this.performanceMetrics }, 'Scan failed')
       return result
+    } finally {
+      // 清理资源
+      if (this.progressTracker) {
+        this.progressTracker.stop()
+      }
+      if (this.performanceMonitor) {
+        this.performanceMonitor.stopMonitoring()
+        
+        // 记录最终性能报告
+        const performanceReport = this.performanceMonitor.getPerformanceReport()
+        this.logger.info(
+          { performanceReport },
+          'Final performance report'
+        )
+      }
     }
   }
 

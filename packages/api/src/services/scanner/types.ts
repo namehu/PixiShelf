@@ -28,6 +28,8 @@ export interface ArtworkData {
 export interface ImageData {
   path: string;
   size: number;
+  width?: number;
+  height?: number;
   sortOrder?: number; // 图片在作品中的排序顺序
   artworkId?: number;
   artworkTitle?: string; // 用于批量处理时的关联
@@ -134,7 +136,7 @@ export interface TaskResult {
   data?: any;
   error?: string;
   skipped?: boolean;
-  reason?: string;
+  reason?: string | Error;
   processingTime?: number;
 }
 
