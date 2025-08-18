@@ -27,6 +27,7 @@ export interface PaginatedResponse<T> {
  */
 export interface ArtworksQuery extends PaginationQuery {
   tags?: string // 逗号分隔的标签列表
+  search?: string // 模糊搜索关键词（搜索作品标题、描述、艺术家名称）
 }
 
 /**

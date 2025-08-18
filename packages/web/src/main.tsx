@@ -28,7 +28,8 @@ function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [sp, setSp] = useSearchParams()
-  const [tagInput, setTagInput] = React.useState('')
+  const [searchInput, setSearchInput] = React.useState('')
+  const [debouncedSearch, setDebouncedSearch] = React.useState('')
   
   const logout = () => {
     auth.setToken(null)
@@ -37,25 +38,60 @@ function Layout({ children }: { children: React.ReactNode }) {
   
   const isGalleryPage = location.pathname === '/'
   
-  const addTag = (tag: string) => {
-    const trimmed = tag.trim()
-    if (!trimmed) return
+  // 初始化搜索输入框的值
+  React.useEffect(() => {
+    if (isGalleryPage) {
+      const currentSearch = sp.get('search') || ''
+      setSearchInput(currentSearch)
+      setDebouncedSearch(currentSearch)
+    }
+  }, [isGalleryPage, sp])
+  
+  // 防抖搜索
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput)
+    }, 300) // 300ms 防抖延迟
     
-    const selectedTags = sp.get('tags')?.split(',').filter(Boolean) || []
-    if (selectedTags.includes(trimmed)) return
-
+    return () => clearTimeout(timer)
+  }, [searchInput])
+  
+  // 当防抖搜索值改变时执行搜索
+  React.useEffect(() => {
+    if (isGalleryPage && debouncedSearch !== (sp.get('search') || '')) {
+      performSearch(debouncedSearch)
+    }
+  }, [debouncedSearch, isGalleryPage])
+  
+  const performSearch = (query: string) => {
+    const trimmed = query.trim()
     const newSp = new URLSearchParams(sp)
-    const newTags = [...selectedTags, trimmed]
-    newSp.set('tags', newTags.join(','))
-    newSp.set('page', '1')
+    
+    if (trimmed) {
+      newSp.set('search', trimmed)
+    } else {
+      newSp.delete('search')
+    }
+    newSp.set('page', '1') // 重置到第一页
     setSp(newSp)
-    setTagInput('')
   }
   
-  const handleTagInputKeyDown = (e: React.KeyboardEvent) => {
+  const handleSearchInputKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      addTag(tagInput)
+      // 立即搜索，不等待防抖
+      performSearch(searchInput)
+    } else if (e.key === 'Escape') {
+      // ESC 键清空搜索
+      setSearchInput('')
     }
+  }
+  
+  const handleSearchSubmit = () => {
+    performSearch(searchInput)
+  }
+  
+  const handleClearSearch = () => {
+    setSearchInput('')
   }
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col">
@@ -91,23 +127,40 @@ function Layout({ children }: { children: React.ReactNode }) {
                     />
                   </svg>
                   <input
-                    type="text"
-                    placeholder="输入标签进行过滤..."
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={handleTagInputKeyDown}
-                    className="input pl-10 pr-12 w-full"
-                  />
-                  {tagInput && (
-                    <button
-                      onClick={() => addTag(tagInput)}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 text-primary-600 hover:text-primary-700 transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                      </svg>
-                    </button>
-                  )}
+                     type="text"
+                     placeholder="搜索作品标题、艺术家或描述..."
+                     value={searchInput}
+                     onChange={(e) => setSearchInput(e.target.value)}
+                     onKeyDown={handleSearchInputKeyDown}
+                     className="input pl-10 pr-20 w-full"
+                   />
+                   
+                   {/* Search Actions */}
+                   <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
+                     {/* Clear Button */}
+                     {searchInput && (
+                       <button
+                         onClick={handleClearSearch}
+                         className="p-1 text-neutral-400 hover:text-neutral-600 transition-colors"
+                         title="清空搜索"
+                       >
+                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                         </svg>
+                       </button>
+                     )}
+                     
+                     {/* Search Button */}
+                     <button
+                       onClick={handleSearchSubmit}
+                       className="p-1.5 text-primary-600 hover:text-primary-700 transition-colors"
+                       title="搜索 (Enter)"
+                     >
+                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                       </svg>
+                     </button>
+                   </div>
                 </div>
               </div>
             )}

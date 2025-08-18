@@ -18,14 +18,66 @@ export default async function artworksRoutes(server: FastifyInstance) {
         tagNames = tagsQuery.split(',').map((tag) => tag.trim()).filter(Boolean)
       }
 
+      // 搜索查询：支持通过 search 查询参数进行模糊搜索
+      const searchQuery = q.search as string
+      const searchTerm = searchQuery?.trim()
+
       // 构建查询条件
       const whereClause: any = {}
+      const conditions: any[] = []
 
       // 如果有标签过滤，使用多对多关系查询（包含任一标签）
       if (tagNames.length > 0) {
-        whereClause.AND = tagNames.map((name) => ({
-          artworkTags: { some: { tag: { name } } }
-        }))
+        conditions.push({
+          AND: tagNames.map((name) => ({
+            artworkTags: { some: { tag: { name } } }
+          }))
+        })
+      }
+
+      // 如果有搜索词，添加模糊搜索条件
+      if (searchTerm) {
+        conditions.push({
+          OR: [
+            // 搜索作品标题
+            {
+              title: {
+                contains: searchTerm,
+                mode: 'insensitive'
+              }
+            },
+            // 搜索作品描述
+            {
+              description: {
+                contains: searchTerm,
+                mode: 'insensitive'
+              }
+            },
+            // 搜索艺术家名称
+            {
+              artist: {
+                name: {
+                  contains: searchTerm,
+                  mode: 'insensitive'
+                }
+              }
+            },
+            // 搜索艺术家用户名
+            {
+              artist: {
+                username: {
+                  contains: searchTerm,
+                  mode: 'insensitive'
+                }
+              }
+            }
+          ]
+        })
+      }
+
+      // 组合所有条件
+      if (conditions.length > 0) {
+        whereClause.AND = conditions
       }
 
       // 查询总数（用于分页）

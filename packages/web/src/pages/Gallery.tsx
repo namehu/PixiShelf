@@ -4,15 +4,18 @@ import { useQuery } from '@tanstack/react-query'
 import { apiJson } from '../api'
 import { ArtworksResponse } from '@pixishelf/shared'
 
-function useArtworks(page: number, pageSize: number, tags?: string[]) {
+function useArtworks(page: number, pageSize: number, tags?: string[], search?: string) {
   return useQuery({
-    queryKey: ['artworks', page, pageSize, tags],
+    queryKey: ['artworks', page, pageSize, tags, search],
     queryFn: async (): Promise<ArtworksResponse> => {
       const url = new URL('/api/v1/artworks', window.location.origin)
       url.searchParams.set('page', String(page))
       url.searchParams.set('pageSize', String(pageSize))
       if (tags && tags.length > 0) {
         url.searchParams.set('tags', tags.join(','))
+      }
+      if (search && search.trim()) {
+        url.searchParams.set('search', search.trim())
       }
       return apiJson<ArtworksResponse>(url.toString())
     }
@@ -38,10 +41,16 @@ export default function Gallery() {
   const pageSize = 24
   const [jumpToPage, setJumpToPage] = useState('')
 
-  // 标签过滤状态
+  // 搜索和过滤状态
   const selectedTags = sp.get('tags')?.split(',').filter(Boolean) || []
+  const searchQuery = sp.get('search') || ''
 
-  const { data, isLoading, isError } = useArtworks(page, pageSize, selectedTags.length > 0 ? selectedTags : undefined)
+  const { data, isLoading, isError } = useArtworks(
+    page, 
+    pageSize, 
+    selectedTags.length > 0 ? selectedTags : undefined,
+    searchQuery || undefined
+  )
 
   const scanStatus = useScanStatus()
 
@@ -79,6 +88,21 @@ export default function Gallery() {
     newSp.set('page', '1') // 重置到第一页
     setSp(newSp)
   }
+  
+  const clearSearch = () => {
+    const newSp = new URLSearchParams(sp)
+    newSp.delete('search')
+    newSp.set('page', '1')
+    setSp(newSp)
+  }
+  
+  const clearAllFilters = () => {
+    const newSp = new URLSearchParams(sp)
+    newSp.delete('search')
+    newSp.delete('tags')
+    newSp.set('page', '1')
+    setSp(newSp)
+  }
 
 
 
@@ -98,22 +122,53 @@ export default function Gallery() {
         )}
       </div>
 
-      {/* Active Filters Section */}
-      {selectedTags.length > 0 && (
+      {/* Active Search and Filters Section */}
+      {(searchQuery || selectedTags.length > 0) && (
         <div className="card p-4">
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-                />
-              </svg>
-              <span className="text-sm font-medium text-neutral-700">活跃过滤器</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.414A1 1 0 013 6.707V4z"
+                  />
+                </svg>
+                <span className="text-sm font-medium text-neutral-700">活跃筛选</span>
+              </div>
+              {(searchQuery || selectedTags.length > 0) && (
+                <button
+                  onClick={clearAllFilters}
+                  className="text-xs text-neutral-500 hover:text-neutral-700 transition-colors"
+                >
+                  清除全部
+                </button>
+              )}
             </div>
+            
             <div className="flex flex-wrap gap-2">
+              {/* Search Query */}
+              {searchQuery && (
+                <span className="inline-flex items-center gap-1 px-3 py-1 bg-accent-50 text-accent-700 border border-accent-200 rounded-full text-xs font-medium group cursor-pointer transition-all hover:bg-accent-100"
+                      onClick={clearSearch}>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  搜索: "{searchQuery}"
+                  <svg
+                    className="w-3 h-3 ml-1 opacity-60 group-hover:opacity-100 transition-opacity"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </span>
+              )}
+              
+              {/* Tag Filters */}
               {selectedTags.map((tag) => (
                 <span
                   key={tag}
@@ -192,8 +247,15 @@ export default function Gallery() {
                 </svg>
                 <span className="text-lg font-semibold text-neutral-900">{data.total.toLocaleString()} 个作品</span>
               </div>
-              {selectedTags.length > 0 && (
-                <div className="text-sm text-neutral-600">筛选结果: {selectedTags.map((t) => `#${t}`).join(', ')}</div>
+              {(searchQuery || selectedTags.length > 0) && (
+                <div className="text-sm text-neutral-600">
+                  {searchQuery && selectedTags.length > 0 
+                    ? `搜索 "${searchQuery}" 并筛选标签: ${selectedTags.map((t) => `#${t}`).join(', ')}`
+                    : searchQuery 
+                      ? `搜索结果: "${searchQuery}"`
+                      : `筛选结果: ${selectedTags.map((t) => `#${t}`).join(', ')}`
+                  }
+                </div>
               )}
             </div>
           </div>
