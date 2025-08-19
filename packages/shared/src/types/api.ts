@@ -23,11 +23,26 @@ export interface PaginatedResponse<T> {
 }
 
 /**
+ * 排序选项类型
+ */
+export type SortOption = 
+  | 'newest'           // 按最新添加（默认）
+  | 'title_asc'        // 按名称升序
+  | 'title_desc'       // 按名称降序
+  | 'artist_asc'       // 按艺术家名称升序
+  | 'artist_desc'      // 按艺术家名称降序
+  | 'images_desc'      // 按图片数量降序
+  | 'images_asc'       // 按图片数量升序
+  | 'desc_length_desc' // 按描述长度降序
+  | 'desc_length_asc'  // 按描述长度升序
+
+/**
  * 作品列表查询参数
  */
 export interface ArtworksQuery extends PaginationQuery {
   tags?: string // 逗号分隔的标签列表
   search?: string // 模糊搜索关键词（搜索作品标题、描述、艺术家名称）
+  sortBy?: SortOption // 排序选项
 }
 
 /**

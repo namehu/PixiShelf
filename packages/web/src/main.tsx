@@ -11,6 +11,7 @@ import {
 } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiJson } from './api'
+import { SuggestionsResponse } from '@pixishelf/shared'
 import Gallery from './pages/Gallery'
 import ArtworkDetail from './pages/ArtworkDetail'
 import Settings from './pages/Settings'
@@ -108,7 +109,7 @@ function Layout({ children }: { children: React.ReactNode }) {
 
     setIsLoadingSuggestions(true)
     try {
-      const data = await apiJson(`/api/v1/suggestions?q=${encodeURIComponent(query)}&limit=8&mode=${searchMode}`, {
+      const data = await apiJson<SuggestionsResponse>(`/api/v1/suggestions?q=${encodeURIComponent(query)}&limit=8&mode=${searchMode}`, {
         signal: abortControllerRef.current.signal
       })
       const suggestions = data.suggestions || []

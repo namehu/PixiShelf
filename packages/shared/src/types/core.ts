@@ -22,11 +22,13 @@ export interface Artwork {
   id: number
   title: string
   description?: string | null
+  directoryCreatedAt?: string | null // 目录创建时间（文件系统时间）
+  imageCount: number // 图片总数
+  descriptionLength: number // 描述长度
   artistId?: number | null
   artist?: Artist | null
   tags: string[]
   images: Image[]
-  imageCount?: number // 图片总数（用于列表显示优化）
   createdAt: string
   updatedAt: string
 }

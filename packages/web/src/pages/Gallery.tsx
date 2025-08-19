@@ -2,11 +2,12 @@ import React, { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { apiJson } from '../api'
-import { ArtworksResponse } from '@pixishelf/shared'
+import { ArtworksResponse, SortOption } from '@pixishelf/shared'
+import SortControl from '../components/SortControl'
 
-function useArtworks(page: number, pageSize: number, tags?: string[], search?: string) {
+function useArtworks(page: number, pageSize: number, tags?: string[], search?: string, sortBy?: SortOption) {
   return useQuery({
-    queryKey: ['artworks', page, pageSize, tags, search],
+    queryKey: ['artworks', page, pageSize, tags, search, sortBy],
     queryFn: async (): Promise<ArtworksResponse> => {
       const url = new URL('/api/v1/artworks', window.location.origin)
       url.searchParams.set('page', String(page))
@@ -16,6 +17,9 @@ function useArtworks(page: number, pageSize: number, tags?: string[], search?: s
       }
       if (search && search.trim()) {
         url.searchParams.set('search', search.trim())
+      }
+      if (sortBy && sortBy !== 'newest') {
+        url.searchParams.set('sortBy', sortBy)
       }
       return apiJson<ArtworksResponse>(url.toString())
     }
@@ -44,12 +48,14 @@ export default function Gallery() {
   // 搜索和过滤状态
   const selectedTags = sp.get('tags')?.split(',').filter(Boolean) || []
   const searchQuery = sp.get('search') || ''
+  const sortBy = (sp.get('sortBy') as SortOption) || 'newest'
 
   const { data, isLoading, isError } = useArtworks(
     page, 
     pageSize, 
     selectedTags.length > 0 ? selectedTags : undefined,
-    searchQuery || undefined
+    searchQuery || undefined,
+    sortBy
   )
 
   const scanStatus = useScanStatus()
@@ -101,6 +107,17 @@ export default function Gallery() {
     newSp.delete('search')
     newSp.delete('tags')
     newSp.set('page', '1')
+    setSp(newSp)
+  }
+  
+  const handleSortChange = (newSortBy: SortOption) => {
+    const newSp = new URLSearchParams(sp)
+    if (newSortBy === 'newest') {
+      newSp.delete('sortBy') // 默认值不需要在URL中
+    } else {
+      newSp.set('sortBy', newSortBy)
+    }
+    newSp.set('page', '1') // 重置到第一页
     setSp(newSp)
   }
 
@@ -233,8 +250,8 @@ export default function Gallery() {
       {/* Content */}
       {data && (
         <div className="space-y-6">
-          {/* Stats */}
-          <div className="flex items-center justify-between">
+          {/* Stats and Sort Control */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <svg className="w-5 h-5 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -257,6 +274,17 @@ export default function Gallery() {
                   }
                 </div>
               )}
+            </div>
+            
+            {/* Sort Control */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-neutral-700 whitespace-nowrap">排序方式:</span>
+              <SortControl
+                value={sortBy}
+                onChange={handleSortChange}
+                size="sm"
+                className="min-w-[140px]"
+              />
             </div>
           </div>
 

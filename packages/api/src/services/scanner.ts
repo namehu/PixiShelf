@@ -10,6 +10,7 @@ import { CacheManager } from './scanner/CacheManager'
 import { ProgressTracker, DetailedProgress } from './scanner/ProgressTracker'
 import { PerformanceMonitor } from './scanner/PerformanceMonitor'
 import { PerformanceMetrics, ScanTask, TaskResult } from './scanner/types'
+import { FileSystemTimeReader } from '../utils/fsTimeReader'
 import { config } from '../config'
 
 export interface ScanOptions {
@@ -58,6 +59,7 @@ export class FileScanner {
   private progressTracker!: ProgressTracker
   private performanceMonitor!: PerformanceMonitor
   private performanceMetrics!: PerformanceMetrics
+  private fsTimeReader: FileSystemTimeReader
   private enableOptimizations: boolean = true
   private useStreamingBatch: boolean = true
 
@@ -76,6 +78,7 @@ export class FileScanner {
       this.logger.debug({ progress }, 'Batch processing progress')
     })
     this.streamingBatchProcessor = new StreamingBatchProcessor(this.prisma, this.logger)
+    this.fsTimeReader = new FileSystemTimeReader()
 
     this.initializePerformanceMetrics()
   }
@@ -450,13 +453,21 @@ export class FileScanner {
 
     // 解析元数据
     const metadata = await this.parseMetadata(task.path)
+    
+    // 获取目录创建时间和计算新字段
+    const directoryCreatedAt = await this.fsTimeReader.getDirectoryCreatedTime(task.path)
+    const imageCount = images.length
+    const descriptionLength = metadata.description?.length || 0
 
     // 添加到批量处理器
     this.batchProcessor.addArtwork({
       title,
       description: metadata.description,
       artistId: 0, // 将在批量处理时解析
-      artistName
+      artistName,
+      directoryCreatedAt,
+      imageCount,
+      descriptionLength
     })
 
     // 添加图片（按排序顺序）
@@ -514,13 +525,21 @@ export class FileScanner {
 
     // 解析元数据
     const metadata = await this.parseMetadata(task.path)
+    
+    // 获取目录创建时间和计算新字段
+    const directoryCreatedAt = await this.fsTimeReader.getDirectoryCreatedTime(task.path)
+    const imageCount = images.length
+    const descriptionLength = metadata.description?.length || 0
 
     // 添加到流式批量处理器
     this.streamingBatchProcessor.addArtwork({
       title,
       description: metadata.description,
       artistId: 0, // 将在批量处理时解析
-      artistName
+      artistName,
+      directoryCreatedAt,
+      imageCount,
+      descriptionLength
     })
 
     // 添加图片（按排序顺序）
@@ -1311,6 +1330,13 @@ export class FileScanner {
     result: ScanResult
   ): Promise<void> {
     try {
+      // 获取目录创建时间
+      const directoryCreatedAt = await this.fsTimeReader.getDirectoryCreatedTime(artworkPath)
+      
+      // 计算新字段值
+      const imageCount = imagePaths.length
+      const descriptionLength = metadata.description?.length || 0
+
       // 检查是否已存在相同的作品（基于 artistId + title 的唯一约束）
       let artwork
       try {
@@ -1318,11 +1344,14 @@ export class FileScanner {
           data: {
             title: artworkTitle,
             description: metadata.description || null,
-            artistId: artistId
+            artistId: artistId,
+            directoryCreatedAt: directoryCreatedAt,
+            imageCount: imageCount,
+            descriptionLength: descriptionLength
           }
         })
         result.newArtworks++
-        this.logger.info(`Created new artwork: ${artworkTitle}`)
+        this.logger.info(`Created new artwork: ${artworkTitle} (${imageCount} images, dir created: ${directoryCreatedAt.toISOString()})`)
       } catch (e) {
         if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
           // 命中唯一约束 (artistId, title) 冲突，查找既有记录并更新元数据
@@ -1331,14 +1360,17 @@ export class FileScanner {
           })
 
           if (artwork) {
-            // 更新已存在的作品的描述
+            // 更新已存在的作品的所有字段
             artwork = await this.prisma.artwork.update({
               where: { id: artwork.id },
               data: {
-                description: metadata.description || artwork.description
+                description: metadata.description || artwork.description,
+                directoryCreatedAt: directoryCreatedAt,
+                imageCount: imageCount,
+                descriptionLength: descriptionLength
               }
             })
-            this.logger.info(`Updated existing artwork: ${artworkTitle}`)
+            this.logger.info(`Updated existing artwork: ${artworkTitle} (${imageCount} images, dir created: ${directoryCreatedAt.toISOString()})`)
           } else {
             throw e
           }

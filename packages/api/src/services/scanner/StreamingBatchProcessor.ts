@@ -449,6 +449,9 @@ export class StreamingBatchProcessor {
           title: artwork.title,
           description: artwork.description,
           artistId,
+          directoryCreatedAt: artwork.directoryCreatedAt,
+          imageCount: artwork.imageCount,
+          descriptionLength: artwork.descriptionLength
         };
       });
       

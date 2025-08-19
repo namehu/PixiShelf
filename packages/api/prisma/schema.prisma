@@ -22,17 +22,23 @@ model Artist {
 }
 
 model Artwork {
-  id          Int       @id @default(autoincrement())
-  title       String
-  description String?
-  images      Image[]
-  artist      Artist?   @relation(fields: [artistId], references: [id])
-  artistId    Int?
-  artworkTags ArtworkTag[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                  Int       @id @default(autoincrement())
+  title               String
+  description         String?
+  directoryCreatedAt  DateTime? // 目录创建时间（文件系统时间）
+  imageCount          Int       @default(0) // 图片数量冗余字段
+  descriptionLength   Int       @default(0) // 描述长度冗余字段
+  images              Image[]
+  artist              Artist?   @relation(fields: [artistId], references: [id])
+  artistId            Int?
+  artworkTags         ArtworkTag[]
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([title, description])
+  @@index([directoryCreatedAt]) // 新增索引：支持按目录创建时间排序
+  @@index([imageCount])         // 新增索引：支持按图片数量排序
+  @@index([descriptionLength])  // 新增索引：支持按描述长度排序
   @@unique([artistId, title], name: "unique_artist_title")
 }
 

@@ -328,6 +328,9 @@ export class BatchProcessor {
         description: artwork.description,
         artistId,
         tempId: artwork.tempId,
+        directoryCreatedAt: artwork.directoryCreatedAt,
+        imageCount: artwork.imageCount,
+        descriptionLength: artwork.descriptionLength
       };
     });
 
@@ -348,7 +351,10 @@ export class BatchProcessor {
                }
              },
              update: {
-               description: artworkData.description
+               description: artworkData.description,
+               directoryCreatedAt: artworkData.directoryCreatedAt,
+               imageCount: artworkData.imageCount,
+               descriptionLength: artworkData.descriptionLength
              },
              create: artworkData
            });

@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
-import { ArtworksResponse, Artwork } from '@pixishelf/shared'
+import { ArtworksResponse, Artwork, SortOption } from '@pixishelf/shared'
 import { asApiResponse, asPaginatedResponse } from '../types/response'
+import { mapSortOption, getSafeSortOption } from '../utils/sortMapper'
 
 export default async function artworksRoutes(server: FastifyInstance) {
   // GET /api/v1/artworks - 获取所有作品列表（分页+标签过滤）
@@ -21,6 +22,10 @@ export default async function artworksRoutes(server: FastifyInstance) {
       // 搜索查询：支持通过 search 查询参数进行模糊搜索
       const searchQuery = q.search as string
       const searchTerm = searchQuery?.trim()
+
+      // 排序参数：支持通过 sortBy 查询参数排序
+      const sortBy = getSafeSortOption(q.sortBy as string)
+      const orderBy = mapSortOption(sortBy)
 
       // 构建查询条件
       const whereClause: any = {}
@@ -83,7 +88,7 @@ export default async function artworksRoutes(server: FastifyInstance) {
       // 查询总数（用于分页）
       const total = await server.prisma.artwork.count({ where: whereClause })
 
-      // 查询作品列表（仅取首张图片，按sortOrder排序）
+      // 查询作品列表（仅取首张图片，按指定方式排序）
       const artworks = await server.prisma.artwork.findMany({
         where: whereClause,
         include: {
@@ -92,7 +97,7 @@ export default async function artworksRoutes(server: FastifyInstance) {
           artworkTags: { include: { tag: true } },
           _count: { select: { images: true } }
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: pageSize
       })
@@ -102,7 +107,9 @@ export default async function artworksRoutes(server: FastifyInstance) {
         const result = {
           ...artwork,
           tags: artwork.artworkTags.map((at) => at.tag.name),
-          imageCount: artwork._count?.images || 0,
+          imageCount: artwork.imageCount || artwork._count?.images || 0,
+          descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
+          directoryCreatedAt: artwork.directoryCreatedAt?.toISOString() || null,
           artworkTags: undefined as any,
           _count: undefined as any
         }

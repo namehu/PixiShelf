@@ -20,6 +20,9 @@ export interface ArtworkData {
   description?: string | null;
   artistId: number;
   artistName?: string; // 用于批量处理时的关联
+  directoryCreatedAt?: Date; // 目录创建时间
+  imageCount?: number; // 图片数量
+  descriptionLength?: number; // 描述长度
 }
 
 /**
