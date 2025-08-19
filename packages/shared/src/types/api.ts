@@ -59,6 +59,27 @@ export interface ErrorResponse {
 }
 
 /**
+ * 搜索建议项
+ */
+export interface SearchSuggestion {
+  type: 'artwork' | 'artist' | 'tag'
+  value: string
+  label: string
+  metadata?: {
+    artistName?: string
+    imageCount?: number
+    artworkCount?: number
+  }
+}
+
+/**
+ * 搜索建议响应
+ */
+export interface SuggestionsResponse {
+  suggestions: SearchSuggestion[]
+}
+
+/**
  * API 响应包装器
  */
 export type ApiResponse<T> = T | ErrorResponse

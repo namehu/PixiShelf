@@ -1,7 +1,16 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { createBrowserRouter, RouterProvider, Link, Navigate, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
+import {
+  createBrowserRouter,
+  RouterProvider,
+  Link,
+  Navigate,
+  useNavigate,
+  useLocation,
+  useSearchParams
+} from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { apiJson } from './api'
 import Gallery from './pages/Gallery'
 import ArtworkDetail from './pages/ArtworkDetail'
 import Settings from './pages/Settings'
@@ -29,69 +38,199 @@ function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const [sp, setSp] = useSearchParams()
   const [searchInput, setSearchInput] = React.useState('')
-  const [debouncedSearch, setDebouncedSearch] = React.useState('')
-  
+  const [suggestions, setSuggestions] = React.useState<any[]>([])
+  const [showSuggestions, setShowSuggestions] = React.useState(false)
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = React.useState(-1)
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = React.useState(false)
+  const [searchMode, setSearchMode] = React.useState<'normal' | 'tag'>('normal')
+  const suggestionsCache = React.useRef<Map<string, any[]>>(new Map())
+  const abortControllerRef = React.useRef<AbortController | null>(null)
+
   const logout = () => {
     auth.setToken(null)
     navigate('/login')
   }
-  
+
   const isGalleryPage = location.pathname === '/'
-  
-  // 初始化搜索输入框的值
+
+  // 初始化搜索输入框的值和搜索模式
   React.useEffect(() => {
     if (isGalleryPage) {
       const currentSearch = sp.get('search') || ''
-      setSearchInput(currentSearch)
-      setDebouncedSearch(currentSearch)
+      const currentTags = sp.get('tags') || ''
+
+      if (currentTags) {
+        setSearchInput(currentTags)
+        setSearchMode('tag')
+      } else if (currentSearch) {
+        setSearchInput(currentSearch)
+        setSearchMode('normal')
+      } else {
+        setSearchInput('')
+      }
     }
   }, [isGalleryPage, sp])
-  
-  // 防抖搜索
+
+  // 防抖获取搜索建议
   React.useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedSearch(searchInput)
-    }, 300) // 300ms 防抖延迟
-    
+      if (searchInput.trim().length >= 2) {
+        fetchSuggestions(searchInput.trim())
+      } else {
+        setSuggestions([])
+        setShowSuggestions(false)
+      }
+    }, 200) // 200ms 防抖延迟
+
     return () => clearTimeout(timer)
   }, [searchInput])
-  
-  // 当防抖搜索值改变时执行搜索
-  React.useEffect(() => {
-    if (isGalleryPage && debouncedSearch !== (sp.get('search') || '')) {
-      performSearch(debouncedSearch)
+
+  const fetchSuggestions = async (query: string) => {
+    if (!isGalleryPage) return
+
+    // 检查缓存（包含搜索模式）
+    const cacheKey = `${searchMode}:${query.toLowerCase()}`
+    if (suggestionsCache.current.has(cacheKey)) {
+      const cachedSuggestions = suggestionsCache.current.get(cacheKey)!
+      setSuggestions(cachedSuggestions)
+      setShowSuggestions(true)
+      setSelectedSuggestionIndex(-1)
+      return
     }
-  }, [debouncedSearch, isGalleryPage])
-  
+
+    // 取消之前的请求
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+
+    // 创建新的 AbortController
+    abortControllerRef.current = new AbortController()
+
+    setIsLoadingSuggestions(true)
+    try {
+      const data = await apiJson(`/api/v1/suggestions?q=${encodeURIComponent(query)}&limit=8&mode=${searchMode}`, {
+        signal: abortControllerRef.current.signal
+      })
+      const suggestions = data.suggestions || []
+
+      // 缓存结果（限制缓存大小）
+      if (suggestionsCache.current.size >= 50) {
+        // 清除最旧的缓存项
+        const firstKey = suggestionsCache.current.keys().next().value
+        suggestionsCache.current.delete(firstKey)
+      }
+      suggestionsCache.current.set(cacheKey, suggestions)
+
+      setSuggestions(suggestions)
+      setShowSuggestions(true)
+      setSelectedSuggestionIndex(-1)
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        // 请求被取消，不需要处理
+        return
+      }
+      console.error('Failed to fetch suggestions:', error)
+      setSuggestions([])
+      setShowSuggestions(false)
+    } finally {
+      setIsLoadingSuggestions(false)
+      abortControllerRef.current = null
+    }
+  }
+
   const performSearch = (query: string) => {
     const trimmed = query.trim()
     const newSp = new URLSearchParams(sp)
-    
+
     if (trimmed) {
-      newSp.set('search', trimmed)
+      if (searchMode === 'tag') {
+        // 标签搜索模式：使用tags参数
+        newSp.set('tags', trimmed)
+        newSp.delete('search') // 清除普通搜索参数
+      } else {
+        // 普通搜索模式：使用search参数
+        newSp.set('search', trimmed)
+        newSp.delete('tags') // 清除标签搜索参数
+      }
     } else {
       newSp.delete('search')
+      newSp.delete('tags')
     }
     newSp.set('page', '1') // 重置到第一页
     setSp(newSp)
+    setShowSuggestions(false)
   }
-  
+
   const handleSearchInputKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      // 立即搜索，不等待防抖
-      performSearch(searchInput)
+      if (selectedSuggestionIndex >= 0 && suggestions[selectedSuggestionIndex]) {
+        // 选择建议项
+        const suggestion = suggestions[selectedSuggestionIndex]
+        setSearchInput(suggestion.value)
+        performSearch(suggestion.value)
+      } else {
+        // 直接搜索输入的内容
+        performSearch(searchInput)
+      }
     } else if (e.key === 'Escape') {
-      // ESC 键清空搜索
-      setSearchInput('')
+      // ESC 键关闭建议或清空搜索
+      if (showSuggestions) {
+        setShowSuggestions(false)
+        setSelectedSuggestionIndex(-1)
+      } else {
+        setSearchInput('')
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (showSuggestions && suggestions.length > 0) {
+        setSelectedSuggestionIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0))
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (showSuggestions && suggestions.length > 0) {
+        setSelectedSuggestionIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1))
+      }
     }
   }
-  
+
   const handleSearchSubmit = () => {
     performSearch(searchInput)
   }
-  
+
   const handleClearSearch = () => {
     setSearchInput('')
+    setShowSuggestions(false)
+    setSuggestions([])
+    // 清除URL参数
+    const newSp = new URLSearchParams(sp)
+    newSp.delete('search')
+    newSp.delete('tags')
+    newSp.set('page', '1')
+    setSp(newSp)
+    // 取消正在进行的请求
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+  }
+
+  const handleSuggestionClick = (suggestion: any) => {
+    setSearchInput(suggestion.value)
+    performSearch(suggestion.value)
+  }
+
+  const handleSearchInputFocus = () => {
+    if (suggestions.length > 0) {
+      setShowSuggestions(true)
+    }
+  }
+
+  const handleSearchInputBlur = () => {
+    // 延迟关闭建议，允许点击建议项
+    setTimeout(() => {
+      setShowSuggestions(false)
+      setSelectedSuggestionIndex(-1)
+    }, 200)
   }
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col">
@@ -108,80 +247,161 @@ function Layout({ children }: { children: React.ReactNode }) {
                 PixiShelf
               </span>
             </Link>
-            
+
             {/* Search Bar - Only show on gallery page */}
             {isGalleryPage && (
               <div className="hidden md:flex flex-1 max-w-md mx-8">
                 <div className="relative w-full">
-                  <svg
-                    className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
                   <input
-                     type="text"
-                     placeholder="搜索作品标题、艺术家或描述..."
-                     value={searchInput}
-                     onChange={(e) => setSearchInput(e.target.value)}
-                     onKeyDown={handleSearchInputKeyDown}
-                     className="input pl-10 pr-20 w-full"
-                   />
-                   
-                   {/* Search Actions */}
-                   <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
-                     {/* Clear Button */}
-                     {searchInput && (
-                       <button
-                         onClick={handleClearSearch}
-                         className="p-1 text-neutral-400 hover:text-neutral-600 transition-colors"
-                         title="清空搜索"
-                       >
-                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                         </svg>
-                       </button>
-                     )}
-                     
-                     {/* Search Button */}
-                     <button
-                       onClick={handleSearchSubmit}
-                       className="p-1.5 text-primary-600 hover:text-primary-700 transition-colors"
-                       title="搜索 (Enter)"
-                     >
-                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                       </svg>
-                     </button>
-                   </div>
+                    type="text"
+                    placeholder={searchMode === 'tag' ? '搜索标签...' : '搜索作品标题、艺术家或描述...'}
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    onKeyDown={handleSearchInputKeyDown}
+                    onFocus={handleSearchInputFocus}
+                    onBlur={handleSearchInputBlur}
+                    className={`input pr-32 w-full ${showSuggestions ? 'rounded-b-none border-b-0' : ''}`}
+                    autoComplete="off"
+                  />
+
+                  {/* Search Mode Toggle */}
+                  <div className="absolute right-20 top-1/2 transform -translate-y-1/2 z-10">
+                    <button
+                      onClick={() => {
+                        const newMode = searchMode === 'normal' ? 'tag' : 'normal'
+                        setSearchMode(newMode)
+                        // 清空建议缓存和当前建议
+                        suggestionsCache.current.clear()
+                        setSuggestions([])
+                        setShowSuggestions(false)
+                      }}
+                      className={`p-1.5 rounded transition-colors ${
+                        searchMode === 'tag'
+                          ? 'bg-accent-100 text-accent-700 hover:bg-accent-200'
+                          : 'text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100'
+                      }`}
+                      title={searchMode === 'tag' ? '切换到普通搜索' : '切换到标签搜索'}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Search Actions */}
+                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1 z-10">
+                    {/* Loading Indicator */}
+                    {isLoadingSuggestions && (
+                      <div className="p-1">
+                        <div className="w-3 h-3 border border-primary-600 border-t-transparent rounded-full animate-spin"></div>
+                      </div>
+                    )}
+
+                    {/* Clear Button */}
+                    {searchInput && (
+                      <button
+                        onClick={handleClearSearch}
+                        className="p-1 text-neutral-400 hover:text-neutral-600 transition-colors"
+                        title="清空搜索"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+
+                    {/* Search Button */}
+                    <button
+                      onClick={handleSearchSubmit}
+                      className="p-1.5 text-primary-600 hover:text-primary-700 transition-colors"
+                      title="搜索 (Enter)"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Suggestions Dropdown */}
+                  {showSuggestions && suggestions.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 bg-white border border-neutral-200 border-t-0 rounded-b-xl shadow-lg max-h-80 overflow-y-auto z-50">
+                      {suggestions.map((suggestion, index) => (
+                        <div
+                          key={`${suggestion.type}-${suggestion.value}-${index}`}
+                          className={`px-4 py-3 cursor-pointer transition-colors border-b border-neutral-100 last:border-b-0 ${
+                            index === selectedSuggestionIndex ? 'bg-primary-50 text-primary-700' : 'hover:bg-neutral-50'
+                          }`}
+                          onClick={() => handleSuggestionClick(suggestion)}
+                        >
+                          <div className="flex items-center gap-3">
+                            {/* Type Icon */}
+                            <div
+                              className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                                suggestion.type === 'artist'
+                                  ? 'bg-accent-100 text-accent-700'
+                                  : suggestion.type === 'tag'
+                                    ? 'bg-secondary-100 text-secondary-700'
+                                    : 'bg-primary-100 text-primary-700'
+                              }`}
+                            >
+                              {suggestion.type === 'artist' ? '👤' : suggestion.type === 'tag' ? '🏷️' : '🎨'}
+                            </div>
+
+                            {/* Suggestion Content */}
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-neutral-900 truncate">{suggestion.label}</div>
+                              {suggestion.metadata && (
+                                <div className="text-xs text-neutral-500 mt-0.5">
+                                  {suggestion.type === 'artwork' && suggestion.metadata.artistName && (
+                                    <span>by {suggestion.metadata.artistName}</span>
+                                  )}
+                                  {suggestion.type === 'tag' && suggestion.metadata.artworkCount && (
+                                    <span>{suggestion.metadata.artworkCount} 个作品</span>
+                                  )}
+                                  {suggestion.metadata.imageCount && (
+                                    <span className="ml-2">{suggestion.metadata.imageCount} 张图片</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Type Label */}
+                            <div className="text-xs text-neutral-400 uppercase tracking-wide">
+                              {suggestion.type === 'artist' ? '艺术家' : '作品'}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
-            
+
             {/* Navigation */}
             <nav className="hidden md:flex items-center space-x-1">
-              <Link to="/" className="btn-ghost px-3 py-2 rounded-lg text-sm font-medium">
-                画廊
-              </Link>
               <Link to="/settings" className="btn-ghost px-3 py-2 rounded-lg text-sm font-medium">
                 设置
               </Link>
               <Link to="/users" className="btn-ghost px-3 py-2 rounded-lg text-sm font-medium">
                 用户
               </Link>
-              
+
               <div className="w-px h-4 bg-neutral-200 mx-2" />
-              
+
               {auth.token ? (
-                <button 
-                  onClick={logout} 
+                <button
+                  onClick={logout}
                   className="btn-ghost px-3 py-2 rounded-lg text-sm font-medium text-neutral-600 hover:text-error-600"
                 >
                   退出
@@ -192,7 +412,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                 </Link>
               )}
             </nav>
-            
+
             {/* Mobile menu button */}
             <button className="md:hidden btn-ghost p-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -202,14 +422,12 @@ function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      
+
       {/* Main content */}
       <main className="flex-1 w-full">
-        <div className="mx-auto max-w-7xl px-6 py-8">
-          {children}
-        </div>
+        <div className="mx-auto max-w-7xl px-6 py-8">{children}</div>
       </main>
-      
+
       {/* Modern footer */}
       <footer className="border-t border-neutral-200 bg-white">
         <div className="mx-auto max-w-7xl px-6 py-8">
@@ -218,9 +436,7 @@ function Layout({ children }: { children: React.ReactNode }) {
               <div className="w-6 h-6 bg-gradient-to-br from-primary-500 to-accent-500 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-xs">P</span>
               </div>
-              <span className="text-sm text-neutral-600">
-                © {new Date().getFullYear()} PixiShelf - 现代化个人画廊
-              </span>
+              <span className="text-sm text-neutral-600">© {new Date().getFullYear()} PixiShelf - 现代化个人画廊</span>
             </div>
             <div className="flex items-center space-x-4 text-xs text-neutral-500">
               <span>Version 1.0</span>
@@ -241,11 +457,47 @@ function RequireAuth({ children }: { children: React.ReactElement }) {
 }
 
 const router = createBrowserRouter([
-  { path: '/', element: <RequireAuth><Layout><Gallery /></Layout></RequireAuth> },
-  { path: '/settings', element: <RequireAuth><Layout><Settings /></Layout></RequireAuth> },
-  { path: '/users', element: <RequireAuth><Layout><Users /></Layout></RequireAuth> },
-  { path: '/artworks/:id', element: <RequireAuth><Layout><ArtworkDetail /></Layout></RequireAuth> },
-  { path: '/login', element: <Login /> },
+  {
+    path: '/',
+    element: (
+      <RequireAuth>
+        <Layout>
+          <Gallery />
+        </Layout>
+      </RequireAuth>
+    )
+  },
+  {
+    path: '/settings',
+    element: (
+      <RequireAuth>
+        <Layout>
+          <Settings />
+        </Layout>
+      </RequireAuth>
+    )
+  },
+  {
+    path: '/users',
+    element: (
+      <RequireAuth>
+        <Layout>
+          <Users />
+        </Layout>
+      </RequireAuth>
+    )
+  },
+  {
+    path: '/artworks/:id',
+    element: (
+      <RequireAuth>
+        <Layout>
+          <ArtworkDetail />
+        </Layout>
+      </RequireAuth>
+    )
+  },
+  { path: '/login', element: <Login /> }
 ])
 
 function App() {

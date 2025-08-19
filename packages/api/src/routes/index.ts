@@ -7,6 +7,7 @@ import artistsRoutes from './artists'
 import imagesRoutes from './images'
 import authRoutes from './auth'
 import usersRoutes from './users'
+import suggestionsRoutes from './suggestions'
 
 export default async function registerRoutes(server: FastifyInstance) {
   await healthRoutes(server)
@@ -17,4 +18,5 @@ export default async function registerRoutes(server: FastifyInstance) {
   await artistsRoutes(server)
   await imagesRoutes(server)
   await usersRoutes(server)
+  await suggestionsRoutes(server)
 }
