@@ -17,6 +17,8 @@ import ArtworkDetail from './pages/ArtworkDetail'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 import Users from './pages/Users'
+import AdminPage from './pages/admin'
+import ConfirmDialog from './components/ui/confirm-dialog'
 import './styles.css'
 
 const queryClient = new QueryClient()
@@ -46,10 +48,32 @@ function Layout({ children }: { children: React.ReactNode }) {
   const [searchMode, setSearchMode] = React.useState<'normal' | 'tag'>('normal')
   const suggestionsCache = React.useRef<Map<string, any[]>>(new Map())
   const abortControllerRef = React.useRef<AbortController | null>(null)
+  
+  // 退出确认弹窗状态
+  const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false)
+  const [isLoggingOut, setIsLoggingOut] = React.useState(false)
 
-  const logout = () => {
-    auth.setToken(null)
-    navigate('/login')
+  // 显示退出确认弹窗
+  const handleLogoutClick = () => {
+    setShowLogoutConfirm(true)
+  }
+
+  // 确认退出
+  const confirmLogout = async () => {
+    setIsLoggingOut(true)
+    try {
+      // 可以在这里添加退出前的清理逻辑
+      auth.setToken(null)
+      navigate('/login')
+    } finally {
+      setIsLoggingOut(false)
+      setShowLogoutConfirm(false)
+    }
+  }
+
+  // 取消退出
+  const cancelLogout = () => {
+    setShowLogoutConfirm(false)
   }
 
   const isGalleryPage = location.pathname === '/'
@@ -391,18 +415,37 @@ function Layout({ children }: { children: React.ReactNode }) {
 
             {/* Navigation */}
             <nav className="hidden md:flex items-center space-x-1">
-              <Link to="/settings" className="btn-ghost px-3 py-2 rounded-lg text-sm font-medium">
-                设置
-              </Link>
-              <Link to="/users" className="btn-ghost px-3 py-2 rounded-lg text-sm font-medium">
-                用户
+              <Link 
+                to="/admin" 
+                className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
+                title="管理中心"
+              >
+                <svg
+                  className="w-5 h-5 text-neutral-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
               </Link>
 
               <div className="w-px h-4 bg-neutral-200 mx-2" />
 
               {auth.token ? (
                 <button
-                  onClick={logout}
+                  onClick={handleLogoutClick}
                   className="btn-ghost px-3 py-2 rounded-lg text-sm font-medium text-neutral-600 hover:text-error-600"
                 >
                   退出
@@ -414,12 +457,56 @@ function Layout({ children }: { children: React.ReactNode }) {
               )}
             </nav>
 
-            {/* Mobile menu button */}
-            <button className="md:hidden btn-ghost p-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
+            {/* Mobile navigation */}
+            <div className="md:hidden flex items-center gap-2">
+              <Link 
+                to="/admin" 
+                className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
+                title="管理中心"
+              >
+                <svg
+                  className="w-5 h-5 text-neutral-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              </Link>
+              
+              {auth.token && (
+                 <button
+                   onClick={handleLogoutClick}
+                   className="btn-ghost p-2 rounded-lg text-neutral-600 hover:text-error-600"
+                   title="退出登录"
+                 >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                    />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -447,6 +534,19 @@ function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </footer>
+      
+      {/* 退出确认弹窗 */}
+      <ConfirmDialog
+        isOpen={showLogoutConfirm}
+        onClose={cancelLogout}
+        onConfirm={confirmLogout}
+        title="确认退出"
+        message="确定要退出登录吗？退出后需要重新登录才能访问系统。"
+        confirmText="确定退出"
+        cancelText="取消"
+        confirmVariant="danger"
+        isLoading={isLoggingOut}
+      />
     </div>
   )
 }
@@ -469,24 +569,22 @@ const router = createBrowserRouter([
     )
   },
   {
-    path: '/settings',
+    path: '/admin',
     element: (
       <RequireAuth>
         <Layout>
-          <Settings />
+          <AdminPage />
         </Layout>
       </RequireAuth>
     )
   },
   {
+    path: '/settings',
+    element: <Navigate to="/admin?tab=scan" replace />
+  },
+  {
     path: '/users',
-    element: (
-      <RequireAuth>
-        <Layout>
-          <Users />
-        </Layout>
-      </RequireAuth>
-    )
+    element: <Navigate to="/admin?tab=users" replace />
   },
   {
     path: '/artworks/:id',
