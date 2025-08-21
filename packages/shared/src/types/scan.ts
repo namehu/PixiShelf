@@ -26,11 +26,12 @@ export interface ScanResult {
  * 扫描进度信息
  */
 export interface ScanProgress {
-  phase: 'scanning' | 'creating' | 'cleanup' | 'complete'
+  phase: 'counting' | 'scanning' | 'creating' | 'cleanup' | 'complete'
   message: string
   current?: number
   total?: number
   percentage?: number
+  estimatedSecondsRemaining?: number
 }
 
 /**

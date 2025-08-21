@@ -23,6 +23,17 @@ export interface ArtworkData {
   directoryCreatedAt?: Date; // 目录创建时间
   imageCount?: number; // 图片数量
   descriptionLength?: number; // 描述长度
+  
+  // 新增字段支持元数据
+  externalId?: string; // 外部ID（如Pixiv ID）
+  sourceUrl?: string; // 作品来源URL
+  originalUrl?: string; // 原始图片URL
+  thumbnailUrl?: string; // 缩略图URL
+  xRestrict?: string; // 限制等级
+  isAiGenerated?: boolean; // 是否AI生成
+  size?: string; // 尺寸信息
+  bookmarkCount?: number; // 收藏数量
+  sourceDate?: Date; // 原始发布日期
 }
 
 /**

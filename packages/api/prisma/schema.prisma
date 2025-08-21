@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
@@ -10,55 +10,65 @@ datasource db {
 
 model Artist {
   id        Int       @id @default(autoincrement())
-  name      String    // 显示名称（原始值或解析后的用户名）
-  username  String?   // 解析出的用户名部分
-  userId    String?   // 解析出的用户ID部分
+  name      String
+  username  String?
+  userId    String?
   bio       String?
-  artworks  Artwork[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  artworks  Artwork[]
 
   @@unique([username, userId], name: "unique_username_userid")
 }
 
 model Artwork {
-  id                  Int       @id @default(autoincrement())
-  title               String
-  description         String?
-  directoryCreatedAt  DateTime? // 目录创建时间（文件系统时间）
-  imageCount          Int       @default(0) // 图片数量冗余字段
-  descriptionLength   Int       @default(0) // 描述长度冗余字段
-  images              Image[]
-  artist              Artist?   @relation(fields: [artistId], references: [id])
-  artistId            Int?
-  artworkTags         ArtworkTag[]
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                 Int          @id @default(autoincrement())
+  title              String
+  description        String?
+  artistId           Int?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  descriptionLength  Int          @default(0)
+  directoryCreatedAt DateTime?
+  imageCount         Int          @default(0)
+  bookmarkCount      Int?
+  externalId         String?
+  isAiGenerated      Boolean?
+  originalUrl        String?
+  size               String?
+  sourceDate         DateTime?
+  sourceUrl          String?
+  thumbnailUrl       String?
+  xRestrict          String?
+  artist             Artist?      @relation(fields: [artistId], references: [id])
+  artworkTags        ArtworkTag[]
+  images             Image[]
 
-  @@index([title, description])
-  @@index([directoryCreatedAt]) // 新增索引：支持按目录创建时间排序
-  @@index([imageCount])         // 新增索引：支持按图片数量排序
-  @@index([descriptionLength])  // 新增索引：支持按描述长度排序
   @@unique([artistId, title], name: "unique_artist_title")
+  @@index([title, description])
+  @@index([directoryCreatedAt])
+  @@index([imageCount])
+  @@index([descriptionLength])
+  @@index([externalId])
 }
 
 model Tag {
-  id          Int       @id @default(autoincrement())
-  name        String    @unique
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
   artworkTags ArtworkTag[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
 
   @@index([name])
 }
 
 model ArtworkTag {
   id        Int      @id @default(autoincrement())
-  artwork   Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
   artworkId Int
-  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
   tagId     Int
   createdAt DateTime @default(now())
+  artwork   Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@unique([artworkId, tagId])
 }
@@ -69,11 +79,11 @@ model Image {
   width     Int?
   height    Int?
   size      Int?
-  sortOrder Int      @default(0) // 图片在作品中的排序顺序
-  artwork   Artwork? @relation(fields: [artworkId], references: [id])
+  sortOrder Int      @default(0)
   artworkId Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  artwork   Artwork? @relation(fields: [artworkId], references: [id])
 
   @@unique([artworkId, path], name: "unique_artwork_path")
 }
@@ -81,7 +91,7 @@ model Image {
 model User {
   id        Int      @id @default(autoincrement())
   username  String   @unique
-  password  String   // hashed password
+  password  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -90,7 +100,7 @@ model Setting {
   id        Int      @id @default(autoincrement())
   key       String   @unique
   value     String?
-  type      String   @default("string") // string, number, boolean, json
+  type      String   @default("string")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

@@ -14,6 +14,9 @@ export * from './types/auth'
 // 扫描相关类型
 export * from './types/scan'
 
+// 元数据相关类型
+export * from './types/metadata'
+
 // 设置相关类型
 export * from './types/settings'
 

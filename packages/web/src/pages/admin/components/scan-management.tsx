@@ -1,7 +1,7 @@
 import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson, createEventSourceWithAuth } from '../../../api'
-import { ScanResult, HealthResponse, ScanProgress, LogEntry, ScanPathResponse } from '@pixishelf/shared'
+import { ScanResult, HealthResponse, ScanProgress, LogEntry, ScanPathResponse, ScanStrategyType } from '@pixishelf/shared'
 
 // Hook: 健康检查
 function useHealth() {
@@ -49,6 +49,38 @@ function useCancelScan() {
   })
 }
 
+// 扫描策略信息接口
+interface ScanStrategyInfo {
+  supported: string[]
+  current: { name: string; description: string } | null
+  availability: {
+    [K in ScanStrategyType]: {
+      available: boolean
+      issues: string[]
+      estimatedDuration: number
+    }
+  }
+  recommendation: {
+    recommended: ScanStrategyType
+    reason: string
+    alternatives: Array<{
+      strategy: ScanStrategyType
+      reason: string
+    }>
+  }
+}
+
+// Hook: 扫描策略管理
+function useScanStrategies() {
+  return useQuery({
+    queryKey: ['scanStrategies'],
+    queryFn: async () => {
+      return apiJson<ScanStrategyInfo>('/api/v1/scan/strategies')
+    },
+    enabled: true
+  })
+}
+
 // 工具函数：秒数转时间文本
 function secondsToText(s: number) {
   const mm = String(Math.floor(s / 60)).padStart(2, '0')
@@ -72,9 +104,18 @@ function ScanManagement() {
   const { data: health } = useHealth()
   const scanPath = useScanPath()
   const cancelScan = useCancelScan()
+  const { data: strategies } = useScanStrategies()
 
   const [editPath, setEditPath] = React.useState('')
   const [editing, setEditing] = React.useState(false)
+  const [selectedStrategy, setSelectedStrategy] = React.useState<ScanStrategyType>('full')
+  
+  // 根据推荐策略设置默认选中
+  React.useEffect(() => {
+    if (strategies?.recommendation?.recommended) {
+      setSelectedStrategy(strategies.recommendation.recommended)
+    }
+  }, [strategies?.recommendation?.recommended])
 
   const [elapsed, setElapsed] = React.useState(0)
   const [progress, setProgress] = React.useState<ScanProgress | null>(null)
@@ -137,7 +178,7 @@ function ScanManagement() {
 
   // 开始SSE流
   const startStream = React.useCallback(
-    (force?: boolean) => {
+    (force?: boolean, strategy?: ScanStrategyType) => {
       // 若已存在连接，先关闭
       if (esRef.current) {
         try { esRef.current.close() } catch {}
@@ -154,9 +195,10 @@ function ScanManagement() {
 
       const qs = new URLSearchParams()
       if (force) qs.set('force', 'true')
+      if (strategy) qs.set('scanType', strategy)
       const url = `/api/v1/scan/stream${qs.toString() ? `?${qs.toString()}` : ''}`
 
-      addLogEntry('connection', { url, force }, `开始连接SSE: ${url}`)
+      addLogEntry('connection', { url, force, strategy }, `开始连接SSE: ${url} (策略: ${strategy || '默认'})`)
 
       const connectSSE = () => {
         const es = createEventSourceWithAuth(url)
@@ -257,7 +299,7 @@ function ScanManagement() {
 
       connectSSE()
     },
-    [retryCount, streaming, addLogEntry]
+    [retryCount, streaming, addLogEntry, selectedStrategy]
   )
 
   // 取消当前扫描
@@ -373,6 +415,79 @@ function ScanManagement() {
           </div>
         </div>
 
+        {/* 扫描策略选择 */}
+        <div className="card p-6">
+          <div className="mb-4">
+            <div className="mb-2 text-base font-medium">扫描策略</div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {(['metadata', 'media', 'full', 'legacy'] as ScanStrategyType[]).map((strategy) => {
+                  const strategyInfo = strategies?.availability[strategy]
+                  const isRecommended = strategies?.recommendation.recommended === strategy
+                  const isAvailable = strategyInfo?.available ?? true
+                  
+                  return (
+                    <label
+                      key={strategy}
+                      className={`relative flex cursor-pointer items-center gap-2 rounded border p-3 text-sm transition-colors ${
+                        selectedStrategy === strategy
+                          ? 'border-primary-500 bg-primary-50'
+                          : isAvailable
+                          ? 'border-neutral-200 hover:border-neutral-300'
+                          : 'border-neutral-100 bg-neutral-50 cursor-not-allowed'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="scanStrategy"
+                        value={strategy}
+                        checked={selectedStrategy === strategy}
+                        onChange={(e) => setSelectedStrategy(e.target.value as ScanStrategyType)}
+                        disabled={!isAvailable}
+                        className="text-primary-600"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-1">
+                          <span className={`font-medium ${!isAvailable ? 'text-neutral-400' : ''}`}>
+                            {strategy === 'metadata' && '元数据扫描'}
+                            {strategy === 'media' && '媒体文件扫描'}
+                            {strategy === 'full' && '完整扫描'}
+                            {strategy === 'legacy' && '传统扫描'}
+                          </span>
+                          {isRecommended && (
+                            <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">
+                              推荐
+                            </span>
+                          )}
+                        </div>
+                        <div className={`text-xs ${!isAvailable ? 'text-neutral-400' : 'text-neutral-500'}`}>
+                          {strategy === 'metadata' && '仅处理元数据文件，创建作品记录'}
+                          {strategy === 'media' && '关联媒体文件到现有作品'}
+                          {strategy === 'full' && '完整处理元数据和媒体文件'}
+                          {strategy === 'legacy' && '传统目录结构扫描'}
+                        </div>
+                        {!isAvailable && strategyInfo?.issues && strategyInfo.issues.length > 0 && (
+                          <div className="mt-1 text-xs text-error-500">
+                            {strategyInfo.issues[0]}
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+              
+              {/* 策略推荐信息 */}
+              {strategies?.recommendation && (
+                <div className="rounded bg-info-50 p-3 text-sm">
+                  <div className="font-medium text-info-900">推荐策略：{strategies.recommendation.recommended}</div>
+                  <div className="text-info-700">{strategies.recommendation.reason}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* 实时进度（SSE） */}
         <div className="card p-6">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -382,19 +497,19 @@ function ScanManagement() {
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => startStream(false)}
+                onClick={() => startStream(false, selectedStrategy)}
                 disabled={streaming || !scanPath.query.data?.scanPath}
                 className="btn btn-primary disabled:opacity-50"
               >
-                {streaming ? '进行中…' : '开始（SSE）'}
+                {streaming ? '进行中…' : '开始扫描'}
               </button>
               <button
-                onClick={() => startStream(true)}
+                onClick={() => startStream(true, selectedStrategy)}
                 disabled={streaming || !scanPath.query.data?.scanPath}
                 className="btn btn-secondary disabled:opacity-50"
-                title="强制全量更新：清空现有数据后重建（SSE）"
+                title="强制全量更新：清空现有数据后重建"
               >
-                强制全量（SSE）
+                强制全量
               </button>
               {streaming && (
                 <button

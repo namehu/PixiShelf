@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { FileScanner } from '../services/scanner'
 import { config } from '../config'
+import { ScanStrategyType } from '@pixishelf/shared'
 
 export default async function scanRoutes(server: FastifyInstance) {
   server.get('/api/v1/scan/status', async () => ({
@@ -8,21 +9,55 @@ export default async function scanRoutes(server: FastifyInstance) {
     message: server.appState.lastProgressMessage
   }))
 
-
-
-  server.post('/api/v1/scan/cancel', {
-    preHandler: async (request, reply) => {
-      // 对于这个接口，我们不需要解析请求体，直接跳过
-      if (request.headers['content-type'] === 'application/json' && !request.body) {
-        request.body = {}
-      }
+  // 新增：获取扫描策略信息
+  server.get('/api/v1/scan/strategies', async (req, reply) => {
+    const scanPath = await server.settingService.getScanPath()
+    if (!scanPath) {
+      reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'SCAN_PATH is not configured' })
+      return
     }
-  }, async (_req, _reply) => {
-    if (!server.appState.scanning) return { success: true, cancelled: false }
-    server.appState.cancelRequested = true
-    server.appState.lastProgressMessage = '正在取消…'
-    return { success: true, cancelled: true }
+
+    try {
+      const scanner = new FileScanner(server.prisma, server.log, {
+        enableMetadataScanning: true
+      })
+
+      const [availability, recommendation] = await Promise.all([
+        scanner.checkStrategyAvailability({ scanPath }),
+        scanner.getRecommendedStrategy({ scanPath })
+      ])
+
+      return {
+        supported: scanner.getSupportedStrategies(),
+        current: scanner.getCurrentStrategy(),
+        availability,
+        recommendation
+      }
+    } catch (error) {
+      server.log.error({ error }, 'Failed to get strategy information')
+      reply
+        .code(500)
+        .send({ statusCode: 500, error: 'Internal Server Error', message: 'Failed to get strategy information' })
+    }
   })
+
+  server.post(
+    '/api/v1/scan/cancel',
+    {
+      preHandler: async (request, reply) => {
+        // 对于这个接口，我们不需要解析请求体，直接跳过
+        if (request.headers['content-type'] === 'application/json' && !request.body) {
+          request.body = {}
+        }
+      }
+    },
+    async (_req, _reply) => {
+      if (!server.appState.scanning) return { success: true, cancelled: false }
+      server.appState.cancelRequested = true
+      server.appState.lastProgressMessage = '正在取消…'
+      return { success: true, cancelled: true }
+    }
+  )
 
   server.get('/api/v1/scan/stream', async (req, reply) => {
     const scanPath = await server.settingService.getScanPath()
@@ -31,8 +66,9 @@ export default async function scanRoutes(server: FastifyInstance) {
       return
     }
 
-    const { force } = req.query as { force?: string }
+    const { force, scanType } = req.query as { force?: string; scanType?: string }
     const forceUpdate = force === 'true'
+    const selectedScanType = scanType as ScanStrategyType | undefined
 
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -58,33 +94,61 @@ export default async function scanRoutes(server: FastifyInstance) {
     server.appState.lastProgressMessage = '初始化…'
 
     try {
-      const scanner = new FileScanner(server.prisma, server.log)
+      // 检查是否启用元数据扫描
+      const enableMetadataScanning = selectedScanType && ['metadata', 'media', 'full'].includes(selectedScanType)
 
-      const result = await scanner.scan({
-        scanPath,
-        forceUpdate,
-        onProgress: (progress) => {
-          server.appState.lastProgressMessage = progress?.message || null
-          if (server.appState.cancelRequested) {
-            throw new Error('Scan cancelled')
-          }
-          sendEvent('progress', progress)
-
-          // 添加性能监控
-          const metrics = scanner.getPerformanceMetrics()
-          server.log.debug(
-            {
-              progress,
-              metrics: {
-                throughput: metrics.throughput,
-                memoryUsage: metrics.memoryUsage.heapUsed,
-                concurrency: scanner.getConcurrencyStatus()
-              }
-            },
-            'Scan progress with metrics'
-          )
-        }
+      const scanner = new FileScanner(server.prisma, server.log, {
+        enableMetadataScanning
       })
+
+      let result
+
+      if (enableMetadataScanning) {
+        // 使用新的元数据扫描功能
+        server.log.info({ scanType: selectedScanType }, 'Using metadata scanning')
+
+        result = await scanner.scanWithMetadata({
+          scanPath,
+          scanType: selectedScanType,
+          forceUpdate,
+          onProgress: (progress) => {
+            server.appState.lastProgressMessage = progress?.message || null
+            if (server.appState.cancelRequested) {
+              throw new Error('Scan cancelled')
+            }
+            sendEvent('progress', progress)
+          }
+        })
+      } else {
+        // 使用传统扫描功能
+        server.log.info('Using legacy scanning')
+
+        result = await scanner.scan({
+          scanPath,
+          forceUpdate,
+          onProgress: (progress) => {
+            server.appState.lastProgressMessage = progress?.message || null
+            if (server.appState.cancelRequested) {
+              throw new Error('Scan cancelled')
+            }
+            sendEvent('progress', progress)
+
+            // 添加性能监控
+            const metrics = scanner.getPerformanceMetrics()
+            server.log.debug(
+              {
+                progress,
+                metrics: {
+                  throughput: metrics.throughput,
+                  memoryUsage: metrics.memoryUsage.heapUsed,
+                  concurrency: scanner.getConcurrencyStatus()
+                }
+              },
+              'Scan progress with metrics'
+            )
+          }
+        })
+      }
 
       sendEvent('complete', { success: true, result })
 

@@ -14,9 +14,7 @@ import { apiJson } from './api'
 import { SuggestionsResponse } from '@pixishelf/shared'
 import Gallery from './pages/Gallery'
 import ArtworkDetail from './pages/ArtworkDetail'
-import Settings from './pages/Settings'
 import Login from './pages/Login'
-import Users from './pages/Users'
 import AdminPage from './pages/admin'
 import ConfirmDialog from './components/ui/confirm-dialog'
 import './styles.css'
@@ -48,7 +46,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   const [searchMode, setSearchMode] = React.useState<'normal' | 'tag'>('normal')
   const suggestionsCache = React.useRef<Map<string, any[]>>(new Map())
   const abortControllerRef = React.useRef<AbortController | null>(null)
-  
+
   // 退出确认弹窗状态
   const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false)
   const [isLoggingOut, setIsLoggingOut] = React.useState(false)
@@ -133,9 +131,12 @@ function Layout({ children }: { children: React.ReactNode }) {
 
     setIsLoadingSuggestions(true)
     try {
-      const data = await apiJson<SuggestionsResponse>(`/api/v1/suggestions?q=${encodeURIComponent(query)}&limit=8&mode=${searchMode}`, {
-        signal: abortControllerRef.current.signal
-      })
+      const data = await apiJson<SuggestionsResponse>(
+        `/api/v1/suggestions?q=${encodeURIComponent(query)}&limit=8&mode=${searchMode}`,
+        {
+          signal: abortControllerRef.current.signal
+        }
+      )
       const suggestions = data.suggestions || []
 
       // 缓存结果（限制缓存大小）
@@ -415,17 +416,12 @@ function Layout({ children }: { children: React.ReactNode }) {
 
             {/* Navigation */}
             <nav className="hidden md:flex items-center space-x-1">
-              <Link 
-                to="/admin" 
+              <Link
+                to="/admin"
                 className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
                 title="管理中心"
               >
-                <svg
-                  className="w-5 h-5 text-neutral-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
+                <svg className="w-5 h-5 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -459,17 +455,12 @@ function Layout({ children }: { children: React.ReactNode }) {
 
             {/* Mobile navigation */}
             <div className="md:hidden flex items-center gap-2">
-              <Link 
-                to="/admin" 
+              <Link
+                to="/admin"
                 className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
                 title="管理中心"
               >
-                <svg
-                  className="w-5 h-5 text-neutral-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
+                <svg className="w-5 h-5 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -484,19 +475,14 @@ function Layout({ children }: { children: React.ReactNode }) {
                   />
                 </svg>
               </Link>
-              
+
               {auth.token && (
-                 <button
-                   onClick={handleLogoutClick}
-                   className="btn-ghost p-2 rounded-lg text-neutral-600 hover:text-error-600"
-                   title="退出登录"
-                 >
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
+                <button
+                  onClick={handleLogoutClick}
+                  className="btn-ghost p-2 rounded-lg text-neutral-600 hover:text-error-600"
+                  title="退出登录"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -534,7 +520,7 @@ function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </footer>
-      
+
       {/* 退出确认弹窗 */}
       <ConfirmDialog
         isOpen={showLogoutConfirm}
@@ -577,14 +563,6 @@ const router = createBrowserRouter([
         </Layout>
       </RequireAuth>
     )
-  },
-  {
-    path: '/settings',
-    element: <Navigate to="/admin?tab=scan" replace />
-  },
-  {
-    path: '/users',
-    element: <Navigate to="/admin?tab=users" replace />
   },
   {
     path: '/artworks/:id',

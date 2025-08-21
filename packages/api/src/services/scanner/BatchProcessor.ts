@@ -304,10 +304,19 @@ export class BatchProcessor {
         artistId = this.entityMapping.artists.get(displayNameKey);
       }
       
-      // 3. 如果还是没找到，尝试所有可能的键
+      // 3. 如果还是没找到，尝试模糊匹配
       if (!artistId) {
+        const parsed = this.parseArtistName(artistName);
+        const searchName = parsed.displayName;
+        
         for (const [key, id] of this.entityMapping.artists.entries()) {
-          if (key === artistName || key.includes(artistName) || artistName.includes(key)) {
+          // 尝试精确匹配
+          if (key === searchName) {
+            artistId = id;
+            break;
+          }
+          // 尝试包含匹配
+          if (key.includes(searchName) || searchName.includes(key.split(':')[0])) {
             artistId = id;
             break;
           }
@@ -715,6 +724,19 @@ export class BatchProcessor {
           displayName: username,
           username: username,
           userId: userId,
+        };
+      }
+    }
+
+    // 处理包含斜杠的格式，如 "用户名/其他信息"
+    match = artistName.match(/^([^/]+)\/(.*)$/);
+    if (match) {
+      const username = match[1].trim();
+      if (username.length > 0) {
+        return {
+          displayName: username,
+          username: username,
+          userId: null,
         };
       }
     }

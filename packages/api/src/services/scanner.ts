@@ -12,6 +12,8 @@ import { PerformanceMonitor } from './scanner/PerformanceMonitor'
 import { PerformanceMetrics, ScanTask, TaskResult } from './scanner/types'
 import { FileSystemTimeReader } from '../utils/fsTimeReader'
 import { config } from '../config'
+import { ScanOrchestrator } from './scanner/ScanOrchestrator'
+import { ExtendedScanOptions, ExtendedScanResult, ScanStrategyType, ScanOrchestratorOptions } from '@pixishelf/shared'
 
 export interface ScanOptions {
   scanPath: string
@@ -63,13 +65,24 @@ export class FileScanner {
   private enableOptimizations: boolean = true
   private useStreamingBatch: boolean = true
 
-  constructor(prisma: PrismaClient, logger: FastifyInstance['log'], options?: {
-    enableStreaming?: boolean
-  }) {
+  // 新增：扫描编排器
+  private scanOrchestrator: ScanOrchestrator
+  private enableMetadataScanning: boolean = false
+
+  constructor(
+    prisma: PrismaClient,
+    logger: FastifyInstance['log'],
+    options?: {
+      enableStreaming?: boolean
+      enableMetadataScanning?: boolean
+      scanOrchestratorOptions?: ScanOrchestratorOptions
+    }
+  ) {
     this.prisma = prisma
     this.logger = logger
     this.useStreamingBatch = options?.enableStreaming ?? true
     this.enableOptimizations = config.scanner.enableOptimizations ?? true
+    this.enableMetadataScanning = options?.enableMetadataScanning ?? false
 
     // 初始化性能优化组件
     this.concurrencyController = new ConcurrencyController(config.scanner.maxConcurrency)
@@ -79,6 +92,14 @@ export class FileScanner {
     })
     this.streamingBatchProcessor = new StreamingBatchProcessor(this.prisma, this.logger)
     this.fsTimeReader = new FileSystemTimeReader()
+
+    // 初始化扫描编排器
+    this.scanOrchestrator = new ScanOrchestrator(this.prisma, this.logger, {
+      enableOptimizations: this.enableOptimizations,
+      maxConcurrency: config.scanner.maxConcurrency,
+      defaultStrategy: 'full',
+      ...options?.scanOrchestratorOptions
+    })
 
     this.initializePerformanceMetrics()
   }
@@ -150,14 +171,14 @@ export class FileScanner {
 
     // 最终化批量处理
     this.progressTracker.setPhase('finalizing')
-    
+
     let finalBatchResult: any
     if (this.useStreamingBatch) {
       finalBatchResult = await this.streamingBatchProcessor.finalize()
     } else {
       finalBatchResult = await this.batchProcessor.flush()
     }
-    
+
     this.updateResultFromBatch(finalBatchResult, result)
   }
 
@@ -453,7 +474,7 @@ export class FileScanner {
 
     // 解析元数据
     const metadata = await this.parseMetadata(task.path)
-    
+
     // 获取目录创建时间和计算新字段
     const directoryCreatedAt = await this.fsTimeReader.getDirectoryCreatedTime(task.path)
     const imageCount = images.length
@@ -525,7 +546,7 @@ export class FileScanner {
 
     // 解析元数据
     const metadata = await this.parseMetadata(task.path)
-    
+
     // 获取目录创建时间和计算新字段
     const directoryCreatedAt = await this.fsTimeReader.getDirectoryCreatedTime(task.path)
     const imageCount = images.length
@@ -734,6 +755,90 @@ export class FileScanner {
     return safeNameRegex.test(name)
   }
 
+  /**
+   * 新的扫描方法，支持元数据扫描
+   * @param options 扩展的扫描选项
+   * @returns 扫描结果
+   */
+  async scanWithMetadata(options: ExtendedScanOptions): Promise<ExtendedScanResult> {
+    if (!this.enableMetadataScanning) {
+      throw new Error('Metadata scanning is not enabled. Please enable it in constructor options.')
+    }
+
+    try {
+      this.logger.info(
+        {
+          scanPath: options.scanPath,
+          scanType: options.scanType,
+          enableMetadataScanning: this.enableMetadataScanning
+        },
+        'Starting metadata-enabled scan'
+      )
+
+      return await this.scanOrchestrator.scan(options)
+    } catch (error) {
+      this.logger.error({ error, options }, 'Metadata scan failed')
+      throw error
+    }
+  }
+
+  /**
+   * 获取推荐的扫描策略
+   * @param options 扫描选项
+   * @returns 推荐策略信息
+   */
+  async getRecommendedStrategy(options: ExtendedScanOptions): Promise<{
+    recommended: ScanStrategyType
+    reason: string
+    alternatives: Array<{ strategy: ScanStrategyType; reason: string }>
+  }> {
+    return await this.scanOrchestrator.recommendStrategy(options)
+  }
+
+  /**
+   * 检查策略可用性
+   * @param options 扫描选项
+   * @returns 策略可用性信息
+   */
+  async checkStrategyAvailability(options: ExtendedScanOptions): Promise<{
+    [K in ScanStrategyType]: {
+      available: boolean
+      issues: string[]
+      estimatedDuration: number
+    }
+  }> {
+    return await this.scanOrchestrator.checkStrategyAvailability(options)
+  }
+
+  /**
+   * 设置扫描策略
+   * @param strategy 策略类型
+   */
+  setStrategy(strategy: ScanStrategyType): void {
+    this.scanOrchestrator.setStrategy(strategy)
+  }
+
+  /**
+   * 获取当前策略信息
+   * @returns 当前策略信息
+   */
+  getCurrentStrategy(): { name: string; description: string } | null {
+    return this.scanOrchestrator.getCurrentStrategy()
+  }
+
+  /**
+   * 获取支持的扫描策略
+   * @returns 策略列表
+   */
+  getSupportedStrategies(): string[] {
+    return this.scanOrchestrator.getSupportedStrategies()
+  }
+
+  /**
+   * 传统扫描方法（保持向后兼容）
+   * @param options 扫描选项
+   * @returns 扫描结果
+   */
   async scan(options: ScanOptions): Promise<ScanResult> {
     // 初始化性能监控
     this.performanceMetrics.startTime = Date.now()
@@ -759,13 +864,9 @@ export class FileScanner {
       this.scanRootAbs = path.resolve(scanPath)
 
       // 初始化进度跟踪器
-      this.progressTracker = new ProgressTracker(
-        this.logger,
-        onProgress,
-        (detailedProgress) => {
-          this.logger.debug({ detailedProgress }, 'Detailed progress update')
-        }
-      )
+      this.progressTracker = new ProgressTracker(this.logger, onProgress, (detailedProgress) => {
+        this.logger.debug({ detailedProgress }, 'Detailed progress update')
+      })
 
       // 初始化流式批量处理器（如果启用）
       if (this.useStreamingBatch) {
@@ -776,7 +877,7 @@ export class FileScanner {
             microBatchSize: 50,
             maxConcurrentFlushes: 3,
             flushInterval: 2000,
-            progressUpdateInterval: 1000,
+            progressUpdateInterval: 1000
           },
           (detailedProgress) => {
             this.progressTracker.updateBatchingProgress(detailedProgress.batching)
@@ -796,8 +897,8 @@ export class FileScanner {
           averageQueryTime: 3000,
           connectionPoolUsage: 80,
           queueLength: 1000,
-          throughputDrop: 50,
-        },
+          throughputDrop: 50
+        }
       })
 
       // 注册组件到性能监控器
@@ -805,7 +906,7 @@ export class FileScanner {
         concurrencyController: this.concurrencyController,
         progressTracker: this.progressTracker,
         streamingBatchProcessor: this.useStreamingBatch ? this.streamingBatchProcessor : undefined,
-        dbOptimizer: this.useStreamingBatch ? this.streamingBatchProcessor['dbOptimizer'] : undefined,
+        dbOptimizer: this.useStreamingBatch ? this.streamingBatchProcessor['dbOptimizer'] : undefined
       })
 
       // 启动性能监控
@@ -890,13 +991,10 @@ export class FileScanner {
       }
       if (this.performanceMonitor) {
         this.performanceMonitor.stopMonitoring()
-        
+
         // 记录最终性能报告
         const performanceReport = this.performanceMonitor.getPerformanceReport()
-        this.logger.info(
-          { performanceReport },
-          'Final performance report'
-        )
+        this.logger.info({ performanceReport }, 'Final performance report')
       }
     }
   }
@@ -924,11 +1022,12 @@ export class FileScanner {
 
     try {
       const artistEntries = await fs.readdir(rootPath, { withFileTypes: true })
-      const validArtistEntries = artistEntries.filter(entry => 
-        this.isValidName(entry.name) && 
-        !entry.name.startsWith('.') && 
-        !entry.name.startsWith('$') && 
-        entry.isDirectory()
+      const validArtistEntries = artistEntries.filter(
+        (entry) =>
+          this.isValidName(entry.name) &&
+          !entry.name.startsWith('.') &&
+          !entry.name.startsWith('$') &&
+          entry.isDirectory()
       )
 
       onProgress?.({
@@ -940,48 +1039,50 @@ export class FileScanner {
       // 使用并发处理来加速预扫描
       const concurrencyLimit = 10 // 限制并发数避免文件系统过载
       const batches = this.createTaskBatches(validArtistEntries, concurrencyLimit)
-      
+
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
         const batch = batches[batchIndex]
-        
+
         // 并发处理当前批次
         const batchPromises = batch.map(async (artistEntry) => {
           const artistPath = path.join(rootPath, artistEntry.name)
           let localArtworkCount = 0
-          
+
           try {
             const artworkEntries = await fs.readdir(artistPath, { withFileTypes: true })
-            
+
             // 快速统计：只检查目录数量，不深入检查图片文件
             for (const artworkEntry of artworkEntries) {
-              if (this.isValidName(artworkEntry.name) && 
-                  !artworkEntry.name.startsWith('.') && 
-                  !artworkEntry.name.startsWith('$') && 
-                  artworkEntry.isDirectory()) {
+              if (
+                this.isValidName(artworkEntry.name) &&
+                !artworkEntry.name.startsWith('.') &&
+                !artworkEntry.name.startsWith('$') &&
+                artworkEntry.isDirectory()
+              ) {
                 localArtworkCount++
               }
             }
           } catch (error) {
             this.logger.warn({ error, artistPath }, 'Failed to scan artist directory during counting')
           }
-          
+
           return { artistName: artistEntry.name, artworkCount: localArtworkCount }
         })
-        
+
         const batchResults = await Promise.all(batchPromises)
-        
+
         // 累计结果
         for (const result of batchResults) {
           artistCount++
           artworkCount += result.artworkCount
           scannedDirs++
         }
-        
+
         // 更新进度
-        const progress = 10 + (batchIndex + 1) / batches.length * 80
+        const progress = 10 + ((batchIndex + 1) / batches.length) * 80
         const elapsed = Date.now() - startTime
-        const estimated = elapsed / (batchIndex + 1) * (batches.length - batchIndex - 1)
-        
+        const estimated = (elapsed / (batchIndex + 1)) * (batches.length - batchIndex - 1)
+
         onProgress?.({
           phase: 'counting',
           message: `预扫描进度: ${scannedDirs}/${validArtistEntries.length} 艺术家目录，发现 ${artworkCount} 个作品目录`,
@@ -995,8 +1096,8 @@ export class FileScanner {
 
     const totalWorkUnits = artistCount + artworkCount
     const elapsed = Date.now() - startTime
-    const summaryMessage = `预扫描完成！发现 ${artistCount} 个艺术家，${artworkCount} 个作品目录，耗时 ${Math.round(elapsed/1000)}秒`
-    
+    const summaryMessage = `预扫描完成！发现 ${artistCount} 个艺术家，${artworkCount} 个作品目录，耗时 ${Math.round(elapsed / 1000)}秒`
+
     onProgress?.({
       phase: 'counting',
       message: summaryMessage,
@@ -1291,17 +1392,17 @@ export class FileScanner {
   private naturalSort(a: string, b: string): number {
     const aName = path.basename(a)
     const bName = path.basename(b)
-    
+
     // 将字符串分割为数字和非数字部分
     const aParts = aName.split(/([0-9]+)/)
     const bParts = bName.split(/([0-9]+)/)
-    
+
     const maxLength = Math.max(aParts.length, bParts.length)
-    
+
     for (let i = 0; i < maxLength; i++) {
       const aPart = aParts[i] || ''
       const bPart = bParts[i] || ''
-      
+
       // 如果两个部分都是数字，按数值比较
       if (/^[0-9]+$/.test(aPart) && /^[0-9]+$/.test(bPart)) {
         const aNum = parseInt(aPart, 10)
@@ -1316,7 +1417,7 @@ export class FileScanner {
         }
       }
     }
-    
+
     return 0
   }
 
@@ -1332,7 +1433,7 @@ export class FileScanner {
     try {
       // 获取目录创建时间
       const directoryCreatedAt = await this.fsTimeReader.getDirectoryCreatedTime(artworkPath)
-      
+
       // 计算新字段值
       const imageCount = imagePaths.length
       const descriptionLength = metadata.description?.length || 0
@@ -1351,7 +1452,9 @@ export class FileScanner {
           }
         })
         result.newArtworks++
-        this.logger.info(`Created new artwork: ${artworkTitle} (${imageCount} images, dir created: ${directoryCreatedAt.toISOString()})`)
+        this.logger.info(
+          `Created new artwork: ${artworkTitle} (${imageCount} images, dir created: ${directoryCreatedAt.toISOString()})`
+        )
       } catch (e) {
         if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
           // 命中唯一约束 (artistId, title) 冲突，查找既有记录并更新元数据
@@ -1370,7 +1473,9 @@ export class FileScanner {
                 descriptionLength: descriptionLength
               }
             })
-            this.logger.info(`Updated existing artwork: ${artworkTitle} (${imageCount} images, dir created: ${directoryCreatedAt.toISOString()})`)
+            this.logger.info(
+              `Updated existing artwork: ${artworkTitle} (${imageCount} images, dir created: ${directoryCreatedAt.toISOString()})`
+            )
           } else {
             throw e
           }
@@ -1436,7 +1541,7 @@ export class FileScanner {
         message: '正在清理现有数据...',
         percentage: 0
       })
-      
+
       // 分步删除，提供进度反馈
       this.logger.info('Starting cleanup: deleting images...')
       onProgress?.({
@@ -1445,7 +1550,7 @@ export class FileScanner {
         percentage: 10
       })
       await this.prisma.image.deleteMany({})
-      
+
       this.logger.info('Cleanup: deleting artwork tags...')
       onProgress?.({
         phase: 'cleanup',
@@ -1453,7 +1558,7 @@ export class FileScanner {
         percentage: 30
       })
       await this.prisma.artworkTag.deleteMany({})
-      
+
       this.logger.info('Cleanup: deleting artworks...')
       onProgress?.({
         phase: 'cleanup',
@@ -1461,7 +1566,7 @@ export class FileScanner {
         percentage: 60
       })
       await this.prisma.artwork.deleteMany({})
-      
+
       this.logger.info('Cleanup: deleting artists...')
       onProgress?.({
         phase: 'cleanup',
@@ -1469,7 +1574,7 @@ export class FileScanner {
         percentage: 80
       })
       await this.prisma.artist.deleteMany({})
-      
+
       this.logger.info('Cleanup: deleting tags...')
       onProgress?.({
         phase: 'cleanup',
@@ -1477,13 +1582,13 @@ export class FileScanner {
         percentage: 90
       })
       await this.prisma.tag.deleteMany({})
-      
+
       onProgress?.({
         phase: 'cleanup',
         message: '数据清理完成',
         percentage: 100
       })
-      
+
       this.logger.info('Cleaned up existing data for force update')
     } catch (error) {
       this.logger.error({ error }, 'Failed to cleanup existing data')
@@ -1633,7 +1738,12 @@ export class FileScanner {
     }
   }
 
-  private async createImageRecord(imagePath: string, artworkId: number, sortOrder: number, result: ScanResult): Promise<void> {
+  private async createImageRecord(
+    imagePath: string,
+    artworkId: number,
+    sortOrder: number,
+    result: ScanResult
+  ): Promise<void> {
     try {
       // 计算相对扫描根目录的相对路径（用于容器挂载路径统一）
       let relPath = imagePath
