@@ -167,9 +167,9 @@ export class MediaScanStrategy implements IScanStrategy {
         }
       }
     })
-    
+
     // 过滤掉externalId为null的记录（虽然理论上不应该有）
-    return artworks.filter(artwork => artwork.externalId !== null) as Array<{
+    return artworks.filter((artwork) => artwork.externalId !== null) as Array<{
       id: number
       externalId: string
       title: string
@@ -290,22 +290,65 @@ export class MediaScanStrategy implements IScanStrategy {
   ): Promise<number> {
     let processedFiles = 0
 
-    // 查找目录中的元数据文件
-    const metadataFiles = await this.fileAssociator.findMetadataFiles(dirPath)
+    // 查找目录中的元数据文件（递归查找子目录）
+    const metadataFiles = await this.findMetadataFilesRecursive(dirPath)
+
+    this.logger.info(
+      {
+        dirPath,
+        metadataFilesFound: metadataFiles.length,
+        metadataFiles: metadataFiles.map((f) => path.basename(f))
+      },
+      'Processing directory media files'
+    )
+
+    if (metadataFiles.length === 0) {
+      this.logger.info({ dirPath }, 'No metadata files found in directory, skipping')
+      return 0
+    }
 
     for (const metadataFile of metadataFiles) {
-      const artworkId = this.fileAssociator.extractArtworkIdFromMetadata(path.basename(metadataFile))
+      const rawArtworkId = this.fileAssociator.extractArtworkIdFromMetadata(path.basename(metadataFile))
 
-      if (!artworkId) {
+      if (!rawArtworkId) {
         this.logger.warn({ metadataFile }, 'Could not extract artwork ID from metadata file')
         continue
       }
 
-      const artwork = artworkMap.get(artworkId)
+      // 清理和规范化artworkId
+      const artworkId = rawArtworkId.trim().replace(/\s+/g, '')
+
+      // 尝试多种匹配方式
+      let artwork = artworkMap.get(artworkId)
+
+      // 如果直接匹配失败，尝试查找包含该ID的键
       if (!artwork) {
-        this.logger.debug({ artworkId }, 'Artwork not found in database, skipping media files')
+        for (const [key, value] of artworkMap.entries()) {
+          const cleanKey = key.trim().replace(/\s+/g, '')
+          if (cleanKey === artworkId) {
+            artwork = value
+            this.logger.debug({ artworkId, matchedKey: key }, 'Found artwork with cleaned key match')
+            break
+          }
+        }
+      }
+      if (!artwork) {
+        this.logger.warn(
+          {
+            artworkId,
+            artworkIdType: typeof artworkId,
+            artworkIdLength: artworkId.length,
+            metadataFile,
+            availableIds: Array.from(artworkMap.keys()),
+            exactMatch: Array.from(artworkMap.keys()).includes(artworkId),
+            mapSize: artworkMap.size
+          },
+          'Artwork not found in database, skipping media files'
+        )
         continue
       }
+
+      this.logger.info({ artworkId, artworkTitle: artwork.title }, 'Found artwork for media files')
 
       // 查找关联的媒体文件
       const mediaFiles = await this.fileAssociator.findMediaFiles(metadataFile, artworkId)
@@ -410,5 +453,34 @@ export class MediaScanStrategy implements IScanStrategy {
     } catch (error) {
       this.logger.error({ error }, 'Failed to update artwork image counts')
     }
+  }
+
+  /**
+   * 递归查找目录中的元数据文件
+   * @param dirPath 目录路径
+   * @returns 元数据文件路径数组
+   */
+  private async findMetadataFilesRecursive(dirPath: string): Promise<string[]> {
+    const metadataFiles: string[] = []
+
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true })
+
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name)
+
+        if (entry.isDirectory()) {
+          // 递归查找子目录
+          const subFiles = await this.findMetadataFilesRecursive(fullPath)
+          metadataFiles.push(...subFiles)
+        } else if (entry.isFile() && this.isMetadataFile(entry.name)) {
+          metadataFiles.push(fullPath)
+        }
+      }
+    } catch (error) {
+      this.logger.error({ dirPath, error }, 'Failed to read directory for metadata files')
+    }
+
+    return metadataFiles
   }
 }

@@ -75,9 +75,10 @@ export class FullScanStrategy implements IScanStrategy {
         'Phase 1 completed: Metadata scan'
       )
 
-      // 如果元数据扫描失败或没有找到作品，跳过媒体扫描
-      if (result.newArtworks === 0) {
-        this.logger.warn('No artworks created from metadata scan, skipping media scan')
+      // 决定是否执行第二阶段
+      const shouldSkipMediaScan = await this.shouldSkipMediaScan(options, result)
+      if (shouldSkipMediaScan.skip) {
+        this.logger.warn(shouldSkipMediaScan.reason)
         return result
       }
 
@@ -216,6 +217,54 @@ export class FullScanStrategy implements IScanStrategy {
       metadataStrategy: this.metadataStrategy.name,
       mediaStrategy: this.mediaStrategy.name,
       totalStrategies: 2
+    }
+  }
+
+  /**
+   * 判断是否应该跳过媒体扫描阶段
+   * @param options 扫描选项
+   * @param result 第一阶段结果
+   * @returns 是否跳过及原因
+   */
+  private async shouldSkipMediaScan(
+    options: ExtendedScanOptions, 
+    result: ExtendedScanResult
+  ): Promise<{ skip: boolean; reason?: string }> {
+    // 强制扫描模式：始终执行两个阶段
+    if (options.forceUpdate) {
+      this.logger.info('Force scan mode: executing media scan regardless of metadata results')
+      return { skip: false }
+    }
+
+    // 增量扫描模式：根据第一阶段结果决定
+    if (result.newArtworks === 0) {
+      // 检查数据库中是否已有作品
+      return await this.checkExistingArtworks()
+    }
+
+    return { skip: false }
+  }
+
+  /**
+   * 检查数据库中是否存在作品
+   * @returns 是否跳过及原因
+   */
+  private async checkExistingArtworks(): Promise<{ skip: boolean; reason?: string }> {
+    try {
+      const existingCount = await this.prisma.artwork.count({ take: 1 })
+      
+      if (existingCount === 0) {
+        return {
+          skip: true,
+          reason: 'No artworks created from metadata scan and no existing artworks in database, skipping media scan'
+        }
+      }
+      
+      this.logger.info('No new artworks from metadata scan, but existing artworks found - proceeding with media scan for potential new images')
+      return { skip: false }
+    } catch (error) {
+      this.logger.error({ error }, 'Failed to check existing artworks, proceeding with media scan')
+      return { skip: false }
     }
   }
 

@@ -339,7 +339,17 @@ export class BatchProcessor {
         tempId: artwork.tempId,
         directoryCreatedAt: artwork.directoryCreatedAt,
         imageCount: artwork.imageCount,
-        descriptionLength: artwork.descriptionLength
+        descriptionLength: artwork.descriptionLength,
+        // 保留所有元数据字段
+        externalId: artwork.externalId,
+        sourceUrl: artwork.sourceUrl,
+        originalUrl: artwork.originalUrl,
+        thumbnailUrl: artwork.thumbnailUrl,
+        xRestrict: artwork.xRestrict,
+        isAiGenerated: artwork.isAiGenerated,
+        size: artwork.size,
+        bookmarkCount: artwork.bookmarkCount,
+        sourceDate: artwork.sourceDate
       };
     });
 
@@ -363,7 +373,17 @@ export class BatchProcessor {
                description: artworkData.description,
                directoryCreatedAt: artworkData.directoryCreatedAt,
                imageCount: artworkData.imageCount,
-               descriptionLength: artworkData.descriptionLength
+               descriptionLength: artworkData.descriptionLength,
+               // 更新所有元数据字段
+               externalId: artworkData.externalId,
+               sourceUrl: artworkData.sourceUrl,
+               originalUrl: artworkData.originalUrl,
+               thumbnailUrl: artworkData.thumbnailUrl,
+               xRestrict: artworkData.xRestrict,
+               isAiGenerated: artworkData.isAiGenerated,
+               size: artworkData.size,
+               bookmarkCount: artworkData.bookmarkCount,
+               sourceDate: artworkData.sourceDate
              },
              create: artworkData
            });
