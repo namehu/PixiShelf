@@ -208,12 +208,6 @@ export interface IScanOrchestrator {
   scan(options: ExtendedScanOptions): Promise<ExtendedScanResult>
 
   /**
-   * 获取支持的策略列表
-   * @returns 策略名称数组
-   */
-  getSupportedStrategies(): string[]
-
-  /**
    * 设置扫描策略
    * @param strategy 策略类型
    */

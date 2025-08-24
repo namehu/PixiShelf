@@ -78,7 +78,7 @@ export class ArtworkProcessor {
 
       // 3. 关联媒体文件
       context.stage = ProcessingStage.MEDIA_ASSOCIATION
-      const mediaFiles = await this.associateMediaFiles(metadata, path.dirname(metadataFile))
+      const mediaFiles = await this.associateMediaFiles(metadata, metadataFile)
       result.mediaFiles = mediaFiles
       context.data.mediaFiles = mediaFiles
 
@@ -91,38 +91,46 @@ export class ArtworkProcessor {
       const validation = await this.validateArtworkData(result)
       if (!validation.isValid) {
         result.errors.push(...validation.errors)
-        this.logger.warn({
-          metadataFile,
-          errors: validation.errors,
-          warnings: validation.warnings
-        }, 'Artwork data validation failed')
+        this.logger.warn(
+          {
+            metadataFile,
+            errors: validation.errors,
+            warnings: validation.warnings
+          },
+          'Artwork data validation failed'
+        )
         return result
       }
 
       // 6. 处理成功
       context.stage = ProcessingStage.COMPLETED
       result.success = true
-      
-      this.logger.debug({
-        metadataFile,
-        artworkTitle: metadata.title,
-        imageCount: mediaFiles.length,
-        processingTime: Date.now() - context.startTime
-      }, 'Artwork processing completed successfully')
+
+      this.logger.debug(
+        {
+          metadataFile,
+          artworkTitle: metadata.title,
+          imageCount: mediaFiles.length,
+          processingTime: Date.now() - context.startTime
+        },
+        'Artwork processing completed successfully'
+      )
 
       return result
-
     } catch (error) {
       context.stage = ProcessingStage.FAILED
       const errorMessage = error instanceof Error ? error.message : String(error)
       result.errors.push(errorMessage)
-      
-      this.logger.error({
-        metadataFile,
-        error: errorMessage,
-        stage: context.stage,
-        processingTime: Date.now() - context.startTime
-      }, 'Artwork processing failed')
+
+      this.logger.error(
+        {
+          metadataFile,
+          error: errorMessage,
+          stage: context.stage,
+          processingTime: Date.now() - context.startTime
+        },
+        'Artwork processing failed'
+      )
 
       return result
     }
@@ -143,12 +151,12 @@ export class ArtworkProcessor {
   /**
    * 关联媒体文件
    * @param metadata 作品元数据
-   * @param basePath 基础路径
+   * @param metadataPath 作品元数据路径
    * @returns 媒体文件列表
    */
-  private async associateMediaFiles(metadata: ArtworkMetadata, basePath: string): Promise<MediaFile[]> {
+  private async associateMediaFiles(metadata: ArtworkMetadata, metadataPath: string): Promise<MediaFile[]> {
     return await this.retryOperation(
-      () => this.fileAssociator.findMediaFiles(basePath, metadata.id),
+      () => this.fileAssociator.findMediaFiles(metadataPath, metadata.id),
       `Failed to associate media files for artwork: ${metadata.id}`
     )
   }
@@ -168,13 +176,13 @@ export class ArtworkProcessor {
   ): Promise<void> {
     // 生成艺术家数据
     result.artist = this.generateArtistData(metadata, pathInfo)
-    
+
     // 生成作品数据
     result.artwork = this.generateArtworkData(metadata, pathInfo, mediaFiles.length)
-    
+
     // 生成图片数据
     result.images = this.generateImageData(mediaFiles, metadata)
-    
+
     // 生成标签数据
     result.tags = this.generateTagData(metadata)
   }
@@ -203,11 +211,7 @@ export class ArtworkProcessor {
    * @param imageCount 图片数量
    * @returns 作品数据
    */
-  private generateArtworkData(
-    metadata: ArtworkMetadata,
-    pathInfo: PathInfo,
-    imageCount: number
-  ): ArtworkData {
+  private generateArtworkData(metadata: ArtworkMetadata, pathInfo: PathInfo, imageCount: number): ArtworkData {
     return {
       title: metadata.title,
       description: metadata.description,
@@ -233,7 +237,7 @@ export class ArtworkProcessor {
    * @returns 图片数据列表
    */
   private generateImageData(mediaFiles: MediaFile[], metadata: ArtworkMetadata): ImageData[] {
-    return mediaFiles.map(file => ({
+    return mediaFiles.map((file) => ({
       path: file.path,
       filename: file.name,
       extension: file.extension,
@@ -254,7 +258,7 @@ export class ArtworkProcessor {
       return []
     }
 
-    return metadata.tags.map(tag => ({
+    return metadata.tags.map((tag) => ({
       name: tag.trim(),
       type: 'artwork', // 默认类型
       count: 1 // 初始计数
@@ -337,10 +341,7 @@ export class ArtworkProcessor {
    * @param errorMessage 错误消息
    * @returns 操作结果
    */
-  private async retryOperation<T>(
-    operation: () => Promise<T>,
-    errorMessage: string
-  ): Promise<T> {
+  private async retryOperation<T>(operation: () => Promise<T>, errorMessage: string): Promise<T> {
     let lastError: Error | null = null
 
     for (let attempt = 1; attempt <= this.retryOptions.maxRetries; attempt++) {
@@ -348,16 +349,19 @@ export class ArtworkProcessor {
         return await operation()
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
-        
+
         if (attempt === this.retryOptions.maxRetries) {
           break
         }
 
-        this.logger.debug({
-          attempt,
-          maxRetries: this.retryOptions.maxRetries,
-          error: lastError.message
-        }, 'Operation failed, retrying...')
+        this.logger.debug(
+          {
+            attempt,
+            maxRetries: this.retryOptions.maxRetries,
+            error: lastError.message
+          },
+          'Operation failed, retrying...'
+        )
 
         // 等待后重试
         await this.delay(this.retryOptions.backoffMs * attempt)
@@ -373,6 +377,6 @@ export class ArtworkProcessor {
    * @returns Promise<void>
    */
   private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms))
+    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 }

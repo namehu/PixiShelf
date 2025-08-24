@@ -782,55 +782,11 @@ export class FileScanner {
   }
 
   /**
-   * 获取推荐的扫描策略
-   * @param options 扫描选项
-   * @returns 推荐策略信息
-   */
-  async getRecommendedStrategy(options: ExtendedScanOptions): Promise<{
-    recommended: ScanStrategyType
-    reason: string
-    alternatives: Array<{ strategy: ScanStrategyType; reason: string }>
-  }> {
-    return await this.scanOrchestrator.recommendStrategy(options)
-  }
-
-  /**
-   * 检查策略可用性
-   * @param options 扫描选项
-   * @returns 策略可用性信息
-   */
-  async checkStrategyAvailability(options: ExtendedScanOptions): Promise<{
-    [K in ScanStrategyType]: {
-      available: boolean
-      issues: string[]
-      estimatedDuration: number
-    }
-  }> {
-    return await this.scanOrchestrator.checkStrategyAvailability(options)
-  }
-
-  /**
    * 设置扫描策略
    * @param strategy 策略类型
    */
   setStrategy(strategy: ScanStrategyType): void {
     this.scanOrchestrator.setStrategy(strategy)
-  }
-
-  /**
-   * 获取当前策略信息
-   * @returns 当前策略信息
-   */
-  getCurrentStrategy(): { name: string; description: string } | null {
-    return this.scanOrchestrator.getCurrentStrategy()
-  }
-
-  /**
-   * 获取支持的扫描策略
-   * @returns 策略列表
-   */
-  getSupportedStrategies(): string[] {
-    return this.scanOrchestrator.getSupportedStrategies()
   }
 
   /**

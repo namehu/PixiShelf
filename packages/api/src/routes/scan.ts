@@ -1,6 +1,5 @@
 import { FastifyInstance } from 'fastify'
 import { FileScanner } from '../services/scanner'
-import { config } from '../config'
 import { ScanStrategyType } from '@pixishelf/shared'
 
 export default async function scanRoutes(server: FastifyInstance) {
@@ -18,20 +17,24 @@ export default async function scanRoutes(server: FastifyInstance) {
     }
 
     try {
-      const scanner = new FileScanner(server.prisma, server.log, {
-        enableMetadataScanning: true
-      })
-
-      const [availability, recommendation] = await Promise.all([
-        scanner.checkStrategyAvailability({ scanPath }),
-        scanner.getRecommendedStrategy({ scanPath })
-      ])
-
       return {
-        supported: scanner.getSupportedStrategies(),
-        current: scanner.getCurrentStrategy(),
-        availability,
-        recommendation
+        supported: ['unified'],
+        current: {
+          name: 'unified',
+          description: 'Unified scan processing metadata and media files together in a pipeline'
+        },
+        availability: {
+          unified: {
+            available: true,
+            issues: [],
+            estimatedDuration: 10000
+          }
+        },
+        recommendation: {
+          recommended: 'unified',
+          reason: 'Unified scan provides better performance and user experience with continuous processing',
+          alternatives: []
+        }
       }
     } catch (error) {
       server.log.error({ error }, 'Failed to get strategy information')
@@ -95,7 +98,7 @@ export default async function scanRoutes(server: FastifyInstance) {
 
     try {
       // 检查是否启用元数据扫描
-      const enableMetadataScanning = selectedScanType && ['metadata', 'media', 'full'].includes(selectedScanType)
+      const enableMetadataScanning = selectedScanType === 'unified'
 
       const scanner = new FileScanner(server.prisma, server.log, {
         enableMetadataScanning

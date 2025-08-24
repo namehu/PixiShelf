@@ -7,8 +7,7 @@ import {
   IScanStrategy,
   ScanStrategyType,
   ScanOrchestratorOptions,
-  UnsupportedStrategyError,
-  ValidationResult
+  UnsupportedStrategyError
 } from '@pixishelf/shared'
 import { UnifiedScanStrategy } from './UnifiedScanStrategy'
 import { PerformanceMonitor } from './PerformanceMonitor'
@@ -111,14 +110,6 @@ export class ScanOrchestrator implements IScanOrchestrator {
   }
 
   /**
-   * 获取支持的策略列表
-   * @returns 策略名称数组
-   */
-  getSupportedStrategies(): string[] {
-    return Array.from(this.strategies.keys())
-  }
-
-  /**
    * 设置扫描策略
    * @param strategy 策略类型
    */
@@ -129,24 +120,6 @@ export class ScanOrchestrator implements IScanOrchestrator {
 
     this.currentStrategy = this.strategies.get(strategy)!
     this.logger.debug({ strategy }, 'Scan strategy set')
-  }
-
-  /**
-   * 获取当前策略信息
-   * @returns 当前策略信息
-   */
-  getCurrentStrategy(): {
-    name: string
-    description: string
-  } | null {
-    if (!this.currentStrategy) {
-      return null
-    }
-
-    return {
-      name: this.currentStrategy.name,
-      description: this.currentStrategy.description
-    }
   }
 
   /**
@@ -166,56 +139,6 @@ export class ScanOrchestrator implements IScanOrchestrator {
       return await strategy.getEstimatedDuration(options)
     } catch {
       return 0
-    }
-  }
-
-  /**
-   * 检查策略可用性
-   * @param options 扫描选项
-   * @returns 可用性检查结果
-   */
-  async checkStrategyAvailability(options: ExtendedScanOptions): Promise<{
-    [K in ScanStrategyType]: {
-      available: boolean
-      issues: string[]
-      estimatedDuration: number
-    }
-  }> {
-    const results = {} as any
-
-    for (const [strategyType, strategy] of this.strategies) {
-      const validation = strategy.validate(options)
-      const estimatedDuration = await strategy.getEstimatedDuration(options).catch(() => 0)
-
-      results[strategyType] = {
-        available: validation.isValid,
-        issues: validation.errors,
-        estimatedDuration
-      }
-    }
-
-    return results
-  }
-
-  /**
-   * 智能选择最佳策略
-   * @param options 扫描选项
-   * @returns 推荐的策略类型
-   */
-  async recommendStrategy(options: ExtendedScanOptions): Promise<{
-    recommended: ScanStrategyType
-    reason: string
-    alternatives: Array<{
-      strategy: ScanStrategyType
-      reason: string
-    }>
-  }> {
-    const alternatives: Array<{ strategy: ScanStrategyType; reason: string }> = []
-
-    return {
-      recommended: 'unified',
-      reason: 'Unified scan provides better performance and user experience with continuous processing',
-      alternatives
     }
   }
 
@@ -267,7 +190,7 @@ export class ScanOrchestrator implements IScanOrchestrator {
    * @param scanType 扫描类型
    */
   private selectStrategy(scanType?: ScanStrategyType): void {
-    this.currentStrategy = this.strategies.get('unified')!
+    this.currentStrategy = this.strategies.get(scanType || 'unified')!
   }
 
   /**
