@@ -115,7 +115,7 @@ function ScanManagement() {
 
   const [editPath, setEditPath] = React.useState('')
   const [editing, setEditing] = React.useState(false)
-  const [selectedStrategy, setSelectedStrategy] = React.useState<ScanStrategyType>('full')
+  const [selectedStrategy, setSelectedStrategy] = React.useState<ScanStrategyType>('unified')
 
   // 根据推荐策略设置默认选中
   React.useEffect(() => {
@@ -431,8 +431,8 @@ function ScanManagement() {
           <div className="mb-4">
             <div className="mb-2 text-base font-medium">扫描策略</div>
             <div className="space-y-3">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                {(['unified', 'full', 'legacy'] as ScanStrategyType[]).map((strategy) => {
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {(['unified', 'legacy'] as ScanStrategyType[]).map((strategy) => {
                   const strategyInfo = strategies?.availability[strategy]
                   const isRecommended = strategies?.recommendation.recommended === strategy
                   const isAvailable = strategyInfo?.available ?? true
@@ -461,7 +461,6 @@ function ScanManagement() {
                         <div className="flex items-center gap-1">
                           <span className={`font-medium ${!isAvailable ? 'text-neutral-400' : ''}`}>
                             {strategy === 'unified' && '统一扫描'}
-                            {strategy === 'full' && '完整扫描'}
                             {strategy === 'legacy' && '传统扫描'}
                           </span>
                           {isRecommended && (
@@ -469,9 +468,8 @@ function ScanManagement() {
                           )}
                         </div>
                         <div className={`text-xs ${!isAvailable ? 'text-neutral-400' : 'text-neutral-500'}`}>
-                          {strategy === 'unified' && '统一扫描，处理元数据和媒体文件'}
-                          {strategy === 'full' && '完整处理元数据和媒体文件'}
-                          {strategy === 'legacy' && '传统目录结构扫描'}
+                          {strategy === 'unified' && '新的统一扫描方式，性能更好，推荐使用'}
+                          {strategy === 'legacy' && '传统的扫描方式，稳定可靠'}
                         </div>
                         {!isAvailable && strategyInfo?.issues && strategyInfo.issues.length > 0 && (
                           <div className="mt-1 text-xs text-error-500">{strategyInfo.issues[0]}</div>

@@ -10,9 +10,6 @@ import {
   UnsupportedStrategyError,
   ValidationResult
 } from '@pixishelf/shared'
-import { MetadataScanStrategy } from './MetadataScanStrategy'
-import { MediaScanStrategy } from './MediaScanStrategy'
-import { FullScanStrategy } from './FullScanStrategy'
 import { UnifiedScanStrategy } from './UnifiedScanStrategy'
 import { PerformanceMonitor } from './PerformanceMonitor'
 import { ProgressTracker } from './ProgressTracker'
@@ -216,64 +213,35 @@ export class ScanOrchestrator implements IScanOrchestrator {
     const availability = await this.checkStrategyAvailability(options)
     const alternatives: Array<{ strategy: ScanStrategyType; reason: string }> = []
 
-    // 检查是否有元数据文件
-    const hasMetadataFiles = await this.hasMetadataFiles(options.scanPath)
-
-    if (hasMetadataFiles) {
-      // 优先推荐统一扫描
-      if (availability.unified?.available) {
+    // 优先推荐统一扫描
+    if (availability.unified?.available) {
+      // 如果有legacy策略可用，添加为备选
+      if (availability.legacy?.available) {
         alternatives.push(
-          { strategy: 'full', reason: 'Traditional two-phase scan (metadata then media)' },
-          { strategy: 'metadata', reason: 'Only scan metadata files' },
-          { strategy: 'media', reason: 'Only scan media files (requires existing artworks)' }
+          { strategy: 'legacy', reason: 'Traditional scanning approach, stable and reliable' }
         )
-
-        return {
-          recommended: 'unified',
-          reason: 'Unified scan provides better performance and user experience with continuous processing',
-          alternatives
-        }
       }
-      
-      // 如果统一扫描不可用，回退到完整扫描
-      if (availability.full.available) {
-        alternatives.push(
-          { strategy: 'metadata', reason: 'Only scan metadata files' },
-          { strategy: 'media', reason: 'Only scan media files (requires existing artworks)' }
-        )
 
-        return {
-          recommended: 'full',
-          reason: 'Metadata files detected, full scan will process both metadata and media files',
-          alternatives
-        }
-      } else {
-        // 如果完整扫描不可用，尝试元数据扫描
-        if (availability.metadata.available) {
-          return {
-            recommended: 'metadata',
-            reason: 'Metadata files detected, but full scan not available',
-            alternatives: []
-          }
-        }
+      return {
+        recommended: 'unified',
+        reason: 'Unified scan provides better performance and user experience with continuous processing',
+        alternatives
       }
     }
 
-    // 检查数据库中是否有作品
-    const hasArtworks = await this.hasExistingArtworks()
-
-    if (hasArtworks && availability.media.available) {
+    // 如果统一扫描不可用，回退到legacy策略
+    if (availability.legacy?.available) {
       return {
-        recommended: 'media',
-        reason: 'No metadata files found, but existing artworks in database',
+        recommended: 'legacy',
+        reason: 'Unified scan not available, using traditional scanning approach',
         alternatives: []
       }
     }
 
-    // 默认推荐传统扫描（如果实现了的话）
+    // 如果都不可用，默认推荐unified（可能会在执行时报错）
     return {
-      recommended: 'full',
-      reason: 'Default recommendation',
+      recommended: 'unified',
+      reason: 'Default recommendation (may require troubleshooting if unavailable)',
       alternatives: []
     }
   }
@@ -282,33 +250,31 @@ export class ScanOrchestrator implements IScanOrchestrator {
    * 初始化扫描策略
    */
   private initializeStrategies(): void {
-    const strategyOptions = {
-      maxConcurrency: this.options.maxConcurrency || 4,
-      batchSize: 1000
-    }
-
     const unifiedOptions = {
       maxConcurrency: this.options.maxConcurrency || 4,
-      batchSize: strategyOptions.batchSize,
+      batchSize: 1000,
       streamBufferSize: 100,
       memoryThreshold: 1024 * 1024 * 1024 // 1GB
     }
 
-    this.strategies.set('metadata', new MetadataScanStrategy(this.prisma, this.logger, strategyOptions))
-    this.strategies.set('media', new MediaScanStrategy(this.prisma, this.logger, strategyOptions))
-    this.strategies.set('full', new FullScanStrategy(this.prisma, this.logger, strategyOptions))
+    // 只注册支持的策略：legacy 和 unified
     this.strategies.set('unified', new UnifiedScanStrategy(this.prisma, this.logger, unifiedOptions))
+    // TODO: 添加 legacy 策略实现
+    // this.strategies.set('legacy', new LegacyStrategy(this.prisma, this.logger, strategyOptions))
 
-    // 设置默认策略
-    const defaultStrategy = this.options.defaultStrategy || 'full'
+    // 设置默认策略为 unified
+    const defaultStrategy = this.options.defaultStrategy || 'unified'
     if (this.strategies.has(defaultStrategy)) {
       this.currentStrategy = this.strategies.get(defaultStrategy)!
+    } else {
+      // 如果指定的默认策略不存在，回退到 unified
+      this.currentStrategy = this.strategies.get('unified')!
     }
 
     this.logger.debug(
       {
         strategies: Array.from(this.strategies.keys()),
-        defaultStrategy
+        defaultStrategy: this.currentStrategy?.name
       },
       'Scan strategies initialized'
     )
@@ -332,7 +298,7 @@ export class ScanOrchestrator implements IScanOrchestrator {
     if (!scanType) {
       // 使用当前策略或默认策略
       if (!this.currentStrategy) {
-        this.currentStrategy = this.strategies.get('full')!
+        this.currentStrategy = this.strategies.get('unified')!
       }
       return
     }

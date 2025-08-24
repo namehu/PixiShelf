@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify'
 import { FileScanner } from '../services/scanner'
 import { config } from '../config'
 import { ScanStrategyType } from '@pixishelf/shared'
+import { StrategyValidator, UnsupportedStrategyError } from '../services/scanner/StrategyValidator'
+import { ConfigMigrator } from '../services/scanner/ConfigMigrator'
 
 export default async function scanRoutes(server: FastifyInstance) {
   server.get('/api/v1/scan/status', async () => ({
@@ -68,7 +70,24 @@ export default async function scanRoutes(server: FastifyInstance) {
 
     const { force, scanType } = req.query as { force?: string; scanType?: string }
     const forceUpdate = force === 'true'
-    const selectedScanType = scanType as ScanStrategyType | undefined
+    
+    // 策略验证和迁移
+    let selectedScanType: ScanStrategyType | undefined
+    if (scanType) {
+      try {
+        selectedScanType = StrategyValidator.validate(scanType)
+      } catch (error) {
+        if (error instanceof UnsupportedStrategyError) {
+          const errorResponse = StrategyValidator.getStrategyError(scanType)
+          reply.code(400).send(errorResponse)
+          return
+        }
+        throw error
+      }
+    } else {
+      // 如果没有指定策略，使用默认策略
+      selectedScanType = StrategyValidator.getDefault()
+    }
 
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -94,18 +113,19 @@ export default async function scanRoutes(server: FastifyInstance) {
     server.appState.lastProgressMessage = '初始化…'
 
     try {
-      // 检查是否启用元数据扫描
-      const enableMetadataScanning = selectedScanType && ['metadata', 'media', 'full'].includes(selectedScanType)
-
+      // 添加API版本标识
+      reply.raw.write(`event: version\n`)
+      reply.raw.write(`data: ${JSON.stringify({ apiVersion: '2.0', supportedStrategies: StrategyValidator.getValidStrategies() })}\n\n`)
+      
       const scanner = new FileScanner(server.prisma, server.log, {
-        enableMetadataScanning
+        enableMetadataScanning: true // 统一启用元数据扫描
       })
 
       let result
 
-      if (enableMetadataScanning) {
-        // 使用新的元数据扫描功能
-        server.log.info({ scanType: selectedScanType }, 'Using metadata scanning')
+      if (selectedScanType === 'unified') {
+        // 使用统一扫描策略
+        server.log.info({ scanType: selectedScanType }, 'Using unified scanning strategy')
 
         result = await scanner.scanWithMetadata({
           scanPath,
@@ -119,9 +139,9 @@ export default async function scanRoutes(server: FastifyInstance) {
             sendEvent('progress', progress)
           }
         })
-      } else {
-        // 使用传统扫描功能
-        server.log.info('Using legacy scanning')
+      } else if (selectedScanType === 'legacy') {
+        // 使用传统扫描策略
+        server.log.info({ scanType: selectedScanType }, 'Using legacy scanning strategy')
 
         result = await scanner.scan({
           scanPath,
@@ -132,23 +152,12 @@ export default async function scanRoutes(server: FastifyInstance) {
               throw new Error('Scan cancelled')
             }
             sendEvent('progress', progress)
-
-            // 添加性能监控
-            const metrics = scanner.getPerformanceMetrics()
-            server.log.debug(
-              {
-                progress,
-                metrics: {
-                  throughput: metrics.throughput,
-                  memoryUsage: metrics.memoryUsage.heapUsed,
-                  concurrency: scanner.getConcurrencyStatus()
-                }
-              },
-              'Scan progress with metrics'
-            )
           }
         })
-      }
+      } else {
+          // 理论上不应该到达这里，因为策略验证已经确保只有valid策略
+          throw new Error(`Unsupported strategy: ${selectedScanType}`)
+        }
 
       sendEvent('complete', { success: true, result })
 
