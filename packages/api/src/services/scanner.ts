@@ -1,13 +1,12 @@
 import { promises as fs } from 'fs'
 import path from 'path'
-import os from 'os'
 import { PrismaClient, Prisma } from '@prisma/client'
 import { FastifyInstance } from 'fastify'
 import { ConcurrencyController } from './scanner/ConcurrencyController'
 import { BatchProcessor } from './scanner/BatchProcessor'
 import { StreamingBatchProcessor } from './scanner/StreamingBatchProcessor'
 import { CacheManager } from './scanner/CacheManager'
-import { ProgressTracker, DetailedProgress } from './scanner/ProgressTracker'
+import { ProgressTracker } from './scanner/ProgressTracker'
 import { PerformanceMonitor } from './scanner/PerformanceMonitor'
 import { PerformanceMetrics, ScanTask, TaskResult } from './scanner/types'
 import { FileSystemTimeReader } from '../utils/fsTimeReader'
@@ -97,7 +96,7 @@ export class FileScanner {
     this.scanOrchestrator = new ScanOrchestrator(this.prisma, this.logger, {
       enableOptimizations: this.enableOptimizations,
       maxConcurrency: config.scanner.maxConcurrency,
-      defaultStrategy: 'full',
+      defaultStrategy: 'unified',
       ...options?.scanOrchestratorOptions
     })
 
@@ -867,7 +866,7 @@ export class FileScanner {
       this.progressTracker = new ProgressTracker(this.logger, onProgress, (detailedProgress) => {
         this.logger.debug({ detailedProgress }, 'Detailed progress update')
       })
-      
+
       // 启动进度跟踪
       this.progressTracker.start()
 

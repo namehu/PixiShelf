@@ -7,14 +7,14 @@ import { ScanProgress } from './scan'
 /**
  * 扫描策略类型
  */
-export type ScanStrategyType = 'metadata' | 'media' | 'full' | 'legacy' | 'unified'
+export type ScanStrategyType = 'legacy' | 'unified'
 
 /**
  * 扩展的扫描选项
  */
 export interface ExtendedScanOptions {
   scanPath: string
-  scanType?: ScanStrategyType  // 新增：扫描类型
+  scanType?: ScanStrategyType // 新增：扫描类型
   forceUpdate?: boolean
   supportedExtensions?: string[]
   onProgress?: (progress: ScanProgress) => void

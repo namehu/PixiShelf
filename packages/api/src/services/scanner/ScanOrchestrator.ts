@@ -10,9 +10,6 @@ import {
   UnsupportedStrategyError,
   ValidationResult
 } from '@pixishelf/shared'
-import { MetadataScanStrategy } from './MetadataScanStrategy'
-import { MediaScanStrategy } from './MediaScanStrategy'
-import { FullScanStrategy } from './FullScanStrategy'
 import { UnifiedScanStrategy } from './UnifiedScanStrategy'
 import { PerformanceMonitor } from './PerformanceMonitor'
 import { ProgressTracker } from './ProgressTracker'
@@ -213,68 +210,12 @@ export class ScanOrchestrator implements IScanOrchestrator {
       reason: string
     }>
   }> {
-    const availability = await this.checkStrategyAvailability(options)
     const alternatives: Array<{ strategy: ScanStrategyType; reason: string }> = []
 
-    // 检查是否有元数据文件
-    const hasMetadataFiles = await this.hasMetadataFiles(options.scanPath)
-
-    if (hasMetadataFiles) {
-      // 优先推荐统一扫描
-      if (availability.unified?.available) {
-        alternatives.push(
-          { strategy: 'full', reason: 'Traditional two-phase scan (metadata then media)' },
-          { strategy: 'metadata', reason: 'Only scan metadata files' },
-          { strategy: 'media', reason: 'Only scan media files (requires existing artworks)' }
-        )
-
-        return {
-          recommended: 'unified',
-          reason: 'Unified scan provides better performance and user experience with continuous processing',
-          alternatives
-        }
-      }
-      
-      // 如果统一扫描不可用，回退到完整扫描
-      if (availability.full.available) {
-        alternatives.push(
-          { strategy: 'metadata', reason: 'Only scan metadata files' },
-          { strategy: 'media', reason: 'Only scan media files (requires existing artworks)' }
-        )
-
-        return {
-          recommended: 'full',
-          reason: 'Metadata files detected, full scan will process both metadata and media files',
-          alternatives
-        }
-      } else {
-        // 如果完整扫描不可用，尝试元数据扫描
-        if (availability.metadata.available) {
-          return {
-            recommended: 'metadata',
-            reason: 'Metadata files detected, but full scan not available',
-            alternatives: []
-          }
-        }
-      }
-    }
-
-    // 检查数据库中是否有作品
-    const hasArtworks = await this.hasExistingArtworks()
-
-    if (hasArtworks && availability.media.available) {
-      return {
-        recommended: 'media',
-        reason: 'No metadata files found, but existing artworks in database',
-        alternatives: []
-      }
-    }
-
-    // 默认推荐传统扫描（如果实现了的话）
     return {
-      recommended: 'full',
-      reason: 'Default recommendation',
-      alternatives: []
+      recommended: 'unified',
+      reason: 'Unified scan provides better performance and user experience with continuous processing',
+      alternatives
     }
   }
 
@@ -294,13 +235,10 @@ export class ScanOrchestrator implements IScanOrchestrator {
       memoryThreshold: 1024 * 1024 * 1024 // 1GB
     }
 
-    this.strategies.set('metadata', new MetadataScanStrategy(this.prisma, this.logger, strategyOptions))
-    this.strategies.set('media', new MediaScanStrategy(this.prisma, this.logger, strategyOptions))
-    this.strategies.set('full', new FullScanStrategy(this.prisma, this.logger, strategyOptions))
     this.strategies.set('unified', new UnifiedScanStrategy(this.prisma, this.logger, unifiedOptions))
 
     // 设置默认策略
-    const defaultStrategy = this.options.defaultStrategy || 'full'
+    const defaultStrategy = this.options.defaultStrategy || 'unified'
     if (this.strategies.has(defaultStrategy)) {
       this.currentStrategy = this.strategies.get(defaultStrategy)!
     }
@@ -329,19 +267,7 @@ export class ScanOrchestrator implements IScanOrchestrator {
    * @param scanType 扫描类型
    */
   private selectStrategy(scanType?: ScanStrategyType): void {
-    if (!scanType) {
-      // 使用当前策略或默认策略
-      if (!this.currentStrategy) {
-        this.currentStrategy = this.strategies.get('full')!
-      }
-      return
-    }
-
-    if (!this.strategies.has(scanType)) {
-      throw new UnsupportedStrategyError(scanType)
-    }
-
-    this.currentStrategy = this.strategies.get(scanType)!
+    this.currentStrategy = this.strategies.get('unified')!
   }
 
   /**
@@ -352,7 +278,7 @@ export class ScanOrchestrator implements IScanOrchestrator {
     this.progressTracker = new ProgressTracker(this.logger, options.onProgress, (detailedProgress) => {
       this.logger.debug({ detailedProgress }, 'Detailed progress update')
     })
-    
+
     // 启动进度跟踪
     this.progressTracker.start()
 
