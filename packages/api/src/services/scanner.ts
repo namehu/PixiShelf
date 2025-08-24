@@ -275,7 +275,7 @@ export class FileScanner {
         if (this.cacheManager.isHiddenOrSystemFile(entry.name)) continue
 
         if (!this.isValidName(entry.name)) {
-          const reason = '艺术家目录名包含不支持的字符'
+          const reason = 'Artist directory name contains unsupported characters'
           this.logger.warn(`${reason}: ${artistPath}`)
           result.skippedDirectories.push({ path: artistPath, reason })
           continue
@@ -333,7 +333,7 @@ export class FileScanner {
         if (this.cacheManager.isHiddenOrSystemFile(artworkEntry.name)) continue
 
         if (!this.isValidName(artworkEntry.name)) {
-          const reason = '作品目录名包含不支持的字符'
+          const reason = 'Artwork directory name contains unsupported characters'
           this.logger.warn(`${reason}: ${artworkPath}`)
           result.skippedDirectories.push({ path: artworkPath, reason })
           continue
