@@ -174,7 +174,9 @@ export class ProgressTracker {
   
   private currentPhase: DetailedProgress['overall']['phase'] = 'scanning';
   private startTime: number = Date.now();
-  
+  private unifiedMode: boolean = false;
+  private unifiedProgress: { processed: number; total: number } = { processed: 0, total: 0 };
+
   // 回调函数
   private onProgressUpdate?: (progress: ScanProgress) => void;
   private onDetailedProgressUpdate?: (progress: DetailedProgress) => void;
@@ -199,7 +201,7 @@ export class ProgressTracker {
       (duration) => this.handleBlockingDetected(duration)
     );
     
-    this.blockingDetector.startMonitoring();
+    // 不在构造函数中自动启动监控，需要手动调用start方法
   }
   
   /**
@@ -399,8 +401,150 @@ export class ProgressTracker {
   /**
    * 停止监控
    */
+  /**
+   * 启动进度跟踪和阻塞检测
+   */
+  start(): void {
+    this.blockingDetector.startMonitoring();
+    this.logger.debug('Progress tracking started');
+  }
+
+  /**
+   * 停止进度跟踪和阻塞检测
+   */
   stop(): void {
     this.blockingDetector.stopMonitoring();
+    this.logger.debug('Progress tracking stopped');
+  }
+  
+  /**
+   * 启用统一进度模式
+   * 用于统一扫描策略的连续进度跟踪
+   */
+  enableUnifiedMode(): void {
+    this.unifiedMode = true;
+    this.currentPhase = 'scanning';
+    this.logger.debug('Unified progress mode enabled');
+  }
+
+  /**
+   * 跟踪统一进度
+   * @param processed 已处理数量
+   * @param total 总数量
+   */
+  trackUnifiedProgress(processed: number, total: number): void {
+    if (!this.unifiedMode) {
+      this.logger.warn('Unified progress tracking called but unified mode is not enabled');
+      return;
+    }
+
+    this.unifiedProgress.processed = processed;
+    this.unifiedProgress.total = total;
+
+    // 更新扫描进度
+    this.updateScanningProgress(processed, total);
+
+    // 在统一模式下，进度是连续的
+    this.emitUnifiedProgress();
+  }
+
+  /**
+   * 更新连续进度
+   * @param progress 进度信息
+   */
+  updateContinuousProgress(progress: { processed: number; total: number; message?: string }): void {
+    if (this.unifiedMode) {
+      this.trackUnifiedProgress(progress.processed, progress.total);
+    } else {
+      this.updateScanningProgress(progress.processed, progress.total);
+    }
+  }
+
+  /**
+   * 计算平滑进度
+   * 避免进度跳跃，提供平滑的用户体验
+   */
+  calculateSmoothProgress(current: number, total: number): { percentage: number; message: string } {
+    const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
+    const message = this.unifiedMode 
+      ? `Processing artworks: ${current}/${total}`
+      : `Scanning files: ${current}/${total}`;
+    
+    return { percentage, message };
+  }
+
+  /**
+   * 发送统一进度更新
+   */
+  private emitUnifiedProgress(): void {
+    const { percentage, message } = this.calculateSmoothProgress(
+      this.unifiedProgress.processed,
+      this.unifiedProgress.total
+    );
+
+    // 发送传统进度格式
+    const traditionalProgress: ScanProgress = {
+      phase: 'scanning',
+      message,
+      current: this.unifiedProgress.processed,
+      total: this.unifiedProgress.total,
+      percentage,
+      estimatedSecondsRemaining: this.estimateRemainingTime()
+    };
+
+    this.onProgressUpdate?.(traditionalProgress);
+
+    // 发送详细进度格式
+    const detailedProgress: DetailedProgress = {
+      scanning: {
+        processed: this.unifiedProgress.processed,
+        total: this.unifiedProgress.total,
+        percentage,
+        rate: this.calculateProcessingRate()
+      },
+      batching: this.batchingProgress,
+      overall: {
+        phase: 'scanning',
+        percentage,
+        estimatedRemaining: this.estimateRemainingTime()
+      }
+    };
+
+    this.onDetailedProgressUpdate?.(detailedProgress);
+    this.blockingDetector.updateProgress();
+  }
+
+  /**
+   * 计算处理速率
+   */
+  private calculateProcessingRate(): number {
+    const now = Date.now();
+    const timeDiff = now - this.lastScanUpdate;
+    const processedDiff = this.unifiedProgress.processed - this.lastScanProcessed;
+    
+    if (timeDiff > 0) {
+      const rate = (processedDiff / timeDiff) * 1000; // per second
+      this.lastScanUpdate = now;
+      this.lastScanProcessed = this.unifiedProgress.processed;
+      return Math.round(rate * 100) / 100;
+    }
+    
+    return 0;
+  }
+
+  /**
+   * 估算剩余时间（统一模式）
+   */
+  private estimateRemainingTime(): number | undefined {
+    if (this.unifiedProgress.total === 0 || this.unifiedProgress.processed === 0) {
+      return undefined;
+    }
+
+    const elapsed = Date.now() - this.startTime;
+    const rate = this.unifiedProgress.processed / elapsed;
+    const remaining = this.unifiedProgress.total - this.unifiedProgress.processed;
+    
+    return remaining > 0 ? Math.round(remaining / rate / 1000) : 0;
   }
   
   /**

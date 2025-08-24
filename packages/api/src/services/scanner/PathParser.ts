@@ -48,6 +48,29 @@ export class PathParser implements IPathParser {
   }
 
   /**
+   * 解析作品路径信息（用于统一扫描）
+   * @param metadataFilePath 元数据文件路径
+   * @returns 路径信息
+   */
+  parseArtworkPath(metadataFilePath: string): {
+    artistDir: string
+    artworkDir: string
+    fullPath: string
+    relativePath: string
+  } {
+    const dirPath = path.dirname(metadataFilePath)
+    const normalizedPath = path.normalize(dirPath)
+    const pathParts = normalizedPath.split(path.sep).filter((part) => part.length > 0)
+    
+    return {
+      artistDir: pathParts.length >= 2 ? pathParts[pathParts.length - 2] : '',
+      artworkDir: pathParts.length >= 1 ? pathParts[pathParts.length - 1] : '',
+      fullPath: dirPath,
+      relativePath: path.relative(process.cwd(), dirPath)
+    }
+  }
+
+  /**
    * 从目录路径解析作品信息
    * @param dirPath 目录路径
    * @returns 作品信息

@@ -867,6 +867,9 @@ export class FileScanner {
       this.progressTracker = new ProgressTracker(this.logger, onProgress, (detailedProgress) => {
         this.logger.debug({ detailedProgress }, 'Detailed progress update')
       })
+      
+      // 启动进度跟踪
+      this.progressTracker.start()
 
       // 初始化流式批量处理器（如果启用）
       if (this.useStreamingBatch) {

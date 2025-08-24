@@ -13,6 +13,7 @@ import {
 import { MetadataScanStrategy } from './MetadataScanStrategy'
 import { MediaScanStrategy } from './MediaScanStrategy'
 import { FullScanStrategy } from './FullScanStrategy'
+import { UnifiedScanStrategy } from './UnifiedScanStrategy'
 import { PerformanceMonitor } from './PerformanceMonitor'
 import { ProgressTracker } from './ProgressTracker'
 import { ConcurrencyController } from './ConcurrencyController'
@@ -219,7 +220,22 @@ export class ScanOrchestrator implements IScanOrchestrator {
     const hasMetadataFiles = await this.hasMetadataFiles(options.scanPath)
 
     if (hasMetadataFiles) {
-      // 如果有元数据文件，推荐完整扫描
+      // 优先推荐统一扫描
+      if (availability.unified?.available) {
+        alternatives.push(
+          { strategy: 'full', reason: 'Traditional two-phase scan (metadata then media)' },
+          { strategy: 'metadata', reason: 'Only scan metadata files' },
+          { strategy: 'media', reason: 'Only scan media files (requires existing artworks)' }
+        )
+
+        return {
+          recommended: 'unified',
+          reason: 'Unified scan provides better performance and user experience with continuous processing',
+          alternatives
+        }
+      }
+      
+      // 如果统一扫描不可用，回退到完整扫描
       if (availability.full.available) {
         alternatives.push(
           { strategy: 'metadata', reason: 'Only scan metadata files' },
@@ -271,9 +287,17 @@ export class ScanOrchestrator implements IScanOrchestrator {
       batchSize: 1000
     }
 
+    const unifiedOptions = {
+      maxConcurrency: this.options.maxConcurrency || 4,
+      batchSize: strategyOptions.batchSize,
+      streamBufferSize: 100,
+      memoryThreshold: 1024 * 1024 * 1024 // 1GB
+    }
+
     this.strategies.set('metadata', new MetadataScanStrategy(this.prisma, this.logger, strategyOptions))
     this.strategies.set('media', new MediaScanStrategy(this.prisma, this.logger, strategyOptions))
     this.strategies.set('full', new FullScanStrategy(this.prisma, this.logger, strategyOptions))
+    this.strategies.set('unified', new UnifiedScanStrategy(this.prisma, this.logger, unifiedOptions))
 
     // 设置默认策略
     const defaultStrategy = this.options.defaultStrategy || 'full'
@@ -328,6 +352,9 @@ export class ScanOrchestrator implements IScanOrchestrator {
     this.progressTracker = new ProgressTracker(this.logger, options.onProgress, (detailedProgress) => {
       this.logger.debug({ detailedProgress }, 'Detailed progress update')
     })
+    
+    // 启动进度跟踪
+    this.progressTracker.start()
 
     this.performanceMonitor.startMonitoring()
   }

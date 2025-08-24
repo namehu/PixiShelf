@@ -23,6 +23,8 @@ export class BatchProcessor {
   private batchData!: BatchData;
   private entityMapping!: EntityMapping;
   private onProgress?: (progress: BatchProgress) => void;
+  private lastFlushTime: number = Date.now();
+  private streamMode: boolean = false;
 
   constructor(
     prisma: PrismaClient,
@@ -816,7 +818,113 @@ export class BatchProcessor {
    */
   shouldFlush(): boolean {
     const stats = this.getStats();
-    return stats.totalItems >= this.config.batchSize;
+    const timeSinceLastFlush = Date.now() - this.lastFlushTime;
+    const sizeThreshold = stats.totalItems >= this.config.batchSize;
+    const timeThreshold = timeSinceLastFlush > 5000; // 5秒强制刷新
+    
+    return sizeThreshold || timeThreshold;
+  }
+
+  /**
+   * 智能批处理刷新
+   * 基于时间和大小的智能判断
+   */
+  async smartFlush(): Promise<BatchResult | null> {
+    if (this.shouldFlush()) {
+      const result = await this.flush();
+      this.lastFlushTime = Date.now();
+      return result;
+    }
+    return null;
+  }
+
+  /**
+   * 启用流式模式
+   */
+  enableStreamMode(): void {
+    this.streamMode = true;
+    this.logger.debug('Stream mode enabled for batch processor');
+  }
+
+  /**
+   * 添加到流式批处理
+   * 在流式模式下自动管理批处理
+   */
+  async addToStreamBatch(data: {
+    artist?: ArtistData;
+    artwork?: ArtworkData & { artistName: string };
+    images?: Array<ImageData & { artworkTitle: string; artistName: string }>;
+    tags?: TagData[];
+  }): Promise<BatchResult | null> {
+    // 添加数据到批处理
+    if (data.artist) {
+      this.addArtist(data.artist);
+    }
+    
+    if (data.artwork) {
+      this.addArtwork(data.artwork);
+    }
+    
+    if (data.images) {
+      data.images.forEach(image => this.addImage(image));
+    }
+    
+    if (data.tags) {
+      data.tags.forEach(tag => this.addTag(tag));
+    }
+    
+    // 在流式模式下自动检查是否需要刷新
+    if (this.streamMode) {
+      return await this.smartFlush();
+    }
+    
+    return null;
+  }
+
+  /**
+   * 优化的批处理提交
+   * 包含性能优化和错误恢复
+   */
+  async optimizedFlush(): Promise<BatchResult> {
+    const startTime = Date.now();
+    
+    try {
+      // 检查是否有数据需要处理
+      const stats = this.getStats();
+      if (stats.totalItems === 0) {
+        return {
+          artistsCreated: 0,
+          artistsUpdated: 0,
+          artworksCreated: 0,
+          artworksUpdated: 0,
+          imagesCreated: 0,
+          tagsCreated: 0,
+          artworkTagsCreated: 0,
+          errors: [],
+          duplicatesSkipped: 0,
+          processingTime: 0,
+        };
+      }
+      
+      this.logger.debug({ stats }, 'Starting optimized batch flush');
+      
+      // 执行标准刷新
+      const result = await this.flush();
+      
+      // 更新最后刷新时间
+      this.lastFlushTime = Date.now();
+      
+      this.logger.debug({
+        result,
+        processingTime: Date.now() - startTime
+      }, 'Optimized batch flush completed');
+      
+      return result;
+      
+    } catch (error) {
+      this.logger.error({ error }, 'Optimized batch flush failed');
+      throw error;
+    }
   }
 
   /**

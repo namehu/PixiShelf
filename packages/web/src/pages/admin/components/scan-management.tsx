@@ -1,7 +1,14 @@
 import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson, createEventSourceWithAuth } from '../../../api'
-import { ScanResult, HealthResponse, ScanProgress, LogEntry, ScanPathResponse, ScanStrategyType } from '@pixishelf/shared'
+import {
+  ScanResult,
+  HealthResponse,
+  ScanProgress,
+  LogEntry,
+  ScanPathResponse,
+  ScanStrategyType
+} from '@pixishelf/shared'
 
 // Hook: 健康检查
 function useHealth() {
@@ -90,14 +97,14 @@ function secondsToText(s: number) {
 
 /**
  * 扫描管理组件
- * 
+ *
  * 功能：
  * - 扫描路径配置和管理
  * - 实时扫描进度显示（SSE）
  * - 扫描操作控制
  * - 详细扫描日志查看
  * - 错误处理和状态管理
- * 
+ *
  * 迁移自原Settings.tsx，保持所有功能不变
  */
 function ScanManagement() {
@@ -109,7 +116,7 @@ function ScanManagement() {
   const [editPath, setEditPath] = React.useState('')
   const [editing, setEditing] = React.useState(false)
   const [selectedStrategy, setSelectedStrategy] = React.useState<ScanStrategyType>('full')
-  
+
   // 根据推荐策略设置默认选中
   React.useEffect(() => {
     if (strategies?.recommendation?.recommended) {
@@ -121,7 +128,9 @@ function ScanManagement() {
   const [progress, setProgress] = React.useState<ScanProgress | null>(null)
   const [streaming, setStreaming] = React.useState(false)
   const streamingRef = React.useRef(streaming)
-  React.useEffect(() => { streamingRef.current = streaming }, [streaming])
+  React.useEffect(() => {
+    streamingRef.current = streaming
+  }, [streaming])
   const [streamResult, setStreamResult] = React.useState<ScanResult | null>(null)
   const [streamError, setStreamError] = React.useState<string | null>(null)
   const [retryCount, setRetryCount] = React.useState(0)
@@ -181,7 +190,9 @@ function ScanManagement() {
     (force?: boolean, strategy?: ScanStrategyType) => {
       // 若已存在连接，先关闭
       if (esRef.current) {
-        try { esRef.current.close() } catch {}
+        try {
+          esRef.current.close()
+        } catch {}
         esRef.current = null
         addLogEntry('connection', null, '关闭已有的 SSE 连接')
       }
@@ -309,7 +320,9 @@ function ScanManagement() {
         if (data.cancelled) {
           // 主动关闭当前 SSE 连接，避免等待服务器推送取消事件
           if (esRef.current) {
-            try { esRef.current.close() } catch {}
+            try {
+              esRef.current.close()
+            } catch {}
             esRef.current = null
             addLogEntry('connection', null, '用户取消：关闭 SSE 连接')
           }
@@ -326,7 +339,9 @@ function ScanManagement() {
   React.useEffect(() => {
     return () => {
       if (esRef.current) {
-        try { esRef.current.close() } catch {}
+        try {
+          esRef.current.close()
+        } catch {}
         esRef.current = null
       }
     }
@@ -360,12 +375,8 @@ function ScanManagement() {
       <div className="max-w-4xl mx-auto space-y-6">
         {/* 页面标题 */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-neutral-900 mb-2">
-            扫描管理
-          </h1>
-          <p className="text-neutral-600">
-            管理艺术品扫描路径、监控扫描进度和查看详细日志
-          </p>
+          <h1 className="text-2xl font-bold text-neutral-900 mb-2">扫描管理</h1>
+          <p className="text-neutral-600">管理艺术品扫描路径、监控扫描进度和查看详细日志</p>
         </div>
 
         {/* 扫描路径配置 */}
@@ -421,11 +432,11 @@ function ScanManagement() {
             <div className="mb-2 text-base font-medium">扫描策略</div>
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                {(['metadata', 'media', 'full', 'legacy'] as ScanStrategyType[]).map((strategy) => {
+                {(['unified', 'full', 'legacy'] as ScanStrategyType[]).map((strategy) => {
                   const strategyInfo = strategies?.availability[strategy]
                   const isRecommended = strategies?.recommendation.recommended === strategy
                   const isAvailable = strategyInfo?.available ?? true
-                  
+
                   return (
                     <label
                       key={strategy}
@@ -433,8 +444,8 @@ function ScanManagement() {
                         selectedStrategy === strategy
                           ? 'border-primary-500 bg-primary-50'
                           : isAvailable
-                          ? 'border-neutral-200 hover:border-neutral-300'
-                          : 'border-neutral-100 bg-neutral-50 cursor-not-allowed'
+                            ? 'border-neutral-200 hover:border-neutral-300'
+                            : 'border-neutral-100 bg-neutral-50 cursor-not-allowed'
                       }`}
                     >
                       <input
@@ -449,34 +460,28 @@ function ScanManagement() {
                       <div className="flex-1">
                         <div className="flex items-center gap-1">
                           <span className={`font-medium ${!isAvailable ? 'text-neutral-400' : ''}`}>
-                            {strategy === 'metadata' && '元数据扫描'}
-                            {strategy === 'media' && '媒体文件扫描'}
+                            {strategy === 'unified' && '统一扫描'}
                             {strategy === 'full' && '完整扫描'}
                             {strategy === 'legacy' && '传统扫描'}
                           </span>
                           {isRecommended && (
-                            <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">
-                              推荐
-                            </span>
+                            <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">推荐</span>
                           )}
                         </div>
                         <div className={`text-xs ${!isAvailable ? 'text-neutral-400' : 'text-neutral-500'}`}>
-                          {strategy === 'metadata' && '仅处理元数据文件，创建作品记录'}
-                          {strategy === 'media' && '关联媒体文件到现有作品'}
+                          {strategy === 'unified' && '统一扫描，处理元数据和媒体文件'}
                           {strategy === 'full' && '完整处理元数据和媒体文件'}
                           {strategy === 'legacy' && '传统目录结构扫描'}
                         </div>
                         {!isAvailable && strategyInfo?.issues && strategyInfo.issues.length > 0 && (
-                          <div className="mt-1 text-xs text-error-500">
-                            {strategyInfo.issues[0]}
-                          </div>
+                          <div className="mt-1 text-xs text-error-500">{strategyInfo.issues[0]}</div>
                         )}
                       </div>
                     </label>
                   )
                 })}
               </div>
-              
+
               {/* 策略推荐信息 */}
               {strategies?.recommendation && (
                 <div className="rounded bg-info-50 p-3 text-sm">

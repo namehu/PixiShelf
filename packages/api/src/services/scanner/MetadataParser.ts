@@ -20,6 +20,15 @@ export class MetadataParser implements IMetadataParser {
    * @returns 解析后的元数据
    */
   async parse(filePath: string): Promise<ArtworkMetadata> {
+    return this.parseFile(filePath)
+  }
+
+  /**
+   * 解析元数据文件（别名方法）
+   * @param filePath 文件路径
+   * @returns 解析后的元数据
+   */
+  async parseFile(filePath: string): Promise<ArtworkMetadata> {
     try {
       const content = await fs.readFile(filePath, 'utf-8')
       const metadata = this.parseContent(content)

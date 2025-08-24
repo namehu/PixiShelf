@@ -7,7 +7,7 @@ import { ScanProgress } from './scan'
 /**
  * 扫描策略类型
  */
-export type ScanStrategyType = 'metadata' | 'media' | 'full' | 'legacy'
+export type ScanStrategyType = 'metadata' | 'media' | 'full' | 'legacy' | 'unified'
 
 /**
  * 扩展的扫描选项
