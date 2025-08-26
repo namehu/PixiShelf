@@ -206,12 +206,6 @@ export interface IScanOrchestrator {
    * @returns 扫描结果
    */
   scan(options: ExtendedScanOptions): Promise<ExtendedScanResult>
-
-  /**
-   * 设置扫描策略
-   * @param strategy 策略类型
-   */
-  setStrategy(strategy: ScanStrategyType): void
 }
 
 /**

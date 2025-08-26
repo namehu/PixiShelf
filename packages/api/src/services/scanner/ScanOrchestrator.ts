@@ -6,8 +6,7 @@ import {
   IScanOrchestrator,
   IScanStrategy,
   ScanStrategyType,
-  ScanOrchestratorOptions,
-  UnsupportedStrategyError
+  ScanOrchestratorOptions
 } from '@pixishelf/shared'
 import { UnifiedScanStrategy } from './UnifiedScanStrategy'
 import { PerformanceMonitor } from './PerformanceMonitor'
@@ -107,19 +106,6 @@ export class ScanOrchestrator implements IScanOrchestrator {
       // 清理资源
       this.cleanup()
     }
-  }
-
-  /**
-   * 设置扫描策略
-   * @param strategy 策略类型
-   */
-  setStrategy(strategy: ScanStrategyType): void {
-    if (!this.strategies.has(strategy)) {
-      throw new UnsupportedStrategyError(strategy)
-    }
-
-    this.currentStrategy = this.strategies.get(strategy)!
-    this.logger.debug({ strategy }, 'Scan strategy set')
   }
 
   /**
@@ -247,42 +233,6 @@ export class ScanOrchestrator implements IScanOrchestrator {
     if (this.progressTracker) {
       this.progressTracker.stop()
       this.progressTracker = null
-    }
-  }
-
-  /**
-   * 检查是否存在元数据文件
-   * @param scanPath 扫描路径
-   * @returns 是否存在元数据文件
-   */
-  private async hasMetadataFiles(scanPath: string): Promise<boolean> {
-    try {
-      // 这里可以实现快速检查逻辑
-      // 为了简化，暂时返回true
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  /**
-   * 检查数据库中是否有现有作品
-   * @returns 是否有现有作品
-   */
-  private async hasExistingArtworks(): Promise<boolean> {
-    try {
-      const count = await this.prisma.artwork.count({
-        where: {
-          externalId: {
-            not: null
-          }
-        },
-        take: 1
-      })
-
-      return count > 0
-    } catch {
-      return false
     }
   }
 }

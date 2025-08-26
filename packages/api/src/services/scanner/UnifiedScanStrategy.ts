@@ -28,11 +28,7 @@ export class UnifiedScanStrategy implements IScanStrategy {
   private prisma: PrismaClient
   private options: UnifiedScanOptions
 
-  constructor(
-    prisma: PrismaClient,
-    logger: FastifyInstance['log'],
-    options: UnifiedScanOptions = {}
-  ) {
+  constructor(prisma: PrismaClient, logger: FastifyInstance['log'], options: UnifiedScanOptions = {}) {
     this.prisma = prisma
     this.logger = logger
     this.options = {
@@ -41,7 +37,7 @@ export class UnifiedScanStrategy implements IScanStrategy {
       streamBufferSize: options.streamBufferSize || 100,
       memoryThreshold: options.memoryThreshold || 1024 * 1024 * 1024 // 1GB
     }
-    
+
     this.pipelineProcessor = new PipelineProcessor(prisma, logger, {
       maxConcurrency: this.options.maxConcurrency,
       batchSize: this.options.batchSize
@@ -57,28 +53,27 @@ export class UnifiedScanStrategy implements IScanStrategy {
    */
   async execute(options: ExtendedScanOptions): Promise<ExtendedScanResult> {
     const result: ExtendedScanResult = this.initializeResult()
-    const startTime = Date.now()
 
     try {
-      this.logger.info({
-        scanPath: options.scanPath,
-        strategy: this.name,
-        options: this.options
-      }, 'Starting unified scan')
+      this.logger.info(
+        {
+          scanPath: options.scanPath,
+          strategy: this.name,
+          options: this.options
+        },
+        'Starting unified scan'
+      )
 
       // 1. 初始化性能监控
       this.performanceMonitor.startMonitoring()
 
       // 2. 执行流水线处理
-      const processResult = await this.pipelineProcessor.processFiles(
-        options.scanPath,
-        {
-          onProgress: (progress) => this.handleProgress(progress, options),
-          onError: (error) => this.handleError(error, result),
-          batchSize: this.options.batchSize,
-          maxConcurrency: this.options.maxConcurrency
-        }
-      )
+      const processResult = await this.pipelineProcessor.processFiles(options.scanPath, {
+        onProgress: (progress) => this.handleProgress(progress, options),
+        onError: (error) => this.handleError(error, result),
+        batchSize: this.options.batchSize,
+        maxConcurrency: this.options.maxConcurrency
+      })
 
       // 3. 合并结果
       this.mergeResults(result, processResult)
@@ -98,31 +93,35 @@ export class UnifiedScanStrategy implements IScanStrategy {
       //   }
       // }
 
-      this.logger.info({
-        strategy: this.name,
-        result: {
-          scannedDirectories: result.scannedDirectories,
-          foundImages: result.foundImages,
-          newArtworks: result.newArtworks,
-          newImages: result.newImages,
-          errors: result.errors.length
+      this.logger.info(
+        {
+          strategy: this.name,
+          result: {
+            scannedDirectories: result.scannedDirectories,
+            foundImages: result.foundImages,
+            newArtworks: result.newArtworks,
+            newImages: result.newImages,
+            errors: result.errors.length
+          }
+          // performance: result.performance // 已注释掉
         },
-        // performance: result.performance // 已注释掉
-      }, 'Unified scan completed successfully')
+        'Unified scan completed successfully'
+      )
 
       return result
-
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      this.logger.error({
-        strategy: this.name,
-        scanPath: options.scanPath,
-        error: errorMessage
-      }, 'Unified scan failed')
-      
+      this.logger.error(
+        {
+          strategy: this.name,
+          scanPath: options.scanPath,
+          error: errorMessage
+        },
+        'Unified scan failed'
+      )
+
       result.errors.push(`Unified scan failed: ${errorMessage}`)
       return result
-
     } finally {
       this.performanceMonitor.stopMonitoring()
     }
@@ -173,13 +172,12 @@ export class UnifiedScanStrategy implements IScanStrategy {
     try {
       // 简单估算：假设每个文件平均处理时间为100ms
       const avgProcessingTime = 100 // 毫秒
-      
+
       // 这里可以实现更复杂的估算逻辑
       // 比如基于历史数据、文件大小等
-      
+
       // 暂时返回一个基础估算
       return avgProcessingTime * 100 // 假设100个文件
-      
     } catch (error) {
       this.logger.error({ error }, 'Failed to estimate duration')
       return 30000 // 默认30秒
@@ -199,7 +197,7 @@ export class UnifiedScanStrategy implements IScanStrategy {
       total: progress.total,
       percentage: Math.round((progress.processed / progress.total) * 100)
     }
-    
+
     // 调用外部进度回调
     const scanProgress = {
       phase: 'scanning' as const,
@@ -233,10 +231,10 @@ export class UnifiedScanStrategy implements IScanStrategy {
     target.newArtworks = source.newArtworks
     target.newImages = source.newImages
     target.errors.push(...source.errors)
-    target.skippedDirectories = source.skippedDirectories.map(dir => ({ path: dir, reason: 'Processing failed' }))
+    target.skippedDirectories = source.skippedDirectories.map((dir) => ({ path: dir, reason: 'Processing failed' }))
     target.metadataFiles = source.metadataFiles
     target.processedMetadata = source.processedMetadata
-    target.skippedMetadata = source.skippedMetadata.map(meta => ({ path: meta, reason: 'Processing failed' }))
+    target.skippedMetadata = source.skippedMetadata.map((meta) => ({ path: meta, reason: 'Processing failed' }))
   }
 
   /**
@@ -267,12 +265,11 @@ export class UnifiedScanStrategy implements IScanStrategy {
     try {
       // 检查是否有元数据文件
       const hasMetadataFiles = await this.hasMetadataFiles(options.scanPath)
-      
+
       // 检查系统资源
       const hasAdequateMemory = this.checkMemoryAvailability()
-      
+
       return hasMetadataFiles && hasAdequateMemory
-      
     } catch (error) {
       this.logger.error({ error }, 'Failed to check unified scan suitability')
       return false
@@ -288,11 +285,11 @@ export class UnifiedScanStrategy implements IScanStrategy {
     try {
       const fs = await import('fs/promises')
       const path = await import('path')
-      
+
       const checkDirectory = async (dirPath: string): Promise<boolean> => {
         try {
           const entries = await fs.readdir(dirPath, { withFileTypes: true })
-          
+
           for (const entry of entries) {
             if (entry.isFile() && entry.name.endsWith('-meta.txt')) {
               return true
@@ -303,15 +300,14 @@ export class UnifiedScanStrategy implements IScanStrategy {
               }
             }
           }
-          
+
           return false
         } catch {
           return false
         }
       }
-      
+
       return await checkDirectory(scanPath)
-      
     } catch (error) {
       this.logger.error({ error, scanPath }, 'Failed to check for metadata files')
       return false
@@ -326,10 +322,9 @@ export class UnifiedScanStrategy implements IScanStrategy {
     try {
       const usage = process.memoryUsage()
       const availableMemory = usage.heapTotal - usage.heapUsed
-      
+
       // 检查是否有足够的可用内存（至少512MB）
       return availableMemory > 512 * 1024 * 1024
-      
     } catch (error) {
       this.logger.error({ error }, 'Failed to check memory availability')
       return true // 默认认为内存充足

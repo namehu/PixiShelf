@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs'
 import path from 'path'
-import { PrismaClient, Prisma } from '@prisma/client'
+import { PrismaClient } from '@prisma/client'
 import { FastifyInstance } from 'fastify'
 import { ConcurrencyController } from './scanner/ConcurrencyController'
 import { BatchProcessor } from './scanner/BatchProcessor'
@@ -61,12 +61,11 @@ export class FileScanner {
   private performanceMonitor!: PerformanceMonitor
   private performanceMetrics!: PerformanceMetrics
   private fsTimeReader: FileSystemTimeReader
-  // enableOptimizations removed - always use optimized scanning
   private useStreamingBatch: boolean = true
 
   // 新增：扫描编排器
   private scanOrchestrator: ScanOrchestrator
-  private enableMetadataScanning: boolean = false
+  private enableMetadataScanning: boolean = true
 
   constructor(
     prisma: PrismaClient,
@@ -80,8 +79,7 @@ export class FileScanner {
     this.prisma = prisma
     this.logger = logger
     this.useStreamingBatch = options?.enableStreaming ?? true
-    this.enableOptimizations = config.scanner.enableOptimizations ?? true
-    this.enableMetadataScanning = options?.enableMetadataScanning ?? false
+    this.enableMetadataScanning = options?.enableMetadataScanning ?? true
 
     // 初始化性能优化组件
     this.concurrencyController = new ConcurrencyController(config.scanner.maxConcurrency)
@@ -94,7 +92,7 @@ export class FileScanner {
 
     // 初始化扫描编排器
     this.scanOrchestrator = new ScanOrchestrator(this.prisma, this.logger, {
-      enableOptimizations: this.enableOptimizations,
+      enableOptimizations: true,
       maxConcurrency: config.scanner.maxConcurrency,
       defaultStrategy: 'unified',
       ...options?.scanOrchestratorOptions
@@ -122,7 +120,6 @@ export class FileScanner {
 
     // 并发处理扫描任务
     let processedTasks = 0
-    const startTime = Date.now()
 
     const taskBatches = this.createTaskBatches(scanTasks, 100) // 每批100个任务
 
@@ -180,11 +177,6 @@ export class FileScanner {
 
     this.updateResultFromBatch(finalBatchResult, result)
   }
-
-  /**
-   * 传统扫描方法（保持向后兼容）
-   */
-  // scanLegacy method removed - only unified scanning is supported
 
   /**
    * 最终处理阶段
@@ -310,31 +302,6 @@ export class FileScanner {
   }
 
   /**
-   * 处理单个扫描任务
-   */
-  private async processScanTask(task: ScanTask, extensions: string[]): Promise<TaskResult> {
-    try {
-      switch (task.type) {
-        case 'artist':
-          return await this.processArtistTask(task)
-        case 'artwork':
-          return await this.processArtworkTask(task, extensions)
-        default:
-          return {
-            success: false,
-            error: `Unknown task type: ${task.type}`
-          }
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        data: { path: task.path }
-      }
-    }
-  }
-
-  /**
    * 处理单个扫描任务（流式版本）
    */
   private async processScanTaskStreaming(task: ScanTask, extensions: string[]): Promise<TaskResult> {
@@ -360,28 +327,6 @@ export class FileScanner {
   }
 
   /**
-   * 处理艺术家任务
-   */
-  private async processArtistTask(task: ScanTask): Promise<TaskResult> {
-    const artistData = this.cacheManager.parseArtistName(task.metadata.name)
-
-    this.batchProcessor.addArtist({
-      name: artistData.displayName,
-      username: artistData.username,
-      userId: artistData.userId,
-      bio:
-        artistData.username && artistData.userId
-          ? `Artist: ${artistData.username} (ID: ${artistData.userId})`
-          : `Artist discovered from directory: ${task.metadata.name}`
-    })
-
-    return {
-      success: true,
-      data: { type: 'artist', name: artistData.displayName }
-    }
-  }
-
-  /**
    * 处理艺术家任务（流式版本）
    */
   private async processArtistTaskStreaming(task: ScanTask): Promise<TaskResult> {
@@ -400,78 +345,6 @@ export class FileScanner {
     return {
       success: true,
       data: { type: 'artist', name: artistData.displayName }
-    }
-  }
-
-  /**
-   * 处理作品任务
-   */
-  private async processArtworkTask(task: ScanTask, extensions: string[]): Promise<TaskResult> {
-    const { title, artistName } = task.metadata
-
-    // 收集图片
-    const images = await this.collectImagesFromDirectory(task.path, extensions)
-    if (images.length === 0) {
-      return {
-        success: false,
-        skipped: true,
-        reason: '没有找到图片文件',
-        data: { path: task.path }
-      }
-    }
-
-    // 解析元数据
-    const metadata = await this.parseMetadata(task.path)
-
-    // 获取目录创建时间和计算新字段
-    const directoryCreatedAt = await this.fsTimeReader.getDirectoryCreatedTime(task.path)
-    const imageCount = images.length
-    const descriptionLength = metadata.description?.length || 0
-
-    // 添加到批量处理器
-    this.batchProcessor.addArtwork({
-      title,
-      description: metadata.description,
-      artistId: 0, // 将在批量处理时解析
-      artistName,
-      directoryCreatedAt,
-      imageCount,
-      descriptionLength
-    })
-
-    // 添加图片（按排序顺序）
-    for (let i = 0; i < images.length; i++) {
-      const imagePath = images[i]
-      const stats = await fs.stat(imagePath)
-      const relativePath = this.cacheManager.getRelativePath(imagePath, this.scanRootAbs!)
-
-      this.batchProcessor.addImage({
-        path: relativePath,
-        size: stats.size,
-        sortOrder: i,
-        artworkTitle: title,
-        artistName
-      })
-    }
-
-    // 添加标签
-    for (const tagName of metadata.tags) {
-      const cleanedTag = this.cacheManager.cleanTagPrefix(tagName)
-      if (cleanedTag) {
-        this.batchProcessor.addTag({ name: cleanedTag })
-        this.batchProcessor.addArtworkTag(title, artistName, cleanedTag)
-      }
-    }
-
-    return {
-      success: true,
-      data: {
-        type: 'artwork',
-        title,
-        artistName,
-        imageCount: images.length,
-        tagCount: metadata.tags.length
-      }
     }
   }
 
@@ -559,16 +432,6 @@ export class FileScanner {
   }
 
   /**
-   * 将任务结果添加到扫描结果
-   */
-  private addToResult(data: any, result: ScanResult): void {
-    if (data.type === 'artwork') {
-      result.scannedDirectories++
-      result.foundImages += data.imageCount || 0
-    }
-  }
-
-  /**
    * 将任务结果添加到扫描结果（流式版本）
    */
   private addToResultStreaming(data: any, result: ScanResult): void {
@@ -630,7 +493,7 @@ export class FileScanner {
       ...this.performanceMetrics,
       cacheStats,
       concurrencyStatus,
-      optimizationsEnabled: this.enableOptimizations
+      optimizationsEnabled: true
     }
   }
 
@@ -694,13 +557,7 @@ export class FileScanner {
    * @returns 如果名称安全则返回 true，否则返回 false
    */
   private isValidName(name: string): boolean {
-    if (this.enableOptimizations) {
-      return this.cacheManager.isValidName(name)
-    }
-
-    // 回退到原始实现
-    const safeNameRegex = /^[a-zA-Z0-9\s_\-.()\u4e00-\u9fa5\u3040-\u30ff]+$/
-    return safeNameRegex.test(name)
+    return this.cacheManager.isValidName(name)
   }
 
   /**
@@ -709,33 +566,14 @@ export class FileScanner {
    * @returns 扫描结果
    */
   async scanWithMetadata(options: ExtendedScanOptions): Promise<ExtendedScanResult> {
-    if (!this.enableMetadataScanning) {
-      throw new Error('Metadata scanning is not enabled. Please enable it in constructor options.')
-    }
-
     try {
-      this.logger.info(
-        {
-          scanPath: options.scanPath,
-          scanType: options.scanType,
-          enableMetadataScanning: this.enableMetadataScanning
-        },
-        'Starting metadata-enabled scan'
-      )
+      this.logger.info('Starting metadata-enabled scan')
 
       return await this.scanOrchestrator.scan(options)
     } catch (error) {
       this.logger.error({ error, options }, 'Metadata scan failed')
       throw error
     }
-  }
-
-  /**
-   * 设置扫描策略
-   * @param strategy 策略类型
-   */
-  setStrategy(strategy: ScanStrategyType): void {
-    this.scanOrchestrator.setStrategy(strategy)
   }
 
   /**
@@ -901,8 +739,6 @@ export class FileScanner {
     }
   }
 
-  // countArtistsAndArtworks method removed - only used by legacy scanning
-
   // 检查目录是否包含图片文件
   private async hasImageFiles(dirPath: string, extensions: string[]): Promise<boolean> {
     try {
@@ -927,8 +763,6 @@ export class FileScanner {
 
   // 按照新的目录结构扫描：根目录下每个文件夹作为 Artist，Artist 下的子文件夹作为 Artwork
   // scanArtistDirectories method removed - only used by legacy scanning
-
-
 
   // 解析元数据文件 (*_metadata.txt)
   private async parseMetadata(artworkPath: string): Promise<MetadataInfo> {
@@ -972,7 +806,6 @@ export class FileScanner {
           // 收集描述内容直到遇到下一个段落标题或文件结束
           while (i < lines.length) {
             const peek = lines[i]
-            const peekNorm = normalizeSection(peek)
 
             // 如果遇到已知的段落标题，停止收集描述
             if (this.isMetadataSection(peek)) {
@@ -1117,119 +950,6 @@ export class FileScanner {
     return 0
   }
 
-  // 创建作品记录（V2.2 版本 - 使用多对多标签关系）
-  private async createArtworkFromDirectoryV2(
-    artworkPath: string,
-    artworkTitle: string,
-    artistId: number,
-    imagePaths: string[],
-    metadata: MetadataInfo,
-    result: ScanResult
-  ): Promise<void> {
-    try {
-      // 获取目录创建时间
-      const directoryCreatedAt = await this.fsTimeReader.getDirectoryCreatedTime(artworkPath)
-
-      // 计算新字段值
-      const imageCount = imagePaths.length
-      const descriptionLength = metadata.description?.length || 0
-
-      // 检查是否已存在相同的作品（基于 artistId + title 的唯一约束）
-      let artwork
-      try {
-        artwork = await this.prisma.artwork.create({
-          data: {
-            title: artworkTitle,
-            description: metadata.description || null,
-            artistId: artistId,
-            directoryCreatedAt: directoryCreatedAt,
-            imageCount: imageCount,
-            descriptionLength: descriptionLength
-          }
-        })
-        result.newArtworks++
-        this.logger.info(
-          `Created new artwork: ${artworkTitle} (${imageCount} images, dir created: ${directoryCreatedAt.toISOString()})`
-        )
-      } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-          // 命中唯一约束 (artistId, title) 冲突，查找既有记录并更新元数据
-          artwork = await this.prisma.artwork.findFirst({
-            where: { title: artworkTitle, artistId: artistId }
-          })
-
-          if (artwork) {
-            // 更新已存在的作品的所有字段
-            artwork = await this.prisma.artwork.update({
-              where: { id: artwork.id },
-              data: {
-                description: metadata.description || artwork.description,
-                directoryCreatedAt: directoryCreatedAt,
-                imageCount: imageCount,
-                descriptionLength: descriptionLength
-              }
-            })
-            this.logger.info(
-              `Updated existing artwork: ${artworkTitle} (${imageCount} images, dir created: ${directoryCreatedAt.toISOString()})`
-            )
-          } else {
-            throw e
-          }
-        } else {
-          throw e
-        }
-      }
-
-      // 处理标签（多对多关系）
-      if (metadata.tags.length > 0) {
-        await this.updateArtworkTags(artwork.id, metadata.tags)
-      }
-
-      // 处理图片（按排序顺序）
-      for (let i = 0; i < imagePaths.length; i++) {
-        await this.createImageRecord(imagePaths[i], artwork.id, i, result)
-      }
-    } catch (error) {
-      const errorMsg = `Failed to create artwork for ${artworkPath}: ${error instanceof Error ? error.message : 'Unknown error'}`
-      result.errors.push(errorMsg)
-      this.logger.error({ error, artworkPath }, 'Artwork creation failed')
-    }
-  }
-
-  // 更新作品标签（多对多关系）
-  private async updateArtworkTags(artworkId: number, tagNames: string[]): Promise<void> {
-    try {
-      // 首先删除该作品的所有现有标签关联
-      await this.prisma.artworkTag.deleteMany({
-        where: { artworkId }
-      })
-
-      // 为每个标签创建或查找记录，然后建立关联
-      for (const tagName of tagNames) {
-        if (!tagName.trim()) continue
-
-        // 查找或创建标签
-        const tag = await this.prisma.tag.upsert({
-          where: { name: tagName.trim() },
-          update: {},
-          create: { name: tagName.trim() }
-        })
-
-        // 创建作品-标签关联
-        await this.prisma.artworkTag.create({
-          data: {
-            artworkId,
-            tagId: tag.id
-          }
-        })
-      }
-
-      this.logger.debug(`Updated tags for artwork ${artworkId}: ${tagNames.length} tags`)
-    } catch (error) {
-      this.logger.error({ error, artworkId, tagNames }, 'Failed to update artwork tags')
-    }
-  }
-
   private async cleanupExistingData(onProgress?: (progress: ScanProgress) => void): Promise<void> {
     try {
       onProgress?.({
@@ -1319,168 +1039,6 @@ export class FileScanner {
     } catch (error) {
       this.logger.error({ error }, 'Failed to cleanup empty artworks')
       return 0
-    }
-  }
-
-  private async findOrCreateArtist(artistName: string) {
-    try {
-      // 解析艺术家名称，尝试拆分为用户名和用户ID
-      const { displayName, username, userId } = this.parseArtistName(artistName)
-
-      // 如果解析出了 username + userId，使用 upsert 基于复合唯一键避免竞态
-      if (username && userId) {
-        try {
-          const created = await this.prisma.artist.create({
-            data: {
-              name: displayName,
-              username,
-              userId,
-              bio: `Artist: ${username} (ID: ${userId})`
-            }
-          })
-          this.logger.info(`Created new artist: ${displayName} (${username}, ${userId})`)
-          return created
-        } catch (e) {
-          // 如果是重复键错误，则查询并返回已有记录
-          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-            const existing = await this.prisma.artist.findUnique({
-              where: {
-                unique_username_userid: { username, userId }
-              } as any
-            })
-            if (existing) {
-              this.logger.debug(`Found existing artist: ${displayName}`)
-              return existing
-            }
-          }
-          throw e
-        }
-      }
-
-      // 否则按原始名称兜底（name 非唯一，无法使用 upsert）
-      let artist = await this.prisma.artist.findFirst({
-        where: { name: artistName }
-      })
-
-      if (!artist) {
-        artist = await this.prisma.artist.create({
-          data: {
-            name: displayName,
-            username: null,
-            userId: null,
-            bio: `Artist discovered from directory: ${artistName}`
-          }
-        })
-        this.logger.info(`Created new artist: ${displayName}`)
-      }
-
-      return artist
-    } catch (error) {
-      this.logger.error({ error, artistName }, 'Failed to find or create artist')
-      return null
-    }
-  }
-
-  /**
-   * 解析艺术家名称（优化版本）
-   */
-  private parseArtistName(artistName: string): {
-    displayName: string
-    username: string | null
-    userId: string | null
-  } {
-    if (this.enableOptimizations) {
-      return this.cacheManager.parseArtistName(artistName)
-    }
-
-    // 回退到原始实现
-    // 优先匹配 "用户名 (用户ID)" 格式
-    let match = artistName.match(/^(.+?)\s*\((\d+)\)$/)
-
-    if (match) {
-      const username = match[1].trim()
-      const userId = match[2].trim()
-
-      if (username.length > 0 && userId.length >= 1) {
-        return {
-          displayName: username,
-          username: username,
-          userId: userId
-        }
-      }
-    }
-
-    // 次优匹配 "用户名-数字ID" 或 "用户名-字母数字ID" 格式
-    match = artistName.match(/^(.+?)-(\d+|[a-zA-Z0-9]+)$/)
-
-    if (match) {
-      const username = match[1].trim()
-      const userId = match[2].trim()
-
-      if (username.length > 0 && userId.length >= 1) {
-        return {
-          displayName: username,
-          username: username,
-          userId: userId
-        }
-      }
-    }
-
-    // 如果解析失败，返回原始名称
-    return {
-      displayName: artistName,
-      username: null,
-      userId: null
-    }
-  }
-
-  private async createImageRecord(
-    imagePath: string,
-    artworkId: number,
-    sortOrder: number,
-    result: ScanResult
-  ): Promise<void> {
-    try {
-      // 计算相对扫描根目录的相对路径（用于容器挂载路径统一）
-      let relPath = imagePath
-      const root = this.scanRootAbs
-      if (root) {
-        const maybeRel = path.relative(root, imagePath)
-        if (!maybeRel.startsWith('..')) {
-          relPath = maybeRel.replace(/\\/g, '/')
-        }
-      }
-
-      // 去重：兼容历史绝对路径与新的相对路径
-      const existingImage = await this.prisma.image.findFirst({
-        where: { OR: [{ path: relPath }, { path: imagePath }] }
-      })
-
-      if (existingImage) {
-        this.logger.debug(`Image already exists: ${relPath}`)
-        return
-      }
-
-      // 获取图片文件信息
-      const stats = await fs.stat(imagePath)
-
-      // 创建图片记录（统一保存相对路径）
-      await this.prisma.image.create({
-        data: {
-          path: relPath,
-          size: stats.size,
-          sortOrder: sortOrder,
-          artworkId: artworkId
-          // width 和 height 将在后续版本中通过 sharp 获取
-        }
-      })
-
-      result.newImages++
-      this.logger.debug(`Created image record: ${path.basename(imagePath)}`)
-    } catch (error) {
-      const errorMsg = `Failed to create image record for ${imagePath}: ${error instanceof Error ? error.message : 'Unknown error'}`
-      result.errors.push(errorMsg)
-      this.logger.warn({ error, imagePath }, 'Image record creation failed')
     }
   }
 }

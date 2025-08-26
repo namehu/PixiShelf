@@ -7,42 +7,6 @@ export default async function scanRoutes(server: FastifyInstance) {
     message: server.appState.lastProgressMessage
   }))
 
-  // 新增：获取扫描策略信息
-  server.get('/api/v1/scan/strategies', async (req, reply) => {
-    const scanPath = await server.settingService.getScanPath()
-    if (!scanPath) {
-      reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'SCAN_PATH is not configured' })
-      return
-    }
-
-    try {
-      return {
-        supported: ['unified'],
-        current: {
-          name: 'unified',
-          description: 'Unified scan processing metadata and media files together in a pipeline'
-        },
-        availability: {
-          unified: {
-            available: true,
-            issues: [],
-            estimatedDuration: 10000
-          }
-        },
-        recommendation: {
-          recommended: 'unified',
-          reason: 'Unified scan provides better performance and user experience with continuous processing',
-          alternatives: []
-        }
-      }
-    } catch (error) {
-      server.log.error({ error }, 'Failed to get strategy information')
-      reply
-        .code(500)
-        .send({ statusCode: 500, error: 'Internal Server Error', message: 'Failed to get strategy information' })
-    }
-  })
-
   server.post(
     '/api/v1/scan/cancel',
     {
@@ -96,9 +60,7 @@ export default async function scanRoutes(server: FastifyInstance) {
 
     try {
       // 使用统一的元数据扫描功能
-      const scanner = new FileScanner(server.prisma, server.log, {
-        enableMetadataScanning: true
-      })
+      const scanner = new FileScanner(server.prisma, server.log)
 
       server.log.info('Using unified metadata scanning')
 
