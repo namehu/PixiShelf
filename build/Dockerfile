@@ -1,5 +1,5 @@
 # Base image for Node.js
-FROM node:18-alpine AS base
+FROM node:22-alpine AS base
 WORKDIR /app
 RUN npm install -g pnpm@8
 
@@ -37,7 +37,7 @@ ENV VITE_API_URL=$VITE_API_URL
 RUN pnpm --filter="@pixishelf/web" build
 
 # Production API stage - 最小化生产镜像
-FROM node:18-alpine AS api
+FROM node:22-alpine AS api
 WORKDIR /app
 
 # 安装必要的系统依赖，包括OpenSSL
