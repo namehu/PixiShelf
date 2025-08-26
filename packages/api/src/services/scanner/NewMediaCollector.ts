@@ -31,8 +31,21 @@ export interface CollectionResult {
 export class NewMediaCollector {
   private logger: FastifyInstance['log']
   private readonly supportedExtensions = new Set([
-    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif',
-    '.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.webm'
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.gif',
+    '.webp',
+    '.bmp',
+    '.tiff',
+    '.tif',
+    '.mp4',
+    '.avi',
+    '.mov',
+    '.wmv',
+    '.flv',
+    '.mkv',
+    '.webm'
   ])
 
   constructor(logger: FastifyInstance['log']) {
@@ -59,31 +72,68 @@ export class NewMediaCollector {
 
       // 读取目录内容
       const files = await fs.readdir(directoryPath)
-      
+
+      return this.collectMediaFilesFromEntries(directoryPath, artworkId, files)
+    } catch (error) {
+      this.logger.error({ error, directoryPath, artworkId }, 'Failed to collect media files')
+      return {
+        success: false,
+        mediaFiles: [],
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  }
+
+  /**
+   * 从已读取的目录条目中收集指定作品ID的所有媒体文件
+   * 这个方法避免了重复的目录读取操作，提升性能
+   * @param directoryPath 目录路径
+   * @param artworkId 作品ID
+   * @param entries 已读取的目录条目（文件名数组或Dirent数组）
+   * @returns 收集结果
+   */
+  async collectMediaFilesFromEntries(
+    directoryPath: string,
+    artworkId: string,
+    entries: string[] | import('fs').Dirent[]
+  ): Promise<CollectionResult> {
+    try {
       // 过滤和解析媒体文件
       const mediaFiles: MediaFileInfo[] = []
-      
-      for (const filename of files) {
+
+      for (const entry of entries) {
+        const filename = typeof entry === 'string' ? entry : entry.name
         const filePath = path.join(directoryPath, filename)
-        
+
+        // 如果是Dirent对象，检查是否为文件
+        if (typeof entry !== 'string' && !entry.isFile()) continue
+
         // 检查是否是目标作品的媒体文件
         const mediaInfo = this.parseMediaFilename(filename, artworkId)
         if (!mediaInfo) continue
-        
+
         try {
-          // 获取文件信息
-          const fileStats = await fs.stat(filePath)
-          if (!fileStats.isFile()) continue
-          
+          // 如果是字符串数组，需要获取文件信息
+          let fileSize: number
+          if (typeof entry === 'string') {
+            const fileStats = await fs.stat(filePath)
+            if (!fileStats.isFile()) continue
+            fileSize = fileStats.size
+          } else {
+            // 对于Dirent对象，仍需要获取文件大小
+            const fileStats = await fs.stat(filePath)
+            fileSize = fileStats.size
+          }
+
           // 检查文件扩展名
           const extension = path.extname(filename).toLowerCase()
           if (!this.supportedExtensions.has(extension)) continue
-          
+
           mediaFiles.push({
             path: filePath,
             filename,
             extension,
-            size: fileStats.size,
+            size: fileSize,
             artworkId,
             pageIndex: mediaInfo.pageIndex,
             sortOrder: mediaInfo.pageIndex
@@ -93,16 +143,16 @@ export class NewMediaCollector {
           continue
         }
       }
-      
+
       // 按页面索引排序
       mediaFiles.sort((a, b) => a.pageIndex - b.pageIndex)
-      
+
       return {
         success: true,
         mediaFiles
       }
     } catch (error) {
-      this.logger.error({ error, directoryPath, artworkId }, 'Failed to collect media files')
+      this.logger.error({ error, directoryPath, artworkId }, 'Failed to collect media files from entries')
       return {
         success: false,
         mediaFiles: [],
@@ -121,60 +171,16 @@ export class NewMediaCollector {
     // 匹配格式: {artworkID}_p{index}.{ext}
     const match = filename.match(/^(\d+)_p(\d+)\./i)
     if (!match) return null
-    
+
     const [, artworkId, pageIndexStr] = match
-    
+
     // 验证作品ID是否匹配
     if (artworkId !== expectedArtworkId) return null
-    
+
     const pageIndex = parseInt(pageIndexStr, 10)
     if (isNaN(pageIndex) || pageIndex < 0) return null
-    
-    return { pageIndex }
-  }
 
-  /**
-   * 批量收集目录下所有作品的媒体文件
-   * @param directoryPath 目录路径
-   * @returns 按作品ID分组的媒体文件映射
-   */
-  async collectAllMediaFiles(directoryPath: string): Promise<Map<string, MediaFileInfo[]>> {
-    const result = new Map<string, MediaFileInfo[]>()
-    
-    try {
-      const files = await fs.readdir(directoryPath)
-      
-      // 首先找出所有的作品ID
-      const artworkIds = new Set<string>()
-      
-      for (const filename of files) {
-        // 从元数据文件中提取作品ID
-        if (this.isMetadataFile(filename)) {
-          const artworkId = this.extractArtworkIdFromMetadata(filename)
-          if (artworkId) {
-            artworkIds.add(artworkId)
-          }
-        }
-        
-        // 从媒体文件中提取作品ID
-        const mediaMatch = filename.match(/^(\d+)_p\d+\./i)
-        if (mediaMatch) {
-          artworkIds.add(mediaMatch[1])
-        }
-      }
-      
-      // 为每个作品ID收集媒体文件
-      for (const artworkId of artworkIds) {
-        const collectionResult = await this.collectMediaFiles(directoryPath, artworkId)
-        if (collectionResult.success && collectionResult.mediaFiles.length > 0) {
-          result.set(artworkId, collectionResult.mediaFiles)
-        }
-      }
-    } catch (error) {
-      this.logger.error({ error, directoryPath }, 'Failed to collect all media files')
-    }
-    
-    return result
+    return { pageIndex }
   }
 
   /**
@@ -185,14 +191,14 @@ export class NewMediaCollector {
    */
   validateAssociation(metadataPath: string, mediaFiles: MediaFileInfo[]): boolean {
     if (mediaFiles.length === 0) return false
-    
+
     const metadataFilename = path.basename(metadataPath)
     const artworkIdFromMetadata = this.extractArtworkIdFromMetadata(metadataFilename)
-    
+
     if (!artworkIdFromMetadata) return false
-    
+
     // 检查所有媒体文件的作品ID是否与元数据一致
-    return mediaFiles.every(file => file.artworkId === artworkIdFromMetadata)
+    return mediaFiles.every((file) => file.artworkId === artworkIdFromMetadata)
   }
 
   /**
@@ -241,7 +247,7 @@ export class NewMediaCollector {
   static extractPageIndexFromMedia(filename: string): number | null {
     const match = filename.match(/^\d+_p(\d+)\./i)
     if (!match) return null
-    
+
     const pageIndex = parseInt(match[1], 10)
     return isNaN(pageIndex) ? null : pageIndex
   }

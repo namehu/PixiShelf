@@ -201,8 +201,12 @@ export class NewSimpleScanner {
             continue
           }
 
-          // 收集媒体文件
-          const collectionResult = await this.mediaCollector.collectMediaFiles(directoryPath, artworkId)
+          // 收集媒体文件 - 使用已读取的entries避免重复IO
+          const collectionResult = await this.mediaCollector.collectMediaFilesFromEntries(
+            directoryPath,
+            artworkId,
+            entries
+          )
           if (!collectionResult.success) {
             this.logger.warn(
               { directoryPath, artworkId, error: collectionResult.error },
