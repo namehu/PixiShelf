@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { FileScanner } from '../services/scanner'
+import { ScanProgress } from '@pixishelf/shared'
 
 export default async function scanRoutes(server: FastifyInstance) {
   server.get('/api/v1/scan/status', async () => ({
@@ -68,7 +69,7 @@ export default async function scanRoutes(server: FastifyInstance) {
         scanPath,
         scanType: 'unified',
         forceUpdate,
-        onProgress: (progress) => {
+        onProgress: (progress: ScanProgress) => {
           server.appState.lastProgressMessage = progress?.message || null
           if (server.appState.cancelRequested) {
             throw new Error('Scan cancelled')
