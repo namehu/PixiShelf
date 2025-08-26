@@ -61,7 +61,7 @@ export class FileScanner {
   private performanceMonitor!: PerformanceMonitor
   private performanceMetrics!: PerformanceMetrics
   private fsTimeReader: FileSystemTimeReader
-  private enableOptimizations: boolean = true
+  // enableOptimizations removed - always use optimized scanning
   private useStreamingBatch: boolean = true
 
   // 新增：扫描编排器
@@ -184,58 +184,7 @@ export class FileScanner {
   /**
    * 传统扫描方法（保持向后兼容）
    */
-  private async scanLegacy(
-    scanPath: string,
-    extensions: string[],
-    result: ScanResult,
-    onProgress?: (progress: ScanProgress) => void
-  ): Promise<void> {
-    // 第一遍：扫描根目录下的艺术家文件夹
-    onProgress?.({
-      phase: 'counting',
-      message: '预扫描：统计艺术家和作品目录...',
-      percentage: 0
-    })
-    const { totalWorkUnits, artistCount, artworkCount } = await this.countArtistsAndArtworks(
-      scanPath,
-      extensions,
-      onProgress
-    )
-
-    // 第二遍：正式扫描并按目录结构处理
-    let processedWorkUnits = 0
-    const scanStartTs = Date.now()
-    const progressUpdate = (increment: number, message: string, phase: ScanProgress['phase'] = 'scanning') => {
-      processedWorkUnits += increment
-      const percentage =
-        totalWorkUnits > 0 ? Math.min(99, Math.floor((processedWorkUnits / totalWorkUnits) * 100)) : undefined
-      const elapsedSec = Math.max(0.001, (Date.now() - scanStartTs) / 1000)
-      const rate = processedWorkUnits > 0 ? processedWorkUnits / elapsedSec : 0
-      const remainingUnits = Math.max(0, totalWorkUnits - processedWorkUnits)
-      const estSeconds = rate > 0 ? Math.ceil(remainingUnits / rate) : undefined
-      const detailedMessage = `${message} [${processedWorkUnits}/${totalWorkUnits}] (${percentage || 0}%)`
-      onProgress?.({
-        phase,
-        message: detailedMessage,
-        current: processedWorkUnits,
-        total: totalWorkUnits,
-        percentage,
-        estimatedSecondsRemaining: estSeconds
-      })
-    }
-
-    const scanStartMessage = `开始扫描 ${artistCount} 个艺术家目录，${artworkCount} 个作品目录...`
-    onProgress?.({
-      phase: 'scanning',
-      message: scanStartMessage,
-      current: 0,
-      total: totalWorkUnits,
-      percentage: totalWorkUnits > 0 ? 0 : undefined
-    })
-
-    // 按照新的目录结构扫描
-    await this.scanArtistDirectories(scanPath, extensions, result, progressUpdate)
-  }
+  // scanLegacy method removed - only unified scanning is supported
 
   /**
    * 最终处理阶段
@@ -883,7 +832,6 @@ export class FileScanner {
         {
           scanPath,
           forceUpdate,
-          enableOptimizations: this.enableOptimizations,
           useStreamingBatch: this.useStreamingBatch,
           maxConcurrency: this.concurrencyController.getStatus().maxConcurrency
         },
@@ -906,12 +854,8 @@ export class FileScanner {
         })
       }
 
-      // 选择扫描策略
-      if (this.enableOptimizations) {
-        await this.scanOptimized(scanPath, extensions, result, onProgress)
-      } else {
-        await this.scanLegacy(scanPath, extensions, result, onProgress)
-      }
+      // 使用统一的优化扫描策略
+      await this.scanOptimized(scanPath, extensions, result, onProgress)
 
       // 最终处理
       await this.finalizeScan(result, onProgress)
@@ -957,116 +901,7 @@ export class FileScanner {
     }
   }
 
-  // 新的预扫描统计：按照 Artist/Artwork 层级结构统计
-  private async countArtistsAndArtworks(
-    rootPath: string,
-    extensions: string[],
-    onProgress?: (progress: ScanProgress) => void
-  ): Promise<{
-    totalWorkUnits: number
-    artistCount: number
-    artworkCount: number
-  }> {
-    let artistCount = 0
-    let artworkCount = 0
-    let scannedDirs = 0
-    const startTime = Date.now()
-
-    onProgress?.({
-      phase: 'counting',
-      message: '开始快速预扫描目录结构...',
-      percentage: 0
-    })
-
-    try {
-      const artistEntries = await fs.readdir(rootPath, { withFileTypes: true })
-      const validArtistEntries = artistEntries.filter(
-        (entry) =>
-          this.isValidName(entry.name) &&
-          !entry.name.startsWith('.') &&
-          !entry.name.startsWith('$') &&
-          entry.isDirectory()
-      )
-
-      onProgress?.({
-        phase: 'counting',
-        message: `发现 ${validArtistEntries.length} 个艺术家目录，开始统计作品...`,
-        percentage: 10
-      })
-
-      // 使用并发处理来加速预扫描
-      const concurrencyLimit = 10 // 限制并发数避免文件系统过载
-      const batches = this.createTaskBatches(validArtistEntries, concurrencyLimit)
-
-      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-        const batch = batches[batchIndex]
-
-        // 并发处理当前批次
-        const batchPromises = batch.map(async (artistEntry) => {
-          const artistPath = path.join(rootPath, artistEntry.name)
-          let localArtworkCount = 0
-
-          try {
-            const artworkEntries = await fs.readdir(artistPath, { withFileTypes: true })
-
-            // 快速统计：只检查目录数量，不深入检查图片文件
-            for (const artworkEntry of artworkEntries) {
-              if (
-                this.isValidName(artworkEntry.name) &&
-                !artworkEntry.name.startsWith('.') &&
-                !artworkEntry.name.startsWith('$') &&
-                artworkEntry.isDirectory()
-              ) {
-                localArtworkCount++
-              }
-            }
-          } catch (error) {
-            this.logger.warn({ error, artistPath }, 'Failed to scan artist directory during counting')
-          }
-
-          return { artistName: artistEntry.name, artworkCount: localArtworkCount }
-        })
-
-        const batchResults = await Promise.all(batchPromises)
-
-        // 累计结果
-        for (const result of batchResults) {
-          artistCount++
-          artworkCount += result.artworkCount
-          scannedDirs++
-        }
-
-        // 更新进度
-        const progress = 10 + ((batchIndex + 1) / batches.length) * 80
-        const elapsed = Date.now() - startTime
-        const estimated = (elapsed / (batchIndex + 1)) * (batches.length - batchIndex - 1)
-
-        onProgress?.({
-          phase: 'counting',
-          message: `预扫描进度: ${scannedDirs}/${validArtistEntries.length} 艺术家目录，发现 ${artworkCount} 个作品目录`,
-          percentage: Math.round(progress),
-          estimatedSecondsRemaining: Math.round(estimated / 1000)
-        })
-      }
-    } catch (error) {
-      this.logger.warn({ error, rootPath }, 'Failed to scan root directory during counting')
-    }
-
-    const totalWorkUnits = artistCount + artworkCount
-    const elapsed = Date.now() - startTime
-    const summaryMessage = `预扫描完成！发现 ${artistCount} 个艺术家，${artworkCount} 个作品目录，耗时 ${Math.round(elapsed / 1000)}秒`
-
-    onProgress?.({
-      phase: 'counting',
-      message: summaryMessage,
-      current: totalWorkUnits,
-      total: totalWorkUnits,
-      percentage: 100
-    })
-
-    this.logger.info({ artistCount, artworkCount, totalWorkUnits, elapsed }, 'Directory counting completed')
-    return { totalWorkUnits, artistCount, artworkCount }
-  }
+  // countArtistsAndArtworks method removed - only used by legacy scanning
 
   // 检查目录是否包含图片文件
   private async hasImageFiles(dirPath: string, extensions: string[]): Promise<boolean> {
@@ -1091,106 +926,9 @@ export class FileScanner {
   }
 
   // 按照新的目录结构扫描：根目录下每个文件夹作为 Artist，Artist 下的子文件夹作为 Artwork
-  private async scanArtistDirectories(
-    rootPath: string,
-    extensions: string[],
-    result: ScanResult,
-    progressUpdate: (increment: number, message: string, phase?: ScanProgress['phase']) => void
-  ): Promise<void> {
-    try {
-      const artistEntries = await fs.readdir(rootPath, { withFileTypes: true })
+  // scanArtistDirectories method removed - only used by legacy scanning
 
-      for (const artistEntry of artistEntries) {
-        const artistPath = path.join(rootPath, artistEntry.name)
 
-        // +++ 改动点：在这里加入名称验证和记录 +++
-        if (!this.isValidName(artistEntry.name)) {
-          const reason = '艺术家目录名包含不支持的字符'
-          this.logger.warn(`${reason}: ${artistPath}`)
-          result.skippedDirectories.push({ path: artistPath, reason })
-          progressUpdate(1, `跳过目录: ${artistEntry.name}`)
-          continue
-        }
-
-        // 跳过隐藏目录和文件
-        if (artistEntry.name.startsWith('.') || artistEntry.name.startsWith('$') || !artistEntry.isDirectory()) {
-          continue
-        }
-
-        result.scannedDirectories++
-
-        progressUpdate(1, `处理艺术家目录: ${artistEntry.name}`)
-
-        // 创建或获取艺术家
-        const artist = await this.findOrCreateArtist(artistEntry.name)
-
-        if (!artist) {
-          result.errors.push(`Failed to create artist: ${artistEntry.name}`)
-          continue
-        }
-
-        // 扫描艺术家目录下的作品
-        await this.scanArtworkDirectories(artistPath, artist.id, extensions, result, progressUpdate)
-      }
-    } catch (error) {
-      const errorMsg = `Failed to scan artist directories: ${error instanceof Error ? error.message : 'Unknown error'}`
-      result.errors.push(errorMsg)
-      this.logger.error({ error, rootPath }, 'Artist directories scan failed')
-    }
-  }
-
-  // 扫描艺术家目录下的作品文件夹
-  private async scanArtworkDirectories(
-    artistPath: string,
-    artistId: number,
-    extensions: string[],
-    result: ScanResult,
-    progressUpdate: (increment: number, message: string, phase?: ScanProgress['phase']) => void
-  ): Promise<void> {
-    try {
-      const artworkEntries = await fs.readdir(artistPath, {
-        withFileTypes: true
-      })
-
-      for (const artworkEntry of artworkEntries) {
-        const artworkPath = path.join(artistPath, artworkEntry.name)
-
-        // +++ 改动点：在这里加入名称验证和记录 +++
-        if (!this.isValidName(artworkEntry.name)) {
-          const reason = '作品目录名包含不支持的字符'
-          this.logger.warn(`${reason}: ${artworkPath}`)
-          result.skippedDirectories.push({ path: artworkPath, reason })
-          progressUpdate(1, `跳过目录: ${artworkEntry.name}`)
-          continue
-        }
-
-        // 跳过隐藏目录和文件
-        if (artworkEntry.name.startsWith('.') || artworkEntry.name.startsWith('$') || !artworkEntry.isDirectory()) {
-          continue
-        }
-
-        // 收集该作品目录下的图片
-        const images = await this.collectImagesFromDirectory(artworkPath, extensions)
-
-        if (images.length === 0) {
-          continue // 跳过没有图片的目录
-        }
-
-        result.foundImages += images.length
-        progressUpdate(1, `处理作品目录: ${artworkEntry.name} (${images.length}张图片)`, 'creating')
-
-        // 解析元数据
-        const metadata = await this.parseMetadata(artworkPath)
-
-        // 创建作品记录
-        await this.createArtworkFromDirectoryV2(artworkPath, artworkEntry.name, artistId, images, metadata, result)
-      }
-    } catch (error) {
-      const errorMsg = `Failed to scan artwork directories in ${artistPath}: ${error instanceof Error ? error.message : 'Unknown error'}`
-      result.errors.push(errorMsg)
-      this.logger.error({ error, artistPath }, 'Artwork directories scan failed')
-    }
-  }
 
   // 解析元数据文件 (*_metadata.txt)
   private async parseMetadata(artworkPath: string): Promise<MetadataInfo> {

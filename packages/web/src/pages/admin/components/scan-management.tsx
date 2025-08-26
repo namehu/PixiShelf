@@ -6,8 +6,7 @@ import {
   HealthResponse,
   ScanProgress,
   LogEntry,
-  ScanPathResponse,
-  ScanStrategyType
+  ScanPathResponse
 } from '@pixishelf/shared'
 
 // Hook: 健康检查
@@ -56,37 +55,9 @@ function useCancelScan() {
   })
 }
 
-// 扫描策略信息接口
-interface ScanStrategyInfo {
-  supported: string[]
-  current: { name: string; description: string } | null
-  availability: {
-    [K in ScanStrategyType]: {
-      available: boolean
-      issues: string[]
-      estimatedDuration: number
-    }
-  }
-  recommendation: {
-    recommended: ScanStrategyType
-    reason: string
-    alternatives: Array<{
-      strategy: ScanStrategyType
-      reason: string
-    }>
-  }
-}
+// 移除ScanStrategyInfo接口，不再需要策略选择
 
-// Hook: 扫描策略管理
-function useScanStrategies() {
-  return useQuery({
-    queryKey: ['scanStrategies'],
-    queryFn: async () => {
-      return apiJson<ScanStrategyInfo>('/api/v1/scan/strategies')
-    },
-    enabled: true
-  })
-}
+// 移除useScanStrategies Hook，不再需要策略选择
 
 // 工具函数：秒数转时间文本
 function secondsToText(s: number) {
@@ -111,18 +82,12 @@ function ScanManagement() {
   const { data: health } = useHealth()
   const scanPath = useScanPath()
   const cancelScan = useCancelScan()
-  const { data: strategies } = useScanStrategies()
+  // 移除策略查询，固定使用unified策略
 
   const [editPath, setEditPath] = React.useState('')
   const [editing, setEditing] = React.useState(false)
-  const [selectedStrategy, setSelectedStrategy] = React.useState<ScanStrategyType>('unified')
-
-  // 根据推荐策略设置默认选中
-  React.useEffect(() => {
-    if (strategies?.recommendation?.recommended) {
-      setSelectedStrategy(strategies.recommendation.recommended)
-    }
-  }, [strategies?.recommendation?.recommended])
+  // 固定使用unified策略
+  const selectedStrategy = 'unified'
 
   const [elapsed, setElapsed] = React.useState(0)
   const [progress, setProgress] = React.useState<ScanProgress | null>(null)
@@ -187,7 +152,7 @@ function ScanManagement() {
 
   // 开始SSE流
   const startStream = React.useCallback(
-    (force?: boolean, strategy?: ScanStrategyType) => {
+    (force?: boolean) => {
       // 若已存在连接，先关闭
       if (esRef.current) {
         try {
@@ -206,10 +171,11 @@ function ScanManagement() {
 
       const qs = new URLSearchParams()
       if (force) qs.set('force', 'true')
-      if (strategy) qs.set('scanType', strategy)
+      // 固定使用unified策略
+      qs.set('scanType', 'unified')
       const url = `/api/v1/scan/stream${qs.toString() ? `?${qs.toString()}` : ''}`
 
-      addLogEntry('connection', { url, force, strategy }, `开始连接SSE: ${url} (策略: ${strategy || '默认'})`)
+      addLogEntry('connection', { url, force }, `开始连接SSE: ${url} (策略: unified)`)
 
       const connectSSE = () => {
         const es = createEventSourceWithAuth(url)
@@ -426,67 +392,13 @@ function ScanManagement() {
           </div>
         </div>
 
-        {/* 扫描策略选择 */}
+        {/* 扫描策略信息 */}
         <div className="card p-6">
           <div className="mb-4">
             <div className="mb-2 text-base font-medium">扫描策略</div>
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {(['unified', 'legacy'] as ScanStrategyType[]).map((strategy) => {
-                  const strategyInfo = strategies?.availability[strategy]
-                  const isRecommended = strategies?.recommendation.recommended === strategy
-                  const isAvailable = strategyInfo?.available ?? true
-
-                  return (
-                    <label
-                      key={strategy}
-                      className={`relative flex cursor-pointer items-center gap-2 rounded border p-3 text-sm transition-colors ${
-                        selectedStrategy === strategy
-                          ? 'border-primary-500 bg-primary-50'
-                          : isAvailable
-                            ? 'border-neutral-200 hover:border-neutral-300'
-                            : 'border-neutral-100 bg-neutral-50 cursor-not-allowed'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="scanStrategy"
-                        value={strategy}
-                        checked={selectedStrategy === strategy}
-                        onChange={(e) => setSelectedStrategy(e.target.value as ScanStrategyType)}
-                        disabled={!isAvailable}
-                        className="text-primary-600"
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-1">
-                          <span className={`font-medium ${!isAvailable ? 'text-neutral-400' : ''}`}>
-                            {strategy === 'unified' && '统一扫描'}
-                            {strategy === 'legacy' && '传统扫描'}
-                          </span>
-                          {isRecommended && (
-                            <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">推荐</span>
-                          )}
-                        </div>
-                        <div className={`text-xs ${!isAvailable ? 'text-neutral-400' : 'text-neutral-500'}`}>
-                          {strategy === 'unified' && '新的统一扫描方式，性能更好，推荐使用'}
-                          {strategy === 'legacy' && '传统的扫描方式，稳定可靠'}
-                        </div>
-                        {!isAvailable && strategyInfo?.issues && strategyInfo.issues.length > 0 && (
-                          <div className="mt-1 text-xs text-error-500">{strategyInfo.issues[0]}</div>
-                        )}
-                      </div>
-                    </label>
-                  )
-                })}
-              </div>
-
-              {/* 策略推荐信息 */}
-              {strategies?.recommendation && (
-                <div className="rounded bg-info-50 p-3 text-sm">
-                  <div className="font-medium text-info-900">推荐策略：{strategies.recommendation.recommended}</div>
-                  <div className="text-info-700">{strategies.recommendation.reason}</div>
-                </div>
-              )}
+            <div className="rounded bg-info-50 p-3 text-sm">
+              <div className="font-medium text-info-900">当前策略：统一扫描</div>
+              <div className="text-info-700">使用新的统一扫描方式，性能更好，推荐使用</div>
             </div>
           </div>
         </div>
@@ -500,14 +412,14 @@ function ScanManagement() {
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => startStream(false, selectedStrategy)}
+                onClick={() => startStream(false)}
                 disabled={streaming || !scanPath.query.data?.scanPath}
                 className="btn btn-primary disabled:opacity-50"
               >
                 {streaming ? '进行中…' : '开始扫描'}
               </button>
               <button
-                onClick={() => startStream(true, selectedStrategy)}
+                onClick={() => startStream(true)}
                 disabled={streaming || !scanPath.query.data?.scanPath}
                 className="btn btn-secondary disabled:opacity-50"
                 title="强制全量更新：清空现有数据后重建"

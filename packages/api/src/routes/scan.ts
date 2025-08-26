@@ -1,6 +1,5 @@
 import { FastifyInstance } from 'fastify'
 import { FileScanner } from '../services/scanner'
-import { ScanStrategyType } from '@pixishelf/shared'
 
 export default async function scanRoutes(server: FastifyInstance) {
   server.get('/api/v1/scan/status', async () => ({
@@ -69,9 +68,8 @@ export default async function scanRoutes(server: FastifyInstance) {
       return
     }
 
-    const { force, scanType } = req.query as { force?: string; scanType?: string }
+    const { force } = req.query as { force?: string }
     const forceUpdate = force === 'true'
-    const selectedScanType = scanType as ScanStrategyType | undefined
 
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -97,61 +95,25 @@ export default async function scanRoutes(server: FastifyInstance) {
     server.appState.lastProgressMessage = '初始化…'
 
     try {
-      // 检查是否启用元数据扫描
-      const enableMetadataScanning = selectedScanType === 'unified'
-
+      // 使用统一的元数据扫描功能
       const scanner = new FileScanner(server.prisma, server.log, {
-        enableMetadataScanning
+        enableMetadataScanning: true
       })
 
-      let result
+      server.log.info('Using unified metadata scanning')
 
-      if (enableMetadataScanning) {
-        // 使用新的元数据扫描功能
-        server.log.info({ scanType: selectedScanType }, 'Using metadata scanning')
-
-        result = await scanner.scanWithMetadata({
-          scanPath,
-          scanType: selectedScanType,
-          forceUpdate,
-          onProgress: (progress) => {
-            server.appState.lastProgressMessage = progress?.message || null
-            if (server.appState.cancelRequested) {
-              throw new Error('Scan cancelled')
-            }
-            sendEvent('progress', progress)
+      const result = await scanner.scanWithMetadata({
+        scanPath,
+        scanType: 'unified',
+        forceUpdate,
+        onProgress: (progress) => {
+          server.appState.lastProgressMessage = progress?.message || null
+          if (server.appState.cancelRequested) {
+            throw new Error('Scan cancelled')
           }
-        })
-      } else {
-        // 使用传统扫描功能
-        server.log.info('Using legacy scanning')
-
-        result = await scanner.scan({
-          scanPath,
-          forceUpdate,
-          onProgress: (progress) => {
-            server.appState.lastProgressMessage = progress?.message || null
-            if (server.appState.cancelRequested) {
-              throw new Error('Scan cancelled')
-            }
-            sendEvent('progress', progress)
-
-            // 添加性能监控
-            const metrics = scanner.getPerformanceMetrics()
-            server.log.debug(
-              {
-                progress,
-                metrics: {
-                  throughput: metrics.throughput,
-                  memoryUsage: metrics.memoryUsage.heapUsed,
-                  concurrency: scanner.getConcurrencyStatus()
-                }
-              },
-              'Scan progress with metrics'
-            )
-          }
-        })
-      }
+          sendEvent('progress', progress)
+        }
+      })
 
       sendEvent('complete', { success: true, result })
 
