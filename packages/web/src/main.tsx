@@ -568,9 +568,7 @@ const router = createBrowserRouter([
     path: '/artworks/:id',
     element: (
       <RequireAuth>
-        <Layout>
-          <ArtworkDetail />
-        </Layout>
+        <ArtworkDetail />
       </RequireAuth>
     )
   },
