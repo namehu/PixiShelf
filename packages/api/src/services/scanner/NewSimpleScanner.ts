@@ -5,6 +5,7 @@ import { FastifyInstance } from 'fastify'
 import { ScanProgress } from '@pixishelf/shared'
 import { NewMetadataParser, MetadataInfo } from './NewMetadataParser'
 import { NewMediaCollector, MediaFileInfo } from './NewMediaCollector'
+import fg from 'fast-glob'
 
 /**
  * 扫描选项接口
@@ -164,6 +165,23 @@ export class NewSimpleScanner {
     return artworks
   }
 
+  private async globMetadataFiles(directoryPath: string): Promise<string[]> {
+    // 查找 数字-meta.txt 格式的文件
+    // fast-glob 使用 glob 模式，不是正则表达式
+    return fg(['**/*-meta.txt'], {
+      cwd: path.resolve(directoryPath),
+      deep: 4,
+      onlyFiles: true
+    })
+    // .then(files => {
+    //   // 过滤出符合 数字-meta.txt 格式的文件
+    //   return files.filter(file => {
+    //     const filename = path.basename(file)
+    //     return NewMetadataParser.isMetadataFile(filename)
+    //   })
+    // })
+  }
+
   /**
    * 递归发现作品
    * @param directoryPath 目录路径
@@ -172,16 +190,16 @@ export class NewSimpleScanner {
   private async discoverArtworksRecursive(directoryPath: string, artworks: ArtworkData[]): Promise<void> {
     try {
       // 使用更安全的目录读取方法，处理特殊字符
-      const entries = await this.safeReaddir(directoryPath)
-      if (!entries) {
+      const metadataFiles = await this.globMetadataFiles(directoryPath)
+      if (!metadataFiles) {
         this.logger.warn({ directoryPath }, 'Failed to read directory, skipping')
         return
       }
 
-      // 检查当前目录是否包含元数据文件
-      const metadataFiles = entries
-        .filter((entry) => entry.isFile() && NewMetadataParser.isMetadataFile(entry.name))
-        .map((entry) => entry.name)
+      // // 检查当前目录是否包含元数据文件
+      // const metadataFiles = entries
+      //   .filter((entry) => entry.isFile() && NewMetadataParser.isMetadataFile(entry.name))
+      //   .map((entry) => entry.name)
 
       // 处理当前目录的元数据文件
       for (const metadataFilename of metadataFiles) {
@@ -202,11 +220,7 @@ export class NewSimpleScanner {
           }
 
           // 收集媒体文件 - 使用已读取的entries避免重复IO
-          const collectionResult = await this.mediaCollector.collectMediaFilesFromEntries(
-            directoryPath,
-            artworkId,
-            entries
-          )
+          const collectionResult = await this.mediaCollector.collectMediaFiles(directoryPath, artworkId)
           if (!collectionResult.success) {
             this.logger.warn(
               { directoryPath, artworkId, error: collectionResult.error },
@@ -231,11 +245,11 @@ export class NewSimpleScanner {
       }
 
       // 递归处理子目录
-      const subdirectories = entries.filter((entry) => entry.isDirectory())
-      for (const subdir of subdirectories) {
-        const subdirPath = path.join(directoryPath, subdir.name)
-        await this.discoverArtworksRecursive(subdirPath, artworks)
-      }
+      // const subdirectories = entries.filter((entry) => entry.isDirectory())
+      // for (const subdir of subdirectories) {
+      //   const subdirPath = path.join(directoryPath, subdir.name)
+      //   await this.discoverArtworksRecursive(subdirPath, artworks)
+      // }
     } catch (error) {
       this.logger.error({ error, directoryPath }, 'Failed to read directory')
       // 不要重新抛出错误，继续处理其他目录
