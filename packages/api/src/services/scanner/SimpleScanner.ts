@@ -38,6 +38,7 @@ interface ArtworkData {
   metadata: MetadataInfo
   mediaFiles: MediaFileInfo[]
   directoryPath: string
+  directoryCreatedAt: Date
 }
 
 /**
@@ -169,28 +170,31 @@ export class SimpleScanner {
     {
       name: string
       path: string
+      createdAt: Date
     }[]
   > {
     // 查找 数字-meta.txt 格式的文件
-    return fg(['**/*-meta.txt'], {
+    const files = await fg(['**/*-meta.txt'], {
       cwd: path.resolve(directoryPath),
       deep: 4,
       absolute: true,
       onlyFiles: true
-    }).then((files) => {
-      // 过滤出符合 数字-meta.txt 格式的文件
-      return files
-        .map((file) => {
-          const filename = path.basename(file)
-          return {
-            name: filename,
-            path: file
-          }
-        })
-        .filter((item) => {
-          return MetadataParser.isMetadataFile(item.name)
-        })
     })
+    const metadataFiles = await Promise.all(
+      files.map(async (file) => {
+        const filename = path.basename(file)
+        const stats = await fs.stat(file)
+
+        return {
+          name: filename,
+          path: file,
+          createdAt: stats.birthtime // 或者使用 stats.birthtimeMs
+        }
+      })
+    )
+
+    // 过滤出符合 数字-meta.txt 格式的文件
+    return metadataFiles.filter((item) => MetadataParser.isMetadataFile(item.name))
   }
 
   /**
@@ -244,7 +248,8 @@ export class SimpleScanner {
           artworks.push({
             metadata: parseResult.metadata,
             mediaFiles: collectionResult.mediaFiles,
-            directoryPath
+            directoryPath,
+            directoryCreatedAt: metadataFile.createdAt
           })
         } catch (error) {
           this.logger.error({ error, metadataPath }, 'Error processing metadata file')
@@ -329,7 +334,7 @@ export class SimpleScanner {
     const artist = await this.ensureArtist(metadata, result)
 
     // 处理作品
-    const artwork = await this.ensureArtwork(metadata, artist.id, mediaFiles.length, result)
+    const artwork = await this.ensureArtwork(artworkData, artist.id, result)
 
     // 处理图片
     await this.ensureImages(artwork.id, mediaFiles, result)
@@ -377,7 +382,9 @@ export class SimpleScanner {
    * @param result 扫描结果
    * @returns 作品记录
    */
-  private async ensureArtwork(metadata: MetadataInfo, artistId: number, imageCount: number, result: SimpleScanResult) {
+  private async ensureArtwork(artworkData: ArtworkData, artistId: number, result: SimpleScanResult) {
+    const { directoryCreatedAt, metadata, mediaFiles } = artworkData
+    const imageCount = mediaFiles.length
     let artwork = await this.prisma.artwork.findFirst({
       where: {
         OR: [
@@ -405,7 +412,8 @@ export class SimpleScanner {
           isAiGenerated: metadata.ai === 'Yes',
           size: metadata.size,
           bookmarkCount: metadata.bookmark,
-          sourceDate: metadata.date
+          sourceDate: metadata.date,
+          directoryCreatedAt
         }
       })
       result.newArtworks++
@@ -428,6 +436,7 @@ export class SimpleScanner {
           size: metadata.size,
           bookmarkCount: metadata.bookmark,
           sourceDate: metadata.date,
+          directoryCreatedAt,
           updatedAt: new Date()
         }
       })
