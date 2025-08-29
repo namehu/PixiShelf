@@ -3,8 +3,8 @@ import path from 'path'
 import { PrismaClient } from '@prisma/client'
 import { FastifyInstance } from 'fastify'
 import { ScanProgress } from '@pixishelf/shared'
-import { NewMetadataParser, MetadataInfo } from './NewMetadataParser'
-import { NewMediaCollector, MediaFileInfo } from './NewMediaCollector'
+import { MetadataParser, MetadataInfo } from './MetadataParser'
+import { MediaCollector, MediaFileInfo } from './MediaCollector'
 import fg from 'fast-glob'
 
 /**
@@ -44,17 +44,17 @@ interface ArtworkData {
  * 新的简化扫描器
  * 基于元数据文件的简单直接的扫描实现
  */
-export class NewSimpleScanner {
+export class SimpleScanner {
   private prisma: PrismaClient
   private logger: FastifyInstance['log']
-  private metadataParser: NewMetadataParser
-  private mediaCollector: NewMediaCollector
+  private metadataParser: MetadataParser
+  private mediaCollector: MediaCollector
 
   constructor(prisma: PrismaClient, logger: FastifyInstance['log']) {
     this.prisma = prisma
     this.logger = logger
-    this.metadataParser = new NewMetadataParser(logger)
-    this.mediaCollector = new NewMediaCollector(logger)
+    this.metadataParser = new MetadataParser(logger)
+    this.mediaCollector = new MediaCollector(logger)
   }
 
   /**
@@ -188,7 +188,7 @@ export class NewSimpleScanner {
           }
         })
         .filter((item) => {
-          return NewMetadataParser.isMetadataFile(item.name)
+          return MetadataParser.isMetadataFile(item.name)
         })
     })
   }
@@ -211,7 +211,7 @@ export class NewSimpleScanner {
       for (const metadataFile of metadataFiles) {
         const metadataPath = metadataFile.path
         const metadataFilename = metadataFile.name
-        const artworkId = NewMetadataParser.extractArtworkIdFromFilename(metadataFilename)
+        const artworkId = MetadataParser.extractArtworkIdFromFilename(metadataFilename)
 
         if (!artworkId) {
           this.logger.warn({ metadataFilename }, 'Invalid metadata filename')
@@ -253,70 +253,6 @@ export class NewSimpleScanner {
     } catch (error) {
       this.logger.error({ error, directoryPath }, 'Failed to read directory')
       // 不要重新抛出错误，继续处理其他目录
-    }
-  }
-
-  /**
-   * 安全地读取目录内容，处理特殊字符和编码问题
-   * @param directoryPath 目录路径
-   * @returns 目录条目数组或null（如果失败）
-   */
-  private async safeReaddir(directoryPath: string): Promise<Dirent[] | null> {
-    try {
-      // 首先尝试标准方法
-      return await fs.readdir(directoryPath, { withFileTypes: true })
-    } catch (error: any) {
-      // 如果是ENOENT错误且可能涉及特殊字符，尝试其他方法
-      if (error.code === 'ENOENT' || error.code === 'EINVAL') {
-        this.logger.warn(
-          {
-            directoryPath,
-            error: error.message,
-            code: error.code
-          },
-          'Directory read failed, attempting alternative methods'
-        )
-
-        try {
-          // 尝试使用同步方法（有时在Windows上更可靠）
-          const { readdirSync } = await import('fs')
-          const entries = readdirSync(directoryPath, { withFileTypes: true })
-          this.logger.info({ directoryPath }, 'Successfully read directory using sync method')
-          return entries
-        } catch (bufferError) {
-          this.logger.warn(
-            {
-              directoryPath,
-              error: bufferError,
-              originalError: error.message
-            },
-            'Buffer encoding method also failed'
-          )
-
-          try {
-            // 最后尝试：使用同步方法（有时在Windows上更可靠）
-            const { readdirSync } = await import('fs')
-            const entries = readdirSync(directoryPath, { withFileTypes: true })
-            this.logger.info({ directoryPath }, 'Successfully read directory using sync method')
-            return entries
-          } catch (syncError) {
-            this.logger.error(
-              {
-                directoryPath,
-                syncError,
-                bufferError,
-                originalError: error.message
-              },
-              'All directory reading methods failed'
-            )
-            return null
-          }
-        }
-      } else {
-        // 其他类型的错误
-        this.logger.error({ directoryPath, error }, 'Directory read failed with non-encoding error')
-        return null
-      }
     }
   }
 

@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { PrismaClient } from '@prisma/client'
-import { NewSimpleScanner, SimpleScanOptions, SimpleScanResult } from './NewSimpleScanner'
+import { SimpleScanner, SimpleScanOptions, SimpleScanResult } from './SimpleScanner'
 import { ScanProgress } from '@pixishelf/shared'
 
 /**
@@ -38,12 +38,12 @@ export interface ScannerStatus {
  * 基于新的简化扫描器的服务封装
  */
 export class ScannerService implements IScannerService {
-  private scanner: NewSimpleScanner
+  private scanner: SimpleScanner
   private status: ScannerStatus
   private logger: FastifyInstance['log']
 
   constructor(prisma: PrismaClient, logger: FastifyInstance['log']) {
-    this.scanner = new NewSimpleScanner(prisma, logger)
+    this.scanner = new SimpleScanner(prisma, logger)
     this.logger = logger
     this.status = {
       isScanning: false
@@ -139,4 +139,4 @@ export function createScannerService(prisma: PrismaClient, logger: FastifyInstan
 }
 
 // 导出类型
-export type { SimpleScanOptions, SimpleScanResult } from './NewSimpleScanner'
+export type { SimpleScanOptions, SimpleScanResult } from './SimpleScanner'

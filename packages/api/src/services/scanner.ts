@@ -1,11 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { FastifyInstance } from 'fastify'
-import {
-  ScannerService,
-  SimpleScanOptions,
-  SimpleScanResult,
-  createScannerService
-} from './scanner/NewScannerInterface'
+import { ScannerService, SimpleScanOptions, SimpleScanResult, createScannerService } from './scanner/ScannerInterface'
 import { ScanProgress } from '@pixishelf/shared'
 
 /**

@@ -1,5 +1,4 @@
 import { promises as fs } from 'fs'
-import path from 'path'
 import { FastifyInstance } from 'fastify'
 
 /**
@@ -11,7 +10,7 @@ export interface MetadataInfo {
   user: string // 作者名称
   userId: string // 作者ID
   title: string // 作品标题
-  
+
   // 可选字段
   description?: string // 作品描述
   tags?: string[] // 作品标签
@@ -39,20 +38,20 @@ export interface ParseResult {
  */
 const METADATA_FIELD_MAPPING = {
   // 原始字段名 -> MetadataInfo属性名
-  'ID': 'id',
-  'User': 'user', 
-  'UserID': 'userId',
-  'Title': 'title',
-  'Description': 'description',
-  'Tags': 'tags',
-  'URL': 'url',
-  'Original': 'original',
-  'Thumbnail': 'thumbnail',
-  'xRestrict': 'xRestrict',
-  'AI': 'ai',
-  'Size': 'size',
-  'Bookmark': 'bookmark',
-  'Date': 'date'
+  ID: 'id',
+  User: 'user',
+  UserID: 'userId',
+  Title: 'title',
+  Description: 'description',
+  Tags: 'tags',
+  URL: 'url',
+  Original: 'original',
+  Thumbnail: 'thumbnail',
+  xRestrict: 'xRestrict',
+  AI: 'ai',
+  Size: 'size',
+  Bookmark: 'bookmark',
+  Date: 'date'
 } as const
 
 /**
@@ -69,7 +68,7 @@ const KNOWN_FIELDS = Object.keys(METADATA_FIELD_MAPPING)
  * 新的元数据解析器
  * 专门解析 {artworkID}-meta.txt 格式的文件
  */
-export class NewMetadataParser {
+export class MetadataParser {
   private logger: FastifyInstance['log']
   private readonly requiredFields = REQUIRED_FIELDS
 
@@ -95,10 +94,10 @@ export class NewMetadataParser {
 
       // 读取文件内容
       const content = await fs.readFile(filePath, 'utf-8')
-      
+
       // 解析内容
       const metadata = this.parseContent(content)
-      
+
       // 验证必填字段
       const validation = this.validateMetadata(metadata)
       if (!validation.success) {
@@ -129,13 +128,13 @@ export class NewMetadataParser {
   private parseContent(content: string): MetadataInfo {
     const metadata: Partial<MetadataInfo> = {}
     const lines = content.split('\n')
-    
+
     let currentKey = ''
     let currentValue = ''
-    
+
     for (const line of lines) {
       const trimmedLine = line.trim()
-      
+
       // 跳过空行
       if (!trimmedLine) {
         if (currentKey && currentValue) {
@@ -145,14 +144,14 @@ export class NewMetadataParser {
         }
         continue
       }
-      
+
       // 检查是否是新的字段开始
       if (this.isFieldKey(trimmedLine)) {
         // 保存上一个字段
         if (currentKey && currentValue) {
           this.setMetadataField(metadata, currentKey, currentValue.trim())
         }
-        
+
         // 开始新字段
         currentKey = trimmedLine
         currentValue = ''
@@ -165,12 +164,12 @@ export class NewMetadataParser {
         }
       }
     }
-    
+
     // 处理最后一个字段
     if (currentKey && currentValue) {
       this.setMetadataField(metadata, currentKey, currentValue.trim())
     }
-    
+
     return metadata as MetadataInfo
   }
 
@@ -191,7 +190,7 @@ export class NewMetadataParser {
    */
   private setMetadataField(metadata: Partial<MetadataInfo>, key: string, value: string): void {
     if (!value) return
-    
+
     switch (key) {
       case 'ID':
         metadata.id = value
@@ -246,13 +245,13 @@ export class NewMetadataParser {
    */
   private parseTags(tagsString: string): string[] {
     if (!tagsString) return []
-    
+
     return tagsString
       .split('\n')
-      .map(tag => tag.trim())
-      .filter(tag => tag.length > 0)
-      .map(tag => tag.startsWith('#') ? tag.substring(1) : tag)
-      .filter(tag => tag.length > 0)
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0)
+      .map((tag) => (tag.startsWith('#') ? tag.substring(1) : tag))
+      .filter((tag) => tag.length > 0)
   }
 
   /**
@@ -262,7 +261,7 @@ export class NewMetadataParser {
    */
   private parseDate(dateString: string): Date | undefined {
     if (!dateString) return undefined
-    
+
     try {
       const date = new Date(dateString)
       return isNaN(date.getTime()) ? undefined : date
@@ -278,34 +277,34 @@ export class NewMetadataParser {
    */
   private validateMetadata(metadata: Partial<MetadataInfo>): { success: boolean; error?: string } {
     const errors: string[] = []
-    
+
     // 检查必填字段
     for (const field of this.requiredFields) {
       const fieldKey = METADATA_FIELD_MAPPING[field] as keyof MetadataInfo
       const value = metadata[fieldKey]
-      
+
       if (!value || (typeof value === 'string' && value.trim() === '')) {
         errors.push(`Required field '${field}' is missing or empty`)
       }
     }
-    
+
     // 验证ID格式
     if (metadata.id && !/^\d+$/.test(metadata.id)) {
       errors.push('ID must be a numeric string')
     }
-    
+
     // 验证UserID格式
     if (metadata.userId && !/^\d+$/.test(metadata.userId)) {
       errors.push('UserID must be a numeric string')
     }
-    
+
     if (errors.length > 0) {
       return {
         success: false,
         error: errors.join('; ')
       }
     }
-    
+
     return { success: true }
   }
 

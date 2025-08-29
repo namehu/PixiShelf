@@ -28,7 +28,7 @@ export interface CollectionResult {
  * 新的媒体文件收集器
  * 专门收集 {artworkID}_p{index}.{ext} 格式的媒体文件
  */
-export class NewMediaCollector {
+export class MediaCollector {
   private logger: FastifyInstance['log']
   private readonly supportedExtensions = new Set([
     '.jpg',
@@ -199,15 +199,6 @@ export class NewMediaCollector {
 
     // 检查所有媒体文件的作品ID是否与元数据一致
     return mediaFiles.every((file) => file.artworkId === artworkIdFromMetadata)
-  }
-
-  /**
-   * 检查文件是否是元数据文件
-   * @param filename 文件名
-   * @returns 是否是元数据文件
-   */
-  private isMetadataFile(filename: string): boolean {
-    return /^\d+-meta\.txt$/i.test(filename)
   }
 
   /**
