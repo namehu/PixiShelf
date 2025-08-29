@@ -165,21 +165,32 @@ export class NewSimpleScanner {
     return artworks
   }
 
-  private async globMetadataFiles(directoryPath: string): Promise<string[]> {
+  private async globMetadataFiles(directoryPath: string): Promise<
+    {
+      name: string
+      path: string
+    }[]
+  > {
     // 查找 数字-meta.txt 格式的文件
-    // fast-glob 使用 glob 模式，不是正则表达式
     return fg(['**/*-meta.txt'], {
       cwd: path.resolve(directoryPath),
       deep: 4,
+      absolute: true,
       onlyFiles: true
+    }).then((files) => {
+      // 过滤出符合 数字-meta.txt 格式的文件
+      return files
+        .map((file) => {
+          const filename = path.basename(file)
+          return {
+            name: filename,
+            path: file
+          }
+        })
+        .filter((item) => {
+          return NewMetadataParser.isMetadataFile(item.name)
+        })
     })
-    // .then(files => {
-    //   // 过滤出符合 数字-meta.txt 格式的文件
-    //   return files.filter(file => {
-    //     const filename = path.basename(file)
-    //     return NewMetadataParser.isMetadataFile(filename)
-    //   })
-    // })
   }
 
   /**
@@ -196,14 +207,10 @@ export class NewSimpleScanner {
         return
       }
 
-      // // 检查当前目录是否包含元数据文件
-      // const metadataFiles = entries
-      //   .filter((entry) => entry.isFile() && NewMetadataParser.isMetadataFile(entry.name))
-      //   .map((entry) => entry.name)
-
       // 处理当前目录的元数据文件
-      for (const metadataFilename of metadataFiles) {
-        const metadataPath = path.join(directoryPath, metadataFilename)
+      for (const metadataFile of metadataFiles) {
+        const metadataPath = metadataFile.path
+        const metadataFilename = metadataFile.name
         const artworkId = NewMetadataParser.extractArtworkIdFromFilename(metadataFilename)
 
         if (!artworkId) {
@@ -220,7 +227,7 @@ export class NewSimpleScanner {
           }
 
           // 收集媒体文件 - 使用已读取的entries避免重复IO
-          const collectionResult = await this.mediaCollector.collectMediaFiles(directoryPath, artworkId)
+          const collectionResult = await this.mediaCollector.collectMediaFiles(path.dirname(metadataPath), artworkId)
           if (!collectionResult.success) {
             this.logger.warn(
               { directoryPath, artworkId, error: collectionResult.error },
@@ -243,13 +250,6 @@ export class NewSimpleScanner {
           this.logger.error({ error, metadataPath }, 'Error processing metadata file')
         }
       }
-
-      // 递归处理子目录
-      // const subdirectories = entries.filter((entry) => entry.isDirectory())
-      // for (const subdir of subdirectories) {
-      //   const subdirPath = path.join(directoryPath, subdir.name)
-      //   await this.discoverArtworksRecursive(subdirPath, artworks)
-      // }
     } catch (error) {
       this.logger.error({ error, directoryPath }, 'Failed to read directory')
       // 不要重新抛出错误，继续处理其他目录
@@ -317,21 +317,6 @@ export class NewSimpleScanner {
         this.logger.error({ directoryPath, error }, 'Directory read failed with non-encoding error')
         return null
       }
-    }
-  }
-
-  /**
-   * 标准化文件名，处理Unicode编码问题
-   * @param filename 原始文件名
-   * @returns 标准化后的文件名
-   */
-  private normalizeFilename(filename: string): string {
-    try {
-      // 处理Unicode标准化问题
-      return filename.normalize('NFC')
-    } catch (error) {
-      this.logger.warn({ filename, error }, 'Failed to normalize filename')
-      return filename
     }
   }
 
