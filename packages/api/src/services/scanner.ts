@@ -22,7 +22,6 @@ export interface ScanOptions {
  * 向后兼容的扫描结果接口
  */
 export interface ScanResult {
-  scannedDirectories: number // 已废弃，新扫描器不统计目录
   foundImages: number // 映射到 totalArtworks * 平均图片数
   newArtworks: number
   newImages: number
@@ -126,7 +125,6 @@ export class FileScanner {
         : 1
 
     return {
-      scannedDirectories: 1, // 已废弃，固定返回1
       foundImages: simpleScanResult.totalArtworks * avgImagesPerArtwork,
       newArtworks: simpleScanResult.newArtworks,
       newImages: simpleScanResult.newImages,

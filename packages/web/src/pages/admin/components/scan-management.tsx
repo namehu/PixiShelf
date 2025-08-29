@@ -455,10 +455,6 @@ function ScanManagement() {
               <div className="text-green-700">扫描完成（SSE）</div>
               <ul className="grid grid-cols-2 gap-2">
                 <li className="rounded border bg-neutral-50 p-2">
-                  扫描目录：
-                  <span className="font-medium">{streamResult.scannedDirectories}</span>
-                </li>
-                <li className="rounded border bg-neutral-50 p-2">
                   发现图片：
                   <span className="font-medium">{streamResult.foundImages}</span>
                 </li>
