@@ -19,7 +19,6 @@ export interface ScanResult {
   newImages: number
   removedArtworks?: number
   errors: string[]
-  skippedDirectories?: Array<{ path: string; reason: string }>
 }
 
 /**

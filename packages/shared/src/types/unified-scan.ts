@@ -77,8 +77,6 @@ export interface ProcessResult {
   newArtworks: number
   /** 新增图片数 */
   newImages: number
-  /** 跳过的目录 */
-  skippedDirectories: string[]
   /** 元数据文件数 */
   metadataFiles: number
   /** 已处理元数据数 */

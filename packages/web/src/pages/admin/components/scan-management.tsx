@@ -1,13 +1,7 @@
 import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson, createEventSourceWithAuth } from '../../../api'
-import {
-  ScanResult,
-  HealthResponse,
-  ScanProgress,
-  LogEntry,
-  ScanPathResponse
-} from '@pixishelf/shared'
+import { ScanResult, HealthResponse, ScanProgress, LogEntry, ScanPathResponse } from '@pixishelf/shared'
 
 // Hook: 健康检查
 function useHealth() {
@@ -482,12 +476,6 @@ function ScanManagement() {
                     <span className="font-medium">{streamResult.removedArtworks}</span>
                   </li>
                 )}
-                {streamResult.skippedDirectories && streamResult.skippedDirectories.length > 0 && (
-                  <li className="rounded border bg-neutral-50 p-2">
-                    跳过目录：
-                    <span className="font-medium">{streamResult.skippedDirectories.length}</span>
-                  </li>
-                )}
               </ul>
               {streamResult.errors?.length > 0 && (
                 <details className="rounded border bg-yellow-50 p-3">
@@ -499,21 +487,6 @@ function ScanManagement() {
                       <li key={i}>{e}</li>
                     ))}
                     {streamResult.errors.length > 20 && <li>… 仅展示前 20 条</li>}
-                  </ul>
-                </details>
-              )}
-              {streamResult.skippedDirectories && streamResult.skippedDirectories.length > 0 && (
-                <details className="rounded border bg-orange-50 p-3">
-                  <summary className="cursor-pointer text-orange-800">
-                    跳过目录 {streamResult.skippedDirectories.length} 个（展开查看）
-                  </summary>
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-orange-900">
-                    {streamResult.skippedDirectories.slice(0, 10).map((item, i) => (
-                      <li key={i}>
-                        <span className="font-mono text-xs">{item.path}</span> - {item.reason}
-                      </li>
-                    ))}
-                    {streamResult.skippedDirectories.length > 10 && <li>… 仅展示前 10 条</li>}
                   </ul>
                 </details>
               )}

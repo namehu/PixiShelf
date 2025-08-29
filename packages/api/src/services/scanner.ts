@@ -28,7 +28,6 @@ export interface ScanResult {
   newImages: number
   removedArtworks: number // 已废弃，新扫描器不删除作品
   errors: string[]
-  skippedDirectories: Array<{ path: string; reason: string }> // 已废弃
 }
 
 // 重新导出新接口供外部使用
@@ -132,8 +131,7 @@ export class FileScanner {
       newArtworks: simpleScanResult.newArtworks,
       newImages: simpleScanResult.newImages,
       removedArtworks: 0, // 新扫描器不删除作品
-      errors: simpleScanResult.errors,
-      skippedDirectories: [] // 已废弃，返回空数组
+      errors: simpleScanResult.errors
     }
   }
 

@@ -30,7 +30,6 @@ export interface ExtendedScanResult {
   newImages: number
   removedArtworks?: number
   errors: string[]
-  skippedDirectories?: Array<{ path: string; reason: string }>
   // 新增字段
   metadataFiles?: number
   processedMetadata?: number
