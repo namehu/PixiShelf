@@ -18,8 +18,8 @@ const sortMappings: Record<SortOption, PrismaOrderBy> = {
   'artist_desc': { artist: { name: 'desc' } },
   'images_desc': { imageCount: 'desc' },
   'images_asc': { imageCount: 'asc' },
-  'desc_length_desc': { descriptionLength: 'desc' },
-  'desc_length_asc': { descriptionLength: 'asc' }
+  'source_date_desc': { sourceDate: 'desc' },
+  'source_date_asc': { sourceDate: 'asc' }
 }
 
 /**
@@ -79,16 +79,16 @@ export const sortOptionDefinitions: SortOptionDefinition[] = [
     group: 'count'
   },
   {
-    value: 'desc_length_desc',
-    label: '描述长度 长-短',
-    description: '按描述长度降序排列',
-    group: 'count'
+    value: 'source_date_desc',
+    label: '创建时间 新-旧',
+    description: '按作品创建时间降序排列',
+    group: 'time'
   },
   {
-    value: 'desc_length_asc',
-    label: '描述长度 短-长',
-    description: '按描述长度升序排列',
-    group: 'count'
+    value: 'source_date_asc',
+    label: '创建时间 旧-新',
+    description: '按作品创建时间升序排列',
+    group: 'time'
   }
 ]
 

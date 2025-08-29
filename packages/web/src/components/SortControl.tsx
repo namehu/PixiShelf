@@ -32,8 +32,8 @@ const sortOptions: SortOptionDefinition[] = [
   { value: 'artist_desc', label: '艺术家 Z-A', group: '名称' },
   { value: 'images_desc', label: '图片数量 多-少', group: '数量' },
   { value: 'images_asc', label: '图片数量 少-多', group: '数量' },
-  { value: 'desc_length_desc', label: '描述长度 长-短', group: '数量' },
-  { value: 'desc_length_asc', label: '描述长度 短-长', group: '数量' }
+  { value: 'source_date_desc', label: '创建时间 新-旧', group: '时间' },
+  { value: 'source_date_asc', label: '创建时间 旧-新', group: '时间' }
 ]
 
 /**

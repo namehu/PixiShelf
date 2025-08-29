@@ -158,8 +158,8 @@ const sortMappings: Record<SortOption, PrismaOrderBy> = {
   'artist_desc': { artist: { name: 'desc' } },
   'images_desc': { imageCount: 'desc' },
   'images_asc': { imageCount: 'asc' },
-  'desc_length_desc': { descriptionLength: 'desc' },
-  'desc_length_asc': { descriptionLength: 'asc' }
+  'source_date_desc': { sourceDate: 'desc' },
+  'source_date_asc': { sourceDate: 'asc' }
 }
 
 const mapSortOption = (sortBy: SortOption): PrismaOrderBy => {
@@ -222,9 +222,9 @@ model Artwork {
   id                  Int       @id @default(autoincrement())
   title               String
   description         String?
-  directoryCreatedAt  DateTime? // 新增：目录创建时间
-  imageCount          Int       @default(0) // 新增：图片数量冗余字段
-  descriptionLength   Int       @default(0) // 新增：描述长度冗余字段
+  sourceDate          DateTime? // 作品创建时间
+  directoryCreatedAt  DateTime? // 目录创建时间
+  imageCount          Int       @default(0) // 图片数量冗余字段
   images              Image[]
   artist              Artist?   @relation(fields: [artistId], references: [id])
   artistId            Int?
@@ -233,9 +233,9 @@ model Artwork {
   updatedAt           DateTime  @updatedAt
 
   @@index([title, description])
-  @@index([directoryCreatedAt]) // 新增索引
-  @@index([imageCount])         // 新增索引
-  @@index([descriptionLength])  // 新增索引
+  @@index([sourceDate])         // 作品创建时间索引
+  @@index([directoryCreatedAt]) // 目录创建时间索引
+  @@index([imageCount])         // 图片数量索引
   @@unique([artistId, title], name: "unique_artist_title")
 }
 ```
@@ -243,23 +243,22 @@ model Artwork {
 **数据库迁移脚本**
 ```sql
 -- 添加新字段
+ALTER TABLE "Artwork" ADD COLUMN "sourceDate" TIMESTAMP(3);
 ALTER TABLE "Artwork" ADD COLUMN "directoryCreatedAt" TIMESTAMP(3);
 ALTER TABLE "Artwork" ADD COLUMN "imageCount" INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE "Artwork" ADD COLUMN "descriptionLength" INTEGER NOT NULL DEFAULT 0;
 
 -- 创建索引
+CREATE INDEX "Artwork_sourceDate_idx" ON "Artwork"("sourceDate");
 CREATE INDEX "Artwork_directoryCreatedAt_idx" ON "Artwork"("directoryCreatedAt");
 CREATE INDEX "Artwork_imageCount_idx" ON "Artwork"("imageCount");
-CREATE INDEX "Artwork_descriptionLength_idx" ON "Artwork"("descriptionLength");
 
 -- 初始化现有数据
 UPDATE "Artwork" SET "directoryCreatedAt" = "createdAt" WHERE "directoryCreatedAt" IS NULL;
+UPDATE "Artwork" SET "sourceDate" = "createdAt" WHERE "sourceDate" IS NULL;
 
 UPDATE "Artwork" SET "imageCount" = (
   SELECT COUNT(*) FROM "Image" WHERE "Image"."artworkId" = "Artwork"."id"
 );
-
-UPDATE "Artwork" SET "descriptionLength" = COALESCE(LENGTH("description"), 0);
 ```
 
 #### 5. 扫描层
@@ -407,8 +406,8 @@ type SortOption =
   | 'artist_desc'      // 按艺术家名称降序
   | 'images_desc'      // 按图片数量降序
   | 'images_asc'       // 按图片数量升序
-  | 'desc_length_desc' // 按描述长度降序
-  | 'desc_length_asc'  // 按描述长度升序
+  | 'source_date_desc' // 按作品创建时间降序
+  | 'source_date_asc'  // 按作品创建时间升序
 ```
 
 **响应接口**

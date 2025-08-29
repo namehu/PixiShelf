@@ -48,7 +48,7 @@ model Artwork {
   @@index([title, description])
   @@index([directoryCreatedAt])
   @@index([imageCount])
-  @@index([descriptionLength])
+  @@index([sourceDate])
   @@index([externalId])
 }
 

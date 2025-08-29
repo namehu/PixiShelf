@@ -33,8 +33,8 @@ export type SortOption =
   | 'artist_desc'      // 按艺术家名称降序
   | 'images_desc'      // 按图片数量降序
   | 'images_asc'       // 按图片数量升序
-  | 'desc_length_desc' // 按描述长度降序
-  | 'desc_length_asc'  // 按描述长度升序
+  | 'source_date_desc' // 按作品创建时间降序
+  | 'source_date_asc'  // 按作品创建时间升序
 
 /**
  * 作品列表查询参数
