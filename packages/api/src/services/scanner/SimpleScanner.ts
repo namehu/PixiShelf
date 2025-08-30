@@ -1,4 +1,4 @@
-import { Dirent, promises as fs } from 'fs'
+import { promises as fs } from 'fs'
 import path from 'path'
 import { PrismaClient } from '@prisma/client'
 import { FastifyInstance } from 'fastify'
