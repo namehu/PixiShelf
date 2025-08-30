@@ -154,14 +154,6 @@ export interface IFileAssociator {
    * @returns 媒体文件列表
    */
   findMediaFiles(metadataPath: string, artworkId: string): Promise<MediaFile[]>
-
-  /**
-   * 验证文件关联关系
-   * @param metadataFile 元数据文件路径
-   * @param mediaFiles 媒体文件列表
-   * @returns 是否关联有效
-   */
-  validateAssociation(metadataFile: string, mediaFiles: MediaFile[]): boolean
 }
 
 /**
