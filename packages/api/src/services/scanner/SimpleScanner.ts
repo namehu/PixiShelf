@@ -2,7 +2,7 @@ import { Dirent, promises as fs } from 'fs'
 import path from 'path'
 import { PrismaClient } from '@prisma/client'
 import { FastifyInstance } from 'fastify'
-import { ScanProgress } from '@pixishelf/shared'
+import { ScanProgress, ScanResult } from '@pixishelf/shared'
 import { MetadataParser, MetadataInfo } from './MetadataParser'
 import { MediaCollector, MediaFileInfo } from './MediaCollector'
 import fg from 'fast-glob'
@@ -19,15 +19,11 @@ export interface SimpleScanOptions {
 /**
  * 扫描结果接口
  */
-export interface SimpleScanResult {
+export interface SimpleScanResult extends ScanResult {
   totalArtworks: number // 发现的作品总数
-  processedArtworks: number // 成功处理的作品数
   newArtists: number // 新增艺术家数
-  newArtworks: number // 新增作品数
-  newImages: number // 新增图片数
   newTags: number // 新增标签数
   skippedArtworks: number // 跳过的作品数
-  errors: string[] // 错误信息
   processingTime: number // 处理时间（毫秒）
 }
 
@@ -68,14 +64,14 @@ export class SimpleScanner {
 
     const result: SimpleScanResult = {
       totalArtworks: 0,
-      processedArtworks: 0,
       newArtists: 0,
       newArtworks: 0,
       newImages: 0,
       newTags: 0,
       skippedArtworks: 0,
       errors: [],
-      processingTime: 0
+      processingTime: 0,
+      removedArtworks: 0
     }
 
     try {
@@ -113,15 +109,6 @@ export class SimpleScanner {
       })
 
       await this.processArtworks(artworks, result, options)
-
-      // 阶段3: 清理
-      options.onProgress?.({
-        phase: 'cleanup',
-        message: '正在清理数据...',
-        percentage: 95
-      })
-
-      await this.cleanup()
 
       // 完成
       options.onProgress?.({
@@ -286,7 +273,7 @@ export class SimpleScanner {
         })
 
         await this.processArtwork(artwork, result, options.forceUpdate || false)
-        result.processedArtworks++
+        result.newArtworks++
       } catch (error) {
         this.logger.error({ error, artwork: artwork.metadata }, 'Failed to process artwork')
         result.errors.push(
@@ -453,22 +440,22 @@ export class SimpleScanner {
    * @param result 扫描结果
    */
   private async ensureImages(artworkId: number, mediaFiles: MediaFileInfo[], result: SimpleScanResult): Promise<void> {
-    // 删除现有图片（如果需要更新）
-    await this.prisma.image.deleteMany({
-      where: { artworkId }
-    })
+    if (mediaFiles.length) {
+      // 删除现有图片（如果需要更新）
+      await this.prisma.image.deleteMany({
+        where: { artworkId }
+      })
 
-    // 创建新图片记录
-    for (const mediaFile of mediaFiles) {
-      await this.prisma.image.create({
-        data: {
+      // 创建新图片记录
+      await this.prisma.image.createMany({
+        data: mediaFiles.map((mediaFile) => ({
           path: this.getRelativePath(mediaFile.path),
           size: mediaFile.size,
           sortOrder: mediaFile.sortOrder,
           artworkId
-        }
+        }))
       })
-      result.newImages++
+      result.newImages += mediaFiles.length
     }
   }
 

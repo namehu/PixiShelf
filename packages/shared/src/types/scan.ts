@@ -13,7 +13,6 @@ export interface ScanRequest {
  * 扫描结果
  */
 export interface ScanResult {
-  foundImages: number
   newArtworks: number
   newImages: number
   removedArtworks?: number

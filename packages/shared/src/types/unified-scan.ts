@@ -69,8 +69,6 @@ export interface ProcessResult {
   errors: string[]
   /** 性能指标 */
   performance: PerformanceMetrics
-  /** 发现图片数 */
-  foundImages: number
   /** 新增作品数 */
   newArtworks: number
   /** 新增图片数 */

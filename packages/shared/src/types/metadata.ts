@@ -24,7 +24,6 @@ export interface ExtendedScanOptions {
  * 扩展的扫描结果
  */
 export interface ExtendedScanResult {
-  foundImages: number
   newArtworks: number
   newImages: number
   removedArtworks?: number
