@@ -98,14 +98,14 @@ export default function ArtworkDetail() {
     }
   }
 
-  // 图片序号指示器组件 - 用于导航中间区域
+  // 图片序号指示器组件 - 用于导航中间区域，移动端优化
   const ImageCounter = () => {
     if (!data || !data.images || data.images.length === 0) return null
 
     return (
-      <div className="flex items-center gap-2 text-neutral-500">
-        <div className="flex items-center gap-1">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="flex items-center gap-1 sm:gap-2 text-neutral-500 max-w-full overflow-hidden">
+        <div className="flex items-center gap-1 min-w-0">
+          <svg className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -113,9 +113,9 @@ export default function ArtworkDetail() {
               d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
             />
           </svg>
-          <span className="font-mono text-sm">
+          <span className="font-mono text-xs sm:text-sm whitespace-nowrap">
             <span className="text-neutral-900 font-medium">{currentImageIndex + 1}</span>
-            <span className="mx-1 text-neutral-400">/</span>
+            <span className="mx-0.5 sm:mx-1 text-neutral-400">/</span>
             <span className="text-neutral-600">{data.images.length}</span>
           </span>
         </div>
@@ -125,7 +125,7 @@ export default function ArtworkDetail() {
 
   return (
     <PageContainer centerContent={<ImageCounter />}>
-      <section className="space-y-8 px-6 py-8">
+      <section className="space-y-6 sm:space-y-8 px-4 sm:px-6 py-6 sm:py-8 max-w-full overflow-hidden">
         {/* Loading State */}
         {isLoading && (
           <div className="space-y-8">
@@ -174,24 +174,31 @@ export default function ArtworkDetail() {
         {data && (
           <div className="animate-fade-in">
             {/* Header */}
-            <div className="space-y-8">
+            <div className="space-y-6 sm:space-y-8">
               {/* Breadcrumb */}
-              <nav className="flex items-center space-x-2 text-sm text-neutral-600">
-                <a href="/" className="hover:text-primary-600 transition-colors">
+              <nav className="flex items-center space-x-2 text-sm text-neutral-600 overflow-hidden">
+                <a href="/" className="hover:text-primary-600 transition-colors flex-shrink-0">
                   画廊
                 </a>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
-                <span className="text-neutral-900 font-medium">作品详情</span>
+                <span className="text-neutral-900 font-medium truncate">作品详情</span>
               </nav>
 
               {/* Title and Artist */}
               <div className="space-y-3">
-                <h1 className="text-4xl font-bold text-neutral-900 leading-tight">{data.title}</h1>
+                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-neutral-900 leading-tight break-words">
+                  {data.title}
+                </h1>
                 {data.artist?.name && (
-                  <div className="flex items-center gap-2">
-                    <svg className="w-5 h-5 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg
+                      className="w-5 h-5 text-neutral-500 flex-shrink-0"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -199,7 +206,9 @@ export default function ArtworkDetail() {
                         d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
                       />
                     </svg>
-                    <span className="text-lg text-neutral-700 font-medium">{data.artist.name}</span>
+                    <span className="text-base sm:text-lg text-neutral-700 font-medium truncate">
+                      {data.artist.name}
+                    </span>
                   </div>
                 )}
               </div>
@@ -208,7 +217,12 @@ export default function ArtworkDetail() {
               {data.tags && data.tags.length > 0 && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg
+                      className="w-4 h-4 text-neutral-500 flex-shrink-0"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -216,11 +230,11 @@ export default function ArtworkDetail() {
                         d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
                       />
                     </svg>
-                    <h3 className="text-lg font-semibold text-neutral-900">标签</h3>
+                    <h3 className="text-base sm:text-lg font-semibold text-neutral-900">标签</h3>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 max-w-full">
                     {data.tags.map((tag: string, index: number) => (
-                      <span key={index} className="tag tag-accent">
+                      <span key={index} className="tag tag-accent break-all">
                         #{tag}
                       </span>
                     ))}
@@ -231,9 +245,14 @@ export default function ArtworkDetail() {
 
             {/* Description */}
             {data.description && (
-              <div className=" mt-8">
-                <h3 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
-                  <svg className="w-5 h-5 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="mt-6 sm:mt-8">
+                <h3 className="text-base sm:text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+                  <svg
+                    className="w-5 h-5 text-neutral-500 flex-shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -243,14 +262,21 @@ export default function ArtworkDetail() {
                   </svg>
                   描述
                 </h3>
-                <p className="card p-8 text-neutral-700 leading-relaxed whitespace-pre-wrap">{data.description}</p>
+                <div className="card p-4 sm:p-6 lg:p-8 text-neutral-700 leading-relaxed max-w-full overflow-hidden">
+                  <p className="whitespace-pre-wrap break-words word-wrap">{data.description}</p>
+                </div>
               </div>
             )}
 
             {/* Images */}
-            <div className="space-y-8 mt-8">
+            <div className="space-y-6 sm:space-y-8 mt-6 sm:mt-8">
               <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  className="w-5 h-5 text-neutral-500 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -258,11 +284,13 @@ export default function ArtworkDetail() {
                     d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
                   />
                 </svg>
-                <h3 className="text-lg font-semibold text-neutral-900">图片 ({data.images?.length || 0})</h3>
+                <h3 className="text-base sm:text-lg font-semibold text-neutral-900">
+                  图片 ({data.images?.length || 0})
+                </h3>
               </div>
 
               {/* Image Gallery */}
-              <div className="max-w-4xl mx-auto ">
+              <div className="max-w-4xl mx-auto w-full">
                 {(data.images || []).map((img: any, index: number) => (
                   <LazyImage
                     key={img.id}

@@ -36,33 +36,35 @@ export function PageContainer({ children, centerContent }: PageContainerProps) {
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col">
-      {/* Modern header with glassmorphism effect */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-neutral-200/50">
-        <div className="mx-auto max-w-7xl px-6 py-4">
-          <div className="flex items-center justify-between">
-            {/* Logo */}
-            <Link to="/" className="flex items-center space-x-2 group">
-              <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-accent-500 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105">
-                <span className="text-white font-bold text-sm">P</span>
+      {/* Modern header with glassmorphism effect - 优化移动端固定定位 */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-xl border-b border-neutral-200/50 supports-[backdrop-filter]:bg-white/80">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-2">
+            {/* Logo - 移动端优化 */}
+            <Link to="/" className="flex items-center space-x-2 group flex-shrink-0">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gradient-to-br from-primary-500 to-accent-500 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105">
+                <span className="text-white font-bold text-xs sm:text-sm">P</span>
               </div>
-              <span className="text-xl font-semibold text-neutral-900 group-hover:text-primary-600 transition-colors">
+              <span className="text-lg sm:text-xl font-semibold text-neutral-900 group-hover:text-primary-600 transition-colors hidden xs:inline">
                 PixiShelf
               </span>
             </Link>
 
-            {/* Center Content - 自定义中间区域 */}
-            <div className="flex-1 flex justify-center">
-              {centerContent}
+            {/* Center Content - 自定义中间区域，移动端优化 */}
+            <div className="flex-1 flex justify-center min-w-0 px-2">
+              <div className="max-w-full overflow-hidden">
+                {centerContent}
+              </div>
             </div>
 
-            {/* Navigation - 右侧设置和退出 */}
-            <nav className="flex items-center space-x-1">
+            {/* Navigation - 右侧设置和退出，移动端优化 */}
+            <nav className="flex items-center space-x-1 flex-shrink-0">
               <Link
                 to="/admin"
-                className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
+                className="btn-ghost p-1.5 sm:p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
                 title="管理中心"
               >
-                <svg className="w-5 h-5 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -78,21 +80,24 @@ export function PageContainer({ children, centerContent }: PageContainerProps) {
                 </svg>
               </Link>
 
-              <div className="w-px h-4 bg-neutral-200 mx-2" />
+              <div className="w-px h-3 sm:h-4 bg-neutral-200 mx-1 sm:mx-2" />
 
               <button
                 onClick={handleLogoutClick}
-                className="btn-ghost px-3 py-2 rounded-lg text-sm font-medium text-neutral-600 hover:text-error-600"
+                className="btn-ghost px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium text-neutral-600 hover:text-error-600"
               >
-                退出
+                <span className="hidden sm:inline">退出</span>
+                <svg className="w-4 h-4 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
               </button>
             </nav>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1">
+      {/* Main Content - 添加顶部间距以避免被固定导航头遮挡 */}
+      <main className="flex-1 pt-[60px] sm:pt-[68px]">
         {children}
       </main>
 
