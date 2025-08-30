@@ -65,7 +65,7 @@ export default async function scanRoutes(server: FastifyInstance) {
 
       server.log.info('Using unified metadata scanning')
 
-      const result = await scanner.scanWithMetadata({
+      const result = await scanner.scan({
         scanPath,
         scanType: 'unified',
         forceUpdate,

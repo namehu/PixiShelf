@@ -4,17 +4,18 @@ import { ScannerService, SimpleScanOptions, SimpleScanResult } from './scanner/S
 import { ScanProgress } from '@pixishelf/shared'
 
 /**
- * 向后兼容的扫描选项接口
+ * 扫描选项接口
  */
 export interface ScanOptions {
   scanPath: string
   supportedExtensions?: string[] // 已废弃，新扫描器自动检测媒体文件
   forceUpdate?: boolean
   onProgress?: (progress: ScanProgress) => void
+  scanType?: 'unified' // 兼容旧接口
 }
 
 /**
- * 向后兼容的扫描结果接口
+ * 扫描结果接口
  */
 export interface ScanResult {
   foundImages: number // 映射到 totalArtworks * 平均图片数
@@ -22,6 +23,12 @@ export interface ScanResult {
   newImages: number
   removedArtworks: number // 已废弃，新扫描器不删除作品
   errors: string[]
+  strategy?: 'unified' // 兼容旧接口
+  metadata?: {
+    totalArtworks: number
+    totalImages: number
+    processingTime: number
+  }
 }
 
 // 重新导出新接口供外部使用
@@ -29,7 +36,7 @@ export type { ScanProgress, SimpleScanOptions, SimpleScanResult }
 
 /**
  * 文件扫描器
- * 基于新的简化扫描器实现，提供向后兼容的接口
+ * 基于新的简化扫描器实现
  */
 export class FileScanner {
   private scannerService: ScannerService
@@ -41,7 +48,7 @@ export class FileScanner {
   }
 
   /**
-   * 主要扫描方法
+   * 扫描方法
    * @param options 扫描选项
    * @returns 扫描结果
    */
@@ -59,43 +66,23 @@ export class FileScanner {
       // 执行新扫描器
       const simpleScanResult = await this.scannerService.scan(simpleScanOptions)
 
-      // 转换结果为向后兼容格式
+      // 转换结果格式
       const result: ScanResult = this.convertToLegacyResult(simpleScanResult)
+
+      if (options.scanType === 'unified') {
+        result.strategy = 'unified'
+        result.metadata = {
+          totalArtworks: result.newArtworks,
+          totalImages: result.newImages,
+          processingTime: 0 // 新扫描器不提供此信息
+        }
+      }
 
       this.logger.info({ result }, 'Scan completed successfully')
       return result
     } catch (error) {
       this.logger.error({ error, options }, 'Scan failed')
       throw error
-    }
-  }
-
-  /**
-   * 扩展扫描方法（已废弃，重定向到新扫描器）
-   * @param options 扩展扫描选项
-   * @returns 扫描结果
-   */
-  async scanWithMetadata(options: any): Promise<any> {
-    this.logger.warn('scanWithMetadata is deprecated, redirecting to simplified scan')
-
-    // 转换为标准扫描选项
-    const scanOptions: ScanOptions = {
-      scanPath: options.scanPath,
-      forceUpdate: options.forceUpdate,
-      onProgress: options.onProgress
-    }
-
-    const result = await this.scan(scanOptions)
-
-    // 转换为扩展结果格式
-    return {
-      ...result,
-      strategy: 'unified', // 固定返回unified策略
-      metadata: {
-        totalArtworks: result.newArtworks,
-        totalImages: result.newImages,
-        processingTime: 0 // 新扫描器不提供此信息
-      }
     }
   }
 
