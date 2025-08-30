@@ -48,7 +48,7 @@ function LazyImage({
         ref(node)
         viewRef(node)
       }}
-      className="overflow-hidden bg-neutral-100 min-h-[400px] flex items-center justify-center"
+      className="overflow-hidden bg-neutral-100 flex items-center justify-center"
     >
       {inView ? (
         <img src={src} alt={alt} loading="lazy" className="w-full h-auto object-contain" />
