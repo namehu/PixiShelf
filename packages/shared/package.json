@@ -21,7 +21,8 @@
     "dev": "tsup src/index.ts --dts --format esm,cjs --out-dir dist --watch",
     "lint": "eslint 'src/**/*.{ts,tsx}'",
     "type-check": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "postinstall": "npm run build"
   },
   "devDependencies": {
     "eslint": "^8.51.0",
