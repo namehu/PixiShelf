@@ -28,23 +28,37 @@ export interface Artwork {
   artistId?: number | null
   artist?: Artist | null
   tags: string[]
-  images: Image[]
+  images: MediaFile[]
   createdAt: string
   updatedAt: string
 }
 
 /**
- * 图片信息
+ * 媒体文件信息（图片和视频）
  */
-export interface Image {
+export interface MediaFile {
   id: number
   path: string
+  mediaType: 'image' | 'video'
   width?: number | null
   height?: number | null
   size?: number | null
+  duration?: number | null // 视频时长（秒）
+  frameRate?: number | null // 视频帧率
+  bitrate?: number | null // 视频比特率
+  codec?: string | null // 视频编码格式
   artworkId?: number | null
+  sortOrder?: number | null // 排序顺序
   createdAt: string
   updatedAt: string
+}
+
+/**
+ * 图片信息（向后兼容）
+ * @deprecated 请使用 MediaFile 接口
+ */
+export interface Image extends MediaFile {
+  mediaType: 'image'
 }
 
 /**

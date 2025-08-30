@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify'
-import { ArtworksResponse, Artwork, SortOption } from '@pixishelf/shared'
+import { EnhancedArtworksResponse, MediaFile, getMediaType } from '@pixishelf/shared'
 import { asApiResponse, asPaginatedResponse } from '../types/response'
 import { mapSortOption, getSafeSortOption } from '../utils/sortMapper'
 
@@ -16,7 +16,10 @@ export default async function artworksRoutes(server: FastifyInstance) {
       const tagsQuery = q.tags as string
       let tagNames: string[] = []
       if (tagsQuery) {
-        tagNames = tagsQuery.split(',').map((tag) => tag.trim()).filter(Boolean)
+        tagNames = tagsQuery
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean)
       }
 
       // 搜索查询：支持通过 search 查询参数进行模糊搜索
@@ -102,12 +105,28 @@ export default async function artworksRoutes(server: FastifyInstance) {
         take: pageSize
       })
 
-      // 转换数据格式，将多对多关系的标签转换为字符串数组，并添加图片总数
+      // 转换数据格式，将多对多关系的标签转换为字符串数组，并添加媒体类型信息
       const items = artworks.map((artwork) => {
+        // 为每个图片添加mediaType字段
+        const enhancedImages: MediaFile[] = artwork.images.map((image) => ({
+          ...image,
+          mediaType: getMediaType(image.path) as 'image' | 'video',
+          sortOrder: image.sortOrder || 0,
+          createdAt: image.createdAt.toISOString(),
+          updatedAt: image.updatedAt.toISOString()
+        }))
+
+        // 计算视频统计信息
+        const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
+        const totalMediaSize = videoCount ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0 // 只统计视频大小
+
         const result = {
           ...artwork,
-          tags: artwork.artworkTags.map((at) => at.tag.name),
-          imageCount: artwork.imageCount || artwork._count?.images || 0,
+          images: enhancedImages,
+          tags: [],
+          imageCount: videoCount > 0 ? 0 : artwork._count.images,
+          videoCount,
+          totalMediaSize,
           descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
           directoryCreatedAt: artwork.directoryCreatedAt?.toISOString() || null,
           artworkTags: undefined as any,
@@ -120,7 +139,7 @@ export default async function artworksRoutes(server: FastifyInstance) {
       })
 
       // 使用类型转换辅助函数，实际转换由插件处理
-      const response: ArtworksResponse = asPaginatedResponse({ items, total, page, pageSize })
+      const response: EnhancedArtworksResponse = asPaginatedResponse({ items, total, page, pageSize })
       return reply.send(response)
     } catch (error) {
       server.log.error({ error }, 'Error fetching artworks')
@@ -150,10 +169,25 @@ export default async function artworksRoutes(server: FastifyInstance) {
         return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Artwork not found' })
       }
 
-      // 转换数据格式，将多对多关系的标签转换为字符串数组
+      // 转换数据格式，将多对多关系的标签转换为字符串数组，并添加媒体类型信息
+      const enhancedImages: MediaFile[] = artwork.images.map((image) => ({
+        ...image,
+        mediaType: getMediaType(image.path) as 'image' | 'video',
+        sortOrder: image.sortOrder || 0,
+        createdAt: image.createdAt.toISOString(),
+        updatedAt: image.updatedAt.toISOString()
+      }))
+
+      // 计算视频统计信息
+      const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
+      const totalMediaSize = enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0)
+
       const formattedArtwork = {
         ...artwork,
+        images: enhancedImages,
         tags: artwork.artworkTags.map((at) => at.tag.name),
+        videoCount,
+        totalMediaSize,
         artworkTags: undefined as any
       }
       delete (formattedArtwork as any).artworkTags

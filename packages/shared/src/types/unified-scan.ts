@@ -3,7 +3,7 @@
  * 支持元数据扫描和媒体文件扫描的一体化处理
  */
 
-import { ArtworkMetadata, MediaFile } from './metadata'
+import { ArtworkMetadata, ScanMediaFile } from './metadata'
 
 // ============================================================================
 // 统一扫描选项
@@ -100,7 +100,7 @@ export interface ArtworkProcessResult {
   /** 路径信息 */
   pathInfo?: PathInfo
   /** 关联的媒体文件 */
-  mediaFiles?: MediaFile[]
+  mediaFiles?: ScanMediaFile[]
   /** 艺术家数据 */
   artist?: ArtistData
   /** 作品数据 */

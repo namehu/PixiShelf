@@ -1,10 +1,11 @@
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
 import { apiJson } from '../api'
-import { Artwork } from '@pixishelf/shared'
+import { Artwork, isVideoFile } from '@pixishelf/shared'
 import { PageContainer } from '../components/PageContainer'
+import LazyVideo from '../components/LazyVideo'
 
 function useArtwork(id: string) {
   return useQuery({
@@ -68,6 +69,45 @@ function LazyImage({
   )
 }
 
+// 懒加载媒体组件（支持图片和视频）
+function LazyMedia({
+  src,
+  alt,
+  index,
+  onInView,
+  isVideo = false
+}: {
+  src: string
+  alt: string
+  index: number
+  onInView: (index: number, inView: boolean) => void
+  isVideo?: boolean
+}) {
+  const { ref: viewRef, inView: isInViewport } = useInView({
+    threshold: 0.5, // 当媒体50%可见时认为是当前媒体
+    rootMargin: '0px'
+  })
+
+  useEffect(() => {
+    onInView(index, isInViewport)
+  }, [isInViewport, index, onInView])
+
+  return (
+    <div ref={viewRef} className="overflow-hidden bg-neutral-100 flex items-center justify-center">
+      {isVideo ? (
+        <LazyVideo src={src} alt={alt} index={index} onInView={onInView} />
+      ) : (
+        <LazyImage
+          src={src}
+          alt={alt}
+          index={index}
+          onInView={() => {}} // LazyImage内部已处理视口检测
+        />
+      )}
+    </div>
+  )
+}
+
 export default function ArtworkDetail() {
   const params = useParams()
   const id = params.id!
@@ -98,33 +138,61 @@ export default function ArtworkDetail() {
     }
   }
 
-  // 图片序号指示器组件 - 用于导航中间区域，移动端优化
-  const ImageCounter = () => {
+  // 媒体序号指示器组件 - 用于导航中间区域，移动端优化
+  const MediaCounter = () => {
     if (!data || !data.images || data.images.length === 0) return null
+
+    const imageCount = data.images.filter((img) => !isVideoFile(img.path)).length
+    const videoCount = data.images.filter((img) => isVideoFile(img.path)).length
+    const currentMedia = data.images[currentImageIndex]
+    const isCurrentVideo = currentMedia && isVideoFile(currentMedia.path)
 
     return (
       <div className="flex items-center gap-1 sm:gap-2 text-neutral-500 max-w-full overflow-hidden">
         <div className="flex items-center gap-1 min-w-0">
-          <svg className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-            />
-          </svg>
+          {isCurrentVideo ? (
+            <svg
+              className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0 text-red-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+              />
+            </svg>
+          ) : (
+            <svg className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
+            </svg>
+          )}
           <span className="font-mono text-xs sm:text-sm whitespace-nowrap">
             <span className="text-neutral-900 font-medium">{currentImageIndex + 1}</span>
             <span className="mx-0.5 sm:mx-1 text-neutral-400">/</span>
             <span className="text-neutral-600">{data.images.length}</span>
           </span>
+          {(imageCount > 0 || videoCount > 0) && (
+            <span className="text-xs text-neutral-400 ml-1 hidden sm:inline">
+              ({imageCount > 0 && `${imageCount}图`}
+              {imageCount > 0 && videoCount > 0 && ' '}
+              {videoCount > 0 && `${videoCount}视频`})
+            </span>
+          )}
         </div>
       </div>
     )
   }
 
   return (
-    <PageContainer centerContent={<ImageCounter />}>
+    <PageContainer centerContent={<MediaCounter />}>
       <section className="space-y-6 sm:space-y-8 px-4 sm:px-6 py-6 sm:py-8 max-w-full overflow-hidden">
         {/* Loading State */}
         {isLoading && (
@@ -289,17 +357,21 @@ export default function ArtworkDetail() {
                 </h3>
               </div>
 
-              {/* Image Gallery */}
+              {/* Media Gallery */}
               <div className="max-w-4xl mx-auto w-full">
-                {(data.images || []).map((img: any, index: number) => (
-                  <LazyImage
-                    key={img.id}
-                    src={`/api/v1/images/${img.path}`}
-                    alt={`${data.title} - 图片 ${index + 1}`}
-                    index={index}
-                    onInView={handleImageInView}
-                  />
-                ))}
+                {(data.images || []).map((img: any, index: number) => {
+                  const isVideo = isVideoFile(img.path)
+                  return (
+                    <LazyMedia
+                      key={img.id}
+                      src={`/api/v1/images/${img.path}`}
+                      alt={`${data.title} - ${isVideo ? '视频' : '图片'} ${index + 1}`}
+                      index={index}
+                      onInView={handleImageInView}
+                      isVideo={isVideo}
+                    />
+                  )
+                })}
               </div>
             </div>
           </div>

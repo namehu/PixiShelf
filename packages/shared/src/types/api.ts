@@ -1,4 +1,4 @@
-import { Artist, Artwork, User } from './core'
+import { Artist, Artwork, User, MediaFile } from './core'
 
 // ============================================================================
 // API 请求/响应类型
@@ -92,6 +92,30 @@ export interface SearchSuggestion {
  */
 export interface SuggestionsResponse {
   suggestions: SearchSuggestion[]
+}
+
+/**
+ * 增强的作品响应（包含媒体类型信息）
+ */
+export interface EnhancedArtwork extends Omit<Artwork, 'images'> {
+  images: MediaFile[]
+  videoCount?: number // 视频文件数量
+  totalMediaSize?: number // 总媒体文件大小
+}
+
+/**
+ * 增强的作品列表响应
+ */
+export type EnhancedArtworksResponse = PaginatedResponse<EnhancedArtwork>
+
+/**
+ * 媒体文件详情响应
+ */
+export interface MediaFileResponse {
+  file: MediaFile
+  url: string
+  thumbnailUrl?: string // 视频缩略图URL
+  previewUrl?: string // 视频预览URL
 }
 
 /**

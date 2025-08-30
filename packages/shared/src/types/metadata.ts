@@ -70,9 +70,9 @@ export interface ArtworkInfo {
 }
 
 /**
- * 媒体文件接口
+ * 扫描器媒体文件信息
  */
-export interface MediaFile {
+export interface ScanMediaFile {
   path: string // 文件完整路径
   name: string // 文件名
   extension: string // 文件扩展名
@@ -151,7 +151,7 @@ export interface IFileAssociator {
    * @param artworkId 作品ID
    * @returns 媒体文件列表
    */
-  findMediaFiles(metadataPath: string, artworkId: string): Promise<MediaFile[]>
+  findMediaFiles(metadataPath: string, artworkId: string): Promise<ScanMediaFile[]>
 }
 
 /**

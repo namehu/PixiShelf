@@ -29,5 +29,11 @@ export * from './types/system'
 // 工具类型
 export * from './types/utils'
 
+// 媒体类型
+export * from './types/media'
+
+// 媒体工具函数
+export * from './utils/media'
+
 // 常量定义
 export * from './constants'
