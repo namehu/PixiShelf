@@ -75,7 +75,7 @@ export class MediaCollector {
         if (!this.supportedExtensions.has(extension)) continue
 
         // 检查是否是目标作品的媒体文件
-        const mediaInfo = this.parseMediaFilename(filename, artworkId)
+        const mediaInfo = this.parseMediaFilename(filename, artworkId, extension)
         if (!mediaInfo) continue
 
         try {
@@ -119,9 +119,19 @@ export class MediaCollector {
    * 解析媒体文件名
    * @param filename 文件名
    * @param expectedArtworkId 期望的作品ID
+   * @param extension 文件扩展名
    * @returns 解析结果或null
    */
-  private parseMediaFilename(filename: string, expectedArtworkId: string): { pageIndex: number } | null {
+  private parseMediaFilename(
+    filename: string,
+    expectedArtworkId: string,
+    extension: string
+  ): { pageIndex: number } | null {
+    // 匹配 {artworkID}.{ext}
+    if (filename === `${expectedArtworkId}${extension}`) {
+      return { pageIndex: 0 }
+    }
+
     // 匹配格式: {artworkID}_p{index}.{ext}
     const match = filename.match(/^(\d+)_p(\d+)\./i)
     if (!match) return null
