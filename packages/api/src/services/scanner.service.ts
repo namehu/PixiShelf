@@ -227,7 +227,7 @@ export class ScannerService {
             message: `发现作品: ${parseResult.metadata?.title || metadataFilename}`,
             current: i + 1,
             total: metadataFiles.length,
-            percentage: basePercentage + progressInDiscovery
+            percentage: Math.round(basePercentage + progressInDiscovery)
           })
         } catch (error) {
           this.logger.error({ error, metadataPath }, 'Error processing metadata file')
@@ -347,7 +347,7 @@ export class ScannerService {
           message: `正在处理作品: ${artwork.metadata.title}`,
           current: i + 1,
           total: artworks.length,
-          percentage: 50 + progressInProcessing
+          percentage: Math.round(50 + progressInProcessing)
         })
 
         await this.processArtwork(artwork, options.forceUpdate || false)
@@ -473,7 +473,6 @@ export class ScannerService {
           directoryCreatedAt
         }
       })
-      this.scanResult.newArtworks++
       this.logger.debug({ artworkId: artwork.id, title: artwork.title }, 'Created new artwork')
     } else {
       // 更新现有作品
