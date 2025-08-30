@@ -9,10 +9,7 @@ const start = async () => {
   try {
     // 初始化配置系统
     console.log('Initializing configuration...')
-    await initializeConfig({
-      useEnvVars: true,
-      validate: true
-    })
+    await initializeConfig()
 
     // 检查配置健康状态
     const healthCheck = checkConfigHealth()
@@ -22,10 +19,7 @@ const start = async () => {
       process.exit(1)
     }
 
-    if (healthCheck.recommendations.length > 0) {
-      console.warn('Configuration recommendations:')
-      healthCheck.recommendations.forEach((rec) => console.warn(`  - ${rec}`))
-    }
+    // 配置健康检查通过
 
     // 构建服务器
     console.log('Building server...')
@@ -39,8 +33,8 @@ const start = async () => {
       .listen({ port, host })
       .then((address) => {
         server.log.info(`Server listening at ${address}`)
-        server.log.info(`Environment: ${config.app.env}`)
-        server.log.info(`App: ${config.app.name} v${config.app.version}`)
+        server.log.info(`Environment: ${config.env}`)
+        server.log.info(`App: ${config.appName} v${config.version}`)
         console.log(`Server listening at ${address}`)
 
         // 输出配置摘要
