@@ -74,8 +74,13 @@ export class ScannerService {
         percentage: 0
       })
 
-      const artworks = await this.discoverArtworks(options.scanPath)
-      this.scanResult.totalArtworks = artworks.length
+      let artworks: ArtworkData[] = []
+
+      try {
+        artworks = await this.discoverArtworksRecursive(options.scanPath, options.forceUpdate)
+      } catch (error) {
+        this.logger.error({ error, scanPath: options.scanPath }, 'Failed to discover artworks')
+      }
 
       this.logger.info({ totalArtworks: this.scanResult.totalArtworks }, 'Discovered artworks')
 
@@ -127,41 +132,25 @@ export class ScannerService {
   }
 
   /**
-   * 发现作品
-   * @param scanPath 扫描路径
-   * @returns 作品数据数组
-   */
-  private async discoverArtworks(scanPath: string): Promise<ArtworkData[]> {
-    const artworks: ArtworkData[] = []
-
-    try {
-      await this.discoverArtworksRecursive(scanPath, artworks)
-    } catch (error) {
-      this.logger.error({ error, scanPath }, 'Failed to discover artworks')
-    }
-
-    return artworks
-  }
-
-  /**
    * 递归发现作品
    * @param directoryPath 目录路径
    * @param artworks 作品数组
+   * @param forceUpdate 是否强制更新
    */
-  private async discoverArtworksRecursive(directoryPath: string, artworks: ArtworkData[]): Promise<void> {
+  private async discoverArtworksRecursive(directoryPath: string, forceUpdate: boolean = false): Promise<ArtworkData[]> {
+    const artworks: ArtworkData[] = []
     try {
-      // 使用更安全的目录读取方法，处理特殊字符
-      const metadataFiles = await this.globMetadataFiles(directoryPath)
+      const metadataFiles = await this.globMetadataFiles(directoryPath, forceUpdate)
       if (!metadataFiles) {
-        this.logger.warn({ directoryPath }, 'Failed to read directory, skipping')
-        return
+        this.logger.warn({ directoryPath }, 'metadataFiles is empty, skipping')
+        return artworks
       }
 
       // 处理当前目录的元数据文件
       for (const metadataFile of metadataFiles) {
+        const { artworkId } = metadataFile
         const metadataPath = metadataFile.path
         const metadataFilename = metadataFile.name
-        const artworkId = MetadataParser.extractArtworkIdFromFilename(metadataFilename)
 
         if (!artworkId) {
           this.logger.warn({ metadataFilename }, 'Invalid metadata filename')
@@ -205,11 +194,22 @@ export class ScannerService {
       this.logger.error({ error, directoryPath }, 'Failed to read directory')
       // 不要重新抛出错误，继续处理其他目录
     }
+    return artworks
   }
 
-  private async globMetadataFiles(directoryPath: string): Promise<
+  /**
+   * 递归查找元数据文件
+   * @param directoryPath 目录路径
+   * @param forceUpdate 是否强制更新
+   * @returns 元数据文件数组
+   */
+  private async globMetadataFiles(
+    directoryPath: string,
+    forceUpdate: boolean = false
+  ): Promise<
     {
       name: string
+      artworkId: string
       path: string
       createdAt: Date
     }[]
@@ -221,21 +221,70 @@ export class ScannerService {
       absolute: true,
       onlyFiles: true
     })
+
+    // 过滤出符合 数字-meta.txt 格式的文件
+    const validFiles = files
+      .map((filePath) => {
+        const name = path.basename(filePath)
+        return {
+          name,
+          artworkId: MetadataParser.extractArtworkIdFromFilename(name)!,
+          path: filePath
+        }
+      })
+      .filter((file) => !!file.artworkId)
+
+    this.scanResult.totalArtworks = validFiles.length // 发现总作品数
+
+    // 如果不是强制更新，需要过滤掉已存在的作品
+    let filesToProcess = validFiles
+    if (!forceUpdate) {
+      const artworkIds = validFiles.map(({ artworkId }) => artworkId) // 提取所有文件的 artworkId
+
+      if (artworkIds.length > 0) {
+        // 查询数据库中已存在的 externalId
+        const existingArtworks = await this.prisma.artwork.findMany({
+          where: {
+            externalId: {
+              in: artworkIds
+            }
+          },
+          select: {
+            externalId: true
+          }
+        })
+
+        const existingIds = new Set(existingArtworks.map((artwork) => artwork.externalId))
+
+        // 过滤掉已存在的文件
+        filesToProcess = validFiles.filter((file) => !existingIds.has(file.artworkId))
+
+        this.scanResult.skippedArtworks = validFiles.length - filesToProcess.length // 已存在作品数
+
+        this.logger.debug(
+          {
+            totalFiles: validFiles.length,
+            existingFiles: validFiles.length - filesToProcess.length,
+            filesToProcess: filesToProcess.length
+          },
+          'Filtered metadata files based on existing artworks'
+        )
+      }
+    }
+
+    // 获取文件统计信息
     const metadataFiles = await Promise.all(
-      files.map(async (file) => {
-        const filename = path.basename(file)
-        const stats = await fs.stat(file)
+      filesToProcess.map(async (file) => {
+        const stats = await fs.stat(file.path)
 
         return {
-          name: filename,
-          path: file,
-          createdAt: stats.birthtime // 或者使用 stats.birthtimeMs
+          ...file,
+          createdAt: stats.birthtime
         }
       })
     )
 
-    // 过滤出符合 数字-meta.txt 格式的文件
-    return metadataFiles.filter((item) => MetadataParser.isMetadataFile(item.name))
+    return metadataFiles
   }
 
   /**

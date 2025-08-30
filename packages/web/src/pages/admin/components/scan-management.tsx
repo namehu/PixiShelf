@@ -408,7 +408,7 @@ function ScanManagement() {
                 disabled={streaming || !scanPath.query.data?.scanPath}
                 className="btn btn-primary disabled:opacity-50"
               >
-                {streaming ? '进行中…' : '开始扫描'}
+                {streaming ? '进行中…' : '增量扫描'}
               </button>
               <button
                 onClick={() => startStream(true)}
