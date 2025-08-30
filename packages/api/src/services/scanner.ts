@@ -54,7 +54,7 @@ export class FileScanner {
    * @returns 扫描结果
    */
   async scan(options: ScanOptions): Promise<ScanResult> {
-    this.logger.info({ scanPath: options.scanPath }, 'Starting scan with new simplified scanner')
+    this.logger.info({ scanPath: options.scanPath }, 'Starting scan with scanner')
 
     try {
       // 转换为新扫描器选项

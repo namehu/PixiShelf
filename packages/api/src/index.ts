@@ -11,29 +11,29 @@ const start = async () => {
     console.log('Initializing configuration...')
     await initializeConfig({
       useEnvVars: true,
-      validate: true,
+      validate: true
     })
 
     // 检查配置健康状态
     const healthCheck = checkConfigHealth()
     if (!healthCheck.isHealthy) {
       console.error('Configuration health check failed:')
-      healthCheck.issues.forEach(issue => console.error(`  - ${issue}`))
+      healthCheck.issues.forEach((issue) => console.error(`  - ${issue}`))
       process.exit(1)
     }
 
     if (healthCheck.recommendations.length > 0) {
       console.warn('Configuration recommendations:')
-      healthCheck.recommendations.forEach(rec => console.warn(`  - ${rec}`))
+      healthCheck.recommendations.forEach((rec) => console.warn(`  - ${rec}`))
     }
 
     // 构建服务器
     console.log('Building server...')
     const server = await buildServer()
-    
+
     // 使用配置系统获取服务器配置
     const { port, host } = config.server
-    
+
     // 启动服务器
     server
       .listen({ port, host })
@@ -41,7 +41,8 @@ const start = async () => {
         server.log.info(`Server listening at ${address}`)
         server.log.info(`Environment: ${config.app.env}`)
         server.log.info(`App: ${config.app.name} v${config.app.version}`)
-        
+        console.log(`Server listening at ${address}`)
+
         // 输出配置摘要
         if (config.isDevelopment) {
           const summary = getConfigSummary()

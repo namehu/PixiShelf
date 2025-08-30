@@ -86,6 +86,9 @@ importers:
       pino:
         specifier: ^9.2.0
         version: 9.8.0
+      pino-roll:
+        specifier: ^3.1.0
+        version: 3.1.0
     devDependencies:
       '@types/bcryptjs':
         specifier: ^2.4.6
@@ -1930,6 +1933,10 @@ packages:
       is-data-view: 1.0.2
     dev: true
 
+  /date-fns@4.1.0:
+    resolution: {integrity: sha512-Ukq0owbQXxa/U3EGtsdVBkR1w7KOQ5gIBqdH2hkvknzZPYvBxb/aa6E8L7tmjFtkwZBu3UXBbjIgPo/Ez4xaNg==}
+    dev: false
+
   /debug@4.4.1:
     resolution: {integrity: sha512-KcKCqiftBJcZr++7ykoDIEwSa3XWowTfNPo92BYxjXiyYEVrUQh2aLyhxBCwww+heortUFxEJYcRzosstTEBYQ==}
     engines: {node: '>=6.0'}
@@ -3651,6 +3658,13 @@ packages:
     resolution: {integrity: sha512-F63x5tizV6WCh4R6RHyi2Ml+M70DNRXt/+HANowMflpgGFMAym/VKm6G7ZOQRjqN7XbGxK1Lg9t6ZrtzOaivMw==}
     dependencies:
       split2: 4.2.0
+    dev: false
+
+  /pino-roll@3.1.0:
+    resolution: {integrity: sha512-UimuzDe5FJSqzHZjBOQIgXArc6GE8rcJ7XsmhMkTI37msWqeI8yOqNKdPH3qucrvSxdL+y+GksqPTgQlSFWFEQ==}
+    dependencies:
+      date-fns: 4.1.0
+      sonic-boom: 4.2.0
     dev: false
 
   /pino-std-serializers@7.0.0:
