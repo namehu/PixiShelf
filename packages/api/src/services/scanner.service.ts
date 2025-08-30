@@ -67,11 +67,24 @@ export class ScannerService {
     try {
       this.logger.info({ scanPath: options.scanPath }, 'Starting scan')
 
+      // 如果是强制更新，先清空数据库
+      if (options.forceUpdate) {
+        options.onProgress?.({
+          phase: 'counting',
+          message: '正在清空数据库...',
+          percentage: 0
+        })
+        
+        await this.clearDatabase()
+        
+        this.logger.info('Database cleared for force update')
+      }
+
       // 阶段1: 发现作品
       options.onProgress?.({
         phase: 'counting',
         message: '正在发现作品...',
-        percentage: 0
+        percentage: options.forceUpdate ? 5 : 0
       })
 
       let artworks: ArtworkData[] = []
@@ -517,6 +530,42 @@ export class ScannerService {
           tagId: tag.id
         }
       })
+    }
+  }
+
+  /**
+   * 清空数据库（保留 user 和 setting 表）
+   * 用于强制全量扫描时清空所有艺术相关数据
+   */
+  private async clearDatabase(): Promise<void> {
+    try {
+      this.logger.info('Starting database cleanup for force update')
+
+      // 按照外键依赖顺序删除数据
+      // 1. 删除作品标签关联
+      await this.prisma.artworkTag.deleteMany({})
+      this.logger.debug('Deleted all artwork-tag associations')
+
+      // 2. 删除图片
+      await this.prisma.image.deleteMany({})
+      this.logger.debug('Deleted all images')
+
+      // 3. 删除作品
+      await this.prisma.artwork.deleteMany({})
+      this.logger.debug('Deleted all artworks')
+
+      // 4. 删除艺术家
+      await this.prisma.artist.deleteMany({})
+      this.logger.debug('Deleted all artists')
+
+      // 5. 删除标签
+      await this.prisma.tag.deleteMany({})
+      this.logger.debug('Deleted all tags')
+
+      this.logger.info('Database cleanup completed successfully')
+    } catch (error) {
+      this.logger.error({ error }, 'Failed to clear database')
+      throw new Error(`Database cleanup failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 

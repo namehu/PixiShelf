@@ -17,6 +17,8 @@ import ArtworkDetail from './pages/ArtworkDetail'
 import Login from './pages/Login'
 import AdminPage from './pages/admin'
 import ConfirmDialog from './components/ui/confirm-dialog'
+import { NotificationProvider } from './components/ui/notification'
+import { ToastProvider } from './components/ui/toast'
 import './styles.css'
 
 const queryClient = new QueryClient()
@@ -579,7 +581,11 @@ function App() {
   const auth = useAuthToken()
   return (
     <AuthContext.Provider value={auth}>
-      <RouterProvider router={router} />
+      <NotificationProvider>
+        <ToastProvider>
+          <RouterProvider router={router} />
+        </ToastProvider>
+      </NotificationProvider>
     </AuthContext.Provider>
   )
 }

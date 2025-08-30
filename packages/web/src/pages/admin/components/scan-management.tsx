@@ -2,6 +2,9 @@ import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson, createEventSourceWithAuth } from '../../../api'
 import { ScanResult, HealthResponse, ScanProgress, LogEntry, ScanPathResponse } from '@pixishelf/shared'
+import ConfirmDialog from '../../../components/ui/confirm-dialog'
+import { useNotification } from '../../../components/ui/notification'
+import { useToast } from '../../../components/ui/toast'
 
 // Hook: 健康检查
 function useHealth() {
@@ -73,9 +76,11 @@ function secondsToText(s: number) {
  * 迁移自原Settings.tsx，保持所有功能不变
  */
 function ScanManagement() {
+  const [toast] = useToast()
   const { data: health } = useHealth()
   const scanPath = useScanPath()
   const cancelScan = useCancelScan()
+  const { addNotification } = useNotification()
   // 移除策略查询，固定使用unified策略
 
   const [editPath, setEditPath] = React.useState('')
@@ -99,6 +104,9 @@ function ScanManagement() {
   const [showDetailedLogs, setShowDetailedLogs] = React.useState(false)
   const [autoScroll, setAutoScroll] = React.useState(true)
   const logsEndRef = React.useRef<HTMLDivElement>(null)
+
+  // 强制扫描确认弹窗状态
+  const [showForceConfirm, setShowForceConfirm] = React.useState(false)
   const esRef = React.useRef<EventSource | null>(null)
 
   // 添加日志条目的函数
@@ -201,9 +209,11 @@ function ScanManagement() {
               data,
               `扫描完成: 新增${data.result.newArtworks}个作品，${data.result.newImages}张图片`
             )
+
             es.close()
             esRef.current = null
             addLogEntry('connection', null, 'SSE 连接已关闭')
+            toast.success('扫描完成')
           } catch (e) {
             console.warn('Failed to parse complete event:', e)
             addLogEntry('error', { error: e, rawData: ev.data }, '解析完成事件失败')
@@ -411,7 +421,7 @@ function ScanManagement() {
                 {streaming ? '进行中…' : '增量扫描'}
               </button>
               <button
-                onClick={() => startStream(true)}
+                onClick={() => setShowForceConfirm(true)}
                 disabled={streaming || !scanPath.query.data?.scanPath}
                 className="btn btn-secondary disabled:opacity-50"
                 title="强制全量更新：清空现有数据后重建"
@@ -546,6 +556,21 @@ function ScanManagement() {
           }
         `}</style>
       </div>
+
+      {/* 强制扫描确认弹窗 */}
+      <ConfirmDialog
+        isOpen={showForceConfirm}
+        onClose={() => setShowForceConfirm(false)}
+        onConfirm={() => {
+          setShowForceConfirm(false)
+          startStream(true)
+        }}
+        title="确认强制全量扫描"
+        message="强制全量扫描将会清空数据库中的所有艺术品、艺术家、图片和标签数据（用户和设置数据不受影响），然后重新扫描所有文件。此操作不可撤销，确定要继续吗？"
+        confirmText="确认清空并扫描"
+        cancelText="取消"
+        confirmVariant="danger"
+      />
     </div>
   )
 }
