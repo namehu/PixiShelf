@@ -59,13 +59,8 @@ nano .env
 ```
 
 **重要配置项：**
-```bash
-# Docker 镜像配置
-DOCKER_REGISTRY=ghcr.io
-DOCKER_USERNAME=your-github-username
-IMAGE_NAME=pixishelf
-IMAGE_TAG=latest  # 或指定版本如 v1.0.0
 
+```bash
 # 安全配置 (必须修改)
 POSTGRES_PASSWORD=your-secure-password
 JWT_SECRET=your-jwt-secret-32-chars-min
