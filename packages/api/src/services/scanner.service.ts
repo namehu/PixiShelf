@@ -67,30 +67,36 @@ export class ScannerService {
     try {
       this.logger.info({ scanPath: options.scanPath }, 'Starting scan')
 
-      // 如果是强制更新，先清空数据库
+      // 如果是强制更新，先清空数据库（10%权重）
       if (options.forceUpdate) {
         options.onProgress?.({
           phase: 'counting',
           message: '正在清空数据库...',
           percentage: 0
         })
-        
+
         await this.clearDatabase()
-        
+
         this.logger.info('Database cleared for force update')
+
+        options.onProgress?.({
+          phase: 'counting',
+          message: '数据库清空完成，开始发现作品...',
+          percentage: 10
+        })
       }
 
-      // 阶段1: 发现作品
+      // 阶段1: 发现作品（40%权重：10%-50%）
       options.onProgress?.({
         phase: 'counting',
         message: '正在发现作品...',
-        percentage: options.forceUpdate ? 5 : 0
+        percentage: options.forceUpdate ? 10 : 0
       })
 
       let artworks: ArtworkData[] = []
 
       try {
-        artworks = await this.discoverArtworksRecursive(options.scanPath, options.forceUpdate)
+        artworks = await this.discoverArtworksRecursive(options.scanPath, options.forceUpdate, options.onProgress)
       } catch (error) {
         this.logger.error({ error, scanPath: options.scanPath }, 'Failed to discover artworks')
       }
@@ -107,18 +113,25 @@ export class ScannerService {
         return this.scanResult
       }
 
-      // 阶段2: 处理作品
+      // 阶段2: 处理作品（40%权重：50%-90%）
       options.onProgress?.({
         phase: 'scanning',
         message: '正在处理作品...',
         current: 0,
         total: artworks.length,
-        percentage: 10
+        percentage: 50
       })
 
       await this.processArtworks(artworks, options)
 
-      // 完成
+      // 完成（10%权重：90%-100%）
+      options.onProgress?.({
+        phase: 'complete',
+        message: '正在完成扫描...',
+        percentage: 90
+      })
+
+      // 最终完成
       options.onProgress?.({
         phase: 'complete',
         message: '扫描完成',
@@ -147,10 +160,14 @@ export class ScannerService {
   /**
    * 递归发现作品
    * @param directoryPath 目录路径
-   * @param artworks 作品数组
    * @param forceUpdate 是否强制更新
+   * @param onProgress 进度回调
    */
-  private async discoverArtworksRecursive(directoryPath: string, forceUpdate: boolean = false): Promise<ArtworkData[]> {
+  private async discoverArtworksRecursive(
+    directoryPath: string,
+    forceUpdate: boolean = false,
+    onProgress?: (progress: ScanProgress) => void
+  ): Promise<ArtworkData[]> {
     const artworks: ArtworkData[] = []
     try {
       const metadataFiles = await this.globMetadataFiles(directoryPath, forceUpdate)
@@ -160,7 +177,9 @@ export class ScannerService {
       }
 
       // 处理当前目录的元数据文件
-      for (const metadataFile of metadataFiles) {
+      for (let i = 0; i < metadataFiles.length; i++) {
+        const metadataFile = metadataFiles[i]
+
         const { artworkId } = metadataFile
         const metadataPath = metadataFile.path
         const metadataFilename = metadataFile.name
@@ -198,6 +217,17 @@ export class ScannerService {
             mediaFiles: collectionResult.mediaFiles,
             directoryPath,
             directoryCreatedAt: metadataFile.createdAt
+          })
+
+          // 更新发现作品的进度（40%权重内的进度）
+          const progressInDiscovery = (i / metadataFiles.length) * 40
+          const basePercentage = forceUpdate ? 10 : 0
+          onProgress?.({
+            phase: 'counting',
+            message: `发现作品: ${parseResult.metadata?.title || metadataFilename}`,
+            current: i + 1,
+            total: metadataFiles.length,
+            percentage: basePercentage + progressInDiscovery
           })
         } catch (error) {
           this.logger.error({ error, metadataPath }, 'Error processing metadata file')
@@ -310,13 +340,14 @@ export class ScannerService {
       const artwork = artworks[i]
 
       try {
-        // 更新进度
+        // 更新进度（40%权重内的进度：50%-90%）
+        const progressInProcessing = (i / artworks.length) * 40
         options.onProgress?.({
           phase: 'scanning',
           message: `正在处理作品: ${artwork.metadata.title}`,
           current: i + 1,
           total: artworks.length,
-          percentage: 10 + Math.floor((i / artworks.length) * 80)
+          percentage: 50 + progressInProcessing
         })
 
         await this.processArtwork(artwork, options.forceUpdate || false)
