@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify'
-import { FileScanner } from '../services/scanner'
+import { ScannerService } from '../services/scanner.service'
 import { ScanProgress } from '@pixishelf/shared'
 
 export default async function scanRoutes(server: FastifyInstance) {
@@ -61,7 +61,7 @@ export default async function scanRoutes(server: FastifyInstance) {
 
     try {
       // 使用统一的元数据扫描功能
-      const scanner = new FileScanner(server.prisma, server.log)
+      const scanner = new ScannerService(server.prisma, server.log)
 
       server.log.info('Using unified metadata scanning')
 

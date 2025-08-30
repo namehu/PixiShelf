@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { FastifyInstance } from 'fastify'
-import { ScannerService, SimpleScanOptions, SimpleScanResult } from './scanner/ScannerInterface'
+import { SimpleScanner, SimpleScanOptions, SimpleScanResult } from './scanner/SimpleScanner'
 import { ScanProgress } from '@pixishelf/shared'
 
 /**
@@ -38,13 +38,13 @@ export type { ScanProgress, SimpleScanOptions, SimpleScanResult }
  * 文件扫描器
  * 基于新的简化扫描器实现
  */
-export class FileScanner {
-  private scannerService: ScannerService
+export class ScannerService {
+  private scanner: SimpleScanner
   private logger: FastifyInstance['log']
 
   constructor(prisma: PrismaClient, logger: FastifyInstance['log']) {
     this.logger = logger
-    this.scannerService = new ScannerService(prisma, logger)
+    this.scanner = new SimpleScanner(prisma, logger)
   }
 
   /**
@@ -56,15 +56,8 @@ export class FileScanner {
     this.logger.info({ scanPath: options.scanPath }, 'Starting scan with scanner')
 
     try {
-      // 转换为新扫描器选项
-      const simpleScanOptions: SimpleScanOptions = {
-        scanPath: options.scanPath,
-        forceUpdate: options.forceUpdate,
-        onProgress: options.onProgress
-      }
-
-      // 执行新扫描器
-      const simpleScanResult = await this.scannerService.scan(simpleScanOptions)
+      // 执行扫描器
+      const simpleScanResult = await this.scanner.scan(options)
 
       // 转换结果格式
       const result: ScanResult = this.convertToLegacyResult(simpleScanResult)
