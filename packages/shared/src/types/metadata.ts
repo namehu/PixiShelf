@@ -14,9 +14,7 @@ export type ScanStrategyType = 'unified'
  */
 export interface ExtendedScanOptions {
   scanPath: string
-  scanType?: ScanStrategyType // 新增：扫描类型
   forceUpdate?: boolean
-  supportedExtensions?: string[]
   onProgress?: (progress: ScanProgress) => void
 }
 

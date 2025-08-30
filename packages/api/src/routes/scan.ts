@@ -67,7 +67,6 @@ export default async function scanRoutes(server: FastifyInstance) {
 
       const result = await scanner.scan({
         scanPath,
-        scanType: 'unified',
         forceUpdate,
         onProgress: (progress: ScanProgress) => {
           server.appState.lastProgressMessage = progress?.message || null

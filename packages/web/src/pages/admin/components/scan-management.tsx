@@ -165,8 +165,6 @@ function ScanManagement() {
 
       const qs = new URLSearchParams()
       if (force) qs.set('force', 'true')
-      // 固定使用unified策略
-      qs.set('scanType', 'unified')
       const url = `/api/v1/scan/stream${qs.toString() ? `?${qs.toString()}` : ''}`
 
       addLogEntry('connection', { url, force }, `开始连接SSE: ${url} (策略: unified)`)

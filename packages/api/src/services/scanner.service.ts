@@ -12,19 +12,8 @@ import fg from 'fast-glob'
  */
 export interface ScanOptions {
   scanPath: string
-  supportedExtensions?: string[] // 已废弃，新扫描器自动检测媒体文件
   forceUpdate?: boolean
   onProgress?: (progress: ScanProgress) => void
-  scanType?: 'unified' // 兼容旧接口
-}
-
-/**
- * 简化扫描选项接口
- */
-export interface SimpleScanOptions {
-  scanPath: string // 扫描路径
-  forceUpdate?: boolean // 是否强制更新
-  onProgress?: (progress: ScanProgress) => void // 进度回调
 }
 
 /**
@@ -62,30 +51,6 @@ export class ScannerService {
   async scan(options: ScanOptions): Promise<ScanResult> {
     this.logger.info({ scanPath: options.scanPath }, 'Starting scan with scanner')
 
-    try {
-      // 转换为简化扫描选项
-      const simpleScanOptions: SimpleScanOptions = {
-        scanPath: options.scanPath,
-        forceUpdate: options.forceUpdate,
-        onProgress: options.onProgress
-      }
-
-      // 执行扫描
-      const result = await this.scanInternal(simpleScanOptions)
-      this.logger.info({ result }, 'Scan completed successfully')
-      return result
-    } catch (error) {
-      this.logger.error({ error, options }, 'Scan failed')
-      throw error
-    }
-  }
-
-  /**
-   * 内部扫描实现
-   * @param options 扫描选项
-   * @returns 扫描结果
-   */
-  private async scanInternal(options: SimpleScanOptions): Promise<ScanResult> {
     const startTime = Date.now()
 
     const result: ScanResult = {
@@ -101,7 +66,7 @@ export class ScannerService {
     }
 
     try {
-      this.logger.info({ scanPath: options.scanPath }, 'Starting simple scan')
+      this.logger.info({ scanPath: options.scanPath }, 'Starting scan')
 
       // 阶段1: 发现作品
       options.onProgress?.({
@@ -280,11 +245,7 @@ export class ScannerService {
    * @param result 扫描结果
    * @param options 扫描选项
    */
-  private async processArtworks(
-    artworks: ArtworkData[],
-    result: ScanResult,
-    options: SimpleScanOptions
-  ): Promise<void> {
+  private async processArtworks(artworks: ArtworkData[], result: ScanResult, options: ScanOptions): Promise<void> {
     for (let i = 0; i < artworks.length; i++) {
       const artwork = artworks[i]
 
