@@ -60,74 +60,28 @@ export class MediaCollector {
    */
   async collectMediaFiles(directoryPath: string, artworkId: string): Promise<CollectionResult> {
     try {
-      // 验证目录是否存在
-      const stats = await fs.stat(directoryPath)
-      if (!stats.isDirectory()) {
-        return {
-          success: false,
-          mediaFiles: [],
-          error: `Path is not a directory: ${directoryPath}`
-        }
-      }
-
       // 读取目录内容
       const files = await fs.readdir(directoryPath)
 
-      return this.collectMediaFilesFromEntries(directoryPath, artworkId, files)
-    } catch (error) {
-      this.logger.error({ error, directoryPath, artworkId }, 'Failed to collect media files')
-      return {
-        success: false,
-        mediaFiles: [],
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
-    }
-  }
-
-  /**
-   * 从已读取的目录条目中收集指定作品ID的所有媒体文件
-   * 这个方法避免了重复的目录读取操作，提升性能
-   * @param directoryPath 目录路径
-   * @param artworkId 作品ID
-   * @param entries 已读取的目录条目（文件名数组或Dirent数组）
-   * @returns 收集结果
-   */
-  async collectMediaFilesFromEntries(
-    directoryPath: string,
-    artworkId: string,
-    entries: string[] | import('fs').Dirent[]
-  ): Promise<CollectionResult> {
-    try {
       // 过滤和解析媒体文件
       const mediaFiles: MediaFileInfo[] = []
 
-      for (const entry of entries) {
-        const filename = typeof entry === 'string' ? entry : entry.name
+      for (const entry of files) {
+        const filename = entry
         const filePath = path.join(directoryPath, filename)
 
-        // 如果是Dirent对象，检查是否为文件
-        if (typeof entry !== 'string' && !entry.isFile()) continue
+        // 检查文件扩展名
+        const extension = path.extname(filename).toLowerCase()
+        if (!this.supportedExtensions.has(extension)) continue
 
         // 检查是否是目标作品的媒体文件
         const mediaInfo = this.parseMediaFilename(filename, artworkId)
         if (!mediaInfo) continue
 
         try {
-          // 如果是字符串数组，需要获取文件信息
-          let fileSize: number
-          if (typeof entry === 'string') {
-            const fileStats = await fs.stat(filePath)
-            if (!fileStats.isFile()) continue
-            fileSize = fileStats.size
-          } else {
-            // 对于Dirent对象，仍需要获取文件大小
-            const fileStats = await fs.stat(filePath)
-            fileSize = fileStats.size
-          }
-
-          // 检查文件扩展名
-          const extension = path.extname(filename).toLowerCase()
-          if (!this.supportedExtensions.has(extension)) continue
+          const fileStats = await fs.stat(filePath)
+          if (!fileStats.isFile()) continue
+          const fileSize = fileStats.size
 
           mediaFiles.push({
             path: filePath,
@@ -152,7 +106,7 @@ export class MediaCollector {
         mediaFiles
       }
     } catch (error) {
-      this.logger.error({ error, directoryPath, artworkId }, 'Failed to collect media files from entries')
+      this.logger.error({ error, directoryPath, artworkId }, 'Failed to collect media files')
       return {
         success: false,
         mediaFiles: [],
