@@ -37,22 +37,6 @@ export interface ScanProgress {
 }
 
 /**
- * 扫描状态响应
- */
-export interface ScanStatusResponse {
-  scanning: boolean
-  message?: string | null
-}
-
-/**
- * 扫描取消响应
- */
-export interface ScanCancelResponse {
-  success: boolean
-  cancelled: boolean
-}
-
-/**
  * SSE 日志条目
  */
 export interface LogEntry {
