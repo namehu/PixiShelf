@@ -35,6 +35,17 @@ export class ScannerService {
   private logger: FastifyInstance['log']
   private metadataParser: MetadataParser
   private mediaCollector: MediaCollector
+  private scanResult: ScanResult = {
+    totalArtworks: 0,
+    newArtists: 0,
+    newArtworks: 0,
+    newImages: 0,
+    newTags: 0,
+    skippedArtworks: 0,
+    errors: [],
+    processingTime: 0,
+    removedArtworks: 0
+  }
 
   constructor(prisma: PrismaClient, logger: FastifyInstance['log']) {
     this.prisma = prisma
@@ -53,18 +64,6 @@ export class ScannerService {
 
     const startTime = Date.now()
 
-    const result: ScanResult = {
-      totalArtworks: 0,
-      newArtists: 0,
-      newArtworks: 0,
-      newImages: 0,
-      newTags: 0,
-      skippedArtworks: 0,
-      errors: [],
-      processingTime: 0,
-      removedArtworks: 0
-    }
-
     try {
       this.logger.info({ scanPath: options.scanPath }, 'Starting scan')
 
@@ -76,9 +75,9 @@ export class ScannerService {
       })
 
       const artworks = await this.discoverArtworks(options.scanPath)
-      result.totalArtworks = artworks.length
+      this.scanResult.totalArtworks = artworks.length
 
-      this.logger.info({ totalArtworks: result.totalArtworks }, 'Discovered artworks')
+      this.logger.info({ totalArtworks: this.scanResult.totalArtworks }, 'Discovered artworks')
 
       if (artworks.length === 0) {
         options.onProgress?.({
@@ -86,8 +85,8 @@ export class ScannerService {
           message: '未发现任何作品',
           percentage: 100
         })
-        result.processingTime = Date.now() - startTime
-        return result
+        this.scanResult.processingTime = Date.now() - startTime
+        return this.scanResult
       }
 
       // 阶段2: 处理作品
@@ -99,7 +98,7 @@ export class ScannerService {
         percentage: 10
       })
 
-      await this.processArtworks(artworks, result, options)
+      await this.processArtworks(artworks, options)
 
       // 完成
       options.onProgress?.({
@@ -108,22 +107,22 @@ export class ScannerService {
         percentage: 100
       })
 
-      result.processingTime = Date.now() - startTime
+      this.scanResult.processingTime = Date.now() - startTime
 
       this.logger.info(
         {
-          result,
-          processingTimeMs: result.processingTime
+          result: this.scanResult,
+          processingTimeMs: this.scanResult.processingTime
         },
         'Scan completed'
       )
 
-      return result
+      return this.scanResult
     } catch (error) {
       this.logger.error({ error, options }, 'Scan failed')
-      result.errors.push(error instanceof Error ? error.message : 'Unknown error')
-      result.processingTime = Date.now() - startTime
-      return result
+      this.scanResult.errors.push(error instanceof Error ? error.message : 'Unknown error')
+      this.scanResult.processingTime = Date.now() - startTime
+      return this.scanResult
     }
   }
 
@@ -242,10 +241,9 @@ export class ScannerService {
   /**
    * 处理作品
    * @param artworks 作品数组
-   * @param result 扫描结果
    * @param options 扫描选项
    */
-  private async processArtworks(artworks: ArtworkData[], result: ScanResult, options: ScanOptions): Promise<void> {
+  private async processArtworks(artworks: ArtworkData[], options: ScanOptions): Promise<void> {
     for (let i = 0; i < artworks.length; i++) {
       const artwork = artworks[i]
 
@@ -259,13 +257,13 @@ export class ScannerService {
           percentage: 10 + Math.floor((i / artworks.length) * 80)
         })
 
-        await this.processArtwork(artwork, result, options.forceUpdate || false)
+        await this.processArtwork(artwork, options.forceUpdate || false)
       } catch (error) {
         this.logger.error({ error, artwork: artwork.metadata }, 'Failed to process artwork')
-        result.errors.push(
+        this.scanResult.errors.push(
           `Failed to process artwork ${artwork.metadata.title}: ${error instanceof Error ? error.message : 'Unknown error'}`
         )
-        result.skippedArtworks++
+        this.scanResult.skippedArtworks++
       }
     }
   }
@@ -273,10 +271,9 @@ export class ScannerService {
   /**
    * 处理单个作品
    * @param artworkData 作品数据
-   * @param result 扫描结果
    * @param forceUpdate 是否强制更新
    */
-  private async processArtwork(artworkData: ArtworkData, result: ScanResult, forceUpdate: boolean): Promise<void> {
+  private async processArtwork(artworkData: ArtworkData, forceUpdate: boolean): Promise<void> {
     const { metadata, mediaFiles } = artworkData
 
     // 检查作品是否已存在
@@ -294,34 +291,33 @@ export class ScannerService {
 
       if (existingArtwork) {
         this.logger.debug({ artworkId: metadata.id, title: metadata.title }, 'Artwork already exists, skipping')
-        result.skippedArtworks++
+        this.scanResult.skippedArtworks++
         return
       }
     }
-    result.newArtworks++
+    this.scanResult.newArtworks++
 
     // 处理艺术家
-    const artist = await this.ensureArtist(metadata, result)
+    const artist = await this.ensureArtist(metadata)
 
     // 处理作品
-    const artwork = await this.ensureArtwork(artworkData, artist.id, result)
+    const artwork = await this.ensureArtwork(artworkData, artist.id)
 
     // 处理图片
-    await this.ensureImages(artwork.id, mediaFiles, result)
+    await this.ensureImages(artwork.id, mediaFiles)
 
     // 处理标签
     if (metadata.tags && metadata.tags.length > 0) {
-      await this.ensureTags(artwork.id, metadata.tags, result)
+      await this.ensureTags(artwork.id, metadata.tags)
     }
   }
 
   /**
    * 确保艺术家存在
    * @param metadata 元数据
-   * @param result 扫描结果
    * @returns 艺术家记录
    */
-  private async ensureArtist(metadata: MetadataInfo, result: ScanResult) {
+  private async ensureArtist(metadata: MetadataInfo) {
     let artist = await this.prisma.artist.findFirst({
       where: {
         OR: [{ userId: metadata.userId }, { name: metadata.user }]
@@ -337,7 +333,7 @@ export class ScannerService {
           bio: `Artist from external source (ID: ${metadata.userId})`
         }
       })
-      result.newArtists++
+      this.scanResult.newArtists++
       this.logger.debug({ artistId: artist.id, name: artist.name }, 'Created new artist')
     }
 
@@ -348,10 +344,9 @@ export class ScannerService {
    * 确保作品存在
    * @param artworkData 作品数据
    * @param artistId 艺术家ID
-   * @param result 扫描结果
    * @returns 作品记录
    */
-  private async ensureArtwork(artworkData: ArtworkData, artistId: number, result: ScanResult) {
+  private async ensureArtwork(artworkData: ArtworkData, artistId: number) {
     const { directoryCreatedAt, metadata, mediaFiles } = artworkData
     const imageCount = mediaFiles.length
     let artwork = await this.prisma.artwork.findFirst({
@@ -385,7 +380,7 @@ export class ScannerService {
           directoryCreatedAt
         }
       })
-      result.newArtworks++
+      this.scanResult.newArtworks++
       this.logger.debug({ artworkId: artwork.id, title: artwork.title }, 'Created new artwork')
     } else {
       // 更新现有作品
@@ -419,9 +414,8 @@ export class ScannerService {
    * 确保图片存在
    * @param artworkId 作品ID
    * @param mediaFiles 媒体文件列表
-   * @param result 扫描结果
    */
-  private async ensureImages(artworkId: number, mediaFiles: MediaFileInfo[], result: ScanResult): Promise<void> {
+  private async ensureImages(artworkId: number, mediaFiles: MediaFileInfo[]): Promise<void> {
     if (mediaFiles.length) {
       // 删除现有图片（如果需要更新）
       await this.prisma.image.deleteMany({
@@ -437,7 +431,7 @@ export class ScannerService {
           artworkId
         }))
       })
-      result.newImages += mediaFiles.length
+      this.scanResult.newImages += mediaFiles.length
     }
   }
 
@@ -445,9 +439,8 @@ export class ScannerService {
    * 确保标签存在
    * @param artworkId 作品ID
    * @param tags 标签列表
-   * @param result 扫描结果
    */
-  private async ensureTags(artworkId: number, tags: string[], result: ScanResult): Promise<void> {
+  private async ensureTags(artworkId: number, tags: string[]): Promise<void> {
     // 删除现有标签关联
     await this.prisma.artworkTag.deleteMany({
       where: { artworkId }
@@ -465,7 +458,7 @@ export class ScannerService {
         tag = await this.prisma.tag.create({
           data: { name: tagName }
         })
-        result.newTags++
+        this.scanResult.newTags++
       }
 
       // 创建作品-标签关联
