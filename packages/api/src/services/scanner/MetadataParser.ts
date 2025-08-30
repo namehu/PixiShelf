@@ -324,6 +324,6 @@ export class MetadataParser {
    * @returns 是否是元数据文件
    */
   static isMetadataFile(filename: string): boolean {
-    return /^\d+-meta\.txt$/i.test(filename)
+    return !!MetadataParser.extractArtworkIdFromFilename(filename)
   }
 }

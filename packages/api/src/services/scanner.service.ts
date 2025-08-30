@@ -144,37 +144,6 @@ export class ScannerService {
     return artworks
   }
 
-  private async globMetadataFiles(directoryPath: string): Promise<
-    {
-      name: string
-      path: string
-      createdAt: Date
-    }[]
-  > {
-    // 查找 数字-meta.txt 格式的文件
-    const files = await fg(['**/*-meta.txt'], {
-      cwd: path.resolve(directoryPath),
-      deep: 4,
-      absolute: true,
-      onlyFiles: true
-    })
-    const metadataFiles = await Promise.all(
-      files.map(async (file) => {
-        const filename = path.basename(file)
-        const stats = await fs.stat(file)
-
-        return {
-          name: filename,
-          path: file,
-          createdAt: stats.birthtime // 或者使用 stats.birthtimeMs
-        }
-      })
-    )
-
-    // 过滤出符合 数字-meta.txt 格式的文件
-    return metadataFiles.filter((item) => MetadataParser.isMetadataFile(item.name))
-  }
-
   /**
    * 递归发现作品
    * @param directoryPath 目录路径
@@ -237,6 +206,37 @@ export class ScannerService {
       this.logger.error({ error, directoryPath }, 'Failed to read directory')
       // 不要重新抛出错误，继续处理其他目录
     }
+  }
+
+  private async globMetadataFiles(directoryPath: string): Promise<
+    {
+      name: string
+      path: string
+      createdAt: Date
+    }[]
+  > {
+    // 查找 数字-meta.txt 格式的文件
+    const files = await fg(['**/*-meta.txt'], {
+      cwd: path.resolve(directoryPath),
+      deep: 4,
+      absolute: true,
+      onlyFiles: true
+    })
+    const metadataFiles = await Promise.all(
+      files.map(async (file) => {
+        const filename = path.basename(file)
+        const stats = await fs.stat(file)
+
+        return {
+          name: filename,
+          path: file,
+          createdAt: stats.birthtime // 或者使用 stats.birthtimeMs
+        }
+      })
+    )
+
+    // 过滤出符合 数字-meta.txt 格式的文件
+    return metadataFiles.filter((item) => MetadataParser.isMetadataFile(item.name))
   }
 
   /**
