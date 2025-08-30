@@ -44,7 +44,6 @@ model Artwork {
   artworkTags        ArtworkTag[]
   images             Image[]
 
-  @@unique([artistId, title], name: "unique_artist_title")
   @@index([title, description])
   @@index([directoryCreatedAt])
   @@index([imageCount])

@@ -26,6 +26,13 @@ interface ArtworkData {
   directoryCreatedAt: Date
 }
 
+interface GlobMetadataFile {
+  name: string
+  artworkId: string
+  path: string
+  createdAt: Date
+}
+
 /**
  * 扫描器服务
  * 基于元数据文件的简单直接的扫描实现
@@ -96,7 +103,7 @@ export class ScannerService {
       let artworks: ArtworkData[] = []
 
       try {
-        artworks = await this.discoverArtworksRecursive(options.scanPath, options.forceUpdate, options.onProgress)
+        artworks = await this.discoverArtworks(options.scanPath, options.forceUpdate, options.onProgress)
       } catch (error) {
         this.logger.error({ error, scanPath: options.scanPath }, 'Failed to discover artworks')
       }
@@ -163,7 +170,7 @@ export class ScannerService {
    * @param forceUpdate 是否强制更新
    * @param onProgress 进度回调
    */
-  private async discoverArtworksRecursive(
+  private async discoverArtworks(
     directoryPath: string,
     forceUpdate: boolean = false,
     onProgress?: (progress: ScanProgress) => void
@@ -197,7 +204,7 @@ export class ScannerService {
             continue
           }
 
-          // 收集媒体文件 - 使用已读取的entries避免重复IO
+          // 收集媒体文件
           const collectionResult = await this.mediaCollector.collectMediaFiles(path.dirname(metadataPath), artworkId)
           if (!collectionResult.success) {
             this.logger.warn(
@@ -246,17 +253,7 @@ export class ScannerService {
    * @param forceUpdate 是否强制更新
    * @returns 元数据文件数组
    */
-  private async globMetadataFiles(
-    directoryPath: string,
-    forceUpdate: boolean = false
-  ): Promise<
-    {
-      name: string
-      artworkId: string
-      path: string
-      createdAt: Date
-    }[]
-  > {
+  private async globMetadataFiles(directoryPath: string, forceUpdate: boolean = false): Promise<GlobMetadataFile[]> {
     // 查找 数字-meta.txt 格式的文件
     const files = await fg(['**/*-meta.txt'], {
       cwd: path.resolve(directoryPath),
@@ -314,6 +311,19 @@ export class ScannerService {
         )
       }
     }
+    // filesToProcess 中如果artworkId 有重复的 则保留一个并发生成错误日志信息
+    const artworkIdSet: Record<string, GlobMetadataFile> = {}
+    filesToProcess = filesToProcess.filter((file: any) => {
+      if (artworkIdSet[file.artworkId]) {
+        this.scanResult.errors.push(
+          `Duplicate artworkId found: ${file.artworkId}\n ${artworkIdSet[file.artworkId].path} \n ${file.path}`
+        )
+        this.logger.warn({ artworkId: file.artworkId }, 'Duplicate artworkId found')
+        return false
+      }
+      artworkIdSet[file.artworkId] = file
+      return true
+    })
 
     // 获取文件统计信息
     const metadataFiles = await Promise.all(
@@ -356,7 +366,6 @@ export class ScannerService {
         this.scanResult.errors.push(
           `Failed to process artwork ${artwork.metadata.title}: ${error instanceof Error ? error.message : 'Unknown error'}`
         )
-        this.scanResult.skippedArtworks++
       }
     }
   }
@@ -368,27 +377,6 @@ export class ScannerService {
    */
   private async processArtwork(artworkData: ArtworkData, forceUpdate: boolean): Promise<void> {
     const { metadata, mediaFiles } = artworkData
-
-    // 检查作品是否已存在
-    if (!forceUpdate) {
-      const existingArtwork = await this.prisma.artwork.findFirst({
-        where: {
-          OR: [
-            { externalId: metadata.id },
-            {
-              AND: [{ title: metadata.title }, { artist: { userId: metadata.userId } }]
-            }
-          ]
-        }
-      })
-
-      if (existingArtwork) {
-        this.logger.debug({ artworkId: metadata.id, title: metadata.title }, 'Artwork already exists, skipping')
-        this.scanResult.skippedArtworks++
-        return
-      }
-    }
-    this.scanResult.newArtworks++
 
     // 处理艺术家
     const artist = await this.ensureArtist(metadata)
@@ -403,6 +391,8 @@ export class ScannerService {
     if (metadata.tags && metadata.tags.length > 0) {
       await this.ensureTags(artwork.id, metadata.tags)
     }
+
+    this.scanResult.newArtworks++
   }
 
   /**
@@ -413,7 +403,7 @@ export class ScannerService {
   private async ensureArtist(metadata: MetadataInfo) {
     let artist = await this.prisma.artist.findFirst({
       where: {
-        OR: [{ userId: metadata.userId }, { name: metadata.user }]
+        userId: metadata.userId
       }
     })
 
@@ -442,62 +432,27 @@ export class ScannerService {
   private async ensureArtwork(artworkData: ArtworkData, artistId: number) {
     const { directoryCreatedAt, metadata, mediaFiles } = artworkData
     const imageCount = mediaFiles.length
-    let artwork = await this.prisma.artwork.findFirst({
-      where: {
-        OR: [
-          { externalId: metadata.id },
-          {
-            AND: [{ title: metadata.title }, { artistId }]
-          }
-        ]
+
+    const artwork = await this.prisma.artwork.create({
+      data: {
+        title: metadata.title,
+        description: metadata.description,
+        artistId,
+        imageCount,
+        descriptionLength: metadata.description?.length || 0,
+        externalId: metadata.id,
+        sourceUrl: metadata.url,
+        originalUrl: metadata.original,
+        thumbnailUrl: metadata.thumbnail,
+        xRestrict: metadata.xRestrict,
+        isAiGenerated: metadata.ai === 'Yes',
+        size: metadata.size,
+        bookmarkCount: metadata.bookmark,
+        sourceDate: metadata.date,
+        directoryCreatedAt
       }
     })
-
-    if (!artwork) {
-      artwork = await this.prisma.artwork.create({
-        data: {
-          title: metadata.title,
-          description: metadata.description,
-          artistId,
-          imageCount,
-          descriptionLength: metadata.description?.length || 0,
-          externalId: metadata.id,
-          sourceUrl: metadata.url,
-          originalUrl: metadata.original,
-          thumbnailUrl: metadata.thumbnail,
-          xRestrict: metadata.xRestrict,
-          isAiGenerated: metadata.ai === 'Yes',
-          size: metadata.size,
-          bookmarkCount: metadata.bookmark,
-          sourceDate: metadata.date,
-          directoryCreatedAt
-        }
-      })
-      this.logger.debug({ artworkId: artwork.id, title: artwork.title }, 'Created new artwork')
-    } else {
-      // 更新现有作品
-      artwork = await this.prisma.artwork.update({
-        where: { id: artwork.id },
-        data: {
-          title: metadata.title,
-          description: metadata.description,
-          imageCount,
-          descriptionLength: metadata.description?.length || 0,
-          externalId: metadata.id,
-          sourceUrl: metadata.url,
-          originalUrl: metadata.original,
-          thumbnailUrl: metadata.thumbnail,
-          xRestrict: metadata.xRestrict,
-          isAiGenerated: metadata.ai === 'Yes',
-          size: metadata.size,
-          bookmarkCount: metadata.bookmark,
-          sourceDate: metadata.date,
-          directoryCreatedAt,
-          updatedAt: new Date()
-        }
-      })
-      this.logger.debug({ artworkId: artwork.id, title: artwork.title }, 'Updated existing artwork')
-    }
+    this.logger.debug({ artworkId: artwork.id, title: artwork.title }, 'Created new artwork')
 
     return artwork
   }
@@ -509,11 +464,6 @@ export class ScannerService {
    */
   private async ensureImages(artworkId: number, mediaFiles: MediaFileInfo[]): Promise<void> {
     if (mediaFiles.length) {
-      // 删除现有图片（如果需要更新）
-      await this.prisma.image.deleteMany({
-        where: { artworkId }
-      })
-
       // 创建新图片记录
       await this.prisma.image.createMany({
         data: mediaFiles.map((mediaFile) => ({
