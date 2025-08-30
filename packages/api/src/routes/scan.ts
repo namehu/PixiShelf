@@ -79,10 +79,6 @@ export default async function scanRoutes(server: FastifyInstance) {
       })
 
       sendEvent('complete', { success: true, result })
-
-      const metrics = scanner.getPerformanceMetrics()
-      const cacheStats = scanner.getCacheStats()
-      console.log('性能报告:', { metrics, cacheStats })
     } catch (error: any) {
       if (error?.message === 'Scan cancelled') {
         sendEvent('cancelled', { success: false, error: 'Scan cancelled' })

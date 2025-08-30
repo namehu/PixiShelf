@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { FastifyInstance } from 'fastify'
-import { ScannerService, SimpleScanOptions, SimpleScanResult, createScannerService } from './scanner/ScannerInterface'
+import { ScannerService, SimpleScanOptions, SimpleScanResult } from './scanner/ScannerInterface'
 import { ScanProgress } from '@pixishelf/shared'
 
 /**
@@ -35,17 +35,9 @@ export class FileScanner {
   private scannerService: ScannerService
   private logger: FastifyInstance['log']
 
-  constructor(
-    prisma: PrismaClient,
-    logger: FastifyInstance['log'],
-    options?: {
-      enableStreaming?: boolean // 已废弃，保持向后兼容
-      enableMetadataScanning?: boolean // 已废弃，新扫描器总是启用元数据
-      scanOrchestratorOptions?: any // 已废弃
-    }
-  ) {
+  constructor(prisma: PrismaClient, logger: FastifyInstance['log']) {
     this.logger = logger
-    this.scannerService = createScannerService(prisma, logger)
+    this.scannerService = new ScannerService(prisma, logger)
   }
 
   /**
@@ -125,82 +117,6 @@ export class FileScanner {
       newImages: simpleScanResult.newImages,
       removedArtworks: 0, // 新扫描器不删除作品
       errors: simpleScanResult.errors
-    }
-  }
-
-  /**
-   * 获取扫描器状态
-   * @returns 扫描器状态
-   */
-  getStatus() {
-    return this.scannerService.getStatus()
-  }
-
-  /**
-   * 检查是否正在扫描
-   * @returns 是否正在扫描
-   */
-  isScanning(): boolean {
-    return this.scannerService.isScanning()
-  }
-
-  /**
-   * 获取最后一次扫描结果
-   * @returns 最后一次扫描结果
-   */
-  getLastScanResult() {
-    const lastResult = this.scannerService.getLastScanResult()
-    return lastResult ? this.convertToLegacyResult(lastResult) : undefined
-  }
-
-  /**
-   * 获取当前进度
-   * @returns 当前进度
-   */
-  getCurrentProgress() {
-    return this.scannerService.getCurrentProgress()
-  }
-
-  // 以下方法为向后兼容保留，但已废弃
-
-  /**
-   * @deprecated 已废弃，新扫描器不提供性能指标
-   */
-  getPerformanceMetrics() {
-    this.logger.warn('getPerformanceMetrics is deprecated')
-    return {
-      startTime: Date.now(),
-      endTime: Date.now(),
-      totalFiles: 0,
-      processedFiles: 0,
-      skippedFiles: 0,
-      errorFiles: 0,
-      memoryUsage: { heapUsed: 0, heapTotal: 0, external: 0 },
-      concurrencyStats: { currentQueueLength: 0, peakQueueLength: 0 }
-    }
-  }
-
-  /**
-   * @deprecated 已废弃，新扫描器不使用缓存
-   */
-  getCacheStats() {
-    this.logger.warn('getCacheStats is deprecated')
-    return {
-      hits: 0,
-      misses: 0,
-      size: 0
-    }
-  }
-
-  /**
-   * @deprecated 已废弃，新扫描器不使用并发控制器
-   */
-  getConcurrencyStatus() {
-    this.logger.warn('getConcurrencyStatus is deprecated')
-    return {
-      active: 0,
-      queued: 0,
-      maxConcurrency: 1
     }
   }
 }

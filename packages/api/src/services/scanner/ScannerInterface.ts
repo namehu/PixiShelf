@@ -14,12 +14,6 @@ export interface IScannerService {
    * @returns 扫描结果
    */
   scan(options: SimpleScanOptions): Promise<SimpleScanResult>
-
-  /**
-   * 获取扫描器状态
-   * @returns 扫描器状态信息
-   */
-  getStatus(): ScannerStatus
 }
 
 /**
@@ -94,48 +88,6 @@ export class ScannerService implements IScannerService {
       this.status.progress = undefined
     }
   }
-
-  /**
-   * 获取扫描器状态
-   * @returns 扫描器状态信息
-   */
-  getStatus(): ScannerStatus {
-    return { ...this.status }
-  }
-
-  /**
-   * 检查是否正在扫描
-   * @returns 是否正在扫描
-   */
-  isScanning(): boolean {
-    return this.status.isScanning
-  }
-
-  /**
-   * 获取最后一次扫描结果
-   * @returns 最后一次扫描结果
-   */
-  getLastScanResult(): SimpleScanResult | undefined {
-    return this.status.lastScanResult
-  }
-
-  /**
-   * 获取当前进度
-   * @returns 当前进度
-   */
-  getCurrentProgress(): ScanProgress | undefined {
-    return this.status.progress
-  }
-}
-
-/**
- * 创建扫描器服务实例
- * @param prisma Prisma客户端
- * @param logger 日志记录器
- * @returns 扫描器服务实例
- */
-export function createScannerService(prisma: PrismaClient, logger: FastifyInstance['log']): ScannerService {
-  return new ScannerService(prisma, logger)
 }
 
 // 导出类型
