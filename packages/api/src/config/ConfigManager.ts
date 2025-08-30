@@ -101,7 +101,6 @@ export class ConfigManager {
     }
 
     // 更新配置
-    const oldConfig = { ...this.config }
     this.config = newConfig
 
     // 持久化配置

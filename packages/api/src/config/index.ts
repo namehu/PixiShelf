@@ -1,7 +1,7 @@
 import { ConfigManager } from './ConfigManager'
 import { AppConfig, ConfigOverrides } from './types'
 import { getEnvironmentOverrides } from './defaults'
-import { checkRequiredEnvVars, generateEnvExample } from './env-mapping'
+import { checkRequiredEnvVars } from './env-mapping'
 import { validateEnvironmentConsistency } from './validator'
 
 /**
@@ -36,7 +36,6 @@ export async function initializeConfig(
     if (!envCheck.isValid) {
       console.error('Missing required environment variables:', envCheck.missing)
       console.log('\nExample .env file content:')
-      console.log(generateEnvExample())
       throw new Error(`Missing required environment variables: ${envCheck.missing.join(', ')}`)
     }
 
@@ -195,13 +194,6 @@ export const config = {
   },
 
   /**
-   * 扫描器配置
-   */
-  get scanner() {
-    return getConfigSection('scanner')
-  },
-
-  /**
    * 认证配置
    */
   get auth() {
@@ -213,13 +205,6 @@ export const config = {
    */
   get log() {
     return getConfigSection('log')
-  },
-
-  /**
-   * 监控配置
-   */
-  get monitoring() {
-    return getConfigSection('monitoring')
   },
 
   /**
@@ -292,13 +277,6 @@ function ensureInitialized(): void {
 }
 
 /**
- * 获取环境变量示例
- */
-export function getEnvExample(): string {
-  return generateEnvExample()
-}
-
-/**
  * 检查配置健康状态
  */
 export function checkConfigHealth(): {
@@ -335,5 +313,5 @@ export function checkConfigHealth(): {
 export * from './types'
 export { ConfigManager } from './ConfigManager'
 export { validateConfig, validateEnvironmentConsistency } from './validator'
-export { getDefaultConfig, getEnvironmentOverrides } from './defaults'
-export { checkRequiredEnvVars, generateEnvExample } from './env-mapping'
+export { getDefaultConfig } from './defaults'
+export { checkRequiredEnvVars } from './env-mapping'
