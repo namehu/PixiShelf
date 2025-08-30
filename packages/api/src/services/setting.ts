@@ -29,7 +29,7 @@ export class SettingService {
   async getScanPath(): Promise<string | null> {
     // 优先级：数据库设置 > 环境变量
     const dbValue = await this.get('scanPath')
-    return dbValue || process.env.SCAN_PATH || null
+    return dbValue || null
   }
 
   async setScanPath(value: string): Promise<void> {
@@ -38,17 +38,14 @@ export class SettingService {
 
   async getAll(): Promise<Record<string, string>> {
     const settings = await this.prisma.setting.findMany()
-    return settings.reduce((acc, setting) => {
-      acc[setting.key] = setting.value || ''
-      return acc
-    }, {} as Record<string, string>)
+    return settings.reduce(
+      (acc, setting) => {
+        acc[setting.key] = setting.value || ''
+        return acc
+      },
+      {} as Record<string, string>
+    )
   }
 
-  async initDefaults(): Promise<void> {
-    // 如果数据库中没有 scanPath 但环境变量有，则自动迁移
-    const dbScanPath = await this.get('scanPath')
-    if (!dbScanPath && process.env.SCAN_PATH) {
-      await this.setScanPath(process.env.SCAN_PATH)
-    }
-  }
+  async initDefaults(): Promise<void> {}
 }

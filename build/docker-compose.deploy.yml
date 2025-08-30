@@ -37,9 +37,8 @@ services:
       # 覆盖生产环境特定配置
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
-      SCAN_PATH: /app/data
-    volumes:
-      - ${SCAN_PATH}:/app/data:ro  # 只读挂载图片目录
+    # volumes:
+      # - YOUR_SCAN_PATH:/app/data:ro  # 只读挂载图片目录.如果你需要挂載外部的目錄
     networks:
       - pixishelf-network
     depends_on:

@@ -107,9 +107,6 @@ JWT_SECRET="your-secure-jwt-secret-here"
 INIT_ADMIN_USERNAME="admin"
 INIT_ADMIN_PASSWORD="admin123"
 
-# 图片扫描路径（修改为你的图片收藏路径）
-SCAN_PATH="/path/to/your/artwork/directory"
-
 # 服务器配置
 PORT=3002
 NODE_ENV=development

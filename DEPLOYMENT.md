@@ -70,8 +70,6 @@ IMAGE_TAG=latest  # 或指定版本如 v1.0.0
 POSTGRES_PASSWORD=your-secure-password
 JWT_SECRET=your-jwt-secret-32-chars-min
 
-# 路径配置
-SCAN_PATH=/path/to/your/artwork/directory
 ```
 
 ### 4. 部署应用
@@ -168,7 +166,6 @@ nano .env
 - `POSTGRES_PASSWORD`: 数据库密码（必须修改）
 - `JWT_SECRET`: JWT密钥（必须修改，至少32字符）
 - `INIT_ADMIN_PASSWORD`: 管理员密码（必须修改）
-- `SCAN_PATH`: 图片目录的绝对路径
 
 ### 4. 部署应用
 
@@ -335,7 +332,6 @@ curl http://localhost/health
    - 查看数据库日志
 
 3. **图片无法显示**
-   - 检查 `SCAN_PATH` 配置
    - 确认目录权限
    - 验证图片文件路径
 
