@@ -193,10 +193,10 @@ export default function ArtworkDetail() {
 
   return (
     <PageContainer centerContent={<MediaCounter />}>
-      <section className="space-y-6 sm:space-y-8 px-4 sm:px-6 py-6 sm:py-8 max-w-full overflow-hidden">
+      <section className="max-w-full overflow-hidden">
         {/* Loading State */}
         {isLoading && (
-          <div className="space-y-8">
+          <div className="space-y-8 px-4 sm:px-6">
             {/* Header skeleton */}
             <div className="space-y-4">
               <div className="skeleton h-8 w-64" />
@@ -219,41 +219,71 @@ export default function ArtworkDetail() {
 
         {/* Error State */}
         {isError && (
-          <div className="card p-8 text-center max-w-md mx-auto">
-            <div className="w-16 h-16 mx-auto mb-4 bg-error-50 rounded-full flex items-center justify-center">
-              <svg className="w-8 h-8 text-error-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+          <div className="px-4 sm:px-6">
+            <div className="card p-8 text-center max-w-md mx-auto">
+              <div className="w-16 h-16 mx-auto mb-4 bg-error-50 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-error-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-neutral-900 mb-2">加载失败</h3>
+              <p className="text-neutral-600 mb-4">无法加载作品详情，请稍后重试。</p>
+              <button onClick={() => window.location.reload()} className="btn-primary">
+                重新加载
+              </button>
             </div>
-            <h3 className="text-lg font-semibold text-neutral-900 mb-2">加载失败</h3>
-            <p className="text-neutral-600 mb-4">无法加载作品详情，请稍后重试。</p>
-            <button onClick={() => window.location.reload()} className="btn-primary">
-              重新加载
-            </button>
           </div>
         )}
 
         {/* Content */}
         {data && (
           <div className="animate-fade-in">
-            {/* Header */}
-            <div className="space-y-6 sm:space-y-8">
-              {/* Breadcrumb */}
-              <nav className="flex items-center space-x-2 text-sm text-neutral-600 overflow-hidden">
-                <a href="/" className="hover:text-primary-600 transition-colors flex-shrink-0">
-                  画廊
-                </a>
-                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            {/* Images */}
+            <div className="space-y-6">
+              {/* <div className="flex items-center gap-2 px-4 sm:px-6">
+                <svg
+                  className="w-5 h-5 text-neutral-500 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
                 </svg>
-                <span className="text-neutral-900 font-medium truncate">作品详情</span>
-              </nav>
+                <h3 className="text-base sm:text-lg font-semibold text-neutral-900">
+                  图片 ({data.images?.length || 0})
+                </h3>
+              </div> */}
 
+              {/* Media Gallery */}
+              <div className="w-full max-w-[768px] mx-auto">
+                {(data.images || []).map((img: any, index: number) => {
+                  const isVideo = isVideoFile(img.path)
+                  return (
+                    <LazyMedia
+                      key={img.id}
+                      src={`/api/v1/images/${img.path}`}
+                      alt={`${data.title} - ${isVideo ? '视频' : '图片'} ${index + 1}`}
+                      index={index}
+                      onInView={handleImageInView}
+                      isVideo={isVideo}
+                    />
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Header */}
+            <div className="space-y-6 sm:space-y-8 mt-8 px-4 sm:px-6">
               {/* Title and Artist */}
               <div className="space-y-3">
                 <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-neutral-900 leading-tight break-words">
@@ -313,7 +343,7 @@ export default function ArtworkDetail() {
 
             {/* Description */}
             {data.description && (
-              <div className="mt-6 sm:mt-8">
+              <div className="mt-6 sm:mt-8 px-4 sm:px-6">
                 <h3 className="text-base sm:text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
                   <svg
                     className="w-5 h-5 text-neutral-500 flex-shrink-0"
@@ -335,45 +365,6 @@ export default function ArtworkDetail() {
                 </div>
               </div>
             )}
-
-            {/* Images */}
-            <div className="space-y-6 sm:space-y-8 mt-6 sm:mt-8">
-              <div className="flex items-center gap-2">
-                <svg
-                  className="w-5 h-5 text-neutral-500 flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                  />
-                </svg>
-                <h3 className="text-base sm:text-lg font-semibold text-neutral-900">
-                  图片 ({data.images?.length || 0})
-                </h3>
-              </div>
-
-              {/* Media Gallery */}
-              <div className="max-w-4xl mx-auto w-full">
-                {(data.images || []).map((img: any, index: number) => {
-                  const isVideo = isVideoFile(img.path)
-                  return (
-                    <LazyMedia
-                      key={img.id}
-                      src={`/api/v1/images/${img.path}`}
-                      alt={`${data.title} - ${isVideo ? '视频' : '图片'} ${index + 1}`}
-                      index={index}
-                      onInView={handleImageInView}
-                      isVideo={isVideo}
-                    />
-                  )
-                })}
-              </div>
-            </div>
           </div>
         )}
       </section>

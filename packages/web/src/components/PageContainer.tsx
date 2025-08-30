@@ -52,9 +52,7 @@ export function PageContainer({ children, centerContent }: PageContainerProps) {
 
             {/* Center Content - 自定义中间区域，移动端优化 */}
             <div className="flex-1 flex justify-center min-w-0 px-2">
-              <div className="max-w-full overflow-hidden">
-                {centerContent}
-              </div>
+              <div className="max-w-full overflow-hidden">{centerContent}</div>
             </div>
 
             {/* Navigation - 右侧设置和退出，移动端优化 */}
@@ -64,7 +62,12 @@ export function PageContainer({ children, centerContent }: PageContainerProps) {
                 className="btn-ghost p-1.5 sm:p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
                 title="管理中心"
               >
-                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  className="w-4 h-4 sm:w-5 sm:h-5 text-neutral-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -88,7 +91,12 @@ export function PageContainer({ children, centerContent }: PageContainerProps) {
               >
                 <span className="hidden sm:inline">退出</span>
                 <svg className="w-4 h-4 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  />
                 </svg>
               </button>
             </nav>
@@ -97,9 +105,7 @@ export function PageContainer({ children, centerContent }: PageContainerProps) {
       </header>
 
       {/* Main Content - 添加顶部间距以避免被固定导航头遮挡 */}
-      <main className="flex-1 pt-[60px] sm:pt-[68px]">
-        {children}
-      </main>
+      <main className="flex-1 pt-[53px]">{children}</main>
 
       {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (
