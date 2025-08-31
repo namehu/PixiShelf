@@ -24,7 +24,6 @@
         "bradlc.vscode-tailwindcss",
         "ms-vscode.vscode-json",
         "ms-vscode.vscode-eslint",
-        "Prisma.prisma",
         "ms-vscode.vscode-node-debug2"
       ],
       "settings": {

@@ -61,7 +61,7 @@ COPY --from=api-build /app/packages/api/prisma ./packages/api/prisma
 WORKDIR /app/packages/api
 
 # 生成Prisma客户端（使用pnpm exec调用根目录的prisma）
-RUN pnpm exec prisma generate
+# RUN pnpm exec prisma generate
 
 EXPOSE 5431
 # 健康检查

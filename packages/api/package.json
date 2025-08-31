@@ -21,7 +21,8 @@
     "config:health": "npm run config health",
     "config:show": "npm run config show",
     "config:env-example": "npm run config env-example",
-    "config:wizard": "npm run config wizard"
+    "config:wizard": "npm run config wizard",
+    "postinstall": "npm run db:generate"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
