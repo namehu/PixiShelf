@@ -20,7 +20,7 @@
       "onAutoForward": "notify"
     }
   },
-  "postCreateCommand": "git config --global --add safe.directory /workspace && pnpm install",
+  "postCreateCommand": "git config --global --add safe.directory /workspace && git config --global core.autocrlf false && git config --global core.eol lf && pnpm install",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -35,7 +35,9 @@
       "settings": {
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "esbenp.prettier-vscode",
-        "typescript.preferences.importModuleSpecifier": "relative"
+        "typescript.preferences.importModuleSpecifier": "relative",
+        "files.eol": "\n",
+        "git.autocrlf": "input"
       }
     }
   },

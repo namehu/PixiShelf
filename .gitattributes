@@ -1,0 +1,43 @@
+# 统一换行符处理
+* text=auto eol=lf
+
+# 明确指定文本文件使用LF换行符
+*.js text eol=lf
+*.ts text eol=lf
+*.jsx text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+*.xml text eol=lf
+*.txt text eol=lf
+*.sh text eol=lf
+*.sql text eol=lf
+*.env text eol=lf
+*.env.* text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf
+*.dockerignore text eol=lf
+Dockerfile text eol=lf
+*.conf text eol=lf
+*.config text eol=lf
+*.lock text eol=lf
+
+# 二进制文件不处理换行符
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.otf binary
