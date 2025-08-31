@@ -5,13 +5,21 @@
   "private": true,
   "scripts": {
     "dev": "pnpm -r --parallel dev",
+    "dev:api": "pnpm --filter @pixishelf/api dev",
+    "dev:web": "pnpm --filter @pixishelf/web dev",
     "build": "pnpm --recursive build",
     "lint": "pnpm --recursive lint",
     "format": "prettier --write .",
     "type-check": "pnpm --recursive type-check",
     "prepare": "husky install"
   },
-  "keywords": ["gallery", "images", "monorepo", "react", "fastify"],
+  "keywords": [
+    "gallery",
+    "images",
+    "monorepo",
+    "react",
+    "fastify"
+  ],
   "author": "PixiShelf Team",
   "license": "MIT",
   "devDependencies": {
@@ -28,8 +36,13 @@
     "typescript": "^5.2.2"
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx}": ["eslint --fix", "prettier --write"],
-    "*.{json,md,css}": ["prettier --write"]
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,css}": [
+      "prettier --write"
+    ]
   },
   "engines": {
     "node": ">=18.0.0",
