@@ -1,4 +1,5 @@
 services:
+  # PostgreSQL 数据库服务
   postgres:
     image: postgres:15
     container_name: pixishelf-db
@@ -19,6 +20,46 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    restart: unless-stopped
+
+  # 统一的 Web + API 服务容器
+  app:
+    build:
+      context: ..
+      dockerfile: build/Dockerfile
+      target: production
+    container_name: pixishelf-app
+    ports:
+      - "5430:80"  # Web 服务端口
+    environment:
+      # API 环境变量
+      NODE_ENV: production
+      DATABASE_URL: postgresql://pixishelf:password@postgres:5432/pixishelf?connection_limit=20&pool_timeout=20
+      JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
+      API_TOKEN: your-api-token-change-this
+      SCAN_PATH: /app/data
+      PORT: 5431
+    volumes:
+      # 挂载图片数据目录（根据实际需要调整路径）
+      # - /path/to/your/images:/app/data:ro
+      - C:\Users\pc\Downloads\pixiv:/app/data:cached  # 开发环境示例
+    networks:
+      - pixishelf-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/health && curl -f http://localhost/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data:

@@ -25,20 +25,21 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # Backend API service - 使用预构建镜像
-  api:
-    image: docker.io/dockernamehu/pixishelf-api:${IMAGE_TAG:-latest}
-    container_name: pixishelf-api
+  # 统一的 Web + API 服务容器 - 使用预构建镜像
+  app:
+    image: docker.io/dockernamehu/pixishelf:${IMAGE_TAG:-latest}
+    container_name: pixishelf-app
     ports:
-      - "5431:5431"
+      - "5430:80"  # Web 服务端口（Nginx）
     env_file:
       - .env
     environment:
       # 覆盖生产环境特定配置
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
-    # volumes:
-      # - YOUR_SCAN_PATH:/app/data:ro  # 只读挂载图片目录.如果你需要挂載外部的目錄
+    volumes:
+      # 挂载图片目录 - 根据实际需要调整路径
+      - ${SCAN_PATH:-./data}:/app/data:ro  # 只读挂载图片目录
     networks:
       - pixishelf-network
     depends_on:
@@ -50,24 +51,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
-    restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # Frontend web service - 使用预构建镜像
-  web:
-    image: docker.io/dockernamehu/pixishelf-web:${IMAGE_TAG:-latest}
-    container_name: pixishelf-web
-    ports:
-      - "5430:80"  # 可配置的Web端口
-    networks:
-      - pixishelf-network
-    depends_on:
-      api:
-        condition: service_healthy
     restart: unless-stopped
     logging:
       driver: "json-file"

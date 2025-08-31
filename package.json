@@ -10,8 +10,7 @@
     "build": "pnpm --recursive build",
     "lint": "pnpm --recursive lint",
     "format": "prettier --write .",
-    "type-check": "pnpm --recursive type-check",
-    "prepare": "husky install"
+    "type-check": "pnpm --recursive type-check"
   },
   "keywords": [
     "gallery",

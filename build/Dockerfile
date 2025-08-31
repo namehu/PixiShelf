@@ -1,89 +1,83 @@
-# Base image for Node.js
-FROM node:22-alpine AS base
+# Production unified stage - 单一容器包含 API + Web (Nginx)
+FROM node:22-alpine AS production
 WORKDIR /app
-RUN npm install -g pnpm@8
 
-# Dependencies stage - 利用Docker缓存优化
-FROM base AS deps
-# 先复制package管理文件以利用Docker缓存
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
-# 仅复制各子包的 package.json 以最大化缓存命中
-RUN mkdir -p packages/api packages/web packages/shared
-COPY packages/api/package.json packages/api/package.json
-COPY packages/web/package.json packages/web/package.json
-COPY packages/shared/package.json packages/shared/package.json
-# 安装所有依赖（包括devDependencies，因为需要prisma等构建工具）
-RUN pnpm install
+# 安装必要的系统依赖：Node.js运行时、Nginx、OpenSSL、进程管理工具
+RUN apk add --no-cache \
+    openssl \
+    openssl-dev \
+    nginx \
+    supervisor \
+    && npm install -g pnpm@8
 
-# Source stage - 复制源代码
-FROM deps AS source
+# 复制所有源代码和配置文件
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/ ./packages/
 
-# Build stage for shared package - 独立构建共享包
-FROM source AS shared-build
-RUN pnpm --filter="@pixishelf/shared" build
+# 设置国内npm 源
+RUN npm config set registry https://registry.npmmirror.com
 
-# Build stage for API
-FROM shared-build AS api-build
-# 构建API，依赖shared包
-RUN pnpm --filter="@pixishelf/api" build
-
-# Build stage for Web
-FROM shared-build AS web-build
-# 设置构建时的API URL
-ARG VITE_API_URL=http://localhost:5431
-ENV VITE_API_URL=$VITE_API_URL
-# 构建Web应用，依赖shared包
-RUN pnpm --filter="@pixishelf/web" build
-
-# Production API stage - 最小化生产镜像
-FROM node:22-alpine AS api
-WORKDIR /app
-
-# 安装必要的系统依赖，包括OpenSSL
-RUN apk add --no-cache openssl openssl-dev
-RUN npm install -g pnpm@8
-
-# 复制必要的配置文件
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY packages/api/package.json ./packages/api/
-COPY packages/shared/package.json ./packages/shared/
-
-# 安装所有依赖（需要prisma等工具）
+# 安装所有依赖（shared包会在postinstall中自动构建）
 RUN pnpm install
 
-# 复制构建产物
-COPY --from=api-build /app/packages/api/dist ./packages/api/dist
-COPY --from=shared-build /app/packages/shared/dist ./packages/shared/dist
-COPY --from=api-build /app/packages/api/prisma ./packages/api/prisma
+# 构建API和Web包
+RUN pnpm --filter="@pixishelf/api" build
 
-# 设置工作目录到API包
-WORKDIR /app/packages/api
+# 设置构建时的API URL - 在单一容器中API通过localhost访问
+ARG VITE_API_URL=http://localhost:5431
+ENV VITE_API_URL=$VITE_API_URL
+RUN pnpm --filter="@pixishelf/web" build
 
-# 生成Prisma客户端（使用pnpm exec调用根目录的prisma）
-# RUN pnpm exec prisma generate
+# 生成 Prisma 客户端
+# WORKDIR /app/packages/api
+# RUN npx prisma generate
+# WORKDIR /app
 
-EXPOSE 5431
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-	CMD node -e "require('http').get('http://localhost:5431/api/v1/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+# 复制Web构建产物到Nginx目录
+RUN mkdir -p /usr/share/nginx/html && cp -r ./packages/web/dist/* /usr/share/nginx/html/
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+# 清理开发依赖，只保留生产依赖
+RUN pnpm install --prod --ignore-scripts
 
-# Production Web stage - 使用Nginx服务静态文件
-FROM nginx:alpine AS web
-# 复制构建产物到Nginx目录
-COPY --from=web-build /app/packages/web/dist /usr/share/nginx/html
-# 复制Nginx配置
+# 复制并修改Nginx配置以适应单一容器
 COPY build/nginx.conf /etc/nginx/nginx.conf
 
-# 添加非root用户以提高安全性
-RUN addgroup -g 1001 -S nodejs && \
-	adduser -S webuser -u 1001 -G nodejs
+# 创建supervisor配置目录
+RUN mkdir -p /etc/supervisor/conf.d
 
+# 创建supervisor配置文件来管理API和Nginx进程
+RUN echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'nodaemon=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '[program:api]' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'command=sh -c "cd /app/packages/api && pnpm db:deploy && node dist/index.js"' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'directory=/app/packages/api' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stderr_logfile=/var/log/api.err.log' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stdout_logfile=/var/log/api.out.log' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '[program:nginx]' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'command=nginx -g "daemon off;"' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stderr_logfile=/var/log/nginx.err.log' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stdout_logfile=/var/log/nginx.out.log' >> /etc/supervisor/conf.d/supervisord.conf
+
+# 创建必要的目录和设置权限
+RUN mkdir -p /var/log/nginx /var/lib/nginx /var/tmp/nginx && \
+    mkdir -p /app/data && \
+    chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/tmp/nginx && \
+    chown -R node:node /app
+
+# 暴露端口：80 (Nginx), 5431 (API - 内部使用)
 EXPOSE 80
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-	CMD wget --no-verbose --tries=1 --spider http://localhost/ || exit 1
 
-CMD ["nginx", "-g", "daemon off;"]
+# 健康检查 - 检查Nginx和API服务
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost/health && \
+    wget --no-verbose --tries=1 --spider http://localhost/api/v1/health || exit 1
+
+# 使用supervisor启动所有服务
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

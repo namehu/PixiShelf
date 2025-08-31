@@ -19,6 +19,18 @@ CREATE TABLE "Artwork" (
     "artistId" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "descriptionLength" INTEGER NOT NULL DEFAULT 0,
+    "directoryCreatedAt" TIMESTAMP(3),
+    "imageCount" INTEGER NOT NULL DEFAULT 0,
+    "bookmarkCount" INTEGER,
+    "externalId" TEXT,
+    "isAiGenerated" BOOLEAN,
+    "originalUrl" TEXT,
+    "size" TEXT,
+    "sourceDate" TIMESTAMP(3),
+    "sourceUrl" TEXT,
+    "thumbnailUrl" TEXT,
+    "xRestrict" TEXT,
 
     CONSTRAINT "Artwork_pkey" PRIMARY KEY ("id")
 );
@@ -88,7 +100,16 @@ CREATE UNIQUE INDEX "Artist_username_userId_key" ON "Artist"("username", "userId
 CREATE INDEX "Artwork_title_description_idx" ON "Artwork"("title", "description");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Artwork_artistId_title_key" ON "Artwork"("artistId", "title");
+CREATE INDEX "Artwork_directoryCreatedAt_idx" ON "Artwork"("directoryCreatedAt");
+
+-- CreateIndex
+CREATE INDEX "Artwork_imageCount_idx" ON "Artwork"("imageCount");
+
+-- CreateIndex
+CREATE INDEX "Artwork_sourceDate_idx" ON "Artwork"("sourceDate");
+
+-- CreateIndex
+CREATE INDEX "Artwork_externalId_idx" ON "Artwork"("externalId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Tag_name_key" ON "Tag"("name");

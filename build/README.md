@@ -71,11 +71,11 @@ docker-compose -f docker-compose.deploy.yml up -d
 ### 单独构建镜像
 
 ```bash
-# 构建 API 镜像
-docker build -f build/Dockerfile --target api -t pixishelf-api .
+# 构建统一镜像（包含 Web + API）
+docker build -f build/Dockerfile --target production -t pixishelf .
 
-# 构建 Web 镜像
-docker build -f build/Dockerfile --target web -t pixishelf-web .
+# 或者使用默认 target（production 是默认的）
+docker build -f build/Dockerfile -t pixishelf .
 ```
 
 ## 📝 注意事项
