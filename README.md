@@ -108,7 +108,7 @@ INIT_ADMIN_USERNAME="admin"
 INIT_ADMIN_PASSWORD="admin123"
 
 # 服务器配置
-PORT=3002
+PORT=5431
 NODE_ENV=development
 
 ```
@@ -119,7 +119,7 @@ NODE_ENV=development
 
 ```env
 # API服务地址
-VITE_API_URL=http://localhost:3002
+VITE_API_URL=http://localhost:5431
 ```
 
 ### 4. 启动数据库
@@ -182,7 +182,7 @@ pnpm dev
 #### 6.2 分别启动服务
 
 ```bash
-# 启动API服务（端口3002）
+# 启动API服务（端口5431）
 cd packages/api
 pnpm dev
 
@@ -193,8 +193,8 @@ pnpm dev
 
 ### 7. 访问应用
 
-- **Web界面**: http://localhost:5173
-- **API服务**: http://localhost:3002
+- **Web界面**: http://localhost:5430
+- **API服务**: http://localhost:5431
 - **Prisma Studio**: http://localhost:5555 (如果启动了)
 
 ## 📁 项目结构

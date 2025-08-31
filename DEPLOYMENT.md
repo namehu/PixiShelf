@@ -85,7 +85,7 @@ docker-compose -f docker-compose.deploy.yml logs -f
 
 ```bash
 # 检查服务健康状态
-curl http://localhost:3002/api/v1/health
+curl http://localhost:5431/api/v1/health
 curl http://localhost/health
 
 # 访问Web界面
@@ -190,7 +190,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:3002',
+        target: process.env.VITE_API_URL || 'http://localhost:5431',
         changeOrigin: true,
       },
     },
@@ -210,7 +210,7 @@ pnpm dev
 
 # 启动Web服务
 cd packages/web
-VITE_API_URL=http://localhost:3002 pnpm dev
+VITE_API_URL=http://localhost:5431 pnpm dev
 ```
 
 ## 🐳 Docker 配置详解
@@ -308,7 +308,7 @@ docker-compose -f docker-compose.yml logs -f web
 ### 健康检查
 ```bash
 # 检查服务状态
-curl http://localhost:3002/api/v1/health
+curl http://localhost:5431/api/v1/health
 curl http://localhost/health
 ```
 

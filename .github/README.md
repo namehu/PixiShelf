@@ -27,7 +27,7 @@ GitHub Container Registry 使用内置的 `GITHUB_TOKEN`，无需额外配置。
 
 在 Settings > Secrets and variables > Actions > Variables 中添加：
 
-- `VITE_API_URL`: 前端构建时的 API URL (可选，默认为 http://localhost:3002)
+- `VITE_API_URL`: 前端构建时的 API URL (可选，默认为 http://localhost:5431)
 
 ## 🚀 触发构建
 

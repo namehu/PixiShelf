@@ -11,7 +11,10 @@ export default async function imagesRoutes(server: FastifyInstance) {
     }
 
     const antiHotlink = (process.env.ANTI_HOTLINK || 'false').toLowerCase() === 'true'
-    const allowedReferers = (process.env.ALLOWED_IMAGE_REFERERS || '').split(',').map(s => s.trim()).filter(Boolean)
+    const allowedReferers = (process.env.ALLOWED_IMAGE_REFERERS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
     void antiHotlink
     void allowedReferers
 
@@ -24,10 +27,16 @@ export default async function imagesRoutes(server: FastifyInstance) {
     } catch {}
 
     const platformPath = decoded.replace(/\\/g, '/').split('/').filter(Boolean).join('/')
-    const absPath = path.resolve(scanRoot, platformPath)
+
+    let absPath = '/' + platformPath
+    if (!absPath.startsWith(scanRoot)) {
+      absPath = path.resolve(scanRoot, platformPath)
+    }
 
     if (!absPath.startsWith(path.resolve(scanRoot))) {
-      return reply.code(403).send({ statusCode: 403, error: 'Forbidden', message: 'Access outside scan root is not allowed' })
+      return reply
+        .code(403)
+        .send({ statusCode: 403, error: 'Forbidden', message: 'Access outside scan root is not allowed' })
     }
 
     if (!fs.existsSync(absPath)) {
@@ -47,7 +56,10 @@ export default async function imagesRoutes(server: FastifyInstance) {
 
     const ifNoneMatch = req.headers['if-none-match']
     const ifModifiedSince = req.headers['if-modified-since']
-    if ((ifNoneMatch && ifNoneMatch === etag) || (ifModifiedSince && new Date(ifModifiedSince).getTime() >= stat.mtime.getTime())) {
+    if (
+      (ifNoneMatch && ifNoneMatch === etag) ||
+      (ifModifiedSince && new Date(ifModifiedSince).getTime() >= stat.mtime.getTime())
+    ) {
       return reply.code(304).send()
     }
 

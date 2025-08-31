@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ../:/workspace:cached
+      - C:\Users\pc\Downloads\pixiv:/app/data:cached
+    working_dir: /workspace
+    command: sleep infinity
+    depends_on:
+      - postgres
+    environment:
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+      - LANGUAGE=C.UTF-8
+    user: node
+
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pixishelf
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pixishelf
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+
+volumes:
+  postgres_data:

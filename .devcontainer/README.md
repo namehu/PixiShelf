@@ -5,9 +5,9 @@
 ## 功能特性
 
 - **基础镜像**: Node.js 22
-- **端口映射**: 
-  - 3000 (前端服务)
-  - 3001 (后端API)
+- **端口映射**:
+  - 5430 (前端服务)
+  - 5431 (后端API)
 - **数据挂载**: 宿主机 `C:\Users\pc\Downloads\pixiv` → 容器 `/app/data`
 - **预装工具**: pnpm, TypeScript, ts-node, nodemon
 - **VS Code 扩展**: TypeScript, Prettier, Tailwind CSS, ESLint, Prisma
@@ -29,4 +29,4 @@
 
 - 容器使用 `node` 用户运行，确保文件权限正确
 - 首次启动会自动安装项目依赖
-- 端口转发会自动配置，可直接访问 localhost:3000 和 localhost:3001
+- 端口转发会自动配置，可直接访问 localhost:5430 和 localhost:5431

@@ -1,21 +1,16 @@
 {
   "name": "Artisan Shelf Development",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
   "workspaceFolder": "/workspace",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
-  "mounts": [
-    "source=C:\\Users\\pc\\Downloads\\pixiv,target=/app/data,type=bind,consistency=cached"
-  ],
   "initializeCommand": "git config --global --add safe.directory '*'",
-  "forwardPorts": [3000, 3001],
+  "forwardPorts": [5430, 5431],
   "portsAttributes": {
-    "3000": {
+    "5430": {
       "label": "Frontend",
       "onAutoForward": "notify"
     },
-    "3001": {
+    "5431": {
       "label": "Backend API",
       "onAutoForward": "notify"
     }
@@ -41,5 +36,10 @@
       }
     }
   },
-  "remoteUser": "node"
+  "remoteUser": "node",
+  "containerEnv": {
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "LANGUAGE": "C.UTF-8"
+  }
 }

@@ -15,7 +15,7 @@ export function getDefaultConfig(): AppConfig {
     },
 
     server: {
-      port: parseInt(process.env.PORT || '3001'),
+      port: parseInt(process.env.PORT || '5431'),
       host: process.env.HOST || '0.0.0.0'
     },
 

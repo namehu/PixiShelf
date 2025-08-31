@@ -31,7 +31,7 @@ RUN pnpm --filter="@pixishelf/api" build
 # Build stage for Web
 FROM shared-build AS web-build
 # 设置构建时的API URL
-ARG VITE_API_URL=http://localhost:3002
+ARG VITE_API_URL=http://localhost:5431
 ENV VITE_API_URL=$VITE_API_URL
 # 构建Web应用，依赖shared包
 RUN pnpm --filter="@pixishelf/web" build
@@ -63,10 +63,10 @@ WORKDIR /app/packages/api
 # 生成Prisma客户端（使用pnpm exec调用根目录的prisma）
 RUN pnpm exec prisma generate
 
-EXPOSE 3002
+EXPOSE 5431
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-	CMD node -e "require('http').get('http://localhost:3002/api/v1/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+	CMD node -e "require('http').get('http://localhost:5431/api/v1/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
 
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
 
