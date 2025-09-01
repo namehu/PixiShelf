@@ -1,4 +1,3 @@
-import { promises as fs } from 'fs'
 import path from 'path'
 import { PrismaClient } from '@prisma/client'
 import { FastifyInstance } from 'fastify'
@@ -43,6 +42,7 @@ export class ScannerService {
   private metadataParser: MetadataParser
   private mediaCollector: MediaCollector
   private tagCache: Map<string, number> = new Map() // 标签名称到ID的映射缓存
+  private artistCache: Map<string, any> = new Map() // 艺术家缓存，key为userId
   private scanResult: ScanResult = {
     totalArtworks: 0,
     newArtists: 0,
@@ -72,8 +72,9 @@ export class ScannerService {
 
     const startTime = Date.now()
 
-    // 清空标签缓存，确保每次扫描都有干净的状态
+    // 清空缓存，确保每次扫描都有干净的状态
     this.tagCache.clear()
+    this.artistCache.clear()
 
     try {
       this.logger.info({ scanPath: options.scanPath }, 'Starting scan')
@@ -337,7 +338,7 @@ export class ScannerService {
   }
 
   /**
-   * 处理作品
+   * 处理作品（批量处理优化版本）
    * @param artworks 作品数组
    * @param options 扫描选项
    */
@@ -345,135 +346,256 @@ export class ScannerService {
     // 批量预处理标签
     await this.batchProcessTags(artworks)
 
-    for (let i = 0; i < artworks.length; i++) {
-      const artwork = artworks[i]
+    // 批量预处理艺术家
+    await this.batchProcessArtists(artworks)
+
+    const BATCH_SIZE = 100
+    const totalBatches = Math.ceil(artworks.length / BATCH_SIZE)
+
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const startIndex = batchIndex * BATCH_SIZE
+      const endIndex = Math.min(startIndex + BATCH_SIZE, artworks.length)
+      const batch = artworks.slice(startIndex, endIndex)
 
       try {
         // 更新进度（40%权重内的进度：50%-90%）
-        const progressInProcessing = (i / artworks.length) * 40
+        const progressInProcessing = (endIndex / artworks.length) * 40
         options.onProgress?.({
           phase: 'scanning',
-          message: `正在处理作品: ${artwork.metadata.title}`,
-          current: i + 1,
+          message: `正在处理批次 ${batchIndex + 1}/${totalBatches} (${batch.length} 个作品)`,
+          current: endIndex,
           total: artworks.length,
           percentage: Math.round(50 + progressInProcessing)
         })
 
-        await this.processArtwork(artwork, options.forceUpdate || false)
+        await this.processBatch(batch)
       } catch (error) {
-        this.logger.error({ error, artwork: artwork.metadata }, 'Failed to process artwork')
+        this.logger.error({ error, batchIndex, batchSize: batch.length }, 'Failed to process batch')
         this.scanResult.errors.push(
-          `Failed to process artwork ${artwork.metadata.title}: ${error instanceof Error ? error.message : 'Unknown error'}`
+          `Failed to process batch ${batchIndex + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`
         )
       }
     }
   }
 
   /**
-   * 处理单个作品
-   * @param artworkData 作品数据
-   * @param forceUpdate 是否强制更新
+   * 批量处理一个批次的作品（使用事务）
+   * @param batch 批次作品数组
    */
-  private async processArtwork(artworkData: ArtworkData, forceUpdate: boolean): Promise<void> {
-    const { metadata, mediaFiles } = artworkData
+  private async processBatch(batch: ArtworkData[]): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      // 准备批量数据
+      const artworksToCreate = []
+      const imagesToCreate = []
+      const artworkTagsToCreate = []
 
-    // 处理艺术家
-    const artist = await this.ensureArtist(metadata)
+      for (const artworkData of batch) {
+        const { metadata, mediaFiles, directoryCreatedAt } = artworkData
 
-    // 处理作品
-    const artwork = await this.ensureArtwork(artworkData, artist.id)
+        // 从缓存获取艺术家
+        const artist = this.artistCache.get(metadata.userId)
+        if (!artist) {
+          this.logger.warn(
+            { userId: metadata.userId },
+            'Artist not found in cache, this should not happen after batch processing'
+          )
+          continue
+        }
 
-    // 处理图片
-    await this.ensureImages(artwork.id, mediaFiles)
+        const imageCount = mediaFiles.length
 
-    // 处理标签
-    if (metadata.tags && metadata.tags.length > 0) {
-      await this.ensureTags(artwork.id, metadata.tags)
-    }
+        // 准备作品数据
+        const artworkToCreate = {
+          title: metadata.title,
+          description: metadata.description,
+          artistId: artist.id,
+          imageCount,
+          descriptionLength: metadata.description?.length || 0,
+          externalId: metadata.id,
+          sourceUrl: metadata.url,
+          originalUrl: metadata.original,
+          thumbnailUrl: metadata.thumbnail,
+          xRestrict: metadata.xRestrict,
+          isAiGenerated: metadata.ai === 'Yes',
+          size: metadata.size,
+          bookmarkCount: metadata.bookmark,
+          sourceDate: metadata.date,
+          directoryCreatedAt
+        }
 
-    this.scanResult.newArtworks++
+        artworksToCreate.push(artworkToCreate)
+      }
+
+      // 批量创建作品
+      if (artworksToCreate.length > 0) {
+        // 使用 createMany 而不是 createManyAndReturn 来提高性能
+        await tx.artwork.createMany({
+          data: artworksToCreate,
+          skipDuplicates: true
+        })
+
+        this.scanResult.newArtworks += artworksToCreate.length
+
+        // 查询刚创建的作品以获取 ID（通过 externalId 匹配）
+        const externalIds = artworksToCreate.map(a => a.externalId)
+        const createdArtworks = await tx.artwork.findMany({
+          where: {
+            externalId: {
+              in: externalIds
+            }
+          },
+          orderBy: {
+            id: 'asc'
+          }
+        })
+
+        // 创建 externalId 到 artwork 的映射
+        const artworkMap = new Map()
+        for (const artwork of createdArtworks) {
+          artworkMap.set(artwork.externalId, artwork)
+        }
+
+        // 为每个作品准备图片和标签数据
+        for (const artworkData of batch) {
+          const artwork = artworkMap.get(artworkData.metadata.id)
+          if (!artwork) continue
+
+          // 准备图片数据
+          if (artworkData.mediaFiles.length > 0) {
+            const artworkImages = artworkData.mediaFiles.map((mediaFile) => ({
+              path: this.getRelativePath(mediaFile.path),
+              size: mediaFile.size,
+              sortOrder: mediaFile.sortOrder,
+              artworkId: artwork.id
+            }))
+            imagesToCreate.push(...artworkImages)
+          }
+
+          // 准备标签关联数据
+          if (artworkData.metadata.tags && artworkData.metadata.tags.length > 0) {
+            for (const tagName of artworkData.metadata.tags) {
+              const trimmedTagName = tagName.trim()
+              if (!trimmedTagName) continue
+
+              const tagId = this.tagCache.get(trimmedTagName)
+              if (tagId) {
+                artworkTagsToCreate.push({
+                  artworkId: artwork.id,
+                  tagId
+                })
+              }
+            }
+          }
+        }
+
+        // 批量创建图片
+        if (imagesToCreate.length > 0) {
+          await tx.image.createMany({
+            data: imagesToCreate,
+            skipDuplicates: true
+          })
+          this.scanResult.newImages += imagesToCreate.length
+        }
+
+        // 批量创建作品-标签关联
+        if (artworkTagsToCreate.length > 0) {
+          await tx.artworkTag.createMany({
+            data: artworkTagsToCreate,
+            skipDuplicates: true
+          })
+        }
+      }
+    }, {
+      timeout: 30000, // 增加事务超时时间到 30 秒
+      maxWait: 5000,  // 最大等待时间 5 秒
+    })
   }
 
   /**
-   * 确保艺术家存在
-   * @param metadata 元数据
-   * @returns 艺术家记录
+   * 批量预处理所有作品的艺术家
+   * @param artworks 作品数组
    */
-  private async ensureArtist(metadata: MetadataInfo) {
-    let artist = await this.prisma.artist.findFirst({
+  private async batchProcessArtists(artworks: ArtworkData[]): Promise<void> {
+    // 1. 收集所有唯一的艺术家用户ID
+    const uniqueUserIds = new Set<string>()
+    for (const artwork of artworks) {
+      if (artwork.metadata.userId) {
+        uniqueUserIds.add(artwork.metadata.userId)
+      }
+    }
+
+    if (uniqueUserIds.size === 0) {
+      this.logger.debug('No artists found in artworks, skipping batch artist processing')
+      return
+    }
+
+    this.logger.debug({ totalUniqueArtists: uniqueUserIds.size }, 'Starting batch artist processing')
+
+    // 2. 批量查询数据库中已存在的艺术家
+    const existingArtists = await this.prisma.artist.findMany({
       where: {
-        userId: metadata.userId
+        userId: {
+          in: Array.from(uniqueUserIds)
+        }
       }
     })
 
-    if (!artist) {
-      artist = await this.prisma.artist.create({
-        data: {
-          name: metadata.user,
-          username: metadata.user,
-          userId: metadata.userId,
-          bio: `Artist from external source (ID: ${metadata.userId})`
+    // 构建已存在艺术家的映射
+    const existingArtistMap = new Map<string, any>()
+    for (const artist of existingArtists) {
+      if (artist.userId) {
+        existingArtistMap.set(artist.userId, artist)
+      }
+    }
+
+    // 3. 筛选出需要新建的艺术家
+    const artistsToCreate = []
+    for (const artwork of artworks) {
+      const userId = artwork.metadata.userId
+      if (userId && !existingArtistMap.has(userId) && !this.artistCache.has(userId)) {
+        artistsToCreate.push({
+          name: artwork.metadata.user,
+          username: artwork.metadata.user,
+          userId: userId,
+          bio: `Artist from external source (ID: ${userId})`
+        })
+        // 临时标记，避免重复创建
+        this.artistCache.set(userId, null)
+      }
+    }
+
+    // 4. 批量创建新艺术家
+    if (artistsToCreate.length > 0) {
+      this.logger.debug({ artistsToCreateCount: artistsToCreate.length }, 'Creating new artists in batch')
+
+      await this.prisma.artist.createMany({
+        data: artistsToCreate,
+        skipDuplicates: true
+      })
+
+      this.scanResult.newArtists += artistsToCreate.length
+
+      // 再次查询新创建的艺术家获取完整信息
+      const newlyCreatedArtists = await this.prisma.artist.findMany({
+        where: {
+          userId: {
+            in: artistsToCreate.map((a) => a.userId)
+          }
         }
       })
-      this.scanResult.newArtists++
-      this.logger.debug({ artistId: artist.id, name: artist.name }, 'Created new artist')
-    }
 
-    return artist
-  }
-
-  /**
-   * 确保作品存在
-   * @param artworkData 作品数据
-   * @param artistId 艺术家ID
-   * @returns 作品记录
-   */
-  private async ensureArtwork(artworkData: ArtworkData, artistId: number) {
-    const { directoryCreatedAt, metadata, mediaFiles } = artworkData
-    const imageCount = mediaFiles.length
-
-    const artwork = await this.prisma.artwork.create({
-      data: {
-        title: metadata.title,
-        description: metadata.description,
-        artistId,
-        imageCount,
-        descriptionLength: metadata.description?.length || 0,
-        externalId: metadata.id,
-        sourceUrl: metadata.url,
-        originalUrl: metadata.original,
-        thumbnailUrl: metadata.thumbnail,
-        xRestrict: metadata.xRestrict,
-        isAiGenerated: metadata.ai === 'Yes',
-        size: metadata.size,
-        bookmarkCount: metadata.bookmark,
-        sourceDate: metadata.date,
-        directoryCreatedAt
+      // 更新映射
+      for (const artist of newlyCreatedArtists) {
+        if (artist.userId) {
+          existingArtistMap.set(artist.userId, artist)
+        }
       }
-    })
-    this.logger.debug({ artworkId: artwork.id, title: artwork.title }, 'Created new artwork')
-
-    return artwork
-  }
-
-  /**
-   * 确保图片存在
-   * @param artworkId 作品ID
-   * @param mediaFiles 媒体文件列表
-   */
-  private async ensureImages(artworkId: number, mediaFiles: MediaFileInfo[]): Promise<void> {
-    if (mediaFiles.length) {
-      // 创建新图片记录
-      await this.prisma.image.createMany({
-        data: mediaFiles.map((mediaFile) => ({
-          path: this.getRelativePath(mediaFile.path),
-          size: mediaFile.size,
-          sortOrder: mediaFile.sortOrder,
-          artworkId
-        }))
-      })
-      this.scanResult.newImages += mediaFiles.length
     }
+
+    // 5. 存入缓存
+    this.artistCache = existingArtistMap
+
+    this.logger.debug({ totalArtistsInCache: this.artistCache.size }, 'Batch artist processing completed')
   }
 
   /**
@@ -557,50 +679,6 @@ export class ScannerService {
   }
 
   /**
-   * 确保标签存在（优化版本，使用预处理的标签缓存）
-   * @param artworkId 作品ID
-   * @param tags 标签列表
-   */
-  private async ensureTags(artworkId: number, tags: string[]): Promise<void> {
-    if (!tags || tags.length === 0) {
-      return
-    }
-
-    // 删除现有标签关联
-    await this.prisma.artworkTag.deleteMany({
-      where: { artworkId }
-    })
-
-    // 构建关联数据，使用缓存的标签ID
-    const artworkTagData: { artworkId: number; tagId: number }[] = []
-
-    for (const tagName of tags) {
-      if (!tagName) continue
-
-      const tagId = this.tagCache.get(tagName)
-      if (tagId) {
-        artworkTagData.push({
-          artworkId,
-          tagId
-        })
-      } else {
-        this.logger.warn(
-          { tagName: tagName, artworkId },
-          'Tag not found in cache, this should not happen after batch processing'
-        )
-      }
-    }
-
-    // 批量创建作品-标签关联
-    if (artworkTagData.length > 0) {
-      await this.prisma.artworkTag.createMany({
-        data: artworkTagData,
-        skipDuplicates: true
-      })
-    }
-  }
-
-  /**
    * 清空数据库（保留 user 和 setting 表）
    * 用于强制全量扫描时清空所有艺术相关数据
    */
@@ -633,93 +711,6 @@ export class ScannerService {
     } catch (error) {
       this.logger.error({ error }, 'Failed to clear database')
       throw new Error(`Database cleanup failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }
-
-  /**
-   * 清理数据
-   */
-  private async cleanup(): Promise<void> {
-    try {
-      // 删除没有图片的作品
-      const emptyArtworks = await this.prisma.artwork.findMany({
-        where: {
-          images: {
-            none: {}
-          }
-        },
-        select: { id: true }
-      })
-
-      if (emptyArtworks.length > 0) {
-        const artworkIds = emptyArtworks.map((a) => a.id)
-
-        // 删除相关的标签关联
-        await this.prisma.artworkTag.deleteMany({
-          where: {
-            artworkId: {
-              in: artworkIds
-            }
-          }
-        })
-
-        // 删除空作品
-        await this.prisma.artwork.deleteMany({
-          where: {
-            id: {
-              in: artworkIds
-            }
-          }
-        })
-
-        this.logger.info({ count: emptyArtworks.length }, 'Cleaned up empty artworks')
-      }
-
-      // 删除没有作品的艺术家
-      const emptyArtists = await this.prisma.artist.findMany({
-        where: {
-          artworks: {
-            none: {}
-          }
-        },
-        select: { id: true }
-      })
-
-      if (emptyArtists.length > 0) {
-        await this.prisma.artist.deleteMany({
-          where: {
-            id: {
-              in: emptyArtists.map((a) => a.id)
-            }
-          }
-        })
-
-        this.logger.info({ count: emptyArtists.length }, 'Cleaned up empty artists')
-      }
-
-      // 删除没有关联的标签
-      const unusedTags = await this.prisma.tag.findMany({
-        where: {
-          artworkTags: {
-            none: {}
-          }
-        },
-        select: { id: true }
-      })
-
-      if (unusedTags.length > 0) {
-        await this.prisma.tag.deleteMany({
-          where: {
-            id: {
-              in: unusedTags.map((t) => t.id)
-            }
-          }
-        })
-
-        this.logger.info({ count: unusedTags.length }, 'Cleaned up unused tags')
-      }
-    } catch (error) {
-      this.logger.error({ error }, 'Failed to cleanup data')
     }
   }
 
