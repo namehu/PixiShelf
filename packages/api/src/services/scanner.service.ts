@@ -42,6 +42,7 @@ export class ScannerService {
   private logger: FastifyInstance['log']
   private metadataParser: MetadataParser
   private mediaCollector: MediaCollector
+  private tagCache: Map<string, number> = new Map() // 标签名称到ID的映射缓存
   private scanResult: ScanResult = {
     totalArtworks: 0,
     newArtists: 0,
@@ -70,6 +71,9 @@ export class ScannerService {
     this.logger.info({ scanPath: options.scanPath }, 'Starting scan with scanner')
 
     const startTime = Date.now()
+
+    // 清空标签缓存，确保每次扫描都有干净的状态
+    this.tagCache.clear()
 
     try {
       this.logger.info({ scanPath: options.scanPath }, 'Starting scan')
@@ -338,6 +342,9 @@ export class ScannerService {
    * @param options 扫描选项
    */
   private async processArtworks(artworks: ArtworkData[], options: ScanOptions): Promise<void> {
+    // 批量预处理标签
+    await this.batchProcessTags(artworks)
+
     for (let i = 0; i < artworks.length; i++) {
       const artwork = artworks[i]
 
@@ -470,37 +477,125 @@ export class ScannerService {
   }
 
   /**
-   * 确保标签存在
+   * 批量预处理所有作品的标签
+   * @param artworks 作品数组
+   */
+  private async batchProcessTags(artworks: ArtworkData[]): Promise<void> {
+    // 1. 预处理阶段：收集所有标签名称到 Set 集合中实现自动去重
+    const allTagNames = new Set<string>()
+    for (const artwork of artworks) {
+      if (artwork.metadata.tags && artwork.metadata.tags.length > 0) {
+        for (const tagName of artwork.metadata.tags) {
+          allTagNames.add(tagName)
+        }
+      }
+    }
+
+    if (allTagNames.size === 0) {
+      this.logger.debug('No tags found in artworks, skipping batch tag processing')
+      return
+    }
+
+    this.logger.debug({ totalUniqueTagNames: allTagNames.size }, 'Starting batch tag processing')
+
+    // 2. 数据库查询优化：批量查询数据库中已存在的标签
+    const existingTags = await this.prisma.tag.findMany({
+      where: {
+        name: {
+          in: Array.from(allTagNames)
+        }
+      },
+      select: {
+        id: true,
+        name: true
+      }
+    })
+
+    // 构建已存在标签的映射
+    const existingTagMap = new Map<string, number>()
+    for (const tag of existingTags) {
+      existingTagMap.set(tag.name, tag.id)
+    }
+
+    // 3. 筛选出需要新建的标签
+    const tagsToCreate = Array.from(allTagNames).filter((tagName) => !existingTagMap.has(tagName))
+
+    // 4. 批量创建操作：一次性创建所有新标签
+    if (tagsToCreate.length > 0) {
+      this.logger.debug({ tagsToCreateCount: tagsToCreate.length }, 'Creating new tags in batch')
+
+      await this.prisma.tag.createMany({
+        data: tagsToCreate.map((name) => ({ name })),
+        skipDuplicates: true // 防止并发创建重复标签
+      })
+
+      this.scanResult.newTags += tagsToCreate.length
+
+      // 再次查询新创建的标签获取其ID
+      const newlyCreatedTags = await this.prisma.tag.findMany({
+        where: {
+          name: {
+            in: tagsToCreate
+          }
+        },
+        select: {
+          id: true,
+          name: true
+        }
+      })
+
+      // 更新映射
+      for (const tag of newlyCreatedTags) {
+        existingTagMap.set(tag.name, tag.id)
+      }
+    }
+
+    // 5. 存入缓存以便快速查找
+    this.tagCache = existingTagMap
+
+    this.logger.debug({ totalTagsInCache: this.tagCache.size }, 'Batch tag processing completed')
+  }
+
+  /**
+   * 确保标签存在（优化版本，使用预处理的标签缓存）
    * @param artworkId 作品ID
    * @param tags 标签列表
    */
   private async ensureTags(artworkId: number, tags: string[]): Promise<void> {
+    if (!tags || tags.length === 0) {
+      return
+    }
+
     // 删除现有标签关联
     await this.prisma.artworkTag.deleteMany({
       where: { artworkId }
     })
 
+    // 构建关联数据，使用缓存的标签ID
+    const artworkTagData: { artworkId: number; tagId: number }[] = []
+
     for (const tagName of tags) {
-      if (!tagName.trim()) continue
+      if (!tagName) continue
 
-      // 查找或创建标签
-      let tag = await this.prisma.tag.findUnique({
-        where: { name: tagName }
-      })
-
-      if (!tag) {
-        tag = await this.prisma.tag.create({
-          data: { name: tagName }
-        })
-        this.scanResult.newTags++
-      }
-
-      // 创建作品-标签关联
-      await this.prisma.artworkTag.create({
-        data: {
+      const tagId = this.tagCache.get(tagName)
+      if (tagId) {
+        artworkTagData.push({
           artworkId,
-          tagId: tag.id
-        }
+          tagId
+        })
+      } else {
+        this.logger.warn(
+          { tagName: tagName, artworkId },
+          'Tag not found in cache, this should not happen after batch processing'
+        )
+      }
+    }
+
+    // 批量创建作品-标签关联
+    if (artworkTagData.length > 0) {
+      await this.prisma.artworkTag.createMany({
+        data: artworkTagData,
+        skipDuplicates: true
       })
     }
   }
