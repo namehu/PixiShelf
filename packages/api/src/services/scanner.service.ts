@@ -258,18 +258,20 @@ export class ScannerService {
     const files = await fg(['**/*-meta.txt'], {
       cwd: path.resolve(directoryPath),
       deep: 4,
+      stats: true,
       absolute: true,
       onlyFiles: true
     })
 
     // 过滤出符合 数字-meta.txt 格式的文件
     const validFiles = files
-      .map((filePath) => {
-        const name = path.basename(filePath)
+      .map((file) => {
+        const name = path.basename(file.path)
         return {
           name,
+          createdAt: file.stats?.birthtime!,
           artworkId: MetadataParser.extractArtworkIdFromFilename(name)!,
-          path: filePath
+          path: file.path
         }
       })
       .filter((file) => !!file.artworkId)
@@ -326,18 +328,8 @@ export class ScannerService {
     })
 
     // 获取文件统计信息
-    const metadataFiles = await Promise.all(
-      filesToProcess.map(async (file) => {
-        const stats = await fs.stat(file.path)
 
-        return {
-          ...file,
-          createdAt: stats.birthtime
-        }
-      })
-    )
-
-    return metadataFiles
+    return filesToProcess
   }
 
   /**
