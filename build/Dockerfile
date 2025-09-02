@@ -45,7 +45,7 @@ COPY build/nginx.conf /etc/nginx/nginx.conf
 # 创建supervisor配置目录
 RUN mkdir -p /etc/supervisor/conf.d
 
-# 创建supervisor配置文件来管理API和Nginx进程
+# 创建supervisor配置文件来管理API、Nginx和Prisma Studio进程
 RUN echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
     echo 'nodaemon=true' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
@@ -57,6 +57,14 @@ RUN echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
     echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'stderr_logfile=/var/log/api.err.log' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'stdout_logfile=/var/log/api.out.log' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '[program:prisma-studio]' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'command=sh -c "cd /app/packages/api && sleep 10 && npx prisma studio --hostname 0.0.0.0 --port 5555"' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'directory=/app/packages/api' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stderr_logfile=/var/log/prisma-studio.err.log' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stdout_logfile=/var/log/prisma-studio.out.log' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo '[program:nginx]' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'command=nginx -g "daemon off;"' >> /etc/supervisor/conf.d/supervisord.conf && \
@@ -71,8 +79,8 @@ RUN mkdir -p /var/log/nginx /var/lib/nginx /var/tmp/nginx && \
     chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/tmp/nginx && \
     chown -R node:node /app
 
-# 暴露端口：80 (Nginx), 5431 (API - 内部使用)
-EXPOSE 80
+# 暴露端口：80 (Nginx), 5431 (API - 内部使用), 5555 (Prisma Studio)
+EXPOSE 80 5555
 
 # 健康检查 - 检查Nginx和API服务
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
