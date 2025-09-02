@@ -142,10 +142,12 @@ export class ScannerService {
   private async streamProcessArtworks(options: ScanOptions): Promise<void> {
     const BATCH_SIZE = 100 // 定义处理批次的大小
     let artworkBatch: ArtworkData[] = []
+    let batchNumber = 0
 
     // 1. 找到所有需要处理的元数据文件（这一步仍然需要先完成）
     const metadataFiles = await this.globMetadataFiles(options.scanPath, options.forceUpdate)
     const totalFiles = metadataFiles.length
+    const totalBatches = Math.ceil(totalFiles / BATCH_SIZE)
 
     if (totalFiles === 0) {
       options.onProgress?.({
@@ -156,7 +158,7 @@ export class ScannerService {
       return
     }
 
-    this.logger.info({ totalFiles }, 'Found metadata files, starting stream processing')
+    this.logger.info({ totalFiles, totalBatches }, 'Found metadata files, starting stream processing')
 
     // 2. 遍历文件列表，边发现边处理
     for (let i = 0; i < totalFiles; i++) {
@@ -171,7 +173,8 @@ export class ScannerService {
 
       // 3. 当批次满员，或者已经是最后一个文件时，触发处理
       if (artworkBatch.length >= BATCH_SIZE || (i === totalFiles - 1 && artworkBatch.length > 0)) {
-        this.logger.info(`Processing batch of ${artworkBatch.length} artworks...`)
+        batchNumber++
+        this.logger.info(`Processing batch ${batchNumber} of ${totalBatches} (size: ${artworkBatch.length})...`)
 
         try {
           // 调用批量处理逻辑（针对当前批次的数据）
@@ -179,11 +182,11 @@ export class ScannerService {
           await this.batchProcessArtists(artworkBatch)
           await this.processBatch(artworkBatch)
 
-          this.logger.debug(`Successfully processed batch of ${artworkBatch.length} artworks`)
+          this.logger.debug(`Successfully processed batch ${batchNumber} of ${totalBatches}`)
         } catch (error) {
-          this.logger.error({ error, batchSize: artworkBatch.length }, 'Failed to process batch')
+          this.logger.error({ error, batchNumber, batchSize: artworkBatch.length }, 'Failed to process batch')
           this.scanResult.errors.push(
-            `Failed to process batch: ${error instanceof Error ? error.message : 'Unknown error'}`
+            `Failed to process batch ${batchNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`
           )
         }
 
