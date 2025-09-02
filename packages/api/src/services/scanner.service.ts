@@ -640,35 +640,21 @@ export class ScannerService {
   /**
    * 清空数据库（保留 user 和 setting 表）
    * 用于强制全量扫描时清空所有艺术相关数据
+   * 使用 TRUNCATE 提供更高的性能
    */
   private async clearDatabase(): Promise<void> {
     try {
-      this.logger.info('Starting database cleanup for force update')
+      this.logger.info('Starting database cleanup with TRUNCATE for force update')
 
-      // 按照外键依赖顺序删除数据
-      // 1. 删除作品标签关联
-      await this.prisma.artworkTag.deleteMany({})
-      this.logger.debug('Deleted all artwork-tag associations')
+      // 使用 TRUNCATE 一次性清空所有艺术相关表
+      // RESTART IDENTITY 会重置自增ID，CASCADE 会处理外键依赖
+      await this.prisma.$executeRawUnsafe(
+        'TRUNCATE TABLE "ArtworkTag", "Image", "Artwork", "Artist", "Tag" RESTART IDENTITY CASCADE;'
+      )
 
-      // 2. 删除图片
-      await this.prisma.image.deleteMany({})
-      this.logger.debug('Deleted all images')
-
-      // 3. 删除作品
-      await this.prisma.artwork.deleteMany({})
-      this.logger.debug('Deleted all artworks')
-
-      // 4. 删除艺术家
-      await this.prisma.artist.deleteMany({})
-      this.logger.debug('Deleted all artists')
-
-      // 5. 删除标签
-      await this.prisma.tag.deleteMany({})
-      this.logger.debug('Deleted all tags')
-
-      this.logger.info('Database cleanup completed successfully')
+      this.logger.info('Database cleanup with TRUNCATE completed successfully')
     } catch (error) {
-      this.logger.error({ error }, 'Failed to clear database')
+      this.logger.error({ error }, 'Failed to clear database with TRUNCATE')
       throw new Error(`Database cleanup failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
