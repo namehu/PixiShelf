@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useState, useEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
@@ -110,10 +110,18 @@ function LazyMedia({
 
 export default function ArtworkDetail() {
   const params = useParams()
+  const navigate = useNavigate()
   const id = params.id!
   const { data, isLoading, isError } = useArtwork(id)
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [visibleImages, setVisibleImages] = useState<Set<number>>(new Set())
+
+  // 处理艺术家点击事件
+  const handleArtistClick = () => {
+    if (data?.artist?.id) {
+      navigate(`/artists/${data.artist.id}`)
+    }
+  }
 
   // 确保页面加载时滚动到顶部
   useEffect(() => {
@@ -297,9 +305,12 @@ export default function ArtworkDetail() {
                         d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
                       />
                     </svg>
-                    <span className="text-base sm:text-lg text-neutral-700 font-medium truncate">
+                    <button
+                      onClick={handleArtistClick}
+                      className="text-base sm:text-lg text-blue-600 hover:text-blue-800 font-medium truncate transition-colors duration-200 cursor-pointer underline-offset-2 hover:underline"
+                    >
                       {data.artist.name}
-                    </span>
+                    </button>
                   </div>
                 )}
               </div>
