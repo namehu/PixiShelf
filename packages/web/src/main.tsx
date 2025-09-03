@@ -15,6 +15,7 @@ import { SuggestionsResponse } from '@pixishelf/shared'
 import Gallery from './pages/Gallery'
 import ArtworkDetail from './pages/ArtworkDetail'
 import ArtistsPage from './pages/ArtistsPage'
+import ArtistDetail from './pages/ArtistDetail'
 import Login from './pages/Login'
 import AdminPage from './pages/admin'
 import ConfirmDialog from './components/ui/confirm-dialog'
@@ -593,6 +594,16 @@ const router = createBrowserRouter([
       <RequireAuth>
         <Layout>
           <ArtistsPage />
+        </Layout>
+      </RequireAuth>
+    )
+  },
+  {
+    path: '/artists/:id',
+    element: (
+      <RequireAuth>
+        <Layout>
+          <ArtistDetail />
         </Layout>
       </RequireAuth>
     )

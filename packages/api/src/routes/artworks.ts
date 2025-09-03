@@ -26,6 +26,10 @@ export default async function artworksRoutes(server: FastifyInstance) {
       const searchQuery = q.search as string
       const searchTerm = searchQuery?.trim()
 
+      // 艺术家筛选：支持通过 artistId 查询参数筛选特定艺术家的作品
+      const artistIdQuery = q.artistId as string
+      const artistId = artistIdQuery ? parseInt(artistIdQuery, 10) : null
+
       // 排序参数：支持通过 sortBy 查询参数排序
       const sortBy = getSafeSortOption(q.sortBy as string)
       const orderBy = mapSortOption(sortBy)
@@ -80,6 +84,13 @@ export default async function artworksRoutes(server: FastifyInstance) {
               }
             }
           ]
+        })
+      }
+
+      // 如果有艺术家ID筛选，添加艺术家筛选条件
+      if (artistId && !isNaN(artistId)) {
+        conditions.push({
+          artistId: artistId
         })
       }
 

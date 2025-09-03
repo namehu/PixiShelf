@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Artist, ArtistsQuery, Artwork } from '@pixishelf/shared'
 import ArtistCard from '@/components/ArtistCard'
 import { Input } from '@/components/ui/input'
@@ -21,6 +22,7 @@ const SORT_OPTIONS = [
 ] as const
 
 export function ArtistsPage({ onArtistClick }: ArtistsPageProps) {
+  const navigate = useNavigate()
   const [artists, setArtists] = useState<Artist[]>([])
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(true)
@@ -98,6 +100,14 @@ export function ArtistsPage({ onArtistClick }: ArtistsPageProps) {
     loading
   })
 
+  const handleArtistClick = (artist: Artist) => {
+    if (onArtistClick) {
+      onArtistClick(artist)
+    } else {
+      navigate(`/artists/${artist.id}`)
+    }
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
       {/* 页面标题 */}
@@ -164,7 +174,7 @@ export function ArtistsPage({ onArtistClick }: ArtistsPageProps) {
       {artists.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {artists.map((artist) => (
-            <ArtistCard key={artist.id} artist={artist} onClick={() => onArtistClick?.(artist)} />
+            <ArtistCard key={artist.id} artist={artist} onClick={() => handleArtistClick(artist)} />
           ))}
         </div>
       ) : (

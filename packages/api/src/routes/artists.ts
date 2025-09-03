@@ -3,6 +3,7 @@ import { ArtistsResponse, ArtistsQuery } from '@pixishelf/shared'
 import { asApiResponse } from '../types/response'
 
 export default async function artistsRoutes(server: FastifyInstance) {
+  // 获取艺术家列表
   server.get<{ Querystring: ArtistsQuery }>('/api/v1/artists', async (request): Promise<ArtistsResponse> => {
     const { page = '1', pageSize = '40', search, sortBy = 'name_asc' } = request.query
     
@@ -82,5 +83,43 @@ export default async function artistsRoutes(server: FastifyInstance) {
       page: pageNum,
       pageSize: pageSizeNum
     }
+  })
+
+  // 获取单个艺术家信息
+  server.get<{ Params: { id: string } }>('/api/v1/artists/:id', async (request, reply) => {
+    const { id } = request.params
+    const artistId = parseInt(id, 10)
+    
+    if (isNaN(artistId)) {
+      return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid artist ID' })
+    }
+    
+    const artist = await server.prisma.artist.findUnique({
+      where: { id: artistId },
+      include: {
+        _count: {
+          select: {
+            artworks: true
+          }
+        }
+      }
+    })
+    
+    if (!artist) {
+      return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Artist not found' })
+    }
+    
+    const formattedArtist = {
+      id: artist.id,
+      name: artist.name,
+      username: artist.username,
+      userId: artist.userId,
+      bio: artist.bio,
+      artworksCount: artist._count.artworks,
+      createdAt: artist.createdAt.toISOString(),
+      updatedAt: artist.updatedAt.toISOString()
+    }
+    
+    return asApiResponse(formattedArtist)
   })
 }
