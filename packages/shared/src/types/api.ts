@@ -51,11 +51,17 @@ export interface ArtworksQuery extends PaginationQuery {
 export type ArtworksResponse = PaginatedResponse<Artwork>
 
 /**
+ * 艺术家列表查询参数
+ */
+export interface ArtistsQuery extends PaginationQuery {
+  search?: string // 搜索关键词（搜索艺术家名称、用户名）
+  sortBy?: 'name_asc' | 'name_desc' | 'artworks_desc' | 'artworks_asc' // 排序选项
+}
+
+/**
  * 艺术家列表响应
  */
-export interface ArtistsResponse {
-  items: Artist[]
-}
+export type ArtistsResponse = PaginatedResponse<Artist>
 
 /**
  * 用户列表响应

@@ -11,6 +11,7 @@ export interface Artist {
   username?: string | null
   userId?: string | null
   bio?: string | null
+  artworksCount: number
   createdAt: string
   updatedAt: string
 }

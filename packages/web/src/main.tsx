@@ -14,6 +14,7 @@ import { apiJson } from './api'
 import { SuggestionsResponse } from '@pixishelf/shared'
 import Gallery from './pages/Gallery'
 import ArtworkDetail from './pages/ArtworkDetail'
+import ArtistsPage from './pages/ArtistsPage'
 import Login from './pages/Login'
 import AdminPage from './pages/admin'
 import ConfirmDialog from './components/ui/confirm-dialog'
@@ -419,6 +420,21 @@ function Layout({ children }: { children: React.ReactNode }) {
             {/* Navigation */}
             <nav className="hidden md:flex items-center space-x-1">
               <Link
+                to="/artists"
+                className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
+                title="艺术家"
+              >
+                <svg className="w-5 h-5 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                  />
+                </svg>
+              </Link>
+
+              <Link
                 to="/admin"
                 className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
                 title="管理中心"
@@ -457,6 +473,21 @@ function Layout({ children }: { children: React.ReactNode }) {
 
             {/* Mobile navigation */}
             <div className="md:hidden flex items-center gap-2">
+              <Link
+                to="/artists"
+                className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
+                title="艺术家"
+              >
+                <svg className="w-5 h-5 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                  />
+                </svg>
+              </Link>
+
               <Link
                 to="/admin"
                 className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
@@ -552,6 +583,16 @@ const router = createBrowserRouter([
       <RequireAuth>
         <Layout>
           <Gallery />
+        </Layout>
+      </RequireAuth>
+    )
+  },
+  {
+    path: '/artists',
+    element: (
+      <RequireAuth>
+        <Layout>
+          <ArtistsPage />
         </Layout>
       </RequireAuth>
     )
