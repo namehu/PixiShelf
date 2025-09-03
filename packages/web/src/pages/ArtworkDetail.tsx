@@ -179,13 +179,6 @@ export default function ArtworkDetail() {
             <span className="mx-0.5 sm:mx-1 text-neutral-400">/</span>
             <span className="text-neutral-600">{data.images.length}</span>
           </span>
-          {(imageCount > 0 || videoCount > 0) && (
-            <span className="text-xs text-neutral-400 ml-1 hidden sm:inline">
-              ({imageCount > 0 && `${imageCount}图`}
-              {imageCount > 0 && videoCount > 0 && ' '}
-              {videoCount > 0 && `${videoCount}视频`})
-            </span>
-          )}
         </div>
       </div>
     )
