@@ -26,14 +26,13 @@ export interface PaginatedResponse<T> {
  * 排序选项类型
  */
 export type SortOption = 
-  | 'newest'           // 按最新添加（默认）
   | 'title_asc'        // 按名称升序
   | 'title_desc'       // 按名称降序
   | 'artist_asc'       // 按艺术家名称升序
   | 'artist_desc'      // 按艺术家名称降序
   | 'images_desc'      // 按图片数量降序
   | 'images_asc'       // 按图片数量升序
-  | 'source_date_desc' // 按作品创建时间降序
+  | 'source_date_desc' // 按作品创建时间降序（默认）
   | 'source_date_asc'  // 按作品创建时间升序
 
 /**

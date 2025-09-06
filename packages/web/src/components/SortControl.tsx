@@ -25,15 +25,14 @@ export interface SortControlProps {
  * 所有可用的排序选项
  */
 const sortOptions: SortOptionDefinition[] = [
-  { value: 'newest', label: '最新添加', group: '时间' },
+  { value: 'source_date_desc', label: '创建时间 新-旧', group: '时间' },
+  { value: 'source_date_asc', label: '创建时间 旧-新', group: '时间' },
   { value: 'title_asc', label: '名称 A-Z', group: '名称' },
   { value: 'title_desc', label: '名称 Z-A', group: '名称' },
   { value: 'artist_asc', label: '艺术家 A-Z', group: '名称' },
   { value: 'artist_desc', label: '艺术家 Z-A', group: '名称' },
   { value: 'images_desc', label: '图片数量 多-少', group: '数量' },
-  { value: 'images_asc', label: '图片数量 少-多', group: '数量' },
-  { value: 'source_date_desc', label: '创建时间 新-旧', group: '时间' },
-  { value: 'source_date_asc', label: '创建时间 旧-新', group: '时间' }
+  { value: 'images_asc', label: '图片数量 少-多', group: '数量' }
 ]
 
 /**
@@ -62,7 +61,7 @@ export const SortControl: React.FC<SortControlProps> = ({
   
   // 获取当前选中选项的标签
   const currentOption = sortOptions.find(option => option.value === value)
-  const currentLabel = currentOption?.label || '最新添加'
+  const currentLabel = currentOption?.label || '创建时间 新-旧'
   
   // 处理选项点击
   const handleOptionClick = (sortBy: SortOption) => {

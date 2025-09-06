@@ -19,7 +19,7 @@ function useArtworks(page: number, pageSize: number, tags?: string[], search?: s
       if (search && search.trim()) {
         url.searchParams.set('search', search.trim())
       }
-      if (sortBy && sortBy !== 'newest') {
+      if (sortBy) {
         url.searchParams.set('sortBy', sortBy)
       }
       return apiJson<EnhancedArtworksResponse>(url.toString())
@@ -49,7 +49,7 @@ export default function Gallery() {
   // 搜索和过滤状态
   const selectedTags = sp.get('tags')?.split(',').filter(Boolean) || []
   const searchQuery = sp.get('search') || ''
-  const sortBy = (sp.get('sortBy') as SortOption) || 'newest'
+  const sortBy = (sp.get('sortBy') as SortOption) || 'source_date_desc'
 
   const { data, isLoading, isError } = useArtworks(
     page,
@@ -111,7 +111,7 @@ export default function Gallery() {
 
   const handleSortChange = (newSortBy: SortOption) => {
     const newSp = new URLSearchParams(sp)
-    if (newSortBy === 'newest') {
+    if (newSortBy === 'source_date_desc') {
       newSp.delete('sortBy') // 默认值不需要在URL中
     } else {
       newSp.set('sortBy', newSortBy)

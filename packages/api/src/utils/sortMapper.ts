@@ -11,7 +11,6 @@ type PrismaOrderBy = {
  * 排序选项到 Prisma orderBy 的映射
  */
 const sortMappings: Record<SortOption, PrismaOrderBy> = {
-  'newest': { directoryCreatedAt: 'desc' },
   'title_asc': { title: 'asc' },
   'title_desc': { title: 'desc' },
   'artist_asc': { artist: { name: 'asc' } },
@@ -37,9 +36,15 @@ export interface SortOptionDefinition {
  */
 export const sortOptionDefinitions: SortOptionDefinition[] = [
   {
-    value: 'newest',
-    label: '最新添加',
-    description: '按目录创建时间降序排列',
+    value: 'source_date_desc',
+    label: '创建时间 新-旧',
+    description: '按作品创建时间降序排列',
+    group: 'time'
+  },
+  {
+    value: 'source_date_asc',
+    label: '创建时间 旧-新',
+    description: '按作品创建时间升序排列',
     group: 'time'
   },
   {
@@ -77,18 +82,6 @@ export const sortOptionDefinitions: SortOptionDefinition[] = [
     label: '图片数量 少-多',
     description: '按图片数量升序排列',
     group: 'count'
-  },
-  {
-    value: 'source_date_desc',
-    label: '创建时间 新-旧',
-    description: '按作品创建时间降序排列',
-    group: 'time'
-  },
-  {
-    value: 'source_date_asc',
-    label: '创建时间 旧-新',
-    description: '按作品创建时间升序排列',
-    group: 'time'
   }
 ]
 
@@ -118,7 +111,7 @@ export function mapSortOption(sortBy: SortOption): PrismaOrderBy {
  */
 export function getSafeSortOption(
   sortBy: string | undefined,
-  defaultSort: SortOption = 'newest'
+  defaultSort: SortOption = 'source_date_desc'
 ): SortOption {
   if (!sortBy || !isValidSortOption(sortBy)) {
     return defaultSort
