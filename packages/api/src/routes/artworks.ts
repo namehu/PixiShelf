@@ -47,44 +47,23 @@ export default async function artworksRoutes(server: FastifyInstance) {
         })
       }
 
-      // 如果有搜索词，添加模糊搜索条件
+      // 如果有搜索词，使用原生SQL查询以利用Trigram索引
+      let searchWhereClause = ''
+      let searchParams: any[] = []
       if (searchTerm) {
-        conditions.push({
-          OR: [
-            // 搜索作品标题
-            {
-              title: {
-                contains: searchTerm,
-                mode: 'insensitive'
-              }
-            },
-            // 搜索作品描述
-            {
-              description: {
-                contains: searchTerm,
-                mode: 'insensitive'
-              }
-            },
-            // 搜索艺术家名称
-            {
-              artist: {
-                name: {
-                  contains: searchTerm,
-                  mode: 'insensitive'
-                }
-              }
-            },
-            // 搜索艺术家用户名
-            {
-              artist: {
-                username: {
-                  contains: searchTerm,
-                  mode: 'insensitive'
-                }
-              }
-            }
-          ]
-        })
+        // 使用Trigram索引进行高效模糊搜索
+        const searchPattern = `%${searchTerm}%`
+        searchWhereClause = `
+          AND (
+            (a.title || ' ' || COALESCE(a.description, '')) ILIKE $${searchParams.length + 1}
+            OR EXISTS (
+              SELECT 1 FROM "Artist" artist 
+              WHERE artist.id = a."artistId" 
+              AND (artist.name ILIKE $${searchParams.length + 2} OR artist.username ILIKE $${searchParams.length + 3})
+            )
+          )
+        `
+        searchParams.push(searchPattern, searchPattern, searchPattern)
       }
 
       // 如果有艺术家ID筛选，添加艺术家筛选条件
@@ -99,27 +78,169 @@ export default async function artworksRoutes(server: FastifyInstance) {
         whereClause.AND = conditions
       }
 
-      // 查询总数（用于分页）
-      const total = await server.prisma.artwork.count({ where: whereClause })
+      let total: number
+      let artworks: any[]
 
-      // 查询作品列表（仅取首张图片，按指定方式排序）
-      const artworks = await server.prisma.artwork.findMany({
-        where: whereClause,
-        include: {
-          images: { take: 1, orderBy: { sortOrder: 'asc' } },
-          artist: true,
-          artworkTags: { include: { tag: true } },
-          _count: { select: { images: true } }
-        },
-        orderBy,
-        skip,
-        take: pageSize
-      })
+      // 如果有搜索词，使用原生SQL查询以利用Trigram索引
+      if (searchTerm) {
+        // 构建基础WHERE条件
+        let baseWhereConditions: string[] = []
+        let queryParams: any[] = [...searchParams]
+        
+        // 添加标签过滤条件
+        if (tagNames.length > 0) {
+          const tagConditions = tagNames.map((_, index) => {
+            queryParams.push(tagNames[index])
+            return `EXISTS (
+              SELECT 1 FROM "ArtworkTag" at 
+              JOIN "Tag" t ON at."tagId" = t.id 
+              WHERE at."artworkId" = "Artwork".id AND t.name = $${queryParams.length}
+            )`
+          }).join(' AND ')
+          baseWhereConditions.push(`(${tagConditions})`)
+        }
+        
+        // 添加艺术家ID过滤条件
+        if (artistId && !isNaN(artistId)) {
+          queryParams.push(artistId)
+          baseWhereConditions.push(`"artistId" = $${queryParams.length}`)
+        }
+        
+        // 构建WHERE子句
+        let whereClause = ''
+        if (baseWhereConditions.length > 0 && searchWhereClause) {
+          // 有基础条件和搜索条件
+          const adjustedSearchWhere = searchWhereClause.replace(/\$\d+/g, (match) => {
+            const paramIndex = parseInt(match.substring(1))
+            return `$${queryParams.length - searchParams.length + paramIndex}`
+          })
+          whereClause = `WHERE ${baseWhereConditions.join(' AND ')} ${adjustedSearchWhere}`
+        } else if (baseWhereConditions.length > 0) {
+          // 只有基础条件
+          whereClause = `WHERE ${baseWhereConditions.join(' AND ')}`
+        } else if (searchWhereClause) {
+          // 只有搜索条件，去掉开头的AND
+          const adjustedSearchWhere = searchWhereClause.replace(/\$\d+/g, (match) => {
+            const paramIndex = parseInt(match.substring(1))
+            return `$${queryParams.length - searchParams.length + paramIndex}`
+          }).replace(/^\s*AND\s*/, '')
+          whereClause = `WHERE ${adjustedSearchWhere}`
+        }
+        
+        // 查询总数
+        const countQuery = `
+          SELECT COUNT(*) as count
+          FROM "Artwork" a
+          ${whereClause}
+        `
+        const countResult = await server.prisma.$queryRawUnsafe(countQuery, ...queryParams)
+        total = parseInt((countResult as any)[0].count)
+        
+        // 构建排序条件
+        const orderByClause = mapSortOption(sortBy)
+        let orderBySQL = ''
+        if (orderByClause.directoryCreatedAt) {
+          orderBySQL = `ORDER BY "directoryCreatedAt" ${orderByClause.directoryCreatedAt}`
+        } else if (orderByClause.title) {
+          orderBySQL = `ORDER BY title ${orderByClause.title}`
+        } else if (orderByClause.imageCount) {
+          orderBySQL = `ORDER BY "imageCount" ${orderByClause.imageCount}`
+        } else if (orderByClause.sourceDate) {
+          orderBySQL = `ORDER BY "sourceDate" ${orderByClause.sourceDate}`
+        } else if (orderByClause.artist) {
+          const artistOrder = typeof orderByClause.artist === 'object' ? orderByClause.artist.name : orderByClause.artist
+          orderBySQL = `ORDER BY (SELECT name FROM "Artist" WHERE id = "Artwork"."artistId") ${artistOrder}`
+        } else {
+          orderBySQL = 'ORDER BY "directoryCreatedAt" DESC'
+        }
+        
+        // 查询作品列表
+        queryParams.push(pageSize, skip)
+        const artworksQuery = `
+          SELECT 
+            a.*,
+            artist.id as "artist_id",
+            artist.name as "artist_name",
+            artist.username as "artist_username",
+            artist."userId" as "artist_userId",
+            artist.bio as "artist_bio",
+            artist."createdAt" as "artist_createdAt",
+            artist."updatedAt" as "artist_updatedAt"
+          FROM "Artwork" a
+          LEFT JOIN "Artist" artist ON a."artistId" = artist.id
+          ${whereClause}
+          ${orderBySQL}
+          LIMIT $${queryParams.length - 1} OFFSET $${queryParams.length}
+        `
+        
+        const rawArtworks = await server.prisma.$queryRawUnsafe(artworksQuery, ...queryParams)
+        
+        // 转换原生查询结果并获取关联数据
+        const artworkIds = (rawArtworks as any[]).map(a => a.id)
+        
+        // 获取图片数据
+        const images = await server.prisma.image.findMany({
+          where: { artworkId: { in: artworkIds } },
+          orderBy: { sortOrder: 'asc' }
+        })
+        
+        // 获取标签数据
+        const artworkTags = await server.prisma.artworkTag.findMany({
+          where: { artworkId: { in: artworkIds } },
+          include: { tag: true }
+        })
+        
+        // 获取图片计数
+        const imageCounts = await server.prisma.image.groupBy({
+          by: ['artworkId'],
+          where: { artworkId: { in: artworkIds } },
+          _count: { id: true }
+        })
+        
+        // 组装最终结果
+        artworks = (rawArtworks as any[]).map(rawArtwork => {
+          const artworkImages = images.filter(img => img.artworkId === rawArtwork.id).slice(0, 1)
+          const tags = artworkTags.filter(at => at.artworkId === rawArtwork.id)
+          const imageCount = imageCounts.find(ic => ic.artworkId === rawArtwork.id)?._count.id || 0
+          
+          return {
+            ...rawArtwork,
+            artist: rawArtwork.artist_id ? {
+              id: rawArtwork.artist_id,
+              name: rawArtwork.artist_name,
+              username: rawArtwork.artist_username,
+              userId: rawArtwork.artist_userId,
+              bio: rawArtwork.artist_bio,
+              createdAt: rawArtwork.artist_createdAt,
+              updatedAt: rawArtwork.artist_updatedAt
+            } : null,
+            images: artworkImages,
+            artworkTags: tags,
+            _count: { images: imageCount }
+          }
+        })
+      } else {
+        // 没有搜索词时使用标准Prisma查询
+        total = await server.prisma.artwork.count({ where: whereClause })
+        
+        artworks = await server.prisma.artwork.findMany({
+          where: whereClause,
+          include: {
+            images: { take: 1, orderBy: { sortOrder: 'asc' } },
+            artist: true,
+            artworkTags: { include: { tag: true } },
+            _count: { select: { images: true } }
+          },
+          orderBy,
+          skip,
+          take: pageSize
+        })
+      }
 
       // 转换数据格式，将多对多关系的标签转换为字符串数组，并添加媒体类型信息
       const items = artworks.map((artwork) => {
         // 为每个图片添加mediaType字段
-        const enhancedImages: MediaFile[] = artwork.images.map((image) => ({
+        const enhancedImages: MediaFile[] = artwork.images.map((image: any) => ({
           ...image,
           mediaType: getMediaType(image.path) as 'image' | 'video',
           sortOrder: image.sortOrder || 0,
@@ -153,6 +274,7 @@ export default async function artworksRoutes(server: FastifyInstance) {
       const response: EnhancedArtworksResponse = asPaginatedResponse({ items, total, page, pageSize })
       return reply.send(response)
     } catch (error) {
+      console.error('Error fetching artworks:', error)
       server.log.error({ error }, 'Error fetching artworks')
       return reply.code(500).send({ error: 'Failed to fetch artworks' })
     }

@@ -44,7 +44,6 @@ model Artwork {
   artworkTags        ArtworkTag[]
   images             Image[]
 
-  @@index([title, description])
   @@index([directoryCreatedAt])
   @@index([imageCount])
   @@index([sourceDate])
