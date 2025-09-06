@@ -30,7 +30,7 @@ function useArtistArtworks(artistId: string, page: number, pageSize: number, sor
       url.searchParams.set('page', String(page))
       url.searchParams.set('pageSize', String(pageSize))
       url.searchParams.set('artistId', artistId)
-      if (sortBy && sortBy !== 'newest') {
+      if (sortBy && sortBy !== 'source_date_desc') {
         url.searchParams.set('sortBy', sortBy)
       }
       return apiJson<EnhancedArtworksResponse>(url.toString())
@@ -44,7 +44,7 @@ export default function ArtistDetail() {
   const [sp, setSp] = useSearchParams()
   const page = parseInt(sp.get('page') || '1', 10)
   const pageSize = 24
-  const sortBy = (sp.get('sortBy') as SortOption) || 'newest'
+  const sortBy = (sp.get('sortBy') as SortOption) || 'source_date_desc'
   const [jumpToPage, setJumpToPage] = useState('')
 
   const { data: artist, isLoading: artistLoading, isError: artistError } = useArtist(id!)
@@ -77,7 +77,7 @@ export default function ArtistDetail() {
 
   const handleSortChange = (newSortBy: SortOption) => {
     const newSp = new URLSearchParams(sp)
-    if (newSortBy === 'newest') {
+    if (newSortBy === 'source_date_desc') {
       newSp.delete('sortBy')
     } else {
       newSp.set('sortBy', newSortBy)

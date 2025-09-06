@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useCallback } from 'react'
 import { useInView } from 'react-intersection-observer'
 import VideoPlayer from './VideoPlayer'
 
@@ -21,16 +21,28 @@ export function LazyVideo({ src, alt, index, onInView }: LazyVideoProps) {
     rootMargin: '0px'
   })
 
+  // 使用useCallback优化ref合并函数
+  const setRefs = useCallback((node: HTMLDivElement | null) => {
+    if (typeof ref === 'function') {
+      ref(node)
+    } else if (ref && typeof ref === 'object' && ref !== null && 'current' in ref) {
+      (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
+    }
+    
+    if (typeof viewRef === 'function') {
+      viewRef(node)
+    } else if (viewRef && typeof viewRef === 'object' && viewRef !== null && 'current' in viewRef) {
+      (viewRef as React.MutableRefObject<HTMLDivElement | null>).current = node
+    }
+  }, [ref, viewRef])
+
   useEffect(() => {
     onInView(index, isInViewport)
   }, [isInViewport, index, onInView])
 
   return (
     <div
-      ref={(node) => {
-        ref(node)
-        viewRef(node)
-      }}
+      ref={setRefs}
       className="overflow-hidden bg-neutral-100 flex items-center justify-center"
     >
       {inView ? (

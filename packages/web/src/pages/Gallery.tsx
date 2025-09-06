@@ -19,7 +19,7 @@ function useArtworks(page: number, pageSize: number, tags?: string[], search?: s
       if (search && search.trim()) {
         url.searchParams.set('search', search.trim())
       }
-      if (sortBy) {
+      if (sortBy && sortBy !== 'source_date_desc') {
         url.searchParams.set('sortBy', sortBy)
       }
       return apiJson<EnhancedArtworksResponse>(url.toString())
