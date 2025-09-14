@@ -35,3 +35,19 @@ export interface CreateUserResponse {
   id: number
   username: string
 }
+
+/**
+ * 修改密码请求
+ */
+export interface ChangePasswordRequest {
+  currentPassword: string
+  newPassword: string
+}
+
+/**
+ * 修改密码响应
+ */
+export interface ChangePasswordResponse {
+  success: boolean
+  message: string
+}

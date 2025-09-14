@@ -18,6 +18,8 @@ import ArtistsPage from './pages/ArtistsPage'
 import ArtistDetail from './pages/ArtistDetail'
 import Login from './pages/Login'
 import AdminPage from './pages/admin'
+import Settings from './pages/Settings'
+import ChangePassword from './pages/ChangePassword'
 import ConfirmDialog from './components/ui/confirm-dialog'
 import { NotificationProvider } from './components/ui/notification'
 import { ToastProvider } from './components/ui/toast'
@@ -456,6 +458,21 @@ function Layout({ children }: { children: React.ReactNode }) {
                 </svg>
               </Link>
 
+              <Link
+                to="/settings"
+                className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
+                title="用户设置"
+              >
+                <svg className="w-5 h-5 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                  />
+                </svg>
+              </Link>
+
               <div className="w-px h-4 bg-neutral-200 mx-2" />
 
               {auth.token ? (
@@ -506,6 +523,21 @@ function Layout({ children }: { children: React.ReactNode }) {
                     strokeLinejoin="round"
                     strokeWidth={2}
                     d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              </Link>
+
+              <Link
+                to="/settings"
+                className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
+                title="用户设置"
+              >
+                <svg className="w-5 h-5 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
                   />
                 </svg>
               </Link>
@@ -623,6 +655,22 @@ const router = createBrowserRouter([
     element: (
       <RequireAuth>
         <ArtworkDetail />
+      </RequireAuth>
+    )
+  },
+  {
+    path: '/settings',
+    element: (
+      <RequireAuth>
+        <Settings />
+      </RequireAuth>
+    )
+  },
+  {
+    path: '/settings/password',
+    element: (
+      <RequireAuth>
+        <ChangePassword />
       </RequireAuth>
     )
   },

@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import bcrypt from 'bcryptjs'
-import { UsersResponse, CreateUserRequest, CreateUserResponse } from '@pixishelf/shared'
+import { UsersResponse, CreateUserRequest, CreateUserResponse, ChangePasswordRequest, ChangePasswordResponse } from '@pixishelf/shared'
 import { asApiResponse } from '../types/response'
 
 export default async function usersRoutes(server: FastifyInstance) {
@@ -62,5 +62,49 @@ export default async function usersRoutes(server: FastifyInstance) {
 
     await server.prisma.user.delete({ where: { id: userId } })
     return { success: true }
+  })
+
+  // Change password (user can only change their own password)
+  server.put('/api/v1/users/password', async (req, reply) => {
+    const body = req.body as ChangePasswordRequest
+    const currentPassword = body?.currentPassword || ''
+    const newPassword = body?.newPassword || ''
+    
+    if (!currentPassword || !newPassword) {
+      return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'currentPassword and newPassword are required' })
+    }
+
+    const currentUser = (req as any).user
+    if (!currentUser?.id) {
+      return reply.code(401).send({ statusCode: 401, error: 'Unauthorized', message: 'User not authenticated' })
+    }
+
+    // Get current user from database
+    const user = await server.prisma.user.findUnique({ where: { id: currentUser.id } })
+    if (!user) {
+      return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'User not found' })
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password)
+    if (!isCurrentPasswordValid) {
+      return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: '当前密码不正确' })
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10)
+    const hashedNewPassword = await bcrypt.hash(newPassword, salt)
+
+    // Update password in database
+    await server.prisma.user.update({
+      where: { id: currentUser.id },
+      data: { password: hashedNewPassword }
+    })
+
+    const response: ChangePasswordResponse = {
+      success: true,
+      message: '密码修改成功'
+    }
+    return response
   })
 }
