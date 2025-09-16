@@ -9,19 +9,28 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@pixishelf/shared": "workspace:*",
+    "@prisma/client": "^5.17.0",
+    "bcryptjs": "^2.4.3",
+    "clsx": "^2.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "next": "15.5.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "next": "15.5.3"
+    "tailwind-merge": "^2.2.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
-    "@eslint/eslintrc": "^3"
+    "prisma": "^5.17.0",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5"
   }
 }
