@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken'
+import { SignJWT, jwtVerify, decodeJwt } from 'jose'
 import type { NextRequest } from 'next/server'
 import { userRepository } from './repositories/user'
 import { hashPassword, verifyPassword } from './crypto'
@@ -28,7 +28,7 @@ export class AuthError extends Error {
  */
 export interface IAuthService {
   validateCredentials(username: string, password: string): Promise<User | null>
-  generateAccessToken(user: User): string
+  generateAccessToken(user: User): Promise<string>
   verifyAccessToken(token: string): Promise<User | null>
   refreshToken(token: string): Promise<string | null>
   createUser(username: string, password: string): Promise<User>
@@ -42,14 +42,15 @@ export interface IAuthService {
  * 认证服务实现
  */
 export class AuthService implements IAuthService {
-  private readonly jwtSecret: string
+  private readonly jwtSecret: Uint8Array
   private readonly jwtTtl: number
 
   constructor() {
-    this.jwtSecret = process.env.JWT_SECRET || 'dev-secret-key'
+    const secret = process.env.JWT_SECRET || 'dev-secret-key'
+    this.jwtSecret = new TextEncoder().encode(secret) // jose 需要 Uint8Array 格式的 secret
     this.jwtTtl = parseInt(process.env.JWT_TTL || String(JWT_CONFIG.DEFAULT_TTL), 10)
 
-    if (process.env.NODE_ENV === 'production' && this.jwtSecret === 'dev-secret-key') {
+    if (process.env.NODE_ENV === 'production' && secret === 'dev-secret-key') {
       throw new Error('生产环境必须设置 JWT_SECRET 环境变量')
     }
   }
@@ -85,19 +86,14 @@ export class AuthService implements IAuthService {
    * @param user - 用户信息
    * @returns string JWT令牌
    */
-  generateAccessToken(user: User): string {
+  async generateAccessToken(user: User): Promise<string> {
     try {
-      const payload: JWTPayload = {
-        userId: user.id,
-        sub: user.id,
-        username: user.username,
-        iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + this.jwtTtl
-      }
-
-      const token = jwt.sign(payload, this.jwtSecret, {
-        algorithm: 'HS256'
-      })
+      const token = await new SignJWT({ userId: user.id, username: user.username })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setSubject(String(user.id))
+        .setIssuedAt()
+        .setExpirationTime(`${this.jwtTtl}s`) // jose 接受字符串格式的时间
+        .sign(this.jwtSecret)
 
       return token
     } catch (error) {
@@ -113,28 +109,19 @@ export class AuthService implements IAuthService {
   async verifyAccessToken(token: string): Promise<User | null> {
     try {
       // 验证JWT令牌
-      const decoded = jwt.verify(token, this.jwtSecret) as JWTPayload
-
-      // 检查令牌是否过期
-      const now = Math.floor(Date.now() / 1000)
-      if (decoded.exp && decoded.exp < now) {
-        return null
-      }
-
+      const { payload } = await jwtVerify(token, this.jwtSecret)
+      const decoded = payload
       // 查找用户（确保用户仍然存在）
-      const user = await userRepository.findById(parseInt(decoded.sub))
+      const user = await userRepository.findById(parseInt(decoded.sub!))
       if (!user) {
         return null
       }
 
       return user
     } catch (error) {
-      if (error instanceof jwt.JsonWebTokenError) {
-        // JWT相关错误（无效、过期等）
-        return null
-      }
-
-      throw new AuthError(`令牌验证失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      // jose 的错误通常有 code 属性，例如 'ERR_JWT_EXPIRED'
+      // 为了简单起见，所有验证失败都返回 null
+      return null
     }
   }
 
@@ -150,12 +137,8 @@ export class AuthService implements IAuthService {
         return null
       }
 
-      // 检查是否需要刷新（距离过期时间小于阈值）
-      const decoded = jwt.decode(token) as JWTPayload
-      const now = Math.floor(Date.now() / 1000)
-      const timeUntilExpiry = decoded.exp - now
-
-      if (timeUntilExpiry > JWT_CONFIG.REFRESH_THRESHOLD) {
+      // 检查是否需要刷新
+      if (!this.isTokenExpiringSoon(token)) {
         // 还不需要刷新
         return token
       }
@@ -175,16 +158,13 @@ export class AuthService implements IAuthService {
    */
   async createUser(username: string, password: string): Promise<User> {
     try {
-      // 检查用户名是否已存在
       const existingUser = await userRepository.findByUsername(username)
       if (existingUser) {
         throw new AuthError('用户名已存在')
       }
 
-      // 加密密码
       const hashedPassword = await hashPassword(password)
 
-      // 创建用户
       const user = await userRepository.create({
         username,
         passwordHash: hashedPassword
@@ -209,22 +189,18 @@ export class AuthService implements IAuthService {
    */
   async changePassword(userId: number, currentPassword: string, newPassword: string): Promise<void> {
     try {
-      // 查找用户
       const user = await userRepository.findById(userId)
       if (!user) {
         throw new AuthError('用户不存在')
       }
 
-      // 验证当前密码
       const isCurrentPasswordValid = await verifyPassword(currentPassword, user.passwordHash)
       if (!isCurrentPasswordValid) {
         throw new AuthError('当前密码错误')
       }
 
-      // 加密新密码
       const hashedNewPassword = await hashPassword(newPassword)
 
-      // 更新密码
       await userRepository.updatePassword(userId, hashedNewPassword)
     } catch (error) {
       if (error instanceof AuthError) {
@@ -241,13 +217,11 @@ export class AuthService implements IAuthService {
    * @returns string | null 提取到的token或null
    */
   extractTokenFromRequest(request: NextRequest): string | null {
-    // 从Authorization header提取Bearer token
     const authHeader = request.headers.get('authorization')
     if (authHeader && authHeader.startsWith('Bearer ')) {
       return authHeader.substring(7)
     }
 
-    // 兼容性：从query参数提取token (仅用于SSE)
     const tokenFromQuery = request.nextUrl.searchParams.get('token')
     if (tokenFromQuery) {
       return tokenFromQuery
@@ -264,7 +238,7 @@ export class AuthService implements IAuthService {
    */
   isTokenExpiringSoon(token: string, thresholdSeconds: number = JWT_CONFIG.REFRESH_THRESHOLD): boolean {
     try {
-      const decoded = jwt.decode(token) as JWTPayload
+      const decoded = decodeJwt(token) as JWTPayload
       if (!decoded || !decoded.exp) {
         return true
       }
@@ -285,7 +259,7 @@ export class AuthService implements IAuthService {
    */
   getTokenRemainingTime(token: string): number | null {
     try {
-      const decoded = jwt.decode(token) as JWTPayload
+      const decoded = decodeJwt(token) as JWTPayload
       if (!decoded || !decoded.exp) {
         return null
       }
@@ -306,8 +280,7 @@ export class AuthService implements IAuthService {
    */
   extractUserFromToken(token: string): JWTPayload | null {
     try {
-      const decoded = jwt.decode(token) as JWTPayload
-      return decoded
+      return decodeJwt(token) as JWTPayload
     } catch {
       return null
     }

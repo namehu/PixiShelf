@@ -34,7 +34,7 @@ export class UserRepository implements IUserRepository {
       username: prismaUser.username,
       passwordHash: prismaUser.password,
       createdAt: prismaUser.createdAt.toISOString(),
-      updatedAt: prismaUser.updatedAt.toISOString(),
+      updatedAt: prismaUser.updatedAt.toISOString()
     }
   }
 
@@ -46,12 +46,12 @@ export class UserRepository implements IUserRepository {
   async findById(id: number): Promise<User | null> {
     try {
       const user = await prisma.user.findUnique({
-        where: { id },
+        where: { id }
       })
       if (!user) {
         return null
       }
-      
+
       return this.convertPrismaUserToUser(user)
     } catch (error) {
       const { message, statusCode } = handlePrismaError(error)
@@ -67,12 +67,12 @@ export class UserRepository implements IUserRepository {
   async findByUsername(username: string): Promise<User | null> {
     try {
       const user = await prisma.user.findUnique({
-        where: { username: username.trim() },
+        where: { username: username.trim() }
       })
       if (!user) {
         return null
       }
-      
+
       return this.convertPrismaUserToUser(user)
     } catch (error) {
       const { message } = handlePrismaError(error)
@@ -90,18 +90,18 @@ export class UserRepository implements IUserRepository {
       const newUser = await prisma.user.create({
         data: {
           username: userData.username,
-          password: userData.passwordHash,
-        },
+          password: userData.passwordHash
+        }
       })
       return this.convertPrismaUserToUser(newUser)
     } catch (error) {
       const { message, code, statusCode } = handlePrismaError(error)
-      
+
       // 处理用户名重复错误
       if (code === 'P2002') {
         throw new Error('用户名已存在')
       }
-      
+
       throw new Error(`创建用户失败: ${message}`)
     }
   }
@@ -118,25 +118,25 @@ export class UserRepository implements IUserRepository {
         where: { id },
         data: {
           ...(userData.username && { username: userData.username }),
-          updatedAt: new Date(),
-        },
+          updatedAt: new Date()
+        }
       })
       if (!user) {
         return null
       }
-      
+
       return this.convertPrismaUserToUser(user)
     } catch (error) {
       const { message, code } = handlePrismaError(error)
-      
+
       if (code === 'P2025') {
         throw new Error('用户不存在')
       }
-      
+
       if (code === 'P2002') {
         throw new Error('用户名已存在')
       }
-      
+
       throw new Error(`更新用户失败: ${message}`)
     }
   }
@@ -149,15 +149,15 @@ export class UserRepository implements IUserRepository {
   async delete(id: number): Promise<void> {
     try {
       await prisma.user.delete({
-        where: { id },
+        where: { id }
       })
     } catch (error) {
       const { message, code } = handlePrismaError(error)
-      
+
       if (code === 'P2025') {
         throw new Error('用户不存在')
       }
-      
+
       throw new Error(`删除用户失败: ${message}`)
     }
   }
@@ -170,7 +170,7 @@ export class UserRepository implements IUserRepository {
   async exists(username: string): Promise<boolean> {
     try {
       const count = await prisma.user.count({
-        where: { username: username.trim() },
+        where: { username: username.trim() }
       })
       return count > 0
     } catch (error) {
@@ -200,12 +200,12 @@ export class UserRepository implements IUserRepository {
   async list(options: { skip?: number; take?: number } = {}): Promise<User[]> {
     try {
       const { skip = 0, take = 20 } = options
-      
+
       const users = await prisma.user.findMany({
         skip,
         take,
         orderBy: {
-          createdAt: 'desc',
+          createdAt: 'desc'
         },
         select: {
           id: true,
@@ -213,16 +213,16 @@ export class UserRepository implements IUserRepository {
           createdAt: true,
           updatedAt: true,
           // 不返回密码字段
-          password: false,
-        },
+          password: false
+        }
       })
-      
-      return users.map(user => ({
+
+      return users.map((user) => ({
         id: user.id.toString(),
         username: user.username,
         passwordHash: '', // 不返回密码
         createdAt: user.createdAt.toISOString(),
-        updatedAt: user.updatedAt.toISOString(),
+        updatedAt: user.updatedAt.toISOString()
       }))
     } catch (error) {
       const { message } = handlePrismaError(error)
@@ -242,16 +242,16 @@ export class UserRepository implements IUserRepository {
         where: { id },
         data: {
           password: hashedPassword,
-          updatedAt: new Date(),
-        },
+          updatedAt: new Date()
+        }
       })
     } catch (error) {
       const { message, code } = handlePrismaError(error)
-      
+
       if (code === 'P2025') {
         throw new Error('用户不存在')
       }
-      
+
       throw new Error(`更新密码失败: ${message}`)
     }
   }
@@ -269,19 +269,19 @@ export class UserRepository implements IUserRepository {
           id: true,
           username: true,
           createdAt: true,
-          updatedAt: true,
-        },
+          updatedAt: true
+        }
       })
-      
+
       if (!user) {
         return null
       }
-      
+
       return {
         id: user.id.toString(),
         username: user.username,
         createdAt: user.createdAt.toISOString(),
-        updatedAt: user.updatedAt.toISOString(),
+        updatedAt: user.updatedAt.toISOString()
       }
     } catch (error) {
       const { message } = handlePrismaError(error)
@@ -297,16 +297,16 @@ export class UserRepository implements IUserRepository {
   async createMany(usersData: CreateUserRequest[]): Promise<User[]> {
     try {
       const result = await prisma.$transaction(
-        usersData.map(userData =>
+        usersData.map((userData) =>
           prisma.user.create({
             data: {
               username: userData.username,
-              password: userData.passwordHash,
-            },
+              password: userData.passwordHash
+            }
           })
         )
       )
-      return result.map(user => this.convertPrismaUserToUser(user))
+      return result.map((user) => this.convertPrismaUserToUser(user))
     } catch (error) {
       const { message } = handlePrismaError(error)
       throw new Error(`批量创建用户失败: ${message}`)

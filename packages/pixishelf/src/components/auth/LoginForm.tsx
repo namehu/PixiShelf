@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button, Input, Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui'
 import { validateLoginForm } from '@/lib/validators'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
+import { useAuth } from '@/components/auth'
 import type { LoginRequest } from '@/types/auth'
 
 // ============================================================================
@@ -45,6 +46,7 @@ interface FormErrors {
  */
 export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onSuccess, onError }) => {
   const router = useRouter()
+  const { login } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [formState, setFormState] = useState<FormState>({
     username: '',
@@ -92,35 +94,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onS
   }
 
   /**
-   * 提交登录请求
-   */
-  const submitLogin = async (loginData: LoginRequest): Promise<boolean> => {
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(loginData)
-      })
-
-      const data = await response.json()
-
-      if (!response.ok || !data.success || !data.token) {
-        throw new Error(data.error || ERROR_MESSAGES.LOGIN_FAILED)
-      }
-
-      // token由AuthProvider处理，这里只需要返回成功状态
-      return true
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.LOGIN_FAILED
-      setErrors({ general: errorMessage })
-      onError?.(errorMessage)
-      return false
-    }
-  }
-
-  /**
    * 处理表单提交
    */
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -135,14 +108,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onS
     setErrors({})
 
     try {
-      debugger
-      const loginData: LoginRequest = {
-        username: formState.username.trim(),
-        password: formState.password,
-        rememberMe: formState.rememberMe
-      }
-
-      const success = await submitLogin(loginData)
+      // 使用AuthProvider的login方法
+      const success = await login(formState.username.trim(), formState.password)
 
       if (success) {
         onSuccess?.()
@@ -150,6 +117,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onS
         // 重定向到指定页面或默认页面
         const targetUrl = redirectTo || ROUTES.DASHBOARD
         router.push(targetUrl)
+      } else {
+        // 登录失败，错误信息已经在AuthProvider中处理
+        setErrors({ general: ERROR_MESSAGES.LOGIN_FAILED })
+        onError?.(ERROR_MESSAGES.LOGIN_FAILED)
       }
     } catch (error) {
       console.error('登录提交错误:', error)
