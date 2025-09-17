@@ -106,29 +106,6 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       return handleUnauthenticated(request, pathname)
     }
 
-    // 检查会话是否需要刷新
-    const refreshedSession = await sessionManager.refreshSession(token)
-    
-    if (!refreshedSession) {
-      return handleUnauthenticated(request, pathname)
-    }
-
-    // 如果会话被刷新，更新Cookie
-    if (refreshedSession.token !== token) {
-      const response = NextResponse.next()
-      const cookieOptions = sessionManager.getCookieOptions()
-      
-      response.cookies.set('auth-token', refreshedSession.token, {
-        httpOnly: cookieOptions.httpOnly,
-        secure: cookieOptions.secure,
-        sameSite: cookieOptions.sameSite,
-        maxAge: cookieOptions.maxAge,
-        path: cookieOptions.path,
-      })
-      
-      return response
-    }
-
     // 认证成功，继续处理请求
     return NextResponse.next()
   } catch (error) {
@@ -161,9 +138,6 @@ function handleUnauthenticated(request: NextRequest, pathname: string): NextResp
   }
 
   const response = NextResponse.redirect(loginUrl)
-  
-  // 清除可能存在的无效认证Cookie
-  response.cookies.delete('auth-token')
   
   return response
 }

@@ -1,8 +1,6 @@
-import jwt from 'jsonwebtoken'
 import type { NextRequest } from 'next/server'
 import { authService } from './auth'
-import { JWT_CONFIG, COOKIE_CONFIG, COOKIE_NAMES } from './constants'
-import type { Session, CookieOptions, JWTPayload } from '@/types/auth'
+import type { Session } from '@/types/auth'
 import type { User } from '@/types/core'
 
 // ============================================================================
@@ -20,22 +18,15 @@ export interface ISessionManager {
   refreshSession(token: string): Promise<Session | null>
   destroySession(token: string): Promise<void>
   validateSession(token: string): Promise<boolean>
+  extractTokenFromRequest(request: NextRequest): string | null
 }
 
 /**
  * 会话管理器实现
  */
 export class SessionManager implements ISessionManager {
-  private readonly defaultCookieOptions: CookieOptions
-
   constructor() {
-    this.defaultCookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 60 * 60 * 24 * 7, // 7天
-      path: '/'
-    }
+    // 简化构造函数，移除cookie相关配置
   }
 
   /**
@@ -198,111 +189,12 @@ export class SessionManager implements ISessionManager {
   }
 
   /**
-   * 获取Cookie配置
-   * @param options - 自定义选项
-   * @returns CookieOptions 合并后的配置
-   */
-  getCookieOptions(options: Partial<CookieOptions> = {}): CookieOptions {
-    return {
-      ...this.defaultCookieOptions,
-      ...options
-    }
-  }
-
-  /**
-   * 格式化Cookie字符串
-   * @param name - Cookie名称
-   * @param value - Cookie值
-   * @param options - Cookie选项
-   * @returns string Cookie字符串
-   */
-  formatCookieString(name: string, value: string, options: Partial<CookieOptions> = {}): string {
-    const opts = this.getCookieOptions(options)
-    let cookieString = `${name}=${value}`
-
-    if (opts.maxAge) {
-      cookieString += `; Max-Age=${opts.maxAge}`
-    }
-
-    if (opts.path) {
-      cookieString += `; Path=${opts.path}`
-    }
-
-    if (opts.domain) {
-      cookieString += `; Domain=${opts.domain}`
-    }
-
-    if (opts.secure) {
-      cookieString += '; Secure'
-    }
-
-    if (opts.httpOnly) {
-      cookieString += '; HttpOnly'
-    }
-
-    if (opts.sameSite) {
-      cookieString += `; SameSite=${opts.sameSite}`
-    }
-
-    return cookieString
-  }
-
-  /**
-   * 创建删除Cookie的字符串
-   * @param name - Cookie名称
-   * @param options - Cookie选项
-   * @returns string 删除Cookie的字符串
-   */
-  createDeleteCookieString(name: string, options: Partial<CookieOptions> = {}): string {
-    const deleteOptions: Partial<CookieOptions> = {
-      ...options,
-      maxAge: 0
-    }
-    return this.formatCookieString(name, '', deleteOptions)
-  }
-
-  /**
-   * 从请求头中提取令牌
-   * @param cookieHeader - Cookie请求头
-   * @returns string | null 令牌或null
-   */
-  extractTokenFromCookies(cookieHeader: string): string | null {
-    try {
-      const cookies = cookieHeader.split(';').reduce(
-        (acc, cookie) => {
-          const [name, value] = cookie.trim().split('=')
-          if (name && value && typeof name === 'string') {
-            acc[name] = value
-          }
-          return acc
-        },
-        {} as Record<string, string>
-      )
-
-      return cookies[COOKIE_NAMES.AUTH_TOKEN] || null
-    } catch (error) {
-      console.error('提取令牌失败:', error)
-      return null
-    }
-  }
-
-  /**
    * 从请求中提取令牌
+   * @param request - NextRequest对象
+   * @returns string | null 提取到的token或null
    */
   extractTokenFromRequest(request: NextRequest): string | null {
-    // 首先尝试从Cookie中获取
-    const cookieToken = request.cookies.get('auth-token')?.value
-    if (cookieToken) {
-      return cookieToken
-    }
-
-    // 然后尝试从Authorization头中获取
-    const authHeader = request.headers.get('authorization')
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      return authHeader.substring(7)
-    }
-
-    return null
+    return authService.extractTokenFromRequest(request)
   }
 
   /**

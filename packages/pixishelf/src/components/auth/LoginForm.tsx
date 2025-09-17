@@ -113,10 +113,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({
 
       const data = await response.json()
 
-      if (!response.ok || !data.success) {
+      if (!response.ok || !data.success || !data.token) {
         throw new Error(data.error || ERROR_MESSAGES.LOGIN_FAILED)
       }
 
+      // token由AuthProvider处理，这里只需要返回成功状态
       return true
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.LOGIN_FAILED

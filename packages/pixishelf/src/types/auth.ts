@@ -26,6 +26,8 @@ export interface LoginRequest {
 export interface LoginResponse {
   /** 操作是否成功 */
   success: boolean
+  /** JWT访问令牌（登录成功时返回） */
+  token?: string
   /** 用户信息（登录成功时返回） */
   user?: {
     id: string
