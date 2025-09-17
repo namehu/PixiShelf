@@ -72,22 +72,6 @@ export interface LogoutResponse {
   error?: string
 }
 
-// ----------------------------------------------------------------------------
-// 注册相关类型
-// ----------------------------------------------------------------------------
-
-/**
- * 注册请求数据
- */
-export interface RegisterRequest {
-  /** 用户名 */
-  username: string
-  /** 密码 */
-  password: string
-  /** 确认密码 */
-  confirmPassword: string
-}
-
 /**
  * 创建用户请求数据
  */
@@ -96,21 +80,6 @@ export interface CreateUserRequest {
   username: string
   /** 密码哈希 */
   passwordHash: string
-}
-
-/**
- * 注册响应数据
- */
-export interface RegisterResponse {
-  /** 操作是否成功 */
-  success: boolean
-  /** 用户信息（注册成功时返回） */
-  user?: {
-    id: string
-    username: string
-  }
-  /** 错误信息（注册失败时返回） */
-  error?: string
 }
 
 // ----------------------------------------------------------------------------

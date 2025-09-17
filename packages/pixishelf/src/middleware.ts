@@ -14,7 +14,7 @@ const PROTECTED_PATHS = [
   '/profile',
   '/settings',
   '/admin',
-  '/api/auth/me',
+  '/api/auth/me'
   // 可以添加更多需要保护的路径
 ]
 
@@ -23,7 +23,6 @@ const PROTECTED_PATHS = [
  */
 const PUBLIC_PATHS = [
   '/login',
-  '/register',
   '/api/auth/login',
   '/api/auth/logout',
   '/',
@@ -33,14 +32,14 @@ const PUBLIC_PATHS = [
   '/_next',
   '/favicon.ico',
   '/images',
-  '/icons',
+  '/icons'
 ]
 
 /**
  * 检查路径是否匹配模式
  */
 function matchesPattern(pathname: string, patterns: string[]): boolean {
-  return patterns.some(pattern => {
+  return patterns.some((pattern) => {
     if (pattern.endsWith('*')) {
       return pathname.startsWith(pattern.slice(0, -1))
     }
@@ -56,17 +55,17 @@ function requiresAuth(pathname: string): boolean {
   if (matchesPattern(pathname, PUBLIC_PATHS)) {
     return false
   }
-  
+
   // 然后检查是否是受保护路径
   if (matchesPattern(pathname, PROTECTED_PATHS)) {
     return true
   }
-  
+
   // 默认情况下，API路由需要认证（除了已明确标记为公开的）
   if (pathname.startsWith('/api/')) {
     return true
   }
-  
+
   // 其他路径默认不需要认证
   return false
 }
@@ -76,7 +75,7 @@ function requiresAuth(pathname: string): boolean {
  */
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl
-  
+
   // 跳过静态资源和Next.js内部路径
   if (
     pathname.startsWith('/_next/') ||
@@ -94,14 +93,14 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   try {
     // 提取认证令牌
     const token = sessionManager.extractTokenFromRequest(request)
-    
+
     if (!token) {
       return handleUnauthenticated(request, pathname)
     }
 
     // 验证会话
     const session = await sessionManager.getSession(token)
-    
+
     if (!session) {
       return handleUnauthenticated(request, pathname)
     }
@@ -123,7 +122,7 @@ function handleUnauthenticated(request: NextRequest, pathname: string): NextResp
     return NextResponse.json(
       {
         success: false,
-        error: '未授权访问',
+        error: '未授权访问'
       },
       { status: 401 }
     )
@@ -131,14 +130,14 @@ function handleUnauthenticated(request: NextRequest, pathname: string): NextResp
 
   // 对于页面请求，重定向到登录页
   const loginUrl = new URL(ROUTES.LOGIN, request.url)
-  
+
   // 保存原始请求的URL，登录后可以重定向回来
   if (pathname !== ROUTES.LOGIN) {
     loginUrl.searchParams.set('redirect', pathname)
   }
 
   const response = NextResponse.redirect(loginUrl)
-  
+
   return response
 }
 
@@ -154,6 +153,6 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
-  ],
+    '/((?!_next/static|_next/image|favicon.ico).*)'
+  ]
 }

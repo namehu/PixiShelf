@@ -43,39 +43,32 @@ interface FormErrors {
 /**
  * 登录表单组件
  */
-export const LoginForm: React.FC<LoginFormProps> = ({
-  redirectTo,
-  className,
-  onSuccess,
-  onError,
-}) => {
+export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onSuccess, onError }) => {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [formState, setFormState] = useState<FormState>({
     username: '',
     password: '',
-    rememberMe: false,
+    rememberMe: false
   })
   const [errors, setErrors] = useState<FormErrors>({})
 
   /**
    * 处理输入变化
    */
-  const handleInputChange = (field: keyof FormState) => (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleInputChange = (field: keyof FormState) => (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value
-    
-    setFormState(prev => ({
+
+    setFormState((prev) => ({
       ...prev,
-      [field]: value,
+      [field]: value
     }))
 
     // 清除对应字段的错误
     if (errors[field as keyof FormErrors]) {
-      setErrors(prev => ({
+      setErrors((prev) => ({
         ...prev,
-        [field]: undefined,
+        [field]: undefined
       }))
     }
   }
@@ -86,7 +79,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
   const validateForm = (): boolean => {
     const validation = validateLoginForm({
       username: formState.username,
-      password: formState.password,
+      password: formState.password
     })
 
     if (!validation.isValid) {
@@ -106,9 +99,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(loginData),
+        body: JSON.stringify(loginData)
       })
 
       const data = await response.json()
@@ -145,14 +138,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       const loginData: LoginRequest = {
         username: formState.username.trim(),
         password: formState.password,
-        rememberMe: formState.rememberMe,
+        rememberMe: formState.rememberMe
       }
 
       const success = await submitLogin(loginData)
 
       if (success) {
         onSuccess?.()
-        
+
         // 重定向到指定页面或默认页面
         const targetUrl = redirectTo || ROUTES.DASHBOARD
         router.push(targetUrl)
@@ -172,7 +165,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       <CardHeader>
         <CardTitle className="text-center">登录</CardTitle>
       </CardHeader>
-      
+
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
           {/* 通用错误信息 */}
@@ -231,26 +224,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({
 
         <CardFooter className="flex flex-col space-y-4">
           {/* 登录按钮 */}
-          <Button
-            type="submit"
-            loading={isLoading}
-            disabled={isLoading}
-            fullWidth
-            size="lg"
-          >
+          <Button type="submit" loading={isLoading} disabled={isLoading} fullWidth size="lg">
             {isLoading ? '登录中...' : '登录'}
           </Button>
-
-          {/* 其他链接 */}
-          <div className="text-center text-sm text-muted-foreground">
-            <span>还没有账户？</span>
-            <a
-              href={ROUTES.REGISTER}
-              className="ml-1 text-primary hover:underline"
-            >
-              立即注册
-            </a>
-          </div>
         </CardFooter>
       </form>
     </Card>
