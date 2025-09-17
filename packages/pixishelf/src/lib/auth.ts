@@ -151,6 +151,23 @@ export class AuthService implements IAuthService {
   }
 
   /**
+   * 轻量级验证访问令牌，仅用于 Edge Runtime
+   * 只验证签名和时效，不查询数据库
+   * @param token - JWT令牌
+   * @returns Promise<JWTPayload | null> 验证成功返回 payload，失败返回null
+   */
+  async lightweightVerifyAccessToken(token: string): Promise<JWTPayload | null> {
+    try {
+      const { payload } = await jwtVerify(token, this.jwtSecret)
+      return payload as unknown as JWTPayload
+    } catch (error) {
+      // 令牌过期、签名无效等都会在这里捕获
+      console.error('Lightweight token verification failed:', error)
+      return null
+    }
+  }
+
+  /**
    * 创建新用户
    * @param username - 用户名
    * @param password - 密码

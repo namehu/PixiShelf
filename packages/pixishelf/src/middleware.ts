@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sessionManager } from '@/lib/session'
 import { ROUTES } from '@/lib/constants'
+import { authService } from './lib/auth'
 
 // ============================================================================
 // Next.js 认证中间件
@@ -89,7 +90,6 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   if (!requiresAuth(pathname)) {
     return NextResponse.next()
   }
-
   try {
     // 提取认证令牌
     const token = sessionManager.extractTokenFromRequest(request)
@@ -99,9 +99,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     }
 
     // 验证会话
-    const session = await sessionManager.getSession(token)
+    const payload = await authService.lightweightVerifyAccessToken(token)
 
-    if (!session) {
+    if (!payload) {
+      // Token 无效 (过期、签名错误等)
       return handleUnauthenticated(request, pathname)
     }
 
