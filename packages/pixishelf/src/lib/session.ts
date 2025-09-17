@@ -34,7 +34,7 @@ export class SessionManager implements ISessionManager {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       maxAge: 60 * 60 * 24 * 7, // 7天
-      path: '/',
+      path: '/'
     }
   }
 
@@ -50,11 +50,11 @@ export class SessionManager implements ISessionManager {
         id: user.id.toString(),
         username: user.username,
         passwordHash: user.password,
-        createdAt: user.createdAt.toISOString(),
-        updatedAt: user.updatedAt.toISOString(),
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
       }
       const token = authService.generateAccessToken(userForToken)
-      
+
       // 提取令牌信息
       const payload = authService.extractUserFromToken(token)
       if (!payload) {
@@ -69,14 +69,12 @@ export class SessionManager implements ISessionManager {
         createdAt: new Date(payload.iat * 1000),
         expiresAt: new Date(payload.exp * 1000),
         lastAccessedAt: new Date(),
-        isActive: true,
+        isActive: true
       }
 
       return session
     } catch (error) {
-      throw new Error(
-        `创建会话失败: ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
+      throw new Error(`创建会话失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -112,7 +110,7 @@ export class SessionManager implements ISessionManager {
         createdAt: new Date(payload.iat * 1000),
         expiresAt: new Date(payload.exp * 1000),
         lastAccessedAt: new Date(),
-        isActive: isValid,
+        isActive: isValid
       }
 
       return session
@@ -152,7 +150,7 @@ export class SessionManager implements ISessionManager {
       if (!payload) {
         return null
       }
-      
+
       return {
         id: payload.userId,
         userId: payload.userId,
@@ -161,7 +159,7 @@ export class SessionManager implements ISessionManager {
         createdAt: new Date(payload.iat * 1000),
         expiresAt: new Date(payload.exp * 1000),
         lastAccessedAt: new Date(),
-        isActive: true,
+        isActive: true
       }
     } catch (error) {
       console.error('刷新会话失败:', error)
@@ -207,7 +205,7 @@ export class SessionManager implements ISessionManager {
   getCookieOptions(options: Partial<CookieOptions> = {}): CookieOptions {
     return {
       ...this.defaultCookieOptions,
-      ...options,
+      ...options
     }
   }
 
@@ -218,11 +216,7 @@ export class SessionManager implements ISessionManager {
    * @param options - Cookie选项
    * @returns string Cookie字符串
    */
-  formatCookieString(
-    name: string,
-    value: string,
-    options: Partial<CookieOptions> = {}
-  ): string {
+  formatCookieString(name: string, value: string, options: Partial<CookieOptions> = {}): string {
     const opts = this.getCookieOptions(options)
     let cookieString = `${name}=${value}`
 
@@ -259,13 +253,10 @@ export class SessionManager implements ISessionManager {
    * @param options - Cookie选项
    * @returns string 删除Cookie的字符串
    */
-  createDeleteCookieString(
-    name: string,
-    options: Partial<CookieOptions> = {}
-  ): string {
+  createDeleteCookieString(name: string, options: Partial<CookieOptions> = {}): string {
     const deleteOptions: Partial<CookieOptions> = {
       ...options,
-      maxAge: 0,
+      maxAge: 0
     }
     return this.formatCookieString(name, '', deleteOptions)
   }
@@ -277,13 +268,16 @@ export class SessionManager implements ISessionManager {
    */
   extractTokenFromCookies(cookieHeader: string): string | null {
     try {
-      const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
-        const [name, value] = cookie.trim().split('=')
-        if (name && value && typeof name === 'string') {
-          acc[name] = value
-        }
-        return acc
-      }, {} as Record<string, string>)
+      const cookies = cookieHeader.split(';').reduce(
+        (acc, cookie) => {
+          const [name, value] = cookie.trim().split('=')
+          if (name && value && typeof name === 'string') {
+            acc[name] = value
+          }
+          return acc
+        },
+        {} as Record<string, string>
+      )
 
       return cookies[COOKIE_NAMES.AUTH_TOKEN] || null
     } catch (error) {
@@ -324,13 +318,13 @@ export class SessionManager implements ISessionManager {
   }> {
     try {
       const session = await this.getSession(token)
-      
+
       if (!session) {
         return {
           isValid: false,
           remainingTime: null,
           isExpiringSoon: false,
-          user: null,
+          user: null
         }
       }
 
@@ -343,8 +337,8 @@ export class SessionManager implements ISessionManager {
         isExpiringSoon,
         user: {
           id: session.userId,
-          username: session.username,
-        },
+          username: session.username
+        }
       }
     } catch (error) {
       console.error('获取会话统计失败:', error)
@@ -352,7 +346,7 @@ export class SessionManager implements ISessionManager {
         isValid: false,
         remainingTime: null,
         isExpiringSoon: false,
-        user: null,
+        user: null
       }
     }
   }
