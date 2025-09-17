@@ -243,3 +243,66 @@
     content: '...';
   }
 }
+
+/* Modern component styles from web package */
+@layer components {
+  /* Modern button styles */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+  
+  .btn-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500 shadow-sm hover:shadow-md;
+  }
+  
+  .btn-lg {
+    @apply px-6 py-3.5 text-base;
+  }
+  
+  .btn-secondary {
+    @apply bg-neutral-100 text-neutral-700 hover:bg-neutral-200 focus:ring-neutral-500 border border-neutral-200;
+  }
+  
+  .btn-ghost {
+    @apply text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 focus:ring-neutral-500;
+  }
+  
+  /* Modern input styles */
+  .input {
+    @apply w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm placeholder-neutral-400 transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500;
+  }
+  
+  /* Card styles */
+  .card {
+    @apply rounded-2xl bg-white shadow-sm border border-neutral-100;
+  }
+  
+  .card-hover {
+    @apply transition-all duration-200 hover:shadow-md hover:-translate-y-1;
+  }
+  
+  /* Error styles */
+  .error-50 {
+    @apply bg-red-50;
+  }
+  
+  .error-200 {
+    @apply border-red-200;
+  }
+  
+  .error-500 {
+    @apply text-red-500;
+  }
+  
+  .error-600 {
+    @apply text-red-600;
+  }
+  
+  .error-700 {
+    @apply text-red-700;
+  }
+  
+  .error-800 {
+    @apply text-red-800;
+  }
+}

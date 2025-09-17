@@ -135,6 +135,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onS
     setErrors({})
 
     try {
+      debugger
       const loginData: LoginRequest = {
         username: formState.username.trim(),
         password: formState.password,
@@ -161,74 +162,109 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onS
   }
 
   return (
-    <Card className={className}>
-      <CardHeader>
-        <CardTitle className="text-center">登录</CardTitle>
-      </CardHeader>
-
-      <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-4">
-          {/* 通用错误信息 */}
-          {errors.general && (
-            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-              {errors.general}
-            </div>
-          )}
-
-          {/* 用户名输入 */}
-          <Input
-            label="用户名"
-            type="text"
-            value={formState.username}
-            onChange={handleInputChange('username')}
-            error={errors.username}
-            placeholder="请输入用户名"
-            disabled={isLoading}
-            fullWidth
-            autoComplete="username"
-            required
-          />
-
-          {/* 密码输入 */}
-          <Input
-            label="密码"
-            type="password"
-            value={formState.password}
-            onChange={handleInputChange('password')}
-            error={errors.password}
-            placeholder="请输入密码"
-            disabled={isLoading}
-            fullWidth
-            autoComplete="current-password"
-            required
-          />
-
-          {/* 记住我选项 */}
-          <div className="flex items-center space-x-2">
-            <input
-              id="rememberMe"
-              type="checkbox"
-              checked={formState.rememberMe}
-              onChange={handleInputChange('rememberMe')}
-              disabled={isLoading}
-              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-            />
-            <label
-              htmlFor="rememberMe"
-              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+    <div className={`card p-8 ${className}`}>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Username Field */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-neutral-700">用户名</label>
+          <div className="relative">
+            <svg
+              className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-neutral-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              记住我
-            </label>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+              />
+            </svg>
+            <input
+              type="text"
+              value={formState.username}
+              onChange={handleInputChange('username')}
+              className="input pl-11"
+              placeholder="输入用户名"
+              required
+              disabled={isLoading}
+              autoComplete="username"
+            />
           </div>
-        </CardContent>
+          {errors.username && <p className="text-sm text-red-600">{errors.username}</p>}
+        </div>
 
-        <CardFooter className="flex flex-col space-y-4">
-          {/* 登录按钮 */}
-          <Button type="submit" loading={isLoading} disabled={isLoading} fullWidth size="lg">
-            {isLoading ? '登录中...' : '登录'}
-          </Button>
-        </CardFooter>
+        {/* Password Field */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-neutral-700">密码</label>
+          <div className="relative">
+            <svg
+              className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-neutral-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+              />
+            </svg>
+            <input
+              type="password"
+              value={formState.password}
+              onChange={handleInputChange('password')}
+              className="input pl-11"
+              placeholder="输入密码"
+              required
+              disabled={isLoading}
+              autoComplete="current-password"
+            />
+          </div>
+          {errors.password && <p className="text-sm text-red-600">{errors.password}</p>}
+        </div>
+
+        {/* Error Message */}
+        {errors.general && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+            <svg
+              className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <div>
+              <h4 className="text-sm font-medium text-red-800">登录失败</h4>
+              <p className="text-sm text-red-700 mt-1">{errors.general}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Submit Button */}
+        <button
+          type="submit"
+          disabled={isLoading}
+          className="btn btn-primary btn-lg w-full disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isLoading ? (
+            <div className="flex items-center justify-center gap-2">
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              登录中...
+            </div>
+          ) : (
+            '登录'
+          )}
+        </button>
       </form>
-    </Card>
+    </div>
   )
 }

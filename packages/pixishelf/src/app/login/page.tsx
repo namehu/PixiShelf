@@ -70,16 +70,15 @@ function LoginPageContent() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        {/* 页面标题 */}
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Artisan Shelf
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            欢迎回来，请登录您的账户
-          </p>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 via-white to-accent-50 p-4">
+      <div className="w-full max-w-md">
+        {/* Logo and Header */}
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-accent-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span className="text-white font-bold text-2xl">P</span>
+          </div>
+          <h1 className="text-3xl font-bold text-neutral-900 mb-2">欢迎回来</h1>
+          <p className="text-neutral-600">登录到你的 PixiShelf 账户</p>
         </div>
 
         {/* 登录表单 */}
@@ -90,11 +89,9 @@ function LoginPageContent() {
           className="w-full"
         />
 
-        {/* 页面底部信息 */}
-        <div className="text-center text-xs text-muted-foreground">
-          <p>
-            &copy; 2024 Artisan Shelf. 保留所有权利。
-          </p>
+        {/* Footer */}
+        <div className="text-center mt-8 text-sm text-neutral-500">
+          <p>© {new Date().getFullYear()} PixiShelf - 现代化个人画廊</p>
         </div>
       </div>
     </div>
