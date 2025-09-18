@@ -183,6 +183,14 @@ if (typeof process !== 'undefined' && process.on) {
   })
 }
 */
+/**
+ * 获取 Prisma 客户端实例
+ * @returns PrismaClient 实例
+ */
+export function getPrisma(): PrismaClient {
+  return prisma
+}
+
 // ============================================================================
 // 管理员初始化
 // ============================================================================

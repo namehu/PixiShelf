@@ -16,6 +16,7 @@
   "dependencies": {
     "@pixishelf/shared": "workspace:*",
     "@prisma/client": "^5.17.0",
+    "@tanstack/react-query": "^5.52.1",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.0",
     "jsonwebtoken": "^9.0.2",

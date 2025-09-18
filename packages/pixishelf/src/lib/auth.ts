@@ -2,8 +2,10 @@ import jwt from 'jsonwebtoken'
 import { userRepository } from './repositories/user'
 import { hashPassword, verifyPassword } from './crypto'
 import { JWT_CONFIG } from './constants'
-import type { User, PrismaUser } from '@/types/core'
-import type { JWTPayload, CreateUserRequest } from '@/types/auth'
+import type { User } from '@/types/core'
+import type { JWTPayload } from '@/types/auth'
+import { sessionManager } from './session'
+import { NextRequest } from 'next/server'
 
 // ============================================================================
 // 认证服务
@@ -43,7 +45,7 @@ export class AuthService implements IAuthService {
 
   constructor() {
     this.jwtSecret = process.env.JWT_SECRET || 'dev-secret-key'
-    this.jwtTtl = parseInt(process.env.JWT_TTL || String(JWT_CONFIG.DEFAULT_TTL), 10)
+    this.jwtTtl = parseInt(String(JWT_CONFIG.DEFAULT_TTL), 10)
 
     if (process.env.NODE_ENV === 'production' && this.jwtSecret === 'dev-secret-key') {
       throw new Error('生产环境必须设置 JWT_SECRET 环境变量')
@@ -301,3 +303,55 @@ export class AuthService implements IAuthService {
 
 // 导出单例实例
 export const authService = new AuthService()
+
+// ============================================================================
+// Next.js API 路由认证工具
+// ============================================================================
+
+/**
+ * 认证结果接口
+ */
+export interface AuthResult {
+  success: boolean
+  user?: User
+  error?: string
+}
+
+/**
+ * 验证 Next.js API 路由中的认证
+ * @param request - NextRequest 对象
+ * @returns Promise<AuthResult> 认证结果
+ */
+export async function verifyAuth(request: NextRequest): Promise<AuthResult> {
+  try {
+    // 从请求头中提取 Authorization
+    const token = sessionManager.extractTokenFromRequest(request)
+
+    if (!token) {
+      return {
+        success: false,
+        error: 'Missing authorization header'
+      }
+    }
+
+    // 验证 token
+    const user = await authService.verifyAccessToken(token)
+
+    if (!user) {
+      return {
+        success: false,
+        error: 'Invalid or expired token'
+      }
+    }
+
+    return {
+      success: true,
+      user
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Authentication failed'
+    }
+  }
+}

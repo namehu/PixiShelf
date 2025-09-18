@@ -61,7 +61,7 @@ export const COOKIE_CONFIG = {
  * JWT 配置
  */
 export const JWT_CONFIG = {
-  DEFAULT_TTL: 60 * 60 * 24 * 7, // 7天（秒）
+  DEFAULT_TTL: process.env.JWT_TTL ?? 60 * 60 * 24 * 7, // 7天（秒）
   REFRESH_THRESHOLD: 60 * 60 * 24 // 1天（秒）
 } as const
 
