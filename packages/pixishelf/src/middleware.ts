@@ -171,6 +171,7 @@ function handleUnauthenticated(request: NextRequest, pathname: string): NextResp
  * 中间件配置
  */
 export const config = {
+  runtime: 'nodejs',
   matcher: [
     /*
      * 匹配所有请求路径，除了：
