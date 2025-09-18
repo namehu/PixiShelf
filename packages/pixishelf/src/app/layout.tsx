@@ -8,10 +8,10 @@ import './globals.css'
 // ============================================================================
 
 export const metadata: Metadata = {
-  title: 'Artisan Shelf - 艺术家作品管理平台',
+  title: 'Pixishelf - 艺术家作品管理平台',
   description: '专为艺术家设计的作品管理和展示平台',
   keywords: ['艺术', '作品管理', '艺术家', '画廊', '展示'],
-  authors: [{ name: 'Artisan Shelf Team' }]
+  authors: [{ name: 'Pixishelf Team' }]
 }
 
 export const viewport: Viewport = {

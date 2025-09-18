@@ -52,14 +52,8 @@ export default function DashboardPage() {
             <CardTitle className="text-center">访问受限</CardTitle>
           </CardHeader>
           <CardContent className="text-center space-y-4">
-            <p className="text-sm text-muted-foreground">
-              您需要登录才能访问仪表板
-            </p>
-            <Button
-              variant="primary"
-              fullWidth
-              onClick={() => router.push(ROUTES.LOGIN)}
-            >
+            <p className="text-sm text-muted-foreground">您需要登录才能访问仪表板</p>
+            <Button variant="primary" fullWidth onClick={() => router.push(ROUTES.LOGIN)}>
               前往登录
             </Button>
           </CardContent>
@@ -75,28 +69,16 @@ export default function DashboardPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center space-x-4">
-              <h1 className="text-xl font-bold text-gray-900">
-                Artisan Shelf
-              </h1>
+              <h1 className="text-xl font-bold text-gray-900">Pixishelf</h1>
               <span className="text-sm text-gray-500">/ 仪表板</span>
             </div>
-            
+
             <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-700">
-                {user?.username}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleGoHome}
-              >
+              <span className="text-sm text-gray-700">{user?.username}</span>
+              <Button variant="ghost" size="sm" onClick={handleGoHome}>
                 主页
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleLogout}
-              >
+              <Button variant="outline" size="sm" onClick={handleLogout}>
                 登出
               </Button>
             </div>
@@ -108,21 +90,15 @@ export default function DashboardPage() {
       <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         {/* 欢迎区域 */}
         <div className="mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            欢迎回来，{user?.username}！
-          </h2>
-          <p className="text-gray-600">
-            这是您的个人仪表板，您可以在这里管理您的作品和设置。
-          </p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">欢迎回来，{user?.username}！</h2>
+          <p className="text-gray-600">这是您的个人仪表板，您可以在这里管理您的作品和设置。</p>
         </div>
 
         {/* 统计卡片 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">
-                总作品数
-              </CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-600">总作品数</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-gray-900">0</div>
@@ -132,9 +108,7 @@ export default function DashboardPage() {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">
-                收藏数
-              </CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-600">收藏数</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-gray-900">0</div>
@@ -144,9 +118,7 @@ export default function DashboardPage() {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">
-                浏览量
-              </CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-600">浏览量</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-gray-900">0</div>
@@ -156,9 +128,7 @@ export default function DashboardPage() {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">
-                标签数
-              </CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-600">标签数</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-gray-900">0</div>

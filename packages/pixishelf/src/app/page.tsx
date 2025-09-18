@@ -50,31 +50,19 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center">
-              <h1 className="text-xl font-bold text-gray-900">
-                Artisan Shelf
-              </h1>
+              <h1 className="text-xl font-bold text-gray-900">Pixishelf</h1>
             </div>
-            
+
             <div className="flex items-center space-x-4">
               {isAuthenticated ? (
                 <>
-                  <span className="text-sm text-gray-700">
-                    欢迎，{user?.username}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleLogout}
-                  >
+                  <span className="text-sm text-gray-700">欢迎，{user?.username}</span>
+                  <Button variant="outline" size="sm" onClick={handleLogout}>
                     登出
                   </Button>
                 </>
               ) : (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleGoToLogin}
-                >
+                <Button variant="primary" size="sm" onClick={handleGoToLogin}>
                   登录
                 </Button>
               )}
@@ -86,26 +74,16 @@ export default function HomePage() {
       {/* 主要内容 */}
       <main className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
         <div className="text-center">
-          <h2 className="text-3xl font-bold text-gray-900 mb-4">
-            欢迎来到 Artisan Shelf
-          </h2>
-          <p className="text-lg text-gray-600 mb-8">
-            专为艺术家设计的作品管理和展示平台
-          </p>
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">欢迎来到 Pixishelf</h2>
+          <p className="text-lg text-gray-600 mb-8">专为艺术家设计的作品管理和展示平台</p>
 
           {/* TailwindCSS 样式测试区域 */}
           <div className="mb-8">
             <h3 className="text-xl font-semibold text-gray-900 mb-4">样式测试</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
-              <div className="bg-red-500 text-white p-4 rounded-lg text-center">
-                红色背景
-              </div>
-              <div className="bg-blue-500 text-white p-4 rounded-lg text-center">
-                蓝色背景
-              </div>
-              <div className="bg-green-500 text-white p-4 rounded-lg text-center">
-                绿色背景
-              </div>
+              <div className="bg-red-500 text-white p-4 rounded-lg text-center">红色背景</div>
+              <div className="bg-blue-500 text-white p-4 rounded-lg text-center">蓝色背景</div>
+              <div className="bg-green-500 text-white p-4 rounded-lg text-center">绿色背景</div>
             </div>
             <div className="mt-4 space-x-2 text-center">
               <span className="inline-block bg-primary text-white px-3 py-1 rounded">Primary</span>
@@ -116,44 +94,32 @@ export default function HomePage() {
 
           {isAuthenticated ? (
             <div className="bg-white rounded-lg shadow p-6 max-w-md mx-auto">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                登录状态
-              </h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">登录状态</h3>
               <div className="space-y-2 text-sm text-gray-600">
-                <p><strong>用户ID:</strong> {user?.id}</p>
-                <p><strong>用户名:</strong> {user?.username}</p>
-                <p><strong>登录状态:</strong> 已登录</p>
+                <p>
+                  <strong>用户ID:</strong> {user?.id}
+                </p>
+                <p>
+                  <strong>用户名:</strong> {user?.username}
+                </p>
+                <p>
+                  <strong>登录状态:</strong> 已登录
+                </p>
               </div>
               <div className="mt-6 space-y-3">
-                <Button
-                  variant="primary"
-                  fullWidth
-                  onClick={() => router.push('/dashboard')}
-                >
+                <Button variant="primary" fullWidth onClick={() => router.push('/dashboard')}>
                   进入仪表板
                 </Button>
-                <Button
-                  variant="outline"
-                  fullWidth
-                  onClick={handleLogout}
-                >
+                <Button variant="outline" fullWidth onClick={handleLogout}>
                   登出
                 </Button>
               </div>
             </div>
           ) : (
             <div className="bg-white rounded-lg shadow p-6 max-w-md mx-auto">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                开始使用
-              </h3>
-              <p className="text-sm text-gray-600 mb-6">
-                请登录您的账户以访问完整功能
-              </p>
-              <Button
-                variant="primary"
-                fullWidth
-                onClick={handleGoToLogin}
-              >
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">开始使用</h3>
+              <p className="text-sm text-gray-600 mb-6">请登录您的账户以访问完整功能</p>
+              <Button variant="primary" fullWidth onClick={handleGoToLogin}>
                 立即登录
               </Button>
             </div>
@@ -165,7 +131,7 @@ export default function HomePage() {
       <footer className="bg-white border-t mt-12">
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
           <div className="text-center text-sm text-gray-500">
-            <p>&copy; 2024 Artisan Shelf. 保留所有权利。</p>
+            <p>&copy; 2024 Pixishelf. 保留所有权利。</p>
           </div>
         </div>
       </footer>

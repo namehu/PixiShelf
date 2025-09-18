@@ -1,6 +1,6 @@
 # Dev Container 配置
 
-这个配置提供了一个完整的 Node.js 22 开发环境，用于 Artisan Shelf 项目开发。
+这个配置提供了一个完整的 Node.js 22 开发环境，用于  项目开发。
 
 ## 功能特性
 
