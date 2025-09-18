@@ -9,8 +9,9 @@ export async function register() {
     // 例如：连接数据库、初始化缓存、打印环境信息等
     const { initializeAdmin, testDatabaseConnection } = await import('./lib/prisma')
     try {
-      await testDatabaseConnection()
-      await initializeAdmin()
+      if (await testDatabaseConnection()) {
+        await initializeAdmin()
+      }
     } catch (error) {
       console.error('❌ Database connection failed:', error)
     }
