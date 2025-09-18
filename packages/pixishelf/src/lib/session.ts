@@ -44,7 +44,7 @@ export class SessionManager implements ISessionManager {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
       }
-      const token = await authService.generateAccessToken(userForToken)
+      const token = authService.generateAccessToken(userForToken)
 
       // 提取令牌信息
       const payload = authService.extractUserFromToken(token)
