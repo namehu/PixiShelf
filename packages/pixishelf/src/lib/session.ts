@@ -77,6 +77,25 @@ export class SessionManager implements ISessionManager {
       throw new Error(`创建会话失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
+  /**
+   * 验证并可能刷新会话
+   * @param token 当前令牌
+   * @returns 返回一个有效的会话，如果需要，令牌会被刷新
+   */
+  async validateAndRefreshSession(token: string): Promise<Session | null> {
+    const session = await this.getSession(token) // 第一次验证
+
+    if (!session || !session.isActive) {
+      return null
+    }
+
+    // 检查是否需要刷新
+    if (authService.isTokenExpiringSoon(token)) {
+      return this.refreshSession(token) // 内部会生成新令牌并返回新会话
+    }
+
+    return session // 如果不需要刷新，直接返回当前会话
+  }
 
   /**
    * 获取会话信息

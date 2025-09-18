@@ -98,15 +98,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       return handleUnauthenticated(request, pathname)
     }
 
-    // 验证会话
-    const session = await sessionManager.getSession(token)
-
-    if (!session) {
-      return handleUnauthenticated(request, pathname)
-    }
-
     // 检查会话是否需要刷新
-    const refreshedSession = await sessionManager.refreshSession(token)
+    const refreshedSession = await sessionManager.validateAndRefreshSession(token)
 
     if (!refreshedSession) {
       return handleUnauthenticated(request, pathname)

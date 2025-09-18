@@ -13,7 +13,10 @@ import type { JWTPayload, CreateUserRequest } from '@/types/auth'
  * 认证错误类
  */
 export class AuthError extends Error {
-  constructor(message: string, public code?: string) {
+  constructor(
+    message: string,
+    public code?: string
+  ) {
     super(message)
     this.name = 'AuthError'
   }
@@ -62,16 +65,14 @@ export class AuthService implements IAuthService {
       }
 
       // 验证密码
-    const isPasswordValid = await verifyPassword(password, user.passwordHash)
-    if (!isPasswordValid) {
-      return null
-    }
+      const isPasswordValid = await verifyPassword(password, user.passwordHash)
+      if (!isPasswordValid) {
+        return null
+      }
 
       return user
     } catch (error) {
-      throw new AuthError(
-        `凭据验证失败: ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
+      throw new AuthError(`凭据验证失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -87,18 +88,16 @@ export class AuthService implements IAuthService {
         sub: user.id,
         username: user.username,
         iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + this.jwtTtl,
+        exp: Math.floor(Date.now() / 1000) + this.jwtTtl
       }
 
       const token = jwt.sign(payload, this.jwtSecret, {
-        algorithm: 'HS256',
+        algorithm: 'HS256'
       })
 
       return token
     } catch (error) {
-      throw new AuthError(
-        `令牌生成失败: ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
+      throw new AuthError(`令牌生成失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -111,7 +110,7 @@ export class AuthService implements IAuthService {
     try {
       // 验证JWT令牌
       const decoded = jwt.verify(token, this.jwtSecret) as JWTPayload
-      
+
       // 检查令牌是否过期
       const now = Math.floor(Date.now() / 1000)
       if (decoded.exp && decoded.exp < now) {
@@ -119,21 +118,30 @@ export class AuthService implements IAuthService {
       }
 
       // 查找用户（确保用户仍然存在）
-      const user = await userRepository.findById(parseInt(decoded.sub))
-      if (!user) {
-        return null
-      }
+      // const user = await userRepository.findById(parseInt(decoded.sub))
+      // if (!user) {
+      //   return null
+      // }
 
+      // 2. 直接从令牌的载荷(payload)构建用户信息对象
+      // 注意：这个User对象只包含令牌中存储的信息，
+      // 对于中间件和大部分场景来说已经足够了。
+      const user: User = {
+        id: decoded.sub, // 'sub' (subject) 字段通常就是用户ID
+        username: decoded.username,
+        // 其他 User 接口中的字段可以设为默认值或空值，因为在认证层面我们不需要它们
+        passwordHash: '', // 绝不能在令牌中存储密码哈希
+        createdAt: new Date(decoded.iat * 1000).toISOString(), // iat (issued at) 是签发时间
+        updatedAt: new Date(decoded.iat * 1000).toISOString() // 可以用签发时间作为近似值
+      }
       return user
     } catch (error) {
       if (error instanceof jwt.JsonWebTokenError) {
         // JWT相关错误（无效、过期等）
         return null
       }
-      
-      throw new AuthError(
-        `令牌验证失败: ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
+
+      throw new AuthError(`令牌验证失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -162,9 +170,7 @@ export class AuthService implements IAuthService {
       // 生成新令牌
       return this.generateAccessToken(user)
     } catch (error) {
-      throw new AuthError(
-        `令牌刷新失败: ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
+      throw new AuthError(`令牌刷新失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -188,7 +194,7 @@ export class AuthService implements IAuthService {
       // 创建用户
       const user = await userRepository.create({
         username,
-        passwordHash: hashedPassword,
+        passwordHash: hashedPassword
       })
 
       return user
@@ -196,10 +202,8 @@ export class AuthService implements IAuthService {
       if (error instanceof AuthError) {
         throw error
       }
-      
-      throw new AuthError(
-        `创建用户失败: ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
+
+      throw new AuthError(`创建用户失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -210,11 +214,7 @@ export class AuthService implements IAuthService {
    * @param newPassword - 新密码
    * @returns Promise<void>
    */
-  async changePassword(
-    userId: number,
-    currentPassword: string,
-    newPassword: string
-  ): Promise<void> {
+  async changePassword(userId: number, currentPassword: string, newPassword: string): Promise<void> {
     try {
       // 查找用户
       const user = await userRepository.findById(userId)
@@ -223,10 +223,10 @@ export class AuthService implements IAuthService {
       }
 
       // 验证当前密码
-    const isCurrentPasswordValid = await verifyPassword(currentPassword, user.passwordHash)
-    if (!isCurrentPasswordValid) {
-      throw new AuthError('当前密码错误')
-    }
+      const isCurrentPasswordValid = await verifyPassword(currentPassword, user.passwordHash)
+      if (!isCurrentPasswordValid) {
+        throw new AuthError('当前密码错误')
+      }
 
       // 加密新密码
       const hashedNewPassword = await hashPassword(newPassword)
@@ -237,10 +237,8 @@ export class AuthService implements IAuthService {
       if (error instanceof AuthError) {
         throw error
       }
-      
-      throw new AuthError(
-        `修改密码失败: ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
+
+      throw new AuthError(`修改密码失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
