@@ -1,26 +1,17 @@
 'use client'
 
-// Centralized API utilities with token handling
-export function getAuthHeader() {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
-
 export async function apiRequest(url: string, options: RequestInit = {}) {
   const headers = {
     'Content-Type': 'application/json',
-    ...getAuthHeader(),
-    ...(options.headers || {}),
+    ...(options.headers || {})
   } as Record<string, string>
 
   const response = await fetch(url, {
     ...options,
-    headers,
+    headers
   })
 
   if (response.status === 401) {
-    // Clear invalid token and redirect to login
-    try { localStorage.removeItem('token') } catch {}
     if (typeof window !== 'undefined') {
       window.location.href = '/login'
     }
@@ -42,14 +33,8 @@ export async function apiJson<T>(url: string, options: RequestInit = {}): Promis
 
 // SSE with token support for EventSource
 export function createEventSourceWithAuth(url: string): EventSource {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-  if (!token) {
-    throw new Error('No auth token available for SSE')
-  }
-  
-  // EventSource doesn't support custom headers, pass token via query parameter for SSE endpoints only
   const separator = url.includes('?') ? '&' : '?'
-  const urlWithToken = `${url}${separator}token=${encodeURIComponent(token)}`
-  
+  const urlWithToken = `${url}${separator}`
+
   return new EventSource(urlWithToken)
 }

@@ -172,7 +172,7 @@ function ScanManagement() {
       if (force) qs.set('force', 'true')
       const url = `/api/v1/scan/stream${qs.toString() ? `?${qs.toString()}` : ''}`
 
-      addLogEntry('connection', { url, force }, `开始连接SSE: ${url} (策略: unified)`)
+      addLogEntry('connection', { url, force }, `开始连接SSE: ${url}`)
 
       const connectSSE = () => {
         const es = createEventSourceWithAuth(url)
