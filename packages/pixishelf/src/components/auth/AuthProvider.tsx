@@ -49,51 +49,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, [setAuth])
 
   /**
-   * 获取存储的token
-   */
-  const getStoredToken = (): string | null => {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem('auth-token')
-  }
-
-  /**
-   * 设置存储的token
-   */
-  const setStoredToken = (token: string): void => {
-    if (typeof window === 'undefined') return
-    localStorage.setItem('auth-token', token)
-  }
-
-  /**
-   * 移除存储的token
-   */
-  const removeStoredToken = (): void => {
-    if (typeof window === 'undefined') return
-    localStorage.removeItem('auth-token')
-  }
-
-  /**
    * 获取当前用户信息
    */
   const fetchUser = useCallback(async (): Promise<User | null> => {
     try {
-      const token = getStoredToken()
-      if (!token) {
-        return null
-      }
-
       const response = await fetch('/api/auth/me', {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        credentials: 'include',
       })
 
       if (!response.ok) {
         if (response.status === 401) {
-          // token无效，清除本地存储
-          removeStoredToken()
+          // 未认证，这是正常情况
           return null
         }
         throw new Error('获取用户信息失败')
@@ -114,8 +81,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     } catch (error) {
       console.error('获取用户信息错误:', error)
-      // token无效时清除
-      removeStoredToken()
       throw error
     }
   }, [])
@@ -157,17 +122,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({ username, password }),
       })
 
       const data = await response.json()
 
-      if (!response.ok || !data.success || !data.token) {
+      if (!response.ok || !data.success) {
         throw new Error(data.error || ERROR_MESSAGES.LOGIN_FAILED)
       }
-
-      // 存储token
-      setStoredToken(data.token)
 
       // 登录成功，获取用户信息
       const user = await fetchUser()
@@ -186,7 +149,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return true
     } catch (error) {
       console.error('登录错误:', error)
-      removeStoredToken()
       const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.LOGIN_FAILED
       
       setAuth({
@@ -207,9 +169,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setAuth({ isLoading: true })
 
-      // 清除本地token
-      removeStoredToken()
+      // 调用登出API
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      })
 
+      // 无论API调用是否成功，都清除本地状态
       setAuth({
         isAuthenticated: false,
         user: null,
@@ -223,7 +189,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.error('登出错误:', error)
       
       // 即使出错也要清除本地状态
-      removeStoredToken()
       setAuth({
         isAuthenticated: false,
         user: null,

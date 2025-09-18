@@ -58,11 +58,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // 创建会话
     const session = await sessionManager.createSession(user)
 
-    // 修改响应格式，返回token而非设置cookie
+    // 创建响应
     const response = NextResponse.json(
       {
         success: true,
-        token: session.token,  // 新增token字段
         user: {
           id: user.id,
           username: user.username,
@@ -70,6 +69,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       } satisfies LoginResponse,
       { status: 200 }
     )
+
+    // 设置认证Cookie
+    const cookieOptions = sessionManager.getCookieOptions()
+    response.cookies.set('auth-token', session.token, {
+      httpOnly: cookieOptions.httpOnly,
+      secure: cookieOptions.secure,
+      sameSite: cookieOptions.sameSite,
+      maxAge: cookieOptions.maxAge,
+      path: cookieOptions.path,
+    })
 
     return response
   } catch (error) {

@@ -1,10 +1,9 @@
 import jwt from 'jsonwebtoken'
-import type { NextRequest } from 'next/server'
 import { userRepository } from './repositories/user'
 import { hashPassword, verifyPassword } from './crypto'
 import { JWT_CONFIG } from './constants'
-import type { User } from '@/types/core'
-import type { JWTPayload } from '@/types/auth'
+import type { User, PrismaUser } from '@/types/core'
+import type { JWTPayload, CreateUserRequest } from '@/types/auth'
 
 // ============================================================================
 // 认证服务
@@ -14,10 +13,7 @@ import type { JWTPayload } from '@/types/auth'
  * 认证错误类
  */
 export class AuthError extends Error {
-  constructor(
-    message: string,
-    public code?: string
-  ) {
+  constructor(message: string, public code?: string) {
     super(message)
     this.name = 'AuthError'
   }
@@ -33,9 +29,6 @@ export interface IAuthService {
   refreshToken(token: string): Promise<string | null>
   createUser(username: string, password: string): Promise<User>
   changePassword(userId: number, currentPassword: string, newPassword: string): Promise<void>
-  extractTokenFromRequest(request: NextRequest): string | null
-  extractUserFromToken(token: string): JWTPayload | null
-  isTokenExpiringSoon(token: string, thresholdSeconds?: number): boolean
 }
 
 /**
@@ -69,14 +62,16 @@ export class AuthService implements IAuthService {
       }
 
       // 验证密码
-      const isPasswordValid = await verifyPassword(password, user.passwordHash)
-      if (!isPasswordValid) {
-        return null
-      }
+    const isPasswordValid = await verifyPassword(password, user.passwordHash)
+    if (!isPasswordValid) {
+      return null
+    }
 
       return user
     } catch (error) {
-      throw new AuthError(`凭据验证失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      throw new AuthError(
+        `凭据验证失败: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
     }
   }
 
@@ -92,16 +87,18 @@ export class AuthService implements IAuthService {
         sub: user.id,
         username: user.username,
         iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + this.jwtTtl
+        exp: Math.floor(Date.now() / 1000) + this.jwtTtl,
       }
 
       const token = jwt.sign(payload, this.jwtSecret, {
-        algorithm: 'HS256'
+        algorithm: 'HS256',
       })
 
       return token
     } catch (error) {
-      throw new AuthError(`令牌生成失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      throw new AuthError(
+        `令牌生成失败: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
     }
   }
 
@@ -114,7 +111,7 @@ export class AuthService implements IAuthService {
     try {
       // 验证JWT令牌
       const decoded = jwt.verify(token, this.jwtSecret) as JWTPayload
-
+      
       // 检查令牌是否过期
       const now = Math.floor(Date.now() / 1000)
       if (decoded.exp && decoded.exp < now) {
@@ -133,8 +130,10 @@ export class AuthService implements IAuthService {
         // JWT相关错误（无效、过期等）
         return null
       }
-
-      throw new AuthError(`令牌验证失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      
+      throw new AuthError(
+        `令牌验证失败: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
     }
   }
 
@@ -163,7 +162,9 @@ export class AuthService implements IAuthService {
       // 生成新令牌
       return this.generateAccessToken(user)
     } catch (error) {
-      throw new AuthError(`令牌刷新失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      throw new AuthError(
+        `令牌刷新失败: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
     }
   }
 
@@ -187,7 +188,7 @@ export class AuthService implements IAuthService {
       // 创建用户
       const user = await userRepository.create({
         username,
-        passwordHash: hashedPassword
+        passwordHash: hashedPassword,
       })
 
       return user
@@ -195,8 +196,10 @@ export class AuthService implements IAuthService {
       if (error instanceof AuthError) {
         throw error
       }
-
-      throw new AuthError(`创建用户失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      
+      throw new AuthError(
+        `创建用户失败: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
     }
   }
 
@@ -207,7 +210,11 @@ export class AuthService implements IAuthService {
    * @param newPassword - 新密码
    * @returns Promise<void>
    */
-  async changePassword(userId: number, currentPassword: string, newPassword: string): Promise<void> {
+  async changePassword(
+    userId: number,
+    currentPassword: string,
+    newPassword: string
+  ): Promise<void> {
     try {
       // 查找用户
       const user = await userRepository.findById(userId)
@@ -216,10 +223,10 @@ export class AuthService implements IAuthService {
       }
 
       // 验证当前密码
-      const isCurrentPasswordValid = await verifyPassword(currentPassword, user.passwordHash)
-      if (!isCurrentPasswordValid) {
-        throw new AuthError('当前密码错误')
-      }
+    const isCurrentPasswordValid = await verifyPassword(currentPassword, user.passwordHash)
+    if (!isCurrentPasswordValid) {
+      throw new AuthError('当前密码错误')
+    }
 
       // 加密新密码
       const hashedNewPassword = await hashPassword(newPassword)
@@ -230,39 +237,19 @@ export class AuthService implements IAuthService {
       if (error instanceof AuthError) {
         throw error
       }
-
-      throw new AuthError(`修改密码失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      
+      throw new AuthError(
+        `修改密码失败: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
     }
-  }
-
-  /**
-   * 从请求中提取token
-   * @param request - NextRequest对象
-   * @returns string | null 提取到的token或null
-   */
-  extractTokenFromRequest(request: NextRequest): string | null {
-    // 从Authorization header提取Bearer token
-    const authHeader = request.headers.get('authorization')
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      return authHeader.substring(7)
-    }
-
-    // 兼容性：从query参数提取token (仅用于SSE)
-    const tokenFromQuery = request.nextUrl.searchParams.get('token')
-    if (tokenFromQuery) {
-      return tokenFromQuery
-    }
-
-    return null
   }
 
   /**
    * 检查令牌是否即将过期
    * @param token - JWT令牌
-   * @param thresholdSeconds - 过期阈值（秒），默认为JWT_CONFIG.REFRESH_THRESHOLD
    * @returns boolean 是否即将过期
    */
-  isTokenExpiringSoon(token: string, thresholdSeconds: number = JWT_CONFIG.REFRESH_THRESHOLD): boolean {
+  isTokenExpiringSoon(token: string): boolean {
     try {
       const decoded = jwt.decode(token) as JWTPayload
       if (!decoded || !decoded.exp) {
@@ -272,7 +259,7 @@ export class AuthService implements IAuthService {
       const now = Math.floor(Date.now() / 1000)
       const timeUntilExpiry = decoded.exp - now
 
-      return timeUntilExpiry <= thresholdSeconds
+      return timeUntilExpiry <= JWT_CONFIG.REFRESH_THRESHOLD
     } catch {
       return true
     }
