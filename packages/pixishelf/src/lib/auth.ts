@@ -48,7 +48,8 @@ export class AuthService implements IAuthService {
     this.jwtTtl = parseInt(String(JWT_CONFIG.DEFAULT_TTL), 10)
 
     if (process.env.NODE_ENV === 'production' && this.jwtSecret === 'dev-secret-key') {
-      throw new Error('生产环境必须设置 JWT_SECRET 环境变量')
+      console.warn('警告：生产环境未设置 JWT_SECRET 环境变量，使用默认密钥')
+      // throw new Error('生产环境必须设置 JWT_SECRET 环境变量')
     }
   }
 
