@@ -20,8 +20,7 @@
     "build": "tsup src/index.ts --dts --format esm,cjs --out-dir dist",
     "dev": "tsup src/index.ts --dts --format esm,cjs --out-dir dist --watch",
     "type-check": "tsc --noEmit",
-    "clean": "rm -rf dist",
-    "postinstall": "npm run build"
+    "clean": "rm -rf dist"
   },
   "devDependencies": {
     "tsup": "^8.1.0",
