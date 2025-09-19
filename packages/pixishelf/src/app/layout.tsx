@@ -29,7 +29,7 @@ export interface RootLayoutProps {
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="zh-CN">
-      <body>
+      <body suppressHydrationWarning={true}>
         <Providers>{children}</Providers>
       </body>
     </html>

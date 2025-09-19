@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { useRouter } from 'next/navigation'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
 import type { AuthContextType, AuthState, User } from '@/types'
+import { useClientOnly } from '@/hooks/useClientOnly'
 
 // ============================================================================
 // 认证上下文提供者
@@ -27,6 +28,8 @@ export interface AuthProviderProps {
  */
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const router = useRouter()
+  const isClient = useClientOnly()
+  
   const [authState, setAuthState] = useState<AuthState>({
     isAuthenticated: false,
     user: null,
@@ -202,10 +205,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   /**
    * 初始化认证状态
+   * 只在客户端执行，避免 SSR 水合不匹配
    */
   useEffect(() => {
-    refreshUser()
-  }, [refreshUser])
+    if (isClient) {
+      refreshUser()
+    }
+  }, [isClient, refreshUser])
 
   /**
    * 构建上下文值

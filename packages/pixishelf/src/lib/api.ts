@@ -13,9 +13,12 @@ export async function apiRequest(url: string, options: RequestInit = {}) {
 
   if (response.status === 401) {
     if (typeof window !== 'undefined') {
-      window.location.href = '/login'
+      localStorage.removeItem('token')
+      setTimeout(() => {
+        window.location.href = '/login'
+      }, 0)
     }
-    throw new Error('Unauthorized - redirecting to login')
+    throw new Error('Unauthorized')
   }
 
   if (!response.ok) {

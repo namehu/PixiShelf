@@ -1,28 +1,48 @@
 // Centralized API utilities with token handling
 export function getAuthHeader() {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-  return token ? { Authorization: `Bearer ${token}` } : {}
+  // 在服务端渲染时返回空对象，避免水合不匹配
+  if (typeof window === 'undefined') {
+    return {}
+  }
+
+  try {
+    const token = localStorage.getItem('token')
+    if (token) {
+      return { Authorization: `Bearer ${token}` }
+    }
+  } catch {
+    // 忽略 localStorage 访问错误
+  }
+
+  return {}
 }
 
 export async function apiRequest(url: string, options: RequestInit = {}) {
   const headers = {
     'Content-Type': 'application/json',
     ...getAuthHeader(),
-    ...(options.headers || {}),
+    ...(options.headers || {})
   } as Record<string, string>
 
   const response = await fetch(url, {
     ...options,
-    headers,
+    headers
   })
 
   if (response.status === 401) {
     // Clear invalid token and redirect to login
-    try { localStorage.removeItem('token') } catch {}
     if (typeof window !== 'undefined') {
-      window.location.href = '/login'
+      try {
+        localStorage.removeItem('token')
+        // 使用 setTimeout 避免在 SSR 期间执行
+        setTimeout(() => {
+          window.location.href = '/login'
+        }, 0)
+      } catch {
+        // 忽略 localStorage 访问错误
+      }
     }
-    throw new Error('Unauthorized - redirecting to login')
+    throw new Error('Unauthorized')
   }
 
   if (!response.ok) {
@@ -39,15 +59,22 @@ export async function apiJson<T>(url: string, options: RequestInit = {}): Promis
 }
 
 // SSE with token support for EventSource
-export function createEventSourceWithAuth(url: string): EventSource {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-  if (!token) {
-    throw new Error('No auth token available for SSE')
+export function createEventSourceWithAuth(url: string): EventSource | null {
+  // 只在客户端环境创建 EventSource
+  if (typeof window === 'undefined') {
+    return null
   }
-  
-  // EventSource doesn't support custom headers, pass token via query parameter for SSE endpoints only
-  const separator = url.includes('?') ? '&' : '?'
-  const urlWithToken = `${url}${separator}token=${encodeURIComponent(token)}`
-  
-  return new EventSource(urlWithToken)
+
+  try {
+    const token = localStorage.getItem('token')
+    if (token) {
+      const urlWithAuth = new URL(url)
+      urlWithAuth.searchParams.set('token', token)
+      return new EventSource(urlWithAuth.toString())
+    }
+  } catch {
+    // 忽略 localStorage 访问错误
+  }
+
+  return null
 }
