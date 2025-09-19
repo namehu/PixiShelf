@@ -65,7 +65,7 @@ export default function ChangePasswordPage() {
   const router = useRouter()
   const { isAuthenticated, isLoading: authLoading, logout } = useAuth()
   const { changePassword, isLoading, error, setError } = useChangePassword()
-  
+
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -102,9 +102,9 @@ export default function ChangePasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    
+
     if (!canSubmit) return
-    
+
     try {
       await changePassword({
         currentPassword,
@@ -117,7 +117,7 @@ export default function ChangePasswordPage() {
   }
 
   const handleBackToSettings = () => {
-    router.push(ROUTES.SETTINGS)
+    router.push(ROUTES.ADMIN)
   }
 
   const handleReLogin = async () => {
@@ -136,25 +136,13 @@ export default function ChangePasswordPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-neutral-900 mb-4">
-              密码修改成功
-            </h1>
-            <p className="text-neutral-600 mb-8">
-              你的密码已成功修改。为了安全起见，建议重新登录。
-            </p>
+            <h1 className="text-2xl font-bold text-neutral-900 mb-4">密码修改成功</h1>
+            <p className="text-neutral-600 mb-8">你的密码已成功修改。为了安全起见，建议重新登录。</p>
             <div className="space-y-3">
-              <Button
-                onClick={handleReLogin}
-                variant="primary"
-                fullWidth
-              >
+              <Button onClick={handleReLogin} variant="primary" fullWidth>
                 重新登录
               </Button>
-              <Button
-                onClick={handleBackToSettings}
-                variant="secondary"
-                fullWidth
-              >
+              <Button onClick={handleBackToSettings} variant="secondary" fullWidth>
                 返回设置
               </Button>
             </div>
@@ -171,7 +159,12 @@ export default function ChangePasswordPage() {
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-accent-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+              />
             </svg>
           </div>
           <h1 className="text-3xl font-bold text-neutral-900 mb-2">修改密码</h1>
@@ -193,7 +186,12 @@ export default function ChangePasswordPage() {
               fullWidth
               leftIcon={
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  />
                 </svg>
               }
             />
@@ -211,26 +209,46 @@ export default function ChangePasswordPage() {
                 fullWidth
                 leftIcon={
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                    />
                   </svg>
                 }
               />
               {/* 密码强度指示器 */}
               {newPassword && (
                 <div className="flex items-center gap-2 mt-2">
-                  <div className={`h-2 w-full rounded-full ${
-                    passwordStrength.level === 'weak' ? 'bg-red-200' :
-                    passwordStrength.level === 'medium' ? 'bg-yellow-200' : 'bg-green-200'
-                  }`}>
-                    <div className={`h-full rounded-full transition-all duration-300 ${
-                      passwordStrength.level === 'weak' ? 'w-1/3 bg-red-500' :
-                      passwordStrength.level === 'medium' ? 'w-2/3 bg-yellow-500' : 'w-full bg-green-500'
-                    }`} />
+                  <div
+                    className={`h-2 w-full rounded-full ${
+                      passwordStrength.level === 'weak'
+                        ? 'bg-red-200'
+                        : passwordStrength.level === 'medium'
+                          ? 'bg-yellow-200'
+                          : 'bg-green-200'
+                    }`}
+                  >
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        passwordStrength.level === 'weak'
+                          ? 'w-1/3 bg-red-500'
+                          : passwordStrength.level === 'medium'
+                            ? 'w-2/3 bg-yellow-500'
+                            : 'w-full bg-green-500'
+                      }`}
+                    />
                   </div>
-                  <span className={`text-xs font-medium ${
-                    passwordStrength.level === 'weak' ? 'text-red-600' :
-                    passwordStrength.level === 'medium' ? 'text-yellow-600' : 'text-green-600'
-                  }`}>
+                  <span
+                    className={`text-xs font-medium ${
+                      passwordStrength.level === 'weak'
+                        ? 'text-red-600'
+                        : passwordStrength.level === 'medium'
+                          ? 'text-yellow-600'
+                          : 'text-green-600'
+                    }`}
+                  >
                     {passwordStrength.text}
                   </span>
                 </div>
@@ -250,7 +268,12 @@ export default function ChangePasswordPage() {
               error={confirmPassword && !isPasswordMatch ? '密码不匹配' : undefined}
               leftIcon={
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  />
                 </svg>
               }
               rightIcon={
@@ -271,8 +294,18 @@ export default function ChangePasswordPage() {
             {/* 错误提示 */}
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-                <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <svg
+                  className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
                 <div>
                   <h4 className="text-sm font-medium text-red-800">修改失败</h4>
@@ -283,23 +316,10 @@ export default function ChangePasswordPage() {
 
             {/* 操作按钮 */}
             <div className="space-y-3">
-              <Button
-                type="submit"
-                disabled={!canSubmit}
-                loading={isLoading}
-                variant="primary"
-                size="lg"
-                fullWidth
-              >
+              <Button type="submit" disabled={!canSubmit} loading={isLoading} variant="primary" size="lg" fullWidth>
                 {isLoading ? '修改中...' : '确认修改'}
               </Button>
-              <Button
-                type="button"
-                onClick={handleBackToSettings}
-                variant="secondary"
-                fullWidth
-                disabled={isLoading}
-              >
+              <Button type="button" onClick={handleBackToSettings} variant="secondary" fullWidth disabled={isLoading}>
                 取消
               </Button>
             </div>

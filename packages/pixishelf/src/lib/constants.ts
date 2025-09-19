@@ -26,7 +26,7 @@ export const ROUTES = {
   GALLERY: '/gallery',
   ARTWORKS: '/artworks',
   ARTISTS: '/artists',
-  SETTINGS: '/settings',
+  ADMIN: '/admin',
   CHANGE_PASSWORD: '/change-password'
 } as const
 
