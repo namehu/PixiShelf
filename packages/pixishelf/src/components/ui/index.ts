@@ -26,6 +26,9 @@ export { VideoPreview } from './VideoPreview'
 export { VideoPlayer } from './VideoPlayer'
 export type { VideoPlayerProps } from './VideoPlayer'
 
+export { SearchBox } from './SearchBox'
+export type { SearchBoxProps } from './SearchBox'
+
 export { Avatar, AvatarImage, AvatarFallback } from './Avatar'
 export type { AvatarProps, AvatarImageProps, AvatarFallbackProps } from './Avatar'
 

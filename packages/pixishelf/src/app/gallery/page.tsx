@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { EnhancedArtworksResponse, SortOption } from '@pixishelf/shared'
 import { useAuth } from '@/components'
-import { SortControl, VideoPreview } from '@/components/ui'
+import { SortControl, VideoPreview, SearchBox } from '@/components/ui'
 import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
 import { isVideoFile } from '@pixishelf/shared'
@@ -198,22 +198,45 @@ function GalleryPageContent() {
     router.push(`/gallery?${newParams.toString()}`)
   }
 
+  const handleSearch = (query: string) => {
+    const newParams = new URLSearchParams(searchParams.toString())
+    if (query.trim()) {
+      newParams.set('search', query.trim())
+    } else {
+      newParams.delete('search')
+    }
+    newParams.set('page', '1') // 重置到第一页
+    router.push(`/gallery?${newParams.toString()}`)
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-7xl mx-auto">
         <section className="space-y-8">
           {/* Header Section */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-neutral-900">画廊</h1>
-              <p className="text-neutral-600 mt-1">探索你的艺术收藏</p>
-            </div>
-            {scanStatus.data?.scanning && (
-              <div className="flex items-center gap-2 text-sm text-neutral-600 bg-primary-50 px-3 py-2 rounded-lg border border-primary-200">
-                <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse" />
-                扫描中：{scanStatus.data.message || '处理中...'}
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-bold text-neutral-900">画廊</h1>
+                <p className="text-neutral-600 mt-1">探索你的艺术收藏</p>
               </div>
-            )}
+              {scanStatus.data?.scanning && (
+                <div className="flex items-center gap-2 text-sm text-neutral-600 bg-primary-50 px-3 py-2 rounded-lg border border-primary-200">
+                  <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse" />
+                  扫描中：{scanStatus.data.message || '处理中...'}
+                </div>
+              )}
+            </div>
+            
+            {/* Search Box */}
+            <div className="max-w-md">
+              <SearchBox
+                value={searchQuery}
+                placeholder="搜索作品、艺术家或标签..."
+                onSearch={handleSearch}
+                mode="normal"
+              />
+            </div>
           </div>
 
           {/* Active Search and Filters Section */}
