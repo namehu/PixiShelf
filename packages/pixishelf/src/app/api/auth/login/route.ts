@@ -71,7 +71,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     )
 
     // 设置认证Cookie
-    const cookieOptions = sessionManager.getCookieOptions()
+    const cookieOptions = sessionManager.getCookieOptionsForRequest(request)
     response.cookies.set('auth-token', session.token, {
       httpOnly: cookieOptions.httpOnly,
       secure: cookieOptions.secure,

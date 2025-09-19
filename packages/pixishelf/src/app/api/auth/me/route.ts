@@ -63,7 +63,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // 如果会话被刷新，更新Cookie
     if (refreshedSession.token !== token) {
-      const cookieOptions = sessionManager.getCookieOptions()
+      const cookieOptions = sessionManager.getCookieOptionsForRequest(request)
       response.cookies.set('auth-token', refreshedSession.token, {
         httpOnly: cookieOptions.httpOnly,
         secure: cookieOptions.secure,

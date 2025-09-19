@@ -108,7 +108,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     // 如果会话被刷新，更新Cookie
     if (refreshedSession.token !== token) {
       const response = NextResponse.next()
-      const cookieOptions = sessionManager.getCookieOptions()
+      const cookieOptions = sessionManager.getCookieOptionsForRequest(request)
 
       response.cookies.set('auth-token', refreshedSession.token, {
         httpOnly: cookieOptions.httpOnly,

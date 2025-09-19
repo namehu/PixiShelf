@@ -31,11 +31,41 @@ export class SessionManager implements ISessionManager {
   constructor() {
     this.defaultCookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: this.getSecureSetting(),
       sameSite: 'strict',
       maxAge: 60 * 60 * 24 * 7, // 7天
       path: '/'
     }
+  }
+
+  /**
+   * 智能获取 secure 设置
+   * 在生产环境中启用，但对 localhost 和 IP 访问禁用
+   */
+  private getSecureSetting(): boolean {
+    // 开发环境直接返回 false
+    if (process.env.NODE_ENV !== 'production') {
+      return false
+    }
+
+    // // 生产环境中，检查是否为 localhost 或 IP 访问
+    // if (window && typeof window !== 'undefined') {
+    //   const hostname = window.location.hostname
+
+    //   // localhost 或 IP 地址访问时禁用 secure
+    //   if (hostname === 'localhost' || hostname === '127.0.0.1' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+    //     return false
+    //   }
+    // }
+
+    // 服务端环境中，检查环境变量
+    const host = process.env.VERCEL_URL || process.env.HOST || ''
+    if (host.includes('localhost') || host.includes('127.0.0.1') || /^\d+\.\d+\.\d+\.\d+/.test(host)) {
+      return false
+    }
+
+    // 默认在生产环境中启用 secure
+    return true
   }
 
   /**
@@ -217,67 +247,25 @@ export class SessionManager implements ISessionManager {
   }
 
   /**
-   * 获取Cookie配置
+   * 根据请求动态获取Cookie配置
+   * @param request - Next.js 请求对象
    * @param options - 自定义选项
    * @returns CookieOptions 合并后的配置
    */
-  getCookieOptions(options: Partial<CookieOptions> = {}): CookieOptions {
-    return {
+  getCookieOptionsForRequest(request: NextRequest, options: Partial<CookieOptions> = {}): CookieOptions {
+    const baseOptions = {
       ...this.defaultCookieOptions,
       ...options
     }
-  }
 
-  /**
-   * 格式化Cookie字符串
-   * @param name - Cookie名称
-   * @param value - Cookie值
-   * @param options - Cookie选项
-   * @returns string Cookie字符串
-   */
-  formatCookieString(name: string, value: string, options: Partial<CookieOptions> = {}): string {
-    const opts = this.getCookieOptions(options)
-    let cookieString = `${name}=${value}`
+    // 根据请求的 host 动态设置 secure
+    const host = request.headers.get('host') || ''
+    const isLocalOrIP = host.includes('localhost') || host.includes('127.0.0.1') || /^\d+\.\d+\.\d+\.\d+/.test(host)
 
-    if (opts.maxAge) {
-      cookieString += `; Max-Age=${opts.maxAge}`
+    return {
+      ...baseOptions,
+      secure: isLocalOrIP ? false : baseOptions.secure
     }
-
-    if (opts.path) {
-      cookieString += `; Path=${opts.path}`
-    }
-
-    if (opts.domain) {
-      cookieString += `; Domain=${opts.domain}`
-    }
-
-    if (opts.secure) {
-      cookieString += '; Secure'
-    }
-
-    if (opts.httpOnly) {
-      cookieString += '; HttpOnly'
-    }
-
-    if (opts.sameSite) {
-      cookieString += `; SameSite=${opts.sameSite}`
-    }
-
-    return cookieString
-  }
-
-  /**
-   * 创建删除Cookie的字符串
-   * @param name - Cookie名称
-   * @param options - Cookie选项
-   * @returns string 删除Cookie的字符串
-   */
-  createDeleteCookieString(name: string, options: Partial<CookieOptions> = {}): string {
-    const deleteOptions: Partial<CookieOptions> = {
-      ...options,
-      maxAge: 0
-    }
-    return this.formatCookieString(name, '', deleteOptions)
   }
 
   /**
