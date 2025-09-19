@@ -1,91 +1,114 @@
-# Production unified stage - 单一容器包含 API + Web (Nginx)
-FROM node:22-alpine AS production
+# =========================================================================
+# 1. Builder Stage - 构建阶段
+#    - 负责安装所有依赖（包括开发依赖），并构建前端项目。
+# =========================================================================
+FROM node:20-alpine AS builder
+
 WORKDIR /app
 
-# 安装必要的系统依赖：Node.js运行时、Nginx、OpenSSL、进程管理工具
+# 安装必要的系统依赖和 pnpm
 RUN apk add --no-cache \
     openssl \
     openssl-dev \
-    nginx \
     supervisor \
-    && npm install -g pnpm@8
+    && npm install -g pnpm@8.15.1
 
-# 复制所有源代码和配置文件
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY packages/ ./packages/
-
-# 设置国内npm 源
+# 设置国内npm源 (可以加速构建)
 RUN npm config set registry https://registry.npmmirror.com
 
-# 安装所有依赖（shared包会在postinstall中自动构建）
-RUN pnpm install
+# 优化缓存：只复制构建依赖所需的文件
+# 只有当这些文件变化时，才会重新执行 `pnpm install`
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY packages/shared/ ./packages/shared/
+# 复制所有源代码
+COPY packages/pixishelf/ ./packages/pixishelf/
 
-# 构建API和Web包
-RUN pnpm --filter="@pixishelf/api" build
+# 安装所有依赖（包括 devDependencies 用于构建）
+# 使用 --frozen-lockfile 确保CI/CD环境的一致性
+RUN pnpm install --frozen-lockfile
 
-# 设置构建时的API URL - 在单一容器中API通过localhost访问
-ARG VITE_API_URL=http://localhost:5431
-ENV VITE_API_URL=$VITE_API_URL
-RUN pnpm --filter="@pixishelf/web" build
+# 显式生成 Prisma Client (比依赖 postinstall 更可靠)
+RUN pnpm --filter="@pixishelf/next" db:generate
 
-# 生成 Prisma 客户端
-# WORKDIR /app/packages/api
-# RUN npx prisma generate
-# WORKDIR /app
+# 构建 PixiShelf 前端项目
+RUN pnpm --filter="@pixishelf/next" build
 
-# 复制Web构建产物到Nginx目录
-RUN mkdir -p /usr/share/nginx/html && cp -r ./packages/web/dist/* /usr/share/nginx/html/
+# =========================================================================
+# 2. Production Stage - 生产阶段
+#    - 使用一个全新的、干净的 alpine 镜像。
+#    - 只从 builder 阶段复制构建产物和生产依赖。
+# =========================================================================
+FROM node:20-alpine AS production
 
-# 清理开发依赖，只保留生产依赖
-RUN pnpm install --prod --ignore-scripts
+WORKDIR /app
 
-# 复制并修改Nginx配置以适应单一容器
-COPY build/nginx.conf /etc/nginx/nginx.conf
+# 安装必要的系统依赖和 pnpm
+RUN apk add --no-cache \
+    openssl \
+    openssl-dev \
+    supervisor \
+    && npm install -g pnpm@8.15.1
 
-# 创建supervisor配置目录
-RUN mkdir -p /etc/supervisor/conf.d
+# 设置环境变量，`DATABASE_URL` 的值将由 `ARG` 或 `docker run -e` 提供
+ENV NODE_ENV=production
 
-# 创建supervisor配置文件来管理API、Nginx和Prisma Studio进程
-RUN echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'nodaemon=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '[program:api]' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'command=sh -c "cd /app/packages/api && pnpm db:deploy && node dist/index.js"' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'directory=/app/packages/api' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stderr_logfile=/var/log/api.err.log' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stdout_logfile=/var/log/api.out.log' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '[program:prisma-studio]' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'command=sh -c "cd /app/packages/api && sleep 10 && npx prisma studio --hostname 0.0.0.0 --port 5555"' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'directory=/app/packages/api' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stderr_logfile=/var/log/prisma-studio.err.log' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stdout_logfile=/var/log/prisma-studio.out.log' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '[program:nginx]' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'command=nginx -g "daemon off;"' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stderr_logfile=/var/log/nginx.err.log' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stdout_logfile=/var/log/nginx.out.log' >> /etc/supervisor/conf.d/supervisord.conf
+# 优化缓存：先复制 package.json 文件并安装生产依赖
+COPY package.json pnpm-workspace.yaml ./
+COPY --from=builder /app/packages/shared/package.json ./packages/shared/
+COPY --from=builder /app/packages/pixishelf/package.json ./packages/pixishelf/
 
-# 创建必要的目录和设置权限
-RUN mkdir -p /var/log/nginx /var/lib/nginx /var/tmp/nginx && \
-    mkdir -p /app/data && \
-    chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/tmp/nginx && \
-    chown -R node:node /app
+# 只安装生产依赖
+RUN npm config set registry https://registry.npmmirror.com && \
+    pnpm install --prod --ignore-scripts
 
-# 暴露端口：80 (Nginx), 5431 (API - 内部使用), 5555 (Prisma Studio)
-EXPOSE 80 5555
+# 从 builder 阶段复制构建好的 Next.js 应用
+COPY --from=builder /app/packages/pixishelf/.next ./packages/pixishelf/.next
+COPY --from=builder /app/packages/pixishelf/public ./packages/pixishelf/public
+COPY --from=builder /app/packages/pixishelf/package.json ./packages/pixishelf/package.json
+COPY --from=builder /app/packages/pixishelf/prisma/generated ./packages/pixishelf/prisma/generated
 
-# 健康检查 - 检查Nginx和API服务
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost/health && \
-    wget --no-verbose --tries=1 --spider http://localhost/api/v1/health || exit 1
 
-# 使用supervisor启动所有服务
+# 复制 shared 包（如果它有运行时需要的文件）和 prisma schema
+COPY --from=builder /app/packages/shared ./packages/shared
+COPY --from=builder /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
+
+# 创建 supervisor 配置和日志目录
+RUN mkdir -p /etc/supervisor/conf.d /var/log/supervisor
+COPY <<EOF /etc/supervisor/conf.d/supervisord.conf
+[supervisord]
+nodaemon=true
+user=root
+logfile=/var/log/supervisor/supervisord.log
+pidfile=/var/run/supervisord.pid
+
+[program:pixishelf]
+command=pnpm --filter="@pixishelf/next" start
+directory=/app
+autostart=true
+autorestart=true
+stopwaitsecs=3
+stderr_logfile=/var/log/supervisor/pixishelf.err.log
+stdout_logfile=/var/log/supervisor/pixishelf.out.log
+environment=NODE_ENV="production"
+
+[program:prisma-studio]
+command=sh -c "pnpm --filter='@pixishelf/next' db:deploy && pnpm --filter='@pixishelf/next' db:studio --port 5555 --browser none"
+directory=/app
+autostart=true
+autorestart=true
+stopwaitsecs=3
+stderr_logfile=/var/log/supervisor/prisma-studio.err.log
+stdout_logfile=/var/log/supervisor/prisma-studio.out.log
+EOF
+
+# 暴露端口
+EXPOSE 3000 5555
+
+# 健康检查 - 检查前端和Prisma Studio
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000 && \
+    wget --no-verbose --tries=1 --spider http://localhost:5555 || exit 1
+
+# 启动 supervisor 管理多个服务
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+

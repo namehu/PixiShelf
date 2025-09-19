@@ -30,7 +30,7 @@ services:
     image: docker.io/dockernamehu/pixishelf:${IMAGE_TAG:-latest}
     container_name: pixishelf-app
     ports:
-      - "5430:80"   # Web 服务端口（Nginx）
+      - "5430:3000"   # Web 服务端口（Nginx）
       - "5555:5555" # Prisma Studio 端口
     env_file:
       - .env
