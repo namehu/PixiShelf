@@ -8,6 +8,7 @@ dist
 **/build
 # Allow nginx config
 !build/nginx.conf
+!build/entrypoint.sh
 
 # Environment files
 .env
