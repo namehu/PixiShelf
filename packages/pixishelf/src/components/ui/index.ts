@@ -25,3 +25,11 @@ export { VideoPreview } from './VideoPreview'
 
 export { VideoPlayer } from './VideoPlayer'
 export type { VideoPlayerProps } from './VideoPlayer'
+
+export { Avatar, AvatarImage, AvatarFallback } from './Avatar'
+export type { AvatarProps, AvatarImageProps, AvatarFallbackProps } from './Avatar'
+
+export { Badge } from './Badge'
+export type { BadgeProps } from './Badge'
+
+export { default as ArtistCard } from './ArtistCard'
