@@ -1,5 +1,5 @@
 {
-  "name": "pixishelf",
+  "name": "@pixishelf/next",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -22,6 +22,7 @@
     "fast-glob": "^3.3.3",
     "jsonwebtoken": "^9.0.2",
     "next": "15.5.3",
+    "prisma": "^5.17.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-intersection-observer": "^9.16.0",
@@ -37,7 +38,6 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
-    "prisma": "^5.17.0",
     "tailwindcss": "^4.1.13",
     "typescript": "^5"
   }
