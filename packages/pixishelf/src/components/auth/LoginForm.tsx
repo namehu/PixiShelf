@@ -143,7 +143,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onS
             <label className="block text-sm font-medium text-foreground">用户名</label>
             <div className="relative">
               <svg
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground"
+                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground z-10"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -174,7 +174,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onS
             <label className="block text-sm font-medium text-foreground">密码</label>
             <div className="relative">
               <svg
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground"
+                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground z-10"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -224,12 +224,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onS
           )}
 
           {/* Submit Button */}
-          <Button
-            type="submit"
-            disabled={isLoading}
-            className="w-full"
-            size="lg"
-          >
+          <Button type="submit" disabled={isLoading} className="w-full" size="lg">
             {isLoading ? (
               <div className="flex items-center justify-center gap-2">
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>

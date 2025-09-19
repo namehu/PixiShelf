@@ -74,9 +74,6 @@ function LoginPageContent() {
       <div className="w-full max-w-md">
         {/* Logo and Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-accent-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white font-bold text-2xl">P</span>
-          </div>
           <h1 className="text-3xl font-bold text-neutral-900 mb-2">欢迎回来</h1>
           <p className="text-neutral-600">登录到你的 PixiShelf 账户</p>
         </div>
@@ -103,14 +100,16 @@ function LoginPageContent() {
  */
 export default function LoginPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          <p className="text-sm text-muted-foreground">加载中...</p>
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+          <div className="flex flex-col items-center space-y-4">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            <p className="text-sm text-muted-foreground">加载中...</p>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <LoginPageContent />
     </Suspense>
   )
