@@ -4,7 +4,16 @@ import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson, createEventSourceWithAuth } from '@/lib/api'
 import { ScanResult, HealthResponse, ScanProgress, LogEntry, ScanPathResponse } from '@pixishelf/shared'
-import ConfirmDialog from '@/components/ui/confirm-dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { useNotification } from '@/components/ui/notification'
 import { useToast } from '@/components/ui/toast'
 
@@ -555,19 +564,28 @@ function ScanManagement() {
       </div>
 
       {/* 强制扫描确认弹窗 */}
-      <ConfirmDialog
-        isOpen={showForceConfirm}
-        onClose={() => setShowForceConfirm(false)}
-        onConfirm={() => {
-          setShowForceConfirm(false)
-          startStream(true)
-        }}
-        title="确认强制全量扫描"
-        message="强制全量扫描将会清空数据库中的所有艺术品、艺术家、图片和标签数据（用户和设置数据不受影响），然后重新扫描所有文件。此操作不可撤销，确定要继续吗？"
-        confirmText="确认清空并扫描"
-        cancelText="取消"
-        confirmVariant="danger"
-      />
+      <AlertDialog open={showForceConfirm} onOpenChange={setShowForceConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认强制全量扫描</AlertDialogTitle>
+            <AlertDialogDescription>
+              强制全量扫描将会清空数据库中的所有艺术品、艺术家、图片和标签数据（用户和设置数据不受影响），然后重新扫描所有文件。此操作不可撤销，确定要继续吗？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 text-white hover:bg-red-700"
+              onClick={() => {
+                setShowForceConfirm(false)
+                startStream(true)
+              }}
+            >
+              确认清空并扫描
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
