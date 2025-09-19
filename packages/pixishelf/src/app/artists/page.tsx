@@ -3,9 +3,9 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { Artist, SortOption } from '@pixishelf/shared'
+import { Artist, ArtistsQuery } from '@pixishelf/shared'
 import { useAuth } from '@/components'
-import { Input, SortControl, ArtistCard } from '@/components/ui'
+import { Input, ArtistCard } from '@/components/ui'
 import { apiJson } from '@/lib/api'
 import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 import useDebounce from '@/hooks/useDebounce'
@@ -28,7 +28,7 @@ interface ArtistsResponse {
 /**
  * 获取艺术家列表Hook
  */
-function useArtists(searchTerm: string, sortBy: SortOption, page: number = 1, pageSize: number = 20) {
+function useArtists(searchTerm: string, sortBy: ArtistsQuery['sortBy'], page: number = 1, pageSize: number = 20) {
   return useQuery({
     queryKey: ['artists', searchTerm, sortBy, page, pageSize],
     queryFn: async (): Promise<ArtistsResponse> => {
@@ -37,9 +37,10 @@ function useArtists(searchTerm: string, sortBy: SortOption, page: number = 1, pa
         pageSize: pageSize.toString()
       })
 
-      // 转换排序格式以匹配 API
-      const sortByValue = `${sortBy.value}_${sortBy.order}`
-      params.append('sortBy', sortByValue)
+      // 添加排序参数
+      if (sortBy) {
+        params.append('sortBy', sortBy)
+      }
 
       if (searchTerm) {
         params.append('search', searchTerm)
@@ -62,11 +63,7 @@ export default function ArtistsPage() {
 
   // 状态管理
   const [searchTerm, setSearchTerm] = useState('')
-  const [sortBy, setSortBy] = useState<SortOption>({
-    value: 'createdAt',
-    label: '创建时间',
-    order: 'desc'
-  })
+  const [sortBy, setSortBy] = useState<ArtistsQuery['sortBy']>('name_asc')
   const [currentPage, setCurrentPage] = useState(1)
   const [allArtists, setAllArtists] = useState<Artist[]>([])
   const [hasMore, setHasMore] = useState(true)
@@ -78,12 +75,15 @@ export default function ArtistsPage() {
   const { data, isLoading, error, refetch } = useArtists(debouncedSearchTerm, sortBy, currentPage)
 
   // 排序选项
-  const sortOptions: SortOption[] = useMemo(() => [
-    { value: 'name', label: '名称', order: 'asc' },
-    { value: 'name', label: '名称', order: 'desc' },
-    { value: 'artworks', label: '作品数量', order: 'desc' },
-    { value: 'artworks', label: '作品数量', order: 'asc' }
-  ], [])
+  const sortOptions: { value: ArtistsQuery['sortBy']; label: string }[] = useMemo(
+    () => [
+      { value: 'name_asc', label: '名称 A-Z' },
+      { value: 'name_desc', label: '名称 Z-A' },
+      { value: 'artworks_desc', label: '作品数量 多-少' },
+      { value: 'artworks_asc', label: '作品数量 少-多' }
+    ],
+    []
+  )
 
   // 处理数据更新
   React.useEffect(() => {
@@ -91,7 +91,7 @@ export default function ArtistsPage() {
       if (currentPage === 1) {
         setAllArtists(data.items)
       } else {
-        setAllArtists(prev => [...prev, ...data.items])
+        setAllArtists((prev) => [...prev, ...data.items])
       }
       // 计算是否还有更多数据
       const hasMoreData = currentPage * data.pageSize < data.total
@@ -133,7 +133,7 @@ export default function ArtistsPage() {
   }, [])
 
   // 处理排序
-  const handleSort = useCallback((option: SortOption) => {
+  const handleSort = useCallback((option: ArtistsQuery['sortBy']) => {
     setSortBy(option)
   }, [])
 
@@ -179,7 +179,17 @@ export default function ArtistsPage() {
           />
         </div>
         <div className="sm:w-auto">
-          <SortControl options={sortOptions} value={sortBy} onChange={handleSort} />
+          <select
+            value={sortBy || 'name_asc'}
+            onChange={(e) => handleSort(e.target.value as ArtistsQuery['sortBy'])}
+            className="h-10 px-3 text-sm rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            {sortOptions.map((option) => (
+              <option key={option.value} value={option.value || ''}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
