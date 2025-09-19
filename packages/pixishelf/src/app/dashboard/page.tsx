@@ -116,7 +116,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="text-center space-y-4">
             <p className="text-sm text-muted-foreground">您需要登录才能访问仪表板</p>
-            <Button variant="primary" fullWidth onClick={() => router.push(ROUTES.LOGIN)}>
+            <Button className="w-full" onClick={() => router.push(ROUTES.LOGIN)}>
               前往登录
             </Button>
           </CardContent>
@@ -162,7 +162,7 @@ export default function DashboardPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex flex-col sm:flex-row gap-4">
-                <Button variant="primary" onClick={() => router.push(ROUTES.GALLERY)}>
+                <Button onClick={() => router.push(ROUTES.GALLERY)}>
                   浏览作品
                 </Button>
                 <Button variant="outline" onClick={() => router.push(ROUTES.ARTISTS)}>
@@ -296,7 +296,7 @@ export default function DashboardPage() {
                 <h3 className="text-lg font-medium text-gray-900 mb-2">暂无作品</h3>
                 <p className="text-gray-600 mb-4">还没有任何作品，快去发现精彩内容吧！</p>
                 <Link href={ROUTES.GALLERY}>
-                  <Button variant="primary">浏览作品</Button>
+                  <Button>浏览作品</Button>
                 </Link>
               </CardContent>
             </Card>
@@ -362,7 +362,7 @@ export default function DashboardPage() {
                 <h3 className="text-lg font-medium text-gray-900 mb-2">暂无艺术家</h3>
                 <p className="text-gray-600 mb-4">还没有发现任何艺术家，快去探索吧！</p>
                 <Link href={ROUTES.ARTISTS}>
-                  <Button variant="primary">发现艺术家</Button>
+                  <Button>发现艺术家</Button>
                 </Link>
               </CardContent>
             </Card>

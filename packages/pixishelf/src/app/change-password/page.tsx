@@ -139,10 +139,10 @@ export default function ChangePasswordPage() {
             <h1 className="text-2xl font-bold text-neutral-900 mb-4">密码修改成功</h1>
             <p className="text-neutral-600 mb-8">你的密码已成功修改。为了安全起见，建议重新登录。</p>
             <div className="space-y-3">
-              <Button onClick={handleReLogin} variant="primary" fullWidth>
+              <Button onClick={handleReLogin} className="w-full">
                 重新登录
               </Button>
-              <Button onClick={handleBackToSettings} variant="secondary" fullWidth>
+              <Button onClick={handleBackToSettings} variant="secondary" className="w-full">
                 返回设置
               </Button>
             </div>
@@ -316,12 +316,17 @@ export default function ChangePasswordPage() {
 
             {/* 操作按钮 */}
             <div className="space-y-3">
-              <Button type="submit" disabled={!canSubmit} loading={isLoading} variant="primary" size="lg" fullWidth>
-                {isLoading ? '修改中...' : '确认修改'}
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full"
+                disabled={!canSubmit || isLoading}
+              >
+                {isLoading ? '修改中...' : '修改密码'}
               </Button>
-              <Button type="button" onClick={handleBackToSettings} variant="secondary" fullWidth disabled={isLoading}>
-                取消
-              </Button>
+              <Button type="button" onClick={handleBackToSettings} variant="secondary" className="w-full" disabled={isLoading}>
+                  返回设置
+                </Button>
             </div>
           </form>
         </div>

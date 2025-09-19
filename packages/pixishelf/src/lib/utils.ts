@@ -21,7 +21,7 @@ export function formatDate(
   options: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: 'long',
-    day: 'numeric',
+    day: 'numeric'
   }
 ): string {
   const dateObj = typeof date === 'string' ? new Date(date) : date
@@ -87,10 +87,7 @@ export function formatFileSize(bytes: number): string {
  * @param wait - 等待时间（毫秒）
  * @returns 防抖后的函数
  */
-export function debounce<T extends (...args: any[]) => any>(
-  func: T,
-  wait: number
-): (...args: Parameters<T>) => void {
+export function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
   let timeout: NodeJS.Timeout | null = null
 
   return (...args: Parameters<T>) => {
@@ -107,10 +104,7 @@ export function debounce<T extends (...args: any[]) => any>(
  * @param limit - 限制时间（毫秒）
  * @returns 节流后的函数
  */
-export function throttle<T extends (...args: any[]) => any>(
-  func: T,
-  limit: number
-): (...args: Parameters<T>) => void {
+export function throttle<T extends (...args: any[]) => any>(func: T, limit: number): (...args: Parameters<T>) => void {
   let inThrottle: boolean
 
   return (...args: Parameters<T>) => {
@@ -151,7 +145,7 @@ export function deepClone<T>(obj: T): T {
   }
 
   if (obj instanceof Array) {
-    return obj.map(item => deepClone(item)) as T
+    return obj.map((item) => deepClone(item)) as T
   }
 
   if (typeof obj === 'object') {
@@ -188,11 +182,7 @@ export function isValidUrl(string: string): boolean {
  * @param suffix - 后缀
  * @returns 截断后的文本
  */
-export function truncateText(
-  text: string,
-  maxLength: number,
-  suffix: string = '...'
-): string {
+export function truncateText(text: string, maxLength: number, suffix: string = '...'): string {
   if (text.length <= maxLength) {
     return text
   }

@@ -2,7 +2,9 @@
 
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button, Input, Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Card, CardContent } from '@/components/ui/Card'
 import { validateLoginForm } from '@/lib/validators'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
 import { useAuth } from '@/components/auth'
@@ -133,109 +135,112 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onS
   }
 
   return (
-    <div className={`card p-8 ${className}`}>
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Username Field */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-neutral-700">用户名</label>
-          <div className="relative">
-            <svg
-              className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-neutral-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+    <Card className={className}>
+      <CardContent className="p-8">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Username Field */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-foreground">用户名</label>
+            <div className="relative">
+              <svg
+                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
+              </svg>
+              <Input
+                type="text"
+                value={formState.username}
+                onChange={handleInputChange('username')}
+                className="pl-11"
+                placeholder="输入用户名"
+                required
+                disabled={isLoading}
+                autoComplete="username"
               />
-            </svg>
-            <input
-              type="text"
-              value={formState.username}
-              onChange={handleInputChange('username')}
-              className="input pl-11"
-              placeholder="输入用户名"
-              required
-              disabled={isLoading}
-              autoComplete="username"
-            />
-          </div>
-          {errors.username && <p className="text-sm text-red-600">{errors.username}</p>}
-        </div>
-
-        {/* Password Field */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-neutral-700">密码</label>
-          <div className="relative">
-            <svg
-              className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-neutral-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-              />
-            </svg>
-            <input
-              type="password"
-              value={formState.password}
-              onChange={handleInputChange('password')}
-              className="input pl-11"
-              placeholder="输入密码"
-              required
-              disabled={isLoading}
-              autoComplete="current-password"
-            />
-          </div>
-          {errors.password && <p className="text-sm text-red-600">{errors.password}</p>}
-        </div>
-
-        {/* Error Message */}
-        {errors.general && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-            <svg
-              className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <div>
-              <h4 className="text-sm font-medium text-red-800">登录失败</h4>
-              <p className="text-sm text-red-700 mt-1">{errors.general}</p>
             </div>
+            {errors.username && <p className="text-sm text-destructive">{errors.username}</p>}
           </div>
-        )}
 
-        {/* Submit Button */}
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="btn btn-primary btn-lg w-full disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isLoading ? (
-            <div className="flex items-center justify-center gap-2">
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              登录中...
+          {/* Password Field */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-foreground">密码</label>
+            <div className="relative">
+              <svg
+                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                />
+              </svg>
+              <Input
+                type="password"
+                value={formState.password}
+                onChange={handleInputChange('password')}
+                className="pl-11"
+                placeholder="输入密码"
+                required
+                disabled={isLoading}
+                autoComplete="current-password"
+              />
             </div>
-          ) : (
-            '登录'
+            {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
+          </div>
+
+          {/* Error Message */}
+          {errors.general && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 flex items-start gap-3">
+              <svg
+                className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              <div>
+                <h4 className="text-sm font-medium text-destructive">登录失败</h4>
+                <p className="text-sm text-destructive/80 mt-1">{errors.general}</p>
+              </div>
+            </div>
           )}
-        </button>
-      </form>
-    </div>
+
+          {/* Submit Button */}
+          <Button
+            type="submit"
+            disabled={isLoading}
+            className="w-full"
+            size="lg"
+          >
+            {isLoading ? (
+              <div className="flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                登录中...
+              </div>
+            ) : (
+              '登录'
+            )}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   )
 }
