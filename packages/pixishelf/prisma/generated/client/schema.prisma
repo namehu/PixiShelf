@@ -1,0 +1,105 @@
+generator client {
+  provider      = "prisma-client-js"
+  output        = "./generated/client"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Artist {
+  id        Int       @id @default(autoincrement())
+  name      String
+  username  String?
+  userId    String?
+  bio       String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  artworks  Artwork[]
+
+  @@unique([username, userId], name: "unique_username_userid")
+}
+
+model Artwork {
+  id                 Int          @id @default(autoincrement())
+  title              String
+  description        String?
+  artistId           Int?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  descriptionLength  Int          @default(0)
+  directoryCreatedAt DateTime?
+  imageCount         Int          @default(0)
+  bookmarkCount      Int?
+  externalId         String?
+  isAiGenerated      Boolean?
+  originalUrl        String?
+  size               String?
+  sourceDate         DateTime?
+  sourceUrl          String?
+  thumbnailUrl       String?
+  xRestrict          String?
+  artist             Artist?      @relation(fields: [artistId], references: [id])
+  artworkTags        ArtworkTag[]
+  images             Image[]
+
+  @@index([directoryCreatedAt])
+  @@index([imageCount])
+  @@index([sourceDate])
+  @@index([externalId])
+}
+
+model Tag {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  artworkTags ArtworkTag[]
+
+  @@index([name])
+}
+
+model ArtworkTag {
+  id        Int      @id @default(autoincrement())
+  artworkId Int
+  tagId     Int
+  createdAt DateTime @default(now())
+  artwork   Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([artworkId, tagId])
+}
+
+model Image {
+  id        Int      @id @default(autoincrement())
+  path      String
+  width     Int?
+  height    Int?
+  size      Int?
+  sortOrder Int      @default(0)
+  artworkId Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  artwork   Artwork? @relation(fields: [artworkId], references: [id])
+
+  @@unique([artworkId, path], name: "unique_artwork_path")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String?
+  type      String   @default("string")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
