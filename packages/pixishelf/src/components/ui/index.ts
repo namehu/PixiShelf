@@ -29,8 +29,7 @@ export type { VideoPlayerProps } from './VideoPlayer'
 export { SearchBox } from './SearchBox'
 export type { SearchBoxProps } from './SearchBox'
 
-export { Avatar, AvatarImage, AvatarFallback } from './Avatar'
-export type { AvatarProps, AvatarImageProps, AvatarFallbackProps } from './Avatar'
+export { Avatar, AvatarImage, AvatarFallback } from './avatar'
 
 export { Badge } from './Badge'
 export type { BadgeProps } from './Badge'
