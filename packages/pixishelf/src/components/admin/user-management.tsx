@@ -4,35 +4,21 @@ import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson } from '@/lib/api'
 import { UsersResponse } from '@pixishelf/shared'
-import { 
-  Card, 
-  CardContent, 
-  CardDescription, 
-  CardHeader, 
-  CardTitle 
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
 } from '@/components/ui'
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from '@/components/ui'
-import { 
-  AlertDialog, 
-  AlertDialogAction, 
-  AlertDialogCancel, 
-  AlertDialogContent, 
-  AlertDialogDescription, 
-  AlertDialogFooter, 
-  AlertDialogHeader, 
-  AlertDialogTitle 
-} from '@/components/ui'
-import { Button } from '@/components/ui'
-import { Badge } from '@/components/ui'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui'
-import { Avatar, AvatarFallback } from '@/components/ui'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { UserPlus, Trash2, User as UserIcon } from 'lucide-react'
 
 // Hook: 获取用户列表
@@ -76,13 +62,13 @@ function useCreateUser() {
 
 /**
  * 用户管理组件
- * 
+ *
  * 功能：
  * - 用户列表展示和管理
  * - 添加新用户账户
  * - 删除用户账户
  * - 表单验证和错误处理
- * 
+ *
  * 迁移自原Users.tsx，保持所有功能不变
  */
 function UserManagement() {
@@ -99,7 +85,7 @@ function UserManagement() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!username.trim() || !password.trim()) return
-    
+
     try {
       await createUser.mutateAsync({ username: username.trim(), password })
       setUsername('')
@@ -118,7 +104,7 @@ function UserManagement() {
 
   const confirmDelete = async () => {
     if (userToDelete === null) return
-    
+
     try {
       await deleteUser.mutateAsync(userToDelete)
       setDeleteDialogOpen(false)
@@ -138,14 +124,9 @@ function UserManagement() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">用户管理</h1>
-          <p className="text-muted-foreground">
-            管理系统用户账户、权限和访问控制
-          </p>
+          <p className="text-muted-foreground">管理系统用户账户、权限和访问控制</p>
         </div>
-        <Button 
-          onClick={() => setShowForm(!showForm)}
-          className="sm:w-auto"
-        >
+        <Button onClick={() => setShowForm(!showForm)} className="sm:w-auto">
           <UserPlus className="mr-2 h-4 w-4" />
           {showForm ? '取消' : '添加用户'}
         </Button>
@@ -156,16 +137,12 @@ function UserManagement() {
         <Card>
           <CardHeader>
             <CardTitle>添加新用户</CardTitle>
-            <CardDescription>
-              创建新的用户账户
-            </CardDescription>
+            <CardDescription>创建新的用户账户</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  用户名
-                </label>
+                <label className="text-sm font-medium">用户名</label>
                 <Input
                   type="text"
                   value={username}
@@ -175,9 +152,7 @@ function UserManagement() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  密码
-                </label>
+                <label className="text-sm font-medium">密码</label>
                 <Input
                   type="password"
                   value={password}
@@ -187,10 +162,7 @@ function UserManagement() {
                 />
               </div>
               <div className="flex gap-3">
-                <Button
-                  type="submit"
-                  disabled={createUser.isPending || !username.trim() || !password.trim()}
-                >
+                <Button type="submit" disabled={createUser.isPending || !username.trim() || !password.trim()}>
                   {createUser.isPending ? '创建中...' : '创建用户'}
                 </Button>
                 <Button
@@ -214,9 +186,7 @@ function UserManagement() {
       <Card>
         <CardHeader>
           <CardTitle>用户列表</CardTitle>
-          <CardDescription>
-            查看和管理所有系统用户
-          </CardDescription>
+          <CardDescription>查看和管理所有系统用户</CardDescription>
         </CardHeader>
         <CardContent>
           {/* 加载状态 */}
@@ -247,9 +217,7 @@ function UserManagement() {
                   </div>
                   <h3 className="text-lg font-medium mb-2">暂无用户</h3>
                   <p className="text-muted-foreground mb-4">还没有创建任何用户账户</p>
-                  <Button onClick={() => setShowForm(true)}>
-                    添加第一个用户
-                  </Button>
+                  <Button onClick={() => setShowForm(true)}>添加第一个用户</Button>
                 </div>
               ) : (
                 <div className="rounded-md border">
@@ -275,9 +243,7 @@ function UserManagement() {
                               <div className="font-medium">{user.username}</div>
                             </div>
                           </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {user.id}
-                          </TableCell>
+                          <TableCell className="text-muted-foreground">{user.id}</TableCell>
                           <TableCell className="text-muted-foreground">
                             {new Date(user.createdAt).toLocaleString()}
                           </TableCell>
@@ -303,9 +269,7 @@ function UserManagement() {
               {/* 用户统计 */}
               {data.items.length > 0 && (
                 <div className="mt-6 pt-4 border-t">
-                  <div className="text-sm text-muted-foreground text-center">
-                    共 {data.items.length} 个用户账户
-                  </div>
+                  <div className="text-sm text-muted-foreground text-center">共 {data.items.length} 个用户账户</div>
                 </div>
               )}
             </>
@@ -318,9 +282,7 @@ function UserManagement() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除用户</AlertDialogTitle>
-            <AlertDialogDescription>
-              您确定要删除这个用户吗？此操作无法撤销。
-            </AlertDialogDescription>
+            <AlertDialogDescription>您确定要删除这个用户吗？此操作无法撤销。</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
