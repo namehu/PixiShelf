@@ -17,7 +17,7 @@ import {
 import { useNotification } from '@/components/ui/notification'
 import { useToast } from '@/components/ui/toast'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/badge'
 

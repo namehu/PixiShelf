@@ -2,7 +2,7 @@
 // UI 组件导出
 // ============================================================================
 
-export { Button } from './Button'
+export { Button } from './button'
 
 export { Input } from './Input'
 export type { InputProps } from './Input'
