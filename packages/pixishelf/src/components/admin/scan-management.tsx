@@ -12,7 +12,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialogTitle
 } from '@/components/ui/alert-dialog'
 import { useNotification } from '@/components/ui/notification'
 import { useToast } from '@/components/ui/toast'
@@ -392,21 +392,6 @@ function ScanManagement() {
               <span className={health?.status === 'ok' ? 'text-green-700' : 'text-red-700'}>
                 {health?.status || '加载中…'}
               </span>
-            </div>
-            <div>
-              扫描路径：
-              <span className="font-mono">{scanPath.query.data?.scanPath || '未配置'}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 扫描策略信息 */}
-        <div className="bg-white rounded-xl border border-neutral-200 p-6">
-          <div className="mb-4">
-            <div className="mb-2 text-base font-medium">扫描策略</div>
-            <div className="rounded bg-blue-50 p-3 text-sm">
-              <div className="font-medium text-blue-900">当前策略：统一扫描</div>
-              <div className="text-blue-700">使用新的统一扫描方式，性能更好，推荐使用</div>
             </div>
           </div>
         </div>
