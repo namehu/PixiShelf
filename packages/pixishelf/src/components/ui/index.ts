@@ -3,20 +3,11 @@
 // ============================================================================
 
 export { Button } from './Button'
-export type { ButtonProps } from './Button'
 
 export { Input } from './Input'
 export type { InputProps } from './Input'
 
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './Card'
-export type {
-  CardProps,
-  CardHeaderProps,
-  CardTitleProps,
-  CardDescriptionProps,
-  CardContentProps,
-  CardFooterProps
-} from './Card'
 
 export { SortControl } from './SortControl'
 export type { SortControlProps } from './SortControl'
@@ -33,5 +24,19 @@ export { Avatar, AvatarImage, AvatarFallback } from './avatar'
 
 export { Badge } from './Badge'
 export type { BadgeProps } from './Badge'
+
+export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption } from './table'
+
+export {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel
+} from './alert-dialog'
 
 export { default as ArtistCard } from './ArtistCard'

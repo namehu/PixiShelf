@@ -4,6 +4,36 @@ import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson } from '@/lib/api'
 import { UsersResponse } from '@pixishelf/shared'
+import { 
+  Card, 
+  CardContent, 
+  CardDescription, 
+  CardHeader, 
+  CardTitle 
+} from '@/components/ui'
+import { 
+  Table, 
+  TableBody, 
+  TableCell, 
+  TableHead, 
+  TableHeader, 
+  TableRow 
+} from '@/components/ui'
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle 
+} from '@/components/ui'
+import { Button } from '@/components/ui'
+import { Badge } from '@/components/ui'
+import { Input } from '@/components/ui'
+import { Avatar, AvatarFallback } from '@/components/ui'
+import { UserPlus, Trash2, User as UserIcon } from 'lucide-react'
 
 // Hook: 获取用户列表
 function useUsers() {
@@ -62,6 +92,8 @@ function UserManagement() {
   const [showForm, setShowForm] = React.useState(false)
   const [username, setUsername] = React.useState('')
   const [password, setPassword] = React.useState('')
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
+  const [userToDelete, setUserToDelete] = React.useState<number | null>(null)
 
   // 处理表单提交
   const handleSubmit = async (e: React.FormEvent) => {
@@ -79,217 +111,228 @@ function UserManagement() {
   }
 
   // 处理删除用户
-  const handleDelete = async (id: number) => {
-    if (!confirm('确定要删除这个用户吗？')) return
+  const handleDelete = (id: number) => {
+    setUserToDelete(id)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (userToDelete === null) return
     
     try {
-      await deleteUser.mutateAsync(id)
+      await deleteUser.mutateAsync(userToDelete)
+      setDeleteDialogOpen(false)
+      setUserToDelete(null)
     } catch (error) {
       console.error('Failed to delete user:', error)
     }
   }
 
+  const getInitials = (username: string) => {
+    return username.slice(0, 2).toUpperCase()
+  }
+
   return (
-    <div className="p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* 页面标题 */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-neutral-900 mb-2">
-            用户管理
-          </h1>
-          <p className="text-neutral-600">
+    <div className="space-y-6">
+      {/* 页面标题和操作区域 */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">用户管理</h1>
+          <p className="text-muted-foreground">
             管理系统用户账户、权限和访问控制
           </p>
         </div>
+        <Button 
+          onClick={() => setShowForm(!showForm)}
+          className="sm:w-auto"
+        >
+          <UserPlus className="mr-2 h-4 w-4" />
+          {showForm ? '取消' : '添加用户'}
+        </Button>
+      </div>
 
-        {/* 用户管理操作区 */}
-        <div className="bg-white rounded-xl border border-neutral-200 p-6">
-          {/* 头部操作栏 */}
-          <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-neutral-900">用户列表</h2>
-            <button
-              onClick={() => setShowForm(!showForm)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            >
-              {showForm ? '取消' : '添加用户'}
-            </button>
-          </div>
+      {/* 添加用户表单 */}
+      {showForm && (
+        <Card>
+          <CardHeader>
+            <CardTitle>添加新用户</CardTitle>
+            <CardDescription>
+              创建新的用户账户
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  用户名
+                </label>
+                <Input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="请输入用户名"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  密码
+                </label>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="请输入密码"
+                  required
+                />
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  type="submit"
+                  disabled={createUser.isPending || !username.trim() || !password.trim()}
+                >
+                  {createUser.isPending ? '创建中...' : '创建用户'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowForm(false)
+                    setUsername('')
+                    setPassword('')
+                  }}
+                >
+                  取消
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
-          {/* 添加用户表单 */}
-          {showForm && (
-            <div className="mb-6 rounded-xl border border-neutral-200 bg-neutral-50 p-6">
-              <h3 className="text-base font-medium text-neutral-900 mb-4">添加新用户</h3>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-2">
-                    用户名
-                  </label>
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="请输入用户名"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-2">
-                    密码
-                  </label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="请输入密码"
-                    required
-                  />
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    type="submit"
-                    disabled={createUser.isPending || !username.trim() || !password.trim()}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {createUser.isPending ? '创建中...' : '创建用户'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowForm(false)
-                      setUsername('')
-                      setPassword('')
-                    }}
-                    className="px-4 py-2 bg-neutral-600 text-white rounded-lg hover:bg-neutral-700"
-                  >
-                    取消
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
+      {/* 用户列表 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>用户列表</CardTitle>
+          <CardDescription>
+            查看和管理所有系统用户
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           {/* 加载状态 */}
           {isLoading && (
             <div className="flex items-center justify-center py-8">
-              <div className="flex items-center gap-3 text-neutral-600">
-                <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-                <span>加载中...</span>
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                <p className="text-muted-foreground">加载中...</p>
               </div>
             </div>
           )}
 
           {/* 错误状态 */}
           {isError && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center">
-              <div className="text-red-600 font-medium">加载失败</div>
-              <div className="text-red-500 text-sm mt-1">无法获取用户列表，请稍后重试</div>
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center">
+              <div className="text-destructive font-medium">加载失败</div>
+              <div className="text-destructive/80 text-sm mt-1">无法获取用户列表，请稍后重试</div>
             </div>
           )}
 
           {/* 用户列表 */}
           {data && (
-            <div className="space-y-3">
+            <>
               {data.items.length === 0 ? (
                 <div className="text-center py-8">
-                  <div className="w-16 h-16 bg-neutral-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg
-                      className="w-8 h-8 text-neutral-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"
-                      />
-                    </svg>
+                  <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+                    <UserIcon className="w-8 h-8 text-muted-foreground" />
                   </div>
-                  <h3 className="text-lg font-medium text-neutral-900 mb-2">暂无用户</h3>
-                  <p className="text-neutral-500 mb-4">还没有创建任何用户账户</p>
-                  <button
-                    onClick={() => setShowForm(true)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
+                  <h3 className="text-lg font-medium mb-2">暂无用户</h3>
+                  <p className="text-muted-foreground mb-4">还没有创建任何用户账户</p>
+                  <Button onClick={() => setShowForm(true)}>
                     添加第一个用户
-                  </button>
+                  </Button>
                 </div>
               ) : (
-                data.items.map((user) => (
-                  <div
-                    key={user.id}
-                    className="flex items-center justify-between rounded-xl border border-neutral-200 p-4 hover:bg-neutral-50 transition-colors"
-                  >
-                    <div className="flex items-center gap-4">
-                      {/* 用户头像 */}
-                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-5 h-5 text-blue-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                          />
-                        </svg>
-                      </div>
-                      
-                      {/* 用户信息 */}
-                      <div>
-                        <div className="font-medium text-neutral-900">{user.username}</div>
-                        <div className="text-sm text-neutral-500">ID: {user.id}</div>
-                        <div className="text-sm text-neutral-500">
-                          创建时间: {new Date(user.createdAt).toLocaleString()}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* 操作按钮 */}
-                    <button
-                      onClick={() => handleDelete(user.id)}
-                      disabled={deleteUser.isPending}
-                      className="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                      title="删除用户"
-                    >
-                      {deleteUser.isPending ? '删除中...' : '删除'}
-                    </button>
-                  </div>
-                ))
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>用户</TableHead>
+                        <TableHead>ID</TableHead>
+                        <TableHead>创建时间</TableHead>
+                        <TableHead className="text-right">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.items.map((user) => (
+                        <TableRow key={user.id}>
+                          <TableCell>
+                            <div className="flex items-center space-x-3">
+                              <Avatar className="h-8 w-8">
+                                <AvatarFallback className="bg-primary/10 text-primary font-medium">
+                                  {getInitials(user.username)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="font-medium">{user.username}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {user.id}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {new Date(user.createdAt).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDelete(user.id)}
+                              disabled={deleteUser.isPending}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-1" />
+                              {deleteUser.isPending ? '删除中...' : '删除'}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
-            </div>
-          )}
 
-          {/* 用户统计 */}
-          {data && data.items.length > 0 && (
-            <div className="mt-6 pt-4 border-t border-neutral-200">
-              <div className="text-sm text-neutral-500 text-center">
-                共 {data.items.length} 个用户账户
-              </div>
-            </div>
+              {/* 用户统计 */}
+              {data.items.length > 0 && (
+                <div className="mt-6 pt-4 border-t">
+                  <div className="text-sm text-muted-foreground text-center">
+                    共 {data.items.length} 个用户账户
+                  </div>
+                </div>
+              )}
+            </>
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
+
+      {/* 删除确认对话框 */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除用户</AlertDialogTitle>
+            <AlertDialogDescription>
+              您确定要删除这个用户吗？此操作无法撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
