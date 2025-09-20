@@ -2,12 +2,10 @@
 // UI 组件导出
 // ============================================================================
 
-export { Button } from './button'
-
 export { Input } from './Input'
 export type { InputProps } from './Input'
 
-export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './Card'
+export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './card'
 
 export { SortControl } from './SortControl'
 export type { SortControlProps } from './SortControl'

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChangePasswordRequest, ChangePasswordResponse } from '@pixishelf/shared'
 import { useAuth } from '@/components'
-import { Button } from '@/components/ui/Button'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/Input'
 import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
@@ -316,17 +316,18 @@ export default function ChangePasswordPage() {
 
             {/* 操作按钮 */}
             <div className="space-y-3">
-              <Button
-                type="submit"
-                size="lg"
-                className="w-full"
-                disabled={!canSubmit || isLoading}
-              >
+              <Button type="submit" size="lg" className="w-full" disabled={!canSubmit || isLoading}>
                 {isLoading ? '修改中...' : '修改密码'}
               </Button>
-              <Button type="button" onClick={handleBackToSettings} variant="secondary" className="w-full" disabled={isLoading}>
-                  返回设置
-                </Button>
+              <Button
+                type="button"
+                onClick={handleBackToSettings}
+                variant="secondary"
+                className="w-full"
+                disabled={isLoading}
+              >
+                返回设置
+              </Button>
             </div>
           </form>
         </div>

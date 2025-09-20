@@ -4,12 +4,13 @@ import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/components'
-import { Button, Card, CardHeader, CardTitle, CardContent, ArtistCard } from '@/components/ui'
+import { Card, CardHeader, CardTitle, CardContent, ArtistCard } from '@/components/ui'
 import { VideoPreview } from '@/components/ui'
 import { ROUTES } from '@/lib/constants'
 import { apiJson } from '@/lib/api'
 import { EnhancedArtworksResponse, Artist, isVideoFile } from '@pixishelf/shared'
 import type { ArtistsResponse } from '@pixishelf/shared'
+import { Button } from '@/components/ui/button'
 
 // ============================================================================
 // 仪表板页面
@@ -162,9 +163,7 @@ export default function DashboardPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex flex-col sm:flex-row gap-4">
-                <Button onClick={() => router.push(ROUTES.GALLERY)}>
-                  浏览作品
-                </Button>
+                <Button onClick={() => router.push(ROUTES.GALLERY)}>浏览作品</Button>
                 <Button variant="outline" onClick={() => router.push(ROUTES.ARTISTS)}>
                   发现艺术家
                 </Button>
