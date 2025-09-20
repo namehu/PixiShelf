@@ -16,6 +16,10 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useNotification } from '@/components/ui/notification'
 import { useToast } from '@/components/ui/toast'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Badge } from '@/components/ui/Badge'
 
 // Hook: 健康检查
 function useHealth() {
@@ -354,189 +358,184 @@ function ScanManagement() {
         </div>
 
         {/* 扫描路径配置 */}
-        <div className="bg-white rounded-xl border border-neutral-200 p-6">
-          <div className="mb-4">
-            <div className="mb-2 text-base font-medium">扫描路径配置</div>
+        <Card>
+          <CardHeader>
+            <CardTitle>扫描路径配置</CardTitle>
+          </CardHeader>
+          <CardContent>
             {!editing ? (
               <div className="flex items-center gap-3">
-                <span className="font-mono text-sm bg-neutral-100 px-2 py-1 rounded">
+                <Badge variant="secondary" className="font-mono text-sm">
                   {scanPath.query.data?.scanPath || '未配置'}
-                </span>
-                <button onClick={startEditing} className="text-sm text-blue-600 hover:text-blue-700">
+                </Badge>
+                <Button variant="link" size="sm" onClick={startEditing} className="h-auto p-0">
                   修改
-                </button>
+                </Button>
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <input
+                <Input
                   type="text"
                   value={editPath}
                   onChange={(e) => setEditPath(e.target.value)}
                   placeholder="请输入扫描目录的绝对路径"
-                  className="flex-1 px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="flex-1"
                 />
-                <button
-                  onClick={saveEditPath}
-                  disabled={scanPath.update.isPending || !editPath.trim()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <Button onClick={saveEditPath} disabled={scanPath.update.isPending || !editPath.trim()}>
                   {scanPath.update.isPending ? '保存中' : '保存'}
-                </button>
+                </Button>
               </div>
             )}
-          </div>
 
-          <div className="flex items-center gap-3 text-sm text-neutral-600">
-            <div>
-              后端健康：
-              <span className={health?.status === 'ok' ? 'text-green-700' : 'text-red-700'}>
-                {health?.status || '加载中…'}
-              </span>
+            <div className="flex items-center gap-3 text-sm text-neutral-600 mt-4">
+              <div>
+                后端健康：
+                <Badge variant={health?.status === 'ok' ? 'default' : 'destructive'} className="ml-1">
+                  {health?.status || '加载中…'}
+                </Badge>
+              </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* 实时进度（SSE） */}
-        <div className="bg-white rounded-xl border border-neutral-200 p-6">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <div className="text-base font-medium">实时进度（SSE）</div>
-              <div className="text-sm text-neutral-500">使用 Server-Sent Events 实时显示扫描进度。支持自动重连。</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => startStream(false)}
-                disabled={streaming || !scanPath.query.data?.scanPath}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {streaming ? '进行中…' : '增量扫描'}
-              </button>
-              <button
-                onClick={() => setShowForceConfirm(true)}
-                disabled={streaming || !scanPath.query.data?.scanPath}
-                className="px-4 py-2 bg-neutral-600 text-white rounded-lg hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="强制全量更新：清空现有数据后重建"
-              >
-                强制全量
-              </button>
-              {streaming && (
-                <button
-                  onClick={cancelCurrentScan}
-                  disabled={cancelScan.isPending}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>实时进度（SSE）</CardTitle>
+                <CardDescription>使用 Server-Sent Events 实时显示扫描进度。支持自动重连。</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={() => startStream(false)} disabled={streaming || !scanPath.query.data?.scanPath}>
+                  {streaming ? '进行中…' : '增量扫描'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowForceConfirm(true)}
+                  disabled={streaming || !scanPath.query.data?.scanPath}
+                  title="强制全量更新：清空现有数据后重建"
                 >
-                  {cancelScan.isPending ? '取消中' : '取消'}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {streaming && (
-            <div className="space-y-2">
-              <div className="h-2 w-full overflow-hidden rounded bg-neutral-200">
-                <div className="h-2 w-1/3 animate-[progress_1.2s_ease-in-out_infinite] rounded bg-blue-500" />
-              </div>
-              <div className="text-sm text-neutral-600">
-                {progress?.message || '准备中…'} 已用时 {secondsToText(elapsed)}
-                {retryCount > 0 && ` (重连第${retryCount}次)`}
-              </div>
-            </div>
-          )}
-
-          {streamError && (
-            <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              实时通道：{streamError}
-            </div>
-          )}
-
-          {streamResult && (
-            <div className="mt-3 space-y-2 text-sm">
-              <div className="text-green-700">扫描完成（SSE）</div>
-              <ul className="grid grid-cols-2 gap-2">
-                <li className="rounded border bg-neutral-50 p-2">
-                  发现作品：
-                  <span className="font-medium">{streamResult.totalArtworks}</span>
-                </li>
-                <li className="rounded border bg-neutral-50 p-2">
-                  新增作品：
-                  <span className="font-medium">{streamResult.newArtworks}</span>
-                </li>
-                <li className="rounded border bg-neutral-50 p-2">
-                  新增图片：
-                  <span className="font-medium">{streamResult.newImages}</span>
-                </li>
-                {typeof streamResult.removedArtworks === 'number' && (
-                  <li className="rounded border bg-neutral-50 p-2">
-                    删除空作品：
-                    <span className="font-medium">{streamResult.removedArtworks}</span>
-                  </li>
+                  强制全量
+                </Button>
+                {streaming && (
+                  <Button variant="destructive" onClick={cancelCurrentScan} disabled={cancelScan.isPending}>
+                    {cancelScan.isPending ? '取消中' : '取消'}
+                  </Button>
                 )}
-              </ul>
-              {streamResult.errors?.length > 0 && (
-                <details className="rounded border bg-yellow-50 p-3">
-                  <summary className="cursor-pointer text-yellow-800">
-                    错误 {streamResult.errors.length} 条（展开查看）
-                  </summary>
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-yellow-900">
-                    {streamResult.errors.slice(0, 20).map((e, i) => (
-                      <li key={i}>{e}</li>
-                    ))}
-                    {streamResult.errors.length > 20 && <li>… 仅展示前 20 条</li>}
-                  </ul>
-                </details>
-              )}
+              </div>
             </div>
-          )}
+          </CardHeader>
+          <CardContent>
+            {streaming && (
+              <div className="space-y-2">
+                <div className="h-2 w-full overflow-hidden rounded bg-neutral-200">
+                  <div className="h-2 w-1/3 animate-[progress_1.2s_ease-in-out_infinite] rounded bg-blue-500" />
+                </div>
+                <div className="text-sm text-neutral-600">
+                  {progress?.message || '准备中…'} 已用时 {secondsToText(elapsed)}
+                  {retryCount > 0 && ` (重连第${retryCount}次)`}
+                </div>
+              </div>
+            )}
 
-          {/* 详细日志区域 */}
-          {logs.length > 0 && (
-            <div className="mt-4 border-t pt-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setShowDetailedLogs(!showDetailedLogs)}
-                    className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                  >
-                    {showDetailedLogs ? '隐藏' : '显示'}详细日志 ({logs.length}条)
-                  </button>
-                  {showDetailedLogs && (
-                    <>
-                      <button onClick={clearLogs} className="text-xs text-neutral-500 hover:text-neutral-700">
-                        清空日志
-                      </button>
-                      <label className="flex items-center gap-1 text-xs text-neutral-500">
-                        <input
-                          type="checkbox"
-                          checked={autoScroll}
-                          onChange={(e) => setAutoScroll(e.target.checked)}
-                          className="h-3 w-3"
-                        />
-                        自动滚动
-                      </label>
-                    </>
+            {streamError && (
+              <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                实时通道：{streamError}
+              </div>
+            )}
+
+            {streamResult && (
+              <div className="mt-3 space-y-2 text-sm">
+                <div className="text-green-700">扫描完成（SSE）</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Card className="p-3">
+                    <div className="text-sm text-neutral-600">发现作品</div>
+                    <div className="text-lg font-medium">{streamResult.totalArtworks}</div>
+                  </Card>
+                  <Card className="p-3">
+                    <div className="text-sm text-neutral-600">新增作品</div>
+                    <div className="text-lg font-medium">{streamResult.newArtworks}</div>
+                  </Card>
+                  <Card className="p-3">
+                    <div className="text-sm text-neutral-600">新增图片</div>
+                    <div className="text-lg font-medium">{streamResult.newImages}</div>
+                  </Card>
+                  {typeof streamResult.removedArtworks === 'number' && (
+                    <Card className="p-3">
+                      <div className="text-sm text-neutral-600">删除空作品</div>
+                      <div className="text-lg font-medium">{streamResult.removedArtworks}</div>
+                    </Card>
                   )}
                 </div>
+                {streamResult.errors?.length > 0 && (
+                  <details className="rounded border bg-yellow-50 p-3">
+                    <summary className="cursor-pointer text-yellow-800">
+                      错误 {streamResult.errors.length} 条（展开查看）
+                    </summary>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-yellow-900">
+                      {streamResult.errors.slice(0, 20).map((e, i) => (
+                        <li key={i}>{e}</li>
+                      ))}
+                      {streamResult.errors.length > 20 && <li>… 仅展示前 20 条</li>}
+                    </ul>
+                  </details>
+                )}
               </div>
+            )}
 
-              {showDetailedLogs && (
-                <div className="max-h-96 overflow-y-auto rounded border bg-neutral-50 p-3">
-                  <div className="space-y-1 font-mono text-xs">
-                    {logs.map((log, index) => (
-                      <div key={index} className="flex gap-2">
-                        <span className="text-neutral-400 shrink-0">{log.timestamp}</span>
-                        <span className={`shrink-0 font-medium ${getLogTypeStyle(log.type)}`}>
-                          [{log.type.toUpperCase()}]
-                        </span>
-                        <span className="text-neutral-700">{log.message}</span>
-                      </div>
-                    ))}
-                    <div ref={logsEndRef} />
+            {/* 详细日志区域 */}
+            {logs.length > 0 && (
+              <div className="mt-4 border-t pt-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="link"
+                      size="sm"
+                      onClick={() => setShowDetailedLogs(!showDetailedLogs)}
+                      className="h-auto p-0"
+                    >
+                      {showDetailedLogs ? '隐藏' : '显示'}详细日志 ({logs.length}条)
+                    </Button>
+                    {showDetailedLogs && (
+                      <>
+                        <Button variant="link" size="sm" onClick={clearLogs} className="h-auto p-0 text-xs">
+                          清空日志
+                        </Button>
+                        <label className="flex items-center gap-1 text-xs text-neutral-500">
+                          <input
+                            type="checkbox"
+                            checked={autoScroll}
+                            onChange={(e) => setAutoScroll(e.target.checked)}
+                            className="h-3 w-3"
+                          />
+                          自动滚动
+                        </label>
+                      </>
+                    )}
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-        </div>
+
+                {showDetailedLogs && (
+                  <div className="max-h-96 overflow-y-auto rounded border bg-neutral-50 p-3">
+                    <div className="space-y-1 font-mono text-xs">
+                      {logs.map((log, index) => (
+                        <div key={index} className="flex gap-2">
+                          <span className="text-neutral-400 shrink-0">{log.timestamp}</span>
+                          <Badge variant="outline" className={`shrink-0 text-xs ${getLogTypeStyle(log.type)}`}>
+                            {log.type.toUpperCase()}
+                          </Badge>
+                          <span className="text-neutral-700">{log.message}</span>
+                        </div>
+                      ))}
+                      <div ref={logsEndRef} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* 进度动画样式 */}
         <style>{`
