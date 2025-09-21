@@ -14,7 +14,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog'
-import { useNotification } from '@/components/ui/notification'
 import { toast } from 'sonner'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -91,7 +90,6 @@ function ScanManagement() {
   const { data: health } = useHealth()
   const scanPath = useScanPath()
   const cancelScan = useCancelScan()
-  const { addNotification } = useNotification()
 
   const [editPath, setEditPath] = React.useState('')
   const [editing, setEditing] = React.useState(false)
