@@ -9,7 +9,6 @@ build/
 ├── README.md                    # 本说明文件
 ├── .env.example                 # 环境变量配置模板
 ├── Dockerfile                   # Docker 多阶段构建文件
-├── nginx.conf                   # Nginx 配置文件
 ├── docker-compose.yml           # 开发/本地构建用 Docker Compose
 └── docker-compose.deploy.yml    # 生产部署用 Docker Compose (使用预构建镜像)
 ```
@@ -21,14 +20,6 @@ build/
 - **包含**: API 和 Web 两个构建目标
 - **特性**: 支持多架构构建 (linux/amd64, linux/arm64)
 
-### nginx.conf
-- **用途**: Nginx 反向代理配置
-- **功能**: 
-  - 静态文件服务
-  - API 请求代理
-  - SPA 路由支持
-  - Gzip 压缩
-  - 安全头设置
 
 ### docker-compose.yml
 - **用途**: 开发环境和本地构建
@@ -90,7 +81,6 @@ docker build -f build/Dockerfile -t pixishelf .
 GitHub Actions 工作流会自动使用这些配置文件：
 - 使用 `build/Dockerfile` 构建镜像
 - 将 `build/docker-compose.deploy.yml` 发布到 Release
-- 支持多架构构建和安全扫描
 
 ## 🛠️ 自定义配置
 

@@ -236,14 +236,6 @@ docker build --target web --build-arg VITE_API_URL=https://api.yourdomain.com .
 docker build --target api .
 ```
 
-## 🌐 Nginx 配置
-
-Web 服务使用 Nginx 作为静态文件服务器和 API 代理：
-
-- **静态文件**: 缓存1年，启用 Gzip 压缩
-- **API 代理**: 代理 `/api/*` 请求到后端服务
-- **SPA 支持**: 支持 React Router 的客户端路由
-- **安全头**: 添加安全相关的 HTTP 头
 
 ## 📁 目录结构
 
@@ -252,12 +244,9 @@ PixiShelf/
 ├── Dockerfile                 # 多阶段构建文件
 ├── docker-compose.yml         # 开发环境配置
 ├── docker-compose.prod.yml    # 生产环境配置
-├── nginx.conf                 # Nginx 配置
 ├── .env.prod.example          # 生产环境变量模板
 └── packages/
-    ├── api/                   # 后端 API
-    ├── web/                   # 前端应用
-    └── shared/                # 共享类型定义
+    ├── pixishel/                   # Nextjjs
 ```
 
 ## 🔒 安全建议
