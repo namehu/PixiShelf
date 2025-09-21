@@ -156,11 +156,11 @@ COPY --chown=appuser:appgroup build/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # 暴露端口
-EXPOSE 3000
+EXPOSE 5430
 
 # 健康检查 - 检查前端
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:5430 || exit 1
 
 # 推荐：使用 entrypoint 脚本来处理数据库迁移
 ENTRYPOINT ["/app/entrypoint.sh"]

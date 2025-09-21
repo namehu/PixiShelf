@@ -30,8 +30,7 @@ services:
       target: production
     container_name: pixishelf-app
     ports:
-      - "5430:80"  # Web 服务端口
-      - "3000:3000"  # Web 服务端口
+      - "5430:5430"  # Web 服务端口
       - "5555:5555"  # Web 服务端口
     environment:
       # API 环境变量
