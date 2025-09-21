@@ -56,11 +56,13 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # 安装 pnpm 和生产运行时所需的系统依赖
-# wget 用于 HEALTHCHECK
+# wget 用于 HEALTHCHECK, dcron 用于定时任务
 RUN apk add --no-cache \
     openssl \
     supervisor \
     wget \
+    dcron \
+    && npm install -g tsx@^4.19.2 \
     && npm install -g pnpm@${PNPM_VERSION} \
     && rm -rf /var/cache/apk/*
 
@@ -87,10 +89,34 @@ COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/public ./pa
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/package.json ./packages/pixishelf/package.json
 # 复制 Prisma Client 和 schema
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
+# 复制脚本文件
+COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/scripts ./packages/pixishelf/scripts
 
 
 # 创建 supervisor 配置和日志目录
 RUN mkdir -p /etc/supervisor/conf.d /var/log/supervisor
+
+# 创建定时任务脚本
+COPY <<EOF /app/run-tag-stats.sh
+#!/bin/sh
+set -e
+echo "[\$(date)] Starting tag artwork count update..."
+cd /app
+pnpm --filter="@pixishelf/next" exec tsx scripts/init-tag-artwork-count.ts
+echo "[\$(date)] Tag artwork count update completed."
+EOF
+
+# 创建crontab文件 - 每天凌晨2点执行
+COPY <<EOF /etc/crontabs/appuser
+# 每天凌晨2点执行标签统计更新
+0 2 * * * /app/run-tag-stats.sh >> /var/log/tag-stats.log 2>&1
+EOF
+
+# 设置脚本权限
+RUN chmod +x /app/run-tag-stats.sh && \
+    chown appuser:appgroup /app/run-tag-stats.sh && \
+    chown appuser:appgroup /etc/crontabs/appuser && \
+    chmod 600 /etc/crontabs/appuser
 
 COPY <<EOF /etc/supervisor/supervisord.conf
 [supervisord]
@@ -113,6 +139,15 @@ environment=NODE_ENV="production"
 [program:prisma-studio]
 # 使用 --host 0.0.0.0 使其在容器内监听所有网络接口
 command=pnpm --filter="@pixishelf/next" db:studio --port 5555 --host 0.0.0.0 --browser none
+directory=/app
+autostart=true
+autorestart=true
+stopwaitsecs=3
+stderr_logfile=/dev/stderr
+stdout_logfile=/dev/stdout
+
+[program:crond]
+command=/usr/sbin/crond -f -l 2
 directory=/app
 autostart=true
 autorestart=true
