@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { EnhancedArtworksResponse, SortOption, getMediaType, MediaFile } from '@/types'
 import { prisma } from '@/lib/prisma'
-import { verifyAuth } from '@/lib/auth'
 
 // 排序选项映射（与原始文件保持一致）
 function mapSortOption(sortBy: SortOption): any {
@@ -46,12 +45,6 @@ function getSafeSortOption(sortBy: string | null): SortOption {
  */
 export async function GET(request: NextRequest): Promise<NextResponse<EnhancedArtworksResponse>> {
   try {
-    // 验证认证
-    const authResult = await verifyAuth(request)
-    if (!authResult.success || !authResult.user) {
-      return NextResponse.json({ error: 'User not authenticated' } as any, { status: 401 })
-    }
-
     const { searchParams } = new URL(request.url)
 
     // 解析查询参数（与原始文件保持一致）
