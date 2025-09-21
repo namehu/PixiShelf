@@ -7,6 +7,15 @@ import { useQuery } from '@tanstack/react-query'
 import { Artist, EnhancedArtworksResponse, SortOption, isVideoFile } from '@pixishelf/shared'
 import { useAuth } from '@/components'
 import { SortControl, VideoPreview } from '@/components/ui'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 import { apiJson } from '@/lib/api'
 
 // ============================================================================
@@ -366,6 +375,50 @@ export default function ArtistDetailPage() {
               {artworks.total > pageSize &&
                 (() => {
                   const totalPages = Math.ceil(artworks.total / pageSize)
+                  
+                  // 生成页码数组
+                  const generatePageNumbers = () => {
+                    const pageNumbers: (number | string)[] = []
+                    const showPages = 5
+                    
+                    if (totalPages <= showPages) {
+                      // 如果总页数小于等于显示页数，显示所有页码
+                      for (let i = 1; i <= totalPages; i++) {
+                        pageNumbers.push(i)
+                      }
+                    } else {
+                      // 复杂分页逻辑
+                      if (page <= 3) {
+                        // 当前页在前面
+                        for (let i = 1; i <= 4; i++) {
+                          pageNumbers.push(i)
+                        }
+                        pageNumbers.push('ellipsis-end')
+                        pageNumbers.push(totalPages)
+                      } else if (page >= totalPages - 2) {
+                        // 当前页在后面
+                        pageNumbers.push(1)
+                        pageNumbers.push('ellipsis-start')
+                        for (let i = totalPages - 3; i <= totalPages; i++) {
+                          pageNumbers.push(i)
+                        }
+                      } else {
+                        // 当前页在中间
+                        pageNumbers.push(1)
+                        pageNumbers.push('ellipsis-start')
+                        for (let i = page - 1; i <= page + 1; i++) {
+                          pageNumbers.push(i)
+                        }
+                        pageNumbers.push('ellipsis-end')
+                        pageNumbers.push(totalPages)
+                      }
+                    }
+                    
+                    return pageNumbers
+                  }
+
+                  const pageNumbers = generatePageNumbers()
+
                   return (
                     <div className="bg-white rounded-lg shadow p-6">
                       <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
@@ -377,101 +430,62 @@ export default function ArtistDetailPage() {
 
                         {/* 分页控件 */}
                         <div className="flex flex-col sm:flex-row items-center gap-4">
-                          {/* 导航按钮 */}
-                          <div className="flex items-center gap-1">
-                            {/* 首页 */}
-                            <button
-                              disabled={page <= 1}
-                              onClick={() => goto(1)}
-                              className="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
-                              title="首页"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
-                                />
-                              </svg>
-                            </button>
+                          {/* Pagination Component */}
+                          <Pagination>
+                            <PaginationContent>
+                              {/* Previous Page */}
+                              <PaginationItem>
+                                <PaginationPrevious 
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    if (page > 1) goto(page - 1)
+                                  }}
+                                  className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
+                                >
+                                  上一页
+                                </PaginationPrevious>
+                              </PaginationItem>
 
-                            {/* 上一页 */}
-                            <button
-                              disabled={page <= 1}
-                              onClick={() => goto(page - 1)}
-                              className="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
-                              title="上一页"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                              </svg>
-                            </button>
-
-                            {/* 页码 */}
-                            <div className="flex items-center gap-1 mx-2">
-                              {(() => {
-                                const pages = []
-                                const showPages = 5
-                                let start = Math.max(1, page - Math.floor(showPages / 2))
-                                const end = Math.min(totalPages, start + showPages - 1)
-
-                                if (end - start + 1 < showPages) {
-                                  start = Math.max(1, end - showPages + 1)
-                                }
-
-                                for (let i = start; i <= end; i++) {
-                                  pages.push(
-                                    <button
-                                      key={i}
-                                      onClick={() => goto(i)}
-                                      className={`w-10 h-10 rounded-xl transition-all duration-200 text-sm font-medium ${
-                                        i === page
-                                          ? 'bg-blue-600 text-white shadow-lg'
-                                          : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'
-                                      }`}
+                              {/* Page Numbers */}
+                              {pageNumbers.map((pageNum, index) => (
+                                <PaginationItem key={`${pageNum}-${index}`}>
+                                  {pageNum === 'ellipsis-start' || pageNum === 'ellipsis-end' ? (
+                                    <PaginationEllipsis />
+                                  ) : (
+                                    <PaginationLink
+                                      href="#"
+                                      onClick={(e) => {
+                                        e.preventDefault()
+                                        goto(pageNum as number)
+                                      }}
+                                      isActive={pageNum === page}
                                     >
-                                      {i}
-                                    </button>
-                                  )
-                                }
-                                return pages
-                              })()}
-                            </div>
+                                      {pageNum}
+                                    </PaginationLink>
+                                  )}
+                                </PaginationItem>
+                              ))}
 
-                            {/* 下一页 */}
-                            <button
-                              disabled={page >= totalPages}
-                              onClick={() => goto(page + 1)}
-                              className="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
-                              title="下一页"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                              </svg>
-                            </button>
+                              {/* Next Page */}
+                              <PaginationItem>
+                                <PaginationNext 
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    if (page < totalPages) goto(page + 1)
+                                  }}
+                                  className={page >= totalPages ? 'pointer-events-none opacity-50' : ''}
+                                >
+                                  下一页
+                                </PaginationNext>
+                              </PaginationItem>
+                            </PaginationContent>
+                          </Pagination>
 
-                            {/* 末页 */}
-                            <button
-                              disabled={page >= totalPages}
-                              onClick={() => goto(totalPages)}
-                              className="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
-                              title="末页"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M13 5l7 7-7 7M5 5l7 7-7 7"
-                                />
-                              </svg>
-                            </button>
-                          </div>
-
-                          {/* 跳转到指定页 */}
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600">跳转到</span>
+                          {/* Jump to Page */}
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-sm text-neutral-600 whitespace-nowrap">跳转到</span>
                             <input
                               type="number"
                               min="1"
@@ -479,16 +493,15 @@ export default function ArtistDetailPage() {
                               value={jumpToPage}
                               onChange={(e) => setJumpToPage(e.target.value)}
                               onKeyDown={handleJumpInputKeyDown}
-                              className="w-16 h-8 px-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              className="w-16 h-9 px-2 text-sm border border-neutral-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                               placeholder={String(page)}
                             />
-                            <span className="text-sm text-gray-600">页</span>
                             <button
                               onClick={handleJumpToPage}
                               disabled={
                                 !jumpToPage || parseInt(jumpToPage, 10) < 1 || parseInt(jumpToPage, 10) > totalPages
                               }
-                              className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              className="h-9 px-3 text-sm bg-primary text-white rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
                             >
                               跳转
                             </button>

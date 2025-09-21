@@ -6,6 +6,15 @@ import Link from 'next/link'
 import { EnhancedArtworksResponse, SortOption } from '@pixishelf/shared'
 import { useAuth } from '@/components'
 import { SortControl, VideoPreview, SearchBox } from '@/components/ui'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious
+} from '@/components/ui/pagination'
 import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
 import { isVideoFile } from '@pixishelf/shared'
@@ -499,6 +508,44 @@ function GalleryPageContent() {
               {data.total > pageSize &&
                 (() => {
                   const totalPages = Math.ceil(data.total / pageSize)
+
+                  // 生成页码数组
+                  const generatePageNumbers = () => {
+                    const pages = []
+                    const showPages = 5
+                    let start = Math.max(1, page - Math.floor(showPages / 2))
+                    const end = Math.min(totalPages, start + showPages - 1)
+
+                    if (end - start + 1 < showPages) {
+                      start = Math.max(1, end - showPages + 1)
+                    }
+
+                    // 显示第一页
+                    if (start > 1) {
+                      pages.push(1)
+                      if (start > 2) {
+                        pages.push('ellipsis-start')
+                      }
+                    }
+
+                    // 显示页码范围
+                    for (let i = start; i <= end; i++) {
+                      pages.push(i)
+                    }
+
+                    // 显示最后一页
+                    if (end < totalPages) {
+                      if (end < totalPages - 1) {
+                        pages.push('ellipsis-end')
+                      }
+                      pages.push(totalPages)
+                    }
+
+                    return pages
+                  }
+
+                  const pageNumbers = generatePageNumbers()
+
                   return (
                     <div className="bg-white rounded-2xl shadow-sm p-6">
                       <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
@@ -510,147 +557,57 @@ function GalleryPageContent() {
 
                         {/* Pagination Controls */}
                         <div className="flex flex-col sm:flex-row items-center gap-4">
-                          {/* Navigation Buttons */}
-                          <div className="flex items-center gap-1">
-                            {/* First Page */}
-                            <button
-                              disabled={page <= 1}
-                              onClick={() => goto(1)}
-                              className="w-10 h-10 rounded-xl bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
-                              title="首页"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
-                                />
-                              </svg>
-                            </button>
+                          {/* Pagination Component */}
+                          <Pagination>
+                            <PaginationContent>
+                              {/* Previous Page */}
+                              <PaginationItem>
+                                <PaginationPrevious
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    if (page > 1) goto(page - 1)
+                                  }}
+                                  className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
+                                ></PaginationPrevious>
+                              </PaginationItem>
 
-                            {/* Previous Page */}
-                            <button
-                              disabled={page <= 1}
-                              onClick={() => goto(page - 1)}
-                              className="w-10 h-10 rounded-xl bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
-                              title="上一页"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M15 19l-7-7 7-7"
-                                />
-                              </svg>
-                            </button>
-
-                            {/* Page Numbers */}
-                            <div className="flex items-center gap-1 mx-2">
-                              {(() => {
-                                const pages = []
-                                const showPages = 5
-                                let start = Math.max(1, page - Math.floor(showPages / 2))
-                                const end = Math.min(totalPages, start + showPages - 1)
-
-                                if (end - start + 1 < showPages) {
-                                  start = Math.max(1, end - showPages + 1)
-                                }
-
-                                // Show first page if not in range
-                                if (start > 1) {
-                                  pages.push(
-                                    <button
-                                      key={1}
-                                      onClick={() => goto(1)}
-                                      className="w-10 h-10 rounded-xl bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 transition-all duration-200 text-sm font-medium"
+                              {/* Page Numbers */}
+                              {pageNumbers.map((pageNum, index) => (
+                                <PaginationItem key={`${pageNum}-${index}`}>
+                                  {pageNum === 'ellipsis-start' || pageNum === 'ellipsis-end' ? (
+                                    <PaginationEllipsis />
+                                  ) : (
+                                    <PaginationLink
+                                      href="#"
+                                      onClick={(e) => {
+                                        e.preventDefault()
+                                        goto(pageNum as number)
+                                      }}
+                                      isActive={pageNum === page}
                                     >
-                                      1
-                                    </button>
-                                  )
-                                  if (start > 2) {
-                                    pages.push(
-                                      <span key="start-ellipsis" className="px-2 text-neutral-400">
-                                        …
-                                      </span>
-                                    )
-                                  }
-                                }
+                                      {pageNum}
+                                    </PaginationLink>
+                                  )}
+                                </PaginationItem>
+                              ))}
 
-                                // Show page range
-                                for (let i = start; i <= end; i++) {
-                                  pages.push(
-                                    <button
-                                      key={i}
-                                      onClick={() => goto(i)}
-                                      className={`w-10 h-10 rounded-xl border transition-all duration-200 text-sm font-medium ${
-                                        i === page
-                                          ? 'bg-primary text-white border-primary'
-                                          : 'bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300'
-                                      }`}
-                                    >
-                                      {i}
-                                    </button>
-                                  )
-                                }
-
-                                // Show last page if not in range
-                                if (end < totalPages) {
-                                  if (end < totalPages - 1) {
-                                    pages.push(
-                                      <span key="end-ellipsis" className="px-2 text-neutral-400">
-                                        …
-                                      </span>
-                                    )
-                                  }
-                                  pages.push(
-                                    <button
-                                      key={totalPages}
-                                      onClick={() => goto(totalPages)}
-                                      className="w-10 h-10 rounded-xl bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 transition-all duration-200 text-sm font-medium"
-                                    >
-                                      {totalPages}
-                                    </button>
-                                  )
-                                }
-
-                                return pages
-                              })()}
-                            </div>
-
-                            {/* Next Page */}
-                            <button
-                              disabled={page >= totalPages}
-                              onClick={() => goto(page + 1)}
-                              className="w-10 h-10 rounded-xl bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
-                              title="下一页"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                              </svg>
-                            </button>
-
-                            {/* Last Page */}
-                            <button
-                              disabled={page >= totalPages}
-                              onClick={() => goto(totalPages)}
-                              className="w-10 h-10 rounded-xl bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center"
-                              title="末页"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M13 5l7 7-7 7M5 5l7 7-7 7"
-                                />
-                              </svg>
-                            </button>
-                          </div>
+                              {/* Next Page */}
+                              <PaginationItem>
+                                <PaginationNext
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    if (page < totalPages) goto(page + 1)
+                                  }}
+                                  className={page >= totalPages ? 'pointer-events-none opacity-50' : ''}
+                                ></PaginationNext>
+                              </PaginationItem>
+                            </PaginationContent>
+                          </Pagination>
 
                           {/* Jump to Page */}
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-shrink-0">
                             <span className="text-sm text-neutral-600 whitespace-nowrap">跳转到</span>
                             <input
                               type="number"
@@ -659,7 +616,7 @@ function GalleryPageContent() {
                               value={jumpToPage}
                               onChange={(e) => setJumpToPage(e.target.value)}
                               onKeyDown={handleJumpInputKeyDown}
-                              className="w-16 h-8 px-2 text-sm border border-neutral-200 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                              className="w-16 h-9 px-2 text-sm border border-neutral-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                               placeholder={String(page)}
                             />
                             <button
@@ -667,7 +624,7 @@ function GalleryPageContent() {
                               disabled={
                                 !jumpToPage || parseInt(jumpToPage, 10) < 1 || parseInt(jumpToPage, 10) > totalPages
                               }
-                              className="h-8 px-3 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              className="h-9 px-3 text-sm bg-primary text-white rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
                             >
                               跳转
                             </button>
