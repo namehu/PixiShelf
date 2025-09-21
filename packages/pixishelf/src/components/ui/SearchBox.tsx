@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { SearchSuggestion, SuggestionsResponse } from '@pixishelf/shared'
-import { Input } from './Input'
+import { Input } from './input'
 import { useDebounce } from '@/hooks/useDebounce'
 import { apiJson } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -46,38 +46,41 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const [isFocused, setIsFocused] = useState(false)
-  
+
   const inputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLDivElement>(null)
   const debouncedQuery = useDebounce(inputValue.trim(), 300)
 
   // 获取搜索建议
-  const fetchSuggestions = useCallback(async (query: string) => {
-    if (!query || query.length < 2) {
-      setSuggestions([])
-      setShowSuggestions(false)
-      return
-    }
+  const fetchSuggestions = useCallback(
+    async (query: string) => {
+      if (!query || query.length < 2) {
+        setSuggestions([])
+        setShowSuggestions(false)
+        return
+      }
 
-    try {
-      setIsLoading(true)
-      const url = new URL('/api/v1/suggestions', window.location.origin)
-      url.searchParams.set('q', query)
-      url.searchParams.set('mode', mode)
-      url.searchParams.set('limit', '8')
-      
-      const response = await apiJson<SuggestionsResponse>(url.toString())
-      setSuggestions(response.suggestions || [])
-      setShowSuggestions(true)
-      setSelectedIndex(-1)
-    } catch (error) {
-      console.error('Failed to fetch suggestions:', error)
-      setSuggestions([])
-      setShowSuggestions(false)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [mode])
+      try {
+        setIsLoading(true)
+        const url = new URL('/api/v1/suggestions', window.location.origin)
+        url.searchParams.set('q', query)
+        url.searchParams.set('mode', mode)
+        url.searchParams.set('limit', '8')
+
+        const response = await apiJson<SuggestionsResponse>(url.toString())
+        setSuggestions(response.suggestions || [])
+        setShowSuggestions(true)
+        setSelectedIndex(-1)
+      } catch (error) {
+        console.error('Failed to fetch suggestions:', error)
+        setSuggestions([])
+        setShowSuggestions(false)
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [mode]
+  )
 
   // 防抖搜索
   useEffect(() => {
@@ -107,13 +110,11 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
-        setSelectedIndex(prev => 
-          prev < suggestions.length - 1 ? prev + 1 : prev
-        )
+        setSelectedIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : prev))
         break
       case 'ArrowUp':
         e.preventDefault()
-        setSelectedIndex(prev => prev > 0 ? prev - 1 : -1)
+        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : -1))
         break
       case 'Enter':
         e.preventDefault()
@@ -149,7 +150,7 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
     setInputValue(suggestion.value)
     setShowSuggestions(false)
     setSelectedIndex(-1)
-    
+
     if (onSuggestionClick) {
       onSuggestionClick(suggestion)
     } else {
@@ -231,31 +232,32 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
 
   return (
     <div className={cn('relative', className)}>
-      <Input
-        ref={inputRef}
-        value={inputValue}
-        onChange={handleInputChange}
-        onKeyDown={handleKeyDown}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        placeholder={placeholder}
-        disabled={disabled}
-        leftIcon={
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
-        }
-        rightIcon={
-          isLoading ? (
-            <div className="w-4 h-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
-          ) : null
-        }
-      />
+      <div className="relative">
+        <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+          />
+        </svg>
+        <Input
+           ref={inputRef}
+           value={inputValue}
+           onChange={handleInputChange}
+           onKeyDown={handleKeyDown}
+           onFocus={handleFocus}
+           onBlur={handleBlur}
+           placeholder={placeholder}
+           disabled={disabled}
+           className={`pl-10 ${isLoading ? 'pr-10' : ''}`}
+         />
+         {isLoading && (
+           <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+             <div className="w-4 h-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+           </div>
+         )}
+       </div>
 
       {/* 搜索建议下拉列表 */}
       {showSuggestions && suggestions.length > 0 && (
@@ -274,37 +276,37 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
               onClick={() => handleSuggestionClick(suggestion)}
             >
               {/* 图标 */}
-              <div className={cn(
-                'flex-shrink-0 text-gray-400',
-                suggestion.type === 'artist' && 'text-blue-500',
-                suggestion.type === 'artwork' && 'text-green-500',
-                suggestion.type === 'tag' && 'text-purple-500'
-              )}>
+              <div
+                className={cn(
+                  'flex-shrink-0 text-gray-400',
+                  suggestion.type === 'artist' && 'text-blue-500',
+                  suggestion.type === 'artwork' && 'text-green-500',
+                  suggestion.type === 'tag' && 'text-purple-500'
+                )}
+              >
                 {getSuggestionIcon(suggestion.type)}
               </div>
 
               {/* 内容 */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-gray-900 truncate">
-                    {suggestion.label}
-                  </span>
-                  <span className={cn(
-                    'text-xs px-2 py-0.5 rounded-full font-medium',
-                    suggestion.type === 'artist' && 'bg-blue-100 text-blue-700',
-                    suggestion.type === 'artwork' && 'bg-green-100 text-green-700',
-                    suggestion.type === 'tag' && 'bg-purple-100 text-purple-700'
-                  )}>
+                  <span className="font-medium text-gray-900 truncate">{suggestion.label}</span>
+                  <span
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded-full font-medium',
+                      suggestion.type === 'artist' && 'bg-blue-100 text-blue-700',
+                      suggestion.type === 'artwork' && 'bg-green-100 text-green-700',
+                      suggestion.type === 'tag' && 'bg-purple-100 text-purple-700'
+                    )}
+                  >
                     {getTypeLabel(suggestion.type)}
                   </span>
                 </div>
-                
+
                 {/* 元数据 */}
                 {suggestion.metadata && (
                   <div className="text-sm text-gray-500 mt-1">
-                    {suggestion.metadata.artistName && (
-                      <span>作者: {suggestion.metadata.artistName}</span>
-                    )}
+                    {suggestion.metadata.artistName && <span>作者: {suggestion.metadata.artistName}</span>}
                     {suggestion.metadata.imageCount !== undefined && (
                       <span>{suggestion.metadata.imageCount} 张图片</span>
                     )}

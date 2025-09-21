@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ChangePasswordRequest, ChangePasswordResponse } from '@pixishelf/shared'
 import { useAuth } from '@/components'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/Input'
+import { Input } from '@/components/ui/input'
 import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
 
@@ -175,17 +175,10 @@ export default function ChangePasswordPage() {
         <div className="bg-white rounded-2xl shadow-lg p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* 当前密码 */}
-            <Input
-              type="password"
-              label="当前密码"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              placeholder="输入当前密码"
-              required
-              disabled={isLoading}
-              fullWidth
-              leftIcon={
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">当前密码</label>
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -193,31 +186,40 @@ export default function ChangePasswordPage() {
                     d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
                   />
                 </svg>
-              }
-            />
+                <Input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="输入当前密码"
+                  required
+                  disabled={isLoading}
+                  className="pl-10"
+                />
+              </div>
+            </div>
 
             {/* 新密码 */}
             <div className="space-y-2">
-              <Input
-                type="password"
-                label="新密码"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="输入新密码"
-                required
-                disabled={isLoading}
-                fullWidth
-                leftIcon={
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                    />
-                  </svg>
-                }
-              />
+              <label className="text-sm font-medium">新密码</label>
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  />
+                </svg>
+                <Input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="输入新密码"
+                  required
+                  disabled={isLoading}
+                  className="pl-10"
+                />
+              </div>
               {/* 密码强度指示器 */}
               {newPassword && (
                 <div className="flex items-center gap-2 mt-2">
@@ -256,18 +258,10 @@ export default function ChangePasswordPage() {
             </div>
 
             {/* 确认新密码 */}
-            <Input
-              type="password"
-              label="确认新密码"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="再次输入新密码"
-              required
-              disabled={isLoading}
-              fullWidth
-              error={confirmPassword && !isPasswordMatch ? '密码不匹配' : undefined}
-              leftIcon={
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">确认新密码</label>
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -275,23 +269,37 @@ export default function ChangePasswordPage() {
                     d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
                   />
                 </svg>
-              }
-              rightIcon={
-                confirmPassword ? (
-                  isPasswordMatch ? (
-                    <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  )
-                ) : undefined
-              }
-            />
+                <Input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="再次输入新密码"
+                  required
+                  disabled={isLoading}
+                  className={`pl-10 pr-10 ${confirmPassword && !isPasswordMatch ? 'border-destructive' : ''}`}
+                />
+                {confirmPassword && (
+                   <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                     {isPasswordMatch ? (
+                       <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                       </svg>
+                     ) : (
+                       <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                       </svg>
+                     )}
+                   </div>
+                  )}
+               </div>
+               {confirmPassword && !isPasswordMatch && (
+                 <div className="text-sm">
+                   <span className="text-destructive">密码不匹配</span>
+                 </div>
+               )}
+             </div>
 
-            {/* 错误提示 */}
+             {/* 错误提示 */}
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
                 <svg

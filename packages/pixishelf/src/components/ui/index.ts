@@ -2,8 +2,7 @@
 // UI 组件导出
 // ============================================================================
 
-export { Input } from './Input'
-export type { InputProps } from './Input'
+export { Input } from './input'
 
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './card'
 

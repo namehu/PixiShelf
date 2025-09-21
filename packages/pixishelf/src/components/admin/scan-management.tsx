@@ -18,7 +18,7 @@ import { useNotification } from '@/components/ui/notification'
 import { useToast } from '@/components/ui/toast'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/Input'
+import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 
 // Hook: 健康检查
