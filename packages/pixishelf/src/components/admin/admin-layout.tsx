@@ -6,6 +6,7 @@ import { AdminTab, AdminTabId } from '@/hooks/admin/use-admin-tab'
 import AdminSidebar from './admin-sidebar'
 import ScanManagement from './scan-management'
 import UserManagement from './user-management'
+import TagManagement from './tag-management'
 
 // 布局组件Props接口
 export interface AdminLayoutProps {
@@ -50,6 +51,8 @@ function AdminLayout({ activeTab, onTabChange, tabs }: AdminLayoutProps) {
         return <ScanManagement />
       case 'users':
         return <UserManagement />
+      case 'tags':
+        return <TagManagement />
       default:
         return <ScanManagement />
     }

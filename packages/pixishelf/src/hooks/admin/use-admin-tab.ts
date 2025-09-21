@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 
 // Tab类型定义
-export type AdminTabId = 'scan' | 'users'
+export type AdminTabId = 'scan' | 'users' | 'tags'
 
 export interface AdminTab {
   id: AdminTabId
@@ -28,6 +28,10 @@ const ADMIN_TABS: AdminTab[] = [
   {
     id: 'users',
     label: '用户管理'
+  },
+  {
+    id: 'tags',
+    label: '标签管理'
   }
 ]
 
