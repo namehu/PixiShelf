@@ -56,29 +56,29 @@ function LazyImage({
   })
 
   // 使用useCallback优化ref合并函数
-  const setRefs = useCallback((node: HTMLDivElement | null) => {
-    if (typeof ref === 'function') {
-      ref(node)
-    } else if (ref && typeof ref === 'object' && ref !== null && 'current' in ref) {
-      (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
-    }
-    
-    if (typeof viewRef === 'function') {
-      viewRef(node)
-    } else if (viewRef && typeof viewRef === 'object' && viewRef !== null && 'current' in viewRef) {
-      (viewRef as React.MutableRefObject<HTMLDivElement | null>).current = node
-    }
-  }, [ref, viewRef])
+  const setRefs = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (typeof ref === 'function') {
+        ref(node)
+      } else if (ref && typeof ref === 'object' && ref !== null && 'current' in ref) {
+        ;(ref as React.MutableRefObject<HTMLDivElement | null>).current = node
+      }
+
+      if (typeof viewRef === 'function') {
+        viewRef(node)
+      } else if (viewRef && typeof viewRef === 'object' && viewRef !== null && 'current' in viewRef) {
+        ;(viewRef as React.MutableRefObject<HTMLDivElement | null>).current = node
+      }
+    },
+    [ref, viewRef]
+  )
 
   useEffect(() => {
     onInView(index, isInViewport)
   }, [isInViewport, index, onInView])
 
   return (
-    <div
-      ref={setRefs}
-      className="overflow-hidden bg-neutral-100 flex items-center justify-center"
-    >
+    <div ref={setRefs} className="overflow-hidden bg-neutral-100 flex items-center justify-center">
       {inView ? (
         <img src={src} alt={alt} loading="lazy" className="w-full h-auto object-contain" />
       ) : (
@@ -125,14 +125,7 @@ function LazyMedia({
   return (
     <div ref={viewRef} className="overflow-hidden bg-neutral-100 flex items-center justify-center">
       {isVideo ? (
-        <VideoPlayer
-          src={src}
-          alt={alt}
-          className="w-full h-auto"
-          preload="metadata"
-          controls={true}
-          muted={false}
-        />
+        <VideoPlayer src={src} alt={alt} className="w-full h-auto" preload="metadata" controls={true} muted={false} />
       ) : (
         <LazyImage
           src={src}
@@ -148,13 +141,7 @@ function LazyMedia({
 /**
  * 媒体序号指示器组件
  */
-function MediaCounter({ 
-  data, 
-  currentImageIndex 
-}: { 
-  data: EnhancedArtwork
-  currentImageIndex: number 
-}) {
+function MediaCounter({ data, currentImageIndex }: { data: EnhancedArtwork; currentImageIndex: number }) {
   if (!data || !data.images || data.images.length === 0) return null
 
   const imageCount = data.images.filter((img) => !isVideoFile(img.path)).length
@@ -210,7 +197,7 @@ export default function ArtworkDetailPage() {
   const router = useRouter()
   const params = useParams()
   const { isAuthenticated, isLoading: authLoading } = useAuth()
-  
+
   const id = params.id as string
   const { data, isLoading, isError } = useArtwork(id)
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
@@ -326,8 +313,8 @@ export default function ArtworkDetailPage() {
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">加载失败</h3>
               <p className="text-gray-600 mb-4">无法加载作品详情，请稍后重试。</p>
-              <button 
-                onClick={() => window.location.reload()} 
+              <button
+                onClick={() => window.location.reload()}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 重新加载
@@ -339,26 +326,6 @@ export default function ArtworkDetailPage() {
         {/* Content */}
         {data && (
           <div className="animate-fade-in">
-            {/* Images */}
-            <div className="space-y-6">
-              {/* Media Gallery */}
-              <div className="w-full max-w-[768px] mx-auto">
-                {(data.images || []).map((img, index: number) => {
-                  const isVideo = isVideoFile(img.path)
-                  return (
-                    <LazyMedia
-                      key={img.id}
-                      src={`/api/v1/images/${encodeURIComponent(img.path)}`}
-                      alt={`${data.title} - ${isVideo ? '视频' : '图片'} ${index + 1}`}
-                      index={index}
-                      onInView={handleImageInView}
-                      isVideo={isVideo}
-                    />
-                  )
-                })}
-              </div>
-            </div>
-
             {/* Header */}
             <div className="space-y-6 sm:space-y-8 mt-8 px-4 sm:px-6">
               {/* Title and Artist */}
@@ -412,7 +379,10 @@ export default function ArtworkDetailPage() {
                   </div>
                   <div className="flex flex-wrap gap-2 max-w-full">
                     {data.tags.map((tag: string, index: number) => (
-                      <span key={index} className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 break-all">
+                      <span
+                        key={index}
+                        className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 break-all"
+                      >
                         #{tag}
                       </span>
                     ))}
@@ -445,6 +415,26 @@ export default function ArtworkDetailPage() {
                 </div>
               </div>
             )}
+
+            {/* Images */}
+            <div className="space-y-6">
+              {/* Media Gallery */}
+              <div className="w-full max-w-[768px] mx-auto">
+                {(data.images || []).map((img, index: number) => {
+                  const isVideo = isVideoFile(img.path)
+                  return (
+                    <LazyMedia
+                      key={img.id}
+                      src={`/api/v1/images/${encodeURIComponent(img.path)}`}
+                      alt={`${data.title} - ${isVideo ? '视频' : '图片'} ${index + 1}`}
+                      index={index}
+                      onInView={handleImageInView}
+                      isVideo={isVideo}
+                    />
+                  )
+                })}
+              </div>
+            </div>
           </div>
         )}
       </div>
