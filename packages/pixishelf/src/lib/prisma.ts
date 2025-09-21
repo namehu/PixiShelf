@@ -163,26 +163,6 @@ export function handlePrismaError(error: any): {
   }
 }
 
-// 注意：在Edge Runtime环境中，process事件监听器不可用
-// 如果需要在Node.js环境中使用，请取消注释以下代码：
-/*
-if (typeof process !== 'undefined' && process.on) {
-  // 进程退出时自动断开连接
-  process.on('beforeExit', async () => {
-    await disconnectDatabase()
-  })
-
-  process.on('SIGINT', async () => {
-    await disconnectDatabase()
-    process.exit(0)
-  })
-
-  process.on('SIGTERM', async () => {
-    await disconnectDatabase()
-    process.exit(0)
-  })
-}
-*/
 /**
  * 获取 Prisma 客户端实例
  * @returns PrismaClient 实例
@@ -206,7 +186,7 @@ export async function initializeAdmin(): Promise<void> {
     const adminUsername = process.env.ADMIN_USERNAME || 'admin'
     const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
 
-    console.log('🔧 开始初始化管理员账户...')
+    console.log('🔧 Init Admin...')
 
     // 检查管理员是否已存在
     const existingAdmin = await prisma.user.findUnique({
@@ -214,7 +194,7 @@ export async function initializeAdmin(): Promise<void> {
     })
 
     if (existingAdmin) {
-      console.log('✅ 管理员账户已存在，跳过初始化')
+      console.log('✅ Admin already exists, skip init.')
       return
     }
 
@@ -228,9 +208,9 @@ export async function initializeAdmin(): Promise<void> {
       }
     })
 
-    console.log(`✅ 管理员账户初始化完成: ${adminUsername}`)
+    console.log(`✅ Admin initialized: ${adminUsername}`)
   } catch (error) {
-    console.error('❌ 管理员账户初始化失败:', error)
+    console.error('❌ Admin init failed:', error)
     throw error
   }
 }
