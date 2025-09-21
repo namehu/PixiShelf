@@ -15,7 +15,8 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog'
 import { useNotification } from '@/components/ui/notification'
-import { useToast } from '@/components/ui/toast'
+import { toast } from 'sonner'
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -87,7 +88,6 @@ function secondsToText(s: number) {
  * 迁移自原Settings.tsx，保持所有功能不变
  */
 function ScanManagement() {
-  const [toast] = useToast()
   const { data: health } = useHealth()
   const scanPath = useScanPath()
   const cancelScan = useCancelScan()
