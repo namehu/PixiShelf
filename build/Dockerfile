@@ -121,12 +121,12 @@ RUN chmod +x /app/run-tag-stats.sh && \
 COPY <<EOF /etc/supervisor/supervisord.conf
 [supervisord]
 nodaemon=true
-user=appuser
 logfile=/tmp/supervisord.log
 pidfile=/tmp/supervisord.pid
 
 [program:pixishelf]
 command=pnpm --filter="@pixishelf/next" start
+user=appuser
 directory=/app
 autostart=true
 autorestart=true
