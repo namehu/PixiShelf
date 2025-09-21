@@ -24,7 +24,6 @@ RUN pnpm config set registry ${REGISTRY_URL}
 
 # 优化缓存：只复制构建依赖所需的文件
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY packages/shared/package.json ./packages/shared/package.json
 COPY packages/pixishelf/package.json ./packages/pixishelf/package.json
 
 # 安装所有依赖（包括 devDependencies 用于构建）
@@ -32,15 +31,11 @@ COPY packages/pixishelf/package.json ./packages/pixishelf/package.json
 RUN pnpm install --frozen-lockfile
 
 # 复制所有源代码 (利用 .dockerignore 避免复制无关文件)
-# 分两步复制，以更好地利用缓存
-COPY packages/shared/ ./packages/shared/
 COPY packages/pixishelf/ ./packages/pixishelf/
 
 # 按依赖顺序构建项目
 # 1. 生成 Prisma Client
 RUN pnpm --filter="@pixishelf/next" db:generate
-# 2. 构建 shared 包
-RUN pnpm --filter="@pixishelf/shared" build
 # 3. 构建主应用
 RUN pnpm --filter="@pixishelf/next" build
 
@@ -78,7 +73,6 @@ RUN pnpm config set registry ${REGISTRY_URL}
 # 优化缓存：先复制 package.json 文件并安装生产依赖
 COPY package.json pnpm-workspace.yaml ./
 COPY --from=builder /app/pnpm-lock.yaml ./
-COPY --from=builder /app/packages/shared/package.json ./packages/shared/package.json
 COPY --from=builder /app/packages/pixishelf/package.json ./packages/pixishelf/package.json
 
 # 只安装生产依赖
@@ -93,10 +87,6 @@ COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/public ./pa
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/package.json ./packages/pixishelf/package.json
 # 复制 Prisma Client 和 schema
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
-
-# 复制 shared 包的运行时文件（假设在 dist 目录）和 package.json
-COPY --from=builder --chown=appuser:appgroup /app/packages/shared/package.json ./packages/shared/package.json
-COPY --from=builder --chown=appuser:appgroup /app/packages/shared/dist ./packages/shared/dist
 
 
 # 创建 supervisor 配置和日志目录
