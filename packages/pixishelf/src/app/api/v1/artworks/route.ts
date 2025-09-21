@@ -53,6 +53,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<EnhancedAr
     const tags = searchParams.get('tags')?.split(',').filter(Boolean) || []
     const search = searchParams.get('search')?.trim() || ''
     const artistId = searchParams.get('artistId') ? parseInt(searchParams.get('artistId')!, 10) : undefined
+    const tagId = searchParams.get('tagId') ? parseInt(searchParams.get('tagId')!, 10) : undefined
     const sortBy = getSafeSortOption(searchParams.get('sortBy'))
 
     // 构建基础查询条件
@@ -70,6 +71,15 @@ export async function GET(request: NextRequest): Promise<NextResponse<EnhancedAr
           tag: {
             name: { in: tags }
           }
+        }
+      }
+    }
+
+    // 标签ID筛选
+    if (tagId && Number.isFinite(tagId)) {
+      whereClause.artworkTags = {
+        some: {
+          tagId: tagId
         }
       }
     }
@@ -103,6 +113,15 @@ export async function GET(request: NextRequest): Promise<NextResponse<EnhancedAr
           WHERE at2."artworkId" = a.id AND t2.name = ANY($${paramIndex})
         )`
         params.push(tags)
+        paramIndex++
+      }
+
+      if (tagId && Number.isFinite(tagId)) {
+        whereSQL += ` AND EXISTS (
+          SELECT 1 FROM "ArtworkTag" at3
+          WHERE at3."artworkId" = a.id AND at3."tagId" = $${paramIndex}
+        )`
+        params.push(tagId)
         paramIndex++
       }
 

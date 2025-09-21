@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Search, Filter, RefreshCw, Shuffle, TrendingUp } from 'lucide-react'
 import { TagCard } from './TagCard'
 import { TagSquareProps, TagSearchParams, PopularTagsParams, RandomTagsParams } from '@/types/tags'
@@ -19,6 +20,7 @@ export function TagSquare({
   cardMode = 'compact',
   className
 }: TagSquareProps) {
+  const router = useRouter()
   const [tags, setTags] = useState<Tag[]>(initialTags)
   const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -191,10 +193,13 @@ export function TagSquare({
   }, [fetchPopularTags, initialTags.length])
 
   // 标签点击处理
-  const handleTagClick = useCallback((tag: Tag) => {
-    // 这里可以添加导航到标签详情页或相关作品页的逻辑
-    console.log('点击标签:', tag)
-  }, [])
+  const handleTagClick = useCallback(
+    (tag: Tag) => {
+      // 跳转到标签详情页
+      router.push(`/tags/${tag.id}`)
+    },
+    [router]
+  )
 
   return (
     <div className={cn('w-full space-y-6', className)}>

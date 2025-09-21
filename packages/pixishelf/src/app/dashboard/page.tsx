@@ -28,7 +28,7 @@ import {
   MenubarSeparator
 } from '@/components/ui/menubar'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { User, Settings, LogOut, Image, Users, RefreshCw } from 'lucide-react'
+import { User, Settings, LogOut, Image, Users, RefreshCw, Hash } from 'lucide-react'
 
 // ============================================================================
 // 仪表板页面
@@ -205,6 +205,23 @@ export default function DashboardPage() {
               >
                 <div className="text-sm font-medium leading-none">发现艺术家</div>
                 <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">认识才华横溢的艺术家们</p>
+              </NavigationMenuLink>
+            </div>
+          </NavigationMenuContent>
+        </NavigationMenuItem>
+        <NavigationMenuItem>
+          <NavigationMenuTrigger>
+            <Hash className="mr-2 h-4 w-4" />
+            标签
+          </NavigationMenuTrigger>
+          <NavigationMenuContent>
+            <div className="grid gap-3 p-4 w-[400px]">
+              <NavigationMenuLink
+                className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground cursor-pointer"
+                onClick={() => router.push('/tags')}
+              >
+                <div className="text-sm font-medium leading-none">标签广场</div>
+                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">浏览和搜索所有标签</p>
               </NavigationMenuLink>
             </div>
           </NavigationMenuContent>
