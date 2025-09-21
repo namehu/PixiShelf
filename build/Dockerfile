@@ -136,7 +136,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
-environment=NODE_ENV="production"
+environment=NODE_ENV="production",HOME="/home/appuser",USER="appuser"
 
 [program:crond]
 command=/usr/sbin/crond -f -l 2
