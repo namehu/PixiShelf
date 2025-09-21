@@ -133,27 +133,34 @@ autorestart=true
 stopwaitsecs=3
 # 将日志重定向到标准输出/错误，这是容器日志管理的最佳实践
 stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
 stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
 environment=NODE_ENV="production"
 
 [program:prisma-studio]
 # 使用 --host 0.0.0.0 使其在容器内监听所有网络接口
-command=pnpm --filter="@pixishelf/next" db:studio --port 5555 --host 0.0.0.0 --browser none
+command=pnpm --filter="@pixishelf/next" db:studio --port 5555 --hostname 0.0.0.0 --browser none
 directory=/app
 autostart=true
 autorestart=true
 stopwaitsecs=3
 stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
 stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
 
 [program:crond]
 command=/usr/sbin/crond -f -l 2
+user=root
 directory=/app
 autostart=true
 autorestart=true
 stopwaitsecs=3
 stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
 stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
 EOF
 
 # 复制 entrypoint 脚本并赋予执行权限
