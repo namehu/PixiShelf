@@ -3,6 +3,13 @@
 import React from 'react'
 import { SortOption } from '@pixishelf/shared'
 import { cn } from '@/lib/utils'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 // ============================================================================
 // SortControl 组件
@@ -45,67 +52,33 @@ export const SortControl: React.FC<SortControlProps> = ({
   className,
   disabled = false
 }) => {
-  const sizeClasses = {
-    sm: 'h-8 px-2 text-xs',
-    md: 'h-10 px-3 text-sm',
-    lg: 'h-12 px-4 text-base'
-  }
-
-  const selectClasses = [
-    'inline-flex',
-    'items-center',
-    'justify-between',
-    'rounded-md',
-    'border',
-    'border-input',
-    'bg-background',
-    'font-medium',
-    'transition-colors',
-    'focus-visible:outline-none',
-    'focus-visible:ring-2',
-    'focus-visible:ring-ring',
-    'focus-visible:ring-offset-2',
-    'disabled:cursor-not-allowed',
-    'disabled:opacity-50',
-    'hover:bg-accent',
-    'hover:text-accent-foreground',
-    sizeClasses[size]
-  ]
-
+  // 将自定义尺寸映射到 shadcn Select 的尺寸
+  const selectSize = size === 'lg' ? 'default' : size === 'sm' ? 'sm' : 'default'
+  
   const currentOption = SORT_OPTIONS.find(option => option.value === value)
 
   return (
-    <div className={cn('relative', className)}>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as SortOption)}
-        disabled={disabled}
-        className={cn(selectClasses, 'w-full appearance-none cursor-pointer pr-8')}
+    <Select
+      value={value}
+      onValueChange={onChange}
+      disabled={disabled}
+    >
+      <SelectTrigger 
+        className={cn('w-fit min-w-[140px]', className)}
+        size={selectSize}
       >
+        <SelectValue>
+          {currentOption?.label || '请选择排序'}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
         {SORT_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
+          <SelectItem key={option.value} value={option.value}>
             {option.label}
-          </option>
+          </SelectItem>
         ))}
-      </select>
-      
-      {/* 下拉箭头 */}
-      <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-        <svg
-          className="w-4 h-4 text-muted-foreground"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M19 9l-7 7-7-7"
-          />
-        </svg>
-      </div>
-    </div>
+      </SelectContent>
+    </Select>
   )
 }
 
