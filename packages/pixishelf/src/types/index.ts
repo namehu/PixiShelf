@@ -20,6 +20,9 @@ export * from './scan'
 // 设置相关类型
 export * from './settings'
 
+// 标签相关类型
+export * from './tags'
+
 // 系统状态类型
 export * from './system'
 

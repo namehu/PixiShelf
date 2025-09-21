@@ -156,6 +156,8 @@ exports.Prisma.ArtworkScalarFieldEnum = {
 exports.Prisma.TagScalarFieldEnum = {
   id: 'id',
   name: 'name',
+  description: 'description',
+  artworkCount: 'artworkCount',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 };
@@ -209,6 +211,44 @@ exports.Prisma.QueryMode = {
 exports.Prisma.NullsOrder = {
   first: 'first',
   last: 'last'
+};
+
+exports.Prisma.ArtistOrderByRelevanceFieldEnum = {
+  name: 'name',
+  username: 'username',
+  userId: 'userId',
+  bio: 'bio'
+};
+
+exports.Prisma.ArtworkOrderByRelevanceFieldEnum = {
+  title: 'title',
+  description: 'description',
+  externalId: 'externalId',
+  originalUrl: 'originalUrl',
+  size: 'size',
+  sourceUrl: 'sourceUrl',
+  thumbnailUrl: 'thumbnailUrl',
+  xRestrict: 'xRestrict'
+};
+
+exports.Prisma.TagOrderByRelevanceFieldEnum = {
+  name: 'name',
+  description: 'description'
+};
+
+exports.Prisma.ImageOrderByRelevanceFieldEnum = {
+  path: 'path'
+};
+
+exports.Prisma.UserOrderByRelevanceFieldEnum = {
+  username: 'username',
+  password: 'password'
+};
+
+exports.Prisma.SettingOrderByRelevanceFieldEnum = {
+  key: 'key',
+  value: 'value',
+  type: 'type'
 };
 
 

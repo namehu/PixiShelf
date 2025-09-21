@@ -1,7 +1,8 @@
 generator client {
-  provider      = "prisma-client-js"
-  output        = "./generated/client"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+  provider        = "prisma-client-js"
+  output          = "./generated/client"
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
+  previewFeatures = ["fullTextSearch"]
 }
 
 datasource db {
@@ -52,13 +53,16 @@ model Artwork {
 }
 
 model Tag {
-  id          Int          @id @default(autoincrement())
-  name        String       @unique
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  artworkTags ArtworkTag[]
+  id           Int          @id @default(autoincrement())
+  name         String       @unique
+  description  String? // 新增：标签描述
+  artworkCount Int          @default(0) // 新增：作品数量缓存
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  artworkTags  ArtworkTag[]
 
   @@index([name])
+  @@index([artworkCount], map: "Tag_artworkCount_idx")
 }
 
 model ArtworkTag {
