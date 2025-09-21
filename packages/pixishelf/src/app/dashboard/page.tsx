@@ -11,6 +11,24 @@ import { apiJson } from '@/lib/api'
 import { EnhancedArtworksResponse, Artist, isVideoFile } from '@/types'
 import type { ArtistsResponse } from '@/types'
 import { Button } from '@/components/ui/button'
+import {
+  NavigationMenu,
+  NavigationMenuList,
+  NavigationMenuItem,
+  NavigationMenuTrigger,
+  NavigationMenuContent,
+  NavigationMenuLink
+} from '@/components/ui/navigation-menu'
+import {
+  Menubar,
+  MenubarMenu,
+  MenubarTrigger,
+  MenubarContent,
+  MenubarItem,
+  MenubarSeparator
+} from '@/components/ui/menubar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { User, Settings, LogOut, Image, Users } from 'lucide-react'
 
 // ============================================================================
 // 仪表板页面
@@ -89,11 +107,100 @@ export default function DashboardPage() {
   }
 
   /**
-   * 返回主页
+   * 用户菜单组件
    */
-  const handleGoHome = () => {
-    router.push('/')
-  }
+  const UserMenu = () => (
+    <Menubar>
+      <MenubarMenu>
+        <MenubarTrigger className="flex items-center space-x-2 cursor-pointer">
+          <Avatar className="h-8 w-8">
+            <AvatarFallback className="bg-primary text-primary-foreground">
+              {user?.username?.charAt(0).toUpperCase() || 'U'}
+            </AvatarFallback>
+          </Avatar>
+          <span className="text-sm text-gray-700">{user?.username}</span>
+        </MenubarTrigger>
+        <MenubarContent>
+          <MenubarItem onClick={() => router.push(ROUTES.CHANGE_PASSWORD)}>
+            <User className="mr-2 h-4 w-4" />
+            个人资料
+          </MenubarItem>
+          <MenubarSeparator />
+          <MenubarItem onClick={handleLogout}>
+            <LogOut className="mr-2 h-4 w-4" />
+            登出
+          </MenubarItem>
+        </MenubarContent>
+      </MenubarMenu>
+    </Menubar>
+  )
+
+  /**
+   * 主导航菜单组件
+   */
+  const MainNavigation = () => (
+    <NavigationMenu>
+      <NavigationMenuList>
+        <NavigationMenuItem>
+          <NavigationMenuTrigger>
+            <Image className="mr-2 h-4 w-4" />
+            作品
+          </NavigationMenuTrigger>
+          <NavigationMenuContent>
+            <div className="grid gap-3 p-4 w-[400px]">
+              <NavigationMenuLink
+                className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground cursor-pointer"
+                onClick={() => router.push(ROUTES.GALLERY)}
+              >
+                <div className="text-sm font-medium leading-none">浏览作品</div>
+                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
+                  探索精彩的艺术作品集合
+                </p>
+              </NavigationMenuLink>
+            </div>
+          </NavigationMenuContent>
+        </NavigationMenuItem>
+        <NavigationMenuItem>
+          <NavigationMenuTrigger>
+            <Users className="mr-2 h-4 w-4" />
+            艺术家
+          </NavigationMenuTrigger>
+          <NavigationMenuContent>
+            <div className="grid gap-3 p-4 w-[400px]">
+              <NavigationMenuLink
+                className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground cursor-pointer"
+                onClick={() => router.push(ROUTES.ARTISTS)}
+              >
+                <div className="text-sm font-medium leading-none">发现艺术家</div>
+                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
+                  认识才华横溢的艺术家们
+                </p>
+              </NavigationMenuLink>
+            </div>
+          </NavigationMenuContent>
+        </NavigationMenuItem>
+        <NavigationMenuItem>
+          <NavigationMenuTrigger>
+            <Settings className="mr-2 h-4 w-4" />
+            管理
+          </NavigationMenuTrigger>
+          <NavigationMenuContent>
+            <div className="grid gap-3 p-4 w-[400px]">
+              <NavigationMenuLink
+                className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground cursor-pointer"
+                onClick={() => router.push(ROUTES.ADMIN)}
+              >
+                <div className="text-sm font-medium leading-none">设置管理</div>
+                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
+                  系统设置和管理功能
+                </p>
+              </NavigationMenuLink>
+            </div>
+          </NavigationMenuContent>
+        </NavigationMenuItem>
+      </NavigationMenuList>
+    </NavigationMenu>
+  )
 
   // 加载状态
   if (isLoading) {
@@ -132,19 +239,14 @@ export default function DashboardPage() {
       <nav className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-6">
               <h1 className="text-xl font-bold text-gray-900">Pixishelf</h1>
               <span className="text-sm text-gray-500">/ 仪表板</span>
+              <MainNavigation />
             </div>
 
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-700">{user?.username}</span>
-              <Button variant="ghost" size="sm" onClick={handleGoHome}>
-                主页
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleLogout}>
-                登出
-              </Button>
+            <div className="flex items-center">
+              <UserMenu />
             </div>
           </div>
         </div>
@@ -158,22 +260,7 @@ export default function DashboardPage() {
           <p className="text-gray-600">探索最新的艺术作品和才华横溢的艺术家们</p>
         </div>
 
-        {/* 快速操作区域 */}
-        <div className="mb-8">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Button onClick={() => router.push(ROUTES.GALLERY)}>浏览作品</Button>
-                <Button variant="outline" onClick={() => router.push(ROUTES.ARTISTS)}>
-                  发现艺术家
-                </Button>
-                <Button variant="outline" onClick={() => router.push(ROUTES.ADMIN)}>
-                  设置管理
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+
 
         {/* 最近作品区域 */}
         <div className="mb-12">
