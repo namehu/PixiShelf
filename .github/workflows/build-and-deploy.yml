@@ -62,11 +62,11 @@ jobs:
             VITE_API_URL=${{ vars.VITE_API_URL || 'http://localhost:5431' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=pixishelf
-          cache-to: type=gha,mode=max,scope=pixishelf
+          cache-from: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:cache
+          cache-to: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:cache,mode=max
           platforms: linux/amd64
 
-      # 创建 GitHub Release (只在第一个job完成后执行)
+  # 创建 GitHub Release (只在第一个job完成后执行)
   create-release:
     runs-on: ubuntu-latest
     needs: build-and-push
