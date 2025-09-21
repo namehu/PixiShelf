@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "pnpm -r --parallel dev",
-    "build": "pnpm --recursive build",
+    "build": "pnpm --r build",
     "format": "prettier --write ."
   },
   "keywords": [
