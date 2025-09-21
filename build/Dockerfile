@@ -138,18 +138,6 @@ stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
 environment=NODE_ENV="production"
 
-[program:prisma-studio]
-# 使用 --host 0.0.0.0 使其在容器内监听所有网络接口
-command=pnpm --filter="@pixishelf/next" db:studio --port 5555 --hostname 0.0.0.0 --browser none
-directory=/app
-autostart=true
-autorestart=true
-stopwaitsecs=3
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-
 [program:crond]
 command=/usr/sbin/crond -f -l 2
 user=root
@@ -167,16 +155,12 @@ EOF
 COPY --chown=appuser:appgroup build/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# 切换到非 root 用户
-USER appuser
-
 # 暴露端口
-EXPOSE 3000 5555
+EXPOSE 3000
 
-# 健康检查 - 检查前端和Prisma Studio
+# 健康检查 - 检查前端
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000 && \
-    wget --no-verbose --tries=1 --spider http://localhost:5555 || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
 
 # 推荐：使用 entrypoint 脚本来处理数据库迁移
 ENTRYPOINT ["/app/entrypoint.sh"]
