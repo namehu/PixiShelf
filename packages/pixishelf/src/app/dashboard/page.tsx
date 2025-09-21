@@ -28,11 +28,44 @@ import {
   MenubarSeparator
 } from '@/components/ui/menubar'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { User, Settings, LogOut, Image, Users } from 'lucide-react'
+import { User, Settings, LogOut, Image, Users, RefreshCw } from 'lucide-react'
 
 // ============================================================================
 // 仪表板页面
 // ============================================================================
+
+/**
+ * 获取推荐作品Hook
+ */
+function useRecommendedArtworks() {
+  const [data, setData] = useState<EnhancedArtworksResponse | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const refresh = () => {
+    setRefreshKey(prev => prev + 1)
+  }
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsLoading(true)
+        setError(null)
+        const response = await apiJson<EnhancedArtworksResponse>('/api/v1/artworks/recommendations')
+        setData(response)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '获取推荐作品失败')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [refreshKey])
+
+  return { data, isLoading, error, refresh }
+}
 
 /**
  * 获取最近作品Hook
@@ -96,6 +129,7 @@ function useRecentArtists() {
 export default function DashboardPage() {
   const router = useRouter()
   const { isAuthenticated, isLoading, user, logout } = useAuth()
+  const { data: recommendedArtworks, isLoading: recommendedLoading, error: recommendedError, refresh: refreshRecommended } = useRecommendedArtworks()
   const { data: recentArtworks, isLoading: artworksLoading, error: artworksError } = useRecentArtworks()
   const { data: recentArtists, isLoading: artistsLoading, error: artistsError } = useRecentArtists()
 
@@ -153,9 +187,7 @@ export default function DashboardPage() {
                 onClick={() => router.push(ROUTES.GALLERY)}
               >
                 <div className="text-sm font-medium leading-none">浏览作品</div>
-                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
-                  探索精彩的艺术作品集合
-                </p>
+                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">探索精彩的艺术作品集合</p>
               </NavigationMenuLink>
             </div>
           </NavigationMenuContent>
@@ -172,9 +204,7 @@ export default function DashboardPage() {
                 onClick={() => router.push(ROUTES.ARTISTS)}
               >
                 <div className="text-sm font-medium leading-none">发现艺术家</div>
-                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
-                  认识才华横溢的艺术家们
-                </p>
+                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">认识才华横溢的艺术家们</p>
               </NavigationMenuLink>
             </div>
           </NavigationMenuContent>
@@ -191,9 +221,7 @@ export default function DashboardPage() {
                 onClick={() => router.push(ROUTES.ADMIN)}
               >
                 <div className="text-sm font-medium leading-none">设置管理</div>
-                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
-                  系统设置和管理功能
-                </p>
+                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">系统设置和管理功能</p>
               </NavigationMenuLink>
             </div>
           </NavigationMenuContent>
@@ -254,13 +282,139 @@ export default function DashboardPage() {
 
       {/* 主要内容 */}
       <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        {/* 欢迎区域 */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">欢迎回来，{user?.username}！</h2>
-          <p className="text-gray-600">探索最新的艺术作品和才华横溢的艺术家们</p>
+        {/* 推荐作品区域 */}
+        <div className="mb-12">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">推荐作品</h3>
+              <p className="text-gray-600">为您精心挑选的优质作品</p>
+            </div>
+            <Button 
+              variant="ghost" 
+              className="text-blue-600 hover:text-blue-700 flex items-center gap-2"
+              onClick={refreshRecommended}
+              disabled={recommendedLoading}
+            >
+              <RefreshCw className={`h-4 w-4 ${recommendedLoading ? 'animate-spin' : ''}`} />
+              刷新推荐
+            </Button>
+          </div>
+
+          {recommendedLoading ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={i} className="bg-white rounded-2xl shadow-sm overflow-hidden animate-pulse">
+                  <div className="aspect-[3/4] bg-gray-200"></div>
+                  <div className="p-4 space-y-2">
+                    <div className="h-4 bg-gray-200 rounded"></div>
+                    <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : recommendedError ? (
+            <Card>
+              <CardContent className="p-6 text-center">
+                <p className="text-red-600">{recommendedError}</p>
+              </CardContent>
+            </Card>
+          ) : recommendedArtworks && recommendedArtworks.items.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {recommendedArtworks.items.map((artwork) => {
+                const cover = artwork.images?.[0]
+                const src = cover ? `/api/v1/images/${encodeURIComponent(cover.path)}` : ''
+                const isVideoCover = cover && isVideoFile(cover.path)
+                const artistName = artwork.artist?.name
+
+                return (
+                  <Link key={artwork.id} href={`/artworks/${artwork.id}`} className="block">
+                    <div className="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                      {/* 作品封面 */}
+                      <div className="relative aspect-[3/4] w-full overflow-hidden bg-gray-100">
+                        {src ? (
+                          isVideoCover ? (
+                            <VideoPreview src={src} title={artwork.title} className="h-full w-full object-cover" />
+                          ) : (
+                            <img src={src} alt={artwork.title} className="h-full w-full object-cover" loading="lazy" />
+                          )
+                        ) : (
+                          <div className="h-full w-full bg-gray-200 flex items-center justify-center">
+                            <svg
+                              className="w-8 h-8 text-gray-400"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                              />
+                            </svg>
+                          </div>
+                        )}
+
+                        {/* 图片数量标识 */}
+                        {artwork.imageCount > 1 && (
+                          <div className="absolute top-3 right-3 bg-black/70 backdrop-blur-sm text-white px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                              />
+                            </svg>
+                            {artwork.imageCount}
+                          </div>
+                        )}
+
+                        {/* 推荐标识 */}
+                        <div className="absolute top-3 left-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white px-2 py-1 rounded-lg text-xs font-medium">
+                          推荐
+                        </div>
+                      </div>
+
+                      {/* 作品信息 */}
+                      <div className="p-4 space-y-2">
+                        <h4 className="font-medium text-gray-900 truncate" title={artwork.title}>
+                          {artwork.title}
+                        </h4>
+                        {artistName && (
+                          <p className="text-sm text-gray-600 truncate" title={artistName}>
+                            {artistName}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="p-12 text-center">
+                <svg
+                  className="w-16 h-16 text-gray-300 mx-auto mb-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">暂无推荐作品</h3>
+                <p className="text-gray-600 mb-4">系统正在为您准备精彩内容</p>
+                <Button onClick={refreshRecommended}>刷新推荐</Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
-
-
 
         {/* 最近作品区域 */}
         <div className="mb-12">
