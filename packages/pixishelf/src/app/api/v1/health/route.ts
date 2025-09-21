@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { HealthResponse } from '@pixishelf/shared'
+import { HealthResponse } from '@/types'
 import { getSettingService } from '@/lib/services/setting'
 
 /**

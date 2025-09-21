@@ -5,6 +5,74 @@ import { Artist, Artwork, User, MediaFile } from './core'
 // ============================================================================
 
 /**
+ * 登录请求
+ */
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+/**
+ * 登录响应
+ */
+export interface LoginResponse {
+  token: string
+  user: {
+    id: string
+    username: string
+  }
+}
+
+/**
+ * 用户信息响应
+ */
+export interface UserResponse {
+  id: string
+  username: string
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * 创建用户请求
+ */
+export interface CreateUserRequest {
+  username: string
+  password: string
+}
+
+/**
+ * 创建用户响应
+ */
+export interface CreateUserResponse {
+  success: boolean
+  user?: {
+    id: number
+    username: string
+    createdAt: string
+  }
+  error?: string
+}
+
+/**
+ * 修改密码请求
+ */
+export interface ChangePasswordRequest {
+  currentPassword: string
+  newPassword: string
+  confirmNewPassword: string
+}
+
+/**
+ * 修改密码响应
+ */
+export interface ChangePasswordResponse {
+  success: boolean
+  message?: string
+  error?: string
+}
+
+/**
  * 通用分页查询参数
  */
 export interface PaginationQuery {
@@ -124,6 +192,42 @@ export interface MediaFileResponse {
 }
 
 /**
- * API 响应包装器
+ * 通用API响应
  */
-export type ApiResponse<T> = T | ErrorResponse
+export interface ApiResponse<T = any> {
+  success: boolean
+  data?: T
+  error?: string
+  message?: string
+}
+
+/**
+ * 健康检查响应
+ */
+export interface HealthCheckResponse {
+  status: 'ok' | 'error'
+  timestamp: string
+  uptime: number
+  version?: string
+}
+
+/**
+ * 文件上传响应
+ */
+export interface FileUploadResponse {
+  success: boolean
+  filename?: string
+  url?: string
+  size?: number
+  error?: string
+}
+
+/**
+ * 批量操作响应
+ */
+export interface BatchOperationResponse {
+  success: boolean
+  processed: number
+  failed: number
+  errors?: string[]
+}

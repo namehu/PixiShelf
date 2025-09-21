@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { SortOption } from '@pixishelf/shared'
+import { SortOption } from '@/types'
 import { cn } from '@/lib/utils'
 import {
   Select,

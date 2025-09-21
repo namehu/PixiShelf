@@ -3,7 +3,7 @@
 import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson, createEventSourceWithAuth } from '@/lib/api'
-import { ScanResult, HealthResponse, ScanProgress, LogEntry, ScanPathResponse } from '@pixishelf/shared'
+import { ScanResult, HealthResponse, ScanProgress, LogEntry, ScanPathResponse } from '@/types'
 import {
   AlertDialog,
   AlertDialogAction,

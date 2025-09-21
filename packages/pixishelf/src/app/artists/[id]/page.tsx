@@ -4,7 +4,7 @@ import React, { useState } from 'react'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { Artist, EnhancedArtworksResponse, SortOption, isVideoFile } from '@pixishelf/shared'
+import { Artist, EnhancedArtworksResponse, SortOption, isVideoFile } from '@/types'
 import { useAuth } from '@/components'
 import { SortControl, VideoPreview } from '@/components/ui'
 import {

@@ -11,6 +11,21 @@ export * from './api'
 // 认证相关类型（从专门的auth.ts文件导出）
 export * from './auth'
 
+// 媒体类型
+export * from './media'
+
+// 扫描相关类型
+export * from './scan'
+
+// 设置相关类型
+export * from './settings'
+
+// 系统状态类型
+export * from './system'
+
+// 工具类型
+export * from './utils'
+
 // Next.js 特定类型
 export interface PageProps {
   params: { [key: string]: string | string[] | undefined }

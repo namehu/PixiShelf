@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { SearchSuggestion, SuggestionsResponse } from '@pixishelf/shared'
+import { SearchSuggestion, SuggestionsResponse } from '@/types'
 
 /**
  * GET /api/v1/suggestions - 获取搜索建议

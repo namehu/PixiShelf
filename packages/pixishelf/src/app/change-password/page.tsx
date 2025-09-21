@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChangePasswordRequest, ChangePasswordResponse } from '@pixishelf/shared'
+import { ChangePasswordRequest, ChangePasswordResponse } from '@/types'
 import { useAuth } from '@/components'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

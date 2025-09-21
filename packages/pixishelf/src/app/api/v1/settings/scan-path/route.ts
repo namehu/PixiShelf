@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ScanPathRequest, ScanPathResponse, SettingsUpdateResponse } from '@pixishelf/shared'
+import { ScanPathRequest, ScanPathResponse, SettingsUpdateResponse } from '@/types'
 import { getSettingService } from '@/lib/services/setting'
 
 /**

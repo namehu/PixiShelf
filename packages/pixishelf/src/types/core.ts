@@ -3,19 +3,13 @@
 // ============================================================================
 
 /**
- * 用户信息（前端使用）
+ * 用户信息
  */
 export interface User {
-  /** 用户ID */
-  id: string
-  /** 用户名 */
+  id: number
   username: string
-  /** 密码哈希 */
-  passwordHash: string
-  /** 创建时间 */
   createdAt: string
-  /** 更新时间 */
-  updatedAt: string
+  updatedAt?: string
 }
 
 /**

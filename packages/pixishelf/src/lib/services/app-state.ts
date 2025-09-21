@@ -1,4 +1,4 @@
-import { AppState } from '@pixishelf/shared'
+import { AppState } from '@/types'
 
 /**
  * 应用状态管理服务

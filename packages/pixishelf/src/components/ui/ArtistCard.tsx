@@ -1,5 +1,5 @@
 import React from 'react'
-import { Artist } from '@pixishelf/shared'
+import { Artist } from '@/types'
 import { Card, CardContent } from '@/components/ui'
 import { Avatar, AvatarFallback } from '@/components/ui'
 import { Badge } from '@/components/ui'

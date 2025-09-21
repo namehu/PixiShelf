@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { ChangePasswordRequest, ChangePasswordResponse } from '@pixishelf/shared'
+import { ChangePasswordRequest, ChangePasswordResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { verifyAuth } from '@/lib/auth'
 

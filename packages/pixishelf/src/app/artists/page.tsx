@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { Artist, ArtistsQuery } from '@pixishelf/shared'
+import { Artist, ArtistsQuery } from '@/types'
 import { useAuth } from '@/components'
 import { Input, ArtistCard } from '@/components/ui'
 import { apiJson } from '@/lib/api'

@@ -3,7 +3,7 @@ import { authService } from '@/lib/auth'
 import { sessionManager } from '@/lib/session'
 import { validateLoginForm } from '@/lib/validators'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '@/lib/constants'
-import type { LoginRequest, LoginResponse } from '@/types/auth'
+import type { LoginRequest, LoginResponse } from '@/types/api'
 
 // ============================================================================
 // 登录 API 路由

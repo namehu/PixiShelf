@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSettingService } from '@/lib/services/setting'
 import { getAppStateService } from '@/lib/services/app-state'
 import { getScannerService } from '@/lib/services/scanner'
-import { ScanProgress, ScanResult } from '@pixishelf/shared'
+import { ScanProgress, ScanResult } from '@/types'
 
 /**
  * 扫描SSE流接口

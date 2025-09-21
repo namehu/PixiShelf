@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { EnhancedArtworksResponse, SortOption } from '@pixishelf/shared'
+import { EnhancedArtworksResponse, SortOption } from '@/types'
 import { useAuth } from '@/components'
 import { SortControl, VideoPreview, SearchBox } from '@/components/ui'
 import {
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/pagination'
 import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
-import { isVideoFile } from '@pixishelf/shared'
+import { isVideoFile } from '@/types'
 
 // ============================================================================
 // 画廊页面

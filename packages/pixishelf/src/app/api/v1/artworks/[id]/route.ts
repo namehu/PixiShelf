@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getMediaType, MediaFile } from '@pixishelf/shared'
+import { getMediaType, MediaFile } from '@/types'
 
 /**
  * 获取单个作品详情接口

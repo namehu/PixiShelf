@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { UsersResponse, CreateUserRequest, CreateUserResponse } from '@pixishelf/shared'
+import { UsersResponse, CreateUserRequest, CreateUserResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
 
 /**

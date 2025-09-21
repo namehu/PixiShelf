@@ -8,8 +8,8 @@ import { Card, CardHeader, CardTitle, CardContent, ArtistCard } from '@/componen
 import { VideoPreview } from '@/components/ui'
 import { ROUTES } from '@/lib/constants'
 import { apiJson } from '@/lib/api'
-import { EnhancedArtworksResponse, Artist, isVideoFile } from '@pixishelf/shared'
-import type { ArtistsResponse } from '@pixishelf/shared'
+import { EnhancedArtworksResponse, Artist, isVideoFile } from '@/types'
+import type { ArtistsResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 
 // ============================================================================

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { EnhancedArtworksResponse, SortOption, getMediaType, MediaFile } from '@pixishelf/shared'
+import { EnhancedArtworksResponse, SortOption, getMediaType, MediaFile } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { verifyAuth } from '@/lib/auth'
 

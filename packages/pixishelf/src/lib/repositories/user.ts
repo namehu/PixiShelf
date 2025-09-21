@@ -1,6 +1,6 @@
 import { prisma, handlePrismaError } from '../prisma'
 import type { User, PrismaUser } from '@/types/core'
-import type { CreateUserRequest } from '@/types/auth'
+import type { CreateUserRequest } from '@/types/api'
 
 // ============================================================================
 // 用户数据仓储

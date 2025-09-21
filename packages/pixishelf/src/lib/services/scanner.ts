@@ -1,6 +1,6 @@
 import path from 'path'
 import { PrismaClient } from '@prisma/client'
-import { ScanProgress, ScanResult } from '@pixishelf/shared'
+import { ScanProgress, ScanResult } from '@/types'
 import { MetadataParser, MetadataInfo } from './scanner/metadata-parser'
 import { MediaCollector, MediaFileInfo } from './scanner/media-collector'
 import { getPrisma } from '@/lib/prisma'

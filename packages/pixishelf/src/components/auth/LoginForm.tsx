@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { validateLoginForm } from '@/lib/validators'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
 import { useAuth } from '@/components/auth'
-import type { LoginRequest } from '@/types/auth'
+import type { LoginRequest } from '@/types/api'
 
 // ============================================================================
 // 登录表单组件

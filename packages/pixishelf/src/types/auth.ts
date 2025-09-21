@@ -8,32 +8,7 @@ import type { User } from './core'
 // 登录相关类型
 // ----------------------------------------------------------------------------
 
-/**
- * 登录请求数据
- */
-export interface LoginRequest {
-  /** 用户名 */
-  username: string
-  /** 密码 */
-  password: string
-  /** 是否记住登录状态 */
-  rememberMe?: boolean
-}
-
-/**
- * 登录响应数据
- */
-export interface LoginResponse {
-  /** 操作是否成功 */
-  success: boolean
-  /** 用户信息（登录成功时返回） */
-  user?: {
-    id: string
-    username: string
-  }
-  /** 错误信息（登录失败时返回） */
-  error?: string
-}
+// 登录相关类型已移至 api.ts 文件
 
 // ----------------------------------------------------------------------------
 // 获取用户信息相关类型
@@ -70,43 +45,7 @@ export interface LogoutResponse {
   error?: string
 }
 
-/**
- * 创建用户请求数据
- */
-export interface CreateUserRequest {
-  /** 用户名 */
-  username: string
-  /** 密码哈希 */
-  passwordHash: string
-}
-
-// ----------------------------------------------------------------------------
-// 密码相关类型
-// ----------------------------------------------------------------------------
-
-/**
- * 修改密码请求数据
- */
-export interface ChangePasswordRequest {
-  /** 当前密码 */
-  currentPassword: string
-  /** 新密码 */
-  newPassword: string
-  /** 确认新密码 */
-  confirmNewPassword: string
-}
-
-/**
- * 修改密码响应数据
- */
-export interface ChangePasswordResponse {
-  /** 操作是否成功 */
-  success: boolean
-  /** 成功消息 */
-  message?: string
-  /** 错误信息（失败时返回） */
-  error?: string
-}
+// 创建用户和密码相关类型已移至 api.ts 文件
 
 // ----------------------------------------------------------------------------
 // 会话相关类型

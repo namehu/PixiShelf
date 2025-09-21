@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { Artist } from '@pixishelf/shared'
+import { Artist } from '@/types'
 
 /**
  * 获取艺术家详情接口

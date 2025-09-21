@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { SearchSuggestion, SuggestionsResponse } from '@pixishelf/shared'
+import { SearchSuggestion, SuggestionsResponse } from '@/types'
 import { Input } from './input'
 import { useDebounce } from '@/hooks/useDebounce'
 import { apiJson } from '@/lib/api'
