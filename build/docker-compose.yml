@@ -39,7 +39,6 @@ services:
       DATABASE_URL: postgresql://pixishelf:password@postgres:5432/pixishelf?connection_limit=20&pool_timeout=20
       JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
       API_TOKEN: your-api-token-change-this
-      SCAN_PATH: /app/data
     volumes:
       # 挂载图片数据目录（根据实际需要调整路径）
       # - /path/to/your/images:/app/data:ro
