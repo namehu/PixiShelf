@@ -51,7 +51,21 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
+  imgproxy:
+    image: ghcr.io/imgproxy/imgproxy:latest
+    ports:
+      - '5431:5431' # 将 ImgProxy 的 8080 端口映射到宿主机
+    volumes:
+      # 关键：将存储原图的文件夹挂载到 ImgProxy 容器中
+      - ./data:/data
+    environment:
+      - IMGPROXY_BIND=:5431
+      # 允许 ImgProxy 处理来自本地文件系统的图片
+      - IMGPROXY_USE_FILESYSTEM=true
+      # 设置 ImgProxy 可以访问的根目录
+      - IMGPROXY_LOCAL_FILESYSTEM_ROOT=/data
+    networks:
+      - pixishelf-network
 volumes:
   postgres_data:
 
