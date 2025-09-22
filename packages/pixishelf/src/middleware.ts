@@ -9,31 +9,12 @@ import { ROUTES } from '@/lib/constants'
 /**
  * 需要认证的路径模式
  */
-const PROTECTED_PATHS = [
-  '/dashboard',
-  '/profile',
-  '/settings',
-  '/admin',
-  '/api/auth/me'
-  // 可以添加更多需要保护的路径
-]
+const PROTECTED_PATHS = []
 
 /**
  * 公开访问的路径模式（不需要认证）
  */
-const PUBLIC_PATHS = [
-  '/login',
-  '/api/auth/login',
-  '/api/auth/logout',
-  '/',
-  '/about',
-  '/contact',
-  // 静态资源
-  '/_next',
-  '/favicon.ico',
-  '/images',
-  '/icons'
-]
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/logout', '/']
 
 /**
  * 检查路径是否匹配模式
@@ -51,23 +32,7 @@ function matchesPattern(pathname: string, patterns: string[]): boolean {
  * 检查路径是否需要认证
  */
 function requiresAuth(pathname: string): boolean {
-  // 首先检查是否是公开路径
-  if (matchesPattern(pathname, PUBLIC_PATHS)) {
-    return false
-  }
-
-  // 然后检查是否是受保护路径
-  if (matchesPattern(pathname, PROTECTED_PATHS)) {
-    return true
-  }
-
-  // 默认情况下，API路由需要认证（除了已明确标记为公开的）
-  if (pathname.startsWith('/api/')) {
-    return true
-  }
-
-  // 其他路径默认不需要认证
-  return false
+  return !matchesPattern(pathname, PUBLIC_PATHS)
 }
 
 /**
@@ -75,15 +40,6 @@ function requiresAuth(pathname: string): boolean {
  */
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl
-
-  // 跳过静态资源和Next.js内部路径
-  if (
-    pathname.startsWith('/_next/') ||
-    pathname.startsWith('/api/_next/') ||
-    pathname.includes('.') // 包含文件扩展名的静态资源
-  ) {
-    return NextResponse.next()
-  }
 
   // 检查是否需要认证
   if (!requiresAuth(pathname)) {
@@ -135,13 +91,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 function handleUnauthenticated(request: NextRequest, pathname: string): NextResponse {
   // 对于API请求，返回401状态
   if (pathname.startsWith('/api/')) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: '未授权访问'
-      },
-      { status: 401 }
-    )
+    return NextResponse.json({ success: false, error: '未授权访问' }, { status: 401 })
   }
 
   // 对于页面请求，重定向到登录页
@@ -153,7 +103,6 @@ function handleUnauthenticated(request: NextRequest, pathname: string): NextResp
   }
 
   const response = NextResponse.redirect(loginUrl)
-
   // 清除可能存在的无效认证Cookie
   response.cookies.delete('auth-token')
 
@@ -168,9 +117,8 @@ export const config = {
   matcher: [
     /*
      * 匹配所有请求路径，除了：
-     * - api (API routes)
      * - _next/static (static files)
-     * - _next/image (image optimization files)
+     * - next/image (image optimization files)
      * - favicon.ico (favicon file)
      */
     '/((?!_next/static|_next/image|favicon.ico).*)'
