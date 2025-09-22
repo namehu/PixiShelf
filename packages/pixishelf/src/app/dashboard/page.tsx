@@ -8,15 +8,13 @@ import { Card, CardHeader, CardTitle, CardContent, ArtistCard } from '@/componen
 import { VideoPreview } from '@/components/ui'
 import { ROUTES } from '@/lib/constants'
 import { apiJson } from '@/lib/api'
-import { EnhancedArtworksResponse, Artist, isVideoFile } from '@/types'
+import { EnhancedArtworksResponse, isVideoFile } from '@/types'
 import type { ArtistsResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import {
   NavigationMenu,
   NavigationMenuList,
   NavigationMenuItem,
-  NavigationMenuTrigger,
-  NavigationMenuContent,
   NavigationMenuLink
 } from '@/components/ui/navigation-menu'
 import {
@@ -28,7 +26,7 @@ import {
   MenubarSeparator
 } from '@/components/ui/menubar'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { User, Settings, LogOut, Image, Users, RefreshCw, Hash } from 'lucide-react'
+import { User, Settings, LogOut, Image as IconImage, Users, RefreshCw, Hash } from 'lucide-react'
 
 // ============================================================================
 // 仪表板页面
@@ -44,7 +42,7 @@ function useRecommendedArtworks() {
   const [refreshKey, setRefreshKey] = useState(0)
 
   const refresh = () => {
-    setRefreshKey(prev => prev + 1)
+    setRefreshKey((prev) => prev + 1)
   }
 
   useEffect(() => {
@@ -129,7 +127,12 @@ function useRecentArtists() {
 export default function DashboardPage() {
   const router = useRouter()
   const { isAuthenticated, isLoading, user, logout } = useAuth()
-  const { data: recommendedArtworks, isLoading: recommendedLoading, error: recommendedError, refresh: refreshRecommended } = useRecommendedArtworks()
+  const {
+    data: recommendedArtworks,
+    isLoading: recommendedLoading,
+    error: recommendedError,
+    refresh: refreshRecommended
+  } = useRecommendedArtworks()
   const { data: recentArtworks, isLoading: artworksLoading, error: artworksError } = useRecentArtworks()
   const { data: recentArtists, isLoading: artistsLoading, error: artistsError } = useRecentArtists()
 
@@ -147,7 +150,7 @@ export default function DashboardPage() {
     <Menubar>
       <MenubarMenu>
         <MenubarTrigger className="flex items-center space-x-2 cursor-pointer">
-          <Avatar className="h-8 w-8">
+          <Avatar className="h-6 w-6">
             <AvatarFallback className="bg-primary text-primary-foreground">
               {user?.username?.charAt(0).toUpperCase() || 'U'}
             </AvatarFallback>
@@ -157,7 +160,11 @@ export default function DashboardPage() {
         <MenubarContent>
           <MenubarItem onClick={() => router.push(ROUTES.CHANGE_PASSWORD)}>
             <User className="mr-2 h-4 w-4" />
-            个人资料
+            修改密码
+          </MenubarItem>
+          <MenubarItem onClick={() => router.push(ROUTES.ADMIN)}>
+            <Settings className="mr-2 h-4 w-4" />
+            管理后台
           </MenubarItem>
           <MenubarSeparator />
           <MenubarItem onClick={handleLogout}>
@@ -176,72 +183,28 @@ export default function DashboardPage() {
     <NavigationMenu>
       <NavigationMenuList>
         <NavigationMenuItem>
-          <NavigationMenuTrigger>
-            <Image className="mr-2 h-4 w-4" />
-            作品
-          </NavigationMenuTrigger>
-          <NavigationMenuContent>
-            <div className="grid gap-3 p-4 w-[400px]">
-              <NavigationMenuLink
-                className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground cursor-pointer"
-                onClick={() => router.push(ROUTES.GALLERY)}
-              >
-                <div className="text-sm font-medium leading-none">浏览作品</div>
-                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">探索精彩的艺术作品集合</p>
-              </NavigationMenuLink>
-            </div>
-          </NavigationMenuContent>
+          <NavigationMenuLink asChild>
+            <Link href={ROUTES.GALLERY} className="flex flex-row items-center gap-2">
+              <IconImage className="h-4 w-4" />
+              <span>作品</span>
+            </Link>
+          </NavigationMenuLink>
         </NavigationMenuItem>
         <NavigationMenuItem>
-          <NavigationMenuTrigger>
-            <Users className="mr-2 h-4 w-4" />
-            艺术家
-          </NavigationMenuTrigger>
-          <NavigationMenuContent>
-            <div className="grid gap-3 p-4 w-[400px]">
-              <NavigationMenuLink
-                className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground cursor-pointer"
-                onClick={() => router.push(ROUTES.ARTISTS)}
-              >
-                <div className="text-sm font-medium leading-none">发现艺术家</div>
-                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">认识才华横溢的艺术家们</p>
-              </NavigationMenuLink>
-            </div>
-          </NavigationMenuContent>
+          <NavigationMenuLink asChild>
+            <Link href={ROUTES.ARTISTS} className="flex flex-row items-center gap-2">
+              <Users className="mr-2 h-4 w-4" />
+              艺术家
+            </Link>
+          </NavigationMenuLink>
         </NavigationMenuItem>
         <NavigationMenuItem>
-          <NavigationMenuTrigger>
-            <Hash className="mr-2 h-4 w-4" />
-            标签
-          </NavigationMenuTrigger>
-          <NavigationMenuContent>
-            <div className="grid gap-3 p-4 w-[400px]">
-              <NavigationMenuLink
-                className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground cursor-pointer"
-                onClick={() => router.push('/tags')}
-              >
-                <div className="text-sm font-medium leading-none">标签广场</div>
-                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">浏览和搜索所有标签</p>
-              </NavigationMenuLink>
-            </div>
-          </NavigationMenuContent>
-        </NavigationMenuItem>
-        <NavigationMenuItem>
-          <NavigationMenuTrigger>
-            <Settings className="mr-2 h-4 w-4" />
-            管理
-          </NavigationMenuTrigger>
-          <NavigationMenuContent>
-            <div className="grid gap-3 p-4 w-[400px]">
-              <NavigationMenuLink
-                className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground cursor-pointer"
-                onClick={() => router.push(ROUTES.ADMIN)}
-              >
-                <div className="text-sm font-medium leading-none">设置管理</div>
-                <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">系统设置和管理功能</p>
-              </NavigationMenuLink>
-            </div>
-          </NavigationMenuContent>
+          <NavigationMenuLink asChild>
+            <Link href={ROUTES.TAGS} className="flex flex-row items-center gap-2">
+              <Hash className="mr-2 h-4 w-4" />
+              标签
+            </Link>
+          </NavigationMenuLink>
         </NavigationMenuItem>
       </NavigationMenuList>
     </NavigationMenu>
@@ -286,7 +249,6 @@ export default function DashboardPage() {
           <div className="flex justify-between h-16">
             <div className="flex items-center space-x-6">
               <h1 className="text-xl font-bold text-gray-900">Pixishelf</h1>
-              <span className="text-sm text-gray-500">/ 仪表板</span>
               <MainNavigation />
             </div>
 
@@ -306,8 +268,8 @@ export default function DashboardPage() {
               <h3 className="text-2xl font-bold text-gray-900 mb-2">推荐作品</h3>
               <p className="text-gray-600">为您精心挑选的优质作品</p>
             </div>
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               className="text-blue-600 hover:text-blue-700 flex items-center gap-2"
               onClick={refreshRecommended}
               disabled={recommendedLoading}

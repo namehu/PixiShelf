@@ -116,8 +116,8 @@ export default function ChangePasswordPage() {
     }
   }
 
-  const handleBackToSettings = () => {
-    router.push(ROUTES.ADMIN)
+  const handleBack = () => {
+    router.back()
   }
 
   const handleReLogin = async () => {
@@ -142,8 +142,8 @@ export default function ChangePasswordPage() {
               <Button onClick={handleReLogin} className="w-full">
                 重新登录
               </Button>
-              <Button onClick={handleBackToSettings} variant="secondary" className="w-full">
-                返回设置
+              <Button onClick={handleBack} variant="secondary" className="w-full">
+                返回
               </Button>
             </div>
           </div>
@@ -178,7 +178,12 @@ export default function ChangePasswordPage() {
             <div className="space-y-2">
               <label className="text-sm font-medium">当前密码</label>
               <div className="relative">
-                <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -202,7 +207,12 @@ export default function ChangePasswordPage() {
             <div className="space-y-2">
               <label className="text-sm font-medium">新密码</label>
               <div className="relative">
-                <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -261,7 +271,12 @@ export default function ChangePasswordPage() {
             <div className="space-y-2">
               <label className="text-sm font-medium">确认新密码</label>
               <div className="relative">
-                <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -279,27 +294,27 @@ export default function ChangePasswordPage() {
                   className={`pl-10 pr-10 ${confirmPassword && !isPasswordMatch ? 'border-destructive' : ''}`}
                 />
                 {confirmPassword && (
-                   <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                     {isPasswordMatch ? (
-                       <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                       </svg>
-                     ) : (
-                       <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                       </svg>
-                     )}
-                   </div>
-                  )}
-               </div>
-               {confirmPassword && !isPasswordMatch && (
-                 <div className="text-sm">
-                   <span className="text-destructive">密码不匹配</span>
-                 </div>
-               )}
-             </div>
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                    {isPasswordMatch ? (
+                      <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    )}
+                  </div>
+                )}
+              </div>
+              {confirmPassword && !isPasswordMatch && (
+                <div className="text-sm">
+                  <span className="text-destructive">密码不匹配</span>
+                </div>
+              )}
+            </div>
 
-             {/* 错误提示 */}
+            {/* 错误提示 */}
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
                 <svg
@@ -327,28 +342,11 @@ export default function ChangePasswordPage() {
               <Button type="submit" size="lg" className="w-full" disabled={!canSubmit || isLoading}>
                 {isLoading ? '修改中...' : '修改密码'}
               </Button>
-              <Button
-                type="button"
-                onClick={handleBackToSettings}
-                variant="secondary"
-                className="w-full"
-                disabled={isLoading}
-              >
-                返回设置
+              <Button type="button" onClick={handleBack} variant="secondary" className="w-full" disabled={isLoading}>
+                返回
               </Button>
             </div>
           </form>
-        </div>
-
-        {/* 返回链接 */}
-        <div className="text-center mt-6">
-          <button
-            onClick={handleBackToSettings}
-            className="text-sm text-neutral-500 hover:text-neutral-700 transition-colors"
-            disabled={isLoading}
-          >
-            ← 返回用户设置
-          </button>
         </div>
       </div>
     </div>

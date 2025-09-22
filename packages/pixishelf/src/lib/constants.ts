@@ -27,6 +27,7 @@ export const ROUTES = {
   ARTWORKS: '/artworks',
   ARTISTS: '/artists',
   ADMIN: '/admin',
+  TAGS: '/tags',
   CHANGE_PASSWORD: '/change-password'
 } as const
 
