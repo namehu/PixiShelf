@@ -11,22 +11,9 @@ import { apiJson } from '@/lib/api'
 import { EnhancedArtworksResponse, isVideoFile } from '@/types'
 import type { ArtistsResponse } from '@/types'
 import { Button } from '@/components/ui/button'
-import {
-  NavigationMenu,
-  NavigationMenuList,
-  NavigationMenuItem,
-  NavigationMenuLink
-} from '@/components/ui/navigation-menu'
-import {
-  Menubar,
-  MenubarMenu,
-  MenubarTrigger,
-  MenubarContent,
-  MenubarItem,
-  MenubarSeparator
-} from '@/components/ui/menubar'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { User, Settings, LogOut, Image as IconImage, Users, RefreshCw, Hash } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
+import UserMenu from './_components/UserMenu'
+import MainNavigation from './_components/MainNavigation'
 
 // ============================================================================
 // 仪表板页面
@@ -135,80 +122,6 @@ export default function DashboardPage() {
   } = useRecommendedArtworks()
   const { data: recentArtworks, isLoading: artworksLoading, error: artworksError } = useRecentArtworks()
   const { data: recentArtists, isLoading: artistsLoading, error: artistsError } = useRecentArtists()
-
-  /**
-   * 处理登出
-   */
-  const handleLogout = async () => {
-    await logout()
-  }
-
-  /**
-   * 用户菜单组件
-   */
-  const UserMenu = () => (
-    <Menubar>
-      <MenubarMenu>
-        <MenubarTrigger className="flex items-center space-x-2 cursor-pointer">
-          <Avatar className="h-6 w-6">
-            <AvatarFallback className="bg-primary text-primary-foreground">
-              {user?.username?.charAt(0).toUpperCase() || 'U'}
-            </AvatarFallback>
-          </Avatar>
-          <span className="text-sm text-gray-700">{user?.username}</span>
-        </MenubarTrigger>
-        <MenubarContent>
-          <MenubarItem onClick={() => router.push(ROUTES.CHANGE_PASSWORD)}>
-            <User className="mr-2 h-4 w-4" />
-            修改密码
-          </MenubarItem>
-          <MenubarItem onClick={() => router.push(ROUTES.ADMIN)}>
-            <Settings className="mr-2 h-4 w-4" />
-            管理后台
-          </MenubarItem>
-          <MenubarSeparator />
-          <MenubarItem onClick={handleLogout}>
-            <LogOut className="mr-2 h-4 w-4" />
-            登出
-          </MenubarItem>
-        </MenubarContent>
-      </MenubarMenu>
-    </Menubar>
-  )
-
-  /**
-   * 主导航菜单组件
-   */
-  const MainNavigation = () => (
-    <NavigationMenu>
-      <NavigationMenuList>
-        <NavigationMenuItem>
-          <NavigationMenuLink asChild>
-            <Link href={ROUTES.GALLERY} className="flex flex-row items-center gap-2">
-              <IconImage className="h-4 w-4" />
-              <span>作品</span>
-            </Link>
-          </NavigationMenuLink>
-        </NavigationMenuItem>
-        <NavigationMenuItem>
-          <NavigationMenuLink asChild>
-            <Link href={ROUTES.ARTISTS} className="flex flex-row items-center gap-2">
-              <Users className="mr-2 h-4 w-4" />
-              艺术家
-            </Link>
-          </NavigationMenuLink>
-        </NavigationMenuItem>
-        <NavigationMenuItem>
-          <NavigationMenuLink asChild>
-            <Link href={ROUTES.TAGS} className="flex flex-row items-center gap-2">
-              <Hash className="mr-2 h-4 w-4" />
-              标签
-            </Link>
-          </NavigationMenuLink>
-        </NavigationMenuItem>
-      </NavigationMenuList>
-    </NavigationMenu>
-  )
 
   // 加载状态
   if (isLoading) {
