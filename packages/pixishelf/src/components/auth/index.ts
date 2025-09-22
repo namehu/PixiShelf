@@ -5,5 +5,5 @@
 export { LoginForm } from './LoginForm'
 export type { LoginFormProps } from './LoginForm'
 
-export { AuthProvider, useAuth, useRequireAuth } from './AuthProvider'
+export { AuthProvider, useAuth } from './AuthProvider'
 export type { AuthProviderProps } from './AuthProvider'

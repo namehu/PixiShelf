@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { RefreshCw } from 'lucide-react'
 import UserMenu from './_components/UserMenu'
 import MainNavigation from './_components/MainNavigation'
+import CommonLoading from '@/components/common/common-loading'
 
 // ============================================================================
 // 仪表板页面
@@ -125,14 +126,7 @@ export default function DashboardPage() {
 
   // 加载状态
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          <p className="text-sm text-muted-foreground">加载中...</p>
-        </div>
-      </div>
-    )
+    return <CommonLoading></CommonLoading>
   }
 
   // 未认证状态
