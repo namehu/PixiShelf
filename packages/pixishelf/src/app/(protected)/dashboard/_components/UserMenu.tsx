@@ -1,3 +1,4 @@
+'use client'
 import { ROUTES } from '@/lib/constants'
 import {
   Menubar,
@@ -9,7 +10,7 @@ import {
 } from '@/components/ui/menubar'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { User, Settings, LogOut } from 'lucide-react'
-import router from 'next/router'
+import { useRouter } from 'next/navigation'
 import { memo } from 'react'
 import { useAuth } from '@/components'
 
@@ -17,6 +18,7 @@ import { useAuth } from '@/components'
  * 用户菜单组件
  */
 const UserMenu = () => {
+  const router = useRouter()
   const { user, logout } = useAuth()
 
   return (
