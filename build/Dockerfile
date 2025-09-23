@@ -86,6 +86,7 @@ RUN pnpm install --prod --frozen-lockfile
 # --chown=appuser:appgroup 确保文件所有权正确
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/.next ./packages/pixishelf/.next
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/public ./packages/pixishelf/public
+COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/lib ./packages/pixishelf/lib
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/package.json ./packages/pixishelf/package.json
 # 复制 Prisma Client 和 schema
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
