@@ -177,7 +177,7 @@ export class ScannerService {
           // 调用批量处理逻辑（针对当前批次的数据）
           await this.batchProcessTags(artworkBatch)
           await this.batchProcessArtists(artworkBatch)
-          await this.processBatch(artworkBatch)
+          await this.processBatch(artworkBatch, options)
 
           console.log(`Successfully processed batch ${batchNumber} of ${totalBatches}`)
         } catch (error) {
@@ -312,7 +312,7 @@ export class ScannerService {
         })
       }
     }
-    
+
     // filesToProcess 中如果artworkId 有重复的 则保留一个并发生成错误日志信息
     const artworkIdSet: Record<string, GlobMetadataFile> = {}
     filesToProcess = filesToProcess.filter((file: any) => {
@@ -335,7 +335,7 @@ export class ScannerService {
    * 批量处理一个批次的作品（使用事务）
    * @param batch 批次作品数组
    */
-  private async processBatch(batch: ArtworkData[]): Promise<void> {
+  private async processBatch(batch: ArtworkData[], options: ScanOptions): Promise<void> {
     await this.prisma.$transaction(
       async (tx) => {
         // 准备批量数据
@@ -416,7 +416,7 @@ export class ScannerService {
             // 准备图片数据
             if (artworkData.mediaFiles.length > 0) {
               const artworkImages = artworkData.mediaFiles.map((mediaFile) => ({
-                path: this.getRelativePath(mediaFile.path),
+                path: this.getRelativePath(mediaFile.path, options.scanPath),
                 size: mediaFile.size,
                 sortOrder: mediaFile.sortOrder,
                 artworkId: artwork.id
@@ -657,9 +657,9 @@ export class ScannerService {
    * @param fullPath 完整路径
    * @returns 相对路径
    */
-  private getRelativePath(fullPath: string): string {
+  private getRelativePath(fullPath: string, scanPath: string): string {
     // 简单实现，可以根据需要调整
-    return fullPath
+    return fullPath.replace(scanPath, '').replaceAll(path.sep, '/')
   }
 }
 
