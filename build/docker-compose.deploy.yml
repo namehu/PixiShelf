@@ -66,6 +66,33 @@ services:
       - IMGPROXY_LOCAL_FILESYSTEM_ROOT=/data
     networks:
       - pixishelf-network
+
+  thumbor:
+  # 给我们自己构建的镜像起个名字
+    image: dockernamehu/thumbor-video:latest
+    restart: always
+    ports:
+      - "5433:80"
+    networks:
+      - pixishelf-network
+    volumes:
+      - ./data:/media:ro  # 'ro' 表示只读，更安全
+    environment:
+      # 设置日志级别，方便调试
+      # - LOG_LEVEL=debug
+      - QUALITY=80
+      - WEBP_QUALITY=80
+      - ALLOW_UNSAFE_URL=True
+      - LOADER=thumbor.loaders.file_loader
+      - FILE_LOADER_ROOT_PATH=/media
+      - ENGINE=thumbor_video_engine.engines.video
+      - GIF_ENGINE=thumbor_video_engine.engines.gif
+      - FFMPEG_USE_GIFSICLE_ENGINE=True
+      - FFMPEG_GIF_AUTO_WEBP=True
+      - FFMPEG_GIF_AUTO_H265=True
+      - APP_CLASS=thumbor_video_engine.app.ThumborServiceApp
+      - RESULT_STORAGE=thumbor_video_engine.result_storages.file_storage
+      - FILTERS=['thumbor_video_engine.filters.format','thumbor_video_engine.filters.still']
 volumes:
   postgres_data:
 
