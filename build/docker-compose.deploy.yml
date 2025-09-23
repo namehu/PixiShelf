@@ -51,6 +51,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
   imgproxy:
     image: ghcr.io/imgproxy/imgproxy:latest
     ports:
@@ -69,7 +70,7 @@ services:
 
   thumbor:
   # 给我们自己构建的镜像起个名字
-    image: dockernamehu/thumbor-video:latest
+    image: dockernamehu/pixishelf-thumbor:latest
     restart: always
     ports:
       - "5433:80"

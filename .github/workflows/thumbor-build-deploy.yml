@@ -1,0 +1,133 @@
+name: Build and Deploy Thumbor
+
+on:
+  push:
+    tags:
+      - 'thumbor/v*.*.*' # 触发条件：推送 thumbor 版本标签
+  workflow_dispatch: # 手动触发
+
+env:
+  REGISTRY_GITHUB: ghcr.io
+  REGISTRY_DOCKERHUB: docker.io
+  IMAGE_NAME: pixishelf-thumbor
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GITHUB }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_DOCKERHUB }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata for Thumbor
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+            ${{ env.REGISTRY_DOCKERHUB }}/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag,prefix=thumbor-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=thumbor-sha-
+
+      - name: Build and push Thumbor image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./build/thumbor
+          file: ./build/thumbor/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:cache
+          cache-to: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:cache,mode=max
+          platforms: linux/amd64
+
+  # 创建 GitHub Release (只在第一个job完成后执行)
+  create-release:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: startsWith(github.ref, 'refs/tags/thumbor/')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG_NAME#thumbor/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release for Thumbor
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag_name }}
+          name: "Thumbor Release ${{ steps.version.outputs.version }}"
+          generate_release_notes: true
+          body: |
+            ## Thumbor Docker Image Release ${{ steps.version.outputs.version }}
+            
+            This release contains the Thumbor image with the following features:
+            - Based on `ghcr.io/minimalcompact/thumbor:latest`
+            - Includes FFmpeg for video processing
+            - Includes thumbor-video-engine plugin
+            
+            ### Docker Images
+            - `ghcr.io/${{ github.repository_owner }}/pixishelf-thumbor:thumbor-${{ steps.version.outputs.version }}`
+            - `docker.io/${{ secrets.DOCKERHUB_USERNAME }}/pixishelf-thumbor:thumbor-${{ steps.version.outputs.version }}`
+            
+            ### Usage
+            ```bash
+            docker pull ghcr.io/${{ github.repository_owner }}/pixishelf-thumbor:thumbor-${{ steps.version.outputs.version }}
+            ```
+          files: |
+            build/thumbor/Dockerfile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 安全扫描作业 (扫描 Thumbor 镜像)
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/thumbor/')
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - name: Run Trivy vulnerability scanner for Thumbor
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest'
+          format: 'sarif'
+          output: 'trivy-thumbor-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-thumbor-results.sarif'
