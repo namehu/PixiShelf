@@ -1,6 +1,10 @@
 // ============================================================================
 // 媒体类型定义
 // ============================================================================
+import { isVideoFile, isImageFile, getFileExtension } from '../../lib/media'
+import { VIDEO_EXTENSIONS, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS } from '../../lib/constant'
+
+export { isVideoFile, isImageFile, VIDEO_EXTENSIONS, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS }
 
 /**
  * 媒体文件类型枚举
@@ -9,25 +13,6 @@ export enum MediaType {
   IMAGE = 'image',
   VIDEO = 'video'
 }
-
-/**
- * 支持的图片格式
- */
-export const IMAGE_EXTENSIONS = [
-  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff', '.tif'
-] as const
-
-/**
- * 支持的视频格式
- */
-export const VIDEO_EXTENSIONS = [
-  '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv'
-] as const
-
-/**
- * 所有支持的媒体格式
- */
-export const MEDIA_EXTENSIONS = [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS] as const
 
 /**
  * 媒体文件信息接口
@@ -86,26 +71,6 @@ export interface ExtendedImage {
 }
 
 /**
- * 判断文件是否为视频格式
- * @param filename 文件名或文件路径
- * @returns 是否为视频文件
- */
-export function isVideoFile(filename: string): boolean {
-  const ext = getFileExtension(filename)
-  return VIDEO_EXTENSIONS.includes(ext as any)
-}
-
-/**
- * 判断文件是否为图片格式
- * @param filename 文件名或文件路径
- * @returns 是否为图片文件
- */
-export function isImageFile(filename: string): boolean {
-  const ext = getFileExtension(filename)
-  return IMAGE_EXTENSIONS.includes(ext as any)
-}
-
-/**
  * 获取媒体文件类型
  * @param filename 文件名或文件路径
  * @returns 媒体类型，如果不支持则返回null
@@ -118,19 +83,6 @@ export function getMediaType(filename: string): MediaType | null {
     return MediaType.IMAGE
   }
   return null
-}
-
-/**
- * 获取文件扩展名（小写）
- * @param filename 文件名或文件路径
- * @returns 文件扩展名（包含点号）
- */
-export function getFileExtension(filename: string): string {
-  const lastDotIndex = filename.lastIndexOf('.')
-  if (lastDotIndex === -1) {
-    return ''
-  }
-  return filename.slice(lastDotIndex).toLowerCase()
 }
 
 /**
@@ -149,7 +101,7 @@ export function isSupportedMediaFile(filename: string): boolean {
  */
 export function getMediaMimeType(filename: string): string | null {
   const ext = getFileExtension(filename)
-  
+
   // 图片MIME类型映射
   const imageMimeTypes: Record<string, string> = {
     '.jpg': 'image/jpeg',
@@ -162,7 +114,7 @@ export function getMediaMimeType(filename: string): string | null {
     '.tiff': 'image/tiff',
     '.tif': 'image/tiff'
   }
-  
+
   // 视频MIME类型映射
   const videoMimeTypes: Record<string, string> = {
     '.mp4': 'video/mp4',
@@ -173,7 +125,7 @@ export function getMediaMimeType(filename: string): string | null {
     '.webm': 'video/webm',
     '.mkv': 'video/x-matroska'
   }
-  
+
   return imageMimeTypes[ext] || videoMimeTypes[ext] || null
 }
 
@@ -183,6 +135,9 @@ export function getMediaMimeType(filename: string): string | null {
  * @returns 是否为视频元数据
  */
 export function isVideoMetadata(metadata: any): metadata is VideoMetadata {
-  return metadata && typeof metadata === 'object' && 
+  return (
+    metadata &&
+    typeof metadata === 'object' &&
     (typeof metadata.duration === 'number' || typeof metadata.duration === 'undefined')
+  )
 }
