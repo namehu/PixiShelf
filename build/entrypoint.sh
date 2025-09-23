@@ -10,7 +10,7 @@ pnpm --filter="@pixishelf/next" db:deploy
 
 # 找到所有构建出的 JS 文件
 # .next/static/**/*.js
-files=$(find .next/static -type f -name "*.js")
+files=$(find packages/pixishelf/.next/static -type f -name "*.js")
 
 echo "Found files to process:"
 echo "$files"
