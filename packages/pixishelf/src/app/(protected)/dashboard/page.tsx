@@ -5,6 +5,8 @@ import RecommendedArtworks from './_components/RecommendedArtworks'
 import RecentArtworks from './_components/RecentArtworks'
 import RecentArtists from './_components/RecentArtists'
 
+export const dynamic = 'force-dynamic' // <--- 添加这一行
+
 // ============================================================================
 // 仪表板页面
 // ============================================================================
