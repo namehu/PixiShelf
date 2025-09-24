@@ -65,6 +65,8 @@ services:
       - IMGPROXY_USE_FILESYSTEM=true
       # 设置 ImgProxy 可以访问的根目录
       - IMGPROXY_LOCAL_FILESYSTEM_ROOT=/data
+      - IMGPROXY_MAX_SRC_FILE_SIZE=0
+      - IMGPROXY_MAX_SRC_RESOLUTION=1000
     networks:
       - pixishelf-network
 
