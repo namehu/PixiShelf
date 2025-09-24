@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { RefreshCw } from 'lucide-react'
 import { EnhancedArtworksResponse } from '@/types'
 import { apiJson } from '@/lib/api'
-import ArtworkCard from './ArtworkCard'
+import ArtworkCard from '@/components/artwork/ArtworkCard'
 
 interface ArtworkGridProps {
   initialData: EnhancedArtworksResponse
@@ -93,7 +93,7 @@ export default function ArtworkGrid({
         )}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {data.items.map((artwork) => (
-            <ArtworkCard key={artwork.id} showRecommendedBadge={recommand ?? false} artwork={artwork} />
+            <ArtworkCard key={artwork.id} artwork={artwork} />
           ))}
         </div>
       </>

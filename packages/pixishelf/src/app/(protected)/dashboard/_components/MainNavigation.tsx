@@ -6,9 +6,8 @@ import {
   NavigationMenuItem,
   NavigationMenuLink
 } from '@/components/ui/navigation-menu'
-import { Users, Image, Hash } from 'lucide-react'
+import { UsersIcon, ImageIcon, HashIcon } from 'lucide-react'
 import Link from 'next/link'
-import { memo } from 'react'
 
 /**
  * 主导航菜单组件
@@ -19,24 +18,24 @@ const MainNavigation = () => (
       <NavigationMenuItem>
         <NavigationMenuLink asChild>
           <Link href={ROUTES.GALLERY} className="flex flex-row items-center gap-2">
-            <Image className="h-4 w-4" />
-            <span>作品</span>
+            <ImageIcon className="h-4 w-4" />
+            <span className="hidden sm:inline">作品</span>
           </Link>
         </NavigationMenuLink>
       </NavigationMenuItem>
       <NavigationMenuItem>
         <NavigationMenuLink asChild>
           <Link href={ROUTES.ARTISTS} className="flex flex-row items-center gap-2">
-            <Users className="h-4 w-4" />
-            <span>艺术家</span>
+            <UsersIcon className="h-4 w-4" />
+            <span className="hidden sm:inline">艺术家</span>
           </Link>
         </NavigationMenuLink>
       </NavigationMenuItem>
       <NavigationMenuItem>
         <NavigationMenuLink asChild>
           <Link href={ROUTES.TAGS} className="flex flex-row items-center gap-2">
-            <Hash className="h-4 w-4" />
-            <span>标签</span>
+            <HashIcon className="h-4 w-4" />
+            <span className="hidden sm:inline">标签</span>
           </Link>
         </NavigationMenuLink>
       </NavigationMenuItem>

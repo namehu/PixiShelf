@@ -1,6 +1,5 @@
 import { EnhancedArtworksResponse } from '@/types'
 import ArtworkGrid from './ArtworkGrid'
-import ArtworkCard from './ArtworkCard'
 
 interface RecommendedArtworksProps {
   initialData: EnhancedArtworksResponse
