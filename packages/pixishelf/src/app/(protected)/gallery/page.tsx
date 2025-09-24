@@ -2,10 +2,9 @@
 
 import React, { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
 import { EnhancedArtworksResponse, SortOption } from '@/types'
 import { useAuth } from '@/components'
-import { SortControl, VideoPreview, SearchBox } from '@/components/ui'
+import { SortControl, SearchBox } from '@/components/ui'
 import {
   Pagination,
   PaginationContent,
@@ -17,7 +16,7 @@ import {
 } from '@/components/ui/pagination'
 import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
-import { isVideoFile } from '@/types'
+import ArtworkCard from '@/components/artwork/ArtworkCard'
 
 // ============================================================================
 // 画廊页面
@@ -405,102 +404,7 @@ function GalleryPageContent() {
               {/* Artwork Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
                 {data.items.map((aw) => {
-                  const id = aw.id
-                  const cover = aw.images?.[0]
-                  const src = cover ? `/api/v1/images/${encodeURIComponent(cover.path)}` : ''
-                  const artistName = aw.artist?.name as string | undefined
-                  const imageCount = aw.imageCount || 0
-                  const totalMediaSize = aw.totalMediaSize || 0
-
-                  // 检查封面是否为视频
-                  const isVideoCover = cover && isVideoFile(cover.path)
-
-                  return (
-                    <Link key={id} href={`/artworks/${id}`} className="block animate-fade-in">
-                      <div className="bg-white rounded-2xl shadow-sm p-0 overflow-hidden hover:shadow-md transition-shadow">
-                        {/* Media Preview */}
-                        <div className="relative aspect-[3/4] w-full overflow-hidden bg-neutral-100">
-                          {src ? (
-                            isVideoCover ? (
-                              <VideoPreview src={src} title={aw.title} className="h-full w-full object-cover" />
-                            ) : (
-                              <img src={src} alt={aw.title} className="h-full w-full object-cover" loading="lazy" />
-                            )
-                          ) : (
-                            <div className="h-full w-full bg-neutral-200 flex items-center justify-center">
-                              <svg
-                                className="w-8 h-8 text-neutral-400"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                                />
-                              </svg>
-                            </div>
-                          )}
-
-                          {/* Media count badges */}
-                          <div className="absolute top-3 right-3 flex flex-col gap-1">
-                            {imageCount > 1 && (
-                              <div className="bg-black/70 backdrop-blur-sm text-white px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                                  />
-                                </svg>
-                                {imageCount}
-                              </div>
-                            )}
-                            {totalMediaSize > 0 && (
-                              <div className="bg-red-600/80 backdrop-blur-sm text-white px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                  />
-                                </svg>
-                                {(totalMediaSize / (1024 * 1024)).toFixed(1)}MB
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Content */}
-                        <div className="p-4 space-y-2">
-                          <h3 className="font-medium text-neutral-900 truncate" title={aw.title}>
-                            {aw.title}
-                          </h3>
-                          {artistName && aw.artist?.id && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                router.push(`/artists/${aw.artist!.id}`)
-                              }}
-                              className="text-sm text-neutral-600 hover:text-blue-600 truncate transition-colors block text-left w-full p-0 border-0 bg-transparent cursor-pointer"
-                              title={artistName}
-                            >
-                              {artistName}
-                            </button>
-                          )}
-                          {artistName && !aw.artist?.id && (
-                            <p className="text-sm text-neutral-600 truncate" title={artistName}>
-                              {artistName}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </Link>
-                  )
+                  return <ArtworkCard key={aw.id} artwork={aw} />
                 })}
               </div>
 

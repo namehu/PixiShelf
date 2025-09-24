@@ -12,11 +12,9 @@ interface ArtworkCardProps {
  * 作品卡片组件（服务端组件）
  */
 export default function ArtworkCard({ artwork }: ArtworkCardProps) {
-  const { imageCount, videoCount, totalMediaSize = 0, images = [], artist } = artwork
+  const { imageCount, totalMediaSize = 0, images = [], artist } = artwork
   const src = images[0]?.path ?? ''
   const artistName = artist?.name
-
-  console.log(artwork, 'artwork')
 
   return (
     <Link href={`/artworks/${artwork.id}`} className="block">
