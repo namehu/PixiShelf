@@ -1,91 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
-import { Artist } from '@/types'
-
-const prisma = new PrismaClient()
+import { artistService } from '@/services/artistService'
+import { ArtistsQuery } from '@/types'
 
 export async function GET(request: NextRequest) {
   try {
+    // 1. 解析请求参数
     const { searchParams } = new URL(request.url)
-    const page = parseInt(searchParams.get('page') || '1')
-    const pageSize = Math.min(100, parseInt(searchParams.get('pageSize') || '20'))
-    const search = searchParams.get('search') || ''
-    const sortBy = searchParams.get('sortBy') || 'name_asc'
-
-    // 计算分页参数
-    const skip = (page - 1) * pageSize
-
-    // 构建搜索条件
-    const whereClause: any = {}
-    if (search) {
-      whereClause.OR = [
-        {
-          name: {
-            contains: search,
-            mode: 'insensitive'
-          }
-        },
-        {
-          username: {
-            contains: search,
-            mode: 'insensitive'
-          }
-        }
-      ]
+    const query: ArtistsQuery = {
+      page: searchParams.get('page') || undefined,
+      pageSize: searchParams.get('pageSize') || undefined,
+      search: searchParams.get('search') || undefined,
+      sortBy: (searchParams.get('sortBy') as any) || undefined
     }
 
-    // 构建排序条件
-    let orderBy: any
-    switch (sortBy) {
-      case 'name_desc':
-        orderBy = { name: 'desc' }
-        break
-      case 'artworks_desc':
-        orderBy = { artworks: { _count: 'desc' } }
-        break
-      case 'artworks_asc':
-        orderBy = { artworks: { _count: 'asc' } }
-        break
-      default:
-        orderBy = { name: 'asc' }
-    }
+    // 2. 验证查询参数
+    const validatedQuery = artistService.validateArtistsQuery(query)
 
-    // 查询总数和艺术家列表
-    const [total, artists] = await Promise.all([
-      prisma.artist.count({ where: whereClause }),
-      prisma.artist.findMany({
-        where: whereClause,
-        include: {
-          _count: {
-            select: {
-              artworks: true
-            }
-          }
-        },
-        orderBy,
-        skip,
-        take: pageSize
-      })
-    ])
+    // 3. 调用 Service 层
+    const result = await artistService.getArtists(validatedQuery)
 
-    // 转换数据格式，添加 artworksCount 字段
-    const formattedArtists: Artist[] = artists.map((artist) => ({
-      id: artist.id,
-      name: artist.name,
-      username: artist.username,
-      userId: artist.userId,
-      bio: artist.bio,
-      artworksCount: artist._count.artworks,
-      createdAt: artist.createdAt.toISOString(),
-      updatedAt: artist.updatedAt.toISOString()
-    }))
-
-    return NextResponse.json({
-      items: formattedArtists,
-      total,
-      page,
-      pageSize
-    })
+    // 4. 返回响应
+    return NextResponse.json(result)
   } catch (error) {
     console.error('Error fetching artists:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
