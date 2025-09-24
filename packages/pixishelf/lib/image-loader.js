@@ -9,7 +9,7 @@ export default function imgproxyLoader({ src, width, quality }) {
   // 视频截帧用 自定义的Thumbor 组件
   if (isVideoFile(src)) {
     // const eSrc = decodeURIComponent(src).split('/').map(part => encodeURIComponent(part)).join('/');
-    const finalUrl = `${THUMBOR_VIDEO_URL}/unsafe/${width || 800}x0/filters:still(0.1)${encodeURIComponent(src)}`;
+    const finalUrl = `${THUMBOR_VIDEO_URL}/unsafe/${width || 800}x0/filters:still(0.1)${src}`;
     return finalUrl;
   }
 
