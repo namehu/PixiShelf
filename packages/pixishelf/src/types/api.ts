@@ -104,12 +104,21 @@ export type SortOption =
   | 'source_date_asc'  // 按作品创建时间升序
 
 /**
+ * 媒体类型筛选选项
+ */
+export type MediaTypeFilter = 
+  | 'all'    // 全部类型（默认）
+  | 'image'  // 仅图片
+  | 'video'  // 仅视频
+
+/**
  * 作品列表查询参数
  */
 export interface ArtworksQuery extends PaginationQuery {
   tags?: string // 逗号分隔的标签列表
   search?: string // 模糊搜索关键词（搜索作品标题、描述、艺术家名称）
   sortBy?: SortOption // 排序选项
+  mediaType?: MediaTypeFilter // 媒体类型筛选
 }
 
 /**

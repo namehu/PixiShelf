@@ -9,6 +9,9 @@ export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 export { SortControl } from './SortControl'
 export type { SortControlProps } from './SortControl'
 
+export { MediaTypeFilter } from './MediaTypeFilter'
+export type { MediaTypeFilterProps } from './MediaTypeFilter'
+
 export { VideoPreview } from './VideoPreview'
 
 export { VideoPlayer } from './VideoPlayer'

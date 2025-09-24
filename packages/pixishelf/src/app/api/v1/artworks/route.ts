@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { EnhancedArtworksResponse, SortOption, getMediaType, MediaFile } from '@/types'
+import { EnhancedArtworksResponse, SortOption, MediaTypeFilter, getMediaType, MediaFile } from '@/types'
 import { prisma } from '@/lib/prisma'
 
 // 排序选项映射（与原始文件保持一致）
@@ -55,6 +55,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<EnhancedAr
     const artistId = searchParams.get('artistId') ? parseInt(searchParams.get('artistId')!, 10) : undefined
     const tagId = searchParams.get('tagId') ? parseInt(searchParams.get('tagId')!, 10) : undefined
     const sortBy = getSafeSortOption(searchParams.get('sortBy'))
+    const mediaType = (searchParams.get('mediaType') as MediaTypeFilter) || 'all'
 
     // 构建基础查询条件
     const whereClause: any = {}
@@ -80,6 +81,41 @@ export async function GET(request: NextRequest): Promise<NextResponse<EnhancedAr
       whereClause.artworkTags = {
         some: {
           tagId: tagId
+        }
+      }
+    }
+
+    // 媒体类型筛选
+    if (mediaType === 'video') {
+      whereClause.images = {
+        some: {
+          OR: [
+            { path: { endsWith: '.mp4', mode: 'insensitive' } },
+            { path: { endsWith: '.avi', mode: 'insensitive' } },
+            { path: { endsWith: '.mov', mode: 'insensitive' } },
+            { path: { endsWith: '.wmv', mode: 'insensitive' } },
+            { path: { endsWith: '.flv', mode: 'insensitive' } },
+            { path: { endsWith: '.webm', mode: 'insensitive' } },
+            { path: { endsWith: '.mkv', mode: 'insensitive' } },
+            { path: { endsWith: '.m4v', mode: 'insensitive' } }
+          ]
+        }
+      }
+    } else if (mediaType === 'image') {
+      whereClause.NOT = {
+        images: {
+          some: {
+            OR: [
+              { path: { endsWith: '.mp4', mode: 'insensitive' } },
+              { path: { endsWith: '.avi', mode: 'insensitive' } },
+              { path: { endsWith: '.mov', mode: 'insensitive' } },
+              { path: { endsWith: '.wmv', mode: 'insensitive' } },
+              { path: { endsWith: '.flv', mode: 'insensitive' } },
+              { path: { endsWith: '.webm', mode: 'insensitive' } },
+              { path: { endsWith: '.mkv', mode: 'insensitive' } },
+              { path: { endsWith: '.m4v', mode: 'insensitive' } }
+            ]
+          }
         }
       }
     }
@@ -133,6 +169,37 @@ export async function GET(request: NextRequest): Promise<NextResponse<EnhancedAr
       )`
       params.push(searchCondition)
       paramIndex++
+
+      // 媒体类型筛选
+      if (mediaType === 'video') {
+        whereSQL += ` AND EXISTS (
+          SELECT 1 FROM "Image" i
+          WHERE i."artworkId" = a.id AND (
+            LOWER(i.path) LIKE '%.mp4' OR
+            LOWER(i.path) LIKE '%.avi' OR
+            LOWER(i.path) LIKE '%.mov' OR
+            LOWER(i.path) LIKE '%.wmv' OR
+            LOWER(i.path) LIKE '%.flv' OR
+            LOWER(i.path) LIKE '%.webm' OR
+            LOWER(i.path) LIKE '%.mkv' OR
+            LOWER(i.path) LIKE '%.m4v'
+          )
+        )`
+      } else if (mediaType === 'image') {
+        whereSQL += ` AND NOT EXISTS (
+          SELECT 1 FROM "Image" i
+          WHERE i."artworkId" = a.id AND (
+            LOWER(i.path) LIKE '%.mp4' OR
+            LOWER(i.path) LIKE '%.avi' OR
+            LOWER(i.path) LIKE '%.mov' OR
+            LOWER(i.path) LIKE '%.wmv' OR
+            LOWER(i.path) LIKE '%.flv' OR
+            LOWER(i.path) LIKE '%.webm' OR
+            LOWER(i.path) LIKE '%.mkv' OR
+            LOWER(i.path) LIKE '%.m4v'
+          )
+        )`
+      }
 
       // 构建排序子句
       let orderBySQL = ''

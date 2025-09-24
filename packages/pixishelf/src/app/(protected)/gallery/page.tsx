@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { EnhancedArtworksResponse, SortOption } from '@/types'
+import { EnhancedArtworksResponse, SortOption, MediaTypeFilter } from '@/types'
 import { useAuth } from '@/components'
-import { SortControl, SearchBox } from '@/components/ui'
+import { SortControl, SearchBox, MediaTypeFilter as MediaTypeFilterComponent } from '@/components/ui'
 import {
   Pagination,
   PaginationContent,
@@ -25,7 +25,7 @@ import ArtworkCard from '@/components/artwork/ArtworkCard'
 /**
  * 获取作品列表Hook
  */
-function useArtworks(page: number, pageSize: number, tags?: string[], search?: string, sortBy?: SortOption) {
+function useArtworks(page: number, pageSize: number, tags?: string[], search?: string, sortBy?: SortOption, mediaType?: MediaTypeFilter) {
   const [data, setData] = useState<EnhancedArtworksResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isError, setIsError] = useState(false)
@@ -48,6 +48,9 @@ function useArtworks(page: number, pageSize: number, tags?: string[], search?: s
         if (sortBy && sortBy !== 'source_date_desc') {
           url.searchParams.set('sortBy', sortBy)
         }
+        if (mediaType && mediaType !== 'all') {
+          url.searchParams.set('mediaType', mediaType)
+        }
 
         const result = await apiJson<EnhancedArtworksResponse>(url.toString())
         setData(result)
@@ -60,7 +63,7 @@ function useArtworks(page: number, pageSize: number, tags?: string[], search?: s
     }
 
     fetchArtworks()
-  }, [page, pageSize, tags, search, sortBy])
+  }, [page, pageSize, tags, search, sortBy, mediaType])
 
   return { data, isLoading, isError }
 }
@@ -112,13 +115,15 @@ function GalleryPageContent() {
   const selectedTags = searchParams.get('tags')?.split(',').filter(Boolean) || []
   const searchQuery = searchParams.get('search') || ''
   const sortBy = (searchParams.get('sortBy') as SortOption) || 'source_date_desc'
+  const mediaType = (searchParams.get('mediaType') as MediaTypeFilter) || 'all'
 
   const { data, isLoading, isError } = useArtworks(
     page,
     pageSize,
     selectedTags.length > 0 ? selectedTags : undefined,
     searchQuery || undefined,
-    sortBy
+    sortBy,
+    mediaType
   )
 
   const scanStatus = useScanStatus()
@@ -191,6 +196,7 @@ function GalleryPageContent() {
     const newParams = new URLSearchParams(searchParams.toString())
     newParams.delete('search')
     newParams.delete('tags')
+    newParams.delete('mediaType')
     newParams.set('page', '1')
     router.push(`/gallery?${newParams.toString()}`)
   }
@@ -201,6 +207,17 @@ function GalleryPageContent() {
       newParams.delete('sortBy') // 默认值不需要在URL中
     } else {
       newParams.set('sortBy', newSortBy)
+    }
+    newParams.set('page', '1') // 重置到第一页
+    router.push(`/gallery?${newParams.toString()}`)
+  }
+
+  const handleMediaTypeChange = (newMediaType: MediaTypeFilter) => {
+    const newParams = new URLSearchParams(searchParams.toString())
+    if (newMediaType === 'all') {
+      newParams.delete('mediaType') // 默认值不需要在URL中
+    } else {
+      newParams.set('mediaType', newMediaType)
     }
     newParams.set('page', '1') // 重置到第一页
     router.push(`/gallery?${newParams.toString()}`)
@@ -248,7 +265,7 @@ function GalleryPageContent() {
           </div>
 
           {/* Active Search and Filters Section */}
-          {(searchQuery || selectedTags.length > 0) && (
+          {(searchQuery || selectedTags.length > 0 || mediaType !== 'all') && (
             <div className="bg-white rounded-2xl shadow-sm p-4">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -263,7 +280,7 @@ function GalleryPageContent() {
                     </svg>
                     <span className="text-sm font-medium text-neutral-700">活跃筛选</span>
                   </div>
-                  {(searchQuery || selectedTags.length > 0) && (
+                  {(searchQuery || selectedTags.length > 0 || mediaType !== 'all') && (
                     <button
                       onClick={clearAllFilters}
                       className="text-xs text-neutral-500 hover:text-neutral-700 transition-colors"
@@ -274,6 +291,25 @@ function GalleryPageContent() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+                  {/* Media Type Filter */}
+                  {mediaType !== 'all' && (
+                    <span
+                      className="inline-flex items-center gap-1 px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-xs font-medium group cursor-pointer transition-all hover:bg-blue-100"
+                      onClick={() => handleMediaTypeChange('all')}
+                    >
+                      {mediaType === 'video' ? '🎬' : '🖼️'}
+                      类型: {mediaType === 'video' ? '仅视频' : '仅图片'}
+                      <svg
+                        className="w-3 h-3 ml-1 opacity-60 group-hover:opacity-100 transition-opacity"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </span>
+                  )}
+
                   {/* Search Query */}
                   {searchQuery && (
                     <span
@@ -383,21 +419,29 @@ function GalleryPageContent() {
                     </svg>
                     <span className="text-lg font-semibold text-neutral-900">{data.total.toLocaleString()} 个作品</span>
                   </div>
-                  {(searchQuery || selectedTags.length > 0) && (
+                  {(searchQuery || selectedTags.length > 0 || mediaType !== 'all') && (
                     <div className="text-sm text-neutral-600">
-                      {searchQuery && selectedTags.length > 0
-                        ? `搜索 "${searchQuery}" 并筛选标签: ${selectedTags.map((t) => `#${t}`).join(', ')}`
-                        : searchQuery
-                          ? `搜索结果: "${searchQuery}"`
-                          : `筛选结果: ${selectedTags.map((t) => `#${t}`).join(', ')}`}
+                      {(() => {
+                        const filters = []
+                        if (searchQuery) filters.push(`搜索 "${searchQuery}"`)
+                        if (selectedTags.length > 0) filters.push(`标签: ${selectedTags.map((t) => `#${t}`).join(', ')}`)
+                        if (mediaType !== 'all') filters.push(`类型: ${mediaType === 'video' ? '仅视频' : '仅图片'}`)
+                        return filters.join(' | ')
+                      })()}
                     </div>
                   )}
                 </div>
 
-                {/* Sort Control */}
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-neutral-700 whitespace-nowrap">排序方式:</span>
-                  <SortControl value={sortBy} onChange={handleSortChange} size="sm" className="min-w-[140px]" />
+                {/* Filter and Sort Controls */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-neutral-700 whitespace-nowrap">媒体类型:</span>
+                    <MediaTypeFilterComponent value={mediaType} onChange={handleMediaTypeChange} size="sm" className="min-w-[120px]" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-neutral-700 whitespace-nowrap">排序方式:</span>
+                    <SortControl value={sortBy} onChange={handleSortChange} size="sm" className="min-w-[140px]" />
+                  </div>
                 </div>
               </div>
 
