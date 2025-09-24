@@ -1,160 +1,245 @@
-# PixiShelf - 项目计划与架构设计 V1.2
 
----
+您提出的问题非常到位，这确实是 Next.js App Router 开发中一个核心的架构问题。您的直觉完全正确：**抽离一个独立的 Service 层是处理 RSC 直接访问数据库和传统 API 路由之间逻辑复用的最佳实践。**
 
-## 1. 产品愿景与目标
+下面我将详细阐述为什么这是一种最佳实践，并提供一个清晰的架构和代码示例。
 
-**产品愿景:** 将用户本地存储的、按文件夹组织的静态图片收藏，转变为一个动态、美观、易于导航和管理的现代化个人Web画廊。
+-----
 
----
+### 1\. 问题所在：为什么会产生逻辑重合？
 
-## 2. 技术选型 (Technology Stack)
+在 Next.js App Router 模式下，我们有两种主要的数据提供方式：
 
-| 分层 | 技术 | 备注 |
-| :--- | :--- | :--- |
-| **项目管理** | `pnpm workspace` | 高效的 Monorepo (单体仓库) 依赖管理方案。 |
-| **代码质量** | `ESLint`/`Oxlint`, `Prettier`, `Husky` | 保证代码风格统一和提交前质量检查。 |
-| **前端** | `React` + `Vite` + `TypeScript` | 现代、高效的Web用户界面开发套件。 |
-| | `TanStack Query` | 优雅地处理数据获取、缓存和状态同步。 |
-| | `Tailwind CSS` | 实现高度定制化和响应式的UI设计。 |
-| **后端** | `Node.js` + `Fastify` + `TypeScript` | 高性能的Web框架，结合TS保证代码健壮性。 |
-| | `Prisma` | 下一代ORM，简化与PostgreSQL的交互。 |
-| **数据库** | `PostgreSQL` | 功能强大，支持全文索引等高级功能。 |
-| **部署** | `Docker` & `Docker Compose` | 实现环境一致性，一键化部署和管理。 |
+1.  **React Server Components (RSC):** 在服务器上渲染时，可以直接 `async/await` 数据库查询或其他异步操作。这用于页面的初始加载，能带来极佳的 SEO 和首屏性能。
+2.  **API 路由 (Route Handlers):** 位于 `app/api/...` 目录下，用于提供传统的 RESTful 或 GraphQL 接口。这些接口通常被客户端组件（`'use client'`）通过 `fetch` 调用，以实现交互式功能（如分页、排序、搜索、表单提交等）。
 
----
+很多时候，RSC 获取首页文章列表的逻辑，和客户端通过 `/api/posts?page=2` 获取第二页文章列表的逻辑，其核心部分（查询数据库、处理数据）是完全一样的。直接在两个地方都写一遍查询代码，会造成：
 
-## 3. 架构设计 (细化)
+  * **代码冗余 (Don't Repeat Yourself - DRY 原则被违背)**：同样的代码散落在各处。
+  * **维护困难**：如果查询逻辑需要修改（例如，增加一个字段或修改过滤条件），你必须记得去修改所有使用到它的地方，非常容易遗漏。
+  * **逻辑不一致**：不同地方的实现可能产生细微差别，导致 bug。
+  * **可测试性差**：业务逻辑和 Next.js 的路由/组件层耦合在一起，难以进行单元测试。
 
-### 3.1 Monorepo 目录结构 (Refined)
+-----
 
-*(增加 `.github` 用于 CI/CD)*
-```plaintext
-pixishelf/
-├── .github/
-│   └── workflows/           # CI/CD 工作流 (e.g., lint, test, build)
-├── .husky/                  # Git hooks 配置
-├── docker-compose.yml
-├── Dockerfile
-├── pnpm-workspace.yaml
-└── packages/
-    ├── api/
-    ├── web/
-    └── shared/
+### 2\. 最佳实践：分层架构 (Layered Architecture)
+
+为了解决以上问题，我们引入分层架构。一个清晰、可维护的结构如下：
+
+```
+src/
+├── app/
+│   ├── page.tsx                # (RSC) 直接调用 Service
+│   └── api/
+│       └── posts/
+│           └── route.ts        # (API Route) 直接调用 Service
+│
+├── components/
+│   └── PostList.tsx            # (Client Component) 通过 fetch 调用 API
+│
+├── services/                   # <--- 核心：Service 层
+│   ├── postService.ts
+│   └── userService.ts
+│
+└── lib/                        # <--- 数据访问层 (DAL) / 工具库
+    ├── db.ts                   # Prisma Client 或其他数据库实例
+    └── repositories/           # (可选，但推荐) Repository 模式
+        └── postRepository.ts
 ```
 
-### 3.2 数据库表结构设计 (Refined)
+#### 各层职责：
 
-*(补充索引建议)*
-```prisma
-// file: packages/api/prisma/schema.prisma
-// ...
-model Artwork {
-  // ...
-  title       String
-  description String?
-  tags        String[]
+1.  **表示层 (Presentation Layer): `app/`**
 
-  // 为全文搜索准备
-  @@index([title, description]) // B-Tree 索引用于常规搜索
-  // @@fulltext([title, description]) // Prisma 5.x+ 支持的全文索引
+      * **RSC (`page.tsx`) / API 路由 (`route.ts`) / Server Actions:** 这一层的职责是处理 HTTP 请求和响应，以及与 Next.js 框架的交互。
+      * 它们负责：验证用户权限、解析请求参数（如 `searchParams` 或 `request body`）、调用 Service 层，以及格式化返回给客户端或 RSC 的数据。
+      * **它们不应该包含复杂的业务逻辑或直接的数据库查询语句。**
+
+2.  **服务层 (Service Layer): `services/`**
+
+      * **这是业务逻辑的核心。** 它封装了应用程序的业务规则和流程。
+      * 例如，`postService` 可能包含 `getPublishedPosts`, `createPost`, `deletePost` 等方法。
+      * 这些方法包含了创建一篇文章需要满足什么条件、获取文章列表时默认的排序规则等业务逻辑。
+      * 它作为表示层和数据访问层之间的桥梁。
+
+3.  **数据访问层 (Data Access Layer - DAL): `lib/`**
+
+      * 这一层的唯一职责是与数据库进行交互。
+      * 最简单的形式就是直接使用 ORM 客户端（如 Prisma Client）。
+      * 在更大型的应用中，通常会实现 **Repository 模式**，将 ORM 的具体实现细节也封装起来，例如 `postRepository.ts`。这使得未来更换 ORM 或数据库变得更容易，并且让测试更简单。
+
+-----
+
+### 3\. 代码示例
+
+假设我们使用 Prisma 作为 ORM。
+
+#### 第1步: 数据访问层 (DAL / Repository)
+
+这里我们为了清晰，引入 Repository 模式。
+
+**`src/lib/db.ts`**
+
+```typescript
+import { PrismaClient } from '@prisma/client';
+
+export const db = new PrismaClient();
+```
+
+**`src/lib/repositories/postRepository.ts`**
+
+```typescript
+import { db } from '@/lib/db';
+
+export const postRepository = {
+  async findMany(options: { where?: object; orderBy?: object; take?: number; skip?: number }) {
+    return db.post.findMany(options);
+  },
+
+  async findById(id: string) {
+    return db.post.findUnique({ where: { id } });
+  },
+
+  async create(data: { title: string; content: string; authorId: string }) {
+    return db.post.create({ data });
+  },
+  // ... 其他 CRUD 方法
+};
+```
+
+#### 第2步: 服务层 (Service Layer)
+
+Service 层调用 Repository 来执行操作，并加入业务逻辑。
+
+**`src/services/postService.ts`**
+
+```typescript
+import { postRepository } from '@/lib/repositories/postRepository';
+import { getCurrentUser } from '@/lib/auth'; // 假设有一个获取当前用户的方法
+
+export const postService = {
+  /**
+   * 获取已发布的文章列表，并按创建时间降序排列
+   * 这是业务逻辑：只获取 isPublished: true 的文章
+   */
+  async getPublishedPosts({ page = 1, limit = 10 }: { page?: number; limit?: number }) {
+    const posts = await postRepository.findMany({
+      where: { isPublished: true },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: (page - 1) * limit,
+    });
+    // 这里还可以处理更多业务逻辑，比如数据脱敏、组合其他数据源等
+    return posts;
+  },
+
+  /**
+   * 创建一篇文章，并校验用户权限
+   */
+  async createPost(data: { title: string; content: string }) {
+    const user = await getCurrentUser();
+    if (!user) {
+      throw new Error('UNAUTHORIZED'); // 业务逻辑：用户必须登录
+    }
+
+    if (data.title.length < 5) {
+        throw new Error('VALIDATION_ERROR: Title too short'); // 业务逻辑：标题长度校验
+    }
+
+    return postRepository.create({
+      title: data.title,
+      content: data.content,
+      authorId: user.id,
+    });
+  },
+  // ... 其他业务方法
+};
+```
+
+#### 第3步: 在表示层消费 Service
+
+现在，RSC 和 API 路由都可以干净地调用 `postService`。
+
+**在 RSC 中使用 (`app/page.tsx`)**
+
+```tsx
+import { postService } from '@/services/postService';
+
+export default async function HomePage() {
+  // 直接在服务端组件中调用 service
+  const initialPosts = await postService.getPublishedPosts({ page: 1, limit: 10 });
+
+  return (
+    <main>
+      <h1>Latest Posts</h1>
+      {/* 渲染 initialPosts */}
+      {/* ... 可能会把 initialPosts 传递给一个客户端组件进行交互 */}
+    </main>
+  );
 }
-// ...
 ```
-**说明:** `Artwork` 表的 `tags`, `title`, `description` 字段将使用 PostgreSQL 的 GIN 或 Trigram 索引来实现高效的全文搜索。
 
----
+**在 API 路由中使用 (`app/api/posts/route.ts`)**
 
-## 4. 核心服务与API设计
+```ts
+import { NextResponse } from 'next/server';
+import { postService } from '@/services/postService';
 
-### 4.1 文件扫描与任务调度
-* **V1.0 (手动与定时):** 后端提供一个 API (`POST /api/v1/scan`) 用于手动触发扫描。同时，使用 `node-cron` 在后端服务中嵌入一个可配置的定时扫描任务。
-* **V2.0 (专业任务队列):** 引入 `BullMQ` 和 `Redis`，将扫描任务作为后台作业处理。这能提供任务重试、状态跟踪和更好的系统解耦。
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const limit = parseInt(searchParams.get('limit') || '10', 10);
 
-### 4.2 API 规范与设计 (V1.0)
-* **版本化:** 所有API路径将以 `/api/v1/` 开头，为未来的API迭代做准备。
-* **文档化:** 使用 `fastify-swagger` 插件，根据代码和JSDoc注解自动生成并托管 OpenAPI (Swagger) 文档。
+    // 同样调用那个 service 方法！
+    const posts = await postService.getPublishedPosts({ page, limit });
 
-| 方法 | 路径 | 描述 |
-| :--- | :--- | :--- |
-| `POST` | `/api/v1/scan` | 手动触发一次文件扫描任务 |
-| `GET` | `/api/v1/artworks` | 获取作品分页列表 |
-| `GET` | `/api/v1/artworks/:id` | 获取单个作品及其图片列表 |
-| `GET` | `/api/v1/artists` | 获取所有作者列表 |
-| `GET` | `/api/v1/images/*` | 获取图片文件 |
+    return NextResponse.json(posts);
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+  }
+}
+```
 
-### 4.3 性能与可扩展性
-* **图片处理 (V1.x):** 引入 `sharp` 库。在首次扫描或访问时，为原始图片生成不同尺寸的缩略图 (e.g., `thumbnail`, `medium`) 并缓存到本地文件系统。API (`/api/v1/images/*`) 将支持 `?size=` 参数来获取相应尺寸。
-* **上传支持 (V2.0):** 未来若支持上传功能，将考虑实现分片上传与断点续传。
+**在 Server Action 中使用 (`app/actions.ts`)**
 
----
+```ts
+'use server';
+import { postService } from '@/services/postService';
+import { revalidatePath } from 'next/cache';
 
-## 5. 部署与运维 (Production Readiness)
+export async function createPostAction(formData: FormData) {
+    const title = formData.get('title') as string;
+    const content = formData.get('content') as string;
 
-### 5.1 部署架构 (Refined)
-在生产环境中，推荐使用 `Nginx` 作为反向代理，部署在 `api-server` 前端。
-* **Nginx 职责:**
-    * 处理 SSL 证书。
-    * 作为前端静态文件 (`web` 包构建产物) 的高效服务器。
-    * 将 `/api` 请求反向代理到后端的 `api-server` 服务。
-    * 可以配置缓存策略和速率限制。
+    try {
+        // 同样调用 service！
+        await postService.createPost({ title, content });
+    } catch(error: any) {
+        return { error: error.message };
+    }
 
-### 5.2 配置与环境管理
-* 项目根目录将提供 `.env.example` 文件，清晰列出所有必需的环境变量 (数据库连接信息, `JWT_SECRET`, 扫描路径等)。
+    revalidatePath('/'); // 成功后清除缓存
+}
+```
 
-### 5.3 备份与恢复
-* **V1.0 (手动):** 在 `README` 中提供使用 `pg_dump` 手动备份数据库的命令指南。
-* **V2.0 (自动):** 在 `docker-compose` 中增加一个 `backup` 服务，使用 `postgres` 客户端镜像和 `cron` 定期执行 `pg_dump`，并将备份文件存储到挂载的卷或云存储。
+-----
 
----
+### 总结
 
-## 6. 系统质量与安全保障
+是的，**抽离 Service 层是 Next.js@15 及以后版本中处理数据和业务逻辑的最佳实践**。
 
-### 6.1 认证与安全
-* **V1.0 (基础安全):**
-    * **CORS:** 在Fastify中配置严格的跨域资源共享策略。
-    * **API 认证:** 提供一个简单的、基于环境变量配置的 `Bearer Token`，所有非公开API请求都需要携带此令牌。
-    * **图片防盗链:** 基础实现可通过校验HTTP `Referer` 头来完成。
-* **V1.x (用户账户体系):**
-    * 引入本地用户账户（用户名+密码），使用 `bcrypt` 存储密码哈希。
-    * 通过 `JWT` (JSON Web Tokens) 管理用户会话。
-    * 增加 CSRF 保护措施。
+**核心优势:**
 
-### 6.2 错误处理与日志
-* **错误处理:** API将遵循统一的错误响应结构，例如 `{ "statusCode": 404, "error": "Not Found", "message": "Artwork not found" }`。
-* **日志:** 使用 `pino` (Fastify默认) 进行日志记录。日志将以JSON格式输出，并分级 (info, warn, error)，便于后续日志系统（如ELK Stack）的采集与分析。
+1.  **逻辑复用 (DRY):** 无论是 RSC、API 路由还是 Server Action，都从同一个 Service 获取数据和执行操作，保证了逻辑的唯一性。
+2.  **关注点分离 (SoC):**
+      * **组件/路由** 关心 HTTP 和 UI。
+      * **Service** 关心业务规则。
+      * **Repository** 关心数据持久化。
+3.  **高可维护性:** 当业务规则改变时（例如，"获取文章"的逻辑需要增加一个过滤条件），你只需要修改 `postService.ts` 这一个文件。
+4.  **高可测试性:** 你可以轻松地为 `postService` 编写单元测试或集成测试，而无需启动整个 Next.js 应用。你可以模拟 (mock) `postRepository`，专注于测试业务逻辑本身。
 
-### 6.3 CI/CD 与代码质量
-* **代码质量 (V1.0):** 使用 `ESLint`/`Oxlint` + `Prettier` 强制代码规范，并配置 `husky` + `lint-staged` 在每次 `git commit` 前自动检查和格式化代码。
-* **持续集成 (V1.x):** 创建 GitHub Actions 工作流，在 `push` 或 `pull_request` 时自动执行：`pnpm install` -> `lint` -> `type-check` -> `test` -> `build`。
-
----
-
-## 7. 开发路线图 (更新)
-
-### 阶段一: 项目初始化与环境搭建 (V1.0)
-* [✔] 构思项目名称并细化架构设计。
-* [✔] 初始化 `pnpm` monorepo，包含 `api`, `web`, `shared`。
-* [✔] 配置 `ESLint`, `Prettier`, `Husky`。
-* [✔] 添加 `MIT` 许可证和 `CONTRIBUTING.md` 模板。
-* [✔] 编写 `docker-compose.yml`，运行 `postgres-db` 服务。
-* [✔] 在 `api` 包中配置 `Prisma`，定义 `schema.prisma` 并成功连接数据库。
-
-### 阶段二: 后端核心功能 (V1.0)
-* [✔] 实现文件扫描服务 (`scanner.ts`) 及手动触发API。
-* [✔] 实现所有版本化的 (`/api/v1/...`) 核心API。
-* [✔] 实现安全的图片服务路由。
-* [✔] 集成基础的日志和错误处理机制。
-* [✔] 实现基于环境变量的API令牌认证。
-
-### 阶段三: 前端核心功能 (V1.0)
-* [ ] 开发主画廊页和作品详情页。
-* [ ] 实现骨架屏 (Skeleton) 加载效果和图片懒加载。
-* [ ] 完成基础的响应式设计。
-* [ ] 接入后端API，完成数据联调。
-* [ ] 实现用户登录与注册功能。
-* [ ] 实现用户认证与授权。
-* [ ] (可选) 增加 i18n 基础框架 (`react-i18next`)。
+这种架构模式虽然在项目初期会增加一点文件结构上的“复杂性”，但随着应用规模的增长，它带来的清晰性、稳定性和可维护性收益是巨大的。
 
 ### 后续里程碑 (V1.x / V2.0)
 * **增强:** 全文搜索、缩略图生成、用户账户体系、Swagger文档。
