@@ -9,7 +9,7 @@ export default function imgproxyLoader({ src, width, quality }) {
   // 视频截帧用 自定义的Thumbor 组件
   if (isVideoFile(src)) {
     // const eSrc = decodeURIComponent(src).split('/').map(part => encodeURIComponent(part)).join('/');
-    const finalUrl = `${THUMBOR_VIDEO_URL}/unsafe/${width || 800}x0/filters:still(0.1)${src}`;
+    const finalUrl = `${THUMBOR_VIDEO_URL}/unsafe/${width || 800}x0/filters:still(0.1)${encodeURIComponent(src)}`;
     return finalUrl;
   }
 
@@ -25,6 +25,6 @@ export default function imgproxyLoader({ src, width, quality }) {
   // - ...processingOptions: 上面定义好的处理选项
   // - /${encodedSrc}: 编码后的源图片 URL
   // - .webp: 指定输出格式为高效的 WebP
-  return `${IMGPROXY_URL}/_/rs:fit:${width}:0/q:${quality || 80}/sm:1/plain/local://${src}@webp`;
+  return `${IMGPROXY_URL}/_/rs:fit:${width}:0/q:${quality || 80}/sm:1/plain/local://${encodeURIComponent(src)}@webp`;
 }
 
