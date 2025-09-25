@@ -1,11 +1,13 @@
-import { getRecommendedArtworks, getRecentArtworks, getRecentArtists } from './lib/data'
-import UserMenu from './_components/UserMenu'
+import { artworkService } from '@/services/artworkService'
+import { artistService } from '@/services/artistService'
 import MainNavigation from './_components/MainNavigation'
 import RecommendedArtworks from './_components/RecommendedArtworks'
 import RecentArtworks from './_components/RecentArtworks'
 import RecentArtists from './_components/RecentArtists'
+import UserMenu from './_components/UserMenu'
+import PNav from '@/components/layout/PNav'
 
-export const dynamic = 'force-dynamic' // <--- 添加这一行
+export const dynamic = 'force-dynamic'
 
 // ============================================================================
 // 仪表板页面
@@ -17,9 +19,9 @@ export const dynamic = 'force-dynamic' // <--- 添加这一行
 export default async function DashboardPage() {
   // 并行获取所有数据
   const [recommendedArtworks, recentArtworks, recentArtists] = await Promise.allSettled([
-    getRecommendedArtworks(),
-    getRecentArtworks(),
-    getRecentArtists()
+    artworkService.getRecommendedArtworks({ pageSize: 10 }), // 获取推荐作品数据
+    artworkService.getRecentArtworks({ page: 1, pageSize: 10 }), // 获取最新作品数据
+    artistService.getRecentArtists({ page: 1, pageSize: 10 }) // 获取热门艺术家数据
   ])
 
   // 处理数据获取结果
@@ -41,21 +43,9 @@ export default async function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* 导航栏 */}
-      <nav className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center space-x-6">
-              <h1 className="text-xl font-bold text-gray-900">Pixishelf</h1>
-              <MainNavigation />
-            </div>
-
-            <div className="flex items-center">
-              <UserMenu />
-            </div>
-          </div>
-        </div>
-      </nav>
-
+      <PNav renderRight={() => <UserMenu />}>
+        <MainNavigation />
+      </PNav>
       {/* 主要内容 */}
       <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         <RecommendedArtworks initialData={recommendedData} />
