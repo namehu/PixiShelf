@@ -11,7 +11,7 @@ import winston from 'winston'
 // const logDirectory = path.join(process.cwd(), 'logs') // <--- 关键改动：动态计算日志目录路径
 
 // 检查是否为生产环境
-const isProduction = process.env.NODE_ENV !== 'production'
+const isProduction = process.env.NODE_ENV === 'production'
 
 // --- Transports 定义 ---
 
