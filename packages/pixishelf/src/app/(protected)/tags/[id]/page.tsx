@@ -63,7 +63,7 @@ function TagDetailPage({}: TagDetailPageProps) {
       }
 
       const response = await fetch(
-        `/api/v1/artworks?tagId=${tagId}&page=${pageNum}&pageSize=${pageSize}&sortBy=source_date_desc`
+        `/api/artworks?tagId=${tagId}&page=${pageNum}&pageSize=${pageSize}&sortBy=source_date_desc`
       )
 
       if (!response.ok) {

@@ -12,7 +12,7 @@ graph TD
     D --> E[PostgreSQL 数据库]
     B --> F[静态资源服务]
     F --> G[本地文件系统]
-    
+
     subgraph "前端层"
         B
         H[React 19 组件]
@@ -20,19 +20,19 @@ graph TD
         J[Tailwind CSS]
         K[Radix UI]
     end
-    
+
     subgraph "API层"
         C
         L[认证中间件]
         M[文件扫描服务]
         N[图片处理服务]
     end
-    
+
     subgraph "数据层"
         D
         E
     end
-    
+
     subgraph "存储层"
         G
         O[图片文件]
@@ -42,99 +42,119 @@ graph TD
 
 ### 1.2 架构特点
 
-- **全栈架构**: 基于Next.js 15的App Router，前后端一体化开发
-- **类型安全**: 全栈TypeScript，从数据库到UI的端到端类型安全
-- **现代化技术栈**: React 19、Prisma ORM、TanStack Query等最新技术
-- **容器化部署**: Docker + Docker Compose，支持开发和生产环境
-- **Monorepo管理**: pnpm workspace统一依赖管理
+* **全栈架构**: 基于Next.js 15的App Router，前后端一体化开发
+
+* **类型安全**: 全栈TypeScript，从数据库到UI的端到端类型安全
+
+* **现代化技术栈**: React 19、Prisma ORM、TanStack Query等最新技术
+
+* **容器化部署**: Docker + Docker Compose，支持开发和生产环境
+
+* **Monorepo管理**: pnpm workspace统一依赖管理
 
 ## 2. 技术描述
 
 ### 2.1 核心技术栈
 
-- **前端框架**: Next.js@15.5.3 + React@19.1.0 + TypeScript@5
-- **样式方案**: Tailwind CSS@4.1.13 + Radix UI组件库
-- **状态管理**: TanStack Query@5.52.1 (服务端状态) + React内置状态
-- **数据库**: PostgreSQL + Prisma@5.17.0 ORM
-- **认证方案**: JWT + bcryptjs密码加密
-- **构建工具**: Next.js内置Turbopack
-- **代码质量**: ESLint + Prettier + Husky
+* **前端框架**: Next.js\@15.5.3 + React\@19.1.0 + TypeScript\@5
+
+* **样式方案**: Tailwind CSS\@4.1.13 + Radix UI组件库
+
+* **状态管理**: TanStack Query\@5.52.1 (服务端状态) + React内置状态
+
+* **数据库**: PostgreSQL + Prisma\@5.17.0 ORM
+
+* **认证方案**: JWT + bcryptjs密码加密
+
+* **构建工具**: Next.js内置Turbopack
+
+* **代码质量**: ESLint + Prettier + Husky
 
 ### 2.2 开发工具
 
-- **包管理**: pnpm workspace
-- **容器化**: Docker + Docker Compose
-- **开发环境**: VS Code Dev Container
-- **CI/CD**: GitHub Actions
-- **部署平台**: Vercel (前端) + 自托管 (数据库)
+* **包管理**: pnpm workspace
+
+* **容器化**: Docker + Docker Compose
+
+* **开发环境**: VS Code Dev Container
+
+* **CI/CD**: GitHub Actions
+
+* **部署平台**: Vercel (前端) + 自托管 (数据库)
 
 ## 3. 路由定义
 
 ### 3.1 页面路由
 
-| 路由 | 用途 | 访问权限 |
-|------|------|----------|
-| `/` | 首页重定向到画廊 | 公开 |
-| `/login` | 用户登录页面 | 公开 |
-| `/gallery` | 主画廊页面 | 需认证 |
-| `/artworks/[id]` | 作品详情页面 | 需认证 |
-| `/artists` | 艺术家列表页面 | 需认证 |
-| `/artists/[id]` | 艺术家详情页面 | 需认证 |
-| `/tags` | 标签管理页面 | 需认证 |
-| `/admin` | 管理后台首页 | 管理员 |
-| `/admin/scan` | 文件扫描管理 | 管理员 |
-| `/admin/tags` | 标签管理 | 管理员 |
-| `/admin/users` | 用户管理 | 管理员 |
-| `/change-password` | 修改密码页面 | 需认证 |
+| 路由                 | 用途       | 访问权限 |
+| ------------------ | -------- | ---- |
+| `/`                | 首页重定向到画廊 | 公开   |
+| `/login`           | 用户登录页面   | 公开   |
+| `/gallery`         | 主画廊页面    | 需认证  |
+| `/artworks/[id]`   | 作品详情页面   | 需认证  |
+| `/artists`         | 艺术家列表页面  | 需认证  |
+| `/artists/[id]`    | 艺术家详情页面  | 需认证  |
+| `/tags`            | 标签管理页面   | 需认证  |
+| `/admin`           | 管理后台首页   | 管理员  |
+| `/admin/scan`      | 文件扫描管理   | 管理员  |
+| `/admin/tags`      | 标签管理     | 管理员  |
+| `/admin/users`     | 用户管理     | 管理员  |
+| `/change-password` | 修改密码页面   | 需认证  |
 
 ### 3.2 API路由
 
 #### 认证相关
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| `POST` | `/api/auth/login` | 用户登录 |
-| `POST` | `/api/auth/logout` | 用户登出 |
-| `GET` | `/api/auth/me` | 获取当前用户信息 |
+
+| 方法     | 路径                 | 描述       |
+| ------ | ------------------ | -------- |
+| `POST` | `/api/auth/login`  | 用户登录     |
+| `POST` | `/api/auth/logout` | 用户登出     |
+| `GET`  | `/api/auth/me`     | 获取当前用户信息 |
 
 #### 作品管理
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| `GET` | `/api/v1/artworks` | 获取作品分页列表 |
-| `GET` | `/api/v1/artworks/[id]` | 获取单个作品详情 |
-| `GET` | `/api/v1/artworks/recommendations` | 获取推荐作品 |
+
+| 方法    | 路径                                 | 描述       |
+| ----- | ---------------------------------- | -------- |
+| `GET` | `/api/artworks`                 | 获取作品分页列表 |
+| `GET` | `/api/artworks/[id]`            | 获取单个作品详情 |
+| `GET` | `/api/artworks/recommendations` | 获取推荐作品   |
 
 #### 艺术家管理
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| `GET` | `/api/v1/artists` | 获取艺术家列表 |
-| `GET` | `/api/v1/artists/[id]` | 获取艺术家详情 |
+
+| 方法    | 路径                  | 描述      |
+| ----- | ------------------- | ------- |
+| `GET` | `/api/artists`      | 获取艺术家列表 |
+| `GET` | `/api/artists/[id]` | 获取艺术家详情 |
 
 #### 标签管理
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| `GET` | `/api/v1/tags` | 获取标签列表 |
-| `GET` | `/api/v1/tags/[id]` | 获取标签详情 |
-| `GET` | `/api/v1/tags/popular` | 获取热门标签 |
-| `GET` | `/api/v1/tags/random` | 获取随机标签 |
-| `GET` | `/api/v1/tags/search` | 搜索标签 |
+
+| 方法     | 路径                          | 描述     |
+| ------ | --------------------------- | ------ |
+| `GET`  | `/api/v1/tags`              | 获取标签列表 |
+| `GET`  | `/api/v1/tags/[id]`         | 获取标签详情 |
+| `GET`  | `/api/v1/tags/popular`      | 获取热门标签 |
+| `GET`  | `/api/v1/tags/random`       | 获取随机标签 |
+| `GET`  | `/api/v1/tags/search`       | 搜索标签   |
 | `POST` | `/api/v1/tags/update-stats` | 更新标签统计 |
 
 #### 文件管理
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| `GET` | `/api/v1/images/[...path]` | 获取图片文件 |
-| `POST` | `/api/v1/scan/stream` | 开始文件扫描 |
-| `GET` | `/api/v1/scan/status` | 获取扫描状态 |
-| `POST` | `/api/v1/scan/cancel` | 取消扫描任务 |
+
+| 方法     | 路径                         | 描述     |
+| ------ | -------------------------- | ------ |
+| `GET`  | `/api/v1/images/[...path]` | 获取图片文件 |
+| `POST` | `/api/v1/scan/stream`      | 开始文件扫描 |
+| `GET`  | `/api/v1/scan/status`      | 获取扫描状态 |
+| `POST` | `/api/v1/scan/cancel`      | 取消扫描任务 |
 
 #### 系统管理
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| `GET` | `/api/v1/health` | 健康检查 |
-| `GET` | `/api/v1/suggestions` | 获取搜索建议 |
-| `GET` | `/api/v1/settings/scan-path` | 获取扫描路径设置 |
-| `GET` | `/api/v1/users` | 获取用户列表 |
-| `POST` | `/api/v1/users/password` | 修改用户密码 |
+
+| 方法     | 路径                           | 描述       |
+| ------ | ---------------------------- | -------- |
+| `GET`  | `/api/v1/health`             | 健康检查     |
+| `GET`  | `/api/v1/suggestions`        | 获取搜索建议   |
+| `GET`  | `/api/v1/settings/scan-path` | 获取扫描路径设置 |
+| `GET`  | `/api/v1/users`              | 获取用户列表   |
+| `POST` | `/api/v1/users/password`     | 修改用户密码   |
 
 ## 4. 数据模型
 
@@ -146,7 +166,7 @@ erDiagram
     Artwork ||--o{ Image : contains
     Artwork ||--o{ ArtworkTag : has
     Tag ||--o{ ArtworkTag : tagged
-    
+
     Artist {
         int id PK
         string name
@@ -156,7 +176,7 @@ erDiagram
         datetime createdAt
         datetime updatedAt
     }
-    
+
     Artwork {
         int id PK
         string title
@@ -177,7 +197,7 @@ erDiagram
         string thumbnailUrl
         string xRestrict
     }
-    
+
     Tag {
         int id PK
         string name
@@ -186,14 +206,14 @@ erDiagram
         datetime createdAt
         datetime updatedAt
     }
-    
+
     ArtworkTag {
         int id PK
         int artworkId FK
         int tagId FK
         datetime createdAt
     }
-    
+
     Image {
         int id PK
         string path
@@ -205,7 +225,7 @@ erDiagram
         datetime createdAt
         datetime updatedAt
     }
-    
+
     User {
         int id PK
         string username
@@ -213,7 +233,7 @@ erDiagram
         datetime createdAt
         datetime updatedAt
     }
-    
+
     Setting {
         int id PK
         string key
@@ -350,7 +370,7 @@ graph TD
     B --> C[Next.js Dev Server :5430]
     C --> D[PostgreSQL :5432]
     B --> E[本地文件系统]
-    
+
     subgraph "Dev Container"
         B
         C
@@ -358,7 +378,7 @@ graph TD
         G[Node.js 20]
         H[Prisma CLI]
     end
-    
+
     subgraph "数据库容器"
         D
     end
@@ -372,24 +392,24 @@ graph TD
     B --> C[Next.js 应用容器]
     C --> D[PostgreSQL 容器]
     C --> E[文件存储卷]
-    
+
     subgraph "Web层"
         B
         F[SSL终止]
         G[静态资源缓存]
     end
-    
+
     subgraph "应用层"
         C
         H[Next.js Server]
         I[API Routes]
     end
-    
+
     subgraph "数据层"
         D
         J[数据持久化]
     end
-    
+
     subgraph "存储层"
         E
         K[图片文件]
@@ -489,29 +509,43 @@ volumes:
 
 ### 6.1 安全措施
 
-- **认证机制**: JWT Token + HTTP-only Cookie
-- **密码安全**: bcryptjs加密存储
-- **CORS配置**: 严格的跨域资源共享策略
-- **中间件保护**: 路由级别的认证中间件
-- **环境变量**: 敏感信息通过环境变量管理
-- **SQL注入防护**: Prisma ORM自动防护
+* **认证机制**: JWT Token + HTTP-only Cookie
+
+* **密码安全**: bcryptjs加密存储
+
+* **CORS配置**: 严格的跨域资源共享策略
+
+* **中间件保护**: 路由级别的认证中间件
+
+* **环境变量**: 敏感信息通过环境变量管理
+
+* **SQL注入防护**: Prisma ORM自动防护
 
 ### 6.2 性能优化
 
-- **图片优化**: Next.js Image组件自动优化
-- **缓存策略**: TanStack Query客户端缓存
-- **懒加载**: React Intersection Observer
-- **代码分割**: Next.js自动代码分割
-- **数据库优化**: 索引优化和查询优化
-- **静态资源**: CDN和浏览器缓存
+* **图片优化**: Next.js Image组件自动优化
+
+* **缓存策略**: TanStack Query客户端缓存
+
+* **懒加载**: React Intersection Observer
+
+* **代码分割**: Next.js自动代码分割
+
+* **数据库优化**: 索引优化和查询优化
+
+* **静态资源**: CDN和浏览器缓存
 
 ### 6.3 监控与日志
 
-- **错误监控**: Next.js内置错误边界
-- **性能监控**: Web Vitals指标
-- **日志记录**: 结构化日志输出
-- **健康检查**: API健康检查端点
-- **数据库监控**: Prisma查询日志
+* **错误监控**: Next.js内置错误边界
+
+* **性能监控**: Web Vitals指标
+
+* **日志记录**: 结构化日志输出
+
+* **健康检查**: API健康检查端点
+
+* **数据库监控**: Prisma查询日志
 
 ## 7. 开发工作流
 
@@ -537,11 +571,15 @@ pnpm dev
 
 ### 7.2 代码质量保证
 
-- **TypeScript**: 严格类型检查
-- **ESLint**: 代码规范检查
-- **Prettier**: 代码格式化
-- **Husky**: Git钩子自动化
-- **lint-staged**: 提交前代码检查
+* **TypeScript**: 严格类型检查
+
+* **ESLint**: 代码规范检查
+
+* **Prettier**: 代码格式化
+
+* **Husky**: Git钩子自动化
+
+* **lint-staged**: 提交前代码检查
 
 ### 7.3 构建与部署
 
@@ -563,27 +601,38 @@ docker-compose -f docker-compose.prod.yml up -d
 
 ### 8.1 水平扩展
 
-- **数据库**: PostgreSQL读写分离
-- **文件存储**: 对象存储服务集成
-- **缓存层**: Redis缓存集成
-- **负载均衡**: Nginx负载均衡
+* **数据库**: PostgreSQL读写分离
+
+* **文件存储**: 对象存储服务集成
+
+* **缓存层**: Redis缓存集成
+
+* **负载均衡**: Nginx负载均衡
 
 ### 8.2 功能扩展
 
-- **搜索引擎**: Elasticsearch全文搜索
-- **图片处理**: Sharp图片处理服务
-- **任务队列**: BullMQ后台任务
-- **实时通信**: WebSocket支持
-- **API文档**: OpenAPI/Swagger集成
+* **搜索引擎**: Elasticsearch全文搜索
+
+* **图片处理**: Sharp图片处理服务
+
+* **任务队列**: BullMQ后台任务
+
+* **实时通信**: WebSocket支持
+
+* **API文档**: OpenAPI/Swagger集成
 
 ### 8.3 监控与运维
 
-- **应用监控**: Prometheus + Grafana
-- **日志聚合**: ELK Stack
-- **错误追踪**: Sentry集成
-- **性能分析**: Next.js Analytics
-- **备份策略**: 自动化数据库备份
+* **应用监控**: Prometheus + Grafana
 
----
+* **日志聚合**: ELK Stack
+
+* **错误追踪**: Sentry集成
+
+* **性能分析**: Next.js Analytics
+
+* **备份策略**: 自动化数据库备份
+
+***
 
 *本文档基于PixiShelf项目的实际实现情况编写，反映了项目的真实技术架构和设计决策。*

@@ -20,7 +20,7 @@ function useArtwork(id: string) {
   return useQuery({
     queryKey: ['artwork', id],
     queryFn: async (): Promise<EnhancedArtwork> => {
-      return apiJson<EnhancedArtwork>(`/api/v1/artworks/${id}`)
+      return apiJson<EnhancedArtwork>(`/api/artworks/${id}`)
     },
     enabled: !!id
   })

@@ -383,7 +383,7 @@ export default async function GalleryPage({
 #### 3.3.2 在 API 路由中使用
 
 ```typescript
-// app/api/v1/artworks/route.ts
+// app/api/artworks/route.ts
 import { NextResponse } from 'next/server';
 import { artworkService } from '@/services/artworkService';
 import { ServiceError } from '@/lib/errors';
@@ -590,7 +590,7 @@ const artworks = await db.artwork.findMany({
   include: { artist: true, images: true }
 });
 
-// app/api/v1/artworks/route.ts
+// app/api/artworks/route.ts
 const artworks = await db.artwork.findMany({
   where: { imageCount: { gt: 0 } },
   orderBy: { createdAt: 'desc' },
@@ -745,19 +745,19 @@ describe('ArtworkService', () => {
 #### 5.3.2 API 路由测试
 ```typescript
 // tests/api/artworks.test.ts
-import { GET } from '@/app/api/v1/artworks/route';
+import { GET } from '@/app/api/artworks/route';
 import { artworkService } from '@/services/artworkService';
 
 jest.mock('@/services/artworkService');
 const mockArtworkService = artworkService as jest.Mocked<typeof artworkService>;
 
-describe('/api/v1/artworks', () => {
+describe('/api/artworks', () => {
   it('should return artworks list', async () => {
     // Arrange
     const mockArtworks = [{ id: 1, title: 'Test' }];
     mockArtworkService.getPublishedArtworks.mockResolvedValue(mockArtworks);
 
-    const request = new Request('http://localhost/api/v1/artworks?page=1');
+    const request = new Request('http://localhost/api/artworks?page=1');
 
     // Act
     const response = await GET(request);

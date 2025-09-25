@@ -47,7 +47,7 @@ function useArtists(searchTerm: string, sortBy: ArtistsQuery['sortBy'], page: nu
         params.append('search', searchTerm)
       }
 
-      return apiJson<ArtistsResponse>(`/api/v1/artists?${params}`)
+      return apiJson<ArtistsResponse>(`/api/artists?${params}`)
     },
     staleTime: 5 * 60 * 1000, // 5分钟
     gcTime: 10 * 60 * 1000 // 10分钟

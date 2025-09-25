@@ -14,7 +14,7 @@ import {
   PaginationItem,
   PaginationLink,
   PaginationNext,
-  PaginationPrevious,
+  PaginationPrevious
 } from '@/components/ui/pagination'
 import { apiJson } from '@/lib/api'
 
@@ -29,7 +29,7 @@ function useArtist(artistId: string) {
   return useQuery({
     queryKey: ['artist', artistId],
     queryFn: async (): Promise<Artist> => {
-      return apiJson<Artist>(`/api/v1/artists/${artistId}`)
+      return apiJson<Artist>(`/api/artists/${artistId}`)
     },
     enabled: !!artistId
   })
@@ -42,7 +42,7 @@ function useArtistArtworks(artistId: string, page: number, pageSize: number, sor
   return useQuery({
     queryKey: ['artist-artworks', artistId, page, pageSize, sortBy],
     queryFn: async (): Promise<EnhancedArtworksResponse> => {
-      const url = new URL('/api/v1/artworks', window.location.origin)
+      const url = new URL('/api/artworks', window.location.origin)
       url.searchParams.set('page', String(page))
       url.searchParams.set('pageSize', String(pageSize))
       url.searchParams.set('artistId', artistId)
@@ -83,7 +83,7 @@ export default function ArtistDetailPage() {
   const params = useParams()
   const searchParams = useSearchParams()
   const { isAuthenticated, isLoading: authLoading } = useAuth()
-  
+
   const id = params.id as string
   const page = parseInt(searchParams.get('page') || '1', 10)
   const pageSize = 24
@@ -154,7 +154,7 @@ export default function ArtistDetailPage() {
           <div className="animate-pulse space-y-8">
             {/* 返回按钮骨架 */}
             <div className="h-10 w-32 bg-gray-200 rounded"></div>
-            
+
             {/* 艺术家信息骨架 */}
             <div className="bg-white rounded-lg shadow p-8">
               <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
@@ -228,7 +228,12 @@ export default function ArtistDetailPage() {
               <div className="flex flex-wrap gap-4">
                 <div className="flex items-center gap-2">
                   <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z"
+                    />
                   </svg>
                   <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
                     {artist.artworksCount} 作品
@@ -236,7 +241,12 @@ export default function ArtistDetailPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
                   </svg>
                   <span className="text-sm text-gray-500">
                     加入于 {new Date(artist.createdAt).toLocaleDateString('zh-CN')}
@@ -253,9 +263,7 @@ export default function ArtistDetailPage() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">作品集</h2>
-              <p className="text-gray-600 mt-1">
-                {artworks ? `共 ${artworks.total} 件作品` : '加载中...'}
-              </p>
+              <p className="text-gray-600 mt-1">{artworks ? `共 ${artworks.total} 件作品` : '加载中...'}</p>
             </div>
 
             <SortControl value={sortBy} onChange={handleSortChange} size="md" />
@@ -280,8 +288,18 @@ export default function ArtistDetailPage() {
             </div>
           ) : !artworks || artworks.items.length === 0 ? (
             <div className="text-center py-12">
-              <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z" />
+              <svg
+                className="w-16 h-16 text-gray-300 mx-auto mb-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z"
+                />
               </svg>
               <h3 className="text-lg font-medium text-gray-900 mb-2">暂无作品</h3>
               <p className="text-gray-600">该艺术家还没有上传任何作品</p>
@@ -375,12 +393,12 @@ export default function ArtistDetailPage() {
               {artworks.total > pageSize &&
                 (() => {
                   const totalPages = Math.ceil(artworks.total / pageSize)
-                  
+
                   // 生成页码数组
                   const generatePageNumbers = () => {
                     const pageNumbers: (number | string)[] = []
                     const showPages = 5
-                    
+
                     if (totalPages <= showPages) {
                       // 如果总页数小于等于显示页数，显示所有页码
                       for (let i = 1; i <= totalPages; i++) {
@@ -413,7 +431,7 @@ export default function ArtistDetailPage() {
                         pageNumbers.push(totalPages)
                       }
                     }
-                    
+
                     return pageNumbers
                   }
 
@@ -435,7 +453,7 @@ export default function ArtistDetailPage() {
                             <PaginationContent>
                               {/* Previous Page */}
                               <PaginationItem>
-                                <PaginationPrevious 
+                                <PaginationPrevious
                                   href="#"
                                   onClick={(e) => {
                                     e.preventDefault()
@@ -469,7 +487,7 @@ export default function ArtistDetailPage() {
 
                               {/* Next Page */}
                               <PaginationItem>
-                                <PaginationNext 
+                                <PaginationNext
                                   href="#"
                                   onClick={(e) => {
                                     e.preventDefault()

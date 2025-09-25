@@ -44,7 +44,7 @@ function useArtworks(
         setIsLoading(true)
         setIsError(false)
 
-        const url = new URL('/api/v1/artworks', window.location.origin)
+        const url = new URL('/api/artworks', window.location.origin)
         url.searchParams.set('page', String(page))
         url.searchParams.set('pageSize', String(pageSize))
         if (tags && tags.length > 0) {

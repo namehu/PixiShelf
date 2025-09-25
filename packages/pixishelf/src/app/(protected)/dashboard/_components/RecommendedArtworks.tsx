@@ -23,7 +23,7 @@ export default function RecommendedArtworks({ initialData }: RecommendedArtworks
         initialData={initialData}
         enableRefresh={true}
         recommand
-        refreshEndpoint="/api/v1/artworks/recommendations"
+        refreshEndpoint="/api/artworks/recommendations"
       />
     </div>
   )

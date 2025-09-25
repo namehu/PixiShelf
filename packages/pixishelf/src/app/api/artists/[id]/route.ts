@@ -4,7 +4,7 @@ import { Artist } from '@/types'
 
 /**
  * 获取艺术家详情接口
- * GET /api/v1/artists/[id]
+ * GET /api/artists/[id]
  */
 export async function GET(
   request: NextRequest,

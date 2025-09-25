@@ -4,7 +4,7 @@ import type { EnhancedArtworksResponse } from '@/types'
 
 /**
  * 获取推荐作品接口
- * GET /api/v1/artworks/recommendations
+ * GET /api/artworks/recommendations
  */
 export async function GET(request: NextRequest): Promise<NextResponse<EnhancedArtworksResponse>> {
   try {
@@ -19,9 +19,6 @@ export async function GET(request: NextRequest): Promise<NextResponse<EnhancedAr
     return NextResponse.json(result)
   } catch (error) {
     console.error('Error fetching recommended artworks:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch recommended artworks' } as any,
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to fetch recommended artworks' } as any, { status: 500 })
   }
 }

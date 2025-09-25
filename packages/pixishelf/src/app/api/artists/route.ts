@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { artistService } from '@/services/artistService'
 import { ArtistsQuery } from '@/types'
 
+/**
+ * 获取艺术家列表接口
+ * GET /api/artists
+ */
 export async function GET(request: NextRequest) {
   try {
     // 1. 解析请求参数
@@ -10,7 +14,7 @@ export async function GET(request: NextRequest) {
       page: searchParams.get('page') || undefined,
       pageSize: searchParams.get('pageSize') || undefined,
       search: searchParams.get('search') || undefined,
-      sortBy: (searchParams.get('sortBy') as any) || undefined
+      sortBy: (searchParams.get('sortBy') as ArtistsQuery['sortBy']) || undefined
     }
 
     // 2. 验证查询参数

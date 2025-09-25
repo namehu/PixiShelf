@@ -4,7 +4,7 @@ import { getMediaType, MediaFile } from '@/types'
 
 /**
  * 获取单个作品详情接口
- * GET /api/v1/artworks/:id
+ * GET /api/artworks/:id
  */
 export async function GET(
   request: NextRequest,

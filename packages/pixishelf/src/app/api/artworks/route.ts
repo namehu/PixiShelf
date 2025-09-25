@@ -41,7 +41,7 @@ function getSafeSortOption(sortBy: string | null): SortOption {
 
 /**
  * 获取作品列表接口
- * GET /api/v1/artworks
+ * GET /api/artworks
  */
 export async function GET(request: NextRequest): Promise<NextResponse<EnhancedArtworksResponse>> {
   try {
