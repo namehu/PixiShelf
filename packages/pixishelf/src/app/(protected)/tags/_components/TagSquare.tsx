@@ -7,19 +7,23 @@ import { TagCard } from './TagCard'
 import { TagSquareProps, TagSearchParams, PopularTagsParams, RandomTagsParams } from '@/types/tags'
 import { cn } from '@/lib/utils'
 import { Tag } from '@/types/core'
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui'
 
 /**
  * 标签广场组件
  * 提供标签浏览、搜索、筛选功能
  */
-export function TagSquare({
-  initialTags = [],
-  pageSize = 20,
-  showSearch = true,
-  showFilters = true,
-  cardMode = 'compact',
-  className
-}: TagSquareProps) {
+export function TagSquare({ initialTags = [], pageSize = 20, cardMode = 'compact', className }: TagSquareProps) {
   const router = useRouter()
   const [tags, setTags] = useState<Tag[]>(initialTags)
   const [loading, setLoading] = useState(false)
@@ -211,37 +215,31 @@ export function TagSquare({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* 模式切换按钮 */}
-          <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
-            <button
-              onClick={() => {
-                setCurrentMode('popular')
-                setPage(1)
+          {/* 模式切换 Tabs */}
+          <Tabs
+            value={currentMode}
+            onValueChange={(value) => {
+              const mode = value as 'popular' | 'random'
+              setCurrentMode(mode)
+              setPage(1)
+              if (mode === 'popular') {
                 fetchPopularTags()
-              }}
-              className={cn(
-                'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-                currentMode === 'popular' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-              )}
-            >
-              <TrendingUp className="w-4 h-4 mr-1" />
-              热门
-            </button>
-            <button
-              onClick={() => {
-                setCurrentMode('random')
-                setPage(1)
+              } else if (mode === 'random') {
                 fetchRandomTags()
-              }}
-              className={cn(
-                'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-                currentMode === 'random' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-              )}
-            >
-              <Shuffle className="w-4 h-4 mr-1" />
-              随机
-            </button>
-          </div>
+              }
+            }}
+          >
+            <TabsList>
+              <TabsTrigger value="popular">
+                <TrendingUp className="w-4 h-4 mr-1" />
+                热门
+              </TabsTrigger>
+              <TabsTrigger value="random">
+                <Shuffle className="w-4 h-4 mr-1" />
+                随机
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
 
           {/* 刷新按钮 */}
           <button
@@ -256,45 +254,43 @@ export function TagSquare({
       </div>
 
       {/* 搜索和筛选区 */}
-      {(showSearch || showFilters) && (
-        <div className="flex flex-col sm:flex-row gap-4">
-          {/* 搜索框 */}
-          {showSearch && (
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="搜索标签..."
-                value={searchQuery}
-                onChange={(e) => handleSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          )}
-
-          {/* 排序筛选 */}
-          {showFilters && (
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-gray-400" />
-              <select
-                value={`${sortBy}-${sortOrder}`}
-                onChange={(e) => {
-                  const [newSortBy, newSortOrder] = e.target.value.split('-') as [typeof sortBy, typeof sortOrder]
-                  handleSortChange(newSortBy, newSortOrder)
-                }}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="artworkCount-desc">作品数量 ↓</option>
-                <option value="artworkCount-asc">作品数量 ↑</option>
-                <option value="name-asc">名称 A-Z</option>
-                <option value="name-desc">名称 Z-A</option>
-                <option value="createdAt-desc">最新创建</option>
-                <option value="createdAt-asc">最早创建</option>
-              </select>
-            </div>
-          )}
+      <div className="flex flex-col sm:flex-row gap-4">
+        {/* 搜索框 */}
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Input
+            type="text"
+            placeholder="搜索标签..."
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
+            className="w-full pl-10"
+          />
         </div>
-      )}
+
+        {/* 排序筛选 */}
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-gray-400" />
+          <Select
+            value={`${sortBy}-${sortOrder}`}
+            onValueChange={(value) => {
+              const [newSortBy, newSortOrder] = value.split('-') as [typeof sortBy, typeof sortOrder]
+              handleSortChange(newSortBy, newSortOrder)
+            }}
+          >
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="排序方式" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="artworkCount-desc">作品数量 ↓</SelectItem>
+              <SelectItem value="artworkCount-asc">作品数量 ↑</SelectItem>
+              <SelectItem value="name-asc">名称 A-Z</SelectItem>
+              <SelectItem value="name-desc">名称 Z-A</SelectItem>
+              <SelectItem value="createdAt-desc">最新创建</SelectItem>
+              <SelectItem value="createdAt-asc">最早创建</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
       {/* 标签网格 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
