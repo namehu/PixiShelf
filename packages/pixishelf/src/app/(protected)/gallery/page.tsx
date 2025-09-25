@@ -17,6 +17,7 @@ import {
 import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
+import PNav from '@/components/layout/PNav'
 
 // ============================================================================
 // 画廊页面
@@ -25,7 +26,14 @@ import ArtworkCard from '@/components/artwork/ArtworkCard'
 /**
  * 获取作品列表Hook
  */
-function useArtworks(page: number, pageSize: number, tags?: string[], search?: string, sortBy?: SortOption, mediaType?: MediaTypeFilter) {
+function useArtworks(
+  page: number,
+  pageSize: number,
+  tags?: string[],
+  search?: string,
+  sortBy?: SortOption,
+  mediaType?: MediaTypeFilter
+) {
   const [data, setData] = useState<EnhancedArtworksResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isError, setIsError] = useState(false)
@@ -235,8 +243,9 @@ function GalleryPageContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gray-50">
+      <PNav></PNav>
+      <div className="max-w-7xl mx-auto  p-4">
         <section className="space-y-8">
           {/* Header Section */}
           <div className="space-y-6">
@@ -424,7 +433,8 @@ function GalleryPageContent() {
                       {(() => {
                         const filters = []
                         if (searchQuery) filters.push(`搜索 "${searchQuery}"`)
-                        if (selectedTags.length > 0) filters.push(`标签: ${selectedTags.map((t) => `#${t}`).join(', ')}`)
+                        if (selectedTags.length > 0)
+                          filters.push(`标签: ${selectedTags.map((t) => `#${t}`).join(', ')}`)
                         if (mediaType !== 'all') filters.push(`类型: ${mediaType === 'video' ? '仅视频' : '仅图片'}`)
                         return filters.join(' | ')
                       })()}
@@ -436,7 +446,12 @@ function GalleryPageContent() {
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-neutral-700 whitespace-nowrap">媒体类型:</span>
-                    <MediaTypeFilterComponent value={mediaType} onChange={handleMediaTypeChange} size="sm" className="min-w-[120px]" />
+                    <MediaTypeFilterComponent
+                      value={mediaType}
+                      onChange={handleMediaTypeChange}
+                      size="sm"
+                      className="min-w-[120px]"
+                    />
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-neutral-700 whitespace-nowrap">排序方式:</span>

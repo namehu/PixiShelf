@@ -24,14 +24,15 @@ const UserMenu = () => {
   return (
     <Menubar>
       <MenubarMenu>
-        <MenubarTrigger className="flex items-center space-x-2 cursor-pointer">
+        <MenubarTrigger className="flex items-center cursor-pointer">
           <Avatar className="h-6 w-6">
             <AvatarFallback className="bg-primary text-primary-foreground">
               {user?.username?.charAt(0).toUpperCase() || 'U'}
             </AvatarFallback>
           </Avatar>
-          <span className="text-sm text-gray-700">{user?.username}</span>
+          <span className="text-sm text-gray-700 ml-2 hidden sm:inline">{user?.username}</span>
         </MenubarTrigger>
+
         <MenubarContent>
           <MenubarItem onClick={() => router.push(ROUTES.CHANGE_PASSWORD)}>
             <UsersIcon className="mr-2 h-4 w-4" />

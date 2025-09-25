@@ -4,7 +4,6 @@ import MainNavigation from './_components/MainNavigation'
 import RecommendedArtworks from './_components/RecommendedArtworks'
 import RecentArtworks from './_components/RecentArtworks'
 import RecentArtists from './_components/RecentArtists'
-import UserMenu from './_components/UserMenu'
 import PNav from '@/components/layout/PNav'
 
 export const dynamic = 'force-dynamic'
@@ -43,7 +42,7 @@ export default async function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* 导航栏 */}
-      <PNav renderRight={() => <UserMenu />}>
+      <PNav>
         <MainNavigation />
       </PNav>
       {/* 主要内容 */}
