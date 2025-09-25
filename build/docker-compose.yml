@@ -51,8 +51,8 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "20m" # 单个日志文件最大 20MB
+        max-file: "10"    # 最多保留 10 个日志文件
 
   # imgproxy 服务容器
   imgproxy:
