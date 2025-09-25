@@ -100,13 +100,6 @@ export class ScannerService {
       // 直接调用流式处理方法，取代原来的发现+处理模式
       await this.streamProcessArtworks(options)
 
-      // 完成（10%权重：90%-100%）
-      options.onProgress?.({
-        phase: 'complete',
-        message: '正在完成扫描...',
-        percentage: 90
-      })
-
       // 最终完成
       options.onProgress?.({
         phase: 'complete',
