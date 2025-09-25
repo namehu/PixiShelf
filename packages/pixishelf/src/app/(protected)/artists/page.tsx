@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Artist, ArtistsQuery } from '@/types'
 import { useAuth } from '@/components'
-import { Input, ArtistCard } from '@/components/ui'
+import { Input, ArtistCard, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui'
 import { apiJson } from '@/lib/api'
 import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 import useDebounce from '@/hooks/useDebounce'
+import PNav from '@/components/layout/PNav'
 
 // ============================================================================
 // Types
@@ -160,72 +161,76 @@ export default function ArtistsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* 页面标题 */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">艺术家</h1>
-        <p className="text-gray-600 dark:text-gray-400">发现和探索才华横溢的艺术家们</p>
-      </div>
-
-      {/* 搜索和排序 */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-8">
-        <div className="flex-1">
-          <Input
-            type="text"
-            placeholder="搜索艺术家..."
-            value={searchTerm}
-            onChange={(e) => handleSearch(e.target.value)}
-            className="w-full"
-          />
-        </div>
-        <div className="sm:w-auto">
-          <select
-            value={sortBy || 'name_asc'}
-            onChange={(e) => handleSort(e.target.value as ArtistsQuery['sortBy'])}
-            className="h-10 px-3 text-sm rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            {sortOptions.map((option) => (
-              <option key={option.value} value={option.value || ''}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* 艺术家列表 */}
-      {allArtists.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {allArtists.map((artist) => (
-            <ArtistCard key={artist.id} artist={artist} onClick={() => handleArtistClick(artist)} />
-          ))}
-        </div>
-      ) : (
-        <div className="flex justify-center items-center h-64">
-          <div className="text-center">
-            <div className="text-lg text-gray-600 dark:text-gray-400 mb-2">
-              {debouncedSearchTerm ? '未找到匹配的艺术家' : '暂无艺术家'}
-            </div>
-            {debouncedSearchTerm && (
-              <div className="text-sm text-gray-500 dark:text-gray-500">尝试使用不同的关键词搜索</div>
-            )}
+    <div>
+      <PNav>
+        {/* 搜索和排序 */}
+        <div className="flex flex-1 flex-col sm:flex-row gap-4 px-4">
+          <div className="flex-1">
+            <Input
+              type="text"
+              placeholder="搜索艺术家..."
+              value={searchTerm}
+              onChange={(e) => handleSearch(e.target.value)}
+              className="w-full"
+            />
+          </div>
+          <div className="hidden sm:inline">
+            <Select value={sortBy || 'name_asc'} onValueChange={(value) => handleSort(value as ArtistsQuery['sortBy'])}>
+              <SelectTrigger className="w-fit min-w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {sortOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value || ''}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
-      )}
-
-      {/* 加载更多触发器 */}
-      {hasMore && (
-        <div ref={targetRef} className="flex justify-center py-8">
-          {isLoading && <div className="text-gray-600 dark:text-gray-400">加载更多...</div>}
+      </PNav>
+      <div className="container mx-auto px-4 py-8">
+        {/* 页面标题 */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">艺术家</h1>
+          <p className="text-gray-600 dark:text-gray-400">发现和探索才华横溢的艺术家们</p>
         </div>
-      )}
 
-      {/* 总数显示 */}
-      {data && allArtists.length > 0 && (
-        <div className="text-center mt-8 text-sm text-gray-500 dark:text-gray-500">
-          已显示 {allArtists.length} / {data.total} 位艺术家
-        </div>
-      )}
+        {/* 艺术家列表 */}
+        {allArtists.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {allArtists.map((artist) => (
+              <ArtistCard key={artist.id} artist={artist} onClick={() => handleArtistClick(artist)} />
+            ))}
+          </div>
+        ) : (
+          <div className="flex justify-center items-center h-64">
+            <div className="text-center">
+              <div className="text-lg text-gray-600 dark:text-gray-400 mb-2">
+                {debouncedSearchTerm ? '未找到匹配的艺术家' : '暂无艺术家'}
+              </div>
+              {debouncedSearchTerm && (
+                <div className="text-sm text-gray-500 dark:text-gray-500">尝试使用不同的关键词搜索</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 加载更多触发器 */}
+        {hasMore && (
+          <div ref={targetRef} className="flex justify-center py-8">
+            {isLoading && <div className="text-gray-600 dark:text-gray-400">加载更多...</div>}
+          </div>
+        )}
+
+        {/* 总数显示 */}
+        {data && allArtists.length > 0 && (
+          <div className="text-center mt-8 text-sm text-gray-500 dark:text-gray-500">
+            已显示 {allArtists.length} / {data.total} 位艺术家
+          </div>
+        )}
+      </div>
     </div>
   )
 }
