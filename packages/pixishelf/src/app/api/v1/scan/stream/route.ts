@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSettingService } from '@/lib/services/setting'
 import { getAppStateService } from '@/lib/services/app-state'
 import { getScannerService } from '@/lib/services/scanner'
-import { ScanProgress, ScanResult } from '@/types'
+import { ScanProgress } from '@/types'
+import logger from '@/lib/logger'
 
 /**
  * 扫描SSE流接口
@@ -35,6 +36,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         // 发送SSE事件的辅助函数
         const sendEvent = (event: string, data: any) => {
           const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+          logger.info({ event, ...data })
           controller.enqueue(encoder.encode(message))
         }
 

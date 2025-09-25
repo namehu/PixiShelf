@@ -5,6 +5,7 @@ import { MetadataParser, MetadataInfo } from './scanner/metadata-parser'
 import { MediaCollector, MediaFileInfo } from './scanner/media-collector'
 import { getPrisma } from '@/lib/prisma'
 import fg from 'fast-glob'
+import logger from '../logger'
 
 /**
  * 扫描选项接口
@@ -67,8 +68,6 @@ export class ScannerService {
    * @returns 扫描结果
    */
   async scan(options: ScanOptions): Promise<ScanResult> {
-    console.log('Starting scan with scanner:', { scanPath: options.scanPath })
-
     const startTime = Date.now()
 
     // 清空缓存，确保每次扫描都有干净的状态
@@ -76,7 +75,7 @@ export class ScannerService {
     this.artistCache.clear()
 
     try {
-      console.log('Starting scan:', { scanPath: options.scanPath })
+      logger.info('Starting scan:', { scanPath: options.scanPath })
 
       // 如果是强制更新，先清空数据库（10%权重）
       if (options.forceUpdate) {
@@ -88,7 +87,7 @@ export class ScannerService {
 
         await this.clearDatabase()
 
-        console.log('Database cleared for force update')
+        logger.info('Database cleared for force update')
 
         options.onProgress?.({
           phase: 'counting',
@@ -109,7 +108,7 @@ export class ScannerService {
 
       this.scanResult.processingTime = Date.now() - startTime
 
-      console.log('Scan completed:', {
+      logger.info('Scan completed:', {
         result: this.scanResult,
         processingTimeMs: this.scanResult.processingTime
       })
@@ -147,7 +146,7 @@ export class ScannerService {
       return
     }
 
-    console.log('Found metadata files, starting stream processing:', { totalFiles, totalBatches })
+    logger.info('Found metadata files, starting stream processing:', { totalFiles, totalBatches })
 
     // 2. 遍历文件列表，边发现边处理
     for (let i = 0; i < totalFiles; i++) {
@@ -164,7 +163,7 @@ export class ScannerService {
       // 3. 当批次满员，或者已经是最后一个文件时，触发处理
       if (artworkBatch.length >= BATCH_SIZE || (i === totalFiles - 1 && artworkBatch.length > 0)) {
         batchNumber++
-        console.log(`Processing batch ${batchNumber} of ${totalBatches} (size: ${artworkBatch.length})...`)
+        logger.info(`Processing batch ${batchNumber} of ${totalBatches} (size: ${artworkBatch.length})...`)
 
         try {
           // 调用批量处理逻辑（针对当前批次的数据）
@@ -172,9 +171,9 @@ export class ScannerService {
           await this.batchProcessArtists(artworkBatch)
           await this.processBatch(artworkBatch, options)
 
-          console.log(`Successfully processed batch ${batchNumber} of ${totalBatches}`)
+          logger.info(`Successfully processed batch ${batchNumber} of ${totalBatches}`)
         } catch (error) {
-          console.error('Failed to process batch:', { error, batchNumber, batchSize: artworkBatch.length })
+          logger.error('Failed to process batch:', { error, batchNumber, batchSize: artworkBatch.length })
           this.scanResult.errors.push(
             `Failed to process batch ${batchNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`
           )
@@ -298,7 +297,7 @@ export class ScannerService {
 
         this.scanResult.skippedArtworks = validFiles.length - filesToProcess.length // 已存在作品数
 
-        console.log('Filtered metadata files based on existing artworks:', {
+        logger.info('Filtered metadata files based on existing artworks:', {
           totalFiles: validFiles.length,
           existingFiles: validFiles.length - filesToProcess.length,
           filesToProcess: filesToProcess.length
@@ -472,11 +471,11 @@ export class ScannerService {
     }
 
     if (uncachedUserIds.size === 0) {
-      console.log('All artists in current batch are already cached, skipping artist processing')
+      logger.info('All artists in current batch are already cached, skipping artist processing')
       return
     }
 
-    console.log('Processing uncached artists in current batch:', { uncachedArtists: uncachedUserIds.size })
+    logger.info('Processing uncached artists in current batch:', { uncachedArtists: uncachedUserIds.size })
 
     // 2. 批量查询数据库中已存在的艺术家
     const existingArtists = await this.prisma.artist.findMany({
@@ -513,7 +512,7 @@ export class ScannerService {
 
     // 4. 批量创建新艺术家
     if (artistsToCreate.length > 0) {
-      console.log('Creating new artists in batch:', { artistsToCreateCount: artistsToCreate.length })
+      logger.info('Creating new artists in batch:', { artistsToCreateCount: artistsToCreate.length })
 
       await this.prisma.artist.createMany({
         data: artistsToCreate,
@@ -539,7 +538,7 @@ export class ScannerService {
       }
     }
 
-    console.log('Batch artist processing completed:', { totalArtistsInCache: this.artistCache.size })
+    logger.info('Batch artist processing completed:', { totalArtistsInCache: this.artistCache.size })
   }
 
   /**
@@ -560,11 +559,11 @@ export class ScannerService {
     }
 
     if (uncachedTagNames.size === 0) {
-      console.log('All tags in current batch are already cached, skipping tag processing')
+      logger.info('All tags in current batch are already cached, skipping tag processing')
       return
     }
 
-    console.log('Processing uncached tags in current batch:', { uncachedTags: uncachedTagNames.size })
+    logger.info('Processing uncached tags in current batch:', { uncachedTags: uncachedTagNames.size })
 
     // 2. 批量查询数据库中已存在的标签
     const existingTags = await this.prisma.tag.findMany({
@@ -592,7 +591,7 @@ export class ScannerService {
 
     // 4. 批量创建操作：一次性创建所有新标签
     if (tagsToCreate.length > 0) {
-      console.log('Creating new tags in batch:', { tagsToCreateCount: tagsToCreate.length })
+      logger.info('Creating new tags in batch:', { tagsToCreateCount: tagsToCreate.length })
 
       await this.prisma.tag.createMany({
         data: tagsToCreate.map((name) => ({ name })),
@@ -620,7 +619,7 @@ export class ScannerService {
       }
     }
 
-    console.log('Batch tag processing completed:', { totalTagsInCache: this.tagCache.size })
+    logger.info('Batch tag processing completed:', { totalTagsInCache: this.tagCache.size })
   }
 
   /**
@@ -630,7 +629,7 @@ export class ScannerService {
    */
   private async clearDatabase(): Promise<void> {
     try {
-      console.log('Starting database cleanup with TRUNCATE for force update')
+      logger.info('Starting database cleanup with TRUNCATE for force update')
 
       // 使用 TRUNCATE 一次性清空所有艺术相关表
       // RESTART IDENTITY 会重置自增ID，CASCADE 会处理外键依赖
@@ -638,9 +637,9 @@ export class ScannerService {
         'TRUNCATE TABLE "ArtworkTag", "Image", "Artwork", "Artist", "Tag" RESTART IDENTITY CASCADE;'
       )
 
-      console.log('Database cleanup with TRUNCATE completed successfully')
+      logger.info('Database cleanup with TRUNCATE completed successfully')
     } catch (error) {
-      console.error('Failed to clear database with TRUNCATE:', { error })
+      logger.error('Failed to clear database with TRUNCATE:', { error })
       throw new Error(`Database cleanup failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }

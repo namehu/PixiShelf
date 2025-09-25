@@ -8,6 +8,10 @@ set -e
 echo "Running database migrations..."
 pnpm --filter="@pixishelf/next" db:deploy
 
+#在宿主机创建 logs 目录：
+# mkdir -p logs
+# chmod 777 logs
+
 # 找到所有构建出的 JS 文件
 # .next/static/**/*.js
 files=$(find packages/pixishelf/.next/static -type f -name "*.js")
