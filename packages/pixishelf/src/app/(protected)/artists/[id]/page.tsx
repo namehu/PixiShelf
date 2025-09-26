@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { Artist, EnhancedArtworksResponse, SortOption, isVideoFile } from '@/types'
 import { useAuth } from '@/components'
+import { ChevronLeftIcon } from 'lucide-react'
 import { SortControl, VideoPreview } from '@/components/ui'
 import {
   Pagination,
@@ -17,6 +18,7 @@ import {
   PaginationPrevious
 } from '@/components/ui/pagination'
 import { apiJson } from '@/lib/api'
+import { ROUTES } from '@/lib/constants'
 
 // ============================================================================
 // Hooks
@@ -179,12 +181,10 @@ export default function ArtistDetailPage() {
         <div className="bg-white rounded-lg shadow p-8 text-center max-w-md">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">艺术家不存在</h2>
           <p className="text-gray-600 mb-6">抱歉，找不到该艺术家的信息。</p>
-          <Link href="/gallery">
+          <Link href={ROUTES.ARTISTS}>
             <button className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors">
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              返回画廊
+              <ChevronLeftIcon size={24}></ChevronLeftIcon>
+              返回
             </button>
           </Link>
         </div>
@@ -193,149 +193,156 @@ export default function ArtistDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto p-6 space-y-8">
-        {/* 返回按钮 */}
-        <div>
-          <Link href="/gallery">
-            <button className="inline-flex items-center px-3 py-2 text-gray-600 hover:text-gray-900 transition-colors">
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              返回画廊
-            </button>
-          </Link>
-        </div>
+    <div className="space-y-8">
+      {/* 返回按钮 */}
+      <div>
+        <Link href={ROUTES.ARTISTS}>
+          <button className="inline-flex items-center px-3 py-2 text-gray-600 hover:text-gray-900 transition-colors">
+            <ChevronLeftIcon size={24}></ChevronLeftIcon>
+            返回
+          </button>
+        </Link>
+      </div>
 
-        {/* 艺术家信息头部 */}
-        <div className="bg-white rounded-lg shadow p-8">
-          <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
-            {/* 头像 */}
-            <div className="h-24 w-24 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-2xl font-bold">
-              {getInitials(artist.name)}
-            </div>
-
-            {/* 艺术家信息 */}
-            <div className="flex-1 space-y-4">
-              <div>
-                <h1 className="text-4xl font-bold text-gray-900 mb-2">{artist.name}</h1>
-                {artist.username && <p className="text-lg text-gray-500">@{artist.username}</p>}
-              </div>
-
-              {artist.bio && <p className="text-gray-700 leading-relaxed max-w-2xl">{artist.bio}</p>}
-
-              {/* 统计信息 */}
-              <div className="flex flex-wrap gap-4">
-                <div className="flex items-center gap-2">
-                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z"
-                    />
-                  </svg>
-                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
-                    {artist.artworksCount} 作品
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    />
-                  </svg>
-                  <span className="text-sm text-gray-500">
-                    加入于 {new Date(artist.createdAt).toLocaleDateString('zh-CN')}
-                  </span>
-                </div>
-              </div>
-            </div>
+      {/* 艺术家信息头部 */}
+      <div className="bg-white rounded-lg shadow p-8">
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
+          {/* 头像 */}
+          <div className="h-24 w-24 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-2xl font-bold">
+            {getInitials(artist.name)}
           </div>
-        </div>
 
-        {/* 作品列表部分 */}
-        <div className="space-y-6">
-          {/* 作品列表标题和排序 */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          {/* 艺术家信息 */}
+          <div className="flex-1 space-y-4">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">作品集</h2>
-              <p className="text-gray-600 mt-1">{artworks ? `共 ${artworks.total} 件作品` : '加载中...'}</p>
+              <h1 className="text-4xl font-bold text-gray-900 mb-2">{artist.name}</h1>
+              {artist.username && <p className="text-lg text-gray-500">@{artist.username}</p>}
             </div>
 
-            <SortControl value={sortBy} onChange={handleSortChange} size="md" />
+            {artist.bio && <p className="text-gray-700 leading-relaxed max-w-2xl">{artist.bio}</p>}
+
+            {/* 统计信息 */}
+            <div className="flex flex-wrap gap-4">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z"
+                  />
+                </svg>
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
+                  {artist.artworksCount} 作品
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+                <span className="text-sm text-gray-500">
+                  加入于 {new Date(artist.createdAt).toLocaleDateString('zh-CN')}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 作品列表部分 */}
+      <div className="space-y-6">
+        {/* 作品列表标题和排序 */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">作品集</h2>
+            <p className="text-gray-600 mt-1">{artworks ? `共 ${artworks.total} 件作品` : '加载中...'}</p>
           </div>
 
-          {/* 作品网格 */}
-          {artworksLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="bg-white rounded-lg shadow overflow-hidden animate-pulse">
-                  <div className="aspect-[3/4] bg-gray-200"></div>
-                  <div className="p-4 space-y-2">
-                    <div className="h-4 bg-gray-200 rounded"></div>
-                    <div className="h-3 bg-gray-200 rounded w-2/3"></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : artworksError ? (
-            <div className="text-center py-12">
-              <p className="text-gray-600">加载作品时出错，请稍后重试。</p>
-            </div>
-          ) : !artworks || artworks.items.length === 0 ? (
-            <div className="text-center py-12">
-              <svg
-                className="w-16 h-16 text-gray-300 mx-auto mb-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z"
-                />
-              </svg>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">暂无作品</h3>
-              <p className="text-gray-600">该艺术家还没有上传任何作品</p>
-            </div>
-          ) : (
-            <>
-              {/* 作品网格 */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {artworks.items.map((aw) => {
-                  const { id, title, images } = aw
-                  const cover = images?.[0]
-                  const src = cover ? `/api/v1/images/${encodeURIComponent(cover.path)}` : null
-                  const imageCount = images?.filter((img) => img.mediaType === 'image').length || 0
-                  const videoFiles = images?.filter((img) => img.mediaType === 'video') || []
-                  const totalMediaSize = videoFiles.reduce((sum, file) => sum + (file.size || 0), 0)
-                  const isVideoCover = cover && isVideoFile(cover.path)
+          <SortControl value={sortBy} onChange={handleSortChange} size="md" />
+        </div>
 
-                  return (
-                    <Link key={id} href={`/artworks/${id}`} className="block animate-fade-in">
-                      <div className="bg-white rounded-lg shadow overflow-hidden hover:shadow-lg transition-shadow">
-                        {/* 媒体预览 */}
-                        <div className="relative aspect-[3/4] w-full overflow-hidden bg-gray-100">
-                          {src ? (
-                            isVideoCover ? (
-                              <VideoPreview src={src} title={title} className="h-full w-full object-cover" />
-                            ) : (
-                              <img src={src} alt={title} className="h-full w-full object-cover" loading="lazy" />
-                            )
+        {/* 作品网格 */}
+        {artworksLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="bg-white rounded-lg shadow overflow-hidden animate-pulse">
+                <div className="aspect-[3/4] bg-gray-200"></div>
+                <div className="p-4 space-y-2">
+                  <div className="h-4 bg-gray-200 rounded"></div>
+                  <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : artworksError ? (
+          <div className="text-center py-12">
+            <p className="text-gray-600">加载作品时出错，请稍后重试。</p>
+          </div>
+        ) : !artworks || artworks.items.length === 0 ? (
+          <div className="text-center py-12">
+            <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z"
+              />
+            </svg>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">暂无作品</h3>
+            <p className="text-gray-600">该艺术家还没有上传任何作品</p>
+          </div>
+        ) : (
+          <>
+            {/* 作品网格 */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {artworks.items.map((aw) => {
+                const { id, title, images } = aw
+                const cover = images?.[0]
+                const src = cover ? `/api/v1/images/${encodeURIComponent(cover.path)}` : null
+                const imageCount = images?.filter((img) => img.mediaType === 'image').length || 0
+                const videoFiles = images?.filter((img) => img.mediaType === 'video') || []
+                const totalMediaSize = videoFiles.reduce((sum, file) => sum + (file.size || 0), 0)
+                const isVideoCover = cover && isVideoFile(cover.path)
+
+                return (
+                  <Link key={id} href={`/artworks/${id}`} className="block animate-fade-in">
+                    <div className="bg-white rounded-lg shadow overflow-hidden hover:shadow-lg transition-shadow">
+                      {/* 媒体预览 */}
+                      <div className="relative aspect-[3/4] w-full overflow-hidden bg-gray-100">
+                        {src ? (
+                          isVideoCover ? (
+                            <VideoPreview src={src} title={title} className="h-full w-full object-cover" />
                           ) : (
-                            <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-                              <svg
-                                className="w-8 h-8 text-gray-400"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
+                            <img src={src} alt={title} className="h-full w-full object-cover" loading="lazy" />
+                          )
+                        ) : (
+                          <div className="h-full w-full bg-gray-200 flex items-center justify-center">
+                            <svg
+                              className="w-8 h-8 text-gray-400"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                              />
+                            </svg>
+                          </div>
+                        )}
+
+                        {/* 媒体数量标识 */}
+                        <div className="absolute top-3 right-3 flex flex-col gap-1">
+                          {imageCount > 1 && (
+                            <div className="bg-black/70 backdrop-blur-sm text-white px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
@@ -343,195 +350,179 @@ export default function ArtistDetailPage() {
                                   d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
                                 />
                               </svg>
+                              {imageCount}
                             </div>
                           )}
-
-                          {/* 媒体数量标识 */}
-                          <div className="absolute top-3 right-3 flex flex-col gap-1">
-                            {imageCount > 1 && (
-                              <div className="bg-black/70 backdrop-blur-sm text-white px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                                  />
-                                </svg>
-                                {imageCount}
-                              </div>
-                            )}
-                            {totalMediaSize > 0 && (
-                              <div className="bg-red-600/80 backdrop-blur-sm text-white px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                  />
-                                </svg>
-                                {(totalMediaSize / (1024 * 1024)).toFixed(1)}MB
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* 内容 */}
-                        <div className="p-4 space-y-2">
-                          <h3 className="font-medium text-gray-900 truncate" title={title}>
-                            {title}
-                          </h3>
+                          {totalMediaSize > 0 && (
+                            <div className="bg-red-600/80 backdrop-blur-sm text-white px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                                />
+                              </svg>
+                              {(totalMediaSize / (1024 * 1024)).toFixed(1)}MB
+                            </div>
+                          )}
                         </div>
                       </div>
-                    </Link>
-                  )
-                })}
-              </div>
 
-              {/* 分页 */}
-              {artworks.total > pageSize &&
-                (() => {
-                  const totalPages = Math.ceil(artworks.total / pageSize)
+                      {/* 内容 */}
+                      <div className="p-4 space-y-2">
+                        <h3 className="font-medium text-gray-900 truncate" title={title}>
+                          {title}
+                        </h3>
+                      </div>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
 
-                  // 生成页码数组
-                  const generatePageNumbers = () => {
-                    const pageNumbers: (number | string)[] = []
-                    const showPages = 5
+            {/* 分页 */}
+            {artworks.total > pageSize &&
+              (() => {
+                const totalPages = Math.ceil(artworks.total / pageSize)
 
-                    if (totalPages <= showPages) {
-                      // 如果总页数小于等于显示页数，显示所有页码
-                      for (let i = 1; i <= totalPages; i++) {
+                // 生成页码数组
+                const generatePageNumbers = () => {
+                  const pageNumbers: (number | string)[] = []
+                  const showPages = 5
+
+                  if (totalPages <= showPages) {
+                    // 如果总页数小于等于显示页数，显示所有页码
+                    for (let i = 1; i <= totalPages; i++) {
+                      pageNumbers.push(i)
+                    }
+                  } else {
+                    // 复杂分页逻辑
+                    if (page <= 3) {
+                      // 当前页在前面
+                      for (let i = 1; i <= 4; i++) {
+                        pageNumbers.push(i)
+                      }
+                      pageNumbers.push('ellipsis-end')
+                      pageNumbers.push(totalPages)
+                    } else if (page >= totalPages - 2) {
+                      // 当前页在后面
+                      pageNumbers.push(1)
+                      pageNumbers.push('ellipsis-start')
+                      for (let i = totalPages - 3; i <= totalPages; i++) {
                         pageNumbers.push(i)
                       }
                     } else {
-                      // 复杂分页逻辑
-                      if (page <= 3) {
-                        // 当前页在前面
-                        for (let i = 1; i <= 4; i++) {
-                          pageNumbers.push(i)
-                        }
-                        pageNumbers.push('ellipsis-end')
-                        pageNumbers.push(totalPages)
-                      } else if (page >= totalPages - 2) {
-                        // 当前页在后面
-                        pageNumbers.push(1)
-                        pageNumbers.push('ellipsis-start')
-                        for (let i = totalPages - 3; i <= totalPages; i++) {
-                          pageNumbers.push(i)
-                        }
-                      } else {
-                        // 当前页在中间
-                        pageNumbers.push(1)
-                        pageNumbers.push('ellipsis-start')
-                        for (let i = page - 1; i <= page + 1; i++) {
-                          pageNumbers.push(i)
-                        }
-                        pageNumbers.push('ellipsis-end')
-                        pageNumbers.push(totalPages)
+                      // 当前页在中间
+                      pageNumbers.push(1)
+                      pageNumbers.push('ellipsis-start')
+                      for (let i = page - 1; i <= page + 1; i++) {
+                        pageNumbers.push(i)
                       }
+                      pageNumbers.push('ellipsis-end')
+                      pageNumbers.push(totalPages)
                     }
-
-                    return pageNumbers
                   }
 
-                  const pageNumbers = generatePageNumbers()
+                  return pageNumbers
+                }
 
-                  return (
-                    <div className="bg-white rounded-lg shadow p-6">
-                      <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
-                        {/* 统计信息 */}
-                        <div className="text-sm text-gray-600">
-                          显示第 {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, artworks.total)} 项，共{' '}
-                          {artworks.total.toLocaleString()} 项
-                        </div>
+                const pageNumbers = generatePageNumbers()
 
-                        {/* 分页控件 */}
-                        <div className="flex flex-col sm:flex-row items-center gap-4">
-                          {/* Pagination Component */}
-                          <Pagination>
-                            <PaginationContent>
-                              {/* Previous Page */}
-                              <PaginationItem>
-                                <PaginationPrevious
-                                  href="#"
-                                  onClick={(e) => {
-                                    e.preventDefault()
-                                    if (page > 1) goto(page - 1)
-                                  }}
-                                  className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
-                                >
-                                  上一页
-                                </PaginationPrevious>
+                return (
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
+                      {/* 统计信息 */}
+                      <div className="text-sm text-gray-600">
+                        显示第 {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, artworks.total)} 项，共{' '}
+                        {artworks.total.toLocaleString()} 项
+                      </div>
+
+                      {/* 分页控件 */}
+                      <div className="flex flex-col sm:flex-row items-center gap-4">
+                        {/* Pagination Component */}
+                        <Pagination>
+                          <PaginationContent>
+                            {/* Previous Page */}
+                            <PaginationItem>
+                              <PaginationPrevious
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  if (page > 1) goto(page - 1)
+                                }}
+                                className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
+                              >
+                                上一页
+                              </PaginationPrevious>
+                            </PaginationItem>
+
+                            {/* Page Numbers */}
+                            {pageNumbers.map((pageNum, index) => (
+                              <PaginationItem key={`${pageNum}-${index}`}>
+                                {pageNum === 'ellipsis-start' || pageNum === 'ellipsis-end' ? (
+                                  <PaginationEllipsis />
+                                ) : (
+                                  <PaginationLink
+                                    href="#"
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      goto(pageNum as number)
+                                    }}
+                                    isActive={pageNum === page}
+                                  >
+                                    {pageNum}
+                                  </PaginationLink>
+                                )}
                               </PaginationItem>
+                            ))}
 
-                              {/* Page Numbers */}
-                              {pageNumbers.map((pageNum, index) => (
-                                <PaginationItem key={`${pageNum}-${index}`}>
-                                  {pageNum === 'ellipsis-start' || pageNum === 'ellipsis-end' ? (
-                                    <PaginationEllipsis />
-                                  ) : (
-                                    <PaginationLink
-                                      href="#"
-                                      onClick={(e) => {
-                                        e.preventDefault()
-                                        goto(pageNum as number)
-                                      }}
-                                      isActive={pageNum === page}
-                                    >
-                                      {pageNum}
-                                    </PaginationLink>
-                                  )}
-                                </PaginationItem>
-                              ))}
+                            {/* Next Page */}
+                            <PaginationItem>
+                              <PaginationNext
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  if (page < totalPages) goto(page + 1)
+                                }}
+                                className={page >= totalPages ? 'pointer-events-none opacity-50' : ''}
+                              >
+                                下一页
+                              </PaginationNext>
+                            </PaginationItem>
+                          </PaginationContent>
+                        </Pagination>
 
-                              {/* Next Page */}
-                              <PaginationItem>
-                                <PaginationNext
-                                  href="#"
-                                  onClick={(e) => {
-                                    e.preventDefault()
-                                    if (page < totalPages) goto(page + 1)
-                                  }}
-                                  className={page >= totalPages ? 'pointer-events-none opacity-50' : ''}
-                                >
-                                  下一页
-                                </PaginationNext>
-                              </PaginationItem>
-                            </PaginationContent>
-                          </Pagination>
-
-                          {/* Jump to Page */}
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            <span className="text-sm text-neutral-600 whitespace-nowrap">跳转到</span>
-                            <input
-                              type="number"
-                              min="1"
-                              max={totalPages}
-                              value={jumpToPage}
-                              onChange={(e) => setJumpToPage(e.target.value)}
-                              onKeyDown={handleJumpInputKeyDown}
-                              className="w-16 h-9 px-2 text-sm border border-neutral-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
-                              placeholder={String(page)}
-                            />
-                            <button
-                              onClick={handleJumpToPage}
-                              disabled={
-                                !jumpToPage || parseInt(jumpToPage, 10) < 1 || parseInt(jumpToPage, 10) > totalPages
-                              }
-                              className="h-9 px-3 text-sm bg-primary text-white rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-                            >
-                              跳转
-                            </button>
-                          </div>
+                        {/* Jump to Page */}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-sm text-neutral-600 whitespace-nowrap">跳转到</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max={totalPages}
+                            value={jumpToPage}
+                            onChange={(e) => setJumpToPage(e.target.value)}
+                            onKeyDown={handleJumpInputKeyDown}
+                            className="w-16 h-9 px-2 text-sm border border-neutral-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
+                            placeholder={String(page)}
+                          />
+                          <button
+                            onClick={handleJumpToPage}
+                            disabled={
+                              !jumpToPage || parseInt(jumpToPage, 10) < 1 || parseInt(jumpToPage, 10) > totalPages
+                            }
+                            className="h-9 px-3 text-sm bg-primary text-white rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                          >
+                            跳转
+                          </button>
                         </div>
                       </div>
                     </div>
-                  )
-                })()}
-            </>
-          )}
-        </div>
+                  </div>
+                )
+              })()}
+          </>
+        )}
       </div>
     </div>
   )
