@@ -40,17 +40,10 @@ export default async function DashboardPage() {
     recentArtists.status === 'rejected' ? recentArtists.reason?.message || '获取艺术家失败' : null
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* 导航栏 */}
-      <PNav>
-        <MainNavigation />
-      </PNav>
-      {/* 主要内容 */}
-      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        <RecommendedArtworks initialData={recommendedData} />
-        <RecentArtworks data={recentArtworksData} error={recentArtworksError} />
-        <RecentArtists data={recentArtistsData} error={recentArtistsError} />
-      </main>
-    </div>
+    <>
+      <RecommendedArtworks initialData={recommendedData} />
+      <RecentArtworks data={recentArtworksData} error={recentArtworksError} />
+      <RecentArtists data={recentArtistsData} error={recentArtistsError} />
+    </>
   )
 }
