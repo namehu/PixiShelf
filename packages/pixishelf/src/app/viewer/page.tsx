@@ -118,7 +118,7 @@ export default function ViewerPage() {
       />
 
       {/* 移动端返回按钮 - 手势区域 */}
-      <div className="absolute top-0 left-0 w-16 h-16 md:hidden" onClick={() => router.back()} />
+      <div className="absolute top-0 left-0 w-16 h-16 z-50 md:hidden" onClick={() => router.back()} />
     </main>
   )
 }

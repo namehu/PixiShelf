@@ -9,7 +9,6 @@ import ClientImage from '../client-image'
 interface ImageSlideProps {
   image: ImageItem
   priority?: boolean
-  onLoad?: () => void
   onError?: () => void
 }
 
@@ -17,17 +16,10 @@ interface ImageSlideProps {
  * 单张图片滑块组件
  * 负责渲染单张图片，处理图片加载和错误状态
  */
-export default function ImageSlide({ image, priority = false, onLoad, onError }: ImageSlideProps) {
-  const [imageLoading, setImageLoading] = useState(false)
+export default function ImageSlide({ image, onError }: ImageSlideProps) {
   const [imageError, setImageError] = useState(false)
 
-  const handleImageLoad = () => {
-    setImageLoading(false)
-    onLoad?.()
-  }
-
   const handleImageError = () => {
-    setImageLoading(false)
     setImageError(true)
     onError?.()
   }
@@ -38,16 +30,6 @@ export default function ImageSlide({ image, priority = false, onLoad, onError }:
       <div className="relative w-full h-full">
         {!imageError ? (
           <>
-            {/* 加载状态 */}
-            {/* {imageLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-neutral-800">
-                <div className="flex flex-col items-center space-y-4">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-                  <p className="text-white text-sm opacity-60">加载中...</p>
-                </div>
-              </div>
-            )} */}
-
             {/* 图片 */}
             <ClientImage
               src={image.imageUrl}
@@ -56,9 +38,8 @@ export default function ImageSlide({ image, priority = false, onLoad, onError }:
               loading="eager"
               style={{ objectFit: 'contain' }} // 保持图片比例，完整显示
               sizes="(max-width: 768px) 100vw, 420px" // 响应式尺寸优化
-              onLoad={handleImageLoad}
               onError={handleImageError}
-              className={`transition-opacity duration-300 ${imageLoading ? 'opacity-0' : 'opacity-100'}`}
+              className={`transition-opacity duration-300`}
             />
           </>
         ) : (
@@ -79,7 +60,6 @@ export default function ImageSlide({ image, priority = false, onLoad, onError }:
               <button
                 onClick={() => {
                   setImageError(false)
-                  setImageLoading(true)
                 }}
                 className="px-4 py-2 bg-white/10 rounded-lg text-sm hover:bg-white/20 transition-colors"
               >
