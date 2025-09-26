@@ -28,6 +28,7 @@ export const ROUTES = {
   ARTISTS: '/artists',
   ADMIN: '/admin',
   TAGS: '/tags',
+  VIEWER: '/viewer',
   CHANGE_PASSWORD: '/change-password'
 } as const
 

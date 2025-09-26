@@ -1,6 +1,6 @@
 /* eslint-disable jsx-a11y/alt-text */
 import { ROUTES } from '@/lib/constants'
-import { UsersIcon, ImageIcon, HashIcon } from 'lucide-react'
+import { UsersIcon, ImageIcon, HashIcon, ImageUpIcon } from 'lucide-react'
 import Link from 'next/link'
 
 /**
@@ -20,6 +20,10 @@ const DashboardNavigation = () => {
       <Link href={ROUTES.TAGS} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
         <HashIcon className="h-4 w-4" />
         <span className="hidden sm:inline">标签</span>
+      </Link>
+      <Link href={ROUTES.VIEWER} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
+        <ImageUpIcon className="h-4 w-4" />
+        <span className="hidden sm:inline">刷图</span>
       </Link>
     </div>
   )
