@@ -9,7 +9,11 @@ interface MyImageLoaderProps extends Omit<ImageProps, 'loader'> {
   enableIntersectionObserver?: boolean
 }
 
-export default function ClientImage({ enableIntersectionObserver = true, ...props }: MyImageLoaderProps) {
+export default function ClientImage({
+  enableIntersectionObserver = true,
+  loading = 'lazy',
+  ...props
+}: MyImageLoaderProps) {
   const { src } = props
   const [shouldLoad, setShouldLoad] = useState(!enableIntersectionObserver)
   const imgRef = useRef<HTMLDivElement>(null)
@@ -44,7 +48,7 @@ export default function ClientImage({ enableIntersectionObserver = true, ...prop
   return (
     <div ref={imgRef} className="h-full w-full">
       {shouldLoad && !!src ? (
-        <Image {...props} loader={loader as any} loading="lazy" />
+        <Image {...props} loading={loading} loader={loader as any} />
       ) : (
         <div className="h-full w-full bg-gray-200 flex items-center justify-center animate-pulse">
           <ImageIcon size={24} className="text-gray-400"></ImageIcon>
