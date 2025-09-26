@@ -126,7 +126,7 @@ function LazyMedia({
   return (
     <div ref={viewRef} className="overflow-hidden bg-neutral-100 flex items-center justify-center">
       {isVideo ? (
-        <VideoPlayer src={src} alt={alt} className="w-full h-auto" preload="metadata" controls={true} muted={false} />
+        <VideoPlayer src={src} className="w-full h-auto" preload="metadata" />
       ) : (
         <LazyImage
           src={src}
@@ -413,7 +413,7 @@ export default function ArtworkDetailPage() {
             )}
 
             {/* Images */}
-            <div className="space-y-6">
+            <div className="mt-6">
               {/* Media Gallery */}
               <div className="w-full max-w-[768px] mx-auto">
                 {(data.images || []).map((img, index: number) => {
