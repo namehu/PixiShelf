@@ -19,12 +19,7 @@ export default function RecommendedArtworks({ initialData }: RecommendedArtworks
         </div>
       </div>
 
-      <ArtworkGrid
-        initialData={initialData}
-        enableRefresh={true}
-        recommand
-        refreshEndpoint="/api/artworks/recommendations"
-      />
+      <ArtworkGrid initialData={initialData} enableRefresh={true} refreshEndpoint="/api/artworks/recommendations" />
     </div>
   )
 }
