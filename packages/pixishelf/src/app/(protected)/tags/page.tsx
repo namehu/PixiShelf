@@ -1,6 +1,5 @@
 import React from 'react'
 import { Metadata } from 'next'
-import PNav from '@/components/layout/PNav'
 import TagSquare from './_components/TagSquare'
 
 export const metadata: Metadata = {
@@ -12,12 +11,5 @@ export const metadata: Metadata = {
  * 标签广场页面
  */
 export default function TagsPage() {
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <PNav></PNav>
-      <div className="container mx-auto px-4 py-8">
-        <TagSquare pageSize={24} cardMode="compact" className="max-w-7xl mx-auto" />
-      </div>
-    </div>
-  )
+  return <TagSquare pageSize={24} cardMode="compact" />
 }

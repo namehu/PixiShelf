@@ -143,10 +143,10 @@ function TagDetailPage({}: TagDetailPageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50">
+    <div>
       {/* 顶部导航 */}
       <div className="bg-white border-b border-neutral-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="px-2">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-4">
               <button onClick={handleBack} className="btn-ghost p-2 rounded-lg hover:bg-neutral-100">
@@ -204,7 +204,7 @@ function TagDetailPage({}: TagDetailPageProps) {
       )}
 
       {/* 作品列表 */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className=" py-6">
         {artworks.length === 0 && !loading ? (
           <div className="text-center py-12">
             <div className="text-neutral-400 mb-4">
