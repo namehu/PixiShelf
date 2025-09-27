@@ -2,7 +2,6 @@
 
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Mousewheel, Keyboard } from 'swiper/modules'
-import { ImageItem } from '@/hooks/useInfiniteImages'
 import ImageSlide from './ImageSlide'
 import { useCallback } from 'react'
 
@@ -10,10 +9,10 @@ import { useCallback } from 'react'
 import 'swiper/css'
 import 'swiper/css/mousewheel'
 import 'swiper/css/keyboard'
-import { guid } from '@/utils/guid'
+import { RandomImageItem } from '@/types/images'
 
 interface ImmersiveImageViewerProps {
-  initialImages: ImageItem[]
+  initialImages: RandomImageItem[]
   onLoadMore: () => void // 加载更多的回调函数
   hasMore: boolean
   isLoading: boolean
@@ -67,7 +66,7 @@ export default function ImmersiveImageViewer({
           grabCursor={true}
         >
           {initialImages.map((image, index) => (
-            <SwiperSlide key={guid()} className="flex items-center justify-center">
+            <SwiperSlide key={image.key} className="flex items-center justify-center">
               <ImageSlide image={image} />
             </SwiperSlide>
           ))}

@@ -1,28 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-
-// 随机图片数据接口响应类型
-interface ImageItem {
-  id: number
-  title: string
-  description?: string
-  imageUrl: string
-  author: {
-    id: number
-    name: string
-    username?: string
-  } | null
-  createdAt: string
-  tags: string[]
-}
-
-interface RandomImagesResponse {
-  items: ImageItem[]
-  total: number
-  page: number
-  pageSize: number
-  nextPage: number | null
-}
+import { RandomImageItem, RandomImagesResponse } from '@/types/images'
+import imgproxyLoader from '../../../../../lib/image-loader'
+import { guid } from '@/utils/guid'
 
 /**
  * Fisher-Yates (aka Knuth) Shuffle 算法。
@@ -32,7 +12,9 @@ interface RandomImagesResponse {
 function shuffleArray<T>(array: T[]): T[] {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
-    ;[array[i], array[j]] = [array[j], array[i]] // ES6 解构赋值交换元素
+    const temp = array[i]!
+    array[i] = array[j]!
+    array[j] = temp // 使用临时变量交换元素，避免解构赋值可能引发的类型错误
   }
   return array
 }
@@ -54,11 +36,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
     // 只选择 id 字段，这样数据库查询非常快，内存占用也小
     const allArtworkIds = await prisma.artwork.findMany({
       where: {
-        imageCount: 1
+        imageCount: { lte: 5 }
       },
-      select: {
-        id: true
-      },
+      select: { id: true },
       orderBy: {
         id: 'asc' // 排序有助于数据库缓存，但对逻辑无影响
       }
@@ -103,7 +83,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
       },
       include: {
         images: {
-          take: 1,
+          take: 5,
           orderBy: { sortOrder: 'asc' }
         },
         artist: true,
@@ -120,20 +100,23 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
     const sortedArtworks = artworks.sort((a, b) => paginatedIds.indexOf(a.id) - paginatedIds.indexOf(b.id))
 
     // 7. 转换数据格式
-    const items: ImageItem[] = sortedArtworks.map((artwork) => {
-      const firstImage = artwork.images[0]
-      const imageUrl = firstImage ? `${firstImage.path}` : ''
+    const items: RandomImageItem[] = sortedArtworks.map((artwork) => {
+      const images = artwork.images.map((it) => imgproxyLoader({ src: it.path, width: 375, quality: 90 }))
+      const firstImage = images[0]
+      const imageUrl = firstImage ? `${firstImage}` : ''
 
       return {
         id: artwork.id,
+        key: guid(),
         title: artwork.title,
-        description: artwork.description || undefined,
+        description: artwork.description || '',
         imageUrl,
+        images,
         author: artwork.artist
           ? {
               id: artwork.artist.id,
               name: artwork.artist.name,
-              username: artwork.artist.username || undefined
+              username: artwork.artist.username || ''
             }
           : null,
         createdAt: artwork.createdAt.toISOString(),

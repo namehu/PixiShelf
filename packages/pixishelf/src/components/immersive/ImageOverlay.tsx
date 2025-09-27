@@ -1,11 +1,10 @@
 'use client'
 
-import { ImageItem } from '@/hooks/useInfiniteImages'
-import { Heart, Bookmark, Share2, User, MoreHorizontal } from 'lucide-react'
-import { useState } from 'react'
+import { RandomImageItem } from '@/types/images'
+import { User } from 'lucide-react'
 
 interface ImageOverlayProps {
-  image: ImageItem
+  image: RandomImageItem
 }
 
 /**

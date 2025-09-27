@@ -1,14 +1,11 @@
 'use client'
 
-import Image from 'next/image'
-import { ImageItem } from '@/hooks/useInfiniteImages'
 import ImageOverlay from './ImageOverlay'
 import { useState } from 'react'
-import ClientImage from '../client-image'
+import { RandomImageItem } from '@/types/images'
 
 interface ImageSlideProps {
-  image: ImageItem
-  priority?: boolean
+  image: RandomImageItem
   onError?: () => void
 }
 
@@ -18,33 +15,46 @@ interface ImageSlideProps {
  */
 export default function ImageSlide({ image, onError }: ImageSlideProps) {
   const [imageError, setImageError] = useState(false)
+  // 添加一个状态用于触发重试
+  const [retryKey, setRetryKey] = useState(0)
 
   const handleImageError = () => {
     setImageError(true)
     onError?.()
   }
 
+  const handleRetry = () => {
+    setImageError(false)
+    // 通过改变 key 来强制 React 重新渲染 img 元素，并让 Swiper 重新处理
+    setRetryKey((prevKey) => prevKey + 1)
+  }
+
   return (
-    <div className="relative w-full h-full">
+    <div className="relative w-full h-full bg-black">
       {/* 图片容器 */}
-      <div className="relative w-full h-full">
+      <div className="relative w-full h-full flex items-center justify-center">
         {!imageError ? (
           <>
-            {/* 图片 */}
-            <ClientImage
+            {/* 关键改动在这里 */}
+            <img
+              // 通过附加一个变化的 key 来确保重试时 URL 不同，避免浏览器缓存问题
+              key={`${image.id}-${retryKey}`}
+              // Swiper 会查找这个 data-src
               src={image.imageUrl}
               alt={image.title || `Image by ${image.author?.name || 'Unknown'}`}
-              fill // 填充整个父容器
-              loading="eager"
-              style={{ objectFit: 'contain' }} // 保持图片比例，完整显示
-              sizes="(max-width: 768px) 100vw, 420px" // 响应式尺寸优化
+              // 添加 swiper-lazy 类名是必须的
+              className="w-full h-full object-contain swiper-lazy"
+              // 浏览器原生懒加载作为备用方案
+              loading="lazy"
+              // 绑定错误处理函数
               onError={handleImageError}
-              className={`transition-opacity duration-300`}
             />
+            {/* 1. (核心修复) 添加 Swiper 必需的 preloader 元素 */}
+            <div className="swiper-lazy-preloader swiper-lazy-preloader-white"></div>
           </>
         ) : (
-          /* 错误状态 */
-          <div className="absolute inset-0 flex items-center justify-center bg-neutral-800">
+          /* 错误状态UI */
+          <div className="absolute inset-0 flex items-center justify-center bg-neutral-900">
             <div className="text-center text-white">
               <div className="mb-4">
                 <svg className="w-16 h-16 mx-auto opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -58,9 +68,8 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
               </div>
               <p className="text-sm opacity-60 mb-2">图片加载失败</p>
               <button
-                onClick={() => {
-                  setImageError(false)
-                }}
+                // 调用新的重试处理函数
+                onClick={handleRetry}
                 className="px-4 py-2 bg-white/10 rounded-lg text-sm hover:bg-white/20 transition-colors"
               >
                 重试
@@ -70,8 +79,8 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
         )}
       </div>
 
-      {/* 图片覆盖层 */}
-      <ImageOverlay image={image} />
+      {/* 图片覆盖层 (只有在图片加载成功时才显示) */}
+      {!imageError && <ImageOverlay image={image} />}
     </div>
   )
 }

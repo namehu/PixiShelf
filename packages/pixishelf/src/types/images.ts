@@ -1,0 +1,26 @@
+export interface RandomImagesResponse {
+  items: RandomImageItem[]
+  total: number
+  page: number
+  pageSize: number
+  nextPage: number | null
+}
+
+/**
+ * 随机图片类型
+ */
+export interface RandomImageItem {
+  id: number
+  key: string
+  title: string
+  description?: string
+  imageUrl: string
+  images: string[]
+  author: {
+    id: number
+    name: string
+    username?: string
+  } | null
+  createdAt: string
+  tags: string[]
+}

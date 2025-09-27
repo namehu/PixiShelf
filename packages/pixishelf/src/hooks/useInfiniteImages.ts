@@ -1,29 +1,6 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { apiJson } from '@/lib/api'
-
-// 图片数据类型
-export interface ImageItem {
-  id: number
-  title: string
-  description?: string
-  imageUrl: string
-  author: {
-    id: number
-    name: string
-    username?: string
-  } | null
-  createdAt: string
-  tags: string[]
-}
-
-// API响应类型
-interface RandomImagesResponse {
-  items: ImageItem[]
-  total: number
-  page: number
-  pageSize: number
-  nextPage: number | null
-}
+import { RandomImagesResponse } from '@/types/images'
 
 /**
  * 无限滚动图片数据Hook
@@ -43,6 +20,6 @@ export function useInfiniteImages(pageSize: number = 10) {
     gcTime: 10 * 60 * 1000, // 10分钟后清理缓存
     // 重试配置
     retry: 3,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000)
   })
 }
