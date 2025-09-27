@@ -12,9 +12,12 @@ pnpm --filter="@pixishelf/next" db:deploy
 # mkdir -p logs
 # chmod 777 logs
 
-# 找到所有构建出的 JS 文件
-# .next/static/**/*.js
-files=$(find packages/pixishelf/.next/static -type f -name "*.js")
+# ==================== MODIFICATION START ====================
+# 找到所有构建出的客户端和服务端 JS 文件
+# .next/static/**/*.js (for client)
+# .next/server/**/*.js (for server)
+files=$(find packages/pixishelf/.next/static packages/pixishelf/.next/server -type f -name "*.js")
+# ===================== MODIFICATION END =====================
 
 echo "Found files to process:"
 echo "$files"
