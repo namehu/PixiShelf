@@ -1,3 +1,5 @@
+import { MediaType } from './media'
+
 export interface RandomImagesResponse {
   items: RandomImageItem[]
   total: number
@@ -15,6 +17,7 @@ export interface RandomImageItem {
   title: string
   description?: string
   imageUrl: string
+  mediaType: MediaType
   images: string[]
   author: {
     id: number

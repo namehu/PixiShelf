@@ -12,7 +12,7 @@ import { useRouter } from 'next/navigation'
  */
 export default function ViewerPage() {
   const router = useRouter()
-  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteImages(10) // 每页加载10张图片
+  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteImages(20) // 每页加载10张图片
 
   // 将分页数据扁平化为一个数组
   const allImages = useMemo(() => {

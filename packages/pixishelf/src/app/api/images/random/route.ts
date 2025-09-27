@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { RandomImageItem, RandomImagesResponse } from '@/types/images'
 import imgproxyLoader from '../../../../../lib/image-loader'
 import { guid } from '@/utils/guid'
+import { isVideoFile, MediaType } from '@/types'
 
 /**
  * Fisher-Yates (aka Knuth) Shuffle 算法。
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
 
     // 1. 解析查询参数
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
-    const pageSize = Math.min(Math.max(1, parseInt(searchParams.get('pageSize') || '10', 10)), 100)
+    const pageSize = Math.min(Math.max(1, parseInt(searchParams.get('pageSize') || '20', 10)), 100)
     const skip = (page - 1) * pageSize
 
     // 2. 查询所有符合条件的 Artwork 的 ID
@@ -101,9 +102,10 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
 
     // 7. 转换数据格式
     const items: RandomImageItem[] = sortedArtworks.map((artwork) => {
-      const images = artwork.images.map((it) => imgproxyLoader({ src: it.path, width: 375, quality: 90 }))
-      const firstImage = images[0]
-      const imageUrl = firstImage ? `${firstImage}` : ''
+      const images = artwork.images.map((it) =>
+        isVideoFile(it.path) ? `/api/v1/images/${it.path}` : imgproxyLoader({ src: it.path, width: 375, quality: 90 })
+      )
+      const imageUrl = images[0] ?? ''
 
       return {
         id: artwork.id,
@@ -111,6 +113,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
         title: artwork.title,
         description: artwork.description || '',
         imageUrl,
+        mediaType: isVideoFile(imageUrl) ? MediaType.VIDEO : MediaType.IMAGE,
         images,
         author: artwork.artist
           ? {
