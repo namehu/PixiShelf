@@ -114,7 +114,7 @@ EOF
 # 创建crontab文件 - 每天凌晨2点执行
 COPY <<EOF /etc/crontabs/appuser
 # 每天凌晨2点执行标签统计更新
-0 2 * * * /app/run-tag-stats.sh >> /var/log/tag-stats.log 2>&1
+0 2 * * 0 /app/run-tag-stats.sh >> /var/log/tag-stats.log 2>&1
 EOF
 
 # 设置脚本权限
