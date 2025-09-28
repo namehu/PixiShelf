@@ -1,6 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { prisma } from '@/lib/prisma'
 import { WallpaperIcon, Users, Image as ImageIcon, Tags } from 'lucide-react'
+
+export const dynamic = 'force-dynamic'
+
 // 定义扩展后的统计数据类型
 interface StatsData {
   artworkCount: number
