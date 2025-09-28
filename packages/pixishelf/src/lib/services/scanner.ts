@@ -131,8 +131,13 @@ export class ScannerService {
     const BATCH_SIZE = 100 // 定义处理批次的大小
     let artworkBatch: ArtworkData[] = []
     let batchNumber = 0
+    let basePercentage = options.forceUpdate ? 10 : 0
 
-    // 1. 找到所有需要处理的元数据文件（这一步仍然需要先完成）
+    options.onProgress?.({
+      phase: 'counting',
+      message: '正在发现作品...',
+      percentage: basePercentage
+    })
     const metadataFiles = await this.globMetadataFiles(options.scanPath, options.forceUpdate)
     const totalFiles = metadataFiles.length
     const totalBatches = Math.ceil(totalFiles / BATCH_SIZE)
@@ -146,7 +151,14 @@ export class ScannerService {
       return
     }
 
-    logger.info('Found metadata files, starting stream processing:', { totalFiles, totalBatches })
+    basePercentage += 10
+    options.onProgress?.({
+      phase: 'scanning',
+      message: `发现 ${totalFiles} 个作品，开始处理...`,
+      current: 0,
+      total: totalFiles,
+      percentage: basePercentage
+    })
 
     // 2. 遍历文件列表，边发现边处理
     for (let i = 0; i < totalFiles; i++) {
@@ -182,9 +194,8 @@ export class ScannerService {
         // 清空批次，为下一批做准备
         artworkBatch = []
 
-        // 更新总进度（80%权重：10%-90%）
-        const progressPercentage = ((i + 1) / totalFiles) * 80
-        const basePercentage = options.forceUpdate ? 10 : 0
+        // 更新总进度（70%权重：10%-80%）
+        const progressPercentage = ((i + 1) / totalFiles) * 70
         options.onProgress?.({
           phase: 'scanning',
           message: `已处理 ${i + 1}/${totalFiles} 个作品`,
