@@ -7,6 +7,7 @@ import AdminSidebar from './admin-sidebar'
 import ScanManagement from './scan-management'
 import UserManagement from './user-management'
 import TagManagement from './tag-management'
+import TestSSE from './test-sse'
 
 // 布局组件Props接口
 export interface AdminLayoutProps {
@@ -53,6 +54,8 @@ function AdminLayout({ activeTab, onTabChange, tabs }: AdminLayoutProps) {
         return <UserManagement />
       case 'tags':
         return <TagManagement />
+      case 'test-sse':
+        return <TestSSE />
       default:
         return <ScanManagement />
     }
