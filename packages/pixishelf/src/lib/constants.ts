@@ -26,7 +26,8 @@ export const ROUTES = {
   GALLERY: '/gallery',
   ARTWORKS: '/artworks',
   ARTISTS: '/artists',
-  ADMIN: '/admin',
+  ADMINSETTING: '/admin/setting',
+  ADMINSTATS: '/admin/stats',
   TAGS: '/tags',
   VIEWER: '/viewer',
   CHANGE_PASSWORD: '/change-password'

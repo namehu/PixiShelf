@@ -14,9 +14,6 @@ import AdminLayout from '@/components/admin/admin-layout'
  * - 处理路由参数和页面状态
  *
  * 路由：
- * - /admin - 默认显示扫描管理
- * - /admin?tab=scan - 显示扫描管理
- * - /admin?tab=users - 显示用户管理
  */
 function AdminPageContent() {
   // 使用Tab状态管理Hook

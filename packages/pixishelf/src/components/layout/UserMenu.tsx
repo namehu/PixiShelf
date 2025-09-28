@@ -9,7 +9,7 @@ import {
   MenubarSeparator
 } from '@/components/ui/menubar'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { UsersIcon, SettingsIcon, LogOutIcon } from 'lucide-react'
+import { UsersIcon, SettingsIcon, LogOutIcon, BarChart2Icon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { memo } from 'react'
 import { useAuth } from '@/components'
@@ -34,13 +34,18 @@ const UserMenu = () => {
         </MenubarTrigger>
 
         <MenubarContent>
+          <MenubarItem onClick={() => router.push(ROUTES.ADMINSTATS)}>
+            <BarChart2Icon className="mr-2 h-4 w-4" />
+            统计概览
+          </MenubarItem>
+          <MenubarItem onClick={() => router.push(ROUTES.ADMINSETTING)}>
+            <SettingsIcon className="mr-2 h-4 w-4" />
+            管理后台
+          </MenubarItem>
+          <MenubarSeparator />
           <MenubarItem onClick={() => router.push(ROUTES.CHANGE_PASSWORD)}>
             <UsersIcon className="mr-2 h-4 w-4" />
             修改密码
-          </MenubarItem>
-          <MenubarItem onClick={() => router.push(ROUTES.ADMIN)}>
-            <SettingsIcon className="mr-2 h-4 w-4" />
-            管理后台
           </MenubarItem>
           <MenubarSeparator />
           <MenubarItem onClick={() => logout()}>

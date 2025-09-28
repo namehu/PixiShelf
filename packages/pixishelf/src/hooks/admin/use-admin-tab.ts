@@ -86,7 +86,7 @@ export function useAdminTab(): UseAdminTabReturn {
       }
 
       // 使用Next.js router更新URL
-      const newUrl = newParams.toString() ? `/admin?${newParams.toString()}` : '/admin'
+      const newUrl = newParams.toString() ? `/admin/setting?${newParams.toString()}` : '/admin/setting'
       router.push(newUrl)
     },
     [searchParams, router]
