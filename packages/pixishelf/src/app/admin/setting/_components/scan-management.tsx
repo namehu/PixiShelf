@@ -38,12 +38,12 @@ function useScanPath() {
     query: useQuery({
       queryKey: ['scanPath'],
       queryFn: async () => {
-        return apiJson<ScanPathResponse>('/api/v1/settings/scan-path')
+        return apiJson<ScanPathResponse>('/api/settings/scan-path')
       }
     }),
     update: useMutation({
       mutationFn: async (scanPath: string) => {
-        return apiJson('/api/v1/settings/scan-path', {
+        return apiJson('/api/settings/scan-path', {
           method: 'PUT',
           body: JSON.stringify({ scanPath })
         })

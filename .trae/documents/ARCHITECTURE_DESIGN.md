@@ -152,7 +152,7 @@ graph TD
 | ------ | ---------------------------- | -------- |
 | `GET`  | `/api/health`             | 健康检查     |
 | `GET`  | `/api/suggestions`        | 获取搜索建议   |
-| `GET`  | `/api/v1/settings/scan-path` | 获取扫描路径设置 |
+| `GET`  | `/api/settings/scan-path` | 获取扫描路径设置 |
 | `GET`  | `/api/v1/users`              | 获取用户列表   |
 | `POST` | `/api/v1/users/password`     | 修改用户密码   |
 

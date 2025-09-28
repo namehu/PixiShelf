@@ -4,7 +4,7 @@ import { getSettingService } from '@/lib/services/setting'
 
 /**
  * 获取扫描路径设置接口
- * GET /api/v1/settings/scan-path
+ * GET /api/settings/scan-path
  */
 export async function GET(request: NextRequest): Promise<NextResponse<ScanPathResponse>> {
   try {
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ScanPathRe
 
 /**
  * 设置扫描路径接口
- * PUT /api/v1/settings/scan-path
+ * PUT /api/settings/scan-path
  */
 export async function PUT(request: NextRequest): Promise<NextResponse<SettingsUpdateResponse>> {
   try {
