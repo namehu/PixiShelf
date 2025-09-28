@@ -2,14 +2,14 @@ import { EnhancedArtworksResponse } from '@/types'
 import ArtworkGrid from './ArtworkGrid'
 
 interface RecommendedArtworksProps {
-  initialData: EnhancedArtworksResponse
+  data: EnhancedArtworksResponse
 }
 
 /**
  * 推荐作品展示组件
  * 结合服务端静态部分和客户端动态部分
  */
-export default function RecommendedArtworks({ initialData }: RecommendedArtworksProps) {
+export default function RecommendedArtworks({ data }: RecommendedArtworksProps) {
   return (
     <div className="mb-12">
       <div className="flex items-center justify-between mb-6">
@@ -19,7 +19,7 @@ export default function RecommendedArtworks({ initialData }: RecommendedArtworks
         </div>
       </div>
 
-      <ArtworkGrid initialData={initialData} enableRefresh={true} refreshEndpoint="/api/artworks/recommendations" />
+      <ArtworkGrid initialData={data} enableRefresh refreshEndpoint="/api/artworks/recommendations" />
     </div>
   )
 }

@@ -11,9 +11,11 @@ export const artworkService = {
    * @param options 查询选项
    * @returns 推荐作品响应
    */
-  async getRecommendedArtworks(options: {
-    pageSize?: number
-  } = {}): Promise<EnhancedArtworksResponse> {
+  async getRecommendedArtworks(
+    options: {
+      pageSize?: number
+    } = {}
+  ): Promise<EnhancedArtworksResponse> {
     try {
       const { pageSize = 10 } = options
 
@@ -63,10 +65,12 @@ export const artworkService = {
    * @param options 查询选项
    * @returns 最新作品响应
    */
-  async getRecentArtworks(options: {
-    page?: number
-    pageSize?: number
-  } = {}): Promise<EnhancedArtworksResponse> {
+  async getRecentArtworks(
+    options: {
+      page?: number
+      pageSize?: number
+    } = {}
+  ): Promise<EnhancedArtworksResponse> {
     try {
       const { page = 1, pageSize = 10 } = options
       const skip = (page - 1) * pageSize
@@ -115,9 +119,7 @@ export const artworkService = {
 
       // 计算视频相关统计
       const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
-      const totalMediaSize = videoCount 
-        ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) 
-        : 0
+      const totalMediaSize = videoCount ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0
 
       // 构建响应对象
       const result = {
@@ -144,7 +146,7 @@ export const artworkService = {
       // 清理临时字段
       delete (result as any).artworkTags
       delete (result as any)._count
-      
+
       return result
     })
   },
@@ -160,7 +162,7 @@ export const artworkService = {
       if (!artwork) {
         return null
       }
-      
+
       const [transformedArtwork] = this.transformArtworksToResponse([artwork])
       return transformedArtwork
     } catch (error) {
