@@ -85,7 +85,7 @@ docker-compose -f docker-compose.deploy.yml logs -f
 
 ```bash
 # 检查服务健康状态
-curl http://localhost:5431/api/v1/health
+curl http://localhost:5431/api/health
 curl http://localhost/health
 
 # 访问Web界面
@@ -297,7 +297,7 @@ docker-compose -f docker-compose.yml logs -f web
 ### 健康检查
 ```bash
 # 检查服务状态
-curl http://localhost:5431/api/v1/health
+curl http://localhost:5431/api/health
 curl http://localhost/health
 ```
 

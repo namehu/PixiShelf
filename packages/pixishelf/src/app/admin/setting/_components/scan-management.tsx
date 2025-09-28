@@ -26,7 +26,7 @@ function useHealth() {
   return useQuery({
     queryKey: ['health'],
     queryFn: async () => {
-      return apiJson<HealthResponse>('/api/v1/health')
+      return apiJson<HealthResponse>('/api/health')
     }
   })
 }
