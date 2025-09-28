@@ -142,9 +142,9 @@ graph TD
 | 方法     | 路径                         | 描述     |
 | ------ | -------------------------- | ------ |
 | `GET`  | `/api/v1/images/[...path]` | 获取图片文件 |
-| `POST` | `/api/v1/scan/stream`      | 开始文件扫描 |
-| `GET`  | `/api/v1/scan/status`      | 获取扫描状态 |
-| `POST` | `/api/v1/scan/cancel`      | 取消扫描任务 |
+| `POST` | `/api/scan/stream`      | 开始文件扫描 |
+| `GET`  | `/api/scan/status`      | 获取扫描状态 |
+| `POST` | `/api/scan/cancel`      | 取消扫描任务 |
 
 #### 系统管理
 

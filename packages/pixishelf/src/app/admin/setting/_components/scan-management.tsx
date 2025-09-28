@@ -60,7 +60,7 @@ function useScanPath() {
 function useCancelScan() {
   return useMutation({
     mutationFn: async () => {
-      return apiJson<{ success: boolean; cancelled: boolean }>('/api/v1/scan/cancel', {
+      return apiJson<{ success: boolean; cancelled: boolean }>('/api/scan/cancel', {
         method: 'POST'
       })
     }
@@ -181,7 +181,7 @@ function ScanManagement() {
 
       const qs = new URLSearchParams()
       if (force) qs.set('force', 'true')
-      const url = `/api/v1/scan/stream${qs.toString() ? `?${qs.toString()}` : ''}`
+      const url = `/api/scan/stream${qs.toString() ? `?${qs.toString()}` : ''}`
 
       addLogEntry('connection', { url, force }, `开始连接SSE: ${url}`)
 

@@ -85,7 +85,7 @@ function useScanStatus() {
   useEffect(() => {
     const fetchScanStatus = async () => {
       try {
-        const result = await apiJson<{ scanning: boolean; message: string | null }>('/api/v1/scan/status')
+        const result = await apiJson<{ scanning: boolean; message: string | null }>('/api/scan/status')
         setData(result)
       } catch (error) {
         console.error('Failed to fetch scan status:', error)

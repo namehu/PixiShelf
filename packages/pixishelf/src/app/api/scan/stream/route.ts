@@ -7,7 +7,7 @@ import logger from '@/lib/logger'
 
 /**
  * 扫描SSE流接口
- * GET /api/v1/scan/stream
+ * GET /api/scan/stream
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
