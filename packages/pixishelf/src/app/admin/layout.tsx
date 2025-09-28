@@ -13,7 +13,7 @@ export default function RootLayout(props: RootLayoutProps) {
       {/* 导航栏 */}
       <PNav></PNav>
       {/* 主要内容 */}
-      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">{props.children}</main>
+      <main className="max-w-7xl mx-auto ">{props.children}</main>
     </div>
   )
 }

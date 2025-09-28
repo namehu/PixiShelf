@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { AdminTab, AdminTabId } from '@/hooks/admin/use-admin-tab'
+import { AdminTab, AdminTabId } from '../_hooks/use-admin-tab'
 
 // 侧边栏组件Props接口
 export interface AdminSidebarProps {
@@ -21,34 +21,26 @@ export interface AdminSidebarProps {
 
 /**
  * 管理页面侧边栏组件
- * 
+ *
  * 功能：
  * - 渲染Tab导航列表
  * - 高亮显示当前激活的Tab
  * - 响应式设计（桌面端固定，移动端抽屉式）
  * - 支持键盘导航
  * - 提供良好的视觉反馈
- * 
+ *
  * 样式特点：
  * - 桌面端：固定在左侧，宽度280px
  * - 移动端：抽屉式，从左侧滑入
  * - 激活状态：蓝色背景和文字
  * - 悬停状态：浅灰色背景
  */
-function AdminSidebar({
-  tabs,
-  activeTab,
-  onTabChange,
-  isMobile,
-  isOpen,
-  onClose
-}: AdminSidebarProps) {
-  
+function AdminSidebar({ tabs, activeTab, onTabChange, isMobile, isOpen, onClose }: AdminSidebarProps) {
   // 处理Tab点击
   const handleTabClick = (tabId: AdminTabId) => {
     onTabChange(tabId)
   }
-  
+
   // 处理键盘导航
   const handleKeyDown = (event: React.KeyboardEvent, tabId: AdminTabId) => {
     if (event.key === 'Enter' || event.key === ' ') {
@@ -56,7 +48,7 @@ function AdminSidebar({
       handleTabClick(tabId)
     }
   }
-  
+
   // 侧边栏样式
   const sidebarClasses = [
     'bg-white border-r border-neutral-200 flex flex-col',
@@ -66,16 +58,14 @@ function AdminSidebar({
         }`
       : 'w-80 h-full'
   ].join(' ')
-  
+
   return (
     <aside className={sidebarClasses}>
       {/* 侧边栏头部 */}
       <div className="p-6 border-b border-neutral-200">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-neutral-900">
-            管理中心
-          </h2>
-          
+          <h2 className="text-lg font-semibold text-neutral-900">管理中心</h2>
+
           {/* 移动端关闭按钮 */}
           {isMobile && (
             <button
@@ -84,30 +74,20 @@ function AdminSidebar({
               className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
               aria-label="关闭导航菜单"
             >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           )}
         </div>
       </div>
-      
+
       {/* 导航菜单 */}
       <nav className="flex-1 p-4" role="navigation" aria-label="管理页面导航">
         <ul className="space-y-2">
           {tabs.map((tab) => {
             const isActive = tab.id === activeTab
-            
+
             return (
               <li key={tab.id}>
                 <button
@@ -132,28 +112,22 @@ function AdminSidebar({
                       ].join(' ')}
                     />
                   )}
-                  
+
                   {/* Tab标签 */}
-                  <span className="font-medium">
-                    {tab.label}
-                  </span>
-                  
+                  <span className="font-medium">{tab.label}</span>
+
                   {/* 激活状态指示器 */}
-                  {isActive && (
-                    <div className="ml-auto w-2 h-2 bg-primary-600 rounded-full" />
-                  )}
+                  {isActive && <div className="ml-auto w-2 h-2 bg-primary-600 rounded-full" />}
                 </button>
               </li>
             )
           })}
         </ul>
       </nav>
-      
+
       {/* 侧边栏底部 */}
       <div className="p-4 border-t border-neutral-200">
-        <div className="text-xs text-neutral-500 text-center">
-          管理页面 v1.0
-        </div>
+        <div className="text-xs text-neutral-500 text-center">管理页面 v1.0</div>
       </div>
     </aside>
   )

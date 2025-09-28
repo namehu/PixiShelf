@@ -5,7 +5,7 @@ import { RefreshCw, BarChart3, Clock, CheckCircle, AlertCircle } from 'lucide-re
 
 /**
  * 标签管理组件
- * 
+ *
  * 功能：
  * - 手动触发标签统计更新
  * - 显示最后更新时间
@@ -57,17 +57,13 @@ function TagManagement() {
           <BarChart3 className="w-6 h-6" />
           标签管理
         </h1>
-        <p className="text-neutral-600 mt-1">
-          管理标签统计数据，手动更新标签作品数量
-        </p>
+        <p className="text-neutral-600 mt-1">管理标签统计数据，手动更新标签作品数量</p>
       </div>
 
       {/* 统计更新卡片 */}
       <div className="bg-white rounded-lg border border-neutral-200 p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-neutral-900">
-            标签统计更新
-          </h2>
+          <h2 className="text-lg font-semibold text-neutral-900">标签统计更新</h2>
           <div className="flex items-center gap-2 text-sm text-neutral-500">
             <Clock className="w-4 h-4" />
             定时更新：每天凌晨 2:00
@@ -87,19 +83,13 @@ function TagManagement() {
             <AlertCircle className="w-5 h-5 text-red-600" />
             <div className="text-red-800">
               <div>标签统计更新失败</div>
-              {errorMessage && (
-                <div className="text-sm mt-1 text-red-600">{errorMessage}</div>
-              )}
+              {errorMessage && <div className="text-sm mt-1 text-red-600">{errorMessage}</div>}
             </div>
           </div>
         )}
 
         {/* 最后更新时间 */}
-        {lastUpdate && (
-          <div className="mb-4 text-sm text-neutral-600">
-            最后手动更新时间：{lastUpdate}
-          </div>
-        )}
+        {lastUpdate && <div className="mb-4 text-sm text-neutral-600">最后手动更新时间：{lastUpdate}</div>}
 
         {/* 更新按钮 */}
         <button
@@ -111,9 +101,7 @@ function TagManagement() {
           {isUpdating ? '正在更新...' : '手动更新统计'}
         </button>
 
-        <p className="text-sm text-neutral-500 mt-2">
-          手动更新将重新计算所有标签的作品数量，可能需要几分钟时间
-        </p>
+        <p className="text-sm text-neutral-500 mt-2">手动更新将重新计算所有标签的作品数量，可能需要几分钟时间</p>
       </div>
 
       {/* 说明信息 */}

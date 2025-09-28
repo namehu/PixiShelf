@@ -1,8 +1,8 @@
 'use client'
 
 import React, { Suspense } from 'react'
-import { useAdminTab } from '@/hooks/admin/use-admin-tab'
-import AdminLayout from '@/components/admin/admin-layout'
+import { useAdminTab } from './_hooks/use-admin-tab'
+import AdminLayout from './_components/admin-layout'
 
 /**
  * 管理页面主组件
