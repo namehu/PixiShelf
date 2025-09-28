@@ -62,7 +62,7 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
 
       try {
         setIsLoading(true)
-        const url = new URL('/api/v1/suggestions', window.location.origin)
+        const url = new URL('/api/suggestions', window.location.origin)
         url.searchParams.set('q', query)
         url.searchParams.set('mode', mode)
         url.searchParams.set('limit', '8')
@@ -233,7 +233,12 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   return (
     <div className={cn('relative', className)}>
       <div className="relative">
-        <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg
+          className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -242,22 +247,22 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
           />
         </svg>
         <Input
-           ref={inputRef}
-           value={inputValue}
-           onChange={handleInputChange}
-           onKeyDown={handleKeyDown}
-           onFocus={handleFocus}
-           onBlur={handleBlur}
-           placeholder={placeholder}
-           disabled={disabled}
-           className={`pl-10 ${isLoading ? 'pr-10' : ''}`}
-         />
-         {isLoading && (
-           <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
-             <div className="w-4 h-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
-           </div>
-         )}
-       </div>
+          ref={inputRef}
+          value={inputValue}
+          onChange={handleInputChange}
+          onKeyDown={handleKeyDown}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          placeholder={placeholder}
+          disabled={disabled}
+          className={`pl-10 ${isLoading ? 'pr-10' : ''}`}
+        />
+        {isLoading && (
+          <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+            <div className="w-4 h-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+          </div>
+        )}
+      </div>
 
       {/* 搜索建议下拉列表 */}
       {showSuggestions && suggestions.length > 0 && (

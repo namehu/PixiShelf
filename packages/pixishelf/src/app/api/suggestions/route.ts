@@ -3,8 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { SearchSuggestion, SuggestionsResponse } from '@/types'
 
 /**
- * GET /api/v1/suggestions - 获取搜索建议
- * 
+ * GET /api/suggestions - 获取搜索建议
+ *
  * 查询参数:
  * - q: 搜索关键词 (必需，至少2个字符)
  * - mode: 搜索模式 ('normal' | 'tag'，默认 'normal')
@@ -72,9 +72,9 @@ export async function GET(request: NextRequest) {
     // 搜索艺术家建议（限制前5个）- 使用Trigram索引
     const searchPattern = `%${query}%`
     const artistLimit = Math.min(5, limit)
-    
+
     const artistsQuery = `
-      SELECT 
+      SELECT
         a.name,
         a.username,
         COUNT(aw.id) as artwork_count
@@ -85,15 +85,10 @@ export async function GET(request: NextRequest) {
       ORDER BY artwork_count DESC, a.name ASC
       LIMIT $3
     `
-    
-    const rawArtists = await prisma.$queryRawUnsafe(
-      artistsQuery, 
-      searchPattern, 
-      searchPattern, 
-      artistLimit
-    ) as any[]
-    
-    const artists = rawArtists.map(artist => ({
+
+    const rawArtists = (await prisma.$queryRawUnsafe(artistsQuery, searchPattern, searchPattern, artistLimit)) as any[]
+
+    const artists = rawArtists.map((artist) => ({
       name: artist.name,
       username: artist.username,
       _count: {
@@ -117,7 +112,7 @@ export async function GET(request: NextRequest) {
     const remainingLimit = limit - suggestions.length
     if (remainingLimit > 0) {
       const artworksQuery = `
-        SELECT 
+        SELECT
           aw.title,
           a.name as artist_name,
           COUNT(i.id) as image_count
@@ -129,14 +124,10 @@ export async function GET(request: NextRequest) {
         ORDER BY image_count DESC, aw."createdAt" DESC
         LIMIT $2
       `
-      
-      const rawArtworks = await prisma.$queryRawUnsafe(
-        artworksQuery,
-        searchPattern,
-        remainingLimit
-      ) as any[]
-      
-      const artworks = rawArtworks.map(artwork => ({
+
+      const rawArtworks = (await prisma.$queryRawUnsafe(artworksQuery, searchPattern, remainingLimit)) as any[]
+
+      const artworks = rawArtworks.map((artwork) => ({
         title: artwork.title,
         artist: artwork.artist_name ? { name: artwork.artist_name } : null,
         _count: {
@@ -162,9 +153,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(response)
   } catch (error) {
     console.error('Error fetching search suggestions:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch suggestions' }, 
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to fetch suggestions' }, { status: 500 })
   }
 }
