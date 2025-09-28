@@ -6,7 +6,7 @@ import { getSettingService } from '@/lib/services/setting'
  * 获取扫描路径设置接口
  * GET /api/settings/scan-path
  */
-export async function GET(request: NextRequest): Promise<NextResponse<ScanPathResponse>> {
+export async function GET(): Promise<NextResponse<ScanPathResponse>> {
   try {
     const settingService = getSettingService()
     const scanPath = await settingService.getScanPath()
