@@ -24,7 +24,7 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
   return (
     <>
       {/* 顶部信息栏 */}
-      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 via-black/30 to-transparent p-4 pt-6">
+      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 via-black/30 to-transparent p-4 pl-16 ">
         <div className="flex items-center justify-between text-white">
           {/* 左侧：作者信息 */}
           <div
