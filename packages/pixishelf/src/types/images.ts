@@ -12,6 +12,7 @@ export interface RandomImagesResponse {
  * 随机图片类型
  */
 export interface RandomImageItem {
+  /** 作品id */
   id: number
   key: string
   title: string

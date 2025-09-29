@@ -181,12 +181,13 @@ export default function ArtistDetailPage() {
         <div className="bg-white rounded-lg shadow p-8 text-center max-w-md">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">艺术家不存在</h2>
           <p className="text-gray-600 mb-6">抱歉，找不到该艺术家的信息。</p>
-          <Link href={ROUTES.ARTISTS}>
-            <button className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors">
-              <ChevronLeftIcon size={24}></ChevronLeftIcon>
-              返回
-            </button>
-          </Link>
+          <button
+            onClick={() => router.back()}
+            className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+          >
+            <ChevronLeftIcon size={24}></ChevronLeftIcon>
+            返回
+          </button>
         </div>
       </div>
     )
@@ -196,12 +197,13 @@ export default function ArtistDetailPage() {
     <div className="space-y-8">
       {/* 返回按钮 */}
       <div>
-        <Link href={ROUTES.ARTISTS}>
-          <button className="inline-flex items-center px-3 py-2 text-gray-600 hover:text-gray-900 transition-colors">
-            <ChevronLeftIcon size={24}></ChevronLeftIcon>
-            返回
-          </button>
-        </Link>
+        <button
+          onClick={() => router.back()}
+          className="inline-flex items-center px-3 py-2 text-gray-600 hover:text-gray-900 transition-colors"
+        >
+          <ChevronLeftIcon size={24}></ChevronLeftIcon>
+          返回
+        </button>
       </div>
 
       {/* 艺术家信息头部 */}
