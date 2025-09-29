@@ -170,6 +170,9 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
         // 防止与父级Swiper冲突
         nested={true}
         className="w-full h-full relative z-10"
+        style={{
+          zIndex: 10, // 确保嵌套 Swiper 有足够高的层级
+        }}
       >
         {image.images.map((img, index) => (
           <SwiperSlide key={`${img.key}-${index}`}>
@@ -183,13 +186,14 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
             />
           </SwiperSlide>
         ))}
-
-        <ImageOverlay image={image} />
       </Swiper>
+
+      {/* 将 ImageOverlay 移出 Swiper，作为独立的覆盖层 */}
+      <ImageOverlay image={image} />
 
       {/* 图片计数器 */}
       {imagesToShow.length > 1 && (
-        <div className="absolute top-4 right-4 z-10 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
+        <div className="absolute top-4 right-4 z-30 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
           {currentImageIndex + 1} / {imagesToShow.length}
         </div>
       )}

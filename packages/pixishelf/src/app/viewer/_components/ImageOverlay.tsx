@@ -42,14 +42,12 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
       isDragging.current = false
       longPressTriggered.current = false
 
-      // 启动长按计时器
+      // 设置长按定时器
       pressTimer.current = setTimeout(() => {
         if (!isDragging.current) {
           longPressTriggered.current = true
           console.log('长按事件触发了！')
           setShowControlMenu(true)
-          // 长按触发后阻止默认行为
-          e.preventDefault()
         }
       }, 500)
     }
@@ -72,6 +70,12 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
         if (pressTimer.current) {
           clearTimeout(pressTimer.current)
           pressTimer.current = null
+        }
+
+        // 如果是横向滑动（横向移动距离明显大于纵向），让事件穿透给 Swiper
+        if (absDeltaX > absDeltaY * 1.5) {
+          // 这是横向滑动，不阻止事件，让 Swiper 处理
+          return
         }
       }
 
@@ -131,10 +135,10 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
       }
     }
 
-    // 添加事件监听器，使用 passive: true 让事件更流畅地传播
-    longPressArea.addEventListener('touchstart', handleTouchStart, { passive: true })
-    longPressArea.addEventListener('touchmove', handleTouchMove, { passive: true })
-    longPressArea.addEventListener('touchend', handleTouchEnd, { passive: true })
+    // 添加事件监听器，使用 passive: false 以便能够控制事件传播
+    longPressArea.addEventListener('touchstart', handleTouchStart, { passive: false })
+    longPressArea.addEventListener('touchmove', handleTouchMove, { passive: false })
+    longPressArea.addEventListener('touchend', handleTouchEnd, { passive: false })
 
     // PC端事件
     longPressArea.addEventListener('mousedown', handleMouseDown)
@@ -154,27 +158,27 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
   }, [isVisible])
 
   return (
-    <>
+    <div className="absolute inset-0 pointer-events-none z-20">
+      {/* 长按交互区域 - 只在中心小区域启用交互 */}
       <div
         ref={interactiveZoneRef}
         className="absolute"
         style={{
-          width: '50%',
-          height: '40%',
+          width: '25%', // 进一步减小交互区域，避免干扰横向滑动
+          height: '25%', // 进一步减小交互区域
           top: '50%',
           left: '50%',
-          background: 'rgba(255, 0, 0, 0.1)', // 调试时可以启用
+          // background: 'rgba(255, 0, 0, 0.1)', // 调试时可以启用
           transform: 'translate(-50%, -50%)',
-          touchAction: 'manipulation',
+          touchAction: 'none', // 禁用默认触摸行为
           userSelect: 'none',
           WebkitUserSelect: 'none',
-          zIndex: 1, // 进一步降低层级
-          pointerEvents: 'auto'
+          pointerEvents: 'auto' // 只在这个小区域启用事件
         }}
       ></div>
       {/* 顶部信息栏 */}
       <div
-        className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 via-black/30 to-transparent p-4 pl-16 transition-opacity duration-300 z-20 ${
+        className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 via-black/30 to-transparent p-4 pl-16 transition-opacity duration-300 pointer-events-auto ${
           isVisible ? 'opacity-100' : 'opacity-30'
         }`}
       >
@@ -197,7 +201,7 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
 
       {/* 底部信息栏 */}
       <div
-        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4  transition-opacity duration-300 z-20 ${
+        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 transition-opacity duration-300 pointer-events-auto ${
           isVisible ? 'opacity-100' : 'opacity-30'
         }`}
       >
@@ -267,12 +271,11 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
             )}
           </div>
         </div>
-        ssN{' '}
       </div>
 
       {/* 长按控制菜单 */}
       {showControlMenu && (
-        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 pointer-events-auto">
           <div className="bg-white rounded-lg p-4 m-4 max-w-xs w-full">
             <h3 className="text-lg font-semibold mb-4 text-center">操作菜单</h3>
             <div className="space-y-2">
@@ -306,6 +309,6 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 }
