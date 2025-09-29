@@ -113,8 +113,10 @@ EOF
 
 # 创建crontab文件 - 每天凌晨2点执行
 COPY <<EOF /etc/crontabs/appuser
-# 每天凌晨2点执行标签统计更新
-0 2 * * 0 /app/run-tag-stats.sh >> /var/log/tag-stats.log 2>&1
+# 每周凌晨2点执行标签统计更新
+# 0 2 * * 0 /app/run-tag-stats.sh >> /var/log/tag-stats.log 2>&1
+# 在每年的1月1日凌晨2:00执行  因为数据库加了触发器 并且后管可以手动执行.这里只是象征意义了
+0 2 1 1 * /app/run-tag-stats.sh >> /var/log/tag-stats.log 2>&1
 EOF
 
 # 设置脚本权限
