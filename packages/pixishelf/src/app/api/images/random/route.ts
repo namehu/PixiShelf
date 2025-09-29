@@ -20,6 +20,8 @@ function shuffleArray<T>(array: T[]): T[] {
   return array
 }
 
+const MAX_IMAGE_COUNT = 10 // 图片最大数量
+
 /**
  * 随机获取单张图片作品的API接口 (已优化为真随机)
  * GET /api/images/random
@@ -37,7 +39,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
     // 只选择 id 字段，这样数据库查询非常快，内存占用也小
     const allArtworkIds = await prisma.artwork.findMany({
       where: {
-        imageCount: { lte: 5 }
+        imageCount: { lte: MAX_IMAGE_COUNT }
       },
       select: { id: true },
       orderBy: {
@@ -84,15 +86,11 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
       },
       include: {
         images: {
-          take: 5,
+          take: MAX_IMAGE_COUNT,
           orderBy: { sortOrder: 'asc' }
         },
         artist: true,
-        artworkTags: {
-          include: {
-            tag: true
-          }
-        }
+        artworkTags: { include: { tag: true } }
       }
     })
 
@@ -103,7 +101,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
     // 7. 转换数据格式
     const items: RandomImageItem[] = sortedArtworks.map((artwork) => {
       const images = artwork.images.map((it) =>
-        isVideoFile(it.path) ? `/api/v1/images/${it.path}` : imgproxyLoader({ src: it.path, width: 375, quality: 90 })
+        isVideoFile(it.path) ? `/api/v1/images/${it.path}` : imgproxyLoader({ src: it.path, width: 375, quality: 100 })
       )
       const imageUrl = images[0] ?? ''
 
@@ -123,7 +121,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
             }
           : null,
         createdAt: artwork.createdAt.toISOString(),
-        tags: artwork.artworkTags.map((at) => at.tag.name)
+        tags: artwork.artworkTags.map(({ tag }) => ({ id: tag.id, name: tag.name }))
       }
     })
 

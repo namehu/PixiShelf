@@ -25,5 +25,8 @@ export interface RandomImageItem {
     username?: string
   } | null
   createdAt: string
-  tags: string[]
+  tags: {
+    id: number
+    name: string
+  }[]
 }

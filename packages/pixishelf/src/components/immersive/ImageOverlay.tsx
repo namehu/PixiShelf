@@ -2,6 +2,7 @@
 
 import { RandomImageItem } from '@/types/images'
 import { User } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 interface ImageOverlayProps {
   image: RandomImageItem
@@ -12,6 +13,7 @@ interface ImageOverlayProps {
  * 显示图片元信息和操作按钮
  */
 export default function ImageOverlay({ image }: ImageOverlayProps) {
+  const router = useRouter()
   return (
     <>
       {/* 顶部信息栏 */}
@@ -59,8 +61,12 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
             {image.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 flex-1">
                 {image.tags.slice(0, 3).map((tag, index) => (
-                  <span key={index} className="px-2 py-1 bg-white/20 rounded-full text-xs">
-                    #{tag}
+                  <span
+                    key={index}
+                    className="px-2 py-1 bg-white/20 rounded-full text-xs cursor-pointer"
+                    onClick={() => router.push(`/tags/${tag.id}`)}
+                  >
+                    #{tag.name}
                   </span>
                 ))}
                 {image.tags.length > 3 && (

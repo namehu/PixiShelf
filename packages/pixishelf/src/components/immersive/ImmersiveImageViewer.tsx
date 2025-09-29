@@ -65,7 +65,7 @@ export default function ImmersiveImageViewer({
           touchAngle={45}
           grabCursor={true}
         >
-          {initialImages.map((image, index) => (
+          {initialImages.map((image) => (
             <SwiperSlide key={image.key} className="flex items-center justify-center">
               <ImageSlide image={image} />
             </SwiperSlide>
