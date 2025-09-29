@@ -60,11 +60,11 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # 安装 pnpm 和生产运行时所需的系统依赖
-# wget 用于 HEALTHCHECK, dcron 用于定时任务
+# curl 用于 HEALTHCHECK, dcron 用于定时任务
 RUN apk add --no-cache \
     openssl \
     supervisor \
-    wget \
+    curl \
     dcron \
     && npm install -g tsx@^4.19.2 \
     && npm install -g pnpm@${PNPM_VERSION} \
