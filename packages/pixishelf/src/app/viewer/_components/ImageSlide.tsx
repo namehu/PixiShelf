@@ -48,7 +48,7 @@ function SingleImage({ image, mediaType, id, onError, retryKey, onRetry }: Singl
           {mediaType === MediaType.IMAGE ? (
             <img
               key={`${id}-${retryKey}`}
-              // src={image}
+              src={image}
               alt={id || `Image by ${id || 'Unknown'}`}
               className="w-full h-full object-contain"
               loading="lazy"
