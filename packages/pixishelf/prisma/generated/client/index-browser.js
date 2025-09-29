@@ -198,6 +198,17 @@ exports.Prisma.SettingScalarFieldEnum = {
   updatedAt: 'updatedAt'
 };
 
+exports.Prisma.TriggerLogScalarFieldEnum = {
+  id: 'id',
+  operation: 'operation',
+  table_name: 'table_name',
+  record_id: 'record_id',
+  old_value: 'old_value',
+  new_value: 'new_value',
+  error_message: 'error_message',
+  created_at: 'created_at'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -251,6 +262,12 @@ exports.Prisma.SettingOrderByRelevanceFieldEnum = {
   type: 'type'
 };
 
+exports.Prisma.TriggerLogOrderByRelevanceFieldEnum = {
+  operation: 'operation',
+  table_name: 'table_name',
+  error_message: 'error_message'
+};
+
 
 exports.Prisma.ModelName = {
   Artist: 'Artist',
@@ -259,7 +276,8 @@ exports.Prisma.ModelName = {
   ArtworkTag: 'ArtworkTag',
   Image: 'Image',
   User: 'User',
-  Setting: 'Setting'
+  Setting: 'Setting',
+  TriggerLog: 'TriggerLog'
 };
 
 /**

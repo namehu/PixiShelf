@@ -48,6 +48,11 @@ export type User = $Result.DefaultSelection<Prisma.$UserPayload>
  * 
  */
 export type Setting = $Result.DefaultSelection<Prisma.$SettingPayload>
+/**
+ * Model TriggerLog
+ * 
+ */
+export type TriggerLog = $Result.DefaultSelection<Prisma.$TriggerLogPayload>
 
 /**
  * ##  Prisma Client ʲˢ
@@ -241,6 +246,16 @@ export class PrismaClient<
     * ```
     */
   get setting(): Prisma.SettingDelegate<ExtArgs>;
+
+  /**
+   * `prisma.triggerLog`: Exposes CRUD operations for the **TriggerLog** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more TriggerLogs
+    * const triggerLogs = await prisma.triggerLog.findMany()
+    * ```
+    */
+  get triggerLog(): Prisma.TriggerLogDelegate<ExtArgs>;
 }
 
 export namespace Prisma {
@@ -688,7 +703,8 @@ export namespace Prisma {
     ArtworkTag: 'ArtworkTag',
     Image: 'Image',
     User: 'User',
-    Setting: 'Setting'
+    Setting: 'Setting',
+    TriggerLog: 'TriggerLog'
   };
 
   export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -704,7 +720,7 @@ export namespace Prisma {
 
   export type TypeMap<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, ClientOptions = {}> = {
     meta: {
-      modelProps: "artist" | "artwork" | "tag" | "artworkTag" | "image" | "user" | "setting"
+      modelProps: "artist" | "artwork" | "tag" | "artworkTag" | "image" | "user" | "setting" | "triggerLog"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -1195,6 +1211,76 @@ export namespace Prisma {
           count: {
             args: Prisma.SettingCountArgs<ExtArgs>
             result: $Utils.Optional<SettingCountAggregateOutputType> | number
+          }
+        }
+      }
+      TriggerLog: {
+        payload: Prisma.$TriggerLogPayload<ExtArgs>
+        fields: Prisma.TriggerLogFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.TriggerLogFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TriggerLogPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.TriggerLogFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TriggerLogPayload>
+          }
+          findFirst: {
+            args: Prisma.TriggerLogFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TriggerLogPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.TriggerLogFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TriggerLogPayload>
+          }
+          findMany: {
+            args: Prisma.TriggerLogFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TriggerLogPayload>[]
+          }
+          create: {
+            args: Prisma.TriggerLogCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TriggerLogPayload>
+          }
+          createMany: {
+            args: Prisma.TriggerLogCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.TriggerLogCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TriggerLogPayload>[]
+          }
+          delete: {
+            args: Prisma.TriggerLogDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TriggerLogPayload>
+          }
+          update: {
+            args: Prisma.TriggerLogUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TriggerLogPayload>
+          }
+          deleteMany: {
+            args: Prisma.TriggerLogDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.TriggerLogUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          upsert: {
+            args: Prisma.TriggerLogUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$TriggerLogPayload>
+          }
+          aggregate: {
+            args: Prisma.TriggerLogAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateTriggerLog>
+          }
+          groupBy: {
+            args: Prisma.TriggerLogGroupByArgs<ExtArgs>
+            result: $Utils.Optional<TriggerLogGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.TriggerLogCountArgs<ExtArgs>
+            result: $Utils.Optional<TriggerLogCountAggregateOutputType> | number
           }
         }
       }
@@ -8524,6 +8610,966 @@ export namespace Prisma {
 
 
   /**
+   * Model TriggerLog
+   */
+
+  export type AggregateTriggerLog = {
+    _count: TriggerLogCountAggregateOutputType | null
+    _avg: TriggerLogAvgAggregateOutputType | null
+    _sum: TriggerLogSumAggregateOutputType | null
+    _min: TriggerLogMinAggregateOutputType | null
+    _max: TriggerLogMaxAggregateOutputType | null
+  }
+
+  export type TriggerLogAvgAggregateOutputType = {
+    id: number | null
+    record_id: number | null
+    old_value: number | null
+    new_value: number | null
+  }
+
+  export type TriggerLogSumAggregateOutputType = {
+    id: number | null
+    record_id: number | null
+    old_value: number | null
+    new_value: number | null
+  }
+
+  export type TriggerLogMinAggregateOutputType = {
+    id: number | null
+    operation: string | null
+    table_name: string | null
+    record_id: number | null
+    old_value: number | null
+    new_value: number | null
+    error_message: string | null
+    created_at: Date | null
+  }
+
+  export type TriggerLogMaxAggregateOutputType = {
+    id: number | null
+    operation: string | null
+    table_name: string | null
+    record_id: number | null
+    old_value: number | null
+    new_value: number | null
+    error_message: string | null
+    created_at: Date | null
+  }
+
+  export type TriggerLogCountAggregateOutputType = {
+    id: number
+    operation: number
+    table_name: number
+    record_id: number
+    old_value: number
+    new_value: number
+    error_message: number
+    created_at: number
+    _all: number
+  }
+
+
+  export type TriggerLogAvgAggregateInputType = {
+    id?: true
+    record_id?: true
+    old_value?: true
+    new_value?: true
+  }
+
+  export type TriggerLogSumAggregateInputType = {
+    id?: true
+    record_id?: true
+    old_value?: true
+    new_value?: true
+  }
+
+  export type TriggerLogMinAggregateInputType = {
+    id?: true
+    operation?: true
+    table_name?: true
+    record_id?: true
+    old_value?: true
+    new_value?: true
+    error_message?: true
+    created_at?: true
+  }
+
+  export type TriggerLogMaxAggregateInputType = {
+    id?: true
+    operation?: true
+    table_name?: true
+    record_id?: true
+    old_value?: true
+    new_value?: true
+    error_message?: true
+    created_at?: true
+  }
+
+  export type TriggerLogCountAggregateInputType = {
+    id?: true
+    operation?: true
+    table_name?: true
+    record_id?: true
+    old_value?: true
+    new_value?: true
+    error_message?: true
+    created_at?: true
+    _all?: true
+  }
+
+  export type TriggerLogAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TriggerLog to aggregate.
+     */
+    where?: TriggerLogWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TriggerLogs to fetch.
+     */
+    orderBy?: TriggerLogOrderByWithRelationInput | TriggerLogOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: TriggerLogWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TriggerLogs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TriggerLogs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned TriggerLogs
+    **/
+    _count?: true | TriggerLogCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: TriggerLogAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: TriggerLogSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: TriggerLogMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: TriggerLogMaxAggregateInputType
+  }
+
+  export type GetTriggerLogAggregateType<T extends TriggerLogAggregateArgs> = {
+        [P in keyof T & keyof AggregateTriggerLog]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateTriggerLog[P]>
+      : GetScalarType<T[P], AggregateTriggerLog[P]>
+  }
+
+
+
+
+  export type TriggerLogGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: TriggerLogWhereInput
+    orderBy?: TriggerLogOrderByWithAggregationInput | TriggerLogOrderByWithAggregationInput[]
+    by: TriggerLogScalarFieldEnum[] | TriggerLogScalarFieldEnum
+    having?: TriggerLogScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: TriggerLogCountAggregateInputType | true
+    _avg?: TriggerLogAvgAggregateInputType
+    _sum?: TriggerLogSumAggregateInputType
+    _min?: TriggerLogMinAggregateInputType
+    _max?: TriggerLogMaxAggregateInputType
+  }
+
+  export type TriggerLogGroupByOutputType = {
+    id: number
+    operation: string
+    table_name: string
+    record_id: number | null
+    old_value: number | null
+    new_value: number | null
+    error_message: string | null
+    created_at: Date
+    _count: TriggerLogCountAggregateOutputType | null
+    _avg: TriggerLogAvgAggregateOutputType | null
+    _sum: TriggerLogSumAggregateOutputType | null
+    _min: TriggerLogMinAggregateOutputType | null
+    _max: TriggerLogMaxAggregateOutputType | null
+  }
+
+  type GetTriggerLogGroupByPayload<T extends TriggerLogGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<TriggerLogGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof TriggerLogGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], TriggerLogGroupByOutputType[P]>
+            : GetScalarType<T[P], TriggerLogGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type TriggerLogSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    operation?: boolean
+    table_name?: boolean
+    record_id?: boolean
+    old_value?: boolean
+    new_value?: boolean
+    error_message?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["triggerLog"]>
+
+  export type TriggerLogSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    operation?: boolean
+    table_name?: boolean
+    record_id?: boolean
+    old_value?: boolean
+    new_value?: boolean
+    error_message?: boolean
+    created_at?: boolean
+  }, ExtArgs["result"]["triggerLog"]>
+
+  export type TriggerLogSelectScalar = {
+    id?: boolean
+    operation?: boolean
+    table_name?: boolean
+    record_id?: boolean
+    old_value?: boolean
+    new_value?: boolean
+    error_message?: boolean
+    created_at?: boolean
+  }
+
+
+  export type $TriggerLogPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "TriggerLog"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: number
+      operation: string
+      table_name: string
+      record_id: number | null
+      old_value: number | null
+      new_value: number | null
+      error_message: string | null
+      created_at: Date
+    }, ExtArgs["result"]["triggerLog"]>
+    composites: {}
+  }
+
+  type TriggerLogGetPayload<S extends boolean | null | undefined | TriggerLogDefaultArgs> = $Result.GetResult<Prisma.$TriggerLogPayload, S>
+
+  type TriggerLogCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = 
+    Omit<TriggerLogFindManyArgs, 'select' | 'include' | 'distinct'> & {
+      select?: TriggerLogCountAggregateInputType | true
+    }
+
+  export interface TriggerLogDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['TriggerLog'], meta: { name: 'TriggerLog' } }
+    /**
+     * Find zero or one TriggerLog that matches the filter.
+     * @param {TriggerLogFindUniqueArgs} args - Arguments to find a TriggerLog
+     * @example
+     * // Get one TriggerLog
+     * const triggerLog = await prisma.triggerLog.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends TriggerLogFindUniqueArgs>(args: SelectSubset<T, TriggerLogFindUniqueArgs<ExtArgs>>): Prisma__TriggerLogClient<$Result.GetResult<Prisma.$TriggerLogPayload<ExtArgs>, T, "findUnique"> | null, null, ExtArgs>
+
+    /**
+     * Find one TriggerLog that matches the filter or throw an error with `error.code='P2025'` 
+     * if no matches were found.
+     * @param {TriggerLogFindUniqueOrThrowArgs} args - Arguments to find a TriggerLog
+     * @example
+     * // Get one TriggerLog
+     * const triggerLog = await prisma.triggerLog.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends TriggerLogFindUniqueOrThrowArgs>(args: SelectSubset<T, TriggerLogFindUniqueOrThrowArgs<ExtArgs>>): Prisma__TriggerLogClient<$Result.GetResult<Prisma.$TriggerLogPayload<ExtArgs>, T, "findUniqueOrThrow">, never, ExtArgs>
+
+    /**
+     * Find the first TriggerLog that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TriggerLogFindFirstArgs} args - Arguments to find a TriggerLog
+     * @example
+     * // Get one TriggerLog
+     * const triggerLog = await prisma.triggerLog.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends TriggerLogFindFirstArgs>(args?: SelectSubset<T, TriggerLogFindFirstArgs<ExtArgs>>): Prisma__TriggerLogClient<$Result.GetResult<Prisma.$TriggerLogPayload<ExtArgs>, T, "findFirst"> | null, null, ExtArgs>
+
+    /**
+     * Find the first TriggerLog that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TriggerLogFindFirstOrThrowArgs} args - Arguments to find a TriggerLog
+     * @example
+     * // Get one TriggerLog
+     * const triggerLog = await prisma.triggerLog.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends TriggerLogFindFirstOrThrowArgs>(args?: SelectSubset<T, TriggerLogFindFirstOrThrowArgs<ExtArgs>>): Prisma__TriggerLogClient<$Result.GetResult<Prisma.$TriggerLogPayload<ExtArgs>, T, "findFirstOrThrow">, never, ExtArgs>
+
+    /**
+     * Find zero or more TriggerLogs that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TriggerLogFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all TriggerLogs
+     * const triggerLogs = await prisma.triggerLog.findMany()
+     * 
+     * // Get first 10 TriggerLogs
+     * const triggerLogs = await prisma.triggerLog.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const triggerLogWithIdOnly = await prisma.triggerLog.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends TriggerLogFindManyArgs>(args?: SelectSubset<T, TriggerLogFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TriggerLogPayload<ExtArgs>, T, "findMany">>
+
+    /**
+     * Create a TriggerLog.
+     * @param {TriggerLogCreateArgs} args - Arguments to create a TriggerLog.
+     * @example
+     * // Create one TriggerLog
+     * const TriggerLog = await prisma.triggerLog.create({
+     *   data: {
+     *     // ... data to create a TriggerLog
+     *   }
+     * })
+     * 
+     */
+    create<T extends TriggerLogCreateArgs>(args: SelectSubset<T, TriggerLogCreateArgs<ExtArgs>>): Prisma__TriggerLogClient<$Result.GetResult<Prisma.$TriggerLogPayload<ExtArgs>, T, "create">, never, ExtArgs>
+
+    /**
+     * Create many TriggerLogs.
+     * @param {TriggerLogCreateManyArgs} args - Arguments to create many TriggerLogs.
+     * @example
+     * // Create many TriggerLogs
+     * const triggerLog = await prisma.triggerLog.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends TriggerLogCreateManyArgs>(args?: SelectSubset<T, TriggerLogCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many TriggerLogs and returns the data saved in the database.
+     * @param {TriggerLogCreateManyAndReturnArgs} args - Arguments to create many TriggerLogs.
+     * @example
+     * // Create many TriggerLogs
+     * const triggerLog = await prisma.triggerLog.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many TriggerLogs and only return the `id`
+     * const triggerLogWithIdOnly = await prisma.triggerLog.createManyAndReturn({ 
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends TriggerLogCreateManyAndReturnArgs>(args?: SelectSubset<T, TriggerLogCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$TriggerLogPayload<ExtArgs>, T, "createManyAndReturn">>
+
+    /**
+     * Delete a TriggerLog.
+     * @param {TriggerLogDeleteArgs} args - Arguments to delete one TriggerLog.
+     * @example
+     * // Delete one TriggerLog
+     * const TriggerLog = await prisma.triggerLog.delete({
+     *   where: {
+     *     // ... filter to delete one TriggerLog
+     *   }
+     * })
+     * 
+     */
+    delete<T extends TriggerLogDeleteArgs>(args: SelectSubset<T, TriggerLogDeleteArgs<ExtArgs>>): Prisma__TriggerLogClient<$Result.GetResult<Prisma.$TriggerLogPayload<ExtArgs>, T, "delete">, never, ExtArgs>
+
+    /**
+     * Update one TriggerLog.
+     * @param {TriggerLogUpdateArgs} args - Arguments to update one TriggerLog.
+     * @example
+     * // Update one TriggerLog
+     * const triggerLog = await prisma.triggerLog.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends TriggerLogUpdateArgs>(args: SelectSubset<T, TriggerLogUpdateArgs<ExtArgs>>): Prisma__TriggerLogClient<$Result.GetResult<Prisma.$TriggerLogPayload<ExtArgs>, T, "update">, never, ExtArgs>
+
+    /**
+     * Delete zero or more TriggerLogs.
+     * @param {TriggerLogDeleteManyArgs} args - Arguments to filter TriggerLogs to delete.
+     * @example
+     * // Delete a few TriggerLogs
+     * const { count } = await prisma.triggerLog.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends TriggerLogDeleteManyArgs>(args?: SelectSubset<T, TriggerLogDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more TriggerLogs.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TriggerLogUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many TriggerLogs
+     * const triggerLog = await prisma.triggerLog.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends TriggerLogUpdateManyArgs>(args: SelectSubset<T, TriggerLogUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create or update one TriggerLog.
+     * @param {TriggerLogUpsertArgs} args - Arguments to update or create a TriggerLog.
+     * @example
+     * // Update or create a TriggerLog
+     * const triggerLog = await prisma.triggerLog.upsert({
+     *   create: {
+     *     // ... data to create a TriggerLog
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the TriggerLog we want to update
+     *   }
+     * })
+     */
+    upsert<T extends TriggerLogUpsertArgs>(args: SelectSubset<T, TriggerLogUpsertArgs<ExtArgs>>): Prisma__TriggerLogClient<$Result.GetResult<Prisma.$TriggerLogPayload<ExtArgs>, T, "upsert">, never, ExtArgs>
+
+
+    /**
+     * Count the number of TriggerLogs.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TriggerLogCountArgs} args - Arguments to filter TriggerLogs to count.
+     * @example
+     * // Count the number of TriggerLogs
+     * const count = await prisma.triggerLog.count({
+     *   where: {
+     *     // ... the filter for the TriggerLogs we want to count
+     *   }
+     * })
+    **/
+    count<T extends TriggerLogCountArgs>(
+      args?: Subset<T, TriggerLogCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], TriggerLogCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a TriggerLog.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TriggerLogAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends TriggerLogAggregateArgs>(args: Subset<T, TriggerLogAggregateArgs>): Prisma.PrismaPromise<GetTriggerLogAggregateType<T>>
+
+    /**
+     * Group by TriggerLog.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {TriggerLogGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends TriggerLogGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: TriggerLogGroupByArgs['orderBy'] }
+        : { orderBy?: TriggerLogGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, TriggerLogGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetTriggerLogGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the TriggerLog model
+   */
+  readonly fields: TriggerLogFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for TriggerLog.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__TriggerLogClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the TriggerLog model
+   */ 
+  interface TriggerLogFieldRefs {
+    readonly id: FieldRef<"TriggerLog", 'Int'>
+    readonly operation: FieldRef<"TriggerLog", 'String'>
+    readonly table_name: FieldRef<"TriggerLog", 'String'>
+    readonly record_id: FieldRef<"TriggerLog", 'Int'>
+    readonly old_value: FieldRef<"TriggerLog", 'Int'>
+    readonly new_value: FieldRef<"TriggerLog", 'Int'>
+    readonly error_message: FieldRef<"TriggerLog", 'String'>
+    readonly created_at: FieldRef<"TriggerLog", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * TriggerLog findUnique
+   */
+  export type TriggerLogFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TriggerLog
+     */
+    select?: TriggerLogSelect<ExtArgs> | null
+    /**
+     * Filter, which TriggerLog to fetch.
+     */
+    where: TriggerLogWhereUniqueInput
+  }
+
+  /**
+   * TriggerLog findUniqueOrThrow
+   */
+  export type TriggerLogFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TriggerLog
+     */
+    select?: TriggerLogSelect<ExtArgs> | null
+    /**
+     * Filter, which TriggerLog to fetch.
+     */
+    where: TriggerLogWhereUniqueInput
+  }
+
+  /**
+   * TriggerLog findFirst
+   */
+  export type TriggerLogFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TriggerLog
+     */
+    select?: TriggerLogSelect<ExtArgs> | null
+    /**
+     * Filter, which TriggerLog to fetch.
+     */
+    where?: TriggerLogWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TriggerLogs to fetch.
+     */
+    orderBy?: TriggerLogOrderByWithRelationInput | TriggerLogOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TriggerLogs.
+     */
+    cursor?: TriggerLogWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TriggerLogs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TriggerLogs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TriggerLogs.
+     */
+    distinct?: TriggerLogScalarFieldEnum | TriggerLogScalarFieldEnum[]
+  }
+
+  /**
+   * TriggerLog findFirstOrThrow
+   */
+  export type TriggerLogFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TriggerLog
+     */
+    select?: TriggerLogSelect<ExtArgs> | null
+    /**
+     * Filter, which TriggerLog to fetch.
+     */
+    where?: TriggerLogWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TriggerLogs to fetch.
+     */
+    orderBy?: TriggerLogOrderByWithRelationInput | TriggerLogOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for TriggerLogs.
+     */
+    cursor?: TriggerLogWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TriggerLogs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TriggerLogs.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of TriggerLogs.
+     */
+    distinct?: TriggerLogScalarFieldEnum | TriggerLogScalarFieldEnum[]
+  }
+
+  /**
+   * TriggerLog findMany
+   */
+  export type TriggerLogFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TriggerLog
+     */
+    select?: TriggerLogSelect<ExtArgs> | null
+    /**
+     * Filter, which TriggerLogs to fetch.
+     */
+    where?: TriggerLogWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of TriggerLogs to fetch.
+     */
+    orderBy?: TriggerLogOrderByWithRelationInput | TriggerLogOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing TriggerLogs.
+     */
+    cursor?: TriggerLogWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` TriggerLogs from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` TriggerLogs.
+     */
+    skip?: number
+    distinct?: TriggerLogScalarFieldEnum | TriggerLogScalarFieldEnum[]
+  }
+
+  /**
+   * TriggerLog create
+   */
+  export type TriggerLogCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TriggerLog
+     */
+    select?: TriggerLogSelect<ExtArgs> | null
+    /**
+     * The data needed to create a TriggerLog.
+     */
+    data: XOR<TriggerLogCreateInput, TriggerLogUncheckedCreateInput>
+  }
+
+  /**
+   * TriggerLog createMany
+   */
+  export type TriggerLogCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many TriggerLogs.
+     */
+    data: TriggerLogCreateManyInput | TriggerLogCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TriggerLog createManyAndReturn
+   */
+  export type TriggerLogCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TriggerLog
+     */
+    select?: TriggerLogSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * The data used to create many TriggerLogs.
+     */
+    data: TriggerLogCreateManyInput | TriggerLogCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * TriggerLog update
+   */
+  export type TriggerLogUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TriggerLog
+     */
+    select?: TriggerLogSelect<ExtArgs> | null
+    /**
+     * The data needed to update a TriggerLog.
+     */
+    data: XOR<TriggerLogUpdateInput, TriggerLogUncheckedUpdateInput>
+    /**
+     * Choose, which TriggerLog to update.
+     */
+    where: TriggerLogWhereUniqueInput
+  }
+
+  /**
+   * TriggerLog updateMany
+   */
+  export type TriggerLogUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update TriggerLogs.
+     */
+    data: XOR<TriggerLogUpdateManyMutationInput, TriggerLogUncheckedUpdateManyInput>
+    /**
+     * Filter which TriggerLogs to update
+     */
+    where?: TriggerLogWhereInput
+  }
+
+  /**
+   * TriggerLog upsert
+   */
+  export type TriggerLogUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TriggerLog
+     */
+    select?: TriggerLogSelect<ExtArgs> | null
+    /**
+     * The filter to search for the TriggerLog to update in case it exists.
+     */
+    where: TriggerLogWhereUniqueInput
+    /**
+     * In case the TriggerLog found by the `where` argument doesn't exist, create a new TriggerLog with this data.
+     */
+    create: XOR<TriggerLogCreateInput, TriggerLogUncheckedCreateInput>
+    /**
+     * In case the TriggerLog was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<TriggerLogUpdateInput, TriggerLogUncheckedUpdateInput>
+  }
+
+  /**
+   * TriggerLog delete
+   */
+  export type TriggerLogDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TriggerLog
+     */
+    select?: TriggerLogSelect<ExtArgs> | null
+    /**
+     * Filter which TriggerLog to delete.
+     */
+    where: TriggerLogWhereUniqueInput
+  }
+
+  /**
+   * TriggerLog deleteMany
+   */
+  export type TriggerLogDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which TriggerLogs to delete
+     */
+    where?: TriggerLogWhereInput
+  }
+
+  /**
+   * TriggerLog without action
+   */
+  export type TriggerLogDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the TriggerLog
+     */
+    select?: TriggerLogSelect<ExtArgs> | null
+  }
+
+
+  /**
    * Enums
    */
 
@@ -8634,6 +9680,20 @@ export namespace Prisma {
   export type SettingScalarFieldEnum = (typeof SettingScalarFieldEnum)[keyof typeof SettingScalarFieldEnum]
 
 
+  export const TriggerLogScalarFieldEnum: {
+    id: 'id',
+    operation: 'operation',
+    table_name: 'table_name',
+    record_id: 'record_id',
+    old_value: 'old_value',
+    new_value: 'new_value',
+    error_message: 'error_message',
+    created_at: 'created_at'
+  };
+
+  export type TriggerLogScalarFieldEnum = (typeof TriggerLogScalarFieldEnum)[keyof typeof TriggerLogScalarFieldEnum]
+
+
   export const SortOrder: {
     asc: 'asc',
     desc: 'desc'
@@ -8712,6 +9772,15 @@ export namespace Prisma {
   };
 
   export type SettingOrderByRelevanceFieldEnum = (typeof SettingOrderByRelevanceFieldEnum)[keyof typeof SettingOrderByRelevanceFieldEnum]
+
+
+  export const TriggerLogOrderByRelevanceFieldEnum: {
+    operation: 'operation',
+    table_name: 'table_name',
+    error_message: 'error_message'
+  };
+
+  export type TriggerLogOrderByRelevanceFieldEnum = (typeof TriggerLogOrderByRelevanceFieldEnum)[keyof typeof TriggerLogOrderByRelevanceFieldEnum]
 
 
   /**
@@ -9296,6 +10365,76 @@ export namespace Prisma {
     updatedAt?: DateTimeWithAggregatesFilter<"Setting"> | Date | string
   }
 
+  export type TriggerLogWhereInput = {
+    AND?: TriggerLogWhereInput | TriggerLogWhereInput[]
+    OR?: TriggerLogWhereInput[]
+    NOT?: TriggerLogWhereInput | TriggerLogWhereInput[]
+    id?: IntFilter<"TriggerLog"> | number
+    operation?: StringFilter<"TriggerLog"> | string
+    table_name?: StringFilter<"TriggerLog"> | string
+    record_id?: IntNullableFilter<"TriggerLog"> | number | null
+    old_value?: IntNullableFilter<"TriggerLog"> | number | null
+    new_value?: IntNullableFilter<"TriggerLog"> | number | null
+    error_message?: StringNullableFilter<"TriggerLog"> | string | null
+    created_at?: DateTimeFilter<"TriggerLog"> | Date | string
+  }
+
+  export type TriggerLogOrderByWithRelationInput = {
+    id?: SortOrder
+    operation?: SortOrder
+    table_name?: SortOrder
+    record_id?: SortOrderInput | SortOrder
+    old_value?: SortOrderInput | SortOrder
+    new_value?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    _relevance?: TriggerLogOrderByRelevanceInput
+  }
+
+  export type TriggerLogWhereUniqueInput = Prisma.AtLeast<{
+    id?: number
+    AND?: TriggerLogWhereInput | TriggerLogWhereInput[]
+    OR?: TriggerLogWhereInput[]
+    NOT?: TriggerLogWhereInput | TriggerLogWhereInput[]
+    operation?: StringFilter<"TriggerLog"> | string
+    table_name?: StringFilter<"TriggerLog"> | string
+    record_id?: IntNullableFilter<"TriggerLog"> | number | null
+    old_value?: IntNullableFilter<"TriggerLog"> | number | null
+    new_value?: IntNullableFilter<"TriggerLog"> | number | null
+    error_message?: StringNullableFilter<"TriggerLog"> | string | null
+    created_at?: DateTimeFilter<"TriggerLog"> | Date | string
+  }, "id">
+
+  export type TriggerLogOrderByWithAggregationInput = {
+    id?: SortOrder
+    operation?: SortOrder
+    table_name?: SortOrder
+    record_id?: SortOrderInput | SortOrder
+    old_value?: SortOrderInput | SortOrder
+    new_value?: SortOrderInput | SortOrder
+    error_message?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    _count?: TriggerLogCountOrderByAggregateInput
+    _avg?: TriggerLogAvgOrderByAggregateInput
+    _max?: TriggerLogMaxOrderByAggregateInput
+    _min?: TriggerLogMinOrderByAggregateInput
+    _sum?: TriggerLogSumOrderByAggregateInput
+  }
+
+  export type TriggerLogScalarWhereWithAggregatesInput = {
+    AND?: TriggerLogScalarWhereWithAggregatesInput | TriggerLogScalarWhereWithAggregatesInput[]
+    OR?: TriggerLogScalarWhereWithAggregatesInput[]
+    NOT?: TriggerLogScalarWhereWithAggregatesInput | TriggerLogScalarWhereWithAggregatesInput[]
+    id?: IntWithAggregatesFilter<"TriggerLog"> | number
+    operation?: StringWithAggregatesFilter<"TriggerLog"> | string
+    table_name?: StringWithAggregatesFilter<"TriggerLog"> | string
+    record_id?: IntNullableWithAggregatesFilter<"TriggerLog"> | number | null
+    old_value?: IntNullableWithAggregatesFilter<"TriggerLog"> | number | null
+    new_value?: IntNullableWithAggregatesFilter<"TriggerLog"> | number | null
+    error_message?: StringNullableWithAggregatesFilter<"TriggerLog"> | string | null
+    created_at?: DateTimeWithAggregatesFilter<"TriggerLog"> | Date | string
+  }
+
   export type ArtistCreateInput = {
     name: string
     username?: string | null
@@ -9817,6 +10956,80 @@ export namespace Prisma {
     type?: StringFieldUpdateOperationsInput | string
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TriggerLogCreateInput = {
+    operation: string
+    table_name: string
+    record_id?: number | null
+    old_value?: number | null
+    new_value?: number | null
+    error_message?: string | null
+    created_at?: Date | string
+  }
+
+  export type TriggerLogUncheckedCreateInput = {
+    id?: number
+    operation: string
+    table_name: string
+    record_id?: number | null
+    old_value?: number | null
+    new_value?: number | null
+    error_message?: string | null
+    created_at?: Date | string
+  }
+
+  export type TriggerLogUpdateInput = {
+    operation?: StringFieldUpdateOperationsInput | string
+    table_name?: StringFieldUpdateOperationsInput | string
+    record_id?: NullableIntFieldUpdateOperationsInput | number | null
+    old_value?: NullableIntFieldUpdateOperationsInput | number | null
+    new_value?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TriggerLogUncheckedUpdateInput = {
+    id?: IntFieldUpdateOperationsInput | number
+    operation?: StringFieldUpdateOperationsInput | string
+    table_name?: StringFieldUpdateOperationsInput | string
+    record_id?: NullableIntFieldUpdateOperationsInput | number | null
+    old_value?: NullableIntFieldUpdateOperationsInput | number | null
+    new_value?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TriggerLogCreateManyInput = {
+    id?: number
+    operation: string
+    table_name: string
+    record_id?: number | null
+    old_value?: number | null
+    new_value?: number | null
+    error_message?: string | null
+    created_at?: Date | string
+  }
+
+  export type TriggerLogUpdateManyMutationInput = {
+    operation?: StringFieldUpdateOperationsInput | string
+    table_name?: StringFieldUpdateOperationsInput | string
+    record_id?: NullableIntFieldUpdateOperationsInput | number | null
+    old_value?: NullableIntFieldUpdateOperationsInput | number | null
+    new_value?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type TriggerLogUncheckedUpdateManyInput = {
+    id?: IntFieldUpdateOperationsInput | number
+    operation?: StringFieldUpdateOperationsInput | string
+    table_name?: StringFieldUpdateOperationsInput | string
+    record_id?: NullableIntFieldUpdateOperationsInput | number | null
+    old_value?: NullableIntFieldUpdateOperationsInput | number | null
+    new_value?: NullableIntFieldUpdateOperationsInput | number | null
+    error_message?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type IntFilter<$PrismaModel = never> = {
@@ -10418,6 +11631,59 @@ export namespace Prisma {
 
   export type SettingSumOrderByAggregateInput = {
     id?: SortOrder
+  }
+
+  export type TriggerLogOrderByRelevanceInput = {
+    fields: TriggerLogOrderByRelevanceFieldEnum | TriggerLogOrderByRelevanceFieldEnum[]
+    sort: SortOrder
+    search: string
+  }
+
+  export type TriggerLogCountOrderByAggregateInput = {
+    id?: SortOrder
+    operation?: SortOrder
+    table_name?: SortOrder
+    record_id?: SortOrder
+    old_value?: SortOrder
+    new_value?: SortOrder
+    error_message?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type TriggerLogAvgOrderByAggregateInput = {
+    id?: SortOrder
+    record_id?: SortOrder
+    old_value?: SortOrder
+    new_value?: SortOrder
+  }
+
+  export type TriggerLogMaxOrderByAggregateInput = {
+    id?: SortOrder
+    operation?: SortOrder
+    table_name?: SortOrder
+    record_id?: SortOrder
+    old_value?: SortOrder
+    new_value?: SortOrder
+    error_message?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type TriggerLogMinOrderByAggregateInput = {
+    id?: SortOrder
+    operation?: SortOrder
+    table_name?: SortOrder
+    record_id?: SortOrder
+    old_value?: SortOrder
+    new_value?: SortOrder
+    error_message?: SortOrder
+    created_at?: SortOrder
+  }
+
+  export type TriggerLogSumOrderByAggregateInput = {
+    id?: SortOrder
+    record_id?: SortOrder
+    old_value?: SortOrder
+    new_value?: SortOrder
   }
 
   export type ArtworkCreateNestedManyWithoutArtistInput = {
@@ -11653,6 +12919,10 @@ export namespace Prisma {
      * @deprecated Use SettingDefaultArgs instead
      */
     export type SettingArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = SettingDefaultArgs<ExtArgs>
+    /**
+     * @deprecated Use TriggerLogDefaultArgs instead
+     */
+    export type TriggerLogArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = TriggerLogDefaultArgs<ExtArgs>
 
   /**
    * Batch Payload for updateMany & deleteMany & createMany
