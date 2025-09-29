@@ -10,6 +10,7 @@ import 'swiper/css'
 import 'swiper/css/mousewheel'
 import 'swiper/css/keyboard'
 import { RandomImageItem } from '@/types/images'
+import ImageOverlay from './ImageOverlay'
 
 interface ImmersiveImageViewerProps {
   initialImages: RandomImageItem[]
@@ -65,8 +66,14 @@ export default function ImmersiveImageViewer({
           grabCursor={true}
         >
           {initialImages.map((image) => (
-            <SwiperSlide key={image.key} className="flex items-center justify-center">
-              <ImageSlide image={image} />
+            <SwiperSlide
+              key={image.key}
+              className="relative flex w-full h-ful items-center justify-center overflow-hidden"
+            >
+              <ImageOverlay image={image} />
+              <div className="relative w-full h-full bg-black">
+                <ImageSlide image={image} />
+              </div>
             </SwiperSlide>
           ))}
 

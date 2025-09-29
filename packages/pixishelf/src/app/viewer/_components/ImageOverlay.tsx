@@ -3,7 +3,7 @@
 import { RandomImageItem } from '@/types/images'
 import { User, MoreHorizontal } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import TagsPanel from './TagsPanel'
 
 interface ImageOverlayProps {
@@ -20,8 +20,7 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
   const [isVisible, setIsVisible] = useState(true)
   const [showControlMenu, setShowControlMenu] = useState(false)
 
-  const longPressTimer = useRef<NodeJS.Timeout | null>(null)
-  const longPressStarted = useRef(false)
+  const interactiveZoneRef = useRef<HTMLDivElement>(null)
 
   const dayString = new Date(createdAt).toLocaleDateString('zh-CN', {
     year: 'numeric',
@@ -29,49 +28,68 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
     day: 'numeric'
   })
 
-  // 处理点击切换显隐
-  const handleToggleVisibility = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation()
-      setIsVisible(!isVisible)
-    },
-    [isVisible]
-  )
+  const pressTimer = useRef<any>(null)
 
-  // 处理长按开始
-  const handleLongPressStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault()
-    longPressStarted.current = true
-    longPressTimer.current = setTimeout(() => {
-      if (longPressStarted.current) {
-        setShowControlMenu(true)
-      }
-    }, 500)
-  }, [])
+  useEffect(() => {
+    const longPressArea = interactiveZoneRef.current!
 
-  // 处理长按结束
-  const handleLongPressEnd = useCallback(() => {
-    longPressStarted.current = false
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
+    function handleTouchStart(e: any) {
+      console.log(11111111)
+
+      // 启动一个定时器，500毫秒后触发长按事件
+      pressTimer.current = setTimeout(() => {
+        // 清除定时器，防止重复触发
+        clearTimeout(pressTimer.current)
+        pressTimer.current = null
+        // 在这里执行你的长按逻辑
+        console.log('长按事件触发了！')
+        longPressArea.textContent = '长按成功！'
+
+        // 可选：在这里阻止默认行为（如弹出菜单），如果需要的话
+        // e.preventDefault();
+      }, 500) // 500ms 定义为长按
+    }
+
+    // 如果手指在定时器结束前抬起，则清除定时器，判定为单击或短按
+    function handleTouchEnd() {
+      clearTimeout(pressTimer.current)
+    }
+    // 监听触摸开始事件
+    longPressArea.addEventListener('touchstart', handleTouchStart)
+    // 监听触摸结束事件
+    longPressArea.addEventListener('touchend', handleTouchEnd)
+    // 关键一步：监听触摸移动事件
+    longPressArea.addEventListener('touchmove', handleTouchEnd)
+
+    // 为了兼容PC端鼠标操作，可以添加对应的 mousedown, mouseup, mouseleave 事件
+    longPressArea.addEventListener('mousedown', handleTouchStart)
+    longPressArea.addEventListener('mouseup', handleTouchEnd)
+    longPressArea.addEventListener('mouseleave', handleTouchEnd)
+
+    return () => {
+      longPressArea.removeEventListener('touchstart', handleTouchStart)
+      longPressArea.removeEventListener('touchend', handleTouchEnd)
+      longPressArea.removeEventListener('touchmove', handleTouchEnd)
+      longPressArea.removeEventListener('mousedown', handleTouchStart)
+      longPressArea.removeEventListener('mouseup', handleTouchEnd)
+      longPressArea.removeEventListener('mouseleave', handleTouchEnd)
     }
   }, [])
 
   return (
     <>
-      {/* 透明度控制层 */}
       <div
-      // className="absolute inset-0 z-10"
-      // onClick={handleToggleVisibility}
-      // onMouseDown={handleLongPressStart}
-      // onMouseUp={handleLongPressEnd}
-      // onMouseLeave={handleLongPressEnd}
-      // onTouchStart={handleLongPressStart}
-      // onTouchEnd={handleLongPressEnd}
-      // onTouchCancel={handleLongPressEnd}
-      />
-
+        ref={interactiveZoneRef}
+        className="absolute z-20"
+        style={{
+          width: '60%',
+          height: '50%',
+          top: '50%',
+          left: '50%',
+          // background: 'red',
+          transform: 'translate(-50%, -50%)'
+        }}
+      ></div>
       {/* 顶部信息栏 */}
       <div
         className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 via-black/30 to-transparent p-4 pl-16 transition-opacity duration-300 z-20 ${

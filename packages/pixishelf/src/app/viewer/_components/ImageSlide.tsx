@@ -1,6 +1,5 @@
 'use client'
 
-import ImageOverlay from './ImageOverlay'
 import { useState, useRef, useEffect } from 'react'
 import { RandomImageItem } from '@/types/images'
 import { MediaType } from '@/types'
@@ -48,7 +47,7 @@ function SingleImage({ image, mediaType, id, onError, retryKey, onRetry }: Singl
           {mediaType === MediaType.IMAGE ? (
             <img
               key={`${id}-${retryKey}`}
-              src={image}
+              // src={image}
               alt={id || `Image by ${id || 'Unknown'}`}
               className="w-full h-full object-contain"
               loading="lazy"
@@ -120,23 +119,20 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
   if (!hasMultipleImages) {
     // 单图模式
     return (
-      <div className="relative w-full h-full bg-black">
-        <SingleImage
-          image={image.imageUrl}
-          mediaType={image.mediaType}
-          id={image.key}
-          onError={onError}
-          retryKey={retryKey}
-          onRetry={handleRetry}
-        />
-        <ImageOverlay image={image} />
-      </div>
+      <SingleImage
+        image={image.imageUrl}
+        mediaType={image.mediaType}
+        id={image.key}
+        onError={onError}
+        retryKey={retryKey}
+        onRetry={handleRetry}
+      />
     )
   }
 
   // 多图模式
   return (
-    <div className="relative w-full h-full bg-black">
+    <>
       <Swiper
         ref={(swiper) => {
           swiperRef.current = swiper
@@ -185,31 +181,12 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
         ))}
       </Swiper>
 
-      {/* 自定义导航按钮 */}
-      {/* {imagesToShow.length > 1 && (
-        <>
-          <button className="swiper-button-prev-custom absolute left-4 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-black/30 hover:bg-black/50 rounded-full flex items-center justify-center text-white transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <button className="swiper-button-next-custom absolute right-4 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-black/30 hover:bg-black/50 rounded-full flex items-center justify-center text-white transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-        </>
-      )} */}
-
       {/* 图片计数器 */}
       {imagesToShow.length > 1 && (
         <div className="absolute top-4 right-4 z-10 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
           {currentImageIndex + 1} / {imagesToShow.length}
         </div>
       )}
-
-      {/* 覆盖层 - 使用当前显示的图片信息 */}
-      <ImageOverlay image={image} />
-    </div>
+    </>
   )
 }
