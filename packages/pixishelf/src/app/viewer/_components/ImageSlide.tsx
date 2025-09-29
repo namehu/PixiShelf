@@ -11,6 +11,7 @@ import type { Swiper as SwiperType } from 'swiper'
 import 'swiper/css'
 import 'swiper/css/navigation'
 import 'swiper/css/pagination'
+import ImageOverlay from './ImageOverlay'
 
 interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   image: RandomImageItem
@@ -119,14 +120,17 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
   if (!hasMultipleImages) {
     // 单图模式
     return (
-      <SingleImage
-        image={image.imageUrl}
-        mediaType={image.mediaType}
-        id={image.key}
-        onError={onError}
-        retryKey={retryKey}
-        onRetry={handleRetry}
-      />
+      <>
+        <SingleImage
+          image={image.imageUrl}
+          mediaType={image.mediaType}
+          id={image.key}
+          onError={onError}
+          retryKey={retryKey}
+          onRetry={handleRetry}
+        />
+        <ImageOverlay image={image} />
+      </>
     )
   }
 
@@ -165,7 +169,7 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
         speed={300}
         // 防止与父级Swiper冲突
         nested={true}
-        className="w-full h-full"
+        className="w-full h-full relative z-10"
       >
         {image.images.map((img, index) => (
           <SwiperSlide key={`${img.key}-${index}`}>
@@ -179,6 +183,8 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
             />
           </SwiperSlide>
         ))}
+
+        <ImageOverlay image={image} />
       </Swiper>
 
       {/* 图片计数器 */}

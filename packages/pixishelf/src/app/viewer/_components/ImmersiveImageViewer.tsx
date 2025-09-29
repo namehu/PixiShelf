@@ -66,11 +66,7 @@ export default function ImmersiveImageViewer({
           grabCursor={true}
         >
           {initialImages.map((image) => (
-            <SwiperSlide
-              key={image.key}
-              className="relative flex w-full h-ful items-center justify-center overflow-hidden"
-            >
-              <ImageOverlay image={image} />
+            <SwiperSlide key={image.key} className=" flex w-full h-ful items-center justify-center overflow-hidden">
               <div className="relative w-full h-full bg-black">
                 <ImageSlide image={image} />
               </div>

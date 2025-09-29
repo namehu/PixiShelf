@@ -29,65 +29,147 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
   })
 
   const pressTimer = useRef<any>(null)
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null)
+  const isDragging = useRef(false)
+  const longPressTriggered = useRef(false)
 
   useEffect(() => {
     const longPressArea = interactiveZoneRef.current!
 
-    function handleTouchStart(e: any) {
-      console.log(11111111)
+    function handleTouchStart(e: TouchEvent) {
+      const touch = e.touches[0]
+      touchStartPos.current = { x: touch.clientX, y: touch.clientY }
+      isDragging.current = false
+      longPressTriggered.current = false
 
-      // 启动一个定时器，500毫秒后触发长按事件
+      // 启动长按计时器
       pressTimer.current = setTimeout(() => {
-        // 清除定时器，防止重复触发
+        if (!isDragging.current) {
+          longPressTriggered.current = true
+          console.log('长按事件触发了！')
+          setShowControlMenu(true)
+          // 长按触发后阻止默认行为
+          e.preventDefault()
+        }
+      }, 500)
+    }
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!touchStartPos.current) return
+
+      const touch = e.touches[0]
+      const deltaX = touch.clientX - touchStartPos.current.x
+      const deltaY = touch.clientY - touchStartPos.current.y
+      const absDeltaX = Math.abs(deltaX)
+      const absDeltaY = Math.abs(deltaY)
+
+      // 设置滑动阈值为 15px，稍微提高阈值以减少误触
+      const SWIPE_THRESHOLD = 15
+
+      if (absDeltaX > SWIPE_THRESHOLD || absDeltaY > SWIPE_THRESHOLD) {
+        // 检测到滑动，取消长按
+        isDragging.current = true
+        if (pressTimer.current) {
+          clearTimeout(pressTimer.current)
+          pressTimer.current = null
+        }
+      }
+
+      // 不阻止任何事件传播，让 Swiper 组件自由处理所有手势
+    }
+
+    function handleTouchEnd(e: TouchEvent) {
+      // 清除长按计时器
+      if (pressTimer.current) {
         clearTimeout(pressTimer.current)
         pressTimer.current = null
-        // 在这里执行你的长按逻辑
+      }
+
+      // 如果触发了长按，不处理点击
+      if (longPressTriggered.current) {
+        longPressTriggered.current = false
+        isDragging.current = false
+        touchStartPos.current = null
+        return
+      }
+
+      // 如果是拖拽，不处理点击
+      if (isDragging.current) {
+        isDragging.current = false
+        touchStartPos.current = null
+        return
+      }
+
+      // 处理点击事件
+      setIsVisible(!isVisible)
+
+      // 重置状态
+      touchStartPos.current = null
+    }
+
+    // 鼠标事件处理（PC端）
+    function handleMouseDown(e: MouseEvent) {
+      if (e.button !== 0) return // 只处理左键
+
+      pressTimer.current = setTimeout(() => {
         console.log('长按事件触发了！')
-        longPressArea.textContent = '长按成功！'
-
-        // 可选：在这里阻止默认行为（如弹出菜单），如果需要的话
-        // e.preventDefault();
-      }, 500) // 500ms 定义为长按
+        setShowControlMenu(true)
+      }, 500)
     }
 
-    // 如果手指在定时器结束前抬起，则清除定时器，判定为单击或短按
-    function handleTouchEnd() {
-      clearTimeout(pressTimer.current)
+    function handleMouseUp() {
+      if (pressTimer.current) {
+        clearTimeout(pressTimer.current)
+        pressTimer.current = null
+      }
     }
-    // 监听触摸开始事件
-    longPressArea.addEventListener('touchstart', handleTouchStart)
-    // 监听触摸结束事件
-    longPressArea.addEventListener('touchend', handleTouchEnd)
-    // 关键一步：监听触摸移动事件
-    longPressArea.addEventListener('touchmove', handleTouchEnd)
 
-    // 为了兼容PC端鼠标操作，可以添加对应的 mousedown, mouseup, mouseleave 事件
-    longPressArea.addEventListener('mousedown', handleTouchStart)
-    longPressArea.addEventListener('mouseup', handleTouchEnd)
-    longPressArea.addEventListener('mouseleave', handleTouchEnd)
+    function handleClick(e: MouseEvent) {
+      // 只有在没有长按的情况下才处理点击
+      if (!longPressTriggered.current) {
+        setIsVisible(!isVisible)
+      }
+    }
+
+    // 添加事件监听器，使用 passive: true 让事件更流畅地传播
+    longPressArea.addEventListener('touchstart', handleTouchStart, { passive: true })
+    longPressArea.addEventListener('touchmove', handleTouchMove, { passive: true })
+    longPressArea.addEventListener('touchend', handleTouchEnd, { passive: true })
+
+    // PC端事件
+    longPressArea.addEventListener('mousedown', handleMouseDown)
+    longPressArea.addEventListener('mouseup', handleMouseUp)
+    longPressArea.addEventListener('mouseleave', handleMouseUp)
+    longPressArea.addEventListener('click', handleClick)
 
     return () => {
       longPressArea.removeEventListener('touchstart', handleTouchStart)
+      longPressArea.removeEventListener('touchmove', handleTouchMove)
       longPressArea.removeEventListener('touchend', handleTouchEnd)
-      longPressArea.removeEventListener('touchmove', handleTouchEnd)
-      longPressArea.removeEventListener('mousedown', handleTouchStart)
-      longPressArea.removeEventListener('mouseup', handleTouchEnd)
-      longPressArea.removeEventListener('mouseleave', handleTouchEnd)
+      longPressArea.removeEventListener('mousedown', handleMouseDown)
+      longPressArea.removeEventListener('mouseup', handleMouseUp)
+      longPressArea.removeEventListener('mouseleave', handleMouseUp)
+      longPressArea.removeEventListener('click', handleClick)
     }
-  }, [])
+  }, [isVisible])
 
   return (
     <>
       <div
         ref={interactiveZoneRef}
-        className="absolute z-20"
+        className="absolute"
         style={{
-          width: '60%',
-          height: '50%',
+          width: '50%',
+          height: '40%',
           top: '50%',
           left: '50%',
-          // background: 'red',
-          transform: 'translate(-50%, -50%)'
+          background: 'rgba(255, 0, 0, 0.1)', // 调试时可以启用
+          transform: 'translate(-50%, -50%)',
+          touchAction: 'manipulation',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          zIndex: 1, // 进一步降低层级
+          pointerEvents: 'auto'
         }}
       ></div>
       {/* 顶部信息栏 */}
