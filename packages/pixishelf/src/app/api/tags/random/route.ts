@@ -19,7 +19,7 @@ const queryParamsSchema = z.object({
 })
 
 /**
- * GET /api/v1/tags/random
+ * GET /api/tags/random
  * 随机标签API
  *
  * 查询参数:

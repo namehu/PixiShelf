@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { initializeTagArtworkCount } from '../../../../../../scripts/init-tag-artwork-count'
+import { initializeTagArtworkCount } from '../../../../../scripts/init-tag-artwork-count'
 
 /**
- * POST /api/v1/tags/update-stats
+ * POST /api/tags/update-stats
  * 手动更新标签作品数量统计
  *
  * 需要管理员权限

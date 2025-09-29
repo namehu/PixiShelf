@@ -4,14 +4,20 @@ import { z } from 'zod'
 
 // 查询参数验证schema
 const queryParamsSchema = z.object({
-  limit: z.string().optional().transform(val => val ? parseInt(val) : 50),
-  minCount: z.string().optional().transform(val => val ? parseInt(val) : 1)
+  limit: z
+    .string()
+    .optional()
+    .transform((val) => (val ? parseInt(val) : 50)),
+  minCount: z
+    .string()
+    .optional()
+    .transform((val) => (val ? parseInt(val) : 1))
 })
 
 /**
- * GET /api/v1/tags/popular
+ * GET /api/tags/popular
  * 热门标签API
- * 
+ *
  * 查询参数:
  * - limit: 返回数量，默认50，最大200
  * - minCount: 最小作品数量，默认1
@@ -19,13 +25,13 @@ const queryParamsSchema = z.object({
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    
+
     // 验证查询参数
     const validationResult = queryParamsSchema.safeParse({
       limit: searchParams.get('limit'),
       minCount: searchParams.get('minCount')
     })
-    
+
     if (!validationResult.success) {
       return NextResponse.json(
         {
@@ -36,12 +42,12 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       )
     }
-    
+
     const { limit, minCount } = validationResult.data
-    
+
     // 限制返回数量
     const actualLimit = Math.min(limit, 200)
-    
+
     // 查询热门标签
     const popularTags = await prisma.tag.findMany({
       where: {
@@ -67,7 +73,7 @@ export async function GET(request: NextRequest) {
         updatedAt: true
       }
     })
-    
+
     // 获取统计信息
     const stats = await prisma.tag.aggregate({
       where: {
@@ -88,7 +94,7 @@ export async function GET(request: NextRequest) {
         artworkCount: true
       }
     })
-    
+
     return NextResponse.json({
       success: true,
       data: {
@@ -106,10 +112,9 @@ export async function GET(request: NextRequest) {
         }
       }
     })
-    
   } catch (error) {
     console.error('热门标签API错误:', error)
-    
+
     return NextResponse.json(
       {
         success: false,

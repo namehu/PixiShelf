@@ -130,12 +130,12 @@ graph TD
 
 | 方法     | 路径                          | 描述     |
 | ------ | --------------------------- | ------ |
-| `GET`  | `/api/v1/tags`              | 获取标签列表 |
-| `GET`  | `/api/v1/tags/[id]`         | 获取标签详情 |
-| `GET`  | `/api/v1/tags/popular`      | 获取热门标签 |
-| `GET`  | `/api/v1/tags/random`       | 获取随机标签 |
-| `GET`  | `/api/v1/tags/search`       | 搜索标签   |
-| `POST` | `/api/v1/tags/update-stats` | 更新标签统计 |
+| `GET`  | `/api/tags`              | 获取标签列表 |
+| `GET`  | `/api/tags/[id]`         | 获取标签详情 |
+| `GET`  | `/api/tags/popular`      | 获取热门标签 |
+| `GET`  | `/api/tags/random`       | 获取随机标签 |
+| `GET`  | `/api/tags/search`       | 搜索标签   |
+| `POST` | `/api/tags/update-stats` | 更新标签统计 |
 
 #### 文件管理
 

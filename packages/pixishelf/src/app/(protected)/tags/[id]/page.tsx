@@ -38,7 +38,7 @@ function TagDetailPage({}: TagDetailPageProps) {
   // 获取标签信息
   const fetchTag = async () => {
     try {
-      const response = await fetch(`/api/v1/tags/${tagId}`)
+      const response = await fetch(`/api/tags/${tagId}`)
       if (!response.ok) {
         throw new Error('标签不存在')
       }

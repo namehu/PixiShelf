@@ -44,7 +44,7 @@ export function TagSquare({ initialTags = [], pageSize = 20, cardMode = 'compact
           minCount: (params.minCount || 1).toString()
         })
 
-        const response = await fetch(`/api/v1/tags/popular?${queryParams}`)
+        const response = await fetch(`/api/tags/popular?${queryParams}`)
         const data = await response.json()
 
         if (data.success) {
@@ -75,7 +75,7 @@ export function TagSquare({ initialTags = [], pageSize = 20, cardMode = 'compact
           order: params.order || sortOrder
         })
 
-        const response = await fetch(`/api/v1/tags/search?${queryParams}`)
+        const response = await fetch(`/api/tags/search?${queryParams}`)
         const data = await response.json()
 
         if (data.success) {
@@ -108,7 +108,7 @@ export function TagSquare({ initialTags = [], pageSize = 20, cardMode = 'compact
           excludeEmpty: (params.excludeEmpty || false).toString()
         })
 
-        const response = await fetch(`/api/v1/tags/random?${queryParams}`)
+        const response = await fetch(`/api/tags/random?${queryParams}`)
         const data = await response.json()
 
         if (data.success) {

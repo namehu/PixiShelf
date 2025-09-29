@@ -18,7 +18,7 @@ const searchParamsSchema = z.object({
 })
 
 /**
- * GET /api/v1/tags/search
+ * GET /api/tags/search
  * 标签搜索API
  *
  * 查询参数:

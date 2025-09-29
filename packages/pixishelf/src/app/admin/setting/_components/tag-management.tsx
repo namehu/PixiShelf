@@ -25,7 +25,7 @@ function TagManagement() {
     setErrorMessage(null)
 
     try {
-      const response = await fetch('/api/v1/tags/update-stats', {
+      const response = await fetch('/api/tags/update-stats', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

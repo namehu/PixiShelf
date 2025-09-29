@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
 /**
- * GET /api/v1/tags/[id]
+ * GET /api/tags/[id]
  * 获取单个标签详情
  *
  * 路径参数:
