@@ -55,14 +55,23 @@ model Artwork {
 model Tag {
   id           Int          @id @default(autoincrement())
   name         String       @unique
+  name_zh      String?      // [新增] 中文翻译列
   description  String?      // 新增：标签描述
   artworkCount Int          @default(0) // 新增：作品数量缓存
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
   artworkTags  ArtworkTag[]
 
+  // [新增] 告诉 Prisma 这个列存在，但由数据库管理
+  search_vector Unsupported("tsvector")?
+
   @@index([name])
+  @@index([name_zh]) // [新增] 为中文翻译列增加索引，提高查询速度
   @@index([artworkCount], map: "Tag_artworkCount_idx")
+
+  // [新增] 告诉 Prisma 这个 GIN 索引是存在的
+  // 注意：需要启用 previewFeatures = ["extendedIndexes"]
+  @@index([search_vector], type: Gin)
 }
 
 model ArtworkTag {

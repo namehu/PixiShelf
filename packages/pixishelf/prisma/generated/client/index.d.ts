@@ -3781,6 +3781,7 @@ export namespace Prisma {
   export type TagMinAggregateOutputType = {
     id: number | null
     name: string | null
+    name_zh: string | null
     description: string | null
     artworkCount: number | null
     createdAt: Date | null
@@ -3790,6 +3791,7 @@ export namespace Prisma {
   export type TagMaxAggregateOutputType = {
     id: number | null
     name: string | null
+    name_zh: string | null
     description: string | null
     artworkCount: number | null
     createdAt: Date | null
@@ -3799,6 +3801,7 @@ export namespace Prisma {
   export type TagCountAggregateOutputType = {
     id: number
     name: number
+    name_zh: number
     description: number
     artworkCount: number
     createdAt: number
@@ -3820,6 +3823,7 @@ export namespace Prisma {
   export type TagMinAggregateInputType = {
     id?: true
     name?: true
+    name_zh?: true
     description?: true
     artworkCount?: true
     createdAt?: true
@@ -3829,6 +3833,7 @@ export namespace Prisma {
   export type TagMaxAggregateInputType = {
     id?: true
     name?: true
+    name_zh?: true
     description?: true
     artworkCount?: true
     createdAt?: true
@@ -3838,6 +3843,7 @@ export namespace Prisma {
   export type TagCountAggregateInputType = {
     id?: true
     name?: true
+    name_zh?: true
     description?: true
     artworkCount?: true
     createdAt?: true
@@ -3934,6 +3940,7 @@ export namespace Prisma {
   export type TagGroupByOutputType = {
     id: number
     name: string
+    name_zh: string | null
     description: string | null
     artworkCount: number
     createdAt: Date
@@ -3962,6 +3969,7 @@ export namespace Prisma {
   export type TagSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     name?: boolean
+    name_zh?: boolean
     description?: boolean
     artworkCount?: boolean
     createdAt?: boolean
@@ -3973,6 +3981,7 @@ export namespace Prisma {
   export type TagSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     name?: boolean
+    name_zh?: boolean
     description?: boolean
     artworkCount?: boolean
     createdAt?: boolean
@@ -3982,6 +3991,7 @@ export namespace Prisma {
   export type TagSelectScalar = {
     id?: boolean
     name?: boolean
+    name_zh?: boolean
     description?: boolean
     artworkCount?: boolean
     createdAt?: boolean
@@ -4002,6 +4012,7 @@ export namespace Prisma {
     scalars: $Extensions.GetPayloadResult<{
       id: number
       name: string
+      name_zh: string | null
       description: string | null
       artworkCount: number
       createdAt: Date
@@ -4402,6 +4413,7 @@ export namespace Prisma {
   interface TagFieldRefs {
     readonly id: FieldRef<"Tag", 'Int'>
     readonly name: FieldRef<"Tag", 'String'>
+    readonly name_zh: FieldRef<"Tag", 'String'>
     readonly description: FieldRef<"Tag", 'String'>
     readonly artworkCount: FieldRef<"Tag", 'Int'>
     readonly createdAt: FieldRef<"Tag", 'DateTime'>
@@ -9623,6 +9635,7 @@ export namespace Prisma {
   export const TagScalarFieldEnum: {
     id: 'id',
     name: 'name',
+    name_zh: 'name_zh',
     description: 'description',
     artworkCount: 'artworkCount',
     createdAt: 'createdAt',
@@ -9744,6 +9757,7 @@ export namespace Prisma {
 
   export const TagOrderByRelevanceFieldEnum: {
     name: 'name',
+    name_zh: 'name_zh',
     description: 'description'
   };
 
@@ -10058,6 +10072,7 @@ export namespace Prisma {
     NOT?: TagWhereInput | TagWhereInput[]
     id?: IntFilter<"Tag"> | number
     name?: StringFilter<"Tag"> | string
+    name_zh?: StringNullableFilter<"Tag"> | string | null
     description?: StringNullableFilter<"Tag"> | string | null
     artworkCount?: IntFilter<"Tag"> | number
     createdAt?: DateTimeFilter<"Tag"> | Date | string
@@ -10068,6 +10083,7 @@ export namespace Prisma {
   export type TagOrderByWithRelationInput = {
     id?: SortOrder
     name?: SortOrder
+    name_zh?: SortOrderInput | SortOrder
     description?: SortOrderInput | SortOrder
     artworkCount?: SortOrder
     createdAt?: SortOrder
@@ -10082,6 +10098,7 @@ export namespace Prisma {
     AND?: TagWhereInput | TagWhereInput[]
     OR?: TagWhereInput[]
     NOT?: TagWhereInput | TagWhereInput[]
+    name_zh?: StringNullableFilter<"Tag"> | string | null
     description?: StringNullableFilter<"Tag"> | string | null
     artworkCount?: IntFilter<"Tag"> | number
     createdAt?: DateTimeFilter<"Tag"> | Date | string
@@ -10092,6 +10109,7 @@ export namespace Prisma {
   export type TagOrderByWithAggregationInput = {
     id?: SortOrder
     name?: SortOrder
+    name_zh?: SortOrderInput | SortOrder
     description?: SortOrderInput | SortOrder
     artworkCount?: SortOrder
     createdAt?: SortOrder
@@ -10109,6 +10127,7 @@ export namespace Prisma {
     NOT?: TagScalarWhereWithAggregatesInput | TagScalarWhereWithAggregatesInput[]
     id?: IntWithAggregatesFilter<"Tag"> | number
     name?: StringWithAggregatesFilter<"Tag"> | string
+    name_zh?: StringNullableWithAggregatesFilter<"Tag"> | string | null
     description?: StringNullableWithAggregatesFilter<"Tag"> | string | null
     artworkCount?: IntWithAggregatesFilter<"Tag"> | number
     createdAt?: DateTimeWithAggregatesFilter<"Tag"> | Date | string
@@ -10659,6 +10678,7 @@ export namespace Prisma {
 
   export type TagCreateInput = {
     name: string
+    name_zh?: string | null
     description?: string | null
     artworkCount?: number
     createdAt?: Date | string
@@ -10669,6 +10689,7 @@ export namespace Prisma {
   export type TagUncheckedCreateInput = {
     id?: number
     name: string
+    name_zh?: string | null
     description?: string | null
     artworkCount?: number
     createdAt?: Date | string
@@ -10678,6 +10699,7 @@ export namespace Prisma {
 
   export type TagUpdateInput = {
     name?: StringFieldUpdateOperationsInput | string
+    name_zh?: NullableStringFieldUpdateOperationsInput | string | null
     description?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -10688,6 +10710,7 @@ export namespace Prisma {
   export type TagUncheckedUpdateInput = {
     id?: IntFieldUpdateOperationsInput | number
     name?: StringFieldUpdateOperationsInput | string
+    name_zh?: NullableStringFieldUpdateOperationsInput | string | null
     description?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -10698,6 +10721,7 @@ export namespace Prisma {
   export type TagCreateManyInput = {
     id?: number
     name: string
+    name_zh?: string | null
     description?: string | null
     artworkCount?: number
     createdAt?: Date | string
@@ -10706,6 +10730,7 @@ export namespace Prisma {
 
   export type TagUpdateManyMutationInput = {
     name?: StringFieldUpdateOperationsInput | string
+    name_zh?: NullableStringFieldUpdateOperationsInput | string | null
     description?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -10715,6 +10740,7 @@ export namespace Prisma {
   export type TagUncheckedUpdateManyInput = {
     id?: IntFieldUpdateOperationsInput | number
     name?: StringFieldUpdateOperationsInput | string
+    name_zh?: NullableStringFieldUpdateOperationsInput | string | null
     description?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -11402,6 +11428,7 @@ export namespace Prisma {
   export type TagCountOrderByAggregateInput = {
     id?: SortOrder
     name?: SortOrder
+    name_zh?: SortOrder
     description?: SortOrder
     artworkCount?: SortOrder
     createdAt?: SortOrder
@@ -11416,6 +11443,7 @@ export namespace Prisma {
   export type TagMaxOrderByAggregateInput = {
     id?: SortOrder
     name?: SortOrder
+    name_zh?: SortOrder
     description?: SortOrder
     artworkCount?: SortOrder
     createdAt?: SortOrder
@@ -11425,6 +11453,7 @@ export namespace Prisma {
   export type TagMinOrderByAggregateInput = {
     id?: SortOrder
     name?: SortOrder
+    name_zh?: SortOrder
     description?: SortOrder
     artworkCount?: SortOrder
     createdAt?: SortOrder
@@ -12498,6 +12527,7 @@ export namespace Prisma {
 
   export type TagCreateWithoutArtworkTagsInput = {
     name: string
+    name_zh?: string | null
     description?: string | null
     artworkCount?: number
     createdAt?: Date | string
@@ -12507,6 +12537,7 @@ export namespace Prisma {
   export type TagUncheckedCreateWithoutArtworkTagsInput = {
     id?: number
     name: string
+    name_zh?: string | null
     description?: string | null
     artworkCount?: number
     createdAt?: Date | string
@@ -12585,6 +12616,7 @@ export namespace Prisma {
 
   export type TagUpdateWithoutArtworkTagsInput = {
     name?: StringFieldUpdateOperationsInput | string
+    name_zh?: NullableStringFieldUpdateOperationsInput | string | null
     description?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -12594,6 +12626,7 @@ export namespace Prisma {
   export type TagUncheckedUpdateWithoutArtworkTagsInput = {
     id?: IntFieldUpdateOperationsInput | number
     name?: StringFieldUpdateOperationsInput | string
+    name_zh?: NullableStringFieldUpdateOperationsInput | string | null
     description?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
