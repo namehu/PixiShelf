@@ -100,10 +100,15 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
 
     // 7. 转换数据格式
     const items: RandomImageItem[] = sortedArtworks.map((artwork) => {
-      const images = artwork.images.map((it) =>
-        isVideoFile(it.path) ? `/api/v1/images/${it.path}` : imgproxyLoader({ src: it.path, width: 375, quality: 100 })
-      )
-      const imageUrl = images[0] ?? ''
+      const images = artwork.images
+        .map((it) =>
+          isVideoFile(it.path)
+            ? `/api/v1/images/${it.path}`
+            : imgproxyLoader({ src: it.path, width: 375, quality: 100 })
+        )
+        .map((url) => ({ key: guid(), url }))
+
+      const imageUrl = images[0]?.url ?? ''
 
       return {
         id: artwork.id,

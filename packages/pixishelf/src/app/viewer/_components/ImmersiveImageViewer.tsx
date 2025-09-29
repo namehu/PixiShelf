@@ -53,7 +53,6 @@ export default function ImmersiveImageViewer({
           onReachEnd={handleReachEnd}
           // 为了更好的性能，只渲染激活slide的前后各一个
           slidesPerView={1}
-          // preloadImages={false}
           lazyPreloadPrevNext={1}
           // 滑动阻力配置
           resistance={true}

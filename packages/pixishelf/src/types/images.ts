@@ -19,7 +19,10 @@ export interface RandomImageItem {
   description?: string
   imageUrl: string
   mediaType: MediaType
-  images: string[]
+  images: {
+    key: string
+    url: string
+  }[]
   author: {
     id: number
     name: string
