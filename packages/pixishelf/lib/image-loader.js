@@ -8,7 +8,6 @@ export default function imgproxyLoader({ src, width, quality }) {
 
   // 视频截帧用 自定义的Thumbor 组件
   if (isVideoFile(src)) {
-    // const eSrc = decodeURIComponent(src).split('/').map(part => encodeURIComponent(part)).join('/');
     const finalUrl = `${THUMBOR_VIDEO_URL}/unsafe/${width || 800}x0/filters:still(0.1)${src}`;
     return finalUrl;
   }
@@ -17,7 +16,7 @@ export default function imgproxyLoader({ src, width, quality }) {
   /**
    * rs:fill:800:600:0: 裁剪为 800x600，0 表示不放大原图。
    * g:sm: 智能识别主体作为裁剪中心。
-   * q:80: 图片质量为 80%。
+   * q:90: 图片质量为 90%。
    * sm:1: 去除所有元数据。
    * @webp: 指定输出格式为 WebP。
    */
@@ -25,6 +24,6 @@ export default function imgproxyLoader({ src, width, quality }) {
   // - ...processingOptions: 上面定义好的处理选项
   // - /${encodedSrc}: 编码后的源图片 URL
   // - .webp: 指定输出格式为高效的 WebP
-  return `${IMGPROXY_URL}/_/rs:fit:${width}:0/q:${quality || 80}/sm:1/plain/local://${encodeURIComponent(src)}@webp`;
+  return `${IMGPROXY_URL}/_/rs:fit:${width}:0/q:${quality || 90}/sm:1/plain/local://${encodeURIComponent(src)}@webp`;
 }
 
