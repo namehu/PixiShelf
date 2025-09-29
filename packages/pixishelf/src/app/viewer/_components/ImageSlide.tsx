@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { RandomImageItem } from '@/types/images'
 import { MediaType } from '@/types'
 import { Swiper, SwiperRef, SwiperSlide } from 'swiper/react'
-import { Navigation, Pagination, Keyboard } from 'swiper/modules'
+import { Navigation, Keyboard } from 'swiper/modules'
 import type { Swiper as SwiperType } from 'swiper'
 
 // 导入Swiper样式
@@ -141,7 +141,7 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
         ref={(swiper) => {
           swiperRef.current = swiper
         }}
-        modules={[Navigation, Pagination, Keyboard]}
+        modules={[Navigation, Keyboard]}
         direction="horizontal"
         slidesPerView={1}
         lazyPreloadPrevNext={1}
@@ -150,11 +150,7 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
           enabled: true,
           onlyInViewport: true
         }}
-        pagination={{
-          clickable: true,
-          bulletClass: 'swiper-pagination-bullet !bg-white/50',
-          bulletActiveClass: 'swiper-pagination-bullet-active !bg-white'
-        }}
+        // 使用自定义 progressbar，不需要内置 pagination
         navigation={{
           nextEl: '.swiper-button-next-custom',
           prevEl: '.swiper-button-prev-custom'
@@ -171,7 +167,7 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
         nested={true}
         className="w-full h-full relative z-10"
         style={{
-          zIndex: 10, // 确保嵌套 Swiper 有足够高的层级
+          zIndex: 10 // 确保嵌套 Swiper 有足够高的层级
         }}
       >
         {image.images.map((img, index) => (
@@ -187,6 +183,22 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
           </SwiperSlide>
         ))}
       </Swiper>
+
+      {/* 分段式进度条 pagination - 放在底部 */}
+      {imagesToShow.length > 1 && (
+        <div className="swiper-pagination-custom absolute !bottom-0.5 left-4 right-4 z-30">
+          <div className="flex gap-1 w-full">
+            {imagesToShow.map((_, index) => (
+              <div
+                key={index}
+                className={`h-1 rounded-full transition-all duration-300 ease-out flex-1 ${
+                  index <= currentImageIndex ? 'bg-white' : 'bg-white/20'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 将 ImageOverlay 移出 Swiper，作为独立的覆盖层 */}
       <ImageOverlay image={image} />
