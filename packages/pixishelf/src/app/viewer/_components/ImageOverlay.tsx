@@ -112,14 +112,16 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
 
           {/* 图片描述 */}
           {description && (
-            <p className="text-sm opacity-90 mb-3 leading-relaxed overflow-hidden text-ellipsis" 
-               style={{
-                 display: '-webkit-box',
-                 WebkitLineClamp: 2,
-                 WebkitBoxOrient: 'vertical',
-                 lineHeight: '1.4em',
-                 maxHeight: '2.8em'
-               }}>
+            <p
+              className="text-sm opacity-90 mb-3 leading-relaxed overflow-hidden text-ellipsis"
+              style={{
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                lineHeight: '1.4em',
+                maxHeight: '2.8em'
+              }}
+            >
               {description}
             </p>
           )}
@@ -134,7 +136,13 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
           >
             {/* 标签 */}
             {tags.length > 0 && (
-              <div className="flex flex-wrap gap-2 items-center w-full">
+              <div
+                className="flex flex-nowrap gap-2 items-center w-full overflow-x-auto"
+                style={{
+                  scrollbarWidth: 'none',
+                  scrollbarColor: 'transparent transparent'
+                }}
+              >
                 {tags.slice(0, 3).map((tag, index) => (
                   <span
                     key={index}
@@ -158,7 +166,9 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
               </div>
             )}
           </div>
-        </div>ssN    </div>
+        </div>
+        ssN{' '}
+      </div>
 
       {/* 长按控制菜单 */}
       {showControlMenu && (
