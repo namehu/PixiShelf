@@ -6,6 +6,7 @@ import { MediaCollector, MediaFileInfo } from './scanner/media-collector'
 import { getPrisma } from '@/lib/prisma'
 import fg from 'fast-glob'
 import logger from '../logger'
+import { sleep } from '@/utils/sleep'
 
 /**
  * 扫描选项接口
@@ -128,7 +129,7 @@ export class ScannerService {
    * @param options 扫描选项
    */
   private async streamProcessArtworks(options: ScanOptions): Promise<void> {
-    const BATCH_SIZE = 100 // 定义处理批次的大小
+    const BATCH_SIZE = process.env.NODE_ENV === 'development' ? 5 : 100 // 定义处理批次的大小
     let artworkBatch: ArtworkData[] = []
     let batchNumber = 0
     let basePercentage = options.forceUpdate ? 10 : 0
@@ -138,6 +139,7 @@ export class ScannerService {
       message: '正在发现作品...',
       percentage: basePercentage
     })
+    await sleep(500)
     const metadataFiles = await this.globMetadataFiles(options.scanPath, options.forceUpdate)
     const totalFiles = metadataFiles.length
     const totalBatches = Math.ceil(totalFiles / BATCH_SIZE)
@@ -160,6 +162,7 @@ export class ScannerService {
       percentage: basePercentage
     })
 
+    await sleep(100)
     // 2. 遍历文件列表，边发现边处理
     for (let i = 0; i < totalFiles; i++) {
       const metadataFile = metadataFiles[i]
@@ -203,6 +206,7 @@ export class ScannerService {
           total: totalFiles,
           percentage: Math.round(basePercentage + progressPercentage)
         })
+        await sleep(100)
       }
     }
   }
