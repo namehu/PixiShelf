@@ -40,11 +40,12 @@
     ARTWORK_IDS: [
       // 在这里添加成千上万的 ID...
     ],
-    // 并行运行的请求数。
-    // 请注意: 过高的数字（例如 > 10）可能会导致您被速率限制。
-    CONCURRENT_REQUESTS: 4,
-    // [优化] 每批请求之间的延迟（毫秒）。增加到3秒以降低被速率限制的风险。
-    DELAY_BETWEEN_BATCHES: 4000,
+    // [新] 稳定抓取策略配置
+    CONCURRENT_REQUESTS: 2,         // 并发请求数 (建议 1-3)
+    MIN_DELAY_MS: 1000,             // 每次请求后的最小随机等待时间 (毫秒)
+    MAX_DELAY_MS: 5000,             // 每次请求后的最大随机等待时间 (毫秒)
+    RATE_LIMIT_WAIT_MS: 60000,      // 遇到 429 错误后的固定等待时间 (毫秒)
+
     // [升级] 用于在 IndexedDB 中存储进度的键。
     STORAGE_KEY: 'pixiv_scraper_progress_v3',
     // [升级] 用于在 IndexedDB 中存储所有任务ID的键。
@@ -63,6 +64,10 @@
   // 动态加载外部库
   function loadScript(src, integrity, crossOrigin) {
     return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[src="${src}"]`)) {
+        resolve();
+        return;
+      }
       const script = document.createElement('script');
       script.src = src;
       if (integrity) script.integrity = integrity;
@@ -173,7 +178,7 @@
       }
       // [修改] 每次运行时重置暂停状态，意味着 runTask 兼具“开始”和“恢复”功能
       isPaused = false;
-      console.log("%c🚀 开始或恢复 Pixiv 抓取任务...", "color: blue; font-size: 16px;");
+      console.log("%c🚀 开始或恢复 Pixiv 抓取任务 (稳定模式)...", "color: blue; font-size: 16px;");
 
       // [升级] 从 IndexedDB 读取和写入 ID
       const storedIds = (await localforage.getItem(CONFIG.IDS_STORAGE_KEY)) || [];
@@ -183,24 +188,25 @@
 
       const allIds = [...allIdsSet];
       let progress = (await localforage.getItem(CONFIG.STORAGE_KEY)) || {};
-      const completedIds = new Set(Object.keys(progress));
-      const pendingIds = allIds.filter(id => !completedIds.has(`${id}`));
 
-      if (pendingIds.length === 0) {
-        console.log("%c✨ 所有作品均已处理完毕! 使用 `pixivScraper.downloadResults()` 来保存。", "color: green; font-size: 14px;");
-        return;
-      }
+      while (true) {
+        if (isPaused) {
+          console.log('%c✅ 任务已应请求安全暂停。', 'color: green; font-weight: bold;');
+          return;
+        }
 
-      console.log(`总计: ${allIds.length}, 已完成: ${completedIds.size}, 待处理: ${pendingIds.length}`);
+        const completedIds = new Set(Object.keys(progress));
+        const pendingIds = allIds.filter(id => !completedIds.has(`${id}`));
 
-      const batches = [];
-      for (let i = 0; i < pendingIds.length; i += CONFIG.CONCURRENT_REQUESTS) {
-        batches.push(pendingIds.slice(i, i + CONFIG.CONCURRENT_REQUESTS));
-      }
+        if (pendingIds.length === 0) {
+          console.log("%c✨ 所有作品均已处理完毕! 使用 `pixivScraper.downloadResults()` 来保存。", "color: green; font-size: 14px;");
+          return;
+        }
 
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i];
-        console.log(`--- 正在处理批次 ${i + 1} / ${batches.length} (数量: ${batch.length}) ---`);
+        console.log(`总计: ${allIds.length}, 已完成: ${completedIds.size}, 待处理: ${pendingIds.length}`);
+
+        const batch = pendingIds.slice(0, CONFIG.CONCURRENT_REQUESTS);
+        console.log(`--- 正在处理批次 (数量: ${batch.length}) ---`);
 
         const promises = batch.map(id =>
           processArtworkId(id)
@@ -220,15 +226,13 @@
 
         const rateLimitResult = results.find(r => r.status === 'rejected' && r.reason.name === 'RateLimitError');
         if (rateLimitResult) {
-          console.error('%c🚫 触发速率限制 (429)! 任务已暂停。', 'color: red; font-size: 16px; font-weight: bold;');
-          console.log(`%cID "${rateLimitResult.id}" 所在的批次触发了限制。`, 'color: orange;');
-          console.log('当前批次的结果将不会被保存，您可以稍后安全地重试。');
-          console.log('建议等待几分钟后再运行 `pixivScraper.runTask()` 以继续。');
-          return;
+          console.error('%c🚫 触发速率限制 (429)!', 'color: red; font-weight: bold;');
+          console.log(`%c将等待 ${CONFIG.RATE_LIMIT_WAIT_MS / 1000} 秒后重试...`, 'color: orange;');
+          await delay(CONFIG.RATE_LIMIT_WAIT_MS);
+          continue; // 重新开始循环，重试同一个批次
         }
 
-        // [升级] 从 IndexedDB 读取和写入进度
-        progress = (await localforage.getItem(CONFIG.STORAGE_KEY)) || {};
+        // [修复] 直接在内存中的 progress 对象上更新，而不是重新获取
         for (const result of results) {
           progress[result.id] = {
             status: result.status,
@@ -238,21 +242,19 @@
         await localforage.setItem(CONFIG.STORAGE_KEY, progress);
 
         const currentCompleted = Object.keys(progress).length;
-        console.log(`%c批次 ${i + 1} 完成。进度: ${currentCompleted} / ${allIds.length}`, "color: purple;");
 
         // [新增] 检查暂停信号
         if (isPaused) {
+          console.log(`%c批次 ${Object.keys(batches).length + 1} 完成。进度: ${currentCompleted} / ${allIds.length}`, "color: purple;");
           console.log('%c✅ 任务已应请求安全暂停。', 'color: green; font-weight: bold;');
           return; // 退出循环和函数
         }
 
-        if (i < batches.length - 1) {
-          await delay(Math.floor(Math.random() * 1001) + CONFIG.DELAY_BETWEEN_BATCHES);
-        }
-      }
+        const randomDelay = Math.floor(Math.random() * (CONFIG.MAX_DELAY_MS - CONFIG.MIN_DELAY_MS + 1)) + CONFIG.MIN_DELAY_MS;
+        console.log(`%c批次完成。进度: ${currentCompleted} / ${allIds.length}. 将等待 ${(randomDelay / 1000).toFixed(1)} 秒...`, "color: purple;");
+        await delay(randomDelay);
 
-      console.log("%c✅ 任务完成! 所有 ID 均已处理。", "color: green; font-weight: bold; font-size: 16px;");
-      console.log("使用 `pixivScraper.downloadResults()` 下载打包好的 .zip 文件。");
+      }
     },
 
     /**
@@ -288,8 +290,7 @@
 
       const uniqueArtists = new Map();
 
-      for (const item of successfulItems) {
-        const artwork = item.data;
+      for (const { data: artwork } of successfulItems) {
         artworksFolder.file(`${artwork.id}.json`, JSON.stringify(artwork, null, 2));
 
         const artist = artwork.artist;
@@ -355,8 +356,7 @@
       }
 
       const uniqueTags = new Map();
-      for (const item of successfulItems) {
-        const artwork = item.data;
+      for (const { data: artwork } of successfulItems) {
         if (artwork.tags) {
           for (const tag of artwork.tags) {
             if (tag.tag && tag.translation && !uniqueTags.has(tag.tag)) {
