@@ -31,6 +31,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       select: {
         id: true,
         name: true,
+        name_zh: true,
         description: true,
         artworkCount: true,
         createdAt: true,

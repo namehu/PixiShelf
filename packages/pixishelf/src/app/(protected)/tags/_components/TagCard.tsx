@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Tag, Hash, Eye } from 'lucide-react'
+import { Tag, Hash, WallpaperIcon } from 'lucide-react'
 import { TagCardProps } from '@/types/tags'
 import { cn } from '@/lib/utils'
 
@@ -87,7 +87,7 @@ export function TagCard({
               </div>
               {showCount && (
                 <div className="flex items-center gap-1 text-gray-500 text-sm">
-                  <Eye className="w-3 h-3" />
+                  <WallpaperIcon className="w-3 h-3" />
                   <span>{tag.artworkCount}</span>
                 </div>
               )}
@@ -131,7 +131,7 @@ export function TagCard({
 
             {showCount && (
               <div className="flex items-center gap-1 text-gray-500 text-sm flex-shrink-0">
-                <Eye className="w-3 h-3" />
+                <WallpaperIcon className="w-3 h-3" />
                 <span className="font-medium">{tag.artworkCount}</span>
               </div>
             )}
