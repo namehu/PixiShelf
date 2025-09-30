@@ -42,7 +42,7 @@
     ],
     // 并行运行的请求数。
     // 请注意: 过高的数字（例如 > 10）可能会导致您被速率限制。
-    CONCURRENT_REQUESTS: 5,
+    CONCURRENT_REQUESTS: 4,
     // [优化] 每批请求之间的延迟（毫秒）。增加到3秒以降低被速率限制的风险。
     DELAY_BETWEEN_BATCHES: 4000,
     // [升级] 用于在 IndexedDB 中存储进度的键。
@@ -184,7 +184,7 @@
       const allIds = [...allIdsSet];
       let progress = (await localforage.getItem(CONFIG.STORAGE_KEY)) || {};
       const completedIds = new Set(Object.keys(progress));
-      const pendingIds = allIds.filter(id => !completedIds.has(id));
+      const pendingIds = allIds.filter(id => !completedIds.has(`${id}`));
 
       if (pendingIds.length === 0) {
         console.log("%c✨ 所有作品均已处理完毕! 使用 `pixivScraper.downloadResults()` 来保存。", "color: green; font-size: 14px;");
@@ -247,7 +247,7 @@
         }
 
         if (i < batches.length - 1) {
-          await delay(CONFIG.DELAY_BETWEEN_BATCHES);
+          await delay(Math.floor(Math.random() * 1001) + CONFIG.DELAY_BETWEEN_BATCHES);
         }
       }
 
