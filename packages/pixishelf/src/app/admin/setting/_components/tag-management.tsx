@@ -1,51 +1,203 @@
 'use client'
 
-import React, { useState } from 'react'
-import { RefreshCw, BarChart3, Clock, CheckCircle, AlertCircle } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { useDebounce } from '@/hooks/useDebounce'
+import { toast } from 'sonner'
+import { BarChart3 } from 'lucide-react'
+import type { TagManagementResponse, TagManagementParams, TagManagementStats, PaginationInfo } from '@/types/tags'
+
+// 导入子组件
+import { TagStatsUpdateCard } from './tag-stats-update-card'
+import { TagStatsCards } from './tag-stats-cards'
+import { TagSearchAndFilter } from './tag-search-and-filter'
+import { TagTable } from './tag-table'
+import { TagPagination } from './tag-pagination'
+import { Tag } from '@/types'
 
 /**
  * 标签管理组件
  *
  * 功能：
- * - 手动触发标签统计更新
- * - 显示最后更新时间
- * - 显示更新状态和进度
- * - 提供标签统计概览
+ * - 标签列表展示（支持分页、搜索、筛选、排序）
+ * - 翻译状态显示和统计信息
+ * - 单个标签内联编辑功能
+ * - 批量翻译界面和进度显示
  */
 function TagManagement() {
-  const [isUpdating, setIsUpdating] = useState(false)
-  const [lastUpdate, setLastUpdate] = useState<string | null>(null)
-  const [updateStatus, setUpdateStatus] = useState<'idle' | 'success' | 'error'>('idle')
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  // 基础状态
+  const [tags, setTags] = useState<Tag[]>([])
+  const [loading, setLoading] = useState(true)
 
-  // 手动更新标签统计
-  const handleUpdateStats = async () => {
-    setIsUpdating(true)
-    setUpdateStatus('idle')
-    setErrorMessage(null)
+  // 查询参数状态
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filter, setFilter] = useState<'all' | 'translated' | 'untranslated'>('all')
+  const [sortField, setSortField] = useState<TagManagementParams['sort']>('artworkCount')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
+  // 分页和统计信息
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    page: 1,
+    limit: 20,
+    totalCount: 0,
+    totalPages: 0,
+    hasNextPage: false,
+    hasPrevPage: false
+  })
+  const [stats, setStats] = useState<TagManagementStats>({
+    totalTags: 0,
+    translatedTags: 0,
+    untranslatedTags: 0,
+    translationRate: 0
+  })
+
+  // 翻译状态
+  const [translatingTags, setTranslatingTags] = useState<Set<number>>(new Set())
+
+  // 选中的标签（用于批量操作）
+  const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set())
+
+  // 防抖搜索
+  const debouncedSearchQuery = useDebounce(searchQuery, 500)
+
+  // 获取标签列表
+  const fetchTags = useCallback(async () => {
     try {
-      const response = await fetch('/api/tags/update-stats', {
+      setLoading(true)
+
+      const params: TagManagementParams = {
+        page: currentPage,
+        limit: pageSize,
+        search: debouncedSearchQuery || undefined,
+        filter,
+        sort: sortField,
+        order: sortOrder
+      }
+
+      const queryString = new URLSearchParams(
+        Object.entries(params).filter(([_, value]) => value !== undefined) as [string, string][]
+      ).toString()
+
+      const response = await fetch(`/api/tags/management?${queryString}`)
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      const data: TagManagementResponse = await response.json()
+
+      if (data.success) {
+        setTags(data.data.tags)
+        setPagination(data.data.pagination)
+        setStats(data.data.stats)
+      } else {
+        throw new Error('API返回错误')
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '获取标签列表失败'
+      toast.error(errorMessage)
+    } finally {
+      setLoading(false)
+    }
+  }, [currentPage, pageSize, debouncedSearchQuery, filter, sortField, sortOrder])
+
+  // 页面加载和参数变化时获取数据
+  useEffect(() => {
+    fetchTags()
+  }, [fetchTags])
+
+  // 搜索时重置到第一页
+  useEffect(() => {
+    if (currentPage !== 1) {
+      setCurrentPage(1)
+    }
+  }, [debouncedSearchQuery, filter])
+
+  // 处理标签选择
+  const handleTagSelect = (tagId: number) => {
+    const newSelected = new Set(selectedTags)
+    if (newSelected.has(tagId)) {
+      newSelected.delete(tagId)
+    } else {
+      newSelected.add(tagId)
+    }
+    setSelectedTags(newSelected)
+  }
+
+  // 全选/取消全选
+
+  // 更新标签
+  const handleTagUpdate = async (tagId: number, updates: { name?: string; name_zh?: string }) => {
+    try {
+      const response = await fetch(`/api/tags/${tagId}/translation`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updates)
+      })
+
+      if (!response.ok) {
+        throw new Error(`保存失败: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        // 更新本地状态
+        setTags((prevTags) => prevTags.map((tag) => (tag.id === tagId ? { ...tag, ...updates } : tag)))
+
+        // 重新获取统计信息
+        await fetchTags()
+        toast.success('标签更新成功')
+      } else {
+        throw new Error(result.message || '保存失败')
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '保存标签失败'
+      toast.error(errorMessage)
+    }
+  }
+
+  // 自动翻译单个标签
+  const handleAutoTranslate = async (tagId: number) => {
+    try {
+      setTranslatingTags((prev) => new Set([...prev, tagId]))
+
+      const response = await fetch(`/api/tags/${tagId}/auto-translate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         }
       })
+      console.log(response, '1112')
 
-      const data = await response.json()
-
-      if (data.success) {
-        setUpdateStatus('success')
-        setLastUpdate(new Date().toLocaleString('zh-CN'))
-      } else {
-        setUpdateStatus('error')
-        setErrorMessage(data.message || '更新失败')
+      if (!response.ok) {
+        throw new Error(`翻译失败: ${response.statusText}`)
       }
-    } catch (error) {
-      setUpdateStatus('error')
-      setErrorMessage(error instanceof Error ? error.message : '网络错误')
+
+      const result = await response.json()
+
+      if (result.success && result.translation) {
+        // 更新本地状态
+        setTags((prevTags) => prevTags.map((t) => (t.id === tagId ? { ...t, name_zh: result.translation } : t)))
+
+        // 重新获取统计信息
+        await fetchTags()
+        toast.success('标签翻译成功')
+      } else {
+        throw new Error(result.message || '翻译失败')
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '自动翻译失败'
+      toast.error(errorMessage)
     } finally {
-      setIsUpdating(false)
+      setTranslatingTags((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(tagId)
+        return newSet
+      })
     }
   }
 
@@ -57,63 +209,45 @@ function TagManagement() {
           <BarChart3 className="w-6 h-6" />
           标签管理
         </h1>
-        <p className="text-neutral-600 mt-1">管理标签统计数据，手动更新标签作品数量</p>
+        <p className="text-neutral-600 mt-1">管理标签翻译，支持搜索、筛选和批量操作</p>
       </div>
 
-      {/* 统计更新卡片 */}
-      <div className="bg-white rounded-lg border border-neutral-200 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-neutral-900">标签统计更新</h2>
-          <div className="flex items-center gap-2 text-sm text-neutral-500">
-            <Clock className="w-4 h-4" />
-            定时更新：每天凌晨 2:00
-          </div>
-        </div>
+      {/* 标签统计更新卡片 */}
+      <TagStatsUpdateCard onUpdateStats={() => fetchTags()} />
 
-        {/* 状态显示 */}
-        {updateStatus === 'success' && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-green-600" />
-            <span className="text-green-800">标签统计更新成功</span>
-          </div>
-        )}
+      {/* 统计卡片 */}
+      <TagStatsCards stats={stats} isLoading={loading} />
 
-        {updateStatus === 'error' && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-red-600" />
-            <div className="text-red-800">
-              <div>标签统计更新失败</div>
-              {errorMessage && <div className="text-sm mt-1 text-red-600">{errorMessage}</div>}
-            </div>
-          </div>
-        )}
+      {/* 搜索和筛选 */}
+      <TagSearchAndFilter
+        searchTerm={searchQuery}
+        onSearchChange={setSearchQuery}
+        translationFilter={filter}
+        onTranslationFilterChange={setFilter}
+        sortBy={sortField}
+        onSortByChange={setSortField}
+        sortOrder={sortOrder}
+        onSortOrderChange={setSortOrder}
+      />
 
-        {/* 最后更新时间 */}
-        {lastUpdate && <div className="mb-4 text-sm text-neutral-600">最后手动更新时间：{lastUpdate}</div>}
+      {/* 标签列表 */}
+      <TagTable
+        tags={tags}
+        loading={loading}
+        selectedTags={selectedTags}
+        translatingTags={translatingTags}
+        onTagSelect={handleTagSelect}
+        onTagUpdate={handleTagUpdate}
+        onTagTranslate={handleAutoTranslate}
+      />
 
-        {/* 更新按钮 */}
-        <button
-          onClick={handleUpdateStats}
-          disabled={isUpdating}
-          className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <RefreshCw className={`w-4 h-4 ${isUpdating ? 'animate-spin' : ''}`} />
-          {isUpdating ? '正在更新...' : '手动更新统计'}
-        </button>
-
-        <p className="text-sm text-neutral-500 mt-2">手动更新将重新计算所有标签的作品数量，可能需要几分钟时间</p>
-      </div>
-
-      {/* 说明信息 */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 className="font-medium text-blue-900 mb-2">关于标签统计</h3>
-        <ul className="text-sm text-blue-800 space-y-1">
-          <li>• 标签统计会自动在每天凌晨 2:00 更新</li>
-          <li>• 手动更新适用于需要立即同步数据的情况</li>
-          <li>• 更新过程中系统性能可能会受到轻微影响</li>
-          <li>• 建议在系统使用较少的时间进行手动更新</li>
-        </ul>
-      </div>
+      {/* 分页 */}
+      <TagPagination
+        {...pagination}
+        currentPage={currentPage}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+      />
     </div>
   )
 }

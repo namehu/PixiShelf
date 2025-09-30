@@ -4,12 +4,10 @@ import React from 'react'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { PaginationInfo } from '@/types'
 
-interface TagPaginationProps {
+interface TagPaginationProps extends PaginationInfo {
   currentPage: number
-  totalPages: number
-  pageSize: number
-  totalItems: number
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
 }
@@ -22,14 +20,8 @@ interface TagPaginationProps {
  * - 页码切换逻辑
  * - 每页显示数量选择
  */
-export function TagPagination({
-  currentPage,
-  totalPages,
-  pageSize,
-  totalItems,
-  onPageChange,
-  onPageSizeChange
-}: TagPaginationProps) {
+export function TagPagination(propos: TagPaginationProps) {
+  const { currentPage, limit: pageSize, totalCount: totalItems, totalPages, onPageChange, onPageSizeChange } = propos
   // 生成页码数组
   const generatePageNumbers = () => {
     const pages: (number | string)[] = []

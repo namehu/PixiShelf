@@ -94,6 +94,7 @@ export interface Image extends MediaFile {
 export interface Tag {
   id: number
   name: string
+  name_zh?: string | null
   description?: string | null
   artworkCount: number
   createdAt: string

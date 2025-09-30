@@ -190,3 +190,189 @@ export interface TagApiError {
  * 标签API响应联合类型
  */
 export type TagApiResponse = TagSearchResponse | PopularTagsResponse | RandomTagsResponse | TagApiError
+
+// ============================================================================
+// 标签翻译管理相关类型定义
+// ============================================================================
+
+/**
+ * 标签管理列表请求参数
+ */
+export interface TagManagementParams {
+  /** 页码，默认1 */
+  page?: number
+  /** 每页数量，默认30，最大100 */
+  limit?: number
+  /** 搜索关键词 */
+  search?: string
+  /** 筛选条件 */
+  filter?: 'all' | 'translated' | 'untranslated'
+  /** 排序字段 */
+  sort?: 'name' | 'name_zh' | 'artworkCount' | 'createdAt' | 'updatedAt'
+  /** 排序方向 */
+  order?: 'asc' | 'desc'
+}
+
+/**
+ * 标签管理统计信息
+ */
+export interface TagManagementStats {
+  /** 标签总数 */
+  totalTags: number
+  /** 已翻译标签数 */
+  translatedTags: number
+  /** 未翻译标签数 */
+  untranslatedTags: number
+  /** 翻译完成率 */
+  translationRate: number
+}
+
+/**
+ * 标签管理响应
+ */
+export interface TagManagementResponse {
+  success: boolean
+  data: {
+    tags: Tag[]
+    pagination: PaginationInfo
+    stats: TagManagementStats
+    query: TagManagementParams
+  }
+}
+
+/**
+ * 标签翻译更新请求
+ */
+export interface TagTranslationUpdateRequest {
+  /** 中文翻译 */
+  name_zh: string
+  /** 是否自动翻译未翻译的标签 */
+  autoTranslate?: boolean
+}
+
+/**
+ * 标签翻译更新响应
+ */
+export interface TagTranslationUpdateResponse {
+  success: boolean
+  data: {
+    id: number
+    name: string
+    name_zh: string
+    updatedAt: string
+  }
+}
+
+/**
+ * 批量翻译请求参数
+ */
+export interface BatchTranslateRequest {
+  /** 指定标签ID列表，不传则翻译所有未翻译的 */
+  tagIds?: number[]
+  /** 批次大小，默认20 */
+  batchSize?: number
+  /** 是否强制重新翻译已有翻译的标签 */
+  forceRetranslate?: boolean
+}
+
+/**
+ * 翻译任务状态
+ */
+export type TranslationTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+/**
+ * 翻译任务进度
+ */
+export interface TranslationProgress {
+  /** 总数 */
+  total: number
+  /** 已完成数 */
+  completed: number
+  /** 失败数 */
+  failed: number
+  /** 跳过数 */
+  skipped: number
+}
+
+/**
+ * 翻译任务信息
+ */
+export interface TranslationTask {
+  /** 任务ID */
+  id: string
+  /** 任务状态 */
+  status: TranslationTaskStatus
+  /** 进度信息 */
+  progress: TranslationProgress
+  /** 开始时间 */
+  startTime: string
+  /** 结束时间 */
+  endTime?: string
+  /** 错误信息 */
+  error?: string
+  /** 指定的标签ID列表 */
+  tagIds?: number[]
+  /** 批次大小 */
+  batchSize: number
+}
+
+/**
+ * 批量翻译响应
+ */
+export interface BatchTranslateResponse {
+  success: boolean
+  data: {
+    taskId: string
+    message: string
+    estimatedCount: number
+    task: TranslationTask
+  }
+}
+
+/**
+ * 翻译任务状态查询响应
+ */
+export interface TranslationStatusResponse {
+  success: boolean
+  data: TranslationTask
+}
+
+/**
+ * 翻译结果详情
+ */
+export interface TranslationResultDetail {
+  /** 标签ID */
+  tagId: number
+  /** 原始英文名 */
+  originalName: string
+  /** 翻译后的中文名 */
+  translatedName: string
+  /** 是否成功 */
+  success: boolean
+  /** 错误信息 */
+  error?: string
+  /** 使用的token数 */
+  usage?: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+  }
+}
+
+/**
+ * 翻译任务完成详情响应
+ */
+export interface TranslationTaskDetailResponse {
+  success: boolean
+  data: {
+    task: TranslationTask
+    results: TranslationResultDetail[]
+    summary: {
+      totalProcessed: number
+      successCount: number
+      failureCount: number
+      skippedCount: number
+      totalTokensUsed: number
+    }
+  }
+}

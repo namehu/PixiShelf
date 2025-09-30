@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { initializeTagArtworkCount } from '../../../../../scripts/init-tag-artwork-count'
 
 /**
@@ -7,7 +7,7 @@ import { initializeTagArtworkCount } from '../../../../../scripts/init-tag-artwo
  *
  * 需要管理员权限
  */
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     console.log('🚀 手动触发标签统计更新...')
 
