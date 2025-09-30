@@ -110,6 +110,7 @@ function SingleImage({
               className="w-full h-full object-contain"
               loading="lazy"
               priority={false}
+              quality={100}
               onError={handleImageError}
             />
           ) : (
