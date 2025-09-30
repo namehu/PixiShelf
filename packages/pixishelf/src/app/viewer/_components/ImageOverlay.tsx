@@ -1,10 +1,11 @@
 'use client'
 
 import { RandomImageItem } from '@/types/images'
-import { User, MoreHorizontal } from 'lucide-react'
+import { MoreHorizontal } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import TagsPanel from './TagsPanel'
+import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 
 interface ImageOverlayProps {
   image: RandomImageItem
@@ -188,8 +189,8 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
             className="flex items-center space-x-3 flex-1 min-w-0"
             onClick={() => author?.id && router.push(`/artists/${author.id}`)}
           >
-            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <User className="w-5 h-5" />
+            <div className="">
+              <ArtistAvatar userId={author?.userId} name={author?.name} size={10} />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-font-semibold text-sm truncate opacity-90 ">@{author?.username}</p>

@@ -43,10 +43,12 @@ export function ArtistAvatar({ userId, name, size = 12 }: ArtistAvatarProps) {
   }
 
   return (
-    <Avatar className={`size-${size}`}>
+    <Avatar className={`w-${size} h-${size}`}>
       <AvatarImage
         src={userId ? `/artists/${userId}.${formats[currentFormat]}` : undefined}
         alt={name}
+        width={size}
+        height={size}
         onError={handleImageError}
       />
       <AvatarFallback

@@ -25,6 +25,7 @@ export interface RandomImageItem {
   }[]
   author: {
     id: number
+    userId: string
     name: string
     username?: string
   } | null

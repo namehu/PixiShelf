@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { RandomImageItem, RandomImagesResponse } from '@/types/images'
-import imgproxyLoader from '../../../../../lib/image-loader'
 import { guid } from '@/utils/guid'
 import { isVideoFile, MediaType } from '@/types'
 
@@ -117,6 +116,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
         author: artwork.artist
           ? {
               id: artwork.artist.id,
+              userId: artwork.artist.userId || '',
               name: artwork.artist.name,
               username: artwork.artist.username || ''
             }
