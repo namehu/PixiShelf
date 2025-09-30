@@ -411,6 +411,61 @@
     },
 
     /**
+     * [新增] 筛选失败的数据，并可选择性删除。
+     * @param {string} stringReg - 用于匹配错误消息的正则表达式字符串。如果为空或null，则匹配所有失败项。
+     * @param {boolean} isDel - 如果为 true，则从进度中删除匹配的失败项。
+     * @returns {Promise<string[]>} 一个解析为匹配到的任务 ID 数组的 Promise。
+     */
+    async filterFailedData(stringReg, isDel = false) {
+      if (!window.localforage) {
+        console.error("❌ localForage 未加载。");
+        return [];
+      }
+      console.log(`正在筛选失败的数据... Regex: /${stringReg}/, 删除: ${isDel}`);
+
+      const progress = (await localforage.getItem(CONFIG.STORAGE_KEY)) || {};
+      const failedIds = [];
+      let regex;
+
+      try {
+        if (stringReg) {
+          regex = new RegExp(stringReg);
+        }
+      } catch (e) {
+        console.error("❌ 无效的正则表达式:", e.message);
+        return [];
+      }
+
+      for (const [id, result] of Object.entries(progress)) {
+        if (result.status === 'rejected') {
+          // 确保 result.data 是字符串类型以避免 .test() 方法出错
+          const errorMessage = typeof result.data === 'string' ? result.data : '';
+          if (!stringReg || (regex && regex.test(errorMessage))) {
+            failedIds.push(id);
+          }
+        }
+      }
+
+      if (failedIds.length === 0) {
+        console.log("没有找到匹配条件的失败数据。");
+        return [];
+      }
+
+      if (isDel) {
+        console.log(`找到 ${failedIds.length} 个匹配项，准备删除...`);
+        for (const id of failedIds) {
+          delete progress[id];
+        }
+        await localforage.setItem(CONFIG.STORAGE_KEY, progress);
+        console.log(`✅ 已成功删除 ${failedIds.length} 条失败记录。`);
+      } else {
+        console.log(`✅ 找到 ${failedIds.length} 个匹配的失败ID:`, failedIds);
+      }
+
+      return failedIds;
+    },
+
+    /**
      * 从 IndexedDB 清除所有已保存的进度。
      */
     async clearProgress() {
@@ -460,6 +515,7 @@
 - pixivScraper.addArtworkIds(['id1', 'id2']):  向任务列表添加新ID。
 - pixivScraper.downloadResults():              将所有成功的结果下载为 zip 文件。
 - pixivScraper.generateUpdateSQL():            生成用于更新数据库的 SQL 文件。
+- pixivScraper.filterFailedData(reg, del):     筛选失败数据 (reg: 正则字符串, del: 布尔值)。
 - pixivScraper.checkProgress():                显示当前进度摘要。
 - pixivScraper.clearProgress():                  重置所有进度以重新开始。
 --------------------------`,
@@ -468,4 +524,3 @@
   );
 
 })();
-
