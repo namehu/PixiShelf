@@ -74,7 +74,7 @@ export interface Artwork {
   descriptionLength: number // 描述长度
   artistId?: number | null
   artist?: Artist | null
-  tags: string[]
+  tags: Tag[]
   images: MediaFile[]
   createdAt: string
   updatedAt: string

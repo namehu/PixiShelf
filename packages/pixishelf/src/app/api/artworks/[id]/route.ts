@@ -47,7 +47,7 @@ export async function GET(
     const formattedArtwork = {
       ...artwork,
       images: enhancedImages,
-      tags: artwork.artworkTags.map((at) => at.tag.name),
+      tags: artwork.artworkTags.map(({ tag }) => ({ id: tag.id, name: tag.name, name_zh: tag.name_zh })),
       videoCount,
       totalMediaSize,
       createdAt: artwork.createdAt.toISOString(),

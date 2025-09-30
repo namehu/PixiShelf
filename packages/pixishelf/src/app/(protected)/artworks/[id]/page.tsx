@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, Fragment } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useInView } from 'react-intersection-observer'
-import { EnhancedArtwork, isVideoFile } from '@/types'
+import { EnhancedArtwork, isVideoFile, Tag } from '@/types'
 import { useAuth } from '@/components'
 import { VideoPlayer } from '@/components/ui'
 import { apiJson } from '@/lib/api'
@@ -232,6 +232,9 @@ export default function ArtworkDetailPage() {
     }
   }, [])
 
+  const handleTagClick = (tag: Tag) => {
+    router.push(`/tags/${tag.id}`)
+  }
   // 认证检查
   if (authLoading) {
     return (
@@ -355,7 +358,7 @@ export default function ArtworkDetailPage() {
               </div>
 
               {/* Tags */}
-              {data.tags && data.tags.length > 0 && (
+              {!!data.tags?.length && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <svg
@@ -373,14 +376,24 @@ export default function ArtworkDetailPage() {
                     </svg>
                     <h3 className="text-base sm:text-lg font-semibold text-gray-900">标签</h3>
                   </div>
-                  <div className="flex flex-wrap gap-2 max-w-full">
-                    {data.tags.map((tag: string, index: number) => (
-                      <span
-                        key={index}
-                        className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 break-all"
-                      >
-                        #{tag}
-                      </span>
+                  <div className="flex flex-wrap gap-2 align-center max-w-full">
+                    {data.tags.map((tag, index: number) => (
+                      <Fragment key={tag.id}>
+                        <span
+                          onClick={() => handleTagClick(tag)}
+                          className="inline-flex items-center rounded-full text-sm font-medium  text-blue-800 break-all cursor-pointer"
+                        >
+                          #{tag.name}
+                        </span>
+                        {!!tag.name_zh && (
+                          <span
+                            onClick={() => handleTagClick(tag)}
+                            className="inline-flex items-center text-xs text-gray-500 mx-0.5 cursor-pointer"
+                          >
+                            {tag.name_zh}
+                          </span>
+                        )}
+                      </Fragment>
                     ))}
                   </div>
                 </div>
