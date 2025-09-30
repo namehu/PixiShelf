@@ -27,7 +27,8 @@
  *
  * - `pixivScraper.runTask()`: 启动或恢复抓取过程。
  * - `pixivScraper.addArtworkIds(['id1', 'id2'])`: 向任务列表中添加新的作品ID。
- * - `pixivScraper.downloadResults()`: 将所有成功抓取的数据打包成 zip 文件并下载。
+ * - `pixivScraper.downloadArtworks()`: 将所有成功抓取的数据打包成 zip 文件并下载。
+ * - `pixivScraper.downloadArtists()`: 将所有成功抓取的艺术家头像打包成 zip 文件并下载。
  * - `pixivScraper.generateUpdateSQL()`: 生成用于更新数据库的 SQL 文件。
  * - `pixivScraper.clearProgress()`: 清除所有已保存的进度，用于重新开始。
  * - `pixivScraper.checkProgress()`: 显示当前进度摘要。
@@ -50,8 +51,9 @@
     STORAGE_KEY: 'pixiv_scraper_progress_v3',
     // [升级] 用于在 IndexedDB 中存储所有任务ID的键。
     IDS_STORAGE_KEY: 'pixiv_scraper_ids_v3',
-    // 最终下载的 zip 文件的文件名。
-    ZIP_FILENAME: 'pixiv_data.zip',
+    // [修改] 最终下载的 zip 文件的文件名。
+    ARTWORKS_ZIP_FILENAME: 'pixiv_artworks.zip',
+    ARTISTS_ZIP_FILENAME: 'pixiv_artists.zip',
     // 生成的 SQL 文件的文件名。
     SQL_FILENAME: 'update_pixiv_tags.sql'
   };
@@ -267,14 +269,13 @@
     },
 
     /**
-     * 将所有成功获取的数据和唯一的艺术家头像下载为单个 zip 文件。
+     * [新增] 仅下载所有成功获取的作品数据（JSON 文件）。
      */
-    async downloadResults() {
+    async downloadArtworks() {
       if (!window.JSZip || !window.localforage) {
         console.error("❌ 依赖库 (JSZip or localForage) 未加载。");
         return;
       }
-      // [升级] 从 IndexedDB 读取进度
       const progress = (await localforage.getItem(CONFIG.STORAGE_KEY)) || {};
       const successfulItems = Object.values(progress).filter(p => p.status === 'fulfilled' && p.data);
 
@@ -286,22 +287,61 @@
       console.log(`正在打包 ${successfulItems.length} 个作品数据文件...`);
       const zip = new JSZip();
       const artworksFolder = zip.folder("artworks");
-      const artistsFolder = zip.folder("artists");
-
-      const uniqueArtists = new Map();
 
       for (const { data: artwork } of successfulItems) {
         artworksFolder.file(`${artwork.id}.json`, JSON.stringify(artwork, null, 2));
+      }
 
+      console.log("正在生成 artworks.zip 文件，请稍候...");
+      zip.generateAsync({ type: "blob" })
+        .then(function (content) {
+          const url = URL.createObjectURL(content);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = CONFIG.ARTWORKS_ZIP_FILENAME;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          console.log(`%c📦 ${CONFIG.ARTWORKS_ZIP_FILENAME} 下载已开始!`, "color: green; font-size: 14px;");
+        });
+    },
+
+    /**
+     * [新增] 以带延时的方式下载所有唯一的艺术家头像，以避免被风控。
+     */
+    async downloadArtists() {
+      if (!window.JSZip || !window.localforage) {
+        console.error("❌ 依赖库 (JSZip or localForage) 未加载。");
+        return;
+      }
+      const progress = (await localforage.getItem(CONFIG.STORAGE_KEY)) || {};
+      const successfulItems = Object.values(progress).filter(p => p.status === 'fulfilled' && p.data);
+
+      if (successfulItems.length === 0) {
+        console.log("没有可供下载的数据。");
+        return;
+      }
+
+      const uniqueArtists = new Map();
+      for (const { data: artwork } of successfulItems) {
         const artist = artwork.artist;
         if (artist && artist.userId && artist.profileImageUrl && !uniqueArtists.has(artist.userId)) {
           uniqueArtists.set(artist.userId, artist.profileImageUrl);
         }
       }
 
-      console.log(`发现 ${uniqueArtists.size} 位独立艺术家。正在下载头像...`);
+      if (uniqueArtists.size === 0) {
+        console.log("没有找到需要下载头像的独立艺术家。");
+        return;
+      }
 
-      const imagePromises = Array.from(uniqueArtists.entries()).map(async ([userId, originalUrl]) => {
+      console.log(`发现 ${uniqueArtists.size} 位独立艺术家。将以慢速模式下载头像...`);
+      const zip = new JSZip();
+      const artistsFolder = zip.folder("artists");
+      let successCount = 0;
+
+      for (const [userId, originalUrl] of uniqueArtists.entries()) {
         const highResUrl = originalUrl.replace(/_50\.(?=[^.]*$)/, '_170.');
         try {
           let response = await fetch(highResUrl);
@@ -313,26 +353,35 @@
           const blob = await response.blob();
           const extension = (highResUrl.split('.').pop().split('?')[0] || 'jpg');
           artistsFolder.file(`${userId}.${extension}`, blob);
-          console.log(`✅ 成功下载艺术家 ${userId} 的头像`);
+          console.log(`✅ (${successCount + 1}/${uniqueArtists.size}) 成功下载艺术家 ${userId} 的头像`);
+          successCount++;
         } catch (error) {
           console.error(`❌ 下载艺术家 ${userId} 的头像失败:`, error.message);
         }
-      });
 
-      await Promise.all(imagePromises);
+        // 每下载一个头像后，随机等待 0-1 秒
+        const randomDelay = Math.random() * 1000;
+        await delay(randomDelay);
+      }
 
-      console.log("正在生成 zip 文件，请稍候...");
+      if (successCount === 0) {
+        console.log("所有头像均下载失败，不生成 zip 文件。");
+        return;
+      }
+
+
+      console.log("正在生成 artists.zip 文件，请稍候...");
       zip.generateAsync({ type: "blob" })
         .then(function (content) {
           const url = URL.createObjectURL(content);
           const a = document.createElement('a');
           a.href = url;
-          a.download = CONFIG.ZIP_FILENAME;
+          a.download = CONFIG.ARTISTS_ZIP_FILENAME;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
-          console.log(`%c📦 ${CONFIG.ZIP_FILENAME} 下载已开始!`, "color: green; font-size: 14px;");
+          console.log(`%c📦 ${CONFIG.ARTISTS_ZIP_FILENAME} 下载已开始!`, "color: green; font-size: 14px;");
         });
     },
 
@@ -513,7 +562,8 @@
 - pixivScraper.runTask():                      启动或恢复抓取。
 - pixivScraper.pauseTask():                    安全地暂停当前任务。
 - pixivScraper.addArtworkIds(['id1', 'id2']):  向任务列表添加新ID。
-- pixivScraper.downloadResults():              将所有成功的结果下载为 zip 文件。
+- pixivScraper.downloadArtworks():             下载所有作品的 JSON 数据。
+- pixivScraper.downloadArtists():              (慢速)下载所有艺术家的头像。
 - pixivScraper.generateUpdateSQL():            生成用于更新数据库的 SQL 文件。
 - pixivScraper.filterFailedData(reg, del):     筛选失败数据 (reg: 正则字符串, del: 布尔值)。
 - pixivScraper.checkProgress():                显示当前进度摘要。
