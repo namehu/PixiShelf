@@ -12,6 +12,7 @@ import 'swiper/css'
 import 'swiper/css/navigation'
 import 'swiper/css/pagination'
 import ImageOverlay from './ImageOverlay'
+import Image from 'next/image'
 
 interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   image: RandomImageItem
@@ -29,8 +30,18 @@ interface SingleImageProps {
 /**
  * 单张图片渲染组件
  */
-function SingleImage({ image, mediaType, id, onError, retryKey, onRetry }: SingleImageProps) {
+function SingleImage({
+  image,
+  mediaType,
+  id,
+  onError,
+  retryKey,
+  onRetry,
+  shouldLoad = true
+}: SingleImageProps & { shouldLoad?: boolean }) {
   const [imageError, setImageError] = useState(false)
+  const [isVisible, setIsVisible] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const handleImageError = () => {
     setImageError(true)
@@ -41,17 +52,64 @@ function SingleImage({ image, mediaType, id, onError, retryKey, onRetry }: Singl
     setImageError(false)
   }, [retryKey])
 
+  // 使用 Intersection Observer 检测元素是否可见
+  useEffect(() => {
+    if (!shouldLoad || !containerRef.current) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        if (entry && entry.isIntersecting) {
+          setIsVisible(true)
+          observer.disconnect() // 一旦可见就断开观察
+        }
+      },
+      {
+        threshold: 0.1, // 当10%的元素可见时触发
+        rootMargin: '50px' // 提前50px开始加载
+      }
+    )
+
+    observer.observe(containerRef.current)
+
+    return () => observer.disconnect()
+  }, [shouldLoad])
+
+  // 如果不应该加载，显示占位符
+  if (!shouldLoad) {
+    return (
+      <div className="relative w-full h-full flex items-center justify-center bg-neutral-800">
+        <div className="text-center text-white/40">
+          <div className="w-16 h-16 mx-auto mb-2 bg-white/10 rounded-lg flex items-center justify-center">
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1}
+                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2v12a2 2 0 002 2z"
+              />
+            </svg>
+          </div>
+          <p className="text-xs">准备加载...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="relative w-full h-full flex items-center justify-center">
-      {!imageError ? (
+    <div ref={containerRef} className="relative w-full h-full flex items-center justify-center">
+      {!imageError && isVisible ? (
         <>
           {mediaType === MediaType.IMAGE ? (
-            <img
+            <Image
               key={`${id}-${retryKey}`}
               src={image}
+              width={window.outerWidth}
+              height={window.outerHeight}
               alt={id || `Image by ${id || 'Unknown'}`}
               className="w-full h-full object-contain"
               loading="lazy"
+              priority={false}
               onError={handleImageError}
             />
           ) : (
@@ -67,7 +125,7 @@ function SingleImage({ image, mediaType, id, onError, retryKey, onRetry }: Singl
             />
           )}
         </>
-      ) : (
+      ) : imageError ? (
         /* 错误状态UI */
         <div className="absolute inset-0 flex items-center justify-center bg-neutral-900">
           <div className="text-center text-white">
@@ -88,6 +146,23 @@ function SingleImage({ image, mediaType, id, onError, retryKey, onRetry }: Singl
             >
               重试
             </button>
+          </div>
+        </div>
+      ) : (
+        /* 加载中状态 */
+        <div className="absolute inset-0 flex items-center justify-center bg-neutral-800">
+          <div className="text-center text-white/40">
+            <div className="w-12 h-12 mx-auto mb-2 bg-white/10 rounded-lg flex items-center justify-center animate-pulse">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1}
+                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2v12a2 2 0 002 2z"
+                />
+              </svg>
+            </div>
+            <p className="text-xs">加载中...</p>
           </div>
         </div>
       )}
@@ -170,18 +245,24 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
           zIndex: 10 // 确保嵌套 Swiper 有足够高的层级
         }}
       >
-        {image.images.map((img, index) => (
-          <SwiperSlide key={`${img.key}-${index}`}>
-            <SingleImage
-              image={img.url}
-              mediaType={image.mediaType}
-              id={img.key}
-              onError={onError}
-              retryKey={retryKey}
-              onRetry={handleRetry}
-            />
-          </SwiperSlide>
-        ))}
+        {image.images.map((img, index) => {
+          // 只渲染当前图片和相邻的图片（前一张和后一张）
+          const shouldLoad = Math.abs(index - currentImageIndex) <= 1
+
+          return (
+            <SwiperSlide key={`${img.key}-${index}`}>
+              <SingleImage
+                image={img.url}
+                mediaType={image.mediaType}
+                id={img.key}
+                onError={onError}
+                retryKey={retryKey}
+                onRetry={handleRetry}
+                shouldLoad={shouldLoad}
+              />
+            </SwiperSlide>
+          )
+        })}
       </Swiper>
 
       {/* 分段式进度条 pagination - 放在底部 */}
