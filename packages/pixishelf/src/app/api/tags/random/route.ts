@@ -106,6 +106,7 @@ export async function GET(request: NextRequest) {
         select: {
           id: true,
           name: true,
+          name_zh: true,
           description: true,
           artworkCount: true,
           createdAt: true,
@@ -134,6 +135,7 @@ export async function GET(request: NextRequest) {
         select: {
           id: true,
           name: true,
+          name_zh: true,
           description: true,
           artworkCount: true,
           createdAt: true,
