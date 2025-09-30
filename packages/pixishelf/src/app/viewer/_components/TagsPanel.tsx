@@ -3,15 +3,11 @@
 import React from 'react'
 import { X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-
-interface Tag {
-  id: number
-  name: string
-}
+import { Tag } from '@/types'
 
 interface TagsPanelProps {
   tags: Tag[]
@@ -24,7 +20,6 @@ interface TagsPanelProps {
  */
 export default function TagsPanel({ tags, trigger }: TagsPanelProps) {
   const router = useRouter()
-  const [searchTerm, setSearchTerm] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -35,10 +30,6 @@ export default function TagsPanel({ tags, trigger }: TagsPanelProps) {
   }, [])
 
   // 过滤标签
-  const filteredTags = useMemo(() => {
-    if (!searchTerm) return tags
-    return tags.filter((tag) => tag.name.toLowerCase().includes(searchTerm.toLowerCase()))
-  }, [tags, searchTerm])
 
   // 处理标签点击
   const handleTagClick = useCallback(
@@ -64,7 +55,6 @@ export default function TagsPanel({ tags, trigger }: TagsPanelProps) {
     // 等待动画完成后再隐藏元素
     setTimeout(() => {
       setIsOpen(false)
-      setSearchTerm('') // 重置搜索词
     }, 300) // 动画持续时间
   }, [])
 
@@ -147,35 +137,23 @@ export default function TagsPanel({ tags, trigger }: TagsPanelProps) {
                   </button>
                 </div>
 
-                {/* 搜索区域 */}
-                <div className="p-4 border-b border-gray-200 bg-white">
-                  <input
-                    type="text"
-                    placeholder="搜索标签..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
                 {/* 标签列表区域 */}
                 <div className="flex-1 overflow-hidden">
                   <ScrollArea className="h-full">
                     <div className="p-4 space-y-2">
-                      {filteredTags.length > 0 ? (
-                        filteredTags.map((tag) => (
-                          <button
+                      {tags.length ? (
+                        tags.map((tag) => (
+                          <div
                             key={tag.id}
                             onClick={() => handleTagClick(tag.id)}
-                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-700 hover:text-gray-900"
+                            className="flex flex-col justify-center w-full h-12 rounded text-left px-3 hover:bg-gray-100 transition-colors text-gray-700 hover:text-gray-900"
                           >
-                            {tag.name}
-                          </button>
+                            <div>{tag.name}</div>
+                            {!!tag.name_zh && <div className="text-sm text-gray-500">{`${tag.name_zh || ''}`}</div>}
+                          </div>
                         ))
                       ) : (
-                        <div className="text-center py-8 text-gray-500">
-                          {searchTerm ? '未找到匹配的标签' : '暂无标签'}
-                        </div>
+                        <div className="text-center py-8 text-gray-500">暂无标签</div>
                       )}
                     </div>
                   </ScrollArea>

@@ -122,7 +122,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
             }
           : null,
         createdAt: artwork.createdAt.toISOString(),
-        tags: artwork.artworkTags.map(({ tag }) => ({ id: tag.id, name: tag.name }))
+        tags: artwork.artworkTags.map(({ tag }) => ({ id: tag.id, name: tag.name, name_zh: tag.name_zh }))
       }
     })
 
