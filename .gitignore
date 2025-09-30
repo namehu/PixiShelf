@@ -8,6 +8,7 @@ node_modules/
 **/libquery_engine-darwin-arm64.dylib.node
 # Build outputs
 packages/**/build/
+packages/**/public/artists
 dist/
 !build/
 !build/.env.*

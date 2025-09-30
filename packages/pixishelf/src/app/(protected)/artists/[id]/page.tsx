@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/pagination'
 import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
+import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 
 // ============================================================================
 // Hooks
@@ -60,18 +61,6 @@ function useArtistArtworks(artistId: string, page: number, pageSize: number, sor
 // ============================================================================
 // 工具函数
 // ============================================================================
-
-/**
- * 获取姓名首字母
- */
-function getInitials(name: string) {
-  return name
-    .split(' ')
-    .map((word) => word.charAt(0))
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
-}
 
 // ============================================================================
 // 主组件
@@ -210,17 +199,15 @@ export default function ArtistDetailPage() {
       <div className="bg-white rounded-lg shadow p-8">
         <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
           {/* 头像 */}
-          <div className="h-24 w-24 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-2xl font-bold">
-            {getInitials(artist.name)}
-          </div>
-
-          {/* 艺术家信息 */}
-          <div className="flex-1 space-y-4">
+          <div className="flex gap-4 items-center">
+            <ArtistAvatar userId={artist.userId} name={artist.name} size={20}></ArtistAvatar>
             <div>
               <h1 className="text-4xl font-bold text-gray-900 mb-2">{artist.name}</h1>
-              {artist.username && <p className="text-lg text-gray-500">@{artist.username}</p>}
+              {artist.userId && <p className="text-lg text-gray-500">@{artist.userId}</p>}
             </div>
-
+          </div>
+          {/* 艺术家信息 */}
+          <div className="flex-1 space-y-4">
             {artist.bio && <p className="text-gray-700 leading-relaxed max-w-2xl">{artist.bio}</p>}
 
             {/* 统计信息 */}

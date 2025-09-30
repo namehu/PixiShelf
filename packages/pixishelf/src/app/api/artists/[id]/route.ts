@@ -38,6 +38,7 @@ export async function GET(
     const response: Artist = {
       id: artist.id,
       name: artist.name,
+      userId: artist.userId,
       username: artist.username,
       bio: artist.bio,
       artworksCount: artist._count.artworks,
