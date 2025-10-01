@@ -7,6 +7,7 @@ import { Tag } from '@/types/core'
 import { Artwork } from '@/types/core'
 import { ArtworkCard } from '@/components/ui/ArtworkCard'
 import { cn } from '@/lib/utils'
+import { getTranslateName } from '@/utils/tags'
 
 interface TagDetailPageProps {}
 
@@ -168,7 +169,7 @@ function TagDetailPage({}: TagDetailPageProps) {
                         <span>{tag.artworkCount}</span>
                       </span>
 
-                      <span>{tag.name_zh}</span>
+                      <span>{getTranslateName(tag)}</span>
                     </div>
                   </div>
                 </div>

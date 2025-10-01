@@ -7,17 +7,17 @@ import { Prisma } from '@prisma/client'
 function buildTsQuery(query: string): string {
   // 移除特殊字符，只保留字母、数字、空格和中文字符
   const cleanQuery = query.replace(/[^\w\s\u4e00-\u9fff]/g, ' ')
-  
+
   // 分割成单词并过滤空字符串
-  const words = cleanQuery.split(/\s+/).filter(word => word.length > 0)
-  
+  const words = cleanQuery.split(/\s+/).filter((word) => word.length > 0)
+
   if (words.length === 0) {
     return ''
   }
-  
+
   // 为每个词添加前缀匹配（:*）以支持部分匹配
-  const tsqueryParts = words.map(word => `${word}:*`).join(' & ')
-  
+  const tsqueryParts = words.map((word) => `${word}:*`).join(' & ')
+
   return tsqueryParts
 }
 
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
 
     // 构建 tsquery
     const tsquery = buildTsQuery(q)
-    
+
     let tags: any[] = []
     let totalCount = 0
 
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
         // 构建排序条件
         let orderByClause = ''
         if (sort === 'relevance') {
-          orderByClause = 'ORDER BY ts_rank(search_vector, to_tsquery(\'simple\', $1)) DESC'
+          orderByClause = "ORDER BY ts_rank(search_vector, to_tsquery('simple', $1)) DESC"
         } else {
           const direction = order.toUpperCase()
           switch (sort) {
@@ -103,22 +103,23 @@ export async function GET(request: NextRequest) {
               orderByClause = `ORDER BY "createdAt" ${direction}`
               break
             default:
-              orderByClause = 'ORDER BY ts_rank(search_vector, to_tsquery(\'simple\', $1)) DESC'
+              orderByClause = "ORDER BY ts_rank(search_vector, to_tsquery('simple', $1)) DESC"
           }
         }
 
         // 执行全文搜索查询
         const searchQuery = `
-          SELECT 
-            id, 
-            name, 
-            name_zh, 
-            description, 
-            "artworkCount", 
-            "createdAt", 
+          SELECT
+            id,
+            name,
+            name_zh,
+            name_en,
+            description,
+            "artworkCount",
+            "createdAt",
             "updatedAt",
             ts_rank(search_vector, to_tsquery('simple', $1)) as relevance_score
-          FROM "Tag" 
+          FROM "Tag"
           WHERE search_vector @@ to_tsquery('simple', $1)
           ${orderByClause}
           LIMIT $2 OFFSET $3
@@ -126,7 +127,7 @@ export async function GET(request: NextRequest) {
 
         const countQuery = `
           SELECT COUNT(*) as count
-          FROM "Tag" 
+          FROM "Tag"
           WHERE search_vector @@ to_tsquery('simple', $1)
         `
 
@@ -135,10 +136,11 @@ export async function GET(request: NextRequest) {
           prisma.$queryRaw<[{ count: bigint }]>(Prisma.sql([countQuery], tsquery))
         ])
 
-        tags = searchResults.map(tag => ({
+        tags = searchResults.map((tag) => ({
           id: tag.id,
           name: tag.name,
           name_zh: tag.name_zh,
+          name_en: tag.name_en,
           description: tag.description,
           artworkCount: tag.artworkCount,
           createdAt: tag.createdAt,
@@ -149,7 +151,7 @@ export async function GET(request: NextRequest) {
         totalCount = Number(countResults[0]?.count || 0)
       } catch (fullTextError) {
         console.warn('全文搜索失败，回退到传统搜索:', fullTextError)
-        
+
         // 回退到传统搜索
         const searchCondition = {
           OR: [
@@ -161,6 +163,12 @@ export async function GET(request: NextRequest) {
             },
             {
               name_zh: {
+                contains: q,
+                mode: 'insensitive' as const
+              }
+            },
+            {
+              name_en: {
                 contains: q,
                 mode: 'insensitive' as const
               }
@@ -190,6 +198,7 @@ export async function GET(request: NextRequest) {
               id: true,
               name: true,
               name_zh: true,
+              name_en: true,
               description: true,
               artworkCount: true,
               createdAt: true,
@@ -215,6 +224,7 @@ export async function GET(request: NextRequest) {
             id: true,
             name: true,
             name_zh: true,
+            name_en: true,
             description: true,
             artworkCount: true,
             createdAt: true,

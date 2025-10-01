@@ -10,6 +10,7 @@ import { VideoPlayer } from '@/components/ui'
 import { apiJson } from '@/lib/api'
 import { ChevronLeftIcon } from 'lucide-react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
+import { getTranslateName } from '@/utils/tags'
 
 // ============================================================================
 // Components
@@ -375,12 +376,12 @@ export default function ArtworkDetailPage() {
                         >
                           #{tag.name}
                         </span>
-                        {!!tag.name_zh && (
+                        {!!getTranslateName(tag) && (
                           <span
                             onClick={() => handleTagClick(tag)}
                             className="inline-flex items-center text-xs text-gray-500 mx-0.5 cursor-pointer"
                           >
-                            {tag.name_zh}
+                            {getTranslateName(tag)}
                           </span>
                         )}
                       </Fragment>

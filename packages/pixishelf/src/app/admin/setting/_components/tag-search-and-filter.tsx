@@ -80,6 +80,7 @@ export function TagSearchAndFilter({
             <SelectContent>
               <SelectItem value="name">按名称</SelectItem>
               <SelectItem value="name_zh">按名称（中文）</SelectItem>
+              <SelectItem value="name_en">按名称（英文）</SelectItem>
               <SelectItem value="artworkCount">按作品数量</SelectItem>
               <SelectItem value="createdAt">按创建时间</SelectItem>
               <SelectItem value="updatedAt">按更新时间</SelectItem>

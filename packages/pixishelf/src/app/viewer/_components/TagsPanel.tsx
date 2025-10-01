@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { Tag } from '@/types'
+import { getTranslateName } from '@/utils/tags'
 
 interface TagsPanelProps {
   tags: Tag[]
@@ -142,16 +143,19 @@ export default function TagsPanel({ tags, trigger }: TagsPanelProps) {
                   <ScrollArea className="h-full">
                     <div className="p-4 space-y-2">
                       {tags.length ? (
-                        tags.map((tag) => (
-                          <div
-                            key={tag.id}
-                            onClick={() => handleTagClick(tag.id)}
-                            className="flex flex-col justify-center w-full h-12 rounded text-left px-3 hover:bg-gray-100 transition-colors text-gray-700 hover:text-gray-900"
-                          >
-                            <div>{tag.name}</div>
-                            {!!tag.name_zh && <div className="text-sm text-gray-500">{`${tag.name_zh || ''}`}</div>}
-                          </div>
-                        ))
+                        tags.map((tag) => {
+                          const tName = getTranslateName(tag)
+                          return (
+                            <div
+                              key={tag.id}
+                              onClick={() => handleTagClick(tag.id)}
+                              className="flex flex-col justify-center w-full h-12 rounded text-left px-3 hover:bg-gray-100 transition-colors text-gray-700 hover:text-gray-900"
+                            >
+                              <div>{tag.name}</div>
+                              {!!tName && <div className="text-sm text-gray-500">{`${tName}`}</div>}
+                            </div>
+                          )
+                        })
                       ) : (
                         <div className="text-center py-8 text-gray-500">暂无标签</div>
                       )}

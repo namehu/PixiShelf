@@ -208,7 +208,7 @@ export interface TagManagementParams {
   /** 筛选条件 */
   filter?: 'all' | 'translated' | 'untranslated'
   /** 排序字段 */
-  sort?: 'name' | 'name_zh' | 'artworkCount' | 'createdAt' | 'updatedAt'
+  sort?: 'name' | 'name_zh' | 'name_en' | 'artworkCount' | 'createdAt' | 'updatedAt'
   /** 排序方向 */
   order?: 'asc' | 'desc'
 }
@@ -246,6 +246,8 @@ export interface TagManagementResponse {
 export interface TagTranslationUpdateRequest {
   /** 中文翻译 */
   name_zh: string
+  /** 英文翻译 */
+  name_en?: string | null
   /** 是否自动翻译未翻译的标签 */
   autoTranslate?: boolean
 }
@@ -259,6 +261,7 @@ export interface TagTranslationUpdateResponse {
     id: number
     name: string
     name_zh: string
+    name_en?: string | null
     updatedAt: string
   }
 }

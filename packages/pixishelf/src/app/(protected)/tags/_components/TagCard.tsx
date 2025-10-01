@@ -4,6 +4,7 @@ import React from 'react'
 import { Tag, Hash, WallpaperIcon } from 'lucide-react'
 import { TagCardProps } from '@/types/tags'
 import { cn } from '@/lib/utils'
+import { getTranslateName } from '@/utils/tags'
 
 /**
  * 标签卡片组件
@@ -32,7 +33,7 @@ export function TagCard({
   const getPrimaryName = () => tag.name
 
   // 获取次要名称（用于分行显示）
-  const getSecondaryName = () => tag.name_zh || ''
+  const getSecondaryName = () => getTranslateName(tag) || ''
 
   // 根据模式渲染不同的卡片样式
   const renderCard = () => {

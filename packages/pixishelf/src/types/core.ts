@@ -97,6 +97,7 @@ export interface Tag {
   id: number
   name: string
   name_zh?: string | null
+  name_en?: string | null
   description?: string | null
   artworkCount: number
   createdAt: string

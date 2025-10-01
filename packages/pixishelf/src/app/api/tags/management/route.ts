@@ -28,15 +28,16 @@ export async function GET(request: NextRequest) {
     if (params.search) {
       whereConditions.OR = [
         { name: { contains: params.search, mode: 'insensitive' } },
-        { name_zh: { contains: params.search, mode: 'insensitive' } }
+        { name_zh: { contains: params.search, mode: 'insensitive' } },
+        { name_en: { contains: params.search, mode: 'insensitive' } }
       ]
     }
 
     // 筛选条件
     if (params.filter === 'translated') {
-      whereConditions.name_zh = { not: null }
+      whereConditions.OR = [{ name_zh: { not: null } }, { name_en: { not: null } }]
     } else if (params.filter === 'untranslated') {
-      whereConditions.name_zh = null
+      whereConditions.OR = [{ name_zh: null }, { name_en: null }]
     }
 
     // 计算偏移量
@@ -59,6 +60,7 @@ export async function GET(request: NextRequest) {
           id: true,
           name: true,
           name_zh: true,
+          name_en: true,
           description: true,
           artworkCount: true,
           createdAt: true,
@@ -117,7 +119,7 @@ export async function GET(request: NextRequest) {
 async function getTagManagementStats(): Promise<TagManagementStats> {
   const [totalTags, translatedTags] = await Promise.all([
     prisma.tag.count(),
-    prisma.tag.count({ where: { name_zh: { not: null } } })
+    prisma.tag.count({ where: { OR: [{ name_zh: { not: null } }, { name_en: { not: null } }] } })
   ])
 
   const untranslatedTags = totalTags - translatedTags
