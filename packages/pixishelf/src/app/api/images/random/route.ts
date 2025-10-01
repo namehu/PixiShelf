@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { RandomImageItem, RandomImagesResponse } from '@/types/images'
 import { guid } from '@/utils/guid'
 import { isVideoFile, MediaType } from '@/types'
+import { combinationStaticAvatar } from '@/utils/combinationStatic'
 
 /**
  * Fisher-Yates (aka Knuth) Shuffle 算法。
@@ -118,7 +119,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
               id: artwork.artist.id,
               userId: artwork.artist.userId || '',
               name: artwork.artist.name,
-              avatar: artwork.artist.avatar ? `/artists/${artwork.artist.userId}/${artwork.artist.avatar}` : '',
+              avatar: combinationStaticAvatar(artwork.artist.userId, artwork.artist.avatar),
               username: artwork.artist.username || ''
             }
           : null,

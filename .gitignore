@@ -9,6 +9,7 @@ node_modules/
 # Build outputs
 packages/**/build/
 packages/**/public/artists
+packages/**/public/pixiv_data
 dist/
 !build/
 !build/.env.*

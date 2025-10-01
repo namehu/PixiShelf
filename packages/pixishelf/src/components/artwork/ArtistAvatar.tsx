@@ -4,10 +4,6 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui'
 interface ArtistAvatarProps {
   src?: string
   /**
-   * 艺术家ID
-   */
-  userId?: string | number | null
-  /**
    * 艺术家名称
    */
   name?: string
@@ -21,7 +17,7 @@ interface ArtistAvatarProps {
  * @param param0
  * @returns
  */
-export function ArtistAvatar({ src, userId, name, size = 12 }: ArtistAvatarProps) {
+export function ArtistAvatar({ src, name, size = 12 }: ArtistAvatarProps) {
   const [currentFormat, setCurrentFormat] = useState(0)
   const formats = ['jpg', 'png', 'gif']
 
@@ -45,13 +41,7 @@ export function ArtistAvatar({ src, userId, name, size = 12 }: ArtistAvatarProps
 
   return (
     <Avatar className={`size-${size} w-${size} h-${size} `}>
-      <AvatarImage
-        src={src ? src : userId ? `/artists/${userId}.${formats[currentFormat]}` : undefined}
-        alt={name}
-        width={size}
-        height={size}
-        onError={handleImageError}
-      />
+      <AvatarImage src={src} alt={name} width={size} height={size} onError={handleImageError} />
       <AvatarFallback
         className={`h-${size} w-${size} bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 text-2xl font-bold`}
       >

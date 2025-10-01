@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { ArtistsResponse, ArtistsQuery } from '@/types'
 import { Artist } from '@/types/core'
+import { combinationStaticArtistBg, combinationStaticAvatar } from '@/utils/combinationStatic'
 
 /**
  * 艺术家服务层 - 业务逻辑封装
@@ -197,8 +198,8 @@ export const artistService = {
       return {
         ...rest,
         userId,
-        avatar: avatar ? `/artists/${userId}/${avatar}` : '',
-        backgroundImg: backgroundImg ? `/artists/${userId}/${backgroundImg}` : '',
+        avatar: combinationStaticAvatar(userId, avatar),
+        backgroundImg: combinationStaticArtistBg(userId, backgroundImg),
         artworksCount: _count?.artworks || 0,
         createdAt: createdAt?.toISOString() || new Date().toISOString(),
         updatedAt: updatedAt?.toISOString() || new Date().toISOString()
