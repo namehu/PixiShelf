@@ -67,8 +67,11 @@ model Tag {
   id            Int           @id @default(autoincrement())
   name          String        @unique
   name_zh       String? // 中文翻译列
+  name_en       String? // 英文翻译列
   translateType TranslateType @default(NONE) // 翻译类型，使用枚举
   description   String? // 标签描述
+  abstract      String? // 标签描述（来源：pixiv）
+  image         String? // 图片（来源：pixiv）
   artworkCount  Int           @default(0) // 作品数量缓存
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -78,7 +81,8 @@ model Tag {
   search_vector Unsupported("tsvector")?
 
   @@index([name])
-  @@index([name_zh]) // [新增] 为中文翻译列增加索引，提高查询速度
+  @@index([name_zh]) // 增加索引，提高查询速度
+  @@index([name_en]) //  增加索引，提高查询速度
   @@index([artworkCount], map: "Tag_artworkCount_idx")
   // [新增] 告诉 Prisma 这个 GIN 索引是存在的
   // 注意：需要启用 previewFeatures = ["extendedIndexes"]

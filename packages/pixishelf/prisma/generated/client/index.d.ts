@@ -3825,8 +3825,11 @@ export namespace Prisma {
     id: number | null
     name: string | null
     name_zh: string | null
+    name_en: string | null
     translateType: $Enums.TranslateType | null
     description: string | null
+    abstract: string | null
+    image: string | null
     artworkCount: number | null
     createdAt: Date | null
     updatedAt: Date | null
@@ -3836,8 +3839,11 @@ export namespace Prisma {
     id: number | null
     name: string | null
     name_zh: string | null
+    name_en: string | null
     translateType: $Enums.TranslateType | null
     description: string | null
+    abstract: string | null
+    image: string | null
     artworkCount: number | null
     createdAt: Date | null
     updatedAt: Date | null
@@ -3847,8 +3853,11 @@ export namespace Prisma {
     id: number
     name: number
     name_zh: number
+    name_en: number
     translateType: number
     description: number
+    abstract: number
+    image: number
     artworkCount: number
     createdAt: number
     updatedAt: number
@@ -3870,8 +3879,11 @@ export namespace Prisma {
     id?: true
     name?: true
     name_zh?: true
+    name_en?: true
     translateType?: true
     description?: true
+    abstract?: true
+    image?: true
     artworkCount?: true
     createdAt?: true
     updatedAt?: true
@@ -3881,8 +3893,11 @@ export namespace Prisma {
     id?: true
     name?: true
     name_zh?: true
+    name_en?: true
     translateType?: true
     description?: true
+    abstract?: true
+    image?: true
     artworkCount?: true
     createdAt?: true
     updatedAt?: true
@@ -3892,8 +3907,11 @@ export namespace Prisma {
     id?: true
     name?: true
     name_zh?: true
+    name_en?: true
     translateType?: true
     description?: true
+    abstract?: true
+    image?: true
     artworkCount?: true
     createdAt?: true
     updatedAt?: true
@@ -3990,8 +4008,11 @@ export namespace Prisma {
     id: number
     name: string
     name_zh: string | null
+    name_en: string | null
     translateType: $Enums.TranslateType
     description: string | null
+    abstract: string | null
+    image: string | null
     artworkCount: number
     createdAt: Date
     updatedAt: Date
@@ -4020,8 +4041,11 @@ export namespace Prisma {
     id?: boolean
     name?: boolean
     name_zh?: boolean
+    name_en?: boolean
     translateType?: boolean
     description?: boolean
+    abstract?: boolean
+    image?: boolean
     artworkCount?: boolean
     createdAt?: boolean
     updatedAt?: boolean
@@ -4033,8 +4057,11 @@ export namespace Prisma {
     id?: boolean
     name?: boolean
     name_zh?: boolean
+    name_en?: boolean
     translateType?: boolean
     description?: boolean
+    abstract?: boolean
+    image?: boolean
     artworkCount?: boolean
     createdAt?: boolean
     updatedAt?: boolean
@@ -4044,8 +4071,11 @@ export namespace Prisma {
     id?: boolean
     name?: boolean
     name_zh?: boolean
+    name_en?: boolean
     translateType?: boolean
     description?: boolean
+    abstract?: boolean
+    image?: boolean
     artworkCount?: boolean
     createdAt?: boolean
     updatedAt?: boolean
@@ -4066,8 +4096,11 @@ export namespace Prisma {
       id: number
       name: string
       name_zh: string | null
+      name_en: string | null
       translateType: $Enums.TranslateType
       description: string | null
+      abstract: string | null
+      image: string | null
       artworkCount: number
       createdAt: Date
       updatedAt: Date
@@ -4468,8 +4501,11 @@ export namespace Prisma {
     readonly id: FieldRef<"Tag", 'Int'>
     readonly name: FieldRef<"Tag", 'String'>
     readonly name_zh: FieldRef<"Tag", 'String'>
+    readonly name_en: FieldRef<"Tag", 'String'>
     readonly translateType: FieldRef<"Tag", 'TranslateType'>
     readonly description: FieldRef<"Tag", 'String'>
+    readonly abstract: FieldRef<"Tag", 'String'>
+    readonly image: FieldRef<"Tag", 'String'>
     readonly artworkCount: FieldRef<"Tag", 'Int'>
     readonly createdAt: FieldRef<"Tag", 'DateTime'>
     readonly updatedAt: FieldRef<"Tag", 'DateTime'>
@@ -9693,8 +9729,11 @@ export namespace Prisma {
     id: 'id',
     name: 'name',
     name_zh: 'name_zh',
+    name_en: 'name_en',
     translateType: 'translateType',
     description: 'description',
+    abstract: 'abstract',
+    image: 'image',
     artworkCount: 'artworkCount',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt'
@@ -9818,7 +9857,10 @@ export namespace Prisma {
   export const TagOrderByRelevanceFieldEnum: {
     name: 'name',
     name_zh: 'name_zh',
-    description: 'description'
+    name_en: 'name_en',
+    description: 'description',
+    abstract: 'abstract',
+    image: 'image'
   };
 
   export type TagOrderByRelevanceFieldEnum = (typeof TagOrderByRelevanceFieldEnum)[keyof typeof TagOrderByRelevanceFieldEnum]
@@ -10157,8 +10199,11 @@ export namespace Prisma {
     id?: IntFilter<"Tag"> | number
     name?: StringFilter<"Tag"> | string
     name_zh?: StringNullableFilter<"Tag"> | string | null
+    name_en?: StringNullableFilter<"Tag"> | string | null
     translateType?: EnumTranslateTypeFilter<"Tag"> | $Enums.TranslateType
     description?: StringNullableFilter<"Tag"> | string | null
+    abstract?: StringNullableFilter<"Tag"> | string | null
+    image?: StringNullableFilter<"Tag"> | string | null
     artworkCount?: IntFilter<"Tag"> | number
     createdAt?: DateTimeFilter<"Tag"> | Date | string
     updatedAt?: DateTimeFilter<"Tag"> | Date | string
@@ -10169,8 +10214,11 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     name_zh?: SortOrderInput | SortOrder
+    name_en?: SortOrderInput | SortOrder
     translateType?: SortOrder
     description?: SortOrderInput | SortOrder
+    abstract?: SortOrderInput | SortOrder
+    image?: SortOrderInput | SortOrder
     artworkCount?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -10185,8 +10233,11 @@ export namespace Prisma {
     OR?: TagWhereInput[]
     NOT?: TagWhereInput | TagWhereInput[]
     name_zh?: StringNullableFilter<"Tag"> | string | null
+    name_en?: StringNullableFilter<"Tag"> | string | null
     translateType?: EnumTranslateTypeFilter<"Tag"> | $Enums.TranslateType
     description?: StringNullableFilter<"Tag"> | string | null
+    abstract?: StringNullableFilter<"Tag"> | string | null
+    image?: StringNullableFilter<"Tag"> | string | null
     artworkCount?: IntFilter<"Tag"> | number
     createdAt?: DateTimeFilter<"Tag"> | Date | string
     updatedAt?: DateTimeFilter<"Tag"> | Date | string
@@ -10197,8 +10248,11 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     name_zh?: SortOrderInput | SortOrder
+    name_en?: SortOrderInput | SortOrder
     translateType?: SortOrder
     description?: SortOrderInput | SortOrder
+    abstract?: SortOrderInput | SortOrder
+    image?: SortOrderInput | SortOrder
     artworkCount?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -10216,8 +10270,11 @@ export namespace Prisma {
     id?: IntWithAggregatesFilter<"Tag"> | number
     name?: StringWithAggregatesFilter<"Tag"> | string
     name_zh?: StringNullableWithAggregatesFilter<"Tag"> | string | null
+    name_en?: StringNullableWithAggregatesFilter<"Tag"> | string | null
     translateType?: EnumTranslateTypeWithAggregatesFilter<"Tag"> | $Enums.TranslateType
     description?: StringNullableWithAggregatesFilter<"Tag"> | string | null
+    abstract?: StringNullableWithAggregatesFilter<"Tag"> | string | null
+    image?: StringNullableWithAggregatesFilter<"Tag"> | string | null
     artworkCount?: IntWithAggregatesFilter<"Tag"> | number
     createdAt?: DateTimeWithAggregatesFilter<"Tag"> | Date | string
     updatedAt?: DateTimeWithAggregatesFilter<"Tag"> | Date | string
@@ -10782,8 +10839,11 @@ export namespace Prisma {
   export type TagCreateInput = {
     name: string
     name_zh?: string | null
+    name_en?: string | null
     translateType?: $Enums.TranslateType
     description?: string | null
+    abstract?: string | null
+    image?: string | null
     artworkCount?: number
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -10794,8 +10854,11 @@ export namespace Prisma {
     id?: number
     name: string
     name_zh?: string | null
+    name_en?: string | null
     translateType?: $Enums.TranslateType
     description?: string | null
+    abstract?: string | null
+    image?: string | null
     artworkCount?: number
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -10805,8 +10868,11 @@ export namespace Prisma {
   export type TagUpdateInput = {
     name?: StringFieldUpdateOperationsInput | string
     name_zh?: NullableStringFieldUpdateOperationsInput | string | null
+    name_en?: NullableStringFieldUpdateOperationsInput | string | null
     translateType?: EnumTranslateTypeFieldUpdateOperationsInput | $Enums.TranslateType
     description?: NullableStringFieldUpdateOperationsInput | string | null
+    abstract?: NullableStringFieldUpdateOperationsInput | string | null
+    image?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -10817,8 +10883,11 @@ export namespace Prisma {
     id?: IntFieldUpdateOperationsInput | number
     name?: StringFieldUpdateOperationsInput | string
     name_zh?: NullableStringFieldUpdateOperationsInput | string | null
+    name_en?: NullableStringFieldUpdateOperationsInput | string | null
     translateType?: EnumTranslateTypeFieldUpdateOperationsInput | $Enums.TranslateType
     description?: NullableStringFieldUpdateOperationsInput | string | null
+    abstract?: NullableStringFieldUpdateOperationsInput | string | null
+    image?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -10829,8 +10898,11 @@ export namespace Prisma {
     id?: number
     name: string
     name_zh?: string | null
+    name_en?: string | null
     translateType?: $Enums.TranslateType
     description?: string | null
+    abstract?: string | null
+    image?: string | null
     artworkCount?: number
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -10839,8 +10911,11 @@ export namespace Prisma {
   export type TagUpdateManyMutationInput = {
     name?: StringFieldUpdateOperationsInput | string
     name_zh?: NullableStringFieldUpdateOperationsInput | string | null
+    name_en?: NullableStringFieldUpdateOperationsInput | string | null
     translateType?: EnumTranslateTypeFieldUpdateOperationsInput | $Enums.TranslateType
     description?: NullableStringFieldUpdateOperationsInput | string | null
+    abstract?: NullableStringFieldUpdateOperationsInput | string | null
+    image?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -10850,8 +10925,11 @@ export namespace Prisma {
     id?: IntFieldUpdateOperationsInput | number
     name?: StringFieldUpdateOperationsInput | string
     name_zh?: NullableStringFieldUpdateOperationsInput | string | null
+    name_en?: NullableStringFieldUpdateOperationsInput | string | null
     translateType?: EnumTranslateTypeFieldUpdateOperationsInput | $Enums.TranslateType
     description?: NullableStringFieldUpdateOperationsInput | string | null
+    abstract?: NullableStringFieldUpdateOperationsInput | string | null
+    image?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -11552,8 +11630,11 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     name_zh?: SortOrder
+    name_en?: SortOrder
     translateType?: SortOrder
     description?: SortOrder
+    abstract?: SortOrder
+    image?: SortOrder
     artworkCount?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -11568,8 +11649,11 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     name_zh?: SortOrder
+    name_en?: SortOrder
     translateType?: SortOrder
     description?: SortOrder
+    abstract?: SortOrder
+    image?: SortOrder
     artworkCount?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -11579,8 +11663,11 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     name_zh?: SortOrder
+    name_en?: SortOrder
     translateType?: SortOrder
     description?: SortOrder
+    abstract?: SortOrder
+    image?: SortOrder
     artworkCount?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -12693,8 +12780,11 @@ export namespace Prisma {
   export type TagCreateWithoutArtworkTagsInput = {
     name: string
     name_zh?: string | null
+    name_en?: string | null
     translateType?: $Enums.TranslateType
     description?: string | null
+    abstract?: string | null
+    image?: string | null
     artworkCount?: number
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -12704,8 +12794,11 @@ export namespace Prisma {
     id?: number
     name: string
     name_zh?: string | null
+    name_en?: string | null
     translateType?: $Enums.TranslateType
     description?: string | null
+    abstract?: string | null
+    image?: string | null
     artworkCount?: number
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -12784,8 +12877,11 @@ export namespace Prisma {
   export type TagUpdateWithoutArtworkTagsInput = {
     name?: StringFieldUpdateOperationsInput | string
     name_zh?: NullableStringFieldUpdateOperationsInput | string | null
+    name_en?: NullableStringFieldUpdateOperationsInput | string | null
     translateType?: EnumTranslateTypeFieldUpdateOperationsInput | $Enums.TranslateType
     description?: NullableStringFieldUpdateOperationsInput | string | null
+    abstract?: NullableStringFieldUpdateOperationsInput | string | null
+    image?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -12795,8 +12891,11 @@ export namespace Prisma {
     id?: IntFieldUpdateOperationsInput | number
     name?: StringFieldUpdateOperationsInput | string
     name_zh?: NullableStringFieldUpdateOperationsInput | string | null
+    name_en?: NullableStringFieldUpdateOperationsInput | string | null
     translateType?: EnumTranslateTypeFieldUpdateOperationsInput | $Enums.TranslateType
     description?: NullableStringFieldUpdateOperationsInput | string | null
+    abstract?: NullableStringFieldUpdateOperationsInput | string | null
+    image?: NullableStringFieldUpdateOperationsInput | string | null
     artworkCount?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string

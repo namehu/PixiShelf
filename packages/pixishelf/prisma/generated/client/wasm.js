@@ -159,8 +159,11 @@ exports.Prisma.TagScalarFieldEnum = {
   id: 'id',
   name: 'name',
   name_zh: 'name_zh',
+  name_en: 'name_en',
   translateType: 'translateType',
   description: 'description',
+  abstract: 'abstract',
+  image: 'image',
   artworkCount: 'artworkCount',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -251,7 +254,10 @@ exports.Prisma.ArtworkOrderByRelevanceFieldEnum = {
 exports.Prisma.TagOrderByRelevanceFieldEnum = {
   name: 'name',
   name_zh: 'name_zh',
-  description: 'description'
+  name_en: 'name_en',
+  description: 'description',
+  abstract: 'abstract',
+  image: 'image'
 };
 
 exports.Prisma.ImageOrderByRelevanceFieldEnum = {
