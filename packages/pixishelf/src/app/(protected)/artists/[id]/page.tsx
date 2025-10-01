@@ -20,6 +20,7 @@ import {
 import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
+import ClientImage from '@/components/client-image'
 
 // ============================================================================
 // Hooks
@@ -292,11 +293,10 @@ export default function ArtistDetailPage() {
               {artworks.items.map((aw) => {
                 const { id, title, images } = aw
                 const cover = images?.[0]
-                const src = cover ? `/api/v1/images/${encodeURIComponent(cover.path)}` : null
+                const src = cover ? cover.path : null
                 const imageCount = images?.filter((img) => img.mediaType === 'image').length || 0
                 const videoFiles = images?.filter((img) => img.mediaType === 'video') || []
                 const totalMediaSize = videoFiles.reduce((sum, file) => sum + (file.size || 0), 0)
-                const isVideoCover = cover && isVideoFile(cover.path)
 
                 return (
                   <Link key={id} href={`/artworks/${id}`} className="block animate-fade-in">
@@ -304,11 +304,7 @@ export default function ArtistDetailPage() {
                       {/* 媒体预览 */}
                       <div className="relative aspect-[3/4] w-full overflow-hidden bg-gray-100">
                         {src ? (
-                          isVideoCover ? (
-                            <VideoPreview src={src} title={title} className="h-full w-full object-cover" />
-                          ) : (
-                            <img src={src} alt={title} className="h-full w-full object-cover" loading="lazy" />
-                          )
+                          <ClientImage src={src} alt={title} className="h-full w-full object-cover" loading="lazy" />
                         ) : (
                           <div className="h-full w-full bg-gray-200 flex items-center justify-center">
                             <svg

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { VideoPreview } from './VideoPreview'
 import { isVideoFile } from '@/types/media'
+import ClientImage from '../client-image'
 
 export interface ArtworkCardProps {
   artwork: {
@@ -25,9 +26,8 @@ export interface ArtworkCardProps {
 export function ArtworkCard({ artwork, showArtist = true, layout = 'vertical', className = '' }: ArtworkCardProps) {
   const { id, title, artist, images = [], imageCount = 0 } = artwork
   const coverImage = images[0]
-  const src = coverImage ? `/api/v1/images/${encodeURIComponent(coverImage.path)}` : ''
+  const src = coverImage ? coverImage.path : ''
   const artistName = artist?.name
-  const isVideoCover = coverImage && isVideoFile(coverImage.path)
 
   if (layout === 'horizontal') {
     return (
@@ -36,11 +36,7 @@ export function ArtworkCard({ artwork, showArtist = true, layout = 'vertical', c
           {/* Media Preview */}
           <div className="relative w-32 h-24 flex-shrink-0 overflow-hidden bg-neutral-100">
             {src ? (
-              isVideoCover ? (
-                <VideoPreview src={src} title={title} className="h-full w-full object-cover" />
-              ) : (
-                <img src={src} alt={title} className="h-full w-full object-cover" loading="lazy" />
-              )
+              <ClientImage src={src} alt={title} className="h-full w-full object-cover" loading="lazy" />
             ) : (
               <div className="h-full w-full bg-neutral-200 flex items-center justify-center">
                 <svg className="w-6 h-6 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -86,11 +82,7 @@ export function ArtworkCard({ artwork, showArtist = true, layout = 'vertical', c
         {/* Media Preview */}
         <div className="relative aspect-[3/4] w-full overflow-hidden bg-neutral-100">
           {src ? (
-            isVideoCover ? (
-              <VideoPreview src={src} title={title} className="h-full w-full object-cover" />
-            ) : (
-              <img src={src} alt={title} className="h-full w-full object-cover" loading="lazy" />
-            )
+            <ClientImage src={src} alt={title} className="h-full w-full object-cover" loading="lazy" />
           ) : (
             <div className="h-full w-full bg-neutral-200 flex items-center justify-center">
               <svg className="w-8 h-8 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

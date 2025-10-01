@@ -48,7 +48,13 @@ export default function ClientImage({
   return (
     <div ref={imgRef} className="h-full w-full">
       {shouldLoad && !!src ? (
-        <Image {...props} loading={loading} loader={loader as any} />
+        <Image
+          width={imgRef.current?.clientWidth}
+          height={imgRef.current?.clientHeight}
+          {...props}
+          loading={loading}
+          loader={loader as any}
+        />
       ) : (
         <div className="h-full w-full bg-gray-200 flex items-center justify-center animate-pulse">
           <ImageIcon size={24} className="text-gray-400"></ImageIcon>
