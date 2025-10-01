@@ -22,7 +22,6 @@
       }
     ],
     "paths": {
-      "@prisma/*": ["./prisma/generated/*"],
       "@/*": ["./src/*"],
       "@/components/*": ["./src/components/*"],
       "@/lib/*": ["./src/lib/*"],
