@@ -279,7 +279,7 @@
       ];
 
       for (const [originalTag, translation] of uniqueTranslations.entries()) {
-        const sql = `UPDATE "Tag" SET "name_zh" = '${escapeSql(translation)}' WHERE "name" = '${escapeSql(originalTag)}';`;
+        const sql = `UPDATE "Tag" SET "name_zh" = '${escapeSql(translation)}', "translateType" = 'PIXIV' WHERE "name" = '${escapeSql(originalTag)}';`;
         sqlStatements.push(sql);
       }
 
