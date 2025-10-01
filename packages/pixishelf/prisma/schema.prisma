@@ -10,15 +10,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 定义翻译来源的枚举类型
+// 这会映射到 PostgreSQL 的原生 ENUM 类型，便于管理和扩展
+enum TranslateType {
+  NONE     // 0-无
+  PIXIV    // 1-pixiv
+  AI       // 2-AI
+  MANUAL   // 3-人工标注
+}
+
 model Artist {
-  id        Int       @id @default(autoincrement())
-  name      String
-  username  String?
-  userId    String?
-  bio       String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  artworks  Artwork[]
+  id              Int       @id @default(autoincrement())
+  name            String
+  username        String?
+  userId          String?
+  bio             String?
+  avatar          String?   // 头像
+  backgroundImg   String?   // 背景图
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  artworks        Artwork[]
 
   @@unique([username, userId], name: "unique_username_userid")
 }
@@ -53,14 +64,15 @@ model Artwork {
 }
 
 model Tag {
-  id           Int          @id @default(autoincrement())
-  name         String       @unique
-  name_zh      String?      // [新增] 中文翻译列
-  description  String?      // 新增：标签描述
-  artworkCount Int          @default(0) // 新增：作品数量缓存
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  artworkTags  ArtworkTag[]
+  id            Int           @id @default(autoincrement())
+  name          String        @unique
+  name_zh       String?       // 中文翻译列
+  translateType TranslateType @default(NONE) // 翻译类型，使用枚举
+  description   String?       // 标签描述
+  artworkCount  Int           @default(0) // 作品数量缓存
+  createdAt    DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  artworkTags   ArtworkTag[]
 
   // [新增] 告诉 Prisma 这个列存在，但由数据库管理
   search_vector Unsupported("tsvector")?

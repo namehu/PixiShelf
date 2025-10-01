@@ -128,6 +128,8 @@ exports.Prisma.ArtistScalarFieldEnum = {
   username: 'username',
   userId: 'userId',
   bio: 'bio',
+  avatar: 'avatar',
+  backgroundImg: 'backgroundImg',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 };
@@ -157,6 +159,7 @@ exports.Prisma.TagScalarFieldEnum = {
   id: 'id',
   name: 'name',
   name_zh: 'name_zh',
+  translateType: 'translateType',
   description: 'description',
   artworkCount: 'artworkCount',
   createdAt: 'createdAt',
@@ -229,7 +232,9 @@ exports.Prisma.ArtistOrderByRelevanceFieldEnum = {
   name: 'name',
   username: 'username',
   userId: 'userId',
-  bio: 'bio'
+  bio: 'bio',
+  avatar: 'avatar',
+  backgroundImg: 'backgroundImg'
 };
 
 exports.Prisma.ArtworkOrderByRelevanceFieldEnum = {
@@ -269,7 +274,12 @@ exports.Prisma.TriggerLogOrderByRelevanceFieldEnum = {
   table_name: 'table_name',
   error_message: 'error_message'
 };
-
+exports.TranslateType = exports.$Enums.TranslateType = {
+  NONE: 'NONE',
+  PIXIV: 'PIXIV',
+  AI: 'AI',
+  MANUAL: 'MANUAL'
+};
 
 exports.Prisma.ModelName = {
   Artist: 'Artist',
