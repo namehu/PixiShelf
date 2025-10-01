@@ -85,7 +85,8 @@ COPY --from=builder /app/packages/pixishelf/package.json ./packages/pixishelf/pa
 # 使用 --frozen-lockfile 保证依赖一致性
 RUN pnpm install --prod --frozen-lockfile
 
-# 生成 Prisma Client
+# 复制 Prisma schema 并 生成 Prisma Client
+COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
 RUN pnpm --filter="@pixishelf/next" db:generate
 
 # 从 builder 阶段复制构建好的产物
@@ -93,12 +94,8 @@ RUN pnpm --filter="@pixishelf/next" db:generate
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/.next ./packages/pixishelf/.next
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/public ./packages/pixishelf/public
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/lib ./packages/pixishelf/lib
-# COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/package.json ./packages/pixishelf/package.json
-# 复制 Prisma schema
-COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
 # 复制脚本文件
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/scripts ./packages/pixishelf/scripts
-
 
 # 创建 supervisor 配置和日志目录
 RUN mkdir -p /etc/supervisor/conf.d /var/log/supervisor
