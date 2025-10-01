@@ -196,7 +196,7 @@ export default function ArtistDetailPage() {
       </div>
 
       {/* 艺术家信息头部 */}
-      <div className="bg-white rounded-lg shadow p-8">
+      <div className="bg-white rounded-lg shadow p-4">
         <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
           {/* 头像 */}
           <div className="flex gap-4 items-center">
