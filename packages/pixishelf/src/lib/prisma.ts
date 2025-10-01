@@ -1,5 +1,22 @@
 import { PrismaClient } from '@prisma/client'
 
+// 1. 定义一个可复用的函数，来生成我们需要的转换逻辑
+// 这个函数是纯粹的，返回一个定义好的对象
+const createTimestampExtensions = () => ({
+  createdAt: {
+    needs: { createdAt: true },
+    compute({ createdAt }: { createdAt: Date | null }) {
+      return createdAt ? createdAt.toISOString() : ''
+    }
+  },
+  updatedAt: {
+    needs: { updatedAt: true },
+    compute({ updatedAt }: { updatedAt: Date | null }) {
+      return updatedAt ? updatedAt.toISOString() : ''
+    }
+  }
+})
+
 // ============================================================================
 // Prisma 客户端配置
 // ============================================================================
@@ -9,19 +26,8 @@ const prismaClientSingleton = () => {
     errorFormat: 'pretty'
   }).$extends({
     result: {
-      tag: {
-        createdAt: {
-          needs: { createdAt: true },
-          compute: ({ createdAt }) => (createdAt ? createdAt.toISOString() : '')
-        },
-        updatedAt: {
-          needs: { updatedAt: true },
-          compute: ({ updatedAt }) => (updatedAt ? updatedAt.toISOString() : '')
-        }
-      }
-      // 如果其他模型也有日期字段，可以在这里继续扩展
-      // artwork: { ... },
-      // artist: { ... },
+      tag: createTimestampExtensions(),
+      setting: createTimestampExtensions()
     }
   })
 }

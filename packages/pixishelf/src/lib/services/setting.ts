@@ -1,4 +1,3 @@
-import { PrismaClient } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 
 export interface SettingValue {
@@ -6,21 +5,17 @@ export interface SettingValue {
 }
 
 export class SettingService {
-  private prisma: PrismaClient
-
-  constructor(prisma: PrismaClient) {
-    this.prisma = prisma
-  }
+  constructor() {}
 
   async get(key: string): Promise<string | null> {
-    const setting = await this.prisma.setting.findUnique({
+    const setting = await prisma.setting.findUnique({
       where: { key }
     })
     return setting?.value || null
   }
 
   async set(key: string, value: string, type: string = 'string'): Promise<void> {
-    await this.prisma.setting.upsert({
+    await prisma.setting.upsert({
       where: { key },
       update: { value, type },
       create: { key, value, type }
@@ -38,7 +33,7 @@ export class SettingService {
   }
 
   async getAll(): Promise<Record<string, string>> {
-    const settings = await this.prisma.setting.findMany()
+    const settings = await prisma.setting.findMany()
     return settings.reduce(
       (acc, setting) => {
         acc[setting.key] = setting.value || ''
@@ -59,7 +54,7 @@ let settingServiceInstance: SettingService | null = null
  */
 export function getSettingService(): SettingService {
   if (!settingServiceInstance) {
-    settingServiceInstance = new SettingService(prisma)
+    settingServiceInstance = new SettingService()
   }
   return settingServiceInstance
 }

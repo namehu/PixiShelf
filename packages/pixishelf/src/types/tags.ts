@@ -233,7 +233,7 @@ export interface TagManagementStats {
 export interface TagManagementResponse {
   success: boolean
   data: {
-    tags: Tag[]
+    tags: Partial<Tag>[]
     pagination: PaginationInfo
     stats: TagManagementStats
     query: TagManagementParams

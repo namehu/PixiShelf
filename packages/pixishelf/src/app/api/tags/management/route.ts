@@ -81,11 +81,7 @@ export async function GET(request: NextRequest) {
     const response: TagManagementResponse = {
       success: true,
       data: {
-        tags: tags.map((tag) => ({
-          ...tag,
-          createdAt: tag.createdAt.toISOString(),
-          updatedAt: tag.updatedAt.toISOString()
-        })),
+        tags,
         pagination: {
           page: params.page!,
           limit: params.limit!,

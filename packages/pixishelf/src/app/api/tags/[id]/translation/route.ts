@@ -103,9 +103,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       success: true,
       data: {
         tag: {
-          ...updatedTag,
-          createdAt: updatedTag.createdAt.toISOString(),
-          updatedAt: updatedTag.updatedAt.toISOString()
+          ...updatedTag
         },
         translatedText: translatedName || null,
         wasAutoTranslated: !!autoTranslate
