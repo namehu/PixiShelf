@@ -1,9 +1,8 @@
 import path from 'path'
-import { PrismaClient } from '@prisma/client'
 import { ScanProgress, ScanResult } from '@/types'
 import { MetadataParser, MetadataInfo } from './scanner/metadata-parser'
 import { MediaCollector, MediaFileInfo } from './scanner/media-collector'
-import { getPrisma } from '@/lib/prisma'
+import { getPrisma, PrismaClientSingleton } from '@/lib/prisma'
 import fg from 'fast-glob'
 import logger from '../logger'
 import { sleep } from '@/utils/sleep'
@@ -40,7 +39,7 @@ interface GlobMetadataFile {
  * 适配Next.js环境
  */
 export class ScannerService {
-  private prisma: PrismaClient
+  private prisma: PrismaClientSingleton
   private metadataParser: MetadataParser
   private mediaCollector: MediaCollector
   private tagCache: Map<string, number> = new Map() // 标签名称到ID的映射缓存

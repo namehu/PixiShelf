@@ -38,18 +38,12 @@ export class TagService {
       }
     })
 
-    if (!tag) {
-      return null
-    }
-
-    const { image, createdAt, updatedAt, ...rest } = tag
-
-    return {
-      image: combinationStaticTagImage(image),
-      createdAt: createdAt ? createdAt.toISOString() : '',
-      updatedAt: updatedAt ? updatedAt.toISOString() : '',
-      ...rest
-    }
+    return tag
+      ? {
+          ...tag,
+          image: combinationStaticTagImage(tag.image)
+        }
+      : null
   }
 }
 

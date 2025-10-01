@@ -3,29 +3,39 @@ import { PrismaClient } from '@prisma/client'
 // ============================================================================
 // Prisma 客户端配置
 // ============================================================================
-
-/**
- * 全局 Prisma 客户端实例
- * 在开发环境中防止热重载时创建多个实例
- */
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
-}
-
-/**
- * Prisma 客户端实例
- */
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
+const prismaClientSingleton = () => {
+  return new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
     errorFormat: 'pretty'
+  }).$extends({
+    result: {
+      tag: {
+        createdAt: {
+          needs: { createdAt: true },
+          compute: ({ createdAt }) => (createdAt ? createdAt.toISOString() : '')
+        },
+        updatedAt: {
+          needs: { updatedAt: true },
+          compute: ({ updatedAt }) => (updatedAt ? updatedAt.toISOString() : '')
+        }
+      }
+      // 如果其他模型也有日期字段，可以在这里继续扩展
+      // artwork: { ... },
+      // artist: { ... },
+    }
   })
+}
+
+export type PrismaClientSingleton = ReturnType<typeof prismaClientSingleton>
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClientSingleton | undefined
+}
+
+export const prisma = globalForPrisma.prisma ?? prismaClientSingleton()
 
 // 在开发环境中将实例保存到全局对象，避免热重载时重复创建
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma
-}
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
 
 /**
  * 数据库连接测试
@@ -88,7 +98,7 @@ export async function checkDatabaseHealth(): Promise<{
  */
 export async function executeTransaction<T>(
   callback: (
-    prisma: Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
+    prisma: Omit<PrismaClientSingleton, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
   ) => Promise<T>
 ): Promise<T> {
   return await prisma.$transaction(callback)
@@ -167,7 +177,7 @@ export function handlePrismaError(error: any): {
  * 获取 Prisma 客户端实例
  * @returns PrismaClient 实例
  */
-export function getPrisma(): PrismaClient {
+export function getPrisma() {
   return prisma
 }
 
