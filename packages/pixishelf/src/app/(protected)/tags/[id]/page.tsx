@@ -8,6 +8,8 @@ import { Artwork } from '@/types/core'
 import { ArtworkCard } from '@/components/ui/ArtworkCard'
 import { cn } from '@/lib/utils'
 import { getTranslateName } from '@/utils/tags'
+import { Avatar, AvatarImage } from '@/components'
+import { AvatarFallback } from '@radix-ui/react-avatar'
 
 interface TagDetailPageProps {}
 
@@ -156,8 +158,13 @@ function TagDetailPage({}: TagDetailPageProps) {
 
               {tag && (
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-blue-100 rounded-lg">
-                    <TagIcon className="w-5 h-5 text-blue-600" />
+                  <div className="bg-blue-100 rounded-lg">
+                    <Avatar className="size-10 w-10 h-10 rounded-lg">
+                      <AvatarImage src={tag.image ?? ''}></AvatarImage>
+                      <AvatarFallback className="flex items-center justify-center w-full">
+                        <TagIcon className="w-5 h-5 text-blue-600" />
+                      </AvatarFallback>
+                    </Avatar>
                   </div>
                   <div>
                     <h1 className="text-xl font-semibold text-neutral-900">

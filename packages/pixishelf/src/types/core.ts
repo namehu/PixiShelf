@@ -1,3 +1,4 @@
+import { Tag as PrismaTag } from '@prisma/client'
 // ============================================================================
 // 核心数据模型类型
 // ============================================================================
@@ -93,13 +94,7 @@ export interface Image extends MediaFile {
 /**
  * 标签信息
  */
-export interface Tag {
-  id: number
-  name: string
-  name_zh?: string | null
-  name_en?: string | null
-  description?: string | null
-  artworkCount: number
+export interface Tag extends Omit<PrismaTag, 'createdAt' | 'updatedAt'> {
   createdAt: string
   updatedAt: string
 }
