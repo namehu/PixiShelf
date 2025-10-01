@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getMediaType, MediaFile } from '@/types'
+import { artistService } from '@/services'
 
 /**
  * 获取单个作品详情接口
@@ -55,7 +56,7 @@ export async function GET(
       directoryCreatedAt: artwork.directoryCreatedAt?.toISOString() || null,
       artist: artwork.artist
         ? {
-            ...artwork.artist,
+            ...artistService.transformArtistsToResponse([artwork.artist])[0],
             artworksCount: 0, // 这里可以根据需要查询实际数量
             createdAt: artwork.artist.createdAt.toISOString(),
             updatedAt: artwork.artist.updatedAt.toISOString()

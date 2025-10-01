@@ -118,6 +118,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
               id: artwork.artist.id,
               userId: artwork.artist.userId || '',
               name: artwork.artist.name,
+              avatar: artwork.artist.avatar ? `/artists/${artwork.artist.userId}/${artwork.artist.avatar}` : '',
               username: artwork.artist.username || ''
             }
           : null,

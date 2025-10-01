@@ -28,6 +28,7 @@ export interface RandomImageItem {
     userId: string
     name: string
     username?: string
+    avatar?: string
   } | null
   createdAt: string
   tags: {

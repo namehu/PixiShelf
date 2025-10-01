@@ -201,7 +201,7 @@ export default function ArtistDetailPage() {
         <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
           {/* 头像 */}
           <div className="flex gap-4 items-center">
-            <ArtistAvatar userId={artist.userId} name={artist.name} size={20}></ArtistAvatar>
+            <ArtistAvatar src={artist.avatar} size={20}></ArtistAvatar>
             <div>
               <h1 className="text-4xl font-bold text-gray-900 mb-2">{artist.name}</h1>
               {artist.userId && <p className="text-lg text-gray-500">@{artist.userId}</p>}

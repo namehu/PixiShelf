@@ -192,16 +192,18 @@ export const artistService = {
    * @returns 转换后的艺术家数据
    */
   transformArtistsToResponse(artists: any[]): Artist[] {
-    return artists.map((artist) => ({
-      id: artist.id,
-      name: artist.name,
-      username: artist.username,
-      userId: artist.userId,
-      bio: artist.bio,
-      artworksCount: artist._count?.artworks || 0,
-      createdAt: artist.createdAt?.toISOString() || new Date().toISOString(),
-      updatedAt: artist.updatedAt?.toISOString() || new Date().toISOString()
-    }))
+    return artists.map((artist) => {
+      const { _count, userId, createdAt, updatedAt, avatar, backgroundImg, ...rest } = artist
+      return {
+        ...rest,
+        userId,
+        avatar: avatar ? `/artists/${userId}/${avatar}` : '',
+        backgroundImg: backgroundImg ? `/artists/${userId}/${backgroundImg}` : '',
+        artworksCount: _count?.artworks || 0,
+        createdAt: createdAt?.toISOString() || new Date().toISOString(),
+        updatedAt: updatedAt?.toISOString() || new Date().toISOString()
+      }
+    })
   },
 
   /**

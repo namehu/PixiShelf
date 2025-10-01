@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui'
 
 interface ArtistAvatarProps {
+  src?: string
   /**
    * 艺术家ID
    */
@@ -20,7 +21,7 @@ interface ArtistAvatarProps {
  * @param param0
  * @returns
  */
-export function ArtistAvatar({ userId, name, size = 12 }: ArtistAvatarProps) {
+export function ArtistAvatar({ src, userId, name, size = 12 }: ArtistAvatarProps) {
   const [currentFormat, setCurrentFormat] = useState(0)
   const formats = ['jpg', 'png', 'gif']
 
@@ -45,7 +46,7 @@ export function ArtistAvatar({ userId, name, size = 12 }: ArtistAvatarProps) {
   return (
     <Avatar className={`size-${size} w-${size} h-${size} `}>
       <AvatarImage
-        src={userId ? `/artists/${userId}.${formats[currentFormat]}` : undefined}
+        src={src ? src : userId ? `/artists/${userId}.${formats[currentFormat]}` : undefined}
         alt={name}
         width={size}
         height={size}

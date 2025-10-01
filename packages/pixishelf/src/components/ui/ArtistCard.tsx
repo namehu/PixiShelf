@@ -1,6 +1,6 @@
 import React from 'react'
 import { Artist } from '@/types'
-import { Card, CardContent } from '@/components/ui'
+import { AvatarImage, Card, CardContent } from '@/components/ui'
 import { Avatar, AvatarFallback } from '@/components/ui'
 import { Badge } from '@/components/ui'
 
@@ -26,7 +26,8 @@ export function ArtistCard({ artist, onClick }: ArtistCardProps) {
     >
       <CardContent className="p-6">
         <div className="flex items-center space-x-4">
-          <Avatar className="h-12 w-12">
+          <Avatar className="size-12">
+            <AvatarImage src={artist.avatar}></AvatarImage>
             <AvatarFallback className="bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300">
               {getInitials(artist.name)}
             </AvatarFallback>

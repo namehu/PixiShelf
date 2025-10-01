@@ -36,6 +36,8 @@ export interface Artist {
   name: string
   username?: string | null
   userId?: string | null
+  avatar?: string
+  backgroundImg?: string
   bio?: string | null
   artworksCount: number
   createdAt: string

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { Artist } from '@/types'
+import { artistService } from '@/services'
 
 /**
  * 获取艺术家详情接口
@@ -35,16 +36,7 @@ export async function GET(
     }
 
     // 转换数据格式
-    const response: Artist = {
-      id: artist.id,
-      name: artist.name,
-      userId: artist.userId,
-      username: artist.username,
-      bio: artist.bio,
-      artworksCount: artist._count.artworks,
-      createdAt: artist.createdAt.toISOString(),
-      updatedAt: artist.updatedAt.toISOString()
-    }
+    const response: Artist = artistService.transformArtistsToResponse([artist])[0]!
 
     return NextResponse.json(response)
   } catch (error) {

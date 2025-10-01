@@ -190,7 +190,7 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
             onClick={() => author?.id && router.push(`/artists/${author.id}`)}
           >
             <div className="">
-              <ArtistAvatar userId={author?.userId} name={author?.name} size={10} />
+              <ArtistAvatar src={author?.avatar} name={author?.name} size={10} />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-font-semibold text-sm truncate opacity-90 ">@{author?.username}</p>
