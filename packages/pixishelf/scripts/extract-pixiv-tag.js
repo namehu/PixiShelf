@@ -42,7 +42,7 @@
       // 在这里添加成千上万的标签名...
     ],
     // 稳定抓取策略配置
-    CONCURRENT_REQUESTS: 2,         // 并发请求数 (建议 1-3)
+    CONCURRENT_REQUESTS: 3,         // 并发请求数 (建议 1-3)
     MIN_DELAY_MS: 1000,             // 每次请求后的最小随机等待时间 (毫秒)
     MAX_DELAY_MS: 4000,             // 每次请求后的最大随机等待时间 (毫秒)
     RATE_LIMIT_WAIT_MS: 60000,      // 遇到 429 错误后的固定等待时间 (毫秒)
@@ -403,6 +403,60 @@
       console.log("请重新运行 `pixivTagTranslator.runTask()` 来处理新增的标签。");
     },
 
+    /**
+   * [新增] 筛选失败的数据，并可选择性删除。
+   * @param {string} stringReg - 用于匹配错误消息的正则表达式字符串。如果为空或null，则匹配所有失败项。
+   * @param {boolean} isDel - 如果为 true，则从进度中删除匹配的失败项。
+   * @returns {Promise<string[]>} 一个解析为匹配到的任务 ID 数组的 Promise。
+   */
+    async filterFailedData(stringReg, isDel = false) {
+      if (!window.localforage) {
+        console.error("❌ localForage 未加载。");
+        return [];
+      }
+      console.log(`正在筛选失败的数据... Regex: /${stringReg}/, 删除: ${isDel}`);
+
+      const progress = (await localforage.getItem(CONFIG.STORAGE_KEY)) || {};
+      const failedIds = [];
+      let regex;
+
+      try {
+        if (stringReg) {
+          regex = new RegExp(stringReg);
+        }
+      } catch (e) {
+        console.error("❌ 无效的正则表达式:", e.message);
+        return [];
+      }
+
+      for (const [id, result] of Object.entries(progress)) {
+        if (result.status === 'rejected') {
+          // 确保 result.data 是字符串类型以避免 .test() 方法出错
+          const errorMessage = typeof result.data === 'string' ? result.data : '';
+          if (!stringReg || (regex && regex.test(errorMessage))) {
+            failedIds.push(id);
+          }
+        }
+      }
+
+      if (failedIds.length === 0) {
+        console.log("没有找到匹配条件的失败数据。");
+        return [];
+      }
+
+      if (isDel) {
+        console.log(`找到 ${failedIds.length} 个匹配项，准备删除...`);
+        for (const id of failedIds) {
+          delete progress[id];
+        }
+        await localforage.setItem(CONFIG.STORAGE_KEY, progress);
+        console.log(`✅ 已成功删除 ${failedIds.length} 条失败记录。`);
+      } else {
+        console.log(`✅ 找到 ${failedIds.length} 个匹配的失败ID:`, failedIds);
+      }
+
+      return failedIds;
+    },
     /**
      * 从 IndexedDB 清除所有已保存的进度和标签列表。
      */
