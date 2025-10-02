@@ -109,12 +109,11 @@ export default function ImmersiveImageViewer({
           {initialImages.map((image, index) => {
             // 只渲染当前slide和相邻的slide（上一个和下一个）
             const shouldRender = Math.abs(index - activeIndex) <= 1
-
             return (
               <SwiperSlide key={image.key} className=" flex w-full h-ful items-center justify-center overflow-hidden">
                 <div className="relative w-full h-full bg-black">
                   {shouldRender ? (
-                    <ImageSlide image={image} />
+                    <ImageSlide isActive={index === activeIndex} image={image} />
                   ) : (
                     // 占位符，避免渲染实际的图片组件
                     <div className="w-full h-full flex items-center justify-center bg-neutral-900">

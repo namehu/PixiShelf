@@ -17,6 +17,7 @@ import { useViewerStore, getHorizontalIndex } from '@/store/viewerStore'
 
 interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   image: RandomImageItem
+  isActive: boolean
 }
 
 interface SingleImageProps {
@@ -41,7 +42,7 @@ function SingleImage({
   shouldLoad = true
 }: SingleImageProps & { shouldLoad?: boolean }) {
   const [imageError, setImageError] = useState(false)
-  const [isVisible, setIsVisible] = useState(false)
+  // const [isVisible, setIsVisible] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const handleImageError = () => {
@@ -54,27 +55,27 @@ function SingleImage({
   }, [retryKey])
 
   // 使用 Intersection Observer 检测元素是否可见
-  useEffect(() => {
-    if (!shouldLoad || !containerRef.current) return
+  // useEffect(() => {
+  //   if (!shouldLoad || !containerRef.current) return
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0]
-        if (entry && entry.isIntersecting) {
-          setIsVisible(true)
-          observer.disconnect() // 一旦可见就断开观察
-        }
-      },
-      {
-        threshold: 0.1, // 当10%的元素可见时触发
-        rootMargin: '50px' // 提前50px开始加载
-      }
-    )
+  //   const observer = new IntersectionObserver(
+  //     (entries) => {
+  //       const entry = entries[0]
+  //       if (entry && entry.isIntersecting) {
+  //         setIsVisible(true)
+  //         observer.disconnect() // 一旦可见就断开观察
+  //       }
+  //     },
+  //     {
+  //       threshold: 0.1, // 当10%的元素可见时触发
+  //       rootMargin: '50px' // 提前50px开始加载
+  //     }
+  //   )
 
-    observer.observe(containerRef.current)
+  //   observer.observe(containerRef.current)
 
-    return () => observer.disconnect()
-  }, [shouldLoad])
+  //   return () => observer.disconnect()
+  // }, [shouldLoad])
 
   // 如果不应该加载，显示占位符
   if (!shouldLoad) {
@@ -99,7 +100,7 @@ function SingleImage({
 
   return (
     <div ref={containerRef} className="relative w-full h-full flex items-center justify-center">
-      {!imageError && isVisible ? (
+      {!imageError ? (
         <>
           {mediaType === MediaType.IMAGE ? (
             <Image
@@ -177,7 +178,7 @@ function SingleImage({
  * 支持单图和多图横向滑动浏览
  * 集成状态管理，支持水平滑动位置恢复
  */
-export default function ImageSlide({ image, onError }: ImageSlideProps) {
+export default function ImageSlide({ isActive, image, onError }: ImageSlideProps) {
   const [retryKey, setRetryKey] = useState(0)
 
   // 从状态管理中获取初始水平索引
@@ -270,7 +271,9 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
       >
         {image.images.map((img, index) => {
           // 只渲染当前图片和相邻的图片（前一张和后一张）
-          const shouldLoad = Math.abs(index - currentImageIndex) <= 1
+          const shouldLoad = isActive
+            ? Math.abs(index - currentImageIndex) <= 1
+            : Math.abs(index - currentImageIndex) < 1
 
           return (
             <SwiperSlide key={`${img.key}-${index}`}>
