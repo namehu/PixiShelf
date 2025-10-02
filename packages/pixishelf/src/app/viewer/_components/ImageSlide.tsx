@@ -42,7 +42,6 @@ function SingleImage({
   shouldLoad = true
 }: SingleImageProps & { shouldLoad?: boolean }) {
   const [imageError, setImageError] = useState(false)
-  // const [isVisible, setIsVisible] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const handleImageError = () => {
@@ -53,29 +52,6 @@ function SingleImage({
   useEffect(() => {
     setImageError(false)
   }, [retryKey])
-
-  // 使用 Intersection Observer 检测元素是否可见
-  // useEffect(() => {
-  //   if (!shouldLoad || !containerRef.current) return
-
-  //   const observer = new IntersectionObserver(
-  //     (entries) => {
-  //       const entry = entries[0]
-  //       if (entry && entry.isIntersecting) {
-  //         setIsVisible(true)
-  //         observer.disconnect() // 一旦可见就断开观察
-  //       }
-  //     },
-  //     {
-  //       threshold: 0.1, // 当10%的元素可见时触发
-  //       rootMargin: '50px' // 提前50px开始加载
-  //     }
-  //   )
-
-  //   observer.observe(containerRef.current)
-
-  //   return () => observer.disconnect()
-  // }, [shouldLoad])
 
   // 如果不应该加载，显示占位符
   if (!shouldLoad) {
@@ -128,7 +104,7 @@ function SingleImage({
             />
           )}
         </>
-      ) : imageError ? (
+      ) : (
         /* 错误状态UI */
         <div className="absolute inset-0 flex items-center justify-center bg-neutral-900">
           <div className="text-center text-white">
@@ -149,23 +125,6 @@ function SingleImage({
             >
               重试
             </button>
-          </div>
-        </div>
-      ) : (
-        /* 加载中状态 */
-        <div className="absolute inset-0 flex items-center justify-center bg-neutral-800">
-          <div className="text-center text-white/40">
-            <div className="w-12 h-12 mx-auto mb-2 bg-white/10 rounded-lg flex items-center justify-center animate-pulse">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1}
-                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2v12a2 2 0 002 2z"
-                />
-              </svg>
-            </div>
-            <p className="text-xs">加载中...</p>
           </div>
         </div>
       )}
