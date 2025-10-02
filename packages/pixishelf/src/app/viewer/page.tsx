@@ -5,9 +5,9 @@ import ImmersiveImageViewer from './_components/ImmersiveImageViewer'
 import { useMemo } from 'react'
 import { ArrowLeft, ChevronLeftIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import CommonErrorPage from '@/components/common/CommonErrorPage'
 import PageNoData from './_components/PageNoData'
 import PageLoading from './_components/PageLoading'
+import PageError from './_components/PageError'
 
 /**
  * 沉浸式图片浏览页面
@@ -24,7 +24,7 @@ export default function ViewerPage() {
 
   // 错误状态
   if (isError) {
-    return <CommonErrorPage content={error?.message || '无法加载图片数据，请检查网络连接'}></CommonErrorPage>
+    return <PageError content={error?.message || '无法加载图片数据，请检查网络连接'}></PageError>
   }
 
   // 初始加载状态

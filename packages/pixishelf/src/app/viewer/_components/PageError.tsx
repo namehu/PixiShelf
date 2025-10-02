@@ -1,6 +1,6 @@
 import { ConstructionIcon } from 'lucide-react'
 
-export default function CommonErrorPage({ content }: { content?: string }) {
+export default function PageError({ content }: { content?: string }) {
   return (
     <main className="h-screen w-screen bg-black flex items-center justify-center">
       <div className="text-center text-white">
