@@ -3,7 +3,7 @@
 import { useInfiniteImages } from '@/hooks/useInfiniteImages'
 import ImmersiveImageViewer from './_components/ImmersiveImageViewer'
 import { useMemo } from 'react'
-import { ArrowLeft, ChevronLeftIcon } from 'lucide-react'
+import { ChevronLeftIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import PageNoData from './_components/PageNoData'
 import PageLoading from './_components/PageLoading'
@@ -41,20 +41,11 @@ export default function ViewerPage() {
     <main className="h-screen w-screen overflow-hidden bg-black relative">
       {/* 返回按钮 - 仅在PC端显示 */}
       <button
+        className="absolute top-0 left-0 w-16 py-4 z-50 cursor-pointer bg-black/40 text-white rounded-full items-center justify-center hover:bg-black/60 transition-colors md:flex hidden"
         onClick={() => router.back()}
-        className="absolute top-4 left-4 z-50 w-10 h-10 bg-black/40 text-white rounded-full flex items-center justify-center hover:bg-black/60 transition-colors md:flex hidden"
-        aria-label="返回"
       >
-        <ArrowLeft className="w-5 h-5" />
+        <ChevronLeftIcon className="w-5 h-5" />
       </button>
-
-      {/* 沉浸式图片浏览器 */}
-      <ImmersiveImageViewer
-        initialImages={allImages}
-        onLoadMore={fetchNextPage}
-        hasMore={!!hasNextPage}
-        isLoading={isLoading}
-      />
 
       {/* 移动端返回按钮 - 手势区域 */}
       <div
@@ -63,6 +54,14 @@ export default function ViewerPage() {
       >
         <ChevronLeftIcon className="w-10 h-10 text-white" />
       </div>
+
+      {/* 沉浸式图片浏览器 */}
+      <ImmersiveImageViewer
+        initialImages={allImages}
+        onLoadMore={fetchNextPage}
+        hasMore={!!hasNextPage}
+        isLoading={isLoading}
+      />
     </main>
   )
 }
