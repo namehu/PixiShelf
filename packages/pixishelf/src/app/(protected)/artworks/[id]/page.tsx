@@ -8,7 +8,7 @@ import { EnhancedArtwork, isVideoFile, Tag } from '@/types'
 import { useAuth } from '@/components'
 import { VideoPlayer } from '@/components/ui'
 import { apiJson } from '@/lib/api'
-import { AlertCircleIcon, ChevronLeftIcon, FileTextIcon } from 'lucide-react'
+import { AlertCircleIcon, ChevronLeftIcon, FileTextIcon, ImageIcon } from 'lucide-react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { Button } from '@/components/ui/button'
 import TagArea from './_components/TagArea'
@@ -79,18 +79,11 @@ function LazyImage({
 
   return (
     <div ref={setRefs} className="overflow-hidden bg-neutral-100 flex items-center justify-center">
-      {inView ? (
+      {!inView ? (
         <img src={src} alt={alt} loading="lazy" className="w-full h-auto object-contain" />
       ) : (
-        <div className="w-full h-96 bg-neutral-200 animate-pulse flex items-center justify-center">
-          <svg className="w-12 h-12 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-            />
-          </svg>
+        <div className="w-full h-96 animate-pulse flex items-center justify-center">
+          <ImageIcon className="w-16 h-16 text-neutral-400"></ImageIcon>
         </div>
       )}
     </div>
@@ -231,9 +224,6 @@ export default function ArtworkDetailPage() {
     }
   }, [])
 
-  const handleTagClick = (tag: Tag) => {
-    router.push(`/tags/${tag.id}`)
-  }
   // 认证检查
   if (authLoading) {
     return (
