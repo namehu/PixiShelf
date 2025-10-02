@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, Fragment } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useInView } from 'react-intersection-observer'
@@ -8,17 +8,10 @@ import { EnhancedArtwork, isVideoFile, Tag } from '@/types'
 import { useAuth } from '@/components'
 import { VideoPlayer } from '@/components/ui'
 import { apiJson } from '@/lib/api'
-import { ChevronLeftIcon } from 'lucide-react'
+import { AlertCircleIcon, ChevronLeftIcon, FileTextIcon } from 'lucide-react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
-import { getTranslateName } from '@/utils/tags'
-
-// ============================================================================
-// Components
-// ============================================================================
-
-// ============================================================================
-// Hooks
-// ============================================================================
+import { Button } from '@/components/ui/button'
+import TagArea from './_components/TagArea'
 
 /**
  * 获取作品详情Hook
@@ -255,7 +248,7 @@ export default function ArtworkDetailPage() {
   }
 
   return (
-    <div>
+    <div className="bg-white max-w-2xl mx-auto">
       {/* 导航栏 */}
       <div className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200   z-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -279,60 +272,14 @@ export default function ArtworkDetailPage() {
 
       {/* 主内容 */}
       <div className="max-w-full overflow-hidden">
-        {/* Loading State */}
-        {isLoading && (
-          <div className="space-y-8 px-4 sm:px-6 py-8">
-            {/* Header skeleton */}
-            <div className="space-y-4">
-              <div className="h-8 w-64 bg-gray-200 rounded animate-pulse" />
-              <div className="h-5 w-32 bg-gray-200 rounded animate-pulse" />
-              <div className="flex gap-2">
-                <div className="h-6 w-16 bg-gray-200 rounded-full animate-pulse" />
-                <div className="h-6 w-20 bg-gray-200 rounded-full animate-pulse" />
-                <div className="h-6 w-18 bg-gray-200 rounded-full animate-pulse" />
-              </div>
-            </div>
-
-            {/* Images skeleton */}
-            <div className="max-w-4xl mx-auto space-y-4">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="aspect-[4/3] bg-gray-200 rounded-2xl animate-pulse" />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Error State */}
-        {isError && (
-          <div className="px-4 sm:px-6 py-8">
-            <div className="bg-white rounded-lg shadow p-8 text-center max-w-md mx-auto">
-              <div className="w-16 h-16 mx-auto mb-4 bg-red-50 rounded-full flex items-center justify-center">
-                <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">加载失败</h3>
-              <p className="text-gray-600 mb-4">无法加载作品详情，请稍后重试。</p>
-              <button
-                onClick={() => window.location.reload()}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                重新加载
-              </button>
-            </div>
-          </div>
-        )}
+        {isLoading && <LoadingSkeleton></LoadingSkeleton>}
+        {isError && <Error></Error>}
 
         {/* Content */}
         {data && (
           <div className="animate-fade-in">
             {/* Header */}
-            <div className="space-y-6 sm:space-y-8 mt-8 px-4 sm:px-6">
+            <div className="mt-6 px-4 sm:px-6">
               {/* Title and Artist */}
               <div className="space-y-3">
                 <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 leading-tight break-words">
@@ -347,96 +294,80 @@ export default function ArtworkDetailPage() {
                   </div>
                 )}
               </div>
-
               {/* Tags */}
-              {!!data.tags?.length && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <svg
-                      className="w-4 h-4 text-gray-500 flex-shrink-0"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-                      />
-                    </svg>
-                    <h3 className="text-base sm:text-lg font-semibold text-gray-900">标签</h3>
-                  </div>
-                  <div className="flex flex-wrap gap-2 align-center max-w-full">
-                    {data.tags.map((tag, index: number) => (
-                      <Fragment key={tag.id}>
-                        <span
-                          onClick={() => handleTagClick(tag)}
-                          className="inline-flex items-center rounded-full text-sm font-medium  text-blue-800 break-all cursor-pointer"
-                        >
-                          #{tag.name}
-                        </span>
-                        {!!getTranslateName(tag) && (
-                          <span
-                            onClick={() => handleTagClick(tag)}
-                            className="inline-flex items-center text-xs text-gray-500 mx-0.5 cursor-pointer"
-                          >
-                            {getTranslateName(tag)}
-                          </span>
-                        )}
-                      </Fragment>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <TagArea tags={data.tags} className="mt-6"></TagArea>
             </div>
 
             {/* Description */}
             {data.description && (
-              <div className="mt-6 sm:mt-8 px-4 sm:px-6 pb-8">
+              <div className="mt-6 px-4 sm:px-6">
                 <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <svg
-                    className="w-5 h-5 text-gray-500 flex-shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
+                  <FileTextIcon></FileTextIcon>
                   描述
                 </h3>
-                <div className="bg-white rounded-lg shadow p-4 sm:p-6 lg:p-8 text-gray-700 leading-relaxed max-w-full overflow-hidden">
+                <div className="bg-white rounded-lg text-gray-700 leading-relaxed max-w-full overflow-hidden">
                   <p className="whitespace-pre-wrap break-words">{data.description}</p>
                 </div>
               </div>
             )}
 
             {/* Images */}
-            <div className="mt-6">
-              {/* Media Gallery */}
-              <div className="w-full max-w-[768px] mx-auto">
-                {(data.images || []).map((img, index: number) => {
-                  const isVideo = isVideoFile(img.path)
-                  return (
-                    <LazyMedia
-                      key={img.id}
-                      src={`/api/v1/images/${encodeURIComponent(img.path)}`}
-                      alt={`${data.title} - ${isVideo ? '视频' : '图片'} ${index + 1}`}
-                      index={index}
-                      onInView={handleImageInView}
-                      isVideo={isVideo}
-                    />
-                  )
-                })}
-              </div>
+            <div className="mt-6 w-full">
+              {(data.images || []).map((img, index: number) => {
+                const isVideo = isVideoFile(img.path)
+                return (
+                  <LazyMedia
+                    key={img.id}
+                    src={`/api/v1/images/${encodeURIComponent(img.path)}`}
+                    alt={`${data.title} - ${isVideo ? '视频' : '图片'} ${index + 1}`}
+                    index={index}
+                    onInView={handleImageInView}
+                    isVideo={isVideo}
+                  />
+                )
+              })}
             </div>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-8 px-4 sm:px-6 py-8">
+      {/* Header skeleton */}
+      <div className="space-y-4">
+        <div className="h-8 w-64 bg-gray-200 rounded animate-pulse" />
+        <div className="h-5 w-32 bg-gray-200 rounded animate-pulse" />
+        <div className="flex gap-2">
+          <div className="h-6 w-16 bg-gray-200 rounded-full animate-pulse" />
+          <div className="h-6 w-20 bg-gray-200 rounded-full animate-pulse" />
+          <div className="h-6 w-18 bg-gray-200 rounded-full animate-pulse" />
+        </div>
+      </div>
+
+      {/* Images skeleton */}
+      <div className="max-w-4xl mx-auto space-y-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="aspect-[4/3] bg-gray-200 rounded-2xl animate-pulse" />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Error() {
+  return (
+    <div className="px-4 sm:px-6 py-8">
+      <div className="bg-white rounded-lg text-center w-full mx-auto">
+        <div className="w-16 h-16 mx-auto mb-4 bg-red-50 rounded-full flex items-center justify-center">
+          <AlertCircleIcon className="text-red-500 w-8 h-8"></AlertCircleIcon>
+        </div>
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">加载失败</h3>
+        <p className="text-gray-600 mb-4">无法加载作品详情，请稍后重试。</p>
+        <Button onClick={() => window.location.reload()}>重新加载</Button>
       </div>
     </div>
   )
