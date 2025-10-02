@@ -79,7 +79,7 @@ function LazyImage({
 
   return (
     <div ref={setRefs} className="overflow-hidden bg-neutral-100 flex items-center justify-center">
-      {!inView ? (
+      {inView ? (
         <img src={src} alt={alt} loading="lazy" className="w-full h-auto object-contain" />
       ) : (
         <div className="w-full h-96 animate-pulse flex items-center justify-center">
