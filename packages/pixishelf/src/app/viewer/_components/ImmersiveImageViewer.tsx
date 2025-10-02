@@ -3,7 +3,7 @@
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Mousewheel, Keyboard } from 'swiper/modules'
 import ImageSlide from './ImageSlide'
-import { useCallback, useState } from 'react'
+import { useCallback, useState, useEffect, useRef } from 'react'
 import type { Swiper as SwiperType } from 'swiper'
 
 // 导入 Swiper 的核心和模块样式
@@ -11,9 +11,11 @@ import 'swiper/css'
 import 'swiper/css/mousewheel'
 import 'swiper/css/keyboard'
 import { RandomImageItem } from '@/types/images'
+import { useViewerStore } from '@/store/viewerStore'
 
 interface ImmersiveImageViewerProps {
   initialImages: RandomImageItem[]
+  initialIndex?: number // 初始显示的图片索引，用于状态恢复
   onLoadMore: () => void // 加载更多的回调函数
   hasMore: boolean
   isLoading: boolean
@@ -22,14 +24,18 @@ interface ImmersiveImageViewerProps {
 /**
  * 沉浸式图片浏览器组件
  * 使用Swiper实现垂直滑动切换，支持无限滚动加载
+ * 集成状态管理，支持浏览位置恢复
  */
 export default function ImmersiveImageViewer({
   initialImages,
+  initialIndex = 0,
   onLoadMore,
   hasMore,
   isLoading
 }: ImmersiveImageViewerProps) {
-  const [activeIndex, setActiveIndex] = useState(0)
+  const [activeIndex, setActiveIndex] = useState(initialIndex)
+  const swiperRef = useRef<SwiperType | null>(null)
+  const { setVerticalIndex } = useViewerStore()
 
   // 处理滑动到底部的回调
   const handleReachEnd = useCallback(() => {
@@ -39,8 +45,30 @@ export default function ImmersiveImageViewer({
   }, [hasMore, isLoading, onLoadMore])
 
   // 处理slide变化
-  const handleSlideChange = useCallback((swiper: SwiperType) => {
-    setActiveIndex(swiper.activeIndex)
+  const handleSlideChange = useCallback(
+    (swiper: SwiperType) => {
+      const newIndex = swiper.activeIndex
+      setActiveIndex(newIndex)
+      // 同步到状态管理
+      setVerticalIndex(newIndex)
+    },
+    [setVerticalIndex]
+  )
+
+  // 状态恢复：当初始索引变化时，滑动到对应位置
+  useEffect(() => {
+    if (swiperRef.current && initialIndex > 0 && initialIndex < initialImages.length) {
+      // 延迟执行，确保 Swiper 已经完全初始化
+      const timer = setTimeout(() => {
+        swiperRef.current?.slideTo(initialIndex, 0) // 0ms 动画时间，立即跳转
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [initialIndex, initialImages.length])
+
+  // Swiper 初始化回调
+  const handleSwiperInit = useCallback((swiper: SwiperType) => {
+    swiperRef.current = swiper
   }, [])
 
   return (
@@ -57,10 +85,14 @@ export default function ImmersiveImageViewer({
           keyboard={{ enabled: true }}
           modules={[Mousewheel, Keyboard]}
           className="h-full w-full"
+          // 初始索引配置
+          initialSlide={initialIndex}
           // 关键事件：当滑动到最后一个 slide 时触发
           onReachEnd={handleReachEnd}
           // 处理slide变化
           onSlideChange={handleSlideChange}
+          // Swiper 初始化回调
+          onSwiper={handleSwiperInit}
           // 为了更好的性能，只渲染激活slide，不预加载
           slidesPerView={1}
           lazyPreloadPrevNext={0}

@@ -13,6 +13,7 @@ import 'swiper/css/navigation'
 import 'swiper/css/pagination'
 import ImageOverlay from './ImageOverlay'
 import Image from 'next/image'
+import { useViewerStore, getHorizontalIndex } from '@/store/viewerStore'
 
 interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   image: RandomImageItem
@@ -174,11 +175,16 @@ function SingleImage({
 /**
  * 图片滑块组件
  * 支持单图和多图横向滑动浏览
+ * 集成状态管理，支持水平滑动位置恢复
  */
 export default function ImageSlide({ image, onError }: ImageSlideProps) {
   const [retryKey, setRetryKey] = useState(0)
-  const [currentImageIndex, setCurrentImageIndex] = useState(0)
+
+  // 从状态管理中获取初始水平索引
+  const initialHorizontalIndex = getHorizontalIndex(image.key)
+  const [currentImageIndex, setCurrentImageIndex] = useState(initialHorizontalIndex)
   const swiperRef = useRef<SwiperRef | null>(null)
+  const { setHorizontalIndex } = useViewerStore()
 
   const handleRetry = () => {
     setRetryKey((prevKey) => prevKey + 1)
@@ -190,8 +196,22 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
 
   // 处理滑动变化
   const handleSlideChange = (swiper: SwiperType) => {
-    setCurrentImageIndex(swiper.activeIndex)
+    const newIndex = swiper.activeIndex
+    setCurrentImageIndex(newIndex)
+    // 同步到状态管理
+    setHorizontalIndex(image.key, newIndex)
   }
+
+  // 状态恢复：当组件挂载时，如果有缓存的水平索引，则滑动到对应位置
+  useEffect(() => {
+    if (hasMultipleImages && swiperRef.current && initialHorizontalIndex > 0) {
+      // 延迟执行，确保 Swiper 已经完全初始化
+      const timer = setTimeout(() => {
+        swiperRef.current?.swiper?.slideTo(initialHorizontalIndex, 0) // 0ms 动画时间，立即跳转
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [hasMultipleImages, initialHorizontalIndex])
 
   if (!hasMultipleImages) {
     // 单图模式
@@ -222,6 +242,8 @@ export default function ImageSlide({ image, onError }: ImageSlideProps) {
         slidesPerView={1}
         lazyPreloadPrevNext={1}
         spaceBetween={0}
+        // 初始索引配置
+        initialSlide={initialHorizontalIndex}
         keyboard={{
           enabled: true,
           onlyInViewport: true
