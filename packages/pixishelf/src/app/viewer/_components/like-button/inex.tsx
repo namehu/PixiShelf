@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback } from 'react'
+import React, { memo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Heart } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -10,11 +10,6 @@ import { Button } from '@/components/ui/button'
 export interface LikeButtonProps {
   /** 作品ID */
   artworkId: number
-  /** 初始点赞状态（可选，用于优化首次渲染） */
-  initialStatus?: {
-    likeCount: number
-    userLiked: boolean
-  }
   /** 是否启用乐观更新 */
   optimistic?: boolean
   /** 防抖延迟（毫秒） */
@@ -40,7 +35,6 @@ export interface LikeButtonProps {
  */
 export const LikeButton: React.FC<LikeButtonProps> = ({
   artworkId,
-  initialStatus,
   optimistic = true,
   debounceMs = 300,
   className,
@@ -48,12 +42,11 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
   onError
 }) => {
   // 使用点赞Hook
-  const { status, isLoading, isToggling, toggleLike } = useLike({
+  const { liked, isLoading, isToggling, toggleLike } = useLike({
     artworkId,
-    initialStatus,
     optimistic,
     debounceMs,
-    onSuccess: onLikeSuccess ? (status) => onLikeSuccess(status.userLiked, status.likeCount) : undefined,
+    onSuccess: onLikeSuccess ? (liked) => onLikeSuccess(liked, 0) : undefined,
     onError
   })
 
@@ -69,7 +62,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
       // 执行点赞切换
       await toggleLike()
     },
-    [isToggling, status?.userLiked, toggleLike]
+    [isToggling, liked, toggleLike]
   )
 
   // 计算图标尺寸
@@ -85,7 +78,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
           'relative transition-all duration-200 ease-in-out',
           'hover:scale-105 active:scale-95',
           'focus-visible:ring-2 focus-visible:ring-red-500/50',
-          status?.userLiked && 'text-red-500',
+          liked && 'text-red-500',
           isDisabled && 'opacity-50 cursor-not-allowed',
 
           'w-12 h-12 bg-black/20 hover:bg-black/30 backdrop-blur-sm',
@@ -96,9 +89,6 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
         )}
         onClick={handleLikeClick}
         disabled={isDisabled}
-        aria-label={status?.userLiked ? '取消点赞' : '点赞'}
-        aria-pressed={status?.userLiked}
-        title={status?.userLiked ? '取消点赞' : '点赞'}
       >
         {/* 加载状态指示器 */}
         <AnimatePresence mode="wait">
@@ -126,15 +116,12 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
               className="flex items-center"
             >
               {/* 爱心图标 */}
-              <motion.div
-                animate={status?.userLiked ? { scale: [1, 1.2, 1] } : {}}
-                transition={{ duration: 0.3, ease: 'easeOut' }}
-              >
+              <motion.div animate={liked ? { scale: [1, 1.2, 1] } : {}} transition={{ duration: 0.3, ease: 'easeOut' }}>
                 <Heart
                   size={24}
                   className={cn(
                     'size-6 transition-all duration-200',
-                    status?.userLiked ? 'fill-current text-red-500' : 'text-white hover:text-red-400'
+                    liked ? 'fill-current text-red-500' : 'text-white hover:text-red-400'
                   )}
                 />
               </motion.div>
@@ -155,4 +142,4 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
   )
 }
 
-export default LikeButton
+export default memo(LikeButton)

@@ -25,7 +25,6 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
   const router = useRouter()
 
   const { titleOpacity } = useViewerStore()
-  const [isVisible, setIsVisible] = useState(true)
   const [showActionDrawer, setShowActionDrawer] = useState(false)
 
   const interactiveZoneRef = useRef<HTMLDivElement>(null)

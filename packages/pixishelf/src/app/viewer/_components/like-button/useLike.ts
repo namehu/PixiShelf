@@ -15,8 +15,6 @@ export interface LikeStatus {
 export interface UseLikeOptions {
   /** 作品ID */
   artworkId: number
-  /** 初始点赞状态 */
-  initialStatus?: LikeStatus
   /** 是否启用乐观更新 */
   optimistic?: boolean
   /** 防抖延迟（毫秒） */
@@ -24,12 +22,12 @@ export interface UseLikeOptions {
   /** 错误回调 */
   onError?: (error: Error) => void
   /** 成功回调 */
-  onSuccess?: (status: LikeStatus) => void
+  onSuccess?: (status: boolean) => void
 }
 
 export interface UseLikeReturn {
   /** 当前点赞状态 */
-  status: LikeStatus
+  liked: boolean
   /** 是否正在加载 */
   isLoading: boolean
   /** 是否正在切换点赞状态 */
@@ -37,7 +35,7 @@ export interface UseLikeReturn {
   /** 切换点赞状态 */
   toggleLike: () => Promise<void>
   /** 刷新点赞状态 */
-  refreshStatus: () => Promise<void>
+  refreshStatus: (artworkId: number) => Promise<void>
   /** 错误信息 */
   error: string | null
 }
@@ -101,17 +99,10 @@ async function toggleLikeStatus(artworkId: number): Promise<LikeStatus> {
  * 提供点赞状态管理、乐观更新、防抖和错误处理
  */
 export function useLike(options: UseLikeOptions): UseLikeReturn {
-  const {
-    artworkId,
-    initialStatus = { likeCount: 0, userLiked: false },
-    optimistic = true,
-    debounceMs = 300,
-    onError,
-    onSuccess
-  } = options
+  const { artworkId, optimistic = true, debounceMs = 300, onError, onSuccess } = options
 
   // 状态管理
-  const [status, setStatus] = useState<LikeStatus>(initialStatus)
+  const [liked, setLiked] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isToggling, setIsToggling] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -145,7 +136,7 @@ export function useLike(options: UseLikeOptions): UseLikeReturn {
 
       // 如果有乐观更新，回滚状态
       if (optimisticStateRef.current) {
-        setStatus(optimisticStateRef.current)
+        setLiked(optimisticStateRef.current.userLiked)
         optimisticStateRef.current = null
       }
 
@@ -158,35 +149,55 @@ export function useLike(options: UseLikeOptions): UseLikeReturn {
     [onError]
   )
 
+  // 添加防重复调用的 ref
+  const isRefreshingRef = useRef(false)
+  const lastFetchedArtworkIdRef = useRef<number | null>(null)
+
   /**
    * 刷新点赞状态
    */
-  const refreshStatus = useCallback(async () => {
-    if (isLoading) return
-
-    setIsLoading(true)
-    setError(null)
-
-    // 取消之前的请求
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
-
-    abortControllerRef.current = new AbortController()
-
-    try {
-      const newStatus = await fetchLikeStatus(artworkId)
-      setStatus(newStatus)
-      optimisticStateRef.current = null
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        handleError(err)
+  const refreshStatus = useCallback(
+    async (artworkId: number) => {
+      // 防止重复调用
+      if (isRefreshingRef.current) {
+        console.log('refreshStatus already in progress, skipping...')
+        return
       }
-    } finally {
-      setIsLoading(false)
-      abortControllerRef.current = null
-    }
-  }, [artworkId, isLoading, handleError])
+
+      // 如果已经获取过相同的 artworkId，跳过
+      if (lastFetchedArtworkIdRef.current === artworkId) {
+        console.log('artworkId already fetched, skipping...', artworkId)
+        return
+      }
+
+      isRefreshingRef.current = true
+      setIsLoading(true)
+      setError(null)
+
+      // 取消之前的请求
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+
+      abortControllerRef.current = new AbortController()
+
+      try {
+        const newStatus = await fetchLikeStatus(artworkId)
+        setLiked(newStatus.userLiked)
+        optimisticStateRef.current = null
+        lastFetchedArtworkIdRef.current = artworkId
+      } catch (err) {
+        if (err instanceof Error && err.name !== 'AbortError') {
+          handleError(err)
+        }
+      } finally {
+        setIsLoading(false)
+        isRefreshingRef.current = false
+        abortControllerRef.current = null
+      }
+    },
+    [handleError]
+  )
 
   /**
    * 切换点赞状态
@@ -204,12 +215,8 @@ export function useLike(options: UseLikeOptions): UseLikeReturn {
 
     // 乐观更新
     if (optimistic) {
-      optimisticStateRef.current = { ...status }
-      const optimisticStatus: LikeStatus = {
-        likeCount: status.userLiked ? status.likeCount - 1 : status.likeCount + 1,
-        userLiked: !status.userLiked
-      }
-      setStatus(optimisticStatus)
+      optimisticStateRef.current = { likeCount: 0, userLiked: !liked }
+      setLiked(!liked)
     }
 
     // 防抖处理
@@ -224,14 +231,11 @@ export function useLike(options: UseLikeOptions): UseLikeReturn {
 
         const newStatus = await toggleLikeStatus(artworkId)
 
-        setStatus(newStatus)
+        setLiked(newStatus.userLiked)
         optimisticStateRef.current = null
 
-        // 显示成功提示
-        toast.success(newStatus.userLiked ? '点赞成功' : '取消点赞成功')
-
         // 调用成功回调
-        onSuccess?.(newStatus)
+        onSuccess?.(newStatus.userLiked)
       } catch (err) {
         if (err instanceof Error && err.name !== 'AbortError') {
           handleError(err)
@@ -241,17 +245,17 @@ export function useLike(options: UseLikeOptions): UseLikeReturn {
         abortControllerRef.current = null
       }
     }, debounceMs)
-  }, [artworkId, status, optimistic, debounceMs, isToggling, handleError, onSuccess])
+  }, [artworkId, liked, optimistic, debounceMs, isToggling, handleError, onSuccess])
 
   /**
    * 初始化时获取点赞状态
    */
   useEffect(() => {
-    if (!initialStatus || (initialStatus.likeCount === 0 && !initialStatus.userLiked)) {
-      refreshStatus()
+    if (artworkId) {
+      refreshStatus(artworkId)
+      console.log(artworkId, 'artworkId')
     }
-    console.log(artworkId, 'artworkId')
-  }, [artworkId]) // 只在 artworkId 或 userId 变化时重新获取
+  }, [artworkId, refreshStatus]) // 只在 artworkId 变化时重新获取
 
   /**
    * 清理副作用
@@ -261,7 +265,7 @@ export function useLike(options: UseLikeOptions): UseLikeReturn {
   }, [cleanup])
 
   return {
-    status,
+    liked,
     isLoading,
     isToggling,
     toggleLike,

@@ -4,7 +4,7 @@ import React from 'react'
 import { RandomImageItem } from '@/types/images'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { LikeButton } from './like-button/inex'
-import { Share, MessageCircle, MoreHorizontal, Plus } from 'lucide-react'
+import { MoreHorizontal } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 
@@ -21,30 +21,7 @@ export interface TikTokStyleSidebarProps {
  */
 export const TikTokStyleSidebar: React.FC<TikTokStyleSidebarProps> = ({ image, className, onMoreClick }) => {
   const router = useRouter()
-  const { author, id: artworkId } = image
-
-  // 处理关注按钮点击
-  const handleFollowClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    // TODO: 实现关注功能
-    console.log('关注用户:', author?.id)
-  }
-
-  // 处理分享按钮点击
-  const handleShareClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    // TODO: 实现分享功能
-    console.log('分享作品:', artworkId)
-  }
-
-  // 处理评论按钮点击
-  const handleCommentClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    router.push(`/artworks/${artworkId}#comments`)
-  }
+  const { author } = image
 
   // 处理更多操作按钮点击
   const handleMoreClick = (e: React.MouseEvent) => {
@@ -82,7 +59,7 @@ export const TikTokStyleSidebar: React.FC<TikTokStyleSidebarProps> = ({ image, c
 
       {/* 点赞按钮 */}
       <div className="flex flex-col items-center">
-        <LikeButton artworkId={artworkId} />
+        <LikeButton artworkId={image.id} />
       </div>
 
       {/* 更多操作按钮 */}
