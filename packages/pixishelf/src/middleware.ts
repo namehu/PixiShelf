@@ -61,9 +61,29 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       return handleUnauthenticated(request, pathname)
     }
 
+    // 1. 克隆现有的请求头，因为原始的 request.headers 是只读的
+    const requestHeaders = new Headers(request.headers)
+    // 2. 将用户信息（或整个会话）序列化后添加到请求头中
+    // 假设 refreshedSession 包含一个 user 对象 { id: '...', name: '...' }
+    // 注意：Header 的值必须是字符串
+    requestHeaders.set(
+      'x-user-session',
+      JSON.stringify({
+        ...refreshedSession,
+        userId: Number(refreshedSession.userId)
+      })
+    )
+
+    // 3. 创建一个新的响应，并用我们修改过的请求头来继续请求链
+    // 这样，后续的 API 路由接收到的 request 对象就会包含这个新的 header
+    const response = NextResponse.next({
+      request: {
+        headers: requestHeaders
+      }
+    })
+
     // 如果会话被刷新，更新Cookie
     if (refreshedSession.token !== token) {
-      const response = NextResponse.next()
       const cookieOptions = sessionManager.getCookieOptionsForRequest(request)
 
       response.cookies.set('auth-token', refreshedSession.token, {
@@ -73,12 +93,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
         maxAge: cookieOptions.maxAge,
         path: cookieOptions.path
       })
-
-      return response
     }
 
     // 认证成功，继续处理请求
-    return NextResponse.next()
+    return response
   } catch (error) {
     console.error('中间件认证错误:', error)
     return handleUnauthenticated(request, pathname)

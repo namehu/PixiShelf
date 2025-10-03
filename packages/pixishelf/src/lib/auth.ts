@@ -87,8 +87,8 @@ export class AuthService implements IAuthService {
   generateAccessToken(user: User): string {
     try {
       const payload: JWTPayload = {
-        userId: user.id,
-        sub: user.id,
+        userId: `${user.id}`,
+        sub: `${user.id}`,
         username: user.username,
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + this.jwtTtl

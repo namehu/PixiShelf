@@ -75,6 +75,10 @@ export interface Session {
   isActive: boolean
 }
 
+export interface ApiSession extends Omit<Session, 'userId'> {
+  userId: number
+}
+
 /**
  * Cookie选项
  */
