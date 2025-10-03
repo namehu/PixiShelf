@@ -185,7 +185,7 @@ export default function ImageSlide({ isActive, image, onError }: ImageSlideProps
           retryKey={retryKey}
           onRetry={handleRetry}
         />
-        <ImageOverlay image={image} />
+        <ImageOverlay isActive={isActive} image={image} />
       </>
     )
   }
@@ -267,7 +267,7 @@ export default function ImageSlide({ isActive, image, onError }: ImageSlideProps
       )}
 
       {/* 将 ImageOverlay 移出 Swiper，作为独立的覆盖层 */}
-      <ImageOverlay image={image} />
+      <ImageOverlay isActive={isActive} image={image} />
 
       {/* 图片计数器 */}
       {imagesToShow.length > 1 && (

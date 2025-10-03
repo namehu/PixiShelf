@@ -7,17 +7,19 @@ import { useState, useRef, useEffect } from 'react'
 import TagsPanel from './TagsPanel'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { HeartAnimation } from '@/components/ui/HeartAnimation'
+import { TikTokStyleSidebar } from './TikTokStyleSidebar'
 import { useHeartAnimation } from '@/hooks'
 
 interface ImageOverlayProps {
+  isActive: boolean
   image: RandomImageItem
 }
 
 /**
  * 图片覆盖层组件
- * 显示图片元信息和操作按钮
+ * 显示图片元信息和操作按钮，集成抖音风格侧边栏
  */
-export default function ImageOverlay({ image }: ImageOverlayProps) {
+export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
   const { author, createdAt, title, description, tags = [] } = image
   const router = useRouter()
   const [isVisible, setIsVisible] = useState(true)
@@ -148,9 +150,14 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
         <HeartAnimation key={heart.id} data={heart} />
       ))}
 
-      {/* 顶部信息栏 */}
+      {/* 抖音风格侧边栏 */}
+      <div className={`transition-opacity duration-300 ${isVisible ? 'opacity-100' : 'opacity-30'}`}>
+        {isActive && <TikTokStyleSidebar image={image} />}{' '}
+      </div>
+
+      {/* 顶部信息栏 - 简化版，只显示基本信息 */}
       <div
-        className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 via-black/30 to-transparent p-4 pl-16 transition-opacity duration-300 pointer-events-auto ${
+        className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 via-black/30 to-transparent p-4 transition-opacity duration-300 pointer-events-auto ${
           isVisible ? 'opacity-100' : 'opacity-30'
         }`}
       >
@@ -171,7 +178,7 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
         </div>
       </div>
 
-      {/* 底部信息栏 */}
+      {/* 底部信息栏 - 调整右边距为侧边栏留出空间 */}
       <div
         className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 transition-opacity duration-300 pointer-events-auto ${
           isVisible ? 'opacity-100' : 'opacity-30'

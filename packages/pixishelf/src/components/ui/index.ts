@@ -43,3 +43,9 @@ export {
 } from './alert-dialog'
 
 export { default as ArtistCard } from './ArtistCard'
+
+export { HeartIcon } from './HeartIcon'
+export type { HeartIconProps } from './HeartIcon'
+
+export { HeartAnimation } from './HeartAnimation'
+export type { HeartAnimationProps } from './HeartAnimation'
