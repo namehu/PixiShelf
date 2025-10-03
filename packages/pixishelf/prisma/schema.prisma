@@ -1,7 +1,7 @@
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+  provider        = "prisma-client-js"
   previewFeatures = ["fullTextSearch"]
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -9,40 +9,32 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 定义翻译来源的枚举类型
-// 这会映射到 PostgreSQL 的原生 ENUM 类型，便于管理和扩展
-enum TranslateType {
-  NONE     // 0-无
-  PIXIV    // 1-pixiv
-  AI       // 2-AI
-  MANUAL   // 3-人工标注
-}
-
 model Artist {
-  id              Int       @id @default(autoincrement())
-  name            String
-  username        String?
-  userId          String?
-  bio             String?
-  avatar          String?   // 头像
-  backgroundImg   String?   // 背景图
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  artworks        Artwork[]
+  id            Int       @id @default(autoincrement())
+  name          String
+  username      String?
+  userId        String?
+  bio           String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  avatar        String?
+  backgroundImg String?
+  artworks      Artwork[]
 
   @@unique([username, userId], name: "unique_username_userid")
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Artwork {
-  id                 Int          @id @default(autoincrement())
+  id                 Int           @id @default(autoincrement())
   title              String
   description        String?
   artistId           Int?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
-  descriptionLength  Int          @default(0)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  descriptionLength  Int           @default(0)
   directoryCreatedAt DateTime?
-  imageCount         Int          @default(0)
+  imageCount         Int           @default(0)
   bookmarkCount      Int?
   externalId         String?
   isAiGenerated      Boolean?
@@ -52,7 +44,9 @@ model Artwork {
   sourceUrl          String?
   thumbnailUrl       String?
   xRestrict          String?
-  artist             Artist?      @relation(fields: [artistId], references: [id])
+  likeCount          Int           @default(0)
+  artist             Artist?       @relation(fields: [artistId], references: [id])
+  likes              ArtworkLike[]
   artworkTags        ArtworkTag[]
   images             Image[]
 
@@ -60,24 +54,23 @@ model Artwork {
   @@index([imageCount])
   @@index([sourceDate])
   @@index([externalId])
+  @@index([likeCount])
 }
 
 model Tag {
-  id            Int           @id @default(autoincrement())
-  name          String        @unique
-  name_zh       String?       // 中文翻译列
-  name_en       String?       // 英文翻译列
-  translateType TranslateType @default(NONE) // 翻译类型，使用枚举
-  description   String?       // 标签描述
-  abstract      String?       // 标签描述（来源：pixiv）
-  image         String?       // 图片（来源：pixiv）
-  artworkCount  Int           @default(0) // 作品数量缓存
-  createdAt    DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  artworkTags   ArtworkTag[]
-
-  // [新增] 告诉 Prisma 这个列存在，但由数据库管理
+  id            Int                      @id @default(autoincrement())
+  name          String                   @unique
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  artworkCount  Int                      @default(0)
+  description   String?
+  name_zh       String?
   search_vector Unsupported("tsvector")?
+  translateType TranslateType            @default(NONE)
+  abstract      String?
+  image         String?
+  name_en       String?
+  artworkTags   ArtworkTag[]
 
   @@index([name])
   @@index([name_zh]) // 增加索引，提高查询速度
@@ -116,11 +109,26 @@ model Image {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  username  String   @unique
+  id        Int           @id @default(autoincrement())
+  username  String        @unique
   password  String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  likes     ArtworkLike[]
+}
+
+model ArtworkLike {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  artworkId Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  artwork   Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, artworkId])
+  @@index([artworkId])
+  @@index([userId])
 }
 
 model Setting {
@@ -145,4 +153,14 @@ model TriggerLog {
   @@index([created_at])
   @@index([operation])
   @@index([table_name, record_id])
+  @@index([created_at], map: "idx_trigger_log_created_at")
+  @@index([operation], map: "idx_trigger_log_operation")
+  @@index([table_name, record_id], map: "idx_trigger_log_table_record")
+}
+
+enum TranslateType {
+  NONE     // 0-无
+  PIXIV    // 1-pixiv
+  AI       // 2-AI
+  MANUAL   // 3-人工标注
 }
