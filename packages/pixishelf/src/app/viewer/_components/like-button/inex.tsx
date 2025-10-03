@@ -4,22 +4,14 @@ import React, { memo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Heart } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useLike } from './useLike'
 import { Button } from '@/components/ui/button'
 
 export interface LikeButtonProps {
-  /** 作品ID */
-  artworkId: number
-  /** 是否启用乐观更新 */
-  optimistic?: boolean
-  /** 防抖延迟（毫秒） */
-  debounceMs?: number
+  liked: boolean
+  likeLoading: boolean
+  onToggleLike: () => void
   /** 额外的CSS类名 */
   className?: string
-  /** 点赞成功回调 */
-  onLikeSuccess?: (liked: boolean, likeCount: number) => void
-  /** 错误回调 */
-  onError?: (error: Error) => void
 }
 
 /**
@@ -33,43 +25,16 @@ export interface LikeButtonProps {
  * - 完整的错误处理和加载状态
  * - 无障碍访问支持
  */
-export const LikeButton: React.FC<LikeButtonProps> = ({
-  artworkId,
-  optimistic = true,
-  debounceMs = 300,
-  className,
-  onLikeSuccess,
-  onError
-}) => {
-  // 使用点赞Hook
-  const { liked, isLoading, isToggling, toggleLike } = useLike({
-    artworkId,
-    optimistic,
-    debounceMs,
-    onSuccess: onLikeSuccess ? (liked) => onLikeSuccess(liked, 0) : undefined,
-    onError
-  })
-
+export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, likeLoading, onToggleLike }) => {
   // 处理点赞点击
-  const handleLikeClick = useCallback(
-    async (event: React.MouseEvent<HTMLButtonElement>) => {
-      event.preventDefault()
-      event.stopPropagation()
-
-      // 如果正在切换状态，忽略点击
-      if (isToggling) return
-
-      // 执行点赞切换
-      await toggleLike()
-    },
-    [isToggling, liked, toggleLike]
-  )
-
-  // 计算图标尺寸
-  const iconSize = 24
+  const handleLikeClick = useCallback(async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onToggleLike()
+  }, [])
 
   // 按钮禁用状态
-  const isDisabled = isLoading || isToggling
+  const isDisabled = likeLoading
 
   return (
     <>
@@ -80,7 +45,6 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
           'focus-visible:ring-2 focus-visible:ring-red-500/50',
           liked && 'text-red-500',
           isDisabled && 'opacity-50 cursor-not-allowed',
-
           'w-12 h-12 bg-black/20 hover:bg-black/30 backdrop-blur-sm',
           'rounded-full flex items-center justify-center',
           'transition-all duration-200 hover:scale-105 active:scale-95',
@@ -92,7 +56,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
       >
         {/* 加载状态指示器 */}
         <AnimatePresence mode="wait">
-          {isToggling ? (
+          {likeLoading ? (
             <motion.div
               key="loading"
               initial={{ opacity: 0, scale: 0.8 }}
@@ -103,7 +67,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
             >
               <div
                 className="animate-spin rounded-full border-2 border-current border-t-transparent"
-                style={{ width: iconSize, height: iconSize }}
+                style={{ width: 24, height: 24 }}
               />
             </motion.div>
           ) : (

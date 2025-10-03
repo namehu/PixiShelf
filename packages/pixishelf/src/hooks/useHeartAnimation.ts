@@ -28,8 +28,9 @@ export interface UseHeartAnimationOptions {
   }
   /** 最大同时动画数量 */
   maxConcurrentAnimations?: number
-  /** 是否启用爱心动画 */
   enabled?: boolean
+
+  onTriggerHeart?: () => void
 }
 
 export interface UseHeartAnimationReturn {
@@ -209,22 +210,20 @@ export function useHeartAnimation(options: UseHeartAnimationOptions = {}): UseHe
   /**
    * 优化的快速点击处理
    */
-  const handleRapidClick = useCallback(
-    (event: React.MouseEvent<HTMLElement> | React.TouchEvent<HTMLElement>) => {
-      if (!enabled) return
+  const handleRapidClick = (event: React.MouseEvent<HTMLElement> | React.TouchEvent<HTMLElement>) => {
+    if (!enabled) return
 
-      // 使用视口坐标，不传递容器参数
-      const position = getRelativePosition(event.nativeEvent)
-      const isRapid = rapidClickDetectorRef.current?.detectRapidClick()
+    // 使用视口坐标，不传递容器参数
+    const position = getRelativePosition(event.nativeEvent)
+    const isRapid = rapidClickDetectorRef.current?.detectRapidClick()
 
-      if (isRapid) {
-        triggerHearts(position, 5) // 快速点击触发更多爱心
-      }
+    if (isRapid) {
+      triggerHearts(position, 5) // 快速点击触发更多爱心
+    }
 
-      updateClickCount()
-    },
-    [enabled, triggerHearts, updateClickCount]
-  )
+    updateClickCount()
+    options.onTriggerHeart?.()
+  }
 
   /**
    * 长按处理函数 - 使用 useCallback 优化
@@ -251,19 +250,16 @@ export function useHeartAnimation(options: UseHeartAnimationOptions = {}): UseHe
     [enabled, handleLongPressStart]
   )
 
-  const handleMouseUp = useCallback(
-    (event: React.MouseEvent<HTMLElement>) => {
-      if (!enabled) return
+  const handleMouseUp = (event: React.MouseEvent<HTMLElement>) => {
+    if (!enabled) return
 
-      handleLongPressEnd()
+    handleLongPressEnd()
 
-      // 如果不是长按，则处理快速点击
-      if (!isLongPressing) {
-        handleRapidClick(event)
-      }
-    },
-    [enabled, handleLongPressEnd, isLongPressing, handleRapidClick]
-  )
+    // 如果不是长按，则处理快速点击
+    if (!isLongPressing) {
+      handleRapidClick(event)
+    }
+  }
 
   const handleTouchStart = useCallback(
     (event: React.TouchEvent<HTMLElement>) => {

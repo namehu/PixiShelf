@@ -8,9 +8,10 @@ import TagsPanel from './TagsPanel'
 import { HeartAnimation } from '@/components/ui/HeartAnimation'
 import { TikTokStyleSidebar } from './TikTokStyleSidebar'
 import { ActionDrawer } from './ActionDrawer'
-import { useHeartAnimation } from '@/hooks'
+import { useHeartAnimation } from '@/hooks/useHeartAnimation'
 import { useViewerStore } from '@/store/viewerStore'
 import dayjs from 'dayjs'
+import { useLike } from './useLike'
 
 interface ImageOverlayProps {
   isActive: boolean
@@ -32,13 +33,16 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
 
   const dayString = dayjs(createdAt).format('YYYY-MM-DD')
 
+  // 使用点赞Hook
+  const { liked, isToggling, toggleLike } = useLike(image.id)
+
   // 集成爱心动画 Hook
   const {
     activeHearts,
     handleMouseDown: heartMouseDown,
     handleMouseUp: heartMouseUp,
-    handleTouchStart: heartTouchStart,
-    handleTouchEnd: heartTouchEnd,
+    handleTouchStart,
+    handleTouchEnd,
     isLongPressing
   } = useHeartAnimation({
     rapidClickConfig: {
@@ -47,6 +51,11 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
     },
     longPressConfig: {
       threshold: 500
+    },
+    onTriggerHeart: () => {
+      if (!liked) {
+        toggleLike()
+      }
     }
   })
 
@@ -63,7 +72,7 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
       // 触摸事件
       const touch = e.touches[0]!
       touchStartPos.current = { x: touch.clientX, y: touch.clientY }
-      heartTouchStart(e)
+      handleTouchStart(e)
     } else {
       // 鼠标事件
       heartMouseDown(e)
@@ -86,7 +95,7 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
   const handleInteractionEnd = (e: any) => {
     if ('changedTouches' in e) {
       // 触摸事件结束
-      heartTouchEnd(e)
+      handleTouchEnd(e)
       touchStartPos.current = null
       isDragging.current = false
     } else {
@@ -140,7 +149,15 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
 
       {/* 抖音风格侧边栏 */}
       <div className={`transition-opacity duration-300  opacity-${titleOpacity}`}>
-        {isActive && <TikTokStyleSidebar image={image} onMoreClick={() => setShowActionDrawer(true)} />}
+        {isActive && (
+          <TikTokStyleSidebar
+            image={image}
+            liked={liked}
+            isToggling={isToggling}
+            onToggleLike={toggleLike}
+            onMoreClick={() => setShowActionDrawer(true)}
+          />
+        )}
       </div>
 
       {/* 底部信息栏 */}
