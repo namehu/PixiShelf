@@ -375,7 +375,7 @@ export function cleanup(): void {
 export const DEFAULT_HEART_CONFIG: HeartAnimationConfig = {
   duration: 1200, // 稍微减少动画时间以提升性能
   sizeRange: [36, 72], // 放大一倍的尺寸范围
-  moveRange: [60, 150], // 增加移动范围以配合更大的尺寸
+  moveRange: [60, 300], // 增加移动范围以配合更大的尺寸
   colors: [
     '#ff69b4', // 热粉色
     '#ff1493', // 深粉色
