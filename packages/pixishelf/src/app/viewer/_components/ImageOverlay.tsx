@@ -5,10 +5,11 @@ import { MoreHorizontal } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
 import TagsPanel from './TagsPanel'
-import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { HeartAnimation } from '@/components/ui/HeartAnimation'
 import { TikTokStyleSidebar } from './TikTokStyleSidebar'
+import { ActionDrawer } from './ActionDrawer'
 import { useHeartAnimation } from '@/hooks'
+import { useViewerStore } from '@/store/viewerStore'
 
 interface ImageOverlayProps {
   isActive: boolean
@@ -22,8 +23,10 @@ interface ImageOverlayProps {
 export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
   const { author, createdAt, title, description, tags = [] } = image
   const router = useRouter()
+
+  const { titleOpacity } = useViewerStore()
   const [isVisible, setIsVisible] = useState(true)
-  const [showControlMenu, setShowControlMenu] = useState(false)
+  const [showActionDrawer, setShowActionDrawer] = useState(false)
 
   const interactiveZoneRef = useRef<HTMLDivElement>(null)
 
@@ -88,29 +91,18 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
     if ('changedTouches' in e) {
       // 触摸事件结束
       heartTouchEnd(e)
-
-      // 只有在没有拖拽且没有长按的情况下才处理点击
-      if (!isDragging.current && !isLongPressing) {
-        setIsVisible(!isVisible)
-      }
-
       touchStartPos.current = null
       isDragging.current = false
     } else {
       // 鼠标事件结束
       heartMouseUp(e)
-
-      // 只有在没有长按的情况下才处理点击
-      if (!isLongPressing) {
-        setIsVisible(!isVisible)
-      }
     }
   }
 
   // 长按触发控制菜单
   const handleLongPress = () => {
     console.log('长按事件触发了！')
-    setShowControlMenu(true)
+    setShowActionDrawer(true)
   }
 
   // 监听长按状态变化
@@ -151,48 +143,31 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
       ))}
 
       {/* 抖音风格侧边栏 */}
-      <div className={`transition-opacity duration-300 ${isVisible ? 'opacity-100' : 'opacity-30'}`}>
-        {isActive && <TikTokStyleSidebar image={image} />}{' '}
+      <div className={`transition-opacity duration-300  opacity-${titleOpacity}`}>
+        {isActive && <TikTokStyleSidebar image={image} onMoreClick={() => setShowActionDrawer(true)} />}
       </div>
 
-      {/* 顶部信息栏 - 简化版，只显示基本信息 */}
+      {/* 底部信息栏 */}
       <div
-        className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 via-black/30 to-transparent p-4 transition-opacity duration-300 pointer-events-auto ${
-          isVisible ? 'opacity-100' : 'opacity-30'
-        }`}
+        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 transition-opacity duration-300 pointer-events-auto opacity-${titleOpacity}`}
       >
-        <div className="flex items-center justify-between text-white">
-          {/* 左侧：作者信息 */}
+        <div className="text-white">
+          {/* 图片标题 */}
+          <h3
+            className="font-bold text-lg mb-2 line-clamp-2"
+            onClick={() => {
+              router.push(`/artworks/${image.id}`)
+            }}
+          >
+            {title}
+          </h3>
           <div
-            className="flex items-center space-x-3 flex-1 min-w-0"
+            className="flex items-center mb-2 space-x-2"
             onClick={() => author?.id && router.push(`/artists/${author.id}`)}
           >
-            <div className="">
-              <ArtistAvatar src={author?.avatar} name={author?.name} size={10} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-font-semibold text-sm truncate opacity-90 ">@{author?.username}</p>
-              <p className="text-xs opacity-60 flex-shrink-0 mt-1">{dayString}</p>
-            </div>
+            <p className="text-font-semibold text-sm truncate opacity-90 ">@{author?.username}</p>
+            <p className="text-xs opacity-60 flex-shrink-0">{dayString}</p>
           </div>
-        </div>
-      </div>
-
-      {/* 底部信息栏 - 调整右边距为侧边栏留出空间 */}
-      <div
-        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 transition-opacity duration-300 pointer-events-auto ${
-          isVisible ? 'opacity-100' : 'opacity-30'
-        }`}
-      >
-        <div
-          className="text-white"
-          onClick={() => {
-            router.push(`/artworks/${image.id}`)
-          }}
-        >
-          {/* 图片标题 */}
-          <h3 className="font-bold text-lg mb-2 line-clamp-2">{title}</h3>
-
           {/* 图片描述 */}
           {description && (
             <p
@@ -252,42 +227,8 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
         </div>
       </div>
 
-      {/* 长按控制菜单 */}
-      {showControlMenu && (
-        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 pointer-events-auto">
-          <div className="bg-white rounded-lg p-4 m-4 max-w-xs w-full">
-            <h3 className="text-lg font-semibold mb-4 text-center">操作菜单</h3>
-            <div className="space-y-2">
-              <button
-                className="w-full p-3 text-left hover:bg-gray-100 rounded-lg transition-colors"
-                onClick={() => {
-                  setShowControlMenu(false)
-                  router.push(`/artworks/${image.id}`)
-                }}
-              >
-                查看详情
-              </button>
-              <button
-                className="w-full p-3 text-left hover:bg-gray-100 rounded-lg transition-colors"
-                onClick={() => {
-                  setShowControlMenu(false)
-                  if (author?.id) {
-                    router.push(`/artists/${author.id}`)
-                  }
-                }}
-              >
-                查看作者
-              </button>
-              <button
-                className="w-full p-3 text-left hover:bg-gray-100 rounded-lg transition-colors"
-                onClick={() => setShowControlMenu(false)}
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 操作抽屉 */}
+      <ActionDrawer open={showActionDrawer} onOpenChange={setShowActionDrawer} image={image} />
     </div>
   )
 }

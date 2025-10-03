@@ -11,13 +11,15 @@ import { cn } from '@/lib/utils'
 export interface TikTokStyleSidebarProps {
   image: RandomImageItem
   className?: string
+  /** 更多按钮点击回调 */
+  onMoreClick?: () => void
 }
 
 /**
  * 抖音风格侧边栏组件
  * 竖向布局，包含用户头像、点赞按钮、分享按钮等操作
  */
-export const TikTokStyleSidebar: React.FC<TikTokStyleSidebarProps> = ({ image, className }) => {
+export const TikTokStyleSidebar: React.FC<TikTokStyleSidebarProps> = ({ image, className, onMoreClick }) => {
   const router = useRouter()
   const { author, id: artworkId } = image
 
@@ -48,8 +50,7 @@ export const TikTokStyleSidebar: React.FC<TikTokStyleSidebarProps> = ({ image, c
   const handleMoreClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    // TODO: 实现更多操作菜单
-    console.log('更多操作:', artworkId)
+    onMoreClick?.()
   }
 
   // 处理用户头像点击

@@ -8,24 +8,28 @@ export interface ViewerState {
   // 数据状态
   images: RandomImageItem[]
   hasFetchedOnce: boolean
-  
+
   // UI 状态
   verticalIndex: number
   horizontalIndexes: Record<string, number>
-  
+
+  // 标题透明度
+  titleOpacity: string
+
   // 状态操作方法
   setImages: (images: RandomImageItem[]) => void
   setVerticalIndex: (index: number) => void
   setHorizontalIndex: (imageKey: string, index: number) => void
   resetViewerState: () => void
-  
+  setTitleOpacity: (titleOpacity: string) => void
+
   // 批量更新方法
   updateViewerState: (updates: Partial<Pick<ViewerState, 'images' | 'verticalIndex' | 'horizontalIndexes'>>) => void
 }
 
 /**
  * Viewer 页面全局状态管理 Store
- * 
+ *
  * 功能：
  * - 管理图片列表数据
  * - 追踪垂直滑动位置（当前查看的图片索引）
@@ -38,15 +42,20 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   hasFetchedOnce: false,
   verticalIndex: 0,
   horizontalIndexes: {},
-  
+  titleOpacity: '100',
   // 设置图片列表数据
   setImages: (images: RandomImageItem[]) => {
-    set({ 
-      images, 
-      hasFetchedOnce: true 
+    set({
+      images,
+      hasFetchedOnce: true
     })
   },
-  
+
+  // 设置标题透明度
+  setTitleOpacity: (titleOpacity: string) => {
+    set({ titleOpacity })
+  },
+
   // 设置垂直滑动索引
   setVerticalIndex: (index: number) => {
     // 确保索引在有效范围内
@@ -54,34 +63,34 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     const validIndex = Math.max(0, Math.min(index, images.length - 1))
     set({ verticalIndex: validIndex })
   },
-  
+
   // 设置特定图集的水平滑动索引
   setHorizontalIndex: (imageKey: string, index: number) => {
     set((state) => ({
       horizontalIndexes: {
         ...state.horizontalIndexes,
-        [imageKey]: Math.max(0, index), // 确保索引非负
-      },
+        [imageKey]: Math.max(0, index) // 确保索引非负
+      }
     }))
   },
-  
+
   // 重置所有状态
   resetViewerState: () => {
     set({
       images: [],
       hasFetchedOnce: false,
       verticalIndex: 0,
-      horizontalIndexes: {},
+      horizontalIndexes: {}
     })
   },
-  
+
   // 批量更新状态（用于状态恢复等场景）
   updateViewerState: (updates) => {
     set((state) => ({
       ...state,
-      ...updates,
+      ...updates
     }))
-  },
+  }
 }))
 
 /**
