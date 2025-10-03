@@ -7,6 +7,9 @@ export type { ArtworkService } from './artworkService'
 export { artistService } from './artistService'
 export type { ArtistService } from './artistService'
 
+export { likeService } from './likeService'
+export type { LikeService, LikeResult, LikeStatus } from './likeService'
+
 // 未来可以添加其他服务
 // export { userService } from './userService'
 // export { tagService } from './tagService'
