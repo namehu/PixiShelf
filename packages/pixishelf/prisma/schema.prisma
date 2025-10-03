@@ -76,6 +76,7 @@ model Tag {
   @@index([name_zh]) // 增加索引，提高查询速度
   @@index([name_en]) //  增加索引，提高查询速度
   @@index([artworkCount], map: "Tag_artworkCount_idx")
+  @@index([artworkCount(sort: Desc), name], map: "Tag_artworkCount_name_idx")
 
   // [新增] 告诉 Prisma 这个 GIN 索引是存在的
   // 注意：需要启用 previewFeatures = ["extendedIndexes"]
