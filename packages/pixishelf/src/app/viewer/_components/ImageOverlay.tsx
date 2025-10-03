@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
 import TagsPanel from './TagsPanel'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
+import { HeartAnimation } from '@/components/ui/HeartAnimation'
+import { useHeartAnimation } from '@/hooks'
 
 interface ImageOverlayProps {
   image: RandomImageItem
@@ -29,138 +31,96 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
     day: 'numeric'
   })
 
-  const pressTimer = useRef<any>(null)
+  // 集成爱心动画 Hook
+  const {
+    activeHearts,
+    handleMouseDown: heartMouseDown,
+    handleMouseUp: heartMouseUp,
+    handleTouchStart: heartTouchStart,
+    handleTouchEnd: heartTouchEnd,
+    isLongPressing
+  } = useHeartAnimation({
+    rapidClickConfig: {
+      threshold: 3,
+      timeWindow: 1000
+    },
+    longPressConfig: {
+      threshold: 500
+    }
+  })
+
+  // 拖拽检测状态
   const touchStartPos = useRef<{ x: number; y: number } | null>(null)
   const isDragging = useRef(false)
-  const longPressTriggered = useRef(false)
 
-  useEffect(() => {
-    const longPressArea = interactiveZoneRef.current!
+  // 集成事件处理逻辑
+  const handleInteractionStart = (e: any) => {
+    // 重置拖拽状态
+    isDragging.current = false
 
-    function handleTouchStart(e: TouchEvent) {
-      const touch = e.touches[0]
+    if ('touches' in e) {
+      // 触摸事件
+      const touch = e.touches[0]!
       touchStartPos.current = { x: touch.clientX, y: touch.clientY }
-      isDragging.current = false
-      longPressTriggered.current = false
-
-      // 设置长按定时器
-      pressTimer.current = setTimeout(() => {
-        if (!isDragging.current) {
-          longPressTriggered.current = true
-          console.log('长按事件触发了！')
-          setShowControlMenu(true)
-        }
-      }, 500)
+      heartTouchStart(e)
+    } else {
+      // 鼠标事件
+      heartMouseDown(e)
     }
+  }
 
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!touchStartPos.current) return
+  const handleInteractionMove = (e: React.TouchEvent) => {
+    if (!touchStartPos.current || !e.touches.length) return
 
-      const touch = e.touches[0]
-      const deltaX = touch.clientX - touchStartPos.current.x
-      const deltaY = touch.clientY - touchStartPos.current.y
-      const absDeltaX = Math.abs(deltaX)
-      const absDeltaY = Math.abs(deltaY)
+    const touch = e.touches[0]!
+    const deltaX = Math.abs(touch.clientX - touchStartPos.current.x)
+    const deltaY = Math.abs(touch.clientY - touchStartPos.current.y)
 
-      // 设置滑动阈值为 15px，稍微提高阈值以减少误触
-      const SWIPE_THRESHOLD = 15
-
-      if (absDeltaX > SWIPE_THRESHOLD || absDeltaY > SWIPE_THRESHOLD) {
-        // 检测到滑动，取消长按
-        isDragging.current = true
-        if (pressTimer.current) {
-          clearTimeout(pressTimer.current)
-          pressTimer.current = null
-        }
-
-        // 如果是横向滑动（横向移动距离明显大于纵向），让事件穿透给 Swiper
-        if (absDeltaX > absDeltaY * 1.5) {
-          // 这是横向滑动，不阻止事件，让 Swiper 处理
-          return
-        }
-      }
-
-      // 不阻止任何事件传播，让 Swiper 组件自由处理所有手势
+    // 如果移动距离超过阈值，认为是拖拽
+    if (deltaX > 10 || deltaY > 10) {
+      isDragging.current = true
     }
+  }
 
-    function handleTouchEnd(e: TouchEvent) {
-      // 清除长按计时器
-      if (pressTimer.current) {
-        clearTimeout(pressTimer.current)
-        pressTimer.current = null
+  const handleInteractionEnd = (e: any) => {
+    if ('changedTouches' in e) {
+      // 触摸事件结束
+      heartTouchEnd(e)
+
+      // 只有在没有拖拽且没有长按的情况下才处理点击
+      if (!isDragging.current && !isLongPressing) {
+        setIsVisible(!isVisible)
       }
 
-      // 如果触发了长按，不处理点击
-      if (longPressTriggered.current) {
-        longPressTriggered.current = false
-        isDragging.current = false
-        touchStartPos.current = null
-        return
-      }
-
-      // 如果是拖拽，不处理点击
-      if (isDragging.current) {
-        isDragging.current = false
-        touchStartPos.current = null
-        return
-      }
-
-      // 处理点击事件
-      setIsVisible(!isVisible)
-
-      // 重置状态
       touchStartPos.current = null
-    }
+      isDragging.current = false
+    } else {
+      // 鼠标事件结束
+      heartMouseUp(e)
 
-    // 鼠标事件处理（PC端）
-    function handleMouseDown(e: MouseEvent) {
-      if (e.button !== 0) return // 只处理左键
-
-      pressTimer.current = setTimeout(() => {
-        console.log('长按事件触发了！')
-        setShowControlMenu(true)
-      }, 500)
-    }
-
-    function handleMouseUp() {
-      if (pressTimer.current) {
-        clearTimeout(pressTimer.current)
-        pressTimer.current = null
-      }
-    }
-
-    function handleClick(e: MouseEvent) {
       // 只有在没有长按的情况下才处理点击
-      if (!longPressTriggered.current) {
+      if (!isLongPressing) {
         setIsVisible(!isVisible)
       }
     }
+  }
 
-    // 添加事件监听器，使用 passive: false 以便能够控制事件传播
-    longPressArea.addEventListener('touchstart', handleTouchStart, { passive: false })
-    longPressArea.addEventListener('touchmove', handleTouchMove, { passive: false })
-    longPressArea.addEventListener('touchend', handleTouchEnd, { passive: false })
+  // 长按触发控制菜单
+  const handleLongPress = () => {
+    console.log('长按事件触发了！')
+    setShowControlMenu(true)
+  }
 
-    // PC端事件
-    longPressArea.addEventListener('mousedown', handleMouseDown)
-    longPressArea.addEventListener('mouseup', handleMouseUp)
-    longPressArea.addEventListener('mouseleave', handleMouseUp)
-    longPressArea.addEventListener('click', handleClick)
-
-    return () => {
-      longPressArea.removeEventListener('touchstart', handleTouchStart)
-      longPressArea.removeEventListener('touchmove', handleTouchMove)
-      longPressArea.removeEventListener('touchend', handleTouchEnd)
-      longPressArea.removeEventListener('mousedown', handleMouseDown)
-      longPressArea.removeEventListener('mouseup', handleMouseUp)
-      longPressArea.removeEventListener('mouseleave', handleMouseUp)
-      longPressArea.removeEventListener('click', handleClick)
+  // 监听长按状态变化
+  useEffect(() => {
+    if (isLongPressing) {
+      handleLongPress()
     }
-  }, [isVisible])
+  }, [isLongPressing])
 
   return (
     <div className="absolute inset-0 pointer-events-none z-20">
-      {/* 长按交互区域 - 只在中心小区域启用交互 */}
+      {/* 交互区域 - 支持点击和长按 */}
       <div
         ref={interactiveZoneRef}
         className="absolute"
@@ -176,7 +136,18 @@ export default function ImageOverlay({ image }: ImageOverlayProps) {
           WebkitUserSelect: 'none',
           pointerEvents: 'auto' // 只在这个小区域启用事件
         }}
+        onMouseDown={handleInteractionStart}
+        onMouseUp={handleInteractionEnd}
+        onTouchStart={handleInteractionStart}
+        onTouchMove={handleInteractionMove}
+        onTouchEnd={handleInteractionEnd}
       ></div>
+
+      {/* 爱心动画渲染 */}
+      {activeHearts.map((heart) => (
+        <HeartAnimation key={heart.id} data={heart} />
+      ))}
+
       {/* 顶部信息栏 */}
       <div
         className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 via-black/30 to-transparent p-4 pl-16 transition-opacity duration-300 pointer-events-auto ${

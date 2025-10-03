@@ -1,3 +1,4 @@
+import { Tag } from './core'
 import { MediaType } from './media'
 
 export interface RandomImagesResponse {
@@ -31,8 +32,5 @@ export interface RandomImageItem {
     avatar?: string
   } | null
   createdAt: string
-  tags: {
-    id: number
-    name: string
-  }[]
+  tags: Tag[]
 }
