@@ -10,6 +10,7 @@ import { TikTokStyleSidebar } from './TikTokStyleSidebar'
 import { ActionDrawer } from './ActionDrawer'
 import { useHeartAnimation } from '@/hooks'
 import { useViewerStore } from '@/store/viewerStore'
+import dayjs from 'dayjs'
 
 interface ImageOverlayProps {
   isActive: boolean
@@ -29,11 +30,7 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
 
   const interactiveZoneRef = useRef<HTMLDivElement>(null)
 
-  const dayString = new Date(createdAt).toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  })
+  const dayString = dayjs(createdAt).format('YYYY-MM-DD')
 
   // 集成爱心动画 Hook
   const {
