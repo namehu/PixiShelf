@@ -1,86 +1,92 @@
 # PixiShelf
 
-一个现代化的个人Web画廊，专为艺术家和收藏家设计，用于管理和展示本地图片收藏。将按文件夹组织的静态图片转变为动态、美观、易于导航的现代化Web应用。
+一个现代化的个人Web画廊应用，专为艺术收藏家和创作者设计，用于管理和展示本地图片收藏。将按文件夹组织的静态图片转变为动态、美观、易于导航的现代化Web应用。
 
-## 🚀 项目特性
+## ✨ 项目特性
 
-### 核心功能
-- **智能图片管理**: 自动扫描、分类和展示本地图片收藏
-- **艺术家识别**: 智能解析文件夹结构，自动识别艺术家信息
-- **标签系统**: 灵活的标签管理、搜索和批量翻译功能
-- **多媒体支持**: 支持图片和视频文件的展示和处理
-- **全文搜索**: 基于PostgreSQL的高性能全文搜索
-- **用户认证**: 安全的JWT身份认证系统
+### 🎯 核心功能
+- **智能文件扫描**: 自动扫描本地目录，解析文件夹结构和元数据
+- **艺术家管理**: 智能识别和管理艺术家信息，支持多种命名格式
+- **标签系统**: 灵活的标签管理，支持全文搜索、批量翻译和智能建议
+- **作品展示**: 响应式画廊界面，支持无限滚动和多种排序方式
+- **多媒体支持**: 支持图片和视频文件的展示，自动生成缩略图
+- **用户认证**: 基于JWT的安全认证系统，支持管理员权限控制
+- **实时更新**: 使用SSE（Server-Sent Events）实现扫描进度实时推送
 
-### 技术特性
-- **现代化技术栈**: Next.js 15 + React 19 + TypeScript + Prisma + PostgreSQL
-- **Monorepo架构**: 使用pnpm workspace管理项目结构
-- **图片处理**: 集成imgproxy和thumbor提供高性能图片处理
-- **Docker支持**: 一键部署，环境一致性保障
-- **响应式设计**: 适配各种设备屏幕
-- **实时更新**: SSE流式数据更新
+### 🚀 技术特性
+- **现代化架构**: 基于Next.js 15 App Router的分层架构设计
+- **类型安全**: 全面使用TypeScript，确保代码质量和开发体验
+- **高性能数据库**: PostgreSQL + Prisma ORM，支持全文搜索和复杂查询
+- **图片处理**: 集成imgproxy和thumbor，提供高性能图片和视频处理
+- **容器化部署**: Docker + Docker Compose，一键部署和环境一致性
+- **响应式设计**: 基于Tailwind CSS，适配各种设备屏幕
+- **Monorepo管理**: 使用pnpm workspace管理项目结构
 
-## 📋 技术栈
+## 🛠️ 技术栈
 
-### 前端
-- **Next.js 15** - 全栈React框架，支持App Router
-- **React 19** - 现代化UI框架
-- **TypeScript** - 类型安全的JavaScript
-- **Tailwind CSS** - 实用优先的CSS框架
-- **Radix UI** - 无障碍的UI组件库
-- **TanStack Query** - 数据获取和状态管理
-- **Lucide React** - 现代化图标库
+### 前端技术
+- **Next.js 15** - 全栈React框架，支持App Router和RSC
+- **React 19** - 现代化UI框架，支持并发特性
+- **TypeScript 5** - 类型安全的JavaScript超集
+- **Tailwind CSS 4** - 实用优先的CSS框架
+- **Radix UI** - 无障碍的高质量UI组件库
+- **TanStack Query** - 强大的数据获取和状态管理
+- **Framer Motion** - 流畅的动画库
+- **Zustand** - 轻量级状态管理
 
-### 后端
-- **Next.js API Routes** - 服务端API
-- **Prisma** - 现代化ORM和数据库工具
-- **PostgreSQL** - 强大的关系型数据库
-- **JWT** - 身份认证
-- **bcryptjs** - 密码加密
-- **Winston** - 日志管理
+### 后端技术
+- **Next.js API Routes** - 服务端API和中间件
+- **Prisma 5** - 现代化ORM和数据库工具
+- **PostgreSQL 15** - 强大的关系型数据库
+- **JWT** - 无状态身份认证
+- **bcryptjs** - 密码加密和验证
+- **Winston** - 结构化日志管理
+- **Zod** - 运行时类型验证
 
 ### 图片处理
-- **imgproxy** - 高性能图片处理服务
-- **thumbor** - 视频缩略图和处理服务
-- **Fast-glob** - 文件系统扫描
+- **imgproxy** - 高性能图片处理和优化服务
+- **thumbor** - 视频缩略图生成和处理
+- **fast-glob** - 高效的文件系统扫描
 
 ### 开发工具
-- **pnpm** - 高效的包管理器
-- **ESLint** + **Prettier** - 代码质量保障
-- **Husky** - Git hooks
-- **Docker** + **Docker Compose** - 容器化部署
+- **pnpm** - 快速、节省磁盘空间的包管理器
+- **ESLint 9** - 代码质量检查
+- **Prettier** - 代码格式化
+- **Husky** - Git hooks管理
+- **Docker** - 容器化部署
 
-## 🛠️ 环境要求
+## 📋 环境要求
 
 ### 系统要求
-- **Node.js**: >= 18.0.0
+- **Node.js**: >= 20.0.0 (推荐使用最新LTS版本)
 - **pnpm**: >= 8.0.0
-- **Docker**: >= 20.0.0
-- **Docker Compose**: >= 2.0.0
+- **Docker**: >= 24.0.0
+- **Docker Compose**: >= 2.20.0
 
 ### 开发环境安装
 
 1. **安装Node.js**
    ```bash
-   # 推荐使用nvm管理Node.js版本
-   nvm install 18
-   nvm use 18
+   # 使用nvm管理Node.js版本（推荐）
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+   nvm install 20
+   nvm use 20
    ```
 
 2. **安装pnpm**
    ```bash
-   npm install -g pnpm
+   npm install -g pnpm@latest
    ```
 
 3. **安装Docker**
-   - Windows/macOS: 下载并安装 [Docker Desktop](https://www.docker.com/products/docker-desktop)
-   - Linux: 参考 [官方安装指南](https://docs.docker.com/engine/install/)
+   - **Windows/macOS**: 下载并安装 [Docker Desktop](https://www.docker.com/products/docker-desktop)
+   - **Linux**: 参考 [官方安装指南](https://docs.docker.com/engine/install/)
 
 ## 🚀 快速开始
 
 ### 1. 克隆项目
 ```bash
-git clone <repository-url>
+git clone https://github.com/your-username/PixiShelf.git
 cd PixiShelf
 ```
 
@@ -93,39 +99,51 @@ pnpm install
 
 #### 3.1 创建环境变量文件
 ```bash
-# 复制环境变量模板文件
-cp build/.env.example .env
+# 复制环境变量模板
+cp build/.env.example packages/pixishelf/.env
 ```
 
 #### 3.2 配置环境变量
-编辑 `.env` 文件，配置以下关键参数：
+编辑 `packages/pixishelf/.env` 文件：
 
 ```env
 # 数据库配置
 POSTGRES_USER=pixishelf
-POSTGRES_PASSWORD=your-secure-password  # 请修改为安全密码
+POSTGRES_PASSWORD=your-secure-password-123
 POSTGRES_DB=pixishelf
-DATABASE_URL=postgresql://pixishelf:your-secure-password@localhost:5432/pixishelf
+DATABASE_URL=postgresql://pixishelf:your-secure-password-123@localhost:5432/pixishelf?connection_limit=20&pool_timeout=20
 
-# JWT密钥（必须修改，至少32字符）
-JWT_SECRET=your-very-secure-jwt-secret-key-here-at-least-32-characters
+# JWT配置（生产环境必须修改）
+JWT_SECRET=your-very-secure-jwt-secret-key-at-least-32-characters-long
+JWT_TTL=604800
 
-# 管理员账户
+# 管理员账户（首次启动时创建）
 INIT_ADMIN_USERNAME=admin
-INIT_ADMIN_PASSWORD=admin123  # 请修改为安全密码
+INIT_ADMIN_PASSWORD=admin123
 
-# 图片处理服务URL
+# 图片处理服务
 NEXT_PUBLIC_IMGPROXY_URL=http://localhost:5431
 NEXT_PUBLIC_THUMBOR_VIDEO_URL=http://localhost:5433
 
-# 图片数据目录（根据实际情况修改）
-# Windows示例: C:\Users\Administrator\Downloads\pixiv
-# macOS/Linux示例: /Users/username/Pictures/collection
+# 运行环境
+NODE_ENV=development
+```
+
+#### 3.3 配置图片目录
+编辑 `build/docker-compose.yml`，修改图片目录挂载路径：
+
+```yaml
+# 将以下路径修改为你的图片目录
+volumes:
+  # Windows示例
+  - "C:/Users/YourName/Pictures/Collection:/app/data:cached"
+  # macOS/Linux示例
+  # - "/Users/yourname/Pictures/Collection:/app/data:cached"
 ```
 
 ### 4. 启动服务
 
-#### 4.1 使用Docker启动所有服务（推荐）
+#### 4.1 使用Docker启动（推荐）
 ```bash
 cd build
 docker-compose up -d
@@ -133,71 +151,96 @@ docker-compose up -d
 
 #### 4.2 开发环境启动
 ```bash
-# 启动数据库
+# 1. 启动数据库
 cd build
 docker-compose up -d postgres
 
-# 等待数据库启动完成
+# 2. 等待数据库就绪
 docker-compose logs -f postgres
 
-# 初始化数据库
+# 3. 初始化数据库
 cd ../packages/pixishelf
 pnpm db:generate
 pnpm db:push
 
-# 启动开发服务器
+# 4. 启动开发服务器
 pnpm dev
 ```
 
 ### 5. 访问应用
-- **Web界面**: http://localhost:5430
-- **图片处理服务**: http://localhost:5431 (imgproxy)
-- **视频处理服务**: http://localhost:5433 (thumbor)
-- **数据库**: localhost:5432
-- **Prisma Studio**: http://localhost:5555 (如果启动了)
+- **主应用**: http://localhost:5430
+- **管理后台**: http://localhost:5430/admin
+- **Prisma Studio**: http://localhost:5555 (开发环境)
 
-## 📁 项目结构
+## 📁 项目架构
 
+### 目录结构
 ```
 PixiShelf/
-├── .env                          # 环境变量配置
-├── package.json                  # 根项目配置
-├── pnpm-workspace.yaml          # pnpm工作空间配置
-├── build/                       # Docker构建和部署文件
-│   ├── .env.example            # 环境变量模板
-│   ├── docker-compose.yml     # Docker编排文件
-│   ├── Dockerfile              # 应用Docker构建文件
-│   ├── init.sql                # 数据库初始化脚本
+├── packages/pixishelf/          # 主应用
+│   ├── src/
+│   │   ├── app/                # Next.js App Router
+│   │   │   ├── (auth)/         # 认证页面组
+│   │   │   ├── (protected)/    # 受保护页面组
+│   │   │   ├── admin/          # 管理后台
+│   │   │   └── api/            # API路由
+│   │   ├── components/         # React组件
+│   │   │   ├── ui/             # 基础UI组件
+│   │   │   ├── artwork/        # 作品相关组件
+│   │   │   ├── auth/           # 认证组件
+│   │   │   └── admin/          # 管理组件
+│   │   ├── lib/                # 核心库
+│   │   │   ├── repositories/   # 数据访问层
+│   │   │   ├── services/       # 业务逻辑层
+│   │   │   └── prisma.ts       # 数据库客户端
+│   │   ├── types/              # TypeScript类型
+│   │   ├── hooks/              # React Hooks
+│   │   └── utils/              # 工具函数
+│   ├── prisma/                 # 数据库模式
+│   │   ├── schema.prisma       # 数据模型
+│   │   └── migrations/         # 数据库迁移
+│   └── public/                 # 静态资源
+├── build/                      # Docker配置
+│   ├── docker-compose.yml     # 开发环境
+│   ├── docker-compose.deploy.yml # 生产环境
+│   ├── Dockerfile              # 应用镜像
 │   └── thumbor/                # Thumbor配置
-├── docs/                        # 项目文档
-│   ├── SYSTEM_DESIGN.md       # 系统设计文档
-│   └── tag_refactor.md        # 标签重构文档
-├── packages/                    # 子包目录
-│   └── pixishelf/              # 主应用包
-│       ├── package.json        # 应用依赖配置
-│       ├── next.config.ts      # Next.js配置
-│       ├── prisma/             # 数据库模式和迁移
-│       │   ├── schema.prisma   # 数据库模式定义
-│       │   └── generated/      # Prisma生成的客户端
-│       ├── src/                # 源代码
-│       │   ├── app/            # Next.js App Router
-│       │   │   ├── api/        # API路由
-│       │   │   ├── (auth)/     # 认证相关页面
-│       │   │   └── globals.css # 全局样式
-│       │   ├── components/     # React组件
-│       │   ├── lib/            # 工具库和服务
-│       │   ├── types/          # TypeScript类型定义
-│       │   └── utils/          # 工具函数
-│       └── public/             # 静态资源
-└── .github/                     # GitHub配置
-    └── workflows/              # CI/CD工作流
+└── docs/                       # 项目文档
 ```
 
-## 🔧 开发命令
+### 分层架构
+```mermaid
+graph TB
+    A[表示层 - Presentation] --> B[服务层 - Service]
+    B --> C[数据访问层 - Repository]
+    C --> D[数据库 - PostgreSQL]
+    
+    subgraph "表示层"
+        A1[React组件]
+        A2[API路由]
+        A3[页面路由]
+    end
+    
+    subgraph "服务层"
+        B1[业务逻辑]
+        B2[数据验证]
+        B3[权限控制]
+    end
+    
+    subgraph "数据访问层"
+        C1[Repository模式]
+        C2[Prisma ORM]
+        C3[查询优化]
+    end
+```
 
-### 根目录命令
+## 🔧 开发指南
+
+### 常用命令
+
+#### 根目录命令
 ```bash
-# 安装所有依赖
+# 安装依赖
 pnpm install
 
 # 启动开发服务器
@@ -210,175 +253,205 @@ pnpm build
 pnpm format
 ```
 
-### 应用命令
+#### 应用命令
 ```bash
 cd packages/pixishelf
 
-# 开发模式启动
-pnpm dev
-
-# 构建生产版本
-pnpm build
-
-# 启动生产版本
-pnpm start
-
-# 数据库相关
+# 数据库操作
 pnpm db:generate    # 生成Prisma客户端
-pnpm db:push        # 推送模式到数据库
-pnpm db:migrate     # 运行数据库迁移
-pnpm db:deploy      # 部署数据库迁移
-pnpm db:studio      # 启动Prisma Studio
+pnpm db:push        # 推送模式变更
+pnpm db:migrate     # 创建迁移
+pnpm db:deploy      # 部署迁移
+pnpm db:studio      # 启动数据库管理界面
+
+# 开发和构建
+pnpm dev           # 开发模式（端口5430）
+pnpm build         # 构建生产版本
+pnpm start         # 启动生产版本
+pnpm lint          # 代码检查
 ```
 
-## 🐳 Docker部署
+### 开发工作流
 
-### 开发环境
+1. **功能开发**
+   ```bash
+   # 创建功能分支
+   git checkout -b feature/new-feature
+   
+   # 开发过程中
+   pnpm dev          # 启动开发服务器
+   pnpm db:studio    # 查看数据库
+   
+   # 提交前检查
+   pnpm lint         # 代码检查
+   pnpm format       # 格式化代码
+   ```
+
+2. **数据库变更**
+   ```bash
+   # 修改 prisma/schema.prisma
+   pnpm db:generate  # 生成客户端
+   pnpm db:push      # 推送到开发数据库
+   
+   # 生产环境迁移
+   pnpm db:migrate   # 创建迁移文件
+   ```
+
+## 🐳 部署指南
+
+### Docker部署
+
+#### 开发环境
 ```bash
 cd build
-
-# 启动数据库
-docker-compose up -d postgres
-
-# 查看数据库日志
-docker-compose logs -f postgres
 
 # 启动所有服务
 docker-compose up -d
 
 # 查看服务状态
 docker-compose ps
+
+# 查看日志
+docker-compose logs -f app
 ```
 
-### 生产环境
+#### 生产环境
 ```bash
 cd build
 
-# 使用生产配置启动
+# 使用生产配置
 docker-compose -f docker-compose.deploy.yml up -d
 
-# 查看服务状态
+# 健康检查
 docker-compose -f docker-compose.deploy.yml ps
-
-# 查看日志
-docker-compose -f docker-compose.deploy.yml logs -f
 ```
 
-### 服务说明
-- **postgres**: PostgreSQL数据库服务 (端口5432)
-- **app**: PixiShelf主应用 (端口5430)
-- **imgproxy**: 图片处理服务 (端口5431)
-- **thumbor**: 视频处理服务 (端口5433)
+### 服务配置
 
-## 🗄️ 数据库管理
+| 服务 | 端口 | 描述 |
+|------|------|------|
+| app | 5430 | 主应用服务 |
+| postgres | 5432 | PostgreSQL数据库 |
+| imgproxy | 5431 | 图片处理服务 |
+| thumbor | 5433 | 视频处理服务 |
+| prisma-studio | 5555 | 数据库管理界面（开发环境） |
 
-### 备份数据库
-```bash
-# 创建数据库备份
-docker exec pixishelf-db pg_dump -U pixishelf -d pixishelf > backup.sql
-```
+## 🔍 功能说明
 
-### 恢复数据库
-```bash
-# 从备份恢复数据库
-docker exec -i pixishelf-db psql -U pixishelf -d pixishelf < backup.sql
-```
+### 文件扫描
+- 自动扫描指定目录下的图片和视频文件
+- 解析文件夹结构，提取艺术家和作品信息
+- 支持多种元数据格式（JSON、文件名解析等）
+- 实时进度反馈和错误处理
 
-### 重置数据库
-```bash
-# 停止服务
-docker-compose down
+### 标签管理
+- 智能标签提取和管理
+- 支持中英文标签和批量翻译
+- 全文搜索和模糊匹配
+- 标签统计和热门标签展示
 
-# 删除数据卷
-docker volume rm build_postgres_data
+### 作品展示
+- 响应式瀑布流布局
+- 无限滚动加载
+- 多种排序和筛选选项
+- 作品详情页面和图片查看器
 
-# 重新启动
-docker-compose up -d postgres
+### 用户管理
+- JWT身份认证
+- 管理员权限控制
+- 用户偏好设置
+- 安全的密码管理
 
-# 重新初始化数据库
-cd packages/pixishelf
-pnpm db:push
-```
-
-## 🔍 故障排除
+## 🛠️ 故障排除
 
 ### 常见问题
 
 1. **数据库连接失败**
-   - 确保Docker服务正在运行
-   - 检查数据库容器状态：`docker-compose ps`
-   - 查看数据库日志：`docker-compose logs postgres`
-   - 验证DATABASE_URL配置是否正确
+   ```bash
+   # 检查数据库状态
+   docker-compose ps postgres
+   docker-compose logs postgres
+   
+   # 重启数据库
+   docker-compose restart postgres
+   ```
 
 2. **端口冲突**
-   - 检查端口占用：`lsof -i :5430` (macOS/Linux) 或 `netstat -an | findstr :5430` (Windows)
-   - 修改docker-compose.yml中的端口映射
+   ```bash
+   # 检查端口占用
+   lsof -i :5430  # macOS/Linux
+   netstat -ano | findstr :5430  # Windows
+   
+   # 修改端口配置
+   # 编辑 docker-compose.yml 或 package.json
+   ```
 
-3. **依赖安装失败**
-   - 清除缓存：`pnpm store prune`
-   - 删除node_modules：`rm -rf node_modules packages/*/node_modules`
-   - 重新安装：`pnpm install`
+3. **图片处理服务异常**
+   ```bash
+   # 检查服务状态
+   curl http://localhost:5431/health
+   curl http://localhost:5433/healthcheck
+   
+   # 重启服务
+   docker-compose restart imgproxy thumbor
+   ```
 
-4. **Prisma相关问题**
-   - 重新生成客户端：`cd packages/pixishelf && pnpm db:generate`
-   - 检查数据库连接字符串
-   - 确保数据库服务正在运行
-
-5. **图片处理服务问题**
-   - 检查imgproxy服务状态：`curl http://localhost:5431/health`
-   - 检查thumbor服务状态：`curl http://localhost:5433/healthcheck`
-   - 确保图片目录正确挂载
-
-6. **环境变量问题**
-   - 确保.env文件存在且配置正确
-   - 检查JWT_SECRET是否设置且足够长
-   - 验证图片目录路径是否正确
-
-### 日志查看
-```bash
-# 查看应用日志
-docker-compose logs -f app
-
-# 查看数据库日志
-docker-compose logs -f postgres
-
-# 查看图片处理服务日志
-docker-compose logs -f imgproxy
-docker-compose logs -f thumbor
-
-# 查看所有服务日志
-docker-compose logs -f
-```
+4. **依赖安装问题**
+   ```bash
+   # 清理缓存
+   pnpm store prune
+   rm -rf node_modules packages/*/node_modules
+   
+   # 重新安装
+   pnpm install
+   ```
 
 ### 性能优化
-- 确保为PostgreSQL分配足够的内存
-- 定期清理未使用的Docker镜像和容器
-- 监控磁盘空间，特别是图片存储目录
-- 考虑使用SSD存储以提高I/O性能
 
-## 📝 许可证
+- **数据库优化**: 定期执行 `VACUUM` 和 `ANALYZE`
+- **图片缓存**: 配置imgproxy缓存策略
+- **内存管理**: 监控Node.js内存使用
+- **磁盘空间**: 定期清理日志和临时文件
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+## 📚 文档
 
-## 🤝 贡献
+- [系统设计文档](docs/SYSTEM_DESIGN.md) - 详细的架构设计说明
+- [部署指南](DEPLOYMENT.md) - 生产环境部署说明
 
-欢迎提交Issue和Pull Request！
+## 🤝 贡献指南
 
-1. Fork本项目
-2. 创建特性分支：`git checkout -b feature/amazing-feature`
-3. 提交更改：`git commit -m 'Add some amazing feature'`
-4. 推送分支：`git push origin feature/amazing-feature`
-5. 提交Pull Request
+我们欢迎所有形式的贡献！
 
-## 📞 支持
+### 贡献流程
+1. Fork 项目到你的GitHub账户
+2. 创建功能分支: `git checkout -b feature/amazing-feature`
+3. 提交变更: `git commit -m 'Add amazing feature'`
+4. 推送分支: `git push origin feature/amazing-feature`
+5. 创建Pull Request
 
-如果你在使用过程中遇到问题，请：
+### 代码规范
+- 遵循ESLint和Prettier配置
+- 编写清晰的提交信息
+- 添加必要的测试用例
+- 更新相关文档
 
-1. 查看本README的故障排除部分
-2. 查看项目文档目录下的相关文档
-3. 搜索已有的Issues
-4. 创建新的Issue并提供详细信息
+### 问题报告
+- 使用GitHub Issues报告bug
+- 提供详细的复现步骤
+- 包含环境信息和错误日志
+
+## 📄 许可证
+
+本项目采用 [MIT License](LICENSE) 开源协议。
+
+## 🙏 致谢
+
+感谢以下开源项目的支持：
+- [Next.js](https://nextjs.org/) - React全栈框架
+- [Prisma](https://www.prisma.io/) - 现代化数据库工具
+- [Tailwind CSS](https://tailwindcss.com/) - CSS框架
+- [Radix UI](https://www.radix-ui.com/) - UI组件库
 
 ---
 
-**享受你的个人画廊之旅！** 🎨✨
+**开始你的艺术收藏数字化之旅！** 🎨✨
