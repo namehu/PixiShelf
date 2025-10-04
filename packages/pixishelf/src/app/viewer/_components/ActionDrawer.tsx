@@ -89,8 +89,8 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
                 <Tabs defaultValue={titleOpacity} onValueChange={setTitleOpacity}>
                   <TabsList>
                     <TabsTrigger value="0">0%</TabsTrigger>
-                    <TabsTrigger value="30">30%</TabsTrigger>
-                    <TabsTrigger value="70">70%</TabsTrigger>
+                    <TabsTrigger value="25">25%</TabsTrigger>
+                    <TabsTrigger value="60">60%</TabsTrigger>
                     <TabsTrigger value="100">100%</TabsTrigger>
                   </TabsList>
                 </Tabs>
