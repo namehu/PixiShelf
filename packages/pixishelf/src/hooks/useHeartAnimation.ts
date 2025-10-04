@@ -218,11 +218,11 @@ export function useHeartAnimation(options: UseHeartAnimationOptions = {}): UseHe
     const isRapid = rapidClickDetectorRef.current?.detectRapidClick()
 
     if (isRapid) {
+      options.onTriggerHeart?.()
       triggerHearts(position, 5) // 快速点击触发更多爱心
     }
 
     updateClickCount()
-    options.onTriggerHeart?.()
   }
 
   /**
