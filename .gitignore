@@ -15,6 +15,7 @@ dist/
 !build/.env.*
 *.tsbuildinfo
 
+packages/pixiv-automation/user_data/*
 # IDE
 .vscode/
 .idea/
