@@ -29,6 +29,7 @@ interface SingleImageProps {
   retryKey: number
   priority?: boolean
   isPreloading?: boolean
+  shouldLoad?: boolean
   onRetry: () => void
 }
 
@@ -45,7 +46,7 @@ function SingleImage({
   priority = false,
   isPreloading = false,
   shouldLoad = true
-}: SingleImageProps & { shouldLoad?: boolean }) {
+}: SingleImageProps) {
   const [imageError, setImageError] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -242,24 +243,23 @@ export default function ImageSlide({ isActive, isPreloading, image, onError }: I
       >
         {image.images.map((img, index) => {
           const isCurrentImage = index === currentImageIndex
-          // 只渲染当前图片和相邻的图片（前一张和后一张）
-          const shouldLoad = isActive
-            ? Math.abs(index - currentImageIndex) <= 1
-            : Math.abs(index - currentImageIndex) < 1
+          // 激活状态下，只渲染当前图片和相邻的图片（前一张和后一张）
+          // 非激活状态下，只渲染当前图片
+          const shouldLoad = isActive ? Math.abs(index - currentImageIndex) <= 1 : isCurrentImage
 
           return (
-            <SwiperSlide key={`${img.key}-${index}`}>
+            <SwiperSlide key={img.key}>
               <SingleImage
                 image={img.url}
                 mediaType={image.mediaType}
                 id={img.key}
                 // 只有当外部幻灯片(垂直)和内部幻灯片(水平)都为当前时，才设置最高优先级
+                shouldLoad={shouldLoad}
+                isPreloading={shouldLoad}
                 priority={isActive && isCurrentImage}
-                isPreloading={isPreloading}
                 onError={onError}
                 retryKey={retryKey}
                 onRetry={handleRetry}
-                shouldLoad={shouldLoad}
               />
             </SwiperSlide>
           )
