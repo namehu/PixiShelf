@@ -18,6 +18,7 @@ import { useViewerStore, getHorizontalIndex } from '@/store/viewerStore'
 interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   image: RandomImageItem
   isActive: boolean
+  isPreloading: boolean
 }
 
 interface SingleImageProps {
@@ -26,6 +27,8 @@ interface SingleImageProps {
   id: string
   onError?: (() => void) | undefined
   retryKey: number
+  priority?: boolean
+  isPreloading?: boolean
   onRetry: () => void
 }
 
@@ -39,6 +42,8 @@ function SingleImage({
   onError,
   retryKey,
   onRetry,
+  priority = false,
+  isPreloading = false,
   shouldLoad = true
 }: SingleImageProps & { shouldLoad?: boolean }) {
   const [imageError, setImageError] = useState(false)
@@ -86,8 +91,12 @@ function SingleImage({
               height={window.outerHeight}
               alt={id || `Image by ${id || 'Unknown'}`}
               className="w-full h-full object-contain"
-              loading="lazy"
-              priority={false}
+              // 当图片是当前活动(priority)或需要预加载(isPreloading)时，
+              // 强制使用 eager 模式，让浏览器立即加载。
+              // 否则，使用默认的 lazy 模式。
+              loading={priority || isPreloading ? 'eager' : 'lazy'}
+              // priority 属性会给 Next.js 最高优先级，通常只给当前视口的图片
+              priority={priority}
               quality={100}
               onError={handleImageError}
             />
@@ -100,6 +109,7 @@ function SingleImage({
               loop
               muted
               className="w-full h-full object-contain"
+              preload={priority || isPreloading ? 'auto' : 'none'}
               onError={handleImageError}
             />
           )}
@@ -137,7 +147,7 @@ function SingleImage({
  * 支持单图和多图横向滑动浏览
  * 集成状态管理，支持水平滑动位置恢复
  */
-export default function ImageSlide({ isActive, image, onError }: ImageSlideProps) {
+export default function ImageSlide({ isActive, isPreloading, image, onError }: ImageSlideProps) {
   const [retryKey, setRetryKey] = useState(0)
 
   // 从状态管理中获取初始水平索引
@@ -181,6 +191,8 @@ export default function ImageSlide({ isActive, image, onError }: ImageSlideProps
           image={image.imageUrl}
           mediaType={image.mediaType}
           id={image.key}
+          priority={isActive}
+          isPreloading={isPreloading}
           onError={onError}
           retryKey={retryKey}
           onRetry={handleRetry}
@@ -229,6 +241,7 @@ export default function ImageSlide({ isActive, image, onError }: ImageSlideProps
         }}
       >
         {image.images.map((img, index) => {
+          const isCurrentImage = index === currentImageIndex
           // 只渲染当前图片和相邻的图片（前一张和后一张）
           const shouldLoad = isActive
             ? Math.abs(index - currentImageIndex) <= 1
@@ -240,6 +253,9 @@ export default function ImageSlide({ isActive, image, onError }: ImageSlideProps
                 image={img.url}
                 mediaType={image.mediaType}
                 id={img.key}
+                // 只有当外部幻灯片(垂直)和内部幻灯片(水平)都为当前时，才设置最高优先级
+                priority={isActive && isCurrentImage}
+                isPreloading={isPreloading}
                 onError={onError}
                 retryKey={retryKey}
                 onRetry={handleRetry}

@@ -109,11 +109,23 @@ export default function ImmersiveImageViewer({
         >
           {initialImages.map((image, index) => {
             // 只渲染当前slide和相邻的slide（上一个和下一个）
-            const shouldRender = Math.abs(index - activeIndex) <= 1
+            // const shouldRender = Math.abs(index - activeIndex) <= 1
+
+            // 1. 判断当前幻灯片是否是用户正在看的
+            const isActive = index === activeIndex
+            // 2. 判断当前幻灯片是否是需要预加载的（即下一个或上一个）
+            const isPreloading = Math.abs(index - activeIndex) === 1
+            // 3. 只有“活动”和“预加载”的幻灯片才会被渲染，其他都是占位符
+            const shouldRender = isActive || isPreloading
+
             return (
               <SwiperSlide key={image.key} className=" flex w-full h-ful items-center justify-center overflow-hidden">
                 <div className="relative w-full h-full bg-black">
-                  {shouldRender ? <ImageSlide isActive={index === activeIndex} image={image} /> : <Placeholder.Image />}
+                  {shouldRender ? (
+                    <ImageSlide isActive={isActive} isPreloading={isPreloading} image={image} />
+                  ) : (
+                    <Placeholder.Image />
+                  )}
                 </div>
               </SwiperSlide>
             )
