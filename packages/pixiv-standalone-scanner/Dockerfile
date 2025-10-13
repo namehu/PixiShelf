@@ -18,6 +18,5 @@ COPY app.js .
 # 告诉 Docker 容器在运行时会监听哪个网络端口
 EXPOSE 3000
 
-# 定义容器启动时要运行的命令
-CMD [ "npm", "start" ]
-
+# 直接使用 node 启动应用，而不是通过 npm start
+CMD [ "node", "app.js" ]
