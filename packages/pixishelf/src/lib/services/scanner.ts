@@ -63,6 +63,73 @@ export class ScannerService {
   }
 
   /**
+   * 调用远程扫描服务获取元数据文件列表
+   * @param directoryPath 目录路径
+   * @returns 远程服务返回的文件路径数组
+   */
+  private async callRemoteScannerService(directoryPath: string): Promise<string[]> {
+    const useRemoteScanner = process.env.USE_REMOTE_SCANNER === 'true'
+    const remoteScannerUrl = process.env.REMOTE_SCANNER_URL || 'http://localhost:3000'
+
+    if (!useRemoteScanner) {
+      throw new Error('Remote scanner is not enabled')
+    }
+
+    const maxRetries = 3
+    let lastError: Error | null = null
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`Calling remote scanner service (attempt ${attempt}/${maxRetries})`, {
+          url: remoteScannerUrl,
+          directoryPath
+        })
+
+        const response = await fetch(`${remoteScannerUrl}/metadata-files`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          // 设置超时时间为 30 秒
+          signal: AbortSignal.timeout(30000)
+        })
+
+        if (!response.ok) {
+          throw new Error(`Remote scanner service returned ${response.status}: ${response.statusText}`)
+        }
+
+        const data = await response.json()
+        
+        if (!Array.isArray(data)) {
+          throw new Error('Remote scanner service returned invalid data format')
+        }
+
+        logger.info('Successfully received metadata files from remote scanner', {
+          fileCount: data.length,
+          attempt
+        })
+
+        return data
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown error')
+        logger.warn(`Remote scanner service call failed (attempt ${attempt}/${maxRetries})`, {
+          error: lastError.message,
+          url: remoteScannerUrl
+        })
+
+        // 如果不是最后一次尝试，等待一段时间后重试
+        if (attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000) // 指数退避，最大 5 秒
+          logger.info(`Retrying in ${delay}ms...`)
+          await sleep(delay)
+        }
+      }
+    }
+
+    throw new Error(`Remote scanner service failed after ${maxRetries} attempts: ${lastError?.message}`)
+  }
+
+  /**
    * 扫描方法
    * @param options 扫描选项
    * @returns 扫描结果
@@ -262,13 +329,60 @@ export class ScannerService {
    * @returns 元数据文件数组
    */
   private async globMetadataFiles(directoryPath: string, forceUpdate: boolean = false): Promise<GlobMetadataFile[]> {
-    // 查找 数字-meta.txt 格式的文件
-    const files = await fg(['**/*-meta.txt'], {
-      cwd: path.resolve(directoryPath),
-      deep: 4,
-      absolute: true,
-      onlyFiles: true
-    })
+    const useRemoteScanner = process.env.USE_REMOTE_SCANNER === 'true'
+    let files: string[] = []
+
+    if (useRemoteScanner) {
+      try {
+        logger.info('Using remote scanner service for metadata file discovery', {
+          directoryPath,
+          useRemoteScanner
+        })
+
+        // 调用远程扫描服务
+        const remoteFiles = await this.callRemoteScannerService(directoryPath)
+        
+        // 远程服务返回的是相对路径（去掉了 SCAN_DIRECTORY 前缀）
+        // 需要拼接 directoryPath 来生成绝对路径
+        files = remoteFiles.map(relativePath => {
+          // 移除开头的斜杠（如果有的话）
+          const cleanPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath
+          return path.resolve(directoryPath, cleanPath)
+        })
+
+        logger.info('Successfully processed remote scanner results', {
+          remoteFileCount: remoteFiles.length,
+          processedFileCount: files.length,
+          samplePaths: files.slice(0, 3) // 记录前3个路径作为示例
+        })
+      } catch (error) {
+        logger.error('Failed to use remote scanner service, falling back to local scanning', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          directoryPath
+        })
+        
+        // 远程服务失败时回退到本地扫描
+        files = await fg(['**/*-meta.txt'], {
+          cwd: path.resolve(directoryPath),
+          deep: 4,
+          absolute: true,
+          onlyFiles: true
+        })
+      }
+    } else {
+      logger.info('Using local file scanning for metadata file discovery', {
+        directoryPath,
+        useRemoteScanner
+      })
+
+      // 使用本地文件扫描
+      files = await fg(['**/*-meta.txt'], {
+        cwd: path.resolve(directoryPath),
+        deep: 4,
+        absolute: true,
+        onlyFiles: true
+      })
+    }
 
     const createdAt = new Date()
     // 过滤出符合 数字-meta.txt 格式的文件

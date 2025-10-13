@@ -37,6 +37,9 @@ services:
       # 覆盖生产环境特定配置
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
+      # 远程扫描服务配置
+      USE_REMOTE_SCANNER: ${USE_REMOTE_SCANNER:-false}
+      REMOTE_SCANNER_URL: ${REMOTE_SCANNER_URL:-http://localhost:3000}
     volumes:
       # 挂载图片目录 - 根据实际需要调整路径
       - ./data:/app/data:ro  # 只读挂载图片目录
