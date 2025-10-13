@@ -1,0 +1,12 @@
+{
+  "name": "@pixishelf/standalone-scanner",
+  "version": "1.0.0",
+  "description": "API to serve pixiv metadata file paths",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
