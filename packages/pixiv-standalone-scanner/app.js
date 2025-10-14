@@ -9,8 +9,8 @@ const PORT = process.env.PORT || 3000; // 使用标准的 Node.js 端口
 const CACHE_DURATION_SECONDS = parseInt(process.env.CACHE_DURATION_SECONDS || '86400', 10);
 const SCAN_DIRECTORY = process.env.SCAN_DIRECTORY || '/app/data';
 
-console.log(`Cache duration is set to ${CACHE_DURATION_SECONDS} seconds.`);
-console.log(`Scanning directory is set to '${SCAN_DIRECTORY}'.`);
+console.log(`缓存持续时间设置为 ${CACHE_DURATION_SECONDS} 秒`);
+console.log(`扫描目录设置为 '${SCAN_DIRECTORY}'`);
 // ---------------------------
 
 // --- 缓存实现 ---
@@ -28,7 +28,7 @@ let fileCache = {
 function scanFilesWithFind() {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(SCAN_DIRECTORY) || !fs.statSync(SCAN_DIRECTORY).isDirectory()) {
-      console.error(`Error: Scan directory '${SCAN_DIRECTORY}' not found or is not a directory.`);
+      console.error(`错误：扫描目录 '${SCAN_DIRECTORY}' 不存在或不是目录`);
       resolve(null); // 目录不存在，解析为 null
       return;
     }
@@ -48,7 +48,7 @@ function scanFilesWithFind() {
 
     findProcess.on('close', (code) => {
       if (code !== 0) {
-        console.error(`'find' command exited with code ${code}: ${errorOutput}`);
+        console.error(`'find' 命令退出，代码 ${code}：${errorOutput}`);
         resolve([]); // 出错时返回空数组
       } else {
         const pathList = paths.split('\n')
@@ -59,7 +59,7 @@ function scanFilesWithFind() {
     });
 
     findProcess.on('error', (err) => {
-      console.error(`Failed to start 'find' process: ${err.message}`);
+      console.error(`启动 'find' 进程失败：${err.message}`);
       resolve([]); // 进程启动失败
     });
   });
@@ -73,7 +73,7 @@ async function refreshCache() {
     return;
   }
 
-  console.log("Starting cache refresh using 'find' command...");
+  console.log("开始使用 'find' 命令刷新缓存...");
   fileCache.isUpdating = true;
 
   const newData = await scanFilesWithFind();
@@ -81,15 +81,15 @@ async function refreshCache() {
   if (newData !== null) {
     fileCache.data = newData;
     fileCache.lastUpdated = Date.now() / 1000; // 使用秒为单位的时间戳
-    console.log(`Cache refreshed successfully with ${newData.length} items.`);
+    console.log(`缓存刷新成功，共 ${newData.length} 个项目`);
   } else {
-    console.log("Cache refresh failed: Directory not found.");
+    console.log("缓存刷新失败：目录未找到");
   }
 
   fileCache.isUpdating = false;
 }
 
-// --- API Endpoints ---
+// --- API 接口 ---
 
 app.get('/metadata-files', async (req, res) => {
   const now = Date.now() / 1000;
@@ -98,13 +98,13 @@ app.get('/metadata-files', async (req, res) => {
 
   // 如果缓存过期，并且没有正在更新，则在后台触发刷新
   if (isExpired && !fileCache.isUpdating) {
-    console.log(`Cache expired (age: ${cacheAge.toFixed(0)}s). Triggering asynchronous refresh in the background.`);
+    console.log(`缓存已过期（年龄：${cacheAge.toFixed(0)}秒）。在后台触发异步刷新`);
     refreshCache(); // 不使用 await，让它在后台运行
   }
 
   // 如果缓存是空的（通常是服务首次启动），则同步等待一次刷新
   if (fileCache.data.length === 0 && !fileCache.isUpdating) {
-    console.log("Cache is empty. Triggering initial synchronous scan.");
+    console.log("缓存为空。触发初始同步扫描");
     await refreshCache();
   }
 
@@ -112,20 +112,20 @@ app.get('/metadata-files', async (req, res) => {
   res.json(fileCache.data);
 });
 
-app.post('/refresh', (req, res) => {
+app.get('/refresh', (req, res) => {
   if (fileCache.isUpdating) {
-    return res.status(429).json({ message: "Cache update already in progress." });
+    return res.status(429).json({ message: "缓存更新已在进行中" });
   }
 
   refreshCache(); // 触发后台刷新
-  res.status(202).json({ message: "Cache refresh started in the background." });
+  res.status(202).json({ message: "缓存刷新已在后台启动" });
 });
 
 
 // --- 服务器启动 ---
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`服务器运行在端口 ${PORT}`);
   // 启动时立即开始第一次缓存加载
-  console.log("Performing initial cache scan on startup...");
+  console.log("启动时执行初始缓存扫描...");
   refreshCache();
 });
