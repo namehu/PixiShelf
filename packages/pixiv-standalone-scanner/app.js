@@ -96,19 +96,32 @@ app.get('/metadata-files', async (req, res) => {
   const cacheAge = now - fileCache.lastUpdated;
   const isExpired = cacheAge > CACHE_DURATION_SECONDS;
 
-  // 如果缓存过期，并且没有正在更新，则在后台触发刷新
-  if (isExpired && !fileCache.isUpdating) {
-    console.log(`缓存已过期（年龄：${cacheAge.toFixed(0)}秒）。在后台触发异步刷新`);
-    refreshCache(); // 不使用 await，让它在后台运行
-  }
-
-  // 如果缓存是空的（通常是服务首次启动），则同步等待一次刷新
-  if (fileCache.data.length === 0 && !fileCache.isUpdating) {
-    console.log("缓存为空。触发初始同步扫描");
+  // 如果缓存过期或为空，并且没有正在更新，则等待刷新完毕
+  if ((isExpired || fileCache.data.length === 0) && !fileCache.isUpdating) {
+    if (isExpired) {
+      console.log(`缓存已过期（年龄：${cacheAge.toFixed(0)}秒）。等待缓存刷新完毕`);
+    } else {
+      console.log("缓存为空。触发初始同步扫描");
+    }
     await refreshCache();
   }
 
-  // 总是立即返回缓存中的数据
+  // 如果正在更新中，等待更新完成
+  if (fileCache.isUpdating) {
+    console.log("缓存正在更新中，等待更新完成");
+    // 等待更新完成，最多等待30秒
+    const maxWaitTime = 30000; // 30秒
+    const startTime = Date.now();
+    while (fileCache.isUpdating && (Date.now() - startTime) < maxWaitTime) {
+      await new Promise(resolve => setTimeout(resolve, 100)); // 等待100ms
+    }
+    
+    if (fileCache.isUpdating) {
+      console.log("等待缓存更新超时，返回当前缓存数据");
+    }
+  }
+
+  // 返回最新的缓存数据
   res.json(fileCache.data);
 });
 
@@ -125,7 +138,4 @@ app.get('/refresh', (req, res) => {
 // --- 服务器启动 ---
 app.listen(PORT, () => {
   console.log(`服务器运行在端口 ${PORT}`);
-  // 启动时立即开始第一次缓存加载
-  console.log("启动时执行初始缓存扫描...");
-  refreshCache();
 });
