@@ -20,7 +20,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
-    restart: unless-stopped
+    restart: always
 
   # 统一的 Web + API 服务容器
   app:
@@ -73,6 +73,7 @@ services:
       - IMGPROXY_MAX_SRC_RESOLUTION=1000
     networks:
       - pixishelf-network
+    restart: always
 
   thumbor:
     # 使用官方的 Thumbor 镜像
