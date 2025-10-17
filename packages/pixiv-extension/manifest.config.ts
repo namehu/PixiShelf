@@ -17,10 +17,17 @@ export default defineManifest({
   permissions: [
     'sidePanel',
     'contentSettings',
+    'activeTab',
+    'storage',
+    'tabs',
+  ],
+  host_permissions: [
+    'https://www.pixiv.net/*',
+    'https://i.pximg.net/*',
   ],
   content_scripts: [{
     js: ['src/content/main.tsx'],
-    matches: ['https://*/*'],
+    matches: ['https://www.pixiv.net/*'],
   }],
   side_panel: {
     default_path: 'src/sidepanel/index.html',
