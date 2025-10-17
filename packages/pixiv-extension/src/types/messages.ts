@@ -39,6 +39,26 @@ export interface DownloadImagesResponse {
   results: ImageDownloadResult[];
 }
 
+// Background Script 下载相关类型
+export interface DownloadFileData {
+  arrayBuffer: ArrayBuffer;
+  filename: string;
+  mimeType: string;
+  customDirectory?: string;
+}
+
+export interface DownloadMessage {
+  type: 'DOWNLOAD_FILE';
+  data: DownloadFileData;
+}
+
+export interface DownloadResponse {
+  success: boolean;
+  downloadId?: number;
+  message?: string;
+  error?: string;
+}
+
 // 扩展消息类型
-export type ExtensionMessage = DownloadImageRequest | DownloadImagesRequest;
-export type ExtensionResponse = DownloadImageResponse | DownloadImagesResponse;
+export type ExtensionMessage = DownloadImageRequest | DownloadImagesRequest | DownloadMessage;
+export type ExtensionResponse = DownloadImageResponse | DownloadImagesResponse | DownloadResponse;

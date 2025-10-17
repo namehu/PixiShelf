@@ -20,6 +20,7 @@ export default defineManifest({
     'activeTab',
     'storage',
     'tabs',
+    'downloads',
   ],
   host_permissions: [
     'https://www.pixiv.net/*',
@@ -29,6 +30,9 @@ export default defineManifest({
     js: ['src/content/main.tsx'],
     matches: ['https://www.pixiv.net/*'],
   }],
+  background: {
+    service_worker: 'src/background/main.ts',
+  },
   side_panel: {
     default_path: 'src/sidepanel/index.html',
   },

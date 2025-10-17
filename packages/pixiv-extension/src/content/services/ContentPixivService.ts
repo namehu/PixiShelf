@@ -18,6 +18,7 @@ import {
   SqlGenerationOptions,
   FileDownloadOptions
 } from '../../types'
+import type { DownloadMessage, DownloadResponse } from '../../types/messages'
 import { useTaskStore } from '../stores/taskStore'
 
 /**
@@ -386,7 +387,7 @@ class ContentPixivService implements IPixivService {
       }
 
       const filename = options?.filename || 'pixiv_tags_update.sql'
-      this.downloadFile(result.data, filename, 'text/sql')
+      await this.downloadFile(result.data, filename, 'text/sql')
 
       return { success: true }
     } catch (error) {
@@ -427,61 +428,20 @@ class ContentPixivService implements IPixivService {
         }
       }
 
-      console.log(`发现 ${itemsWithImages.length} 个带封面图的标签。开始下载...`)
+      // 获取下载模式，默认为zip模式以保持向后兼容
+      const downloadMode = request?.downloadMode || 'zip'
 
-      // 创建ZIP文件，与原始脚本一致的结构
-      const zip = new JSZip()
-      const rootFolder = zip.folder('tags')
-      let successCount = 0
+      console.log(
+        `发现 ${itemsWithImages.length} 个带封面图的标签。开始${downloadMode === 'zip' ? 'ZIP打包' : '单独'}下载...`
+      )
 
-      for (const [index, item] of itemsWithImages.entries()) {
-        const data = item.data as PixivTagData
-
-        try {
-          const result = await this.downloadSingleImage(data.imageUrl!)
-
-          if (result.success && result.arrayBuffer) {
-            // 从URL中提取文件名，与原始脚本一致
-            const fileName = data.imageUrl!.split('/').pop()!.split('?')[0]
-            rootFolder!.file(fileName, result.arrayBuffer)
-
-            successCount++
-            console.log(`✅ (${successCount}/${itemsWithImages.length}) 成功下载标签 "${data.originalTag}" 的封面图。`)
-          } else {
-            console.error(`❌ 下载标签 "${data.originalTag}" 的封面图失败:`, result.error)
-          }
-        } catch (error) {
-          console.error(
-            `❌ 下载标签 "${data.originalTag}" 的封面图失败:`,
-            error instanceof Error ? error.message : '未知错误'
-          )
-        }
-
-        // 调用进度回调
-        if (request?.onProgress) {
-          request.onProgress(index + 1, itemsWithImages.length)
-        }
-
-        // 每次下载后随机延迟，避免对图片服务器造成太大压力
-        await this.delay(200, 700)
+      if (downloadMode === 'individual') {
+        // 单独下载模式
+        return await this.downloadImagesIndividually(itemsWithImages, request)
+      } else {
+        // ZIP打包下载模式（原有逻辑）
+        return await this.downloadImagesAsZip(itemsWithImages, request)
       }
-
-      if (successCount === 0) {
-        console.log('所有封面图均下载失败，不生成 zip 文件。')
-        return {
-          success: false,
-          error: '所有封面图均下载失败',
-          code: ERROR_CODES.DOWNLOAD_FAILED
-        }
-      }
-
-      console.log(`正在生成 pixiv_tag_images.zip 文件，请稍候...`)
-      const zipBlob = await zip.generateAsync({ type: 'blob' })
-      this.downloadFile(zipBlob, 'pixiv_tag_images.zip', 'application/zip')
-
-      console.log(`%c📦 pixiv_tag_images.zip 下载已开始!`, 'color: green; font-size: 14px;')
-
-      return { success: true }
     } catch (error) {
       return {
         success: false,
@@ -489,6 +449,118 @@ class ContentPixivService implements IPixivService {
         code: ERROR_CODES.DOWNLOAD_FAILED
       }
     }
+  }
+
+  // 单独下载图片
+  private async downloadImagesIndividually(itemsWithImages: any[], request?: DownloadRequest): Promise<ServiceResult> {
+    let successCount = 0
+
+    for (const [index, item] of itemsWithImages.entries()) {
+      const data = item.data as PixivTagData
+
+      try {
+        const result = await this.downloadSingleImage(data.imageUrl!)
+
+        if (result.success && result.arrayBuffer) {
+          // 从URL中提取原始文件名
+          const fileName = data.imageUrl!.split('/').pop()!.split('?')[0]
+
+          // 创建Blob并下载
+          const blob = new Blob([result.arrayBuffer], { type: result.mimeType || 'image/jpeg' })
+          await this.downloadFile(blob, fileName, result.mimeType || 'image/jpeg', request?.customDirectory)
+
+          successCount++
+          const directoryInfo = request?.customDirectory ? ` 到 ${request.customDirectory}/` : ''
+          console.log(
+            `✅ (${successCount}/${itemsWithImages.length}) 成功下载标签 "${data.originalTag}" 的封面图${directoryInfo}: ${fileName}`
+          )
+        } else {
+          console.error(`❌ 下载标签 "${data.originalTag}" 的封面图失败:`, result.error)
+        }
+      } catch (error) {
+        console.error(
+          `❌ 下载标签 "${data.originalTag}" 的封面图失败:`,
+          error instanceof Error ? error.message : '未知错误'
+        )
+      }
+
+      // 调用进度回调
+      if (request?.onProgress) {
+        request.onProgress(index + 1, itemsWithImages.length)
+      }
+
+      // 每次下载后随机延迟，避免对图片服务器造成太大压力
+      await this.delay(200, 700)
+    }
+
+    if (successCount === 0) {
+      console.log('所有封面图均下载失败。')
+      return {
+        success: false,
+        error: '所有封面图均下载失败',
+        code: ERROR_CODES.DOWNLOAD_FAILED
+      }
+    }
+
+    const directoryInfo = request?.customDirectory ? ` 到 ${request.customDirectory}/ 目录` : ''
+    console.log(`%c📁 成功下载 ${successCount} 个封面图文件${directoryInfo}!`, 'color: green; font-size: 14px;')
+    return { success: true }
+  }
+
+  // ZIP打包下载图片（原有逻辑）
+  private async downloadImagesAsZip(itemsWithImages: any[], request?: DownloadRequest): Promise<ServiceResult> {
+    // 创建ZIP文件，与原始脚本一致的结构
+    const zip = new JSZip()
+    const rootFolder = zip.folder('tags')
+    let successCount = 0
+
+    for (const [index, item] of itemsWithImages.entries()) {
+      const data = item.data as PixivTagData
+
+      try {
+        const result = await this.downloadSingleImage(data.imageUrl!)
+
+        if (result.success && result.arrayBuffer) {
+          // 从URL中提取文件名，与原始脚本一致
+          const fileName = data.imageUrl!.split('/').pop()!.split('?')[0]
+          rootFolder!.file(fileName, result.arrayBuffer)
+
+          successCount++
+          console.log(`✅ (${successCount}/${itemsWithImages.length}) 成功下载标签 "${data.originalTag}" 的封面图。`)
+        } else {
+          console.error(`❌ 下载标签 "${data.originalTag}" 的封面图失败:`, result.error)
+        }
+      } catch (error) {
+        console.error(
+          `❌ 下载标签 "${data.originalTag}" 的封面图失败:`,
+          error instanceof Error ? error.message : '未知错误'
+        )
+      }
+
+      // 调用进度回调
+      if (request?.onProgress) {
+        request.onProgress(index + 1, itemsWithImages.length)
+      }
+
+      // 每次下载后随机延迟，避免对图片服务器造成太大压力
+      await this.delay(200, 700)
+    }
+
+    if (successCount === 0) {
+      console.log('所有封面图均下载失败，不生成 zip 文件。')
+      return {
+        success: false,
+        error: '所有封面图均下载失败',
+        code: ERROR_CODES.DOWNLOAD_FAILED
+      }
+    }
+
+    console.log(`正在生成 pixiv_tag_images.zip 文件，请稍候...`)
+    const zipBlob = await zip.generateAsync({ type: 'blob' })
+    await this.downloadFile(zipBlob, 'pixiv_tag_images.zip', 'application/zip')
+
+    console.log(`%c📦 pixiv_tag_images.zip 下载已开始!`, 'color: green; font-size: 14px;')
+    return { success: true }
   }
 
   // 进度管理
@@ -822,8 +894,61 @@ class ContentPixivService implements IPixivService {
     })
   }
 
-  private downloadFile(content: string | Blob, filename: string, mimeType: string): void {
+  private async downloadFile(
+    content: string | Blob,
+    filename: string,
+    mimeType: string,
+    customDirectory?: string
+  ): Promise<void> {
     const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType })
+
+    // 如果指定了自定义目录，通过background script下载
+    if (customDirectory) {
+      try {
+        await this.downloadWithBackgroundScript(blob, filename, customDirectory)
+        return
+      } catch (error) {
+        console.warn('Background script 下载失败，回退到默认下载方式:', error)
+      }
+    }
+
+    // 使用默认下载方式（直接下载到浏览器默认目录）
+    this.downloadWithDefaultMethod(blob, filename)
+  }
+
+  private async downloadWithBackgroundScript(blob: Blob, filename: string, customDirectory: string): Promise<void> {
+    // 将Blob转换为ArrayBuffer，因为Blob无法通过消息传递
+    const arrayBuffer = await blob.arrayBuffer()
+
+    // 发送消息到background script
+    const message: DownloadMessage = {
+      type: 'DOWNLOAD_FILE',
+      data: {
+        arrayBuffer,
+        filename,
+        mimeType: blob.type,
+        customDirectory
+      }
+    }
+
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(message, (response: DownloadResponse) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message))
+          return
+        }
+
+        if (response.success) {
+          console.log(`✅ Content: ${response.message}`)
+          resolve()
+        } else {
+          reject(new Error(response.error || '下载失败'))
+        }
+      })
+    })
+  }
+
+  private downloadWithDefaultMethod(blob: Blob, filename: string): void {
     const url = URL.createObjectURL(blob)
 
     const a = document.createElement('a')

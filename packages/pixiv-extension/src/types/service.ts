@@ -64,9 +64,14 @@ export interface BatchTranslationRequest {
   onTagComplete?: (tag: string, result: TranslationResponse) => void;
 }
 
+// 下载模式类型
+export type DownloadMode = 'individual' | 'zip';
+
 // 下载请求
 export interface DownloadRequest {
   images: ImageDownloadData[];
+  downloadMode?: DownloadMode; // 下载模式：individual-单独下载，zip-打包下载
+  customDirectory?: string; // 自定义下载目录，如 "tags"
   onProgress?: (current: number, total: number) => void;
   onImageComplete?: (result: ImageDownloadResult) => void;
 }
