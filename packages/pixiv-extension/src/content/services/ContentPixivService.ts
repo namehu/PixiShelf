@@ -18,7 +18,7 @@ import {
   SqlGenerationOptions,
   FileDownloadOptions
 } from '../../types'
-import StorageManager from './StorageManager'
+import { useTaskStore } from '../stores/taskStore'
 
 /**
  * Content Script中的Pixiv服务
@@ -32,12 +32,11 @@ class ContentPixivService implements IPixivService {
   }
 
   private abortController: AbortController | null = null
-  private storageManager = StorageManager
   private config: TaskConfiguration = DEFAULT_TASK_CONFIG
   private eventListeners: Map<string, Set<ServiceEventListener>> = new Map()
 
   constructor() {
-    // StorageManager是单例，直接使用
+    // 使用 taskStore 进行数据管理
   }
 
   // 事件管理
@@ -174,12 +173,12 @@ class ContentPixivService implements IPixivService {
   // 标签操作
   async addTags(tags: string[]): Promise<ServiceResult> {
     try {
-      const existingTags = await this.storageManager.getTagList()
+      const taskStore = useTaskStore.getState()
+      const existingTags = taskStore.getTagList()
       const newTags = tags.filter((tag) => !existingTags.includes(tag))
 
       if (newTags.length > 0) {
-        const updatedTags = [...existingTags, ...newTags]
-        await this.storageManager.setTagList(updatedTags)
+        taskStore.addTags(newTags)
       }
 
       return {
@@ -197,10 +196,8 @@ class ContentPixivService implements IPixivService {
 
   async removeTag(tag: string): Promise<ServiceResult> {
     try {
-      const existingTags = await this.storageManager.getTagList()
-      const updatedTags = existingTags.filter((t: string) => t !== tag)
-      await this.storageManager.setTagList(updatedTags)
-      await this.storageManager.removeTaskProgress(tag)
+      const taskStore = useTaskStore.getState()
+      taskStore.removeTag(tag)
 
       return { success: true }
     } catch (error) {
@@ -214,8 +211,8 @@ class ContentPixivService implements IPixivService {
 
   async clearTags(): Promise<ServiceResult> {
     try {
-      await this.storageManager.setTagList([])
-      await this.storageManager.clearTaskProgress()
+      const taskStore = useTaskStore.getState()
+      taskStore.clearAll()
 
       return { success: true }
     } catch (error) {
@@ -228,7 +225,8 @@ class ContentPixivService implements IPixivService {
   }
 
   async getTags(): Promise<string[]> {
-    return await this.storageManager.getTagList()
+    const taskStore = useTaskStore.getState()
+    return taskStore.getTagList()
   }
 
   // 翻译功能
@@ -307,7 +305,8 @@ class ContentPixivService implements IPixivService {
     try {
       console.log('正在准备生成 SQL 更新文件...')
 
-      const allProgress = await this.storageManager.getProgress()
+      const taskStore = useTaskStore.getState()
+      const allProgress = taskStore.getProgress()
       const successfulItems = Object.values(allProgress).filter((p) => p.status === 'fulfilled' && p.data)
 
       if (successfulItems.length === 0) {
@@ -402,7 +401,8 @@ class ContentPixivService implements IPixivService {
   // 图片下载
   async downloadTagImages(request?: DownloadRequest): Promise<ServiceResult> {
     try {
-      const allProgress = await this.storageManager.getProgress()
+      const taskStore = useTaskStore.getState()
+      const allProgress = taskStore.getProgress()
       const successfulItems = Object.values(allProgress).filter((p) => p.status === 'fulfilled' && p.data)
 
       if (successfulItems.length === 0) {
@@ -493,20 +493,14 @@ class ContentPixivService implements IPixivService {
 
   // 进度管理
   async getProgress(): Promise<TaskStats> {
-    return (
-      (await this.storageManager.getTaskStats()) || {
-        total: 0,
-        completed: 0,
-        successful: 0,
-        failed: 0,
-        pending: 0
-      }
-    )
+    const taskStore = useTaskStore.getState()
+    return taskStore.taskStats
   }
 
   async clearProgress(): Promise<ServiceResult> {
     try {
-      await this.storageManager.clearAll()
+      const taskStore = useTaskStore.getState()
+      taskStore.clearProgress()
 
       return { success: true }
     } catch (error) {
@@ -528,7 +522,8 @@ class ContentPixivService implements IPixivService {
     try {
       console.log(`正在筛选失败的数据... Regex: /${stringReg || ''}/, 删除: ${isDel}`)
 
-      const progress = await this.storageManager.getProgress()
+      const taskStore = useTaskStore.getState()
+      const progress = taskStore.getProgress()
       const failedTags: string[] = []
       let regex: RegExp | undefined
 
@@ -559,7 +554,7 @@ class ContentPixivService implements IPixivService {
       if (isDel) {
         console.log(`找到 ${failedTags.length} 个匹配项，准备删除...`)
         for (const tag of failedTags) {
-          await this.storageManager.removeTaskProgress(tag)
+          taskStore.removeTag(tag)
         }
         console.log(`✅ 已成功删除 ${failedTags.length} 条失败记录。`)
       } else {
@@ -589,12 +584,13 @@ class ContentPixivService implements IPixivService {
   private async processTags(tags: string[]): Promise<void> {
     this.abortController = new AbortController()
 
-    // 添加标签到存储管理器
-    await this.storageManager.addTags(tags)
+    // 添加标签到 taskStore
+    const taskStore = useTaskStore.getState()
+    taskStore.addTags(tags)
 
     // 获取所有标签和当前进度
-    const allTags = await this.storageManager.getTagList()
-    let progress = await this.storageManager.getProgress()
+    const allTags = taskStore.getTagList()
+    let progress = taskStore.getProgress()
 
     while (true) {
       if (this.abortController.signal.aborted) {
@@ -645,7 +641,7 @@ class ContentPixivService implements IPixivService {
         progress[result.id] = taskProgress
 
         // 更新单个标签进度
-        await this.storageManager.updateTagProgress(result.id, taskProgress)
+        taskStore.updateProgress(result.id, taskProgress)
 
         this.emitEvent({
           type: 'progress',

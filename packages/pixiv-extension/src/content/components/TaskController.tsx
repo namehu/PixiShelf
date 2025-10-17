@@ -8,7 +8,6 @@ export const TaskController: React.FC = () => {
     downloadProgress,
     taskStats,
     setTaskStatus,
-    setTaskStats,
     setDownloadProgress,
     addLog,
     resetTaskState
@@ -32,9 +31,7 @@ export const TaskController: React.FC = () => {
       }
 
       addLog('任务启动成功')
-      // 重新加载进度
-      const progressResult = await ContentPixivService.getProgress()
-      setTaskStats(progressResult)
+      // 注意：不再需要手动设置统计数据，taskStats 现在是计算属性
     } catch (error) {
       addLog(`任务执行失败: ${error}`)
     } finally {

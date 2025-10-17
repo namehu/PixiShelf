@@ -7,31 +7,19 @@ import { ProgressDisplay } from './components/ProgressDisplay'
 import { LogViewer } from './components/LogViewer'
 import { useAppStore } from './stores/appStore'
 import { useUIStore } from './stores/uiStore'
-import { useTaskStore } from './stores/taskStore'
-import ContentPixivService from './services/ContentPixivService'
 
 const App: React.FC = () => {
   const { isInitialized, error, isLoading, initializeApp } = useAppStore()
   const { activeTab, initializePosition } = useUIStore()
-  const { setTaskStats } = useTaskStore()
-
   // 初始化应用
   useEffect(() => {
     const init = async () => {
       await initializeApp()
       await initializePosition()
-
-      // 加载初始进度
-      try {
-        const stats = await ContentPixivService.getProgress()
-        setTaskStats(stats)
-      } catch (error) {
-        console.warn('Failed to load initial progress:', error)
-      }
     }
 
     init()
-  }, [initializeApp, initializePosition, setTaskStats])
+  }, [initializeApp, initializePosition])
 
   // 渲染标签页内容
   const renderTabContent = () => {
