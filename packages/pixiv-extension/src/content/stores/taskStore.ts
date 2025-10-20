@@ -80,7 +80,7 @@ export const useTaskStore = create<TaskState>()(
         const completedCount = Object.keys(progressData).length
         const successCount = Object.values(progressData).filter((p) => p.status === 'fulfilled').length
         const errorCount = completedCount - successCount
-        
+
         return {
           total: totalTags,
           completed: completedCount,

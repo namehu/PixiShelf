@@ -4,7 +4,7 @@ import ContentPixivService from '../services/ContentPixivService'
 import { DownloadMode } from '../../types/service'
 
 export const TaskController: React.FC = () => {
-  const { isRunning, downloadProgress, taskStats, setTaskStatus, setDownloadProgress, addLog, resetTaskState } =
+  const { isRunning, downloadProgress, taskStats, setTaskStatus, setDownloadProgress, addLog, clearAll } =
     useTaskStore()
 
   // 下载模式状态
@@ -65,17 +65,12 @@ export const TaskController: React.FC = () => {
     }
   }
 
-  const handleClearProgress = async () => {
-    if (!confirm('确定要清除所有进度吗？此操作不可恢复。')) return
+  const handleClear = async () => {
+    if (!confirm('确定要清除所有数据吗？此操作不可恢复。')) return
 
     try {
-      const result = await ContentPixivService.clearProgress()
-      if (result.success) {
-        resetTaskState()
-        addLog('进度已清除')
-      } else {
-        addLog(`清除进度失败: ${result.error}`)
-      }
+      clearAll()
+      addLog('进度已清除')
     } catch (error) {
       addLog(`清除进度失败: ${error}`)
     }
@@ -195,7 +190,7 @@ export const TaskController: React.FC = () => {
         <button onClick={handleGenerateSQL} style={secondaryButtonStyle}>
           生成SQL文件
         </button>
-        <button onClick={handleClearProgress} style={dangerButtonStyle}>
+        <button onClick={handleClear} style={dangerButtonStyle}>
           清除进度
         </button>
       </div>

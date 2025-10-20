@@ -36,10 +36,6 @@ class ContentPixivService implements IPixivService {
   private config: TaskConfiguration = DEFAULT_TASK_CONFIG
   private eventListeners: Map<string, Set<ServiceEventListener>> = new Map()
 
-  constructor() {
-    // 使用 taskStore 进行数据管理
-  }
-
   // 事件管理
   addEventListener(type: string, listener: ServiceEventListener): void {
     if (!this.eventListeners.has(type)) {
@@ -172,7 +168,12 @@ class ContentPixivService implements IPixivService {
   }
 
   // 标签操作
-  async addTags(tags: string[]): Promise<ServiceResult> {
+  async addTags(tags: string[]): Promise<
+    ServiceResult<{
+      added: number
+      total: number
+    }>
+  > {
     try {
       const taskStore = useTaskStore.getState()
       const existingTags = taskStore.getTagList()

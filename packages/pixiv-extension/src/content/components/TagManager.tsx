@@ -1,43 +1,45 @@
-import React from 'react';
-import { useTaskStore } from '../stores/taskStore';
-import ContentPixivService from '../services/ContentPixivService';
+import React from 'react'
+import { useTaskStore } from '../stores/taskStore'
+import ContentPixivService from '../services/ContentPixivService'
 
 export const TagManager: React.FC = () => {
-  const { tagInput, setTagInput, addLog } = useTaskStore();
+  const { tagInput, setTagInput, addLog } = useTaskStore()
 
   const handleAddTags = async () => {
-    if (!tagInput.trim()) return;
+    if (!tagInput.trim()) return
 
     try {
       const tags = tagInput
         .split('\n')
-        .map(tag => tag.trim())
-        .filter(tag => tag.length > 0);
+        .map((tag) => tag.trim())
+        .filter((tag) => tag.length > 0)
 
       if (tags.length === 0) {
-        addLog('请输入有效的标签');
-        return;
+        addLog('请输入有效的标签')
+        return
       }
 
-      const result = await ContentPixivService.addTags(tags);
+      const result = await ContentPixivService.addTags(tags)
       if (!result.success) {
-        throw new Error(result.error || '添加标签失败');
+        throw new Error(result.error || '添加标签失败')
       }
-      addLog(`成功添加 ${tags.length} 个标签`);
-      setTagInput('');
+      const { added = 0, total = 0 } = result.data ?? {}
+      const dup = total - added
+      addLog(`成功添加 ${added} 个标签` + (dup ? `(忽略重复${dup}个)` : ''))
+      setTagInput('')
     } catch (error) {
-      addLog(`添加标签失败: ${error}`);
+      addLog(`添加标签失败: ${error}`)
     }
-  };
+  }
 
   return (
     <div className="tag-manager">
       <div className="input-section" style={{ marginBottom: '16px' }}>
-        <label 
-          htmlFor="tag-input" 
-          style={{ 
-            display: 'block', 
-            marginBottom: '8px', 
+        <label
+          htmlFor="tag-input"
+          style={{
+            display: 'block',
+            marginBottom: '8px',
             fontWeight: '500',
             color: '#333'
           }}
@@ -61,8 +63,8 @@ export const TagManager: React.FC = () => {
             minHeight: '80px'
           }}
         />
-        <button 
-          onClick={handleAddTags} 
+        <button
+          onClick={handleAddTags}
           disabled={!tagInput.trim()}
           style={{
             marginTop: '8px',
@@ -80,5 +82,5 @@ export const TagManager: React.FC = () => {
         </button>
       </div>
     </div>
-  );
-};
+  )
+}
