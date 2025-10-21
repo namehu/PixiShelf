@@ -86,4 +86,4 @@ chrome.downloads.onChanged.addListener((downloadDelta) => {
   }
 })
 
-console.log('🚀 Background script 已启动，准备处理下载请求')
+console.log('🚀 Background script 已启动')

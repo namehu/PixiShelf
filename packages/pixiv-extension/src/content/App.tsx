@@ -10,16 +10,11 @@ import { useUIStore } from './stores/uiStore'
 
 const App: React.FC = () => {
   const { isInitialized, error, isLoading, initializeApp } = useAppStore()
-  const { activeTab, initializePosition } = useUIStore()
+  const { activeTab } = useUIStore()
   // 初始化应用
   useEffect(() => {
-    const init = async () => {
-      await initializeApp()
-      await initializePosition()
-    }
-
-    init()
-  }, [initializeApp, initializePosition])
+    initializeApp()
+  }, [])
 
   // 渲染标签页内容
   const renderTabContent = () => {
