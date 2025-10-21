@@ -26,5 +26,10 @@
   "engines": {
     "node": ">=18.0.0",
     "pnpm": ">=8.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@wxt-dev/browser": "^0.1.4"
+    }
   }
 }
