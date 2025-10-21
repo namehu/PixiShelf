@@ -17,7 +17,9 @@ export default function App() {
   }, [])
 
   const openPixiv = () => {
-    chrome.tabs.create({ url: 'https://www.pixiv.net' })
+    chrome.tabs.update({
+      url: 'https://www.pixiv.net/support' // 'https://www.pixiv.net'
+    })
   }
 
   return (
