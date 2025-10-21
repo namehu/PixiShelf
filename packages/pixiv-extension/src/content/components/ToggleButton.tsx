@@ -1,18 +1,9 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useRef } from 'react'
 import { useUIStore } from '../stores/uiStore'
 
 export const ToggleButton: React.FC = () => {
   const { isVisible, toggleVisibility } = useUIStore()
   const buttonRef = useRef<HTMLButtonElement>(null)
-
-  // 设置按钮的初始位置和样式
-  useEffect(() => {
-    if (buttonRef.current) {
-      // 确保按钮在页面顶层
-      buttonRef.current.style.position = 'fixed'
-      buttonRef.current.style.zIndex = '9999'
-    }
-  }, [])
 
   return (
     <button

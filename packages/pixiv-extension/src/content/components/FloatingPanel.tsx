@@ -6,7 +6,7 @@ interface FloatingPanelProps {
 }
 
 export const FloatingPanel: React.FC<FloatingPanelProps> = ({ children }) => {
-  const { isVisible, isCollapsed, position, setPosition, toggleVisibility, toggleCollapse } = useUIStore()
+  const { isVisible, isCollapsed, position, setPosition, toggleCollapse } = useUIStore()
 
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
@@ -109,21 +109,6 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({ children }) => {
             title={isCollapsed ? '展开' : '折叠'}
           >
             {isCollapsed ? '▼' : '▲'}
-          </button>
-          <button
-            onClick={toggleVisibility}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '4px',
-              borderRadius: '4px',
-              color: '#666',
-              fontSize: '16px'
-            }}
-            title="关闭"
-          >
-            ✕
           </button>
         </div>
       </div>

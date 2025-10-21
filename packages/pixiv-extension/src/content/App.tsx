@@ -11,7 +11,7 @@ import { useUIStore } from './stores/uiStore'
 const App: React.FC = () => {
   const { isInitialized, error, isLoading, initializeApp } = useAppStore()
   const { activeTab } = useUIStore()
-  // 初始化应用
+
   useEffect(() => {
     initializeApp()
   }, [])
@@ -22,9 +22,9 @@ const App: React.FC = () => {
       case 'tags':
         return (
           <div className="tags-content">
-            <ProgressDisplay />
             <TagManager />
             <TaskController />
+            <ProgressDisplay />
             <LogViewer />
           </div>
         )
