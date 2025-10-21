@@ -11,9 +11,7 @@ import {
   IPixivService,
   DEFAULT_TASK_CONFIG,
   ERROR_CODES,
-  ServiceEvent,
   ServiceEventListener,
-  BatchTranslationRequest,
   DownloadRequest,
   SqlGenerationOptions,
   FileDownloadOptions
@@ -27,144 +25,33 @@ import { useTaskStore } from '../stores/taskStore'
  * 实现IPixivService接口
  */
 class ContentPixivService implements IPixivService {
-  private executionState: TaskExecutionState = {
-    isRunning: false,
-    isPaused: false
-  }
-
   private abortController: AbortController | null = null
   private config: TaskConfiguration = DEFAULT_TASK_CONFIG
   private eventListeners: Map<string, Set<ServiceEventListener>> = new Map()
 
-  // 事件管理
-  addEventListener(type: string, listener: ServiceEventListener): void {
-    if (!this.eventListeners.has(type)) {
-      this.eventListeners.set(type, new Set())
-    }
-    this.eventListeners.get(type)!.add(listener)
-  }
-
-  removeEventListener(type: string, listener: ServiceEventListener): void {
-    const listeners = this.eventListeners.get(type)
-    if (listeners) {
-      listeners.delete(listener)
-    }
-  }
-
-  private emitEvent(event: ServiceEvent): void {
-    const listeners = this.eventListeners.get(event.type)
-    if (listeners) {
-      listeners.forEach((listener) => listener(event))
+  get executionState(): TaskExecutionState {
+    const state = useTaskStore.getState()
+    return {
+      isRunning: state.isRunning
     }
   }
 
   // 任务管理
   async startTask(tags: string[], config?: Partial<TaskConfiguration>): Promise<ServiceResult> {
-    if (this.executionState.isRunning) {
-      return {
-        success: false,
-        error: '任务已在运行中',
-        code: ERROR_CODES.TASK_ALREADY_RUNNING
-      }
-    }
-
     try {
       this.config = { ...DEFAULT_TASK_CONFIG, ...config }
-      // 保存当前处理的标签
-      this.executionState = {
-        isRunning: true,
-        isPaused: false,
-        startTime: Date.now()
-      }
-
-      this.emitEvent({
-        type: 'start',
-        data: { tags, config: this.config },
-        timestamp: Date.now()
-      })
 
       // 开始处理任务
-      await this.processTags(tags)
+      this.processTags(tags)
 
       return { success: true }
     } catch (error) {
-      this.executionState.isRunning = false
       return {
         success: false,
         error: error instanceof Error ? error.message : '未知错误',
         code: ERROR_CODES.NETWORK_ERROR
       }
     }
-  }
-
-  async pauseTask(): Promise<ServiceResult> {
-    if (!this.executionState.isRunning) {
-      return {
-        success: false,
-        error: '没有正在运行的任务',
-        code: ERROR_CODES.TASK_NOT_RUNNING
-      }
-    }
-
-    this.executionState.isPaused = true
-    this.executionState.pauseTime = Date.now()
-
-    this.emitEvent({
-      type: 'pause',
-      timestamp: Date.now()
-    })
-
-    return { success: true }
-  }
-
-  async resumeTask(): Promise<ServiceResult> {
-    if (!this.executionState.isRunning || !this.executionState.isPaused) {
-      return {
-        success: false,
-        error: '没有可恢复的任务',
-        code: ERROR_CODES.TASK_NOT_RUNNING
-      }
-    }
-
-    this.executionState.isPaused = false
-    this.executionState.resumeTime = Date.now()
-
-    this.emitEvent({
-      type: 'resume',
-      timestamp: Date.now()
-    })
-
-    return { success: true }
-  }
-
-  async stopTask(): Promise<ServiceResult> {
-    if (!this.executionState.isRunning) {
-      return {
-        success: false,
-        error: '没有正在运行的任务',
-        code: ERROR_CODES.TASK_NOT_RUNNING
-      }
-    }
-
-    if (this.abortController) {
-      this.abortController.abort()
-    }
-
-    this.executionState = {
-      isRunning: false,
-      isPaused: false
-    }
-
-    this.emitEvent({
-      type: 'complete',
-      timestamp: Date.now()
-    })
-
-    return { success: true }
-  }
-
-  getTaskStatus(): TaskExecutionState {
-    return { ...this.executionState }
   }
 
   // 标签操作
@@ -272,36 +159,6 @@ class ContentPixivService implements IPixivService {
     }
   }
 
-  async batchTranslate(request: BatchTranslationRequest): Promise<ServiceResult<TranslationResponse[]>> {
-    try {
-      const results: TranslationResponse[] = []
-
-      for (const tag of request.tags) {
-        if (this.executionState.isPaused) {
-          await this.waitForResume()
-        }
-
-        const result = await this.translateTag(tag)
-        results.push(result)
-
-        if (request.onTagComplete) {
-          request.onTagComplete(tag, result)
-        }
-
-        // 添加延迟
-        await this.delay(this.config.minDelayMs, this.config.maxDelayMs)
-      }
-
-      return { success: true, data: results }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : '批量翻译失败',
-        code: ERROR_CODES.NETWORK_ERROR
-      }
-    }
-  }
-
   // 数据导出
   async generateSql(_options?: SqlGenerationOptions): Promise<ServiceResult<string>> {
     try {
@@ -339,7 +196,7 @@ class ContentPixivService implements IPixivService {
         const name = escapeSql(data.originalTag)
 
         // 动态构建 SET 子句
-        if (!!data.translation || !!data.englishTranslation) {
+        if (!!data.translation || !!data.englishTranslation || !!data.abstract) {
           setClauses.push(`"translateType" = 'PIXIV'`) // 绑定翻译来源
         }
         if (data.translation) {
@@ -647,10 +504,6 @@ class ContentPixivService implements IPixivService {
       this.abortController.abort()
     }
     this.eventListeners.clear()
-    this.executionState = {
-      isRunning: false,
-      isPaused: false
-    }
   }
 
   // 私有方法
@@ -670,7 +523,7 @@ class ContentPixivService implements IPixivService {
         break
       }
 
-      if (this.executionState.isPaused) {
+      if (!this.executionState.isRunning) {
         console.log('✅ 任务已应请求安全暂停。')
         return
       }
@@ -715,38 +568,11 @@ class ContentPixivService implements IPixivService {
 
         // 更新单个标签进度
         taskStore.updateProgress(result.id, taskProgress)
-
-        this.emitEvent({
-          type: 'progress',
-          data: {
-            tag: result.id,
-            result:
-              result.status === 'fulfilled'
-                ? {
-                    tag: result.id,
-                    translation: result.value.translation,
-                    englishTranslation: result.value.englishTranslation,
-                    abstract: result.value.abstract,
-                    imageUrl: result.value.imageUrl,
-                    success: true
-                  }
-                : {
-                    tag: result.id,
-                    translation: null,
-                    englishTranslation: null,
-                    abstract: null,
-                    imageUrl: null,
-                    success: false,
-                    error: result.reason.message
-                  }
-          },
-          timestamp: Date.now()
-        })
       }
 
       const currentCompleted = Object.keys(progress).length
 
-      if (this.executionState.isPaused) {
+      if (!this.executionState.isRunning) {
         console.log(`批次完成。进度: ${currentCompleted} / ${allTags.length}`)
         console.log('✅ 任务已应请求安全暂停。')
         return
@@ -790,19 +616,6 @@ class ContentPixivService implements IPixivService {
       abstract: abstract || null,
       imageUrl: imageUrl || null
     }
-  }
-
-  private async waitForResume(): Promise<void> {
-    return new Promise((resolve) => {
-      const checkResume = () => {
-        if (!this.executionState.isPaused) {
-          resolve()
-        } else {
-          setTimeout(checkResume, 100)
-        }
-      }
-      checkResume()
-    })
   }
 
   private async delay(min: number, max: number): Promise<void> {
@@ -918,16 +731,25 @@ class ContentPixivService implements IPixivService {
   }
 
   private async downloadWithBackgroundScript(blob: Blob, filename: string, customDirectory: string): Promise<void> {
-    // 将Blob转换为ArrayBuffer，因为Blob无法通过消息传递
-    const arrayBuffer = await blob.arrayBuffer()
+    // 1. 在 Content Script 中使用 FileReader 将 Blob 转换为 data:URL
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        resolve(reader.result as string)
+      }
+      reader.onerror = () => {
+        reject(new Error('无法读取 Blob 为 Data URL'))
+      }
+      reader.readAsDataURL(blob)
+    })
 
-    // 发送消息到background script
+    // 2. 发送消息到 background script，直接发送 dataUrl
     const message: DownloadMessage = {
+      // 假设 DownloadMessage 类型已更新
       type: 'DOWNLOAD_FILE',
       data: {
-        arrayBuffer,
+        dataUrl, // <-- 发送 dataUrl
         filename,
-        mimeType: blob.type,
         customDirectory
       }
     }

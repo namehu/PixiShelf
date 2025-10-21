@@ -19,25 +19,17 @@ chrome.runtime.onMessage.addListener(
 /**
  * 处理文件下载请求
  */
-async function handleDownloadFile(
-  message: DownloadMessage,
-  sendResponse: (response: DownloadResponse) => void
-): Promise<void> {
+async function handleDownloadFile(message: DownloadMessage, sendResponse: (response: DownloadResponse) => void) {
   try {
-    const { arrayBuffer, filename, mimeType, customDirectory } = message.data
+    const { dataUrl, filename, customDirectory } = message.data
+    // 2. (可选) 验证 dataUrl 是否有效
+    if (!dataUrl || !dataUrl.startsWith('data:')) {
+      throw new Error('无效的 data URL')
+    }
 
-    // 将ArrayBuffer转换为base64字符串
-    const uint8Array = new Uint8Array(arrayBuffer)
-    const binaryString = Array.from(uint8Array, byte => String.fromCharCode(byte)).join('')
-    const base64String = btoa(binaryString)
-    
-    // 构建data URL（service worker环境中不能使用URL.createObjectURL）
-    const dataUrl = `data:${mimeType};base64,${base64String}`
-
-    // 构建下载路径
+    // 3. 构建下载路径
     let downloadPath = filename
     if (customDirectory) {
-      // 确保目录路径格式正确
       const directory = customDirectory.endsWith('/') ? customDirectory : `${customDirectory}/`
       downloadPath = `${directory}${filename}`
     }

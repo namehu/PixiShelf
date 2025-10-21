@@ -15,8 +15,6 @@ export const TaskController: React.FC = () => {
   const handleStartTask = async () => {
     try {
       addLog('开始抓取任务...')
-      setTaskStatus({ isRunning: true })
-
       // 获取当前标签列表
       const tags = await ContentPixivService.getTags()
       if (!tags || tags.length === 0) {
@@ -24,32 +22,22 @@ export const TaskController: React.FC = () => {
         return
       }
 
+      setTaskStatus({ isRunning: true })
       const result = await ContentPixivService.startTask(tags)
       if (!result.success) {
         throw new Error(result.error || '启动任务失败')
       }
 
       addLog('任务启动成功')
-      // 注意：不再需要手动设置统计数据，taskStats 现在是计算属性
     } catch (error) {
       addLog(`任务执行失败: ${error}`)
-    } finally {
       setTaskStatus({ isRunning: false })
     }
   }
 
   const handlePauseTask = async () => {
-    try {
-      const result = await ContentPixivService.pauseTask()
-      if (result.success) {
-        addLog('任务已暂停')
-        setTaskStatus({ isPaused: true })
-      } else {
-        addLog(`暂停任务失败: ${result.error}`)
-      }
-    } catch (error) {
-      addLog(`暂停任务失败: ${error}`)
-    }
+    setTaskStatus({ isRunning: false })
+    addLog('任务已暂停')
   }
 
   const handleGenerateSQL = async () => {
