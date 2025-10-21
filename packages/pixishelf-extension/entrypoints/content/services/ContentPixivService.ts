@@ -36,24 +36,6 @@ class ContentPixivService implements IPixivService {
     }
   }
 
-  // 任务管理
-  async startTask(tags: string[], config?: Partial<TaskConfiguration>): Promise<ServiceResult> {
-    try {
-      this.config = { ...DEFAULT_TASK_CONFIG, ...config }
-
-      // 开始处理任务
-      this.processTags(tags)
-
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : '未知错误',
-        code: ERROR_CODES.NETWORK_ERROR
-      }
-    }
-  }
-
   // 标签操作
   async addTags(tags: string[]): Promise<
     ServiceResult<{
@@ -507,7 +489,7 @@ class ContentPixivService implements IPixivService {
   }
 
   // 私有方法
-  private async processTags(tags: string[]): Promise<void> {
+  async processTags(tags: string[]): Promise<void> {
     this.abortController = new AbortController()
 
     // 添加标签到 taskStore
@@ -520,11 +502,13 @@ class ContentPixivService implements IPixivService {
 
     while (true) {
       if (this.abortController.signal.aborted) {
+        useTaskStore.setState({ isRunning: false })
         break
       }
 
       if (!this.executionState.isRunning) {
-        console.log('✅ 任务已应请求安全暂停。')
+        taskStore.addLog('✅ 任务已应请求安全暂停。')
+        useTaskStore.setState({ isRunning: false })
         return
       }
 
@@ -532,7 +516,8 @@ class ContentPixivService implements IPixivService {
       const pendingTags = allTags.filter((tag) => !completedTags.has(tag))
 
       if (pendingTags.length === 0) {
-        console.log('✨ 所有标签均已处理完毕!')
+        taskStore.addLog('✨ 所有标签均已处理完毕!')
+        useTaskStore.setState({ isRunning: false })
         break
       }
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useTaskStore } from '../stores/taskStore'
 import ContentPixivService from '../services/ContentPixivService'
-import { DownloadMode } from '../../types/service'
+import { DownloadMode } from '../../../types/service'
 
 export const TaskController: React.FC = () => {
   const { isRunning, downloadProgress, taskStats, setTaskStatus, setDownloadProgress, addLog, clearAll } =
@@ -23,12 +23,7 @@ export const TaskController: React.FC = () => {
       }
 
       setTaskStatus({ isRunning: true })
-      const result = await ContentPixivService.startTask(tags)
-      if (!result.success) {
-        throw new Error(result.error || '启动任务失败')
-      }
-
-      addLog('任务启动成功')
+      ContentPixivService.processTags(tags)
     } catch (error) {
       addLog(`任务执行失败: ${error}`)
       setTaskStatus({ isRunning: false })

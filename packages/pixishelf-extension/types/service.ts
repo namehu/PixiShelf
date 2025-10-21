@@ -99,9 +99,6 @@ export type ServiceEventListener = (event: ServiceEvent) => void
 
 // Pixiv服务接口
 export interface IPixivService {
-  // 任务管理
-  startTask(tags: string[], config?: Partial<TaskConfiguration>): Promise<ServiceResult>
-
   // 标签操作
   addTags(tags: string[]): Promise<ServiceResult>
   removeTag(tag: string): Promise<ServiceResult>
