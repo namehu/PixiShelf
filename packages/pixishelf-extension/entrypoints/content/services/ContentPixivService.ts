@@ -65,80 +65,9 @@ class ContentPixivService implements IPixivService {
     }
   }
 
-  async removeTag(tag: string): Promise<ServiceResult> {
-    try {
-      const taskStore = useTaskStore.getState()
-      taskStore.removeTag(tag)
-
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : '删除标签失败',
-        code: ERROR_CODES.STORAGE_ERROR
-      }
-    }
-  }
-
-  async clearTags(): Promise<ServiceResult> {
-    try {
-      const taskStore = useTaskStore.getState()
-      taskStore.clearAll()
-
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : '清空标签失败',
-        code: ERROR_CODES.STORAGE_ERROR
-      }
-    }
-  }
-
   async getTags(): Promise<string[]> {
     const taskStore = useTaskStore.getState()
     return taskStore.getTagList()
-  }
-
-  // 翻译功能
-  async translateTag(tag: string): Promise<TranslationResponse> {
-    try {
-      const response = await this.fetchPixivTagData(tag)
-
-      if (response.error) {
-        return {
-          tag,
-          translation: null,
-          englishTranslation: null,
-          abstract: null,
-          imageUrl: null,
-          success: false,
-          error: response.message || '翻译失败'
-        }
-      }
-
-      const tagTranslation = response.body?.tagTranslation?.[tag]
-      const pixpedia = response.body?.pixpedia
-
-      return {
-        tag,
-        translation: tagTranslation?.zh || null,
-        englishTranslation: tagTranslation?.en || null,
-        abstract: pixpedia?.abstract || null,
-        imageUrl: pixpedia?.image || null,
-        success: true
-      }
-    } catch (error) {
-      return {
-        tag,
-        translation: null,
-        englishTranslation: null,
-        abstract: null,
-        imageUrl: null,
-        success: false,
-        error: error instanceof Error ? error.message : '网络错误'
-      }
-    }
   }
 
   // 数据导出
@@ -403,12 +332,6 @@ class ContentPixivService implements IPixivService {
     return { success: true }
   }
 
-  // 进度管理
-  async getProgress(): Promise<TaskStats> {
-    const taskStore = useTaskStore.getState()
-    return taskStore.taskStats
-  }
-
   async clearProgress(): Promise<ServiceResult> {
     try {
       const taskStore = useTaskStore.getState()
@@ -478,14 +401,6 @@ class ContentPixivService implements IPixivService {
       console.error('筛选失败数据时出错:', error)
       return []
     }
-  }
-
-  // 清理
-  dispose(): void {
-    if (this.abortController) {
-      this.abortController.abort()
-    }
-    this.eventListeners.clear()
   }
 
   // 私有方法

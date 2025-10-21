@@ -101,12 +101,7 @@ export type ServiceEventListener = (event: ServiceEvent) => void
 export interface IPixivService {
   // 标签操作
   addTags(tags: string[]): Promise<ServiceResult>
-  removeTag(tag: string): Promise<ServiceResult>
-  clearTags(): Promise<ServiceResult>
   getTags(): Promise<string[]>
-
-  // 翻译功能
-  translateTag(tag: string, options?: ApiRequestOptions): Promise<TranslationResponse>
 
   // 数据导出
   generateSql(options?: SqlGenerationOptions): Promise<ServiceResult<string>>
@@ -115,12 +110,7 @@ export interface IPixivService {
   // 图片下载
   downloadTagImages(request?: DownloadRequest): Promise<ServiceResult>
 
-  // 进度管理
-  getProgress(): Promise<TaskStats>
   clearProgress(): Promise<ServiceResult>
-
-  // 清理
-  dispose(): void
 }
 
 // 默认任务配置
