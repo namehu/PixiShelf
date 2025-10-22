@@ -20,7 +20,7 @@ function shuffleArray<T>(array: T[]): T[] {
   return array
 }
 
-const MAX_IMAGE_COUNT = 20 // 图片最大数量
+const MAX_IMAGE_COUNT = 8 // 图片最大数量
 
 /**
  * 随机获取单张图片作品的API接口 (已优化为真随机)
