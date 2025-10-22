@@ -2,10 +2,82 @@ import React, { useState } from 'react'
 import { useTaskStore } from '../stores/taskStore'
 import ContentPixivService from '../services/ContentPixivService'
 import { DownloadMode } from '../../../types/service'
+const buttonStyle = {
+  padding: '8px 12px',
+  margin: '4px',
+  border: 'none',
+  borderRadius: '4px',
+  fontSize: '14px',
+  fontWeight: '500',
+  cursor: 'pointer',
+  transition: 'background-color 0.2s'
+}
+
+const primaryButtonStyle = {
+  ...buttonStyle,
+  backgroundColor: '#0066cc',
+  color: 'white'
+}
+
+const secondaryButtonStyle = {
+  ...buttonStyle,
+  backgroundColor: '#f0f0f0',
+  color: '#333'
+}
+
+const dangerButtonStyle = {
+  ...buttonStyle,
+  backgroundColor: '#dc3545',
+  color: 'white'
+}
+
+const disabledButtonStyle = {
+  ...buttonStyle,
+  backgroundColor: '#ccc',
+  color: '#666',
+  cursor: 'not-allowed'
+}
+
+const selectStyle = {
+  padding: '8px 12px',
+  margin: '4px',
+  border: '1px solid #ccc',
+  borderRadius: '4px',
+  fontSize: '14px',
+  backgroundColor: 'white',
+  cursor: 'pointer'
+}
+
+const labelStyle = {
+  fontSize: '14px',
+  fontWeight: '500',
+  marginRight: '8px',
+  color: '#333'
+}
+
+const inputStyle = {
+  padding: '8px 12px',
+  margin: '4px',
+  border: '1px solid #ccc',
+  borderRadius: '4px',
+  fontSize: '14px',
+  backgroundColor: 'white',
+  minWidth: '120px'
+}
 
 export const TaskController: React.FC = () => {
-  const { isRunning, downloadProgress, taskStats, setTaskStatus, setDownloadProgress, addLog, clearAll } =
-    useTaskStore()
+  const {
+    tagInput,
+    setTagInput,
+    addTags,
+    isRunning,
+    downloadProgress,
+    taskStats,
+    setTaskStatus,
+    setDownloadProgress,
+    addLog,
+    clearAll
+  } = useTaskStore()
 
   // 下载模式状态
   const [downloadMode, setDownloadMode] = useState<DownloadMode>('individual')
@@ -87,73 +159,50 @@ export const TaskController: React.FC = () => {
     }
   }
 
-  const buttonStyle = {
-    padding: '8px 12px',
-    margin: '4px',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '14px',
-    fontWeight: '500',
-    cursor: 'pointer',
-    transition: 'background-color 0.2s'
-  }
+  const handleAddTags = () => {
+    if (!tagInput.trim()) return
 
-  const primaryButtonStyle = {
-    ...buttonStyle,
-    backgroundColor: '#0066cc',
-    color: 'white'
-  }
+    const result = addTags(tagInput)
+    if (result.added === 0 && result.duplicates === 0) {
+      addLog('请输入有效的标签')
+      return
+    }
 
-  const secondaryButtonStyle = {
-    ...buttonStyle,
-    backgroundColor: '#f0f0f0',
-    color: '#333'
-  }
-
-  const dangerButtonStyle = {
-    ...buttonStyle,
-    backgroundColor: '#dc3545',
-    color: 'white'
-  }
-
-  const disabledButtonStyle = {
-    ...buttonStyle,
-    backgroundColor: '#ccc',
-    color: '#666',
-    cursor: 'not-allowed'
-  }
-
-  const selectStyle = {
-    padding: '8px 12px',
-    margin: '4px',
-    border: '1px solid #ccc',
-    borderRadius: '4px',
-    fontSize: '14px',
-    backgroundColor: 'white',
-    cursor: 'pointer'
-  }
-
-  const labelStyle = {
-    fontSize: '14px',
-    fontWeight: '500',
-    marginRight: '8px',
-    color: '#333'
-  }
-
-  const inputStyle = {
-    padding: '8px 12px',
-    margin: '4px',
-    border: '1px solid #ccc',
-    borderRadius: '4px',
-    fontSize: '14px',
-    backgroundColor: 'white',
-    minWidth: '120px'
+    addLog(`成功添加 ${result.added} 个标签` + (result.duplicates ? `(忽略重复${result.duplicates}个)` : ''))
+    setTagInput('')
   }
 
   return (
     <div className="task-controller">
+      <div className="input-section" style={{}}>
+        <textarea
+          id="tag-input"
+          value={tagInput}
+          onChange={(e) => setTagInput(e.target.value)}
+          placeholder="添加标签(每行一个),例如:&#10;Genshin Impact&#10;原神&#10;..."
+          rows={4}
+          style={{
+            width: '100%',
+            padding: '8px',
+            border: '1px solid #ddd',
+            borderRadius: '4px',
+            fontSize: '14px',
+            fontFamily: 'inherit',
+            resize: 'vertical',
+            minHeight: '80px'
+          }}
+        />
+      </div>
+
       {/* 任务控制 */}
-      <div className="control-section" style={{ marginBottom: '16px' }}>
+      <div className="control-section" style={{ marginBottom: '12px' }}>
+        <button
+          onClick={handleAddTags}
+          disabled={!tagInput.trim()}
+          style={tagInput.trim() ? primaryButtonStyle : disabledButtonStyle}
+        >
+          添加标签
+        </button>
         <button
           onClick={handleStartTask}
           disabled={isRunning}
@@ -171,10 +220,10 @@ export const TaskController: React.FC = () => {
         </button>
 
         <button onClick={handleGenerateSQL} style={secondaryButtonStyle}>
-          生成SQL文件
+          生成SQL
         </button>
         <button onClick={handleClear} style={dangerButtonStyle}>
-          清除进度
+          清除所有数据
         </button>
       </div>
 
@@ -182,7 +231,7 @@ export const TaskController: React.FC = () => {
       <div
         className="download-section"
         style={{
-          marginBottom: '16px',
+          marginBottom: '12px',
           padding: '12px',
           backgroundColor: '#f8f9fa',
           borderRadius: '6px',

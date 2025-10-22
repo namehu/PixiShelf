@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react'
 import { FloatingPanel } from './components/FloatingPanel'
 import { TabNavigation } from './components/TabNavigation'
-import { TagManager } from './components/TagManager'
 import { TaskController } from './components/TaskController'
 import { ProgressDisplay } from './components/ProgressDisplay'
 import { LogViewer } from './components/LogViewer'
@@ -22,7 +21,6 @@ const App: React.FC = () => {
       case 'tags':
         return (
           <div className="tags-content">
-            <TagManager />
             <TaskController />
             <ProgressDisplay />
             <LogViewer />
