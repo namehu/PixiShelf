@@ -1,5 +1,6 @@
 import React from 'react'
 import { useTaskStore } from '../stores/taskStore'
+import { Progress } from '@/components/ui/progress'
 
 export const ProgressDisplay: React.FC = () => {
   const { taskStats } = useTaskStore()
@@ -83,24 +84,7 @@ export const ProgressDisplay: React.FC = () => {
       {/* 进度条 - 独占一行 */}
       {taskStats.total > 0 && (
         <div style={{ marginTop: '6px' }}>
-          <div
-            style={{
-              width: '100%',
-              height: '4px',
-              backgroundColor: '#e9ecef',
-              borderRadius: '2px',
-              overflow: 'hidden'
-            }}
-          >
-            <div
-              style={{
-                width: `${(taskStats.completed / taskStats.total) * 100}%`,
-                height: '100%',
-                backgroundColor: '#0066cc',
-                transition: 'width 0.3s ease'
-              }}
-            />
-          </div>
+          <Progress value={(taskStats.completed / taskStats.total) * 100} className="w-full" />
           <div
             style={{
               marginTop: '2px',

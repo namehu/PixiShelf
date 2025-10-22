@@ -13,7 +13,7 @@ export const SettingContent: React.FC = () => {
 
   return (
     <TooltipProvider>
-      <Accordion type="single" collapsible className="w-full">
+      <Accordion type="single" defaultValue="download-settings" collapsible className="w-full">
         <AccordionItem value="download-settings">
           <AccordionTrigger className="text-left">下载设置</AccordionTrigger>
           <AccordionContent>
