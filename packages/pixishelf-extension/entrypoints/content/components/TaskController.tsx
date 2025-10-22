@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useTaskStore } from '../stores/taskStore'
 import ContentPixivService from '../services/ContentPixivService'
 import { DownloadMode } from '../../../types/service'
+import { Button } from '@/components/ui/button'
 const buttonStyle = {
   padding: '8px 12px',
   margin: '4px',
@@ -187,35 +188,40 @@ export const TaskController: React.FC = () => {
 
       {/* 任务控制 */}
       <div className="control-section" style={{ marginBottom: '12px' }}>
-        <button
+        <Button
+          variant={!tagInput.trim() ? 'secondary' : 'default'}
           onClick={handleAddTags}
           disabled={!tagInput.trim()}
-          style={tagInput.trim() ? primaryButtonStyle : disabledButtonStyle}
+          style={{ margin: '4px' }}
         >
           添加标签
-        </button>
-        <button
+        </Button>
+
+        <Button
+          variant={isRunning ? 'secondary' : 'default'}
           onClick={handleStartTask}
           disabled={isRunning}
-          style={isRunning ? disabledButtonStyle : primaryButtonStyle}
+          style={{ margin: '4px' }}
         >
           {isRunning ? '运行中...' : '开始抓取'}
-        </button>
+        </Button>
 
-        <button
+        <Button
+          variant={!isRunning ? 'secondary' : 'default'}
           onClick={handlePauseTask}
           disabled={!isRunning}
-          style={!isRunning ? disabledButtonStyle : secondaryButtonStyle}
+          style={{ margin: '4px' }}
         >
           暂停任务
-        </button>
+        </Button>
 
-        <button onClick={handleGenerateSQL} style={secondaryButtonStyle}>
+        <Button variant="outline" onClick={handleGenerateSQL} disabled={isRunning} style={{ margin: '4px' }}>
           生成SQL
-        </button>
-        <button onClick={handleClear} style={dangerButtonStyle}>
+        </Button>
+
+        <Button variant="destructive" onClick={handleClear} disabled={isRunning} style={{ margin: '4px' }}>
           清除所有数据
-        </button>
+        </Button>
       </div>
 
       {/* 下载控制区域 */}
