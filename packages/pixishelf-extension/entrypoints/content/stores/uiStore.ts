@@ -7,6 +7,8 @@ interface Position {
   y: number
 }
 
+export const tabIds = ['tags', 'users', 'artworks', 'setting'] as const
+export type TabId = (typeof tabIds)[number]
 interface UIState {
   // 面板显示状态
   isVisible: boolean
@@ -14,13 +16,13 @@ interface UIState {
   position: Position
 
   // 当前活动标签
-  activeTab: 'tags' | 'users' | 'artworks'
+  activeTab: TabId
 
   // 操作方法
   setPosition: (position: Position) => void
   toggleVisibility: () => void
   toggleCollapse: () => void
-  setActiveTab: (tab: 'tags' | 'users' | 'artworks') => void
+  setActiveTab: (tab: TabId) => void
 }
 
 // 配置 localforage 实例

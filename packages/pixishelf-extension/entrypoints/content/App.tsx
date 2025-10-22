@@ -6,6 +6,7 @@ import { ProgressDisplay } from './components/ProgressDisplay'
 import { LogViewer } from './components/LogViewer'
 import { useAppStore } from './stores/appStore'
 import { useUIStore } from './stores/uiStore'
+import { SettingContent } from './components/setting-content'
 
 const App: React.FC = () => {
   const { isInitialized, error, isLoading, initializeApp } = useAppStore()
@@ -60,6 +61,12 @@ const App: React.FC = () => {
               <p>作品页内容区域</p>
               <p>这里将显示作品相关的功能</p>
             </div>
+          </div>
+        )
+      case 'setting':
+        return (
+          <div className="setting-content">
+            <SettingContent />
           </div>
         )
       default:

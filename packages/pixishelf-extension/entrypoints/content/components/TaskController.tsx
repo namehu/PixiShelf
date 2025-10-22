@@ -14,22 +14,10 @@ const buttonStyle = {
   transition: 'background-color 0.2s'
 }
 
-const primaryButtonStyle = {
-  ...buttonStyle,
-  backgroundColor: '#0066cc',
-  color: 'white'
-}
-
 const secondaryButtonStyle = {
   ...buttonStyle,
   backgroundColor: '#f0f0f0',
   color: '#333'
-}
-
-const dangerButtonStyle = {
-  ...buttonStyle,
-  backgroundColor: '#dc3545',
-  color: 'white'
 }
 
 const disabledButtonStyle = {
@@ -47,13 +35,6 @@ const selectStyle = {
   fontSize: '14px',
   backgroundColor: 'white',
   cursor: 'pointer'
-}
-
-const labelStyle = {
-  fontSize: '14px',
-  fontWeight: '500',
-  marginRight: '8px',
-  color: '#333'
 }
 
 const inputStyle = {
