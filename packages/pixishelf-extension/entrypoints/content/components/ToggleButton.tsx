@@ -9,28 +9,15 @@ export const ToggleButton: React.FC = () => {
     <button
       ref={buttonRef}
       onClick={toggleVisibility}
-      style={{
-        position: 'fixed',
-        top: '20px',
-        right: '20px',
-        width: '50px',
-        height: '50px',
-        borderRadius: '50%',
-        backgroundColor: isVisible ? '#0066cc' : '#333',
-        color: 'white',
-        border: 'none',
-        cursor: 'pointer',
-        fontSize: '20px',
-        fontWeight: 'bold',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
-        transition: 'all 0.3s ease',
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        userSelect: 'none'
-      }}
+      className={`
+        fixed top-5 right-5 w-12 h-12 rounded-full
+        ${isVisible ? 'bg-blue-600' : 'bg-gray-800'}
+        text-white border-none cursor-pointer
+        text-xl font-bold shadow-lg
+        transition-all duration-300 ease-in-out
+        z-50 flex items-center justify-center
+        font-sans select-none
+      `}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = 'scale(1.1)'
         e.currentTarget.style.backgroundColor = isVisible ? '#0052a3' : '#555'

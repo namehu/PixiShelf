@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AppContainer } from './components/AppContainer'
+import '@/assets/tailwind.css' // Adjust the path if necessary
 
 export default defineContentScript({
   matches: ['https://www.pixiv.net/*'],

@@ -181,16 +181,7 @@ export const TaskController: React.FC = () => {
           onChange={(e) => setTagInput(e.target.value)}
           placeholder="添加标签(每行一个),例如:&#10;Genshin Impact&#10;原神&#10;..."
           rows={4}
-          style={{
-            width: '100%',
-            padding: '8px',
-            border: '1px solid #ddd',
-            borderRadius: '4px',
-            fontSize: '14px',
-            fontFamily: 'inherit',
-            resize: 'vertical',
-            minHeight: '80px'
-          }}
+          className="w-full p-2 border border-gray-300 rounded text-sm font-sans resize-y min-h-20"
         />
       </div>
 
@@ -228,34 +219,29 @@ export const TaskController: React.FC = () => {
       </div>
 
       {/* 下载控制区域 */}
-      <div
-        className="download-section"
-        style={{
-          marginBottom: '12px',
-          padding: '12px',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '6px',
-          border: '1px solid #e9ecef'
-        }}
-      >
-        <div style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={labelStyle}>下载模式：</span>
+      <div className="mb-3 p-3 bg-gray-50 rounded-md border border-gray-200">
+        <div className="mb-4 flex items-center flex-wrap">
+          <span className="mr-2 text-sm font-medium text-gray-700">下载模式：</span>
           <select
             value={downloadMode}
             onChange={(e) => setDownloadMode(e.target.value as DownloadMode)}
             style={selectStyle}
             disabled={downloadProgress.isDownloading}
           >
-            <option value="individual">单独文件下载</option>
-            <option value="zip">ZIP打包下载</option>
+            <option value="individual" className="text-sm font-sans">
+              单独文件下载
+            </option>
+            <option value="zip" className="text-sm font-sans">
+              ZIP打包下载
+            </option>
           </select>
-          <span style={{ fontSize: '12px', color: '#666', marginLeft: '12px' }}>
+          <span className="text-xs text-gray-500 ml-2">
             {downloadMode === 'zip' ? '将所有图片打包为一个ZIP文件下载' : '每个图片单独下载，文件名包含标签前缀'}
           </span>
         </div>
 
-        <div style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={labelStyle}>下载目录：</span>
+        <div className="mb-4 flex items-center flex-wrap">
+          <span className="mr-2 text-sm font-medium text-gray-700">下载目录：</span>
           <input
             type="text"
             value={customDirectory}

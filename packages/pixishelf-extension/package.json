@@ -15,10 +15,12 @@
     "postinstall": "wxt prepare"
   },
   "dependencies": {
+    "@tailwindcss/vite": "^4.1.15",
     "jszip": "^3.10.1",
     "localforage": "^1.10.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "tailwindcss": "^4.1.13",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
