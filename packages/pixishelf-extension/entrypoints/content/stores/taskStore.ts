@@ -29,7 +29,8 @@ interface TaskState {
 
   // 数据操作方法
   setTagList: (tags: string[]) => void
-  addTags: (tags: string[]) => void
+  addTags: (tagInput: string) => { added: number; total: number; duplicates: number } // 修改签名
+  addTagsArray: (tags: string[]) => void // 新增：原来的 addTags 方法重命名
   removeTag: (tag: string) => void
   updateProgress: (tag: string, progress: TaskProgress) => void
   clearProgress: () => void
@@ -153,7 +154,41 @@ export const useTaskStore = create<TaskState>()(
           })
         },
 
-        addTags: (tags) => {
+        addTags: (tagInput: string) => {
+          // 解析标签输入
+          const tags = tagInput
+            .split('\n')
+            .map((tag) => tag.trim())
+            .filter((tag) => tag.length > 0)
+
+          if (tags.length === 0) {
+            return { added: 0, total: get().tagList.length, duplicates: 0 }
+          }
+
+          // 获取现有标签并过滤重复
+          const existingTags = get().tagList
+          const newTags = tags.filter((tag) => !existingTags.includes(tag))
+          
+          // 计算统计信息
+          const added = newTags.length
+          const duplicates = tags.length - added
+          
+          // 更新状态
+          if (newTags.length > 0) {
+            set((state) => {
+              const currentTags = new Set(state.tagList)
+              newTags.forEach((tag) => currentTags.add(tag))
+              const newTagList = Array.from(currentTags)
+              const newStats = calculateTaskStats(newTagList, state.progressData)
+              return { tagList: newTagList, taskStats: newStats }
+            })
+          }
+
+          const total = existingTags.length + added
+          return { added, total, duplicates }
+        },
+
+        addTagsArray: (tags) => {
           set((state) => {
             const currentTags = new Set(state.tagList)
             tags.forEach((tag) => currentTags.add(tag))

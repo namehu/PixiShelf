@@ -1,35 +1,20 @@
 import React from 'react'
 import { useTaskStore } from '../stores/taskStore'
-import ContentPixivService from '../services/ContentPixivService'
 
 export const TagManager: React.FC = () => {
-  const { tagInput, setTagInput, addLog } = useTaskStore()
+  const { tagInput, setTagInput, addLog, addTags } = useTaskStore()
 
-  const handleAddTags = async () => {
+  const handleAddTags = () => {
     if (!tagInput.trim()) return
 
-    try {
-      const tags = tagInput
-        .split('\n')
-        .map((tag) => tag.trim())
-        .filter((tag) => tag.length > 0)
-
-      if (tags.length === 0) {
-        addLog('请输入有效的标签')
-        return
-      }
-
-      const result = await ContentPixivService.addTags(tags)
-      if (!result.success) {
-        throw new Error(result.error || '添加标签失败')
-      }
-      const { added = 0, total = 0 } = result.data ?? {}
-      const dup = total - added
-      addLog(`成功添加 ${added} 个标签` + (dup ? `(忽略重复${dup}个)` : ''))
-      setTagInput('')
-    } catch (error) {
-      addLog(`添加标签失败: ${error}`)
+    const result = addTags(tagInput)
+    if (result.added === 0 && result.duplicates === 0) {
+      addLog('请输入有效的标签')
+      return
     }
+
+    addLog(`成功添加 ${result.added} 个标签` + (result.duplicates ? `(忽略重复${result.duplicates}个)` : ''))
+    setTagInput('')
   }
 
   return (

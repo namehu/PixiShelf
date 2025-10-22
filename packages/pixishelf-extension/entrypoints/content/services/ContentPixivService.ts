@@ -49,7 +49,7 @@ class ContentPixivService implements IPixivService {
       const newTags = tags.filter((tag) => !existingTags.includes(tag))
 
       if (newTags.length > 0) {
-        taskStore.addTags(newTags)
+        taskStore.addTagsArray(newTags)
       }
 
       return {
@@ -409,7 +409,7 @@ class ContentPixivService implements IPixivService {
 
     // 添加标签到 taskStore
     const taskStore = useTaskStore.getState()
-    taskStore.addTags(tags)
+    taskStore.addTagsArray(tags)
 
     // 获取所有标签和当前进度
     const allTags = taskStore.getTagList()
