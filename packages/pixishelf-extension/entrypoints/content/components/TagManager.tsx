@@ -20,22 +20,11 @@ export const TagManager: React.FC = () => {
   return (
     <div className="tag-manager">
       <div className="input-section" style={{ marginBottom: '16px' }}>
-        <label
-          htmlFor="tag-input"
-          style={{
-            display: 'block',
-            marginBottom: '8px',
-            fontWeight: '500',
-            color: '#333'
-          }}
-        >
-          添加标签 (每行一个):
-        </label>
         <textarea
           id="tag-input"
           value={tagInput}
           onChange={(e) => setTagInput(e.target.value)}
-          placeholder="例如:&#10;Genshin Impact&#10;原神&#10;..."
+          placeholder="添加标签(每行一个),例如:&#10;Genshin Impact&#10;原神&#10;..."
           rows={4}
           style={{
             width: '100%',
@@ -48,6 +37,7 @@ export const TagManager: React.FC = () => {
             minHeight: '80px'
           }}
         />
+
         <button
           onClick={handleAddTags}
           disabled={!tagInput.trim()}
