@@ -17,7 +17,6 @@ import {
 import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
-import PNav from '@/components/layout/PNav'
 
 // ============================================================================
 // 画廊页面
@@ -164,6 +163,12 @@ function GalleryPageContent() {
     const newParams = new URLSearchParams(searchParams.toString())
     newParams.set('page', String(p))
     router.push(`/gallery?${newParams.toString()}`)
+  }
+
+  const pageHref = (p: number) => {
+    const newParams = new URLSearchParams(searchParams.toString())
+    newParams.set('page', String(p))
+    return `/gallery?${newParams.toString()}`
   }
 
   const handleJumpToPage = () => {
@@ -522,11 +527,7 @@ function GalleryPageContent() {
                           {/* Previous Page */}
                           <PaginationItem>
                             <PaginationPrevious
-                              href="#"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                if (page > 1) goto(page - 1)
-                              }}
+                              href={page > 1 ? pageHref(page - 1) : '#'}
                               className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
                             ></PaginationPrevious>
                           </PaginationItem>
@@ -538,11 +539,7 @@ function GalleryPageContent() {
                                 <PaginationEllipsis />
                               ) : (
                                 <PaginationLink
-                                  href="#"
-                                  onClick={(e) => {
-                                    e.preventDefault()
-                                    goto(pageNum as number)
-                                  }}
+                                  href={pageHref(pageNum as number)}
                                   isActive={pageNum === page}
                                 >
                                   {pageNum}
@@ -554,11 +551,7 @@ function GalleryPageContent() {
                           {/* Next Page */}
                           <PaginationItem>
                             <PaginationNext
-                              href="#"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                if (page < totalPages) goto(page + 1)
-                              }}
+                              href={page < totalPages ? pageHref(page + 1) : '#'}
                               className={page >= totalPages ? 'pointer-events-none opacity-50' : ''}
                             ></PaginationNext>
                           </PaginationItem>
