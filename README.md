@@ -214,19 +214,19 @@ graph TB
     A[表示层 - Presentation] --> B[服务层 - Service]
     B --> C[数据访问层 - Repository]
     C --> D[数据库 - PostgreSQL]
-    
+
     subgraph "表示层"
         A1[React组件]
         A2[API路由]
         A3[页面路由]
     end
-    
+
     subgraph "服务层"
         B1[业务逻辑]
         B2[数据验证]
         B3[权限控制]
     end
-    
+
     subgraph "数据访问层"
         C1[Repository模式]
         C2[Prisma ORM]
@@ -239,6 +239,7 @@ graph TB
 ### 常用命令
 
 #### 根目录命令
+
 ```bash
 # 安装依赖
 pnpm install
@@ -254,6 +255,7 @@ pnpm format
 ```
 
 #### 应用命令
+
 ```bash
 cd packages/pixishelf
 
@@ -269,6 +271,10 @@ pnpm dev           # 开发模式（端口5430）
 pnpm build         # 构建生产版本
 pnpm start         # 启动生产版本
 pnpm lint          # 代码检查
+
+# 添加新组件
+# https://ui.shadcn.com/docs/monorepo
+pnpm dlx shadcn@canary add [COMPONENT]
 ```
 
 ### 开发工作流
@@ -277,11 +283,11 @@ pnpm lint          # 代码检查
    ```bash
    # 创建功能分支
    git checkout -b feature/new-feature
-   
+
    # 开发过程中
    pnpm dev          # 启动开发服务器
    pnpm db:studio    # 查看数据库
-   
+
    # 提交前检查
    pnpm lint         # 代码检查
    pnpm format       # 格式化代码
@@ -292,7 +298,7 @@ pnpm lint          # 代码检查
    # 修改 prisma/schema.prisma
    pnpm db:generate  # 生成客户端
    pnpm db:push      # 推送到开发数据库
-   
+
    # 生产环境迁移
    pnpm db:migrate   # 创建迁移文件
    ```
@@ -371,7 +377,7 @@ docker-compose -f docker-compose.deploy.yml ps
    # 检查数据库状态
    docker-compose ps postgres
    docker-compose logs postgres
-   
+
    # 重启数据库
    docker-compose restart postgres
    ```
@@ -381,7 +387,7 @@ docker-compose -f docker-compose.deploy.yml ps
    # 检查端口占用
    lsof -i :5430  # macOS/Linux
    netstat -ano | findstr :5430  # Windows
-   
+
    # 修改端口配置
    # 编辑 docker-compose.yml 或 package.json
    ```
@@ -391,7 +397,7 @@ docker-compose -f docker-compose.deploy.yml ps
    # 检查服务状态
    curl http://localhost:5431/health
    curl http://localhost:5433/healthcheck
-   
+
    # 重启服务
    docker-compose restart imgproxy thumbor
    ```
@@ -401,7 +407,7 @@ docker-compose -f docker-compose.deploy.yml ps
    # 清理缓存
    pnpm store prune
    rm -rf node_modules packages/*/node_modules
-   
+
    # 重新安装
    pnpm install
    ```
