@@ -1,7 +1,7 @@
 // 服务相关类型定义
 
-import { TaskStats } from './pixiv'
 import { ImageDownloadData, ImageDownloadResult } from './messages'
+import { ETagDownloadMode } from '@/enums/ETagDownloadMode'
 
 // 服务操作结果
 export interface ServiceResult<T = any> {
@@ -55,13 +55,10 @@ export interface TranslationResponse {
   error?: string
 }
 
-// 下载模式类型
-export type DownloadMode = 'individual' | 'zip'
-
 // 下载请求
 export interface DownloadRequest {
   images: ImageDownloadData[]
-  downloadMode?: DownloadMode // 下载模式：individual-单独下载，zip-打包下载
+  downloadMode?: ETagDownloadMode // 下载模式：individual-单独下载，zip-打包下载
   customDirectory?: string // 自定义下载目录，如 "tags"
   onProgress?: (current: number, total: number) => void
   onImageComplete?: (result: ImageDownloadResult) => void

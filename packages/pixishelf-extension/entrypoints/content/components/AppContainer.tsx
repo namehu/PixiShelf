@@ -7,12 +7,6 @@ export const AppContainer: React.FC = () => {
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
-    // 临时隐藏dom元素
-    const dom = document.getElementById('__next')
-    console.log(dom)
-    if (dom) {
-      dom.style.display = 'none'
-    }
     // 创建Portal容器
     const container = document.createElement('div')
     container.id = 'pixiv-extension-root'
@@ -23,7 +17,7 @@ export const AppContainer: React.FC = () => {
       width: 100%;
       height: 100%;
       pointer-events: none;
-      z-index: 2147483647;
+      z-index: 10;
     `
 
     // 添加到页面

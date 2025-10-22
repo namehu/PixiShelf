@@ -1,6 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AppContainer } from './components/AppContainer'
+import { Toaster } from '@/components/ui/sonner'
+
 import '@/assets/tailwind.css' // Adjust the path if necessary
 
 export default defineContentScript({
@@ -45,6 +47,7 @@ export default defineContentScript({
         root.render(
           <StrictMode>
             <AppContainer />
+            <Toaster />
           </StrictMode>
         )
         container.append(tempContainer)
