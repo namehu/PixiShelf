@@ -3,7 +3,7 @@
 import { RandomImageItem } from '@/types/images'
 import { MoreHorizontal } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import TagsPanel from './TagsPanel'
 import { HeartAnimation } from '@/components/ui/HeartAnimation'
 import { TikTokStyleSidebar } from './TikTokStyleSidebar'
@@ -11,7 +11,7 @@ import { ActionDrawer } from './ActionDrawer'
 import { useHeartAnimation } from '@/hooks/useHeartAnimation'
 import { useViewerStore } from '@/store/viewerStore'
 import dayjs from 'dayjs'
-import { useLike } from './useLike'
+import { useShallow } from 'zustand/shallow'
 
 interface ImageOverlayProps {
   isActive: boolean
@@ -23,18 +23,22 @@ interface ImageOverlayProps {
  * 显示图片元信息和操作按钮，集成抖音风格侧边栏
  */
 export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
-  const { author, createdAt, title, description, tags = [] } = image
+  const { id, author, createdAt, title, description, tags = [] } = image
   const router = useRouter()
 
-  const { titleOpacity } = useViewerStore()
+  const [titleOpacity] = useViewerStore((state) => state.titleOpacity)
+  const [artworkLikeMap, toggleLikeStatus] = useViewerStore(
+    useShallow((state) => [state.artworkLikeMap, state.toggleLikeStatus])
+  )
+
   const [showActionDrawer, setShowActionDrawer] = useState(false)
 
   const interactiveZoneRef = useRef<HTMLDivElement>(null)
 
   const dayString = dayjs(createdAt).format('YYYY-MM-DD')
 
-  // 使用点赞Hook
-  const { liked, isToggling, toggleLike } = useLike(image.id)
+  // 从状态管理中获取当前图片的点赞状态
+  const isLiked = useMemo(() => artworkLikeMap.get(id) ?? false, [artworkLikeMap, id])
 
   // 集成爱心动画 Hook
   const {
@@ -53,8 +57,8 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
       threshold: 500
     },
     onTriggerHeart: () => {
-      if (!liked) {
-        toggleLike()
+      if (!isLiked) {
+        toggleLikeStatus(id)
       }
     }
   })
@@ -152,9 +156,8 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
         {isActive && (
           <TikTokStyleSidebar
             image={image}
-            liked={liked}
-            isToggling={isToggling}
-            onToggleLike={toggleLike}
+            liked={isLiked}
+            onToggleLike={() => toggleLikeStatus(id)}
             onMoreClick={() => setShowActionDrawer(true)}
           />
         )}

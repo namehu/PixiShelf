@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { RandomImageItem } from '@/types/images'
+import { LikeStatus } from '@/services'
 
 /**
  * Viewer 页面状态接口定义
@@ -7,6 +8,7 @@ import { RandomImageItem } from '@/types/images'
 export interface ViewerState {
   // 数据状态
   images: RandomImageItem[]
+  artworkLikeMap: Map<number, boolean>
   hasFetchedOnce: boolean
 
   // UI 状态
@@ -29,6 +31,7 @@ export interface ViewerState {
 
   // 批量更新方法
   updateViewerState: (updates: Partial<Pick<ViewerState, 'images' | 'verticalIndex' | 'horizontalIndexes'>>) => void
+  toggleLikeStatus(artworkId: number): Promise<LikeStatus>
 }
 
 /**
@@ -43,6 +46,7 @@ export interface ViewerState {
 export const useViewerStore = create<ViewerState>((set, get) => ({
   // 初始状态
   images: [],
+  artworkLikeMap: new Map(),
   hasFetchedOnce: false,
   verticalIndex: 0,
   horizontalIndexes: {},
@@ -50,8 +54,13 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   maxImageCount: 8, // 默认最大图片数量
   // 设置图片列表数据
   setImages: (images: RandomImageItem[]) => {
+    const map = get().artworkLikeMap
+    images.forEach((image) => {
+      map.set(image.id, image.isLike ?? false)
+    })
     set({
       images,
+      artworkLikeMap: map,
       hasFetchedOnce: true
     })
   },
@@ -102,5 +111,70 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       ...state,
       ...updates
     }))
+  },
+
+  toggleLikeStatus: async (artworkId: number) => {
+    const { artworkLikeMap } = get()
+    const prevLiked = artworkLikeMap.get(artworkId) ?? false
+    const nextLiked = !prevLiked
+
+    // 1) 乐观更新：立即反转点赞状态（Map 和 images 都更新）
+    set((state) => {
+      const newMap = new Map(state.artworkLikeMap)
+      newMap.set(artworkId, nextLiked)
+      const newImages = state.images.map((img) => (img.id === artworkId ? { ...img, isLike: nextLiked } : img))
+      return { artworkLikeMap: newMap, images: newImages }
+    })
+
+    try {
+      // 2) 发送后端请求，获取权威状态
+      const res = await _toggleLikeStatus(artworkId)
+      // const { userLiked } = res;
+      // 成功后用后端返回的权威状态矫正（避免并发或服务端规则造成的偏差）
+      // set((state) => {
+      //   const newMap = new Map(state.artworkLikeMap);
+      //   newMap.set(artworkId, userLiked);
+      //   const newImages = state.images.map((img) =>
+      //     img.id === artworkId ? { ...img, isLike: userLiked } : img
+      //   );
+      //   return { artworkLikeMap: newMap, images: newImages };
+      // });
+
+      return res
+    } catch (error) {
+      // 3) 失败回滚：恢复到请求前的状态
+      console.error('切换点赞状态失败:', error)
+      set((state) => {
+        const newMap = new Map(state.artworkLikeMap)
+        newMap.set(artworkId, prevLiked)
+        const newImages = state.images.map((img) => (img.id === artworkId ? { ...img, isLike: prevLiked } : img))
+        return { artworkLikeMap: newMap, images: newImages }
+      })
+      throw error
+    }
   }
 }))
+
+async function _toggleLikeStatus(artworkId: number): Promise<LikeStatus> {
+  const response = await fetch(`/api/artworks/${artworkId}/like`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+
+  if (!response.ok) {
+    throw new Error(`切换点赞状态失败: ${response.status}`)
+  }
+
+  const result = await response.json()
+
+  if (!result.success) {
+    throw new Error(result.error || '切换点赞状态失败')
+  }
+
+  return {
+    likeCount: result.data.likeCount,
+    userLiked: result.data.userLiked
+  }
+}

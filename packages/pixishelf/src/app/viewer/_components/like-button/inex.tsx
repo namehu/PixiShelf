@@ -1,14 +1,14 @@
 'use client'
 
-import React, { memo, useCallback } from 'react'
+import React, { memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Heart } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { useSuperLock } from '@/hooks/useSuperLock'
 
 export interface LikeButtonProps {
   liked: boolean
-  likeLoading: boolean
   onToggleLike: () => void
   /** 额外的CSS类名 */
   className?: string
@@ -25,16 +25,15 @@ export interface LikeButtonProps {
  * - 完整的错误处理和加载状态
  * - 无障碍访问支持
  */
-export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, likeLoading, onToggleLike }) => {
+export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, onToggleLike }) => {
   // 处理点赞点击
-  const handleLikeClick = useCallback(async (event: React.MouseEvent<HTMLButtonElement>) => {
+  const [handleLikeClick, likeLoading] = useSuperLock(async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
     onToggleLike()
-  }, [])
+  })
 
   // 按钮禁用状态
-  const isDisabled = likeLoading
 
   return (
     <>
@@ -44,7 +43,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, likeLo
           'hover:scale-105 active:scale-95',
           'focus-visible:ring-2 focus-visible:ring-red-500/50',
           liked && 'text-red-500',
-          isDisabled && 'opacity-50 cursor-not-allowed',
+          likeLoading && 'opacity-50 cursor-not-allowed',
           'w-12 h-12 bg-black/20 hover:bg-black/30 backdrop-blur-sm',
           'rounded-full flex items-center justify-center',
           'transition-all duration-200 hover:scale-105 active:scale-95',
@@ -52,7 +51,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, likeLo
           className
         )}
         onClick={handleLikeClick}
-        disabled={isDisabled}
+        disabled={likeLoading}
       >
         {/* 加载状态指示器 */}
         <AnimatePresence mode="wait">

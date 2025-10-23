@@ -12,11 +12,8 @@ export interface TikTokStyleSidebarProps {
   image: RandomImageItem
   /** 是否已点赞 */
   liked: boolean
-  /** 点赞加载状态 */
-  isToggling: boolean
   /** 点赞切换回调 */
-  onToggleLike: () => void
-
+  onToggleLike: () => any
   className?: string
   /** 更多按钮点击回调 */
   onMoreClick?: () => void
@@ -29,7 +26,6 @@ export interface TikTokStyleSidebarProps {
 export const TikTokStyleSidebar: React.FC<TikTokStyleSidebarProps> = ({
   image,
   liked,
-  isToggling,
   onToggleLike,
   className,
   onMoreClick
@@ -73,7 +69,7 @@ export const TikTokStyleSidebar: React.FC<TikTokStyleSidebarProps> = ({
 
       {/* 点赞按钮 */}
       <div className="flex flex-col items-center">
-        <LikeButton liked={liked} likeLoading={isToggling} onToggleLike={onToggleLike} />
+        <LikeButton liked={liked} onToggleLike={onToggleLike} />
       </div>
 
       {/* 更多操作按钮 */}
