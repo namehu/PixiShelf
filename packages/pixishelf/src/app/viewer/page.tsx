@@ -1,6 +1,5 @@
 'use client'
 
-import { useInfiniteImages } from './_hooks/useInfiniteImages'
 import ImmersiveImageViewer from './_components/ImmersiveImageViewer'
 import { useMemo, useEffect } from 'react'
 import { ChevronLeftIcon } from 'lucide-react'
@@ -8,7 +7,11 @@ import { useRouter } from 'next/navigation'
 import PageNoData from './_components/PageNoData'
 import PageLoading from './_components/PageLoading'
 import PageError from './_components/PageError'
-import { useViewerStore, hasViewerCache } from '@/store/viewerStore'
+import { useViewerStore } from '@/store/viewerStore'
+import { useShallow } from 'zustand/react/shallow'
+import { useInfiniteQuery } from '@tanstack/react-query'
+import { apiJson } from '@/lib/api'
+import { RandomImagesResponse } from '@/types/images'
 
 /**
  * 沉浸式图片浏览页面
@@ -19,14 +22,35 @@ export default function ViewerPage() {
   const router = useRouter()
 
   // 状态管理
-  const { images: cachedImages, hasFetchedOnce, verticalIndex, setImages, maxImageCount } = useViewerStore()
-
-  // 检查是否有缓存状态，启用状态恢复模式
-  const enableStateRecovery = hasViewerCache()
-  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteImages(
-    enableStateRecovery,
+  const {
+    images: cachedImages,
+    hasFetchedOnce,
+    verticalIndex,
+    setImages,
     maxImageCount
+  } = useViewerStore(
+    useShallow((state) => ({
+      images: state.images,
+      hasFetchedOnce: state.hasFetchedOnce,
+      verticalIndex: state.verticalIndex,
+      setImages: state.setImages,
+      maxImageCount: state.maxImageCount
+    }))
   )
+
+  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteQuery({
+    queryKey: ['images', 'random', 'infinite', maxImageCount],
+    queryFn: async ({ pageParam = 1 }) =>
+      apiJson<RandomImagesResponse>(`/api/images/random?page=${pageParam}&count=${maxImageCount}`),
+    // getNextPageParam 告诉 React Query 如何找到下一页的页码
+    getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
+    initialPageParam: 1, // 初始页码
+    // 缓存配置 - 根据是否启用状态恢复调整缓存时间
+    staleTime: 10 * 60 * 1000, // 状态恢复模式：10分钟内数据保持新鲜
+    gcTime: 15 * 60 * 1000, // 状态恢复模式：15分钟后清理缓存
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000)
+  })
 
   // 将分页数据扁平化为一个数组
   const allImages = useMemo(() => {

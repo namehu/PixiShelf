@@ -114,12 +114,3 @@ export const getHorizontalIndex = (imageKey: string): number => {
   const { horizontalIndexes } = useViewerStore.getState()
   return horizontalIndexes[imageKey] ?? 0
 }
-
-/**
- * 检查是否有缓存的状态数据
- * @returns 是否有可恢复的状态
- */
-export const hasViewerCache = (): boolean => {
-  const { images, hasFetchedOnce } = useViewerStore.getState()
-  return hasFetchedOnce && images.length > 0
-}
