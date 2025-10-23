@@ -4,6 +4,8 @@ import { RandomImageItem, RandomImagesResponse } from '@/types/images'
 import { guid } from '@/utils/guid'
 import { isVideoFile, MediaType } from '@/types'
 import { combinationStaticAvatar } from '@/utils/combinationStatic'
+import { sessionManager } from '@/lib/session'
+import { likeService } from '@/services/likeService'
 
 /**
  * Fisher-Yates (aka Knuth) Shuffle 算法。
@@ -30,18 +32,21 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
   try {
     const { searchParams } = new URL(request.url)
 
-    // 1. 解析查询参数
+    // 1. 获取当前用户信息（可选，未登录用户也可以访问）
+    let { userId } = sessionManager.extractUserSessionFromRequest(request)
+
+    // 2. 解析查询参数
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
     const pageSize = Math.min(Math.max(1, parseInt(searchParams.get('pageSize') || '20', 10)), 100)
     const skip = (page - 1) * pageSize
 
     // 解析count参数，设置默认值并验证范围
     const countParam = searchParams.get('count')
-    const maxImageCount = countParam 
+    const maxImageCount = countParam
       ? Math.min(Math.max(1, parseInt(countParam, 10)), 100) // 确保在1-100范围内
       : DEFAULT_MAX_IMAGE_COUNT
 
-    // 2. 查询所有符合条件的 Artwork 的 ID
+    // 3. 查询所有符合条件的 Artwork 的 ID
     // 只选择 id 字段，这样数据库查询非常快，内存占用也小
     const allArtworkIds = await prisma.artwork.findMany({
       where: {
@@ -66,10 +71,10 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
       })
     }
 
-    // 3. 在应用层对所有 ID 进行随机排序
+    // 4. 在应用层对所有 ID 进行随机排序
     const shuffledIds = shuffleArray(allArtworkIds.map((a) => a.id))
 
-    // 4. 根据分页参数，从打乱后的 ID 数组中获取当前页的 ID
+    // 5. 根据分页参数，从打乱后的 ID 数组中获取当前页的 ID
     const paginatedIds = shuffledIds.slice(skip, skip + pageSize)
 
     // 如果计算出的分页没有任何ID（比如请求了一个不存在的页码），则返回空
@@ -83,7 +88,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
       })
     }
 
-    // 5. 使用获取到的 ID 去查询完整的 Artwork 数据
+    // 6. 使用获取到的 ID 去查询完整的 Artwork 数据
     const artworks = await prisma.artwork.findMany({
       where: {
         id: {
@@ -100,17 +105,30 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
       }
     })
 
-    // 6. (重要) 保持随机顺序
+    // 7. (重要) 保持随机顺序
     // prisma `findMany` with `in` 不保证返回顺序，我们需要根据 paginatedIds 的顺序重新排序
     const sortedArtworks = artworks.sort((a, b) => paginatedIds.indexOf(a.id) - paginatedIds.indexOf(b.id))
 
-    // 7. 转换数据格式
+    // 8. 批量获取点赞状态（性能优化：单次查询）
+    let likeStatusMap: Record<number, { likeCount: number; userLiked: boolean }> = {}
+    try {
+      likeStatusMap = await likeService.getBatchLikeStatus(userId, paginatedIds)
+    } catch (error) {
+      console.error('批量获取点赞状态失败:', error)
+      // 如果获取点赞状态失败，继续执行，但所有 isLike 都为 false
+    }
+
+    // 9. 转换数据格式
     const items: RandomImageItem[] = sortedArtworks.map((artwork) => {
       const images = artwork.images
         .map((it) => (isVideoFile(it.path) ? `/api/v1/images/${it.path}` : it.path))
         .map((url) => ({ key: guid(), url }))
 
       const imageUrl = images[0]?.url ?? ''
+
+      // 获取该作品的点赞状态，如果没有找到则默认为未点赞
+      const likeStatus = likeStatusMap[artwork.id]
+      const isLike = likeStatus ? likeStatus.userLiked : false
 
       return {
         id: artwork.id,
@@ -130,7 +148,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
             }
           : null,
         createdAt: artwork.createdAt.toISOString(),
-        tags: artwork.artworkTags.map(({ tag }) => ({ id: tag.id, name: tag.name, name_zh: tag.name_zh }))
+        tags: artwork.artworkTags.map(({ tag }) => ({ id: tag.id, name: tag.name, name_zh: tag.name_zh })),
+        isLike
       }
     })
 
@@ -147,7 +166,29 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
 
     return NextResponse.json(response)
   } catch (error) {
-    console.error('Error fetching random images:', error)
-    return NextResponse.json({ error: 'Failed to fetch random images' } as any, { status: 500 })
+    console.error('获取随机图片失败:', error)
+
+    // 详细的错误日志记录
+    if (error instanceof Error) {
+      console.error('错误详情:', {
+        message: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      })
+    }
+
+    // 返回标准错误响应
+    return NextResponse.json(
+      {
+        error: '获取随机图片失败',
+        message:
+          process.env.NODE_ENV === 'development'
+            ? error instanceof Error
+              ? error.message
+              : '未知错误'
+            : '服务器内部错误'
+      } as any,
+      { status: 500 }
+    )
   }
 }

@@ -33,4 +33,6 @@ export interface RandomImageItem {
   } | null
   createdAt: string
   tags: Tag[]
+  /** 当前用户是否点赞了该作品 */
+  isLike: boolean
 }

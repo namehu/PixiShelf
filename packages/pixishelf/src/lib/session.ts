@@ -1,8 +1,7 @@
-import jwt from 'jsonwebtoken'
 import type { NextRequest } from 'next/server'
 import { authService } from './auth'
-import { JWT_CONFIG, COOKIE_CONFIG, COOKIE_NAMES } from './constants'
-import type { Session, CookieOptions, JWTPayload } from '@/types/auth'
+import { COOKIE_NAMES } from './constants'
+import type { Session, CookieOptions, ApiSession } from '@/types/auth'
 import type { User } from '@/types/core'
 
 // ============================================================================
@@ -310,6 +309,16 @@ export class SessionManager implements ISessionManager {
     }
 
     return null
+  }
+
+  /**
+   * 从请求中提取用户会话
+   */
+  extractUserSessionFromRequest(request: NextRequest) {
+    // 从请求头中获取由中间件注入的用户信息
+    const sessionHeader = request.headers.get('x-user-session')!
+    const user: ApiSession = JSON.parse(sessionHeader)
+    return user
   }
 
   /**

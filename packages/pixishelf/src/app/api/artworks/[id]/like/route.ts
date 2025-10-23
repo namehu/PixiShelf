@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { likeService } from '@/services'
-import { ApiSession } from '@/types'
+import { sessionManager } from '@/lib/session'
 
 /**
  * 切换点赞状态
@@ -20,8 +20,7 @@ export async function POST(
     }
 
     // 从请求头中获取由中间件注入的用户信息
-    const sessionHeader = request.headers.get('x-user-session')!
-    const user: ApiSession = JSON.parse(sessionHeader)
+    const user = sessionManager.extractUserSessionFromRequest(request)
 
     try {
       // 调用服务层切换点赞状态
@@ -73,10 +72,7 @@ export async function GET(
     }
 
     // 获取查询参数
-
-    const sessionHeader = request.headers.get('x-user-session')!
-    const user: ApiSession = JSON.parse(sessionHeader)
-    const { userId } = user
+    const { userId } = sessionManager.extractUserSessionFromRequest(request)
 
     try {
       // 调用服务层获取点赞状态
