@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { RandomImageItem } from '@/types/images'
 import { MediaType } from '@/types'
-import { Swiper, SwiperRef, SwiperSlide } from 'swiper/react'
+import { Swiper, SwiperSlide } from 'swiper/react'
 import { Navigation, Keyboard } from 'swiper/modules'
 import type { Swiper as SwiperType } from 'swiper'
 
@@ -13,7 +13,8 @@ import 'swiper/css/navigation'
 import 'swiper/css/pagination'
 import ImageOverlay from './ImageOverlay'
 import Image from 'next/image'
-import { useViewerStore, getHorizontalIndex } from '@/store/viewerStore'
+import { useViewerStore } from '@/store/viewerStore'
+import { useShallow } from 'zustand/react/shallow'
 
 interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   image: RandomImageItem
@@ -151,38 +152,24 @@ function SingleImage({
 export default function ImageSlide({ isActive, isPreloading, image, onError }: ImageSlideProps) {
   const [retryKey, setRetryKey] = useState(0)
 
-  // 从状态管理中获取初始水平索引
-  const initialHorizontalIndex = getHorizontalIndex(image.key)
-  const [currentImageIndex, setCurrentImageIndex] = useState(initialHorizontalIndex)
-  const swiperRef = useRef<SwiperRef | null>(null)
-  const { setHorizontalIndex } = useViewerStore()
+  const [horizontalIndexes, setHorizontalIndex] = useViewerStore(
+    useShallow((state) => [state.horizontalIndexes, state.setHorizontalIndex])
+  )
+  const currentImageIndex = horizontalIndexes[image.key] ?? 0
 
   const handleRetry = () => {
     setRetryKey((prevKey) => prevKey + 1)
   }
 
   // 检查是否有多张图片
-  const hasMultipleImages = image.images && image.images.length > 1
+  const hasMultipleImages = image.images.length > 1
   const imagesToShow = hasMultipleImages ? image.images : [image]
 
   // 处理滑动变化
   const handleSlideChange = (swiper: SwiperType) => {
     const newIndex = swiper.activeIndex
-    setCurrentImageIndex(newIndex)
-    // 同步到状态管理
     setHorizontalIndex(image.key, newIndex)
   }
-
-  // 状态恢复：当组件挂载时，如果有缓存的水平索引，则滑动到对应位置
-  useEffect(() => {
-    if (hasMultipleImages && swiperRef.current && initialHorizontalIndex > 0) {
-      // 延迟执行，确保 Swiper 已经完全初始化
-      const timer = setTimeout(() => {
-        swiperRef.current?.swiper?.slideTo(initialHorizontalIndex, 0) // 0ms 动画时间，立即跳转
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [hasMultipleImages, initialHorizontalIndex])
 
   if (!hasMultipleImages) {
     // 单图模式
@@ -207,16 +194,12 @@ export default function ImageSlide({ isActive, isPreloading, image, onError }: I
   return (
     <>
       <Swiper
-        ref={(swiper) => {
-          swiperRef.current = swiper
-        }}
         modules={[Navigation, Keyboard]}
         direction="horizontal"
         slidesPerView={1}
         lazyPreloadPrevNext={1}
         spaceBetween={0}
-        // 初始索引配置
-        initialSlide={initialHorizontalIndex}
+        initialSlide={currentImageIndex}
         keyboard={{
           enabled: true,
           onlyInViewport: true
@@ -234,12 +217,8 @@ export default function ImageSlide({ isActive, isPreloading, image, onError }: I
         resistance={true}
         resistanceRatio={0.85}
         speed={300}
-        // 防止与父级Swiper冲突
-        nested={true}
+        nested={true} // 防止与父级Swiper冲突
         className="w-full h-full relative z-10"
-        style={{
-          zIndex: 10 // 确保嵌套 Swiper 有足够高的层级
-        }}
       >
         {image.images.map((img, index) => {
           const isCurrentImage = index === currentImageIndex

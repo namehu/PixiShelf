@@ -1,7 +1,7 @@
 'use client'
 
 import ImmersiveImageViewer from './_components/ImmersiveImageViewer'
-import { useMemo, useEffect } from 'react'
+import { useEffect } from 'react'
 import { ChevronLeftIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import PageNoData from './_components/PageNoData'
@@ -22,17 +22,9 @@ export default function ViewerPage() {
   const router = useRouter()
 
   // 状态管理
-  const {
-    images: cachedImages,
-    hasFetchedOnce,
-    verticalIndex,
-    setImages,
-    maxImageCount
-  } = useViewerStore(
+  const { images, setImages, maxImageCount } = useViewerStore(
     useShallow((state) => ({
       images: state.images,
-      hasFetchedOnce: state.hasFetchedOnce,
-      verticalIndex: state.verticalIndex,
       setImages: state.setImages,
       maxImageCount: state.maxImageCount
     }))
@@ -52,25 +44,14 @@ export default function ViewerPage() {
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000)
   })
 
-  // 将分页数据扁平化为一个数组
-  const allImages = useMemo(() => {
-    return data?.pages.flatMap((page) => page.items) ?? []
-  }, [data])
-
-  // 状态同步：当获取到新数据时，更新状态管理
   useEffect(() => {
-    if (allImages.length > 0) {
-      setImages(allImages)
+    // 将分页数据扁平化为一个数组
+    const imgs = data?.pages.flatMap((page) => page.items) ?? []
+    if (!imgs.length) {
+      return
     }
-  }, [allImages])
-
-  // 优先使用缓存的图片数据，如果没有缓存则使用新获取的数据
-  const displayImages = useMemo(() => {
-    if (hasFetchedOnce && cachedImages.length > 0) {
-      return cachedImages
-    }
-    return allImages
-  }, [hasFetchedOnce, cachedImages, allImages])
+    setImages(imgs)
+  }, [data])
 
   // 错误状态
   if (isError) {
@@ -78,12 +59,12 @@ export default function ViewerPage() {
   }
 
   // 初始加载状态 - 只有在没有缓存数据时才显示加载状态
-  if (isLoading && !data && !hasFetchedOnce) {
+  if (isLoading && !data) {
     return <PageLoading></PageLoading>
   }
 
   // 无数据状态
-  if (!displayImages.length) {
+  if (!images.length) {
     return <PageNoData></PageNoData>
   }
 
@@ -107,8 +88,7 @@ export default function ViewerPage() {
 
       {/* 沉浸式图片浏览器 */}
       <ImmersiveImageViewer
-        initialImages={displayImages}
-        initialIndex={verticalIndex}
+        initialImages={images}
         onLoadMore={fetchNextPage}
         hasMore={!!hasNextPage}
         isLoading={isLoading}

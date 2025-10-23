@@ -104,13 +104,3 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     }))
   }
 }))
-
-/**
- * 获取当前图片的水平索引
- * @param imageKey 图片的唯一标识
- * @returns 水平索引，默认为 0
- */
-export const getHorizontalIndex = (imageKey: string): number => {
-  const { horizontalIndexes } = useViewerStore.getState()
-  return horizontalIndexes[imageKey] ?? 0
-}

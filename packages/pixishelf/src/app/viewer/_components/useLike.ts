@@ -142,11 +142,8 @@ export function useLike(artworkId: number) {
    * 初始化时获取点赞状态
    */
   useEffect(() => {
-    if (artworkId) {
-      refreshStatus(artworkId)
-      // console.log(artworkId, 'artworkId')
-    }
-  }, [artworkId, refreshStatus]) // 只在 artworkId 变化时重新获取
+    refreshStatus(artworkId)
+  }, []) // 只在 artworkId 变化时重新获取
 
   /**
    * 清理副作用
@@ -164,7 +161,6 @@ export function useLike(artworkId: number) {
     liked,
     isLoading,
     isToggling,
-    toggleLike,
-    refreshStatus
+    toggleLike
   }
 }

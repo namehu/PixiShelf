@@ -3,7 +3,7 @@
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Mousewheel, Keyboard } from 'swiper/modules'
 import ImageSlide from './ImageSlide'
-import { useCallback, useState, useEffect, useRef } from 'react'
+import { useCallback } from 'react'
 import type { Swiper as SwiperType } from 'swiper'
 
 // 导入 Swiper 的核心和模块样式
@@ -13,13 +13,13 @@ import 'swiper/css/keyboard'
 import { RandomImageItem } from '@/types/images'
 import { useViewerStore } from '@/store/viewerStore'
 import { Placeholder } from './Placeholder'
+import { useShallow } from 'zustand/react/shallow'
 
 interface ImmersiveImageViewerProps {
   initialImages: RandomImageItem[]
-  initialIndex?: number // 初始显示的图片索引，用于状态恢复
-  onLoadMore: () => void // 加载更多的回调函数
   hasMore: boolean
   isLoading: boolean
+  onLoadMore: () => void
 }
 
 /**
@@ -29,48 +29,24 @@ interface ImmersiveImageViewerProps {
  */
 export default function ImmersiveImageViewer({
   initialImages,
-  initialIndex = 0,
   onLoadMore,
   hasMore,
   isLoading
 }: ImmersiveImageViewerProps) {
-  const [activeIndex, setActiveIndex] = useState(initialIndex)
-  const swiperRef = useRef<SwiperType | null>(null)
-  const { setVerticalIndex } = useViewerStore()
-
-  // 处理滑动到底部的回调
-  const handleReachEnd = useCallback(() => {
-    if (hasMore && !isLoading) {
-      onLoadMore()
-    }
-  }, [hasMore, isLoading, onLoadMore])
+  const { setVerticalIndex, verticalIndex } = useViewerStore(
+    useShallow((state) => ({
+      verticalIndex: state.verticalIndex,
+      setVerticalIndex: state.setVerticalIndex
+    }))
+  )
 
   // 处理slide变化
   const handleSlideChange = useCallback(
     (swiper: SwiperType) => {
-      const newIndex = swiper.activeIndex
-      setActiveIndex(newIndex)
-      // 同步到状态管理
-      setVerticalIndex(newIndex)
+      setVerticalIndex(swiper.activeIndex)
     },
     [setVerticalIndex]
   )
-
-  // 状态恢复：当初始索引变化时，滑动到对应位置
-  useEffect(() => {
-    if (swiperRef.current && initialIndex > 0 && initialIndex < initialImages.length) {
-      // 延迟执行，确保 Swiper 已经完全初始化
-      const timer = setTimeout(() => {
-        swiperRef.current?.slideTo(initialIndex, 0) // 0ms 动画时间，立即跳转
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [initialIndex, initialImages.length])
-
-  // Swiper 初始化回调
-  const handleSwiperInit = useCallback((swiper: SwiperType) => {
-    swiperRef.current = swiper
-  }, [])
 
   return (
     // PC端适配容器
@@ -78,43 +54,34 @@ export default function ImmersiveImageViewer({
       {/* 沉浸式查看器主容器 */}
       <div className="immersive-container h-full w-full md:max-w-[420px] md:h-[90vh] md:aspect-[9/16] md:rounded-lg relative bg-neutral-900">
         <Swiper
-          // 关键配置：垂直方向
+          initialSlide={verticalIndex}
           direction="vertical"
-          // 在PC上启用鼠标滚轮
+          className="h-full w-full"
+          // PC配置
           mousewheel={true}
-          // 在PC上启用键盘上下键
           keyboard={{ enabled: true }}
           modules={[Mousewheel, Keyboard]}
-          className="h-full w-full"
           // 初始索引配置
-          initialSlide={initialIndex}
-          // 关键事件：当滑动到最后一个 slide 时触发
-          onReachEnd={handleReachEnd}
-          // 处理slide变化
-          onSlideChange={handleSlideChange}
-          // Swiper 初始化回调
-          onSwiper={handleSwiperInit}
-          // 为了更好的性能，只渲染激活slide，不预加载
           slidesPerView={1}
           lazyPreloadPrevNext={0}
-          // 滑动阻力配置
           resistance={true}
           resistanceRatio={0.85}
-          // 滑动速度配置
           speed={300}
-          // 触摸配置
           touchRatio={1}
           touchAngle={45}
           grabCursor={true}
+          onReachEnd={() => {
+            if (hasMore && !isLoading) {
+              onLoadMore()
+            }
+          }}
+          onSlideChange={handleSlideChange}
         >
           {initialImages.map((image, index) => {
-            // 只渲染当前slide和相邻的slide（上一个和下一个）
-            // const shouldRender = Math.abs(index - activeIndex) <= 1
-
             // 1. 判断当前幻灯片是否是用户正在看的
-            const isActive = index === activeIndex
+            const isActive = index === verticalIndex
             // 2. 判断当前幻灯片是否是需要预加载的（即下一个或上一个）
-            const isPreloading = Math.abs(index - activeIndex) === 1
+            const isPreloading = Math.abs(index - verticalIndex) === 1
             // 3. 只有“活动”和“预加载”的幻灯片才会被渲染，其他都是占位符
             const shouldRender = isActive || isPreloading
 
@@ -124,7 +91,7 @@ export default function ImmersiveImageViewer({
                   {shouldRender ? (
                     <ImageSlide isActive={isActive} isPreloading={isPreloading} image={image} />
                   ) : (
-                    <Placeholder.Image />
+                    <Placeholder />
                   )}
                 </div>
               </SwiperSlide>
