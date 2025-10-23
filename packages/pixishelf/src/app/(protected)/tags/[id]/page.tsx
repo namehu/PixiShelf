@@ -11,8 +11,6 @@ import { getTranslateName } from '@/utils/tags'
 import { Avatar, AvatarImage } from '@/components/ui/avatar'
 import { AvatarFallback } from '@radix-ui/react-avatar'
 
-interface TagDetailPageProps {}
-
 /**
  * 标签详情页面
  *
@@ -22,7 +20,7 @@ interface TagDetailPageProps {}
  * - 支持网格和列表视图切换
  * - 分页加载作品
  */
-function TagDetailPage({}: TagDetailPageProps) {
+function TagDetailPage() {
   const params = useParams()
   const router = useRouter()
   const tagId = params.id as string

@@ -1,8 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { VideoPreview } from './VideoPreview'
-import { isVideoFile } from '@/types/media'
 import ClientImage from '../client-image'
 
 export interface ArtworkCardProps {
