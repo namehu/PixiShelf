@@ -38,7 +38,7 @@ export default function ViewerPage() {
     if (allImages.length > 0) {
       setImages(allImages)
     }
-  }, [allImages, setImages])
+  }, [allImages])
 
   // 优先使用缓存的图片数据，如果没有缓存则使用新获取的数据
   const displayImages = useMemo(() => {

@@ -131,34 +131,6 @@ export default function ImmersiveImageViewer({
             )
           })}
 
-          {/* 如果还有更多数据，显示加载提示 */}
-          {hasMore && (
-            <SwiperSlide className="flex items-center justify-center text-white">
-              <div className="text-center">
-                {isLoading ? (
-                  <div className="flex flex-col items-center space-y-4">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-                    <p className="text-sm opacity-80">加载中...</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center space-y-2">
-                    <p className="text-sm opacity-80">继续向上滑动...</p>
-                    <div className="animate-bounce">
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </SwiperSlide>
-          )}
-
           {/* 如果没有更多数据，显示结束提示 */}
           {!hasMore && initialImages.length > 0 && (
             <SwiperSlide className="flex items-center justify-center text-white">
