@@ -16,12 +16,16 @@ export interface ViewerState {
   // 标题透明度
   titleOpacity: string
 
+  // 最大图片数量配置
+  maxImageCount: number
+
   // 状态操作方法
   setImages: (images: RandomImageItem[]) => void
   setVerticalIndex: (index: number) => void
   setHorizontalIndex: (imageKey: string, index: number) => void
   resetViewerState: () => void
   setTitleOpacity: (titleOpacity: string) => void
+  setMaxImageCount: (count: number) => void
 
   // 批量更新方法
   updateViewerState: (updates: Partial<Pick<ViewerState, 'images' | 'verticalIndex' | 'horizontalIndexes'>>) => void
@@ -43,6 +47,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   verticalIndex: 0,
   horizontalIndexes: {},
   titleOpacity: '100',
+  maxImageCount: 8, // 默认最大图片数量
   // 设置图片列表数据
   setImages: (images: RandomImageItem[]) => {
     set({
@@ -54,6 +59,13 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   // 设置标题透明度
   setTitleOpacity: (titleOpacity: string) => {
     set({ titleOpacity })
+  },
+
+  // 设置最大图片数量
+  setMaxImageCount: (count: number) => {
+    // 确保数值在有效范围内
+    const validCount = Math.min(Math.max(1, count), 100)
+    set({ maxImageCount: validCount })
   },
 
   // 设置垂直滑动索引

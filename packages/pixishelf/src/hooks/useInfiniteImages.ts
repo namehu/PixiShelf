@@ -8,12 +8,13 @@ import { RandomImagesResponse } from '@/types/images'
  * 
  * @param pageSize 每页数据数量，默认为10
  * @param enableStateRecovery 是否启用状态恢复模式，启用后会延长缓存时间
+ * @param maxImageCount 最大图片数量，默认为8
  */
-export function useInfiniteImages(pageSize: number = 10, enableStateRecovery: boolean = true) {
+export function useInfiniteImages(pageSize: number = 10, enableStateRecovery: boolean = true, maxImageCount: number = 8) {
   return useInfiniteQuery({
-    queryKey: ['images', 'random', 'infinite'],
+    queryKey: ['images', 'random', 'infinite', maxImageCount],
     queryFn: async ({ pageParam = 1 }): Promise<RandomImagesResponse> => {
-      return apiJson<RandomImagesResponse>(`/api/images/random?page=${pageParam}&pageSize=${pageSize}`)
+      return apiJson<RandomImagesResponse>(`/api/images/random?page=${pageParam}&pageSize=${pageSize}&count=${maxImageCount}`)
     },
     // getNextPageParam 告诉 React Query 如何找到下一页的页码
     getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,

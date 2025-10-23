@@ -19,11 +19,11 @@ export default function ViewerPage() {
   const router = useRouter()
 
   // 状态管理
-  const { images: cachedImages, hasFetchedOnce, verticalIndex, setImages } = useViewerStore()
+  const { images: cachedImages, hasFetchedOnce, verticalIndex, setImages, maxImageCount } = useViewerStore()
 
   // 检查是否有缓存状态，启用状态恢复模式
   const enableStateRecovery = hasViewerCache()
-  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteImages(20, enableStateRecovery)
+  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteImages(20, enableStateRecovery, maxImageCount)
 
   // 将分页数据扁平化为一个数组
   const allImages = useMemo(() => {

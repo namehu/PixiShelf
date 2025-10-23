@@ -20,11 +20,11 @@ function shuffleArray<T>(array: T[]): T[] {
   return array
 }
 
-const MAX_IMAGE_COUNT = 8 // 图片最大数量
+const DEFAULT_MAX_IMAGE_COUNT = 8 // 默认图片最大数量
 
 /**
  * 随机获取单张图片作品的API接口 (已优化为真随机)
- * GET /api/images/random
+ * GET /api/images/random?page=1&pageSize=20&count=8
  */
 export async function GET(request: NextRequest): Promise<NextResponse<RandomImagesResponse>> {
   try {
@@ -35,11 +35,17 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
     const pageSize = Math.min(Math.max(1, parseInt(searchParams.get('pageSize') || '20', 10)), 100)
     const skip = (page - 1) * pageSize
 
+    // 解析count参数，设置默认值并验证范围
+    const countParam = searchParams.get('count')
+    const maxImageCount = countParam 
+      ? Math.min(Math.max(1, parseInt(countParam, 10)), 100) // 确保在1-100范围内
+      : DEFAULT_MAX_IMAGE_COUNT
+
     // 2. 查询所有符合条件的 Artwork 的 ID
     // 只选择 id 字段，这样数据库查询非常快，内存占用也小
     const allArtworkIds = await prisma.artwork.findMany({
       where: {
-        imageCount: { lte: MAX_IMAGE_COUNT }
+        imageCount: { lte: maxImageCount }
       },
       select: { id: true },
       orderBy: {
@@ -86,7 +92,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
       },
       include: {
         images: {
-          take: MAX_IMAGE_COUNT,
+          take: maxImageCount,
           orderBy: { sortOrder: 'asc' }
         },
         artist: true,

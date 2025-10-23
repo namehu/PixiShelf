@@ -48,4 +48,7 @@ export { HeartIcon } from './HeartIcon'
 export type { HeartIconProps } from './HeartIcon'
 
 export { HeartAnimation } from './HeartAnimation'
+
 export type { HeartAnimationProps } from './HeartAnimation'
+
+export { Slider } from './slider'
