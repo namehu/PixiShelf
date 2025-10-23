@@ -1,13 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
-
 export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  useEffect(() => {
-    // 记录错误到错误报告服务
-    console.error(error)
-  }, [error])
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="max-w-md w-full text-center">
