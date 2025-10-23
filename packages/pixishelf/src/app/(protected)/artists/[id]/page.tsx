@@ -4,10 +4,10 @@ import React, { useState } from 'react'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { Artist, EnhancedArtworksResponse, SortOption, isVideoFile } from '@/types'
-import { useAuth } from '@/components'
+import { Artist, EnhancedArtworksResponse, SortOption } from '@/types'
+import { useAuth } from '@/components/auth'
 import { ChevronLeftIcon } from 'lucide-react'
-import { SortControl, VideoPreview } from '@/components/ui'
+import { SortControl } from '@/components/ui/SortControl'
 import {
   Pagination,
   PaginationContent,
@@ -18,7 +18,6 @@ import {
   PaginationPrevious
 } from '@/components/ui/pagination'
 import { apiJson } from '@/lib/api'
-import { ROUTES } from '@/lib/constants'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import ClientImage from '@/components/client-image'
 

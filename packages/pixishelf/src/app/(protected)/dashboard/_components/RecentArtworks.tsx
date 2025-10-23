@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Card, CardContent } from '@/components/ui'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ROUTES } from '@/lib/constants'
 import { EnhancedArtworksResponse } from '@/types'

@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { LoginForm, useAuth } from '@/components'
+import { LoginForm, useAuth } from '@/components/auth'
 import { ROUTES } from '@/lib/constants'
 
 // ============================================================================

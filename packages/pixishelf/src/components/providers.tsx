@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { AuthProvider } from '@/components'
+import { AuthProvider } from '@/components/auth'
 import { createQueryClient } from '@/lib/query-client'
 
 // 创建QueryClient实例

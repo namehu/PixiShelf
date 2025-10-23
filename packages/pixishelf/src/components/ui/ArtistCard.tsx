@@ -1,8 +1,8 @@
 import React from 'react'
 import { Artist } from '@/types'
-import { AvatarImage, Card, CardContent } from '@/components/ui'
-import { Avatar, AvatarFallback } from '@/components/ui'
-import { Badge } from '@/components/ui'
+import { Card, CardContent } from '@/components/ui/card'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 
 interface ArtistCardProps {
   artist: Artist

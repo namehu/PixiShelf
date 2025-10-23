@@ -8,7 +8,7 @@ import { Artwork } from '@/types/core'
 import { ArtworkCard } from '@/components/ui/ArtworkCard'
 import { cn } from '@/lib/utils'
 import { getTranslateName } from '@/utils/tags'
-import { Avatar, AvatarImage } from '@/components'
+import { Avatar, AvatarImage } from '@/components/ui/avatar'
 import { AvatarFallback } from '@radix-ui/react-avatar'
 
 interface TagDetailPageProps {}

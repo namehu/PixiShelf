@@ -12,7 +12,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { UsersIcon, SettingsIcon, LogOutIcon, BarChart2Icon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { memo } from 'react'
-import { useAuth } from '@/components'
+import { useAuth } from '@/components/auth'
 
 /**
  * 用户菜单组件

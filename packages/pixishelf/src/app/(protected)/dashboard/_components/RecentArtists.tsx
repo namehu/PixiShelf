@@ -2,7 +2,8 @@
 
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Card, CardContent, ArtistCard } from '@/components/ui'
+import { Card, CardContent } from '@/components/ui/card'
+import { ArtistCard } from '@/components/ui/ArtistCard'
 import { Button } from '@/components/ui/button'
 import { ROUTES } from '@/lib/constants'
 import { ArtistsResponse } from '@/types'

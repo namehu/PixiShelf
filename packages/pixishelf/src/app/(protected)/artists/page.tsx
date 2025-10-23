@@ -4,7 +4,7 @@ import React, { useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation' // 导入 useSearchParams
 import { useQuery } from '@tanstack/react-query'
 import { Artist, ArtistsQuery } from '@/types'
-import { ArtistCard } from '@/components/ui'
+import { ArtistCard } from '@/components/ui/ArtistCard'
 import { apiJson } from '@/lib/api'
 import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 

@@ -4,8 +4,8 @@ import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson } from '@/lib/api'
 import { UsersResponse } from '@/types'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,9 +15,9 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle
-} from '@/components/ui'
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui'
+import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { UserPlus, Trash2, User as UserIcon } from 'lucide-react'
 

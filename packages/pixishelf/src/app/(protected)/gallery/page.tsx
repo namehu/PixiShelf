@@ -3,8 +3,10 @@
 import React, { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { EnhancedArtworksResponse, SortOption, MediaTypeFilter } from '@/types'
-import { useAuth } from '@/components'
-import { SortControl, SearchBox, MediaTypeFilter as MediaTypeFilterComponent } from '@/components/ui'
+import { useAuth } from '@/components/auth'
+import { SortControl } from '@/components/ui/SortControl'
+import { SearchBox } from '@/components/ui/SearchBox'
+import { MediaTypeFilter as MediaTypeFilterComponent } from '@/components/ui/MediaTypeFilter'
 import {
   Pagination,
   PaginationContent,
@@ -538,10 +540,7 @@ function GalleryPageContent() {
                               {pageNum === 'ellipsis-start' || pageNum === 'ellipsis-end' ? (
                                 <PaginationEllipsis />
                               ) : (
-                                <PaginationLink
-                                  href={pageHref(pageNum as number)}
-                                  isActive={pageNum === page}
-                                >
+                                <PaginationLink href={pageHref(pageNum as number)} isActive={pageNum === page}>
                                   {pageNum}
                                 </PaginationLink>
                               )}

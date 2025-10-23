@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChangePasswordRequest, ChangePasswordResponse } from '@/types'
-import { useAuth } from '@/components'
+import { useAuth } from '@/components/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { apiJson } from '@/lib/api'

@@ -7,17 +7,15 @@ import { TagCard } from './TagCard'
 import { TagSquareProps, TagSearchParams, PopularTagsParams, RandomTagsParams } from '@/types/tags'
 import { cn } from '@/lib/utils'
 import { Tag } from '@/types/core'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Input } from '@/components/ui/input'
 import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  Input,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue
-} from '@/components/ui'
+} from '@/components/ui/select'
 
 /**
  * 标签广场组件

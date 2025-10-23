@@ -1,6 +1,7 @@
 'use client'
 
-import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ArtistsQuery } from '@/types'
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
