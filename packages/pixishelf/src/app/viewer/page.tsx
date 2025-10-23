@@ -1,6 +1,6 @@
 'use client'
 
-import { useInfiniteImages } from '@/hooks/useInfiniteImages'
+import { useInfiniteImages } from './_hooks/useInfiniteImages'
 import ImmersiveImageViewer from './_components/ImmersiveImageViewer'
 import { useMemo, useEffect } from 'react'
 import { ChevronLeftIcon } from 'lucide-react'
@@ -23,7 +23,10 @@ export default function ViewerPage() {
 
   // 检查是否有缓存状态，启用状态恢复模式
   const enableStateRecovery = hasViewerCache()
-  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteImages(20, enableStateRecovery, maxImageCount)
+  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteImages(
+    enableStateRecovery,
+    maxImageCount
+  )
 
   // 将分页数据扁平化为一个数组
   const allImages = useMemo(() => {
