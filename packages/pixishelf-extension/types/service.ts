@@ -38,23 +38,6 @@ export interface ApiRequestOptions {
   headers?: Record<string, string>
 }
 
-// 翻译请求参数
-export interface TranslationRequest {
-  tag: string
-  options?: ApiRequestOptions
-}
-
-// 翻译响应
-export interface TranslationResponse {
-  tag: string
-  translation: string | null
-  englishTranslation: string | null
-  abstract: string | null
-  imageUrl: string | null
-  success: boolean
-  error?: string
-}
-
 // 下载请求
 export interface DownloadRequest {
   images: ImageDownloadData[]
@@ -90,9 +73,6 @@ export interface ServiceEvent {
   data?: any
   timestamp: number
 }
-
-// 服务监听器
-export type ServiceEventListener = (event: ServiceEvent) => void
 
 // Pixiv服务接口
 export interface IPixivService {

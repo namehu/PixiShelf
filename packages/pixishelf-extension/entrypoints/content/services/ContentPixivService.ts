@@ -1,23 +1,18 @@
 import JSZip from 'jszip'
-import {
-  PixivTagData,
-  TaskProgress,
-  TaskStats,
-  PixivApiResponse,
-  ServiceResult,
-  TaskExecutionState,
-  TaskConfiguration,
-  TranslationResponse,
-  IPixivService,
-  DEFAULT_TASK_CONFIG,
-  ERROR_CODES,
-  ServiceEventListener,
-  DownloadRequest,
-  SqlGenerationOptions,
-  FileDownloadOptions
-} from '../../../types'
 import type { DownloadMessage, DownloadResponse } from '../../../types/messages'
 import { useTaskStore } from '../stores/taskStore'
+import { PixivTagData, TaskProgress, PixivApiResponse } from '@/types/pixiv'
+import {
+  IPixivService,
+  TaskConfiguration,
+  DEFAULT_TASK_CONFIG,
+  TaskExecutionState,
+  ServiceResult,
+  ERROR_CODES,
+  SqlGenerationOptions,
+  FileDownloadOptions,
+  DownloadRequest
+} from '@/types/service'
 
 /**
  * Content Script中的Pixiv服务
@@ -27,7 +22,6 @@ import { useTaskStore } from '../stores/taskStore'
 class ContentPixivService implements IPixivService {
   private abortController: AbortController | null = null
   private config: TaskConfiguration = DEFAULT_TASK_CONFIG
-  private eventListeners: Map<string, Set<ServiceEventListener>> = new Map()
 
   get executionState(): TaskExecutionState {
     const state = useTaskStore.getState()
