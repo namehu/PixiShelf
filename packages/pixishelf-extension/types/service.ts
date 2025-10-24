@@ -28,6 +28,8 @@ export interface TaskConfiguration {
   rateLimitWaitMs: number
   maxRetries: number
   timeout: number
+  batchSize?: number
+  delay?: number
 }
 
 // API请求选项
@@ -90,6 +92,22 @@ export interface IPixivService {
   clearProgress(): Promise<ServiceResult>
 }
 
+// 用户信息服务接口
+export interface IUserInfoService {
+  // 用户操作
+  addUserIds(userIds: string[]): Promise<ServiceResult>
+
+  // 数据处理
+  processUsers(userIds: string[]): Promise<void>
+
+  // 数据导出
+  generateUserSql(options?: SqlGenerationOptions): Promise<ServiceResult<string>>
+  downloadUserSqlFile(options?: SqlGenerationOptions & FileDownloadOptions): Promise<ServiceResult>
+
+  // 图片下载
+  downloadUserImages(request?: DownloadRequest): Promise<ServiceResult>
+}
+
 // 默认任务配置
 export const DEFAULT_TASK_CONFIG: TaskConfiguration = {
   concurrentRequests: 3,
@@ -109,5 +127,9 @@ export const ERROR_CODES = {
   TASK_NOT_RUNNING: 'TASK_NOT_RUNNING',
   STORAGE_ERROR: 'STORAGE_ERROR',
   DOWNLOAD_FAILED: 'DOWNLOAD_FAILED',
-  INVALID_TAG: 'INVALID_TAG'
+  INVALID_TAG: 'INVALID_TAG',
+  INVALID_INPUT: 'INVALID_INPUT',
+  DUPLICATE_DATA: 'DUPLICATE_DATA',
+  NO_DATA: 'NO_DATA',
+  OPERATION_FAILED: 'OPERATION_FAILED'
 } as const
