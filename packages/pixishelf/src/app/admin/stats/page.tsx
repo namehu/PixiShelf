@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { prisma } from '@/lib/prisma'
 import { WallpaperIcon, Users, Image as ImageIcon, Tags } from 'lucide-react'
+import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,12 +40,12 @@ async function getStats(): Promise<StatsData> {
         where: { artistId: { not: null } },
         _count: true,
         orderBy: { _count: { imageCount: 'desc' } },
-        take: 5
+        take: 15
       }),
       // 查询作品数量最多的前5个标签 (利用缓存字段 artworkCount)
       prisma.tag.findMany({
         orderBy: { artworkCount: 'desc' },
-        take: 5
+        take: 20
       })
     ])
 
@@ -77,8 +78,6 @@ async function getStats(): Promise<StatsData> {
     }
   } catch (error) {
     console.error('获取统计数据时出错:', error)
-    // 在生产环境中，你可能希望记录这个错误
-    // 返回一个默认值或抛出错误，让上层组件处理
     return {
       artworkCount: 0,
       artistCount: 0,
@@ -96,65 +95,39 @@ async function getStats(): Promise<StatsData> {
  * @param value - 显示的统计数值
  * @param icon - 卡片中显示的图标
  */
-const StatCard = ({ title, value, icon: Icon }: { title: string; value: number; icon: React.ElementType }) => (
-  <Card className="rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300">
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-      <CardTitle className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</CardTitle>
-      <Icon className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-    </CardHeader>
-    <CardContent>
-      <div className="text-2xl font-bold">{value.toLocaleString()}</div>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">总计</p>
-    </CardContent>
-  </Card>
-)
-
-/**
- * 排行榜卡片组件
- * @param title - 卡片标题
- * @param items - 列表项，包含名称和数值
- * @param icon - 卡片中显示的图标
- */
-const LeaderboardCard = ({
+const StatCard = ({
   title,
-  items,
-  icon: Icon
+  value,
+  icon: Icon,
+  href
 }: {
   title: string
-  items: { name: string; value: number }[]
+  value: number
   icon: React.ElementType
-}) => (
-  <Card className="rounded-xl shadow-lg">
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-      <CardTitle className="text-lg font-medium">{title}</CardTitle>
-      <Icon className="h-5 w-5 text-gray-400" />
-    </CardHeader>
-    <CardContent>
-      {items.length > 0 ? (
-        <ul className="space-y-4">
-          {items.map((item, index) => (
-            <li key={item.name + index} className="flex items-center space-x-4">
-              <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-full font-bold text-sm">
-                {index + 1}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 dark:text-white truncate" title={item.name}>
-                  {item.name}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-semibold">{item.value.toLocaleString()}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">作品</p>
-              </div>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-gray-500 dark:text-gray-400">暂无数据</p>
-      )}
-    </CardContent>
-  </Card>
-)
+  href?: string
+}) => {
+  const cardContent = (
+    <Card className="rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</CardTitle>
+        <Icon className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">{value}</div>
+      </CardContent>
+    </Card>
+  )
+
+  if (href) {
+    return (
+      <Link href={href} className="block">
+        {cardContent}
+      </Link>
+    )
+  }
+
+  return cardContent
+}
 
 /**
  * 数据统计仪表盘页面
@@ -169,31 +142,81 @@ export default async function StatsDashboardPage() {
         <h2 className="text-3xl font-bold tracking-tight">数据总览</h2>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="作品数量" value={stats.artworkCount} icon={WallpaperIcon} />
-        <StatCard title="艺术家数量" value={stats.artistCount} icon={Users} />
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <StatCard title="作品数量" value={stats.artworkCount} icon={WallpaperIcon} href="/gallery" />
+        <StatCard title="艺术家数量" value={stats.artistCount} icon={Users} href="/artists" />
         <StatCard title="图片总数" value={stats.imageCount} icon={ImageIcon} />
-        <StatCard title="标签总数" value={stats.tagCount} icon={Tags} />
+        <StatCard title="标签总数" value={stats.tagCount} icon={Tags} href="/tags" />
       </div>
 
       <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-2 mt-8">
         <LeaderboardCard
-          title="最活跃艺术家"
+          title="热门艺术家"
           icon={Users}
           items={stats.topArtists.map((artist) => ({
             name: artist.name,
-            value: artist.artworkCount
+            value: artist.artworkCount,
+            href: `/artists/${artist.id}`
           }))}
         />
         <LeaderboardCard
-          title="最热门标签"
+          title="热门标签"
           icon={Tags}
           items={stats.topTags.map((tag) => ({
             name: tag.name,
-            value: tag.artworkCount
+            value: tag.artworkCount,
+            href: `/tags/${tag.id}`
           }))}
         />
       </div>
     </div>
+  )
+}
+
+/**
+ * 排行榜卡片组件
+ * @param title - 卡片标题
+ * @param items - 列表项，包含名称和数值
+ * @param icon - 卡片中显示的图标
+ */
+const LeaderboardCard = (props: {
+  title: string
+  items: { name: string; value: number; href?: string }[]
+  icon: React.ElementType
+}) => {
+  const { title, items, icon: Icon } = props
+  return (
+    <Card className="rounded-xl shadow-lg">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-lg font-medium">{title}</CardTitle>
+        <Icon className="h-5 w-5 text-gray-400" />
+      </CardHeader>
+      <CardContent>
+        {items.length > 0 ? (
+          <ul className="space-y-4">
+            {items.map((item, index) => (
+              <li key={item.name + index} className="space-x-4">
+                <Link href={item.href || ''} className="flex items-center">
+                  <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-full font-bold text-sm">
+                    {index + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate" title={item.name}>
+                      {item.name}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold">{item.value.toLocaleString()}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">作品</p>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-gray-500 dark:text-gray-400">暂无数据</p>
+        )}
+      </CardContent>
+    </Card>
   )
 }
