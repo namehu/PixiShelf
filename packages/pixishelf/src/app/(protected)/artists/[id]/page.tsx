@@ -31,9 +31,7 @@ import ClientImage from '@/components/client-image'
 function useArtist(artistId: string) {
   return useQuery({
     queryKey: ['artist', artistId],
-    queryFn: async (): Promise<Artist> => {
-      return apiJson<Artist>(`/api/artists/${artistId}`)
-    },
+    queryFn: () => apiJson<Artist>(`/api/artists/${artistId}`),
     enabled: !!artistId
   })
 }
@@ -131,10 +129,6 @@ export default function ArtistDetailPage() {
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
       </div>
     )
-  }
-
-  if (!isAuthenticated) {
-    return null
   }
 
   // 加载状态
