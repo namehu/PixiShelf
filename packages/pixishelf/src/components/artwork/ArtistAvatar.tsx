@@ -11,13 +11,15 @@ interface ArtistAvatarProps {
    * 头像大小，默认12
    */
   size?: number
+
+  className?: string
 }
 /**
  * Artist Avatar 组件，支持多格式图片和fallback
  * @param param0
  * @returns
  */
-export function ArtistAvatar({ src, name, size = 12 }: ArtistAvatarProps) {
+export function ArtistAvatar({ src, name, size = 12, className }: ArtistAvatarProps) {
   const [currentFormat, setCurrentFormat] = useState(0)
   const formats = ['jpg', 'png', 'gif']
 
@@ -40,7 +42,7 @@ export function ArtistAvatar({ src, name, size = 12 }: ArtistAvatarProps) {
   }
 
   return (
-    <Avatar className={`size-${size} w-${size} h-${size} `}>
+    <Avatar className={`size-${size} w-${size} h-${size} ${className}`}>
       <AvatarImage src={src} alt={name} width={size} height={size} onError={handleImageError} />
       <AvatarFallback
         className={`h-${size} w-${size} bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 text-2xl font-bold`}
