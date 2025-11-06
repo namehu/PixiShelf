@@ -14,6 +14,11 @@ export interface ScanOptions {
   scanPath: string
   forceUpdate?: boolean
   onProgress?: (progress: ScanProgress) => void
+  /**
+   * 客户端传入的元数据相对路径列表（相对 scanPath）
+   * 如果提供，则不进行本地/远程文件扫描，而是直接基于该列表构建元数据文件集合
+   */
+  metadataRelativePaths?: string[]
 }
 
 /**
@@ -206,7 +211,10 @@ export class ScannerService {
       percentage: basePercentage
     })
     await sleep(500)
-    const metadataFiles = await this.globMetadataFiles(options.scanPath, options.forceUpdate)
+    // 根据是否提供客户端元数据列表选择来源
+    const metadataFiles = options.metadataRelativePaths && options.metadataRelativePaths.length > 0
+      ? await this.prepareMetadataFilesFromList(options.scanPath, options.metadataRelativePaths, !!options.forceUpdate)
+      : await this.globMetadataFiles(options.scanPath, options.forceUpdate)
     const totalFiles = metadataFiles.length
     const totalBatches = Math.ceil(totalFiles / BATCH_SIZE)
 
@@ -275,6 +283,81 @@ export class ScannerService {
         await sleep(100)
       }
     }
+  }
+
+  /**
+   * 基于客户端提供的相对路径列表构建元数据文件集合
+   * @param directoryPath 目录根路径（scanPath）
+   * @param relativePaths 客户端提供的相对路径列表
+   * @param forceUpdate 是否强制更新（影响去重与过滤）
+   */
+  private async prepareMetadataFilesFromList(
+    directoryPath: string,
+    relativePaths: string[],
+    forceUpdate: boolean = false
+  ): Promise<GlobMetadataFile[]> {
+    logger.info('Building metadata files from client-provided list', {
+      directoryPath,
+      count: relativePaths.length
+    })
+
+    const createdAt = new Date()
+    // 拼接为绝对路径并构建基础元数据文件对象
+    const files = relativePaths.map((relativePath) => {
+      const cleanPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath
+      const absolutePath = path.resolve(directoryPath, cleanPath)
+      const name = path.basename(absolutePath)
+      const artworkId = MetadataParser.extractArtworkIdFromFilename(name) || ''
+      return {
+        name,
+        artworkId,
+        path: absolutePath,
+        createdAt
+      } as GlobMetadataFile
+    })
+
+    // 过滤掉未能解析出作品ID的项
+    const validFiles = files.filter((file) => !!file.artworkId)
+    this.scanResult.totalArtworks = validFiles.length
+
+    // 非强制更新时，过滤掉数据库中已存在的作品
+    let filesToProcess = validFiles
+    if (!forceUpdate) {
+      const artworkIds = validFiles.map(({ artworkId }) => artworkId)
+      if (artworkIds.length > 0) {
+        const existingArtworks = await this.prisma.artwork.findMany({
+          where: { externalId: { in: artworkIds } },
+          select: { externalId: true }
+        })
+
+        const existingIds = new Set(existingArtworks.map((a) => a.externalId))
+        filesToProcess = validFiles.filter((file) => !existingIds.has(file.artworkId))
+        this.scanResult.skippedArtworks = validFiles.length - filesToProcess.length
+
+        logger.info('Filtered client list based on existing artworks', {
+          totalFiles: validFiles.length,
+          existingFiles: validFiles.length - filesToProcess.length,
+          filesToProcess: filesToProcess.length
+        })
+      }
+    }
+
+    // artworkId 去重，保留一个并记录错误
+    const artworkIdSet: Record<string, GlobMetadataFile> = {}
+    filesToProcess = filesToProcess.filter((file: any) => {
+      const existingFile = artworkIdSet[file.artworkId]
+      if (existingFile) {
+        this.scanResult.errors.push(
+          `Duplicate artworkId found: ${file.artworkId}\n ${existingFile.path} \n ${file.path}`
+        )
+        console.warn('Duplicate artworkId found:', { artworkId: file.artworkId })
+        return false
+      }
+      artworkIdSet[file.artworkId] = file
+      return true
+    })
+
+    return filesToProcess
   }
 
   /**
