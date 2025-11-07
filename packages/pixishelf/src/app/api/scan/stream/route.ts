@@ -106,7 +106,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 /**
  * 扫描SSE流接口（接收客户端提供的元数据列表）
  * POST /api/scan/stream
- * Body: { metadataList: string[], force?: boolean }
+ * Body: { metadataList: string[] }
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -119,6 +119,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'SCAN_PATH is not configured' }, { status: 400 })
     }
 
+    // 检查是否已经在扫描
+    const currentState = appStateService.getState()
+    if (currentState.scanning) {
+      return NextResponse.json({ error: 'Scan already in progress' }, { status: 409 })
+    }
+
     // 解析请求体
     let body: any = null
     try {
@@ -128,16 +134,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const metadataList: string[] = Array.isArray(body?.metadataList) ? body.metadataList : []
-    const force = body?.force === true
 
-    if (!metadataList || metadataList.length === 0) {
+    if (!metadataList?.length) {
       return NextResponse.json({ error: 'metadataList is required and must be a non-empty array' }, { status: 400 })
-    }
-
-    // 检查是否已经在扫描
-    const currentState = appStateService.getState()
-    if (currentState.scanning) {
-      return NextResponse.json({ error: 'Scan already in progress' }, { status: 409 })
     }
 
     // 创建SSE响应
@@ -159,7 +158,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           try {
             const result = await scannerService.scan({
               scanPath,
-              forceUpdate: force,
               metadataRelativePaths: metadataList,
               onProgress: (progress: ScanProgress) => {
                 appStateService.setProgressMessage(progress?.message || null)

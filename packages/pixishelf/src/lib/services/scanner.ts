@@ -93,7 +93,7 @@ export class ScannerService {
         const response = await fetch(`${remoteScannerUrl}/metadata-files`, {
           method: 'GET',
           headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/json'
           },
           // 设置超时时间为 30 秒
           signal: AbortSignal.timeout(30000)
@@ -104,7 +104,7 @@ export class ScannerService {
         }
 
         const data = await response.json()
-        
+
         if (!Array.isArray(data)) {
           throw new Error('Remote scanner service returned invalid data format')
         }
@@ -212,9 +212,9 @@ export class ScannerService {
     })
     await sleep(500)
     // 根据是否提供客户端元数据列表选择来源
-    const metadataFiles = options.metadataRelativePaths && options.metadataRelativePaths.length > 0
-      ? await this.prepareMetadataFilesFromList(options.scanPath, options.metadataRelativePaths, !!options.forceUpdate)
-      : await this.globMetadataFiles(options.scanPath, options.forceUpdate)
+    const metadataFiles = !options.metadataRelativePaths?.length
+      ? await this.globMetadataFiles(options.scanPath, options.forceUpdate)
+      : await this.prepareMetadataFilesFromList(options.scanPath, options.metadataRelativePaths)
     const totalFiles = metadataFiles.length
     const totalBatches = Math.ceil(totalFiles / BATCH_SIZE)
 
@@ -424,10 +424,10 @@ export class ScannerService {
 
         // 调用远程扫描服务
         const remoteFiles = await this.callRemoteScannerService(directoryPath)
-        
+
         // 远程服务返回的是相对路径（去掉了 SCAN_DIRECTORY 前缀）
         // 需要拼接 directoryPath 来生成绝对路径
-        files = remoteFiles.map(relativePath => {
+        files = remoteFiles.map((relativePath) => {
           // 移除开头的斜杠（如果有的话）
           const cleanPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath
           return path.resolve(directoryPath, cleanPath)
@@ -443,7 +443,7 @@ export class ScannerService {
           error: error instanceof Error ? error.message : 'Unknown error',
           directoryPath
         })
-        
+
         // 远程服务失败时回退到本地扫描
         files = await fg(['**/*-meta.txt'], {
           cwd: path.resolve(directoryPath),

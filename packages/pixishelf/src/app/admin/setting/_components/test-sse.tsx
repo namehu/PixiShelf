@@ -1,7 +1,6 @@
 'use client'
 
 import React from 'react'
-import { createEventSourceWithAuth } from '@/lib/api'
 import { ScanResult, ScanProgress, LogEntry } from '@/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -103,7 +102,7 @@ export default function TestSSE() {
       addLogEntry('connection', { url, force }, `开始连接测试SSE: ${url}`)
 
       const connectTestSSE = () => {
-        const es = createEventSourceWithAuth(url)
+        const es = new EventSource(url)
         testEsRef.current = es
 
         es.onopen = () => {

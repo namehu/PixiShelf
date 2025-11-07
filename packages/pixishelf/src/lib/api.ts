@@ -3,7 +3,7 @@
 export async function apiRequest(url: string, options: RequestInit = {}) {
   const headers = {
     'Content-Type': 'application/json',
-    ...(options.headers || {})
+    ...options.headers
   } as Record<string, string>
 
   const response = await fetch(url, {
@@ -32,12 +32,4 @@ export async function apiRequest(url: string, options: RequestInit = {}) {
 export async function apiJson<T>(url: string, options: RequestInit = {}): Promise<T> {
   const response = await apiRequest(url, options)
   return response.json() as Promise<T>
-}
-
-// SSE with token support for EventSource
-export function createEventSourceWithAuth(url: string): EventSource {
-  const separator = url.includes('?') ? '&' : '?'
-  const urlWithToken = `${url}${separator}`
-
-  return new EventSource(urlWithToken)
 }
