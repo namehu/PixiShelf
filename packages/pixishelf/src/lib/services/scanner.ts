@@ -68,6 +68,23 @@ export class ScannerService {
   }
 
   /**
+   * 重置本次扫描的结果聚合，避免单例实例跨请求污染
+   */
+  private resetScanResult() {
+    this.scanResult = {
+      totalArtworks: 0,
+      newArtists: 0,
+      newArtworks: 0,
+      newImages: 0,
+      newTags: 0,
+      skippedArtworks: 0,
+      errors: [],
+      processingTime: 0,
+      removedArtworks: 0
+    }
+  }
+
+  /**
    * 调用远程扫描服务获取元数据文件列表
    * @param directoryPath 目录路径
    * @returns 远程服务返回的文件路径数组
@@ -145,6 +162,8 @@ export class ScannerService {
     // 清空缓存，确保每次扫描都有干净的状态
     this.tagCache.clear()
     this.artistCache.clear()
+    // 重置本次扫描的聚合结果，防止单例跨请求累计
+    this.resetScanResult()
 
     try {
       logger.info('Starting scan:', { scanPath: options.scanPath })
