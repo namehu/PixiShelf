@@ -32,7 +32,7 @@ export interface RandomImageItem {
     avatar?: string
   } | null
   createdAt: string
-  tags: Tag[]
+  tags: Pick<Tag, 'id' | 'name' | 'name_zh'>[]
   /** 当前用户是否点赞了该作品 */
   isLike: boolean
 }

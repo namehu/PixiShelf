@@ -2,6 +2,7 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import { create } from 'zustand'
 import { RandomImageItem } from '@/types/images'
 import { LikeStatus } from '@/services'
+import { EMediaType } from '@/enums/EMediaType'
 
 /**
  * Viewer 页面状态接口定义
@@ -11,6 +12,8 @@ export interface ViewerState {
   images: RandomImageItem[]
   artworkLikeMap: Map<number, boolean>
   hasFetchedOnce: boolean
+  // 本地持久化状态是否已完成复原（hydration）
+  hasHydrated: boolean
 
   // UI 状态
   verticalIndex: number
@@ -21,6 +24,7 @@ export interface ViewerState {
 
   // 最大图片数量配置
   maxImageCount: number
+  mediaType: EMediaType
 
   // 状态操作方法
   setImages: (images: RandomImageItem[]) => void
@@ -29,6 +33,8 @@ export interface ViewerState {
   resetViewerState: () => void
   setTitleOpacity: (titleOpacity: string) => void
   setMaxImageCount: (count: number) => void
+  setMediaType: (mediaType: EMediaType) => void
+  setHasHydrated: (value: boolean) => void
 
   // 批量更新方法
   updateViewerState: (updates: Partial<Pick<ViewerState, 'images' | 'verticalIndex' | 'horizontalIndexes'>>) => void
@@ -51,10 +57,12 @@ export const useViewerStore = create<ViewerState>()(
       images: [],
       artworkLikeMap: new Map(),
       hasFetchedOnce: false,
+      hasHydrated: false,
       verticalIndex: 0,
       horizontalIndexes: {},
       titleOpacity: '100',
       maxImageCount: 8, // 默认最大图片数量
+      mediaType: EMediaType.all,
       // 设置图片列表数据
       setImages: (images: RandomImageItem[]) => {
         const map = get().artworkLikeMap
@@ -79,6 +87,12 @@ export const useViewerStore = create<ViewerState>()(
         const validCount = Math.min(Math.max(1, count), 100)
         set({ maxImageCount: validCount })
       },
+
+      // 设置媒体类型
+      setMediaType: (mediaType: EMediaType) => set({ mediaType }),
+
+      // 标记持久化数据已复原
+      setHasHydrated: (value: boolean) => set({ hasHydrated: value }),
 
       // 设置垂直滑动索引
       setVerticalIndex: (index: number) => {
@@ -160,7 +174,21 @@ export const useViewerStore = create<ViewerState>()(
     {
       name: 'pixishelf-viewer-settings',
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ titleOpacity: state.titleOpacity, maxImageCount: state.maxImageCount })
+      // 持久化数据复原完成后，标记 hasHydrated 为 true（不直接引用 store 变量，避免 TDZ）
+      onRehydrateStorage: () => {
+        return (state) => {
+          try {
+            state?.setHasHydrated?.(true)
+          } catch (_) {
+            // ignore
+          }
+        }
+      },
+      partialize: (state) => ({
+        titleOpacity: state.titleOpacity,
+        maxImageCount: state.maxImageCount,
+        mediaType: state.mediaType
+      })
     }
   )
 )

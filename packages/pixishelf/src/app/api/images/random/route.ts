@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { RandomImageItem, RandomImagesResponse } from '@/types/images'
 import { guid } from '@/utils/guid'
-import { isVideoFile, MediaType } from '@/types'
+import { isVideoFile, MediaType, VIDEO_EXTENSIONS, IMAGE_EXTENSIONS } from '@/types'
 import { combinationStaticAvatar } from '@/utils/combinationStatic'
 import { sessionManager } from '@/lib/session'
 import { likeService } from '@/services/likeService'
+import { EMediaType } from '@/enums/EMediaType'
 
 /**
  * Fisher-Yates (aka Knuth) Shuffle 算法。
@@ -46,11 +47,32 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
       ? Math.min(Math.max(1, parseInt(countParam, 10)), 100) // 确保在1-100范围内
       : DEFAULT_MAX_IMAGE_COUNT
 
+    // 新增：媒体类型筛选条件（all | image | video），默认 all
+    const mediaTypeParamRaw = (searchParams.get('mediaType') || EMediaType.all).toLowerCase()
+    const mediaTypeParam =
+      mediaTypeParamRaw === EMediaType.image || mediaTypeParamRaw === EMediaType.video
+        ? mediaTypeParamRaw
+        : EMediaType.all
+
+    // 构建 Prisma 过滤条件：基于文件扩展名进行过滤
+    const buildMediaFilter = (type: EMediaType) => {
+      if (type === EMediaType.all) return {}
+      const exts = type === EMediaType.video ? VIDEO_EXTENSIONS : IMAGE_EXTENSIONS
+      return {
+        images: {
+          some: {
+            OR: exts.map((ext) => ({ path: { endsWith: ext, mode: 'insensitive' as const } }))
+          }
+        }
+      }
+    }
+
     // 3. 查询所有符合条件的 Artwork 的 ID
     // 只选择 id 字段，这样数据库查询非常快，内存占用也小
     const allArtworkIds = await prisma.artwork.findMany({
       where: {
-        imageCount: { lte: maxImageCount }
+        imageCount: { lte: maxImageCount },
+        ...buildMediaFilter(mediaTypeParam)
       },
       select: { id: true },
       orderBy: {
@@ -93,7 +115,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
       where: {
         id: {
           in: paginatedIds
-        }
+        },
+        ...buildMediaFilter(mediaTypeParam)
       },
       include: {
         images: {

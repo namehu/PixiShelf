@@ -5,12 +5,21 @@ import { RandomImageItem } from '@/types/images'
 import { useRouter } from 'next/navigation'
 import { CaptionsIcon, User } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle, DrawerFooter } from '@/components/ui/drawer'
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerFooter
+} from '@/components/ui/drawer'
 import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
 import { useViewerStore } from '@/store/viewerStore'
+import { useShallow } from 'zustand/shallow'
+import { EMediaType, OMediaType } from '@/enums/EMediaType'
 
 export interface ActionDrawerProps {
   /** 是否显示抽屉 */
@@ -31,19 +40,30 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
   const { author } = image
 
   // 从store获取当前设置值
-  const { titleOpacity, setTitleOpacity, maxImageCount, setMaxImageCount } = useViewerStore()
+  const { titleOpacity, setTitleOpacity, maxImageCount, setMaxImageCount, mediaType, setMediaType } = useViewerStore(
+    useShallow((state) => ({
+      titleOpacity: state.titleOpacity,
+      maxImageCount: state.maxImageCount,
+      mediaType: state.mediaType,
+      setTitleOpacity: state.setTitleOpacity,
+      setMaxImageCount: state.setMaxImageCount,
+      setMediaType: state.setMediaType
+    }))
+  )
 
   // 临时状态管理 - 用于存储用户调整过程中的临时值
   const [tempTitleOpacity, setTempTitleOpacity] = useState<string>(titleOpacity)
   const [tempMaxImageCount, setTempMaxImageCount] = useState<number>(maxImageCount)
+  const [tempMediaType, setTempMediaType] = useState<EMediaType>(mediaType)
 
   // 当抽屉打开时，初始化临时状态为当前store值
   useEffect(() => {
     if (open) {
       setTempTitleOpacity(titleOpacity)
       setTempMaxImageCount(maxImageCount)
+      setTempMediaType(mediaType)
     }
-  }, [open, titleOpacity, maxImageCount])
+  }, [open, titleOpacity, maxImageCount, mediaType])
 
   // 处理查看详情
   const handleViewDetails = () => {
@@ -63,31 +83,21 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
   const handleSave = () => {
     setTitleOpacity(tempTitleOpacity)
     setMaxImageCount(tempMaxImageCount)
+    setMediaType(tempMediaType)
     onOpenChange(false)
   }
 
-  // 处理取消操作 - 恢复原始值并关闭抽屉
+  // 处理取消操作
   const handleCancel = () => {
-    setTempTitleOpacity(titleOpacity)
-    setTempMaxImageCount(maxImageCount)
     onOpenChange(false)
-  }
-
-  // 处理抽屉关闭时的状态重置
-  const handleOpenChange = (newOpen: boolean) => {
-    if (!newOpen) {
-      // 抽屉关闭时重置临时状态为store中的原始值
-      setTempTitleOpacity(titleOpacity)
-      setTempMaxImageCount(maxImageCount)
-    }
-    onOpenChange(newOpen)
   }
 
   // 检查是否有未保存的更改
-  const hasUnsavedChanges = tempTitleOpacity !== titleOpacity || tempMaxImageCount !== maxImageCount
+  const hasUnsavedChanges =
+    tempTitleOpacity !== titleOpacity || tempMaxImageCount !== maxImageCount || tempMediaType !== mediaType
 
   return (
-    <Drawer open={open} onOpenChange={handleOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle className="flex items-center justify-center" onClick={handleViewDetails}>
@@ -102,7 +112,7 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
           )}
         </DrawerHeader>
         <Separator />
-        
+
         {/* 设置内容区域 */}
         <div className="p-4 space-y-4 flex-1">
           {/* 标题透明度设置 */}
@@ -138,23 +148,29 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
               <span>100</span>
             </div>
           </div>
+
+          {/* 媒体类型设置 */}
+          <div className="flex justify-between py-2">
+            <Label>媒体类型</Label>
+            <Tabs value={tempMediaType} onValueChange={(va: any) => setTempMediaType(va)}>
+              <TabsList>
+                {OMediaType.map((it) => (
+                  <TabsTrigger key={it.value} value={it.value}>
+                    {it.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          </div>
         </div>
 
         {/* 底部确认按钮区域 */}
         <DrawerFooter className="pt-2">
           <div className="flex gap-2 w-full">
-            <Button 
-              variant="outline" 
-              onClick={handleCancel}
-              className="flex-1"
-            >
+            <Button variant="outline" onClick={handleCancel} className="flex-1">
               取消
             </Button>
-            <Button 
-              onClick={handleSave}
-              className="flex-1"
-              disabled={!hasUnsavedChanges}
-            >
+            <Button onClick={handleSave} className="flex-1" disabled={!hasUnsavedChanges}>
               保存
             </Button>
           </div>
