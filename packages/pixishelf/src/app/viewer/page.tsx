@@ -34,7 +34,6 @@ export default function ViewerPage() {
     queryKey: ['images', 'random', 'infinite', maxImageCount],
     queryFn: async ({ pageParam = 1 }) =>
       apiJson<RandomImagesResponse>(`/api/images/random?page=${pageParam}&count=${maxImageCount}`),
-    // getNextPageParam 告诉 React Query 如何找到下一页的页码
     getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
     initialPageParam: 1, // 初始页码
     // 缓存配置 - 根据是否启用状态恢复调整缓存时间
