@@ -49,10 +49,7 @@ export const artworkRepository = {
    * @param options 查询选项
    * @returns 作品数据数组
    */
-  async findRecent(options: {
-    skip: number
-    take: number
-  }) {
+  async findRecent(options: { skip: number; take: number }) {
     return prisma.artwork.findMany({
       include: {
         images: { take: 1, orderBy: { sortOrder: 'asc' } },
@@ -60,7 +57,7 @@ export const artworkRepository = {
         artworkTags: { include: { tag: true } },
         _count: { select: { images: true } }
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { directoryCreatedAt: 'desc' },
       skip: options.skip,
       take: options.take
     })

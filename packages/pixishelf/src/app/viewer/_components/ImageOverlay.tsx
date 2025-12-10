@@ -26,7 +26,8 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
   const { id, author, createdAt, title, description, tags = [] } = image
   const router = useRouter()
 
-  const [titleOpacity] = useViewerStore((state) => state.titleOpacity)
+  const titleOpacity = useViewerStore((state) => state.titleOpacity)
+
   const [artworkLikeMap, toggleLikeStatus] = useViewerStore(
     useShallow((state) => [state.artworkLikeMap, state.toggleLikeStatus])
   )

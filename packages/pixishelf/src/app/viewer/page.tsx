@@ -22,26 +22,31 @@ export default function ViewerPage() {
   const router = useRouter()
 
   // 状态管理
-  const { images, setImages, maxImageCount } = useViewerStore(
+  const { images, setImages, maxImageCount, mediaType, hasHydrated } = useViewerStore(
     useShallow((state) => ({
       images: state.images,
       setImages: state.setImages,
-      maxImageCount: state.maxImageCount
+      maxImageCount: state.maxImageCount,
+      mediaType: state.mediaType,
+      hasHydrated: state.hasHydrated
     }))
   )
 
   const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteQuery({
-    queryKey: ['images', 'random', 'infinite', maxImageCount],
+    queryKey: ['images', 'random', 'infinite', maxImageCount, mediaType],
     queryFn: async ({ pageParam = 1 }) =>
-      apiJson<RandomImagesResponse>(`/api/images/random?page=${pageParam}&count=${maxImageCount}`),
-    // getNextPageParam 告诉 React Query 如何找到下一页的页码
+      apiJson<RandomImagesResponse>(
+        `/api/images/random?page=${pageParam}&count=${maxImageCount}&mediaType=${mediaType}`
+      ),
     getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
     initialPageParam: 1, // 初始页码
     // 缓存配置 - 根据是否启用状态恢复调整缓存时间
     staleTime: 10 * 60 * 1000, // 状态恢复模式：10分钟内数据保持新鲜
     gcTime: 15 * 60 * 1000, // 状态恢复模式：15分钟后清理缓存
     retry: 3,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000)
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    // 仅在持久化设置完成复原后才进行首次请求，避免“默认值 → 持久化值”触发的双请求
+    enabled: hasHydrated
   })
 
   useEffect(() => {
