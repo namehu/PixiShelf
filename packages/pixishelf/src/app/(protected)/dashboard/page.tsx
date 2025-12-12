@@ -1,5 +1,5 @@
 import { artworkService } from '@/services/artworkService'
-import { artistService } from '@/services/artistService'
+import { artistService } from '@/services/artist-service'
 import RecommendedArtworks from './_components/RecommendedArtworks'
 import RecentArtworks from './_components/RecentArtworks'
 import RecentArtists from './_components/RecentArtists'

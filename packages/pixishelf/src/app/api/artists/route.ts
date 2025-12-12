@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { artistService } from '@/services/artistService'
+import { artistService } from '@/services/artist-service'
 import { ArtistsQuery } from '@/types'
 
 /**
