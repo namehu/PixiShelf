@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getMediaType, MediaFile } from '@/types'
-import { artistService } from '@/services'
+import { artistService } from '@/services/artist-service'
 import logger from '@/lib/logger'
 
 /**

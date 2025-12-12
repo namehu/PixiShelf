@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { Artist } from '@/types'
-import { artistService } from '@/services'
+import { artistService } from '@/services/artist-service'
 
 /**
  * 获取艺术家详情接口
@@ -15,7 +15,7 @@ export async function GET(
     const { id } = await params
     const artistId = parseInt(id, 10)
 
-    if (isNaN(artistId)) {
+    if (Number.isNaN(artistId)) {
       return NextResponse.json({ error: 'Invalid artist ID' }, { status: 400 })
     }
 
