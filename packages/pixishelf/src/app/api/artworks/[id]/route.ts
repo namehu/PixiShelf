@@ -1,72 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { getMediaType, MediaFile } from '@/types'
-import { artistService } from '@/services/artist-service'
+import { getArtworkById } from '@/services/artwork-service'
 import logger from '@/lib/logger'
 
-/**
- * 获取单个作品详情接口
- * GET /api/artworks/:id
- */
-export async function GET(_r: NextRequest, { params }: { params: Promise<{ id: string }> }): Promise<NextResponse> {
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> } // Next.js 15+ params 是 Promise
+) {
+  // 1. 解析参数 (Controller 职责)
+  const { id } = await params
+  const artworkId = Number(id)
+
+  // 2. 校验参数 (Controller 职责)
+  if (!Number.isFinite(artworkId)) {
+    return NextResponse.json({ error: 'Invalid artwork ID' }, { status: 400 })
+  }
+
   try {
-    const { id } = await params
-    const artworkId = Number(id)
+    // 3. 调用业务逻辑 (Service 职责)
+    const data = await getArtworkById(artworkId)
 
-    if (!Number.isFinite(artworkId)) {
-      return NextResponse.json({ error: 'Invalid artwork ID' }, { status: 400 })
-    }
-
-    const artwork = await prisma.artwork.findUnique({
-      where: { id: artworkId },
-      include: {
-        images: { orderBy: { sortOrder: 'asc' } },
-        artist: true,
-        artworkTags: { include: { tag: true } }
-      }
-    })
-
-    if (!artwork) {
+    // 4. 处理业务结果 (Controller 职责)
+    if (!data) {
       return NextResponse.json({ statusCode: 404, error: 'Not Found', message: 'Artwork not found' }, { status: 404 })
     }
 
-    // 转换数据格式，将多对多关系的标签转换为字符串数组，并添加媒体类型信息
-    const enhancedImages: MediaFile[] = artwork.images.map((image) => ({
-      ...image,
-      mediaType: getMediaType(image.path) as 'image' | 'video',
-      sortOrder: image.sortOrder || 0,
-      createdAt: image.createdAt.toISOString(),
-      updatedAt: image.updatedAt.toISOString()
-    }))
-
-    // 计算视频统计信息
-    const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
-    const totalMediaSize = enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0)
-
-    const formattedArtwork = {
-      ...artwork,
-      images: enhancedImages,
-      tags: artwork.artworkTags.map(({ tag }) => ({ id: tag.id, name: tag.name, name_zh: tag.name_zh })),
-      videoCount,
-      totalMediaSize,
-      createdAt: artwork.createdAt.toISOString(),
-      updatedAt: artwork.updatedAt.toISOString(),
-      directoryCreatedAt: artwork.directoryCreatedAt?.toISOString() || null,
-      artist: artwork.artist
-        ? {
-            ...artistService.transformArtistsToResponse([artwork.artist])[0],
-            artworksCount: 0, // 这里可以根据需要查询实际数量
-            createdAt: artwork.artist.createdAt.toISOString(),
-            updatedAt: artwork.artist.updatedAt.toISOString()
-          }
-        : null,
-      artworkTags: undefined as any
-    }
-    delete (formattedArtwork as any).artworkTags
-
-    return NextResponse.json(formattedArtwork)
+    // 5. 返回成功响应
+    return NextResponse.json(data)
   } catch (error) {
-    logger.error('Error fetching artwork:', error)
-    return NextResponse.json({ error: 'Failed to fetch artwork' }, { status: 500 })
+    // 6. 统一错误处理与日志 (Controller 职责)
+    logger.error(`[API] Get Artwork Failed (id:${artworkId}):`, error)
+
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }

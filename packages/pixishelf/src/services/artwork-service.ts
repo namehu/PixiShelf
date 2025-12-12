@@ -3,6 +3,7 @@ import 'server-only'
 import { EnhancedArtworksResponse, getMediaType, MediaFile } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
+import { transformArtist } from './artist-service'
 
 // ==========================================
 // Types & Interfaces
@@ -81,18 +82,66 @@ export const getRecentArtworks = async (options: GetRecentArtworksOptions = {}):
 }
 
 /**
- * 根据 ID 获取单个作品
+ * 根据 ID 获取单个作品详情
+ * 包含：所有图片、完整 Tag 信息、Artist 信息
  */
 export const getArtworkById = async (id: number) => {
-  const artwork = await fetchById(id)
+  const artwork = await prisma.artwork.findUnique({
+    where: { id },
+    include: {
+      images: { orderBy: { sortOrder: 'asc' } },
+      artist: true,
+      artworkTags: { include: { tag: true } }
+    }
+  })
 
+  // Service 层返回 null，由 Controller 决定是 404 还是其他
   if (!artwork) {
     return null
   }
+  // ==========================================
+  // Transformers (针对详情页的转换逻辑)
+  // ==========================================
+  function transformArtworkDetail(artwork: any) {
+    // 1. 图片处理
+    const enhancedImages: MediaFile[] = artwork.images.map((image: any) => ({
+      ...image,
+      mediaType: getMediaType(image.path) as 'image' | 'video',
+      sortOrder: image.sortOrder || 0,
+      createdAt: image.createdAt.toISOString(),
+      updatedAt: image.updatedAt.toISOString()
+    }))
 
-  // 复用转换逻辑
-  const [transformed] = transformArtworksList([artwork])
-  return transformed
+    // 2. 统计计算
+    const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
+    const totalMediaSize = enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0)
+
+    // 3. 艺术家处理 (简单内联处理，或者调用 artistService 的 helper)
+    const formattedArtist = artwork.artist ? transformArtist(artwork.artist) : null
+
+    // 4. 构建最终对象
+    return {
+      ...artwork,
+      images: enhancedImages,
+      // 详情页可能需要完整的 tag 对象 (id, name, name_zh)，不同于列表页只给 name
+      tags: artwork.artworkTags.map(({ tag }: any) => ({
+        id: tag.id,
+        name: tag.name,
+        name_zh: tag.name_zh
+      })),
+      videoCount,
+      totalMediaSize,
+      createdAt: artwork.createdAt.toISOString(),
+      updatedAt: artwork.updatedAt.toISOString(),
+      directoryCreatedAt: artwork.directoryCreatedAt?.toISOString() || null,
+      artist: formattedArtist,
+      // 移除原始的关联字段
+      artworkTags: undefined
+    }
+  }
+
+  // 调用专门针对详情页的转换函数
+  return transformArtworkDetail(artwork)
 }
 
 // ==========================================

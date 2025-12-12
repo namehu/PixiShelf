@@ -1,3 +1,4 @@
+import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
 import { ArtistsResponse, ArtistsQuery } from '@/types'
 import { Artist } from '@/types/core'
@@ -82,7 +83,7 @@ export const artistService = {
       ])
 
       // 转换数据格式
-      const items = this.transformArtistsToResponse(artists)
+      const items = transformArtists(artists)
 
       return {
         items,
@@ -91,7 +92,7 @@ export const artistService = {
         pageSize: limitedPageSize
       }
     } catch (error) {
-      console.error('Error fetching artists:', error)
+      logger.error('Error fetching artists:', error)
       return {
         items: [],
         total: 0,
@@ -138,7 +139,7 @@ export const artistService = {
       ])
 
       // 转换数据格式
-      const items = this.transformArtistsToResponse(artists)
+      const items = transformArtists(artists)
 
       return {
         items,
@@ -147,7 +148,7 @@ export const artistService = {
         pageSize
       }
     } catch (error) {
-      console.error('Error fetching recent artists:', error)
+      logger.error('Error fetching recent artists:', error)
       return {
         items: [],
         total: 0,
@@ -163,48 +164,18 @@ export const artistService = {
    * @returns 艺术家数据或 null
    */
   async getArtistById(id: number): Promise<Artist | null> {
-    try {
-      const artist = await prisma.artist.findUnique({
-        where: { id },
-        include: {
-          _count: {
-            select: {
-              artworks: true
-            }
+    const artist = await prisma.artist.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            artworks: true
           }
         }
-      })
-
-      if (!artist) {
-        return null
-      }
-
-      const [transformedArtist] = this.transformArtistsToResponse([artist])
-      return transformedArtist || null
-    } catch (error) {
-      console.error('Error fetching artist by id:', error)
-      return null
-    }
-  },
-
-  /**
-   * 转换艺术家数据格式以匹配前端需求
-   * @param artists 原始艺术家数据
-   * @returns 转换后的艺术家数据
-   */
-  transformArtistsToResponse(artists: any[]): Artist[] {
-    return artists.map((artist) => {
-      const { _count, userId, createdAt, updatedAt, avatar, backgroundImg, ...rest } = artist
-      return {
-        ...rest,
-        userId,
-        avatar: combinationStaticAvatar(userId, avatar),
-        backgroundImg: combinationStaticArtistBg(userId, backgroundImg),
-        artworksCount: _count?.artworks || 0,
-        createdAt: createdAt?.toISOString() || new Date().toISOString(),
-        updatedAt: updatedAt?.toISOString() || new Date().toISOString()
       }
     })
+
+    return !artist ? null : transformArtist(artist)
   },
 
   /**
@@ -235,3 +206,30 @@ export const artistService = {
 }
 
 export type ArtistService = typeof artistService
+
+/**
+ * 转换艺术家数据格式以匹配前端需求
+ * @param artists 原始艺术家数据
+ * @returns 转换后的艺术家数据
+ */
+export function transformArtists(artists: any[]): Artist[] {
+  return artists.map(transformArtist)
+}
+
+/**
+ * 转换单个艺术家数据格式以匹配前端需求
+ * @param artists 原始艺术家数据
+ * @returns 转换后的艺术家数据
+ */
+export function transformArtist(artist: any): Artist {
+  const { _count, userId, createdAt, updatedAt, avatar, backgroundImg, ...rest } = artist
+  return {
+    ...rest,
+    userId,
+    avatar: combinationStaticAvatar(userId, avatar),
+    backgroundImg: combinationStaticArtistBg(userId, backgroundImg),
+    artworksCount: _count?.artworks || 0,
+    createdAt: createdAt?.toISOString() || new Date().toISOString(),
+    updatedAt: updatedAt?.toISOString() || new Date().toISOString()
+  }
+}

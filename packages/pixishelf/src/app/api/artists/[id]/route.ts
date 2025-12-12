@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { Artist } from '@/types'
-import { artistService } from '@/services/artist-service'
+import { transformArtist } from '@/services/artist-service'
+import logger from '@/lib/logger'
 
 /**
  * 获取艺术家详情接口
@@ -36,11 +37,11 @@ export async function GET(
     }
 
     // 转换数据格式
-    const response: Artist = artistService.transformArtistsToResponse([artist])[0]!
+    const response = transformArtist(artist)
 
     return NextResponse.json(response)
   } catch (error) {
-    console.error('Failed to get artist:', error)
+    logger.error('Failed to get artist:', error)
     return NextResponse.json({ error: 'Failed to get artist' }, { status: 500 })
   }
 }
