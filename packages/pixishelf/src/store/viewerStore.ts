@@ -1,7 +1,7 @@
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { create } from 'zustand'
 import { RandomImageItem } from '@/types/images'
-import { LikeStatus } from '@/services'
+import type { LikeStatus } from '@/services/like-service'
 import { EMediaType } from '@/enums/EMediaType'
 
 /**

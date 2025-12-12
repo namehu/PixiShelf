@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 
 // 点赞结果接口
-export interface LikeResult {
+interface LikeResult {
   liked: boolean
   likeCount: number
   userLiked: boolean
@@ -16,15 +16,6 @@ export interface LikeStatus {
 // 批量点赞状态接口
 export interface BatchLikeStatus {
   [artworkId: number]: LikeStatus
-}
-
-// 点赞服务接口
-export interface ILikeService {
-  toggleLike(userId: number, artworkId: number): Promise<LikeResult>
-  getLikeStatus(userId: number | null, artworkId: number): Promise<LikeStatus>
-  getLikeCount(artworkId: number): Promise<number>
-  getUserLikedArtworks(userId: number, limit?: number, offset?: number): Promise<number[]>
-  getBatchLikeStatus(userId: number | null, artworkIds: number[]): Promise<BatchLikeStatus>
 }
 
 // 并发控制：防抖映射表
@@ -384,5 +375,3 @@ export const likeService = {
     }
   }
 }
-
-export type LikeService = typeof likeService

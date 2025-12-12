@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { likeService } from '@/services'
+import { likeService } from '@/services/like-service'
 import { sessionManager } from '@/lib/session'
 
 /**

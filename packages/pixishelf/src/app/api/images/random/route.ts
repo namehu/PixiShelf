@@ -5,7 +5,7 @@ import { guid } from '@/utils/guid'
 import { isVideoFile, MediaType } from '@/types'
 import { combinationStaticAvatar } from '@/utils/combinationStatic'
 import { sessionManager } from '@/lib/session'
-import { likeService } from '@/services/likeService'
+import { likeService } from '@/services/like-service'
 import { EMediaType } from '@/enums/EMediaType'
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '../../../../../lib/constant'
 
@@ -57,7 +57,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
 
     // 构建 Prisma 过滤条件：基于文件扩展名进行过滤
     const buildMediaFilter = (type: EMediaType) => {
-      if (type === EMediaType.all) return {}
+      if (type === EMediaType.all) {
+        return {}
+      }
       const exts = type === EMediaType.video ? VIDEO_EXTENSIONS : IMAGE_EXTENSIONS
       return {
         images: {
