@@ -1,4 +1,4 @@
-import { artworkService } from '@/services/artworkService'
+import { artworkService } from '@/services/artwork-service'
 import { artistService } from '@/services/artist-service'
 import RecommendedArtworks from './_components/RecommendedArtworks'
 import RecentArtworks from './_components/RecentArtworks'

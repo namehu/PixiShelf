@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { artworkService } from '@/services/artworkService'
+import { artworkService } from '@/services/artwork-service'
 import type { EnhancedArtworksResponse } from '@/types'
+import logger from '@/lib/logger'
 
 /**
  * 获取推荐作品接口
@@ -14,11 +15,10 @@ export async function GET(request: NextRequest): Promise<NextResponse<EnhancedAr
 
     // 2. 调用 Service 层
     const result = await artworkService.getRecommendedArtworks({ pageSize })
-
     // 3. 返回响应
     return NextResponse.json(result)
   } catch (error) {
-    console.error('Error fetching recommended artworks:', error)
+    logger.error('Error fetching recommended artworks:', error)
     return NextResponse.json({ error: 'Failed to fetch recommended artworks' } as any, { status: 500 })
   }
 }
