@@ -1,6 +1,10 @@
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 
+interface ArtworkId {
+  id: number
+}
+
 /**
  * 作品数据访问层 - Repository 模式
  * 职责：封装所有作品相关的数据库查询操作
@@ -12,10 +16,6 @@ export const artworkRepository = {
    * @returns 随机作品 ID 数组
    */
   async findRandomIds(limit: number): Promise<number[]> {
-    type ArtworkId = {
-      id: number
-    }
-
     const randomIdsResult = await prisma.$queryRaw<ArtworkId[]>(
       Prisma.sql`SELECT id FROM "Artwork" ORDER BY RANDOM() LIMIT ${limit}`
     )

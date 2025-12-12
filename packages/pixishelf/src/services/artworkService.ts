@@ -1,5 +1,15 @@
+import logger from '@/lib/logger'
 import { artworkRepository } from '@/lib/repositories/artworkRepository'
 import { EnhancedArtworksResponse, getMediaType, MediaFile } from '@/types'
+
+interface GetRecommendedArtworksOptions {
+  pageSize?: number
+}
+
+interface GetRecentArtworksOptions {
+  page?: number
+  pageSize?: number
+}
 
 /**
  * 作品服务层 - 业务逻辑封装
@@ -11,25 +21,15 @@ export const artworkService = {
    * @param options 查询选项
    * @returns 推荐作品响应
    */
-  async getRecommendedArtworks(
-    options: {
-      pageSize?: number
-    } = {}
-  ): Promise<EnhancedArtworksResponse> {
+  async getRecommendedArtworks(options: GetRecommendedArtworksOptions) {
+    const { pageSize = 10 } = options ?? {}
+    const result: EnhancedArtworksResponse = { items: [], total: 0, page: 1, pageSize }
     try {
-      const { pageSize = 10 } = options
-
       // 1. 获取随机作品 ID
       const randomIds = await artworkRepository.findRandomIds(pageSize)
-
       // 2. 如果没有作品，返回空结果
       if (randomIds.length === 0) {
-        return {
-          items: [],
-          total: 0,
-          page: 1,
-          pageSize
-        }
+        return result
       }
 
       // 3. 查询完整的作品数据
@@ -43,21 +43,13 @@ export const artworkService = {
       // 5. 转换数据格式
       const items = this.transformArtworksToResponse(orderedArtworks)
 
-      return {
-        items,
-        total: items.length,
-        page: 1,
-        pageSize
-      }
+      result.items = items
+      result.total = items.length
     } catch (error) {
-      console.error('Error fetching recommended artworks:', error)
-      return {
-        items: [],
-        total: 0,
-        page: 1,
-        pageSize: options.pageSize || 10
-      }
+      logger.error('Error fetching recommended artworks:', error)
     }
+
+    return result
   },
 
   /**
@@ -65,16 +57,12 @@ export const artworkService = {
    * @param options 查询选项
    * @returns 最新作品响应
    */
-  async getRecentArtworks(
-    options: {
-      page?: number
-      pageSize?: number
-    } = {}
-  ): Promise<EnhancedArtworksResponse> {
-    try {
-      const { page = 1, pageSize = 10 } = options
-      const skip = (page - 1) * pageSize
+  async getRecentArtworks(options: GetRecentArtworksOptions = {}) {
+    const { page = 1, pageSize = 10 } = options
+    const skip = (page - 1) * pageSize
 
+    const result: EnhancedArtworksResponse = { items: [], total: 0, page, pageSize }
+    try {
       // 1. 并行查询作品数据和总数
       const [artworks, total] = await Promise.all([
         artworkRepository.findRecent({ skip, take: pageSize }),
@@ -82,23 +70,13 @@ export const artworkService = {
       ])
 
       // 2. 转换数据格式
-      const items = this.transformArtworksToResponse(artworks)
-
-      return {
-        items,
-        total,
-        page,
-        pageSize
-      }
+      result.items = this.transformArtworksToResponse(artworks)
+      result.total = total
     } catch (error) {
-      console.error('Error fetching recent artworks:', error)
-      return {
-        items: [],
-        total: 0,
-        page: options.page || 1,
-        pageSize: options.pageSize || 10
-      }
+      logger.error('Error fetching recent artworks:', error)
     }
+
+    return result
   },
 
   /**
@@ -166,7 +144,7 @@ export const artworkService = {
       const [transformedArtwork] = this.transformArtworksToResponse([artwork])
       return transformedArtwork
     } catch (error) {
-      console.error('Error fetching artwork by id:', error)
+      logger.error('Error fetching artwork by id:', error)
       return null
     }
   }

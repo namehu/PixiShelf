@@ -56,14 +56,6 @@ function useArtistArtworks(artistId: string, page: number, pageSize: number, sor
   })
 }
 
-// ============================================================================
-// 工具函数
-// ============================================================================
-
-// ============================================================================
-// 主组件
-// ============================================================================
-
 /**
  * 艺术家详情页面
  */
@@ -71,7 +63,7 @@ export default function ArtistDetailPage() {
   const router = useRouter()
   const params = useParams()
   const searchParams = useSearchParams()
-  const { isAuthenticated, isLoading: authLoading } = useAuth()
+  const { isLoading: authLoading } = useAuth()
 
   const id = params.id as string
   const page = parseInt(searchParams.get('page') || '1', 10)
@@ -126,7 +118,7 @@ export default function ArtistDetailPage() {
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
       </div>
     )
   }
@@ -138,16 +130,16 @@ export default function ArtistDetailPage() {
         <div className="max-w-7xl mx-auto">
           <div className="animate-pulse space-y-8">
             {/* 返回按钮骨架 */}
-            <div className="h-10 w-32 bg-gray-200 rounded"></div>
+            <div className="h-10 w-32 bg-gray-200 rounded" />
 
             {/* 艺术家信息骨架 */}
             <div className="bg-white rounded-lg shadow p-8">
               <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
-                <div className="h-24 w-24 bg-gray-200 rounded-full"></div>
+                <div className="h-24 w-24 bg-gray-200 rounded-full" />
                 <div className="flex-1 space-y-4">
-                  <div className="h-8 w-64 bg-gray-200 rounded"></div>
-                  <div className="h-4 w-32 bg-gray-200 rounded"></div>
-                  <div className="h-16 w-full max-w-2xl bg-gray-200 rounded"></div>
+                  <div className="h-8 w-64 bg-gray-200 rounded" />
+                  <div className="h-4 w-32 bg-gray-200 rounded" />
+                  <div className="h-16 w-full max-w-2xl bg-gray-200 rounded" />
                 </div>
               </div>
             </div>
@@ -168,7 +160,7 @@ export default function ArtistDetailPage() {
             onClick={() => router.back()}
             className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors"
           >
-            <ChevronLeftIcon size={24}></ChevronLeftIcon>
+            <ChevronLeftIcon size={24} />
             返回
           </button>
         </div>
@@ -184,7 +176,7 @@ export default function ArtistDetailPage() {
           onClick={() => router.back()}
           className="inline-flex items-center px-3 py-2 text-white bg-black bg-opacity-50 hover:bg-opacity-70 rounded-lg transition-all backdrop-blur-sm"
         >
-          <ChevronLeftIcon size={24}></ChevronLeftIcon>
+          <ChevronLeftIcon size={24} />
           返回
         </button>
       </div>
@@ -209,12 +201,12 @@ export default function ArtistDetailPage() {
                 />
               </div>
               {/* 渐变遮罩 */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
             </div>
           ) : (
             /* 默认背景 */
             <div className="absolute inset-0 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500">
-              <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
             </div>
           )}
 
@@ -224,11 +216,7 @@ export default function ArtistDetailPage() {
               {/* 头像和基本信息 */}
               <div className="flex gap-4 items-end">
                 <div className="relative">
-                  <ArtistAvatar
-                    src={artist.avatar}
-                    size={16}
-                    className="border-4 border-white shadow-lg"
-                  ></ArtistAvatar>
+                  <ArtistAvatar src={artist.avatar} size={16} className="border-4 border-white shadow-lg" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-white mb-2 drop-shadow-lg">{artist.name}</p>
@@ -290,10 +278,10 @@ export default function ArtistDetailPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="bg-white rounded-lg shadow overflow-hidden animate-pulse">
-                <div className="aspect-[3/4] bg-gray-200"></div>
+                <div className="aspect-[3/4] bg-gray-200" />
                 <div className="p-4 space-y-2">
-                  <div className="h-4 bg-gray-200 rounded"></div>
-                  <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+                  <div className="h-4 bg-gray-200 rounded" />
+                  <div className="h-3 bg-gray-200 rounded w-2/3" />
                 </div>
               </div>
             ))}
@@ -463,7 +451,9 @@ export default function ArtistDetailPage() {
                                 href="#"
                                 onClick={(e) => {
                                   e.preventDefault()
-                                  if (page > 1) goto(page - 1)
+                                  if (page > 1) {
+                                    goto(page - 1)
+                                  }
                                 }}
                                 className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
                               >
@@ -497,7 +487,9 @@ export default function ArtistDetailPage() {
                                 href="#"
                                 onClick={(e) => {
                                   e.preventDefault()
-                                  if (page < totalPages) goto(page + 1)
+                                  if (page < totalPages) {
+                                    goto(page + 1)
+                                  }
                                 }}
                                 className={page >= totalPages ? 'pointer-events-none opacity-50' : ''}
                               >

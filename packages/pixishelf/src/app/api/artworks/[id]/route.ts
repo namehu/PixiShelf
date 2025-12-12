@@ -2,15 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getMediaType, MediaFile } from '@/types'
 import { artistService } from '@/services'
+import logger from '@/lib/logger'
 
 /**
  * 获取单个作品详情接口
  * GET /api/artworks/:id
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse> {
+export async function GET(_r: NextRequest, { params }: { params: Promise<{ id: string }> }): Promise<NextResponse> {
   try {
     const { id } = await params
     const artworkId = Number(id)
@@ -68,7 +66,7 @@ export async function GET(
 
     return NextResponse.json(formattedArtwork)
   } catch (error) {
-    console.error('Error fetching artwork:', error)
+    logger.error('Error fetching artwork:', error)
     return NextResponse.json({ error: 'Failed to fetch artwork' }, { status: 500 })
   }
 }
