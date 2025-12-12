@@ -2,9 +2,8 @@
 // 媒体类型定义
 // ============================================================================
 import { isVideoFile, isImageFile, getFileExtension } from '../../lib/media'
-import { VIDEO_EXTENSIONS, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS } from '../../lib/constant'
 
-export { isVideoFile, isImageFile, VIDEO_EXTENSIONS, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS }
+export { isVideoFile, isImageFile }
 
 /**
  * 媒体文件类型枚举

@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { RandomImageItem, RandomImagesResponse } from '@/types/images'
 import { guid } from '@/utils/guid'
-import { isVideoFile, MediaType, VIDEO_EXTENSIONS, IMAGE_EXTENSIONS } from '@/types'
+import { isVideoFile, MediaType } from '@/types'
 import { combinationStaticAvatar } from '@/utils/combinationStatic'
 import { sessionManager } from '@/lib/session'
 import { likeService } from '@/services/likeService'
 import { EMediaType } from '@/enums/EMediaType'
+import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '../../../../../lib/constant'
 
 /**
  * Fisher-Yates (aka Knuth) Shuffle 算法。

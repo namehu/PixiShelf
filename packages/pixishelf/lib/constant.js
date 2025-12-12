@@ -2,7 +2,7 @@
  * 支持的图片格式
  */
 export const IMAGE_EXTENSIONS = [
-  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff', '.tif'
+  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff', '.tif', '.apng'
 ]
 
 /**

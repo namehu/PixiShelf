@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs'
 import path from 'path'
+import { MEDIA_EXTENSIONS } from '../../../../lib/constant'
 
 /**
  * 媒体文件信息接口
@@ -25,27 +26,11 @@ export interface CollectionResult {
 
 /**
  * 新的媒体文件收集器
- * 专门收集 {artworkID}_p{index}.{ext} 格式的媒体文件
  * 适配Next.js环境
  */
 export class MediaCollector {
-  private readonly supportedExtensions = new Set([
-    '.jpg',
-    '.jpeg',
-    '.png',
-    '.gif',
-    '.webp',
-    '.bmp',
-    '.tiff',
-    '.tif',
-    '.mp4',
-    '.avi',
-    '.mov',
-    '.wmv',
-    '.flv',
-    '.mkv',
-    '.webm'
-  ])
+  /** 支持的文件扩展名集合 */
+  private readonly supportedExtensions = new Set(MEDIA_EXTENSIONS)
 
   constructor() {
     // Next.js环境下不需要logger参数
