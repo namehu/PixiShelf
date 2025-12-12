@@ -1,4 +1,4 @@
-import { artworkService } from '@/services/artwork-service'
+import { getRecommendedArtworks, getRecentArtworks } from '@/services/artwork-service'
 import { artistService } from '@/services/artist-service'
 import RecommendedArtworks from './_components/RecommendedArtworks'
 import RecentArtworks from './_components/RecentArtworks'
@@ -16,8 +16,8 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   // 并行获取所有数据
   const [recommendedArtworks, recentArtworks, recentArtists] = await Promise.all([
-    artworkService.getRecommendedArtworks({ pageSize: 10 }), // 获取推荐作品数据
-    artworkService.getRecentArtworks({ page: 1, pageSize: 10 }), // 获取最新作品数据
+    getRecommendedArtworks({ pageSize: 10 }), // 获取推荐作品数据
+    getRecentArtworks({ page: 1, pageSize: 10 }), // 获取最新作品数据
     artistService.getRecentArtists({ page: 1, pageSize: 10 }) // 获取热门艺术家数据
   ])
 

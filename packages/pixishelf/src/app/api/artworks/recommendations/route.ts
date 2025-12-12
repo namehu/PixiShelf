@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { artworkService } from '@/services/artwork-service'
+import { getRecommendedArtworks } from '@/services/artwork-service'
 import type { EnhancedArtworksResponse } from '@/types'
 import logger from '@/lib/logger'
 
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<EnhancedAr
     const pageSize = parseInt(searchParams.get('pageSize') || '10', 10)
 
     // 2. 调用 Service 层
-    const result = await artworkService.getRecommendedArtworks({ pageSize })
+    const result = await getRecommendedArtworks({ pageSize })
     // 3. 返回响应
     return NextResponse.json(result)
   } catch (error) {

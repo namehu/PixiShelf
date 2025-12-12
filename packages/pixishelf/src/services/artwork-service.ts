@@ -1,137 +1,15 @@
-import logger from '@/lib/logger'
+import 'server-only'
+
 import { EnhancedArtworksResponse, getMediaType, MediaFile } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 
+// ==========================================
+// Types & Interfaces
+// ==========================================
+
 interface ArtworkId {
   id: number
-}
-
-/**
- * 作品数据访问层 - Repository 模式
- * 职责：封装所有作品相关的数据库查询操作
- */
-const artworkRepository = {
-  /**
-   * 使用原生 SQL 随机获取作品 ID
-   * @param limit 获取数量限制
-   * @returns 随机作品 ID 数组
-   */
-  async findRandomIds(limit: number): Promise<number[]> {
-    const randomIdsResult = await prisma.$queryRaw<ArtworkId[]>(
-      Prisma.sql`SELECT id FROM "Artwork" ORDER BY RANDOM() LIMIT ${limit}`
-    )
-
-    return randomIdsResult.map((artwork) => artwork.id)
-  },
-
-  /**
-   * 根据 ID 数组查询完整的作品数据
-   * @param ids 作品 ID 数组
-   * @returns 作品数据数组
-   */
-  async findManyByIds(ids: number[]) {
-    return prisma.artwork.findMany({
-      where: {
-        id: {
-          in: ids
-        }
-      },
-      include: {
-        images: { take: 1, orderBy: { sortOrder: 'asc' } },
-        artist: true,
-        artworkTags: { include: { tag: true } },
-        _count: { select: { images: true } }
-      }
-    })
-  },
-
-  /**
-   * 查询最新作品
-   * @param options 查询选项
-   * @returns 作品数据数组
-   */
-  async findRecent(options: { skip: number; take: number }) {
-    return prisma.artwork.findMany({
-      include: {
-        images: { take: 1, orderBy: { sortOrder: 'asc' } },
-        artist: true,
-        artworkTags: { include: { tag: true } },
-        _count: { select: { images: true } }
-      },
-      orderBy: { directoryCreatedAt: 'desc' },
-      skip: options.skip,
-      take: options.take
-    })
-  },
-
-  /**
-   * 获取作品总数
-   * @returns 作品总数
-   */
-  async count(): Promise<number> {
-    return prisma.artwork.count()
-  },
-
-  /**
-   * 通用查询方法
-   * @param options Prisma 查询选项
-   * @returns 作品数据数组
-   */
-  async findMany(options: Prisma.ArtworkFindManyArgs) {
-    return prisma.artwork.findMany(options)
-  },
-
-  /**
-   * 根据 ID 查询单个作品
-   * @param id 作品 ID
-   * @returns 作品数据或 null
-   */
-  async findById(id: number) {
-    return prisma.artwork.findUnique({
-      where: { id },
-      include: {
-        artist: true,
-        artworkTags: {
-          include: { tag: true }
-        },
-        images: {
-          orderBy: { sortOrder: 'asc' }
-        }
-      }
-    })
-  },
-
-  /**
-   * 创建新作品
-   * @param data 作品数据
-   * @returns 创建的作品
-   */
-  async create(data: Prisma.ArtworkCreateInput) {
-    return prisma.artwork.create({ data })
-  },
-
-  /**
-   * 更新作品
-   * @param id 作品 ID
-   * @param data 更新数据
-   * @returns 更新后的作品
-   */
-  async update(id: number, data: Prisma.ArtworkUpdateInput) {
-    return prisma.artwork.update({
-      where: { id },
-      data
-    })
-  },
-
-  /**
-   * 删除作品
-   * @param id 作品 ID
-   * @returns 删除的作品
-   */
-  async delete(id: number) {
-    return prisma.artwork.delete({ where: { id } })
-  }
 }
 
 interface GetRecommendedArtworksOptions {
@@ -143,141 +21,195 @@ interface GetRecentArtworksOptions {
   pageSize?: number
 }
 
+// ==========================================
+// Public Service Functions (业务逻辑层)
+// ==========================================
+
 /**
- * 作品服务层 - 业务逻辑封装
- * 职责：封装作品相关的业务逻辑，数据验证和转换
+ * 获取推荐作品
+ * 逻辑：随机获取ID -> 查详情 -> 按随机顺序重排 -> 数据清洗
  */
-export const artworkService = {
-  /**
-   * 获取推荐作品
-   * @param options 查询选项
-   * @returns 推荐作品响应
-   */
-  async getRecommendedArtworks(options: GetRecommendedArtworksOptions) {
-    const { pageSize = 10 } = options ?? {}
-    const result: EnhancedArtworksResponse = { items: [], total: 0, page: 1, pageSize }
-    try {
-      // 1. 获取随机作品 ID
-      const randomIds = await artworkRepository.findRandomIds(pageSize)
-      // 2. 如果没有作品，返回空结果
-      if (randomIds.length === 0) {
-        return result
-      }
+export const getRecommendedArtworks = async (
+  options: GetRecommendedArtworksOptions = {}
+): Promise<EnhancedArtworksResponse> => {
+  const { pageSize = 10 } = options
 
-      // 3. 查询完整的作品数据
-      const artworks = await artworkRepository.findManyByIds(randomIds)
+  // 1. 获取随机作品 ID (调用内部数据访问函数)
+  const randomIds = await fetchRandomIds(pageSize)
 
-      // 4. 按随机 ID 的顺序重新排序
-      const orderedArtworks = randomIds
-        .map((id) => artworks.find((a) => a.id === id))
-        .filter(Boolean) as typeof artworks
-
-      // 5. 转换数据格式
-      const items = this.transformArtworksToResponse(orderedArtworks)
-
-      result.items = items
-      result.total = items.length
-    } catch (error) {
-      logger.error('Error fetching recommended artworks:', error)
-    }
-
-    return result
-  },
-
-  /**
-   * 获取最新作品
-   * @param options 查询选项
-   * @returns 最新作品响应
-   */
-  async getRecentArtworks(options: GetRecentArtworksOptions = {}) {
-    const { page = 1, pageSize = 10 } = options
-    const skip = (page - 1) * pageSize
-
-    const result: EnhancedArtworksResponse = { items: [], total: 0, page, pageSize }
-    try {
-      // 1. 并行查询作品数据和总数
-      const [artworks, total] = await Promise.all([
-        artworkRepository.findRecent({ skip, take: pageSize }),
-        artworkRepository.count()
-      ])
-
-      // 2. 转换数据格式
-      result.items = this.transformArtworksToResponse(artworks)
-      result.total = total
-    } catch (error) {
-      logger.error('Error fetching recent artworks:', error)
-    }
-
-    return result
-  },
-
-  /**
-   * 转换作品数据格式以匹配前端需求
-   * @param artworks 原始作品数据
-   * @returns 转换后的作品数据
-   */
-  transformArtworksToResponse(artworks: any[]) {
-    return artworks.map((artwork) => {
-      // 处理图片数据
-      const enhancedImages: MediaFile[] = artwork.images.map((image: any) => ({
-        ...image,
-        mediaType: getMediaType(image.path) as 'image' | 'video',
-        sortOrder: image.sortOrder || 0,
-        createdAt: image.createdAt.toISOString(),
-        updatedAt: image.updatedAt.toISOString()
-      }))
-
-      // 计算视频相关统计
-      const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
-      const totalMediaSize = videoCount ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0
-
-      // 构建响应对象
-      const result = {
-        ...artwork,
-        images: enhancedImages,
-        tags: artwork.artworkTags?.map((at: any) => at.tag.name) || [],
-        imageCount: videoCount > 0 ? 0 : artwork._count?.images || artwork.imageCount || 0,
-        videoCount,
-        totalMediaSize,
-        descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
-        directoryCreatedAt: artwork.directoryCreatedAt?.toISOString() || null,
-        createdAt: artwork.createdAt.toISOString(),
-        updatedAt: artwork.updatedAt.toISOString(),
-        artist: artwork.artist
-          ? {
-              ...artwork.artist,
-              artworksCount: 0,
-              createdAt: artwork.artist.createdAt?.toISOString(),
-              updatedAt: artwork.artist.updatedAt?.toISOString()
-            }
-          : null
-      }
-
-      // 清理临时字段
-      delete (result as any).artworkTags
-      delete (result as any)._count
-
-      return result
-    })
-  },
-
-  /**
-   * 根据 ID 获取单个作品
-   * @param id 作品 ID
-   * @returns 作品数据或 null
-   */
-  async getArtworkById(id: number) {
-    try {
-      const artwork = await artworkRepository.findById(id)
-      if (!artwork) {
-        return null
-      }
-
-      const [transformedArtwork] = this.transformArtworksToResponse([artwork])
-      return transformedArtwork
-    } catch (error) {
-      logger.error('Error fetching artwork by id:', error)
-      return null
-    }
+  if (randomIds.length === 0) {
+    return { items: [], total: 0, page: 1, pageSize }
   }
+
+  // 2. 查询完整的作品数据
+  const artworks = await fetchManyByIds(randomIds)
+
+  // 3. 按随机 ID 的顺序重新排序 (因为 SQL WHERE IN 不保证顺序)
+  const orderedArtworks = randomIds
+    .map((id) => artworks.find((a) => a.id === id))
+    .filter((a): a is NonNullable<typeof a> => Boolean(a))
+
+  // 4. 转换数据格式
+  const items = transformArtworksList(orderedArtworks)
+
+  return {
+    items,
+    total: items.length,
+    page: 1,
+    pageSize
+  }
+}
+
+/**
+ * 获取最新作品
+ * 逻辑：并行查询列表和总数 -> 数据清洗
+ */
+export const getRecentArtworks = async (options: GetRecentArtworksOptions = {}): Promise<EnhancedArtworksResponse> => {
+  const { page = 1, pageSize = 10 } = options
+  const skip = (page - 1) * pageSize
+
+  // 1. 并行查询作品数据和总数
+  const [artworks, total] = await Promise.all([fetchRecentRaw({ skip, take: pageSize }), countArtworks()])
+
+  // 2. 转换数据格式
+  return {
+    items: transformArtworksList(artworks),
+    total,
+    page,
+    pageSize
+  }
+}
+
+/**
+ * 根据 ID 获取单个作品
+ */
+export const getArtworkById = async (id: number) => {
+  const artwork = await fetchById(id)
+
+  if (!artwork) {
+    return null
+  }
+
+  // 复用转换逻辑
+  const [transformed] = transformArtworksList([artwork])
+  return transformed
+}
+
+// ==========================================
+// Data Access Helpers (内部私有函数 - 相当于 Repository)
+// ==========================================
+
+/**
+ * 使用原生 SQL 随机获取作品 ID
+ */
+async function fetchRandomIds(limit: number): Promise<number[]> {
+  const randomIdsResult = await prisma.$queryRaw<ArtworkId[]>(
+    Prisma.sql`SELECT id FROM "Artwork" ORDER BY RANDOM() LIMIT ${limit}`
+  )
+  return randomIdsResult.map((a) => a.id)
+}
+
+/**
+ * 根据 ID 数组查询完整的作品数据
+ */
+async function fetchManyByIds(ids: number[]) {
+  return prisma.artwork.findMany({
+    where: { id: { in: ids } },
+    include: defaultArtworkInclude
+  })
+}
+
+/**
+ * 查询最新作品原始数据
+ */
+async function fetchRecentRaw(options: { skip: number; take: number }) {
+  return prisma.artwork.findMany({
+    include: defaultArtworkInclude,
+    orderBy: { directoryCreatedAt: 'desc' },
+    skip: options.skip,
+    take: options.take
+  })
+}
+
+/**
+ * 根据 ID 查询单个作品
+ */
+async function fetchById(id: number) {
+  return prisma.artwork.findUnique({
+    where: { id },
+    include: {
+      ...defaultArtworkInclude,
+      images: { orderBy: { sortOrder: 'asc' } } // 详情页通常需要所有图片，不仅是第一张
+    }
+  })
+}
+
+async function countArtworks(): Promise<number> {
+  return prisma.artwork.count()
+}
+
+// 定义通用的 Include 对象，减少重复代码
+const defaultArtworkInclude = {
+  images: { take: 1, orderBy: { sortOrder: 'asc' } }, // 列表页只取一张图
+  artist: true,
+  artworkTags: { include: { tag: true } },
+  _count: { select: { images: true } }
+} as const // as const 提供更好的类型推导
+
+// ==========================================
+// Utilities / Transformers (纯函数)
+// ==========================================
+
+/**
+ * 转换作品数据格式以匹配前端需求 (批量)
+ */
+function transformArtworksList(artworks: any[]) {
+  return artworks.map(transformSingleArtwork)
+}
+
+/**
+ * 转换单个作品数据
+ */
+function transformSingleArtwork(artwork: any) {
+  // 处理图片数据
+  const enhancedImages: MediaFile[] = artwork.images.map((image: any) => ({
+    ...image,
+    mediaType: getMediaType(image.path) as 'image' | 'video',
+    sortOrder: image.sortOrder || 0,
+    createdAt: image.createdAt.toISOString(),
+    updatedAt: image.updatedAt.toISOString()
+  }))
+
+  // 计算视频相关统计
+  const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
+  const totalMediaSize = videoCount ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0
+
+  // 构建响应对象
+  const result = {
+    ...artwork,
+    images: enhancedImages,
+    tags: artwork.artworkTags?.map((at: any) => at.tag.name) || [],
+    // 优先使用计算出的 videoCount，否则使用数据库计数
+    imageCount: videoCount > 0 ? 0 : artwork._count?.images || artwork.imageCount || 0,
+    videoCount,
+    totalMediaSize,
+    descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
+    directoryCreatedAt: artwork.directoryCreatedAt?.toISOString() || null,
+    createdAt: artwork.createdAt.toISOString(),
+    updatedAt: artwork.updatedAt.toISOString(),
+    artist: artwork.artist
+      ? {
+          ...artwork.artist,
+          artworksCount: 0, // 注意：列表查询通常不包含艺术家的作品总数，除非再联表查
+          createdAt: artwork.artist.createdAt?.toISOString(),
+          updatedAt: artwork.artist.updatedAt?.toISOString()
+        }
+      : null
+  }
+
+  // 清理不需要输出到前端的临时字段 (虽然 JS 中 delete 性能一般，但在这里为了通过类型检查或减少 payload 可行)
+  delete result.artworkTags
+  delete result._count
+
+  return result
 }
