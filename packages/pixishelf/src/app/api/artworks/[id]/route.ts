@@ -4,7 +4,7 @@ import logger from '@/lib/logger'
 import z from 'zod'
 
 const RouteParamsSchema = z.object({
-  id: z.number().int().positive('ID must be a positive integer')
+  id: z.coerce.number().int().positive('ID must be a positive integer')
 })
 
 /**
