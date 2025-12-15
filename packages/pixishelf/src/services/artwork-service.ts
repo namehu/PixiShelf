@@ -4,14 +4,11 @@ import { EnhancedArtworksResponse, getMediaType, MediaFile } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { transformArtist } from './artist-service'
+import { ArtworkResponse, ArtworkResponseDto } from '@/schemas/artwork.dto'
 
 // ==========================================
 // Types & Interfaces
 // ==========================================
-
-interface ArtworkId {
-  id: number
-}
 
 interface GetRecommendedArtworksOptions {
   pageSize?: number
@@ -85,7 +82,7 @@ export const getRecentArtworks = async (options: GetRecentArtworksOptions = {}):
  * 根据 ID 获取单个作品详情
  * 包含：所有图片、完整 Tag 信息、Artist 信息
  */
-export const getArtworkById = async (id: number) => {
+export async function getArtworkById(id: number) {
   const artwork = await prisma.artwork.findUnique({
     where: { id },
     include: {
@@ -99,49 +96,32 @@ export const getArtworkById = async (id: number) => {
   if (!artwork) {
     return null
   }
-  // ==========================================
-  // Transformers (针对详情页的转换逻辑)
-  // ==========================================
-  function transformArtworkDetail(artwork: any) {
-    // 1. 图片处理
-    const enhancedImages: MediaFile[] = artwork.images.map((image: any) => ({
-      ...image,
-      mediaType: getMediaType(image.path) as 'image' | 'video',
-      sortOrder: image.sortOrder || 0,
-      createdAt: image.createdAt.toISOString(),
-      updatedAt: image.updatedAt.toISOString()
-    }))
 
-    // 2. 统计计算
-    const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
-    const totalMediaSize = enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0)
+  // 1. 图片处理
+  const enhancedImages = artwork.images.map((image) => ({
+    ...image,
+    mediaType: getMediaType(image.path) as 'image' | 'video'
+  }))
 
-    // 3. 艺术家处理 (简单内联处理，或者调用 artistService 的 helper)
-    const formattedArtist = artwork.artist ? transformArtist(artwork.artist) : null
+  // 2. 统计计算
+  const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
+  const totalMediaSize = enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0)
 
-    // 4. 构建最终对象
-    return {
-      ...artwork,
-      images: enhancedImages,
-      // 详情页可能需要完整的 tag 对象 (id, name, name_zh)，不同于列表页只给 name
-      tags: artwork.artworkTags.map(({ tag }: any) => ({
-        id: tag.id,
-        name: tag.name,
-        name_zh: tag.name_zh
-      })),
-      videoCount,
-      totalMediaSize,
-      createdAt: artwork.createdAt.toISOString(),
-      updatedAt: artwork.updatedAt.toISOString(),
-      directoryCreatedAt: artwork.directoryCreatedAt?.toISOString() || null,
-      artist: formattedArtist,
-      // 移除原始的关联字段
-      artworkTags: undefined
-    }
+  // 3. 艺术家处理 (简单内联处理，或者调用 artistService 的 helper)
+  const formattedArtist = artwork.artist ? transformArtist(artwork.artist) : null
+
+  // 4. 构建最终对象
+  const rawData = {
+    ...artwork,
+    images: enhancedImages,
+    tags: artwork.artworkTags.map(({ tag }) => tag),
+    videoCount,
+    totalMediaSize,
+    artist: formattedArtist,
+    artworkTags: undefined
   }
 
-  // 调用专门针对详情页的转换函数
-  return transformArtworkDetail(artwork)
+  return ArtworkResponseDto.parse(rawData) as ArtworkResponse
 }
 
 // ==========================================
@@ -152,7 +132,7 @@ export const getArtworkById = async (id: number) => {
  * 使用原生 SQL 随机获取作品 ID
  */
 async function fetchRandomIds(limit: number): Promise<number[]> {
-  const randomIdsResult = await prisma.$queryRaw<ArtworkId[]>(
+  const randomIdsResult = await prisma.$queryRaw<{ id: number }[]>(
     Prisma.sql`SELECT id FROM "Artwork" ORDER BY RANDOM() LIMIT ${limit}`
   )
   return randomIdsResult.map((a) => a.id)
@@ -177,19 +157,6 @@ async function fetchRecentRaw(options: { skip: number; take: number }) {
     orderBy: { directoryCreatedAt: 'desc' },
     skip: options.skip,
     take: options.take
-  })
-}
-
-/**
- * 根据 ID 查询单个作品
- */
-async function fetchById(id: number) {
-  return prisma.artwork.findUnique({
-    where: { id },
-    include: {
-      ...defaultArtworkInclude,
-      images: { orderBy: { sortOrder: 'asc' } } // 详情页通常需要所有图片，不仅是第一张
-    }
   })
 }
 
@@ -243,9 +210,6 @@ function transformSingleArtwork(artwork: any) {
     videoCount,
     totalMediaSize,
     descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
-    directoryCreatedAt: artwork.directoryCreatedAt?.toISOString() || null,
-    createdAt: artwork.createdAt.toISOString(),
-    updatedAt: artwork.updatedAt.toISOString(),
     artist: artwork.artist
       ? {
           ...artwork.artist,

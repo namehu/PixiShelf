@@ -1,3 +1,4 @@
+// oxlint-disable no-console
 import { PrismaClient } from '@prisma/client'
 
 // 1. 定义一个可复用的函数，来生成我们需要的转换逻辑
@@ -41,7 +42,9 @@ const globalForPrisma = globalThis as unknown as {
 export const prisma = globalForPrisma.prisma ?? prismaClientSingleton()
 
 // 在开发环境中将实例保存到全局对象，避免热重载时重复创建
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma
+}
 
 /**
  * 数据库连接测试
