@@ -4,11 +4,13 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useInView } from 'react-intersection-observer'
-import { EnhancedArtwork, isVideoFile, Tag } from '@/types'
+import Image from 'next/image'
+import { EnhancedArtwork, isVideoFile } from '@/types'
 import { useAuth } from '@/components/auth'
+
 import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { apiJson } from '@/lib/api'
-import { AlertCircleIcon, ChevronLeftIcon, FileTextIcon, ImageIcon } from 'lucide-react'
+import { AlertCircleIcon, ChevronLeftIcon, FileTextIcon } from 'lucide-react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { Button } from '@/components/ui/button'
 import TagArea from './_components/TagArea'
@@ -29,66 +31,6 @@ function useArtwork(id: string) {
 // ============================================================================
 // 组件
 // ============================================================================
-
-/**
- * 懒加载图片组件
- */
-function LazyImage({
-  src,
-  alt,
-  index,
-  onInView
-}: {
-  src: string
-  alt: string
-  index: number
-  onInView: (index: number, inView: boolean) => void
-}) {
-  const { ref, inView } = useInView({
-    threshold: 0.1,
-    rootMargin: '200px 0px', // 预加载：提前200px开始加载
-    triggerOnce: true
-  })
-
-  const { ref: viewRef, inView: isInViewport } = useInView({
-    threshold: 0.5, // 当图片50%可见时认为是当前图片
-    rootMargin: '0px'
-  })
-
-  // 使用useCallback优化ref合并函数
-  const setRefs = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (typeof ref === 'function') {
-        ref(node)
-      } else if (ref && typeof ref === 'object' && ref !== null && 'current' in ref) {
-        ;(ref as React.MutableRefObject<HTMLDivElement | null>).current = node
-      }
-
-      if (typeof viewRef === 'function') {
-        viewRef(node)
-      } else if (viewRef && typeof viewRef === 'object' && viewRef !== null && 'current' in viewRef) {
-        ;(viewRef as React.MutableRefObject<HTMLDivElement | null>).current = node
-      }
-    },
-    [ref, viewRef]
-  )
-
-  useEffect(() => {
-    onInView(index, isInViewport)
-  }, [isInViewport, index, onInView])
-
-  return (
-    <div ref={setRefs} className="overflow-hidden bg-neutral-100 flex items-center justify-center">
-      {inView ? (
-        <img src={src} alt={alt} loading="lazy" className="w-full h-auto object-contain" />
-      ) : (
-        <div className="w-full h-96 animate-pulse flex items-center justify-center">
-          <ImageIcon className="w-16 h-16 text-neutral-400"></ImageIcon>
-        </div>
-      )}
-    </div>
-  )
-}
 
 /**
  * 懒加载媒体组件（支持图片和视频）
@@ -116,15 +58,19 @@ function LazyMedia({
   }, [isInViewport, index, onInView])
 
   return (
-    <div ref={viewRef} className="overflow-hidden bg-neutral-100 flex items-center justify-center">
+    <div ref={viewRef} className="overflow-hidden bg-neutral-100 flex items-center justify-center min-h-[200px]">
       {isVideo ? (
         <VideoPlayer src={src} className="w-full h-auto" preload="metadata" />
       ) : (
-        <LazyImage
+        <Image
           src={src}
           alt={alt}
-          index={index}
-          onInView={() => {}} // LazyImage内部已处理视口检测
+          priority={index <= 3}
+          loading={index <= 3 ? 'eager' : 'lazy'}
+          width={0}
+          height={0}
+          sizes="100vw"
+          style={{ width: '100%', height: 'auto' }}
         />
       )}
     </div>
@@ -135,7 +81,9 @@ function LazyMedia({
  * 媒体序号指示器组件
  */
 function MediaCounter({ data, currentImageIndex }: { data: EnhancedArtwork; currentImageIndex: number }) {
-  if (!data || !data.images || data.images.length === 0) return null
+  if (!data || !data.images || data.images.length === 0) {
+    return null
+  }
 
   const currentMedia = data.images[currentImageIndex]
   const isCurrentVideo = currentMedia && isVideoFile(currentMedia.path)
@@ -228,13 +176,9 @@ export default function ArtworkDetailPage() {
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
       </div>
     )
-  }
-
-  if (!isAuthenticated) {
-    return null
   }
 
   return (
@@ -247,7 +191,7 @@ export default function ArtworkDetailPage() {
               onClick={() => router.back()}
               className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
             >
-              <ChevronLeftIcon size={24}></ChevronLeftIcon>
+              <ChevronLeftIcon size={24} />
               <span className="hidden sm:inline">返回</span>
             </button>
 
@@ -255,15 +199,15 @@ export default function ArtworkDetailPage() {
             {data && <MediaCounter data={data} currentImageIndex={currentImageIndex} />}
 
             {/* 占位符 */}
-            <div className="w-16"></div>
+            <div className="w-16" />
           </div>
         </div>
       </div>
 
       {/* 主内容 */}
       <div className="max-w-full overflow-hidden">
-        {isLoading && <LoadingSkeleton></LoadingSkeleton>}
-        {isError && <Error></Error>}
+        {isLoading && <LoadingSkeleton />}
+        {isError && <Error />}
 
         {/* Content */}
         {data && (
@@ -285,14 +229,14 @@ export default function ArtworkDetailPage() {
                 )}
               </div>
               {/* Tags */}
-              <TagArea tags={data.tags} className="mt-6"></TagArea>
+              <TagArea tags={data.tags} className="mt-6" />
             </div>
 
             {/* Description */}
             {data.description && (
               <div className="mt-6 px-4 sm:px-6">
                 <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <FileTextIcon></FileTextIcon>
+                  <FileTextIcon />
                   描述
                 </h3>
                 <div className="bg-white rounded-lg text-gray-700 leading-relaxed max-w-full overflow-hidden">
@@ -308,7 +252,7 @@ export default function ArtworkDetailPage() {
                 return (
                   <LazyMedia
                     key={img.id}
-                    src={`/api/v1/images/${encodeURIComponent(img.path)}`}
+                    src={img.path}
                     alt={`${data.title} - ${isVideo ? '视频' : '图片'} ${index + 1}`}
                     index={index}
                     onInView={handleImageInView}
@@ -353,7 +297,7 @@ function Error() {
     <div className="px-4 sm:px-6 py-8">
       <div className="bg-white rounded-lg text-center w-full mx-auto">
         <div className="w-16 h-16 mx-auto mb-4 bg-red-50 rounded-full flex items-center justify-center">
-          <AlertCircleIcon className="text-red-500 w-8 h-8"></AlertCircleIcon>
+          <AlertCircleIcon className="text-red-500 w-8 h-8" />
         </div>
         <h3 className="text-lg font-semibold text-gray-900 mb-2">加载失败</h3>
         <p className="text-gray-600 mb-4">无法加载作品详情，请稍后重试。</p>

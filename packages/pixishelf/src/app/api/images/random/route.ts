@@ -147,6 +147,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
     // 9. 转换数据格式
     const items: RandomImageItem[] = sortedArtworks.map((artwork) => {
       const images = artwork.images
+        // 视频走原地址 不用做任何处理
         .map((it) => (isVideoFile(it.path) ? `/api/v1/images/${it.path}` : it.path))
         .map((url) => ({ key: guid(), url }))
 
