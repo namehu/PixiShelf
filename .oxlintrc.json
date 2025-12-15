@@ -9,6 +9,7 @@
     "no-restricted-globals": ["error", "isFinite", "isNaN"],
     "no-console": "error",
     "no-return-assign": "error",
+    "no-debugger": "off",
     "no-unused-vars": [
       "warn",
       {
