@@ -187,27 +187,27 @@ async function getFramesData(zipPath, metaPath, id) {
   } catch (e) { /* 解压失败，继续 */ }
 
   // 策略 3: 本地无数据，联网请求 Pixiv API
-  console.log(`   🌐 本地无元数据，尝试从 Pixiv 获取...`);
-  try {
-    const apiJson = await fetchPixivMeta(id);
-    const ugoiraMeta = apiJson.body?.illust_details?.ugoira_meta;
+  // console.log(`   🌐 本地无元数据，尝试从 Pixiv 获取...`);
+  // try {
+  //   const apiJson = await fetchPixivMeta(id);
+  //   const ugoiraMeta = apiJson.body?.illust_details?.ugoira_meta;
 
-    if (ugoiraMeta && ugoiraMeta.frames) {
-      const frames = ugoiraMeta.frames.map(f => ({ file: f.file, delay: f.delay }));
+  //   if (ugoiraMeta && ugoiraMeta.frames) {
+  //     const frames = ugoiraMeta.frames.map(f => ({ file: f.file, delay: f.delay }));
 
-      // 成功后，写入本地 meta.txt 存档，下次不用再联网
-      await fs.writeJson(metaPath, apiJson, { spaces: 2 });
-      console.log(`   💾 已下载元数据并保存到 ${path.basename(metaPath)}`);
+  //     // 成功后，写入本地 meta.txt 存档，下次不用再联网
+  //     await fs.writeJson(metaPath, apiJson, { spaces: 2 });
+  //     console.log(`   💾 已下载元数据并保存到 ${path.basename(metaPath)}`);
 
-      await fs.remove(unzipTempPath); // 清理
-      return frames;
-    }
-  } catch (netErr) {
-    console.warn(`   ⚠️ 网络请求失败: ${netErr.message}`);
-  }
+  //     await fs.remove(unzipTempPath); // 清理
+  //     return frames;
+  //   }
+  // } catch (netErr) {
+  //   console.warn(`   ⚠️ 网络请求失败: ${netErr.message}`);
+  // }
 
-  // 策略 4: 实在没有数据，降级处理 (默认 30 FPS)
-  console.warn(`   ⚠️ 无法获取元数据，强制使用默认 30 FPS`);
+  // 策略 4: 实在没有数据，降级处理 (默认FPS)
+  console.warn(`   ⚠️ 无法获取元数据，强制使用默认FPS`);
   // 重新读取刚才解压目录里的图片（如果刚才解压失败，这里可能会报错，需要容错）
   if (!fs.existsSync(unzipTempPath)) {
     await fs.emptyDir(unzipTempPath);
@@ -218,27 +218,27 @@ async function getFramesData(zipPath, metaPath, id) {
   allImages.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
   await fs.remove(unzipTempPath);
-  return allImages.map(f => ({ file: f, delay: 33 })); // 33ms ≈ 30fps
+  return allImages.map(f => ({ file: f, delay: 110 })); // 110ms ≈ 9fps
 }
 
 // --- 核心函数：FFmpeg 转换 ---
 async function processConversion(zipPath, frames, id, doWebm, doApng, outputDir) {
-  const unzipPath = path.join(TEMP_BASE_DIR, id); // 独立的转换用解压目录
+  const unzipPath = path.join(TEMP_BASE_DIR, id);
   await fs.emptyDir(unzipPath);
   await extract(zipPath, { dir: unzipPath });
 
   const concatFilePath = path.join(unzipPath, 'input.txt');
   let concatContent = '';
 
+  // 1. 生成 concat 列表
   frames.forEach(frame => {
-    // 校验文件是否存在 (API可能有数据但zip里没有对应图片的情况)
     const imgPath = path.join(unzipPath, frame.file);
     if (fs.existsSync(imgPath)) {
       concatContent += `file '${imgPath}'\n`;
       concatContent += `duration ${frame.delay / 1000}\n`;
     }
   });
-  // Fix: 重复最后一帧防止播放器提前结束
+  // 补尾帧防止播放器早退
   if (frames.length > 0) {
     const lastFile = frames[frames.length - 1].file;
     if (fs.existsSync(path.join(unzipPath, lastFile))) {
@@ -247,29 +247,56 @@ async function processConversion(zipPath, frames, id, doWebm, doApng, outputDir)
   }
 
   await fs.writeFile(concatFilePath, concatContent);
-
   const generatedActions = [];
 
+  // 通用滤镜：强制宽和高都为偶数 (iw/2 向下取整再乘2)
+  // 这解决了 WebM 在浏览器黑屏/无法播放的问题
+  const evenScaleFilter = "scale=trunc(iw/2)*2:trunc(ih/2)*2";
+
+  // -----------------------------------------------------------
+  // 1. 生成 WebM (VP9)
+  // -----------------------------------------------------------
   // 1. 生成 WebM (VP9编码，体积小画质好)
   if (doWebm) {
     const outWebm = path.join(outputDir, `${id}.webm`);
-    // -crf 30: 平衡参数，数值越小画质越高体积越大
-    // -b:v 0: 必须设为0让CRF生效
-    const cmd = `ffmpeg -y -f concat -safe 0 -i "${concatFilePath}" -c:v libvpx-vp9 -b:v 0 -crf 30 -pix_fmt yuv420p "${outWebm}"`;
-    execSync(cmd, { stdio: 'ignore' });
-    generatedActions.push('generated_webm');
-  }
 
-  // 2. 生成 APNG (体积大，无损)
+    // 核心修复点：
+    // -vsync vfr: 强制使用可变帧率 (Variable Frame Rate)。
+    //             这告诉 FFmpeg 严格信任 input.txt 里的 duration，
+    //             不要强行把它们挤压成标准的 25/30fps，这样浏览器就能看懂时间轴了。
+    //
+    // -vf ... :   保留缩放滤镜，确保分辨率是偶数 (Chrome 播放 VP9 的硬性要求)。
+    const cmd = `ffmpeg -y -f concat -safe 0 -i "${concatFilePath}" -vf "${evenScaleFilter}" -vsync vfr -c:v libvpx-vp9 -b:v 0 -crf 30 -pix_fmt yuv420p -an "${outWebm}"`;
+
+    try {
+      execSync(cmd, { stdio: 'ignore' });
+      generatedActions.push('generated_webm');
+    } catch (err) {
+      console.error(`   ⚠️ WebM 生成失败:`, err.message);
+    }
+  }
+  // -----------------------------------------------------------
+  // 2. 生成 APNG (修复错位与尺寸)
+  // -----------------------------------------------------------
   if (doApng) {
     const outApng = path.join(outputDir, `${id}.apng`);
-    // -pred 2: 预测算法，有助于压缩
-    const cmd = `ffmpeg -y -f concat -safe 0 -i "${concatFilePath}" -plays 0 -c:v apng -pred 2 "${outApng}"`;
-    execSync(cmd, { stdio: 'ignore' });
-    generatedActions.push('generated_apng');
+
+    // 关键修正：
+    // format=rgb24: 强制移除 Alpha 通道，解决“透明叠加”导致的错位
+    // -pred 0: 禁用预测算法，虽然文件稍大，但兼容性最好，防止画面破碎
+    const apngFilter = `${evenScaleFilter},format=rgb24`;
+
+    const cmd = `ffmpeg -y -f concat -safe 0 -i "${concatFilePath}" -vf "${apngFilter}" -plays 0 -c:v apng -pred 0 "${outApng}"`;
+
+    try {
+      execSync(cmd, { stdio: 'ignore' });
+      generatedActions.push('generated_apng');
+    } catch (err) {
+      console.error(`   ⚠️ APNG 生成失败:`, err.message);
+    }
   }
 
-  // 清理本次解压的临时文件
+  // 清理
   await fs.remove(unzipPath);
   return generatedActions;
 }
