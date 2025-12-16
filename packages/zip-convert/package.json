@@ -1,0 +1,16 @@
+{
+  "name": "@pixishelf/zip-convert",
+  "version": "1.0.0",
+  "description": "API to convert pixiv png zip file to webm / apng",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "node app.js C:\\Users\\Administrator\\Downloads\\pixiv\\とうふぬ-40210087 --format=webm"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "extract-zip": "^2.0.1",
+    "fluent-ffmpeg": "^2.1.3",
+    "fs-extra": "^11.3.2"
+  }
+}

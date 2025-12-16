@@ -69,5 +69,5 @@
     "definePageConfig": "readonly",
     "defineAppConfig": "readonly"
   },
-  "ignorePatterns": ["**/config/**/*.js", "swagerApi", "scripts/*"]
+  "ignorePatterns": ["**/config/**/*.js", "swagerApi", "scripts/*", "packages/zip-convert/app.js"]
 }
