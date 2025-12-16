@@ -6,33 +6,28 @@ import { useQuery } from '@tanstack/react-query'
 import { EnhancedArtwork, isVideoFile } from '@/types'
 import { useAuth } from '@/components/auth'
 import { apiJson } from '@/lib/api'
-import { AlertCircleIcon, ChevronLeftIcon, FileTextIcon } from 'lucide-react'
+import { AlertCircleIcon, ChevronLeftIcon } from 'lucide-react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { Button } from '@/components/ui/button'
 import TagArea from './_components/TagArea'
 import MediaCounter from './_components/MediaCounter'
 import { useArtworkStore } from '@/store/useArtworkStore' // 引入 store
 import LazyMedia from './_components/LazyMedia'
-
-// ... useArtwork hook 保持不变 ...
-function useArtwork(id: string) {
-  return useQuery({
-    queryKey: ['artwork', id],
-    queryFn: async (): Promise<EnhancedArtwork> => {
-      return apiJson<EnhancedArtwork>(`/api/artworks/${id}`)
-    },
-    enabled: !!id
-  })
-}
+import ArtworkDes from './_components/ArtworkDes'
 
 export default function ArtworkDetailPage() {
   const router = useRouter()
   const params = useParams()
-  const { isLoading: authLoading } = useAuth()
   const id = params.id as string
-  const { data, isLoading, isError } = useArtwork(id)
 
-  // Zustand Actions
+  const { isLoading: authLoading } = useAuth()
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['artwork', id],
+    queryFn: async (): Promise<EnhancedArtwork> => apiJson<EnhancedArtwork>(`/api/artworks/${id}`),
+    enabled: !!id
+  })
+
   const setTotal = useArtworkStore((state) => state.setTotal)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
 
@@ -53,10 +48,7 @@ export default function ArtworkDetailPage() {
     window.scrollTo(0, 0)
   }, [id])
 
-  // 3. 计算是否存在视频 (用于传给 Counter 的图标显示)
-  const hasVideo = useMemo(() => {
-    return data?.images?.some((item) => isVideoFile(item.path)) ?? false
-  }, [data])
+  const hasVideo = useMemo(() => data?.images?.some((item) => isVideoFile(item.path)) ?? false, [data])
 
   const handleArtistClick = () => {
     if (data?.artist?.id) {
@@ -115,17 +107,7 @@ export default function ArtworkDetailPage() {
           </div>
 
           {/* Description */}
-          {data.description && (
-            <div className="mt-6 px-4 sm:px-6">
-              <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <FileTextIcon />
-                描述
-              </h3>
-              <div className="bg-white rounded-lg text-gray-700 leading-relaxed max-w-full overflow-hidden">
-                <p className="whitespace-pre-wrap break-words">{data.description}</p>
-              </div>
-            </div>
-          )}
+          <ArtworkDes description={data.description} className="mt-6 px-4 sm:px-6" />
 
           {/* Images */}
           <div className="mt-6 w-full">
