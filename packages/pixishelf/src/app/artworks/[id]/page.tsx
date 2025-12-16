@@ -93,7 +93,7 @@ export default function ArtworkDetailPage() {
               <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 leading-tight break-words">
                 {data.title}
               </h1>
-              {data.artist?.userId && (
+              {data.artist && (
                 <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={handleArtistClick}>
                   <ArtistAvatar src={data.artist.avatar} name={data.artist.name} />
                   <div className="text-base sm:text-lg text-blue-600 hover:text-blue-800 font-medium truncate transition-colors duration-200  underline-offset-2 hover:underline">
