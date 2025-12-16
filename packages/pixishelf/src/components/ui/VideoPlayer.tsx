@@ -1,5 +1,6 @@
 'use client'
 
+import { InfoIcon } from 'lucide-react'
 import React, { useState, useRef, useEffect } from 'react'
 
 export interface VideoPlayerProps {
@@ -28,10 +29,8 @@ export function VideoPlayer({
   const [duration, setDuration] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showControls, setShowControls] = useState(true)
   const [showPlayButton, setShowPlayButton] = useState(true)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const playButtonTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // 处理播放/暂停
@@ -43,26 +42,6 @@ export function VideoPlayer({
         videoRef.current.play()
       }
     }
-  }
-
-  // 格式化时间显示
-  const formatTime = (time: number) => {
-    const minutes = Math.floor(time / 60)
-    const seconds = Math.floor(time % 60)
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`
-  }
-
-  // 控制条自动隐藏
-  const resetControlsTimeout = () => {
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current)
-    }
-    setShowControls(true)
-    controlsTimeoutRef.current = setTimeout(() => {
-      if (isPlaying) {
-        setShowControls(false)
-      }
-    }, 3000)
   }
 
   // 视频事件处理
@@ -82,13 +61,11 @@ export function VideoPlayer({
     const handlePlay = () => {
       setIsPlaying(true)
       onPlay?.()
-      resetControlsTimeout()
     }
 
     const handlePause = () => {
       setIsPlaying(false)
       onPause?.()
-      setShowControls(true)
       setShowPlayButton(true)
 
       // 暂停后1秒隐藏播放按钮
@@ -137,9 +114,6 @@ export function VideoPlayer({
   // 清理定时器
   useEffect(() => {
     return () => {
-      if (controlsTimeoutRef.current) {
-        clearTimeout(controlsTimeoutRef.current)
-      }
       if (playButtonTimeoutRef.current) {
         clearTimeout(playButtonTimeoutRef.current)
       }
@@ -149,14 +123,7 @@ export function VideoPlayer({
   if (error) {
     return (
       <div className={`flex flex-col items-center justify-center bg-neutral-100 text-neutral-600 ${className}`}>
-        <svg className="w-16 h-16 mb-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
+        <InfoIcon className="text-neutral-400 w-16 h-16 mb-4" />
         <p className="text-sm">{error}</p>
         <p className="text-xs text-neutral-500 mt-1">请检查视频文件是否存在或格式是否支持</p>
       </div>
@@ -164,11 +131,7 @@ export function VideoPlayer({
   }
 
   return (
-    <div
-      className={`video-player relative bg-black ${className}`}
-      onMouseMove={resetControlsTimeout}
-      onMouseLeave={() => isPlaying && setShowControls(false)}
-    >
+    <div className={`video-player relative bg-black ${className}`}>
       <video
         ref={videoRef}
         className="w-full h-auto"
