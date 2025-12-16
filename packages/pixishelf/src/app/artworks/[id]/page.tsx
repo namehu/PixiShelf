@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { EnhancedArtwork, isVideoFile } from '@/types'
 import { useAuth } from '@/components/auth'
 import { apiJson } from '@/lib/api'
-import { AlertCircleIcon, ChevronLeftIcon } from 'lucide-react'
+import { AlertCircleIcon, ChevronLeftIcon, FullscreenIcon } from 'lucide-react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { Button } from '@/components/ui/button'
 import TagArea from './_components/TagArea'
@@ -30,15 +30,12 @@ export default function ArtworkDetailPage() {
 
   const setTotal = useArtworkStore((state) => state.setTotal)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
+  const setImages = useArtworkStore((state) => state.setImages)
 
   // 1. 初始化数据到 Store
   useEffect(() => {
     if (data?.images) {
       setTotal(data.images.length)
-      setCurrentIndex(0)
-    }
-    return () => {
-      setTotal(0)
       setCurrentIndex(0)
     }
   }, [data, setTotal, setCurrentIndex])
@@ -71,8 +68,17 @@ export default function ArtworkDetailPage() {
 
             <MediaCounter hasVideo={hasVideo} />
 
-            {/* 占位符 */}
-            <div className="w-16" />
+            <button
+              onClick={() => {
+                if (data.images) {
+                  setImages(data.images as any)
+                  router.push('/artworks/preview')
+                }
+              }}
+              className="w-16 flex items-center justify-center text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <FullscreenIcon size={24} className="text-gray-600" />
+            </button>
           </div>
         </div>
       </div>

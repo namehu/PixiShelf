@@ -1,0 +1,27 @@
+/* Custom styles for Swiper preview */
+
+/* Ensure full height for container */
+html, body {
+  overscroll-behavior-y: none; /* Prevent pull-to-refresh on mobile */
+}
+
+/* Customize navigation buttons visibility */
+.swiper-button-disabled {
+  opacity: 0.35;
+  cursor: auto;
+  pointer-events: none;
+}
+
+/* Fix for zoom container alignment */
+.swiper-zoom-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  width: 100%;
+}
+
+/* Optional: Custom scrollbar hiding */
+::-webkit-scrollbar {
+  display: none;
+}

@@ -4,7 +4,7 @@ import { EnhancedArtworksResponse, getMediaType } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { transformArtist } from './artist-service'
-import { ArtworkResponse, ArtworkResponseDto } from '@/schemas/artwork.dto'
+import { TArtworkResponseDto, ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { IImageModel } from '@/schemas/models'
 import { isApngFile } from '../../lib/media'
 
@@ -113,7 +113,7 @@ export async function getArtworkById(id: number) {
     totalMediaSize,
     artist: formattedArtist,
     artworkTags: undefined
-  }) as ArtworkResponse
+  }) as TArtworkResponseDto
 }
 
 // ==========================================

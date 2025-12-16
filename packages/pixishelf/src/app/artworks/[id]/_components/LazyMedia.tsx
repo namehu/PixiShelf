@@ -17,10 +17,7 @@ const LazyMedia = memo(({ src, index }: { src: string; index: number }) => {
     (inView) => {
       if (inView) setCurrentIndex(index)
     },
-    {
-      rootMargin: '-45% 0px -45% 0px',
-      threshold: 0
-    }
+    { rootMargin: '-45% 0px -45% 0px', threshold: 0 }
   )
 
   // 主渲染逻辑

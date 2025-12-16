@@ -82,4 +82,4 @@ export const ArtworkResponseDto = ArtworkModel.extend({
 // export type ArtistResponse = z.infer<typeof ArtistResponseDto>
 // export type ImageResponse = z.infer<typeof ImageResponseDto>
 // export type TagResponse = z.infer<typeof TagResponseDto>
-export type ArtworkResponse = z.infer<typeof ArtworkResponseDto>
+export type TArtworkResponseDto = z.infer<typeof ArtworkResponseDto>
