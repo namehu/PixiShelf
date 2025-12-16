@@ -50,12 +50,6 @@ export default function ArtworkDetailPage() {
 
   const hasVideo = useMemo(() => data?.images?.some((item) => isVideoFile(item.path)) ?? false, [data])
 
-  const handleArtistClick = () => {
-    if (data?.artist?.id) {
-      router.push(`/artists/${data.artist.id}`)
-    }
-  }
-
   if (authLoading) return <div className="min-h-screen flex items-center justify-center">...</div>
   if (!data && isLoading) return <LoadingSkeleton /> // 简化加载逻辑
   if (isError) return <Error />
@@ -85,36 +79,37 @@ export default function ArtworkDetailPage() {
 
       {/* 主内容 */}
       <div className="max-w-full overflow-hidden">
-        <div className="animate-fade-in">
-          {/* Header */}
-          <div className="mt-6 px-4 sm:px-6">
-            {/* Title and Artist */}
-            <div className="space-y-3">
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 leading-tight break-words">
-                {data.title}
-              </h1>
-              {data.artist && (
-                <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={handleArtistClick}>
-                  <ArtistAvatar src={data.artist.avatar} name={data.artist.name} />
-                  <div className="text-base sm:text-lg text-blue-600 hover:text-blue-800 font-medium truncate transition-colors duration-200  underline-offset-2 hover:underline">
-                    {data.artist.name}
-                  </div>
+        {/* Header */}
+        <div className="mt-6 px-6">
+          {/* Title and Artist */}
+          <div className="space-y-3">
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 leading-tight break-words">
+              {data.title}
+            </h1>
+            {data.artist && (
+              <div
+                className="flex items-center gap-2 min-w-0 cursor-pointer"
+                onClick={() => router.push(`/artists/${data.artist!.id}`)}
+              >
+                <ArtistAvatar src={data.artist.avatar} name={data.artist.name} />
+                <div className="text-base sm:text-lg text-blue-600 hover:text-blue-800 font-medium truncate transition-colors duration-200  underline-offset-2 hover:underline">
+                  {data.artist.name}
                 </div>
-              )}
-            </div>
-            {/* Tags */}
-            <TagArea tags={data.tags} className="mt-6" />
+              </div>
+            )}
           </div>
+          {/* Tags */}
+          <TagArea tags={data.tags} className="mt-6" />
+        </div>
 
-          {/* Description */}
-          <ArtworkDes description={data.description} className="mt-6 px-4 sm:px-6" />
+        {/* Description */}
+        <ArtworkDes description={data.description} className="mt-6 px-6" />
 
-          {/* Images */}
-          <div className="mt-6 w-full">
-            {data.images.map((img, index) => (
-              <LazyMedia key={img.id} src={img.path} index={index} />
-            ))}
-          </div>
+        {/* Images */}
+        <div className="mt-6 w-full">
+          {data.images.map((img, index) => (
+            <LazyMedia key={img.id} src={img.path} index={index} />
+          ))}
         </div>
       </div>
     </div>
