@@ -96,6 +96,8 @@ export const ImageModel = z.object({
   updatedAt: z.date()
 })
 
+export interface IImageModel extends z.infer<typeof ImageModel> {}
+
 /**
  * Model User
  */

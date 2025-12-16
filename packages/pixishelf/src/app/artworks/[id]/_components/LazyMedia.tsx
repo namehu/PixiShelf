@@ -3,12 +3,9 @@ import { useArtworkStore } from '@/store/useArtworkStore'
 import Image from 'next/image'
 import { memo } from 'react'
 import { useOnInView } from 'react-intersection-observer'
-import { isVideoFile } from '../../../../../lib/media'
+import { isApngFile, isVideoFile } from '../../../../../lib/media'
 import ApngPlayer from './ApngPlayer'
 import { combinationApiResource } from '@/utils/combinationStatic'
-
-// 辅助函数：判断是否为 APNG
-const isApngFile = (src: string) => /\.apng$/i.test(src)
 
 /**
  * 懒加载媒体组件

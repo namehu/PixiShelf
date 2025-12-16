@@ -33,3 +33,11 @@ export function isImageFile(filename) {
   const ext = getFileExtension(filename)
   return IMAGE_EXTENSIONS.includes(ext)
 }
+
+
+/**
+ * 判断文件是否为 apng 格式
+ * @param {*} src
+ * @returns
+ */
+export const isApngFile = (src) => /\.apng$/i.test(src)

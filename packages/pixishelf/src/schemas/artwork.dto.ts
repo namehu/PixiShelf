@@ -61,6 +61,15 @@ export const ArtworkResponseDto = ArtworkModel.extend({
   // 标签列表：注意这里我们直接返回 Tag[]，而不是中间表 ArtworkTag[]
   tags: z.array(TagResponseDto).default([]),
 
+  // apng对象
+  apng: ImageResponseDto.pick({
+    id: true,
+    path: true,
+    size: true
+  })
+    .optional()
+    .nullable(),
+
   // 3. 业务计算字段 (Service 层填充)
   videoCount: z.number().int().default(0),
   totalMediaSize: z.number().int().default(0) // 可能是 bigint，注意 JS 数字精度

@@ -1,10 +1,12 @@
 import 'server-only'
 
-import { EnhancedArtworksResponse, getMediaType, MediaFile } from '@/types'
+import { EnhancedArtworksResponse, getMediaType } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { transformArtist } from './artist-service'
 import { ArtworkResponse, ArtworkResponseDto } from '@/schemas/artwork.dto'
+import { IImageModel } from '@/schemas/models'
+import { isApngFile } from '../../lib/media'
 
 // ==========================================
 // Types & Interfaces
@@ -97,31 +99,21 @@ export async function getArtworkById(id: number) {
     return null
   }
 
-  // 1. 图片处理
-  const enhancedImages = artwork.images.map((image) => ({
-    ...image,
-    mediaType: getMediaType(image.path) as 'image' | 'video'
-  }))
-
-  // 2. 统计计算
-  const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
-  const totalMediaSize = enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0)
+  const { enhancedImages, apng, videoCount, totalMediaSize } = transformImages(artwork.images)
 
   // 3. 艺术家处理 (简单内联处理，或者调用 artistService 的 helper)
   const formattedArtist = artwork.artist ? transformArtist(artwork.artist) : null
 
-  // 4. 构建最终对象
-  const rawData = {
+  return ArtworkResponseDto.parse({
     ...artwork,
     images: enhancedImages,
+    apng,
     tags: artwork.artworkTags.map(({ tag }) => tag),
     videoCount,
     totalMediaSize,
     artist: formattedArtist,
     artworkTags: undefined
-  }
-
-  return ArtworkResponseDto.parse(rawData) as ArtworkResponse
+  }) as ArtworkResponse
 }
 
 // ==========================================
@@ -172,10 +164,6 @@ const defaultArtworkInclude = {
   _count: { select: { images: true } }
 } as const // as const 提供更好的类型推导
 
-// ==========================================
-// Utilities / Transformers (纯函数)
-// ==========================================
-
 /**
  * 转换作品数据格式以匹配前端需求 (批量)
  */
@@ -187,18 +175,8 @@ function transformArtworksList(artworks: any[]) {
  * 转换单个作品数据
  */
 function transformSingleArtwork(artwork: any) {
-  // 处理图片数据
-  const enhancedImages: MediaFile[] = artwork.images.map((image: any) => ({
-    ...image,
-    mediaType: getMediaType(image.path) as 'image' | 'video',
-    sortOrder: image.sortOrder || 0,
-    createdAt: image.createdAt.toISOString(),
-    updatedAt: image.updatedAt.toISOString()
-  }))
-
-  // 计算视频相关统计
-  const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
-  const totalMediaSize = videoCount ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0
+  const _count = artwork._count?.images || artwork.imageCount || 0
+  const { enhancedImages, videoCount, totalMediaSize, imageCount } = transformImages(artwork.images, _count)
 
   // 构建响应对象
   const result = {
@@ -206,7 +184,7 @@ function transformSingleArtwork(artwork: any) {
     images: enhancedImages,
     tags: artwork.artworkTags?.map((at: any) => at.tag.name) || [],
     // 优先使用计算出的 videoCount，否则使用数据库计数
-    imageCount: videoCount > 0 ? 0 : artwork._count?.images || artwork.imageCount || 0,
+    imageCount: imageCount,
     videoCount,
     totalMediaSize,
     descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
@@ -225,4 +203,28 @@ function transformSingleArtwork(artwork: any) {
   delete result._count
 
   return result
+}
+
+function transformImages(images: IImageModel[], imageCount?: number) {
+  // 先处理 sortOrder，确保后续操作基于正确的顺序
+  const _images = images.map((image) => ({
+    ...image,
+    mediaType: getMediaType(image.path) as 'image' | 'video',
+    sortOrder: image.sortOrder || 0
+  }))
+  //  防止只有apng
+  const enhancedImages = _images.length > 1 ? _images.filter((img) => !isApngFile(img.path)) : _images
+  // 分离 apng 图片
+  const apng = _images.find((img) => isApngFile(img.path)) || undefined
+  // 计算视频相关统计
+  const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
+  const totalMediaSize = videoCount ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0
+
+  return {
+    apng,
+    enhancedImages,
+    videoCount,
+    imageCount: videoCount > 0 ? 0 : (imageCount ?? enhancedImages.length),
+    totalMediaSize
+  }
 }
