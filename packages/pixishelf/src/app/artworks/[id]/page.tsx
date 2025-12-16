@@ -10,10 +10,11 @@ import { useAuth } from '@/components/auth'
 
 import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { apiJson } from '@/lib/api'
-import { AlertCircleIcon, ChevronLeftIcon, FileTextIcon, ImageIcon, VideoIcon } from 'lucide-react'
+import { AlertCircleIcon, ChevronLeftIcon, FileTextIcon } from 'lucide-react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { Button } from '@/components/ui/button'
 import TagArea from './_components/TagArea'
+import MediaCounter from './_components/MediaCounter'
 
 /**
  * 获取作品详情Hook
@@ -67,32 +68,6 @@ function LazyMedia({
           style={{ width: '100%', height: 'auto' }}
         />
       )}
-    </div>
-  )
-}
-
-/**
- * 媒体序号指示器组件
- */
-function MediaCounter({
-  isVideo,
-  currentImageIndex,
-  total
-}: {
-  isVideo: boolean
-  currentImageIndex: number
-  total: number
-}) {
-  return (
-    <div className="flex items-center gap-1 sm:gap-2 text-neutral-500 max-w-full overflow-hidden">
-      <div className="flex items-center gap-1 min-w-0">
-        {isVideo ? <VideoIcon size={16} /> : <ImageIcon size={16} />}
-        <span className="font-mono text-xs sm:text-sm whitespace-nowrap">
-          <span className="text-neutral-900 font-medium">{currentImageIndex + 1}</span>
-          <span className="mx-0.5 sm:mx-1 text-neutral-400">/</span>
-          <span className="text-neutral-600">{total}</span>
-        </span>
-      </div>
     </div>
   )
 }

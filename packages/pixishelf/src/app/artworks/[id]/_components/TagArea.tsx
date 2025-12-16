@@ -18,7 +18,7 @@ const TagArea: FC<TagAreaProps> = ({ tags = [], className = '' }) => {
   return (
     <div className={`space-y-4 ${className}`}>
       <div className="flex items-center gap-2">
-        <TagIcon></TagIcon>
+        <TagIcon />
         <h3 className="text-base sm:text-lg font-semibold text-gray-900">标签</h3>
       </div>
       <div className="flex flex-wrap gap-2 align-center max-w-full">
