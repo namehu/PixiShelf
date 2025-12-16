@@ -33,17 +33,15 @@ function useArtwork(id: string) {
  */
 function LazyMedia({
   src,
-  alt,
   index,
-  onInView,
-  isVideo = false
+  onInView
 }: {
   src: string
-  alt: string
   index: number
   onInView: (index: number, inView: boolean) => void
-  isVideo?: boolean
 }) {
+  const isVideo = isVideoFile(src)
+
   const { ref: viewRef, inView: isInViewport } = useInView({
     threshold: 0.5, // 当媒体50%可见时认为是当前媒体
     rootMargin: '0px'
@@ -60,7 +58,7 @@ function LazyMedia({
       ) : (
         <Image
           src={src}
-          alt={alt}
+          alt={src}
           priority={index <= 3}
           loading={index <= 3 ? 'eager' : 'lazy'}
           width={0}
@@ -216,17 +214,7 @@ export default function ArtworkDetailPage() {
             {/* Images */}
             <div className="mt-6 w-full">
               {(data.images || []).map((img, index: number) => {
-                const isVideo = isVideoFile(img.path)
-                return (
-                  <LazyMedia
-                    key={img.id}
-                    src={img.path}
-                    alt={`${data.title} - ${isVideo ? '视频' : '图片'} ${index + 1}`}
-                    index={index}
-                    onInView={handleImageInView}
-                    isVideo={isVideo}
-                  />
-                )
+                return <LazyMedia key={img.id} src={img.path} index={index} onInView={handleImageInView} />
               })}
             </div>
           </div>
