@@ -1,0 +1,20 @@
+name: '@wmeimob/react-function-component'
+type: ['react-component']
+description: 组件模板
+single: true
+tpl:
+  '[:=PascalName:].tsx': |
+    import { FC, memo } from 'react'
+
+    interface I[:=PascalName:]Props {}
+
+    const Component: FC<I[:=PascalName:]Props> = (props) => {
+      const {} = props
+
+      return (
+        <div className="">[:=CamelCaseName:]</div>
+      )
+    }
+
+    const [:=PascalName:] = memo(Component)
+    export default [:=PascalName:]
