@@ -1,24 +1,20 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { useInView } from 'react-intersection-observer'
-import Image from 'next/image'
 import { EnhancedArtwork, isVideoFile } from '@/types'
 import { useAuth } from '@/components/auth'
-
-import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { apiJson } from '@/lib/api'
 import { AlertCircleIcon, ChevronLeftIcon, FileTextIcon } from 'lucide-react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { Button } from '@/components/ui/button'
 import TagArea from './_components/TagArea'
 import MediaCounter from './_components/MediaCounter'
+import { useArtworkStore } from '@/store/useArtworkStore' // 引入 store
+import LazyMedia from './_components/LazyMedia'
 
-/**
- * 获取作品详情Hook
- */
+// ... useArtwork hook 保持不变 ...
 function useArtwork(id: string) {
   return useQuery({
     queryKey: ['artwork', id],
@@ -29,101 +25,54 @@ function useArtwork(id: string) {
   })
 }
 
-/**
- * 懒加载媒体组件（支持图片和视频）
- */
-function LazyMedia({
-  src,
-  index,
-  onInView
-}: {
-  src: string
-  index: number
-  onInView: (index: number, inView: boolean) => void
-}) {
-  const isVideo = isVideoFile(src)
-
-  const { ref: viewRef, inView: isInViewport } = useInView({
-    threshold: 0.5, // 当媒体50%可见时认为是当前媒体
-    rootMargin: '0px'
-  })
-
-  useEffect(() => {
-    onInView(index, isInViewport)
-  }, [isInViewport, index, onInView])
-
-  return (
-    <div ref={viewRef} className="overflow-hidden bg-neutral-100 flex items-center justify-center min-h-[200px]">
-      {isVideo ? (
-        <VideoPlayer src={`/api/v1/images/${encodeURIComponent(src)}`} className="w-full h-auto" preload="metadata" />
-      ) : (
-        <Image
-          src={src}
-          alt={src}
-          priority={index <= 3}
-          loading={index <= 3 ? 'eager' : 'lazy'}
-          width={0}
-          height={0}
-          sizes="100vw"
-          style={{ width: '100%', height: 'auto' }}
-        />
-      )}
-    </div>
-  )
-}
-
-/**
- * 作品详情页面
- */
 export default function ArtworkDetailPage() {
   const router = useRouter()
   const params = useParams()
   const { isLoading: authLoading } = useAuth()
-
   const id = params.id as string
   const { data, isLoading, isError } = useArtwork(id)
-  const [currentImageIndex, setCurrentImageIndex] = useState(0)
 
-  const isVideo = useMemo(() => {
-    if (!data?.images?.length) {
-      return false
+  // Zustand Actions
+  const setTotal = useArtworkStore((state) => state.setTotal)
+  const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
+
+  // 1. 初始化数据到 Store
+  useEffect(() => {
+    if (data?.images) {
+      setTotal(data.images.length)
+      setCurrentIndex(0)
     }
-    return data.images.some((item) => isVideoFile(item.path))
-  }, [data, currentImageIndex])
+    return () => {
+      setTotal(0)
+      setCurrentIndex(0)
+    }
+  }, [data, setTotal, setCurrentIndex])
 
-  // 处理艺术家点击事件
+  // 2. 确保页面滚动顶部
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [id])
+
+  // 3. 计算是否存在视频 (用于传给 Counter 的图标显示)
+  const hasVideo = useMemo(() => {
+    return data?.images?.some((item) => isVideoFile(item.path)) ?? false
+  }, [data])
+
   const handleArtistClick = () => {
     if (data?.artist?.id) {
       router.push(`/artists/${data.artist.id}`)
     }
   }
 
-  // 确保页面加载时滚动到顶部
-  useEffect(() => {
-    window.scrollTo(0, 0)
-  }, [id]) // 当id变化时也滚动到顶部
-
-  // 处理图片进入/离开视口
-  // 更新当前图片索引为最小的可见图片索引
-  const handleImageInView = useCallback((index: number, inView: boolean) => {
-    if (inView) {
-      setCurrentImageIndex(index)
-    }
-  }, [])
-
-  // 认证检查
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-      </div>
-    )
-  }
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center">...</div>
+  if (!data && isLoading) return <LoadingSkeleton /> // 简化加载逻辑
+  if (isError) return <Error />
+  if (!data) return null
 
   return (
     <div className="bg-white max-w-2xl mx-auto">
       {/* 导航栏 */}
-      <div className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200   z-100">
+      <div className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <button
@@ -134,10 +83,7 @@ export default function ArtworkDetailPage() {
               <span className="hidden sm:inline">返回</span>
             </button>
 
-            {/* 媒体计数器 */}
-            {data && (
-              <MediaCounter isVideo={isVideo} currentImageIndex={currentImageIndex} total={data.images.length} />
-            )}
+            <MediaCounter hasVideo={hasVideo} />
 
             {/* 占位符 */}
             <div className="w-16" />
@@ -147,53 +93,47 @@ export default function ArtworkDetailPage() {
 
       {/* 主内容 */}
       <div className="max-w-full overflow-hidden">
-        {isLoading && <LoadingSkeleton />}
-        {isError && <Error />}
-
-        {/* Content */}
-        {data && (
-          <div className="animate-fade-in">
-            {/* Header */}
-            <div className="mt-6 px-4 sm:px-6">
-              {/* Title and Artist */}
-              <div className="space-y-3">
-                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 leading-tight break-words">
-                  {data.title}
-                </h1>
-                {data.artist?.userId && (
-                  <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={handleArtistClick}>
-                    <ArtistAvatar src={data.artist.avatar} name={data.artist.name} />
-                    <div className="text-base sm:text-lg text-blue-600 hover:text-blue-800 font-medium truncate transition-colors duration-200  underline-offset-2 hover:underline">
-                      {data.artist.name}
-                    </div>
+        <div className="animate-fade-in">
+          {/* Header */}
+          <div className="mt-6 px-4 sm:px-6">
+            {/* Title and Artist */}
+            <div className="space-y-3">
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 leading-tight break-words">
+                {data.title}
+              </h1>
+              {data.artist?.userId && (
+                <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={handleArtistClick}>
+                  <ArtistAvatar src={data.artist.avatar} name={data.artist.name} />
+                  <div className="text-base sm:text-lg text-blue-600 hover:text-blue-800 font-medium truncate transition-colors duration-200  underline-offset-2 hover:underline">
+                    {data.artist.name}
                   </div>
-                )}
-              </div>
-              {/* Tags */}
-              <TagArea tags={data.tags} className="mt-6" />
-            </div>
-
-            {/* Description */}
-            {data.description && (
-              <div className="mt-6 px-4 sm:px-6">
-                <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <FileTextIcon />
-                  描述
-                </h3>
-                <div className="bg-white rounded-lg text-gray-700 leading-relaxed max-w-full overflow-hidden">
-                  <p className="whitespace-pre-wrap break-words">{data.description}</p>
                 </div>
-              </div>
-            )}
-
-            {/* Images */}
-            <div className="mt-6 w-full">
-              {(data.images || []).map((img, index: number) => {
-                return <LazyMedia key={img.id} src={img.path} index={index} onInView={handleImageInView} />
-              })}
+              )}
             </div>
+            {/* Tags */}
+            <TagArea tags={data.tags} className="mt-6" />
           </div>
-        )}
+
+          {/* Description */}
+          {data.description && (
+            <div className="mt-6 px-4 sm:px-6">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <FileTextIcon />
+                描述
+              </h3>
+              <div className="bg-white rounded-lg text-gray-700 leading-relaxed max-w-full overflow-hidden">
+                <p className="whitespace-pre-wrap break-words">{data.description}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Images */}
+          <div className="mt-6 w-full">
+            {data.images.map((img, index) => (
+              <LazyMedia key={img.id} src={img.path} index={index} />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )
