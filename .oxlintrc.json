@@ -23,7 +23,7 @@
         "allowShortCircuit": true
       }
     ],
-    "curly": "error",
+    "curly": ["error", "multi-line"],
 
     // 变量和类型相关
     "new-cap": "error",
