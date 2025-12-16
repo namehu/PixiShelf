@@ -26,3 +26,12 @@ export function combinationStaticArtistBg(userId?: string | null, backgroundImg?
 export function combinationStaticTagImage(image?: string | null) {
   return image ? `/pixiv_data/tags${image}` : ''
 }
+
+/**
+ * 组合API资源路径
+ * @param url 资源URL
+ * @returns 组合后的API资源路径
+ */
+export function combinationApiResource(url?: string | null) {
+  return url ? `/api/v1/images/${encodeURIComponent(url)}` : ''
+}

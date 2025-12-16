@@ -80,6 +80,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.52.1
         version: 5.89.0(react@19.2.1)
+      apng-js:
+        specifier: ^1.1.5
+        version: 1.1.5
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
@@ -4323,6 +4326,10 @@ packages:
   /any-promise@1.3.0:
     resolution: {integrity: sha512-7UvmKalWRt1wgjL1RrGxoSJW/0QZFIegpeGvZG9kjp8vrRu55XTHbwnqq2GpXm9uLbcuhxm3IqX9OB4MZR1b2A==}
     dev: true
+
+  /apng-js@1.1.5:
+    resolution: {integrity: sha512-ENBjy3HAyu7slaOgWRvVtFUdSGFWIHZvz8bGKSEM6/OWQm6NgwFquqY8R7YPgm4vnDISEczhZE2NoLAtKlnUfw==}
+    dev: false
 
   /argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
