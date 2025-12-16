@@ -28,10 +28,6 @@ function useArtwork(id: string) {
   })
 }
 
-// ============================================================================
-// 组件
-// ============================================================================
-
 /**
  * 懒加载媒体组件（支持图片和视频）
  */
@@ -60,7 +56,7 @@ function LazyMedia({
   return (
     <div ref={viewRef} className="overflow-hidden bg-neutral-100 flex items-center justify-center min-h-[200px]">
       {isVideo ? (
-        <VideoPlayer src={src} className="w-full h-auto" preload="metadata" />
+        <VideoPlayer src={`/api/v1/images/${encodeURIComponent(src)}`} className="w-full h-auto" preload="metadata" />
       ) : (
         <Image
           src={src}
@@ -135,7 +131,7 @@ function MediaCounter({ data, currentImageIndex }: { data: EnhancedArtwork; curr
 export default function ArtworkDetailPage() {
   const router = useRouter()
   const params = useParams()
-  const { isAuthenticated, isLoading: authLoading } = useAuth()
+  const { isLoading: authLoading } = useAuth()
 
   const id = params.id as string
   const { data, isLoading, isError } = useArtwork(id)
