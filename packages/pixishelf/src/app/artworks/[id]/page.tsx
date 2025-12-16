@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useInView } from 'react-intersection-observer'
@@ -10,7 +10,7 @@ import { useAuth } from '@/components/auth'
 
 import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { apiJson } from '@/lib/api'
-import { AlertCircleIcon, ChevronLeftIcon, FileTextIcon } from 'lucide-react'
+import { AlertCircleIcon, ChevronLeftIcon, FileTextIcon, ImageIcon, VideoIcon } from 'lucide-react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { Button } from '@/components/ui/button'
 import TagArea from './_components/TagArea'
@@ -76,45 +76,23 @@ function LazyMedia({
 /**
  * 媒体序号指示器组件
  */
-function MediaCounter({ data, currentImageIndex }: { data: EnhancedArtwork; currentImageIndex: number }) {
-  if (!data || !data.images || data.images.length === 0) {
-    return null
-  }
-
-  const currentMedia = data.images[currentImageIndex]
-  const isCurrentVideo = currentMedia && isVideoFile(currentMedia.path)
-
+function MediaCounter({
+  isVideo,
+  currentImageIndex,
+  total
+}: {
+  isVideo: boolean
+  currentImageIndex: number
+  total: number
+}) {
   return (
     <div className="flex items-center gap-1 sm:gap-2 text-neutral-500 max-w-full overflow-hidden">
       <div className="flex items-center gap-1 min-w-0">
-        {isCurrentVideo ? (
-          <svg
-            className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0 text-red-500"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-            />
-          </svg>
-        ) : (
-          <svg className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-            />
-          </svg>
-        )}
+        {isVideo ? <VideoIcon size={16} /> : <ImageIcon size={16} />}
         <span className="font-mono text-xs sm:text-sm whitespace-nowrap">
           <span className="text-neutral-900 font-medium">{currentImageIndex + 1}</span>
           <span className="mx-0.5 sm:mx-1 text-neutral-400">/</span>
-          <span className="text-neutral-600">{data.images.length}</span>
+          <span className="text-neutral-600">{total}</span>
         </span>
       </div>
     </div>
@@ -132,7 +110,13 @@ export default function ArtworkDetailPage() {
   const id = params.id as string
   const { data, isLoading, isError } = useArtwork(id)
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
-  const [visibleImages, setVisibleImages] = useState<Set<number>>(new Set())
+
+  const isVideo = useMemo(() => {
+    if (!data?.images?.length) {
+      return false
+    }
+    return data.images.some((item) => isVideoFile(item.path))
+  }, [data, currentImageIndex])
 
   // 处理艺术家点击事件
   const handleArtistClick = () => {
@@ -147,18 +131,8 @@ export default function ArtworkDetailPage() {
   }, [id]) // 当id变化时也滚动到顶部
 
   // 处理图片进入/离开视口
+  // 更新当前图片索引为最小的可见图片索引
   const handleImageInView = useCallback((index: number, inView: boolean) => {
-    setVisibleImages((prev) => {
-      const newSet = new Set(prev)
-      if (inView) {
-        newSet.add(index)
-      } else {
-        newSet.delete(index)
-      }
-      return newSet
-    })
-
-    // 更新当前图片索引为最小的可见图片索引
     if (inView) {
       setCurrentImageIndex(index)
     }
@@ -181,14 +155,16 @@ export default function ArtworkDetailPage() {
           <div className="flex items-center justify-between h-16">
             <button
               onClick={() => router.back()}
-              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+              className="w-16 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
             >
               <ChevronLeftIcon size={24} />
               <span className="hidden sm:inline">返回</span>
             </button>
 
             {/* 媒体计数器 */}
-            {data && <MediaCounter data={data} currentImageIndex={currentImageIndex} />}
+            {data && (
+              <MediaCounter isVideo={isVideo} currentImageIndex={currentImageIndex} total={data.images.length} />
+            )}
 
             {/* 占位符 */}
             <div className="w-16" />
