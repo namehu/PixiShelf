@@ -30,7 +30,7 @@ export function isVideoFile(filename) {
  * @returns 包含扩展名、是否为视频、是否为图片的对象
  */
 export function getMediaInfo(filename) {
-  const ext = getFileExtension(filename)
+  const ext = getFileExtension(filename || '')
   return {
     ext: ext.replace('.', ''),
     isVideo: VIDEO_EXTENSIONS.includes(ext),
