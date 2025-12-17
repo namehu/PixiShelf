@@ -9,12 +9,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 // 子组件：APNG 播放器
 // -----------------------------------------------------------------------------
 interface ApngPlayerProps {
+  /** APNG 图片的 URL 或路径 */
   src: string
-  alt: string
+  /** 图片的替代文本 */
+  alt?: string
   className?: string
 }
 
-const ApngPlayer = ({ src, alt, className }: ApngPlayerProps) => {
+const ApngPlayer = (props: ApngPlayerProps) => {
+  const { src, alt = src, className } = props
+
   const [player, setPlayer] = useState<any>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle')
   const canvasRef = useRef<HTMLCanvasElement>(null)

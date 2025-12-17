@@ -26,6 +26,8 @@ export const ArtworkImageResponseDto = ImageModel.extend({
   mediaType: z.enum(['image', 'video']).default('image')
 })
 
+export type TArtworkImageDto = z.infer<typeof ArtworkImageResponseDto>
+
 /**
  * Tag DTO
  * - 时间转字符串
@@ -80,6 +82,5 @@ export const ArtworkResponseDto = ArtworkModel.extend({
 })
 
 // export type ArtistResponse = z.infer<typeof ArtistResponseDto>
-export type TArtworkImageDto = z.infer<typeof ArtworkImageResponseDto>
 // export type TagResponse = z.infer<typeof TagResponseDto>
 export type TArtworkResponseDto = z.infer<typeof ArtworkResponseDto>

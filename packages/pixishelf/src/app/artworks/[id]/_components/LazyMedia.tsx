@@ -1,10 +1,10 @@
-import VideoPlayer from '@/components/ui/VideoPlayer'
+import VideoPlayer from '@/components/players/VideoPlayer'
+import ApngPlayer from '@/components/players/ApngPlayer'
 import { useArtworkStore } from '@/store/useArtworkStore'
 import Image from 'next/image'
 import { memo } from 'react'
 import { useOnInView } from 'react-intersection-observer'
 import { isApngFile, isVideoFile } from '../../../../../lib/media'
-import ApngPlayer from './ApngPlayer'
 import { combinationApiResource } from '@/utils/combinationStatic'
 
 /**

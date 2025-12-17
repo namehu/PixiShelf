@@ -2,13 +2,14 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Swiper, SwiperSlide } from 'swiper/react'
+import { Swiper } from 'swiper/react'
 import { Zoom, Navigation, Pagination } from 'swiper/modules'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useArtworkStore } from '@/store/useArtworkStore'
 import { isVideoFile } from '@/types'
 import { combinationApiResource } from '@/utils/combinationStatic'
-import VideoPlayer from '@/components/ui/VideoPlayer'
+import VideoPlayer from '@/components/players/VideoPlayer'
+import ApngPlayer from '@/components/players/ApngPlayer'
 
 // Import Swiper styles
 import 'swiper/css'
@@ -18,7 +19,8 @@ import 'swiper/css/pagination'
 
 import './styles.css' // Create a local style file for custom overrides if needed
 import { useShallow } from 'zustand/shallow'
-import { getMediaInfo } from '../../../../lib/media'
+import { getMediaInfo, isApngFile } from '../../../../lib/media'
+import { TArtworkImageDto } from '@/schemas/artwork.dto'
 
 export default function ArtworkPreviewPage() {
   const router = useRouter()
@@ -62,6 +64,37 @@ export default function ArtworkPreviewPage() {
     )
   }
 
+  function renderSwiperSlide(image: TArtworkImageDto, index: number) {
+    const isVideo = isVideoFile(image.path)
+    const isApng = isApngFile(image.path)
+    if (isApng) {
+      return (
+        <div className="flex h-full w-full items-center justify-center p-4">
+          <ApngPlayer src={combinationApiResource(image.path)} alt={`Preview ${index}`} />
+        </div>
+      )
+    }
+
+    if (isVideo) {
+      return (
+        <div className="flex h-full w-full items-center justify-center p-4">
+          <VideoPlayer src={combinationApiResource(image.path)} className="max-h-full max-w-full" />
+        </div>
+      )
+    }
+
+    return (
+      <div className="swiper-zoom-container">
+        <img
+          src={combinationApiResource(image.path)}
+          alt={`Preview ${index}`}
+          className="max-h-full max-w-full object-contain"
+          loading={Math.abs(index - currentIndex) < 2 ? 'eager' : 'lazy'}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="fixed inset-0 z-[100] bg-black text-white">
       {/* Top Bar */}
@@ -101,30 +134,7 @@ export default function ArtworkPreviewPage() {
         className="h-full w-full"
         spaceBetween={20}
       >
-        {images.map((image, index) => {
-          const isVideo = isVideoFile(image.path)
-
-          return (
-            <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
-              {isVideo ? (
-                <div className="flex h-full w-full items-center justify-center p-4">
-                  {/* Video doesn't support zoom in the same way, render player directly */}
-                  <VideoPlayer src={combinationApiResource(image.path)} className="max-h-full max-w-full" />
-                </div>
-              ) : (
-                <div className="swiper-zoom-container">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={combinationApiResource(image.path)}
-                    alt={`Preview ${index}`}
-                    className="max-h-full max-w-full object-contain"
-                    loading={Math.abs(index - currentIndex) < 2 ? 'eager' : 'lazy'}
-                  />
-                </div>
-              )}
-            </SwiperSlide>
-          )
-        })}
+        {images.map(renderSwiperSlide)}
 
         {/* Custom Navigation Buttons (Desktop) */}
         <div className="swiper-button-prev-custom absolute left-4 top-1/2 z-10 -translate-y-1/2 cursor-pointer rounded-full bg-black/20 p-2 text-white backdrop-blur-sm transition-all hover:bg-black/40 sm:block hidden">
