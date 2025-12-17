@@ -25,6 +25,20 @@ export function isVideoFile(filename) {
 }
 
 /**
+ * 获取文件的媒体信息（扩展名、是否为视频、是否为图片）
+ * @param filename 文件名或文件路径
+ * @returns 包含扩展名、是否为视频、是否为图片的对象
+ */
+export function getMediaInfo(filename) {
+  const ext = getFileExtension(filename)
+  return {
+    ext: ext.replace('.', ''),
+    isVideo: VIDEO_EXTENSIONS.includes(ext),
+    isImage: IMAGE_EXTENSIONS.includes(ext)
+  }
+}
+
+/**
  * 判断文件是否为图片格式
  * @param filename 文件名或文件路径
  * @returns 是否为图片文件
