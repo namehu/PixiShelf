@@ -71,8 +71,12 @@ export const ArtworkResponseDto = ArtworkModel.extend({
     .nullable(),
 
   // 3. 业务计算字段 (Service 层填充)
-  videoCount: z.number().int().default(0),
-  totalMediaSize: z.number().int().default(0) // 可能是 bigint，注意 JS 数字精度
+
+  /**
+   * 总媒体大小
+   * 目前来说仅计算 视频 / apng 文件大小 图片大小统一为0
+   */
+  totalMediaSize: z.number().int().default(0)
 }).omit({
   // 4. 剔除不需要暴露给 API 的内部字段
   // 如果你需要把 artistId 藏起来，可以在这里 omit

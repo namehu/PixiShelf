@@ -346,15 +346,14 @@ export async function GET(request: NextRequest): Promise<NextResponse<EnhancedAr
       }))
 
       // 计算视频统计信息
-      const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
-      const totalMediaSize = videoCount ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0 // 只统计视频大小
+      const hasVideo = enhancedImages.some((img) => img.mediaType === 'video')
+      const totalMediaSize = hasVideo ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0 // 只统计视频大小
 
       const result = {
         ...artwork,
         images: enhancedImages,
         tags: artwork.artworkTags?.map((at: any) => at.tag.name) || [],
-        imageCount: videoCount > 0 ? 0 : artwork._count?.images || artwork.imageCount || 0,
-        videoCount,
+        imageCount: hasVideo ? 0 : artwork._count?.images || artwork.imageCount || 0,
         totalMediaSize,
         descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
         directoryCreatedAt: artwork.directoryCreatedAt?.toISOString() || null,

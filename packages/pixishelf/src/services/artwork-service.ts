@@ -99,7 +99,7 @@ export async function getArtworkById(id: number) {
     return null
   }
 
-  const { enhancedImages, apng, videoCount, totalMediaSize } = transformImages(artwork.images)
+  const { enhancedImages, apng, totalMediaSize } = transformImages(artwork.images)
 
   // 3. 艺术家处理 (简单内联处理，或者调用 artistService 的 helper)
   const formattedArtist = artwork.artist ? transformArtist(artwork.artist) : null
@@ -109,7 +109,6 @@ export async function getArtworkById(id: number) {
     images: enhancedImages,
     apng,
     tags: artwork.artworkTags.map(({ tag }) => tag),
-    videoCount,
     totalMediaSize,
     artist: formattedArtist,
     artworkTags: undefined
@@ -176,16 +175,14 @@ function transformArtworksList(artworks: any[]) {
  */
 function transformSingleArtwork(artwork: any) {
   const _count = artwork._count?.images || artwork.imageCount || 0
-  const { enhancedImages, videoCount, totalMediaSize, imageCount } = transformImages(artwork.images, _count)
+  const { enhancedImages, totalMediaSize, imageCount } = transformImages(artwork.images, _count)
 
   // 构建响应对象
   const result = {
     ...artwork,
     images: enhancedImages,
     tags: artwork.artworkTags?.map((at: any) => at.tag.name) || [],
-    // 优先使用计算出的 videoCount，否则使用数据库计数
-    imageCount: imageCount,
-    videoCount,
+    imageCount,
     totalMediaSize,
     descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
     artist: artwork.artist
@@ -217,14 +214,13 @@ function transformImages(images: IImageModel[], imageCount?: number) {
   // 分离 apng 图片
   const apng = _images.find((img) => isApngFile(img.path)) || undefined
   // 计算视频相关统计
-  const videoCount = enhancedImages.filter((img) => img.mediaType === 'video').length
-  const totalMediaSize = videoCount ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0
+  const hasVideo = enhancedImages.some((img) => img.mediaType === 'video')
+  const totalMediaSize = hasVideo ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0
 
   return {
     apng,
     enhancedImages,
-    videoCount,
-    imageCount: videoCount > 0 ? 0 : (imageCount ?? enhancedImages.length),
+    imageCount: hasVideo ? 0 : (imageCount ?? enhancedImages.length),
     totalMediaSize
   }
 }

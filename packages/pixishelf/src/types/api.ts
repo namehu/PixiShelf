@@ -93,23 +93,23 @@ export interface PaginatedResponse<T> {
 /**
  * 排序选项类型
  */
-export type SortOption = 
-  | 'title_asc'        // 按名称升序
-  | 'title_desc'       // 按名称降序
-  | 'artist_asc'       // 按艺术家名称升序
-  | 'artist_desc'      // 按艺术家名称降序
-  | 'images_desc'      // 按图片数量降序
-  | 'images_asc'       // 按图片数量升序
+export type SortOption =
+  | 'title_asc' // 按名称升序
+  | 'title_desc' // 按名称降序
+  | 'artist_asc' // 按艺术家名称升序
+  | 'artist_desc' // 按艺术家名称降序
+  | 'images_desc' // 按图片数量降序
+  | 'images_asc' // 按图片数量升序
   | 'source_date_desc' // 按作品创建时间降序（默认）
-  | 'source_date_asc'  // 按作品创建时间升序
+  | 'source_date_asc' // 按作品创建时间升序
 
 /**
  * 媒体类型筛选选项
  */
-export type MediaTypeFilter = 
-  | 'all'    // 全部类型（默认）
-  | 'image'  // 仅图片
-  | 'video'  // 仅视频
+export type MediaTypeFilter =
+  | 'all' // 全部类型（默认）
+  | 'image' // 仅图片
+  | 'video' // 仅视频
 
 /**
  * 作品列表查询参数
@@ -181,7 +181,6 @@ export interface SuggestionsResponse {
  */
 export interface EnhancedArtwork extends Omit<Artwork, 'images'> {
   images: MediaFile[]
-  videoCount?: number // 视频文件数量
   totalMediaSize?: number // 总媒体文件大小
 }
 
