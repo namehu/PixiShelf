@@ -1,28 +1,52 @@
 import Link from 'next/link'
-import { FC, PropsWithChildren } from 'react'
+import { FC, PropsWithChildren, ReactNode } from 'react'
 import UserMenu from './UserMenu'
 
 interface INavProps {
   className?: string
+  /**
+   * 扩展左侧内容：位于 Logo 和 children 之间
+   * 可以用来放置：返回按钮、面包屑、或者特定页面的标题
+   */
+  renderLeft?: ReactNode
+  /**
+   * 扩展右侧内容：位于 UserMenu 左侧
+   * 可以用来放置：新建按钮、通知图标、搜索框等
+   */
+  renderExtra?: ReactNode
 }
 
-const PNav: FC<PropsWithChildren<INavProps>> = ({ className, children }) => {
+const PNav: FC<PropsWithChildren<INavProps>> = ({ className, children, renderLeft, renderExtra }) => {
   return (
-    <div className={` w-full ${className}`}>
-      <div className="py-8"></div>
+    <div className={`w-full ${className}`}>
+      {/* 这是一个占位符，用来防止 Fixed 导航栏遮挡内容，高度 py-8 (2rem * 2 = 64px) 对应 h-16 */}
+      <div className="h-16" />
+
       <nav className={`fixed w-full bg-white shadow-sm border-b top-0 left-0 z-50`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
+            {/* --- 左侧区域 --- */}
             <div className="flex-1 flex items-center space-x-6">
-              <Link href="/dashboard" className="text-xl font-bold text-graLink0">
+              {/* 1. Logo 始终在最左侧 */}
+              <Link href="/dashboard" className="text-xl font-bold text-gray-900 flex-shrink-0">
                 <span className="sm:hidden">P</span>
                 <span className="hidden sm:inline">Pixishelf</span>
               </Link>
+
+              {/* 2. renderLeft 插槽：这里渲染你传入的左侧扩展内容 */}
+              {renderLeft && <div className="flex items-center">{renderLeft}</div>}
+
+              {/* 3. children：原本的导航链接 */}
               {children}
             </div>
 
-            <div className="flex items-center">
-              <UserMenu></UserMenu>
+            {/* --- 右侧区域 --- */}
+            <div className="flex items-center space-x-4">
+              {/* 4. renderExtra 插槽：在用户菜单之前渲染 */}
+              {renderExtra && <div className="flex items-center">{renderExtra}</div>}
+
+              {/* 5. 用户菜单 */}
+              <UserMenu />
             </div>
           </div>
         </div>

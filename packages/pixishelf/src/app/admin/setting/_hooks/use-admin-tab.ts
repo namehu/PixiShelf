@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 
 // Tab类型定义
-export type AdminTabId = 'scan' | 'users' | 'tags' | 'test-sse'
+export type AdminTabId = 'scan' | 'users' | 'tags'
 
 export interface AdminTab {
   id: AdminTabId
@@ -21,22 +21,9 @@ export interface UseAdminTabReturn {
 
 // Tab配置
 const ADMIN_TABS: AdminTab[] = [
-  {
-    id: 'scan',
-    label: '扫描管理'
-  },
-  {
-    id: 'users',
-    label: '用户管理'
-  },
-  {
-    id: 'tags',
-    label: '标签管理'
-  },
-  {
-    id: 'test-sse',
-    label: 'SSE测试'
-  }
+  { id: 'scan', label: '扫描管理' },
+  { id: 'users', label: '用户管理' },
+  { id: 'tags', label: '标签管理' }
 ]
 
 // 默认Tab
@@ -74,7 +61,6 @@ export function useAdminTab(): UseAdminTabReturn {
       const isValidTab = ADMIN_TABS.some((tab) => tab.id === tabId)
 
       if (!isValidTab) {
-        console.warn(`Invalid tab ID: ${tabId}. Using default tab: ${DEFAULT_TAB}`)
         tabId = DEFAULT_TAB
       }
 
