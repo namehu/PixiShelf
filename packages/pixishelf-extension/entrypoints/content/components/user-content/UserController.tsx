@@ -7,10 +7,10 @@ import { useShallow } from 'zustand/shallow'
 import { toast } from 'sonner'
 
 export const UserController: React.FC = () => {
-  const { userIdList, isRunning, addUserIds, getStats, clearAll, failedUsers, addLog } = useUserInfoStore(
+  const { userIdList, isRunning, addUserIds, getStats, clearAll, progressData, addLog } = useUserInfoStore(
     useShallow((state) => ({
       addLog: state.addLog,
-      failedUsers: state.failedUsers,
+      progressData: state.progressData,
       userIdList: state.userIdList,
       isRunning: state.isRunning,
       addUserIds: state.addUserIds,
@@ -18,6 +18,15 @@ export const UserController: React.FC = () => {
       clearAll: state.clearAll
     }))
   )
+
+  const failedUsers = React.useMemo(() => {
+    return Object.entries(progressData)
+      .filter(([_, progress]) => progress.status === 'rejected')
+      .map(([userId, progress]) => ({
+        userId,
+        error: typeof progress.data === 'string' ? progress.data : '未知错误'
+      }))
+  }, [progressData])
 
   const [userInput, setUserInput] = React.useState('')
   const [downloadProgress, setDownloadProgress] = React.useState({
