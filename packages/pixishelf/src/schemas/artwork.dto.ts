@@ -19,7 +19,7 @@ const ArtistResponseDto = ArtistModel.extend({
  * - 时间转字符串
  * - 增加 mediaType 计算字段
  */
-const ImageResponseDto = ImageModel.extend({
+export const ArtworkImageResponseDto = ImageModel.extend({
   createdAt: dateToString,
   updatedAt: dateToString,
   // 前端辅助字段，数据库没有，需要 Service 层计算填充
@@ -30,11 +30,13 @@ const ImageResponseDto = ImageModel.extend({
  * Tag DTO
  * - 时间转字符串
  */
-const TagResponseDto = TagModel.pick({
+const ArtworkTagDtoTag = TagModel.pick({
   id: true,
   name: true,
   name_zh: true
 })
+
+export type TArtworkTagDto = z.infer<typeof ArtworkTagDtoTag>
 
 // ==========================================
 // Main Aggregated DTO (核心聚合)
@@ -56,19 +58,13 @@ export const ArtworkResponseDto = ArtworkModel.extend({
   artist: ArtistResponseDto.nullable().optional(),
 
   // 图片列表
-  images: z.array(ImageResponseDto).default([]),
+  images: z.array(ArtworkImageResponseDto).default([]),
 
   // 标签列表：注意这里我们直接返回 Tag[]，而不是中间表 ArtworkTag[]
-  tags: z.array(TagResponseDto).default([]),
+  tags: z.array(ArtworkTagDtoTag).default([]),
 
   // apng对象
-  apng: ImageResponseDto.pick({
-    id: true,
-    path: true,
-    size: true
-  })
-    .optional()
-    .nullable(),
+  apng: ArtworkImageResponseDto.optional().nullable(),
 
   // 3. 业务计算字段 (Service 层填充)
 
@@ -84,6 +80,6 @@ export const ArtworkResponseDto = ArtworkModel.extend({
 })
 
 // export type ArtistResponse = z.infer<typeof ArtistResponseDto>
-// export type ImageResponse = z.infer<typeof ImageResponseDto>
+export type TArtworkImageDto = z.infer<typeof ArtworkImageResponseDto>
 // export type TagResponse = z.infer<typeof TagResponseDto>
 export type TArtworkResponseDto = z.infer<typeof ArtworkResponseDto>

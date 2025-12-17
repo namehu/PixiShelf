@@ -1,18 +1,18 @@
-import { Tag } from '@/types'
+import { TArtworkTagDto } from '@/schemas/artwork.dto'
 import { getTranslateName } from '@/utils/tags'
 import { TagIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { FC, memo } from 'react'
 
 interface TagAreaProps {
-  tags?: Tag[]
+  tags?: TArtworkTagDto[]
   className?: string
 }
 
 const TagArea: FC<TagAreaProps> = ({ tags = [], className = '' }) => {
   const router = useRouter()
 
-  const handleTagClick = (tag: Tag) => {
+  const handleTagClick = (tag: TArtworkTagDto) => {
     router.push(`/tags/${tag.id}`)
   }
   return (

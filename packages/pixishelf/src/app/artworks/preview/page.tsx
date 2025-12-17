@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Zoom, Navigation, Pagination } from 'swiper/modules'
@@ -18,10 +18,10 @@ import 'swiper/css/pagination'
 
 import './styles.css' // Create a local style file for custom overrides if needed
 import { useShallow } from 'zustand/shallow'
+import { getMediaInfo } from '../../../../lib/media'
 
 export default function ArtworkPreviewPage() {
   const router = useRouter()
-  const [currentIndex, setCurrentIndex] = useState(0)
   const { images, clearImages } = useArtworkStore(
     useShallow((state) => ({
       images: state.images,
@@ -29,7 +29,10 @@ export default function ArtworkPreviewPage() {
     }))
   )
 
+  const [currentIndex, setCurrentIndex] = useState(0)
   const [mounted, setMounted] = useState(false)
+
+  const { ext } = useMemo(() => getMediaInfo(images[currentIndex]?.path), [images, currentIndex])
 
   useEffect(() => {
     setMounted(true)
@@ -46,8 +49,7 @@ export default function ArtworkPreviewPage() {
 
   if (!mounted) return null
 
-  // If no images, go back or show empty state
-  if (!images || images.length === 0) {
+  if (!images.length) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-black text-white">
         <div className="text-center">
@@ -64,8 +66,15 @@ export default function ArtworkPreviewPage() {
     <div className="fixed inset-0 z-[100] bg-black text-white">
       {/* Top Bar */}
       <div className="absolute left-0 right-0 top-0 z-10 flex h-16 items-center justify-between bg-gradient-to-b from-black/50 to-transparent px-4">
-        <div className="text-sm font-medium">
-          {currentIndex + 1} / {images.length}
+        <div className="flex items-center gap-3">
+          <div className="text-sm font-medium">
+            {currentIndex + 1} / {images.length}
+          </div>
+          {ext && (
+            <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wider text-white/90 backdrop-blur-md">
+              {ext}
+            </span>
+          )}
         </div>
         <button
           onClick={() => router.back()}

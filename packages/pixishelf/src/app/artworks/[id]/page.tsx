@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { EnhancedArtwork, isVideoFile } from '@/types'
 import { useAuth } from '@/components/auth'
 import { apiJson } from '@/lib/api'
 import { AlertCircleIcon, ChevronLeftIcon, FullscreenIcon } from 'lucide-react'
@@ -14,6 +13,8 @@ import MediaCounter from './_components/MediaCounter'
 import { useArtworkStore } from '@/store/useArtworkStore' // 引入 store
 import LazyMedia from './_components/LazyMedia'
 import ArtworkDes from './_components/ArtworkDes'
+import { getMediaInfo } from '../../../../lib/media'
+import { TArtworkResponseDto } from '@/schemas/artwork.dto'
 
 export default function ArtworkDetailPage() {
   const router = useRouter()
@@ -24,7 +25,7 @@ export default function ArtworkDetailPage() {
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['artwork', id],
-    queryFn: async (): Promise<EnhancedArtwork> => apiJson<EnhancedArtwork>(`/api/artworks/${id}`),
+    queryFn: async (): Promise<TArtworkResponseDto> => apiJson<TArtworkResponseDto>(`/api/artworks/${id}`),
     enabled: !!id
   })
 
@@ -45,7 +46,7 @@ export default function ArtworkDetailPage() {
     window.scrollTo(0, 0)
   }, [id])
 
-  const hasVideo = useMemo(() => data?.images?.some((item) => isVideoFile(item.path)) ?? false, [data])
+  const { ext, isVideo } = useMemo(() => getMediaInfo(data?.images?.[0]?.path || ''), [data])
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center">...</div>
   if (!data && isLoading) return <LoadingSkeleton /> // 简化加载逻辑
@@ -66,12 +67,13 @@ export default function ArtworkDetailPage() {
               <span className="hidden sm:inline">返回</span>
             </button>
 
-            <MediaCounter hasVideo={hasVideo} />
+            <MediaCounter hasVideo={isVideo} ext={ext} />
 
             <button
               onClick={() => {
-                if (data.images) {
-                  setImages(data.images as any)
+                const previewImages = data.apng ? [data.apng] : data.images
+                if (previewImages) {
+                  setImages(previewImages)
                   router.push('/artworks/preview')
                 }
               }}

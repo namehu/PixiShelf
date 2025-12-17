@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 
 interface ArtistAvatarProps {
-  src?: string
+  src?: string | null
   /**
    * 艺术家名称
    */
@@ -43,7 +43,7 @@ export function ArtistAvatar({ src, name, size = 12, className }: ArtistAvatarPr
 
   return (
     <Avatar className={`size-${size} w-${size} h-${size} ${className}`}>
-      <AvatarImage src={src} alt={name} width={size} height={size} onError={handleImageError} />
+      <AvatarImage src={src ?? undefined} alt={name} width={size} height={size} onError={handleImageError} />
       <AvatarFallback
         className={`h-${size} w-${size} bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 text-2xl font-bold`}
       >

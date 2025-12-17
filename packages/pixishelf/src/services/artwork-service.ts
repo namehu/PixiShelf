@@ -1,11 +1,16 @@
 import 'server-only'
 
-import { EnhancedArtworksResponse, getMediaType } from '@/types'
+import { EnhancedArtworksResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { transformArtist } from './artist-service'
-import { TArtworkResponseDto, ArtworkResponseDto } from '@/schemas/artwork.dto'
-import { IImageModel } from '@/schemas/models'
+import {
+  TArtworkResponseDto,
+  ArtworkResponseDto,
+  TArtworkImageDto,
+  ArtworkImageResponseDto
+} from '@/schemas/artwork.dto'
+import { TImageModel } from '@/schemas/models'
 import { isApngFile } from '../../lib/media'
 
 // ==========================================
@@ -202,23 +207,34 @@ function transformSingleArtwork(artwork: any) {
   return result
 }
 
-function transformImages(images: IImageModel[], imageCount?: number) {
-  // 先处理 sortOrder，确保后续操作基于正确的顺序
-  const _images = images.map((image) => ({
-    ...image,
-    mediaType: getMediaType(image.path) as 'image' | 'video',
-    sortOrder: image.sortOrder || 0
-  }))
-  //  防止只有apng
-  const enhancedImages = _images.length > 1 ? _images.filter((img) => !isApngFile(img.path)) : _images
-  // 分离 apng 图片
-  const apng = _images.find((img) => isApngFile(img.path)) || undefined
+function transformImages(images: TImageModel[], imageCount?: number) {
+  // 解析为
+  const _images = images.map((image) => ArtworkImageResponseDto.parse(image))
+
+  let { apng, enhancedImages } = _images.reduce(
+    (acc, img) => {
+      if (isApngFile(img.path)) {
+        acc.apng.push(img)
+      } else {
+        acc.enhancedImages.push(img)
+      }
+      return acc
+    },
+    { apng: [] as TArtworkImageDto[], enhancedImages: [] as TArtworkImageDto[] }
+  )
+
+  // 修正只有apng的情况
+  if (enhancedImages.length === 0) {
+    enhancedImages = apng
+    apng = []
+  }
+
   // 计算视频相关统计
   const hasVideo = enhancedImages.some((img) => img.mediaType === 'video')
   const totalMediaSize = hasVideo ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0
 
   return {
-    apng,
+    apng: apng[0] ?? null,
     enhancedImages,
     imageCount: hasVideo ? 0 : (imageCount ?? enhancedImages.length),
     totalMediaSize
