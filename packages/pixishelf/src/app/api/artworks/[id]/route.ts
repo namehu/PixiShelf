@@ -15,10 +15,7 @@ const RouteParamsSchema = z.object({
  * @param param1
  * @returns
  */
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> } // Next.js 15+ params 是 Promise
-) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const validation = RouteParamsSchema.safeParse(await params)
 
   if (!validation.success) {
