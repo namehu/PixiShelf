@@ -5,7 +5,7 @@ const { execSync } = require('child_process');
 // ================= 配置区域 =================
 
 // 默认扫描目录
-const DEFAULT_INPUT_DIR = './download';
+const DEFAULT_INPUT_DIR = '/Users/admin/Downloads/pixiv';
 
 // ===========================================
 
