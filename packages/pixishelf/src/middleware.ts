@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sessionManager } from '@/lib/session'
 import { ROUTES } from '@/lib/constants'
+import logger from './lib/logger'
 
 // ============================================================================
 // Next.js 认证中间件
@@ -98,7 +99,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     // 认证成功，继续处理请求
     return response
   } catch (error) {
-    console.error('中间件认证错误:', error)
+    logger.error('中间件认证错误:', error)
     return handleUnauthenticated(request, pathname)
   }
 }

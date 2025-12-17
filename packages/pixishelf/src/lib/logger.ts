@@ -1,5 +1,3 @@
-// packages/pixishelf/lib/logger.ts
-
 import winston from 'winston'
 // import DailyRotateFile from 'winston-daily-rotate-file'
 // import path from 'path' // <--- 关键改动：引入 path 模块

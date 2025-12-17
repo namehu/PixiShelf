@@ -1,4 +1,4 @@
-// src/instrumentation.ts 或 instrumentation.ts
+// oxlint-disable no-console
 
 // 确保只在服务器端执行
 export async function register() {
@@ -15,6 +15,7 @@ export async function register() {
     } catch (error) {
       console.error('❌ Database connection failed:', error)
     }
-    // 也可以在这里注册其他的监控工具
+
+    // 可以在这里注册其他的监控工具
   }
 }
