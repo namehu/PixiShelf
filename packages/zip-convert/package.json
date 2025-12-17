@@ -5,9 +5,9 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "test": "node app.js C:\\Users\\Administrator\\Downloads\\pixiv\\とうふぬ-40210087 --format=all",
+    "test": "node app.js C:\\Users\\Administrator\\Downloads\\pixiv --format=all",
     "a2w": "node apngToWebm.js",
-    "test:a2w": "node apngToWebm.js C:\\Users\\Administrator\\Downloads\\pixiv\\とうふぬ-40210087"
+    "test:a2w": "node apngToWebm.js --input \"C:\\Users\\Administrator\\Downloads\\pixiv\" --output \"C:\\Users\\Administrator\\Downloads\\pixiv\\conversion_log.txt\""
   },
   "dependencies": {
     "express": "^4.18.2",

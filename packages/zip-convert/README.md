@@ -1,4 +1,37 @@
 
+# Zip Convert 工具包
+
+包含处理 Pixiv 资源文件的相关工具脚本。
+
+## 1. APNG 转 WebM 工具 (apngToWebm.js)
+
+批量扫描指定目录下的 `.apng` 文件并将其转换为 `.webm` 格式。支持跳过已转换文件，并记录详细日志。
+
+### 命令行参数
+
+| 参数 | 简写 | 描述 | 默认值 |
+| :--- | :--- | :--- | :--- |
+| `--input` | `-i` | 扫描 APNG 文件的输入目录 | `/Users/admin/Downloads/pixiv` |
+| `--output` | `-o` | 转换日志的输出文件路径 | `/Users/admin/Downloads/result.txt` |
+
+### 使用示例
+
+**1. 使用默认配置**
+```bash
+node apngToWebm.js
+```
+
+**2. 指定输入目录和日志文件**
+```bash
+node apngToWebm.js --input "D:\Downloads\pixiv" --output "D:\Downloads\conversion_log.txt"
+```
+
+**3. 使用简写参数**
+```bash
+node apngToWebm.js -i "D:\Downloads\pixiv" -o "D:\Downloads\conversion_log.txt"
+```
+
+---
 
 ### 动图解析帧
 
