@@ -24,7 +24,11 @@ export function combinationStaticArtistBg(userId?: string | null, backgroundImg?
  * @returns 组合后的标签图片路径
  */
 export function combinationStaticTagImage(image?: string | null) {
-  return image ? `/pixiv_data/tags${image}` : ''
+  const PREFIX = '/pixiv_data/tags/'
+  if (!image || image.startsWith(PREFIX)) {
+    return image || ''
+  }
+  return PREFIX + image
 }
 
 /**
@@ -33,5 +37,10 @@ export function combinationStaticTagImage(image?: string | null) {
  * @returns 组合后的API资源路径
  */
 export function combinationApiResource(url?: string | null) {
-  return url ? `/api/v1/images/${encodeURIComponent(url)}` : ''
+  const PREFIX = '/api/v1/images/'
+  if (!url || url.startsWith(PREFIX)) {
+    return url || undefined
+  }
+
+  return PREFIX + encodeURIComponent(url)
 }

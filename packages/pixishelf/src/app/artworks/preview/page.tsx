@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Swiper } from 'swiper/react'
+import { Swiper, SwiperSlide } from 'swiper/react'
 import { Zoom, Navigation, Pagination } from 'swiper/modules'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useArtworkStore } from '@/store/useArtworkStore'
@@ -69,29 +69,35 @@ export default function ArtworkPreviewPage() {
     const isApng = isApngFile(image.path)
     if (isApng) {
       return (
-        <div className="flex h-full w-full items-center justify-center p-4">
-          <ApngPlayer src={combinationApiResource(image.path)} alt={`Preview ${index}`} />
-        </div>
+        <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
+          <div className="flex h-full w-full items-center justify-center">
+            <ApngPlayer src={image.path} alt={`Preview ${index}`} />
+          </div>
+        </SwiperSlide>
       )
     }
 
     if (isVideo) {
       return (
-        <div className="flex h-full w-full items-center justify-center p-4">
-          <VideoPlayer src={combinationApiResource(image.path)} className="max-h-full max-w-full" />
-        </div>
+        <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
+          <div className="flex h-full w-full items-center justify-center">
+            <VideoPlayer src={image.path} className="max-h-full max-w-full" />
+          </div>
+        </SwiperSlide>
       )
     }
 
     return (
-      <div className="swiper-zoom-container">
-        <img
-          src={combinationApiResource(image.path)}
-          alt={`Preview ${index}`}
-          className="max-h-full max-w-full object-contain"
-          loading={Math.abs(index - currentIndex) < 2 ? 'eager' : 'lazy'}
-        />
-      </div>
+      <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
+        <div className="swiper-zoom-container">
+          <img
+            src={combinationApiResource(image.path)}
+            alt={`Preview ${index}`}
+            className="max-h-full max-w-full object-contain"
+            loading={Math.abs(index - currentIndex) < 2 ? 'eager' : 'lazy'}
+          />
+        </div>
+      </SwiperSlide>
     )
   }
 

@@ -5,7 +5,6 @@ import Image from 'next/image'
 import { memo } from 'react'
 import { useOnInView } from 'react-intersection-observer'
 import { isApngFile, isVideoFile } from '../../../../../lib/media'
-import { combinationApiResource } from '@/utils/combinationStatic'
 
 /**
  * 懒加载媒体组件
@@ -23,7 +22,7 @@ const LazyMedia = memo(({ src, index }: { src: string; index: number }) => {
   // 主渲染逻辑
   const renderContent = () => {
     if (isVideoFile(src)) {
-      return <VideoPlayer src={combinationApiResource(src)} className="w-full h-auto" preload="metadata" />
+      return <VideoPlayer src={src} className="w-full h-auto" preload="metadata" />
     }
 
     if (isApngFile(src)) {

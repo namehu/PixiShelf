@@ -2,6 +2,7 @@
 
 import { InfoIcon } from 'lucide-react'
 import React, { useState, useRef, useEffect } from 'react'
+import { combinationApiResource } from '@/utils/combinationStatic'
 
 export interface VideoPlayerProps {
   src: string
@@ -143,7 +144,7 @@ export function VideoPlayer({
         controls={false}
         onClick={handlePlayPause}
       >
-        <source src={src} />
+        <source src={combinationApiResource(src)} />
         您的浏览器不支持视频播放。
       </video>
 
