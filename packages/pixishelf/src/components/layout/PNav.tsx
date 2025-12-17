@@ -37,14 +37,13 @@ const PNav: FC<PropsWithChildren<INavProps>> = ({ className, children, renderLef
               {renderLeft && <div className="flex items-center">{renderLeft}</div>}
 
               {/* 3. children：原本的导航链接 */}
-              {children}
+              <div className="text-xl font-bold text-gray-900">{children}</div>
             </div>
 
             {/* --- 右侧区域 --- */}
             <div className="flex items-center space-x-4">
               {/* 4. renderExtra 插槽：在用户菜单之前渲染 */}
               {renderExtra && <div className="flex items-center">{renderExtra}</div>}
-
               {/* 5. 用户菜单 */}
               <UserMenu />
             </div>

@@ -1,3 +1,4 @@
+import PNav from '@/components/layout/PNav'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { prisma } from '@/lib/prisma'
 import { WallpaperIcon, Users, Image as ImageIcon, Tags } from 'lucide-react'
@@ -77,7 +78,6 @@ async function getStats(): Promise<StatsData> {
       topTags
     }
   } catch (error) {
-    console.error('获取统计数据时出错:', error)
     return {
       artworkCount: 0,
       artistCount: 0,
@@ -137,37 +137,38 @@ export default async function StatsDashboardPage() {
   const stats = await getStats()
 
   return (
-    <div className="flex-1 space-y-4 p-4 md:p-8 pt-6 bg-gray-50 dark:bg-gray-900">
-      <div className="flex items-center justify-between space-y-2">
-        <h2 className="text-3xl font-bold tracking-tight">数据总览</h2>
-      </div>
+    <div>
+      <PNav>
+        <h2>数据总览</h2>
+      </PNav>
+      <div className="flex-1 space-y-4 p-4 md:p-8 pt-6 bg-gray-50 dark:bg-gray-900">
+        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+          <StatCard title="作品数量" value={stats.artworkCount} icon={WallpaperIcon} href="/gallery" />
+          <StatCard title="艺术家数量" value={stats.artistCount} icon={Users} href="/artists" />
+          <StatCard title="图片总数" value={stats.imageCount} icon={ImageIcon} />
+          <StatCard title="标签总数" value={stats.tagCount} icon={Tags} href="/tags" />
+        </div>
 
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <StatCard title="作品数量" value={stats.artworkCount} icon={WallpaperIcon} href="/gallery" />
-        <StatCard title="艺术家数量" value={stats.artistCount} icon={Users} href="/artists" />
-        <StatCard title="图片总数" value={stats.imageCount} icon={ImageIcon} />
-        <StatCard title="标签总数" value={stats.tagCount} icon={Tags} href="/tags" />
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-2 mt-8">
-        <LeaderboardCard
-          title="热门艺术家"
-          icon={Users}
-          items={stats.topArtists.map((artist) => ({
-            name: artist.name,
-            value: artist.artworkCount,
-            href: `/artists/${artist.id}`
-          }))}
-        />
-        <LeaderboardCard
-          title="热门标签"
-          icon={Tags}
-          items={stats.topTags.map((tag) => ({
-            name: tag.name,
-            value: tag.artworkCount,
-            href: `/tags/${tag.id}`
-          }))}
-        />
+        <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-2 mt-8">
+          <LeaderboardCard
+            title="热门艺术家"
+            icon={Users}
+            items={stats.topArtists.map((artist) => ({
+              name: artist.name,
+              value: artist.artworkCount,
+              href: `/artists/${artist.id}`
+            }))}
+          />
+          <LeaderboardCard
+            title="热门标签"
+            icon={Tags}
+            items={stats.topTags.map((tag) => ({
+              name: tag.name,
+              value: tag.artworkCount,
+              href: `/tags/${tag.id}`
+            }))}
+          />
+        </div>
       </div>
     </div>
   )
