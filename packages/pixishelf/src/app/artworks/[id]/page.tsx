@@ -4,7 +4,7 @@ import React, { useEffect, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/components/auth'
-import { apiJson } from '@/lib/api'
+import { client } from '@/lib/api'
 import { AlertCircleIcon, ChevronLeftIcon, FullscreenIcon } from 'lucide-react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { Button } from '@/components/ui/button'
@@ -25,7 +25,7 @@ export default function ArtworkDetailPage() {
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['artwork', id],
-    queryFn: async (): Promise<TArtworkResponseDto> => apiJson<TArtworkResponseDto>(`/api/artworks/${id}`),
+    queryFn: () => client<TArtworkResponseDto>(`/api/artworks/${id}`),
     enabled: !!id
   })
 
