@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Zoom, Navigation, Pagination } from 'swiper/modules'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -34,7 +35,7 @@ export default function ArtworkPreviewPage() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [mounted, setMounted] = useState(false)
 
-  const { ext } = useMemo(() => getMediaInfo(images[currentIndex]?.path), [images, currentIndex])
+  const { ext, isApng, isVideo } = useMemo(() => getMediaInfo(images[currentIndex]?.path), [images, currentIndex])
 
   useEffect(() => {
     setMounted(true)
@@ -67,6 +68,7 @@ export default function ArtworkPreviewPage() {
   function renderSwiperSlide(image: TArtworkImageDto, index: number) {
     const isVideo = isVideoFile(image.path)
     const isApng = isApngFile(image.path)
+
     if (isApng) {
       return (
         <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
@@ -90,11 +92,14 @@ export default function ArtworkPreviewPage() {
     return (
       <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
         <div className="swiper-zoom-container">
-          <img
-            src={combinationApiResource(image.path)}
+          <Image
+            src={combinationApiResource(image.path)!}
             alt={`Preview ${index}`}
-            className="max-h-full max-w-full object-contain"
-            loading={Math.abs(index - currentIndex) < 2 ? 'eager' : 'lazy'}
+            width={0}
+            height={0}
+            sizes="100vw"
+            className="max-h-full w-full object-contain"
+            loading={Math.abs(index - currentIndex) < 1 ? 'eager' : 'lazy'}
           />
         </div>
       </SwiperSlide>
@@ -106,13 +111,14 @@ export default function ArtworkPreviewPage() {
       {/* Top Bar */}
       <div className="absolute left-0 right-0 top-0 z-10 flex h-16 items-center justify-between bg-gradient-to-b from-black/50 to-transparent px-4">
         <div className="flex items-center gap-3">
-          <div className="text-sm font-medium">
-            {currentIndex + 1} / {images.length}
-          </div>
-          {ext && (
+          {isApng || isVideo ? (
             <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wider text-white/90 backdrop-blur-md">
               {ext}
             </span>
+          ) : (
+            <div className="text-sm font-medium">
+              {currentIndex + 1} / {images.length}
+            </div>
           )}
         </div>
         <button

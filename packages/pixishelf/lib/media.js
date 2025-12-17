@@ -34,6 +34,7 @@ export function getMediaInfo(filename) {
   return {
     ext: ext.replace('.', ''),
     isVideo: VIDEO_EXTENSIONS.includes(ext),
+    isApng: isApngFile(filename),
     isImage: IMAGE_EXTENSIONS.includes(ext)
   }
 }
@@ -54,4 +55,4 @@ export function isImageFile(filename) {
  * @param {*} src
  * @returns
  */
-export const isApngFile = (src) => /\.apng$/i.test(src)
+export const isApngFile = (src) => /\.apng$/i.test(src || '')

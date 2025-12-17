@@ -16,3 +16,8 @@ export const VIDEO_EXTENSIONS = [
  * 所有支持的媒体格式
  */
 export const MEDIA_EXTENSIONS = [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS]
+
+/**
+ * API 图片资源前缀
+ */
+export const API_IMAGE_PREFIX = '/api/v1/images/'

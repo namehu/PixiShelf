@@ -1,3 +1,5 @@
+import { API_IMAGE_PREFIX } from '../../lib/constant'
+
 /**
  * 组合艺术家头像路径
  * @param userId 艺术家用户ID
@@ -37,10 +39,9 @@ export function combinationStaticTagImage(image?: string | null) {
  * @returns 组合后的API资源路径
  */
 export function combinationApiResource(url?: string | null) {
-  const PREFIX = '/api/v1/images/'
-  if (!url || url.startsWith(PREFIX)) {
-    return url || undefined
+  if (!url || url.startsWith(API_IMAGE_PREFIX)) {
+    return url || ''
   }
 
-  return PREFIX + encodeURIComponent(url)
+  return API_IMAGE_PREFIX + encodeURIComponent(url)
 }
