@@ -2,6 +2,7 @@ import React from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import type { Metadata, Viewport } from 'next'
 import { Providers } from '@/components/providers'
+import { GlobalConfirmDialog } from '@/components/shared/global-confirm' // 引入组件
 import './globals.css'
 
 // ============================================================================
@@ -31,8 +32,13 @@ export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="zh-CN">
       <body suppressHydrationWarning={true}>
-        <Providers>{children}</Providers>
-        <Toaster />
+        <Providers>
+          {children}
+
+          <GlobalConfirmDialog />
+
+          <Toaster />
+        </Providers>
       </body>
     </html>
   )

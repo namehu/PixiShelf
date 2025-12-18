@@ -8,8 +8,8 @@ import dynamic from 'next/dynamic'
 import { MenuIcon } from 'lucide-react'
 import PNav from '@/components/layout/PNav'
 
-const UserManagement = dynamic(() => import('./user-management'))
 const ScanManagement = dynamic(() => import('./scan-management'))
+const UserManagement = dynamic(() => import('./user-management'))
 const TagManagement = dynamic(() => import('./tag-management'))
 
 /**

@@ -4,25 +4,14 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson } from '@/lib/api'
 import { HealthResponse, ScanPathResponse, LogEntry } from '@/types'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle
-} from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-
-// 引入新创建的 Hook
 import { useSseScan } from '../_hooks/use-sse-scan'
-// Hook: 健康检查
+import { confirm } from '@/components/shared/global-confirm' // 直接引入函数
+
 function useHealth() {
   return useQuery({
     queryKey: ['health'],
@@ -178,7 +167,6 @@ function ScanManagement() {
   // 本地 UI 状态
   const [editPath, setEditPath] = useState('')
   const [editing, setEditing] = useState(false)
-  const [showForceConfirm, setShowForceConfirm] = useState(false)
   const [metadataText, setMetadataText] = useState('')
 
   // --- 动作处理器 (转发到 Hook) ---
@@ -221,6 +209,19 @@ function ScanManagement() {
   const cancelCurrentScan = () => {
     actions.cancelScan() // 1. 立即停止客户端监听
     cancelScan.mutate() // 2. 通知服务端停止
+  }
+
+  const handleScan = () => {
+    confirm({
+      title: '确认强制扫描？',
+      description:
+        '强制全量扫描将会清空数据库中的所有艺术品、艺术家、图片和标签数据（用户和设置数据不受影响），然后重新扫描所有文件。此操作不可撤销，确定要继续吗？',
+      variant: 'destructive',
+      confirmText: '确认清空并扫描',
+      onConfirm: () => {
+        startServerStream(true)
+      }
+    })
   }
 
   return (
@@ -317,7 +318,7 @@ function ScanManagement() {
                 </Button>
                 <Button
                   variant="secondary"
-                  onClick={() => setShowForceConfirm(true)}
+                  onClick={handleScan}
                   disabled={streaming || !scanPath.query.data?.scanPath}
                   title="强制全量更新：清空现有数据后重建"
                 >
@@ -426,30 +427,6 @@ function ScanManagement() {
           }
         `}</style>
       </div>
-
-      {/* 强制扫描确认弹窗 (保持不变) */}
-      <AlertDialog open={showForceConfirm} onOpenChange={setShowForceConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认强制全量扫描</AlertDialogTitle>
-            <AlertDialogDescription>
-              强制全量扫描将会清空数据库中的所有艺术品、艺术家、图片和标签数据（用户和设置数据不受影响），然后重新扫描所有文件。此操作不可撤销，确定要继续吗？
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 text-white hover:bg-red-700"
-              onClick={() => {
-                setShowForceConfirm(false)
-                startServerStream(true) // 触发全量扫描
-              }}
-            >
-              确认清空并扫描
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
