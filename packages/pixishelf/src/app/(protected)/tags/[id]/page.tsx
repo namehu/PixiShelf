@@ -3,13 +3,15 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Hash, Grid, List, TagIcon, WallpaperIcon } from 'lucide-react'
-import { Tag } from '@/types/core'
 import { Artwork } from '@/types/core'
 import { ArtworkCard } from '@/components/ui/ArtworkCard'
 import { cn } from '@/lib/utils'
 import { getTranslateName } from '@/utils/tags'
 import { Avatar, AvatarImage } from '@/components/ui/avatar'
 import { AvatarFallback } from '@radix-ui/react-avatar'
+import { useQuery } from '@tanstack/react-query'
+import { client } from '@/lib/api'
+import { TTagResponseDto } from '@/schemas/tag.dto'
 
 /**
  * 标签详情页面
@@ -25,9 +27,7 @@ function TagDetailPage() {
   const router = useRouter()
   const tagId = params.id as string
 
-  const [tag, setTag] = useState<Tag | null>(null)
   const [artworks, setArtworks] = useState<Artwork[]>([])
-  const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -36,29 +36,17 @@ function TagDetailPage() {
 
   const pageSize = 20
 
-  // 获取标签信息
-  const fetchTag = async () => {
-    try {
-      const response = await fetch(`/api/tags/${tagId}`)
-      if (!response.ok) {
-        throw new Error('标签不存在')
-      }
-      const data = await response.json()
-      if (data.success) {
-        setTag(data.data)
-      } else {
-        throw new Error(data.error || '获取标签信息失败')
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '获取标签信息失败')
-    }
-  }
+  const { data, isLoading } = useQuery({
+    queryKey: ['tag', tagId],
+    queryFn: () => client<TTagResponseDto>(`/api/tags/${tagId}`),
+    enabled: !!tagId
+  })
 
   // 获取作品列表
-  const fetchArtworks = async (pageNum: number = 1, append: boolean = false) => {
+  const fetchArtworks = async (pageNum = 1, append = false) => {
     try {
       if (pageNum === 1) {
-        setLoading(true)
+        //
       } else {
         setLoadingMore(true)
       }
@@ -88,7 +76,6 @@ function TagDetailPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : '获取作品列表失败')
     } finally {
-      setLoading(false)
       setLoadingMore(false)
     }
   }
@@ -105,7 +92,6 @@ function TagDetailPage() {
   // 初始化数据
   useEffect(() => {
     if (tagId) {
-      fetchTag()
       fetchArtworks(1)
     }
   }, [tagId])
@@ -115,11 +101,11 @@ function TagDetailPage() {
     router.back()
   }
 
-  if (loading && !tag) {
+  if (isLoading && !data) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4" />
           <p className="text-neutral-600">加载中...</p>
         </div>
       </div>
@@ -154,11 +140,11 @@ function TagDetailPage() {
                 <ArrowLeft className="w-5 h-5" />
               </button>
 
-              {tag && (
+              {data && (
                 <div className="flex items-center gap-3">
                   <div className="bg-blue-100 rounded-lg">
                     <Avatar className="size-10 w-10 h-10 rounded-lg">
-                      <AvatarImage src={tag.image ?? ''}></AvatarImage>
+                      <AvatarImage src={data.image ?? ''} />
                       <AvatarFallback className="flex items-center justify-center w-full">
                         <TagIcon className="w-5 h-5 text-blue-600" />
                       </AvatarFallback>
@@ -166,15 +152,15 @@ function TagDetailPage() {
                   </div>
                   <div>
                     <h1 className="text-xl font-semibold text-neutral-900">
-                      <span>{tag.name}</span>
+                      <span>{data.name}</span>
                     </h1>
                     <div className="flex items-center gap-2 text-sm text-neutral-500">
                       <span className="flex items-center gap-1  text-sm text-neutral-500">
                         <WallpaperIcon className="w-4 h-4" />
-                        <span>{tag.artworkCount}</span>
+                        <span>{data.artworkCount}</span>
                       </span>
 
-                      <span>{getTranslateName(tag)}</span>
+                      <span>{getTranslateName(data)}</span>
                     </div>
                   </div>
                 </div>
@@ -207,17 +193,17 @@ function TagDetailPage() {
       </div>
 
       {/* 标签描述 */}
-      {tag?.description && (
+      {data?.description && (
         <div className="bg-white border-b border-neutral-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <p className="text-neutral-600">{tag.description}</p>
+            <p className="text-neutral-600">{data.description}</p>
           </div>
         </div>
       )}
 
       {/* 作品列表 */}
       <div className=" py-6">
-        {artworks.length === 0 && !loading ? (
+        {artworks.length === 0 ? (
           <div className="text-center py-12">
             <div className="text-neutral-400 mb-4">
               <Hash className="w-12 h-12 mx-auto" />
