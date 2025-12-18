@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { useSseScan } from '../_hooks/use-sse-scan'
 import { confirm } from '@/components/shared/global-confirm' // 直接引入函数
+import { SCard } from '@/components/shared/s-card'
 
 function useHealth() {
   return useQuery({
@@ -233,101 +234,86 @@ function ScanManagement() {
           <p className="text-neutral-600">管理艺术品扫描路径、监控扫描进度和查看详细日志</p>
         </div>
 
-        {/* 1. 扫描路径配置 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>扫描路径配置</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {!editing ? (
-              <div className="flex items-center gap-3">
-                <Badge variant="secondary" className="font-mono text-sm">
-                  {scanPath.query.data?.scanPath || '未配置'}
-                </Badge>
-                <Button variant="link" size="sm" onClick={startEditing} className="h-auto p-0">
-                  修改
-                </Button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Input
-                  type="text"
-                  value={editPath}
-                  onChange={(e) => setEditPath(e.target.value)}
-                  placeholder="请输入扫描目录的绝对路径"
-                  className="flex-1"
-                />
-                <Button onClick={saveEditPath} disabled={scanPath.update.isPending || !editPath.trim()}>
-                  {scanPath.update.isPending ? '保存中' : '保存'}
-                </Button>
-              </div>
-            )}
-            <div className="flex items-center gap-3 text-sm text-neutral-600 mt-4">
-              <div>
-                后端健康：
-                <Badge variant={health?.status === 'ok' ? 'default' : 'destructive'} className="ml-1">
-                  {health?.status || '加载中…'}
-                </Badge>
-              </div>
+        <SCard
+          title="扫描路径配置"
+          extra={
+            <Badge variant={health?.status === 'ok' ? 'default' : 'destructive'} className="ml-1">
+              {health?.status || '加载中…'}
+            </Badge>
+          }
+        >
+          {!editing ? (
+            <div className="flex items-center gap-3">
+              <Badge variant="secondary" className="font-mono text-sm">
+                {scanPath.query.data?.scanPath || '未配置'}
+              </Badge>
+              <Button variant="link" size="sm" onClick={startEditing} className="h-auto p-0">
+                修改
+              </Button>
             </div>
-          </CardContent>
-        </Card>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Input
+                type="text"
+                value={editPath}
+                onChange={(e) => setEditPath(e.target.value)}
+                placeholder="请输入扫描目录的绝对路径"
+                className="flex-1"
+              />
+              <Button onClick={saveEditPath} disabled={scanPath.update.isPending || !editPath.trim()}>
+                {scanPath.update.isPending ? '保存中' : '保存'}
+              </Button>
+            </div>
+          )}
+        </SCard>
 
-        {/* 2. 客户端元数据列表扫描（POST）- 已简化 */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>客户端扫描</CardTitle>
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={startClientListStream}
-                  disabled={streaming || !scanPath.query.data?.scanPath || !metadataText.trim()}
-                >
-                  {streaming ? '进行中…' : '提交扫描'}
-                </Button>
-              </div>
+        <SCard
+          title="客户端扫描"
+          extra={
+            <Button
+              onClick={startClientListStream}
+              disabled={streaming || !scanPath.query.data?.scanPath || !metadataText.trim()}
+            >
+              {streaming ? '进行中…' : '提交扫描'}
+            </Button>
+          }
+        >
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm text-neutral-700 mb-1">元数据相对路径列表</label>
+              <textarea
+                value={metadataText}
+                onChange={(e) => setMetadataText(e.target.value)}
+                placeholder={
+                  '粘贴相对路径，一行一个\n示例：\n' +
+                  '112349563/ー/137026182-meta.txt\n' +
+                  '9645567/HALLOWEEN/136994763-meta.txt'
+                }
+                className="w-full min-h-32 rounded-md border border-neutral-200 bg-white p-2 font-mono text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm text-neutral-700 mb-1">元数据相对路径列表</label>
-                <textarea
-                  value={metadataText}
-                  onChange={(e) => setMetadataText(e.target.value)}
-                  placeholder={
-                    '粘贴相对路径，一行一个\n示例：\n' +
-                    '112349563/ー/137026182-meta.txt\n' +
-                    '9645567/HALLOWEEN/136994763-meta.txt'
-                  }
-                  className="w-full min-h-32 rounded-md border border-neutral-200 bg-white p-2 font-mono text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+        </SCard>
 
         {/* 3. 服务端扫描（GET）- 已简化 */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>服务端扫描</CardTitle>
-              <div className="flex items-center gap-2">
-                <Button onClick={() => startServerStream(false)} disabled={streaming || !scanPath.query.data?.scanPath}>
-                  {streaming ? '进行中…' : '增量扫描'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={handleScan}
-                  disabled={streaming || !scanPath.query.data?.scanPath}
-                  title="强制全量更新：清空现有数据后重建"
-                >
-                  强制全量
-                </Button>
-              </div>
+        <SCard
+          title="服务端扫描"
+          action={
+            <div className="flex items-center gap-2">
+              <Button onClick={() => startServerStream(false)} disabled={streaming || !scanPath.query.data?.scanPath}>
+                {streaming ? '进行中…' : '增量扫描'}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={handleScan}
+                disabled={streaming || !scanPath.query.data?.scanPath}
+                title="强制全量更新：清空现有数据后重建"
+              >
+                强制全量
+              </Button>
             </div>
-          </CardHeader>
-        </Card>
+          }
+        />
 
         {/* 4. 统一的状态、结果和日志区域 (新) */}
         {/* 仅在有任何活动或结果时显示此卡片 */}
