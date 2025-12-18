@@ -4,7 +4,6 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson } from '@/lib/api'
 import { HealthResponse, ScanPathResponse, LogEntry } from '@/types'
-import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { useSseScan } from '../_hooks/use-sse-scan'
 import { confirm } from '@/components/shared/global-confirm' // 直接引入函数
 import { SCard } from '@/components/shared/s-card'
+import { ClientScanCard } from './scan/client-scan-card'
 
 function useHealth() {
   return useQuery({
@@ -168,7 +168,6 @@ function ScanManagement() {
   // 本地 UI 状态
   const [editPath, setEditPath] = useState('')
   const [editing, setEditing] = useState(false)
-  const [metadataText, setMetadataText] = useState('')
 
   // --- 动作处理器 (转发到 Hook) ---
 
@@ -186,18 +185,8 @@ function ScanManagement() {
     })
   }
 
-  // 启动客户端列表扫描 (POST)
-  const startClientListStream = () => {
-    const metadataList = metadataText
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-
-    if (metadataList.length === 0) {
-      toast.error('请输入至少一行相对路径')
-      return
-    }
-
+  // // 启动客户端列表扫描 (POST)
+  const handleClientScan = (metadataList: string[]) => {
     actions.startScan({ metadataList })
   }
 
@@ -267,33 +256,11 @@ function ScanManagement() {
           )}
         </SCard>
 
-        <SCard
-          title="客户端扫描"
-          extra={
-            <Button
-              onClick={startClientListStream}
-              disabled={streaming || !scanPath.query.data?.scanPath || !metadataText.trim()}
-            >
-              {streaming ? '进行中…' : '提交扫描'}
-            </Button>
-          }
-        >
-          <div className="space-y-3">
-            <div>
-              <label className="block text-sm text-neutral-700 mb-1">元数据相对路径列表</label>
-              <textarea
-                value={metadataText}
-                onChange={(e) => setMetadataText(e.target.value)}
-                placeholder={
-                  '粘贴相对路径，一行一个\n示例：\n' +
-                  '112349563/ー/137026182-meta.txt\n' +
-                  '9645567/HALLOWEEN/136994763-meta.txt'
-                }
-                className="w-full min-h-32 rounded-md border border-neutral-200 bg-white p-2 font-mono text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-        </SCard>
+        <ClientScanCard
+          hasScanPath={!!scanPath.query.data?.scanPath}
+          isScanning={streaming}
+          onScan={handleClientScan}
+        />
 
         {/* 3. 服务端扫描（GET）- 已简化 */}
         <SCard
