@@ -127,7 +127,9 @@ function AdminSidebar({ tabs, activeTab, onTabChange, isMobile, isOpen, onClose 
 
       {/* 侧边栏底部 */}
       <div className="p-4 border-t border-neutral-200">
-        <div className="text-xs text-neutral-500 text-center">管理页面 v1.0</div>
+        <div className="text-xs text-neutral-500 text-center">
+          管理页面 {process.env.NEXT_PUBLIC_APP_VERSION || 'v1.0'}
+        </div>
       </div>
     </aside>
   )
