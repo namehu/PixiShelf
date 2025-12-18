@@ -1,19 +1,12 @@
-import React, { Suspense } from 'react'
+import React from 'react'
+import { Metadata } from 'next'
 import AdminLayout from './_components/admin-layout'
 
+export const metadata: Metadata = {
+  title: 'PixiShelf 管理后台',
+  description: '管理用户、标签和扫描任务'
+}
+
 export default function AdminPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4" />
-            <p className="text-neutral-600">加载中...</p>
-          </div>
-        </div>
-      }
-    >
-      <AdminLayout />
-    </Suspense>
-  )
+  return <AdminLayout />
 }

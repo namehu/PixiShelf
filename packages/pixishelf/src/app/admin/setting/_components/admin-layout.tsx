@@ -2,23 +2,15 @@
 
 import React, { useState } from 'react'
 import { useResponsive } from '@/hooks/use-responsive'
-import { AdminTab, AdminTabId, useAdminTab } from '../_hooks/use-admin-tab'
+import { AdminTabId, useAdminTab } from '../_hooks/use-admin-tab'
 import AdminSidebar from './admin-sidebar'
-import ScanManagement from './scan-management'
-import UserManagement from './user-management'
-import TagManagement from './tag-management'
+import dynamic from 'next/dynamic'
 import { MenuIcon } from 'lucide-react'
 import PNav from '@/components/layout/PNav'
 
-// 布局组件Props接口
-export interface AdminLayoutProps {
-  /** 当前激活的Tab */
-  activeTab: AdminTabId
-  /** Tab切换回调 */
-  onTabChange: (tabId: AdminTabId) => void
-  /** Tab配置列表 */
-  tabs: AdminTab[]
-}
+const UserManagement = dynamic(() => import('./user-management'))
+const ScanManagement = dynamic(() => import('./scan-management'))
+const TagManagement = dynamic(() => import('./tag-management'))
 
 /**
  * 管理页面布局组件
@@ -33,7 +25,7 @@ export interface AdminLayoutProps {
  * - 桌面端（≥768px）：左侧固定侧边栏 + 右侧内容区域
  * - 移动端（<768px）：抽屉式侧边栏，默认隐藏
  */
-function AdminLayout() {
+export default function AdminLayout() {
   const { activeTab, setActiveTab: onTabChange, tabs } = useAdminTab()
 
   const { isMobile } = useResponsive()
@@ -45,18 +37,6 @@ function AdminLayout() {
     // 移动端切换Tab后关闭侧边栏
     if (isMobile) {
       setSidebarOpen(false)
-    }
-  }
-
-  // 渲染当前Tab的内容
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case 'users':
-        return <UserManagement />
-      case 'tags':
-        return <TagManagement />
-      default:
-        return <ScanManagement />
     }
   }
 
@@ -84,12 +64,18 @@ function AdminLayout() {
         {/* 主内容区域 */}
         <div className="flex-1 flex flex-col min-w-0">
           <main className="flex-1 overflow-auto">
-            <div className="h-full">{renderTabContent()}</div>
+            <div className="h-full">
+              {
+                {
+                  users: <UserManagement />,
+                  tags: <TagManagement />,
+                  scan: <ScanManagement />
+                }[activeTab]
+              }
+            </div>
           </main>
         </div>
       </div>
     </div>
   )
 }
-
-export default AdminLayout
