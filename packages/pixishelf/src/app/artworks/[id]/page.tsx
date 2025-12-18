@@ -54,72 +54,76 @@ export default function ArtworkDetailPage() {
   if (!data) return null
 
   return (
-    <div className="bg-white max-w-2xl mx-auto">
-      {/* 导航栏 */}
-      <div className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <button
-              onClick={() => router.back()}
-              className="w-16 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              <ChevronLeftIcon size={24} />
-              <span className="hidden sm:inline">返回</span>
-            </button>
+    <div className="min-h-screen bg-gray-50">
+      <main className="max-w-7xl mx-auto pt-16 lg:px-8">
+        <div className="bg-white max-w-2xl mx-auto">
+          {/* 导航栏 */}
+          <div className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-50">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex items-center justify-between h-16">
+                <button
+                  onClick={() => router.back()}
+                  className="w-16 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  <ChevronLeftIcon size={24} />
+                  <span className="hidden sm:inline">返回</span>
+                </button>
 
-            <MediaCounter hasVideo={isVideo} ext={ext} />
+                <MediaCounter hasVideo={isVideo} ext={ext} />
 
-            <button
-              onClick={() => {
-                const previewImages = data.apng ? [data.apng] : data.images
-                if (previewImages) {
-                  setImages(previewImages)
-                  router.push('/artworks/preview')
-                }
-              }}
-              className="w-16 flex items-center justify-center text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              <FullscreenIcon size={24} className="text-gray-600" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* 主内容 */}
-      <div className="max-w-full overflow-hidden">
-        {/* Header */}
-        <div className="mt-6 px-6">
-          {/* Title and Artist */}
-          <div className="space-y-3">
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 leading-tight break-words">
-              {data.title}
-            </h1>
-            {data.artist && (
-              <div
-                className="flex items-center gap-2 min-w-0 cursor-pointer"
-                onClick={() => router.push(`/artists/${data.artist!.id}`)}
-              >
-                <ArtistAvatar src={data.artist.avatar} name={data.artist.name} />
-                <div className="text-base sm:text-lg text-blue-600 hover:text-blue-800 font-medium truncate transition-colors duration-200  underline-offset-2 hover:underline">
-                  {data.artist.name}
-                </div>
+                <button
+                  onClick={() => {
+                    const previewImages = data.apng ? [data.apng] : data.images
+                    if (previewImages) {
+                      setImages(previewImages)
+                      router.push('/artworks/preview')
+                    }
+                  }}
+                  className="w-16 flex items-center justify-center text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  <FullscreenIcon size={24} className="text-gray-600" />
+                </button>
               </div>
-            )}
+            </div>
           </div>
-          {/* Tags */}
-          <TagArea tags={data.tags} className="mt-6" />
-        </div>
 
-        {/* Description */}
-        <ArtworkDes description={data.description} className="mt-6 px-6" />
+          {/* 主内容 */}
+          <div className="max-w-full overflow-hidden">
+            {/* Header */}
+            <div className="mt-6 px-6">
+              {/* Title and Artist */}
+              <div className="space-y-3">
+                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 leading-tight break-words">
+                  {data.title}
+                </h1>
+                {data.artist && (
+                  <div
+                    className="flex items-center gap-2 min-w-0 cursor-pointer"
+                    onClick={() => router.push(`/artists/${data.artist!.id}`)}
+                  >
+                    <ArtistAvatar src={data.artist.avatar} name={data.artist.name} />
+                    <div className="text-base sm:text-lg text-blue-600 hover:text-blue-800 font-medium truncate transition-colors duration-200  underline-offset-2 hover:underline">
+                      {data.artist.name}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {/* Tags */}
+              <TagArea tags={data.tags} className="mt-6" />
+            </div>
 
-        {/* Images */}
-        <div className="mt-6 w-full">
-          {data.images.map((img, index) => (
-            <LazyMedia key={img.id} src={img.path} index={index} />
-          ))}
+            {/* Description */}
+            <ArtworkDes description={data.description} className="mt-6 px-6" />
+
+            {/* Images */}
+            <div className="mt-6 mb-15 w-full">
+              {data.images.map((img, index) => (
+                <LazyMedia key={img.id} src={img.path} index={index} />
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   )
 }
