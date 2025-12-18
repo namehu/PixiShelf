@@ -1,0 +1,40 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "PixiShelf: debug server-side",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/packages/pixishelf/node_modules/next/dist/bin/next",
+      "args": ["dev", "-p 5430"],
+      "cwd": "${workspaceFolder}/packages/pixishelf",
+      "localRoot": "${workspaceFolder}/packages/pixishelf",
+      "skipFiles": ["<node_internals>/**"],
+      "env": {
+        "NODE_OPTIONS": "--inspect"
+      },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "PixiShelf: debug full stack",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/packages/pixishelf/node_modules/next/dist/bin/next",
+      "args": ["dev", "--turbopack"],
+      "cwd": "${workspaceFolder}/packages/pixishelf",
+      "localRoot": "${workspaceFolder}/packages/pixishelf",
+      "skipFiles": ["<node_internals>/**"],
+      "env": {
+        "NODE_OPTIONS": "--inspect"
+      },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "serverReadyAction": {
+        "pattern": "- Local:.*https?://localhost:([0-9]+)",
+        "uriFormat": "http://localhost:%s",
+        "action": "debugWithChrome"
+      }
+    }
+  ]
+}

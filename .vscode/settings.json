@@ -1,0 +1,9 @@
+{
+  "typescript.preferences.includePackageJsonAutoImports": "on",
+  "typescript.suggest.autoImports": true,
+  "search.exclude": {
+    "**/dist": true,
+    "**/.next": true,
+    "**/build": true
+  }
+}
