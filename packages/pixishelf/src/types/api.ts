@@ -239,3 +239,12 @@ export interface BatchOperationResponse {
   failed: number
   errors?: string[]
 }
+
+// 定义后端返回的标准结构
+export interface ApiResponse<T = any> {
+  success: boolean
+  data?: T // 成功时的负载
+  errorCode?: number // 失败时的错误码
+  error?: string // 失败时的错误消息
+  details?: any // 校验详情
+}
