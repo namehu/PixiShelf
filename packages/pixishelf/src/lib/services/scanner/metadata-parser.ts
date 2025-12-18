@@ -71,10 +71,6 @@ const KNOWN_FIELDS = Object.keys(METADATA_FIELD_MAPPING)
 export class MetadataParser {
   private readonly requiredFields = REQUIRED_FIELDS
 
-  constructor() {
-    // Next.js环境下不需要logger参数
-  }
-
   /**
    * 解析元数据文件
    * @param filePath 元数据文件路径
