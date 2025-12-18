@@ -41,7 +41,7 @@ export interface ScanProgress {
  */
 export interface LogEntry {
   timestamp: string
-  type: 'progress' | 'complete' | 'error' | 'cancelled' | 'connection'
+  type: 'progress' | 'complete' | 'error' | 'cancelled' | 'connection' | 'info'
   data: any
   message: string
 }
