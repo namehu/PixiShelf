@@ -149,7 +149,7 @@ function GalleryPageContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="flex flex-col items-center space-y-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
           <p className="text-sm text-muted-foreground">加载中...</p>
         </div>
       </div>
@@ -531,7 +531,7 @@ function GalleryPageContent() {
                             <PaginationPrevious
                               href={page > 1 ? pageHref(page - 1) : '#'}
                               className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
-                            ></PaginationPrevious>
+                            />
                           </PaginationItem>
 
                           {/* Page Numbers */}
@@ -552,7 +552,7 @@ function GalleryPageContent() {
                             <PaginationNext
                               href={page < totalPages ? pageHref(page + 1) : '#'}
                               className={page >= totalPages ? 'pointer-events-none opacity-50' : ''}
-                            ></PaginationNext>
+                            />
                           </PaginationItem>
                         </PaginationContent>
                       </Pagination>
@@ -591,19 +591,6 @@ function GalleryPageContent() {
   )
 }
 
-/**
- * 画廊页面组件（带Suspense边界）
- */
 export default function GalleryPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        </div>
-      }
-    >
-      <GalleryPageContent />
-    </Suspense>
-  )
+  return <GalleryPageContent />
 }
