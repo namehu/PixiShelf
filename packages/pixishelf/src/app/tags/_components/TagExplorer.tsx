@@ -7,32 +7,20 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { TagUniverseView } from './TagUniverseView'
 import { TagItem } from './TagItem'
 import { cn } from '@/lib/utils'
-import { Tabs, TabsList, TabsTrigger } from '.' // 假设这是你的 UI 组件路径
-import { PaginatedResponse } from '@/types'
+import { Tabs, TabsList, TabsTrigger } from '.'
+import { PaginatedResponse, Tag } from '@/types'
 import { useRouter } from 'next/navigation'
 
 export type ViewMode = 'universe' | 'grid'
 
-// 标签数据类型 (根据你的实际 Prisma 模型调整)
-export interface Tag {
-  id: number
-  name: string
-  name_zh?: string
-  name_en?: string
-  description?: string
-  artworkCount: number
-  // ... 其他字段
-}
-
 // --- API 请求逻辑 ---
-
 const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => {
   const pageSize = 24
   let url = ''
 
   // 1. 构建 URL 和参数
   if (query) {
-    // 搜索模式
+    // A. 搜索模式
     const params = new URLSearchParams({
       q: query,
       page: pageParam.toString(),
@@ -42,21 +30,21 @@ const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => 
     })
     url = `/api/tags/search?${params.toString()}`
   } else if (mode === 'popular') {
-    // 热门模式
+    // B. 热门模式
     const params = new URLSearchParams({
       page: pageParam.toString(),
       limit: pageSize.toString(),
-      sort: 'artworkCount', // 热门按作品数排序
+      sort: 'artworkCount',
       order: 'desc'
     })
     url = `/api/tags/search?${params.toString()}`
   } else {
-    // 随机模式 (随机接口的响应结构可能不同，这里假设它也遵循或做适配)
-    // 随机模式通常不需要分页概念，或者每次都是第一页
+    // C. 随机模式
     const params = new URLSearchParams({
-      count: pageSize.toString(),
+      limit: pageSize.toString(),
       minCount: '0',
-      excludeEmpty: 'false'
+      excludeEmpty: 'false',
+      page: pageParam.toString()
     })
     url = `/api/tags/random?${params.toString()}`
   }
@@ -65,27 +53,26 @@ const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => 
   const result: PaginatedResponse<Tag> = await response.json()
 
   if (!result.success) {
-    throw new Error('获取标签失败') // result.error 在类型定义里可能没有，视 apiHandler 实际返回而定
+    throw new Error('获取标签失败')
   }
 
   // 2. 适配返回数据给 React Query
+  const tags = result.data.data || []
+  const pagination = result.data.pagination
 
-  // 特殊处理：随机模式
+  // 特殊处理随机模式的分页逻辑
   if (mode === 'random' && !query) {
-    // 假设随机接口返回的数据结构稍有不同，这里做宽容处理
-    // 如果 random 接口直接返回 { data: Tag[] }
-    const randomTags = (result.data as any).tags || result.data.data || []
     return {
-      tags: randomTags,
-      // 随机模式始终允许下一页 (模拟无限滚动)，或者你可以设为 null 禁止滚动
-      nextPage: pageParam + 1
+      tags: tags,
+      // 随机模式下，只要有数据返回，就允许加载下一页 (无限滚动体验)
+      nextPage: tags.length > 0 ? pageParam + 1 : undefined
     }
   }
 
-  // 标准搜索/热门模式
+  // 标准分页逻辑 (搜索/热门)
   return {
-    tags: result.data.data,
-    nextPage: result.data.pagination.hasNextPage ? result.data.pagination.page + 1 : undefined
+    tags: tags,
+    nextPage: pagination.hasNextPage ? pagination.page + 1 : undefined
   }
 }
 
@@ -101,17 +88,19 @@ const TagExplorer: React.FC = () => {
   // Intersection Observer 用于无限滚动
   const { ref: loadMoreRef, inView } = useInView({
     threshold: 0.1,
-    rootMargin: '100px' // 提前加载
+    rootMargin: '200px' // 提前加载优化体验
   })
 
   // React Query 无限查询
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isRefetching, refetch } = useInfiniteQuery({
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isRefetching } = useInfiniteQuery({
     queryKey: ['tags', currentTab, searchQuery],
     queryFn: ({ pageParam }) => fetchTagsApi({ pageParam, mode: currentTab, query: searchQuery }),
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.nextPage,
-    // 保持数据新鲜度，避免频繁刷新
-    staleTime: 1000 * 60 * 5
+    // 保持数据新鲜度，避免频繁刷新 (5分钟)
+    staleTime: 1000 * 60 * 5,
+    // 切换 Tab 时不保留旧数据，避免闪烁混杂
+    gcTime: 1000 * 60 * 10
   })
 
   // 扁平化所有页面的标签数据
@@ -121,19 +110,21 @@ const TagExplorer: React.FC = () => {
 
   // 触发无限加载
   useEffect(() => {
+    // 仅在网格视图下启用无限滚动
     if (inView && hasNextPage && !isFetchingNextPage && viewMode === 'grid') {
       fetchNextPage()
     }
   }, [inView, hasNextPage, isFetchingNextPage, viewMode, fetchNextPage])
 
   const handleRefresh = () => {
-    // 使当前查询失效并重新获取
+    // 强制刷新当前视图的数据
     queryClient.invalidateQueries({ queryKey: ['tags'] })
-    // refetch 会触发重新获取第一页
   }
 
-  // 搜索防抖 (可选，简单起见这里直接用)
-  // 如果输入频繁，建议使用 useDebounce
+  // 监听 Tab 切换，自动重置搜索框（可选）
+  useEffect(() => {
+    setSearchQuery('')
+  }, [currentTab])
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 selection:bg-blue-100 flex flex-col">
@@ -221,7 +212,8 @@ const TagExplorer: React.FC = () => {
               >
                 {allTags.map((tag, idx) => (
                   <motion.div
-                    key={`${tag.id}-${idx}`} // 使用组合 key 防止潜在的 id 重复渲染问题
+                    // 使用组合 key 增加唯一性，防止不同页可能出现的重复 id (虽然 random 接口已尽量避免)
+                    key={`${tag.id}-${idx}`}
                     className="flex justify-center"
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -256,7 +248,7 @@ const TagExplorer: React.FC = () => {
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-[2px]">
               <div className="bg-white px-6 py-4 rounded-2xl shadow-xl border border-slate-100 flex items-center gap-3">
                 <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-                <span className="text-sm font-bold text-slate-600">灵感加载中...</span>
+                <span className="text-sm font-bold text-slate-600">加载中...</span>
               </div>
             </div>
           )}

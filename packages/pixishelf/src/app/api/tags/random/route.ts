@@ -1,185 +1,184 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { apiHandler } from '@/lib/api-handler'
 
-// 查询参数验证schema
-const queryParamsSchema = z.object({
-  count: z
+// ============================================================================
+// 验证 Schema
+// ============================================================================
+
+const randomParamsSchema = z.object({
+  // 标准化：使用 limit 代替原来的 count，默认 24
+  limit: z
     .string()
     .optional()
-    .transform((val) => (val ? parseInt(val) : 10)),
+    .transform((val) => (val ? parseInt(val, 10) : 24))
+    .pipe(z.number().min(1).max(100)),
+
+  // 业务参数：最小作品数
   minCount: z
     .string()
     .optional()
-    .transform((val) => (val ? parseInt(val) : 0)),
+    .transform((val) => (val ? parseInt(val, 10) : 0))
+    .pipe(z.number().min(0)),
+
+  // 业务参数：排除空标签
   excludeEmpty: z
     .string()
     .optional()
-    .transform((val) => val === 'true')
+    .transform((val) => val === 'true'),
+
+  // 兼容参数：页码 (虽然随机逻辑不依赖页码，但为了适配通用分页接口签名，允许接收)
+  page: z
+    .string()
+    .optional()
+    .transform((val) => (val ? parseInt(val, 10) : 1))
 })
 
-/**
- * GET /api/tags/random
- * 随机标签API
- *
- * 查询参数:
- * - count: 返回数量，默认10，最大50
- * - minCount: 最小作品数量，默认0
- * - excludeEmpty: 是否排除空标签(无作品)，默认false
- */
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url)
+type RandomTagParams = z.infer<typeof randomParamsSchema>
 
-    // 验证查询参数
-    const validationResult = queryParamsSchema.safeParse({
-      count: searchParams.get('count'),
-      minCount: searchParams.get('minCount'),
-      excludeEmpty: searchParams.get('excludeEmpty')
-    })
+// ============================================================================
+// 业务处理 Handler
+// ============================================================================
 
-    if (!validationResult.success) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Invalid parameters',
-          details: validationResult.error.issues
-        },
-        { status: 400 }
-      )
+const randomTagsHandler = async (req: NextRequest, data: RandomTagParams) => {
+  const { limit, minCount, excludeEmpty, page } = data
+
+  // 1. 构建查询条件
+  const whereCondition: any = {}
+
+  if (excludeEmpty || minCount > 0) {
+    whereCondition.artworkCount = {
+      gte: Math.max(minCount, excludeEmpty ? 1 : 0)
     }
+  }
 
-    const { count, minCount, excludeEmpty } = validationResult.data
+  // 2. 获取符合条件的标签总数
+  // 这是一个轻量级查询，用于确定随机池的大小
+  const totalCount = await prisma.tag.count({
+    where: whereCondition
+  })
 
-    // 限制返回数量
-    const actualCount = Math.min(count, 50)
-
-    // 构建查询条件
-    const whereCondition: any = {}
-
-    if (excludeEmpty || minCount > 0) {
-      whereCondition.artworkCount = {
-        gte: Math.max(minCount, excludeEmpty ? 1 : 0)
+  // 如果没有数据，直接返回空结构
+  if (totalCount === 0) {
+    return {
+      data: [],
+      pagination: {
+        page,
+        limit,
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false
       }
     }
+  }
 
-    // 获取符合条件的标签总数
-    const totalCount = await prisma.tag.count({
-      where: whereCondition
-    })
+  // 3. 生成不重复的随机偏移量
+  // 算法：在 [0, totalCount) 区间内随机取 N 个不重复的整数
+  const actualLimit = Math.min(limit, totalCount)
+  const randomOffsets = new Set<number>()
 
-    if (totalCount === 0) {
-      return NextResponse.json({
-        success: true,
-        data: {
-          tags: [],
-          stats: {
-            totalAvailable: 0,
-            requested: actualCount,
-            returned: 0
-          },
-          query: {
-            count: actualCount,
-            minCount,
-            excludeEmpty: excludeEmpty || false
-          }
-        }
-      })
-    }
+  // 优化：防止死循环（虽然有 min 限制，但为了代码健壮性）
+  // 如果请求数量接近总数（例如请求 90 个，总数 100 个），直接取全部再打乱可能更快
+  // 但为了逻辑一致性，这里保持偏移量采样，适用于 totalCount >> limit 的常见场景
+  while (randomOffsets.size < actualLimit) {
+    const randomOffset = Math.floor(Math.random() * totalCount)
+    randomOffsets.add(randomOffset)
+  }
 
-    // 生成随机偏移量
-    const randomOffsets = new Set<number>()
-    const maxOffset = Math.max(0, totalCount - 1)
-
-    // 生成不重复的随机偏移量
-    while (randomOffsets.size < Math.min(actualCount, totalCount)) {
-      const randomOffset = Math.floor(Math.random() * totalCount)
-      randomOffsets.add(randomOffset)
-    }
-
-    // 批量查询随机标签
-    const randomTagsPromises = Array.from(randomOffsets).map((offset) =>
-      prisma.tag.findMany({
-        where: whereCondition,
-        skip: offset,
-        take: 1,
-        select: {
-          id: true,
-          name: true,
-          name_zh: true,
-          name_en: true,
-          description: true,
-          artworkCount: true,
-          createdAt: true,
-          updatedAt: true
-        }
-      })
-    )
-
-    const randomTagsResults = await Promise.all(randomTagsPromises)
-    const randomTags = randomTagsResults.filter((result) => result.length > 0).map((result) => result[0])
-
-    // 如果获取的标签数量不足，补充查询
-    if (randomTags.length < actualCount && randomTags.length < totalCount) {
-      const existingIds = randomTags.map((tag) => tag?.id)
-      const additionalTags = await prisma.tag.findMany({
-        where: {
-          ...whereCondition,
-          id: {
-            notIn: existingIds
-          }
-        },
-        take: actualCount - randomTags.length,
-        orderBy: {
-          createdAt: 'desc' // 按创建时间倒序作为备选
-        },
-        select: {
-          id: true,
-          name: true,
-          name_zh: true,
-          name_en: true,
-          description: true,
-          artworkCount: true,
-          createdAt: true,
-          updatedAt: true
-        }
-      })
-
-      randomTags.push(...additionalTags)
-    }
-
-    // 打乱结果顺序
-    for (let i = randomTags.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[randomTags[i], randomTags[j]] = [randomTags[j], randomTags[i]]
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        tags: randomTags,
-        stats: {
-          totalAvailable: totalCount,
-          requested: actualCount,
-          returned: randomTags.length
-        },
-        query: {
-          count: actualCount,
-          minCount,
-          excludeEmpty: excludeEmpty || false
-        }
+  // 4. 并行执行查询 (Scatter-Gather 模式)
+  // 使用 Promise.all 并发发起多个 findMany(skip: offset, take: 1)
+  // 注意：Prisma 会自动管理连接池，这通常比 raw sql ORDER BY RANDOM() 在大数据量下更安全
+  const randomTagsPromises = Array.from(randomOffsets).map((offset) =>
+    prisma.tag.findMany({
+      where: whereCondition,
+      skip: offset,
+      take: 1,
+      select: {
+        id: true,
+        name: true,
+        name_zh: true,
+        name_en: true,
+        description: true,
+        artworkCount: true,
+        createdAt: true,
+        updatedAt: true
       }
     })
-  } catch (error) {
-    console.error('随机标签API错误:', error)
+  )
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Internal server error',
-        message: '获取随机标签时发生错误'
+  const randomTagsResults = await Promise.all(randomTagsPromises)
+
+  // 展平结果 (因为 findMany 返回数组)
+  let randomTags = randomTagsResults.filter((result) => result.length > 0).map((result) => result[0])
+
+  // 5. 兜底补全 (Fail-safe)
+  // 极少数并发情况下（如刚计算完 count 就有数据被删），可能导致某个 offset 查不到数据
+  // 如果获取的数量不足，进行一次补充查询
+  if (randomTags.length < actualLimit) {
+    const existingIds = randomTags.map((tag) => tag!.id)
+    const needed = actualLimit - randomTags.length
+
+    const additionalTags = await prisma.tag.findMany({
+      where: {
+        ...whereCondition,
+        id: { notIn: existingIds }
       },
-      { status: 500 }
-    )
+      take: needed,
+      // 补充时按创建时间倒序（或者任意确定性顺序）
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        name_zh: true,
+        name_en: true,
+        description: true,
+        artworkCount: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    })
+
+    randomTags = [...randomTags, ...additionalTags]
+  }
+
+  // 6. 再次打乱 (Shuffle)
+  // 因为偏移量是按 Set 迭代顺序或者 Promise 完成顺序回来的，虽然已经是随机的，
+  // 但为了彻底消除任何潜在的顺序模式（如 Prisma 可能按 ID 聚类），再次洗牌
+  for (let i = randomTags.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[randomTags[i], randomTags[j]] = [randomTags[j], randomTags[i]]
+  }
+
+  // --------------------------------------------------------------------------
+  // 响应构建 (Standardized Response)
+  // --------------------------------------------------------------------------
+  // 随机模式下，分页元数据比较特殊：
+  // - page: 只是为了兼容，每次都是新的一页
+  // - hasNextPage: 只要数据库里有数据，就认为永远可以“再来一组”
+  return {
+    data: randomTags,
+    pagination: {
+      page: page, // 回显当前页码
+      limit: limit,
+      total: totalCount,
+      totalPages: Math.ceil(totalCount / limit),
+      hasNextPage: totalCount > 0,
+      hasPrevPage: page > 1
+    },
+    // 额外的元数据，方便前端显示当前随机池的状态
+    meta: {
+      mode: 'random',
+      poolSize: totalCount,
+      minCount,
+      excludeEmpty
+    }
   }
 }
+
+// ============================================================================
+// 导出 API Route
+// ============================================================================
+
+export const GET = apiHandler(randomParamsSchema, randomTagsHandler)
