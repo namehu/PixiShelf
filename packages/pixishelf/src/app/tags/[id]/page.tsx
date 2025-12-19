@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Hash, Grid, List, TagIcon, WallpaperIcon } from 'lucide-react'
+import { ArrowLeft, Hash, Grid, List, TagIcon, WallpaperIcon, Loader2 } from 'lucide-react'
 import { Artwork } from '@/types/core'
 import { ArtworkCard } from '@/components/ui/ArtworkCard'
 import { cn } from '@/lib/utils'
@@ -12,6 +12,7 @@ import { AvatarFallback } from '@radix-ui/react-avatar'
 import { useQuery } from '@tanstack/react-query'
 import { client } from '@/lib/api'
 import { TTagResponseDto } from '@/schemas/tag.dto'
+import { motion, AnimatePresence } from 'framer-motion'
 
 /**
  * 标签详情页面
@@ -103,10 +104,10 @@ function TagDetailPage() {
 
   if (isLoading && !data) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-[#f8fafc]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4" />
-          <p className="text-neutral-600">加载中...</p>
+          <Loader2 className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-4" />
+          <p className="text-slate-600">加载中...</p>
         </div>
       </div>
     )
@@ -114,14 +115,17 @@ function TagDetailPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-[#f8fafc]">
         <div className="text-center">
           <div className="text-red-500 mb-4">
             <Hash className="w-12 h-12 mx-auto" />
           </div>
-          <h2 className="text-xl font-semibold text-neutral-900 mb-2">加载失败</h2>
-          <p className="text-neutral-600 mb-4">{error}</p>
-          <button onClick={handleBack} className="btn-primary">
+          <h2 className="text-xl font-semibold text-slate-900 mb-2">加载失败</h2>
+          <p className="text-slate-600 mb-4">{error}</p>
+          <button
+            onClick={handleBack}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
             返回
           </button>
         </div>
@@ -130,122 +134,181 @@ function TagDetailPage() {
   }
 
   return (
-    <div>
+    <div className="min-h-screen bg-[#f8fafc] text-slate-900 selection:bg-blue-100 flex flex-col">
       {/* 顶部导航 */}
-      <div className="bg-white border-b border-neutral-200 sticky top-0 z-10">
-        <div className="px-2">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
-              <button onClick={handleBack} className="btn-ghost p-2 rounded-lg hover:bg-neutral-100">
-                <ArrowLeft className="w-5 h-5" />
-              </button>
+      <header className="sticky top-0 z-50 backdrop-blur-xl border-b border-slate-200/50 bg-white/80 px-4 h-16">
+        <div className="max-w-screen-xl h-full mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleBack}
+              className="p-2 -ml-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
 
-              {data && (
-                <div className="flex items-center gap-3">
-                  <div className="bg-blue-100 rounded-lg">
-                    <Avatar className="size-10 w-10 h-10 rounded-lg">
-                      <AvatarImage src={data.image ?? ''} />
-                      <AvatarFallback className="flex items-center justify-center w-full">
-                        <TagIcon className="w-5 h-5 text-blue-600" />
-                      </AvatarFallback>
-                    </Avatar>
-                  </div>
-                  <div>
-                    <h1 className="text-xl font-semibold text-neutral-900">
-                      <span>{data.name}</span>
-                    </h1>
-                    <div className="flex items-center gap-2 text-sm text-neutral-500">
-                      <span className="flex items-center gap-1  text-sm text-neutral-500">
-                        <WallpaperIcon className="w-4 h-4" />
-                        <span>{data.artworkCount}</span>
-                      </span>
+            {data && (
+              <motion.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex items-center gap-2"
+              >
+                <span className="font-bold text-lg tracking-tight text-slate-800 line-clamp-1">{data.name}</span>
+              </motion.div>
+            )}
+          </div>
 
-                      <span>{getTranslateName(data)}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 视图切换 */}
-            <div className="flex items-center gap-2">
+          {/* 视图切换 */}
+          <div className="flex items-center gap-1">
+            <div className="bg-slate-100/50 p-1 rounded-lg flex items-center gap-1">
               <button
                 onClick={() => setViewMode('grid')}
                 className={cn(
-                  'p-2 rounded-lg transition-colors',
-                  viewMode === 'grid' ? 'bg-blue-100 text-blue-600' : 'text-neutral-500 hover:bg-neutral-100'
+                  'p-1.5 rounded-md transition-all',
+                  viewMode === 'grid'
+                    ? 'bg-white shadow-sm text-blue-600'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
                 )}
+                title="网格视图"
               >
-                <Grid className="w-5 h-5" />
+                <Grid className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setViewMode('list')}
                 className={cn(
-                  'p-2 rounded-lg transition-colors',
-                  viewMode === 'list' ? 'bg-blue-100 text-blue-600' : 'text-neutral-500 hover:bg-neutral-100'
+                  'p-1.5 rounded-md transition-all',
+                  viewMode === 'list'
+                    ? 'bg-white shadow-sm text-blue-600'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
                 )}
+                title="列表视图"
               >
-                <List className="w-5 h-5" />
+                <List className="w-4 h-4" />
               </button>
             </div>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* 标签描述 */}
-      {data?.description && (
-        <div className="bg-white border-b border-neutral-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <p className="text-neutral-600">{data.description}</p>
-          </div>
-        </div>
-      )}
-
-      {/* 作品列表 */}
-      <div className=" py-6">
-        {artworks.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="text-neutral-400 mb-4">
-              <Hash className="w-12 h-12 mx-auto" />
+      <main className="flex-1 w-full max-w-screen-xl mx-auto px-4 py-8">
+        {/* 标签信息 Hero 区域 */}
+        {data && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-10 flex flex-col md:flex-row items-start md:items-center gap-6"
+          >
+            <div className="relative group shrink-0">
+              <div className="w-24 h-24 rounded-2xl overflow-hidden shadow-xl shadow-blue-900/5 ring-4 ring-white bg-white">
+                <Avatar className="w-full h-full">
+                  <AvatarImage src={data.image ?? ''} className="object-cover" />
+                  <AvatarFallback className="flex items-center justify-center w-full h-full bg-blue-50 text-blue-500">
+                    <TagIcon className="w-10 h-10" />
+                  </AvatarFallback>
+                </Avatar>
+              </div>
             </div>
-            <h3 className="text-lg font-medium text-neutral-900 mb-2">暂无作品</h3>
-            <p className="text-neutral-500">该标签下还没有任何作品</p>
-          </div>
-        ) : (
-          <>
-            {/* 网格视图 */}
-            {viewMode === 'grid' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {artworks.map((artwork) => (
-                  <ArtworkCard key={artwork.id} artwork={artwork} showArtist={true} />
-                ))}
+            <div className="flex-1 space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-black text-slate-900 tracking-tight">{data.name}</h1>
+                <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-xs font-bold border border-blue-100">
+                  {getTranslateName(data)}
+                </span>
               </div>
-            )}
 
-            {/* 列表视图 */}
-            {viewMode === 'list' && (
-              <div className="space-y-4">
-                {artworks.map((artwork) => (
-                  <ArtworkCard key={artwork.id} artwork={artwork} showArtist={true} layout="horizontal" />
-                ))}
-              </div>
-            )}
+              {data.description && <p className="text-slate-500 max-w-2xl leading-relaxed">{data.description}</p>}
 
-            {/* 加载更多按钮 */}
-            {hasMore && (
-              <div className="flex justify-center mt-8">
-                <button
-                  onClick={loadMore}
-                  disabled={loadingMore}
-                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loadingMore ? '加载中...' : '加载更多'}
-                </button>
+              <div className="flex items-center gap-4 pt-1">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-200/60 px-3 py-1 rounded-full shadow-sm">
+                  <WallpaperIcon className="w-4 h-4 text-slate-400" />
+                  <span>{data.artworkCount} 作品</span>
+                </div>
               </div>
-            )}
-          </>
+            </div>
+          </motion.div>
         )}
-      </div>
+
+        {/* 作品列表 */}
+        <div className="min-h-[200px]">
+          {artworks.length === 0 ? (
+            <div className="text-center py-20 bg-white rounded-3xl border border-slate-100 shadow-sm">
+              <div className="text-slate-300 mb-4 flex justify-center">
+                <Hash className="w-16 h-16" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 mb-2">暂无作品</h3>
+              <p className="text-slate-500">该标签下还没有任何作品</p>
+            </div>
+          ) : (
+            <AnimatePresence mode="wait">
+              {/* 网格视图 */}
+              {viewMode === 'grid' && (
+                <motion.div
+                  key="grid"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
+                >
+                  {artworks.map((artwork, idx) => (
+                    <motion.div
+                      key={artwork.id}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: Math.min(idx * 0.05, 0.5) }}
+                    >
+                      <ArtworkCard artwork={artwork} showArtist={true} />
+                    </motion.div>
+                  ))}
+                </motion.div>
+              )}
+
+              {/* 列表视图 */}
+              {viewMode === 'list' && (
+                <motion.div
+                  key="list"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-4 max-w-4xl mx-auto"
+                >
+                  {artworks.map((artwork, idx) => (
+                    <motion.div
+                      key={artwork.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: Math.min(idx * 0.05, 0.5) }}
+                    >
+                      <ArtworkCard artwork={artwork} showArtist={true} layout="horizontal" />
+                    </motion.div>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          )}
+
+          {/* 加载更多按钮 */}
+          {hasMore && artworks.length > 0 && (
+            <div className="flex justify-center mt-12 mb-8">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="group flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-full hover:border-blue-400 hover:text-blue-600 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingMore ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>加载中...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>加载更多</span>
+                    <ArrowLeft className="w-4 h-4 rotate-[-90deg] group-hover:translate-y-0.5 transition-transform" />
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   )
 }
