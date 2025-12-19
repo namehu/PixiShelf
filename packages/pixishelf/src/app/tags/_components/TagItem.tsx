@@ -1,6 +1,6 @@
-import React from 'react'
+import React, { FC, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { getRandomColor } from '@/utils/tags'
+import { getRandomColor, getTranslateName } from '@/utils/tags'
 import { Tag } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -10,14 +10,15 @@ interface TagItemProps {
   size?: 'sm' | 'md' | 'lg'
 }
 
-export const TagItem: React.FC<TagItemProps> = ({ tag, onClick, size = 'md' }) => {
-  // 使用 tag.id 作为种子，确保颜色在滚动和克隆时保持静止
-  const gradient = React.useMemo(() => getRandomColor(tag.name), [tag.name])
+export const TagItem: FC<TagItemProps> = ({ tag, onClick, size = 'md' }) => {
+  const gradient = useMemo(() => getRandomColor(tag.name), [tag.name])
+
+  const _name = getTranslateName(tag)
 
   const sizeClasses = {
-    sm: 'px-3 py-1 text-xs',
-    md: 'px-4 py-2 text-[13px] font-medium',
-    lg: 'px-6 py-3 text-base font-bold'
+    sm: 'h-7 px-3 text-xs',
+    md: 'h-11 px-4 text-[13px] font-medium',
+    lg: 'h-14 px-6 text-base font-bold'
   }
 
   return (
@@ -50,8 +51,13 @@ export const TagItem: React.FC<TagItemProps> = ({ tag, onClick, size = 'md' }) =
         transform: 'translateZ(0)'
       }}
     >
-      <span className="relative z-10 tracking-tight pointer-events-none">{tag.name}</span>
-      <span className="relative z-10 text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono font-medium min-w-[20px] pointer-events-none">
+      <div className="flex flex-col items-start leading-tight relative z-10 pointer-events-none">
+        <span className="tracking-tight line-clamp-1 break-all text-left">{tag.name}</span>
+        {size !== 'sm' && _name && (
+          <span className="text-[10px] opacity-85 font-normal line-clamp-1 break-all text-left">{_name}</span>
+        )}
+      </div>
+      <span className="relative z-10 text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono font-medium min-w-[20px] pointer-events-none self-center">
         {tag.artworkCount}
       </span>
       <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />

@@ -169,9 +169,9 @@ const TagExplorer: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 selection:bg-blue-100 flex flex-col">
-      <header className="sticky top-0 z-50 backdrop-blur-xl border-b border-slate-200/50 bg-white/80 px-4 py-3">
-        <div className="max-w-screen-xl mx-auto flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 shrink-0">
+      <header className="sticky top-0 z-50 backdrop-blur-xl border-b border-slate-200/50 bg-white/80 px-4 h-16">
+        <div className="max-w-screen-xl h-full mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 shrink-0" onClick={() => router.push('/dashboard')}>
             <div className="w-8 h-8 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/10">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
@@ -234,7 +234,7 @@ const TagExplorer: React.FC = () => {
                 exit={{ opacity: 0 }}
                 className="w-full flex-1 flex items-center justify-center overflow-hidden"
               >
-                <TagUniverseView tags={allTags.slice(0, 100)} onTagClick={(tag) => router.push(`/tags/${tag.id}`)} />
+                <TagUniverseView tags={allTags} onTagClick={(tag) => router.push(`/tags/${tag.id}`)} />
               </motion.div>
             ) : (
               <motion.div

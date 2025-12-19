@@ -12,7 +12,11 @@ export const TagUniverseView: React.FC<TagUniverseViewProps> = ({ tags, onTagCli
   const rows = React.useMemo(() => {
     const rowCount = 8
     const chunked: Tag[][] = Array.from({ length: rowCount }, () => [])
-    tags.forEach((tag, i) => {
+
+    // tags 根据id去重
+    const uniqueTags = Array.from(new Map(tags.map((tag) => [tag.id, tag])).values()).slice(0, 100)
+
+    uniqueTags.forEach((tag, i) => {
       chunked[i % rowCount]!.push(tag)
     })
     return chunked
