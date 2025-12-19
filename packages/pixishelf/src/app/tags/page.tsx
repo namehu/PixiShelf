@@ -1,6 +1,6 @@
 import React from 'react'
 import { Metadata } from 'next'
-import TagSquare from './_components/TagSquare'
+import TagExplorer from './_components/TagExplorer'
 
 export const metadata: Metadata = {
   title: '标签广场 - PixiShelf',
@@ -11,5 +11,5 @@ export const metadata: Metadata = {
  * 标签广场页面
  */
 export default function TagsPage() {
-  return <TagSquare pageSize={24} cardMode="compact" />
+  return <TagExplorer />
 }

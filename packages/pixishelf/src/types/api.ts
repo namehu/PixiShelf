@@ -82,12 +82,30 @@ export interface PaginationQuery {
 
 /**
  * 通用分页响应
+ * @deprecated 请使用 PaginatedResponse<T> 替代
  */
-export interface PaginatedResponse<T> {
+export interface UnSafe_PaginatedResponse<T> {
   items: T[]
   total: number
   page: number
   pageSize: number
+}
+
+// 统一的分页响应结构
+export interface PaginatedResponse<T> {
+  success: boolean
+  errorCode?: number
+  data: {
+    data: T[]
+    pagination: {
+      page: number
+      limit: number
+      total: number
+      totalPages: number
+      hasNextPage: boolean
+      hasPrevPage: boolean
+    }
+  }
 }
 
 /**
@@ -124,7 +142,7 @@ export interface ArtworksQuery extends PaginationQuery {
 /**
  * 作品列表响应
  */
-export type ArtworksResponse = PaginatedResponse<Artwork>
+export type ArtworksResponse = UnSafe_PaginatedResponse<Artwork>
 
 /**
  * 艺术家列表查询参数
@@ -137,7 +155,7 @@ export interface ArtistsQuery extends PaginationQuery {
 /**
  * 艺术家列表响应
  */
-export type ArtistsResponse = PaginatedResponse<Artist>
+export type ArtistsResponse = UnSafe_PaginatedResponse<Artist>
 
 /**
  * 用户列表响应
@@ -187,7 +205,7 @@ export interface EnhancedArtwork extends Omit<Artwork, 'images'> {
 /**
  * 增强的作品列表响应
  */
-export type EnhancedArtworksResponse = PaginatedResponse<EnhancedArtwork>
+export type EnhancedArtworksResponse = UnSafe_PaginatedResponse<EnhancedArtwork>
 
 /**
  * 媒体文件详情响应
