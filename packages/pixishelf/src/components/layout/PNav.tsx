@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { FC, PropsWithChildren, ReactNode } from 'react'
 import UserMenu from './UserMenu'
+import { Pyramid } from 'lucide-react'
 
 interface INavProps {
   className?: string
@@ -22,14 +23,16 @@ const PNav: FC<PropsWithChildren<INavProps>> = ({ className, children, renderLef
       {/* 这是一个占位符，用来防止 Fixed 导航栏遮挡内容，高度 py-8 (2rem * 2 = 64px) 对应 h-16 */}
       <div className="h-16" />
 
-      <nav className={`fixed w-full bg-white shadow-sm border-b top-0 left-0 z-50`}>
+      <nav className={`fixed w-full top-0 left-0 z-50 backdrop-blur-xl border-b border-slate-200/50 bg-white/80`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             {/* --- 左侧区域 --- */}
             <div className="flex-1 flex items-center space-x-6">
               {/* 1. Logo 始终在最左侧 */}
               <Link href="/dashboard" className="text-xl font-bold text-gray-900 flex-shrink-0">
-                <span className="sm:hidden">P</span>
+                <div className="sm:hidden w-8 h-8 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/10">
+                  <Pyramid className="w-5 h-5 text-white" />
+                </div>
                 <span className="hidden sm:inline">Pixishelf</span>
               </Link>
 
