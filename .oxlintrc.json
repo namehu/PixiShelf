@@ -55,8 +55,6 @@
     "typescript/no-non-null-asserted-nullish-coalescing": "error",
     "typescript/adjacent-overload-signatures": "error",
     "typescript/consistent-type-definitions": ["error", "interface"],
-    // "typescript/no-empty-interface": "error",
-    "typescript/no-inferrable-types": "error",
     "typescript/prefer-for-of": "error",
     "typescript/prefer-function-type": "error",
     "typescript/prefer-namespace-keyword": "error"
