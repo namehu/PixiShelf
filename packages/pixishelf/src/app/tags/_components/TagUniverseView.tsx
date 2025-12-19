@@ -23,7 +23,7 @@ export const TagUniverseView: React.FC<TagUniverseViewProps> = ({ tags, onTagCli
   }, [tags])
 
   return (
-    <div className="relative w-full h-[65vh] md:h-[70vh] flex flex-col justify-center gap-4 md:gap-6 py-8 overflow-hidden bg-transparent">
+    <div className="relative w-full h-full flex flex-col justify-center py-4 overflow-hidden bg-transparent">
       {/* 核心流动区域 */}
       {rows.map((rowTags, idx) => (
         <Marquee
@@ -33,7 +33,7 @@ export const TagUniverseView: React.FC<TagUniverseViewProps> = ({ tags, onTagCli
           className="py-1"
         >
           {rowTags.map((tag) => (
-            <TagItem key={tag.id} tag={tag} onClick={onTagClick} size={idx % 4 === 0 ? 'lg' : 'md'} />
+            <TagItem key={tag.id} tag={tag} onClick={onTagClick} size={'md'} />
           ))}
         </Marquee>
       ))}
