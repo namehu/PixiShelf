@@ -27,7 +27,6 @@ const prismaClientSingleton = () => {
     errorFormat: 'pretty'
   }).$extends({
     result: {
-      tag: createTimestampExtensions(),
       setting: createTimestampExtensions()
     }
   })
