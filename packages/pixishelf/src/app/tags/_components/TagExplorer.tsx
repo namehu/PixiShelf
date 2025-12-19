@@ -1,5 +1,5 @@
 'use client'
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, Shuffle, TrendingUp, Grid, Sparkles, RefreshCw, Loader2 } from 'lucide-react'
 import { useInView } from 'react-intersection-observer'
@@ -15,12 +15,10 @@ export type ViewMode = 'universe' | 'grid'
 
 // --- API 请求逻辑 ---
 const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => {
-  const pageSize = 24
+  const pageSize = 48
   let url = ''
 
-  // 1. 构建 URL 和参数
   if (query) {
-    // A. 搜索模式
     const params = new URLSearchParams({
       q: query,
       page: pageParam.toString(),
@@ -30,7 +28,6 @@ const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => 
     })
     url = `/api/tags/search?${params.toString()}`
   } else if (mode === 'popular') {
-    // B. 热门模式
     const params = new URLSearchParams({
       page: pageParam.toString(),
       limit: pageSize.toString(),
@@ -39,7 +36,6 @@ const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => 
     })
     url = `/api/tags/search?${params.toString()}`
   } else {
-    // C. 随机模式
     const params = new URLSearchParams({
       limit: pageSize.toString(),
       minCount: '0',
@@ -56,20 +52,16 @@ const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => 
     throw new Error('获取标签失败')
   }
 
-  // 2. 适配返回数据给 React Query
   const tags = result.data.data || []
   const pagination = result.data.pagination
 
-  // 特殊处理随机模式的分页逻辑
   if (mode === 'random' && !query) {
     return {
       tags: tags,
-      // 随机模式下，只要有数据返回，就允许加载下一页 (无限滚动体验)
       nextPage: tags.length > 0 ? pageParam + 1 : undefined
     }
   }
 
-  // 标准分页逻辑 (搜索/热门)
   return {
     tags: tags,
     nextPage: pagination.hasNextPage ? pagination.page + 1 : undefined
@@ -83,52 +75,100 @@ const TagExplorer: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('universe')
   const [currentTab, setCurrentTab] = useState<'popular' | 'random'>('popular')
   const [searchQuery, setSearchQuery] = useState('')
+
+  // 控制无限滚动激活状态
+  const [enableInfiniteScroll, setEnableInfiniteScroll] = useState(false)
+
+  // 引入 Ref 记录上次请求时间，用于节流
+  const lastFetchTimeRef = useRef<number>(0)
+
   const queryClient = useQueryClient()
 
-  // Intersection Observer 用于无限滚动
+  // Intersection Observer
   const { ref: loadMoreRef, inView } = useInView({
     threshold: 0.1,
-    rootMargin: '200px' // 提前加载优化体验
+    rootMargin: '100px'
   })
 
-  // React Query 无限查询
+  // React Query
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isRefetching } = useInfiniteQuery({
     queryKey: ['tags', currentTab, searchQuery],
     queryFn: ({ pageParam }) => fetchTagsApi({ pageParam, mode: currentTab, query: searchQuery }),
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.nextPage,
-    // 保持数据新鲜度，避免频繁刷新 (5分钟)
     staleTime: 1000 * 60 * 5,
-    // 切换 Tab 时不保留旧数据，避免闪烁混杂
     gcTime: 1000 * 60 * 10
   })
 
-  // 扁平化所有页面的标签数据
   const allTags = useMemo(() => {
     return data?.pages.flatMap((page) => page.tags) ?? []
   }, [data])
 
-  // 触发无限加载
+  // 🔥 修复核心 1: 监听所有可能导致列表重置的状态（视图、Tab、搜索）
+  // 之前的代码漏掉了 currentTab 和 searchQuery，导致切换 Tab 时“锁”没关上
   useEffect(() => {
-    // 仅在网格视图下启用无限滚动
-    if (inView && hasNextPage && !isFetchingNextPage && viewMode === 'grid') {
-      fetchNextPage()
+    if (viewMode === 'grid') {
+      // 1. 立即锁定滚动加载，防止旧的 inView 状态触发请求
+      setEnableInfiniteScroll(false)
+
+      // 2. 强制滚动回顶部！这是解决 Tab 切换误触的关键
+      // 如果不滚动，切换 Tab 时滚动条还在底部，哨兵直接可见，就会触发下一页
+      window.scrollTo({ top: 0, behavior: 'instant' })
+
+      lastFetchTimeRef.current = Date.now()
+
+      // 3. 延迟解锁 (500ms 等待动画和 DOM 稳定)
+      const timer = setTimeout(() => {
+        setEnableInfiniteScroll(true)
+      }, 500)
+      return () => clearTimeout(timer)
     }
-  }, [inView, hasNextPage, isFetchingNextPage, viewMode, fetchNextPage])
+    setEnableInfiniteScroll(false)
+  }, [viewMode, currentTab, searchQuery]) // ✅ 必须包含这些依赖
+
+  // 触发逻辑增加 1000ms 节流阀
+  useEffect(() => {
+    if (
+      inView &&
+      hasNextPage &&
+      !isFetchingNextPage &&
+      !isLoading && // ✅ 增加 isLoading 检查，防止初始加载时触发
+      viewMode === 'grid' &&
+      enableInfiniteScroll &&
+      allTags.length > 0
+    ) {
+      const now = Date.now()
+      if (now - lastFetchTimeRef.current > 1000) {
+        // oxlint-disable-next-line no-console
+        console.log('🚀 触发加载更多:', { currentCount: allTags.length })
+        fetchNextPage()
+        lastFetchTimeRef.current = now
+      }
+    }
+  }, [
+    inView,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    viewMode,
+    fetchNextPage,
+    enableInfiniteScroll,
+    allTags.length
+  ])
 
   const handleRefresh = () => {
-    // 强制刷新当前视图的数据
     queryClient.invalidateQueries({ queryKey: ['tags'] })
   }
 
-  // 监听 Tab 切换，自动重置搜索框（可选）
+  // 监听 Tab 切换，自动重置搜索框
   useEffect(() => {
-    setSearchQuery('')
+    if (currentTab) {
+      setSearchQuery('')
+    }
   }, [currentTab])
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 selection:bg-blue-100 flex flex-col">
-      {/* --- Header 区域 --- */}
       <header className="sticky top-0 z-50 backdrop-blur-xl border-b border-slate-200/50 bg-white/80 px-4 py-3">
         <div className="max-w-screen-xl mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 shrink-0">
@@ -168,9 +208,7 @@ const TagExplorer: React.FC = () => {
         </div>
       </header>
 
-      {/* --- Main Content --- */}
       <main className="flex-1 flex flex-col relative z-10">
-        {/* 顶部 Tab 切换 */}
         <div className="max-w-screen-xl mx-auto w-full px-4 pt-6 flex flex-col items-center">
           <Tabs value={currentTab} onValueChange={(v: any) => setCurrentTab(v)}>
             <TabsList className="bg-slate-200/50 p-1 rounded-xl">
@@ -186,11 +224,9 @@ const TagExplorer: React.FC = () => {
           </Tabs>
         </div>
 
-        {/* 内容展示区 */}
         <div className="flex-1 flex flex-col min-h-[500px]">
           <AnimatePresence mode="wait">
             {viewMode === 'universe' ? (
-              // 宇宙视图 (3D球体)
               <motion.div
                 key="universe"
                 initial={{ opacity: 0 }}
@@ -198,11 +234,9 @@ const TagExplorer: React.FC = () => {
                 exit={{ opacity: 0 }}
                 className="w-full flex-1 flex items-center justify-center overflow-hidden"
               >
-                {/* 仅传递前 100 个标签给 3D 视图以保证性能 */}
                 <TagUniverseView tags={allTags.slice(0, 100)} onTagClick={(tag) => router.push(`/tags/${tag.id}`)} />
               </motion.div>
             ) : (
-              // 网格视图
               <motion.div
                 key="grid"
                 initial={{ opacity: 0, y: 20 }}
@@ -212,7 +246,6 @@ const TagExplorer: React.FC = () => {
               >
                 {allTags.map((tag, idx) => (
                   <motion.div
-                    // 使用组合 key 增加唯一性，防止不同页可能出现的重复 id (虽然 random 接口已尽量避免)
                     key={`${tag.id}-${idx}`}
                     className="flex justify-center"
                     initial={{ opacity: 0, scale: 0.9 }}
@@ -223,7 +256,6 @@ const TagExplorer: React.FC = () => {
                   </motion.div>
                 ))}
 
-                {/* 底部加载状态指示器 */}
                 <div
                   ref={loadMoreRef}
                   className="col-span-full py-10 flex justify-center items-center gap-2 text-slate-400"
@@ -243,7 +275,6 @@ const TagExplorer: React.FC = () => {
             )}
           </AnimatePresence>
 
-          {/* 初始加载时的全局 Loading */}
           {isLoading && !allTags.length && (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-[2px]">
               <div className="bg-white px-6 py-4 rounded-2xl shadow-xl border border-slate-100 flex items-center gap-3">
@@ -255,7 +286,6 @@ const TagExplorer: React.FC = () => {
         </div>
       </main>
 
-      {/* --- Footer --- */}
       <footer className="py-8 px-4 border-t border-slate-100 bg-white">
         <div className="max-w-screen-xl mx-auto flex flex-col items-center gap-4">
           <div className="flex gap-10">
