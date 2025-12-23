@@ -1,18 +1,7 @@
 import { z } from 'zod'
-import { ArtworkModel, ArtistModel, ImageModel, TagModel, TranslateTypeEnum } from './models'
+import { ArtworkModel, ImageModel, TagModel } from './models'
 import { dateToString, nullableDateToString } from './utils'
-
-/**
- * Artist DTO
- * - 时间转字符串
- * - 移除了 userId (隐私信息)
- */
-const ArtistResponseDto = ArtistModel.extend({
-  createdAt: dateToString,
-  updatedAt: dateToString
-}).omit({
-  userId: true // 假设不想把绑定的第三方 userId 暴露给前端
-})
+import { ArtistResponseDto } from './artist.dto'
 
 /**
  * Image DTO

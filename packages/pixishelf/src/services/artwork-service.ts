@@ -3,7 +3,6 @@ import 'server-only'
 import { EnhancedArtworksResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
-import { transformArtist } from './artist-service'
 import {
   TArtworkResponseDto,
   ArtworkResponseDto,
@@ -106,16 +105,13 @@ export async function getArtworkById(id: number) {
 
   const { enhancedImages, apng, totalMediaSize } = transformImages(artwork.images)
 
-  // 3. 艺术家处理 (简单内联处理，或者调用 artistService 的 helper)
-  const formattedArtist = artwork.artist ? transformArtist(artwork.artist) : null
-
   return ArtworkResponseDto.parse({
     ...artwork,
     images: enhancedImages,
     apng,
     tags: artwork.artworkTags.map(({ tag }) => tag),
     totalMediaSize,
-    artist: formattedArtist,
+    artist: artwork.artist,
     artworkTags: undefined
   }) as TArtworkResponseDto
 }

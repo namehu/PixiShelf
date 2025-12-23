@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation' // 导入 useSearch
 import { useQuery } from '@tanstack/react-query'
 import { Artist, ArtistsQuery } from '@/types'
 import { ArtistCard } from '@/components/ui/ArtistCard'
-import { apiJson } from '@/lib/api'
+import { client } from '@/lib/api'
 import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 
 // ============================================================================
@@ -28,8 +28,6 @@ interface ArtistsResponse {
  * queryKey 现在依赖于从外部传入的 searchTerm 和 sortBy
  */
 function useArtists(searchTerm: string, sortBy: ArtistsQuery['sortBy'], page: number = 1, pageSize: number = 20) {
-  console.log(page, page, 'page')
-
   return useQuery({
     queryKey: ['artists', searchTerm, sortBy, page, pageSize], // queryKey包含了筛选参数
     queryFn: async (): Promise<ArtistsResponse> => {
@@ -43,7 +41,7 @@ function useArtists(searchTerm: string, sortBy: ArtistsQuery['sortBy'], page: nu
       if (searchTerm) {
         params.append('search', searchTerm)
       }
-      return apiJson<ArtistsResponse>(`/api/artists?${params.toString()}`)
+      return client<ArtistsResponse>(`/api/artists?${params.toString()}`)
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000

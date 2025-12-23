@@ -17,7 +17,7 @@ import {
   PaginationNext,
   PaginationPrevious
 } from '@/components/ui/pagination'
-import { apiJson } from '@/lib/api'
+import { apiJson, client } from '@/lib/api'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import ClientImage from '@/components/client-image'
 
@@ -31,7 +31,7 @@ import ClientImage from '@/components/client-image'
 function useArtist(artistId: string) {
   return useQuery({
     queryKey: ['artist', artistId],
-    queryFn: () => apiJson<Artist>(`/api/artists/${artistId}`),
+    queryFn: () => client<Artist>(`/api/artists/${artistId}`),
     enabled: !!artistId
   })
 }
