@@ -8,8 +8,7 @@ import { apiHandler } from '@/lib/api-handler'
 // ============================================================================
 
 const randomParamsSchema = z.object({
-  // 标准化：使用 limit 代替原来的 count，默认 24
-  limit: z
+  pageSize: z
     .string()
     .optional()
     .transform((val) => (val ? parseInt(val, 10) : 24))
@@ -42,7 +41,7 @@ type RandomTagParams = z.infer<typeof randomParamsSchema>
 // ============================================================================
 
 const randomTagsHandler = async (req: NextRequest, data: RandomTagParams) => {
-  const { limit, minCount, excludeEmpty, page } = data
+  const { pageSize, minCount, excludeEmpty, page } = data
 
   // 1. 构建查询条件
   const whereCondition: any = {}
@@ -65,7 +64,7 @@ const randomTagsHandler = async (req: NextRequest, data: RandomTagParams) => {
       data: [],
       pagination: {
         page,
-        limit,
+        pageSize: pageSize,
         total: 0,
         totalPages: 0,
         hasNextPage: false,
@@ -76,12 +75,12 @@ const randomTagsHandler = async (req: NextRequest, data: RandomTagParams) => {
 
   // 3. 生成不重复的随机偏移量
   // 算法：在 [0, totalCount) 区间内随机取 N 个不重复的整数
-  const actualLimit = Math.min(limit, totalCount)
+  const actualLimit = Math.min(pageSize, totalCount)
   const randomOffsets = new Set<number>()
 
   // 优化：防止死循环（虽然有 min 限制，但为了代码健壮性）
   // 如果请求数量接近总数（例如请求 90 个，总数 100 个），直接取全部再打乱可能更快
-  // 但为了逻辑一致性，这里保持偏移量采样，适用于 totalCount >> limit 的常见场景
+  // 但为了逻辑一致性，这里保持偏移量采样，适用于 totalCount >> pageSize 的常见场景
   while (randomOffsets.size < actualLimit) {
     const randomOffset = Math.floor(Math.random() * totalCount)
     randomOffsets.add(randomOffset)
@@ -161,9 +160,9 @@ const randomTagsHandler = async (req: NextRequest, data: RandomTagParams) => {
     data: randomTags,
     pagination: {
       page: page, // 回显当前页码
-      limit: limit,
+      pageSize: pageSize,
       total: totalCount,
-      totalPages: Math.ceil(totalCount / limit),
+      totalPages: Math.ceil(totalCount / pageSize),
       hasNextPage: totalCount > 0,
       hasPrevPage: page > 1
     },

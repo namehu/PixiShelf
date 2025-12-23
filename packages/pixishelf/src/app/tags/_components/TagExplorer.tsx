@@ -22,7 +22,7 @@ const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => 
     const params = new URLSearchParams({
       q: query,
       page: pageParam.toString(),
-      limit: pageSize.toString(),
+      pageSize: pageSize.toString(),
       sort: 'relevance',
       order: 'desc'
     })
@@ -30,14 +30,14 @@ const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => 
   } else if (mode === 'popular') {
     const params = new URLSearchParams({
       page: pageParam.toString(),
-      limit: pageSize.toString(),
+      pageSize: pageSize.toString(),
       sort: 'artworkCount',
       order: 'desc'
     })
     url = `/api/tags/search?${params.toString()}`
   } else {
     const params = new URLSearchParams({
-      limit: pageSize.toString(),
+      pageSize: pageSize.toString(),
       minCount: '0',
       excludeEmpty: 'false',
       page: pageParam.toString()

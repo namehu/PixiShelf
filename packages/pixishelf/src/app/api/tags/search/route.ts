@@ -19,7 +19,6 @@ function buildTsQuery(query: string): string {
 }
 
 // 定义请求参数 Schema
-// 规范：使用 page 和 limit
 const searchParamsSchema = z.object({
   q: z.string().max(100, '搜索关键词过长').optional(),
 
@@ -31,7 +30,7 @@ const searchParamsSchema = z.object({
     .pipe(z.number().min(1, '页码必须大于0')),
 
   // 每页数量，默认 20，最大 100
-  limit: z
+  pageSize: z
     .string()
     .optional()
     .transform((val) => (val ? parseInt(val, 10) : 20))
@@ -48,8 +47,8 @@ export type TagSearchParams = z.infer<typeof searchParamsSchema>
 // ============================================================================
 
 export const GET = apiHandler(searchParamsSchema, async (req: NextRequest, data: TagSearchParams) => {
-  const { q, page, limit, sort, order } = data
-  const offset = (page - 1) * limit
+  const { q, page, pageSize, sort, order } = data
+  const offset = (page - 1) * pageSize
 
   // 构建 Postgres 全文搜索查询串
   const tsquery = q ? buildTsQuery(q) : ''
@@ -95,7 +94,7 @@ export const GET = apiHandler(searchParamsSchema, async (req: NextRequest, data:
     `
 
     const [searchResults, countResults] = await Promise.all([
-      prisma.$queryRaw<any[]>(Prisma.sql([searchQuery], tsquery, limit, offset)),
+      prisma.$queryRaw<any[]>(Prisma.sql([searchQuery], tsquery, pageSize, offset)),
       prisma.$queryRaw<[{ count: bigint }]>(Prisma.sql([countQuery], tsquery))
     ])
 
@@ -125,7 +124,7 @@ export const GET = apiHandler(searchParamsSchema, async (req: NextRequest, data:
       prisma.tag.findMany({
         orderBy,
         skip: offset,
-        take: limit,
+        take: pageSize,
         select: {
           id: true,
           name: true,
@@ -147,14 +146,14 @@ export const GET = apiHandler(searchParamsSchema, async (req: NextRequest, data:
   // --------------------------------------------------------------------------
   // 响应构建 (Standardized Response)
   // --------------------------------------------------------------------------
-  const totalPages = Math.ceil(totalCount / limit)
+  const totalPages = Math.ceil(totalCount / pageSize)
 
   // 统一返回结构
   return {
     data: tags, // 数据列表
     pagination: {
       page,
-      limit,
+      pageSize: pageSize,
       total: totalCount,
       totalPages,
       hasNextPage: page < totalPages,
