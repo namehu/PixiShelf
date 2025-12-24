@@ -21,45 +21,19 @@ import { apiJson, client } from '@/lib/api'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import ClientImage from '@/components/client-image'
 
-// ============================================================================
-// Hooks
-// ============================================================================
-
-/**
- * 获取艺术家信息Hook
- */
-function useArtist(artistId: string) {
-  return useQuery({
-    queryKey: ['artist', artistId],
-    queryFn: () => client<Artist>(`/api/artists/${artistId}`),
-    enabled: !!artistId
-  })
+export default () => {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <main className="max-w-7xl mx-auto">
+        <ArtistDetailPage />
+      </main>
+    </div>
+  )
 }
-
-/**
- * 获取艺术家的作品列表Hook
- */
-function useArtistArtworks(artistId: string, page: number, pageSize: number, sortBy?: SortOption) {
-  return useQuery({
-    queryKey: ['artist-artworks', artistId, page, pageSize, sortBy],
-    queryFn: async (): Promise<EnhancedArtworksResponse> => {
-      const url = new URL('/api/artworks', window.location.origin)
-      url.searchParams.set('page', String(page))
-      url.searchParams.set('pageSize', String(pageSize))
-      url.searchParams.set('artistId', artistId)
-      if (sortBy && sortBy !== 'source_date_desc') {
-        url.searchParams.set('sortBy', sortBy)
-      }
-      return apiJson<EnhancedArtworksResponse>(url.toString())
-    },
-    enabled: !!artistId
-  })
-}
-
 /**
  * 艺术家详情页面
  */
-export default function ArtistDetailPage() {
+function ArtistDetailPage() {
   const router = useRouter()
   const params = useParams()
   const searchParams = useSearchParams()
@@ -71,12 +45,34 @@ export default function ArtistDetailPage() {
   const sortBy = (searchParams.get('sortBy') as SortOption) || 'source_date_desc'
   const [jumpToPage, setJumpToPage] = useState('')
 
-  const { data: artist, isLoading: artistLoading, isError: artistError } = useArtist(id)
+  const {
+    data: artist,
+    isLoading: artistLoading,
+    isError: artistError
+  } = useQuery({
+    queryKey: ['artist', id],
+    queryFn: () => client<Artist>(`/api/artists/${id}`),
+    enabled: !!id
+  })
+
   const {
     data: artworks,
     isLoading: artworksLoading,
     isError: artworksError
-  } = useArtistArtworks(id, page, pageSize, sortBy)
+  } = useQuery({
+    queryKey: ['artist-artworks', id, page, pageSize, sortBy],
+    queryFn: async (): Promise<EnhancedArtworksResponse> => {
+      const url = new URL('/api/artworks', window.location.origin)
+      url.searchParams.set('page', String(page))
+      url.searchParams.set('pageSize', String(pageSize))
+      url.searchParams.set('artistId', id)
+      if (sortBy && sortBy !== 'source_date_desc') {
+        url.searchParams.set('sortBy', sortBy)
+      }
+      return apiJson<EnhancedArtworksResponse>(url.toString())
+    },
+    enabled: !!id
+  })
 
   // 页面跳转函数
   const goto = (p: number) => {
@@ -182,9 +178,9 @@ export default function ArtistDetailPage() {
       </div>
 
       {/* 艺术家背景图和信息头部 */}
-      <div className="relative mb-8">
+      <div className="relative">
         {/* 背景图容器 */}
-        <div className="relative h-80 md:h-96 overflow-hidden rounded-lg">
+        <div className="relative h-80 md:h-96 overflow-hidden ">
           {/* 背景图 */}
           {artist.backgroundImg ? (
             <div className="absolute inset-0">
@@ -262,7 +258,7 @@ export default function ArtistDetailPage() {
       </div>
 
       {/* 作品列表部分 */}
-      <div className="space-y-6">
+      <div className="space-y-6 px-4 my-4">
         {/* 作品列表标题和排序 */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
