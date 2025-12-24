@@ -6,6 +6,27 @@ import { ArtistResponseDto } from '@/schemas/artist.dto'
 import { PaginationResponseData } from '@/types'
 
 /**
+ * 根据 ID 获取单个艺术家
+ * @param id 艺术家 ID
+ * @returns 艺术家数据或 null
+ */
+export async function getArtistById(id: number): Promise<ArtistResponseDto | null> {
+  const artist = await prisma.artist.findUnique({
+    where: { id },
+    select: {
+      ...ARTIST_SELECT,
+      _count: {
+        select: {
+          artworks: true
+        }
+      }
+    }
+  })
+
+  return !artist ? null : ArtistResponseDto.parse(artist)
+}
+
+/**
  * 获取艺术家列表
  * @param options 查询选项
  * @returns 艺术家列表响应
@@ -167,25 +188,4 @@ export async function getRecentArtists(
       }
     }
   }
-}
-
-/**
- * 根据 ID 获取单个艺术家
- * @param id 艺术家 ID
- * @returns 艺术家数据或 null
- */
-export async function getArtistById(id: number): Promise<ArtistResponseDto | null> {
-  const artist = await prisma.artist.findUnique({
-    where: { id },
-    select: {
-      ...ARTIST_SELECT,
-      _count: {
-        select: {
-          artworks: true
-        }
-      }
-    }
-  })
-
-  return !artist ? null : ArtistResponseDto.parse(artist)
 }

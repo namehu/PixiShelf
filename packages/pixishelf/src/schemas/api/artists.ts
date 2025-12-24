@@ -2,6 +2,17 @@ import z from 'zod'
 
 /**
  * Artists Get Schema
+ * 获取单个艺术家查询参数
+ */
+export const ArtistGetSchema = z.object({
+  /** 艺术家ID 路径参数 */
+  id: z.coerce.number().positive()
+})
+
+export type ArtistGetSchema = z.infer<typeof ArtistGetSchema>
+
+/**
+ * Artists Get Schema
  * 获取艺术家列表查询参数
  */
 export const ArtistsGetSchema = z.object({
