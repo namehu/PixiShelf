@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/pagination'
 import { apiJson, client } from '@/lib/api'
 import ClientImage from '@/components/client-image'
-import HeadInfo from './components/HeadInfo'
+import HeadInfo from './_components/HeadInfo'
 import { ArtistResponseDto } from '@/schemas/artist.dto'
 
 export default () => {

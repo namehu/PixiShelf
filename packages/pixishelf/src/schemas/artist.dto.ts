@@ -14,12 +14,20 @@ import { combinationStaticAvatar, combinationStaticArtistBg } from '@/utils/comb
 export const ArtistResponseDto = ArtistModel.extend({
   createdAt: dateToString,
   updatedAt: dateToString,
-  artworksCount: z.number().int().default(0)
-}).transform((artist) => {
+  artworksCount: z.number().int().default(0),
+  _count: z
+    .object({
+      artworks: z.number().int().default(0)
+    })
+    .default({ artworks: 0 })
+    .nullable()
+    .optional()
+}).transform(({ _count, ...artist }) => {
   return {
     ...artist,
     avatar: combinationStaticAvatar(artist.userId, artist.avatar),
-    backgroundImg: combinationStaticArtistBg(artist.userId, artist.backgroundImg)
+    backgroundImg: combinationStaticArtistBg(artist.userId, artist.backgroundImg),
+    artworksCount: _count?.artworks || 0
   }
 })
 
