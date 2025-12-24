@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ArtistsQuery } from '@/types'
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import PNav from '@/components/layout/PNav'
 
 /**
  * 艺术家页面的导航和筛选组件
@@ -68,31 +69,33 @@ const ArtistsNavigation = () => {
   )
 
   return (
-    <div className="flex flex-1 flex-col sm:flex-row gap-4 px-4">
-      <div className="flex-1">
-        <Input
-          type="text"
-          placeholder="搜索艺术家..."
-          value={searchValue}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          className="w-full"
-        />
+    <PNav>
+      <div className="flex flex-1 flex-col sm:flex-row gap-4 px-4">
+        <div className="flex-1">
+          <Input
+            type="text"
+            placeholder="搜索艺术家..."
+            value={searchValue}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="w-full"
+          />
+        </div>
+        <div className="hidden sm:inline">
+          <Select value={currentSortBy} onValueChange={(value) => handleSort(value as ArtistsQuery['sortBy'])}>
+            <SelectTrigger className="w-fit min-w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {sortOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value || ''}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
-      <div className="hidden sm:inline">
-        <Select value={currentSortBy} onValueChange={(value) => handleSort(value as ArtistsQuery['sortBy'])}>
-          <SelectTrigger className="w-fit min-w-[140px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {sortOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value || ''}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-    </div>
+    </PNav>
   )
 }
 

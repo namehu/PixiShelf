@@ -1,16 +1,13 @@
 'use client'
 
-import React, { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation' // 导入 useSearchParams
 import { useQuery } from '@tanstack/react-query'
 import { Artist, ArtistsQuery } from '@/types'
 import { ArtistCard } from '@/components/ui/ArtistCard'
 import { client } from '@/lib/api'
 import useInfiniteScroll from '@/hooks/useInfiniteScroll'
-
-// ============================================================================
-// Types
-// ============================================================================
+import ArtistsNavigation from './_components/ArtistsNavigation'
 
 interface ArtistsResponse {
   items: Artist[]
@@ -44,11 +41,7 @@ function useArtists(searchTerm: string, sortBy: ArtistsQuery['sortBy'], page: nu
   })
 }
 
-// ============================================================================
-// Components
-// ============================================================================
-
-export default function ArtistsPage() {
+function ArtistsPage() {
   const router = useRouter()
   const searchParams = useSearchParams() // 1. 获取 URL 查询参数对象
 
@@ -67,7 +60,7 @@ export default function ArtistsPage() {
   const { data, isLoading, error } = useArtists(searchTerm, sortBy, currentPage)
 
   // 处理数据加载和合并
-  React.useEffect(() => {
+  useEffect(() => {
     if (data) {
       // 如果是第一页，则直接替换数据；否则追加数据
       if (currentPage === 1) {
@@ -82,7 +75,7 @@ export default function ArtistsPage() {
   }, [data, currentPage])
 
   // 4. 当 URL 中的筛选条件变化时，重置分页和艺术家列表
-  React.useEffect(() => {
+  useEffect(() => {
     setCurrentPage(1)
     setAllArtists([])
     // 滚动到页面顶部
@@ -166,6 +159,17 @@ export default function ArtistsPage() {
           已显示 {allArtists.length} / {data.total} 位艺术家
         </div>
       )}
+    </div>
+  )
+}
+
+export default () => {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <ArtistsNavigation></ArtistsNavigation>
+      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        <ArtistsPage></ArtistsPage>
+      </main>
     </div>
   )
 }
