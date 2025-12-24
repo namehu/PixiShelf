@@ -19,6 +19,7 @@ import {
 import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
+import PNav from '@/components/layout/PNav'
 
 // ============================================================================
 // 画廊页面
@@ -592,5 +593,12 @@ function GalleryPageContent() {
 }
 
 export default function GalleryPage() {
-  return <GalleryPageContent />
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <PNav></PNav>
+      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        <GalleryPageContent />
+      </main>
+    </div>
+  )
 }
