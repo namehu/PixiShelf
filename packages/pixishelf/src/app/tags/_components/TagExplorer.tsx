@@ -8,7 +8,7 @@ import { TagUniverseView } from './TagUniverseView'
 import { TagItem } from './TagItem'
 import { cn } from '@/lib/utils'
 import { Tabs, TabsList, TabsTrigger } from '.'
-import { PaginatedResponse, Tag } from '@/types'
+import { PaginationResponse, Tag } from '@/types'
 import { useRouter } from 'next/navigation'
 
 export type ViewMode = 'universe' | 'grid'
@@ -46,7 +46,7 @@ const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => 
   }
 
   const response = await fetch(url)
-  const result: PaginatedResponse<Tag> = await response.json()
+  const result: PaginationResponse<Tag> = await response.json()
 
   if (!result.success) {
     throw new Error('获取标签失败')

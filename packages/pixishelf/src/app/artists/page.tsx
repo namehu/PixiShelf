@@ -1,31 +1,24 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation' // 导入 useSearchParams
-import { useQuery } from '@tanstack/react-query'
-import { Artist, ArtistsQuery } from '@/types'
+import { useInfiniteQuery } from '@tanstack/react-query'
+import { Artist, ArtistsQuery, PaginationResponseData } from '@/types'
 import { ArtistCard } from '@/components/ui/ArtistCard'
 import { client } from '@/lib/api'
 import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 import ArtistsNavigation from './_components/ArtistsNavigation'
-
-interface ArtistsResponse {
-  items: Artist[]
-  total: number
-  page: number
-  pageSize: number
-}
+import type { ArtistResponseDto } from '@/schemas/artist.dto'
 
 /**
- * 获取艺术家列表Hook
- * queryKey 现在依赖于从外部传入的 searchTerm 和 sortBy
+ * 获取艺术家列表Hook (使用 useInfiniteQuery)
  */
-function useArtists(searchTerm: string, sortBy: ArtistsQuery['sortBy'], page: number = 1, pageSize: number = 20) {
-  return useQuery({
-    queryKey: ['artists', searchTerm, sortBy, page, pageSize], // queryKey包含了筛选参数
-    queryFn: async (): Promise<ArtistsResponse> => {
+function useArtistsInfinite(searchTerm: string, sortBy: ArtistsQuery['sortBy'], pageSize: number = 10) {
+  return useInfiniteQuery({
+    queryKey: ['artists', 'infinite', searchTerm, sortBy, pageSize],
+    queryFn: async ({ pageParam = 1 }) => {
       const params = new URLSearchParams({
-        page: page.toString(),
+        page: pageParam.toString(),
         pageSize: pageSize.toString()
       })
       if (sortBy) {
@@ -34,7 +27,13 @@ function useArtists(searchTerm: string, sortBy: ArtistsQuery['sortBy'], page: nu
       if (searchTerm) {
         params.append('search', searchTerm)
       }
-      return client<ArtistsResponse>(`/api/artists?${params.toString()}`)
+      return client<PaginationResponseData<ArtistResponseDto>>(`/api/artists?${params.toString()}`)
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      const nextPage = lastPage.pagination.page + 1
+      const totalPages = Math.ceil(lastPage.pagination.total / lastPage.pagination.pageSize)
+      return nextPage <= totalPages ? nextPage : undefined
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000
@@ -43,57 +42,38 @@ function useArtists(searchTerm: string, sortBy: ArtistsQuery['sortBy'], page: nu
 
 function ArtistsPage() {
   const router = useRouter()
-  const searchParams = useSearchParams() // 1. 获取 URL 查询参数对象
+  const searchParams = useSearchParams()
 
-  // 2. 直接从 URL 读取状态，不再需要本地的 useState 来管理它们
+  // 1. 直接从 URL 读取状态
   const searchTerm = searchParams.get('search') || ''
   const sortBy = (searchParams.get('sortBy') as ArtistsQuery['sortBy']) || 'name_asc'
 
-  // 页面和数据列表的状态仍然保留在组件内部
-  const [currentPage, setCurrentPage] = useState(1)
-  const [allArtists, setAllArtists] = useState<Artist[]>([])
-  const [hasMore, setHasMore] = useState(true)
+  // 2. 使用 useInfiniteQuery
+  const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useArtistsInfinite(
+    searchTerm,
+    sortBy
+  )
 
-  // 3. 将从 URL 获取的参数直接传入 useArtists hook。
-  // 当 URL 变化时，searchTerm 或 sortBy 会变化，
-  // 导致 useQuery 的 queryKey 变化，从而自动重新获取数据。
-  const { data, isLoading, error } = useArtists(searchTerm, sortBy, currentPage)
+  // 3. 展平数据
+  const allArtists = useMemo(() => {
+    return data?.pages.flatMap((page) => page.data) || []
+  }, [data])
 
-  // 处理数据加载和合并
-  useEffect(() => {
-    if (data) {
-      // 如果是第一页，则直接替换数据；否则追加数据
-      if (currentPage === 1) {
-        setAllArtists(data.items)
-      } else {
-        setAllArtists((prev) => [...prev, ...data.items])
-      }
-      // 计算是否还有更多数据
-      const hasMoreData = currentPage * data.pageSize < data.total
-      setHasMore(hasMoreData)
-    }
-  }, [data, currentPage])
-
-  // 4. 当 URL 中的筛选条件变化时，重置分页和艺术家列表
-  useEffect(() => {
-    setCurrentPage(1)
-    setAllArtists([])
-    // 滚动到页面顶部
-    window.scrollTo(0, 0)
-  }, [searchTerm, sortBy]) // 依赖项是来自 URL 的参数
+  // 计算总数 (取第一页的 total 即可，因为每次返回的 total 应该是一样的)
+  const totalCount = data?.pages[0]?.pagination.total || 0
 
   // 加载更多
   const handleLoadMore = useCallback(() => {
-    if (hasMore && !isLoading) {
-      setCurrentPage((prev) => prev + 1)
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
     }
-  }, [hasMore, isLoading])
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   // 无限滚动
   const { targetRef } = useInfiniteScroll({
     onLoadMore: handleLoadMore,
-    hasMore,
-    loading: isLoading
+    hasMore: !!hasNextPage,
+    loading: isFetchingNextPage || isLoading
   })
 
   // 处理艺术家点击
@@ -104,7 +84,7 @@ function ArtistsPage() {
     [router]
   )
 
-  if (isLoading && currentPage === 1) {
+  if (isLoading) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-center items-center h-64">
@@ -114,7 +94,7 @@ function ArtistsPage() {
     )
   }
 
-  if (error) {
+  if (isError) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-center items-center h-64">
@@ -148,15 +128,15 @@ function ArtistsPage() {
         </div>
       )}
 
-      {hasMore && (
+      {hasNextPage && (
         <div ref={targetRef} className="flex justify-center py-8">
-          {isLoading && <div className="text-gray-600 dark:text-gray-400">加载更多...</div>}
+          {(isFetchingNextPage || isLoading) && <div className="text-gray-600 dark:text-gray-400">加载更多...</div>}
         </div>
       )}
 
-      {data && allArtists.length > 0 && (
+      {allArtists.length > 0 && (
         <div className="text-center mt-8 text-sm text-gray-500 dark:text-gray-500">
-          已显示 {allArtists.length} / {data.total} 位艺术家
+          已显示 {allArtists.length} / {totalCount} 位艺术家
         </div>
       )}
     </div>

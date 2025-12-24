@@ -5,18 +5,18 @@ import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ROUTES } from '@/lib/constants'
-import { ArtistsResponse, Artist } from '@/types'
 import { UsersIcon, ArrowRight } from 'lucide-react'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+import { ArtistResponseDto } from '@/schemas/artist.dto'
 
 interface RecentArtistsProps {
-  data: ArtistsResponse
+  data: ArtistResponseDto[]
   error?: string | null
 }
 
-function CompactArtistCard({ artist, onClick }: { artist: Artist; onClick: () => void }) {
+function CompactArtistCard({ artist, onClick }: { artist: ArtistResponseDto; onClick: () => void }) {
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -73,7 +73,7 @@ export default function RecentArtists({ data, error }: RecentArtistsProps) {
     )
   }
 
-  if (!data?.items?.length) {
+  if (!data.length) {
     return (
       <div className="mb-8">
         <div className="flex items-center justify-between mb-6">
@@ -114,7 +114,7 @@ export default function RecentArtists({ data, error }: RecentArtistsProps) {
 
       <ScrollArea className="w-full whitespace-nowrap rounded-md">
         <div className="flex w-max space-x-4 pb-4 px-1">
-          {data.items.map((artist) => (
+          {data.map((artist) => (
             <CompactArtistCard key={artist.id} artist={artist} onClick={() => router.push(`/artists/${artist.id}`)} />
           ))}
         </div>

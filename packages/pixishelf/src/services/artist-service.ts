@@ -1,24 +1,18 @@
 import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
-import { ArtistsResponse } from '@/types'
 import { ARTIST_SELECT } from '@/schemas/models/artists'
-import { ArtistResponseDto, TArtistResponseDto } from '@/schemas/artist.dto'
+import { ArtistsGetSchema } from '@/schemas/api/artists'
+import { ArtistResponseDto } from '@/schemas/artist.dto'
+import { PaginationResponseData } from '@/types'
 
 /**
  * 获取艺术家列表
  * @param options 查询选项
  * @returns 艺术家列表响应
  */
-export async function getArtists(
-  options: {
-    page?: number
-    pageSize?: number
-    search?: string
-    sortBy?: 'name_asc' | 'name_desc' | 'artworks_desc' | 'artworks_asc'
-  } = {}
-): Promise<ArtistsResponse> {
+export async function getArtists(options: ArtistsGetSchema): Promise<PaginationResponseData<ArtistResponseDto>> {
   try {
-    const { page = 1, pageSize = 20, search = '', sortBy = 'name_asc' } = options
+    const { page, pageSize, search, sortBy } = options
 
     // 限制页面大小，防止过大的查询
     const limitedPageSize = Math.min(100, pageSize)
@@ -79,21 +73,31 @@ export async function getArtists(
     ])
 
     // 转换数据格式
-    const items = artists.map((artist) => ArtistResponseDto.parse(artist))
+    const data = artists.map((artist) => ArtistResponseDto.parse(artist))
 
     return {
-      items,
-      total,
-      page,
-      pageSize: limitedPageSize
+      data,
+      pagination: {
+        page,
+        pageSize: limitedPageSize,
+        total,
+        totalPages: Math.ceil(total / limitedPageSize),
+        hasNextPage: page * limitedPageSize < total,
+        hasPrevPage: page > 1
+      }
     }
   } catch (error) {
     logger.error('Error fetching artists:', error)
     return {
-      items: [],
-      total: 0,
-      page: options.page || 1,
-      pageSize: options.pageSize || 20
+      data: [],
+      pagination: {
+        page: options.page || 1,
+        pageSize: options.pageSize || 20,
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false
+      }
     }
   }
 }
@@ -108,7 +112,7 @@ export async function getRecentArtists(
     page?: number
     pageSize?: number
   } = {}
-): Promise<ArtistsResponse> {
+): Promise<PaginationResponseData<ArtistResponseDto>> {
   try {
     const { page = 1, pageSize = 10 } = options
     const skip = (page - 1) * pageSize
@@ -139,18 +143,28 @@ export async function getRecentArtists(
     const items = artists.map((artist) => ArtistResponseDto.parse(artist))
 
     return {
-      items,
-      total,
-      page,
-      pageSize
+      data: items,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+        hasNextPage: page * pageSize < total,
+        hasPrevPage: page > 1
+      }
     }
   } catch (error) {
     logger.error('Error fetching recent artists:', error)
     return {
-      items: [],
-      total: 0,
-      page: options.page || 1,
-      pageSize: options.pageSize || 10
+      data: [],
+      pagination: {
+        page: options.page || 1,
+        pageSize: options.pageSize || 10,
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false
+      }
     }
   }
 }
@@ -160,7 +174,7 @@ export async function getRecentArtists(
  * @param id 艺术家 ID
  * @returns 艺术家数据或 null
  */
-export async function getArtistById(id: number): Promise<TArtistResponseDto | null> {
+export async function getArtistById(id: number): Promise<ArtistResponseDto | null> {
   const artist = await prisma.artist.findUnique({
     where: { id },
     select: {
