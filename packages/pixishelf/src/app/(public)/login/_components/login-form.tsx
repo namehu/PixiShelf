@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { validateLoginForm } from '@/lib/validators'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
 import { useAuth } from '@/components/auth'
+import { LockKeyholeIcon, UserIcon } from 'lucide-react'
 
 export interface LoginFormProps {
   /** 登录成功后的重定向URL */
@@ -129,23 +130,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onE
     <Card className={className}>
       <CardContent className="p-8">
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Username Field */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-foreground">用户名</label>
             <div className="relative">
-              <svg
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground z-10"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                />
-              </svg>
+              <UserIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
               <Input
                 type="text"
                 value={formState.username}
@@ -164,19 +152,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onE
           <div className="space-y-2">
             <label className="block text-sm font-medium text-foreground">密码</label>
             <div className="relative">
-              <svg
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground z-10"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                />
-              </svg>
+              <LockKeyholeIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
               <Input
                 type="password"
                 value={formState.password}

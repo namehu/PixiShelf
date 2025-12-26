@@ -29,19 +29,19 @@ export interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const router = useRouter()
   const isClient = useClientOnly()
-  
+
   const [authState, setAuthState] = useState<AuthState>({
     isAuthenticated: false,
     user: null,
     isLoading: true,
-    error: null,
+    error: null
   })
 
   /**
    * 设置认证状态
    */
   const setAuth = useCallback((updates: Partial<AuthState>) => {
-    setAuthState(prev => ({ ...prev, ...updates }))
+    setAuthState((prev) => ({ ...prev, ...updates }))
   }, [])
 
   /**
@@ -58,7 +58,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const response = await fetch('/api/auth/me', {
         method: 'GET',
-        credentials: 'include',
+        credentials: 'include'
       })
 
       if (!response.ok) {
@@ -70,7 +70,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
 
       const data = await response.json()
-      
+
       if (!data.success || !data.user) {
         return null
       }
@@ -78,9 +78,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return {
         id: data.user.id,
         username: data.user.username,
-        passwordHash: '', // 前端不需要密码哈希
         createdAt: new Date().toISOString(), // 这里可以从API返回实际的创建时间
-        updatedAt: new Date().toISOString(), // 这里可以从API返回实际的更新时间
+        updatedAt: new Date().toISOString() // 这里可以从API返回实际的更新时间
       }
     } catch (error) {
       console.error('获取用户信息错误:', error)
@@ -94,13 +93,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const refreshUser = useCallback(async () => {
     try {
       setAuth({ isLoading: true, error: null })
-      
+
       const user = await fetchUser()
-      
+
       setAuth({
         isAuthenticated: Boolean(user),
         user,
-        isLoading: false,
+        isLoading: false
       })
     } catch (error) {
       console.error('刷新用户信息错误:', error)
@@ -108,7 +107,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isAuthenticated: false,
         user: null,
         isLoading: false,
-        error: error instanceof Error ? error.message : ERROR_MESSAGES.SERVER_ERROR,
+        error: error instanceof Error ? error.message : ERROR_MESSAGES.SERVER_ERROR
       })
     }
   }, [fetchUser, setAuth])
@@ -116,54 +115,57 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   /**
    * 登录
    */
-  const login = useCallback(async (username: string, password: string): Promise<boolean> => {
-    try {
-      setAuth({ isLoading: true, error: null })
+  const login = useCallback(
+    async (username: string, password: string): Promise<boolean> => {
+      try {
+        setAuth({ isLoading: true, error: null })
 
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ username, password }),
-      })
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include',
+          body: JSON.stringify({ username, password })
+        })
 
-      const data = await response.json()
+        const data = await response.json()
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || ERROR_MESSAGES.LOGIN_FAILED)
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || ERROR_MESSAGES.LOGIN_FAILED)
+        }
+
+        // 登录成功，获取用户信息
+        const user = await fetchUser()
+
+        if (!user) {
+          throw new Error('登录成功但无法获取用户信息')
+        }
+
+        setAuth({
+          isAuthenticated: true,
+          user,
+          isLoading: false,
+          error: null
+        })
+
+        return true
+      } catch (error) {
+        console.error('登录错误:', error)
+        const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.LOGIN_FAILED
+
+        setAuth({
+          isAuthenticated: false,
+          user: null,
+          isLoading: false,
+          error: errorMessage
+        })
+
+        return false
       }
-
-      // 登录成功，获取用户信息
-      const user = await fetchUser()
-      
-      if (!user) {
-        throw new Error('登录成功但无法获取用户信息')
-      }
-
-      setAuth({
-        isAuthenticated: true,
-        user,
-        isLoading: false,
-        error: null,
-      })
-
-      return true
-    } catch (error) {
-      console.error('登录错误:', error)
-      const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.LOGIN_FAILED
-      
-      setAuth({
-        isAuthenticated: false,
-        user: null,
-        isLoading: false,
-        error: errorMessage,
-      })
-
-      return false
-    }
-  }, [fetchUser, setAuth])
+    },
+    [fetchUser, setAuth]
+  )
 
   /**
    * 登出
@@ -175,7 +177,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // 调用登出API
       await fetch('/api/auth/logout', {
         method: 'POST',
-        credentials: 'include',
+        credentials: 'include'
       })
 
       // 无论API调用是否成功，都清除本地状态
@@ -183,20 +185,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isAuthenticated: false,
         user: null,
         isLoading: false,
-        error: null,
+        error: null
       })
 
       // 重定向到登录页
       router.push(ROUTES.LOGIN)
     } catch (error) {
       console.error('登出错误:', error)
-      
+
       // 即使出错也要清除本地状态
       setAuth({
         isAuthenticated: false,
         user: null,
         isLoading: false,
-        error: null,
+        error: null
       })
 
       router.push(ROUTES.LOGIN)
@@ -221,14 +223,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     login,
     logout,
     refreshUser,
-    clearError,
+    clearError
   }
 
-  return (
-    <AuthContext.Provider value={contextValue}>
-      {children}
-    </AuthContext.Provider>
-  )
+  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
 }
 
 /**
@@ -236,11 +234,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
  */
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext)
-  
+
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider')
   }
-  
+
   return context
 }
 
