@@ -105,7 +105,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onE
 
     try {
       // 使用AuthProvider的login方法
-      const success = await login(formState.username.trim(), formState.password)
+      const success = await login(formState.username, formState.password)
 
       if (success) {
         // 重定向到指定页面或默认页面

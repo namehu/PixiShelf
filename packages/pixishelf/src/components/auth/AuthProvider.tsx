@@ -175,10 +175,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setAuth({ isLoading: true })
 
       // 调用登出API
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        credentials: 'include'
-      })
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
 
       // 无论API调用是否成功，都清除本地状态
       setAuth({

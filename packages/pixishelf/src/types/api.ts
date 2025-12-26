@@ -1,27 +1,8 @@
-import { Artist, Artwork, User, MediaFile } from './core'
+import { Artwork, User, MediaFile } from './core'
 
 // ============================================================================
 // API 请求/响应类型
 // ============================================================================
-
-/**
- * 登录请求
- */
-export interface LoginRequest {
-  username: string
-  password: string
-}
-
-/**
- * 登录响应
- */
-export interface LoginResponse {
-  token: string
-  user: {
-    id: string
-    username: string
-  }
-}
 
 /**
  * 用户信息响应
