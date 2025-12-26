@@ -5,15 +5,14 @@ import { Providers } from '@/components/providers'
 import { GlobalConfirmDialog } from '@/components/shared/global-confirm' // 引入组件
 import './globals.css'
 
-// ============================================================================
-// 根布局组件
-// ============================================================================
-
 export const metadata: Metadata = {
   title: 'Pixishelf - 艺术家作品管理平台',
   description: '专为艺术家设计的作品管理和展示平台',
-  keywords: ['艺术', '作品管理', '艺术家', '画廊', '展示'],
-  authors: [{ name: 'Pixishelf Team' }]
+  openGraph: {
+    title: 'PixiShelf',
+    description: '你的个人数字画廊'
+  },
+  keywords: ['艺术', '作品管理', '艺术家', '画廊', '展示']
 }
 
 export const viewport: Viewport = {
@@ -34,9 +33,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
       <body suppressHydrationWarning={true}>
         <Providers>
           {children}
-
           <GlobalConfirmDialog />
-
           <Toaster />
         </Providers>
       </body>

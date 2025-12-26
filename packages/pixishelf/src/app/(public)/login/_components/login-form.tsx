@@ -8,19 +8,12 @@ import { Card, CardContent } from '@/components/ui/card'
 import { validateLoginForm } from '@/lib/validators'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
 import { useAuth } from '@/components/auth'
-import type { LoginRequest } from '@/types/api'
-
-// ============================================================================
-// 登录表单组件
-// ============================================================================
 
 export interface LoginFormProps {
   /** 登录成功后的重定向URL */
   redirectTo?: string
   /** 自定义类名 */
   className?: string
-  /** 登录成功回调 */
-  onSuccess?: () => void
   /** 登录失败回调 */
   onError?: (error: string) => void
 }
@@ -46,7 +39,7 @@ interface FormErrors {
 /**
  * 登录表单组件
  */
-export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onSuccess, onError }) => {
+export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onError }) => {
   const router = useRouter()
   const { login } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
@@ -114,11 +107,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onS
       const success = await login(formState.username.trim(), formState.password)
 
       if (success) {
-        onSuccess?.()
-
         // 重定向到指定页面或默认页面
         const targetUrl = redirectTo || ROUTES.DASHBOARD
-        router.push(targetUrl)
+        router.replace(targetUrl)
       } else {
         // 登录失败，错误信息已经在AuthProvider中处理
         setErrors({ general: ERROR_MESSAGES.LOGIN_FAILED })

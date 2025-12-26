@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { FC, PropsWithChildren, ReactNode } from 'react'
 import UserMenu from './UserMenu'
-import { Pyramid } from 'lucide-react'
+import PLogo from './p-logo'
 
 interface INavProps {
   className?: string
@@ -31,7 +31,7 @@ const PNav: FC<PropsWithChildren<INavProps>> = ({ className, children, renderLef
               {/* 1. Logo 始终在最左侧 */}
               <Link href="/dashboard" className="text-xl font-bold text-gray-900 flex-shrink-0">
                 <div className="sm:hidden w-8 h-8 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/10">
-                  <Pyramid className="w-5 h-5 text-white" />
+                  <PLogo className="text-white" size="small"></PLogo>
                 </div>
                 <span className="hidden sm:inline">Pixishelf</span>
               </Link>
