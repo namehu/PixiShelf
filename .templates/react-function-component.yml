@@ -3,7 +3,7 @@ type: ['react-component']
 description: 组件模板
 single: true
 tpl:
-  '[:=PascalName:].tsx': |
+  '[:=KebabCaseName:].tsx': |
     import { FC, memo } from 'react'
 
     interface I[:=PascalName:]Props {}
