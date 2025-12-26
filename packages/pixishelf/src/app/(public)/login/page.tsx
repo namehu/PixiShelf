@@ -1,9 +1,9 @@
 import React, { Suspense } from 'react'
 import { Metadata } from 'next'
-import Link from 'next/link'
 import PLogo from '@/components/layout/p-logo'
 import { LoginFormClient } from './_components/login-form-client'
 import { AuthLoading } from './_components/auth-loading'
+import { APP_VERSION } from '@/_config'
 
 export const metadata: Metadata = {
   title: '登录 - PixiShelf',
@@ -49,13 +49,7 @@ export default function LoginPage() {
           <div className="flex items-center gap-4 text-sm text-blue-200/60">
             <span>© {new Date().getFullYear()} PixiShelf</span>
             <span>·</span>
-            <Link href="/privacy" className="hover:text-white transition-colors">
-              Privacy Policy
-            </Link>
-            <span>·</span>
-            <Link href="/terms" className="hover:text-white transition-colors">
-              Terms of Service
-            </Link>
+            <span className="hover:text-white transition-colors">{APP_VERSION}</span>
           </div>
         </div>
       </div>
@@ -82,7 +76,7 @@ export default function LoginPage() {
 
           {/* 底部版权 (移动端) */}
           <div className="lg:hidden text-center mt-8 text-xs text-muted-foreground/50">
-            © {new Date().getFullYear()} PixiShelf
+            © {new Date().getFullYear()} PixiShelf {APP_VERSION}
           </div>
         </div>
       </div>

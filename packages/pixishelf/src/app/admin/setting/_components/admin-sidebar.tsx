@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { AdminTab, AdminTabId } from '../_hooks/use-admin-tab'
+import { APP_VERSION } from '@/_config'
 
 // 侧边栏组件Props接口
 export interface AdminSidebarProps {
@@ -127,9 +128,7 @@ function AdminSidebar({ tabs, activeTab, onTabChange, isMobile, isOpen, onClose 
 
       {/* 侧边栏底部 */}
       <div className="p-4 border-t border-neutral-200">
-        <div className="text-xs text-neutral-500 text-center">
-          管理页面 {process.env.NEXT_PUBLIC_APP_VERSION || 'v1.0'}
-        </div>
+        <div className="text-xs text-neutral-500 text-center">管理页面 {APP_VERSION}</div>
       </div>
     </aside>
   )

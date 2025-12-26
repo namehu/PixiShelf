@@ -4,7 +4,7 @@ import React, { useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/components/auth'
 import { ROUTES } from '@/lib/constants'
-import { LoginForm } from './Login-form'
+import { LoginForm } from './login-form'
 import { AuthLoading } from './auth-loading'
 
 export function LoginFormClient() {
