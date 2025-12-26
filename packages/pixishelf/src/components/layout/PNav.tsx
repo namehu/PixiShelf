@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { FC, PropsWithChildren, ReactNode } from 'react'
 import UserMenu from './UserMenu'
 import PLogo from './p-logo'
+import { cn } from '@/lib/utils'
 
 interface INavProps {
   className?: string
@@ -31,7 +32,7 @@ const PNav: FC<PropsWithChildren<INavProps>> = ({ className, children, renderLef
               {/* 1. Logo 始终在最左侧 */}
               <Link href="/dashboard" className="text-xl font-bold text-gray-900 flex-shrink-0">
                 <div className="sm:hidden w-8 h-8 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/10">
-                  <PLogo className="text-white" size="small"></PLogo>
+                  <PLogo className="text-white" size="small" />
                 </div>
                 <span className="hidden sm:inline">Pixishelf</span>
               </Link>
@@ -40,11 +41,18 @@ const PNav: FC<PropsWithChildren<INavProps>> = ({ className, children, renderLef
               {renderLeft && <div className="flex items-center">{renderLeft}</div>}
 
               {/* 3. children：原本的导航链接 */}
-              <div className="text-xl font-bold text-gray-900">{children}</div>
+              <div
+                className={cn(
+                  'flex items-center',
+                  typeof children === 'string' ? 'text-xl font-bold text-gray-900' : 'flex-1 w-full'
+                )}
+              >
+                {children}
+              </div>
             </div>
 
             {/* --- 右侧区域 --- */}
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-4 pl-4">
               {/* 4. renderExtra 插槽：在用户菜单之前渲染 */}
               {renderExtra && <div className="flex items-center">{renderExtra}</div>}
               {/* 5. 用户菜单 */}
