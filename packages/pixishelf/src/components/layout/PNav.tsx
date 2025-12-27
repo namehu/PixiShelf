@@ -16,9 +16,17 @@ interface INavProps {
    * 可以用来放置：新建按钮、通知图标、搜索框等
    */
   renderExtra?: ReactNode
+
+  showUserMenu?: boolean
 }
 
-const PNav: FC<PropsWithChildren<INavProps>> = ({ className, children, renderLeft, renderExtra }) => {
+const PNav: FC<PropsWithChildren<INavProps>> = ({
+  className,
+  children,
+  renderLeft,
+  renderExtra,
+  showUserMenu = true
+}) => {
   return (
     <div className={`w-full ${className}`}>
       {/* 这是一个占位符，用来防止 Fixed 导航栏遮挡内容，高度 py-8 (2rem * 2 = 64px) 对应 h-16 */}
@@ -52,12 +60,14 @@ const PNav: FC<PropsWithChildren<INavProps>> = ({ className, children, renderLef
             </div>
 
             {/* --- 右侧区域 --- */}
-            <div className="flex items-center space-x-4 pl-4">
-              {/* 4. renderExtra 插槽：在用户菜单之前渲染 */}
-              {renderExtra && <div className="flex items-center">{renderExtra}</div>}
-              {/* 5. 用户菜单 */}
-              <UserMenu />
-            </div>
+            {(!!renderExtra || showUserMenu) && (
+              <div className="flex items-center space-x-4 pl-4">
+                {/* 4. renderExtra 插槽：在用户菜单之前渲染 */}
+                {renderExtra && <div className="flex items-center">{renderExtra}</div>}
+                {/* 5. 用户菜单 */}
+                {showUserMenu && <UserMenu />}
+              </div>
+            )}
           </div>
         </div>
       </nav>

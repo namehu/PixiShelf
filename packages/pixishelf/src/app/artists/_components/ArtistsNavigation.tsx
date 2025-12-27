@@ -80,11 +80,17 @@ const ArtistsNavigation = () => {
   )
 
   return (
-    <PNav className="sticky top-0 z-40 border-b border-gray-100/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-gray-950/60">
-      <div className="flex items-center gap-3 w-full pr-4">
+    <PNav
+      showUserMenu={false}
+      className="sticky top-0 z-40 border-b border-gray-100/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-gray-950/60"
+    >
+      <div className="flex items-center gap-2 md:gap-3 w-full pr-2 md:pr-4">
         {/* 搜索框区域 */}
         <div
-          className={cn('relative transition-all duration-300 ease-in-out w-full', isFocused ? 'flex-[2]' : 'flex-1')}
+          className={cn(
+            'relative transition-all duration-300 ease-in-out',
+            isFocused ? 'flex-[100%] w-full' : 'flex-1'
+          )}
         >
           <div className="relative group">
             <div
@@ -116,12 +122,17 @@ const ArtistsNavigation = () => {
         </div>
 
         {/* 排序选择器 */}
-        <div className="flex-shrink-0">
+        <div
+          className={cn(
+            'flex-shrink-0 transition-all duration-300 ease-in-out overflow-hidden',
+            isFocused ? 'w-0 opacity-0 scale-95 md:w-auto md:opacity-100 md:scale-100' : 'w-auto opacity-100 scale-100'
+          )}
+        >
           <Select value={currentSortBy} onValueChange={(value) => handleSort(value as ArtistsQuery['sortBy'])}>
-            <SelectTrigger className="w-[140px] sm:w-[160px] h-10 rounded-full border-transparent bg-gray-100/50 dark:bg-gray-900/50 hover:bg-gray-100 dark:hover:bg-gray-900 focus:ring-4 focus:ring-gray-100 dark:focus:ring-gray-800 transition-all text-[13px]">
-              <div className="flex items-center gap-2 text-gray-600 dark:text-gray-300">
-                <ArrowUpDown className="w-3.5 h-3.5 text-gray-400" />
-                <SelectValue />
+            <SelectTrigger className="w-[120px] md:w-[160px] h-10 rounded-full border-transparent bg-gray-100/50 dark:bg-gray-900/50 hover:bg-gray-100 dark:hover:bg-gray-900 focus:ring-4 focus:ring-gray-100 dark:focus:ring-gray-800 transition-all text-[13px] px-3">
+              <div className="flex items-center gap-2 text-gray-600 dark:text-gray-300 overflow-hidden">
+                <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                <SelectValue className="truncate" />
               </div>
             </SelectTrigger>
             <SelectContent
