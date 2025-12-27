@@ -167,7 +167,7 @@ function ArtistDetailPage() {
 
   return (
     <div className="relative">
-      <HeadInfo artist={artist}></HeadInfo>
+      <HeadInfo artist={artist} />
       {/* 作品列表部分 */}
       <div className="space-y-6 px-4 my-4">
         {/* 作品列表标题和排序 */}
