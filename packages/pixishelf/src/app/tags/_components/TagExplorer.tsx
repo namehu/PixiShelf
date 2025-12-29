@@ -15,7 +15,7 @@ export type ViewMode = 'universe' | 'grid'
 
 // --- API 请求逻辑 ---
 const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => {
-  const pageSize = 48
+  const pageSize = 100
   let url = ''
 
   if (query) {
