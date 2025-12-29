@@ -78,29 +78,32 @@ export function ClientScanCard({ hasScanPath, isScanning, onScan, className }: C
   return (
     <SCard
       className={className}
-      title={
-        <div className="flex items-center gap-2">
-          <span>客户端扫描</span>
+      title={'客户端扫描'}
+      // 头部右侧放置主操作按钮
+      footer={
+        <div className="flex items-center justify-end gap-2">
           {validLinesCount > 0 && (
             <Badge variant="secondary" className="text-xs font-normal">
               已就绪 {validLinesCount} 条
             </Badge>
           )}
-        </div>
-      }
-      // 头部右侧放置主操作按钮
-      extra={
-        <Button onClick={handleSubmit} disabled={isScanning || !hasScanPath || validLinesCount === 0} size="sm">
-          {isScanning ? (
-            <>
-              <span className="animate-spin mr-2">⏳</span> 进行中...
-            </>
-          ) : (
-            <>
-              <Play className="mr-2 h-4 w-4" /> 提交扫描
-            </>
+          {text && (
+            <Button variant="danger" size="sm" onClick={handleClear} disabled={isScanning}>
+              <X className="mr-1 h-3.5 w-3.5" /> 清空
+            </Button>
           )}
-        </Button>
+          <Button onClick={handleSubmit} disabled={isScanning || !hasScanPath || validLinesCount === 0} size="sm">
+            {isScanning ? (
+              <>
+                <span className="animate-spin mr-2">⏳</span> 进行中...
+              </>
+            ) : (
+              <>
+                <Play className="mr-2 h-4 w-4" /> 提交扫描
+              </>
+            )}
+          </Button>
+        </div>
       }
     >
       <div className="space-y-3">
@@ -123,18 +126,6 @@ export function ClientScanCard({ hasScanPath, isScanning, onScan, className }: C
 
             <span className="text-xs text-neutral-400">支持按行分割的 .txt 文件</span>
           </div>
-
-          {text && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleClear}
-              disabled={isScanning}
-              className="h-8 text-neutral-500 hover:text-red-600"
-            >
-              <X className="mr-1 h-3.5 w-3.5" /> 清空
-            </Button>
-          )}
         </div>
 
         {/* 文本编辑区域 */}

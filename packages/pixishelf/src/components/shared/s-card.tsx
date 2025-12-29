@@ -83,7 +83,9 @@ export function SCard({
       {!!children && <CardContent className={cn(!contentPadding && 'p-0')}>{children}</CardContent>}
 
       {/* 底部区域 */}
-      {footer && <CardFooter className="bg-neutral-50/50 border-t p-4 flex items-center">{footer}</CardFooter>}
+      {footer && (
+        <CardFooter className="bg-neutral-50/50 border-t pt-3 flex items-center justify-end">{footer}</CardFooter>
+      )}
     </Card>
   )
 }

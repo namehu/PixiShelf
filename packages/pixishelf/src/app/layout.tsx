@@ -32,9 +32,9 @@ export default function RootLayout({ children }: RootLayoutProps) {
     <html lang="zh-CN">
       <body suppressHydrationWarning={true}>
         <Providers>
+          <Toaster />
           {children}
           <GlobalConfirmDialog />
-          <Toaster />
         </Providers>
       </body>
     </html>
