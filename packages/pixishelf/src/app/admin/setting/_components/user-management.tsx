@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiJson } from '@/lib/api'
+import { apiJson, client } from '@/lib/api'
 import { UsersResponse } from '@/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -20,16 +20,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { UserPlus, Trash2, User as UserIcon } from 'lucide-react'
-
-// Hook: 获取用户列表
-function useUsers() {
-  return useQuery({
-    queryKey: ['users'],
-    queryFn: async (): Promise<UsersResponse> => {
-      return apiJson<UsersResponse>('/api/v1/users')
-    }
-  })
-}
 
 // Hook: 删除用户
 function useDeleteUser() {
@@ -72,7 +62,10 @@ function useCreateUser() {
  * 迁移自原Users.tsx，保持所有功能不变
  */
 function UserManagement() {
-  const { data, isLoading, isError } = useUsers()
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => client<UsersResponse>('/api/v1/users')
+  })
   const deleteUser = useDeleteUser()
   const createUser = useCreateUser()
   const [showForm, setShowForm] = React.useState(false)
@@ -193,7 +186,7 @@ function UserManagement() {
           {isLoading && (
             <div className="flex items-center justify-center py-8">
               <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
                 <p className="text-muted-foreground">加载中...</p>
               </div>
             </div>

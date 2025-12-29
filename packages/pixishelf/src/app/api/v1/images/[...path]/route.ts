@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import * as path from 'path'
 import { getSettingService } from '@/lib/services/setting'
+import logger from '@/lib/logger'
 
 /**
  * 图片/媒体文件服务接口
@@ -125,7 +126,7 @@ export async function GET(
       headers
     })
   } catch (error) {
-    console.error('Failed to serve media file:', error)
+    logger.error('Failed to serve media file:', error)
     return NextResponse.json({ error: 'Failed to serve media file' }, { status: 500 })
   }
 }

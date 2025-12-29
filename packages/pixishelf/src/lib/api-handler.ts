@@ -75,7 +75,7 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
             success: false,
             errorCode: 400,
             error: 'Invalid Request Parameters',
-            details: z.treeifyError(err) // 返回具体的字段错误
+            details: z.prettifyError(err) // 返回具体的字段错误
           },
           { status: 400 }
         )
