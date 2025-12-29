@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import { MEDIA_EXTENSIONS } from '../../../../lib/constant'
+import logger from '@/lib/logger'
 
 /**
  * 媒体文件信息接口
@@ -77,7 +78,7 @@ export class MediaCollector {
             sortOrder: mediaInfo.pageIndex
           })
         } catch (error) {
-          console.warn('Failed to get file stats:', { error, filePath })
+          logger.warn('Failed to get file stats:', { error, filePath })
           continue
         }
       }
@@ -90,7 +91,7 @@ export class MediaCollector {
         mediaFiles
       }
     } catch (error) {
-      console.error('Failed to collect media files:', { error, directoryPath, artworkId })
+      logger.error('Failed to collect media files:', { error, directoryPath, artworkId })
       return {
         success: false,
         mediaFiles: [],
@@ -127,7 +128,7 @@ export class MediaCollector {
 
     if (!pageIndexStr) return null
     const pageIndex = parseInt(pageIndexStr, 10)
-    if (isNaN(pageIndex) || pageIndex < 0) return null
+    if (Number.isNaN(pageIndex) || pageIndex < 0) return null
 
     return { pageIndex }
   }

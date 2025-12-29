@@ -102,12 +102,16 @@ export class MetadataParser {
         }
       }
 
-      return {
-        success: true,
-        metadata
+      return { success: true, metadata }
+    } catch (error: any) {
+      // 针对文件不存在的情况进行特殊处理，不打印错误日志，交由调用方处理
+      if (error.code === 'ENOENT') {
+        return {
+          success: false,
+          error: `File not found: ${filePath}`
+        }
       }
-    } catch (error) {
-      console.error('Failed to parse metadata file:', { error, filePath })
+
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -225,7 +229,7 @@ export class MetadataParser {
         break
       case 'Bookmark':
         const bookmarkNum = parseInt(value, 10)
-        metadata.bookmark = isNaN(bookmarkNum) ? 0 : bookmarkNum
+        metadata.bookmark = Number.isNaN(bookmarkNum) ? 0 : bookmarkNum
         break
       case 'Date':
         metadata.date = this.parseDate(value) || new Date()
@@ -259,7 +263,7 @@ export class MetadataParser {
 
     try {
       const date = new Date(dateString)
-      return isNaN(date.getTime()) ? undefined : date
+      return Number.isNaN(date.getTime()) ? undefined : date
     } catch {
       return undefined
     }

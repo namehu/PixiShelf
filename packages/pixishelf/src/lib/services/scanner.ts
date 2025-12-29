@@ -1,3 +1,4 @@
+// oxlint-disable max-lines
 import path from 'path'
 import { ScanProgress, ScanResult } from '@/types'
 import { MetadataParser, MetadataInfo } from './scanner/metadata-parser'
@@ -206,7 +207,7 @@ export class ScannerService {
 
       return this.scanResult
     } catch (error) {
-      console.error('Scan failed:', { error, options })
+      logger.error('Scan failed:', { error, options })
       this.scanResult.errors.push(error instanceof Error ? error.message : 'Unknown error')
       this.scanResult.processingTime = Date.now() - startTime
       return this.scanResult
@@ -369,7 +370,7 @@ export class ScannerService {
         this.scanResult.errors.push(
           `Duplicate artworkId found: ${file.artworkId}\n ${existingFile.path} \n ${file.path}`
         )
-        console.warn('Duplicate artworkId found:', { artworkId: file.artworkId })
+        logger.warn('Duplicate artworkId found:', { artworkId: file.artworkId })
         return false
       }
       artworkIdSet[file.artworkId] = file
@@ -388,7 +389,7 @@ export class ScannerService {
     const { artworkId, path: metadataPath, name: metadataFilename, createdAt } = metadataFile
 
     if (!artworkId) {
-      console.warn('Invalid metadata filename:', { metadataFilename })
+      logger.warn('Invalid metadata filename:', { metadataFilename })
       return null
     }
 
@@ -396,19 +397,25 @@ export class ScannerService {
       // 解析元数据
       const parseResult = await this.metadataParser.parseMetadataFile(metadataPath)
       if (!parseResult.success || !parseResult.metadata) {
-        console.warn('Failed to parse metadata:', { metadataPath, error: parseResult.error })
+        // 区分文件丢失和其他解析错误
+        if (parseResult.error && parseResult.error.startsWith('File not found')) {
+          // 文件丢失通常是由于在扫描过程中文件被移动或删除，属于预期内的边缘情况
+          logger.warn(`Skipping artwork due to missing metadata file: ${metadataPath}`)
+        } else {
+          logger.warn('Failed to parse metadata:', { metadataPath, error: parseResult.error })
+        }
         return null
       }
 
       // 收集媒体文件
       const collectionResult = await this.mediaCollector.collectMediaFiles(path.dirname(metadataPath), artworkId)
       if (!collectionResult.success) {
-        console.warn('Failed to collect media files:', { metadataPath, artworkId, error: collectionResult.error })
+        logger.warn('Failed to collect media files:', { metadataPath, artworkId, error: collectionResult.error })
         return null
       }
 
       if (collectionResult.mediaFiles.length === 0) {
-        console.warn('No media files found for artwork:', { metadataPath, artworkId })
+        logger.warn('No media files found for artwork:', { metadataPath, artworkId })
         return null
       }
 
@@ -419,7 +426,7 @@ export class ScannerService {
         directoryCreatedAt: createdAt
       }
     } catch (error) {
-      console.error('Error processing metadata file:', { error, metadataPath })
+      logger.error('Error processing metadata file:', { error, metadataPath })
       return null
     }
   }
@@ -543,7 +550,7 @@ export class ScannerService {
         this.scanResult.errors.push(
           `Duplicate artworkId found: ${file.artworkId}\n ${existingFile.path} \n ${file.path}`
         )
-        console.warn('Duplicate artworkId found:', { artworkId: file.artworkId })
+        logger.warn('Duplicate artworkId found:', { artworkId: file.artworkId })
         return false
       }
       artworkIdSet[file.artworkId] = file
@@ -571,7 +578,7 @@ export class ScannerService {
           // 从缓存获取艺术家
           const artist = this.artistCache.get(metadata.userId)
           if (!artist) {
-            console.warn('Artist not found in cache, this should not happen after batch processing:', {
+            logger.warn('Artist not found in cache, this should not happen after batch processing:', {
               userId: metadata.userId
             })
             continue
