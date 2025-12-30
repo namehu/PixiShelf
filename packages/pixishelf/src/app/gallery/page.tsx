@@ -3,12 +3,11 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useInView } from 'react-intersection-observer'
-import { Loader2, Filter, SlidersHorizontal, X } from 'lucide-react'
+import { Loader2, Filter, SlidersHorizontal } from 'lucide-react'
 import { EnhancedArtworksResponse, SortOption, MediaTypeFilter } from '@/types'
 import { useAuth } from '@/components/auth'
-import { SortControl } from '@/components/ui/SortControl'
 import { SearchBox } from './_components/search-box'
-import { MediaTypeFilter as MediaTypeFilterComponent } from '@/components/ui/MediaTypeFilter'
+import { FilterSheet } from './_components/filter-sheet'
 import { client } from '@/lib/api' // 注意：这里修正了 import 顺序
 import { ROUTES } from '@/lib/constants'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
@@ -16,7 +15,6 @@ import PNav from '@/components/layout/PNav'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { SSheet } from '@/components/shared/s-sheet'
 
 /**
  * 获取作品列表Hook
@@ -180,12 +178,35 @@ function GalleryPageContent() {
   }
 
   const handleSearch = (query: string) => updateParams('search', query.trim() || null)
-  const handleSortChange = (val: SortOption) => updateParams('sortBy', val === 'source_date_desc' ? null : val)
-  const handleMediaTypeChange = (val: MediaTypeFilter) => updateParams('mediaType', val === 'all' ? null : val)
-  const removeTag = (tag: string) => {
-    const newTags = selectedTags.filter((t) => t !== tag)
-    updateParams('tags', newTags.length > 0 ? newTags.join(',') : null)
+
+  const handleApplyFilters = (filters?: { tags: string[]; mediaType: MediaTypeFilter; sortBy: SortOption }) => {
+    const newParams = new URLSearchParams(searchParams.toString())
+
+    if (!filters) {
+      return clearAllFilters()
+    }
+
+    if (filters.tags.length > 0) {
+      newParams.set('tags', filters.tags.join(','))
+    } else {
+      newParams.delete('tags')
+    }
+
+    if (filters.mediaType !== 'all') {
+      newParams.set('mediaType', filters.mediaType)
+    } else {
+      newParams.delete('mediaType')
+    }
+
+    if (filters.sortBy !== 'source_date_desc') {
+      newParams.set('sortBy', filters.sortBy)
+    } else {
+      newParams.delete('sortBy')
+    }
+
+    router.push(`/gallery?${newParams.toString()}`)
   }
+
   const clearAllFilters = () => {
     router.push('/gallery')
   }
@@ -227,93 +248,29 @@ function GalleryPageContent() {
             ) : null}
           </h1>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2 rounded-full border-gray-300 shadow-sm hover:bg-white relative"
+          onClick={() => setIsFilterOpen(true)}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+          <span className="hidden sm:inline">筛选与排序</span>
+          <span className="sm:hidden">筛选</span>
+          {(selectedTags.length > 0 || mediaType !== 'all') && (
+            <span className="w-2 h-2 rounded-full bg-red-500 absolute top-0 right-0 -mt-1 -mr-1" />
+          )}
+        </Button>
 
         {/* 筛选按钮 (触发 Sheet) */}
-        <SSheet
+        <FilterSheet
           open={isFilterOpen}
           onOpenChange={setIsFilterOpen}
-          // 1. 设置混合布局样式 (移动端底部弹出，桌面端右侧弹出)
-          side="bottom"
-          className="rounded-t-[20px] sm:max-w-md sm:rounded-none sm:side-right h-[85vh] sm:h-full"
-          // 2. 标题与描述
-          title="筛选与显示"
-          description="调整选项以精确查找内容"
-          // 3. 触发器按钮 (包含小红点逻辑)
-          trigger={
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 rounded-full border-gray-300 shadow-sm hover:bg-white relative"
-            >
-              <SlidersHorizontal className="w-4 h-4" />
-              <span className="hidden sm:inline">筛选与排序</span>
-              <span className="sm:hidden">筛选</span>
-              {(selectedTags.length > 0 || mediaType !== 'all') && (
-                <span className="w-2 h-2 rounded-full bg-red-500 absolute top-0 right-0 -mt-1 -mr-1" />
-              )}
-            </Button>
-          }
-          // 4. 底部按钮组
-          footer={
-            <div className="flex w-full gap-2 sm:gap-0 sm:justify-end">
-              {(selectedTags.length > 0 || mediaType !== 'all' || sortBy !== 'source_date_desc' || searchQuery) && (
-                <Button variant="outline" className="w-full sm:w-auto sm:mr-2" onClick={clearAllFilters}>
-                  重置所有
-                </Button>
-              )}
-              <Button className="w-full sm:w-auto" onClick={() => setIsFilterOpen(false)}>
-                查看结果
-              </Button>
-            </div>
-          }
-        >
-          {/* 5. 中间主要内容区域 (会自动处理滚动) */}
-          <div className="space-y-8">
-            {/* 活跃的标签 (Tag Chips) */}
-            {selectedTags.length > 0 && (
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">已选标签</h3>
-                <div className="flex flex-wrap gap-2">
-                  {selectedTags.map((tag) => (
-                    <Badge
-                      key={tag}
-                      variant="secondary"
-                      className="px-3 py-1 gap-1 hover:bg-red-50 hover:text-red-600 cursor-pointer transition-colors"
-                      onClick={() => removeTag(tag)}
-                    >
-                      #{tag}
-                      <X className="w-3 h-3" />
-                    </Badge>
-                  ))}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-xs text-neutral-400"
-                    onClick={() => updateParams('tags', null)}
-                  >
-                    清除标签
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* 排序控制 */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">排序方式</h3>
-              <SortControl value={sortBy} onChange={handleSortChange} className="w-full" />
-            </div>
-
-            {/* 媒体类型 */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">媒体类型</h3>
-              <MediaTypeFilterComponent
-                value={mediaType}
-                onChange={handleMediaTypeChange}
-                className="w-full justify-start"
-              />
-            </div>
-          </div>
-        </SSheet>
+          currentTags={selectedTags}
+          currentMediaType={mediaType}
+          currentSortBy={sortBy}
+          onApply={handleApplyFilters}
+        />
       </div>
 
       <main className="container mx-auto pb-10">

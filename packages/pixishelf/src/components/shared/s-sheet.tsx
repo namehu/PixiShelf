@@ -31,29 +31,25 @@ export interface SSheetProps {
   children?: React.ReactNode
 }
 
-export function SSheet({
-  open,
-  onOpenChange,
-  trigger,
-  title,
-  description,
-  footer,
-  side = 'right', // 默认为右侧
-  className,
-  children
-}: SSheetProps) {
+export function SSheet(props: SSheetProps) {
+  const {
+    open,
+    onOpenChange,
+    trigger,
+    title,
+    description,
+    footer,
+    side = 'right', // 默认为右侧
+    className,
+    children
+  } = props
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       {/* 只有传入 trigger 时才渲染 Trigger 组件 */}
       {trigger && <SheetTrigger asChild>{trigger}</SheetTrigger>}
 
-      <SheetContent
-        side={side}
-        className={cn(
-          'flex flex-col h-full', // 确保内容区可以撑开布局
-          className
-        )}
-      >
+      <SheetContent side={side} className={cn('flex flex-col h-full', className)}>
         {(title || description) && (
           <SheetHeader className="text-left">
             {title && <SheetTitle>{title}</SheetTitle>}
@@ -62,7 +58,7 @@ export function SSheet({
         )}
 
         {/* 内容区域：自动占据剩余空间并支持滚动 */}
-        <div className="flex-1 overflow-y-auto py-6">{children}</div>
+        <div className="flex-1 overflow-y-auto px-4">{children}</div>
 
         {footer && <SheetFooter>{footer}</SheetFooter>}
       </SheetContent>
