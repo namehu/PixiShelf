@@ -16,7 +16,7 @@ import {
   PaginationNext,
   PaginationPrevious
 } from '@/components/ui/pagination'
-import { apiJson } from '@/lib/api'
+import { apiJson, client } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
 import PNav from '@/components/layout/PNav'
@@ -62,7 +62,7 @@ function useArtworks(
           url.searchParams.set('mediaType', mediaType)
         }
 
-        const result = await apiJson<EnhancedArtworksResponse>(url.toString())
+        const result = await client<EnhancedArtworksResponse>(url.toString())
         setData(result)
       } catch (error) {
         console.error('Failed to fetch artworks:', error)

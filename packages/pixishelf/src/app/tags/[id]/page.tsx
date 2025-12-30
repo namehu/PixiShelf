@@ -52,17 +52,8 @@ function TagDetailPage() {
         setLoadingMore(true)
       }
 
-      const response = await fetch(
-        `/api/artworks?tagId=${tagId}&page=${pageNum}&pageSize=${pageSize}&sortBy=source_date_desc`
-      )
+      const data = await client<any>(`/api/artworks?tagId=${tagId}&page=${pageNum}&pageSize=${pageSize}`)
 
-      if (!response.ok) {
-        throw new Error('获取作品列表失败')
-      }
-
-      const data = await response.json()
-
-      // API 返回格式: { items: [], total: number, page: number, pageSize: number }
       const newArtworks = data.items || []
 
       if (append) {

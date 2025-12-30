@@ -17,7 +17,7 @@ import {
   PaginationNext,
   PaginationPrevious
 } from '@/components/ui/pagination'
-import { apiJson, client } from '@/lib/api'
+import { client } from '@/lib/api'
 import ClientImage from '@/components/client-image'
 import HeadInfo from './_components/HeadInfo'
 import { ArtistResponseDto } from '@/schemas/artist.dto'
@@ -70,7 +70,7 @@ function ArtistDetailPage() {
       if (sortBy && sortBy !== 'source_date_desc') {
         url.searchParams.set('sortBy', sortBy)
       }
-      return apiJson<EnhancedArtworksResponse>(url.toString())
+      return client(url.toString())
     },
     enabled: !!id
   })
