@@ -199,11 +199,11 @@ export const GET = apiHandler(ArtworksQuerySchema, async (req, data) => {
         orderBySQL = 'ORDER BY a."imageCount" ASC'
         break
       case 'source_date_asc':
-        orderBySQL = 'ORDER BY a."directoryCreatedAt" ASC'
+        orderBySQL = 'ORDER BY a."sourceDate" ASC'
         break
       case 'source_date_desc':
       default:
-        orderBySQL = 'ORDER BY a."directoryCreatedAt" DESC'
+        orderBySQL = 'ORDER BY a."sourceDate" DESC'
         break
     }
 
@@ -332,9 +332,6 @@ export const GET = apiHandler(ArtworksQuerySchema, async (req, data) => {
       imageCount: hasVideo ? 0 : artwork._count?.images || artwork.imageCount || 0,
       totalMediaSize,
       descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
-      directoryCreatedAt: artwork.directoryCreatedAt?.toISOString() || null,
-      createdAt: artwork.createdAt.toISOString(),
-      updatedAt: artwork.updatedAt.toISOString(),
       artist: artwork.artist
         ? {
             ...artwork.artist,

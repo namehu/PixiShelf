@@ -75,7 +75,7 @@ export const getRecentArtworks = async (options: GetRecentArtworksOptions = {}):
   const [artworks, total] = await Promise.all([
     prisma.artwork.findMany({
       include: defaultArtworkInclude,
-      orderBy: { directoryCreatedAt: 'desc' },
+      orderBy: { sourceDate: 'desc' },
       skip: skip,
       take: pageSize
     }),
