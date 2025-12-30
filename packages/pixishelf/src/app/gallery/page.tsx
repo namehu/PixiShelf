@@ -4,36 +4,19 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useInView } from 'react-intersection-observer'
 import { Loader2, Filter, SlidersHorizontal, X } from 'lucide-react'
-
-// --- 原始 Imports (保持路径一致) ---
 import { EnhancedArtworksResponse, SortOption, MediaTypeFilter } from '@/types'
 import { useAuth } from '@/components/auth'
 import { SortControl } from '@/components/ui/SortControl'
-import { SearchBox } from './_components/SearchBox'
+import { SearchBox } from './_components/search-box'
 import { MediaTypeFilter as MediaTypeFilterComponent } from '@/components/ui/MediaTypeFilter'
-// 分页组件已移除，使用无限滚动替代
-import { client, apiJson } from '@/lib/api' // 注意：这里修正了 import 顺序
+import { client } from '@/lib/api' // 注意：这里修正了 import 顺序
 import { ROUTES } from '@/lib/constants'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
 import PNav from '@/components/layout/PNav'
-
-// --- 新增 UI 组件 (假设基于 Shadcn UI) ---
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger
-} from '@/components/ui/sheet'
-
-// ============================================================================
-// Hooks (保持原有逻辑，稍作优化)
-// ============================================================================
+import { SSheet } from '@/components/shared/s-sheet'
 
 /**
  * 获取作品列表Hook
@@ -90,36 +73,6 @@ function useArtworks(
   return { data, isLoading, isError }
 }
 
-/**
- * 获取扫描状态Hook (保持不变)
- */
-function useScanStatus() {
-  const [data, setData] = useState<{ scanning: boolean; message: string | null } | null>(null)
-
-  useEffect(() => {
-    const fetchScanStatus = async () => {
-      try {
-        const result = await apiJson<{ scanning: boolean; message: string | null }>('/api/scan/status')
-        setData(result)
-      } catch (error) {
-        console.error('Failed to fetch scan status:', error)
-      }
-    }
-
-    fetchScanStatus()
-
-    const interval = setInterval(() => {
-      if (data?.scanning) {
-        fetchScanStatus()
-      }
-    }, 1000)
-
-    return () => clearInterval(interval)
-  }, [data?.scanning])
-
-  return { data }
-}
-
 // ============================================================================
 // 画廊页面内容组件 (重构核心)
 // ============================================================================
@@ -128,7 +81,6 @@ function GalleryPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { isAuthenticated, isLoading: authLoading } = useAuth()
-  const scanStatus = useScanStatus()
 
   // --- 1. 状态管理 ---
   // 本地页码状态，初始为 1
@@ -140,7 +92,7 @@ function GalleryPageContent() {
   // 控制筛选抽屉的开关
   const [isFilterOpen, setIsFilterOpen] = useState(false)
 
-  const pageSize = 24
+  const pageSize = 10
 
   // --- 2. 解析 URL 参数 ---
   const selectedTags = useMemo(() => searchParams.get('tags')?.split(',').filter(Boolean) || [], [searchParams])
@@ -264,7 +216,7 @@ function GalleryPageContent() {
       </PNav>
 
       {/* 2. 顶部工具栏 (Sticky) */}
-      <div className="px-4 sticky top-[63px] z-30  py-4 flex items-center justify-between transition-all backdrop-blur-xl bg-white/80">
+      <div className="px-4 sticky top-[64px] z-30  py-2 flex items-center justify-between transition-all backdrop-blur-xl bg-white/80">
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-bold text-neutral-900 flex items-center gap-2">
             画廊
@@ -274,97 +226,94 @@ function GalleryPageContent() {
               </Badge>
             ) : null}
           </h1>
-          {/* 扫描状态提示 */}
-          {scanStatus.data?.scanning && (
-            <span className="text-xs text-primary animate-pulse flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-              正在扫描: {scanStatus.data.message}
-            </span>
-          )}
         </div>
 
         {/* 筛选按钮 (触发 Sheet) */}
-        <Sheet open={isFilterOpen} onOpenChange={setIsFilterOpen}>
-          <SheetTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2 rounded-full border-gray-300 shadow-sm hover:bg-white">
+        <SSheet
+          open={isFilterOpen}
+          onOpenChange={setIsFilterOpen}
+          // 1. 设置混合布局样式 (移动端底部弹出，桌面端右侧弹出)
+          side="bottom"
+          className="rounded-t-[20px] sm:max-w-md sm:rounded-none sm:side-right h-[85vh] sm:h-full"
+          // 2. 标题与描述
+          title="筛选与显示"
+          description="调整选项以精确查找内容"
+          // 3. 触发器按钮 (包含小红点逻辑)
+          trigger={
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 rounded-full border-gray-300 shadow-sm hover:bg-white relative"
+            >
               <SlidersHorizontal className="w-4 h-4" />
               <span className="hidden sm:inline">筛选与排序</span>
               <span className="sm:hidden">筛选</span>
-              {/* 如果有活跃筛选，显示小红点 */}
               {(selectedTags.length > 0 || mediaType !== 'all') && (
                 <span className="w-2 h-2 rounded-full bg-red-500 absolute top-0 right-0 -mt-1 -mr-1" />
               )}
             </Button>
-          </SheetTrigger>
-
-          {/* 筛选抽屉内容 */}
-          <SheetContent
-            side="bottom"
-            className="rounded-t-[20px] sm:max-w-md sm:rounded-none sm:side-right h-[85vh] sm:h-full overflow-y-auto"
-          >
-            <SheetHeader>
-              <SheetTitle>筛选与显示</SheetTitle>
-              <SheetDescription>调整选项以精确查找内容</SheetDescription>
-            </SheetHeader>
-
-            <div className="py-6 space-y-8">
-              {/* 活跃的标签 (Tag Chips) */}
-              {selectedTags.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">已选标签</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedTags.map((tag) => (
-                      <Badge
-                        key={tag}
-                        variant="secondary"
-                        className="px-3 py-1 gap-1 hover:bg-red-50 hover:text-red-600 cursor-pointer transition-colors"
-                        onClick={() => removeTag(tag)}
-                      >
-                        #{tag}
-                        <X className="w-3 h-3" />
-                      </Badge>
-                    ))}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-xs text-neutral-400"
-                      onClick={() => updateParams('tags', null)}
-                    >
-                      清除标签
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* 排序控制 */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">排序方式</h3>
-                <SortControl value={sortBy} onChange={handleSortChange} className="w-full" />
-              </div>
-
-              {/* 媒体类型 */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">媒体类型</h3>
-                <MediaTypeFilterComponent
-                  value={mediaType}
-                  onChange={handleMediaTypeChange}
-                  className="w-full justify-start"
-                />
-              </div>
-            </div>
-
-            <SheetFooter className="gap-2 sm:gap-0">
+          }
+          // 4. 底部按钮组
+          footer={
+            <div className="flex w-full gap-2 sm:gap-0 sm:justify-end">
               {(selectedTags.length > 0 || mediaType !== 'all' || sortBy !== 'source_date_desc' || searchQuery) && (
-                <Button variant="outline" className="w-full sm:w-auto" onClick={clearAllFilters}>
+                <Button variant="outline" className="w-full sm:w-auto sm:mr-2" onClick={clearAllFilters}>
                   重置所有
                 </Button>
               )}
               <Button className="w-full sm:w-auto" onClick={() => setIsFilterOpen(false)}>
                 查看结果
               </Button>
-            </SheetFooter>
-          </SheetContent>
-        </Sheet>
+            </div>
+          }
+        >
+          {/* 5. 中间主要内容区域 (会自动处理滚动) */}
+          <div className="space-y-8">
+            {/* 活跃的标签 (Tag Chips) */}
+            {selectedTags.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">已选标签</h3>
+                <div className="flex flex-wrap gap-2">
+                  {selectedTags.map((tag) => (
+                    <Badge
+                      key={tag}
+                      variant="secondary"
+                      className="px-3 py-1 gap-1 hover:bg-red-50 hover:text-red-600 cursor-pointer transition-colors"
+                      onClick={() => removeTag(tag)}
+                    >
+                      #{tag}
+                      <X className="w-3 h-3" />
+                    </Badge>
+                  ))}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs text-neutral-400"
+                    onClick={() => updateParams('tags', null)}
+                  >
+                    清除标签
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* 排序控制 */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">排序方式</h3>
+              <SortControl value={sortBy} onChange={handleSortChange} className="w-full" />
+            </div>
+
+            {/* 媒体类型 */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">媒体类型</h3>
+              <MediaTypeFilterComponent
+                value={mediaType}
+                onChange={handleMediaTypeChange}
+                className="w-full justify-start"
+              />
+            </div>
+          </div>
+        </SSheet>
       </div>
 
       <main className="container mx-auto pb-10">
