@@ -1,24 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { apiHandler } from '@/lib/api-handler'
+import { RecommendationsGetSchema } from '@/schemas/api/artwork'
 import { getRecommendedArtworks } from '@/services/artwork-service'
-import type { EnhancedArtworksResponse } from '@/types'
-import logger from '@/lib/logger'
 
 /**
  * 获取推荐作品接口
  * GET /api/artworks/recommendations
  */
-export async function GET(request: NextRequest): Promise<NextResponse<EnhancedArtworksResponse>> {
-  try {
-    // 1. 解析请求参数
-    const { searchParams } = new URL(request.url)
-    const pageSize = parseInt(searchParams.get('pageSize') || '10', 10)
+export const GET = apiHandler(RecommendationsGetSchema, async (req, data) => {
+  // 调用 Service 层
+  const result = await getRecommendedArtworks({ pageSize: data.pageSize })
 
-    // 2. 调用 Service 层
-    const result = await getRecommendedArtworks({ pageSize })
-    // 3. 返回响应
-    return NextResponse.json(result)
-  } catch (error) {
-    logger.error('Error fetching recommended artworks:', error)
-    return NextResponse.json({ error: 'Failed to fetch recommended artworks' } as any, { status: 500 })
-  }
-}
+  // 直接返回数据
+  return result
+})

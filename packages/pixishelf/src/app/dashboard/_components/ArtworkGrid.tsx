@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { RefreshCw, ImageIcon } from 'lucide-react'
 import { EnhancedArtworksResponse } from '@/types'
-import { apiJson } from '@/lib/api'
+import { client } from '@/lib/api'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
 
 interface ArtworkGridProps {
@@ -29,7 +29,7 @@ export default function ArtworkGrid({ initialData, enableRefresh = false, refres
     try {
       setIsLoading(true)
       setError(null)
-      const response = await apiJson<EnhancedArtworksResponse>(refreshEndpoint)
+      const response = await client<any>(refreshEndpoint)
       setData(response)
     } catch (err) {
       setError(err instanceof Error ? err.message : '获取数据失败')
