@@ -15,7 +15,7 @@ export const ArtworkImageResponseDto = ImageModel.extend({
   mediaType: z.enum(['image', 'video']).default('image')
 })
 
-export type TArtworkImageDto = z.infer<typeof ArtworkImageResponseDto>
+export type ArtworkImageResponseDto = z.infer<typeof ArtworkImageResponseDto>
 
 /**
  * Tag DTO
@@ -49,15 +49,17 @@ export const ArtworkResponseDto = ArtworkModel.extend({
   artist: ArtistResponseDto.nullable().optional(),
 
   // 图片列表
-  images: z.array(ArtworkImageResponseDto).default([]),
+  images: z
+    .array(
+      ArtworkImageResponseDto.extend({
+        // 扩展webm 原生apng对象
+        raw: ArtworkImageResponseDto.nullable().optional()
+      })
+    )
+    .default([]),
 
   // 标签列表：注意这里我们直接返回 Tag[]，而不是中间表 ArtworkTag[]
   tags: z.array(ArtworkTagDtoTag).default([]),
-
-  // apng对象
-  apng: ArtworkImageResponseDto.optional().nullable(),
-
-  // 3. 业务计算字段 (Service 层填充)
 
   /**
    * 总媒体大小
@@ -72,4 +74,4 @@ export const ArtworkResponseDto = ArtworkModel.extend({
 
 // export type ArtistResponse = z.infer<typeof ArtistResponseDto>
 // export type TagResponse = z.infer<typeof TagResponseDto>
-export type TArtworkResponseDto = z.infer<typeof ArtworkResponseDto>
+export type ArtworkResponseDto = z.infer<typeof ArtworkResponseDto>

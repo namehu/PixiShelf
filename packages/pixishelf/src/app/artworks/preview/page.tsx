@@ -21,7 +21,7 @@ import 'swiper/css/pagination'
 import './styles.css' // Create a local style file for custom overrides if needed
 import { useShallow } from 'zustand/shallow'
 import { getMediaInfo, isApngFile } from '../../../../lib/media'
-import { TArtworkImageDto } from '@/schemas/artwork.dto'
+import { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 
 export default function ArtworkPreviewPage() {
   const router = useRouter()
@@ -35,7 +35,11 @@ export default function ArtworkPreviewPage() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [mounted, setMounted] = useState(false)
 
-  const { ext, isApng, isVideo } = useMemo(() => getMediaInfo(images[currentIndex]?.path), [images, currentIndex])
+  const { ext, isApng, isVideo } = useMemo(() => {
+    const it: any = images[currentIndex] ?? {}
+    const m = getMediaInfo(it.raw?.path || it.path)
+    return m
+  }, [images, currentIndex])
 
   useEffect(() => {
     setMounted(true)
@@ -65,15 +69,16 @@ export default function ArtworkPreviewPage() {
     )
   }
 
-  function renderSwiperSlide(image: TArtworkImageDto, index: number) {
-    const isVideo = isVideoFile(image.path)
-    const isApng = isApngFile(image.path)
+  function renderSwiperSlide(image: ArtworkImageResponseDto & { raw?: ArtworkImageResponseDto }, index: number) {
+    const imgPath = image.raw?.path || image.path
+    const isVideo = isVideoFile(imgPath)
+    const isApng = isApngFile(imgPath)
 
     if (isApng) {
       return (
         <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
           <div className="flex h-full w-full items-center justify-center">
-            <ApngPlayer src={image.path} alt={`Preview ${index}`} />
+            <ApngPlayer src={imgPath} alt={`Preview ${index}`} />
           </div>
         </SwiperSlide>
       )
@@ -83,7 +88,7 @@ export default function ArtworkPreviewPage() {
       return (
         <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
           <div className="flex h-full w-full items-center justify-center">
-            <VideoPlayer src={image.path} className="max-h-full max-w-full" />
+            <VideoPlayer src={imgPath} className="max-h-full max-w-full" />
           </div>
         </SwiperSlide>
       )
@@ -93,7 +98,7 @@ export default function ArtworkPreviewPage() {
       <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
         <div className="swiper-zoom-container">
           <Image
-            src={combinationApiResource(image.path)!}
+            src={combinationApiResource(imgPath)!}
             alt={`Preview ${index}`}
             width={0}
             height={0}

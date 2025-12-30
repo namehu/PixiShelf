@@ -14,7 +14,7 @@ import { useArtworkStore } from '@/store/useArtworkStore' // 引入 store
 import LazyMedia from './_components/LazyMedia'
 import ArtworkDes from './_components/ArtworkDes'
 import { getMediaInfo } from '../../../../lib/media'
-import { TArtworkResponseDto } from '@/schemas/artwork.dto'
+import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 
 export default function ArtworkDetailPage() {
   const router = useRouter()
@@ -25,7 +25,7 @@ export default function ArtworkDetailPage() {
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['artwork', id],
-    queryFn: () => client<TArtworkResponseDto>(`/api/artworks/${id}`),
+    queryFn: () => client<ArtworkResponseDto>(`/api/artworks/${id}`),
     enabled: !!id
   })
 
@@ -73,11 +73,8 @@ export default function ArtworkDetailPage() {
 
                 <button
                   onClick={() => {
-                    const previewImages = data.apng ? [data.apng] : data.images
-                    if (previewImages) {
-                      setImages(previewImages)
-                      router.push('/artworks/preview')
-                    }
+                    setImages(data.images)
+                    router.push('/artworks/preview')
                   }}
                   className="w-16 flex items-center justify-center text-gray-600 hover:text-gray-900 transition-colors"
                 >

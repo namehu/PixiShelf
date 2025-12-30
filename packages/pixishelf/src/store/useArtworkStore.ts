@@ -1,4 +1,4 @@
-import { TArtworkImageDto } from '@/schemas/artwork.dto'
+import { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { create } from 'zustand'
 
 interface ArtworkStoreState {
@@ -13,7 +13,7 @@ interface ArtworkStoreState {
   /**
    * 作品图片列表
    */
-  images: TArtworkImageDto[]
+  images: ArtworkImageResponseDto[]
   /**
    * 设置作品图片总数
    */
@@ -25,7 +25,7 @@ interface ArtworkStoreState {
   /**
    * 设置作品图片列表
    */
-  setImages: (images: TArtworkImageDto[]) => void
+  setImages: (images: ArtworkImageResponseDto[]) => void
   /**
    * 清空作品图片列表
    */

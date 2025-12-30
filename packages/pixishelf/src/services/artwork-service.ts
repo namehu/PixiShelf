@@ -1,16 +1,12 @@
 import 'server-only'
 
+import path from 'path'
 import { EnhancedArtworksResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
-import {
-  TArtworkResponseDto,
-  ArtworkResponseDto,
-  TArtworkImageDto,
-  ArtworkImageResponseDto
-} from '@/schemas/artwork.dto'
+import { ArtworkResponseDto, ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { TImageModel } from '@/schemas/models'
-import { isApngFile } from '../../lib/media'
+import { isApngFile, isVideoFile } from '../../lib/media'
 
 // ==========================================
 // Types & Interfaces
@@ -88,7 +84,7 @@ export const getRecentArtworks = async (options: GetRecentArtworksOptions = {}):
  * 根据 ID 获取单个作品详情
  * 包含：所有图片、完整 Tag 信息、Artist 信息
  */
-export async function getArtworkById(id: number) {
+export async function getArtworkById(id: number): Promise<ArtworkResponseDto | null> {
   const artwork = await prisma.artwork.findUnique({
     where: { id },
     include: {
@@ -103,17 +99,17 @@ export async function getArtworkById(id: number) {
     return null
   }
 
-  const { enhancedImages, apng, totalMediaSize } = transformImages(artwork.images)
+  const { images: enhancedImages, totalMediaSize, imageCount } = transformImages(artwork.images)
 
   return ArtworkResponseDto.parse({
     ...artwork,
+    imageCount,
     images: enhancedImages,
-    apng,
     tags: artwork.artworkTags.map(({ tag }) => tag),
     totalMediaSize,
     artist: artwork.artist,
     artworkTags: undefined
-  }) as TArtworkResponseDto
+  })
 }
 
 // ==========================================
@@ -169,12 +165,12 @@ const defaultArtworkInclude = {
  */
 function transformSingleArtwork(artwork: any) {
   const _count = artwork._count?.images || artwork.imageCount || 0
-  const { enhancedImages, totalMediaSize, imageCount } = transformImages(artwork.images, _count)
+  const { images, totalMediaSize, imageCount } = transformImages(artwork.images, _count)
 
   // 构建响应对象
   const result = {
     ...artwork,
-    images: enhancedImages,
+    images: images,
     tags: artwork.artworkTags?.map((at: any) => at.tag.name) || [],
     imageCount,
     totalMediaSize,
@@ -182,9 +178,7 @@ function transformSingleArtwork(artwork: any) {
     artist: artwork.artist
       ? {
           ...artwork.artist,
-          artworksCount: 0, // 注意：列表查询通常不包含艺术家的作品总数，除非再联表查
-          createdAt: artwork.artist.createdAt?.toISOString(),
-          updatedAt: artwork.artist.updatedAt?.toISOString()
+          artworksCount: 0 // 注意：列表查询通常不包含艺术家的作品总数，除非再联表查
         }
       : null
   }
@@ -196,36 +190,55 @@ function transformSingleArtwork(artwork: any) {
   return result
 }
 
-function transformImages(images: TImageModel[], imageCount?: number) {
-  // 解析为
-  const _images = images.map((image) => ArtworkImageResponseDto.parse(image))
+// 辅助：获取不带后缀的文件名
+const getStem = (p: string) => {
+  const name = path.basename(p)
+  const ext = path.extname(name)
+  return name.slice(0, name.length - ext.length)
+}
 
-  let { apng, enhancedImages } = _images.reduce(
-    (acc, img) => {
-      if (isApngFile(img.path)) {
-        acc.apng.push(img)
-      } else {
-        acc.enhancedImages.push(img)
-      }
-      return acc
-    },
-    { apng: [] as TArtworkImageDto[], enhancedImages: [] as TArtworkImageDto[] }
+function transformImages(images: TImageModel[], dbImageCount?: number) {
+  // 1. 直接转 DTO，保留数据库排序
+  const allItems = images.map((image) =>
+    ArtworkImageResponseDto.parse({
+      ...image,
+      mediaType: isVideoFile(image.path) ? 'video' : 'image'
+    })
   )
 
-  // 修正只有apng的情况
-  if (enhancedImages.length === 0) {
-    enhancedImages = apng
-    apng = []
-  }
+  // 2. 核心逻辑：过滤并挂载
+  const finalItems = allItems.filter((item) => {
+    // 只有 APNG 需要检查是否要被合并
+    if (isApngFile(item.path)) {
+      const stem = getStem(item.path)
 
-  // 计算视频相关统计
-  const hasVideo = enhancedImages.some((img) => img.mediaType === 'video')
-  const totalMediaSize = hasVideo ? enhancedImages.reduce((sum, img) => sum + (img.size || 0), 0) : 0
+      // 在列表中寻找是否存在同名的视频文件 (Webm/Mp4)
+      // 注意：这里利用了引用传递，找到的 videoOwner 就是数组里的同一个对象
+      const videoOwner = allItems.find((i) => i !== item && i.mediaType === 'video' && getStem(i.path) === stem)
+
+      if (videoOwner) {
+        // 找到了主人：把自己挂载到视频对象上 (作为原始资源)
+        // 你可能需要去扩展一下 TS 类型定义，或者暂时用 (videoOwner as any)
+        Object.assign(videoOwner, { raw: item })
+
+        // 返回 false -> 从最终列表中移除这个 APNG
+        return false
+      }
+    }
+    // 其他情况（普通图片、视频、无主的APNG）都保留
+    return true
+  })
+
+  // 3. 统计逻辑（基于合并后的 finalItems）
+  const hasVideo = finalItems.some((img) => img.mediaType === 'video')
+
+  // 计算总大小
+  const totalMediaSize = finalItems.reduce((sum, img) => sum + (img.size || 0), 0)
 
   return {
-    apng: apng[0] ?? null,
-    enhancedImages,
-    imageCount: hasVideo ? 0 : (imageCount ?? enhancedImages.length),
+    images: finalItems,
+    hasVideo,
+    imageCount: hasVideo ? 0 : (dbImageCount ?? finalItems.length),
     totalMediaSize
   }
 }
