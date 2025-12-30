@@ -29,59 +29,6 @@ export function formatDate(
 }
 
 /**
- * 格式化相对时间
- * @param date - 日期字符串或Date对象
- * @returns 相对时间字符串
- */
-export function formatRelativeTime(date: string | Date): string {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  const now = new Date()
-  const diffInSeconds = Math.floor((now.getTime() - dateObj.getTime()) / 1000)
-
-  if (diffInSeconds < 60) {
-    return '刚刚'
-  }
-
-  const diffInMinutes = Math.floor(diffInSeconds / 60)
-  if (diffInMinutes < 60) {
-    return `${diffInMinutes}分钟前`
-  }
-
-  const diffInHours = Math.floor(diffInMinutes / 60)
-  if (diffInHours < 24) {
-    return `${diffInHours}小时前`
-  }
-
-  const diffInDays = Math.floor(diffInHours / 24)
-  if (diffInDays < 30) {
-    return `${diffInDays}天前`
-  }
-
-  const diffInMonths = Math.floor(diffInDays / 30)
-  if (diffInMonths < 12) {
-    return `${diffInMonths}个月前`
-  }
-
-  const diffInYears = Math.floor(diffInMonths / 12)
-  return `${diffInYears}年前`
-}
-
-/**
- * 格式化文件大小
- * @param bytes - 字节数
- * @returns 格式化后的文件大小字符串
- */
-export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
-}
-
-/**
  * 防抖函数
  * @param func - 要防抖的函数
  * @param wait - 等待时间（毫秒）
@@ -159,32 +106,4 @@ export function deepClone<T>(obj: T): T {
   }
 
   return obj
-}
-
-/**
- * 检查是否为有效的URL
- * @param string - 要检查的字符串
- * @returns 是否为有效URL
- */
-export function isValidUrl(string: string): boolean {
-  try {
-    new URL(string)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * 截断文本
- * @param text - 要截断的文本
- * @param maxLength - 最大长度
- * @param suffix - 后缀
- * @returns 截断后的文本
- */
-export function truncateText(text: string, maxLength: number, suffix: string = '...'): string {
-  if (text.length <= maxLength) {
-    return text
-  }
-  return text.slice(0, maxLength - suffix.length) + suffix
 }
