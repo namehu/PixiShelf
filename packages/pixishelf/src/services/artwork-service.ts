@@ -54,7 +54,7 @@ export const getRecommendedArtworks = async (
     .filter((a): a is NonNullable<typeof a> => Boolean(a))
 
   // 4. 转换数据格式
-  const items = transformArtworksList(orderedArtworks)
+  const items = orderedArtworks.map(transformSingleArtwork)
 
   return {
     items,
@@ -77,7 +77,7 @@ export const getRecentArtworks = async (options: GetRecentArtworksOptions = {}):
 
   // 2. 转换数据格式
   return {
-    items: transformArtworksList(artworks),
+    items: artworks.map(transformSingleArtwork),
     total,
     page,
     pageSize
@@ -163,13 +163,6 @@ const defaultArtworkInclude = {
   artworkTags: { include: { tag: true } },
   _count: { select: { images: true } }
 } as const // as const 提供更好的类型推导
-
-/**
- * 转换作品数据格式以匹配前端需求 (批量)
- */
-function transformArtworksList(artworks: any[]) {
-  return artworks.map(transformSingleArtwork)
-}
 
 /**
  * 转换单个作品数据
