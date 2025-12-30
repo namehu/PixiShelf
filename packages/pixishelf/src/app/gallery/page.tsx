@@ -271,7 +271,7 @@ function GalleryPageContent() {
         <div className="max-w-md">
           <SearchBox
             value={searchQuery}
-            placeholder="搜索作品、艺术家或标签...."
+            placeholder="搜索作品、描述或艺术家名称...."
             onSearch={handleSearch}
             mode="normal"
           />

@@ -7,7 +7,10 @@ import { Prisma } from '@prisma/client'
 import { ArtworkResponseDto, ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { TImageModel } from '@/schemas/models'
 import { isApngFile, isVideoFile } from '../../lib/media'
+import type { ArtworksQuerySchema } from '@/schemas/api/artwork'
+import { VIDEO_EXTENSIONS } from '../../lib/constant'
 
+// 提取常量
 // ==========================================
 // Types & Interfaces
 // ==========================================
@@ -24,6 +27,192 @@ interface GetRecentArtworksOptions {
 // ==========================================
 // Public Service Functions (业务逻辑层)
 // ==========================================
+
+/**
+ * 获取作品列表 (重构版)
+ * 使用原生 SQL 处理复杂的过滤、搜索和排序，
+ * 同时复用 transformSingleArtwork 确保返回数据格式一致。
+ */
+export async function getArtworksList(params: ArtworksQuerySchema): Promise<EnhancedArtworksResponse> {
+  const { page, pageSize, tags, search, artistId, tagId, sortBy, mediaType } = params
+  const skip = (page - 1) * pageSize
+
+  let whereSQL = 'WHERE 1=1'
+  const sqlParams: any[] = []
+  let paramIndex = 1
+
+  // 1.1 艺术家筛选
+  if (artistId && Number.isFinite(artistId)) {
+    whereSQL += ` AND a."artistId" = $${paramIndex}`
+    sqlParams.push(artistId)
+    paramIndex++
+  }
+
+  // 1.2 标签名筛选
+  if (tags.length > 0) {
+    whereSQL += ` AND EXISTS (
+      SELECT 1 FROM "ArtworkTag" at2
+      JOIN "Tag" t2 ON at2."tagId" = t2.id
+      WHERE at2."artworkId" = a.id AND t2.name = ANY($${paramIndex})
+    )`
+    sqlParams.push(tags)
+    paramIndex++
+  }
+
+  // 1.3 标签ID筛选
+  if (tagId && Number.isFinite(tagId)) {
+    whereSQL += ` AND EXISTS (
+      SELECT 1 FROM "ArtworkTag" at3
+      WHERE at3."artworkId" = a.id AND at3."tagId" = $${paramIndex}
+    )`
+    sqlParams.push(tagId)
+    paramIndex++
+  }
+
+  // 1.4 文本搜索
+  if (search) {
+    const searchCondition = `%${search}%`
+    whereSQL += ` AND (
+      a.title ILIKE $${paramIndex} OR
+      a.description ILIKE $${paramIndex} OR
+      artist.name ILIKE $${paramIndex}
+    )`
+    sqlParams.push(searchCondition)
+    paramIndex++
+  }
+
+  // 1.5 媒体类型筛选 (修复版)
+  if (mediaType === 'video' || mediaType === 'image') {
+    const extParams = VIDEO_EXTENSIONS.map((ext) => `%${ext}`)
+
+    // 构建类似 LOWER(i.path) LIKE $5 OR LOWER(i.path) LIKE $6 ...
+    const likeConditions = VIDEO_EXTENSIONS.map((_, i) => `LOWER(i.path) LIKE $${paramIndex + i}`).join(' OR ')
+
+    const videoCheckSQL = `
+      EXISTS (
+        SELECT 1 FROM "Image" i
+        WHERE i."artworkId" = a.id AND (${likeConditions})
+      )
+    `
+
+    if (mediaType === 'video') {
+      whereSQL += ` AND ${videoCheckSQL}`
+    } else {
+      whereSQL += ` AND NOT ${videoCheckSQL}`
+    }
+
+    sqlParams.push(...extParams)
+    paramIndex += VIDEO_EXTENSIONS.length
+  }
+
+  // --- 2. 获取总数 ---
+  const countQuery = `
+    SELECT COUNT(*) as count
+    FROM "Artwork" a
+    LEFT JOIN "Artist" artist ON a."artistId" = artist.id
+    ${whereSQL}
+  `
+  const countResult = await prisma.$queryRawUnsafe<{ count: bigint }[]>(countQuery, ...sqlParams)
+  const total = Number(countResult[0]?.count || 0)
+
+  // --- 3. 获取列表 ---
+  const orderBySQL = mapSortOptionToSQL(sortBy || 'source_date_desc')
+
+  const artworksQuery = `
+    SELECT
+      a.*,
+      artist.id as artist_id,
+      artist.name as artist_name,
+      artist.username as artist_username,
+      artist."userId" as artist_userId,
+      artist.bio as artist_bio,
+      artist.avatar as artist_avatar,
+      artist."createdAt" as artist_createdAt,
+      artist."updatedAt" as artist_updatedAt
+    FROM "Artwork" a
+    LEFT JOIN "Artist" artist ON a."artistId" = artist.id
+    ${whereSQL}
+    ${orderBySQL}
+    LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+  `
+
+  // 关键：这里 sqlParams 的顺序必须和上面 whereSQL 里的占位符完全对应
+  // 如果上面没有进入 mediaType 判断，paramIndex 就不会乱跳
+  sqlParams.push(pageSize, skip)
+
+  const rawArtworks = await prisma.$queryRawUnsafe<any[]>(artworksQuery, ...sqlParams)
+
+  if (rawArtworks.length === 0) {
+    return { items: [], total, page, pageSize }
+  }
+
+  // ... 后续组装逻辑保持不变
+  const artworkIds = rawArtworks.map((a) => a.id)
+  const [allImages, allTags] = await Promise.all([
+    prisma.image.findMany({
+      where: { artworkId: { in: artworkIds } },
+      orderBy: { sortOrder: 'asc' }
+    }),
+    prisma.artworkTag.findMany({
+      where: { artworkId: { in: artworkIds } },
+      include: { tag: true }
+    })
+  ])
+
+  const items = rawArtworks.map((raw) => {
+    const artistObj = raw.artist_id
+      ? {
+          id: raw.artist_id,
+          name: raw.artist_name,
+          username: raw.artist_username,
+          userId: raw.artist_userId,
+          bio: raw.artist_bio,
+          avatar: raw.artist_avatar,
+          createdAt: raw.artist_createdAt,
+          updatedAt: raw.artist_updatedAt
+        }
+      : null
+
+    const artworkImages = allImages.filter((img) => img.artworkId === raw.id)
+    const artworkTags = allTags.filter((tag) => tag.artworkId === raw.id)
+
+    const prismaLikeObject = {
+      ...raw,
+      artist: artistObj,
+      images: artworkImages,
+      artworkTags: artworkTags,
+      imageCount: raw.imageCount,
+      _count: { images: raw.imageCount }
+    }
+
+    return transformSingleArtwork(prismaLikeObject)
+  })
+
+  return { items, total, page, pageSize }
+}
+
+// 辅助：SQL 排序映射
+function mapSortOptionToSQL(sortBy: string): string {
+  switch (sortBy) {
+    case 'title_asc':
+      return 'ORDER BY a.title ASC'
+    case 'title_desc':
+      return 'ORDER BY a.title DESC'
+    case 'artist_asc':
+      return 'ORDER BY artist.name ASC'
+    case 'artist_desc':
+      return 'ORDER BY artist.name DESC'
+    case 'images_desc':
+      return 'ORDER BY a."imageCount" DESC'
+    case 'images_asc':
+      return 'ORDER BY a."imageCount" ASC'
+    case 'source_date_asc':
+      return 'ORDER BY a."sourceDate" ASC'
+    case 'source_date_desc':
+    default:
+      return 'ORDER BY a."sourceDate" DESC'
+  }
+}
 
 /**
  * 获取推荐作品
