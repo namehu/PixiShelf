@@ -21,6 +21,7 @@ model Artist {
   backgroundImg String?
   artworks      Artwork[]
 
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
   @@unique([username, userId], name: "unique_username_userid")
 }
 
@@ -50,6 +51,8 @@ model Artwork {
   artworkTags        ArtworkTag[]
   images             Image[]
 
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([directoryCreatedAt])
   @@index([imageCount])
   @@index([sourceDate])
