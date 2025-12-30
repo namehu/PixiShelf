@@ -42,7 +42,10 @@ export const getRecommendedArtworks = async (
   }
 
   // 2. 查询完整的作品数据
-  const artworks = await fetchManyByIds(randomIds)
+  const artworks = await prisma.artwork.findMany({
+    include: defaultArtworkInclude,
+    where: { id: { in: randomIds } }
+  })
 
   // 3. 按随机 ID 的顺序重新排序 (因为 SQL WHERE IN 不保证顺序)
   const orderedArtworks = randomIds
@@ -69,11 +72,20 @@ export const getRecentArtworks = async (options: GetRecentArtworksOptions = {}):
   const skip = (page - 1) * pageSize
 
   // 1. 并行查询作品数据和总数
-  const [artworks, total] = await Promise.all([fetchRecentRaw({ skip, take: pageSize }), countArtworks()])
+  const [artworks, total] = await Promise.all([
+    prisma.artwork.findMany({
+      include: defaultArtworkInclude,
+      orderBy: { directoryCreatedAt: 'desc' },
+      skip: skip,
+      take: pageSize
+    }),
+    prisma.artwork.count()
+  ])
 
   // 2. 转换数据格式
+  const items = artworks.map(transformSingleArtwork)
   return {
-    items: artworks.map(transformSingleArtwork),
+    items,
     total,
     page,
     pageSize
@@ -126,35 +138,9 @@ async function fetchRandomIds(limit: number): Promise<number[]> {
   return randomIdsResult.map((a) => a.id)
 }
 
-/**
- * 根据 ID 数组查询完整的作品数据
- */
-async function fetchManyByIds(ids: number[]) {
-  return prisma.artwork.findMany({
-    where: { id: { in: ids } },
-    include: defaultArtworkInclude
-  })
-}
-
-/**
- * 查询最新作品原始数据
- */
-async function fetchRecentRaw(options: { skip: number; take: number }) {
-  return prisma.artwork.findMany({
-    include: defaultArtworkInclude,
-    orderBy: { directoryCreatedAt: 'desc' },
-    skip: options.skip,
-    take: options.take
-  })
-}
-
-async function countArtworks(): Promise<number> {
-  return prisma.artwork.count()
-}
-
 // 定义通用的 Include 对象，减少重复代码
 const defaultArtworkInclude = {
-  images: { take: 1, orderBy: { sortOrder: 'asc' } }, // 列表页只取一张图
+  images: { take: 2, orderBy: { sortOrder: 'asc' } }, // 列表页只取一张图
   artist: true,
   artworkTags: { include: { tag: true } },
   _count: { select: { images: true } }

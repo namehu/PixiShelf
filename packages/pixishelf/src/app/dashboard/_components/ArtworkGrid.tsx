@@ -86,8 +86,8 @@ export default function ArtworkGrid({ initialData, enableRefresh = false, refres
           </div>
         )}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {data.items.map((artwork) => (
-            <ArtworkCard key={artwork.id} artwork={artwork} />
+          {data.items.map((artwork, index) => (
+            <ArtworkCard key={artwork.id} artwork={artwork as any} priority={index < 4} />
           ))}
         </div>
       </>
