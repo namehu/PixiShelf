@@ -2,14 +2,11 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { SearchSuggestion, SuggestionsResponse } from '@/types'
-import { Input } from './input'
 import { useDebounce } from '@/hooks/useDebounce'
 import { apiJson } from '@/lib/api'
 import { cn } from '@/lib/utils'
-
-// ============================================================================
-// SearchBox 组件
-// ============================================================================
+import { ImageIcon, SearchIcon, TagIcon, UserIcon } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 
 export interface SearchBoxProps {
   /** 搜索值 */
@@ -33,7 +30,7 @@ export interface SearchBoxProps {
  */
 export const SearchBox: React.FC<SearchBoxProps> = ({
   value = '',
-  placeholder = '搜索作品、艺术家或标签...',
+  placeholder = '搜索作品、艺术家...',
   onSearch,
   onSuggestionClick,
   mode = 'normal',
@@ -179,38 +176,11 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   const getSuggestionIcon = (type: SearchSuggestion['type']) => {
     switch (type) {
       case 'artist':
-        return (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-            />
-          </svg>
-        )
+        return <UserIcon className="w-4 h-4" />
       case 'artwork':
-        return (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-            />
-          </svg>
-        )
+        return <ImageIcon className="w-4 h-4" />
       case 'tag':
-        return (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-            />
-          </svg>
-        )
+        return <TagIcon className="w-4 h-4" />
       default:
         return null
     }
@@ -233,19 +203,7 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   return (
     <div className={cn('relative', className)}>
       <div className="relative">
-        <svg
-          className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
-        </svg>
+        <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
         <Input
           ref={inputRef}
           value={inputValue}
@@ -328,5 +286,3 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
     </div>
   )
 }
-
-SearchBox.displayName = 'SearchBox'

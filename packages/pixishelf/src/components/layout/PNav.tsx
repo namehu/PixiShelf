@@ -18,21 +18,23 @@ interface INavProps {
   renderExtra?: ReactNode
 
   showUserMenu?: boolean
+
+  border?: boolean
 }
 
-const PNav: FC<PropsWithChildren<INavProps>> = ({
-  className,
-  children,
-  renderLeft,
-  renderExtra,
-  showUserMenu = true
-}) => {
+const PNav: FC<PropsWithChildren<INavProps>> = (props) => {
+  const { className, children, renderLeft, renderExtra, showUserMenu = true, border = true } = props
   return (
-    <div className={`w-full ${className}`}>
+    <div className={cn('w-full', className)}>
       {/* 这是一个占位符，用来防止 Fixed 导航栏遮挡内容，高度 py-8 (2rem * 2 = 64px) 对应 h-16 */}
       <div className="h-16" />
 
-      <nav className={`fixed w-full top-0 left-0 z-50 backdrop-blur-xl border-b border-slate-200/50 bg-white/80`}>
+      <nav
+        className={cn(
+          'fixed w-full top-0 left-0 z-50 backdrop-blur-xl bg-white/80',
+          border && 'border-b border-slate-200/50'
+        )}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             {/* --- 左侧区域 --- */}
