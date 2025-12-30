@@ -113,7 +113,7 @@ export default function ArtworkDetailPage() {
             <ArtworkDes description={data.description} className="mt-6 px-6" />
 
             {/* Images */}
-            <div className="mt-6 mb-15 w-full">
+            <div className="mt-6 mb-15 px-4 w-full">
               {data.images.map((img, index) => (
                 <LazyMedia key={img.id} src={img.path} index={index} />
               ))}
