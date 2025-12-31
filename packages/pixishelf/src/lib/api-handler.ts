@@ -64,9 +64,12 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
 
       return NextResponse.json({
         code: 0,
+        data: result,
+        message: '',
+
+        // 兼容 后续迭代废弃字段
         success: true,
-        errorCode: 0,
-        data: result
+        errorCode: 0
       })
     } catch (err: any) {
       // --- 5. 错误处理 (Error Handling) ---
@@ -74,10 +77,13 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
         return NextResponse.json(
           {
             code: 400,
+            message: 'Invalid Request Parameters',
+            details: z.prettifyError(err), // 返回具体的字段错误
+
+            // 兼容 后续迭代废弃字段
             success: false,
             errorCode: 400,
-            error: 'Invalid Request Parameters',
-            details: z.prettifyError(err) // 返回具体的字段错误
+            error: 'Invalid Request Parameters'
           },
           { status: 400 }
         )
@@ -87,10 +93,13 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
         return NextResponse.json(
           {
             code: err.statusCode ?? 501,
+            data: err.details,
+            message: err.message,
+
+            // 兼容 后续迭代废弃字段
             success: false,
             errorCode: err.statusCode ?? 501,
-            error: err.message,
-            data: err.details
+            error: err.message
           },
           { status: err.statusCode }
         )
@@ -101,6 +110,10 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
       return NextResponse.json(
         {
           code: 500,
+          data: null,
+          message: 'Internal Server Error',
+
+          // 兼容 后续迭代废弃字段
           success: false,
           errorCode: 500,
           error: 'Internal Server Error'
@@ -109,4 +122,17 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
       )
     }
   }
+}
+
+export function responseSuccess<T>(data?: { data?: T; code?: number; message?: string }) {
+  const { code = 0, message, data: responseData } = data ?? {}
+
+  const result: any = {
+    code,
+    message: message ?? 'success'
+  }
+  if (responseData !== undefined) {
+    result.data = responseData
+  }
+  return NextResponse.json(result, { status: 200 })
 }

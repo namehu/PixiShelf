@@ -1,5 +1,5 @@
 import { toast } from 'sonner'
-import { HttpClient, HttpError } from './http-client'
+import { HttpClient } from './http-client'
 
 // 配置基础 URL
 const instance = new HttpClient({ baseURL: '', timeout: 10000 })
@@ -18,17 +18,26 @@ instance.interceptors.request.use((config) => {
 
 // 响应拦截器
 instance.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error instanceof HttpError) {
-      toast.error(`接口报错 ${error.status}: ${error.data.msg || error.message}`)
-    } else if (error.name === 'AbortError') {
-      toast.warning('请求被取消或超时')
-    } else {
-      toast.error('网络错误:', error)
+  (response) => {
+    const { data = {}, status, statusText } = response
+
+    if (status !== 200 || data.code !== 0) {
+      toast.error(`API_ERROR ${status}: ${data.message || statusText}`)
+      return Promise.reject(data)
     }
-    return Promise.reject(error)
+
+    return response.data
   }
+  // (error) => {
+  // if (error instanceof HttpError) {
+  //   toast.error(`接口报错 ${error.status}: ${error.data.msg || error.message}`)
+  // } else if (error.name === 'AbortError') {
+  //   toast.warning('请求被取消或超时')
+  // } else {
+  //   toast.error('网络错误:', error)
+  // }
+  // return Promise.reject(error)
+  // }
 )
 
 export default instance

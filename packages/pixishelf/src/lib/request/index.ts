@@ -4,9 +4,9 @@ import type { RequestConfig } from './http-client' // 假设 HttpClient 的类�
 
 /**
  * 动态路径参数处理正则
- * 例如: /api/sysResource/{menu-id}/buttons -> 匹配 {menu-id}
+ * 例如: /api/sysResource/[menu-id]/buttons -> 匹配 [menu-id]
  */
-const DYNAMIC_PATH_REGEX = /\{([^{}]+)\}/g
+const DYNAMIC_PATH_REGEX = /\[([^[\]]+)\]/g
 const HYPHEN_REGEX = /-(\w)/g // 用于将 menu-id 转换为 menuId (驼峰)
 
 /**
@@ -24,10 +24,10 @@ const createHandler = (method: string) => {
           let finalUrl = url
           const finalParams = { ...params } // 浅拷贝，避免修改原对象
 
-          // 2. 处理 URL 中的动态参数 (例如 {id})
-          if (finalUrl.includes('{')) {
+          // 2. 处理 URL 中的动态参数 (例如 [id])
+          if (finalUrl.includes('[')) {
             finalUrl = finalUrl.replace(DYNAMIC_PATH_REGEX, (match, key) => {
-              // 将 {menu-id} 转换为 menuId
+              // 将 [menu-id] 转换为 menuId
               const paramKey = key.replace(HYPHEN_REGEX, (_: string, c: string) => c.toUpperCase())
 
               const value = finalParams[paramKey]
@@ -48,7 +48,6 @@ const createHandler = (method: string) => {
 
           // 3. 构造请求配置
           const config: RequestConfig = {
-            url: finalUrl,
             method: method,
             ...requestConfig
           }
@@ -59,7 +58,14 @@ const createHandler = (method: string) => {
           if (method === 'GET' || method === 'DELETE') {
             config.params = finalParams
           } else {
-            config.body = finalParams
+            config.body = JSON.stringify(finalParams)
+          }
+
+          if (['POST', 'PUT'].includes(method)) {
+            config.headers = {
+              ...config.headers,
+              'Content-Type': 'application/json'
+            }
           }
 
           // 5. 发起请求

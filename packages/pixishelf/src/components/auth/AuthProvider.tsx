@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
 import type { AuthContextType, AuthState, User } from '@/types'
 import { useClientOnly } from '@/hooks/useClientOnly'
+import { api } from '@/lib/request'
 
 // ============================================================================
 // 认证上下文提供者
@@ -120,20 +121,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       try {
         setAuth({ isLoading: true, error: null })
 
-        const response = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          credentials: 'include',
-          body: JSON.stringify({ username, password })
-        })
-
-        const data = await response.json()
-
-        if (!response.ok || !data.success) {
-          throw new Error(data.error || ERROR_MESSAGES.LOGIN_FAILED)
-        }
+        await api.post['/api/auth/login']({ username, password })
 
         // 登录成功，获取用户信息
         const user = await fetchUser()
@@ -175,7 +163,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setAuth({ isLoading: true })
 
       // 调用登出API
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+      await api.post['/api/auth/logout']()
 
       // 无论API调用是否成功，都清除本地状态
       setAuth({
@@ -188,6 +176,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // 重定向到登录页
       router.push(ROUTES.LOGIN)
     } catch (error) {
+      // oxlint-disable-next-line no-console
       console.error('登出错误:', error)
 
       // 即使出错也要清除本地状态

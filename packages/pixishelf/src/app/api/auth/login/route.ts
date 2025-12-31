@@ -1,20 +1,15 @@
-import { NextResponse } from 'next/server'
-import { apiHandler } from '@/lib/api-handler'
+import { apiHandler, responseSuccess } from '@/lib/api-handler'
 import { sessionManager } from '@/lib/session'
 import { ERROR_MESSAGES } from '@/lib/constants'
 import { ApiError } from '@/lib/errors'
-import { LoginGetSchema } from '@/schemas/api/auth'
 import { validateCredentials } from '@/services/user-service'
-
-// ============================================================================
-// 登录 API 路由
-// ============================================================================
+import { AuthLoginRequestDTO, AuthLoginResponseDTO } from '@/schemas/auth.dto'
 
 /**
  * 处理用户登录请求
  * POST /api/auth/login
  */
-export const POST = apiHandler(LoginGetSchema, async (request, data) => {
+export const POST = apiHandler(AuthLoginRequestDTO, async (request, data) => {
   const { username, password } = data
 
   // 验证用户凭据
@@ -26,16 +21,7 @@ export const POST = apiHandler(LoginGetSchema, async (request, data) => {
   // 创建会话
   const session = await sessionManager.createSession(user)
 
-  const response = NextResponse.json(
-    {
-      success: true,
-      errorCode: 0,
-      data: {
-        id: user.id
-      }
-    },
-    { status: 200 }
-  )
+  const response = responseSuccess({ data: AuthLoginResponseDTO.parse({ id: user.id }) })
 
   // 设置认证Cookie
   const cookieOptions = sessionManager.getCookieOptionsForRequest(request)

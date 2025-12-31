@@ -199,9 +199,19 @@ export interface MediaFileResponse {
  * 通用API响应
  */
 export interface ApiResponse<T = any> {
-  success: boolean
+  /** 响应状态码 */
+  code: number
+  /** 响应数据 */
   data?: T
+  /** 错误信息 */
   error?: string
+  /**
+   * @deprecated 废弃
+   */
+  success: boolean
+  /**
+   * @deprecated 废弃
+   */
   message?: string
 }
 

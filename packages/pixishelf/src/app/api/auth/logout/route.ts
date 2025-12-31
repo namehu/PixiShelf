@@ -1,9 +1,6 @@
-import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { apiHandler } from '@/lib/api-handler'
+import { apiHandler, responseSuccess } from '@/lib/api-handler'
 import { sessionManager } from '@/lib/session'
-import { SUCCESS_MESSAGES } from '@/lib/constants'
-import type { LogoutResponse } from '@/types/auth'
 import logger from '@/lib/logger'
 
 // 定义登出 Schema (空对象，不需要参数)
@@ -16,13 +13,7 @@ const LogoutSchema = z.object({})
 export const POST = apiHandler(LogoutSchema, async (request) => {
   // 辅助函数：创建统一的登出成功响应
   const createSuccessResponse = () => {
-    const response = NextResponse.json(
-      {
-        success: true,
-        message: SUCCESS_MESSAGES.LOGOUT_SUCCESS
-      } satisfies LogoutResponse,
-      { status: 200 }
-    )
+    const response = responseSuccess()
     // 无论如何都清除 Cookie
     response.cookies.delete('auth-token')
     return response
