@@ -1,4 +1,5 @@
 import type { AuthLoginRequestDTO, AuthLoginResponseDTO, AuthMeResponseDTO } from '@/schemas/auth.dto'
+import type { ChangePasswordSchema } from '@/schemas/users.dto'
 import { ApiResponse } from '@/types'
 
 export interface APIGET {
@@ -12,7 +13,10 @@ export interface APIPOST {
   '/api/auth/logout': () => Promise<ApiResponse>
 }
 
-export interface APIPUT {}
+export interface APIPUT {
+  /** 修改密码 */
+  '/api/users/password': (data: ChangePasswordSchema) => Promise<ApiResponse>
+}
 
 export interface APIDELETE {}
 

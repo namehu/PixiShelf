@@ -2,50 +2,17 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChangePasswordRequest, ChangePasswordResponse } from '@/types'
 import { useAuth } from '@/components/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { apiJson } from '@/lib/api'
 import { ROUTES } from '@/lib/constants'
 import PNav from '@/components/layout/PNav'
+import { api } from '@/lib/request'
+import type { ChangePasswordSchema } from '@/schemas/users.dto'
 
 // ============================================================================
 // 修改密码页面
 // ============================================================================
-
-/**
- * 修改密码Hook
- */
-function useChangePassword() {
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const changePassword = async (data: ChangePasswordRequest): Promise<ChangePasswordResponse> => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const result = await apiJson<ChangePasswordResponse>('/api/users/password', {
-        method: 'PUT',
-        body: JSON.stringify(data)
-      })
-      return result
-    } catch (err: any) {
-      const errorMessage = err.message || '密码修改失败'
-      setError(errorMessage)
-      throw new Error(errorMessage)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  return {
-    changePassword,
-    isLoading,
-    error,
-    setError
-  }
-}
 
 /**
  * 密码强度验证
@@ -65,12 +32,28 @@ function getPasswordStrength(password: string) {
 export default function ChangePasswordPage() {
   const router = useRouter()
   const { isAuthenticated, isLoading: authLoading, logout } = useAuth()
-  const { changePassword, isLoading, error, setError } = useChangePassword()
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [success, setSuccess] = useState(false)
+
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const changePassword = async (data: ChangePasswordSchema) => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      await api.put['/api/users/password'](data)
+    } catch (err: any) {
+      const errorMessage = err.message || '密码修改失败'
+      setError(errorMessage)
+      throw new Error(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   // 检查认证状态
   useEffect(() => {
@@ -106,15 +89,8 @@ export default function ChangePasswordPage() {
 
     if (!canSubmit) return
 
-    try {
-      await changePassword({
-        currentPassword,
-        newPassword
-      })
-      setSuccess(true)
-    } catch (err) {
-      // 错误已在hook中处理
-    }
+    await changePassword({ currentPassword, newPassword })
+    setSuccess(true)
   }
 
   const handleBack = () => {

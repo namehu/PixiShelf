@@ -45,8 +45,5 @@ export const PUT = apiHandler(ChangePasswordSchema, async (request, data) => {
     data: { password: hashedNewPassword }
   })
 
-  return {
-    success: true,
-    message: '密码修改成功'
-  }
+  return null
 })
