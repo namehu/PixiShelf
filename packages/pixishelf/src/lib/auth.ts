@@ -1,8 +1,6 @@
 import jwt from 'jsonwebtoken'
-import { userRepository } from './repositories/user'
-import { hashPassword, verifyPassword } from './crypto'
+import { verifyPassword } from './crypto'
 import { JWT_CONFIG } from './constants'
-import type { User } from '@/types/core'
 import type { JWTPayload } from '@/types/auth'
 import { sessionManager } from './session'
 import { NextRequest } from 'next/server'
@@ -10,6 +8,56 @@ import { NextRequest } from 'next/server'
 // ============================================================================
 // 认证服务
 // ============================================================================
+
+import { prisma, handlePrismaError } from './prisma'
+import type { User, PrismaUser } from '@/types/core'
+import logger from './logger'
+
+// ============================================================================
+// 用户数据仓储
+// ============================================================================
+
+/**
+ * 用户仓储实现
+ */
+class UserRepository {
+  /**
+   * 将Prisma用户转换为应用用户类型
+   */
+  private convertPrismaUserToUser(prismaUser: PrismaUser): User {
+    return {
+      id: prismaUser.id.toString(),
+      username: prismaUser.username,
+      passwordHash: prismaUser.password,
+      createdAt: prismaUser.createdAt.toISOString(),
+      updatedAt: prismaUser.updatedAt.toISOString()
+    }
+  }
+
+  /**
+   * 根据用户名查找用户
+   * @param username - 用户名
+   * @returns Promise<User | null>
+   */
+  async findByUsername(username: string): Promise<User | null> {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { username: username.trim() }
+      })
+      if (!user) {
+        return null
+      }
+
+      return this.convertPrismaUserToUser(user)
+    } catch (error) {
+      const { message } = handlePrismaError(error)
+      throw new Error(`查找用户失败: ${message}`)
+    }
+  }
+}
+
+// 导出单例实例
+const userRepository = new UserRepository()
 
 /**
  * 认证错误类
@@ -25,21 +73,9 @@ export class AuthError extends Error {
 }
 
 /**
- * 认证服务接口
- */
-export interface IAuthService {
-  validateCredentials(username: string, password: string): Promise<User | null>
-  generateAccessToken(user: User): string
-  verifyAccessToken(token: string): Promise<User | null>
-  refreshToken(token: string): Promise<string | null>
-  createUser(username: string, password: string): Promise<User>
-  changePassword(userId: number, currentPassword: string, newPassword: string): Promise<void>
-}
-
-/**
  * 认证服务实现
  */
-export class AuthService implements IAuthService {
+export class AuthService {
   private readonly jwtSecret: string
   private readonly jwtTtl: number
 
@@ -48,7 +84,7 @@ export class AuthService implements IAuthService {
     this.jwtTtl = parseInt(String(JWT_CONFIG.DEFAULT_TTL), 10)
 
     if (process.env.NODE_ENV === 'production' && this.jwtSecret === 'dev-secret-key') {
-      console.warn('警告：生产环境未设置 JWT_SECRET 环境变量，使用默认密钥')
+      logger.warn('警告：生产环境未设置 JWT_SECRET 环境变量，使用默认密钥')
       // throw new Error('生产环境必须设置 JWT_SECRET 环境变量')
     }
   }
@@ -68,7 +104,7 @@ export class AuthService implements IAuthService {
       }
 
       // 验证密码
-      const isPasswordValid = await verifyPassword(password, user.passwordHash)
+      const isPasswordValid = await verifyPassword(password, (user as any).passwordHash)
       if (!isPasswordValid) {
         return null
       }
@@ -120,17 +156,11 @@ export class AuthService implements IAuthService {
         return null
       }
 
-      // 查找用户（确保用户仍然存在）
-      // const user = await userRepository.findById(parseInt(decoded.sub))
-      // if (!user) {
-      //   return null
-      // }
-
-      // 2. 直接从令牌的载荷(payload)构建用户信息对象
+      // 直接从令牌的载荷(payload)构建用户信息对象
       // 注意：这个User对象只包含令牌中存储的信息，
       // 对于中间件和大部分场景来说已经足够了。
       const user: User = {
-        id: decoded.sub, // 'sub' (subject) 字段通常就是用户ID
+        id: decoded.sub as any, // 'sub' (subject) 字段通常就是用户ID
         username: decoded.username,
         // 其他 User 接口中的字段可以设为默认值或空值，因为在认证层面我们不需要它们
         passwordHash: '', // 绝不能在令牌中存储密码哈希
@@ -174,74 +204,6 @@ export class AuthService implements IAuthService {
       return this.generateAccessToken(user)
     } catch (error) {
       throw new AuthError(`令牌刷新失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }
-
-  /**
-   * 创建新用户
-   * @param username - 用户名
-   * @param password - 密码
-   * @returns Promise<User> 创建的用户信息
-   */
-  async createUser(username: string, password: string): Promise<User> {
-    try {
-      // 检查用户名是否已存在
-      const existingUser = await userRepository.findByUsername(username)
-      if (existingUser) {
-        throw new AuthError('用户名已存在')
-      }
-
-      // 加密密码
-      const hashedPassword = await hashPassword(password)
-
-      // 创建用户
-      const user = await userRepository.create({
-        username,
-        passwordHash: hashedPassword
-      })
-
-      return user
-    } catch (error) {
-      if (error instanceof AuthError) {
-        throw error
-      }
-
-      throw new AuthError(`创建用户失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }
-
-  /**
-   * 修改密码
-   * @param userId - 用户ID
-   * @param currentPassword - 当前密码
-   * @param newPassword - 新密码
-   * @returns Promise<void>
-   */
-  async changePassword(userId: number, currentPassword: string, newPassword: string): Promise<void> {
-    try {
-      // 查找用户
-      const user = await userRepository.findById(userId)
-      if (!user) {
-        throw new AuthError('用户不存在')
-      }
-
-      // 验证当前密码
-      const isCurrentPasswordValid = await verifyPassword(currentPassword, user.passwordHash)
-      if (!isCurrentPasswordValid) {
-        throw new AuthError('当前密码错误')
-      }
-
-      // 加密新密码
-      const hashedNewPassword = await hashPassword(newPassword)
-
-      // 更新密码
-      await userRepository.updatePassword(userId, hashedNewPassword)
-    } catch (error) {
-      if (error instanceof AuthError) {
-        throw error
-      }
-
-      throw new AuthError(`修改密码失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
