@@ -1,9 +1,8 @@
+// oxlint-disable no-console
 'use client'
 
 import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiJson, client } from '@/lib/api'
-import { UsersResponse } from '@/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
@@ -20,14 +19,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { UserPlus, Trash2, User as UserIcon } from 'lucide-react'
+import { api } from '@/lib/request'
+import { CreateUserSchema } from '@/lib/request/data-contracts'
 
 // Hook: 删除用户
 function useDeleteUser() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (id: number) => {
-      return apiJson(`/api/users/${id}`, { method: 'DELETE' })
-    },
+    mutationFn: (id: number) => api.del['/api/users/[id]']({ id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
     }
@@ -38,34 +37,19 @@ function useDeleteUser() {
 function useCreateUser() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ username, password }: { username: string; password: string }) => {
-      return apiJson('/api/users', {
-        method: 'POST',
-        body: JSON.stringify({ username, password })
-      })
-    },
+    mutationFn: (params: CreateUserSchema) => api.post['/api/users'](params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
     }
   })
 }
 
-/**
- * 用户管理组件
- *
- * 功能：
- * - 用户列表展示和管理
- * - 添加新用户账户
- * - 删除用户账户
- * - 表单验证和错误处理
- *
- * 迁移自原Users.tsx，保持所有功能不变
- */
 function UserManagement() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['users'],
-    queryFn: () => client<UsersResponse>('/api/users')
+    queryFn: () => api.get['/api/users']()
   })
+
   const deleteUser = useDeleteUser()
   const createUser = useCreateUser()
   const [showForm, setShowForm] = React.useState(false)
@@ -201,9 +185,9 @@ function UserManagement() {
           )}
 
           {/* 用户列表 */}
-          {data && (
+          {data?.data && (
             <>
-              {data.items.length === 0 ? (
+              {data.data?.length === 0 ? (
                 <div className="text-center py-8">
                   <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
                     <UserIcon className="w-8 h-8 text-muted-foreground" />
@@ -224,7 +208,7 @@ function UserManagement() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {data.items.map((user) => (
+                      {data.data.map((user) => (
                         <TableRow key={user.id}>
                           <TableCell>
                             <div className="flex items-center space-x-3">
@@ -260,9 +244,9 @@ function UserManagement() {
               )}
 
               {/* 用户统计 */}
-              {data.items.length > 0 && (
+              {data.data.length > 0 && (
                 <div className="mt-6 pt-4 border-t">
-                  <div className="text-sm text-muted-foreground text-center">共 {data.items.length} 个用户账户</div>
+                  <div className="text-sm text-muted-foreground text-center">共 {data.data.length} 个用户账户</div>
                 </div>
               )}
             </>

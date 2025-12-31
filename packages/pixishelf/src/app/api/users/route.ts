@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
 import { apiHandler } from '@/lib/api-handler'
-import { GetUsersSchema, CreateUserSchema } from '@/schemas/users.dto'
+import { GetUsersSchema, CreateUserSchema, CreateUserResponseDTO, GetUsersResponseDTO } from '@/schemas/users.dto'
 import { ApiError } from '@/lib/errors'
 
 /**
@@ -14,7 +14,7 @@ export const GET = apiHandler(GetUsersSchema, async () => {
     orderBy: { id: 'asc' }
   })
 
-  return { items: users }
+  return GetUsersResponseDTO.parse(users)
 })
 
 /**
@@ -39,7 +39,5 @@ export const POST = apiHandler(CreateUserSchema, async (request, data) => {
     data: { username, password: hashedPassword }
   })
 
-  return {
-    id: user.id
-  }
+  return CreateUserResponseDTO.parse(user)
 })

@@ -105,13 +105,6 @@ export interface ArtistsQuery extends PaginationQuery {
 }
 
 /**
- * 用户列表响应
- */
-export interface UsersResponse {
-  items: Pick<User, 'id' | 'username' | 'createdAt'>[]
-}
-
-/**
  * 搜索建议项
  */
 export interface SearchSuggestion {

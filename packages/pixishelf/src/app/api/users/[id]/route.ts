@@ -3,7 +3,7 @@ import { verifyAuth } from '@/lib/auth'
 import { apiHandler } from '@/lib/api-handler'
 import { UserDeleteSchema } from '@/schemas/users.dto'
 import { ApiError } from '@/lib/errors'
-import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '@/lib/constants'
+import { ERROR_MESSAGES } from '@/lib/constants'
 
 /**
  * 删除用户接口
@@ -38,5 +38,5 @@ export const DELETE = apiHandler(UserDeleteSchema, async (request, data) => {
   // 删除用户
   await prisma.user.delete({ where: { id: userId } })
 
-  return { message: SUCCESS_MESSAGES.DELETE_SUCCESS }
+  return null
 })

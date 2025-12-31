@@ -12,6 +12,16 @@ export type UserDeleteSchema = z.infer<typeof UserDeleteSchema>
 export const GetUsersSchema = z.object({})
 export type GetUsersSchema = z.infer<typeof GetUsersSchema>
 
+/** 获取用户列表响应 Schema */
+export const GetUsersResponseDTO = z.array(
+  z.object({
+    id: z.number(),
+    username: z.string(),
+    createdAt: z.date().or(z.string())
+  })
+)
+export type GetUsersResponseDTO = z.infer<typeof GetUsersResponseDTO>
+
 /** 创建用户 Schema */
 export const CreateUserSchema = z.object({
   username: z
@@ -28,6 +38,12 @@ export const CreateUserSchema = z.object({
     .max(VALIDATION.PASSWORD.MAX_LENGTH, `密码长度不能超过${VALIDATION.PASSWORD.MAX_LENGTH}个字符`)
 })
 export type CreateUserSchema = z.infer<typeof CreateUserSchema>
+
+/** 创建用户响应 Schema */
+export const CreateUserResponseDTO = z.object({
+  id: z.number()
+})
+export type CreateUserResponseDTO = z.infer<typeof CreateUserResponseDTO>
 
 /** 修改密码 Schema */
 export const ChangePasswordSchema = z.object({
