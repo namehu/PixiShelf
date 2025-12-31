@@ -5,37 +5,6 @@ import { Artwork, User, MediaFile } from './core'
 // ============================================================================
 
 /**
- * 用户信息响应
- */
-export interface UserResponse {
-  id: string
-  username: string
-  createdAt: string
-  updatedAt: string
-}
-
-/**
- * 创建用户请求
- */
-export interface CreateUserRequest {
-  username: string
-  password: string
-}
-
-/**
- * 创建用户响应
- */
-export interface CreateUserResponse {
-  success: boolean
-  user?: {
-    id: number
-    username: string
-    createdAt: string
-  }
-  error?: string
-}
-
-/**
  * 修改密码请求
  */
 export interface ChangePasswordRequest {
@@ -143,15 +112,6 @@ export interface UsersResponse {
 }
 
 /**
- * 错误响应
- */
-export interface ErrorResponse {
-  statusCode: number
-  error: string
-  message: string
-}
-
-/**
  * 搜索建议项
  */
 export interface SearchSuggestion {
@@ -186,16 +146,6 @@ export interface EnhancedArtwork extends Omit<Artwork, 'images'> {
 export type EnhancedArtworksResponse = UnSafe_PaginatedResponse<EnhancedArtwork>
 
 /**
- * 媒体文件详情响应
- */
-export interface MediaFileResponse {
-  file: MediaFile
-  url: string
-  thumbnailUrl?: string // 视频缩略图URL
-  previewUrl?: string // 视频预览URL
-}
-
-/**
  * 通用API响应
  */
 export interface ApiResponse<T = any> {
@@ -213,37 +163,6 @@ export interface ApiResponse<T = any> {
    * @deprecated 废弃
    */
   message?: string
-}
-
-/**
- * 健康检查响应
- */
-export interface HealthCheckResponse {
-  status: 'ok' | 'error'
-  timestamp: string
-  uptime: number
-  version?: string
-}
-
-/**
- * 文件上传响应
- */
-export interface FileUploadResponse {
-  success: boolean
-  filename?: string
-  url?: string
-  size?: number
-  error?: string
-}
-
-/**
- * 批量操作响应
- */
-export interface BatchOperationResponse {
-  success: boolean
-  processed: number
-  failed: number
-  errors?: string[]
 }
 
 // 定义后端返回的标准结构

@@ -5,24 +5,6 @@
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
 
 /**
- * 登出响应数据
- */
-export interface LogoutResponse {
-  /** 操作是否成功 */
-  success: boolean
-  /** 成功消息 */
-  message?: string
-  /** 错误信息（失败时返回） */
-  error?: string
-}
-
-// 创建用户和密码相关类型已移至 api.ts 文件
-
-// ----------------------------------------------------------------------------
-// 会话相关类型
-// ----------------------------------------------------------------------------
-
-/**
  * 会话数据
  */
 export interface Session {
