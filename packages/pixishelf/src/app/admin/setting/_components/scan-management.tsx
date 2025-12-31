@@ -91,7 +91,7 @@ function ScanManagement() {
           scanPathData={scanPath.query.data?.scanPath || ''}
           isUpdatingPath={scanPath.update.isPending}
           isScanning={streaming}
-          healthStatus={health?.data?.status}
+          healthStatus={health?.status}
           onUpdatePath={handleUpdatePath}
           onScanIncremental={() => startServerStream(false)}
           onScanForce={handleScan} // 你的强制扫描逻辑

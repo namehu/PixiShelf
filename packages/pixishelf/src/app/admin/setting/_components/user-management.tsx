@@ -185,9 +185,9 @@ function UserManagement() {
           )}
 
           {/* 用户列表 */}
-          {data?.data && (
+          {data && (
             <>
-              {data.data?.length === 0 ? (
+              {data.length === 0 ? (
                 <div className="text-center py-8">
                   <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
                     <UserIcon className="w-8 h-8 text-muted-foreground" />
@@ -208,7 +208,7 @@ function UserManagement() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {data.data.map((user) => (
+                      {data.map((user) => (
                         <TableRow key={user.id}>
                           <TableCell>
                             <div className="flex items-center space-x-3">
@@ -244,9 +244,9 @@ function UserManagement() {
               )}
 
               {/* 用户统计 */}
-              {data.data.length > 0 && (
+              {data.length > 0 && (
                 <div className="mt-6 pt-4 border-t">
-                  <div className="text-sm text-muted-foreground text-center">共 {data.data.length} 个用户账户</div>
+                  <div className="text-sm text-muted-foreground text-center">共 {data.length} 个用户账户</div>
                 </div>
               )}
             </>

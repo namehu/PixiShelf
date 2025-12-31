@@ -4,12 +4,13 @@
 
 /**
  * API 路径常量
+ * // FIXME: 删除
  */
 export const API_ROUTES = {
   AUTH: {
     LOGIN: '/api/auth/login',
-    LOGOUT: '/api/auth/logout',
-    ME: '/api/auth/me'
+    LOGOUT: '',
+    ME: ''
   },
   USERS: '/api/users',
   ARTWORKS: '/api/artworks',

@@ -27,15 +27,15 @@ instance.interceptors.response.use(
       if (window.location.pathname !== ROUTES.LOGIN) {
         window.location.replace(ROUTES.LOGIN)
       }
-      return Promise.reject(data)
+      return Promise.reject(response)
     }
 
     if (status !== 200 || data.code !== 0) {
       toast.error(`API_ERROR ${status}: ${data.message || statusText}`)
-      return Promise.reject(data)
+      return Promise.reject(response)
     }
 
-    return response.data
+    return data.data
   }
   // (error) => {
   // if (error instanceof HttpError) {

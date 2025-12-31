@@ -57,8 +57,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    * 获取当前用户信息
    */
   const fetchUser = useCallback(async (): Promise<AuthMeResponseDTO> => {
-    const { data } = await api.get['/api/auth/me']()
-    return data!
+    const user = await api.get['/api/auth/me']()
+    return user!
   }, [])
 
   /**
