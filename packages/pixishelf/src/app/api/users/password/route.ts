@@ -6,10 +6,6 @@ import { ChangePasswordSchema } from '@/schemas/users.dto'
 import { ApiError } from '@/lib/errors'
 import { ERROR_MESSAGES } from '@/lib/constants'
 
-// ============================================================================
-// 修改密码 API 路由
-// ============================================================================
-
 /**
  * 修改密码接口
  * PUT /api/users/password

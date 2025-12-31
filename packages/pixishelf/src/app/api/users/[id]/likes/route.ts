@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { likeService } from '@/services/like-service'
 import { z } from 'zod'
 
+// TODO: 需要重构
+
 /**
  * 用户点赞历史API接口
  * GET /api/users/:id/likes - 获取用户点赞的作品列表

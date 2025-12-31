@@ -3,17 +3,18 @@
 import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiJson } from '@/lib/api'
-import { HealthResponse, ScanPathResponse } from '@/types'
+import { ScanPathResponse } from '@/types'
 import { useSseScan } from '../_hooks/use-sse-scan'
 import { confirm } from '@/components/shared/global-confirm' // 直接引入函数
 import { ClientScanCard } from './scan/client-scan-card'
 import { ServerScanCard } from './scan/server-scan-card'
 import { ScanResultCard } from './scan/scan-result-card'
+import { api } from '@/lib/request'
 
 function useHealth() {
   return useQuery({
     queryKey: ['health'],
-    queryFn: () => apiJson<HealthResponse>('/api/health')
+    queryFn: api.get['/api/health']
   })
 }
 
@@ -90,7 +91,7 @@ function ScanManagement() {
           scanPathData={scanPath.query.data?.scanPath || ''}
           isUpdatingPath={scanPath.update.isPending}
           isScanning={streaming}
-          healthStatus={health?.status}
+          healthStatus={health?.data?.status}
           onUpdatePath={handleUpdatePath}
           onScanIncremental={() => startServerStream(false)}
           onScanForce={handleScan} // 你的强制扫描逻辑

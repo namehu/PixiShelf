@@ -1,4 +1,5 @@
 import type { AuthLoginRequestDTO, AuthLoginResponseDTO, AuthMeResponseDTO } from '@/schemas/auth.dto'
+import { HealthResponseSchema } from '@/schemas/health.dto'
 import type {
   ChangePasswordSchema,
   CreateUserSchema,
@@ -10,8 +11,12 @@ import { ApiResponse } from '@/types'
 
 export type * from '@/schemas/users.dto'
 export type * from '@/schemas/auth.dto'
+export type * from '@/schemas/health.dto'
 
 export interface APIGET {
+  /** 健康检查 */
+  '/api/health': () => Promise<ApiResponse<HealthResponseSchema>>
+  /** 获取当前用户信息 */
   '/api/auth/me': () => Promise<ApiResponse<AuthMeResponseDTO>>
   /** 获取用户列表 */
   '/api/users': () => Promise<ApiResponse<GetUsersResponseDTO>>
