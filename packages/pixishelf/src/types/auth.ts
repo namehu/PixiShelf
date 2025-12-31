@@ -2,7 +2,7 @@
 // 认证相关类型定义
 // ============================================================================
 
-import type { User } from './core'
+import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
 
 /**
  * 登出响应数据
@@ -79,7 +79,7 @@ export interface AuthState {
   /** 是否已认证 */
   isAuthenticated: boolean
   /** 当前用户 */
-  user: User | null
+  user: AuthMeResponseDTO | null
   /** 是否正在加载 */
   isLoading: boolean
   /** 错误信息 */

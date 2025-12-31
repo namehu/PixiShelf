@@ -136,3 +136,19 @@ export function responseSuccess<T>(data?: { data?: T; code?: number; message?: s
   }
   return NextResponse.json(result, { status: 200 })
 }
+
+/**
+ * 401 未授权响应
+ */
+export function responseUnauthorized<T>(data?: { data?: T; code?: number; message?: string }) {
+  const { code = 401, message, data: responseData } = data ?? {}
+
+  const result: any = {
+    code,
+    message: message ?? 'Unauthorized'
+  }
+  if (responseData !== undefined) {
+    result.data = responseData
+  }
+  return NextResponse.json(result, { status: 401 })
+}

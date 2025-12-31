@@ -3,9 +3,10 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
-import type { AuthContextType, AuthState, User } from '@/types'
+import type { AuthContextType, AuthState } from '@/types'
 import { useClientOnly } from '@/hooks/useClientOnly'
 import { api } from '@/lib/request'
+import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
 
 // ============================================================================
 // 认证上下文提供者
@@ -55,37 +56,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   /**
    * 获取当前用户信息
    */
-  const fetchUser = useCallback(async (): Promise<User | null> => {
-    try {
-      const response = await fetch('/api/auth/me', {
-        method: 'GET',
-        credentials: 'include'
-      })
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          // 未认证，这是正常情况
-          return null
-        }
-        throw new Error('获取用户信息失败')
-      }
-
-      const data = await response.json()
-
-      if (!data.success || !data.user) {
-        return null
-      }
-
-      return {
-        id: data.user.id,
-        username: data.user.username,
-        createdAt: new Date().toISOString(), // 这里可以从API返回实际的创建时间
-        updatedAt: new Date().toISOString() // 这里可以从API返回实际的更新时间
-      }
-    } catch (error) {
-      console.error('获取用户信息错误:', error)
-      throw error
-    }
+  const fetchUser = useCallback(async (): Promise<AuthMeResponseDTO> => {
+    const { data } = await api.get['/api/auth/me']()
+    return data!
   }, [])
 
   /**
@@ -103,6 +76,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isLoading: false
       })
     } catch (error) {
+      // oxlint-disable-next-line no-console
       console.error('刷新用户信息错误:', error)
       setAuth({
         isAuthenticated: false,
@@ -139,6 +113,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         return true
       } catch (error) {
+        // oxlint-disable-next-line no-console
         console.error('登录错误:', error)
         const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.LOGIN_FAILED
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sessionManager } from '@/lib/session'
 import { ROUTES } from '@/lib/constants'
 import logger from './lib/logger'
+import { responseUnauthorized } from './lib/api-handler'
 
 // ============================================================================
 // Next.js 认证中间件
@@ -110,7 +111,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 function handleUnauthenticated(request: NextRequest, pathname: string): NextResponse {
   // 对于API请求，返回401状态
   if (pathname.startsWith('/api/')) {
-    return NextResponse.json({ success: false, error: '未授权访问' }, { status: 401 })
+    return responseUnauthorized()
   }
 
   // 对于页面请求，重定向到登录页

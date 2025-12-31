@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { apiHandler } from '@/lib/api-handler'
+import { apiHandler, responseSuccess } from '@/lib/api-handler'
 import { sessionManager } from '@/lib/session'
 import { ApiError } from '@/lib/errors'
+import { AuthMeResponseDTO } from '@/schemas/auth.dto'
 
 // 定义获取用户信息 Schema (空对象，不需要参数)
 const MeSchema = z.object({})
@@ -32,17 +32,12 @@ export const GET = apiHandler(MeSchema, async (request) => {
 
   // 返回用户信息
   // 手动构建 NextResponse 以支持 Cookie 更新
-  const response = NextResponse.json(
-    {
-      success: true,
-      errorCode: 0,
-      user: {
-        id: refreshedSession.userId,
-        username: refreshedSession.username
-      }
-    },
-    { status: 200 }
-  )
+  const response = responseSuccess({
+    data: AuthMeResponseDTO.parse({
+      id: refreshedSession.userId,
+      username: refreshedSession.username
+    })
+  })
 
   // 如果会话被刷新，更新Cookie
   if (refreshedSession.token !== token) {

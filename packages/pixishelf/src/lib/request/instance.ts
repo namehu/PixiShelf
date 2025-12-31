@@ -1,5 +1,6 @@
 import { toast } from 'sonner'
 import { HttpClient } from './http-client'
+import { ROUTES } from '../constants'
 
 // 配置基础 URL
 const instance = new HttpClient({ baseURL: '', timeout: 10000 })
@@ -20,6 +21,14 @@ instance.interceptors.request.use((config) => {
 instance.interceptors.response.use(
   (response) => {
     const { data = {}, status, statusText } = response
+
+    if (status === 401) {
+      // 重定向到登录页
+      if (window.location.pathname !== ROUTES.LOGIN) {
+        window.location.replace(ROUTES.LOGIN)
+      }
+      return Promise.reject(data)
+    }
 
     if (status !== 200 || data.code !== 0) {
       toast.error(`API_ERROR ${status}: ${data.message || statusText}`)

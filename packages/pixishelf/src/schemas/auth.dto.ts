@@ -25,7 +25,12 @@ export type AuthLoginResponseDTO = z.infer<typeof AuthLoginResponseDTO>
 
 /** 登录用户响应 DTO */
 export const AuthMeResponseDTO = z.object({
-  id: z.number().int().positive(),
+  id: z
+    .number()
+    .int()
+    .positive()
+    // cookie 中 id 为字符串.转换为数字
+    .or(z.string().transform((val) => Number(val))),
   username: z.string()
 })
 export type AuthMeResponseDTO = z.infer<typeof AuthMeResponseDTO>

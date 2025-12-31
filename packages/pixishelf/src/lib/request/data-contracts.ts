@@ -1,7 +1,9 @@
-import type { AuthLoginRequestDTO, AuthLoginResponseDTO } from '@/schemas/auth.dto'
+import type { AuthLoginRequestDTO, AuthLoginResponseDTO, AuthMeResponseDTO } from '@/schemas/auth.dto'
 import { ApiResponse } from '@/types'
 
-export interface APIGET {}
+export interface APIGET {
+  '/api/auth/me': () => Promise<ApiResponse<AuthMeResponseDTO>>
+}
 
 export interface APIPOST {
   /** 登录 */
