@@ -1,13 +1,9 @@
 import { prisma } from '@/lib/prisma'
 import { verifyAuth } from '@/lib/auth'
 import { apiHandler } from '@/lib/api-handler'
-import { UserDeleteSchema } from '@/schemas/api/user'
+import { UserDeleteSchema } from '@/schemas/users.dto'
 import { ApiError } from '@/lib/errors'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '@/lib/constants'
-
-// ============================================================================
-// 用户管理 API 路由
-// ============================================================================
 
 /**
  * 删除用户接口

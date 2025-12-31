@@ -1,12 +1,8 @@
 import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
 import { apiHandler } from '@/lib/api-handler'
-import { GetUsersSchema, CreateUserSchema } from '@/schemas/api/user'
+import { GetUsersSchema, CreateUserSchema } from '@/schemas/users.dto'
 import { ApiError } from '@/lib/errors'
-
-// ============================================================================
-// 用户列表与创建 API 路由
-// ============================================================================
 
 /**
  * 获取用户列表接口
@@ -18,12 +14,7 @@ export const GET = apiHandler(GetUsersSchema, async () => {
     orderBy: { id: 'asc' }
   })
 
-  // 转换日期格式
-  const formattedUsers = users.map((user) => ({
-    ...user
-  }))
-
-  return { items: formattedUsers }
+  return { items: users }
 })
 
 /**
@@ -49,7 +40,6 @@ export const POST = apiHandler(CreateUserSchema, async (request, data) => {
   })
 
   return {
-    id: user.id,
-    username: user.username
+    id: user.id
   }
 })

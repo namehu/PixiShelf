@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
 import { verifyAuth } from '@/lib/auth'
 import { apiHandler } from '@/lib/api-handler'
-import { ChangePasswordSchema } from '@/schemas/api/user'
+import { ChangePasswordSchema } from '@/schemas/users.dto'
 import { ApiError } from '@/lib/errors'
 import { ERROR_MESSAGES } from '@/lib/constants'
 
