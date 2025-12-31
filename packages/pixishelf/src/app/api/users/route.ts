@@ -10,7 +10,7 @@ import { ApiError } from '@/lib/errors'
 
 /**
  * 获取用户列表接口
- * GET /api/v1/users
+ * GET /api/users
  */
 export const GET = apiHandler(GetUsersSchema, async () => {
   const users = await prisma.user.findMany({
@@ -28,7 +28,7 @@ export const GET = apiHandler(GetUsersSchema, async () => {
 
 /**
  * 创建用户接口
- * POST /api/v1/users
+ * POST /api/users
  */
 export const POST = apiHandler(CreateUserSchema, async (request, data) => {
   const { username, password } = data

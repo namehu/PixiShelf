@@ -11,7 +11,7 @@ import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '@/lib/constants'
 
 /**
  * 删除用户接口
- * DELETE /api/v1/users/[id]
+ * DELETE /api/users/[id]
  */
 export const DELETE = apiHandler(UserDeleteSchema, async (request, data) => {
   const userId = data.id

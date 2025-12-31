@@ -4,7 +4,7 @@ import { getSettingService } from '@/lib/services/setting'
 
 /**
  * 健康检查接口
- * GET /api/v1/health
+ * GET /api/health
  */
 export async function GET(): Promise<NextResponse<HealthResponse>> {
   try {

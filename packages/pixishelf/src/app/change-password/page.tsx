@@ -25,7 +25,7 @@ function useChangePassword() {
     setIsLoading(true)
     setError(null)
     try {
-      const result = await apiJson<ChangePasswordResponse>('/api/v1/users/password', {
+      const result = await apiJson<ChangePasswordResponse>('/api/users/password', {
         method: 'PUT',
         body: JSON.stringify(data)
       })

@@ -12,7 +12,7 @@ import { ERROR_MESSAGES } from '@/lib/constants'
 
 /**
  * 修改密码接口
- * PUT /api/v1/users/password
+ * PUT /api/users/password
  */
 export const PUT = apiHandler(ChangePasswordSchema, async (request, data) => {
   const { currentPassword, newPassword } = data

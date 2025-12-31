@@ -26,7 +26,7 @@ function useDeleteUser() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (id: number) => {
-      return apiJson(`/api/v1/users/${id}`, { method: 'DELETE' })
+      return apiJson(`/api/users/${id}`, { method: 'DELETE' })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
@@ -39,7 +39,7 @@ function useCreateUser() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ username, password }: { username: string; password: string }) => {
-      return apiJson('/api/v1/users', {
+      return apiJson('/api/users', {
         method: 'POST',
         body: JSON.stringify({ username, password })
       })
@@ -64,7 +64,7 @@ function useCreateUser() {
 function UserManagement() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['users'],
-    queryFn: () => client<UsersResponse>('/api/v1/users')
+    queryFn: () => client<UsersResponse>('/api/users')
   })
   const deleteUser = useDeleteUser()
   const createUser = useCreateUser()
