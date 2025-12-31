@@ -1,63 +1,14 @@
 import jwt from 'jsonwebtoken'
-import { verifyPassword } from './crypto'
 import { JWT_CONFIG } from './constants'
 import type { JWTPayload } from '@/types/auth'
 import { sessionManager } from './session'
 import { NextRequest } from 'next/server'
+import type { User } from '@/types/core'
+import logger from './logger'
 
 // ============================================================================
 // 认证服务
 // ============================================================================
-
-import { prisma, handlePrismaError } from './prisma'
-import type { User, PrismaUser } from '@/types/core'
-import logger from './logger'
-
-// ============================================================================
-// 用户数据仓储
-// ============================================================================
-
-/**
- * 用户仓储实现
- */
-class UserRepository {
-  /**
-   * 将Prisma用户转换为应用用户类型
-   */
-  private convertPrismaUserToUser(prismaUser: PrismaUser): User {
-    return {
-      id: prismaUser.id.toString(),
-      username: prismaUser.username,
-      passwordHash: prismaUser.password,
-      createdAt: prismaUser.createdAt.toISOString(),
-      updatedAt: prismaUser.updatedAt.toISOString()
-    }
-  }
-
-  /**
-   * 根据用户名查找用户
-   * @param username - 用户名
-   * @returns Promise<User | null>
-   */
-  async findByUsername(username: string): Promise<User | null> {
-    try {
-      const user = await prisma.user.findUnique({
-        where: { username: username.trim() }
-      })
-      if (!user) {
-        return null
-      }
-
-      return this.convertPrismaUserToUser(user)
-    } catch (error) {
-      const { message } = handlePrismaError(error)
-      throw new Error(`查找用户失败: ${message}`)
-    }
-  }
-}
-
-// 导出单例实例
-const userRepository = new UserRepository()
 
 /**
  * 认证错误类
@@ -90,37 +41,11 @@ export class AuthService {
   }
 
   /**
-   * 验证用户凭据
-   * @param username - 用户名
-   * @param password - 密码
-   * @returns Promise<User | null> 验证成功返回用户信息，失败返回null
-   */
-  async validateCredentials(username: string, password: string): Promise<User | null> {
-    try {
-      // 查找用户
-      const user = await userRepository.findByUsername(username)
-      if (!user) {
-        return null
-      }
-
-      // 验证密码
-      const isPasswordValid = await verifyPassword(password, (user as any).passwordHash)
-      if (!isPasswordValid) {
-        return null
-      }
-
-      return user
-    } catch (error) {
-      throw new AuthError(`凭据验证失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }
-
-  /**
    * 生成访问令牌
    * @param user - 用户信息
    * @returns string JWT令牌
    */
-  generateAccessToken(user: User): string {
+  generateAccessToken(user: { id: string | number; username: string }): string {
     try {
       const payload: JWTPayload = {
         userId: `${user.id}`,
@@ -159,7 +84,7 @@ export class AuthService {
       // 直接从令牌的载荷(payload)构建用户信息对象
       // 注意：这个User对象只包含令牌中存储的信息，
       // 对于中间件和大部分场景来说已经足够了。
-      const user: User = {
+      const user = {
         id: decoded.sub as any, // 'sub' (subject) 字段通常就是用户ID
         username: decoded.username,
         // 其他 User 接口中的字段可以设为默认值或空值，因为在认证层面我们不需要它们

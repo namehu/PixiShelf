@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { apiHandler } from '@/lib/api-handler'
-import { authService } from '@/lib/auth'
 import { sessionManager } from '@/lib/session'
 import { ERROR_MESSAGES } from '@/lib/constants'
 import { ApiError } from '@/lib/errors'
 import { LoginGetSchema } from '@/schemas/api/auth'
+import { validateCredentials } from '@/services/user-service'
 
 // ============================================================================
 // 登录 API 路由
@@ -18,7 +18,7 @@ export const POST = apiHandler(LoginGetSchema, async (request, data) => {
   const { username, password } = data
 
   // 验证用户凭据
-  const user = await authService.validateCredentials(username, password)
+  const user = await validateCredentials(username, password)
   if (!user) {
     throw new ApiError(ERROR_MESSAGES.LOGIN_FAILED, 401)
   }

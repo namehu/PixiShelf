@@ -3,6 +3,7 @@ import { authService } from './auth'
 import { COOKIE_NAMES } from './constants'
 import type { Session, CookieOptions, ApiSession } from '@/types/auth'
 import type { User } from '@/types/core'
+import logger from './logger'
 
 // ============================================================================
 // 会话管理服务
@@ -74,15 +75,7 @@ export class SessionManager implements ISessionManager {
    */
   async createSession(user: any): Promise<Session> {
     try {
-      // 转换用户类型并生成访问令牌
-      const userForToken: User = {
-        id: user.id.toString(),
-        username: user.username,
-        passwordHash: user.password,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt
-      }
-      const token = authService.generateAccessToken(userForToken)
+      const token = authService.generateAccessToken({ id: user.id, username: user.username })
 
       // 提取令牌信息
       const payload = authService.extractUserFromToken(token)
@@ -163,7 +156,7 @@ export class SessionManager implements ISessionManager {
 
       return session
     } catch (error) {
-      console.error('获取会话失败:', error)
+      logger.error('获取会话失败:', error)
       return null
     }
   }
@@ -210,7 +203,7 @@ export class SessionManager implements ISessionManager {
         isActive: true
       }
     } catch (error) {
-      console.error('刷新会话失败:', error)
+      logger.error('刷新会话失败:', error)
       return null
     }
   }
@@ -224,9 +217,9 @@ export class SessionManager implements ISessionManager {
     try {
       // 在实际应用中，这里可能需要将令牌加入黑名单
       // 目前JWT是无状态的，所以主要是客户端清除令牌
-      console.log('会话已销毁:', token.substring(0, 20) + '...')
+      logger.info('会话已销毁:', token.substring(0, 20) + '...')
     } catch (error) {
-      console.error('销毁会话失败:', error)
+      logger.error('销毁会话失败:', error)
     }
   }
 
@@ -240,7 +233,7 @@ export class SessionManager implements ISessionManager {
       const session = await this.getSession(token)
       return session !== null && session.isActive
     } catch (error) {
-      console.error('验证会话失败:', error)
+      logger.error('验证会话失败:', error)
       return false
     }
   }
@@ -287,7 +280,7 @@ export class SessionManager implements ISessionManager {
 
       return cookies[COOKIE_NAMES.AUTH_TOKEN] || null
     } catch (error) {
-      console.error('提取令牌失败:', error)
+      logger.error('提取令牌失败:', error)
       return null
     }
   }
@@ -357,7 +350,7 @@ export class SessionManager implements ISessionManager {
         }
       }
     } catch (error) {
-      console.error('获取会话统计失败:', error)
+      logger.error('获取会话统计失败:', error)
       return {
         isValid: false,
         remainingTime: null,

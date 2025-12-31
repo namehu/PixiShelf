@@ -117,7 +117,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onE
         onError?.(ERROR_MESSAGES.LOGIN_FAILED)
       }
     } catch (error) {
-      console.error('登录提交错误:', error)
       const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.SERVER_ERROR
       setErrors({ general: errorMessage })
       onError?.(errorMessage)
@@ -194,7 +193,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onE
           <Button type="submit" disabled={isLoading} className="w-full" size="lg">
             {isLoading ? (
               <div className="flex items-center justify-center gap-2">
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 登录中...
               </div>
             ) : (
