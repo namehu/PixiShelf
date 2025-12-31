@@ -63,6 +63,7 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
       }
 
       return NextResponse.json({
+        code: 0,
         success: true,
         errorCode: 0,
         data: result
@@ -72,6 +73,7 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
       if (err instanceof ZodError) {
         return NextResponse.json(
           {
+            code: 400,
             success: false,
             errorCode: 400,
             error: 'Invalid Request Parameters',
@@ -84,6 +86,7 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
       if (err instanceof ApiError) {
         return NextResponse.json(
           {
+            code: err.statusCode ?? 501,
             success: false,
             errorCode: err.statusCode ?? 501,
             error: err.message,
@@ -97,6 +100,7 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
 
       return NextResponse.json(
         {
+          code: 500,
           success: false,
           errorCode: 500,
           error: 'Internal Server Error'
