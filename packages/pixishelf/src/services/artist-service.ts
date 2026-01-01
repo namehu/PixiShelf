@@ -1,7 +1,7 @@
 import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
 import { ARTIST_SELECT } from '@/schemas/models/artists'
-import { ArtistsGetSchema } from '@/schemas/api/artists'
+import { ArtistsGetSchema } from '@/schemas/artist.dto'
 import { ArtistResponseDto } from '@/schemas/artist.dto'
 import { PaginationResponseData } from '@/types'
 

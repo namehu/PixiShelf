@@ -1,5 +1,5 @@
 import { apiHandler } from '@/lib/api-handler'
-import { ArtistsGetSchema } from '@/schemas/api/artists'
+import { ArtistsGetSchema } from '@/schemas/artist.dto'
 import { getArtists } from '@/services/artist-service'
 
 /**

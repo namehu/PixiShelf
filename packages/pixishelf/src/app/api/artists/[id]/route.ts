@@ -1,7 +1,7 @@
 import { apiHandler } from '@/lib/api-handler'
 import { getArtistById } from '@/services/artist-service'
 import { ApiError } from '@/lib/errors'
-import { ArtistGetSchema } from '@/schemas/api/artists'
+import { ArtistGetSchema } from '@/schemas/artist.dto'
 
 /**
  * GET /api/artists/[id]
