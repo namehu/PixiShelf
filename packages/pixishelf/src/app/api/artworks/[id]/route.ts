@@ -1,11 +1,7 @@
 import { getArtworkById } from '@/services/artwork-service'
-import z from 'zod'
 import { apiHandler } from '@/lib/api-handler'
 import { ApiError } from '@/lib/errors'
-
-const RouteParamsSchema = z.object({
-  id: z.coerce.number().int().positive('ID must be a positive integer')
-})
+import { ArtworkGetSchema } from '@/schemas/artwork.dto'
 
 /**
  * /api/artworks/[id]
@@ -15,7 +11,7 @@ const RouteParamsSchema = z.object({
  * @param param1
  * @returns
  */
-export const GET = apiHandler(RouteParamsSchema, async (req, data) => {
+export const GET = apiHandler(ArtworkGetSchema, async (req, data) => {
   const artwork = await getArtworkById(data.id)
 
   if (!artwork) {

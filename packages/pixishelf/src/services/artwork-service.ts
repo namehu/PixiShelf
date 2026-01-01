@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client'
 import { ArtworkResponseDto, ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { TImageModel } from '@/schemas/models'
 import { isApngFile, isVideoFile } from '../../lib/media'
-import type { ArtworksQuerySchema } from '@/schemas/api/artwork'
+import type { ArtworksQuerySchema } from '@/schemas/artwork.dto'
 import { VIDEO_EXTENSIONS } from '../../lib/constant'
 
 // 提取常量
