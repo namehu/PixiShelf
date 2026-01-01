@@ -3,13 +3,12 @@
 import { useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { Artist, ArtistsQuery, PaginationResponseData } from '@/types'
-import { client } from '@/lib/api'
+import { Artist, ArtistsQuery } from '@/types'
 import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 import ArtistsNavigation from './_components/ArtistsNavigation'
 import { ArtistCard } from './_components/ArtistCard'
-import type { ArtistResponseDto } from '@/schemas/artist.dto'
 import { Users, Search } from 'lucide-react'
+import { api } from '@/lib/request'
 
 /**
  * 获取艺术家列表Hook (使用 useInfiniteQuery)
@@ -18,17 +17,7 @@ function useArtistsInfinite(searchTerm: string, sortBy: ArtistsQuery['sortBy'], 
   return useInfiniteQuery({
     queryKey: ['artists', 'infinite', searchTerm, sortBy, pageSize],
     queryFn: async ({ pageParam = 1 }) => {
-      const params = new URLSearchParams({
-        page: pageParam.toString(),
-        pageSize: pageSize.toString()
-      })
-      if (sortBy) {
-        params.append('sortBy', sortBy)
-      }
-      if (searchTerm) {
-        params.append('search', searchTerm)
-      }
-      return client<PaginationResponseData<ArtistResponseDto>>(`/api/artists?${params.toString()}`)
+      return api.get['/api/artists']({ page: Number(pageParam), pageSize, sortBy, search: searchTerm })
     },
     initialPageParam: 1,
     getNextPageParam: (lastPage) => {

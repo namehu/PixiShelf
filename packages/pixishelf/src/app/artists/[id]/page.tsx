@@ -20,7 +20,7 @@ import {
 import { client } from '@/lib/api'
 import ClientImage from '@/components/client-image'
 import HeadInfo from './_components/HeadInfo'
-import { ArtistResponseDto } from '@/schemas/artist.dto'
+import { api } from '@/lib/request'
 
 export default () => {
   return (
@@ -52,7 +52,7 @@ function ArtistDetailPage() {
     isError: artistError
   } = useQuery({
     queryKey: ['artist', id],
-    queryFn: () => client<ArtistResponseDto>(`/api/artists/${id}`),
+    queryFn: () => api.get['/api/artists/[id]']({ id: Number(id) }),
     enabled: !!id
   })
 
