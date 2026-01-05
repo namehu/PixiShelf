@@ -7,6 +7,9 @@ import { sessionManager } from '@/lib/session'
 import { authLoginSchema } from '@/schemas/auth.dto'
 import { returnValidationErrors } from 'next-safe-action'
 
+/**
+ * 登录用户操作
+ */
 export const loginUserAction = actionClient
   .inputSchema(authLoginSchema)
   .action(async ({ parsedInput: { username, password } }) => {
@@ -34,3 +37,13 @@ export const loginUserAction = actionClient
 
     return { id: user.id }
   })
+
+/**
+ * 登出用户操作
+ */
+export const logoutUserAction = actionClient.action(async () => {})
+
+/**
+ * 修改密码
+ */
+export const changePasswordAction = actionClient.action(async () => {})

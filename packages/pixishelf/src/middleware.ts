@@ -9,11 +9,6 @@ import { responseUnauthorized } from './lib/api-handler'
 // ============================================================================
 
 /**
- * 需要认证的路径模式
- */
-const PROTECTED_PATHS = []
-
-/**
  * 公开访问的路径模式（不需要认证）
  */
 const PUBLIC_PATHS = ['/login', '/api/auth/logout', '/']
