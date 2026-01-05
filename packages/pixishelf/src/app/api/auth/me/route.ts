@@ -39,17 +39,5 @@ export const GET = apiHandler(MeSchema, async (request) => {
     })
   })
 
-  // 如果会话被刷新，更新Cookie
-  if (refreshedSession.token !== token) {
-    const cookieOptions = sessionManager.getCookieOptions(request.headers)
-    response.cookies.set('auth-token', refreshedSession.token, {
-      httpOnly: cookieOptions.httpOnly,
-      secure: cookieOptions.secure,
-      sameSite: cookieOptions.sameSite,
-      maxAge: cookieOptions.maxAge,
-      path: cookieOptions.path
-    })
-  }
-
   return response
 })
