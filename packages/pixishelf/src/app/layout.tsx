@@ -3,7 +3,9 @@ import { Toaster } from '@/components/ui/sonner'
 import type { Metadata, Viewport } from 'next'
 import { Providers } from '@/components/providers'
 import { GlobalConfirmDialog } from '@/components/shared/global-confirm' // 引入组件
+import { headers } from 'next/headers'
 import './globals.css'
+import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
 
 export const metadata: Metadata = {
   title: 'Pixishelf - 艺术家作品管理平台',
@@ -27,11 +29,27 @@ export interface RootLayoutProps {
 /**
  * 根布局组件
  */
-export default function RootLayout({ children }: RootLayoutProps) {
+export default async function RootLayout({ children }: RootLayoutProps) {
+  const headersList = await headers()
+  const sessionHeader = headersList.get('x-user-session')
+  let initialUser: AuthMeResponseDTO | null = null
+
+  if (sessionHeader) {
+    try {
+      const session = JSON.parse(sessionHeader)
+      initialUser = {
+        id: session.userId,
+        username: session.username
+      }
+    } catch (e) {
+      // console.error('Failed to parse user session', e)
+    }
+  }
+
   return (
     <html lang="zh-CN">
       <body suppressHydrationWarning={true}>
-        <Providers>
+        <Providers initialUser={initialUser}>
           <Toaster />
           {children}
           <GlobalConfirmDialog />

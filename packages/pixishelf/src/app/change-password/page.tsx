@@ -64,30 +64,6 @@ export default function ChangePasswordPage() {
     }
   })
 
-  // 检查认证状态
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      router.push(`${ROUTES.LOGIN}?redirect=/change-password`)
-    }
-  }, [isAuthenticated, authLoading, router])
-
-  // 如果正在加载认证状态，显示加载页面
-  if (authLoading) {
-    return (
-      <div className="min-h-screen w-full flex bg-background items-center justify-center">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-          <p className="text-sm text-muted-foreground">加载中...</p>
-        </div>
-      </div>
-    )
-  }
-
-  // 如果未认证，不渲染内容（会被重定向）
-  if (!isAuthenticated) {
-    return null
-  }
-
   const passwordStrength = getPasswordStrength(newPassword)
   const isPasswordMatch = newPassword && confirmPassword && newPassword === confirmPassword
   const canSubmit = currentPassword && newPassword && confirmPassword && isPasswordMatch && !isExecuting

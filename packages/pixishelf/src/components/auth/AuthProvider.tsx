@@ -1,10 +1,9 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import React, { createContext, useContext, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
 import type { AuthContextType, AuthState } from '@/types'
-import { useClientOnly } from '@/hooks/useClientOnly'
 import { api } from '@/lib/request'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
 
@@ -23,19 +22,20 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export interface AuthProviderProps {
   /** 子组件 */
   children: React.ReactNode
+  /** 初始用户信息（服务端注入） */
+  initialUser?: AuthMeResponseDTO | null
 }
 
 /**
  * 认证提供者组件
  */
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+export const AuthProvider: React.FC<AuthProviderProps> = ({ children, initialUser }) => {
   const router = useRouter()
-  const isClient = useClientOnly()
 
   const [authState, setAuthState] = useState<AuthState>({
-    isAuthenticated: false,
-    user: null,
-    isLoading: true,
+    isAuthenticated: !!initialUser,
+    user: initialUser || null,
+    isLoading: initialUser === undefined, // 如果显式传入了 null 或 user，则不加载
     error: null
   })
 
@@ -119,16 +119,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       router.push(ROUTES.LOGIN)
     }
   }, [router, setAuth])
-
-  /**
-   * 初始化认证状态
-   * 只在客户端执行，避免 SSR 水合不匹配
-   */
-  useEffect(() => {
-    if (isClient) {
-      refreshUser()
-    }
-  }, [isClient, refreshUser])
 
   /**
    * 构建上下文值
