@@ -1,13 +1,14 @@
 'use client'
 
-import React, { createContext, useContext, useState, useCallback } from 'react'
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
-import type { AuthContextType, AuthState } from '@/types'
-import { api } from '@/lib/request'
+import type { AuthContextType } from '@/types'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
 import { logoutUserAction } from '@/actions/auth-action'
 import { toast } from 'sonner'
+import { useTRPC } from '@/lib/trpc'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 // ============================================================================
 // 认证上下文提供者
@@ -33,91 +34,90 @@ export interface AuthProviderProps {
  */
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children, initialUser }) => {
   const router = useRouter()
+  const trpc = useTRPC()
+  const queryClient = useQueryClient()
 
-  const [authState, setAuthState] = useState<AuthState>({
-    isAuthenticated: !!initialUser,
-    user: initialUser || null,
-    isLoading: initialUser === undefined, // 如果显式传入了 null 或 user，则不加载
-    error: null
+  // 使用 state 保存 initialUser，以便在登出时可以将其清除，
+  // 防止 React Query 在缓存被清空后回退到 initialData
+  const [initialUserData, setInitialUserData] = useState(initialUser)
+
+  // 使用 tRPC useQuery 管理用户状态
+  // initialData 避免了客户端重复请求（如果有 SSR 数据）
+  const userQuery = useQuery({
+    ...trpc.auth.me.queryOptions(),
+    initialData: initialUserData ? initialUserData : undefined,
+    staleTime: 5 * 60 * 1000, // 5分钟内数据视为新鲜
+    retry: false,
+    refetchOnWindowFocus: false
   })
-
-  /**
-   * 设置认证状态
-   */
-  const setAuth = useCallback((updates: Partial<AuthState>) => {
-    setAuthState((prev) => ({ ...prev, ...updates }))
-  }, [])
 
   /**
    * 清除错误
    */
   const clearError = useCallback(() => {
-    setAuth({ error: null })
-  }, [setAuth])
-
-  /**
-   * 获取当前用户信息
-   */
-  const fetchUser = useCallback(async (): Promise<AuthMeResponseDTO> => api.get['/api/auth/me']()!, [])
+    // React Query 状态由数据驱动，这里仅做占位或重置查询
+    // 如果需要清除错误，可以尝试重置查询
+    // queryClient.resetQueries(trpc.auth.me.queryOptions())
+  }, [])
 
   /**
    * 刷新用户信息
    */
   const refreshUser = useCallback(async () => {
-    try {
-      setAuth({ isLoading: true, error: null })
-
-      const user = await fetchUser()
-
-      setAuth({
-        isAuthenticated: Boolean(user),
-        user,
-        isLoading: false
-      })
-    } catch (error) {
-      // oxlint-disable-next-line no-console
-      console.error('刷新用户信息错误:', error)
-      setAuth({
-        isAuthenticated: false,
-        user: null,
-        isLoading: false,
-        error: error instanceof Error ? error.message : ERROR_MESSAGES.SERVER_ERROR
-      })
-    }
-  }, [fetchUser, setAuth])
+    await userQuery.refetch()
+  }, [userQuery])
 
   /**
    * 登出
    */
   const logout = useCallback(async () => {
+    // 登出时清除初始数据，防止 React Query 回退
+    setInitialUserData(null)
+
     try {
-      setAuth({ isLoading: true })
-      // 调用登出API
       await logoutUserAction()
     } catch (error) {
       toast.error('登出失败', {
         description: error instanceof Error ? error.message : ERROR_MESSAGES.SERVER_ERROR
       })
+    } finally {
+      // 清除缓存数据
+      const queryKey = trpc.auth.me.queryOptions().queryKey
+
+      // 1. 取消任何正在进行的请求
+      await queryClient.cancelQueries({ queryKey })
+
+      // 2. 显式将数据设置为 null，这会立即触发 UI 更新
+      queryClient.setQueryData(queryKey, undefined)
+
+      // 3. 移除查询缓存，确保下次请求重新获取
+      queryClient.removeQueries({ queryKey })
+
+      router.push(ROUTES.LOGIN)
     }
-    // 清除本地状态
-    setAuth({
-      isAuthenticated: false,
-      user: null,
-      isLoading: false,
-      error: null
-    })
-    router.push(ROUTES.LOGIN)
-  }, [router, setAuth])
+  }, [router, trpc, queryClient])
 
   /**
    * 构建上下文值
    */
-  const contextValue: AuthContextType = {
-    ...authState,
-    logout,
-    refreshUser,
-    clearError
-  }
+  const contextValue: AuthContextType = useMemo(() => {
+    const errorMsg = userQuery.error
+      ? userQuery.error instanceof Error
+        ? userQuery.error.message
+        : ERROR_MESSAGES.SERVER_ERROR
+      : null
+    // console.log(userQuery.data, 'userQuery.datauserQuery.datauserQuery.data')
+
+    return {
+      isAuthenticated: !!userQuery.data,
+      user: userQuery.data ?? null,
+      isLoading: false,
+      error: errorMsg,
+      logout,
+      refreshUser,
+      clearError
+    }
+  }, [userQuery.data, userQuery.isLoading, userQuery.isFetching, userQuery.error, logout, refreshUser, clearError])
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
 }

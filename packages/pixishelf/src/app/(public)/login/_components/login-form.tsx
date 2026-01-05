@@ -12,7 +12,6 @@ import { loginUserAction } from '@/actions/auth-action'
 import { authLoginSchema } from '@/schemas/auth.dto'
 import z from 'zod'
 import { useAuth } from '@/components/auth'
-import { AuthLoading } from './auth-loading'
 
 /**
  * 表单状态接口
@@ -38,7 +37,7 @@ export const LoginForm: React.FC = () => {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  const { refreshUser, isAuthenticated, isLoading } = useAuth()
+  const { refreshUser, isAuthenticated } = useAuth()
   const redirectTo = searchParams.get('redirect') || ROUTES.DASHBOARD
 
   const { execute, isExecuting } = useAction(loginUserAction, {
@@ -64,10 +63,10 @@ export const LoginForm: React.FC = () => {
   const [errors, setErrors] = useState<FormErrors>({})
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
+    if (isAuthenticated) {
       router.replace(redirectTo)
     }
-  }, [isAuthenticated, isLoading, redirectTo, router])
+  }, [isAuthenticated, router])
 
   /**
    * 处理输入变化
@@ -98,11 +97,6 @@ export const LoginForm: React.FC = () => {
     }
   }
 
-  // 1. 加载中 或 2. 已登录正在跳转
-  if (isLoading || isAuthenticated) {
-    return <AuthLoading text={isAuthenticated ? '正在跳转...' : '正在检查登录状态...'} />
-  }
-
   return (
     <Card className="border-none shadow-none bg-transparent p-0 [&>div]:p-0">
       <CardContent className="p-8">
@@ -118,7 +112,7 @@ export const LoginForm: React.FC = () => {
                 className="pl-11"
                 placeholder="输入用户名"
                 required
-                disabled={isLoading}
+                disabled={isExecuting}
                 autoComplete="username"
               />
             </div>
@@ -137,7 +131,7 @@ export const LoginForm: React.FC = () => {
                 className="pl-11"
                 placeholder="输入密码"
                 required
-                disabled={isLoading}
+                disabled={isExecuting}
                 autoComplete="current-password"
               />
             </div>
