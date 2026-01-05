@@ -2,18 +2,20 @@
 
 import { cookies, headers } from 'next/headers'
 import { actionClient } from '@/lib/safe-action'
-import { ERROR_MESSAGES } from '@/lib/constants'
 import { validateCredentials } from '@/services/user-service'
 import { sessionManager } from '@/lib/session'
-import { AuthLoginSchema } from '@/schemas/auth.dto'
+import { authLoginSchema } from '@/schemas/auth.dto'
+import { returnValidationErrors } from 'next-safe-action'
 
 export const loginUserAction = actionClient
-  .inputSchema(AuthLoginSchema)
+  .inputSchema(authLoginSchema)
   .action(async ({ parsedInput: { username, password } }) => {
     // 验证用户凭据
     const user = await validateCredentials(username, password)
     if (!user) {
-      throw new Error(ERROR_MESSAGES.LOGIN_FAILED)
+      return returnValidationErrors(authLoginSchema, {
+        _errors: ['用户名或密码错误']
+      })
     }
 
     // 创建会话

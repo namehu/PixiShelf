@@ -1,5 +1,5 @@
 import type { ArtistGetSchema, ArtistsGetRequest, ArtistResponseDto } from '@/schemas/artist.dto'
-import type { AuthLoginSchema, AuthLoginResponseDTO, AuthMeResponseDTO } from '@/schemas/auth.dto'
+import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
 import { HealthResponseSchema } from '@/schemas/health.dto'
 import type { PaginationResponseData } from '@/types'
 import type {

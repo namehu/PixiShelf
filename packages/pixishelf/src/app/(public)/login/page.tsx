@@ -1,9 +1,9 @@
 import React, { Suspense } from 'react'
 import { Metadata } from 'next'
 import PLogo from '@/components/layout/p-logo'
-import { LoginFormClient } from './_components/login-form-client'
 import { AuthLoading } from './_components/auth-loading'
 import { APP_VERSION } from '@/_config'
+import { LoginForm } from './_components/login-form'
 
 export const metadata: Metadata = {
   title: '登录 - PixiShelf',
@@ -71,7 +71,7 @@ export default function LoginPage() {
           </div>
 
           <Suspense fallback={<AuthLoading />}>
-            <LoginFormClient />
+            <LoginForm />
           </Suspense>
 
           {/* 底部版权 (移动端) */}

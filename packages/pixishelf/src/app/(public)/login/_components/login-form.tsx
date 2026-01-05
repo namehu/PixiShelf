@@ -1,26 +1,18 @@
 'use client'
 
-import React, { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import React, { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
-import { LockKeyholeIcon, UserIcon } from 'lucide-react'
+import { ROUTES } from '@/lib/constants'
+import { CircleXIcon, LockKeyholeIcon, UserIcon } from 'lucide-react'
 import { useAction } from 'next-safe-action/hooks'
 import { loginUserAction } from '@/actions/login-action'
-import { AuthLoginSchema } from '@/schemas/auth.dto'
+import { authLoginSchema } from '@/schemas/auth.dto'
 import z from 'zod'
 import { useAuth } from '@/components/auth'
-
-export interface LoginFormProps {
-  /** 登录成功后的重定向URL */
-  redirectTo?: string
-  /** 自定义类名 */
-  className?: string
-  /** 登录失败回调 */
-  onError?: (error: string) => void
-}
+import { AuthLoading } from './auth-loading'
 
 /**
  * 表单状态接口
@@ -42,29 +34,40 @@ interface FormErrors {
 /**
  * 登录表单组件
  */
-export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onError }) => {
+export const LoginForm: React.FC = () => {
   const router = useRouter()
+  const searchParams = useSearchParams()
 
-  const { refreshUser } = useAuth()
+  const { refreshUser, isAuthenticated, isLoading } = useAuth()
+  const redirectTo = searchParams.get('redirect') || ROUTES.DASHBOARD
+
   const { execute, isExecuting } = useAction(loginUserAction, {
     onSuccess: async () => {
       await refreshUser()
-      router.replace(redirectTo || ROUTES.DASHBOARD)
+      router.replace(redirectTo)
     },
     onError: ({ error }) => {
-      const errorMessage = error.serverError || ERROR_MESSAGES.LOGIN_FAILED
-      setErrors({ general: errorMessage })
-      onError?.(errorMessage)
+      const { fieldErrors = {}, formErrors = [] } = error.validationErrors || {}
+      setErrors((pre) => ({
+        ...pre,
+        general: formErrors[0] || '登录失败',
+        username: fieldErrors.username?.[0],
+        password: fieldErrors.password?.[0]
+      }))
     }
   })
-
-  const isLoading = isExecuting
 
   const [formState, setFormState] = useState<FormState>({
     username: '',
     password: ''
   })
   const [errors, setErrors] = useState<FormErrors>({})
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.replace(redirectTo)
+    }
+  }, [isAuthenticated, isLoading, redirectTo, router])
 
   /**
    * 处理输入变化
@@ -86,20 +89,22 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onE
     setErrors({})
 
     try {
-      AuthLoginSchema.parse({
-        username: formState.username,
-        password: formState.password
-      })
-      execute(formState)
+      const data = authLoginSchema.parse({ username: formState.username, password: formState.password })
+      execute(data)
     } catch (error) {
       if (error instanceof z.ZodError) {
-        setErrors(error.flatten().fieldErrors)
+        setErrors((pre) => ({ ...pre, ...z.flattenError(error).fieldErrors }))
       }
     }
   }
 
+  // 1. 加载中 或 2. 已登录正在跳转
+  if (isLoading || isAuthenticated) {
+    return <AuthLoading text={isAuthenticated ? '正在跳转...' : '正在检查登录状态...'} />
+  }
+
   return (
-    <Card className={className}>
+    <Card className="border-none shadow-none bg-transparent p-0 [&>div]:p-0">
       <CardContent className="p-8">
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
@@ -142,29 +147,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onE
           {/* Error Message */}
           {errors.general && (
             <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 flex items-start gap-3">
-              <svg
-                className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <div>
-                <h4 className="text-sm font-medium text-destructive">登录失败</h4>
-                <p className="text-sm text-destructive/80 mt-1">{errors.general}</p>
-              </div>
+              <CircleXIcon className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-destructive/80 mt-1">{errors.general}</p>
             </div>
           )}
 
           {/* Submit Button */}
-          <Button type="submit" disabled={isLoading} className="w-full" size="lg">
-            {isLoading ? (
+          <Button type="submit" disabled={isExecuting} className="w-full" size="lg">
+            {isExecuting ? (
               <div className="flex items-center justify-center gap-2">
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 登录中...
