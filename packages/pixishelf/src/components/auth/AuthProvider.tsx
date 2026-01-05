@@ -6,6 +6,8 @@ import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
 import type { AuthContextType, AuthState } from '@/types'
 import { api } from '@/lib/request'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
+import { logoutUserAction } from '@/actions/auth-action'
+import { toast } from 'sonner'
 
 // ============================================================================
 // 认证上下文提供者
@@ -90,34 +92,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, initialUse
   const logout = useCallback(async () => {
     try {
       setAuth({ isLoading: true })
-
       // 调用登出API
-      await api.post['/api/auth/logout']()
-
-      // 无论API调用是否成功，都清除本地状态
-      setAuth({
-        isAuthenticated: false,
-        user: null,
-        isLoading: false,
-        error: null
-      })
-
-      // 重定向到登录页
-      router.push(ROUTES.LOGIN)
+      await logoutUserAction()
     } catch (error) {
-      // oxlint-disable-next-line no-console
-      console.error('登出错误:', error)
-
-      // 即使出错也要清除本地状态
-      setAuth({
-        isAuthenticated: false,
-        user: null,
-        isLoading: false,
-        error: null
+      toast.error('登出失败', {
+        description: error instanceof Error ? error.message : ERROR_MESSAGES.SERVER_ERROR
       })
-
-      router.push(ROUTES.LOGIN)
     }
+    // 清除本地状态
+    setAuth({
+      isAuthenticated: false,
+      user: null,
+      isLoading: false,
+      error: null
+    })
+    router.push(ROUTES.LOGIN)
   }, [router, setAuth])
 
   /**

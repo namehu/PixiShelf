@@ -29,7 +29,7 @@ function getPasswordStrength(password: string) {
  */
 export default function ChangePasswordPage() {
   const router = useRouter()
-  const { isAuthenticated, isLoading: authLoading, logout } = useAuth()
+  const { logout } = useAuth()
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')

@@ -30,8 +30,6 @@ export interface APIGET {
 export interface APIPOST {
   /** 创建用户 */
   '/api/users': (data: CreateUserSchema) => Promise<CreateUserResponseDTO>
-  /** 退出登录 */
-  '/api/auth/logout': () => Promise<void>
 }
 
 export interface APIPUT {}

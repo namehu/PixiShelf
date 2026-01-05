@@ -1,7 +1,7 @@
 'use server'
 
 import { cookies, headers } from 'next/headers'
-import { actionClient, authActionClient } from '@/lib/safe-action'
+import { actionClient, ActionError, authActionClient } from '@/lib/safe-action'
 import { changePassword, validateCredentials } from '@/services/user-service'
 import { sessionManager } from '@/lib/session'
 import { authLoginSchema } from '@/schemas/auth.dto'
@@ -42,7 +42,16 @@ export const loginUserAction = actionClient
 /**
  * 登出用户操作
  */
-export const logoutUserAction = actionClient.action(async () => {})
+export const logoutUserAction = actionClient.action(async () => {
+  try {
+    const cookieStore = await cookies()
+    cookieStore.delete('auth-token')
+  } catch (error) {
+    return new ActionError('登出失败')
+  }
+
+  return { code: 0 }
+})
 
 /**
  * 修改密码
@@ -58,5 +67,5 @@ export const changePasswordAction = authActionClient
       })
     }
 
-    return { success: true }
+    return { code: 0 }
   })
