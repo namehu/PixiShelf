@@ -3,7 +3,6 @@ import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
 import { HealthResponseSchema } from '@/schemas/health.dto'
 import type { PaginationResponseData } from '@/types'
 import type {
-  ChangePasswordSchema,
   CreateUserSchema,
   CreateUserResponseDTO,
   GetUsersResponseDTO,
@@ -35,10 +34,7 @@ export interface APIPOST {
   '/api/auth/logout': () => Promise<void>
 }
 
-export interface APIPUT {
-  /** 修改密码 */
-  '/api/users/password': (data: ChangePasswordSchema) => Promise<void>
-}
+export interface APIPUT {}
 
 export interface APIDELETE {
   /** 删除用户 */

@@ -1,18 +1,14 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/components/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ROUTES } from '@/lib/constants'
 import PNav from '@/components/layout/PNav'
-import { api } from '@/lib/request'
-import type { ChangePasswordSchema } from '@/schemas/users.dto'
-
-// ============================================================================
-// 修改密码页面
-// ============================================================================
+import { useAction } from 'next-safe-action/hooks'
+import { changePasswordAction } from '@/actions/auth-action'
 
 /**
  * 密码强度验证
@@ -38,22 +34,28 @@ export default function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [success, setSuccess] = useState(false)
 
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>()
 
-  const changePassword = async (data: ChangePasswordSchema) => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      await api.put['/api/users/password'](data)
-    } catch (err: any) {
-      const errorMessage = err.message || '密码修改失败'
-      setError(errorMessage)
-      throw new Error(errorMessage)
-    } finally {
-      setIsLoading(false)
+  const { execute, isExecuting } = useAction(changePasswordAction, {
+    onSuccess: () => {
+      setSuccess(true)
+    },
+    onError: ({ error }) => {
+      const { fieldErrors = {}, formErrors = [] } = error.validationErrors || {}
+
+      if (fieldErrors.currentPassword) {
+        setError(fieldErrors.currentPassword[0])
+      } else if (fieldErrors.newPassword) {
+        setError(fieldErrors.newPassword[0])
+      } else if (formErrors.length > 0) {
+        setError(formErrors[0])
+      } else if (error.serverError) {
+        setError(error.serverError)
+      } else {
+        setError('密码修改失败')
+      }
     }
-  }
+  })
 
   // 检查认证状态
   useEffect(() => {
@@ -81,16 +83,15 @@ export default function ChangePasswordPage() {
 
   const passwordStrength = getPasswordStrength(newPassword)
   const isPasswordMatch = newPassword && confirmPassword && newPassword === confirmPassword
-  const canSubmit = currentPassword && newPassword && confirmPassword && isPasswordMatch && !isLoading
+  const canSubmit = currentPassword && newPassword && confirmPassword && isPasswordMatch && !isExecuting
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
 
-    if (!canSubmit) return
-
-    await changePassword({ currentPassword, newPassword })
-    setSuccess(true)
+    if (canSubmit) {
+      execute({ currentPassword, newPassword })
+    }
   }
 
   const handleBack = () => {
@@ -177,7 +178,7 @@ export default function ChangePasswordPage() {
                       onChange={(e) => setCurrentPassword(e.target.value)}
                       placeholder="输入当前密码"
                       required
-                      disabled={isLoading}
+                      disabled={isExecuting}
                       className="pl-10"
                     />
                   </div>
@@ -206,7 +207,7 @@ export default function ChangePasswordPage() {
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="输入新密码"
                       required
-                      disabled={isLoading}
+                      disabled={isExecuting}
                       className="pl-10"
                     />
                   </div>
@@ -270,7 +271,7 @@ export default function ChangePasswordPage() {
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="再次输入新密码"
                       required
-                      disabled={isLoading}
+                      disabled={isExecuting}
                       className={`pl-10 pr-10 ${confirmPassword && !isPasswordMatch ? 'border-destructive' : ''}`}
                     />
                     {confirmPassword && (
@@ -324,15 +325,15 @@ export default function ChangePasswordPage() {
 
                 {/* 操作按钮 */}
                 <div className="space-y-3">
-                  <Button type="submit" size="lg" className="w-full" disabled={!canSubmit || isLoading}>
-                    {isLoading ? '修改中...' : '修改密码'}
+                  <Button type="submit" size="lg" className="w-full" disabled={!canSubmit || isExecuting}>
+                    {isExecuting ? '修改中...' : '修改密码'}
                   </Button>
                   <Button
                     type="button"
                     onClick={handleBack}
                     variant="secondary"
                     className="w-full"
-                    disabled={isLoading}
+                    disabled={isExecuting}
                   >
                     返回
                   </Button>

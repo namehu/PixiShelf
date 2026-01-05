@@ -46,7 +46,7 @@ export const CreateUserResponseDTO = z.object({
 export type CreateUserResponseDTO = z.infer<typeof CreateUserResponseDTO>
 
 /** 修改密码 Schema */
-export const ChangePasswordSchema = z.object({
+export const changePasswordSchema = z.object({
   currentPassword: z.string({ error: '当前密码不能为空' }).min(1, '当前密码不能为空'),
   newPassword: z
     .string({ error: '新密码不能为空' })
@@ -54,4 +54,3 @@ export const ChangePasswordSchema = z.object({
     .min(VALIDATION.PASSWORD.MIN_LENGTH, `新密码长度不能少于${VALIDATION.PASSWORD.MIN_LENGTH}个字符`)
     .max(VALIDATION.PASSWORD.MAX_LENGTH, `新密码长度不能超过${VALIDATION.PASSWORD.MAX_LENGTH}个字符`)
 })
-export type ChangePasswordSchema = z.infer<typeof ChangePasswordSchema>

@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
 import { verifyPassword } from '@/lib/crypto'
 import { AuthError } from '@/lib/auth'
@@ -58,5 +59,40 @@ export async function validateCredentials(username: string, pwd: string) {
     return safeUser
   } catch (error) {
     throw new AuthError(`凭据验证失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  }
+}
+
+/**
+ * 修改用户密码
+ * @param userId - 用户ID
+ * @param currentPassword - 当前密码
+ * @param newPassword - 新密码
+ * @returns Promise<void>
+ */
+export async function changePassword(userId: number, currentPassword: string, newPassword: string) {
+  try {
+    // 获取当前用户信息
+    const user = await prisma.user.findUnique({ where: { id: userId } })
+    if (!user) {
+      throw new Error('用户不存在')
+    }
+
+    // 验证当前密码
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password)
+    if (!isCurrentPasswordValid) {
+      throw new Error('当前密码不正确')
+    }
+
+    // 加密新密码
+    const salt = await bcrypt.genSalt(10)
+    const hashedNewPassword = await bcrypt.hash(newPassword, salt)
+
+    // 更新密码
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedNewPassword }
+    })
+  } catch (error) {
+    throw new Error(`密码修改失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }

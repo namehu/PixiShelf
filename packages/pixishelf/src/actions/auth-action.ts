@@ -1,10 +1,11 @@
 'use server'
 
 import { cookies, headers } from 'next/headers'
-import { actionClient } from '@/lib/safe-action'
-import { validateCredentials } from '@/services/user-service'
+import { actionClient, authActionClient } from '@/lib/safe-action'
+import { changePassword, validateCredentials } from '@/services/user-service'
 import { sessionManager } from '@/lib/session'
 import { authLoginSchema } from '@/schemas/auth.dto'
+import { changePasswordSchema } from '@/schemas/users.dto'
 import { returnValidationErrors } from 'next-safe-action'
 
 /**
@@ -46,4 +47,16 @@ export const logoutUserAction = actionClient.action(async () => {})
 /**
  * 修改密码
  */
-export const changePasswordAction = actionClient.action(async () => {})
+export const changePasswordAction = authActionClient
+  .inputSchema(changePasswordSchema)
+  .action(async ({ parsedInput: { currentPassword, newPassword }, ctx: { userId } }) => {
+    try {
+      await changePassword(userId, currentPassword, newPassword)
+    } catch (error) {
+      return returnValidationErrors(changePasswordSchema, {
+        _errors: [(error as Error).message]
+      })
+    }
+
+    return { success: true }
+  })
