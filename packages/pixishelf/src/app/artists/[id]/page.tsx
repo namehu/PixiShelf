@@ -5,7 +5,6 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { EnhancedArtworksResponse, SortOption } from '@/types'
-import { useAuth } from '@/components/auth'
 import { ChevronLeftIcon } from 'lucide-react'
 import { SortControl } from '@/components/ui/SortControl'
 import {
@@ -38,7 +37,6 @@ function ArtistDetailPage() {
   const router = useRouter()
   const params = useParams()
   const searchParams = useSearchParams()
-  const { isLoading: authLoading } = useAuth()
 
   const id = params.id as string
   const page = parseInt(searchParams.get('page') || '1', 10)
@@ -109,15 +107,6 @@ function ArtistDetailPage() {
     }
     newParams.set('page', '1')
     router.push(`/artists/${id}?${newParams.toString()}`)
-  }
-
-  // 认证检查
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-      </div>
-    )
   }
 
   // 加载状态

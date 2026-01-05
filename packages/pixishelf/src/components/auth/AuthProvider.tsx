@@ -1,9 +1,8 @@
 'use client'
 
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react'
+import React, { createContext, useContext, useState, useCallback, useMemo, PropsWithChildren } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
-import type { AuthContextType } from '@/types'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
 import { logoutUserAction } from '@/actions/auth-action'
 import { toast } from 'sonner'
@@ -17,22 +16,29 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 /**
  * 认证上下文
  */
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+interface AuthContextType {
+  /** 当前用户 */
+  user: AuthMeResponseDTO | null
+  /** 登出方法 */
+  logout: () => Promise<void>
+  /** 刷新用户信息 */
+  refreshUser: () => Promise<any>
+}
 
 /**
- * 认证提供者组件属性
+ * 认证上下文
  */
-export interface AuthProviderProps {
-  /** 子组件 */
-  children: React.ReactNode
-  /** 初始用户信息（服务端注入） */
-  initialUser?: AuthMeResponseDTO | null
-}
+const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 /**
  * 认证提供者组件
  */
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children, initialUser }) => {
+export const AuthProvider: React.FC<
+  PropsWithChildren<{
+    /** 初始用户信息（服务端注入） */
+    initialUser?: AuthMeResponseDTO | null
+  }>
+> = ({ children, initialUser }) => {
   const router = useRouter()
   const pathname = usePathname()
   const trpc = useTRPC()
@@ -50,13 +56,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, initialUse
     retry: false,
     refetchOnWindowFocus: false
   })
-
-  /**
-   * 刷新用户信息
-   */
-  const refreshUser = useCallback(async () => {
-    await userQuery.refetch()
-  }, [userQuery])
 
   /**
    * 登出
@@ -92,22 +91,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, initialUse
    * 构建上下文值
    */
   const contextValue: AuthContextType = useMemo(() => {
-    const errorMsg = userQuery.error
-      ? userQuery.error instanceof Error
-        ? userQuery.error.message
-        : ERROR_MESSAGES.SERVER_ERROR
-      : null
-    // console.log(userQuery.data, 'userQuery.datauserQuery.datauserQuery.data')
-
     return {
-      isAuthenticated: !!userQuery.data,
       user: userQuery.data ?? null,
-      isLoading: false,
-      error: errorMsg,
       logout,
-      refreshUser
+      refreshUser: () => userQuery.refetch()
     }
-  }, [userQuery.data, userQuery.isLoading, userQuery.isFetching, userQuery.error, logout, refreshUser])
+  }, [userQuery.data, logout])
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
 }

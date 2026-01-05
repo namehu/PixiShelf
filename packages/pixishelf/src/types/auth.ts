@@ -2,8 +2,6 @@
 // 认证相关类型定义
 // ============================================================================
 
-import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
-
 /**
  * 会话数据
  */
@@ -30,34 +28,6 @@ export interface Session {
 
 export interface ApiSession extends Omit<Session, 'userId'> {
   userId: number
-}
-
-// ----------------------------------------------------------------------------
-// 认证状态相关类型
-// ----------------------------------------------------------------------------
-
-/**
- * 认证状态
- */
-export interface AuthState {
-  /** 是否已认证 */
-  isAuthenticated: boolean
-  /** 当前用户 */
-  user: AuthMeResponseDTO | null
-  /** 是否正在加载 */
-  isLoading: boolean
-  /** 错误信息 */
-  error: string | null
-}
-
-/**
- * 认证上下文
- */
-export interface AuthContextType extends AuthState {
-  /** 登出方法 */
-  logout: () => Promise<void>
-  /** 刷新用户信息 */
-  refreshUser: () => Promise<void>
 }
 
 // ----------------------------------------------------------------------------

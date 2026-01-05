@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { useAuth } from '@/components/auth'
 import { client } from '@/lib/api'
 import { AlertCircleIcon, ChevronLeftIcon, FullscreenIcon } from 'lucide-react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
@@ -20,8 +19,6 @@ export default function ArtworkDetailPage() {
   const router = useRouter()
   const params = useParams()
   const id = params.id as string
-
-  const { isLoading: authLoading } = useAuth()
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['artwork', id],
@@ -48,7 +45,6 @@ export default function ArtworkDetailPage() {
 
   const { ext, isVideo } = useMemo(() => getMediaInfo(data?.images?.[0]?.path || ''), [data])
 
-  if (authLoading) return <div className="min-h-screen flex items-center justify-center">...</div>
   if (!data && isLoading) return <LoadingSkeleton /> // 简化加载逻辑
   if (isError) return <Error />
   if (!data) return null

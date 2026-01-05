@@ -3,13 +3,11 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useInView } from 'react-intersection-observer'
-import { Loader2, Filter, SlidersHorizontal } from 'lucide-react'
+import { Filter, SlidersHorizontal } from 'lucide-react'
 import { EnhancedArtworksResponse, SortOption, MediaTypeFilter } from '@/types'
-import { useAuth } from '@/components/auth'
 import { SearchBox } from './_components/search-box'
 import { FilterSheet } from './_components/filter-sheet'
 import { client } from '@/lib/api' // 注意：这里修正了 import 顺序
-import { ROUTES } from '@/lib/constants'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
 import PNav from '@/components/layout/PNav'
 import { Button } from '@/components/ui/button'
@@ -20,6 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton'
  * 获取作品列表Hook
  * (逻辑保持不变，仅用于单页数据获取)
  */
+// oxlint-disable-next-line max-params
 function useArtworks(
   page: number,
   pageSize: number,
@@ -78,7 +77,6 @@ function useArtworks(
 function GalleryPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { isAuthenticated, isLoading: authLoading } = useAuth()
 
   // --- 1. 状态管理 ---
   // 本地页码状态，初始为 1
@@ -211,24 +209,6 @@ function GalleryPageContent() {
     router.push('/gallery')
   }
 
-  // --- 9. 认证与加载状态检查 ---
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      router.push(`${ROUTES.LOGIN}?redirect=/gallery`)
-    }
-  }, [isAuthenticated, authLoading, router])
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) return null
-
-  // --- 渲染 ---
   return (
     <div className="min-h-screen bg-gray-50/50">
       {/* 1. 顶部导航栏集成搜索框 */}
