@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server'
 import { authService } from './auth'
-import { COOKIE_NAMES } from './constants'
+import { COOKIE_AUTH_TOKEN } from './constants'
 import type { Session, CookieOptions, ApiSession } from '@/types/auth'
 import type { User } from '@/types/core'
 import logger from './logger'
@@ -278,7 +278,7 @@ export class SessionManager implements ISessionManager {
         {} as Record<string, string>
       )
 
-      return cookies[COOKIE_NAMES.AUTH_TOKEN] || null
+      return cookies[COOKIE_AUTH_TOKEN] || null
     } catch (error) {
       logger.error('提取令牌失败:', error)
       return null
@@ -290,7 +290,7 @@ export class SessionManager implements ISessionManager {
    */
   extractTokenFromRequest(request: NextRequest): string | null {
     // 首先尝试从Cookie中获取
-    const cookieToken = request.cookies.get('auth-token')?.value
+    const cookieToken = request.cookies.get(COOKIE_AUTH_TOKEN)?.value
     if (cookieToken) {
       return cookieToken
     }

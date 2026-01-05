@@ -1,6 +1,7 @@
 // ============================================================================
 // 应用常量定义
 // ============================================================================
+export const COOKIE_AUTH_TOKEN = 'auth-token'
 
 /**
  * 页面路径
@@ -17,24 +18,6 @@ export const ROUTES = {
   TAGS: '/tags',
   VIEWER: '/viewer',
   CHANGE_PASSWORD: '/change-password'
-} as const
-
-/**
- * 本地存储键名
- */
-export const STORAGE_KEYS = {
-  AUTH_TOKEN: 'auth-token',
-  USER_PREFERENCES: 'user-preferences',
-  THEME: 'theme'
-} as const
-
-/**
- * Cookie名称
- */
-export const COOKIE_NAMES = {
-  AUTH_TOKEN: 'auth-token',
-  REFRESH_TOKEN: 'refresh-token',
-  USER_PREFERENCES: 'user-preferences'
 } as const
 
 /**

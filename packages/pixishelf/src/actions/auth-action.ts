@@ -7,6 +7,7 @@ import { sessionManager } from '@/lib/session'
 import { authLoginSchema } from '@/schemas/auth.dto'
 import { changePasswordSchema } from '@/schemas/users.dto'
 import { returnValidationErrors } from 'next-safe-action'
+import { COOKIE_AUTH_TOKEN } from '@/lib/constants'
 
 /**
  * 登录用户操作
@@ -28,7 +29,7 @@ export const loginUserAction = actionClient
     const cookieOptions = sessionManager.getCookieOptions(await headers())
     const cookieStore = await cookies()
 
-    cookieStore.set('auth-token', session.token, {
+    cookieStore.set(COOKIE_AUTH_TOKEN, session.token, {
       httpOnly: cookieOptions.httpOnly,
       secure: cookieOptions.secure,
       sameSite: cookieOptions.sameSite as any,
@@ -45,7 +46,7 @@ export const loginUserAction = actionClient
 export const logoutUserAction = actionClient.action(async () => {
   try {
     const cookieStore = await cookies()
-    cookieStore.delete('auth-token')
+    cookieStore.delete(COOKIE_AUTH_TOKEN)
   } catch (error) {
     return new ActionError('登出失败')
   }

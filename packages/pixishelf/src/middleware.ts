@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sessionManager } from '@/lib/session'
-import { ROUTES } from '@/lib/constants'
+import { COOKIE_AUTH_TOKEN, ROUTES } from '@/lib/constants'
 import logger from './lib/logger'
 import { responseUnauthorized } from './lib/api-handler'
+import type { Session } from '@/types/auth'
 
 // ============================================================================
 // Next.js 认证中间件
@@ -26,10 +27,20 @@ function matchesPattern(pathname: string, patterns: string[]): boolean {
 }
 
 /**
- * 检查路径是否需要认证
+ * 如果会话令牌已刷新，更新响应中的 Cookie
  */
-function requiresAuth(pathname: string): boolean {
-  return !matchesPattern(pathname, PUBLIC_PATHS)
+// oxlint-disable-next-line max-params
+function updateAuthCookie(request: NextRequest, response: NextResponse, session: Session, oldToken: string) {
+  if (session.token !== oldToken) {
+    const cookieOptions = sessionManager.getCookieOptions(request.headers)
+    response.cookies.set(COOKIE_AUTH_TOKEN, session.token, {
+      httpOnly: cookieOptions.httpOnly,
+      secure: cookieOptions.secure,
+      sameSite: cookieOptions.sameSite,
+      maxAge: cookieOptions.maxAge,
+      path: cookieOptions.path
+    })
+  }
 }
 
 /**
@@ -38,8 +49,30 @@ function requiresAuth(pathname: string): boolean {
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl
 
+  // 1. 特殊处理：如果用户访问登录页且已持有有效令牌，重定向到仪表盘
+  if (pathname === ROUTES.LOGIN) {
+    try {
+      const token = sessionManager.extractTokenFromRequest(request)
+      if (token) {
+        const session = await sessionManager.validateAndRefreshSession(token)
+        if (session) {
+          const dashboardUrl = new URL(ROUTES.DASHBOARD, request.url)
+          const response = NextResponse.redirect(dashboardUrl)
+
+          // 如果会话被刷新，更新Cookie
+          updateAuthCookie(request, response, session, token)
+
+          return response
+        }
+      }
+    } catch (error) {
+      // 验证失败，忽略错误，继续执行允许访问登录页
+      logger.error('登录页重定向检查失败:', error)
+    }
+  }
+
   // 检查是否需要认证
-  if (!requiresAuth(pathname)) {
+  if (matchesPattern(pathname, PUBLIC_PATHS)) {
     return NextResponse.next()
   }
 
@@ -80,17 +113,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     })
 
     // 如果会话被刷新，更新Cookie
-    if (refreshedSession.token !== token) {
-      const cookieOptions = sessionManager.getCookieOptions(request.headers)
-
-      response.cookies.set('auth-token', refreshedSession.token, {
-        httpOnly: cookieOptions.httpOnly,
-        secure: cookieOptions.secure,
-        sameSite: cookieOptions.sameSite,
-        maxAge: cookieOptions.maxAge,
-        path: cookieOptions.path
-      })
-    }
+    updateAuthCookie(request, response, refreshedSession, token)
 
     // 认证成功，继续处理请求
     return response
@@ -119,7 +142,7 @@ function handleUnauthenticated(request: NextRequest, pathname: string): NextResp
 
   const response = NextResponse.redirect(loginUrl)
   // 清除可能存在的无效认证Cookie
-  response.cookies.delete('auth-token')
+  response.cookies.delete(COOKIE_AUTH_TOKEN)
 
   return response
 }

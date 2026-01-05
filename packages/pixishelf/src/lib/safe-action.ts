@@ -1,6 +1,7 @@
 import { createSafeActionClient, DEFAULT_SERVER_ERROR_MESSAGE } from 'next-safe-action'
 import { cookies } from 'next/headers'
 import { sessionManager } from './session'
+import { COOKIE_AUTH_TOKEN } from './constants'
 
 // 定义一个错误类
 export class ActionError extends Error {
@@ -33,7 +34,7 @@ export const authActionClient = actionClient
   .use(async ({ next }) => {
     // 1. 获取当前用户 Session
     const cookieStore = await cookies()
-    const token = cookieStore.get('auth-token')?.value
+    const token = cookieStore.get(COOKIE_AUTH_TOKEN)?.value
 
     if (!token) {
       throw new Error('token not found!')

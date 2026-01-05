@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,7 +37,7 @@ export const LoginForm: React.FC = () => {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  const { refreshUser, isAuthenticated } = useAuth()
+  const { refreshUser } = useAuth()
   const redirectTo = searchParams.get('redirect') || ROUTES.DASHBOARD
 
   const { execute, isExecuting } = useAction(loginUserAction, {
@@ -61,12 +61,6 @@ export const LoginForm: React.FC = () => {
     password: ''
   })
   const [errors, setErrors] = useState<FormErrors>({})
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      router.replace(redirectTo)
-    }
-  }, [isAuthenticated, router])
 
   /**
    * 处理输入变化
