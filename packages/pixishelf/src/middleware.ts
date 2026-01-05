@@ -16,7 +16,7 @@ const PROTECTED_PATHS = []
 /**
  * 公开访问的路径模式（不需要认证）
  */
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/logout', '/']
+const PUBLIC_PATHS = ['/login', '/api/auth/logout', '/']
 
 /**
  * 检查路径是否匹配模式

@@ -72,8 +72,6 @@ export interface AuthState {
  * 认证上下文
  */
 export interface AuthContextType extends AuthState {
-  /** 登录方法 */
-  login: (username: string, password: string) => Promise<boolean>
   /** 登出方法 */
   logout: () => Promise<void>
   /** 刷新用户信息 */

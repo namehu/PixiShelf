@@ -29,8 +29,6 @@ export interface APIGET {
 }
 
 export interface APIPOST {
-  /** 登录 */
-  '/api/auth/login': (data: AuthLoginSchema) => Promise<AuthLoginResponseDTO>
   /** 创建用户 */
   '/api/users': (data: CreateUserSchema) => Promise<CreateUserResponseDTO>
   /** 退出登录 */

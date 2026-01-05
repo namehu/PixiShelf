@@ -11,6 +11,7 @@ import { useAction } from 'next-safe-action/hooks'
 import { loginUserAction } from '@/actions/login-action'
 import { AuthLoginSchema } from '@/schemas/auth.dto'
 import z from 'zod'
+import { useAuth } from '@/components/auth'
 
 export interface LoginFormProps {
   /** 登录成功后的重定向URL */
@@ -44,11 +45,11 @@ interface FormErrors {
 export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onError }) => {
   const router = useRouter()
 
+  const { refreshUser } = useAuth()
   const { execute, isExecuting } = useAction(loginUserAction, {
-    onSuccess: ({ data }) => {
-      // 重定向到指定页面或默认页面
-      const targetUrl = redirectTo || ROUTES.DASHBOARD
-      router.replace(targetUrl)
+    onSuccess: async () => {
+      await refreshUser()
+      router.replace(redirectTo || ROUTES.DASHBOARD)
     },
     onError: ({ error }) => {
       const errorMessage = error.serverError || ERROR_MESSAGES.LOGIN_FAILED

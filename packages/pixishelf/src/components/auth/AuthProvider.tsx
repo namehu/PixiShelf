@@ -56,10 +56,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   /**
    * 获取当前用户信息
    */
-  const fetchUser = useCallback(async (): Promise<AuthMeResponseDTO> => {
-    const user = await api.get['/api/auth/me']()
-    return user!
-  }, [])
+  const fetchUser = useCallback(async (): Promise<AuthMeResponseDTO> => api.get['/api/auth/me']()!, [])
 
   /**
    * 刷新用户信息
@@ -86,49 +83,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       })
     }
   }, [fetchUser, setAuth])
-
-  /**
-   * 登录
-   */
-  const login = useCallback(
-    async (username: string, password: string): Promise<boolean> => {
-      try {
-        setAuth({ isLoading: true, error: null })
-
-        await api.post['/api/auth/login']({ username, password })
-
-        // 登录成功，获取用户信息
-        const user = await fetchUser()
-
-        if (!user) {
-          throw new Error('登录成功但无法获取用户信息')
-        }
-
-        setAuth({
-          isAuthenticated: true,
-          user,
-          isLoading: false,
-          error: null
-        })
-
-        return true
-      } catch (error) {
-        // oxlint-disable-next-line no-console
-        console.error('登录错误:', error)
-        const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.LOGIN_FAILED
-
-        setAuth({
-          isAuthenticated: false,
-          user: null,
-          isLoading: false,
-          error: errorMessage
-        })
-
-        return false
-      }
-    },
-    [fetchUser, setAuth]
-  )
 
   /**
    * 登出
@@ -181,7 +135,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    */
   const contextValue: AuthContextType = {
     ...authState,
-    login,
     logout,
     refreshUser,
     clearError
@@ -201,20 +154,4 @@ export const useAuth = (): AuthContextType => {
   }
 
   return context
-}
-
-/**
- * 检查是否已认证的Hook
- */
-export const useRequireAuth = () => {
-  const { isAuthenticated, isLoading } = useAuth()
-  const router = useRouter()
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push(ROUTES.LOGIN)
-    }
-  }, [isAuthenticated, isLoading, router])
-
-  return { isAuthenticated, isLoading }
 }
