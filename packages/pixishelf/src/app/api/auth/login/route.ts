@@ -3,13 +3,13 @@ import { sessionManager } from '@/lib/session'
 import { ERROR_MESSAGES } from '@/lib/constants'
 import { ApiError } from '@/lib/errors'
 import { validateCredentials } from '@/services/user-service'
-import { AuthLoginRequestDTO, AuthLoginResponseDTO } from '@/schemas/auth.dto'
+import { AuthLoginSchema, AuthLoginResponseDTO } from '@/schemas/auth.dto'
 
 /**
  * 处理用户登录请求
  * POST /api/auth/login
  */
-export const POST = apiHandler(AuthLoginRequestDTO, async (request, data) => {
+export const POST = apiHandler(AuthLoginSchema, async (request, data) => {
   const { username, password } = data
 
   // 验证用户凭据
@@ -24,7 +24,7 @@ export const POST = apiHandler(AuthLoginRequestDTO, async (request, data) => {
   const response = responseSuccess({ data: AuthLoginResponseDTO.parse({ id: user.id }) })
 
   // 设置认证Cookie
-  const cookieOptions = sessionManager.getCookieOptionsForRequest(request)
+  const cookieOptions = sessionManager.getCookieOptions(request.headers)
   response.cookies.set('auth-token', session.token, {
     httpOnly: cookieOptions.httpOnly,
     secure: cookieOptions.secure,

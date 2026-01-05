@@ -5,10 +5,12 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import { validateLoginForm } from '@/lib/validators'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
-import { useAuth } from '@/components/auth'
 import { LockKeyholeIcon, UserIcon } from 'lucide-react'
+import { useAction } from 'next-safe-action/hooks'
+import { loginUserAction } from '@/actions/login-action'
+import { AuthLoginSchema } from '@/schemas/auth.dto'
+import z from 'zod'
 
 export interface LoginFormProps {
   /** 登录成功后的重定向URL */
@@ -25,7 +27,6 @@ export interface LoginFormProps {
 interface FormState {
   username: string
   password: string
-  rememberMe: boolean
 }
 
 /**
@@ -42,12 +43,25 @@ interface FormErrors {
  */
 export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onError }) => {
   const router = useRouter()
-  const { login } = useAuth()
-  const [isLoading, setIsLoading] = useState(false)
+
+  const { execute, isExecuting } = useAction(loginUserAction, {
+    onSuccess: ({ data }) => {
+      // 重定向到指定页面或默认页面
+      const targetUrl = redirectTo || ROUTES.DASHBOARD
+      router.replace(targetUrl)
+    },
+    onError: ({ error }) => {
+      const errorMessage = error.serverError || ERROR_MESSAGES.LOGIN_FAILED
+      setErrors({ general: errorMessage })
+      onError?.(errorMessage)
+    }
+  })
+
+  const isLoading = isExecuting
+
   const [formState, setFormState] = useState<FormState>({
     username: '',
-    password: '',
-    rememberMe: false
+    password: ''
   })
   const [errors, setErrors] = useState<FormErrors>({})
 
@@ -55,73 +69,31 @@ export const LoginForm: React.FC<LoginFormProps> = ({ redirectTo, className, onE
    * 处理输入变化
    */
   const handleInputChange = (field: keyof FormState) => (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value
-
-    setFormState((prev) => ({
-      ...prev,
-      [field]: value
-    }))
-
+    const { value } = event.target
+    setFormState((prev) => ({ ...prev, [field]: value }))
     // 清除对应字段的错误
     if (errors[field as keyof FormErrors]) {
-      setErrors((prev) => ({
-        ...prev,
-        [field]: undefined
-      }))
+      setErrors((prev) => ({ ...prev, [field]: undefined }))
     }
-  }
-
-  /**
-   * 验证表单
-   */
-  const validateForm = (): boolean => {
-    const validation = validateLoginForm({
-      username: formState.username,
-      password: formState.password
-    })
-
-    if (!validation.isValid) {
-      setErrors(validation.errors)
-      return false
-    }
-
-    setErrors({})
-    return true
   }
 
   /**
    * 处理表单提交
    */
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-
-    // 验证表单
-    if (!validateForm()) {
-      return
-    }
-
-    setIsLoading(true)
     setErrors({})
 
     try {
-      // 使用AuthProvider的login方法
-      const success = await login(formState.username, formState.password)
-
-      if (success) {
-        // 重定向到指定页面或默认页面
-        const targetUrl = redirectTo || ROUTES.DASHBOARD
-        router.replace(targetUrl)
-      } else {
-        // 登录失败，错误信息已经在AuthProvider中处理
-        setErrors({ general: ERROR_MESSAGES.LOGIN_FAILED })
-        onError?.(ERROR_MESSAGES.LOGIN_FAILED)
-      }
+      AuthLoginSchema.parse({
+        username: formState.username,
+        password: formState.password
+      })
+      execute(formState)
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.SERVER_ERROR
-      setErrors({ general: errorMessage })
-      onError?.(errorMessage)
-    } finally {
-      setIsLoading(false)
+      if (error instanceof z.ZodError) {
+        setErrors(error.flatten().fieldErrors)
+      }
     }
   }
 

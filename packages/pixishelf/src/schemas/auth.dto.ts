@@ -2,7 +2,7 @@ import z from 'zod'
 import { VALIDATION } from '@/lib/constants'
 
 /** 登录请求 DTO */
-export const AuthLoginRequestDTO = z.object({
+export const AuthLoginSchema = z.object({
   username: z
     .string({ error: '用户名不能为空' })
     .min(1, '用户名不能为空')
@@ -15,7 +15,7 @@ export const AuthLoginRequestDTO = z.object({
     .min(VALIDATION.PASSWORD.MIN_LENGTH, `密码长度不能少于${VALIDATION.PASSWORD.MIN_LENGTH}个字符`)
     .max(VALIDATION.PASSWORD.MAX_LENGTH, `密码长度不能超过${VALIDATION.PASSWORD.MAX_LENGTH}个字符`)
 })
-export type AuthLoginRequestDTO = z.infer<typeof AuthLoginRequestDTO>
+export type AuthLoginSchema = z.infer<typeof AuthLoginSchema>
 
 /** 登录成功响应 DTO */
 export const AuthLoginResponseDTO = z.object({

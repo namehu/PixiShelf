@@ -240,18 +240,18 @@ export class SessionManager implements ISessionManager {
 
   /**
    * 根据请求动态获取Cookie配置
-   * @param request - Next.js 请求对象
+   * @param headers - Next.js 请求对象
    * @param options - 自定义选项
    * @returns CookieOptions 合并后的配置
    */
-  getCookieOptionsForRequest(request: NextRequest, options: Partial<CookieOptions> = {}): CookieOptions {
+  getCookieOptions(headers: NextRequest['headers'], options: Partial<CookieOptions> = {}): CookieOptions {
     const baseOptions = {
       ...this.defaultCookieOptions,
       ...options
     }
 
     // 根据请求的 host 动态设置 secure
-    const host = request.headers.get('host') || ''
+    const host = headers.get('host') || ''
     const isLocalOrIP = host.includes('localhost') || host.includes('127.0.0.1') || /^\d+\.\d+\.\d+\.\d+/.test(host)
 
     return {

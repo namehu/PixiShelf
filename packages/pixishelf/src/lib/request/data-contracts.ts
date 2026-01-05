@@ -1,5 +1,5 @@
 import type { ArtistGetSchema, ArtistsGetRequest, ArtistResponseDto } from '@/schemas/artist.dto'
-import type { AuthLoginRequestDTO, AuthLoginResponseDTO, AuthMeResponseDTO } from '@/schemas/auth.dto'
+import type { AuthLoginSchema, AuthLoginResponseDTO, AuthMeResponseDTO } from '@/schemas/auth.dto'
 import { HealthResponseSchema } from '@/schemas/health.dto'
 import type { PaginationResponseData } from '@/types'
 import type {
@@ -30,7 +30,7 @@ export interface APIGET {
 
 export interface APIPOST {
   /** 登录 */
-  '/api/auth/login': (data: AuthLoginRequestDTO) => Promise<AuthLoginResponseDTO>
+  '/api/auth/login': (data: AuthLoginSchema) => Promise<AuthLoginResponseDTO>
   /** 创建用户 */
   '/api/users': (data: CreateUserSchema) => Promise<CreateUserResponseDTO>
   /** 退出登录 */
