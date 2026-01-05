@@ -21,8 +21,6 @@ export interface APIGET {
   '/api/artists/[id]': (data: ArtistGetSchema) => Promise<ArtistResponseDto>
   /** 健康检查 */
   '/api/health': () => Promise<HealthResponseSchema>
-  /** 获取当前用户信息 */
-  '/api/auth/me': () => Promise<AuthMeResponseDTO>
   /** 获取用户列表 */
   '/api/users': () => Promise<GetUsersResponseDTO>
 }
