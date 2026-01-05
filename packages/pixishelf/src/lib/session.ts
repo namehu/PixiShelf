@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server'
 import { authService } from './auth'
 import { COOKIE_AUTH_TOKEN } from './constants'
-import type { Session, CookieOptions, ApiSession } from '@/types/auth'
+import type { Session, ApiSession } from '@/types/auth'
 import type { User } from '@/types/core'
 import logger from './logger'
 
@@ -9,7 +9,23 @@ import logger from './logger'
 // 会话管理服务
 // ============================================================================
 
-// 使用从 @/types/auth 导入的 Session 和 CookieOptions 接口
+/**
+ * Cookie选项
+ */
+interface CookieOptions {
+  /** 是否仅HTTP访问 */
+  httpOnly: boolean
+  /** 是否安全传输 */
+  secure: boolean
+  /** SameSite策略 */
+  sameSite: 'strict' | 'lax' | 'none'
+  /** 最大存活时间（秒） */
+  maxAge: number
+  /** 路径 */
+  path: string
+  /** 域名 */
+  domain?: string
+}
 
 /**
  * 会话管理器接口

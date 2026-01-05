@@ -32,24 +32,6 @@ export interface ApiSession extends Omit<Session, 'userId'> {
   userId: number
 }
 
-/**
- * Cookie选项
- */
-export interface CookieOptions {
-  /** 是否仅HTTP访问 */
-  httpOnly: boolean
-  /** 是否安全传输 */
-  secure: boolean
-  /** SameSite策略 */
-  sameSite: 'strict' | 'lax' | 'none'
-  /** 最大存活时间（秒） */
-  maxAge: number
-  /** 路径 */
-  path: string
-  /** 域名 */
-  domain?: string
-}
-
 // ----------------------------------------------------------------------------
 // 认证状态相关类型
 // ----------------------------------------------------------------------------
@@ -76,8 +58,6 @@ export interface AuthContextType extends AuthState {
   logout: () => Promise<void>
   /** 刷新用户信息 */
   refreshUser: () => Promise<void>
-  /** 清除错误 */
-  clearError: () => void
 }
 
 // ----------------------------------------------------------------------------

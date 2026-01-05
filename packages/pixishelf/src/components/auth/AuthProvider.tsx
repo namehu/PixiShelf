@@ -1,7 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
 import type { AuthContextType } from '@/types'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
@@ -34,6 +34,7 @@ export interface AuthProviderProps {
  */
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children, initialUser }) => {
   const router = useRouter()
+  const pathname = usePathname()
   const trpc = useTRPC()
   const queryClient = useQueryClient()
 
@@ -41,24 +42,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, initialUse
   // 防止 React Query 在缓存被清空后回退到 initialData
   const [initialUserData, setInitialUserData] = useState(initialUser)
 
-  // 使用 tRPC useQuery 管理用户状态
-  // initialData 避免了客户端重复请求（如果有 SSR 数据）
   const userQuery = useQuery({
     ...trpc.auth.me.queryOptions(),
     initialData: initialUserData ? initialUserData : undefined,
+    enabled: pathname !== ROUTES.LOGIN,
     staleTime: 5 * 60 * 1000, // 5分钟内数据视为新鲜
     retry: false,
     refetchOnWindowFocus: false
   })
-
-  /**
-   * 清除错误
-   */
-  const clearError = useCallback(() => {
-    // React Query 状态由数据驱动，这里仅做占位或重置查询
-    // 如果需要清除错误，可以尝试重置查询
-    // queryClient.resetQueries(trpc.auth.me.queryOptions())
-  }, [])
 
   /**
    * 刷新用户信息
@@ -114,10 +105,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, initialUse
       isLoading: false,
       error: errorMsg,
       logout,
-      refreshUser,
-      clearError
+      refreshUser
     }
-  }, [userQuery.data, userQuery.isLoading, userQuery.isFetching, userQuery.error, logout, refreshUser, clearError])
+  }, [userQuery.data, userQuery.isLoading, userQuery.isFetching, userQuery.error, logout, refreshUser])
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
 }
