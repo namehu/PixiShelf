@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import * as path from 'path'
-import { getSettingService } from '@/lib/services/setting'
 import logger from '@/lib/logger'
+import { getScanPath } from '@/services/setting.service'
 
 /**
  * 图片/媒体文件服务接口
@@ -28,7 +28,7 @@ export async function GET(
     }
 
     // 获取扫描路径设置
-    const scanPath = await getSettingService().getScanPath()
+    const scanPath = await getScanPath()
     if (!scanPath) {
       return NextResponse.json({ error: 'Scan path not configured' }, { status: 500 })
     }

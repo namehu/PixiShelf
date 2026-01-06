@@ -2,41 +2,32 @@
 
 import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiJson } from '@/lib/api'
-import { ScanPathResponse } from '@/types'
 import { useSseScan } from '../_hooks/use-sse-scan'
 import { confirm } from '@/components/shared/global-confirm' // 直接引入函数
 import { ClientScanCard } from './scan/client-scan-card'
 import { ServerScanCard } from './scan/server-scan-card'
 import { ScanResultCard } from './scan/scan-result-card'
-import { api } from '@/lib/request'
+import { useTRPC } from '@/lib/trpc'
 
-function useHealth() {
-  return useQuery({
-    queryKey: ['health'],
-    queryFn: api.get['/api/health']
-  })
-}
-
-// Hook: 扫描路径管理
 function useScanPath() {
   const queryClient = useQueryClient()
-  return {
-    query: useQuery({
-      queryKey: ['scanPath'],
-      queryFn: async () => apiJson<ScanPathResponse>('/api/settings/scan-path')
-    }),
-    update: useMutation({
-      mutationFn: async (scanPath: string) =>
-        apiJson('/api/settings/scan-path', {
-          method: 'PUT',
-          body: JSON.stringify({ scanPath })
-        }),
+  const trpc = useTRPC()
+
+  const mutation = useMutation(
+    trpc.setting.setScanPath.mutationOptions({
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['scanPath'] })
-        queryClient.invalidateQueries({ queryKey: ['health'] })
+        queryClient.invalidateQueries({ queryKey: trpc.setting.getScanPath.queryKey() })
+        queryClient.invalidateQueries({ queryKey: trpc.setting.health.queryKey() })
       }
     })
+  )
+
+  return {
+    query: useQuery(trpc.setting.getScanPath.queryOptions()),
+    update: {
+      mutate: (scanPath: string) => mutation.mutate({ value: scanPath }),
+      isPending: mutation.isPending
+    }
   }
 }
 
@@ -44,7 +35,9 @@ function useScanPath() {
  * 扫描管理主组件 (已重构)
  */
 function ScanManagement() {
-  const { data: health } = useHealth()
+  const trpc = useTRPC()
+  const { data: health } = useQuery(trpc.setting.health.queryOptions())
+
   const scanPath = useScanPath()
 
   // 统一的状态和动作 Hook
@@ -88,7 +81,7 @@ function ScanManagement() {
         </div>
 
         <ServerScanCard
-          scanPathData={scanPath.query.data?.scanPath || ''}
+          scanPathData={scanPath.query.data?.data || ''}
           isUpdatingPath={scanPath.update.isPending}
           isScanning={streaming}
           healthStatus={health?.status}
@@ -97,11 +90,7 @@ function ScanManagement() {
           onScanForce={handleScan} // 你的强制扫描逻辑
         />
 
-        <ClientScanCard
-          hasScanPath={!!scanPath.query.data?.scanPath}
-          isScanning={streaming}
-          onScan={handleClientScan}
-        />
+        <ClientScanCard hasScanPath={!!scanPath.query.data?.data} isScanning={streaming} onScan={handleClientScan} />
 
         {/*  统一的状态、结果和日志区域 (新) */}
         {/* 仅在有任何活动或结果时显示此卡片 */}

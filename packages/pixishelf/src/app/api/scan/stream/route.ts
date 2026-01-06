@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSettingService } from '@/lib/services/setting'
 import { getAppStateService } from '@/lib/services/app-state'
 import { getScannerService } from '@/lib/services/scanner'
 import { ScanProgress } from '@/types'
 import logger from '@/lib/logger'
+import { getScanPath } from '@/services/setting.service'
 
 /**
  * 扫描SSE流接口
@@ -11,11 +11,10 @@ import logger from '@/lib/logger'
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const settingService = getSettingService()
     const appStateService = getAppStateService()
     const scannerService = getScannerService()
 
-    const scanPath = await settingService.getScanPath()
+    const scanPath = await getScanPath()
     if (!scanPath) {
       return NextResponse.json({ error: 'SCAN_PATH is not configured' }, { status: 400 })
     }
@@ -97,7 +96,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     })
   } catch (error) {
-    console.error('Failed to start scan stream:', error)
+    logger.error('Failed to start scan stream:', error)
 
     return NextResponse.json({ error: 'Failed to start scan stream' }, { status: 500 })
   }
@@ -110,11 +109,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const settingService = getSettingService()
     const appStateService = getAppStateService()
     const scannerService = getScannerService()
 
-    const scanPath = await settingService.getScanPath()
+    const scanPath = await getScanPath()
     if (!scanPath) {
       return NextResponse.json({ error: 'SCAN_PATH is not configured' }, { status: 400 })
     }
@@ -206,7 +204,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     })
   } catch (error) {
-    console.error('Failed to start scan stream (POST):', error)
+    logger.error('Failed to start scan stream (POST):', error)
     return NextResponse.json({ error: 'Failed to start scan stream' }, { status: 500 })
   }
 }

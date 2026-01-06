@@ -1,6 +1,4 @@
 import type { ArtistGetSchema, ArtistsGetRequest, ArtistResponseDto } from '@/schemas/artist.dto'
-import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
-import { HealthResponseSchema } from '@/schemas/health.dto'
 import type { PaginationResponseData } from '@/types'
 import type {
   CreateUserSchema,
@@ -19,8 +17,6 @@ export interface APIGET {
   '/api/artists': (data: ArtistsGetRequest) => Promise<PaginationResponseData<ArtistResponseDto>>
   /** 获取单个艺术家详情 */
   '/api/artists/[id]': (data: ArtistGetSchema) => Promise<ArtistResponseDto>
-  /** 健康检查 */
-  '/api/health': () => Promise<HealthResponseSchema>
   /** 获取用户列表 */
   '/api/users': () => Promise<GetUsersResponseDTO>
 }
