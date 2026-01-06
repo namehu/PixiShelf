@@ -251,8 +251,7 @@ export const getRecommendedArtworks = async (
     total: items.length, // 随机推荐不返回真实总数
     page: currentPage,
     pageSize,
-    // 总是返回下一页 cursor，实现无限滚动
-    nextCursor: items.length === pageSize ? currentPage + 1 : undefined
+    nextCursor: currentPage + 1 // 总是返回下一页 cursor，实现无限滚动
   }
 }
 

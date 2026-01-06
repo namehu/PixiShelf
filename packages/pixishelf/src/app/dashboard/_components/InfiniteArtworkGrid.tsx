@@ -1,13 +1,14 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
-import { Loader2, ImageIcon } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useTRPC } from '@/lib/trpc'
-import { Button } from '@/components/ui/button'
 import { EnhancedArtworksResponse } from '@/types'
+import { useWindowVirtualizer } from '@tanstack/react-virtual'
+import { useColumns } from '@/hooks/use-columns'
 
 interface InfiniteArtworkGridProps {
   initialData: EnhancedArtworksResponse & { nextCursor?: number }
@@ -15,11 +16,17 @@ interface InfiniteArtworkGridProps {
 
 export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGridProps) {
   const trpc = useTRPC()
-  const { ref, inView } = useInView()
+  const containerRef = useRef<HTMLDivElement>(null)
+  const virtualListRef = useRef<HTMLDivElement>(null)
+  const columns = useColumns()
 
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status, error } = useInfiniteQuery(
+  const [containerWidth, setContainerWidth] = useState(0)
+
+  const [offsetTop, setOffsetTop] = useState(0)
+
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status } = useInfiniteQuery(
     trpc.artwork.queryRecommendPage.infiniteQueryOptions(
-      { pageSize: 12 },
+      { pageSize: 24 },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
         initialCursor: 1,
@@ -27,67 +34,114 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
           pages: [initialData],
           pageParams: [1]
         },
-        staleTime: 5 * 60 * 1000, // 5 minutes
-        gcTime: 10 * 60 * 1000 // 10 minutes
+        staleTime: 5 * 60 * 1000,
+        gcTime: 10 * 60 * 1000
       }
     )
   )
 
-  useEffect(() => {
-    if (inView && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage()
+  const allItems = useMemo(() => data?.pages.flatMap((page) => page.items) || [], [data])
+  const rowCount = Math.ceil(allItems.length / columns)
+
+  useLayoutEffect(() => {
+    if (!containerRef.current) return
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width)
+      }
+    })
+
+    resizeObserver.observe(containerRef.current)
+
+    return () => {
+      resizeObserver.disconnect()
     }
+  }, [])
+
+  useLayoutEffect(() => {
+    if (virtualListRef.current) {
+      const rect = virtualListRef.current.getBoundingClientRect()
+      const scrollTop = window.scrollY || document.documentElement.scrollTop
+      setOffsetTop(rect.top + scrollTop)
+    }
+  }, [])
+
+  const estimateSize = useCallback(() => {
+    // 这里的 48 是 padding (假设 px-6 = 24px * 2)
+    const effectiveWidth = containerWidth
+
+    // 避免除以 0
+    const safeColumns = columns > 0 ? columns : 1
+    const gapTotal = (safeColumns - 1) * 16
+
+    const cardWidth = (effectiveWidth - gapTotal) / safeColumns
+    return cardWidth * 1.33 + 60
+  }, [containerWidth, columns])
+
+  const rowVirtualizer = useWindowVirtualizer({
+    useFlushSync: false,
+    count: rowCount,
+    estimateSize,
+    scrollMargin: offsetTop,
+    overscan: 5,
+    enabled: !!containerWidth
+  })
+
+  const { ref: loadMoreRef, inView } = useInView({
+    rootMargin: '200px'
+  })
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout
+    if (inView && hasNextPage && !isFetchingNextPage) {
+      timer = setTimeout(() => {
+        fetchNextPage()
+      }, 100)
+    }
+    return () => clearTimeout(timer)
   }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  const allItems = data?.pages.flatMap((page) => page.items) || []
-
   if (status === 'error') {
-    return (
-      <div className="p-8 text-center text-red-500">
-        加载失败: {error.message}
-        <Button variant="outline" onClick={() => fetchNextPage()} className="ml-4">
-          重试
-        </Button>
-      </div>
-    )
+    return <div className="p-8 text-center text-red-500">加载失败</div>
   }
 
   if (allItems.length === 0) {
-    return (
-      <div className="p-12 text-center border rounded-lg bg-white shadow-sm">
-        <ImageIcon size={52} className="text-gray-300 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-gray-900 mb-2">暂无推荐作品</h3>
-        <p className="text-gray-600">去浏览更多作品来获取推荐吧！</p>
-      </div>
-    )
+    return <div className="p-12 text-center">暂无推荐作品</div>
   }
 
   return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-        {allItems.map((artwork, index) => (
-          <ArtworkCard 
-            key={`${artwork.id}-${index}`} 
-            artwork={artwork as any} 
-            priority={index < 8} 
-          />
-        ))}
+    <div ref={containerRef} className="space-y-8">
+      <div ref={virtualListRef} className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          const startIndex = virtualRow.index * columns
+          const rowItems = allItems.slice(startIndex, startIndex + columns)
+
+          return (
+            <div
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              className="absolute top-0 left-0 w-full grid gap-4"
+              style={{
+                height: `${virtualRow.size}px`,
+                transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
+                gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`
+              }}
+            >
+              {rowItems.map((artwork, index) => (
+                <ArtworkCard
+                  key={`${artwork.id}-${startIndex + index}`}
+                  artwork={artwork as any}
+                  priority={index < 10}
+                />
+              ))}
+            </div>
+          )
+        })}
       </div>
 
-      {/* Loading Indicator / Trigger */}
-      <div ref={ref} className="flex justify-center py-8">
-        {isFetchingNextPage ? (
-          <div className="flex items-center gap-2 text-gray-500">
-            <Loader2 className="h-6 w-6 animate-spin" />
-            <span>加载更多精彩作品...</span>
-          </div>
-        ) : hasNextPage ? (
-          <Button variant="ghost" onClick={() => fetchNextPage()}>
-            加载更多
-          </Button>
-        ) : (
-          <div className="text-gray-400 text-sm">没有更多推荐了</div>
-        )}
+      <div ref={loadMoreRef} className="flex justify-center py-8">
+        {isFetchingNextPage && <Loader2 className="h-6 w-6 animate-spin text-gray-400" />}
       </div>
     </div>
   )
