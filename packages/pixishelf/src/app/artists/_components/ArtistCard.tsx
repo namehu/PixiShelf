@@ -1,12 +1,11 @@
 import React from 'react'
-import { Artist } from '@/types'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { ImageIcon, Calendar, Plus } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ImageIcon, Calendar } from 'lucide-react'
 import Image from 'next/image'
+import type { ArtistResponseDto } from '@/schemas/artist.dto'
 
 interface ArtistCardProps {
-  artist: Artist
+  artist: ArtistResponseDto
   onClick?: () => void
 }
 
@@ -26,7 +25,7 @@ export function ArtistCard({ artist, onClick }: ArtistCardProps) {
       onClick={onClick}
     >
       {/* 顶部 Banner 区域 */}
-      <div className="h-28 w-full overflow-hidden bg-gray-50 dark:bg-gray-800 relative">
+      <div className="h-14 w-full overflow-hidden bg-gray-50 dark:bg-gray-800 relative">
         {artist.backgroundImg ? (
           <Image
             src={artist.backgroundImg}
@@ -59,16 +58,6 @@ export function ArtistCard({ artist, onClick }: ArtistCardProps) {
               {getInitials(artist.name)}
             </AvatarFallback>
           </Avatar>
-
-          {/* 关注按钮 (UI Only) */}
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-8 rounded-full px-4 text-xs font-medium bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm shadow-sm hover:bg-primary hover:text-white transition-all border border-transparent hover:border-primary/20 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 duration-300 mt-10"
-          >
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            关注
-          </Button>
         </div>
 
         {/* 文本信息 */}
@@ -83,7 +72,6 @@ export function ArtistCard({ artist, onClick }: ArtistCardProps) {
               </span>
             )}
             <span className="w-0.5 h-0.5 rounded-full bg-gray-300 dark:bg-gray-600" />
-            <span className="text-gray-400 dark:text-gray-500">ID: {artist.id}</span>
           </div>
         </div>
 
@@ -103,10 +91,12 @@ export function ArtistCard({ artist, onClick }: ArtistCardProps) {
 
           <div className="flex-1" />
 
-          <div className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500 text-[11px]">
-            <Calendar className="w-3 h-3" />
-            <span>{new Date(artist.createdAt).toLocaleDateString('zh-CN')}</span>
-          </div>
+          {artist.createdAt && (
+            <div className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500 text-[11px]">
+              <Calendar className="w-3 h-3" />
+              <span>{new Date(artist.createdAt).toLocaleDateString('zh-CN')}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

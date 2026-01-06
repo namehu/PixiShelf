@@ -3,31 +3,12 @@
 import { useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { Artist, ArtistsQuery } from '@/types'
+import { ArtistsQuery } from '@/types'
 import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 import ArtistsNavigation from './_components/ArtistsNavigation'
 import { ArtistCard } from './_components/ArtistCard'
 import { Users, Search } from 'lucide-react'
 import { useTRPC } from '@/lib/trpc'
-
-/**
- * 获取艺术家列表Hook
- */
-function useArtistsInfinite(search: string, sortBy: ArtistsQuery['sortBy']) {
-  const trpc = useTRPC()
-
-  return useInfiniteQuery(
-    trpc.artist.queryPage.infiniteQueryOptions(
-      { search, sortBy },
-      {
-        getNextPageParam: ({ nextCursor }) => nextCursor,
-        initialCursor: 1,
-        staleTime: 5 * 60 * 1000,
-        gcTime: 10 * 60 * 1000
-      }
-    )
-  )
-}
 
 function ArtistsPage() {
   const router = useRouter()
@@ -37,10 +18,19 @@ function ArtistsPage() {
   const searchTerm = searchParams.get('search') || ''
   const sortBy = (searchParams.get('sortBy') as ArtistsQuery['sortBy']) || 'name_asc'
 
+  const trpc = useTRPC()
+
   // 2. 使用 useInfiniteQuery
-  const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useArtistsInfinite(
-    searchTerm,
-    sortBy
+  const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery(
+    trpc.artist.queryPage.infiniteQueryOptions(
+      { search: searchTerm, sortBy },
+      {
+        getNextPageParam: ({ nextCursor }) => nextCursor,
+        initialCursor: 1,
+        staleTime: 5 * 60 * 1000,
+        gcTime: 10 * 60 * 1000
+      }
+    )
   )
 
   // 3. 展平数据
@@ -64,14 +54,6 @@ function ArtistsPage() {
     hasMore: !!hasNextPage,
     loading: isFetchingNextPage || isLoading
   })
-
-  // 处理艺术家点击
-  const handleArtistClick = useCallback(
-    (artist: Artist) => {
-      router.push(`/artists/${artist.id}`)
-    },
-    [router]
-  )
 
   if (isLoading) {
     return (
@@ -111,7 +93,7 @@ function ArtistsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {allArtists.map((artist) => (
             <div key={artist.id} className="transform transition-transform hover:-translate-y-1 duration-200">
-              <ArtistCard artist={artist} onClick={() => handleArtistClick(artist)} />
+              <ArtistCard artist={artist} onClick={() => router.push(`/artists/${artist.id}`)} />
             </div>
           ))}
         </div>
