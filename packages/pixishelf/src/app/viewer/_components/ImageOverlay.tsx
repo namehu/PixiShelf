@@ -12,6 +12,8 @@ import { useHeartAnimation } from '@/hooks/useHeartAnimation'
 import { useViewerStore } from '@/store/viewerStore'
 import dayjs from 'dayjs'
 import { useShallow } from 'zustand/shallow'
+import { useOptimisticAction } from 'next-safe-action/hooks'
+import { toggleLikeAction } from '@/actions/like-action'
 
 interface ImageOverlayProps {
   isActive: boolean
@@ -28,8 +30,8 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
 
   const titleOpacity = useViewerStore((state) => state.titleOpacity)
 
-  const [artworkLikeMap, toggleLikeStatus] = useViewerStore(
-    useShallow((state) => [state.artworkLikeMap, state.toggleLikeStatus])
+  const [artworkLikeMap, syncImageLikeStatus] = useViewerStore(
+    useShallow((state) => [state.artworkLikeMap, state.syncImageLikeStatus])
   )
 
   const [showActionDrawer, setShowActionDrawer] = useState(false)
@@ -39,7 +41,21 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
   const dayString = dayjs(createdAt).format('YYYY-MM-DD')
 
   // 从状态管理中获取当前图片的点赞状态
-  const isLiked = useMemo(() => artworkLikeMap.get(id) ?? false, [artworkLikeMap, id])
+  const storeIsLiked = useMemo(() => artworkLikeMap.get(id) ?? false, [artworkLikeMap, id])
+
+  const { execute, result, optimisticState } = useOptimisticAction(toggleLikeAction, {
+    currentState: { isLiked: storeIsLiked },
+    updateFn: (state) => ({ isLiked: !state.isLiked })
+  })
+
+  const isLiked = optimisticState.isLiked
+
+  // 监听操作结果，成功后同步到全局 Store
+  useEffect(() => {
+    if (result.data?.data) {
+      syncImageLikeStatus(id, result.data.data.userLiked)
+    }
+  }, [result, id, syncImageLikeStatus])
 
   // 集成爱心动画 Hook
   const {
@@ -59,7 +75,7 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
     },
     onTriggerHeart: () => {
       if (!isLiked) {
-        toggleLikeStatus(id)
+        execute({ artworkId: id })
       }
     }
   })
@@ -111,7 +127,7 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
 
   // 长按触发控制菜单
   const handleLongPress = () => {
-    console.log('长按事件触发了！')
+    // console.log('长按事件触发了！')
     setShowActionDrawer(true)
   }
 
@@ -145,7 +161,7 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
         onTouchStart={handleInteractionStart}
         onTouchMove={handleInteractionMove}
         onTouchEnd={handleInteractionEnd}
-      ></div>
+      />
 
       {/* 爱心动画渲染 */}
       {activeHearts.map((heart) => (
@@ -158,7 +174,7 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
           <TikTokStyleSidebar
             image={image}
             liked={isLiked}
-            onToggleLike={() => toggleLikeStatus(id)}
+            onToggleLike={() => execute({ artworkId: id })}
             onMoreClick={() => setShowActionDrawer(true)}
           />
         )}
