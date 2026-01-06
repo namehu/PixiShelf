@@ -1,12 +1,12 @@
 import { getRecommendedArtworks, getRecentArtworks } from '@/services/artwork-service'
 import { getRecentArtists } from '@/services/artist-service'
-import RecommendedArtworks from './_components/RecommendedArtworks'
-import RecentArtworks from './_components/RecentArtworks'
 import RecentArtists from './_components/RecentArtists'
 import PNav from '@/components/layout/PNav'
 import Link from 'next/link'
 import { ROUTES } from '@/lib/constants'
 import { HashIcon, ImageIcon, ImageUpIcon, UsersIcon } from 'lucide-react'
+import ArtworkGrid from './_components/ArtworkGrid'
+import { Button } from '@/components/ui/button'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,9 +16,9 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   // 并行获取所有数据
   const [recommendedArtworks, recentArtworks, recentArtists] = await Promise.all([
-    getRecommendedArtworks({ pageSize: 10 }), // 获取推荐作品数据
-    getRecentArtworks({ page: 1, pageSize: 10 }), // 获取最新作品数据
-    getRecentArtists({ page: 1, pageSize: 10 }) // 获取热门艺术家数据
+    getRecommendedArtworks({ pageSize: 12 }), // 获取推荐作品数据
+    getRecentArtworks({ page: 1, pageSize: 12 }), // 获取最新作品数据
+    getRecentArtists({ page: 1, pageSize: 12 }) // 获取热门艺术家数据
   ])
 
   return (
@@ -44,9 +44,38 @@ export default async function DashboardPage() {
         </div>
       </PNav>
       <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        <RecentArtworks data={recentArtworks} />
+        <div className="mb-12">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">最新作品</h3>
+              <p className="text-gray-600">发现最新上传的精彩作品</p>
+            </div>
+            <Link href={ROUTES.GALLERY}>
+              <Button variant="ghost" className="text-blue-600 hover:text-blue-700">
+                查看全部 →
+              </Button>
+            </Link>
+          </div>
+
+          <ArtworkGrid initialData={recentArtworks} />
+        </div>
+
         <RecentArtists data={recentArtists.data} />
-        <RecommendedArtworks data={recommendedArtworks} />
+
+        <div className="mb-12">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">推荐作品</h3>
+              <p className="text-gray-600">为您精心挑选的优质作品</p>
+            </div>
+          </div>
+
+          <ArtworkGrid
+            initialData={recommendedArtworks}
+            enableRefresh
+            refreshEndpoint="/api/artworks/recommendations"
+          />
+        </div>
       </main>
     </div>
   )

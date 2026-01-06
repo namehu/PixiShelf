@@ -43,10 +43,10 @@ export default function ArtworkGrid({ initialData, enableRefresh = false, refres
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
         {Array.from({ length: 10 }).map((_, i) => (
           <div key={i} className="bg-white rounded-2xl shadow-sm overflow-hidden animate-pulse">
-            <div className="aspect-[3/4] bg-gray-200"></div>
+            <div className="aspect-[3/4] bg-gray-200" />
             <div className="p-4 space-y-2">
-              <div className="h-4 bg-gray-200 rounded"></div>
-              <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+              <div className="h-4 bg-gray-200 rounded" />
+              <div className="h-3 bg-gray-200 rounded w-2/3" />
             </div>
           </div>
         ))}
@@ -97,7 +97,7 @@ export default function ArtworkGrid({ initialData, enableRefresh = false, refres
   return (
     <Card>
       <CardContent className="p-12 text-center">
-        <ImageIcon size={52} className="text-gray-300 mx-auto mb-4"></ImageIcon>
+        <ImageIcon size={52} className="text-gray-300 mx-auto mb-4" />
         <h3 className="text-lg font-medium text-gray-900 mb-2">暂无作品</h3>
         <p className="text-gray-600 mb-4">还没有任何作品，快去发现精彩内容吧！</p>
         {enableRefresh && <Button onClick={handleRefresh}>刷新</Button>}
