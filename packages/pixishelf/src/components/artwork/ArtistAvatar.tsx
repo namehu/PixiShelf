@@ -1,3 +1,5 @@
+'use client'
+
 import { useState } from 'react'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 

@@ -1,3 +1,5 @@
+'use client'
+
 import VideoPlayer from '@/components/players/VideoPlayer'
 import ApngPlayer from '@/components/players/ApngPlayer'
 import { useArtworkStore } from '@/store/useArtworkStore'

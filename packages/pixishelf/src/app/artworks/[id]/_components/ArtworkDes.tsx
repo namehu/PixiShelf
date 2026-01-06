@@ -1,3 +1,5 @@
+'use client'
+
 import { FileTextIcon } from 'lucide-react'
 import { FC, memo, useMemo } from 'react'
 
