@@ -5,7 +5,6 @@ import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { ArtistResponseDto } from '@/schemas/artist.dto'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 
 interface IHeadInfoProps {
   artist: ArtistResponseDto

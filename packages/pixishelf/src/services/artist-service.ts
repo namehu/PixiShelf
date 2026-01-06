@@ -10,9 +10,9 @@ import { PaginationResponseData } from '@/types'
  * @param id 艺术家 ID
  * @returns 艺术家数据或 null
  */
-export async function getArtistById(id: number): Promise<ArtistResponseDto | null> {
+export async function getArtistById(id: number | string): Promise<ArtistResponseDto | null> {
   const artist = await prisma.artist.findUnique({
-    where: { id },
+    where: { id: Number(id) },
     select: {
       ...ARTIST_SELECT,
       _count: {
