@@ -17,9 +17,6 @@ export * from './media'
 // 扫描相关类型
 export * from './scan'
 
-// 设置相关类型
-export * from './settings'
-
 // 标签相关类型
 export * from './tags'
 
