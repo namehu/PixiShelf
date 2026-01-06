@@ -1,29 +1,17 @@
 import { VALIDATION } from '@/lib/constants'
 import { z } from 'zod'
 
-/** 删除用户 Schema */
-export const UserDeleteSchema = z.object({
-  id: z.coerce.number({ error: '用户ID必须是数字' }).int('用户ID必须是整数').positive('用户ID必须是正数')
-})
-
-export type UserDeleteSchema = z.infer<typeof UserDeleteSchema>
-
-/** 获取用户列表 Schema */
-export const GetUsersSchema = z.object({})
-export type GetUsersSchema = z.infer<typeof GetUsersSchema>
-
 /** 获取用户列表响应 Schema */
-export const GetUsersResponseDTO = z.array(
+export const getUsersResponseDTO = z.array(
   z.object({
     id: z.number(),
     username: z.string(),
     createdAt: z.date().or(z.string())
   })
 )
-export type GetUsersResponseDTO = z.infer<typeof GetUsersResponseDTO>
 
 /** 创建用户 Schema */
-export const CreateUserSchema = z.object({
+export const createUserSchema = z.object({
   username: z
     .string({ error: '用户名不能为空' })
     .trim()
@@ -37,13 +25,11 @@ export const CreateUserSchema = z.object({
     .min(VALIDATION.PASSWORD.MIN_LENGTH, `密码长度不能少于${VALIDATION.PASSWORD.MIN_LENGTH}个字符`)
     .max(VALIDATION.PASSWORD.MAX_LENGTH, `密码长度不能超过${VALIDATION.PASSWORD.MAX_LENGTH}个字符`)
 })
-export type CreateUserSchema = z.infer<typeof CreateUserSchema>
 
 /** 创建用户响应 Schema */
-export const CreateUserResponseDTO = z.object({
+export const createUserResponseDTO = z.object({
   id: z.number()
 })
-export type CreateUserResponseDTO = z.infer<typeof CreateUserResponseDTO>
 
 /** 修改密码 Schema */
 export const changePasswordSchema = z.object({
