@@ -46,7 +46,7 @@ function updateAuthCookie(request: NextRequest, response: NextResponse, session:
 /**
  * 中间件主函数
  */
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl
 
   // 1. 特殊处理：如果用户访问登录页且已持有有效令牌，重定向到仪表盘
