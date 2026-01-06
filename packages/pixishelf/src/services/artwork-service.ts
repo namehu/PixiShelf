@@ -17,6 +17,7 @@ import { VIDEO_EXTENSIONS } from '../../lib/constant'
 
 interface GetRecommendedArtworksOptions {
   pageSize?: number
+  cursor?: number
 }
 
 interface GetRecentArtworksOptions {
@@ -220,14 +221,15 @@ function mapSortOptionToSQL(sortBy: string): string {
  */
 export const getRecommendedArtworks = async (
   options: GetRecommendedArtworksOptions = {}
-): Promise<EnhancedArtworksResponse> => {
-  const { pageSize = 10 } = options
+): Promise<EnhancedArtworksResponse & { nextCursor?: number }> => {
+  const { pageSize = 10, cursor } = options
+  const currentPage = cursor || 1
 
   // 1. 获取随机作品 ID (调用内部数据访问函数)
   const randomIds = await fetchRandomIds(pageSize)
 
   if (randomIds.length === 0) {
-    return { items: [], total: 0, page: 1, pageSize }
+    return { items: [], total: 0, page: currentPage, pageSize, nextCursor: undefined }
   }
 
   // 2. 查询完整的作品数据
@@ -246,9 +248,11 @@ export const getRecommendedArtworks = async (
 
   return {
     items,
-    total: items.length,
-    page: 1,
-    pageSize
+    total: items.length, // 随机推荐不返回真实总数
+    page: currentPage,
+    pageSize,
+    // 总是返回下一页 cursor，实现无限滚动
+    nextCursor: items.length === pageSize ? currentPage + 1 : undefined
   }
 }
 

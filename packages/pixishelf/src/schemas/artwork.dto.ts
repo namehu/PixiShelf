@@ -59,7 +59,8 @@ export type ArtworksQuerySchema = z.infer<typeof ArtworksQuerySchema>
  */
 export const RecommendationsGetSchema = z.object({
   /** 每页数量 */
-  pageSize: z.coerce.number().int().positive().default(10)
+  pageSize: z.coerce.number().int().positive().default(10),
+  cursor: z.number().nullish()
 })
 
 export type RecommendationsGetSchema = z.infer<typeof RecommendationsGetSchema>

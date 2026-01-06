@@ -3,13 +3,15 @@ import { authRouter } from './routers/auth'
 import { settingRouter } from './routers/setting'
 import { userRouter } from './routers/user'
 import { artistRouter } from './routers/artist'
+import { artworkRouter } from './routers/artwork'
 
 // 挂载子路由
 export const appRouter = router({
   auth: authRouter,
   setting: settingRouter,
   user: userRouter,
-  artist: artistRouter
+  artist: artistRouter,
+  artwork: artworkRouter
 })
 
 // 导出类型供前端使用

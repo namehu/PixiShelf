@@ -7,6 +7,7 @@ import { ROUTES } from '@/lib/constants'
 import { HashIcon, ImageIcon, ImageUpIcon, UsersIcon } from 'lucide-react'
 import ArtworkGrid from './_components/ArtworkGrid'
 import { Button } from '@/components/ui/button'
+import InfiniteArtworkGrid from './_components/InfiniteArtworkGrid'
 
 export const dynamic = 'force-dynamic'
 
@@ -70,11 +71,7 @@ export default async function DashboardPage() {
             </div>
           </div>
 
-          <ArtworkGrid
-            initialData={recommendedArtworks}
-            enableRefresh
-            refreshEndpoint="/api/artworks/recommendations"
-          />
+          <InfiniteArtworkGrid initialData={recommendedArtworks} />
         </div>
       </main>
     </div>
