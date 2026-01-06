@@ -13,6 +13,7 @@ export async function createTRPCContext(opts: { headers: Headers }) {
 
   return {
     session,
+    userId: session?.userId ? Number(session.userId) : undefined,
     headers: opts.headers
   }
 }

@@ -4,6 +4,64 @@ import { verifyPassword } from '@/lib/crypto'
 import { AuthError } from '@/lib/auth'
 
 /**
+ * 查询所有用户
+ * @returns Promise<User[]>
+ */
+export async function queryUsers() {
+  const users = await prisma.user.findMany({
+    select: { id: true, username: true, createdAt: true },
+    orderBy: { id: 'asc' }
+  })
+  return users
+}
+
+/**
+ * 添加用户
+ * @param username - 用户名
+ * @param password - 密码
+ * @returns Promise<User>
+ */
+export async function addUser(username: string, password: string) {
+  // 检查用户名是否已存在
+  const existingUser = await prisma.user.findUnique({ where: { username } })
+  if (existingUser) {
+    throw new Error('Username already exists')
+  }
+
+  // 加密密码
+  const salt = await bcrypt.genSalt(10)
+  const hashedPassword = await bcrypt.hash(password, salt)
+
+  // 创建用户
+  const user = await prisma.user.create({
+    data: { username, password: hashedPassword }
+  })
+
+  return user
+}
+
+/**
+ * 删除用户
+ * @param id - 用户ID
+ * @returns Promise<void>
+ */
+export async function deleteUser(id: number) {
+  // 检查是否是最后一个用户
+  const totalUsers = await prisma.user.count()
+  if (totalUsers <= 1) {
+    throw new Error('Cannot delete the last user')
+  }
+
+  // 检查用户是否存在
+  const user = await prisma.user.findUnique({ where: { id } })
+  if (!user) {
+    throw new Error('User not found')
+  }
+  // 删除用户
+  await prisma.user.delete({ where: { id } })
+}
+
+/**
  * 根据用户名查找用户
  * @param username - 用户名
  * @param password - 是否包含密码哈希，默认不包含. 如果设置为true, 你需要非常小心的处理

@@ -1,4 +1,3 @@
-// oxlint-disable no-console
 'use client'
 
 import React from 'react'
@@ -17,41 +16,32 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { UserPlus, Trash2, User as UserIcon } from 'lucide-react'
-import { api } from '@/lib/request'
-import { CreateUserSchema } from '@/lib/request/data-contracts'
-
-// Hook: 删除用户
-function useDeleteUser() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (id: number) => api.del['/api/users/[id]']({ id }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] })
-    }
-  })
-}
-
-// Hook: 创建用户
-function useCreateUser() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (params: CreateUserSchema) => api.post['/api/users'](params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] })
-    }
-  })
-}
+import { useTRPC } from '@/lib/trpc'
+import { toast } from 'sonner'
 
 function UserManagement() {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['users'],
-    queryFn: () => api.get['/api/users']()
-  })
+  const trpc = useTRPC()
+  const queryClient = useQueryClient()
 
-  const deleteUser = useDeleteUser()
-  const createUser = useCreateUser()
+  const { data, isLoading, isError } = useQuery(trpc.user.queryUsers.queryOptions())
+
+  const deleteUser = useMutation(
+    trpc.user.deleteUser.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: trpc.user.queryUsers.queryKey() })
+      }
+    })
+  )
+
+  const createUser = useMutation(
+    trpc.user.addUser.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: trpc.user.queryUsers.queryKey() })
+      }
+    })
+  )
+
   const [showForm, setShowForm] = React.useState(false)
   const [username, setUsername] = React.useState('')
   const [password, setPassword] = React.useState('')
@@ -68,8 +58,8 @@ function UserManagement() {
       setUsername('')
       setPassword('')
       setShowForm(false)
-    } catch (error) {
-      console.error('Failed to create user:', error)
+    } catch (error: any) {
+      toast.error(error.message)
     }
   }
 
@@ -86,13 +76,9 @@ function UserManagement() {
       await deleteUser.mutateAsync(userToDelete)
       setDeleteDialogOpen(false)
       setUserToDelete(null)
-    } catch (error) {
-      console.error('Failed to delete user:', error)
+    } catch (error: any) {
+      toast.error(error.message)
     }
-  }
-
-  const getInitials = (username: string) => {
-    return username.slice(0, 2).toUpperCase()
   }
 
   return (
@@ -211,14 +197,7 @@ function UserManagement() {
                       {data.map((user) => (
                         <TableRow key={user.id}>
                           <TableCell>
-                            <div className="flex items-center space-x-3">
-                              <Avatar className="h-8 w-8">
-                                <AvatarFallback className="bg-primary/10 text-primary font-medium">
-                                  {getInitials(user.username)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="font-medium">{user.username}</div>
-                            </div>
+                            <div className="flex items-center space-x-3 font-medium">{user.username}</div>
                           </TableCell>
                           <TableCell className="text-muted-foreground">{user.id}</TableCell>
                           <TableCell className="text-muted-foreground">
