@@ -32,9 +32,9 @@ export async function getArtistById(id: number | string): Promise<ArtistResponse
  * @returns 艺术家列表响应
  */
 export async function getArtists(options: ArtistsGetSchema): Promise<PaginationResponseData<ArtistResponseDto>> {
+  const { pageSize, search, sortBy, cursor } = options
+  const page = cursor ?? 1
   try {
-    const { page, pageSize, search, sortBy } = options
-
     // 限制页面大小，防止过大的查询
     const limitedPageSize = Math.min(100, pageSize)
     const skip = (page - 1) * limitedPageSize
@@ -96,14 +96,16 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
     // 转换数据格式
     const data = artists.map((artist) => ArtistResponseDto.parse(artist))
 
+    const hasNextPage = page * limitedPageSize < total
     return {
       data,
+      nextCursor: hasNextPage ? page + 1 : undefined,
       pagination: {
         page,
         pageSize: limitedPageSize,
         total,
         totalPages: Math.ceil(total / limitedPageSize),
-        hasNextPage: page * limitedPageSize < total,
+        hasNextPage,
         hasPrevPage: page > 1
       }
     }
@@ -111,8 +113,9 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
     logger.error('Error fetching artists:', error)
     return {
       data: [],
+      nextCursor: undefined,
       pagination: {
-        page: options.page || 1,
+        page: cursor || 1,
         pageSize: options.pageSize || 20,
         total: 0,
         totalPages: 0,

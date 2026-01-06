@@ -8,26 +8,25 @@ import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 import ArtistsNavigation from './_components/ArtistsNavigation'
 import { ArtistCard } from './_components/ArtistCard'
 import { Users, Search } from 'lucide-react'
-import { api } from '@/lib/request'
+import { useTRPC } from '@/lib/trpc'
 
 /**
- * 获取艺术家列表Hook (使用 useInfiniteQuery)
+ * 获取艺术家列表Hook
  */
-function useArtistsInfinite(searchTerm: string, sortBy: ArtistsQuery['sortBy'], pageSize: number = 10) {
-  return useInfiniteQuery({
-    queryKey: ['artists', 'infinite', searchTerm, sortBy, pageSize],
-    queryFn: async ({ pageParam = 1 }) => {
-      return api.get['/api/artists']({ page: Number(pageParam), pageSize, sortBy, search: searchTerm })
-    },
-    initialPageParam: 1,
-    getNextPageParam: (lastPage) => {
-      const nextPage = lastPage.pagination.page + 1
-      const totalPages = Math.ceil(lastPage.pagination.total / lastPage.pagination.pageSize)
-      return nextPage <= totalPages ? nextPage : undefined
-    },
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000
-  })
+function useArtistsInfinite(search: string, sortBy: ArtistsQuery['sortBy']) {
+  const trpc = useTRPC()
+
+  return useInfiniteQuery(
+    trpc.artist.queryPage.infiniteQueryOptions(
+      { search, sortBy },
+      {
+        getNextPageParam: ({ nextCursor }) => nextCursor,
+        initialCursor: 1,
+        staleTime: 5 * 60 * 1000,
+        gcTime: 10 * 60 * 1000
+      }
+    )
+  )
 }
 
 function ArtistsPage() {
@@ -145,7 +144,7 @@ function ArtistsPage() {
   )
 }
 
-export default function ArtistsPageContainer() {
+export default function Page() {
   return (
     <div className="min-h-screen bg-gray-50/50 dark:bg-gray-950">
       <ArtistsNavigation />

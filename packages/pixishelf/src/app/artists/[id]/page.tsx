@@ -22,7 +22,7 @@ export default async function Page({ params }: PageProps<'/artists/[id]'>) {
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="max-w-7xl mx-auto">
-        <ArtistDetailPage artist={artist} />
+        <ArtistDetailPage artist={artist} id={id} />
       </main>
     </div>
   )

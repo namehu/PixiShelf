@@ -1,11 +1,10 @@
 'use client'
 
 import React, { useState } from 'react'
-import { useRouter, useParams, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { EnhancedArtworksResponse, SortOption } from '@/types'
-import { ChevronLeftIcon } from 'lucide-react'
 import { SortControl } from '@/components/ui/SortControl'
 import {
   Pagination,
@@ -24,12 +23,10 @@ import type { ArtistResponseDto } from '@/schemas/artist.dto'
 /**
  * 艺术家详情页面
  */
-export default function ArtistDetailPage({ artist }: { artist: ArtistResponseDto }) {
+export default function ArtistDetailPage({ artist, id }: { artist: ArtistResponseDto; id: string }) {
   const router = useRouter()
-  const params = useParams()
   const searchParams = useSearchParams()
 
-  const id = params.id as string
   const page = parseInt(searchParams.get('page') || '1', 10)
   const pageSize = 24
   const sortBy = (searchParams.get('sortBy') as SortOption) || 'source_date_desc'

@@ -55,6 +55,7 @@ export interface PaginationResponse<T> {
  */
 export interface PaginationResponseData<T> {
   data: T[]
+  nextCursor?: number
   pagination: {
     page: number
     pageSize: number
