@@ -1,12 +1,13 @@
 'use client'
 
-import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { SearchSuggestion, SuggestionsResponse } from '@/types'
+import React, { useState, useEffect, useRef } from 'react'
+import { SearchSuggestion } from '@/types'
 import { useDebounce } from '@/hooks/useDebounce'
-import { apiJson } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ImageIcon, SearchIcon, TagIcon, UserIcon } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { useTRPC } from '@/lib/trpc'
+import { useQuery } from '@tanstack/react-query'
 
 export interface SearchBoxProps {
   /** 搜索值 */
@@ -38,8 +39,6 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   disabled = false
 }) => {
   const [inputValue, setInputValue] = useState(value)
-  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
-  const [isLoading, setIsLoading] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const [isFocused, setIsFocused] = useState(false)
@@ -47,47 +46,28 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   const inputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLDivElement>(null)
   const debouncedQuery = useDebounce(inputValue.trim(), 300)
+  
+  const trpc = useTRPC()
 
-  // 获取搜索建议
-  const fetchSuggestions = useCallback(
-    async (query: string) => {
-      if (!query || query.length < 2) {
-        setSuggestions([])
-        setShowSuggestions(false)
-        return
-      }
+  const { data, isLoading } = useQuery({
+    ...trpc.search.suggestions.queryOptions({
+      q: debouncedQuery,
+      mode,
+      limit: 8
+    }),
+    enabled: !!debouncedQuery && debouncedQuery.length >= 2 && isFocused
+  })
 
-      try {
-        setIsLoading(true)
-        const url = new URL('/api/suggestions', window.location.origin)
-        url.searchParams.set('q', query)
-        url.searchParams.set('mode', mode)
-        url.searchParams.set('limit', '8')
+  const suggestions = data?.suggestions || []
 
-        const response = await apiJson<SuggestionsResponse>(url.toString())
-        setSuggestions(response.suggestions || [])
-        setShowSuggestions(true)
-        setSelectedIndex(-1)
-      } catch (error) {
-        console.error('Failed to fetch suggestions:', error)
-        setSuggestions([])
-        setShowSuggestions(false)
-      } finally {
-        setIsLoading(false)
-      }
-    },
-    [mode]
-  )
-
-  // 防抖搜索
+  // 控制建议显示
   useEffect(() => {
-    if (isFocused && debouncedQuery) {
-      fetchSuggestions(debouncedQuery)
+    if (suggestions.length > 0 && isFocused) {
+      setShowSuggestions(true)
     } else {
-      setSuggestions([])
       setShowSuggestions(false)
     }
-  }, [debouncedQuery, isFocused, fetchSuggestions])
+  }, [suggestions.length, isFocused])
 
   // 处理输入变化
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -158,9 +138,6 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   // 处理焦点
   const handleFocus = () => {
     setIsFocused(true)
-    if (inputValue.trim().length >= 2) {
-      setShowSuggestions(true)
-    }
   }
 
   const handleBlur = () => {
