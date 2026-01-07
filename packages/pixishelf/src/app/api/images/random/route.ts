@@ -5,9 +5,10 @@ import { guid } from '@/utils/guid'
 import { isVideoFile, MediaType } from '@/types'
 import { combinationStaticAvatar } from '@/utils/combinationStatic'
 import { sessionManager } from '@/lib/session'
-import { likeService } from '@/services/like-service'
+import { getUserArtworkLikeStatus } from '@/services/like-service'
 import { EMediaType } from '@/enums/EMediaType'
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '../../../../../lib/constant'
+import logger from '@/lib/logger'
 
 /**
  * Fisher-Yates (aka Knuth) Shuffle 算法。
@@ -138,10 +139,10 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
     // 8. 批量获取点赞状态（性能优化：单次查询）
     let likeStatusMap: Record<number, { likeCount: number; userLiked: boolean }> = {}
     try {
-      likeStatusMap = await likeService.getBatchLikeStatus(userId, paginatedIds)
-    } catch (error) {
-      console.error('批量获取点赞状态失败:', error)
+      likeStatusMap = await getUserArtworkLikeStatus(userId, paginatedIds)
+    } catch (_error) {
       // 如果获取点赞状态失败，继续执行，但所有 isLike 都为 false
+      logger.error('批量获取点赞状态失败:', _error)
     }
 
     // 9. 转换数据格式
@@ -193,11 +194,11 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
 
     return NextResponse.json(response)
   } catch (error) {
-    console.error('获取随机图片失败:', error)
+    logger.error('获取随机图片失败:', error)
 
     // 详细的错误日志记录
     if (error instanceof Error) {
-      console.error('错误详情:', {
+      logger.error('错误详情:', {
         message: error.message,
         stack: error.stack,
         timestamp: new Date().toISOString()

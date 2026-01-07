@@ -1,7 +1,7 @@
 'use server'
 
 import { authActionClient } from '@/lib/safe-action'
-import { likeService } from '@/services/like-service'
+import { toggleLike } from '@/services/like-service'
 import z from 'zod'
 
 /**
@@ -14,7 +14,7 @@ export const toggleLikeAction = authActionClient
     })
   )
   .action(async ({ parsedInput: { artworkId }, ctx: { userId } }) => {
-    const result = await likeService.toggleLike(userId!, artworkId)
+    const result = await toggleLike(userId!, artworkId)
     return {
       data: result
     }
