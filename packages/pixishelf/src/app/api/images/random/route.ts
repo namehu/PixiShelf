@@ -137,7 +137,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
     const sortedArtworks = artworks.sort((a, b) => paginatedIds.indexOf(a.id) - paginatedIds.indexOf(b.id))
 
     // 8. 批量获取点赞状态（性能优化：单次查询）
-    let likeStatusMap: Record<number, { likeCount: number; userLiked: boolean }> = {}
+    let likeStatusMap: Record<number, boolean> = {}
     try {
       likeStatusMap = await getUserArtworkLikeStatus(userId, paginatedIds)
     } catch (_error) {
@@ -155,8 +155,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<RandomImag
       const imageUrl = images[0]?.url ?? ''
 
       // 获取该作品的点赞状态，如果没有找到则默认为未点赞
-      const likeStatus = likeStatusMap[artwork.id]
-      const isLike = likeStatus ? likeStatus.userLiked : false
+      const isLike = likeStatusMap[artwork.id] ?? false
 
       return {
         id: artwork.id,

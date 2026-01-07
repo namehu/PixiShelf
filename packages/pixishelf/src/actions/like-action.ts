@@ -15,7 +15,5 @@ export const toggleLikeAction = authActionClient
   )
   .action(async ({ parsedInput: { artworkId }, ctx: { userId } }) => {
     const result = await toggleLike(userId!, artworkId)
-    return {
-      data: result
-    }
+    return result
   })

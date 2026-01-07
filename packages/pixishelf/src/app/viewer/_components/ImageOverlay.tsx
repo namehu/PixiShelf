@@ -52,8 +52,8 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
 
   // 监听操作结果，成功后同步到全局 Store
   useEffect(() => {
-    if (result.data?.data) {
-      syncImageLikeStatus(id, result.data.data.userLiked)
+    if (result.data !== undefined) {
+      syncImageLikeStatus(id, result.data)
     }
   }, [result, id, syncImageLikeStatus])
 
