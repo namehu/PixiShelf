@@ -16,16 +16,6 @@ import { EMediaType } from '@/enums/EMediaType'
 import { shuffleArray, transformImages, transformSingleArtwork } from './utils'
 import { fetchRandomIds } from './dao'
 
-interface GetRecommendedArtworksOptions {
-  pageSize?: number
-  cursor?: number
-}
-
-interface GetRecentArtworksOptions {
-  page?: number
-  pageSize?: number
-}
-
 /**
  * 获取作品列表 (重构版)
  * 使用原生 SQL 处理复杂的过滤、搜索和排序，
@@ -217,7 +207,7 @@ function mapSortOptionToSQL(sortBy: string): string {
  * 逻辑：随机获取ID -> 查详情 -> 按随机顺序重排 -> 数据清洗
  */
 export const getRecommendedArtworks = async (
-  options: GetRecommendedArtworksOptions = {}
+  options: { pageSize?: number; cursor?: number } = {}
 ): Promise<EnhancedArtworksResponse & { nextCursor?: number }> => {
   const { pageSize = 10, cursor } = options
   const currentPage = cursor || 1
@@ -256,7 +246,9 @@ export const getRecommendedArtworks = async (
  * 获取最新作品
  * 逻辑：并行查询列表和总数 -> 数据清洗
  */
-export const getRecentArtworks = async (options: GetRecentArtworksOptions = {}): Promise<EnhancedArtworksResponse> => {
+export const getRecentArtworks = async (
+  options: { page?: number; pageSize?: number } = {}
+): Promise<EnhancedArtworksResponse> => {
   const { page = 1, pageSize = 10 } = options
   const skip = (page - 1) * pageSize
 
