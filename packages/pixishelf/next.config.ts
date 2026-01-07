@@ -6,13 +6,8 @@ const nextConfig: NextConfig = {
     loader: 'custom',
     loaderFile: './lib/image-loader.js'
   },
-  eslint: {
-    // 在构建时忽略ESLint错误
-    ignoreDuringBuilds: true
-  },
   typescript: {
-    // 忽略类型检查错误
-    ignoreBuildErrors: true
+    ignoreBuildErrors: true // 忽略类型检查错误
   }
   /* config options here */
 }
