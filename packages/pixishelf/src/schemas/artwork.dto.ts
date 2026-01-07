@@ -3,6 +3,7 @@ import { MediaTypeFilter, SortOption } from '@/types'
 import { ArtworkModel, ImageModel, TagModel } from './models'
 import { dateToString, nullableDateToString } from './utils'
 import { ArtistResponseDto } from './artist.dto'
+import { EMediaType } from '@/enums/EMediaType'
 
 /** 作品详情查询参数 */
 export const ArtworkGetSchema = z.object({
@@ -64,6 +65,18 @@ export const RecommendationsGetSchema = z.object({
 })
 
 export type RecommendationsGetSchema = z.infer<typeof RecommendationsGetSchema>
+
+/**
+ * 随机作品接口参数验证 Schema
+ */
+export const RandomArtworksGetSchema = z.object({
+  cursor: z.number().nullish(), // page number
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  count: z.coerce.number().int().min(1).max(100).default(8),
+  mediaType: z.enum(EMediaType).default(EMediaType.all)
+})
+
+export type RandomArtworksGetSchema = z.infer<typeof RandomArtworksGetSchema>
 
 /**
  * Image DTO

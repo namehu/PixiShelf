@@ -10,8 +10,8 @@ import PageError from './_components/PageError'
 import { useViewerStore } from '@/store/viewerStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { apiJson } from '@/lib/api'
-import { RandomImagesResponse } from '@/types/images'
+import { useTRPC } from '@/lib/trpc'
+import { EMediaType } from '@/enums/EMediaType'
 
 /**
  * 沉浸式图片浏览页面
@@ -20,6 +20,7 @@ import { RandomImagesResponse } from '@/types/images'
  */
 export default function ViewerPage() {
   const router = useRouter()
+  const trpc = useTRPC()
 
   // 状态管理
   const { images, setImages, maxImageCount, mediaType, hasHydrated } = useViewerStore(
@@ -32,22 +33,26 @@ export default function ViewerPage() {
     }))
   )
 
-  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteQuery({
-    queryKey: ['images', 'random', 'infinite', maxImageCount, mediaType],
-    queryFn: async ({ pageParam = 1 }) =>
-      apiJson<RandomImagesResponse>(
-        `/api/images/random?page=${pageParam}&count=${maxImageCount}&mediaType=${mediaType}`
-      ),
-    getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
-    initialPageParam: 1, // 初始页码
-    // 缓存配置 - 根据是否启用状态恢复调整缓存时间
-    staleTime: 10 * 60 * 1000, // 状态恢复模式：10分钟内数据保持新鲜
-    gcTime: 15 * 60 * 1000, // 状态恢复模式：15分钟后清理缓存
-    retry: 3,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-    // 仅在持久化设置完成复原后才进行首次请求，避免“默认值 → 持久化值”触发的双请求
-    enabled: hasHydrated
-  })
+  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteQuery(
+    trpc.artwork.random.infiniteQueryOptions(
+      {
+        count: maxImageCount,
+        mediaType: mediaType as EMediaType,
+        pageSize: 20
+      },
+      {
+        getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
+        initialCursor: 1, // 初始页码
+        // 缓存配置 - 根据是否启用状态恢复调整缓存时间
+        staleTime: 10 * 60 * 1000, // 状态恢复模式：10分钟内数据保持新鲜
+        gcTime: 15 * 60 * 1000, // 状态恢复模式：15分钟后清理缓存
+        retry: 3,
+        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+        // 仅在持久化设置完成复原后才进行首次请求，避免“默认值 → 持久化值”触发的双请求
+        enabled: hasHydrated
+      }
+    )
+  )
 
   useEffect(() => {
     // 将分页数据扁平化为一个数组
@@ -60,17 +65,17 @@ export default function ViewerPage() {
 
   // 错误状态
   if (isError) {
-    return <PageError content={error?.message || '无法加载图片数据，请检查网络连接'}></PageError>
+    return <PageError content={error?.message || '无法加载图片数据，请检查网络连接'} />
   }
 
   // 初始加载状态 - 只有在没有缓存数据时才显示加载状态
   if (isLoading && !data) {
-    return <PageLoading></PageLoading>
+    return <PageLoading />
   }
 
   // 无数据状态
   if (!images.length) {
-    return <PageNoData></PageNoData>
+    return <PageNoData />
   }
 
   return (

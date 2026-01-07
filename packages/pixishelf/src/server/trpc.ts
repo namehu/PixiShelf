@@ -24,7 +24,8 @@ export const authProcedure = t.procedure.use(({ ctx, next }) => {
   }
   return next({
     ctx: {
-      session: ctx.session
+      session: ctx.session,
+      userId: Number(ctx.session.userId)
     }
   })
 })

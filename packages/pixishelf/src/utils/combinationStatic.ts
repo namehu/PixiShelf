@@ -43,5 +43,7 @@ export function combinationApiResource(url?: string | null) {
     return url || ''
   }
 
-  return API_IMAGE_PREFIX + encodeURIComponent(url)
+  // 去掉开头的斜杠，避免拼接出双斜杠
+  const trimmed = url.replace(/^\/+/, '')
+  return API_IMAGE_PREFIX + encodeURIComponent(trimmed)
 }

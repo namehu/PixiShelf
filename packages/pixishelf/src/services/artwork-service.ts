@@ -4,11 +4,18 @@ import path from 'path'
 import { EnhancedArtworksResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
-import { ArtworkResponseDto, ArtworkImageResponseDto } from '@/schemas/artwork.dto'
+import { RandomArtworksGetSchema, ArtworkResponseDto, ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { TImageModel } from '@/schemas/models'
 import { isApngFile, isVideoFile } from '../../lib/media'
 import type { ArtworksQuerySchema } from '@/schemas/artwork.dto'
-import { VIDEO_EXTENSIONS } from '../../lib/constant'
+import { VIDEO_EXTENSIONS, IMAGE_EXTENSIONS } from '../../lib/constant'
+import { RandomImageItem, RandomImagesResponse } from '@/types/images'
+import { guid } from '@/utils/guid'
+import { MediaType } from '@/types'
+import { combinationApiResource, combinationStaticAvatar } from '@/utils/combinationStatic'
+import { getUserArtworkLikeStatus } from '@/services/like-service'
+import logger from '@/lib/logger'
+import { EMediaType } from '@/enums/EMediaType'
 
 // 提取常量
 // ==========================================
@@ -285,6 +292,158 @@ export const getRecentArtworks = async (options: GetRecentArtworksOptions = {}):
 }
 
 /**
+ * 随机获取单张图片作品的业务逻辑
+ */
+export async function getRandomArtworks(
+  input: RandomArtworksGetSchema & { userId: number }
+): Promise<RandomImagesResponse> {
+  const { cursor, pageSize, count: maxImageCount, mediaType: mediaTypeParam, userId } = input
+  const page = cursor ?? 1
+  const skip = (page - 1) * pageSize
+
+  // 构建 Prisma 过滤条件：基于文件扩展名进行过滤
+  const buildMediaFilter = (type: EMediaType) => {
+    if (type === EMediaType.all) {
+      return {}
+    }
+    const exts = type === EMediaType.video ? VIDEO_EXTENSIONS : IMAGE_EXTENSIONS
+    return {
+      images: {
+        some: {
+          OR: exts.map((ext) => ({ path: { endsWith: ext, mode: 'insensitive' as const } }))
+        }
+      }
+    }
+  }
+
+  // 1. 查询所有符合条件的 Artwork 的 ID
+  const allArtworkIds = await prisma.artwork.findMany({
+    where: {
+      imageCount: { lte: maxImageCount },
+      ...buildMediaFilter(mediaTypeParam)
+    },
+    select: { id: true },
+    orderBy: {
+      id: 'asc'
+    }
+  })
+
+  const total = allArtworkIds.length
+
+  if (total === 0) {
+    return {
+      items: [],
+      total: 0,
+      page,
+      pageSize,
+      nextPage: null
+    }
+  }
+
+  // 2. 在应用层对所有 ID 进行随机排序
+  const shuffledIds = shuffleArray(allArtworkIds.map((a) => a.id))
+
+  // 3. 分页
+  const paginatedIds = shuffledIds.slice(skip, skip + pageSize)
+
+  if (paginatedIds.length === 0) {
+    return {
+      items: [],
+      total,
+      page,
+      pageSize,
+      nextPage: null
+    }
+  }
+
+  // 4. 查询完整数据
+  const artworks = await prisma.artwork.findMany({
+    where: {
+      id: { in: paginatedIds },
+      ...buildMediaFilter(mediaTypeParam)
+    },
+    include: {
+      images: {
+        take: maxImageCount,
+        orderBy: { sortOrder: 'asc' }
+      },
+      artist: true,
+      artworkTags: { include: { tag: true } }
+    }
+  })
+
+  // 5. 保持随机顺序
+  const sortedArtworks = artworks.sort((a, b) => paginatedIds.indexOf(a.id) - paginatedIds.indexOf(b.id))
+
+  // 6. 批量获取点赞状态
+  let likeStatusMap: Record<number, boolean> = {}
+  try {
+    if (userId) {
+      likeStatusMap = await getUserArtworkLikeStatus(userId, paginatedIds)
+    }
+  } catch (_error) {
+    logger.error('批量获取点赞状态失败:', _error)
+  }
+
+  // 7. 转换数据 (使用 transformSingleArtwork 统一逻辑)
+  const items: RandomImageItem[] = sortedArtworks.map((raw) => {
+    // 先经过标准转换 (处理 APNG/Video 合并等)
+    const transformed = transformSingleArtwork(raw)
+
+    // 再转换为 RandomImageItem 格式
+    // 注意：transformed.images 是 ArtworkImageResponseDto[]
+
+    const images = transformed.images.map((img: any) => {
+      // 逻辑复刻：如果是视频，加上前缀；如果是图片，保持原样(只是文件名)
+      // 注意：ArtworkImageResponseDto 中的 mediaType 已经是 'video' | 'image'
+      const url = img.mediaType === 'video' ? combinationApiResource(img.path) : img.path
+
+      return { key: guid(), url }
+    })
+
+    const imageUrl = images[0]?.url ?? ''
+    const isLike = likeStatusMap[transformed.id] ?? false
+
+    // 检查封面图是否是视频
+    // 这里需要小心：imageUrl 可能是 "xxx.jpg" 或 "/api/v1/images/xxx.mp4"
+    // isVideoFile check path extension.
+    const isCoverVideo = isVideoFile(imageUrl)
+
+    return {
+      id: transformed.id,
+      key: guid(),
+      title: transformed.title,
+      description: transformed.description || '',
+      imageUrl,
+      mediaType: isCoverVideo ? MediaType.VIDEO : MediaType.IMAGE,
+      images,
+      author: transformed.artist
+        ? {
+            id: transformed.artist.id,
+            userId: transformed.artist.userId || '',
+            name: transformed.artist.name,
+            avatar: combinationStaticAvatar(transformed.artist.userId, transformed.artist.avatar),
+            username: transformed.artist.username || ''
+          }
+        : null,
+      createdAt: transformed.createdAt, // string
+      tags: transformed.tags, // 现在是对象数组了
+      isLike
+    }
+  })
+
+  const nextPage = skip + pageSize < total ? page + 1 : null
+
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    nextPage
+  }
+}
+
+/**
  * 根据 ID 获取单个作品详情
  * 包含：所有图片、完整 Tag 信息、Artist 信息
  */
@@ -419,4 +578,18 @@ function transformImages(images: TImageModel[], dbImageCount?: number) {
     imageCount: hasVideo ? 0 : (dbImageCount ?? finalItems.length),
     totalMediaSize
   }
+}
+
+/*
+ * 这是一个原地(in-place)打乱数组的优秀算法，比 sort + Math.random() 更随机、更高效。
+ * @param array 需要打乱的数组
+ */
+function shuffleArray<T>(array: T[]): T[] {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const temp = array[i]!
+    array[i] = array[j]!
+    array[j] = temp // 使用临时变量交换元素，避免解构赋值可能引发的类型错误
+  }
+  return array
 }
