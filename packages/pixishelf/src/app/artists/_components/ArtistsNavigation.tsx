@@ -34,6 +34,13 @@ const ArtistsNavigation = () => {
   useEffect(() => {
     const timer = setTimeout(() => {
       const params = new URLSearchParams(searchParams.toString())
+      const currentSearchInUrl = params.get('search') || ''
+
+      // 如果搜索值与 URL 中的一致，则不进行导航
+      if (searchValue === currentSearchInUrl) {
+        return
+      }
+
       if (searchValue) {
         params.set('search', searchValue)
       } else {
