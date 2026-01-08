@@ -42,9 +42,7 @@ const TagExplorer: React.FC = () => {
       {
         pageSize: 100,
         mode: currentTab,
-        query: searchQuery || undefined,
-        minCount: 0,
-        excludeEmpty: false
+        query: searchQuery || undefined
       },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
