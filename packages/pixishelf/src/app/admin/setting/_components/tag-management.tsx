@@ -3,13 +3,14 @@
 import { useState, useEffect } from 'react'
 import { useDebounce } from '@/hooks/useDebounce'
 import { toast } from 'sonner'
-import { BarChart3 } from 'lucide-react'
+import { BarChart3, RefreshCw } from 'lucide-react'
 import type { TagManagementParams } from '@/types/tags'
 import { useQuery } from '@tanstack/react-query'
 import { useTRPC } from '@/lib/trpc'
+import { Button } from '@/components/ui/button'
+import { updateTagStatsAction } from '@/actions/tag-action'
 
 // 导入子组件
-import { TagStatsUpdateCard } from './tag-stats-update-card'
 import { TagStatsCards } from './tag-stats-cards'
 import { TagSearchAndFilter } from './tag-search-and-filter'
 import { TagTable } from './tag-table'
@@ -34,6 +35,9 @@ function TagManagement() {
 
   // 选中的标签（用于批量操作）
   const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set())
+
+  // 标签统计更新状态
+  const [isUpdatingStats, setIsUpdatingStats] = useState(false)
 
   // 防抖搜索
   const debouncedSearchQuery = useDebounce(searchQuery, 500)
@@ -77,6 +81,27 @@ function TagManagement() {
     translationRate: 0
   }
 
+  // 手动更新标签统计
+  const handleUpdateStats = async () => {
+    try {
+      setIsUpdatingStats(true)
+      const result = await updateTagStatsAction()
+
+      if (result.success) {
+        toast.success('标签统计更新成功')
+        // 刷新页面数据以显示最新统计
+        refetch()
+      } else {
+        throw new Error(result.message || '更新失败')
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '标签统计更新失败'
+      toast.error(errorMessage)
+    } finally {
+      setIsUpdatingStats(false)
+    }
+  }
+
   // 处理标签选择
   const handleTagSelect = (tagId: number) => {
     const newSelected = new Set(selectedTags)
@@ -99,16 +124,24 @@ function TagManagement() {
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       {/* 页面标题 */}
-      <div className="border-b border-neutral-200 pb-4">
-        <h1 className="text-xl md:text-2xl font-bold text-neutral-900 flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 md:w-6 md:h-6" />
-          标签管理
-        </h1>
-        <p className="text-sm md:text-base text-neutral-600 mt-1">管理标签翻译，支持搜索、筛选和批量操作</p>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-neutral-200 pb-4">
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold text-neutral-900 flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 md:w-6 md:h-6" />
+            标签管理
+          </h1>
+          <p className="text-sm md:text-base text-neutral-600 mt-1">管理标签翻译，支持搜索、筛选和批量操作</p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={handleUpdateStats}
+          disabled={isUpdatingStats}
+          className="w-full md:w-auto flex items-center justify-center gap-2"
+        >
+          <RefreshCw className={`w-4 h-4 ${isUpdatingStats ? 'animate-spin' : ''}`} />
+          {isUpdatingStats ? '更新中...' : '更新统计'}
+        </Button>
       </div>
-
-      {/* 标签统计更新卡片 */}
-      <TagStatsUpdateCard onUpdateStats={() => refetch()} />
 
       {/* 统计卡片 */}
       <TagStatsCards stats={stats} isLoading={isLoading} />

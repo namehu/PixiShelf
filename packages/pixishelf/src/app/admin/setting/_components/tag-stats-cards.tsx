@@ -54,7 +54,7 @@ export function TagStatsCards({ stats, isLoading = false }: TagStatsCardsProps) 
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-4 md:mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-4 md:mb-6">
         {Array.from({ length: 4 }).map((_, index) => (
           <div key={index} className="bg-white rounded-lg border border-neutral-200 p-4 md:p-6">
             <div className="animate-pulse">
@@ -71,7 +71,7 @@ export function TagStatsCards({ stats, isLoading = false }: TagStatsCardsProps) 
   }
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-4 md:mb-6">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-4 md:mb-6">
       {statsCards.map((card, index) => {
         const IconComponent = card.icon
         return (
