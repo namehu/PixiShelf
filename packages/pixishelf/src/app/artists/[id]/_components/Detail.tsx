@@ -1,24 +1,17 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
-import { EnhancedArtworksResponse, SortOption } from '@/types'
+import { useInfiniteQuery } from '@tanstack/react-query'
+import { SortOption } from '@/types'
 import { SortControl } from '@/components/ui/SortControl'
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious
-} from '@/components/ui/pagination'
-import { client } from '@/lib/api'
 import ClientImage from '@/components/client-image'
 import HeadInfo from './HeadInfo'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
+import { useTRPC } from '@/lib/trpc'
+import { useInView } from 'react-intersection-observer'
+import { Loader2 } from 'lucide-react'
 
 /**
  * 艺术家详情页面
@@ -26,54 +19,46 @@ import type { ArtistResponseDto } from '@/schemas/artist.dto'
 export default function ArtistDetailPage({ artist, id }: { artist: ArtistResponseDto; id: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const trpc = useTRPC()
 
-  const page = parseInt(searchParams.get('page') || '1', 10)
   const pageSize = 24
   const sortBy = (searchParams.get('sortBy') as SortOption) || 'source_date_desc'
-  const [jumpToPage, setJumpToPage] = useState('')
 
   const {
-    data: artworks,
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
     isLoading: artworksLoading,
     isError: artworksError
-  } = useQuery({
-    queryKey: ['artist-artworks', id, page, pageSize, sortBy],
-    queryFn: async (): Promise<EnhancedArtworksResponse> => {
-      const url = new URL('/api/artworks', window.location.origin)
-      url.searchParams.set('page', String(page))
-      url.searchParams.set('pageSize', String(pageSize))
-      url.searchParams.set('artistId', id)
-      if (sortBy && sortBy !== 'source_date_desc') {
-        url.searchParams.set('sortBy', sortBy)
+  } = useInfiniteQuery(
+    trpc.artwork.list.infiniteQueryOptions(
+      {
+        artistId: parseInt(id),
+        pageSize,
+        sortBy
+      },
+      {
+        getNextPageParam: (lastPage) => lastPage.nextCursor,
+        initialCursor: 1
       }
-      return client(url.toString())
-    },
-    enabled: !!id
-  })
+    )
+  )
 
-  // 页面跳转函数
-  const goto = (p: number) => {
-    const newParams = new URLSearchParams(searchParams.toString())
-    newParams.set('page', String(p))
-    router.push(`/artists/${id}?${newParams.toString()}`)
-  }
+  const { ref: loadMoreRef, inView } = useInView()
 
-  // 处理跳转到指定页
-  const handleJumpToPage = () => {
-    const pageNum = parseInt(jumpToPage, 10)
-    const totalPages = artworks ? Math.ceil(artworks.total / pageSize) : 1
-    if (pageNum >= 1 && pageNum <= totalPages) {
-      goto(pageNum)
-      setJumpToPage('')
+  useEffect(() => {
+    if (inView && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
     }
-  }
+  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  // 处理跳转输入框回车事件
-  const handleJumpInputKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleJumpToPage()
-    }
-  }
+  // Flatten data
+  const artworks = useMemo(() => {
+    return data?.pages.flatMap((page) => page.items) || []
+  }, [data])
+
+  const total = data?.pages[0]?.total || 0
 
   // 处理排序变化
   const handleSortChange = (newSortBy: SortOption) => {
@@ -83,7 +68,8 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
     } else {
       newParams.set('sortBy', newSortBy)
     }
-    newParams.set('page', '1')
+    // 移除 page 参数
+    newParams.delete('page')
     router.push(`/artists/${id}?${newParams.toString()}`)
   }
 
@@ -96,7 +82,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">作品集</h2>
-            <p className="text-gray-600 mt-1">{artworks ? `共 ${artworks.total} 件作品` : '加载中...'}</p>
+            <p className="text-gray-600 mt-1">{artworksLoading ? '加载中...' : `共 ${total} 件作品`}</p>
           </div>
 
           <SortControl value={sortBy} onChange={handleSortChange} size="md" />
@@ -119,7 +105,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
           <div className="text-center py-12">
             <p className="text-gray-600">加载作品时出错，请稍后重试。</p>
           </div>
-        ) : !artworks || artworks.items.length === 0 ? (
+        ) : artworks.length === 0 ? (
           <div className="text-center py-12">
             <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -136,7 +122,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
           <>
             {/* 作品网格 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {artworks.items.map((aw) => {
+              {artworks.map((aw) => {
                 const { id, title, images } = aw
                 const cover = images?.[0]
                 const src = cover ? cover.path : null
@@ -212,150 +198,16 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
               })}
             </div>
 
-            {/* 分页 */}
-            {artworks.total > pageSize &&
-              (() => {
-                const totalPages = Math.ceil(artworks.total / pageSize)
-
-                // 生成页码数组
-                const generatePageNumbers = () => {
-                  const pageNumbers: (number | string)[] = []
-                  const showPages = 5
-
-                  if (totalPages <= showPages) {
-                    // 如果总页数小于等于显示页数，显示所有页码
-                    for (let i = 1; i <= totalPages; i++) {
-                      pageNumbers.push(i)
-                    }
-                  } else {
-                    // 复杂分页逻辑
-                    if (page <= 3) {
-                      // 当前页在前面
-                      for (let i = 1; i <= 4; i++) {
-                        pageNumbers.push(i)
-                      }
-                      pageNumbers.push('ellipsis-end')
-                      pageNumbers.push(totalPages)
-                    } else if (page >= totalPages - 2) {
-                      // 当前页在后面
-                      pageNumbers.push(1)
-                      pageNumbers.push('ellipsis-start')
-                      for (let i = totalPages - 3; i <= totalPages; i++) {
-                        pageNumbers.push(i)
-                      }
-                    } else {
-                      // 当前页在中间
-                      pageNumbers.push(1)
-                      pageNumbers.push('ellipsis-start')
-                      for (let i = page - 1; i <= page + 1; i++) {
-                        pageNumbers.push(i)
-                      }
-                      pageNumbers.push('ellipsis-end')
-                      pageNumbers.push(totalPages)
-                    }
-                  }
-
-                  return pageNumbers
-                }
-
-                const pageNumbers = generatePageNumbers()
-
-                return (
-                  <div className="bg-white rounded-lg shadow p-6">
-                    <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
-                      {/* 统计信息 */}
-                      <div className="text-sm text-gray-600">
-                        显示第 {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, artworks.total)} 项，共{' '}
-                        {artworks.total.toLocaleString()} 项
-                      </div>
-
-                      {/* 分页控件 */}
-                      <div className="flex flex-col sm:flex-row items-center gap-4">
-                        {/* Pagination Component */}
-                        <Pagination>
-                          <PaginationContent>
-                            {/* Previous Page */}
-                            <PaginationItem>
-                              <PaginationPrevious
-                                href="#"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  if (page > 1) {
-                                    goto(page - 1)
-                                  }
-                                }}
-                                className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
-                              >
-                                上一页
-                              </PaginationPrevious>
-                            </PaginationItem>
-
-                            {/* Page Numbers */}
-                            {pageNumbers.map((pageNum, index) => (
-                              <PaginationItem key={`${pageNum}-${index}`}>
-                                {pageNum === 'ellipsis-start' || pageNum === 'ellipsis-end' ? (
-                                  <PaginationEllipsis />
-                                ) : (
-                                  <PaginationLink
-                                    href="#"
-                                    onClick={(e) => {
-                                      e.preventDefault()
-                                      goto(pageNum as number)
-                                    }}
-                                    isActive={pageNum === page}
-                                  >
-                                    {pageNum}
-                                  </PaginationLink>
-                                )}
-                              </PaginationItem>
-                            ))}
-
-                            {/* Next Page */}
-                            <PaginationItem>
-                              <PaginationNext
-                                href="#"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  if (page < totalPages) {
-                                    goto(page + 1)
-                                  }
-                                }}
-                                className={page >= totalPages ? 'pointer-events-none opacity-50' : ''}
-                              >
-                                下一页
-                              </PaginationNext>
-                            </PaginationItem>
-                          </PaginationContent>
-                        </Pagination>
-
-                        {/* Jump to Page */}
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className="text-sm text-neutral-600 whitespace-nowrap">跳转到</span>
-                          <input
-                            type="number"
-                            min="1"
-                            max={totalPages}
-                            value={jumpToPage}
-                            onChange={(e) => setJumpToPage(e.target.value)}
-                            onKeyDown={handleJumpInputKeyDown}
-                            className="w-16 h-9 px-2 text-sm border border-neutral-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
-                            placeholder={String(page)}
-                          />
-                          <button
-                            onClick={handleJumpToPage}
-                            disabled={
-                              !jumpToPage || parseInt(jumpToPage, 10) < 1 || parseInt(jumpToPage, 10) > totalPages
-                            }
-                            className="h-9 px-3 text-sm bg-primary text-white rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-                          >
-                            跳转
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })()}
+            {/* 加载更多 */}
+            <div ref={loadMoreRef} className="flex justify-center py-8">
+              {isFetchingNextPage ? (
+                <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+              ) : hasNextPage ? (
+                 <span className="text-gray-400 text-sm">向下滚动加载更多</span>
+              ) : (
+                <span className="text-gray-400 text-sm">没有更多作品了</span>
+              )}
+            </div>
           </>
         )}
       </div>

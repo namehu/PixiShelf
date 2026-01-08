@@ -56,6 +56,16 @@ export const ArtworksQuerySchema = z.object({
 export type ArtworksQuerySchema = z.infer<typeof ArtworksQuerySchema>
 
 /**
+ * 作品列表无限加载查询参数
+ * @description 基于 ArtworksQuerySchema，使用 cursor 替代 page
+ */
+export const ArtworksInfiniteQuerySchema = ArtworksQuerySchema.omit({ page: true }).extend({
+  cursor: z.number().min(1).nullish()
+})
+
+export type ArtworksInfiniteQuerySchema = z.infer<typeof ArtworksInfiniteQuerySchema>
+
+/**
  * 推荐作品接口参数验证 Schema
  */
 export const RecommendationsGetSchema = z.object({

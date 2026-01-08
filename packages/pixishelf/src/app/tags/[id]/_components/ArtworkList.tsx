@@ -1,25 +1,37 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Hash } from 'lucide-react'
 import { useInView } from 'react-intersection-observer'
 import { Artwork } from '@/types/core'
 import { ArtworkCard } from '@/components/ui/ArtworkCard'
-import { client } from '@/lib/api'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useTRPC } from '@/lib/trpc'
+import { useInfiniteQuery } from '@tanstack/react-query'
 
 interface ArtworkListProps {
   tagId: string
 }
 
 export function ArtworkList({ tagId }: ArtworkListProps) {
-  const [artworks, setArtworks] = useState<Artwork[]>([])
-  const [page, setPage] = useState(1)
-  const [hasMore, setHasMore] = useState(true)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isError, setIsError] = useState(false)
-
+  const trpc = useTRPC()
   const pageSize = 20
+
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, refetch } = useInfiniteQuery(
+    trpc.artwork.list.infiniteQueryOptions(
+      {
+        tagId: parseInt(tagId),
+        pageSize
+      },
+      {
+        getNextPageParam: (lastPage) => lastPage.nextCursor,
+        initialCursor: 1
+      }
+    )
+  )
+
+  const artworks = useMemo(() => data?.pages.flatMap((page) => page.items) || [], [data])
+  const total = data?.pages[0]?.total || 0
 
   // 滚动监听
   const { ref: loadMoreRef, inView } = useInView({
@@ -27,55 +39,14 @@ export function ArtworkList({ tagId }: ArtworkListProps) {
     rootMargin: '200px'
   })
 
-  // 获取作品列表
-  const fetchArtworks = async (pageNum: number) => {
-    try {
-      setIsLoading(true)
-      setIsError(false)
-
-      const data = await client<any>(`/api/artworks?tagId=${tagId}&page=${pageNum}&pageSize=${pageSize}`)
-      const newArtworks = data.items || []
-
-      if (pageNum === 1) {
-        setArtworks(newArtworks)
-      } else {
-        setArtworks((prev) => {
-          // 简单的去重
-          const newIds = new Set(newArtworks.map((i: Artwork) => i.id))
-          const filteredPrev = prev.filter((p) => !newIds.has(p.id))
-          return [...filteredPrev, ...newArtworks]
-        })
-      }
-
-      // 计算是否还有更多数据
-      const totalPages = Math.ceil(data.total / pageSize)
-      setHasMore(pageNum < totalPages)
-    } catch (err) {
-      console.error('Failed to fetch artworks:', err)
-      setIsError(true)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // 初始化数据
-  useEffect(() => {
-    if (tagId) {
-      setPage(1)
-      fetchArtworks(1)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tagId])
-
   // 触发下一页
   useEffect(() => {
-    if (inView && !isLoading && hasMore && artworks.length > 0) {
-      const nextPage = page + 1
-      setPage(nextPage)
-      fetchArtworks(nextPage)
+    if (inView && !isLoading && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inView, isLoading, hasMore, artworks.length])
+  }, [inView, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage])
+
+  const hasMore = hasNextPage
 
   return (
     <div className="w-full">
@@ -83,7 +54,7 @@ export function ArtworkList({ tagId }: ArtworkListProps) {
         <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
           作品列表
           <span className="text-sm font-normal text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-            {artworks.length}+
+            {total ? `${total}+` : '0'}
           </span>
         </h2>
       </div>
@@ -104,8 +75,7 @@ export function ArtworkList({ tagId }: ArtworkListProps) {
             ))}
 
             {/* Loading Skeletons */}
-            {isLoading &&
-              hasMore &&
+            {(isLoading || isFetchingNextPage) &&
               Array.from({ length: 10 }).map((_, i) => (
                 <div key={`skeleton-${i}`} className="space-y-2">
                   <Skeleton className="aspect-[3/4] w-full rounded-xl bg-slate-200" />
@@ -122,7 +92,7 @@ export function ArtworkList({ tagId }: ArtworkListProps) {
           <div className="flex flex-col items-center justify-center py-20 text-red-500">
             <p className="mb-2">加载失败</p>
             <button
-              onClick={() => fetchArtworks(page)}
+              onClick={() => refetch()}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               重试

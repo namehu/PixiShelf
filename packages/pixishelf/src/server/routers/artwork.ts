@@ -1,6 +1,6 @@
-import { authProcedure, router } from '@/server/trpc'
-import { RandomArtworksGetSchema, RecommendationsGetSchema } from '@/schemas/artwork.dto'
-import { getRecommendedArtworks, getRandomArtworks } from '@/services/artwork-service'
+import { authProcedure, publicProcedure, router } from '@/server/trpc'
+import { ArtworksInfiniteQuerySchema, RandomArtworksGetSchema, RecommendationsGetSchema } from '@/schemas/artwork.dto'
+import { getArtworksList, getRecommendedArtworks, getRandomArtworks } from '@/services/artwork-service'
 import logger from '@/lib/logger'
 import { TRPCError } from '@trpc/server'
 
@@ -9,7 +9,22 @@ import { TRPCError } from '@trpc/server'
  */
 export const artworkRouter = router({
   /**
-   * 获取作品列表
+   * 获取作品列表 (无限加载)
+   */
+  list: publicProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input }) => {
+    const page = input.cursor ?? 1
+    const { cursor, ...rest } = input
+    const result = await getArtworksList({ ...rest, page })
+    const totalPages = Math.ceil(result.total / result.pageSize)
+    return {
+      items: result.items,
+      nextCursor: page < totalPages ? page + 1 : undefined,
+      total: result.total
+    }
+  }),
+
+  /**
+   * 获取推荐作品
    */
   queryRecommendPage: authProcedure.input(RecommendationsGetSchema).query(async ({ input }) => {
     return await getRecommendedArtworks({
