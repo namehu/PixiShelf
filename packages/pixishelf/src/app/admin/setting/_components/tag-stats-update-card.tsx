@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import { RefreshCw, Clock, CheckCircle, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
+import { updateTagStatsAction } from '@/actions/tag-action'
 
 interface TagStatsUpdateCardProps {
   onUpdateStats: () => void
@@ -31,18 +32,7 @@ export function TagStatsUpdateCard({ onUpdateStats }: TagStatsUpdateCardProps) {
       setStatsUpdateStatus('idle')
       setStatsUpdateError(null)
 
-      const response = await fetch('/api/tags/update-stats', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      })
-
-      if (!response.ok) {
-        throw new Error(`更新失败: ${response.statusText}`)
-      }
-
-      const result = await response.json()
+      const result = await updateTagStatsAction()
 
       if (result.success) {
         setStatsUpdateStatus('success')
