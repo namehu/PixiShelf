@@ -52,30 +52,30 @@ function AdminSidebar({ tabs, activeTab, onTabChange, isMobile, isOpen, onClose 
 
   // 侧边栏样式
   const sidebarClasses = [
-    'bg-white border-r border-neutral-200 flex flex-col',
+    'bg-white border-r border-neutral-100 flex flex-col shadow-[1px_0_20px_rgba(0,0,0,0.02)]',
     isMobile
-      ? `fixed top-0 left-0 h-full w-80 z-40 transform transition-transform duration-300 ease-in-out ${
+      ? `fixed top-0 left-0 h-full w-64 z-40 transform transition-transform duration-300 ease-in-out ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`
-      : 'w-80 h-full'
+      : 'w-64 h-full'
   ].join(' ')
 
   return (
     <aside className={sidebarClasses}>
       {/* 侧边栏头部 */}
-      <div className="p-6 border-b border-neutral-200">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-neutral-900">管理中心</h2>
+      <div className="h-16 flex items-center px-6 border-b border-neutral-100">
+        <div className="flex items-center justify-between w-full">
+          <h2 className="text-base font-bold text-neutral-800 tracking-tight">管理中心</h2>
 
           {/* 移动端关闭按钮 */}
           {isMobile && (
             <button
               type="button"
               onClick={onClose}
-              className="btn-ghost p-2 rounded-lg hover:bg-neutral-100 focus:ring-2 focus:ring-neutral-500"
+              className="p-1.5 rounded-md text-neutral-400 hover:text-neutral-600 hover:bg-neutral-50 transition-colors"
               aria-label="关闭导航菜单"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -84,51 +84,52 @@ function AdminSidebar({ tabs, activeTab, onTabChange, isMobile, isOpen, onClose 
       </div>
 
       {/* 导航菜单 */}
-      <nav className="flex-1 p-4" role="navigation" aria-label="管理页面导航">
-        <ul className="space-y-2">
-          {tabs.map((tab) => {
-            const isActive = tab.id === activeTab
+      <nav className="flex-1 p-3 space-y-1" role="navigation" aria-label="管理页面导航">
+        {tabs.map((tab) => {
+          const isActive = tab.id === activeTab
 
-            return (
-              <li key={tab.id}>
-                <button
-                  type="button"
-                  onClick={() => handleTabClick(tab.id)}
-                  onKeyDown={(e) => handleKeyDown(e, tab.id)}
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => handleTabClick(tab.id)}
+              onKeyDown={(e) => handleKeyDown(e, tab.id)}
+              className={[
+                'w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 group relative',
+                'focus:outline-none focus:ring-2 focus:ring-primary-500/20',
+                isActive
+                  ? 'bg-primary-50/50 text-primary-600'
+                  : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900'
+              ].join(' ')}
+              aria-current={isActive ? 'page' : undefined}
+            >
+              {/* Tab图标（如果有） */}
+              {tab.icon && (
+                <tab.icon
                   className={[
-                    'w-full flex items-center px-4 py-3 text-left rounded-xl transition-all duration-200',
-                    'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                    isActive
-                      ? 'bg-primary-50 text-primary-700 border border-primary-200 shadow-sm'
-                      : 'text-neutral-700 hover:bg-neutral-100 hover:text-neutral-900'
+                    'w-4 h-4 mr-3 flex-shrink-0 transition-colors',
+                    isActive ? 'text-primary-600' : 'text-neutral-400 group-hover:text-neutral-600'
                   ].join(' ')}
-                  aria-current={isActive ? 'page' : undefined}
-                >
-                  {/* Tab图标（如果有） */}
-                  {tab.icon && (
-                    <tab.icon
-                      className={[
-                        'w-5 h-5 mr-3 flex-shrink-0',
-                        isActive ? 'text-primary-600' : 'text-neutral-500'
-                      ].join(' ')}
-                    />
-                  )}
+                />
+              )}
 
-                  {/* Tab标签 */}
-                  <span className="font-medium">{tab.label}</span>
+              {/* Tab标签 */}
+              <span>{tab.label}</span>
 
-                  {/* 激活状态指示器 */}
-                  {isActive && <div className="ml-auto w-2 h-2 bg-primary-600 rounded-full" />}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
+              {/* 激活状态指示器 */}
+              {isActive && (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary-500 rounded-r-full opacity-0" />
+              )}
+            </button>
+          )
+        })}
       </nav>
 
       {/* 侧边栏底部 */}
-      <div className="p-4 border-t border-neutral-200">
-        <div className="text-xs text-neutral-500 text-center">管理页面 {APP_VERSION}</div>
+      <div className="p-4 border-t border-neutral-100">
+        <div className="text-[10px] font-medium text-neutral-400 text-center tracking-wider uppercase">
+          PixiShelf Admin {APP_VERSION}
+        </div>
       </div>
     </aside>
   )

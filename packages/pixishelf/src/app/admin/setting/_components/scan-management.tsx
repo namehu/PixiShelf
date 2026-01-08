@@ -1,9 +1,8 @@
 'use client'
 
-import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSseScan } from '../_hooks/use-sse-scan'
-import { confirm } from '@/components/shared/global-confirm' // 直接引入函数
+import { confirm } from '@/components/shared/global-confirm'
 import { ClientScanCard } from './scan/client-scan-card'
 import { ServerScanCard } from './scan/server-scan-card'
 import { ScanResultCard } from './scan/scan-result-card'

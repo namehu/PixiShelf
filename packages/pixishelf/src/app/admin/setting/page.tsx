@@ -1,4 +1,3 @@
-import React from 'react'
 import { Metadata } from 'next'
 import AdminLayout from './_components/admin-layout'
 
