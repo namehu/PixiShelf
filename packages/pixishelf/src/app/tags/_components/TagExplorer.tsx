@@ -8,70 +8,16 @@ import { TagUniverseView } from './TagUniverseView'
 import { TagItem } from './TagItem'
 import { cn } from '@/lib/utils'
 import { Tabs, TabsList, TabsTrigger } from '.'
-import { PaginationResponse, Tag } from '@/types'
 import { useRouter } from 'next/navigation'
+import { useTRPC } from '@/lib/trpc'
 
 export type ViewMode = 'universe' | 'grid'
-
-// --- API 请求逻辑 ---
-const fetchTagsApi = async ({ pageParam = 1, mode = 'popular', query = '' }) => {
-  const pageSize = 100
-  let url = ''
-
-  if (query) {
-    const params = new URLSearchParams({
-      q: query,
-      page: pageParam.toString(),
-      pageSize: pageSize.toString(),
-      sort: 'relevance',
-      order: 'desc'
-    })
-    url = `/api/tags/search?${params.toString()}`
-  } else if (mode === 'popular') {
-    const params = new URLSearchParams({
-      page: pageParam.toString(),
-      pageSize: pageSize.toString(),
-      sort: 'artworkCount',
-      order: 'desc'
-    })
-    url = `/api/tags/search?${params.toString()}`
-  } else {
-    const params = new URLSearchParams({
-      pageSize: pageSize.toString(),
-      minCount: '0',
-      excludeEmpty: 'false',
-      page: pageParam.toString()
-    })
-    url = `/api/tags/random?${params.toString()}`
-  }
-
-  const response = await fetch(url)
-  const result: PaginationResponse<Tag> = await response.json()
-
-  if (!result.success) {
-    throw new Error('获取标签失败')
-  }
-
-  const tags = result.data.data || []
-  const pagination = result.data.pagination
-
-  if (mode === 'random' && !query) {
-    return {
-      tags: tags,
-      nextPage: tags.length > 0 ? pageParam + 1 : undefined
-    }
-  }
-
-  return {
-    tags: tags,
-    nextPage: pagination.hasNextPage ? pagination.page + 1 : undefined
-  }
-}
 
 // --- 组件实现 ---
 
 const TagExplorer: React.FC = () => {
   const router = useRouter()
+  const trpc = useTRPC()
   const [viewMode, setViewMode] = useState<ViewMode>('universe')
   const [currentTab, setCurrentTab] = useState<'popular' | 'random'>('popular')
   const [searchQuery, setSearchQuery] = useState('')
@@ -91,17 +37,26 @@ const TagExplorer: React.FC = () => {
   })
 
   // React Query
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isRefetching } = useInfiniteQuery({
-    queryKey: ['tags', currentTab, searchQuery],
-    queryFn: ({ pageParam }) => fetchTagsApi({ pageParam, mode: currentTab, query: searchQuery }),
-    initialPageParam: 1,
-    getNextPageParam: (lastPage) => lastPage.nextPage,
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 10
-  })
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isRefetching } = useInfiniteQuery(
+    trpc.tag.list.infiniteQueryOptions(
+      {
+        pageSize: 100,
+        mode: currentTab,
+        query: searchQuery || undefined,
+        minCount: 0,
+        excludeEmpty: false
+      },
+      {
+        getNextPageParam: (lastPage) => lastPage.nextCursor,
+        initialCursor: 1,
+        staleTime: 1000 * 60 * 5,
+        gcTime: 1000 * 60 * 10
+      }
+    )
+  )
 
   const allTags = useMemo(() => {
-    return data?.pages.flatMap((page) => page.tags) ?? []
+    return data?.pages.flatMap((page) => page.items) ?? []
   }, [data])
 
   // 🔥 修复核心 1: 监听所有可能导致列表重置的状态（视图、Tab、搜索）
@@ -157,7 +112,7 @@ const TagExplorer: React.FC = () => {
   ])
 
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['tags'] })
+    queryClient.invalidateQueries({ queryKey: trpc.tag.list.queryKey() })
   }
 
   // 监听 Tab 切换，自动重置搜索框
