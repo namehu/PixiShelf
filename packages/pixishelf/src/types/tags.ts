@@ -2,8 +2,6 @@
 // 标签广场相关类型定义
 // ============================================================================
 
-import { Tag } from './core'
-
 /**
  * 分页信息
  */
@@ -56,17 +54,4 @@ export interface TagManagementStats {
   untranslatedTags: number
   /** 翻译完成率 */
   translationRate: number
-}
-
-/**
- * 标签管理响应
- */
-export interface TagManagementResponse {
-  success: boolean
-  data: {
-    tags: Partial<Tag>[]
-    pagination: PaginationInfo
-    stats: TagManagementStats
-    query: TagManagementParams
-  }
 }

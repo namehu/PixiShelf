@@ -1,5 +1,11 @@
-import { AppState } from '@/types'
-
+/**
+ * 应用状态
+ */
+interface AppState {
+  scanning: boolean
+  cancelRequested: boolean
+  lastProgressMessage: string | null
+}
 /**
  * 应用状态管理服务
  * 管理扫描状态、取消请求和进度消息

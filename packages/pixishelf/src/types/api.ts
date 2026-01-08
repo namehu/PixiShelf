@@ -1,26 +1,8 @@
-import { Artwork, User, MediaFile } from './core'
+import { Artwork, MediaFile } from './core'
 
 // ============================================================================
 // API 请求/响应类型
 // ============================================================================
-
-/**
- * 修改密码请求
- */
-export interface ChangePasswordRequest {
-  currentPassword: string
-  newPassword: string
-  confirmNewPassword: string
-}
-
-/**
- * 修改密码响应
- */
-export interface ChangePasswordResponse {
-  success: boolean
-  message?: string
-  error?: string
-}
 
 /**
  * 通用分页查询参数
