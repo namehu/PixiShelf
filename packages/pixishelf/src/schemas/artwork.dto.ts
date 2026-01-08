@@ -26,12 +26,12 @@ function getSafeSortOption(sortBy: string | null): SortOption {
 }
 
 /**
- * 作品列表查询接口参数验证
+ * 作品列表无限加载查询参数
  * @description 验证作品列表查询接口的参数，包括分页、标签、搜索、艺术家ID、标签ID、排序选项和媒体类型。
  */
-export const ArtworksQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(24),
+export const ArtworksInfiniteQuerySchema = z.object({
+  cursor: z.number().min(1).nullish().default(1),
+  pageSize: z.coerce.number().int().min(1).max(10000).default(24),
   tags: z
     .string()
     .optional()
@@ -51,16 +51,6 @@ export const ArtworksQuerySchema = z.object({
     .optional()
     .default('all')
     .transform((val) => (val as MediaTypeFilter) || 'all')
-})
-
-export type ArtworksQuerySchema = z.infer<typeof ArtworksQuerySchema>
-
-/**
- * 作品列表无限加载查询参数
- * @description 基于 ArtworksQuerySchema，使用 cursor 替代 page
- */
-export const ArtworksInfiniteQuerySchema = ArtworksQuerySchema.omit({ page: true }).extend({
-  cursor: z.number().min(1).nullish()
 })
 
 export type ArtworksInfiniteQuerySchema = z.infer<typeof ArtworksInfiniteQuerySchema>

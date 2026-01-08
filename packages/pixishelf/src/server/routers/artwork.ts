@@ -13,8 +13,7 @@ export const artworkRouter = router({
    */
   list: publicProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input }) => {
     const page = input.cursor ?? 1
-    const { cursor, ...rest } = input
-    const result = await getArtworksList({ ...rest, page })
+    const result = await getArtworksList(input)
     const totalPages = Math.ceil(result.total / result.pageSize)
     return {
       items: result.items,

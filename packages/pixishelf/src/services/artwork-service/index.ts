@@ -4,7 +4,7 @@ import { EnhancedArtworksResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { RandomArtworksGetSchema, ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { isVideoFile } from '../../../lib/media'
-import type { ArtworksQuerySchema } from '@/schemas/artwork.dto'
+import { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 import { VIDEO_EXTENSIONS, IMAGE_EXTENSIONS } from '../../../lib/constant'
 import { RandomImageItem, RandomImagesResponse } from '@/types/images'
 import { guid } from '@/utils/guid'
@@ -21,8 +21,10 @@ import { fetchRandomIds } from './dao'
  * 使用原生 SQL 处理复杂的过滤、搜索和排序，
  * 同时复用 transformSingleArtwork 确保返回数据格式一致。
  */
-export async function getArtworksList(params: ArtworksQuerySchema): Promise<EnhancedArtworksResponse> {
-  const { page, pageSize, tags, search, artistId, tagId, sortBy, mediaType } = params
+export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Promise<EnhancedArtworksResponse> {
+  const { cursor, tags, search, artistId, tagId, sortBy, mediaType } = params
+  const page = cursor ?? 1
+  const pageSize = 24
   const skip = (page - 1) * pageSize
 
   let whereSQL = 'WHERE 1=1'

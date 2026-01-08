@@ -23,8 +23,6 @@ function GalleryPageContent() {
   // 控制筛选抽屉的开关
   const [isFilterOpen, setIsFilterOpen] = useState(false)
 
-  const pageSize = 24
-
   // --- 2. 解析 URL 参数 ---
   const searchQuery = searchParams.get('search') || ''
   const sortBy = (searchParams.get('sortBy') as SortOption) || 'source_date_desc'
@@ -34,7 +32,6 @@ function GalleryPageContent() {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError } = useInfiniteQuery(
     trpc.artwork.list.infiniteQueryOptions(
       {
-        pageSize,
         search: searchQuery || undefined,
         sortBy,
         mediaType
