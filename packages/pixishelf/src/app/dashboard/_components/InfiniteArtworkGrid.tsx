@@ -92,15 +92,36 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
     rootMargin: '200px'
   })
 
-  useEffect(() => {
-    let timer: NodeJS.Timeout
-    if (inView && hasNextPage && !isFetchingNextPage) {
-      timer = setTimeout(() => {
-        fetchNextPage()
-      }, 100)
+  // 1. 处理滚动恢复
+  useLayoutEffect(() => {
+    // 禁用浏览器的默认滚动恢复
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual'
     }
-    return () => clearTimeout(timer)
-  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage])
+
+    const savedPosition = sessionStorage.getItem('dashboard-scroll-position')
+    if (savedPosition && containerWidth > 0 && allItems.length > 0) {
+      window.scrollTo(0, parseInt(savedPosition))
+    }
+  }, [containerWidth, allItems.length])
+
+  // 2. 保存滚动位置
+  useEffect(() => {
+    const handleScroll = () => {
+      requestAnimationFrame(() => {
+        sessionStorage.setItem('dashboard-scroll-position', window.scrollY.toString())
+      })
+    }
+
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  useEffect(() => {
+    if (inView && hasNextPage && !isFetchingNextPage && containerWidth > 0) {
+      fetchNextPage()
+    }
+  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage, containerWidth])
 
   if (status === 'error') {
     return <div className="p-8 text-center text-red-500">加载失败</div>
