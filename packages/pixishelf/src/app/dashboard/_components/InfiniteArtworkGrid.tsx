@@ -21,6 +21,7 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
   const columns = useColumns()
 
   const [containerWidth, setContainerWidth] = useState(0)
+  const [isReady, setIsReady] = useState(false)
 
   const [offsetTop, setOffsetTop] = useState(0)
 
@@ -100,8 +101,25 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
     }
 
     const savedPosition = sessionStorage.getItem('dashboard-scroll-position')
-    if (savedPosition && containerWidth > 0 && allItems.length > 0) {
-      window.scrollTo(0, parseInt(savedPosition))
+
+    // 如果没有保存的位置，直接标记为准备就绪
+    if (!savedPosition) {
+      setIsReady(true)
+      return
+    }
+
+    // 如果有保存位置，等待容器宽度和数据准备好
+    if (containerWidth > 0 && allItems.length > 0) {
+      // 尝试恢复位置
+      const targetScroll = parseInt(savedPosition)
+      window.scrollTo(0, targetScroll)
+
+      // 给一点缓冲时间让浏览器完成滚动和绘制，避免闪烁
+      // 虽然 requestAnimationFrame 理论上在下一帧，但为了保险起见，
+      // 这里的视觉效果是：空白 -> 瞬间出现正确位置
+      requestAnimationFrame(() => {
+        setIsReady(true)
+      })
     }
   }, [containerWidth, allItems.length])
 
@@ -132,7 +150,10 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
   }
 
   return (
-    <div ref={containerRef} className="space-y-8">
+    <div
+      ref={containerRef}
+      className={`space-y-8 transition-opacity duration-300 ${isReady ? 'opacity-100' : 'opacity-0'}`}
+    >
       <div ref={virtualListRef} className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const startIndex = virtualRow.index * columns

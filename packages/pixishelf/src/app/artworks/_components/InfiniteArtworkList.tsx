@@ -33,6 +33,7 @@ export default function InfiniteArtworkList({
   const columns = useColumns()
 
   const [containerWidth, setContainerWidth] = useState(0)
+  const [isReady, setIsReady] = useState(false)
   const [offsetTop, setOffsetTop] = useState(0)
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status, isLoading, isError } = useInfiniteQuery(
@@ -117,8 +118,20 @@ export default function InfiniteArtworkList({
     }
 
     const savedPosition = sessionStorage.getItem(storageKey)
+
+    // 如果没有保存的位置，直接标记为准备就绪
+    if (!savedPosition) {
+      setIsReady(true)
+      return
+    }
+
+    // 如果有保存位置，等待容器宽度和数据准备好
     if (savedPosition && containerWidth > 0 && allItems.length > 0) {
       window.scrollTo(0, parseInt(savedPosition))
+
+      requestAnimationFrame(() => {
+        setIsReady(true)
+      })
     }
   }, [containerWidth, allItems.length, storageKey])
 
@@ -170,7 +183,10 @@ export default function InfiniteArtworkList({
   }
 
   return (
-    <div ref={containerRef} className="space-y-8 min-h-[50vh]">
+    <div
+      ref={containerRef}
+      className={`space-y-8 min-h-[50vh] transition-opacity duration-300 ${isReady ? 'opacity-100' : 'opacity-0'}`}
+    >
       {isLoading && !data ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
           {Array.from({ length: 12 }).map((_, i) => (
