@@ -72,16 +72,22 @@ export function TagPagination(propos: TagPaginationProps) {
   }
 
   return (
-    <div className="bg-white rounded-lg border border-neutral-200 p-6">
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+    <div className="bg-white rounded-lg border border-neutral-200 p-4 md:p-6">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         {/* 显示信息 */}
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-neutral-600">
+        <div className="flex flex-col md:flex-row items-center gap-2 md:gap-4">
+          {/* Mobile Info */}
+          <div className="md:hidden text-sm text-neutral-600">
+            第 {currentPage} / {totalPages} 页 · 共 {totalItems} 条
+          </div>
+
+          {/* Desktop Info */}
+          <div className="hidden md:block text-sm text-neutral-600">
             显示 {startItem} - {endItem} 条，共 {totalItems} 条
           </div>
 
-          {/* 每页显示数量选择 */}
-          <div className="flex items-center gap-2">
+          {/* 每页显示数量选择 - Desktop only */}
+          <div className="hidden md:flex items-center gap-2">
             <span className="text-sm text-neutral-600">每页显示</span>
             <Select value={pageSize.toString()} onValueChange={(value) => onPageSizeChange(Number(value))}>
               <SelectTrigger className="w-20">
@@ -99,14 +105,14 @@ export function TagPagination(propos: TagPaginationProps) {
         </div>
 
         {/* 分页控件 */}
-        <div className="flex items-center gap-2">
-          {/* 首页 */}
+        <div className="flex items-center justify-between w-full md:w-auto gap-2">
+          {/* 首页 - Desktop only */}
           <Button
             variant="outline"
             size="sm"
             onClick={() => onPageChange(1)}
             disabled={currentPage === 1}
-            className="p-2"
+            className="p-2 hidden md:flex"
           >
             <ChevronsLeft className="w-4 h-4" />
           </Button>
@@ -117,13 +123,14 @@ export function TagPagination(propos: TagPaginationProps) {
             size="sm"
             onClick={() => onPageChange(currentPage - 1)}
             disabled={currentPage === 1}
-            className="p-2"
+            className="p-2 flex-1 md:flex-none"
           >
-            <ChevronLeft className="w-4 h-4" />
+            <ChevronLeft className="w-4 h-4 md:mr-0 mr-1" />
+            <span className="md:hidden">上一页</span>
           </Button>
 
-          {/* 页码 */}
-          <div className="flex items-center gap-1">
+          {/* 页码 - Desktop only */}
+          <div className="hidden md:flex items-center gap-1">
             {pageNumbers.map((page, index) => (
               <React.Fragment key={index}>
                 {page === '...' ? (
@@ -152,18 +159,19 @@ export function TagPagination(propos: TagPaginationProps) {
             size="sm"
             onClick={() => onPageChange(currentPage + 1)}
             disabled={currentPage === totalPages}
-            className="p-2"
+            className="p-2 flex-1 md:flex-none"
           >
-            <ChevronRight className="w-4 h-4" />
+            <span className="md:hidden">下一页</span>
+            <ChevronRight className="w-4 h-4 md:ml-0 ml-1" />
           </Button>
 
-          {/* 末页 */}
+          {/* 末页 - Desktop only */}
           <Button
             variant="outline"
             size="sm"
             onClick={() => onPageChange(totalPages)}
             disabled={currentPage === totalPages}
-            className="p-2"
+            className="p-2 hidden md:flex"
           >
             <ChevronsRight className="w-4 h-4" />
           </Button>

@@ -54,15 +54,15 @@ export function TagStatsCards({ stats, isLoading = false }: TagStatsCardsProps) 
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-4 md:mb-6">
         {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="bg-white rounded-lg border border-neutral-200 p-6">
+          <div key={index} className="bg-white rounded-lg border border-neutral-200 p-4 md:p-6">
             <div className="animate-pulse">
-              <div className="flex items-center mb-4">
-                <div className="w-8 h-8 bg-neutral-200 rounded-lg"></div>
-                <div className="ml-3 h-4 bg-neutral-200 rounded w-16"></div>
+              <div className="flex items-center mb-2 md:mb-4">
+                <div className="w-6 h-6 md:w-8 md:h-8 bg-neutral-200 rounded-lg"></div>
+                <div className="ml-2 md:ml-3 h-3 md:h-4 bg-neutral-200 rounded w-12 md:w-16"></div>
               </div>
-              <div className="h-8 bg-neutral-200 rounded w-12"></div>
+              <div className="h-6 md:h-8 bg-neutral-200 rounded w-10 md:w-12"></div>
             </div>
           </div>
         ))}
@@ -71,21 +71,21 @@ export function TagStatsCards({ stats, isLoading = false }: TagStatsCardsProps) 
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-4 md:mb-6">
       {statsCards.map((card, index) => {
         const IconComponent = card.icon
         return (
           <div
             key={index}
-            className={`bg-white rounded-lg border ${card.borderColor} p-6 transition-all duration-200 hover:shadow-md`}
+            className={`bg-white rounded-lg border ${card.borderColor} p-4 md:p-6 transition-all duration-200 hover:shadow-md`}
           >
-            <div className="flex items-center mb-4">
-              <div className={`p-2 rounded-lg ${card.bgColor}`}>
-                <IconComponent className={`w-6 h-6 ${card.color}`} />
+            <div className="flex items-center mb-2 md:mb-4">
+              <div className={`p-1.5 md:p-2 rounded-lg ${card.bgColor}`}>
+                <IconComponent className={`w-4 h-4 md:w-6 md:h-6 ${card.color}`} />
               </div>
-              <h3 className="ml-3 text-sm font-medium text-neutral-600">{card.title}</h3>
+              <h3 className="ml-2 md:ml-3 text-xs md:text-sm font-medium text-neutral-600">{card.title}</h3>
             </div>
-            <div className="text-2xl font-bold text-neutral-900">{card.value}</div>
+            <div className="text-lg md:text-2xl font-bold text-neutral-900">{card.value}</div>
           </div>
         )
       })}

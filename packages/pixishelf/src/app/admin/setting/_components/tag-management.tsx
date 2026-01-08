@@ -97,14 +97,14 @@ function TagManagement() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       {/* 页面标题 */}
       <div className="border-b border-neutral-200 pb-4">
-        <h1 className="text-2xl font-bold text-neutral-900 flex items-center gap-2">
-          <BarChart3 className="w-6 h-6" />
+        <h1 className="text-xl md:text-2xl font-bold text-neutral-900 flex items-center gap-2">
+          <BarChart3 className="w-5 h-5 md:w-6 md:h-6" />
           标签管理
         </h1>
-        <p className="text-neutral-600 mt-1">管理标签翻译，支持搜索、筛选和批量操作</p>
+        <p className="text-sm md:text-base text-neutral-600 mt-1">管理标签翻译，支持搜索、筛选和批量操作</p>
       </div>
 
       {/* 标签统计更新卡片 */}

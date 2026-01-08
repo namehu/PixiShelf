@@ -55,28 +55,32 @@ export function TagStatsUpdateCard({ onUpdateStats }: TagStatsUpdateCardProps) {
   }
 
   return (
-    <div className="bg-white rounded-lg border border-neutral-200 p-6">
-      <div className="flex items-center mb-4">
+    <div className="bg-white rounded-lg border border-neutral-200 p-4 md:p-6">
+      <div className="flex flex-col md:flex-row md:items-center gap-4 mb-4">
         <h2 className="text-lg font-semibold text-neutral-900 flex items-center gap-2">
           <RefreshCw className="w-5 h-5" />
           标签统计更新
         </h2>
-        <div className="flex-1"></div>
-        {lastStatsUpdate && (
-          <div className="flex items-center gap-2 text-sm text-neutral-500">
-            <Clock className="w-4 h-4" />
-            最后更新：{lastStatsUpdate}
-          </div>
-        )}
-        {/* 更新按钮 */}
-        <Button
-          onClick={handleUpdateStats}
-          disabled={isUpdatingStats}
-          className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ml-4"
-        >
-          <RefreshCw className={`w-4 h-4 ${isUpdatingStats ? 'animate-spin' : ''}`} />
-          {isUpdatingStats ? '正在更新...' : '手动更新统计'}
-        </Button>
+        <div className="flex-1 hidden md:block"></div>
+        
+        <div className="flex flex-col md:flex-row gap-3 md:items-center">
+          {lastStatsUpdate && (
+            <div className="flex items-center gap-2 text-sm text-neutral-500">
+              <Clock className="w-4 h-4" />
+              <span className="md:hidden">最后更新：</span>
+              {lastStatsUpdate}
+            </div>
+          )}
+          {/* 更新按钮 */}
+          <Button
+            onClick={handleUpdateStats}
+            disabled={isUpdatingStats}
+            className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`w-4 h-4 ${isUpdatingStats ? 'animate-spin' : ''}`} />
+            {isUpdatingStats ? '正在更新...' : '手动更新统计'}
+          </Button>
+        </div>
       </div>
 
       {/* 更新状态显示 */}
