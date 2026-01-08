@@ -6,7 +6,6 @@
     "no-void": "error",
     "radix": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
-    "no-restricted-globals": ["error", "isFinite", "isNaN"],
     "no-console": "error",
     "no-return-assign": "error",
     "no-debugger": "off",
