@@ -12,7 +12,6 @@ interface TagTableProps {
   selectedTags: Set<number>
   onTagSelect: (tagId: number) => void
   onTagUpdate: (tagId: number, updates: { name?: string; name_zh?: string }) => void
-  onTagTranslate: (tagId: number) => void
   loading?: boolean
   translatingTags: Set<number>
 }
@@ -30,7 +29,6 @@ export function TagTable({
   selectedTags,
   onTagSelect,
   onTagUpdate,
-  onTagTranslate,
   loading = false,
   translatingTags
 }: TagTableProps) {
@@ -64,11 +62,11 @@ export function TagTable({
           <div className="animate-pulse space-y-4">
             {Array.from({ length: 5 }).map((_, index) => (
               <div key={index} className="flex items-center space-x-4">
-                <div className="w-4 h-4 bg-neutral-200 rounded"></div>
-                <div className="flex-1 h-4 bg-neutral-200 rounded"></div>
-                <div className="w-20 h-4 bg-neutral-200 rounded"></div>
-                <div className="w-16 h-4 bg-neutral-200 rounded"></div>
-                <div className="w-24 h-4 bg-neutral-200 rounded"></div>
+                <div className="w-4 h-4 bg-neutral-200 rounded" />
+                <div className="flex-1 h-4 bg-neutral-200 rounded" />
+                <div className="w-20 h-4 bg-neutral-200 rounded" />
+                <div className="w-16 h-4 bg-neutral-200 rounded" />
+                <div className="w-24 h-4 bg-neutral-200 rounded" />
               </div>
             ))}
           </div>
@@ -199,7 +197,6 @@ export function TagTable({
                           {!tName && (
                             <Button
                               size="sm"
-                              onClick={() => onTagTranslate(tag.id)}
                               disabled={translatingTags.has(tag.id)}
                               className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
                             >

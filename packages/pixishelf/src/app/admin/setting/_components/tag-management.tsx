@@ -129,76 +129,8 @@ function TagManagement() {
 
   // 更新标签
   const handleTagUpdate = async (tagId: number, updates: { name?: string; name_zh?: string }) => {
-    try {
-      const response = await fetch(`/api/tags/${tagId}/translation`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(updates)
-      })
-
-      if (!response.ok) {
-        throw new Error(`保存失败: ${response.statusText}`)
-      }
-
-      const result = await response.json()
-
-      if (result.success) {
-        // 更新本地状态
-        setTags((prevTags) => prevTags.map((tag) => (tag.id === tagId ? { ...tag, ...updates } : tag)))
-
-        // 重新获取统计信息
-        await fetchTags()
-        toast.success('标签更新成功')
-      } else {
-        throw new Error(result.message || '保存失败')
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '保存标签失败'
-      toast.error(errorMessage)
-    }
-  }
-
-  // 自动翻译单个标签
-  const handleAutoTranslate = async (tagId: number) => {
-    try {
-      setTranslatingTags((prev) => new Set([...prev, tagId]))
-
-      const response = await fetch(`/api/tags/${tagId}/auto-translate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      })
-      console.log(response, '1112')
-
-      if (!response.ok) {
-        throw new Error(`翻译失败: ${response.statusText}`)
-      }
-
-      const result = await response.json()
-
-      if (result.success && result.translation) {
-        // 更新本地状态
-        setTags((prevTags) => prevTags.map((t) => (t.id === tagId ? { ...t, name_zh: result.translation } : t)))
-
-        // 重新获取统计信息
-        await fetchTags()
-        toast.success('标签翻译成功')
-      } else {
-        throw new Error(result.message || '翻译失败')
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '自动翻译失败'
-      toast.error(errorMessage)
-    } finally {
-      setTranslatingTags((prev) => {
-        const newSet = new Set(prev)
-        newSet.delete(tagId)
-        return newSet
-      })
-    }
+    // TODO:
+    toast.success('敬请期待')
   }
 
   return (
@@ -238,7 +170,6 @@ function TagManagement() {
         translatingTags={translatingTags}
         onTagSelect={handleTagSelect}
         onTagUpdate={handleTagUpdate}
-        onTagTranslate={handleAutoTranslate}
       />
 
       {/* 分页 */}
