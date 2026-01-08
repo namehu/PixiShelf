@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import logger from '@/lib/logger'
+import { ROUTES } from '@/lib/constants'
 
 export const dynamic = 'force-dynamic'
 
@@ -130,7 +131,7 @@ export default async function StatsDashboardPage() {
             icon={WallpaperIcon}
             trend="库内资源"
             theme="blue"
-            href="/gallery"
+            href={ROUTES.ARTWORKS}
           />
           <StatCard
             title="入驻艺术家"

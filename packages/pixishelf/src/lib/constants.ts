@@ -10,7 +10,6 @@ export const ROUTES = {
   HOME: '/',
   LOGIN: '/login',
   DASHBOARD: '/dashboard',
-  GALLERY: '/gallery',
   ARTWORKS: '/artworks',
   ARTISTS: '/artists',
   ADMINSETTING: '/admin/setting',

@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic'
 /**
  * 仪表板页面组件
  */
-export default async function DashboardPage() {
+export default async function DashboardPage(_: PageProps<'/dashboard'>) {
   // 并行获取所有数据
   const [recommendedArtworks, recentArtworks, recentArtists] = await Promise.all([
     getRecommendedArtworks({ pageSize: 12 }), // 获取推荐作品数据
@@ -26,7 +26,7 @@ export default async function DashboardPage() {
     <div className="min-h-screen bg-gray-50">
       <PNav>
         <div className="flex gap-4">
-          <Link href={ROUTES.GALLERY} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
+          <Link href={ROUTES.ARTWORKS} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
             <ImageIcon className="h-5 w-5" />
             <span className="hidden sm:inline">作品</span>
           </Link>
@@ -51,7 +51,7 @@ export default async function DashboardPage() {
               <h3 className="text-2xl font-bold text-gray-900 mb-2">最新作品</h3>
               <p className="text-gray-600">发现最新上传的精彩作品</p>
             </div>
-            <Link href={ROUTES.GALLERY}>
+            <Link href={ROUTES.ARTWORKS}>
               <Button variant="ghost" className="text-blue-600 hover:text-blue-700">
                 查看全部 →
               </Button>

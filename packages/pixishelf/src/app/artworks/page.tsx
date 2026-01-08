@@ -69,7 +69,7 @@ function GalleryPageContent() {
     } else {
       newParams.set(key, value)
     }
-    router.push(`/gallery?${newParams.toString()}`)
+    router.push(`/artworks?${newParams.toString()}`)
   }
 
   const handleSearch = (query: string) => updateParams('search', query.trim() || null)
@@ -93,11 +93,11 @@ function GalleryPageContent() {
       newParams.delete('sortBy')
     }
 
-    router.push(`/gallery?${newParams.toString()}`)
+    router.push(`/artworks?${newParams.toString()}`)
   }
 
   const clearAllFilters = () => {
-    router.push('/gallery')
+    router.push('/artworks')
   }
 
   return (
@@ -144,12 +144,12 @@ function GalleryPageContent() {
         {/* 3. 作品网格 (Pixiv 风格) */}
         <div className="px-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
           {accumulatedArtworks.map((artwork) => (
-            <ArtworkCard key={`${artwork.id}-${artwork.updatedAt}`} artwork={artwork} />
+            <ArtworkCard key={`${artwork.id}-${artwork.updatedAt}`} artwork={artwork as any} />
           ))}
 
           {/* Loading Skeletons */}
           {(isLoading || isFetchingNextPage) &&
-            Array.from({ length: pageSize / 2 }).map((_, i) => (
+            Array.from({ length: 12 }).map((_, i) => (
               <div key={`skeleton-${i}`} className="space-y-2">
                 <Skeleton className="aspect-[3/4] w-full rounded-xl bg-gray-200" />
                 <div className="space-y-1">
