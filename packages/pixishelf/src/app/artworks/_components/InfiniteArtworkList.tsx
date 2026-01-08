@@ -106,11 +106,41 @@ export default function InfiniteArtworkList({
     rootMargin: '200px'
   })
 
+  // 生成唯一的存储 key，基于当前的筛选条件
+  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}`
+
+  // 1. 处理滚动恢复
+  useLayoutEffect(() => {
+    // 禁用浏览器的默认滚动恢复，改由我们手动控制
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual'
+    }
+
+    const savedPosition = sessionStorage.getItem(storageKey)
+    if (savedPosition && containerWidth > 0 && allItems.length > 0) {
+      window.scrollTo(0, parseInt(savedPosition))
+    }
+  }, [containerWidth, allItems.length, storageKey])
+
+  // 2. 保存滚动位置
   useEffect(() => {
-    if (inView && hasNextPage && !isFetchingNextPage && !isLoading) {
+    const handleScroll = () => {
+      // 使用 requestAnimationFrame 节流
+      requestAnimationFrame(() => {
+        sessionStorage.setItem(storageKey, window.scrollY.toString())
+      })
+    }
+
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [storageKey])
+
+  useEffect(() => {
+    // 增加 containerWidth > 0 的判断，防止初始渲染时触发
+    if (inView && hasNextPage && !isFetchingNextPage && !isLoading && containerWidth > 0) {
       fetchNextPage()
     }
-  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage, isLoading])
+  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage, isLoading, containerWidth])
 
   // 错误状态
   if (isError) {
