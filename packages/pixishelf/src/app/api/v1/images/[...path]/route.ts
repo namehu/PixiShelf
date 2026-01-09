@@ -3,6 +3,7 @@ import { promises as fs } from 'fs'
 import * as path from 'path'
 import logger from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
+import { getMediaMimeType } from '@/utils/media'
 
 /**
  * 图片/媒体文件服务接口
@@ -64,37 +65,7 @@ export async function GET(
     const fileBuffer = await fs.readFile(resolvedFilePath)
 
     // 获取文件扩展名并设置MIME类型
-    const ext = path.extname(resolvedFilePath).toLowerCase()
-    let contentType = 'application/octet-stream'
-
-    // 图片类型
-    const imageTypes: Record<string, string> = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif',
-      '.webp': 'image/webp',
-      '.bmp': 'image/bmp',
-      '.svg': 'image/svg+xml'
-    }
-
-    // 视频类型
-    const videoTypes: Record<string, string> = {
-      '.mp4': 'video/mp4',
-      '.webm': 'video/webm',
-      '.ogg': 'video/ogg',
-      '.avi': 'video/x-msvideo',
-      '.mov': 'video/quicktime',
-      '.wmv': 'video/x-ms-wmv',
-      '.flv': 'video/x-flv',
-      '.mkv': 'video/x-matroska'
-    }
-
-    if (imageTypes[ext]) {
-      contentType = imageTypes[ext]
-    } else if (videoTypes[ext]) {
-      contentType = videoTypes[ext]
-    }
+    const contentType = getMediaMimeType(resolvedFilePath) || 'application/octet-stream'
 
     // 设置缓存头
     const headers = new Headers()
@@ -104,7 +75,7 @@ export async function GET(
 
     // 支持范围请求（用于视频流）
     const range = request.headers.get('range')
-    if (range && videoTypes[ext]) {
+    if (range && contentType.startsWith('video/')) {
       const parts = range.replace(/bytes=/, '').split('-')
       const start = parseInt(parts[0] || '0', 10)
       const end = parts[1] ? parseInt(parts[1], 10) : fileBuffer.length - 1

@@ -94,41 +94,6 @@ export function isSupportedMediaFile(filename: string): boolean {
 }
 
 /**
- * 获取媒体文件的MIME类型
- * @param filename 文件名或文件路径
- * @returns MIME类型，如果不支持则返回null
- */
-export function getMediaMimeType(filename: string): string | null {
-  const ext = getFileExtension(filename)
-
-  // 图片MIME类型映射
-  const imageMimeTypes: Record<string, string> = {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.gif': 'image/gif',
-    '.bmp': 'image/bmp',
-    '.webp': 'image/webp',
-    '.svg': 'image/svg+xml',
-    '.tiff': 'image/tiff',
-    '.tif': 'image/tiff'
-  }
-
-  // 视频MIME类型映射
-  const videoMimeTypes: Record<string, string> = {
-    '.mp4': 'video/mp4',
-    '.avi': 'video/x-msvideo',
-    '.mov': 'video/quicktime',
-    '.wmv': 'video/x-ms-wmv',
-    '.flv': 'video/x-flv',
-    '.webm': 'video/webm',
-    '.mkv': 'video/x-matroska'
-  }
-
-  return imageMimeTypes[ext] || videoMimeTypes[ext] || null
-}
-
-/**
  * 类型守卫：检查是否为视频元数据
  * @param metadata 元数据对象
  * @returns 是否为视频元数据
