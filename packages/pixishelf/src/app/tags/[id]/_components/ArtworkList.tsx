@@ -9,19 +9,15 @@ import { useTRPC } from '@/lib/trpc'
 import { useInfiniteQuery } from '@tanstack/react-query'
 
 interface ArtworkListProps {
-  tagId: string
+  tagId: number
 }
 
 export function ArtworkList({ tagId }: ArtworkListProps) {
   const trpc = useTRPC()
-  const pageSize = 20
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, refetch } = useInfiniteQuery(
     trpc.artwork.list.infiniteQueryOptions(
-      {
-        tagId: +tagId,
-        pageSize
-      },
+      { tagId },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
         initialCursor: 1
@@ -52,9 +48,7 @@ export function ArtworkList({ tagId }: ArtworkListProps) {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
           作品列表
-          <span className="text-sm font-normal text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-            {total ? `${total}+` : '0'}
-          </span>
+          <span className="text-sm font-normal text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{total}</span>
         </h2>
       </div>
 

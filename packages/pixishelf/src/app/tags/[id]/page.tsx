@@ -1,10 +1,10 @@
 import { notFound } from 'next/navigation'
-import { TagIcon, WallpaperIcon, ArrowLeft } from 'lucide-react'
+import { TagIcon, WallpaperIcon } from 'lucide-react'
 import { getById } from '@/services/tag-service'
 import { getTranslateName } from '@/utils/tags'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { ArtworkList } from './_components/ArtworkList'
-import Link from 'next/link'
+import { NavBack } from './_components/NavBack'
 
 /**
  * 标签详情页面 (Server Component)
@@ -29,9 +29,7 @@ export default async function TagDetailPage({ params }: PageProps<'/tags/[id]'>)
       <header className="sticky top-0 z-50 backdrop-blur-xl border-b border-slate-200/50 bg-white/80 px-4 h-16">
         <div className="max-w-screen-xl h-full mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Link href="/tags" className="p-2 -ml-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
+            <NavBack />
 
             <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-500">
               <span className="font-bold text-lg tracking-tight text-slate-800 line-clamp-1">{tag.name}</span>
@@ -72,8 +70,8 @@ export default async function TagDetailPage({ params }: PageProps<'/tags/[id]'>)
           </div>
         </div>
 
-        {/* 作品列表 (Client Component) */}
-        <ArtworkList tagId={id} />
+        {/* 作品列表 */}
+        <ArtworkList tagId={tagId} />
       </main>
     </div>
   )
