@@ -127,7 +127,7 @@ export default function InfiniteArtworkList({
 
     // 如果有保存位置，等待容器宽度和数据准备好
     if (savedPosition && containerWidth > 0 && allItems.length > 0) {
-      window.scrollTo(0, parseInt(savedPosition))
+      window.scrollTo(0, +savedPosition)
 
       requestAnimationFrame(() => {
         setIsReady(true)

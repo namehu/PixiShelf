@@ -1,25 +1,32 @@
 'use client'
 
-import React, { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState, useLayoutEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { SortOption } from '@/types'
 import { SortControl } from '@/components/ui/SortControl'
-import ClientImage from '@/components/client-image'
 import HeadInfo from './HeadInfo'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
 import { useTRPC } from '@/lib/trpc'
 import { useInView } from 'react-intersection-observer'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Filter } from 'lucide-react'
+import { useWindowVirtualizer } from '@tanstack/react-virtual'
+import { useColumns } from '@/hooks/use-columns'
+import ArtworkCard from '@/components/artwork/ArtworkCard'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 
-/**
- * 艺术家详情页面
- */
 export default function ArtistDetailPage({ artist, id }: { artist: ArtistResponseDto; id: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const trpc = useTRPC()
+  const containerRef = useRef<HTMLDivElement>(null)
+  const virtualListRef = useRef<HTMLDivElement>(null)
+  const columns = useColumns()
+
+  const [containerWidth, setContainerWidth] = useState(0)
+  const [isReady, setIsReady] = useState(false)
+  const [offsetTop, setOffsetTop] = useState(0)
 
   const pageSize = 24
   const sortBy = (searchParams.get('sortBy') as SortOption) || 'source_date_desc'
@@ -34,7 +41,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
   } = useInfiniteQuery(
     trpc.artwork.list.infiniteQueryOptions(
       {
-        artistId: parseInt(id),
+        artistId: id,
         pageSize,
         sortBy
       },
@@ -45,20 +52,114 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
     )
   )
 
-  const { ref: loadMoreRef, inView } = useInView()
-
-  useEffect(() => {
-    if (inView && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage()
-    }
-  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage])
+  const { ref: loadMoreRef, inView } = useInView({
+    rootMargin: '200px'
+  })
 
   // Flatten data
-  const artworks = useMemo(() => {
+  const allItems = useMemo(() => {
     return data?.pages.flatMap((page) => page.items) || []
   }, [data])
 
   const total = data?.pages[0]?.total || 0
+  const rowCount = Math.ceil(allItems.length / columns)
+
+  // 监听容器宽度
+  useLayoutEffect(() => {
+    if (!containerRef.current) return
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width)
+      }
+    })
+
+    resizeObserver.observe(containerRef.current)
+
+    return () => {
+      resizeObserver.disconnect()
+    }
+  }, [])
+
+  // 计算偏移量
+  useLayoutEffect(() => {
+    if (virtualListRef.current) {
+      const rect = virtualListRef.current.getBoundingClientRect()
+      const scrollTop = window.scrollY || document.documentElement.scrollTop
+      setOffsetTop(rect.top + scrollTop)
+    }
+  }, [])
+
+  const estimateSize = useCallback(() => {
+    const effectiveWidth = containerWidth
+    const safeColumns = columns > 0 ? columns : 1
+    // gap-3 = 12px (InfiniteArtworkList uses gap-3, but original Detail used gap-6 = 24px)
+    // We should probably stick to gap-3 to match InfiniteArtworkList as requested, or adjust.
+    // InfiniteArtworkList: gap-3
+    // Detail (original): gap-6
+    // User asked to "adopt layout same as artwork list", so I will use gap-3 (12px).
+    const gapTotal = (safeColumns - 1) * 12
+    const cardWidth = (effectiveWidth - gapTotal) / safeColumns
+    // 假设卡片宽高比约为 3:4 (0.75)，加上底部信息高度约 60px
+    return cardWidth * 1.33 + 60
+  }, [containerWidth, columns])
+
+  const rowVirtualizer = useWindowVirtualizer({
+    useFlushSync: false,
+    count: rowCount,
+    estimateSize,
+    scrollMargin: offsetTop,
+    overscan: 5,
+    enabled: !!containerWidth
+  })
+
+  // 生成唯一的存储 key，基于当前的筛选条件
+  const storageKey = `artist-detail-scroll-${id}-${sortBy}`
+
+  // 1. 处理滚动恢复
+  useLayoutEffect(() => {
+    // 禁用浏览器的默认滚动恢复，改由我们手动控制
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual'
+    }
+
+    const savedPosition = sessionStorage.getItem(storageKey)
+
+    // 如果没有保存的位置，直接标记为准备就绪
+    if (!savedPosition) {
+      setIsReady(true)
+      return
+    }
+
+    // 如果有保存位置，等待容器宽度和数据准备好
+    if (savedPosition && containerWidth > 0 && allItems.length > 0) {
+      window.scrollTo(0, parseInt(savedPosition, 10))
+
+      requestAnimationFrame(() => {
+        setIsReady(true)
+      })
+    }
+  }, [containerWidth, allItems.length, storageKey])
+
+  // 2. 保存滚动位置
+  useEffect(() => {
+    const handleScroll = () => {
+      // 使用 requestAnimationFrame 节流
+      requestAnimationFrame(() => {
+        sessionStorage.setItem(storageKey, window.scrollY.toString())
+      })
+    }
+
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [storageKey])
+
+  // 加载更多
+  useEffect(() => {
+    if (inView && hasNextPage && !isFetchingNextPage && !artworksLoading && containerWidth > 0) {
+      fetchNextPage()
+    }
+  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage, artworksLoading, containerWidth])
 
   // 处理排序变化
   const handleSortChange = (newSortBy: SortOption) => {
@@ -82,134 +183,91 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">作品集</h2>
-            <p className="text-gray-600 mt-1">{artworksLoading ? '加载中...' : `共 ${total} 件作品`}</p>
+            <p className="text-gray-600 mt-1">{artworksLoading && !data ? '加载中...' : `共 ${total} 件作品`}</p>
           </div>
 
           <SortControl value={sortBy} onChange={handleSortChange} size="md" />
         </div>
 
-        {/* 作品网格 */}
-        {artworksLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="bg-white rounded-lg shadow overflow-hidden animate-pulse">
-                <div className="aspect-[3/4] bg-gray-200" />
-                <div className="p-4 space-y-2">
-                  <div className="h-4 bg-gray-200 rounded" />
-                  <div className="h-3 bg-gray-200 rounded w-2/3" />
-                </div>
-              </div>
-            ))}
+        {/* 错误状态 */}
+        {artworksError && (
+          <div className="flex flex-col items-center justify-center py-20 text-red-500">
+            <p className="mb-2">加载失败</p>
+            <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+              重新加载
+            </Button>
           </div>
-        ) : artworksError ? (
-          <div className="text-center py-12">
-            <p className="text-gray-600">加载作品时出错，请稍后重试。</p>
-          </div>
-        ) : artworks.length === 0 ? (
-          <div className="text-center py-12">
-            <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z"
-              />
-            </svg>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">暂无作品</h3>
-            <p className="text-gray-600">该艺术家还没有上传任何作品</p>
-          </div>
-        ) : (
-          <>
-            {/* 作品网格 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {artworks.map((aw) => {
-                const { id, title, images } = aw
-                const cover = images?.[0]
-                const src = cover ? cover.path : null
-                const imageCount = images?.filter((img) => img.mediaType === 'image').length || 0
-                const videoFiles = images?.filter((img) => img.mediaType === 'video') || []
-                const totalMediaSize = videoFiles.reduce((sum, file) => sum + (file.size || 0), 0)
-
-                return (
-                  <Link key={id} href={`/artworks/${id}`} className="block animate-fade-in">
-                    <div className="bg-white rounded-lg shadow overflow-hidden hover:shadow-lg transition-shadow">
-                      {/* 媒体预览 */}
-                      <div className="relative aspect-[3/4] w-full overflow-hidden bg-gray-100">
-                        {src ? (
-                          <ClientImage src={src} alt={title} className="h-full w-full object-cover" loading="lazy" />
-                        ) : (
-                          <div className="h-full w-full bg-gray-200 flex items-center justify-center">
-                            <svg
-                              className="w-8 h-8 text-gray-400"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                              />
-                            </svg>
-                          </div>
-                        )}
-
-                        {/* 媒体数量标识 */}
-                        <div className="absolute top-3 right-3 flex flex-col gap-1">
-                          {imageCount > 1 && (
-                            <div className="bg-black/70 backdrop-blur-sm text-white px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1">
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                                />
-                              </svg>
-                              {imageCount}
-                            </div>
-                          )}
-                          {totalMediaSize > 0 && (
-                            <div className="bg-red-600/80 backdrop-blur-sm text-white px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1">
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                />
-                              </svg>
-                              {(totalMediaSize / (1024 * 1024)).toFixed(1)}MB
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* 内容 */}
-                      <div className="p-4 space-y-2">
-                        <h3 className="font-medium text-gray-900 truncate" title={title}>
-                          {title}
-                        </h3>
-                      </div>
-                    </div>
-                  </Link>
-                )
-              })}
-            </div>
-
-            {/* 加载更多 */}
-            <div ref={loadMoreRef} className="flex justify-center py-8">
-              {isFetchingNextPage ? (
-                <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-              ) : hasNextPage ? (
-                 <span className="text-gray-400 text-sm">向下滚动加载更多</span>
-              ) : (
-                <span className="text-gray-400 text-sm">没有更多作品了</span>
-              )}
-            </div>
-          </>
         )}
+
+        {/* 空状态 */}
+        {!artworksLoading && allItems.length === 0 && !artworksError && (
+          <div className="flex flex-col items-center justify-center py-32 text-neutral-400">
+            <Filter className="w-12 h-12 mb-4 opacity-20" />
+            <p className="text-lg font-medium">该艺术家还没有上传任何作品</p>
+          </div>
+        )}
+
+        <div
+          ref={containerRef}
+          className={`space-y-8 min-h-[50vh] transition-opacity duration-300 ${isReady ? 'opacity-100' : 'opacity-0'}`}
+        >
+          {artworksLoading && !data ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div key={`skeleton-${i}`} className="space-y-2">
+                  <Skeleton className="aspect-[3/4] w-full rounded-xl bg-gray-200" />
+                  <div className="space-y-1">
+                    <Skeleton className="h-4 w-3/4 bg-gray-200" />
+                    <Skeleton className="h-3 w-1/2 bg-gray-200" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div
+                ref={virtualListRef}
+                className="relative w-full"
+                style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+              >
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const startIndex = virtualRow.index * columns
+                  const rowItems = allItems.slice(startIndex, startIndex + columns)
+
+                  return (
+                    <div
+                      key={virtualRow.key}
+                      data-index={virtualRow.index}
+                      className="absolute top-0 left-0 w-full grid gap-3"
+                      style={{
+                        height: `${virtualRow.size}px`,
+                        transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
+                        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`
+                      }}
+                    >
+                      {rowItems.map((artwork, index) => (
+                        <ArtworkCard
+                          key={`${artwork.id}-${startIndex + index}`}
+                          artwork={artwork as any}
+                          priority={index < 10}
+                        />
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div ref={loadMoreRef} className="flex justify-center py-8">
+                {isFetchingNextPage && <Loader2 className="h-6 w-6 animate-spin text-gray-400" />}
+                {!hasNextPage && allItems.length > 0 && (
+                  <div className="text-center text-xs text-neutral-400 uppercase tracking-widest">
+                    — End of Collection —
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
