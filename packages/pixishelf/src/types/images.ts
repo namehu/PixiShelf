@@ -1,4 +1,4 @@
-import { Tag } from './core'
+import type { TRandomTagDto } from '@/schemas/tag.dto'
 import { MediaType } from './media'
 
 export interface RandomImagesResponse {
@@ -32,7 +32,7 @@ export interface RandomImageItem {
     avatar?: string
   } | null
   createdAt: string
-  tags: Pick<Tag, 'id' | 'name' | 'name_zh'>[]
+  tags: TRandomTagDto[]
   /** 当前用户是否点赞了该作品 */
   isLike: boolean
 }

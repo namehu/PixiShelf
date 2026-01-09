@@ -15,6 +15,7 @@ import logger from '@/lib/logger'
 import { EMediaType } from '@/enums/EMediaType'
 import { shuffleArray, transformImages, transformSingleArtwork } from './utils'
 import { fetchRandomIds } from './dao'
+import { RandomTagDto } from '@/schemas/tag.dto'
 
 /**
  * 获取作品列表 (重构版)
@@ -407,7 +408,7 @@ export async function getRandomArtworks(
           }
         : null,
       createdAt: transformed.createdAt, // string
-      tags: transformed.tags, // 现在是对象数组了
+      tags: raw.artworkTags.map((tg) => RandomTagDto.parse(tg.tag)), // 现在是对象数组了
       isLike
     }
   })
