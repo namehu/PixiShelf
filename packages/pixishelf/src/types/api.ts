@@ -70,16 +70,6 @@ export type MediaTypeFilter =
   | 'video' // 仅视频
 
 /**
- * 作品列表查询参数
- */
-export interface ArtworksQuery extends PaginationQuery {
-  tags?: string // 逗号分隔的标签列表
-  search?: string // 模糊搜索关键词（搜索作品标题、描述、艺术家名称）
-  sortBy?: SortOption // 排序选项
-  mediaType?: MediaTypeFilter // 媒体类型筛选
-}
-
-/**
  * 艺术家列表查询参数
  */
 export interface ArtistsQuery extends PaginationQuery {
@@ -102,13 +92,6 @@ export interface SearchSuggestion {
 }
 
 /**
- * 搜索建议响应
- */
-export interface SuggestionsResponse {
-  suggestions: SearchSuggestion[]
-}
-
-/**
  * 增强的作品响应（包含媒体类型信息）
  */
 export interface EnhancedArtwork extends Omit<Artwork, 'images'> {
@@ -120,32 +103,3 @@ export interface EnhancedArtwork extends Omit<Artwork, 'images'> {
  * 增强的作品列表响应
  */
 export type EnhancedArtworksResponse = UnSafe_PaginatedResponse<EnhancedArtwork>
-
-/**
- * 通用API响应
- */
-export interface ApiResponse<T = any> {
-  /** 响应状态码 */
-  code: number
-  /** 响应数据 */
-  data?: T
-  /** 错误信息 */
-  error?: string
-  /**
-   * @deprecated 废弃
-   */
-  success: boolean
-  /**
-   * @deprecated 废弃
-   */
-  message?: string
-}
-
-// 定义后端返回的标准结构
-export interface ApiResponse<T = any> {
-  success: boolean
-  data?: T // 成功时的负载
-  errorCode?: number // 失败时的错误码
-  error?: string // 失败时的错误消息
-  details?: any // 校验详情
-}
