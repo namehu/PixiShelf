@@ -1,11 +1,14 @@
-export enum EMediaType {
+export const EMediaType = {
   /** 所有 */
-  all = 'all',
+  all: 'all',
   /** 图片 */
-  image = 'image',
+  image: 'image',
   /** 视频 */
-  video = 'video'
-}
+  video: 'video'
+} as const
+
+export type EMediaType = (typeof EMediaType)[keyof typeof EMediaType]
+
 export const MMediaType = {
   [EMediaType.all]: '所有',
   [EMediaType.image]: '图片',
