@@ -1,10 +1,9 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Hash } from 'lucide-react'
 import { useInView } from 'react-intersection-observer'
-import { Artwork } from '@/types/core'
-import { ArtworkCard } from '@/components/ui/ArtworkCard'
+import ArtworkCard from '@/components/artwork/ArtworkCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTRPC } from '@/lib/trpc'
 import { useInfiniteQuery } from '@tanstack/react-query'
@@ -20,7 +19,7 @@ export function ArtworkList({ tagId }: ArtworkListProps) {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, refetch } = useInfiniteQuery(
     trpc.artwork.list.infiniteQueryOptions(
       {
-        tagId: parseInt(tagId),
+        tagId: +tagId,
         pageSize
       },
       {
@@ -70,8 +69,8 @@ export function ArtworkList({ tagId }: ArtworkListProps) {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
-            {artworks.map((artwork) => (
-              <ArtworkCard key={`${artwork.id}-${artwork.updatedAt}`} artwork={artwork} showArtist={true} />
+            {artworks.map((artwork: any, index) => (
+              <ArtworkCard key={`${artwork.id}-${artwork.updatedAt}`} artwork={artwork} priority={index < 4} />
             ))}
 
             {/* Loading Skeletons */}

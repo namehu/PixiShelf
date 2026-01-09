@@ -3,23 +3,25 @@ import { ImageIcon, VideoIcon } from 'lucide-react'
 import Image from 'next/image'
 import { formatFileSize } from '@/utils/media'
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
+import { cn } from '@/lib/utils'
 
 interface ArtworkCardProps {
   artwork: ArtworkResponseDto
   priority?: boolean
+  className?: string
 }
 
 /**
  * 作品卡片组件
  */
-export default function ArtworkCard({ artwork, priority = false }: ArtworkCardProps) {
+export default function ArtworkCard({ artwork, priority = false, className }: ArtworkCardProps) {
   const { id, title, imageCount, totalMediaSize = 0, images = [], artist } = artwork
 
   const { path: src = '', mediaType } = images[0] ?? {}
   const { name } = artist ?? {}
 
   return (
-    <Link href={`/artworks/${id}`} className="group block">
+    <Link href={`/artworks/${id}`} className={cn('group block', className)}>
       {/* 作品封面 */}
       <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-gray-100 mb-2">
         <Image

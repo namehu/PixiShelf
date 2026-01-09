@@ -26,7 +26,7 @@ export const artworkRouter = router({
    * 获取推荐作品
    */
   queryRecommendPage: authProcedure.input(RecommendationsGetSchema).query(async ({ input }) => {
-    return await getRecommendedArtworks({
+    return getRecommendedArtworks({
       pageSize: input.pageSize,
       cursor: input.cursor ?? undefined
     })
@@ -37,7 +37,7 @@ export const artworkRouter = router({
    */
   random: authProcedure.input(RandomArtworksGetSchema).query(async ({ input, ctx }) => {
     try {
-      return await getRandomArtworks({
+      return getRandomArtworks({
         ...input,
         userId: ctx.userId!
       })
