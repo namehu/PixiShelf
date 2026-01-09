@@ -1,4 +1,5 @@
 import React from 'react'
+import { NuqsAdapter } from 'nuqs/adapters/next/app'
 import { Toaster } from '@/components/ui/sonner'
 import type { Metadata, Viewport } from 'next'
 import { Providers } from '@/components/providers'
@@ -49,11 +50,13 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="zh-CN">
       <body suppressHydrationWarning={true}>
-        <Providers initialUser={initialUser}>
-          <Toaster />
-          {children}
-          <GlobalConfirmDialog />
-        </Providers>
+        <NuqsAdapter>
+          <Providers initialUser={initialUser}>
+            <Toaster />
+            {children}
+            <GlobalConfirmDialog />
+          </Providers>
+        </NuqsAdapter>
       </body>
     </html>
   )

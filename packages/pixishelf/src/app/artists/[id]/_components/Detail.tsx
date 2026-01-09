@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, useLayoutEffect, useCallback } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useQueryState, parseAsString } from 'nuqs'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { SortOption } from '@/types'
 import { SortControl } from '@/components/ui/SortControl'
@@ -17,8 +17,6 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default function ArtistDetailPage({ artist, id }: { artist: ArtistResponseDto; id: string }) {
-  const router = useRouter()
-  const searchParams = useSearchParams()
   const trpc = useTRPC()
   const containerRef = useRef<HTMLDivElement>(null)
   const virtualListRef = useRef<HTMLDivElement>(null)
@@ -29,7 +27,11 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
   const [offsetTop, setOffsetTop] = useState(0)
 
   const pageSize = 24
-  const sortBy = (searchParams.get('sortBy') as SortOption) || 'source_date_desc'
+
+  const [sortBy, setSortBy] = useQueryState(
+    'sortBy',
+    parseAsString.withDefault('source_date_desc').withOptions({ history: 'replace' })
+  )
 
   const {
     data,
@@ -43,7 +45,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
       {
         artistId: id,
         pageSize,
-        sortBy
+        sortBy: sortBy as SortOption
       },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -52,9 +54,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
     )
   )
 
-  const { ref: loadMoreRef, inView } = useInView({
-    rootMargin: '200px'
-  })
+  const { ref: loadMoreRef, inView } = useInView({ rootMargin: '200px' })
 
   // Flatten data
   const allItems = useMemo(() => {
@@ -163,15 +163,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
 
   // 处理排序变化
   const handleSortChange = (newSortBy: SortOption) => {
-    const newParams = new URLSearchParams(searchParams.toString())
-    if (newSortBy === 'source_date_desc') {
-      newParams.delete('sortBy')
-    } else {
-      newParams.set('sortBy', newSortBy)
-    }
-    // 移除 page 参数
-    newParams.delete('page')
-    router.push(`/artists/${id}?${newParams.toString()}`)
+    setSortBy(newSortBy)
   }
 
   return (
@@ -186,7 +178,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
             <p className="text-gray-600 mt-1">{artworksLoading && !data ? '加载中...' : `共 ${total} 件作品`}</p>
           </div>
 
-          <SortControl value={sortBy} onChange={handleSortChange} size="md" />
+          <SortControl value={sortBy as SortOption} onChange={handleSortChange} size="md" />
         </div>
 
         {/* 错误状态 */}
