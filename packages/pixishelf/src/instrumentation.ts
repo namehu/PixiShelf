@@ -1,9 +1,12 @@
-// oxlint-disable no-console
+import 'server-only'
+import logger from './lib/logger'
 
-// 确保只在服务器端执行
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    console.log('🚀 Server is starting up... Performing initialization.')
+    logger.log({
+      level: 'info',
+      message: '🚀 Server is starting up... Performing initialization.'
+    })
 
     // 在这里执行你的启动任务
     // 例如：连接数据库、初始化缓存、打印环境信息等
@@ -13,7 +16,11 @@ export async function register() {
         await initializeAdmin()
       }
     } catch (error) {
-      console.error('❌ Database connection failed:', error)
+      logger.error({
+        level: 'error',
+        message: '❌ Database connection failed:',
+        error
+      })
     }
 
     // 可以在这里注册其他的监控工具

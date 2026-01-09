@@ -5,10 +5,6 @@ import logger from './lib/logger'
 import { responseUnauthorized } from './lib/api-handler'
 import type { Session } from '@/types/auth'
 
-// ============================================================================
-// Next.js 认证中间件
-// ============================================================================
-
 /**
  * 公开访问的路径模式（不需要认证）
  */
