@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useLayoutEffect } from 'react'
 import { RandomImageItem } from '@/types/images'
 import { MediaType } from '@/types'
 import { Swiper, SwiperSlide } from 'swiper/react'
@@ -49,14 +49,13 @@ function SingleImage({
   shouldLoad = true
 }: SingleImageProps) {
   const [imageError, setImageError] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
 
   const handleImageError = () => {
     setImageError(true)
     onError?.()
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setImageError(false)
   }, [retryKey])
 
@@ -81,43 +80,10 @@ function SingleImage({
     )
   }
 
-  return (
-    <div ref={containerRef} className="relative w-full h-full flex items-center justify-center">
-      {!imageError ? (
-        <>
-          {mediaType === MediaType.IMAGE ? (
-            <Image
-              key={`${id}-${retryKey}`}
-              src={image}
-              width={window.outerWidth}
-              height={window.outerHeight}
-              alt={id || `Image by ${id || 'Unknown'}`}
-              className="w-full h-full object-contain"
-              // 当图片是当前活动(priority)或需要预加载(isPreloading)时，
-              // 强制使用 eager 模式，让浏览器立即加载。
-              // 否则，使用默认的 lazy 模式。
-              loading={priority || isPreloading ? 'eager' : 'lazy'}
-              // priority 属性会给 Next.js 最高优先级，通常只给当前视口的图片
-              priority={priority}
-              quality={100}
-              onError={handleImageError}
-            />
-          ) : (
-            <video
-              key={`${id}-${retryKey}`}
-              src={image}
-              autoPlay
-              controls={false}
-              loop
-              muted
-              className="w-full h-full object-contain"
-              preload={priority || isPreloading ? 'auto' : 'none'}
-              onError={handleImageError}
-            />
-          )}
-        </>
-      ) : (
-        /* 错误状态UI */
+  if (imageError) {
+    return (
+      <div className="relative w-full h-full flex items-center justify-center">
+        {/* 错误状态UI */}
         <div className="absolute inset-0 flex items-center justify-center bg-neutral-900">
           <div className="text-center text-white">
             <div className="mb-4">
@@ -139,6 +105,40 @@ function SingleImage({
             </button>
           </div>
         </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative w-full h-full flex items-center justify-center">
+      {mediaType === MediaType.IMAGE ? (
+        <Image
+          key={`${id}-${retryKey}`}
+          src={image}
+          width={window.outerWidth}
+          height={window.outerHeight}
+          alt={id || `Image by ${id || 'Unknown'}`}
+          className="w-full h-full object-contain"
+          // 当图片是当前活动(priority)或需要预加载(isPreloading)时，
+          // 强制使用 eager 模式，让浏览器立即加载。
+          // 否则，使用默认的 lazy 模式。
+          loading={priority || isPreloading ? 'eager' : 'lazy'}
+          priority={priority}
+          quality={100}
+          onError={handleImageError}
+        />
+      ) : (
+        <video
+          key={`${id}-${retryKey}`}
+          src={image}
+          autoPlay
+          controls={false}
+          loop
+          muted
+          className="w-full h-full object-contain"
+          preload={priority || isPreloading ? 'auto' : 'none'}
+          onError={handleImageError}
+        />
       )}
     </div>
   )
