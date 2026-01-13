@@ -1,6 +1,5 @@
 'use client'
 
-import React from 'react'
 import { Tag, CheckCircle, XCircle, TrendingUp } from 'lucide-react'
 import { TagManagementStats } from '@/types'
 
@@ -59,10 +58,10 @@ export function TagStatsCards({ stats, isLoading = false }: TagStatsCardsProps) 
           <div key={index} className="bg-white rounded-lg border border-neutral-200 p-4 md:p-6">
             <div className="animate-pulse">
               <div className="flex items-center mb-2 md:mb-4">
-                <div className="w-6 h-6 md:w-8 md:h-8 bg-neutral-200 rounded-lg"></div>
-                <div className="ml-2 md:ml-3 h-3 md:h-4 bg-neutral-200 rounded w-12 md:w-16"></div>
+                <div className="w-6 h-6 md:w-8 md:h-8 bg-neutral-200 rounded-lg" />
+                <div className="ml-2 md:ml-3 h-3 md:h-4 bg-neutral-200 rounded w-12 md:w-16" />
               </div>
-              <div className="h-6 md:h-8 bg-neutral-200 rounded w-10 md:w-12"></div>
+              <div className="h-6 md:h-8 bg-neutral-200 rounded w-10 md:w-12" />
             </div>
           </div>
         ))}

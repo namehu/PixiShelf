@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { CheckSquare, Square, Edit2, Save, X, Languages, Loader2 } from 'lucide-react'
+import { CheckSquare, Square, Edit2, Save, X, Languages } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tag } from '@/types'
@@ -9,29 +9,14 @@ import { getTranslateName } from '@/utils/tags'
 
 interface TagTableProps {
   tags: Tag[]
-  selectedTags: Set<number>
-  onTagSelect: (tagId: number) => void
   onTagUpdate: (tagId: number, updates: { name?: string; name_zh?: string }) => void
   loading?: boolean
-  translatingTags: Set<number>
 }
 
 /**
  * 标签列表表格组件
- *
- * 功能：
- * - 标签数据展示
- * - 内联编辑功能
- * - 单个标签操作（编辑、自动翻译）
  */
-export function TagTable({
-  tags,
-  selectedTags,
-  onTagSelect,
-  onTagUpdate,
-  loading = false,
-  translatingTags
-}: TagTableProps) {
+export function TagTable({ tags, onTagUpdate, loading = false }: TagTableProps) {
   const [editingTag, setEditingTag] = useState<number | null>(null)
   const [editValues, setEditValues] = useState<{ name: string; name_zh: string }>({ name: '', name_zh: '' })
 
@@ -118,13 +103,6 @@ export function TagTable({
             <div key={tag.id} className="p-4 space-y-3">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3 flex-1 min-w-0 mr-2">
-                  <button onClick={() => onTagSelect(tag.id)} className="text-neutral-400 flex-shrink-0">
-                    {selectedTags.has(tag.id) ? (
-                      <CheckSquare className="w-5 h-5 text-blue-600" />
-                    ) : (
-                      <Square className="w-5 h-5" />
-                    )}
-                  </button>
                   <div className="font-medium text-neutral-900 break-all w-full">
                     {isEditing ? (
                       <Input
@@ -185,16 +163,10 @@ export function TagTable({
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={translatingTags.has(tag.id)}
                       onClick={() => onTagUpdate(tag.id, {})}
                       className="w-full h-8 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
                     >
-                      {translatingTags.has(tag.id) ? (
-                        <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                      ) : (
-                        <Languages className="w-3 h-3 mr-1" />
-                      )}
-                      自动翻译
+                      <Languages className="w-3 h-3" />
                     </Button>
                   </div>
                 )}
@@ -209,9 +181,6 @@ export function TagTable({
         <table className="w-full">
           <thead className="bg-neutral-50 border-b border-neutral-200">
             <tr>
-              <th className="w-12 px-6 py-3 text-left">
-                <span className="sr-only">选择</span>
-              </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
                 标签名称
               </th>
@@ -235,15 +204,6 @@ export function TagTable({
 
               return (
                 <tr key={tag.id} className="hover:bg-neutral-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <button onClick={() => onTagSelect(tag.id)} className="text-neutral-400 hover:text-neutral-600">
-                      {selectedTags.has(tag.id) ? (
-                        <CheckSquare className="w-4 h-4 text-blue-600" />
-                      ) : (
-                        <Square className="w-4 h-4" />
-                      )}
-                    </button>
-                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {editingTag === tag.id ? (
                       <Input
@@ -306,17 +266,11 @@ export function TagTable({
                           {!tName && (
                             <Button
                               size="sm"
-                              disabled={translatingTags.has(tag.id)}
                               onClick={() => onTagUpdate(tag.id, {})}
                               variant="outline"
                               className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                             >
-                              {translatingTags.has(tag.id) ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : (
-                                <Languages className="w-3 h-3" />
-                              )}
-                              <span className="ml-1 sr-only lg:not-sr-only">自动翻译</span>
+                              <Languages className="w-3 h-3" />
                             </Button>
                           )}
                         </>

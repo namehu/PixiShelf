@@ -26,15 +26,8 @@ function TagManagement() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'translated' | 'untranslated'>('all')
   const [sortField, setSortField] = useState<TagManagementParams['sort']>('artworkCount')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
-
-  // 翻译状态
-  const [translatingTags, setTranslatingTags] = useState<Set<number>>(new Set())
-
-  // 选中的标签（用于批量操作）
-  const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set())
 
   // 标签统计更新状态
   const [isUpdatingStats, setIsUpdatingStats] = useState(false)
@@ -60,8 +53,7 @@ function TagManagement() {
       limit: pageSize,
       search: debouncedSearchQuery || undefined,
       filter,
-      sort: sortField,
-      order: sortOrder
+      sort: sortField
     })
   )
 
@@ -100,17 +92,6 @@ function TagManagement() {
     } finally {
       setIsUpdatingStats(false)
     }
-  }
-
-  // 处理标签选择
-  const handleTagSelect = (tagId: number) => {
-    const newSelected = new Set(selectedTags)
-    if (newSelected.has(tagId)) {
-      newSelected.delete(tagId)
-    } else {
-      newSelected.add(tagId)
-    }
-    setSelectedTags(newSelected)
   }
 
   // 全选/取消全选
@@ -154,19 +135,10 @@ function TagManagement() {
         onTranslationFilterChange={setFilter}
         sortBy={sortField}
         onSortByChange={setSortField}
-        sortOrder={sortOrder}
-        onSortOrderChange={setSortOrder}
       />
 
       {/* 标签列表 */}
-      <TagTable
-        tags={tags}
-        loading={isLoading}
-        selectedTags={selectedTags}
-        translatingTags={translatingTags}
-        onTagSelect={handleTagSelect}
-        onTagUpdate={handleTagUpdate}
-      />
+      <TagTable tags={tags} loading={isLoading} onTagUpdate={handleTagUpdate} />
 
       {/* 分页 */}
       <TagPagination

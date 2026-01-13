@@ -1,6 +1,6 @@
 'use client'
 
-import { Search, Filter, ArrowUpDown } from 'lucide-react'
+import { Search, ArrowUpDown } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { TagManagementParams } from '@/types'
@@ -12,8 +12,6 @@ interface TagSearchAndFilterProps {
   onTranslationFilterChange: (value: 'all' | 'translated' | 'untranslated') => void
   sortBy: TagManagementParams['sort']
   onSortByChange: (value: TagManagementParams['sort']) => void
-  sortOrder: 'asc' | 'desc'
-  onSortOrderChange: (value: 'asc' | 'desc') => void
 }
 
 /**
@@ -29,9 +27,7 @@ export function TagSearchAndFilter({
   translationFilter,
   onTranslationFilterChange,
   sortBy,
-  onSortByChange,
-  sortOrder,
-  onSortOrderChange
+  onSortByChange
 }: TagSearchAndFilterProps) {
   return (
     <div className="bg-white rounded-lg border border-neutral-200 p-4 md:p-6 mb-4 md:mb-6">
@@ -52,16 +48,15 @@ export function TagSearchAndFilter({
 
         <div className="grid grid-cols-2 gap-3 md:flex md:w-auto">
           {/* 翻译状态筛选 */}
-          <div className="w-full lg:w-48">
+          <div className="w-full lg:w-24">
             <Select value={translationFilter} onValueChange={onTranslationFilterChange}>
               <SelectTrigger className="w-full">
                 <div className="flex items-center gap-2 overflow-hidden">
-                  <Filter className="w-4 h-4 text-neutral-400 flex-shrink-0" />
                   <SelectValue placeholder="翻译状态" className="truncate" />
                 </div>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部标签</SelectItem>
+                <SelectItem value="all">全部</SelectItem>
                 <SelectItem value="translated">已翻译</SelectItem>
                 <SelectItem value="untranslated">未翻译</SelectItem>
               </SelectContent>
@@ -84,19 +79,6 @@ export function TagSearchAndFilter({
                 <SelectItem value="artworkCount">按作品数量</SelectItem>
                 <SelectItem value="createdAt">按创建时间</SelectItem>
                 <SelectItem value="updatedAt">按更新时间</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* 排序顺序 */}
-          <div className="w-full col-span-2 md:col-span-1 lg:w-32">
-            <Select value={sortOrder} onValueChange={onSortOrderChange}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="顺序" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="asc">升序</SelectItem>
-                <SelectItem value="desc">降序</SelectItem>
               </SelectContent>
             </Select>
           </div>
