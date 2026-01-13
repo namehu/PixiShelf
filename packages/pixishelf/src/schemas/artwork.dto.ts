@@ -84,7 +84,8 @@ export type RandomArtworksGetSchema = z.infer<typeof RandomArtworksGetSchema>
 export const NeighboringArtworksGetSchema = z.object({
   artistId: z.coerce.number().int(),
   artworkId: z.coerce.number().int(),
-  limit: z.coerce.number().int().min(1).max(50).default(12)
+  limit: z.coerce.number().int().min(1).max(50).default(12),
+  direction: z.enum(['both', 'older', 'newer']).default('both')
 })
 
 export type NeighboringArtworksGetSchema = z.infer<typeof NeighboringArtworksGetSchema>
