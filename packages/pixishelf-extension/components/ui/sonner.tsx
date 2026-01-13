@@ -6,13 +6,11 @@ import { useShadowRoot } from '@/lib/shadow-root-context'
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = 'system' } = useTheme()
   const shadowRoot = useShadowRoot()
-
   return (
     <Sonner
       theme={theme as ToasterProps['theme']}
       position="top-center"
       className="toaster group"
-      container={shadowRoot ?? undefined}
       icons={{
         success: <CircleCheckIcon className="size-4" />,
         info: <InfoIcon className="size-4" />,
@@ -26,7 +24,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           '--normal-text': 'var(--popover-foreground)',
           '--normal-border': 'var(--border)',
           '--border-radius': 'var(--radius)'
-        } as React.CSSProperties
+        } as ToasterProps['style']
       }
       {...props}
     />

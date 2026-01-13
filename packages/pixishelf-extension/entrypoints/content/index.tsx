@@ -26,7 +26,8 @@ export default defineContentScript({
       onMount: (uiContainer, shadowRoot) => {
         // 注入 Tailwind 样式
         const style = document.createElement('style')
-        style.textContent = tailwindStyles
+        // Replace :root with :host to ensure variables are available in Shadow DOM
+        style.textContent = tailwindStyles.replaceAll(':root', ':host')
         shadowRoot.appendChild(style)
 
         // 在 Shadow Root 内部创建一个挂载点
