@@ -1,5 +1,6 @@
 import 'server-only'
 import logger from './lib/logger'
+import { APP_VERSION } from './_config'
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
@@ -22,6 +23,11 @@ export async function register() {
         error
       })
     }
+
+    logger.log({
+      level: 'info',
+      message: `✅ Server is up and running! Version: ${APP_VERSION}`
+    })
 
     // 可以在这里注册其他的监控工具
   }
