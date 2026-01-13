@@ -29,7 +29,7 @@ const App: React.FC = () => {
           </div>
         )
       case 'users':
-        return <UserContent></UserContent>
+        return <UserContent />
       case 'artworks':
         return (
           <div className="artworks-content">

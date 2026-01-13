@@ -1,18 +1,21 @@
 /**
  * 标签图片下载模式
  */
-export enum ETagDownloadMode {
+export const ETagDownloadMode = {
   /** 单独下载 */
-  Individual = 'individual',
+  individual: 'individual',
   /** 压缩下载 */
-  Zip = 'zip'
-}
+  zip: 'zip'
+} as const
+
+export type ETagDownloadMode = (typeof ETagDownloadMode)[keyof typeof ETagDownloadMode]
+
 export const MTagDownloadMode = {
-  [ETagDownloadMode.Individual]: '单独下载',
-  [ETagDownloadMode.Zip]: '压缩下载'
+  [ETagDownloadMode.individual]: '单独下载',
+  [ETagDownloadMode.zip]: '压缩下载'
 }
 
 export const OTagDownloadMode = [
-  { value: ETagDownloadMode.Individual, label: '单独下载' },
-  { value: ETagDownloadMode.Zip, label: '压缩下载' }
+  { value: ETagDownloadMode.individual, label: '单独下载' },
+  { value: ETagDownloadMode.zip, label: '压缩下载' }
 ]

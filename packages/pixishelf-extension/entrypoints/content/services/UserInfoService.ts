@@ -313,15 +313,13 @@ export class UserInfoService implements IUserInfoService {
         }
       }
 
-      const downloadMode = request?.downloadMode || ETagDownloadMode.Individual
+      const downloadMode = request?.downloadMode || ETagDownloadMode.individual
 
-      if (downloadMode === ETagDownloadMode.Zip) {
+      if (downloadMode === ETagDownloadMode.zip) {
         return await this.downloadImagesAsZip(successfulUsers)
-      } else {
-        return await this.downloadImagesIndividually(successfulUsers)
       }
+      return await this.downloadImagesIndividually(successfulUsers)
     } catch (error) {
-      console.error('下载用户图片失败:', error)
       return {
         success: false,
         error: error instanceof Error ? error.message : '下载用户图片失败',

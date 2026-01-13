@@ -30,8 +30,8 @@ export const SettingContent: React.FC = () => {
                     </TooltipTrigger>
                     <TooltipContent>
                       <p>选择图片的下载方式：</p>
-                      <p>{MTagDownloadMode[ETagDownloadMode.Zip]}: 将所有图片打包为一个ZIP文件下载</p>
-                      <p>{MTagDownloadMode[ETagDownloadMode.Individual]}: 每个图片单独下载，文件名包含标签前缀</p>
+                      <p>{MTagDownloadMode[ETagDownloadMode.zip]}: 将所有图片打包为一个ZIP文件下载</p>
+                      <p>{MTagDownloadMode[ETagDownloadMode.individual]}: 每个图片单独下载，文件名包含标签前缀</p>
                     </TooltipContent>
                   </Tooltip>
                 </div>

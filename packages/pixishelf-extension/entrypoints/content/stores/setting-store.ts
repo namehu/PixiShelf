@@ -23,7 +23,7 @@ const settingStorage = localforage.createInstance({
 export const useSettingStore = create<SettingState>()(
   persist(
     (set) => ({
-      tagDownloadMode: ETagDownloadMode.Individual,
+      tagDownloadMode: ETagDownloadMode.individual,
       customDirectory: '',
       updateTagDownloadMode: (mode: ETagDownloadMode) => set({ tagDownloadMode: mode }),
       updateCustomDirectory: (dir: string) => set({ customDirectory: dir })

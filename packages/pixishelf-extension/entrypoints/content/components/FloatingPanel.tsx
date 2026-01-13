@@ -73,7 +73,6 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({ children }) => {
         borderRadius: '8px',
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
         zIndex: 10000,
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         fontSize: '14px',
         userSelect: 'none'
       }}
