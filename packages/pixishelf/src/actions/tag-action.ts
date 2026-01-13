@@ -2,6 +2,7 @@
 
 import logger from '@/lib/logger'
 import { initializeTagArtworkCount } from '../../scripts/init-tag-artwork-count'
+import { getUntranslatedTagNames } from '@/services/tag-service'
 
 /**
  * 手动更新标签作品数量统计
@@ -27,5 +28,21 @@ export async function updateTagStatsAction() {
       error: 'Internal server error',
       message: error instanceof Error ? error.message : '未知错误'
     }
+  }
+}
+
+/**
+ * 导出未翻译的标签
+ * 返回标签名称列表
+ */
+export async function exportUntranslatedTagsAction() {
+  try {
+    const data = await getUntranslatedTagNames()
+    return {
+      data
+    }
+  } catch (error) {
+    logger.error('❌ 导出未翻译标签失败:', error)
+    throw error
   }
 }

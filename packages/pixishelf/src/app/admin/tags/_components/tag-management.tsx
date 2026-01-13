@@ -3,12 +3,12 @@
 import { useState, useEffect } from 'react'
 import { useDebounce } from '@/hooks/useDebounce'
 import { toast } from 'sonner'
-import { BarChart3, RefreshCw } from 'lucide-react'
+import { BarChart3, RefreshCw, Download } from 'lucide-react'
 import type { TagManagementParams } from '@/types/tags'
 import { useQuery } from '@tanstack/react-query'
 import { useTRPC } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
-import { updateTagStatsAction } from '@/actions/tag-action'
+import { updateTagStatsAction, exportUntranslatedTagsAction } from '@/actions/tag-action'
 
 // 导入子组件
 import { TagStatsCards } from './tag-stats-cards'
@@ -17,9 +17,52 @@ import { TagTable } from './tag-table'
 import { TagPagination } from './tag-pagination'
 
 /**
+ * 导出未翻译标签自定义 Hook
+ */
+function useExportUntranslatedTags() {
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExportUntranslated = async () => {
+    try {
+      setIsExporting(true)
+      const { data } = await exportUntranslatedTagsAction()
+
+      if (!data?.length) {
+        toast.info('没有需要导出的未翻译标签')
+        return
+      }
+
+      // 创建Blob并下载
+      const content = data.join('\n')
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `untranslated-tags-${new Date().toISOString().split('T')[0]}.txt`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+
+      toast.success(`成功导出 ${data.length} 个未翻译标签`)
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '导出过程发生错误'
+      toast.error(errorMessage)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  return {
+    isExporting,
+    handleExportUntranslated
+  }
+}
+
+/**
  * 标签管理组件
  */
-function TagManagement() {
+export default function TagManagement() {
   const trpc = useTRPC()
 
   // 查询参数状态
@@ -31,6 +74,9 @@ function TagManagement() {
 
   // 标签统计更新状态
   const [isUpdatingStats, setIsUpdatingStats] = useState(false)
+
+  // 导出未翻译标签状态
+  const { isExporting, handleExportUntranslated } = useExportUntranslatedTags()
 
   // 防抖搜索
   const debouncedSearchQuery = useDebounce(searchQuery, 500)
@@ -94,8 +140,6 @@ function TagManagement() {
     }
   }
 
-  // 全选/取消全选
-
   // 更新标签
   const handleTagUpdate = async (tagId: number, updates: { name?: string; name_zh?: string }) => {
     // TODO:
@@ -113,15 +157,26 @@ function TagManagement() {
           </h1>
           <p className="text-sm md:text-base text-neutral-600 mt-1">管理标签翻译，支持搜索、筛选和批量操作</p>
         </div>
-        <Button
-          variant="outline"
-          onClick={handleUpdateStats}
-          disabled={isUpdatingStats}
-          className="w-full md:w-auto flex items-center justify-center gap-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${isUpdatingStats ? 'animate-spin' : ''}`} />
-          {isUpdatingStats ? '更新中...' : '更新统计'}
-        </Button>
+        <div className="flex gap-2 w-full md:w-auto">
+          <Button
+            variant="outline"
+            onClick={handleExportUntranslated}
+            disabled={isExporting}
+            className="flex-1 md:flex-none flex items-center justify-center gap-2"
+          >
+            <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
+            {isExporting ? '导出中...' : '导出未翻译'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleUpdateStats}
+            disabled={isUpdatingStats}
+            className="flex-1 md:flex-none flex items-center justify-center gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${isUpdatingStats ? 'animate-spin' : ''}`} />
+            {isUpdatingStats ? '更新中...' : '更新统计'}
+          </Button>
+        </div>
       </div>
 
       {/* 统计卡片 */}
@@ -150,5 +205,3 @@ function TagManagement() {
     </div>
   )
 }
-
-export default TagManagement

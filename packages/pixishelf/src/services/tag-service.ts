@@ -194,3 +194,20 @@ export async function getRandomTags(params: { page: number; pageSize: number }):
     nextCursor: page + 1
   }
 }
+
+/**
+ * 获取所有未翻译标签的名称
+ * 用于导出功能
+ */
+export async function getUntranslatedTagNames(): Promise<string[]> {
+  const tags = await prisma.tag.findMany({
+    where: {
+      translateType: 'NONE'
+    },
+    select: {
+      name: true
+    }
+  })
+
+  return tags.map((tag) => tag.name)
+}
