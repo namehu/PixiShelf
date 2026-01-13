@@ -1,11 +1,11 @@
+import ScanManagement from './_components/scan-management'
 import { Metadata } from 'next'
-import AdminLayout from './_components/admin-layout'
 
 export const metadata: Metadata = {
-  title: 'PixiShelf 管理后台',
-  description: '管理用户、标签和扫描任务'
+  title: '设置管理 - PixiShelf Admin',
+  description: '扫描设置与系统配置'
 }
 
-export default function AdminPage() {
-  return <AdminLayout />
+export default function SettingPage() {
+  return <ScanManagement />
 }

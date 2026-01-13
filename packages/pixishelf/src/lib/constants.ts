@@ -12,8 +12,9 @@ export const ROUTES = {
   DASHBOARD: '/dashboard',
   ARTWORKS: '/artworks',
   ARTISTS: '/artists',
+  ADMIN: '/admin',
   ADMINSETTING: '/admin/setting',
-  ADMINSTATS: '/admin/stats',
+  ADMINSTATS: '/admin/statistics',
   TAGS: '/tags',
   VIEWER: '/viewer',
   CHANGE_PASSWORD: '/change-password'

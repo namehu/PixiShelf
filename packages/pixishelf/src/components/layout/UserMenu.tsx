@@ -38,7 +38,7 @@ const UserMenu = () => {
             <BarChart2Icon className="mr-2 h-4 w-4" />
             统计概览
           </MenubarItem>
-          <MenubarItem onClick={() => router.push(ROUTES.ADMINSETTING)}>
+          <MenubarItem onClick={() => router.push(ROUTES.ADMIN)}>
             <SettingsIcon className="mr-2 h-4 w-4" />
             管理后台
           </MenubarItem>

@@ -1,8 +1,7 @@
 import Link from 'next/link'
 import { unstable_cache } from 'next/cache'
 import { prisma } from '@/lib/prisma'
-import { WallpaperIcon, Users, Image as ImageIcon, Tags, Trophy, ArrowRight, Clock } from 'lucide-react'
-import PNav from '@/components/layout/PNav'
+import { WallpaperIcon, Users, ImageIcon, Tags, Trophy, ArrowRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -10,6 +9,10 @@ import logger from '@/lib/logger'
 import { ROUTES } from '@/lib/constants'
 
 export const dynamic = 'force-dynamic'
+
+export const metadata = {
+  title: '状态管理 - PixiShelf Admin'
+}
 
 // --- 类型定义 ---
 
@@ -100,81 +103,53 @@ const getCachedStats = unstable_cache(
   { revalidate: 60 } // Revalidate Time
 )
 
-// --- 2. 页面主组件 ---
 export default async function StatsDashboardPage() {
   const stats = await getCachedStats()
-  const lastUpdate = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-neutral-900">
-      {/* 导航栏集成 */}
-      <PNav
-        renderExtra={
-          <div className="flex items-center gap-1.5 text-xs text-neutral-400 bg-neutral-100 dark:bg-neutral-800 px-2 py-1 rounded-md">
-            <Clock className="w-3 h-3" />
-            <span>更新于 {lastUpdate}</span>
-          </div>
-        }
-      >
-        <div className="border-l border-neutral-200 pl-4 ml-2">
-          <span>数据看板</span>
-        </div>
-      </PNav>
+    <div className="space-y-8 p-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* 顶部核心指标区 (Grid 布局: 手机2列，平板/电脑4列) */}
+      <section className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          title="总收录作品"
+          value={stats.counts.artworks}
+          icon={WallpaperIcon}
+          trend="库内资源"
+          theme="blue"
+          href={ROUTES.ARTWORKS}
+        />
+        <StatCard
+          title="入驻艺术家"
+          value={stats.counts.artists}
+          icon={Users}
+          trend="创作来源"
+          theme="violet"
+          href="/artists"
+        />
+        <StatCard title="图库文件数" value={stats.counts.images} icon={ImageIcon} trend="存储对象" theme="emerald" />
+        <StatCard title="活跃标签" value={stats.counts.tags} icon={Tags} trend="分类维度" theme="amber" href="/tags" />
+      </section>
 
-      {/* 主体内容区 */}
-      <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        {/* 顶部核心指标区 (Grid 布局: 手机2列，平板/电脑4列) */}
-        <section className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            title="总收录作品"
-            value={stats.counts.artworks}
-            icon={WallpaperIcon}
-            trend="库内资源"
-            theme="blue"
-            href={ROUTES.ARTWORKS}
-          />
-          <StatCard
-            title="入驻艺术家"
-            value={stats.counts.artists}
-            icon={Users}
-            trend="创作来源"
-            theme="violet"
-            href="/artists"
-          />
-          <StatCard title="图库文件数" value={stats.counts.images} icon={ImageIcon} trend="存储对象" theme="emerald" />
-          <StatCard
-            title="活跃标签"
-            value={stats.counts.tags}
-            icon={Tags}
-            trend="分类维度"
-            theme="amber"
-            href="/tags"
-          />
-        </section>
-
-        {/* 排行榜区域 (Grid 布局: 手机单列，电脑双列) */}
-        <section className="grid gap-6 md:grid-cols-2">
-          <LeaderboardCard
-            title="热门艺术家 TOP 20"
-            subtitle="作品收录量最多的创作者"
-            icon={Users}
-            data={stats.topArtists}
-            type="artist"
-          />
-          <LeaderboardCard
-            title="热门标签 TOP 20"
-            subtitle="图库中最常使用的标签"
-            icon={Tags}
-            data={stats.topTags}
-            type="tag"
-          />
-        </section>
-      </main>
+      {/* 排行榜区域 (Grid 布局: 手机单列，电脑双列) */}
+      <section className="grid gap-6 md:grid-cols-2">
+        <LeaderboardCard
+          title="热门艺术家 TOP 20"
+          subtitle="作品收录量最多的创作者"
+          icon={Users}
+          data={stats.topArtists}
+          type="artist"
+        />
+        <LeaderboardCard
+          title="热门标签 TOP 20"
+          subtitle="图库中最常使用的标签"
+          icon={Tags}
+          data={stats.topTags}
+          type="tag"
+        />
+      </section>
     </div>
   )
 }
-
-// --- 3. UI 子组件 (可以直接放在同一个文件，也可以拆分) ---
 
 /**
  * 颜色映射配置 (解决 Tailwind 动态类名问题)
