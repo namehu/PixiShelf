@@ -79,6 +79,17 @@ export const RandomArtworksGetSchema = z.object({
 export type RandomArtworksGetSchema = z.infer<typeof RandomArtworksGetSchema>
 
 /**
+ * 邻近作品查询参数
+ */
+export const NeighboringArtworksGetSchema = z.object({
+  artistId: z.coerce.number().int(),
+  artworkId: z.coerce.number().int(),
+  limit: z.coerce.number().int().min(1).max(50).default(12)
+})
+
+export type NeighboringArtworksGetSchema = z.infer<typeof NeighboringArtworksGetSchema>
+
+/**
  * Image DTO
  * - 时间转字符串
  * - 增加 mediaType 计算字段

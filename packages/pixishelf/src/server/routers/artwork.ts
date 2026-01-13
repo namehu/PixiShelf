@@ -1,6 +1,16 @@
 import { authProcedure, publicProcedure, router } from '@/server/trpc'
-import { ArtworksInfiniteQuerySchema, RandomArtworksGetSchema, RecommendationsGetSchema } from '@/schemas/artwork.dto'
-import { getArtworksList, getRecommendedArtworks, getRandomArtworks } from '@/services/artwork-service'
+import {
+  ArtworksInfiniteQuerySchema,
+  NeighboringArtworksGetSchema,
+  RandomArtworksGetSchema,
+  RecommendationsGetSchema
+} from '@/schemas/artwork.dto'
+import {
+  getArtworksList,
+  getNeighboringArtworks,
+  getRecommendedArtworks,
+  getRandomArtworks
+} from '@/services/artwork-service'
 import logger from '@/lib/logger'
 import { TRPCError } from '@trpc/server'
 
@@ -20,6 +30,13 @@ export const artworkRouter = router({
       nextCursor: page < totalPages ? page + 1 : undefined,
       total: result.total
     }
+  }),
+
+  /**
+   * 获取邻近作品（前后作品）
+   */
+  getNeighbors: publicProcedure.input(NeighboringArtworksGetSchema).query(async ({ input }) => {
+    return await getNeighboringArtworks(input)
   }),
 
   /**

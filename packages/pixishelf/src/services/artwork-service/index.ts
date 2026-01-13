@@ -16,6 +16,7 @@ import { EMediaType } from '@/enums/EMediaType'
 import { shuffleArray, transformImages, transformSingleArtwork } from './utils'
 import { fetchRandomIds } from './dao'
 import { RandomTagDto } from '@/schemas/tag.dto'
+export * from './related'
 
 /**
  * 获取作品列表 (重构版)

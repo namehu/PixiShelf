@@ -10,7 +10,7 @@ import { isApngFile, isVideoFile } from '../../../lib/media'
  */
 export function transformSingleArtwork(artwork: any) {
   const _count = artwork._count?.images || artwork.imageCount || 0
-  const { images, totalMediaSize, imageCount } = transformImages(artwork.images, _count)
+  const { images, totalMediaSize, imageCount, hasVideo } = transformImages(artwork.images, _count)
 
   // 构建响应对象
   const result = {
@@ -18,6 +18,7 @@ export function transformSingleArtwork(artwork: any) {
     images: images,
     tags: artwork.artworkTags?.map((at: any) => at.tag.name) || [],
     imageCount,
+    isVideo: hasVideo,
     totalMediaSize,
     descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
     artist: artwork.artist

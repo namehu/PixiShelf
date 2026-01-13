@@ -3,6 +3,7 @@ import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import TagArea from './_components/TagArea'
 import LazyMedia from './_components/LazyMedia'
 import ArtworkDes from './_components/ArtworkDes'
+import RelatedArtworks from './_components/RelatedArtworks'
 import { getArtworkById } from '@/services/artwork-service'
 import z from 'zod'
 import NavHead from './_components/NavHead'
@@ -51,11 +52,14 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
             <ArtworkDes description={data.description} className="mt-6 px-6" />
 
             {/* Images */}
-            <div className="w-full mt-6 mb-15 px-4">
+            <div className="w-full px-4">
               {data.images.map((img, index) => (
                 <LazyMedia key={img.id} src={img.path} index={index} />
               ))}
             </div>
+
+            {/* Related Artworks */}
+            {artistId && <RelatedArtworks artistId={artistId} currentArtworkId={data.id} />}
           </div>
         </div>
       </main>
