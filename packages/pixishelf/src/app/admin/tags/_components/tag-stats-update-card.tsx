@@ -61,8 +61,8 @@ export function TagStatsUpdateCard({ onUpdateStats }: TagStatsUpdateCardProps) {
           <RefreshCw className="w-5 h-5" />
           标签统计更新
         </h2>
-        <div className="flex-1 hidden md:block"></div>
-        
+        <div className="flex-1 hidden md:block" />
+
         <div className="flex flex-col md:flex-row gap-3 md:items-center">
           {lastStatsUpdate && (
             <div className="flex items-center gap-2 text-sm text-neutral-500">

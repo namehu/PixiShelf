@@ -74,11 +74,11 @@ export function TagTable({
         <div className="md:hidden p-4 space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="border rounded-lg p-4 space-y-3 animate-pulse">
-              <div className="h-4 bg-neutral-200 rounded w-1/2"></div>
-              <div className="h-4 bg-neutral-200 rounded w-3/4"></div>
+              <div className="h-4 bg-neutral-200 rounded w-1/2" />
+              <div className="h-4 bg-neutral-200 rounded w-3/4" />
               <div className="flex gap-2">
-                <div className="h-4 bg-neutral-200 rounded w-1/4"></div>
-                <div className="h-4 bg-neutral-200 rounded w-1/4"></div>
+                <div className="h-4 bg-neutral-200 rounded w-1/4" />
+                <div className="h-4 bg-neutral-200 rounded w-1/4" />
               </div>
             </div>
           ))}
@@ -151,12 +151,7 @@ export function TagTable({
                       </Button>
                     </>
                   ) : (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleEditStart(tag)}
-                      className="h-8 w-8 p-0"
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => handleEditStart(tag)} className="h-8 w-8 p-0">
                       <Edit2 className="w-4 h-4 text-neutral-500" />
                     </Button>
                   )}
@@ -176,9 +171,7 @@ export function TagTable({
                       />
                     </div>
                   ) : (
-                    <span className={tName ? 'text-neutral-900' : 'text-neutral-400 italic'}>
-                      {tName || '未翻译'}
-                    </span>
+                    <span className={tName ? 'text-neutral-900' : 'text-neutral-400 italic'}>{tName || '未翻译'}</span>
                   )}
                 </div>
 

@@ -1,12 +1,12 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSseScan } from '../_hooks/use-sse-scan'
-import { confirm } from '@/components/shared/global-confirm'
-import { ClientScanCard } from './scan/client-scan-card'
-import { ServerScanCard } from './scan/server-scan-card'
-import { ScanResultCard } from './scan/scan-result-card'
 import { useTRPC } from '@/lib/trpc'
+import { confirm } from '@/components/shared/global-confirm'
+import { ClientScanCard } from './client-scan-card'
+import { ServerScanCard } from './server-scan-card'
+import { ScanResultCard } from './scan-result-card'
+import { useSseScan } from '../_hooks/use-sse-scan'
 
 function useScanPath() {
   const queryClient = useQueryClient()
