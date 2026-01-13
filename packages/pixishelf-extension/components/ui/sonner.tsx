@@ -1,15 +1,18 @@
 import { CircleCheckIcon, InfoIcon, Loader2Icon, OctagonXIcon, TriangleAlertIcon } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Toaster as Sonner, type ToasterProps } from 'sonner'
+import { useShadowRoot } from '@/lib/shadow-root-context'
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = 'system' } = useTheme()
+  const shadowRoot = useShadowRoot()
 
   return (
     <Sonner
       theme={theme as ToasterProps['theme']}
       position="top-center"
       className="toaster group"
+      container={shadowRoot ?? undefined}
       icons={{
         success: <CircleCheckIcon className="size-4" />,
         info: <InfoIcon className="size-4" />,

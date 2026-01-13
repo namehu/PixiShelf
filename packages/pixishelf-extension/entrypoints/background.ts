@@ -1,3 +1,4 @@
+// oxlint-disable no-console
 /**
  * Background Script - 处理downloads API和消息通信
  * 由于content script无法直接访问chrome.downloads API，
