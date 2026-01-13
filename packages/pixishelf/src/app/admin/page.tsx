@@ -1,37 +1,7 @@
 import Link from 'next/link'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
-import { Settings, Tags, Users, Activity, ArrowRight } from 'lucide-react'
-
-const sections = [
-  {
-    title: '状态管理',
-    description: '查看系统运行状态和统计数据',
-    href: '/admin/statistics',
-    icon: Activity,
-    color: 'text-blue-500'
-  },
-  {
-    title: '设置管理',
-    description: '配置扫描路径和系统选项',
-    href: '/admin/setting',
-    icon: Settings,
-    color: 'text-slate-500'
-  },
-  {
-    title: '标签管理',
-    description: '管理图片标签和翻译',
-    href: '/admin/tags',
-    icon: Tags,
-    color: 'text-green-500'
-  },
-  {
-    title: '用户管理',
-    description: '管理注册用户和权限',
-    href: '/admin/users',
-    icon: Users,
-    color: 'text-purple-500'
-  }
-]
+import { sections } from './_constant'
+import { ArrowRight } from 'lucide-react'
 
 export default function AdminDashboard() {
   return (

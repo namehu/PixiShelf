@@ -16,7 +16,7 @@ export default function RootLayout(props: RootLayoutProps) {
         <span className="text-lg font-semibold">管理后台</span>
       </PNav>
       <div className="flex flex-1 w-full max-w-7xl mx-auto items-start">
-        <aside className="hidden md:block w-32 flex-shrink-0 sticky top-16 self-start h-[calc(100vh-4rem)]">
+        <aside className="hidden md:block w-36 flex-shrink-0 sticky top-16 self-start h-[calc(100vh-4rem)]">
           <AdminNav className="h-full border-r-0 bg-transparent" />
         </aside>
         <main className="flex-1 w-full min-w-0">{props.children}</main>

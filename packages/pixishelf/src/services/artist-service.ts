@@ -127,6 +127,32 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
 }
 
 /**
+ * 获取信息不完善（无头像且无背景图）的艺术家用户ID列表
+ * @returns 用户ID列表
+ */
+export async function getIncompleteArtistUserIds(): Promise<string[]> {
+  try {
+    const artists = await prisma.artist.findMany({
+      where: {
+        avatar: null,
+        backgroundImg: null,
+        userId: {
+          not: null
+        }
+      },
+      select: {
+        userId: true
+      }
+    })
+
+    return artists.map((artist) => artist.userId!).filter(Boolean)
+  } catch (error) {
+    logger.error('Error fetching incomplete artist user IDs:', error)
+    return []
+  }
+}
+
+/**
  * 获取热门艺术家（按作品数量排序）
  * @param options 查询选项
  * @returns 热门艺术家响应
