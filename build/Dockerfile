@@ -16,8 +16,6 @@ ENV NEXT_PUBLIC_THUMBOR_VIDEO_URL=__NEXT_PUBLIC_THUMBOR_VIDEO_URL__
 ARG APP_VERSION
 ENV NEXT_PUBLIC_APP_VERSION=${APP_VERSION}
 
-
-
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
@@ -59,103 +57,60 @@ RUN --mount=type=cache,target=/app/packages/pixishelf/.next/cache \
 
 # =========================================================================
 # 2. Production Stage - 生产阶段
-#    - 使用一个全新的、干净的 alpine 镜像。
-#    - 只从 builder 阶段复制构建产物和生产依赖。
+#    - 使用 Standalone 模式，大幅减小镜像体积
 # =========================================================================
 FROM node:20-alpine AS production
 
-# -- Global ARGs
-ARG PNPM_VERSION=8.15.1
-ARG REGISTRY_URL=https://registry.npmmirror.com
-
-# 设置 PNPM 环境变量
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
-
 WORKDIR /app
-
-# 为应用创建一个非 root 用户和组
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-
-# 安装 pnpm 和生产运行时所需的系统依赖
-# curl 用于 HEALTHCHECK
-# 使用缓存挂载加速 apk 安装
-RUN --mount=type=cache,target=/var/cache/apk \
-    apk add --no-cache \
-    openssl \
-    supervisor \
-    curl \
-    && npm install -g tsx@^4.19.2 \
-    && npm install -g pnpm@${PNPM_VERSION}
 
 # 设置环境变量
 ENV NODE_ENV=production
+# 对应 next.config.js 中的 output: 'standalone'
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# 设置国内npm源
-# 配置 pnpm store 目录
-RUN pnpm config set registry ${REGISTRY_URL} && \
-    pnpm config set store-dir /pnpm/store
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
 
-# 优化缓存：先复制 package.json 文件并安装生产依赖
-COPY package.json pnpm-workspace.yaml ./
-COPY --from=builder /app/pnpm-lock.yaml ./
-COPY --from=builder /app/packages/pixishelf/package.json ./packages/pixishelf/package.json
+# 安装 curl 用于健康检查，安装 prisma 用于数据库迁移
+# 注意：Standalone 模式下，node_modules 可能不包含 prisma CLI，因此我们全局安装它
+# 移除 build-base 等不必要的构建工具
+RUN apk add --no-cache curl \
+    && npm install -g prisma@5.22.0
 
-# 只安装生产依赖
-# 使用 --frozen-lockfile 保证依赖一致性
-# 使用缓存挂载加速 pnpm install
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --prod --frozen-lockfile
+# 复制 Prisma Schema (用于迁移)
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
 
-# 复制 Prisma schema 并 生成 Prisma Client
-COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
-RUN pnpm --filter="@pixishelf/next" db:generate
+# 复制 public 文件夹 (注意 monorepo 路径)
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/public ./packages/pixishelf/public
 
-# 从 builder 阶段复制构建好的产物
-# --chown=appuser:appgroup 确保文件所有权正确
-COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/.next ./packages/pixishelf/.next
-COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/public ./packages/pixishelf/public
-COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/lib ./packages/pixishelf/lib
-# 复制脚本文件
-COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/scripts ./packages/pixishelf/scripts
+# 关键：复制 Standalone 构建产物
+# Standalone 文件夹结构会自动包含 monorepo 的结构 (packages/pixishelf/...)
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/.next/static ./packages/pixishelf/.next/static
 
-# 创建 supervisor 配置和日志目录
-RUN mkdir -p /etc/supervisor/conf.d /var/log/supervisor
-
-COPY <<EOF /etc/supervisor/supervisord.conf
-[supervisord]
-nodaemon=true
-logfile=/tmp/supervisord.log
-pidfile=/tmp/supervisord.pid
-
-[program:pixishelf]
-command=pnpm --filter="@pixishelf/next" start
-user=appuser
-directory=/app
-autostart=true
-autorestart=true
-stopwaitsecs=3
-# 将日志重定向到标准输出/错误，这是容器日志管理的最佳实践
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-environment=NODE_ENV="production",HOME="/home/appuser",USER="appuser"
-EOF
+# 复制 lib 和 scripts 文件夹 (用户自定义需求)
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/lib ./packages/pixishelf/lib
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/scripts ./packages/pixishelf/scripts
 
 # 复制 entrypoint 脚本并赋予执行权限
-COPY --chown=appuser:appgroup build/entrypoint.sh /app/entrypoint.sh
+COPY --chown=nextjs:nodejs build/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# 暴露端口
+# 切换用户
+USER nextjs
+
 EXPOSE 5430
 
-# 健康检查 - 检查前端
-# HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=3 \
-# CMD wget --no-verbose --tries=1 --spider http://localhost:5430 || exit 1
+ENV PORT=5430
+# 必须设置 HOSTname，否则 standalone 模式在某些容器网络下无法访问
+ENV HOSTNAME="0.0.0.0"
+
+# 健康检查
 HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:5430/ || exit 1
 
-# 推荐：使用 entrypoint 脚本来处理数据库迁移
+# 使用 entrypoint 处理迁移和环境变量替换
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
+
+# 启动命令 (Standalone 模式下直接运行 server.js)
+CMD ["node", "packages/pixishelf/server.js"]
