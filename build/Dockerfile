@@ -74,8 +74,11 @@ RUN adduser --system --uid 1001 nextjs
 # 安装 curl 用于健康检查，安装 prisma 用于数据库迁移
 # 注意：Standalone 模式下，node_modules 可能不包含 prisma CLI，因此我们全局安装它
 # 移除 build-base 等不必要的构建工具
-RUN apk add --no-cache curl \
-    && npm install -g prisma@5.22.0
+# 修复：安装 openssl 以解决 Prisma 引擎检测问题
+# 修复：修改全局 node_modules 权限，允许非 root 用户写入（解决 Can't write to ... @prisma/engines 错误）
+RUN apk add --no-cache curl openssl \
+    && npm install -g prisma@5.22.0 \
+    && chown -R nextjs:nodejs /usr/local/lib/node_modules/prisma
 
 # 复制 Prisma Schema (用于迁移)
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
