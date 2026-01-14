@@ -18,18 +18,23 @@ ENV NEXT_PUBLIC_APP_VERSION=${APP_VERSION}
 
 
 
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
 WORKDIR /app
 
 # 安装 pnpm 和构建时所需的系统依赖
-# 清理 apk 缓存以减小镜像层体积
-RUN apk add --no-cache \
+# 使用缓存挂载加速 apk 安装
+RUN --mount=type=cache,target=/var/cache/apk \
+    apk add --no-cache \
     openssl \
     openssl-dev \
-    && npm install -g pnpm@${PNPM_VERSION} \
-    && rm -rf /var/cache/apk/*
+    && npm install -g pnpm@${PNPM_VERSION}
 
 # 设置国内npm源 (可以加速构建)
-RUN pnpm config set registry ${REGISTRY_URL}
+# 配置 pnpm store 目录
+RUN pnpm config set registry ${REGISTRY_URL} && \
+    pnpm config set store-dir /pnpm/store
 
 # 优化缓存：只复制构建依赖所需的文件
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
@@ -37,7 +42,9 @@ COPY packages/pixishelf/package.json ./packages/pixishelf/package.json
 
 # 安装所有依赖（包括 devDependencies 用于构建）
 # 使用 --frozen-lockfile 确保CI/CD环境的一致性
-RUN pnpm install --frozen-lockfile
+# 使用缓存挂载加速 pnpm install
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
 
 # 复制所有源代码 (利用 .dockerignore 避免复制无关文件)
 COPY packages/pixishelf/ ./packages/pixishelf/
@@ -46,7 +53,9 @@ COPY packages/pixishelf/ ./packages/pixishelf/
 # 1. 生成 Prisma Client
 RUN pnpm --filter="@pixishelf/next" db:generate
 # 3. 构建主应用
-RUN pnpm --filter="@pixishelf/next" build
+# 使用缓存挂载加速 Next.js 构建
+RUN --mount=type=cache,target=/app/packages/pixishelf/.next/cache \
+    pnpm --filter="@pixishelf/next" build
 
 # =========================================================================
 # 2. Production Stage - 生产阶段
@@ -59,27 +68,33 @@ FROM node:20-alpine AS production
 ARG PNPM_VERSION=8.15.1
 ARG REGISTRY_URL=https://registry.npmmirror.com
 
+# 设置 PNPM 环境变量
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
 WORKDIR /app
 
 # 为应用创建一个非 root 用户和组
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # 安装 pnpm 和生产运行时所需的系统依赖
-# curl 用于 HEALTHCHECK, dcron 用于定时任务
-RUN apk add --no-cache \
+# curl 用于 HEALTHCHECK
+# 使用缓存挂载加速 apk 安装
+RUN --mount=type=cache,target=/var/cache/apk \
+    apk add --no-cache \
     openssl \
     supervisor \
     curl \
-    dcron \
     && npm install -g tsx@^4.19.2 \
-    && npm install -g pnpm@${PNPM_VERSION} \
-    && rm -rf /var/cache/apk/*
+    && npm install -g pnpm@${PNPM_VERSION}
 
 # 设置环境变量
 ENV NODE_ENV=production
 
 # 设置国内npm源
-RUN pnpm config set registry ${REGISTRY_URL}
+# 配置 pnpm store 目录
+RUN pnpm config set registry ${REGISTRY_URL} && \
+    pnpm config set store-dir /pnpm/store
 
 # 优化缓存：先复制 package.json 文件并安装生产依赖
 COPY package.json pnpm-workspace.yaml ./
@@ -88,7 +103,9 @@ COPY --from=builder /app/packages/pixishelf/package.json ./packages/pixishelf/pa
 
 # 只安装生产依赖
 # 使用 --frozen-lockfile 保证依赖一致性
-RUN pnpm install --prod --frozen-lockfile
+# 使用缓存挂载加速 pnpm install
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --prod --frozen-lockfile
 
 # 复制 Prisma schema 并 生成 Prisma Client
 COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
@@ -104,30 +121,6 @@ COPY --from=builder --chown=appuser:appgroup /app/packages/pixishelf/scripts ./p
 
 # 创建 supervisor 配置和日志目录
 RUN mkdir -p /etc/supervisor/conf.d /var/log/supervisor
-
-# 创建定时任务脚本
-COPY <<EOF /app/run-tag-stats.sh
-#!/bin/sh
-set -e
-echo "[\$(date)] Starting tag artwork count update..."
-cd /app
-pnpm --filter="@pixishelf/next" exec tsx scripts/init-tag-artwork-count.ts
-echo "[\$(date)] Tag artwork count update completed."
-EOF
-
-# 创建crontab文件 - 每天凌晨2点执行
-COPY <<EOF /etc/crontabs/appuser
-# 每周凌晨2点执行标签统计更新
-# 0 2 * * 0 /app/run-tag-stats.sh >> /var/log/tag-stats.log 2>&1
-# 在每年的1月1日凌晨2:00执行  因为数据库加了触发器 并且后管可以手动执行.这里只是象征意义了
-0 2 1 1 * /app/run-tag-stats.sh >> /var/log/tag-stats.log 2>&1
-EOF
-
-# 设置脚本权限
-RUN chmod +x /app/run-tag-stats.sh && \
-    chown appuser:appgroup /app/run-tag-stats.sh && \
-    chown appuser:appgroup /etc/crontabs/appuser && \
-    chmod 600 /etc/crontabs/appuser
 
 COPY <<EOF /etc/supervisor/supervisord.conf
 [supervisord]
@@ -148,18 +141,6 @@ stderr_logfile_maxbytes=0
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
 environment=NODE_ENV="production",HOME="/home/appuser",USER="appuser"
-
-[program:crond]
-command=/usr/sbin/crond -f -l 2
-user=root
-directory=/app
-autostart=true
-autorestart=true
-stopwaitsecs=3
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
 EOF
 
 # 复制 entrypoint 脚本并赋予执行权限
