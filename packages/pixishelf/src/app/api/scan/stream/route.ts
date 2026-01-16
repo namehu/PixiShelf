@@ -1,19 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getScannerService } from '@/lib/services/scanner'
 import { ScanProgress } from '@/types'
 import logger from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
 import * as JobService from '@/services/job-service'
 import { JobStatus } from '@prisma/client'
-
-/**
- * Request body for scan stream
- */
-interface ScanRequestBody {
-  type: 'full' | 'list'
-  force?: boolean
-  metadataList?: string[]
-}
+import { apiHandler } from '@/lib/api-handler'
+import { ScanStreamSchema } from '@/schemas/scan.dto'
 
 /**
  * Helper: Create SSE event sender
@@ -30,20 +23,8 @@ function createEventSender(controller: ReadableStreamDefaultController, encoder:
  * POST /api/scan/stream
  * Unified scan stream endpoint
  */
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  let body: ScanRequestBody
-  try {
-    body = await request.json()
-  } catch (e) {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-  }
-
-  const { type = 'full', force = false, metadataList = [] } = body
-
-  // Validate inputs
-  if (type === 'list' && (!Array.isArray(metadataList) || metadataList.length === 0)) {
-    return NextResponse.json({ error: 'metadataList is required for list scan' }, { status: 400 })
-  }
+export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
+  const { type, force, metadataList } = data
 
   const scanPath = await getScanPath()
   if (!scanPath) {
@@ -126,4 +107,4 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       'Access-Control-Allow-Origin': '*'
     }
   })
-}
+})
