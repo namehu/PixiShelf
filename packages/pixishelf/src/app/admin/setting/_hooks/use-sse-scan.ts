@@ -1,20 +1,21 @@
 import React from 'react'
 import { toast } from 'sonner'
+import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { ScanResult, ScanProgress, LogEntry } from '@/types'
 import { useScanStore } from '@/store/scanStore'
 
 /**
- * SSE 扫描策略的启动选项
+ * Scan options for starting a scan
  */
 interface ScanOptions {
-  /** 强制全量扫描 (用于 GET 策略) */
+  /** Force full scan (re-scan existing files) */
   force?: boolean
-  /** 客户端提供的元数据列表 (用于 POST 策略) */
+  /** List of metadata paths for partial scan */
   metadataList?: string[]
 }
 
 /**
- * Hook 返回的状态
+ * Hook state
  */
 interface SseScanState {
   streaming: boolean
@@ -27,27 +28,23 @@ interface SseScanState {
 }
 
 /**
- * Hook 返回的动作
+ * Hook actions
  */
 interface SseScanActions {
   startScan: (options: ScanOptions) => void
   cancelScan: () => void
   clearLogs: () => void
-  /** 用于日志组件的手动滚动 */
   setAutoScroll: (auto: boolean) => void
-  /** 用于日志组件的显示切换 */
   setShowDetailedLogs: (show: boolean) => void
-  /** 日志组件的状态 */
   showDetailedLogs: boolean
   autoScroll: boolean
 }
 
 /**
- * 封装 SSE 扫描逻辑 (GET/POST) 的统一 Hook
- * 已重构：核心数据状态 (logs, result) 移交给 Zustand Store 进行持久化
+ * Unified SSE Scan Hook using fetch-event-source
  */
 export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
-  // 1. 从全局 Store 获取持久化状态和 Actions
+  // 1. Global Store State
   const {
     isScanning,
     logs,
@@ -60,32 +57,28 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
     clearLogs: storeClearLogs
   } = useScanStore()
 
-  // 2. 本地瞬时状态 (不需要持久化)
+  // 2. Local State
   const [progress, setProgress] = React.useState<ScanProgress | null>(null)
   const [elapsed, setElapsed] = React.useState(0)
   const [retryCount, setRetryCount] = React.useState(0)
-
-  // 日志 UI 状态 (本地控制)
   const [showDetailedLogs, setShowDetailedLogs] = React.useState(false)
   const [autoScroll, setAutoScroll] = React.useState(true)
 
-  // 内部引用
-  const esRef = React.useRef<EventSource | null>(null)
+  // 3. Refs
   const fetchControllerRef = React.useRef<AbortController | null>(null)
   const streamingRef = React.useRef(false)
+  const retryCountRef = React.useRef(0) // Use ref for retry logic inside callbacks
 
-  // 同步 ref 状态，用于在异步回调中检查最新状态
+  // Sync streaming ref
   React.useEffect(() => {
     streamingRef.current = isScanning
   }, [isScanning])
 
-  // 计时器
+  // Timer
   React.useEffect(() => {
     let timer: NodeJS.Timeout
     if (isScanning) {
       const started = Date.now()
-      // 如果是刚开始，重置 elapsed；如果是页面刷新回来且正在扫描，这里其实会重置为0
-      // 想要完美恢复时间需要存 startTime 到 store，但为了简单起见，这里每次重置
       setElapsed(0)
       timer = setInterval(() => {
         setElapsed(Math.floor((Date.now() - started) / 1000))
@@ -94,17 +87,15 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
     return () => clearInterval(timer)
   }, [isScanning])
 
-  // 组件卸载时清理连接 (但数据保留在 Store)
+  // Cleanup on unmount
   React.useEffect(() => {
     return () => {
-      esRef.current?.close()
       fetchControllerRef.current?.abort()
     }
   }, [])
 
-  // --- 内部辅助函数 ---
+  // --- Helpers ---
 
-  /** 1. 添加日志条目 (写入 Store) */
   const addLogEntry = React.useCallback(
     (type: LogEntry['type'], data: any, message: string) => {
       const entry: LogEntry = {
@@ -118,7 +109,6 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
     [addLog]
   )
 
-  /** 2. 统一事件处理器 (核心逻辑) */
   const handleSseEvent = React.useCallback(
     (eventName: string, data: any) => {
       switch (eventName) {
@@ -150,7 +140,6 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
           const errorMsg = errorData?.error || '未知错误'
           setIsScanning(false)
           setError(errorMsg)
-          // 既然出错了，result 应该置空或者保持上一次，这里选择保持原样或置空视需求而定
           setResult(null)
           addLogEntry('error', errorData, `错误: ${errorMsg}`)
           break
@@ -163,267 +152,162 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
           break
       }
 
-      // 结束事件，关闭连接
+      // Stop stream on terminal events
       if (['complete', 'error', 'cancelled'].includes(eventName)) {
-        esRef.current?.close()
-        esRef.current = null
-        // fetchControllerRef 由其自己的逻辑关闭
+        fetchControllerRef.current?.abort()
+        fetchControllerRef.current = null
       }
     },
     [addLogEntry, setError, setIsScanning, setResult]
   )
 
-  /** 3. GET 策略 (EventSource) */
-  const runGetStrategy = React.useCallback(
-    (options: ScanOptions) => {
-      const qs = new URLSearchParams()
-      if (options.force) qs.set('force', 'true')
-      const url = `/api/scan/stream${qs.toString() ? `?${qs.toString()}` : ''}`
-      addLogEntry('connection', { url, strategy: 'GET' }, `开始连接(GET): ${url}`)
+  // --- Core Logic ---
 
-      const connect = () => {
-        if (!streamingRef.current) return // 检查是否在重试期间被取消
+  const runScan = React.useCallback(
+    async (options: ScanOptions) => {
+      const url = '/api/scan/stream'
+      const isListScan = options.metadataList && options.metadataList.length > 0
+      const body = {
+        type: isListScan ? 'list' : 'full',
+        force: options.force,
+        metadataList: options.metadataList
+      }
 
-        const es = new EventSource(url)
-        esRef.current = es
+      addLogEntry('connection', { url, type: body.type, items: options.metadataList?.length }, `开始连接(POST): ${url}`)
 
-        // 连接建立事件（浏览器级）
-        es.addEventListener('open', () => handleSseEvent('connection', null))
+      const controller = new AbortController()
+      fetchControllerRef.current = controller
 
-        // 服务端显式的 connection 事件
-        es.addEventListener('connection', (ev: any) => {
-          try {
-            handleSseEvent('connection', JSON.parse(ev.data))
-          } catch (e) {
-            addLogEntry('error', { error: e, rawData: ev?.data }, '解析连接事件失败')
-          }
-        })
+      try {
+        await fetchEventSource(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
 
-        // 业务事件
-        es.addEventListener('progress', (ev: any) => {
-          try {
-            handleSseEvent('progress', JSON.parse(ev.data))
-          } catch (e) {
-            addLogEntry('error', { error: e, rawData: ev?.data }, '解析进度事件失败')
-          }
-        })
-
-        es.addEventListener('complete', (ev: any) => {
-          try {
-            handleSseEvent('complete', JSON.parse(ev.data))
-          } catch (e) {
-            addLogEntry('error', { error: e, rawData: ev?.data }, '解析完成事件失败')
-          }
-        })
-
-        es.addEventListener('error', (ev: any) => {
-          try {
-            handleSseEvent('error', JSON.parse(ev.data))
-          } catch (e) {
-            // 注意：这里处理的是服务端的 error 事件
-            addLogEntry('error', { error: e, rawData: ev?.data }, '解析错误事件失败')
-          }
-        })
-
-        es.addEventListener('cancelled', (ev: any) => {
-          try {
-            handleSseEvent('cancelled', JSON.parse(ev.data))
-          } catch (e) {
-            addLogEntry('error', { error: e, rawData: ev?.data }, '解析取消事件失败')
-          }
-        })
-
-        // 处理网络错误和重连
-        es.onerror = () => {
-          // 这里需要引用最新的 retryCount，所以使用 setState 的回调形式
-          // 但由于我们现在用了 local state setRetryCount，我们需要小心闭包问题
-          // 最好的方式是直接在 setRetryCount 内部处理逻辑
-          setRetryCount((prevCount) => {
-            if (prevCount < 3 && streamingRef.current) {
-              const newRetryCount = prevCount + 1
-              addLogEntry('connection', { retryCount: newRetryCount }, `连接中断，准备第${newRetryCount}次重连`)
-              setTimeout(connect, 2000 * newRetryCount) // 指数退避
-              return newRetryCount
+          async onopen(response) {
+            if (response.ok && response.headers.get('content-type')?.includes('text/event-stream')) {
+              // Connection successful
+              retryCountRef.current = 0
+              setRetryCount(0)
+              return
             }
-            addLogEntry('error', { retryCount: prevCount }, '连接中断，重试次数已达上限')
+            // If we get here, it's an error (e.g. 400, 500)
+            const errorText = await response.text()
+            // Throwing here triggers onerror
+            throw new Error(`Connection failed: ${response.status} ${errorText}`)
+          },
+
+          onmessage(msg) {
+            if (msg.event === 'ping') return
+            try {
+              const data = JSON.parse(msg.data)
+              handleSseEvent(msg.event, data)
+            } catch (e) {
+              addLogEntry('error', { error: e, rawData: msg.data }, '解析SSE数据失败')
+            }
+          },
+
+          onclose() {
+            // If the server closes the connection, we consider it done unless we haven't finished.
+            // But usually 'complete' event handles the cleanup.
+            // If we reach here without 'complete', it might be a premature close.
+            // fetch-event-source retries on close by default unless we throw.
+            // We'll throw to stop unless we want to retry?
+            // If we are not scanning anymore, do nothing.
+            if (!streamingRef.current) return
+
+            // If we are still scanning and connection closed, maybe retry?
+            // But let's assume server closes only when done or error.
+            // We'll throw to stop the library from retrying automatically without our control.
+            throw new Error('Connection closed by server')
+          },
+
+          onerror(err) {
+            if (controller.signal.aborted) {
+              // User aborted, rethrow to stop
+              throw err
+            }
+
+            // Retry logic
+            const currentRetry = retryCountRef.current
+            if (currentRetry < 3) {
+              const nextRetry = currentRetry + 1
+              retryCountRef.current = nextRetry
+              setRetryCount(nextRetry)
+
+              const timeout = 2000 * nextRetry
+              addLogEntry(
+                'connection',
+                { retryCount: nextRetry, error: err.message },
+                `连接中断，${timeout}ms后第${nextRetry}次重连`
+              )
+
+              // return timeout in ms to retry
+              return timeout
+            }
+            // Max retries reached
+            addLogEntry('error', { retryCount: currentRetry, error: err.message }, '连接中断，重试次数已达上限')
             setIsScanning(false)
-            setError('连接中断，重试失败')
-            return prevCount
-          })
-          es.close()
-          esRef.current = null
+            setError(`连接失败: ${err.message}`)
+            throw err // Stop retrying
+          }
+        })
+      } catch (err: any) {
+        if (controller.signal.aborted) {
+          // Expected abort
+          return
+        }
+        // Other errors not handled by onerror or thrown by onerror
+        // If we haven't already set error state:
+        if (streamingRef.current) {
+          setIsScanning(false)
+          setError(err.message || 'Unknown error')
+          addLogEntry('error', { error: err }, `扫描失败: ${err.message}`)
+        }
+      } finally {
+        if (fetchControllerRef.current === controller) {
+          fetchControllerRef.current = null
         }
       }
-      connect()
     },
     [addLogEntry, handleSseEvent, setIsScanning, setError]
   )
 
-  /** 4. POST 策略 (Fetch + Manual Parse) */
-  const runPostStrategy = React.useCallback(
-    async (options: ScanOptions) => {
-      const url = `/api/scan/stream`
-      addLogEntry(
-        'connection',
-        { url, strategy: 'POST', items: options.metadataList?.length },
-        `开始连接(POST): ${url}`
-      )
+  // --- Actions ---
 
-      const connect = async () => {
-        if (!streamingRef.current) return
-
-        const controller = new AbortController()
-        fetchControllerRef.current = controller
-
-        try {
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            signal: controller.signal,
-            body: JSON.stringify({ metadataList: options.metadataList })
-          })
-
-          if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`)
-          }
-          if (!res.body) {
-            throw new Error('Response body is null')
-          }
-
-          // 重置重连次数
-          setRetryCount(0)
-
-          const reader = res.body.getReader()
-          const decoder = new TextDecoder()
-          let buffer = ''
-
-          while (true) {
-            const { value, done } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-
-            const parts = buffer.split(/\n\n/) // SSE 事件以空行分隔
-            buffer = parts.pop() || '' // 保留最后一个不完整的部分
-
-            for (const part of parts) {
-              if (!part.trim()) continue
-
-              let event: string | null = null
-              const dataLines: string[] = []
-
-              for (const line of part.split(/\n/)) {
-                if (line.startsWith('event:')) {
-                  event = line.slice(6).trim()
-                } else if (line.startsWith('data:')) {
-                  dataLines.push(line.slice(5))
-                }
-              }
-
-              if (!event) continue
-              const dataStr = dataLines.join('\n')
-              let payload: any = null
-
-              try {
-                payload = dataStr ? JSON.parse(dataStr) : null
-                handleSseEvent(event, payload)
-              } catch (e) {
-                addLogEntry('error', { error: e, rawData: dataStr }, '解析SSE数据失败')
-              }
-
-              // 结束事件，主动停止读取
-              if (['complete', 'error', 'cancelled'].includes(event)) {
-                await reader.cancel()
-                fetchControllerRef.current = null
-                return
-              }
-            }
-          }
-        } catch (error: any) {
-          if (controller.signal.aborted) {
-            // 用户主动取消，handleSseEvent('cancelled') 会在 cancelScan 中调用
-            addLogEntry('cancelled', null, '用户已取消 POST 流')
-            return
-          }
-
-          // 重连逻辑
-          setRetryCount((prevCount) => {
-            if (prevCount < 3 && streamingRef.current) {
-              const newRetryCount = prevCount + 1
-              addLogEntry(
-                'connection',
-                { retryCount: newRetryCount, error: error.message },
-                `POST 流错误，准备第${newRetryCount}次重连`
-              )
-              setTimeout(connect, 2000 * newRetryCount)
-              return newRetryCount
-            }
-            addLogEntry('error', { retryCount: prevCount, error: error.message }, 'POST 流错误，重试次数已达上限')
-            setIsScanning(false)
-            setError(`连接失败: ${error.message}`)
-            return prevCount
-          })
-        } finally {
-          if (fetchControllerRef.current === controller) {
-            fetchControllerRef.current = null
-          }
-        }
-      }
-      connect()
-    },
-    [handleSseEvent, addLogEntry, setIsScanning, setError]
-  )
-
-  // --- 暴露的动作 ---
-
-  /**
-   * 启动扫描（门面）
-   */
   const startScan = React.useCallback(
     (options: ScanOptions) => {
-      // 关闭任何现有的连接
-      esRef.current?.close()
+      // Reset state
       fetchControllerRef.current?.abort()
-
-      // 重置 Store 和本地状态
       storeClearLogs()
       setIsScanning(true)
       setResult(null)
       setError(null)
       setProgress(null)
       setRetryCount(0)
+      retryCountRef.current = 0
       setShowDetailedLogs(false)
 
       streamingRef.current = true
 
-      if (options.metadataList && options.metadataList.length > 0) {
-        runPostStrategy(options)
-      } else {
-        runGetStrategy(options)
-      }
+      runScan(options)
     },
-    [storeClearLogs, setIsScanning, setResult, setError, runPostStrategy, runGetStrategy]
+    [storeClearLogs, setIsScanning, setResult, setError, runScan]
   )
 
-  /**
-   * 取消扫描（客户端）
-   * 注意：这只负责停止客户端的监听。
-   * 服务端的取消应由组件的 `useCancelScan` mutation 触发。
-   */
   const cancelScan = React.useCallback(() => {
-    esRef.current?.close()
-    esRef.current = null
     fetchControllerRef.current?.abort()
     fetchControllerRef.current = null
 
     if (streamingRef.current) {
-      // 仅在仍在进行中时才标记为“已取消”
       handleSseEvent('cancelled', { client: true, message: 'User cancelled' })
     }
   }, [handleSseEvent])
 
   return {
-    // 组合状态：一部分来自 Store (持久化)，一部分来自 Hook (本地瞬时)
     state: {
       streaming: isScanning,
       logs,
