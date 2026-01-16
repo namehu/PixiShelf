@@ -1,8 +1,8 @@
-
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import localforage from 'localforage'
 import { ArtworkStats, ArtworkProgressStorage, ArtworkProgress, PixivArtworkData } from '../../../types/pixiv'
+import { createComputed } from './zustandComputed'
 
 interface DownloadProgress {
   current: number
@@ -10,7 +10,14 @@ interface DownloadProgress {
   isDownloading: boolean
 }
 
-interface ArtworkTaskState {
+interface ComputedValues {
+  successfulArtworks: Array<{ id: string; data: PixivArtworkData }>
+  failedArtworks: Array<{ id: string; error: string }>
+}
+
+type ArtworkTaskBaseState = Omit<ArtworkTaskState, keyof ComputedValues>
+
+interface ArtworkTaskState extends ComputedValues {
   // 原始数据（持久化）
   artworkList: string[]
   progressData: ArtworkProgressStorage
@@ -22,10 +29,6 @@ interface ArtworkTaskState {
   downloadProgress: DownloadProgress
   logs: string[]
   artworkInput: string
-
-  // 计算属性（getter，不持久化）
-  get successfulArtworks(): Array<{ id: string; data: PixivArtworkData }>
-  get failedArtworks(): Array<{ id: string; error: string }>
 
   // 数据操作方法
   setArtworkList: (ids: string[]) => void
@@ -72,9 +75,25 @@ const artworkStorage = localforage.createInstance({
   storeName: 'artwork-task-store'
 })
 
-export const useArtworkTaskStore = create<ArtworkTaskState>()(
+export const useArtworkTaskStore = create<ArtworkTaskBaseState>()(
   persist(
-    (set, get) => {
+    createComputed<ArtworkTaskBaseState, ComputedValues>(
+      (state) => ({
+        successfulArtworks: Object.entries(state.progressData)
+          .filter(([_, progress]) => progress.status === 'fulfilled')
+          .map(([id, progress]) => ({
+            id,
+            data: progress.data as PixivArtworkData
+          })),
+        failedArtworks: Object.entries(state.progressData)
+          .filter(([_, progress]) => progress.status === 'rejected')
+          .map(([id, progress]) => ({
+            id,
+            error: progress.data as string
+          }))
+      }),
+      { keys: ['progressData'] }
+    )((set, get) => {
       // 计算统计信息的辅助函数
       const calculateTaskStats = (list: string[], progressData: ArtworkProgressStorage): ArtworkStats => {
         const total = new Set(list).size
@@ -104,26 +123,9 @@ export const useArtworkTaskStore = create<ArtworkTaskState>()(
         logs: [],
         artworkInput: '',
 
-        // 计算属性
-        get successfulArtworks(): Array<{ id: string; data: PixivArtworkData }> {
-          const state = get()
-          return Object.entries(state.progressData)
-            .filter(([_, progress]) => progress.status === 'fulfilled')
-            .map(([id, progress]) => ({
-              id,
-              data: progress.data as PixivArtworkData
-            }))
-        },
-
-        get failedArtworks(): Array<{ id: string; error: string }> {
-          const state = get()
-          return Object.entries(state.progressData)
-            .filter(([_, progress]) => progress.status === 'rejected')
-            .map(([id, progress]) => ({
-              id,
-              error: progress.data as string
-            }))
-        },
+        // 移除原来的 getters
+        // get successfulArtworks() ...
+        // get failedArtworks() ...
 
         // 更新统计信息的方法
         updateTaskStats: () => {
@@ -152,10 +154,10 @@ export const useArtworkTaskStore = create<ArtworkTaskState>()(
 
           const existingIds = get().artworkList
           const newIds = ids.filter((id) => !existingIds.includes(id))
-          
+
           const added = newIds.length
           const duplicates = ids.length - added
-          
+
           if (newIds.length > 0) {
             set((state) => {
               const currentIds = new Set(state.artworkList)
@@ -272,7 +274,7 @@ export const useArtworkTaskStore = create<ArtworkTaskState>()(
           return get().artworkList
         }
       }
-    },
+    }),
     {
       name: 'pixiv-artwork-task-store',
       storage: artworkStorage,
