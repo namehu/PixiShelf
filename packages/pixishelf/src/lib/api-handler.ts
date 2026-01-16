@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z, ZodError, ZodSchema } from 'zod'
 import logger from '@/lib/logger'
-import { ApiError } from './errors'
 
 // 定义通用的 Context 类型 (Next.js 15+ params 是 Promise)
 interface RouteContext {
@@ -121,6 +120,17 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
         { status: 500 }
       )
     }
+  }
+}
+
+export class ApiError extends Error {
+  statusCode: number
+  details?: any
+
+  constructor(message: string, statusCode = 400, details?: any) {
+    super(message)
+    this.statusCode = statusCode
+    this.details = details
   }
 }
 
