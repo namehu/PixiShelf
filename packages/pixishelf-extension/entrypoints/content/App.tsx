@@ -9,6 +9,10 @@ import { useUIStore } from './stores/uiStore'
 import { SettingContent } from './components/setting-content'
 import UserContent from './components/user-content'
 
+import { ArtworkTaskController } from './components/ArtworkTaskController'
+import { ArtworkProgressDisplay } from './components/ArtworkProgressDisplay'
+import { ArtworkLogViewer } from './components/ArtworkLogViewer'
+
 const App: React.FC = () => {
   const { isInitialized, error, isLoading, initializeApp } = useAppStore()
   const { activeTab } = useUIStore()
@@ -33,19 +37,9 @@ const App: React.FC = () => {
       case 'artworks':
         return (
           <div className="artworks-content">
-            <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', color: '#333' }}>作品管理</h3>
-            <div
-              style={{
-                padding: '20px',
-                textAlign: 'center',
-                color: '#666',
-                backgroundColor: '#f8f9fa',
-                borderRadius: '4px'
-              }}
-            >
-              <p>作品页内容区域</p>
-              <p>这里将显示作品相关的功能</p>
-            </div>
+            <ArtworkTaskController />
+            <ArtworkProgressDisplay />
+            <ArtworkLogViewer />
           </div>
         )
       case 'setting':
