@@ -150,7 +150,18 @@ export const ArtworkResponseDto = ArtworkModel.extend({
    * 总媒体大小
    * 目前来说仅计算 视频 / apng 文件大小 图片大小统一为0
    */
-  totalMediaSize: z.number().int().default(0)
+  totalMediaSize: z.number().int().default(0),
+
+  /**
+   * 系列信息
+   */
+  series: z.object({
+    id: z.number(),
+    title: z.string(),
+    order: z.number(),
+    prev: z.object({ id: z.number(), title: z.string() }).nullable(),
+    next: z.object({ id: z.number(), title: z.string() }).nullable()
+  }).nullable().optional()
 })
 
 // export type ArtistResponse = z.infer<typeof ArtistResponseDto>

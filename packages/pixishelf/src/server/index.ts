@@ -6,6 +6,7 @@ import { artistRouter } from './routers/artist'
 import { artworkRouter } from './routers/artwork'
 import { searchRouter } from './routers/search'
 import { tagRouter } from './routers/tag'
+import { seriesRouter } from './routers/series'
 
 // 挂载子路由
 export const appRouter = router({
@@ -15,7 +16,8 @@ export const appRouter = router({
   artist: artistRouter,
   artwork: artworkRouter,
   search: searchRouter,
-  tag: tagRouter
+  tag: tagRouter,
+  series: seriesRouter
 })
 
 // 导出类型供前端使用

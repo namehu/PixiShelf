@@ -50,7 +50,29 @@ export const ArtworkModel = z.object({
   sourceUrl: z.string().nullable(), // [cite: 12]
   thumbnailUrl: z.string().nullable(),
   xRestrict: z.string().nullable(), // [cite: 13]
-  likeCount: z.number().int().default(0) // [cite: 14]
+  likeCount: z.number().int().default(0), // [cite: 14]
+  seriesId: z.number().int().nullable()
+})
+
+/**
+ * Model Series
+ */
+export const SeriesModel = z.object({
+  id: z.number().int(),
+  title: z.string(),
+  description: z.string().nullable(),
+  coverImageUrl: z.string().nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date()
+})
+
+/**
+ * Model SeriesArtwork
+ */
+export const SeriesArtworkModel = z.object({
+  seriesId: z.number().int(),
+  artworkId: z.number().int(),
+  sortOrder: z.number().int()
 })
 
 /**

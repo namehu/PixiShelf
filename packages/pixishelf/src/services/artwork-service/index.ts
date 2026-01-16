@@ -435,7 +435,15 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
     include: {
       images: { orderBy: { sortOrder: 'asc' } },
       artist: true,
-      artworkTags: { include: { tag: true } }
+      artworkTags: { include: { tag: true } },
+      series: {
+        include: {
+          seriesArtworks: {
+            orderBy: { sortOrder: 'asc' },
+            include: { artwork: { select: { id: true, title: true } } }
+          }
+        }
+      }
     }
   })
 
@@ -446,6 +454,24 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
 
   const { images: enhancedImages, totalMediaSize, imageCount } = transformImages(artwork.images)
 
+  let seriesData = null
+  if (artwork.series) {
+    const currentItem = artwork.series.seriesArtworks.find(sa => sa.artworkId === id)
+    if (currentItem) {
+      const currentIndex = artwork.series.seriesArtworks.indexOf(currentItem)
+      const prev = currentIndex > 0 ? artwork.series.seriesArtworks[currentIndex - 1] : null
+      const next = currentIndex < artwork.series.seriesArtworks.length - 1 ? artwork.series.seriesArtworks[currentIndex + 1] : null
+      
+      seriesData = {
+        id: artwork.series.id,
+        title: artwork.series.title,
+        order: currentItem.sortOrder,
+        prev: prev ? { id: prev.artwork.id, title: prev.artwork.title } : null,
+        next: next ? { id: next.artwork.id, title: next.artwork.title } : null
+      }
+    }
+  }
+
   return ArtworkResponseDto.parse({
     ...artwork,
     imageCount,
@@ -453,7 +479,8 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
     tags: artwork.artworkTags.map(({ tag }) => tag),
     totalMediaSize,
     artist: artwork.artist,
-    artworkTags: undefined
+    artworkTags: undefined,
+    series: seriesData
   })
 }
 
