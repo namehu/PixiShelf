@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import localforage from 'localforage'
 import { TaskStats, ProgressStorage, TaskProgress, PixivTagData } from '../../../types/pixiv'
+import { createComputed } from './zustandComputed'
 
 interface DownloadProgress {
   current: number
@@ -9,7 +10,15 @@ interface DownloadProgress {
   isDownloading: boolean
 }
 
-interface TaskState {
+interface ComputedValues {
+  successfulTags: Array<{ tagName: string; data: PixivTagData }>
+  failedTags: Array<{ tagName: string; error: string }>
+  tagsWithImages: Array<{ tagName: string; data: PixivTagData }>
+}
+
+type TaskBaseState = Omit<TaskState, keyof ComputedValues>
+
+interface TaskState extends ComputedValues {
   // 原始数据（持久化）
   tagList: string[]
   progressData: ProgressStorage
@@ -21,11 +30,6 @@ interface TaskState {
   downloadProgress: DownloadProgress
   logs: string[]
   tagInput: string
-
-  // 计算属性（getter，不持久化）
-  get successfulTags(): Array<{ tagName: string; data: PixivTagData }>
-  get failedTags(): Array<{ tagName: string; error: string }>
-  get tagsWithImages(): Array<{ tagName: string; data: PixivTagData }>
 
   // 数据操作方法
   setTagList: (tags: string[]) => void
@@ -72,9 +76,38 @@ const taskStorage = localforage.createInstance({
   storeName: 'task-store'
 })
 
-export const useTaskStore = create<TaskState>()(
+export const useTaskStore = create<TaskBaseState>()(
   persist(
-    (set, get) => {
+    createComputed<TaskBaseState, ComputedValues>(
+      (state) => {
+        const successfulTags: Array<{ tagName: string; data: PixivTagData }> = []
+        const failedTags: Array<{ tagName: string; error: string }> = []
+        const tagsWithImages: Array<{ tagName: string; data: PixivTagData }> = []
+
+        Object.entries(state.progressData).forEach(([tagName, progress]) => {
+          if (progress.status === 'fulfilled') {
+            const data = progress.data as PixivTagData
+            successfulTags.push({ tagName, data })
+
+            if (data.imageUrl && data.imageUrl.trim() !== '') {
+              tagsWithImages.push({ tagName, data })
+            }
+          } else if (progress.status === 'rejected') {
+            failedTags.push({
+              tagName,
+              error: progress.data as string
+            })
+          }
+        })
+
+        return {
+          successfulTags,
+          failedTags,
+          tagsWithImages
+        }
+      },
+      { keys: ['progressData'] }
+    )((set, get) => {
       // 计算统计信息的辅助函数
       const calculateTaskStats = (tagList: string[], progressData: ProgressStorage): TaskStats => {
         const totalTags = new Set(tagList).size
@@ -103,41 +136,6 @@ export const useTaskStore = create<TaskState>()(
         downloadProgress: initialDownloadProgress,
         logs: [],
         tagInput: '',
-
-        // 计算属性（保持为 getter，因为不需要持久化）
-        get successfulTags(): Array<{ tagName: string; data: PixivTagData }> {
-          const state = get()
-          return Object.entries(state.progressData)
-            .filter(([_, progress]) => progress.status === 'fulfilled')
-            .map(([tagName, progress]) => ({
-              tagName,
-              data: progress.data as PixivTagData
-            }))
-        },
-
-        get failedTags(): Array<{ tagName: string; error: string }> {
-          const state = get()
-          return Object.entries(state.progressData)
-            .filter(([_, progress]) => progress.status === 'rejected')
-            .map(([tagName, progress]) => ({
-              tagName,
-              error: progress.data as string
-            }))
-        },
-
-        get tagsWithImages(): Array<{ tagName: string; data: PixivTagData }> {
-          const state = get()
-          return Object.entries(state.progressData)
-            .filter(([_, progress]) => {
-              if (progress.status !== 'fulfilled') return false
-              const data = progress.data as PixivTagData
-              return data.imageUrl && data.imageUrl.trim() !== ''
-            })
-            .map(([tagName, progress]) => ({
-              tagName,
-              data: progress.data as PixivTagData
-            }))
-        },
 
         // 更新统计信息的方法
         updateTaskStats: () => {
@@ -168,11 +166,11 @@ export const useTaskStore = create<TaskState>()(
           // 获取现有标签并过滤重复
           const existingTags = get().tagList
           const newTags = tags.filter((tag) => !existingTags.includes(tag))
-          
+
           // 计算统计信息
           const added = newTags.length
           const duplicates = tags.length - added
-          
+
           // 更新状态
           if (newTags.length > 0) {
             set((state) => {
@@ -291,7 +289,7 @@ export const useTaskStore = create<TaskState>()(
           return get().tagList
         }
       }
-    },
+    }),
     {
       name: 'pixiv-task-store',
       storage: taskStorage,

@@ -78,20 +78,29 @@ const artworkStorage = localforage.createInstance({
 export const useArtworkTaskStore = create<ArtworkTaskBaseState>()(
   persist(
     createComputed<ArtworkTaskBaseState, ComputedValues>(
-      (state) => ({
-        successfulArtworks: Object.entries(state.progressData)
-          .filter(([_, progress]) => progress.status === 'fulfilled')
-          .map(([id, progress]) => ({
-            id,
-            data: progress.data as PixivArtworkData
-          })),
-        failedArtworks: Object.entries(state.progressData)
-          .filter(([_, progress]) => progress.status === 'rejected')
-          .map(([id, progress]) => ({
-            id,
-            error: progress.data as string
-          }))
-      }),
+      (state) => {
+        const successfulArtworks: Array<{ id: string; data: PixivArtworkData }> = []
+        const failedArtworks: Array<{ id: string; error: string }> = []
+
+        Object.entries(state.progressData).forEach(([id, progress]) => {
+          if (progress.status === 'fulfilled') {
+            successfulArtworks.push({
+              id,
+              data: progress.data as PixivArtworkData
+            })
+          } else if (progress.status === 'rejected') {
+            failedArtworks.push({
+              id,
+              error: progress.data as string
+            })
+          }
+        })
+
+        return {
+          successfulArtworks,
+          failedArtworks
+        }
+      },
       { keys: ['progressData'] }
     )((set, get) => {
       // 计算统计信息的辅助函数
@@ -122,10 +131,6 @@ export const useArtworkTaskStore = create<ArtworkTaskBaseState>()(
         downloadProgress: initialDownloadProgress,
         logs: [],
         artworkInput: '',
-
-        // 移除原来的 getters
-        // get successfulArtworks() ...
-        // get failedArtworks() ...
 
         // 更新统计信息的方法
         updateTaskStats: () => {

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import localforage from 'localforage'
 import { UserStats, UserProgressStorage, UserProgress, PixivUserData } from '../../../types/pixiv'
+import { createComputed } from './zustandComputed'
 
 interface DownloadProgress {
   current: number
@@ -9,7 +10,15 @@ interface DownloadProgress {
   isDownloading: boolean
 }
 
-interface UserInfoState {
+interface ComputedValues {
+  successfulUsers: Array<{ userId: string; data: PixivUserData }>
+  failedUsers: Array<{ userId: string; error: string }>
+  usersWithImages: Array<{ userId: string; data: PixivUserData }>
+}
+
+type UserInfoBaseState = Omit<UserInfoState, keyof ComputedValues>
+
+interface UserInfoState extends ComputedValues {
   // 原始数据（持久化）
   userIdList: string[]
   progressData: UserProgressStorage
@@ -20,11 +29,6 @@ interface UserInfoState {
   isPaused: boolean
   downloadProgress: DownloadProgress
   logs: string[]
-
-  // 计算属性（getter，不持久化）
-  get successfulUsers(): Array<{ userId: string; data: PixivUserData }>
-  get failedUsers(): Array<{ userId: string; error: string }>
-  get usersWithImages(): Array<{ userId: string; data: PixivUserData }>
 
   // 数据操作方法
   setUserIdList: (userIds: string[]) => void
@@ -82,9 +86,38 @@ const calculateUserStats = (userIdList: string[], progressData: UserProgressStor
   return { total, completed, successful, failed, pending }
 }
 
-export const useUserInfoStore = create<UserInfoState>()(
+export const useUserInfoStore = create<UserInfoBaseState>()(
   persist(
-    (set, get) => {
+    createComputed<UserInfoBaseState, ComputedValues>(
+      (state) => {
+        const successfulUsers: Array<{ userId: string; data: PixivUserData }> = []
+        const failedUsers: Array<{ userId: string; error: string }> = []
+        const usersWithImages: Array<{ userId: string; data: PixivUserData }> = []
+
+        Object.entries(state.progressData).forEach(([userId, progress]) => {
+          if (progress.status === 'fulfilled') {
+            const data = progress.data as PixivUserData
+            successfulUsers.push({ userId, data })
+
+            if (data.avatarUrl || data.backgroundUrl) {
+              usersWithImages.push({ userId, data })
+            }
+          } else if (progress.status === 'rejected') {
+            failedUsers.push({
+              userId,
+              error: typeof progress.data === 'string' ? progress.data : '未知错误'
+            })
+          }
+        })
+
+        return {
+          successfulUsers,
+          failedUsers,
+          usersWithImages
+        }
+      },
+      { keys: ['progressData'] }
+    )((set, get) => {
       return {
         // 初始状态
         userIdList: [],
@@ -94,41 +127,6 @@ export const useUserInfoStore = create<UserInfoState>()(
         isPaused: false,
         downloadProgress: initialDownloadProgress,
         logs: [],
-
-        // 计算属性
-        get successfulUsers() {
-          const state = get()
-          return Object.entries(state.progressData)
-            .filter(([_, progress]) => progress.status === 'fulfilled')
-            .map(([userId, progress]) => ({
-              userId,
-              data: progress.data as PixivUserData
-            }))
-        },
-
-        get failedUsers() {
-          const state = get()
-          return Object.entries(state.progressData)
-            .filter(([_, progress]) => progress.status === 'rejected')
-            .map(([userId, progress]) => ({
-              userId,
-              error: typeof progress.data === 'string' ? progress.data : '未知错误'
-            }))
-        },
-
-        get usersWithImages() {
-          const state = get()
-          return Object.entries(state.progressData)
-            .filter(([_, progress]) => {
-              if (progress.status !== 'fulfilled') return false
-              const userData = progress.data as PixivUserData
-              return userData.avatarUrl || userData.backgroundUrl
-            })
-            .map(([userId, progress]) => ({
-              userId,
-              data: progress.data as PixivUserData
-            }))
-        },
 
         // 数据操作方法
         setUserIdList: (userIds) => {
@@ -278,7 +276,7 @@ export const useUserInfoStore = create<UserInfoState>()(
           return get().userIdList
         }
       }
-    },
+    }),
     {
       name: 'pixiv-user-info-store',
       storage: userStorage,
