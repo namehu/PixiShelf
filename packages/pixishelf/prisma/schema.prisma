@@ -48,6 +48,9 @@ model Artwork {
   likeCount          Int           @default(0)
   artist             Artist?       @relation(fields: [artistId], references: [id])
   likes              ArtworkLike[]
+  seriesId           Int?
+  series             Series?       @relation(fields: [seriesId], references: [id])
+  seriesArtworks     SeriesArtwork[]
   artworkTags        ArtworkTag[]
   images             Image[]
 
@@ -192,4 +195,27 @@ enum JobStatus {
   FAILED
   CANCELLED
   CANCELLING
+}
+
+model Series {
+  id            Int             @id @default(autoincrement())
+  title         String
+  description   String?
+  coverImageUrl String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  artworks      Artwork[]
+  seriesArtworks SeriesArtwork[]
+}
+
+model SeriesArtwork {
+  seriesId  Int
+  artworkId Int
+  sortOrder Int
+  series    Series  @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  artwork   Artwork @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+
+  @@unique([seriesId, artworkId])
+  @@index([seriesId])
+  @@index([artworkId])
 }
