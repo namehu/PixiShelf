@@ -7,6 +7,7 @@ import RelatedArtworks from './_components/RelatedArtworks'
 import { getArtworkById } from '@/services/artwork-service'
 import z from 'zod'
 import NavHead from './_components/NavHead'
+import SeriesNav from './_components/SeriesNav'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
@@ -57,6 +58,13 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
                 <LazyMedia key={img.id} src={img.path} index={index} />
               ))}
             </div>
+
+            {/* Series Navigation */}
+            {data.series && (
+              <div className="px-4">
+                <SeriesNav series={data.series} />
+              </div>
+            )}
 
             {/* Related Artworks */}
             {artistId && <RelatedArtworks artistId={artistId} currentArtworkId={data.id} />}
