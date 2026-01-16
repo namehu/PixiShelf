@@ -1,210 +1,155 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAppStateService } from '@/lib/services/app-state'
 import { getScannerService } from '@/lib/services/scanner'
 import { ScanProgress } from '@/types'
 import logger from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
+import * as JobService from '@/services/job-service'
+import { JobStatus } from '@prisma/client'
 
 /**
- * 扫描SSE流接口
- * GET /api/scan/stream
+ * 辅助函数：创建 SSE 事件发送器
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    const appStateService = getAppStateService()
-    const scannerService = getScannerService()
-
-    const scanPath = await getScanPath()
-    if (!scanPath) {
-      return NextResponse.json({ error: 'SCAN_PATH is not configured' }, { status: 400 })
-    }
-
-    const { searchParams } = new URL(request.url)
-    const force = searchParams.get('force') === 'true'
-
-    // 检查是否已经在扫描
-    const currentState = appStateService.getState()
-    if (currentState.scanning) {
-      return NextResponse.json({ error: 'Scan already in progress' }, { status: 409 })
-    }
-
-    // 创建SSE响应
-    const encoder = new TextEncoder()
-    const stream = new ReadableStream({
-      start(controller) {
-        // 发送SSE事件的辅助函数
-        const sendEvent = (event: string, data: any) => {
-          const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-          logger.info({ event, ...data })
-          controller.enqueue(encoder.encode(message))
-        }
-
-        // 开始扫描
-        appStateService.setScanning(true)
-        appStateService.setProgressMessage('初始化…')
-
-        // 使用真实的扫描服务
-        const startScan = async () => {
-          try {
-            const result = await scannerService.scan({
-              scanPath,
-              forceUpdate: force,
-              onProgress: (progress: ScanProgress) => {
-                appStateService.setProgressMessage(progress?.message || null)
-                if (appStateService.getState().cancelRequested) {
-                  throw new Error('Scan cancelled')
-                }
-                sendEvent('progress', progress)
-              }
-            })
-
-            sendEvent('complete', { success: true, result })
-          } catch (error: any) {
-            if (error?.message === 'Scan cancelled') {
-              sendEvent('cancelled', { success: false, error: 'Scan cancelled' })
-            } else {
-              const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-              sendEvent('error', { success: false, error: errorMsg })
-            }
-          } finally {
-            appStateService.setScanning(false)
-            controller.close()
-          }
-        }
-
-        // 启动扫描
-        sendEvent('connection', { success: true, result: '连接成功。开始扫描' })
-
-        setTimeout(() => {
-          startScan()
-        }, 100)
-      },
-
-      cancel() {
-        // 清理资源
-        appStateService.setScanning(false)
-      }
-    })
-
-    return new NextResponse(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Cache-Control'
-      }
-    })
-  } catch (error) {
-    logger.error('Failed to start scan stream:', error)
-
-    return NextResponse.json({ error: 'Failed to start scan stream' }, { status: 500 })
+function createEventSender(controller: ReadableStreamDefaultController, encoder: TextEncoder) {
+  return (event: string, data: any) => {
+    // 确保数据是对象或字符串，避免 undefined/null
+    const safeData = data === undefined ? {} : data
+    const message = `event: ${event}\ndata: ${JSON.stringify(safeData)}\n\n`
+    controller.enqueue(encoder.encode(message))
   }
 }
 
 /**
- * 扫描SSE流接口（接收客户端提供的元数据列表）
+ * 扫描 SSE 流处理逻辑
+ * 支持 GET (全量扫描) 和 POST (指定列表扫描)
+ */
+async function handleScanStream(
+  request: NextRequest,
+  scanType: 'full' | 'list',
+  metadataList?: string[]
+): Promise<NextResponse> {
+  const scanPath = await getScanPath()
+  if (!scanPath) {
+    return NextResponse.json({ error: 'SCAN_PATH is not configured' }, { status: 400 })
+  }
+
+  const { searchParams } = new URL(request.url)
+  const force = searchParams.get('force') === 'true'
+  const scannerService = getScannerService()
+  const encoder = new TextEncoder()
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const sendEvent = createEventSender(controller, encoder)
+      let currentJobId: string | null = null
+
+      try {
+        // 1. 尝试创建任务锁
+        const job = await JobService.createScanJob()
+        currentJobId = job.id
+        logger.info(`Scan job created: ${job.id}`)
+
+        // ==================== 执行者模式 ====================
+        sendEvent('connection', { success: true, result: '连接成功，开始扫描' })
+
+        // 节流控制：避免频繁写库
+        let lastDbUpdate = 0
+        const DB_UPDATE_INTERVAL = 1000 // 1秒
+
+        const result = await scannerService.scan({
+          scanPath,
+          forceUpdate: force,
+          metadataRelativePaths: scanType === 'list' ? metadataList : undefined,
+
+          // 检查取消状态
+          checkCancelled: async () => {
+            if (!currentJobId) return false
+            const job = await JobService.getJob(currentJobId)
+            return job?.status === JobStatus.CANCELLING
+          },
+
+          // 进度回调
+          onProgress: (progress: ScanProgress) => {
+            // 1. 实时推送 SSE
+            sendEvent('progress', progress)
+
+            // 2. 节流写库
+            const now = Date.now()
+            if (now - lastDbUpdate > DB_UPDATE_INTERVAL && currentJobId) {
+              JobService.updateProgress(currentJobId, progress.percentage || 0, progress.message || '').catch((err) =>
+                logger.error('Failed to update job progress', err)
+              )
+              lastDbUpdate = now
+            }
+          }
+        })
+
+        // 任务完成
+        if (currentJobId) {
+          await JobService.completeJob(currentJobId, result)
+        }
+        sendEvent('complete', { success: true, result })
+      } catch (error: any) {
+        logger.error('Scan stream error:', error)
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+
+        // 如果是取消错误，特殊处理
+        if (errorMsg === 'Scan cancelled') {
+          if (currentJobId) {
+            await JobService.markAsCancelled(currentJobId)
+          }
+          sendEvent('cancelled', { success: false, error: 'Scan cancelled' })
+        } else {
+          // 如果是因为"Scan already in progress"报错，不记录为任务失败（因为任务根本没创建成功）
+          // 而是直接返回错误给客户端
+          if (currentJobId) {
+            await JobService.failJob(currentJobId, errorMsg)
+          }
+          sendEvent('error', { success: false, error: errorMsg })
+        }
+      } finally {
+        controller.close()
+      }
+    },
+    cancel() {
+      // 客户端断开连接时的处理
+      logger.info('Client disconnected from scan stream')
+    }
+  })
+
+  return new NextResponse(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    }
+  })
+}
+
+/**
+ * GET /api/scan/stream
+ * 全量扫描
+ */
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  return handleScanStream(request, 'full')
+}
+
+/**
  * POST /api/scan/stream
- * Body: { metadataList: string[] }
+ * 指定列表扫描
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  let body: any = null
   try {
-    const appStateService = getAppStateService()
-    const scannerService = getScannerService()
-
-    const scanPath = await getScanPath()
-    if (!scanPath) {
-      return NextResponse.json({ error: 'SCAN_PATH is not configured' }, { status: 400 })
-    }
-
-    // 检查是否已经在扫描
-    const currentState = appStateService.getState()
-    if (currentState.scanning) {
-      return NextResponse.json({ error: 'Scan already in progress' }, { status: 409 })
-    }
-
-    // 解析请求体
-    let body: any = null
-    try {
-      body = await request.json()
-    } catch (e) {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-    }
-
-    const metadataList: string[] = Array.isArray(body?.metadataList) ? body.metadataList : []
-
-    if (!metadataList?.length) {
-      return NextResponse.json({ error: 'metadataList is required and must be a non-empty array' }, { status: 400 })
-    }
-
-    // 创建SSE响应
-    const encoder = new TextEncoder()
-    const stream = new ReadableStream({
-      start(controller) {
-        // 发送SSE事件的辅助函数
-        const sendEvent = (event: string, data: any) => {
-          const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-          logger.info({ event, ...data })
-          controller.enqueue(encoder.encode(message))
-        }
-
-        // 开始扫描
-        appStateService.setScanning(true)
-        appStateService.setProgressMessage('初始化…')
-
-        const startScan = async () => {
-          try {
-            const result = await scannerService.scan({
-              scanPath,
-              metadataRelativePaths: metadataList,
-              onProgress: (progress: ScanProgress) => {
-                appStateService.setProgressMessage(progress?.message || null)
-                if (appStateService.getState().cancelRequested) {
-                  throw new Error('Scan cancelled')
-                }
-                sendEvent('progress', progress)
-              }
-            })
-
-            sendEvent('complete', { success: true, result })
-          } catch (error: any) {
-            if (error?.message === 'Scan cancelled') {
-              sendEvent('cancelled', { success: false, error: 'Scan cancelled' })
-            } else {
-              const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-              sendEvent('error', { success: false, error: errorMsg })
-            }
-          } finally {
-            appStateService.setScanning(false)
-            controller.close()
-          }
-        }
-
-        // 启动扫描
-        sendEvent('connection', { success: true, result: '连接成功。开始扫描（客户端列表）' })
-
-        setTimeout(() => {
-          startScan()
-        }, 100)
-      },
-
-      cancel() {
-        // 清理资源
-        appStateService.setScanning(false)
-      }
-    })
-
-    return new NextResponse(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Cache-Control'
-      }
-    })
-  } catch (error) {
-    logger.error('Failed to start scan stream (POST):', error)
-    return NextResponse.json({ error: 'Failed to start scan stream' }, { status: 500 })
+    body = await request.json()
+  } catch (e) {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
+
+  const metadataList = Array.isArray(body?.metadataList) ? body.metadataList : []
+  if (!metadataList?.length) {
+    return NextResponse.json({ error: 'metadataList is required' }, { status: 400 })
+  }
+
+  return handleScanStream(request, 'list', metadataList)
 }

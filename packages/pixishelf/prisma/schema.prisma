@@ -168,3 +168,28 @@ enum TranslateType {
   AI       // 2-AI
   MANUAL   // 3-人工标注
 }
+
+model SystemJob {
+  id        String    @id @default(cuid())
+  type      String    @db.VarChar(50)
+  status    JobStatus @default(PENDING)
+  progress  Int       @default(0)
+  message   String?   @db.Text
+  result    Json?
+  error     String?   @db.Text
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([type, status])
+  @@index([createdAt])
+  @@map("system_jobs")
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  CANCELLING
+}

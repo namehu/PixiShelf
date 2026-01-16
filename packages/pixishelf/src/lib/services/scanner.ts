@@ -16,6 +16,11 @@ export interface ScanOptions {
   forceUpdate?: boolean
   onProgress?: (progress: ScanProgress) => void
   /**
+   * 检查取消状态的回调函数
+   * 如果返回 true，则扫描过程应立即终止并抛出取消异常
+   */
+  checkCancelled?: () => Promise<boolean>
+  /**
    * 客户端传入的元数据相对路径列表（相对 scanPath）
    * 如果提供，则不进行本地/远程文件扫描，而是直接基于该列表构建元数据文件集合
    */
@@ -271,6 +276,11 @@ export class ScannerService {
 
       // 3. 当批次满员，或者已经是最后一个文件时，触发处理
       if (artworkBatch.length >= BATCH_SIZE || (i === totalFiles - 1 && artworkBatch.length > 0)) {
+        // 检查取消状态
+        if (options.checkCancelled && await options.checkCancelled()) {
+          throw new Error('Scan cancelled')
+        }
+
         batchNumber++
         logger.info(`Processing batch ${batchNumber} of ${totalBatches} (size: ${artworkBatch.length})...`)
 
