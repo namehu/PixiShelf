@@ -38,8 +38,20 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
     async start(controller) {
       const sendEvent = createEventSender(controller, encoder)
       let currentJobId: string | null = null
+      let pingInterval: NodeJS.Timeout | null = null
 
       try {
+        // Setup heartbeat (every 15s) to prevent proxy timeout
+        pingInterval = setInterval(() => {
+          try {
+            const message = `event: ping\ndata: {}\n\n`
+            controller.enqueue(encoder.encode(message))
+          } catch (e) {
+            // Controller might be closed
+            if (pingInterval) clearInterval(pingInterval)
+          }
+        }, 15000)
+
         // Create job lock
         const job = await JobService.createScanJob()
         currentJobId = job.id
@@ -91,7 +103,12 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
           sendEvent('error', { success: false, error: errorMsg })
         }
       } finally {
-        controller.close()
+        if (pingInterval) clearInterval(pingInterval)
+        try {
+          controller.close()
+        } catch (e) {
+          // Ignore close errors (e.g. client disconnected)
+        }
       }
     },
     cancel() {

@@ -5,6 +5,16 @@ import { ScanResult, ScanProgress, LogEntry } from '@/types'
 import { useScanStore } from '@/store/scanStore'
 
 /**
+ * Fatal Error that should not be retried
+ */
+class FatalError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'FatalError'
+  }
+}
+
+/**
  * Scan options for starting a scan
  */
 interface ScanOptions {
@@ -194,7 +204,13 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
               setRetryCount(0)
               return
             }
-            // If we get here, it's an error (e.g. 400, 500)
+
+            // Client errors (4xx) should not be retried
+            if (response.status >= 400 && response.status < 500) {
+              throw new FatalError(`Client Error: ${response.status} ${response.statusText}`)
+            }
+
+            // If we get here, it's an error (e.g. 500)
             const errorText = await response.text()
             // Throwing here triggers onerror
             throw new Error(`Connection failed: ${response.status} ${errorText}`)
@@ -226,6 +242,11 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
           },
 
           onerror(err) {
+            // Stop retrying on fatal errors (4xx)
+            if (err instanceof FatalError) {
+              throw err
+            }
+
             if (controller.signal.aborted) {
               // User aborted, rethrow to stop
               throw err
