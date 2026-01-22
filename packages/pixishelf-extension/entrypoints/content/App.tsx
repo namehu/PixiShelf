@@ -9,9 +9,7 @@ import { useUIStore } from './stores/uiStore'
 import { SettingContent } from './components/setting-content'
 import UserContent from './components/user-content'
 
-import { ArtworkTaskController } from './components/ArtworkTaskController'
-import { ArtworkProgressDisplay } from './components/ArtworkProgressDisplay'
-import { ArtworkLogViewer } from './components/ArtworkLogViewer'
+import ArtworkContent from './components/artwork-content'
 
 const App: React.FC = () => {
   const { isInitialized, error, isLoading, initializeApp } = useAppStore()
@@ -37,9 +35,7 @@ const App: React.FC = () => {
       case 'artworks':
         return (
           <div className="artworks-content">
-            <ArtworkTaskController />
-            <ArtworkProgressDisplay />
-            <ArtworkLogViewer />
+            <ArtworkContent />
           </div>
         )
       case 'setting':
@@ -98,9 +94,7 @@ const App: React.FC = () => {
   return (
     <FloatingPanel>
       <TabNavigation />
-      <div className="tab-content-container" style={{ padding: '16px' }}>
-        {renderTabContent()}
-      </div>
+      <div className="tab-content-container p-4">{renderTabContent()}</div>
     </FloatingPanel>
   )
 }

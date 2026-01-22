@@ -1,9 +1,18 @@
-import React, { useRef, useEffect } from 'react'
-import { useUserInfoStore } from '../../stores/userInfoStore'
-import { useShallow } from 'zustand/shallow'
+import React, { useEffect, useRef } from 'react'
 
-export const UserLogViewer: React.FC = () => {
-  const [logs, clearLogs] = useUserInfoStore(useShallow((state) => [state.logs, state.clearLogs]))
+interface BaseLogViewerProps {
+  logs: string[]
+  onClear: () => void
+  title?: string
+  height?: string
+}
+
+export const BaseLogViewer: React.FC<BaseLogViewerProps> = ({
+  logs,
+  onClear,
+  title = '运行日志',
+  height = '200px'
+}) => {
   const logsEndRef = useRef<HTMLDivElement>(null)
 
   // 自动滚动到最新日志
@@ -21,10 +30,10 @@ export const UserLogViewer: React.FC = () => {
           marginBottom: '12px'
         }}
       >
-        <h4 style={{ margin: 0, fontSize: '16px', color: '#333' }}>运行日志</h4>
+        <h4 style={{ margin: 0, fontSize: '16px', color: '#333' }}>{title}</h4>
         {logs.length > 0 && (
           <button
-            onClick={clearLogs}
+            onClick={onClear}
             style={{
               padding: '4px 8px',
               fontSize: '12px',
@@ -43,7 +52,7 @@ export const UserLogViewer: React.FC = () => {
       <div
         className="logs-container"
         style={{
-          height: '200px',
+          height: height,
           overflowY: 'auto',
           border: '1px solid #e0e0e0',
           borderRadius: '4px',

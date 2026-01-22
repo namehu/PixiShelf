@@ -1,6 +1,5 @@
-
 import React from 'react'
-import { useArtworkTaskStore } from '../stores/artworkTaskStore'
+import { useArtworkTaskStore } from '../../stores/artworkTaskStore'
 import { Progress } from '@/components/ui/progress'
 
 export const ArtworkProgressDisplay: React.FC = () => {

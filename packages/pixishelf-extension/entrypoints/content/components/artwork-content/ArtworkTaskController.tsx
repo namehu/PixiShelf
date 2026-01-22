@@ -1,6 +1,6 @@
 import React from 'react'
-import { useArtworkTaskStore } from '../stores/artworkTaskStore'
-import ArtworkPixivService from '../services/ArtworkPixivService'
+import { useArtworkTaskStore } from '../../stores/artworkTaskStore'
+import ArtworkPixivService from '../../services/ArtworkPixivService'
 import { Button } from '@/components/ui/button'
 
 export const ArtworkTaskController: React.FC = () => {
@@ -78,7 +78,6 @@ export const ArtworkTaskController: React.FC = () => {
   return (
     <div className="task-controller p-4 bg-white rounded-lg shadow space-y-4">
       <div className="space-y-2">
-        <h3 className="text-lg font-medium">作品信息下载</h3>
         <textarea
           value={artworkInput}
           onChange={(e) => setArtworkInput(e.target.value)}
