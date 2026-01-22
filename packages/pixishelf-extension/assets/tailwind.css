@@ -1,6 +1,23 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/*
+  Shadow DOM 兼容性修复：
+  Tailwind 的 Preflight 样式通常作用于 html/body，在 Shadow DOM 中可能失效。
+  显式重置边框样式变量，确保 border utilities 正常工作。
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-width: 0;
+    border-style: solid;
+    --tw-border-style: solid;
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {

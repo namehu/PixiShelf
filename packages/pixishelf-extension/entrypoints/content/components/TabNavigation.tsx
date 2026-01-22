@@ -26,11 +26,9 @@ export const TabNavigation: React.FC = () => {
           key={tab.id}
           onClick={() => setActiveTab(tab.id)}
           className={cn(
-            'flex-1 px-2 py-3 border-none text-sm font-medium transition-all duration-200 ease-in-out cursor-pointer',
+            'flex-1 px-2 py-3 text-sm font-medium transition-all duration-200 ease-in-out cursor-pointer',
             `tab-button ${activeTab === tab.id ? 'active' : ''}`,
-            activeTab === tab.id
-              ? 'bg-[#0066cc] text-white border-b-2 border-[#0066cc]'
-              : 'bg-transparent text-[#666] border-b-2 border-transparent'
+            activeTab === tab.id ? 'bg-[#0066cc] text-white border-[#0066cc]' : 'bg-transparent text-[#666]'
           )}
         >
           <div className="flex justify-center items-center gap-2">
