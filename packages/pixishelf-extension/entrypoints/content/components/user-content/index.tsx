@@ -1,31 +1,24 @@
 import { UserController } from './UserController'
-import { UserProgressDisplay } from './UserProgressDisplay'
 
 import { useUserInfoStore } from '../../stores/userInfoStore'
 import { useShallow } from 'zustand/shallow'
 import { BaseLogViewer } from '../BaseLogViewer'
+import { BaseProgressDisplay } from '../BaseProgressDisplay'
 
 export default function UserContent() {
   const [logs, clearLogs] = useUserInfoStore(useShallow((state) => [state.logs, state.clearLogs]))
+  const { getStats } = useUserInfoStore()
+  const taskStats = getStats()
 
   return (
-    <div className="users-content">
-      <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', color: '#333' }}>用户信息管理</h3>
+    <div className="flex flex-col gap-4">
+      <h1 className="font-bold text-2xl">用户信息管理</h1>
 
-      {/* 用户控制器 */}
-      <div style={{ marginBottom: '16px' }}>
-        <UserController />
-      </div>
+      <UserController />
 
-      {/* 进度显示 */}
-      <div style={{ marginBottom: '16px' }}>
-        <UserProgressDisplay />
-      </div>
+      <BaseProgressDisplay stats={taskStats} />
 
-      {/* 日志查看器 */}
-      <div style={{ marginBottom: '16px' }}>
-        <BaseLogViewer logs={logs} onClear={clearLogs} />
-      </div>
+      <BaseLogViewer logs={logs} onClear={clearLogs} />
     </div>
   )
 }

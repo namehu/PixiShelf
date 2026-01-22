@@ -76,7 +76,7 @@ export const ArtworkTaskController: React.FC = () => {
   }
 
   return (
-    <div className="task-controller p-4 bg-white rounded-lg shadow space-y-4">
+    <div className="task-controller bg-white rounded-lg shadow space-y-4">
       <div className="space-y-2">
         <textarea
           value={artworkInput}

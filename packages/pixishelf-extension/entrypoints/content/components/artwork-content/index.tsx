@@ -1,27 +1,20 @@
 import { ArtworkTaskController } from './ArtworkTaskController'
-import { ArtworkProgressDisplay } from './ArtworkProgressDisplay'
-
 import { BaseLogViewer } from '../BaseLogViewer'
 import { useArtworkTaskStore } from '../../stores/artworkTaskStore'
+import { BaseProgressDisplay } from '../BaseProgressDisplay'
 
 export default function ArtworkContent() {
-  const { logs, clearLogs } = useArtworkTaskStore()
+  const { logs, clearLogs, taskStats } = useArtworkTaskStore()
 
   return (
-    <div className="artworks-content">
-      <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', color: '#333' }}>作品信息管理</h3>
+    <div className="flex flex-col gap-4">
+      <h3 className="font-bold text-2xl">作品信息管理</h3>
 
-      <div style={{ marginBottom: '16px' }}>
-        <ArtworkTaskController />
-      </div>
+      <ArtworkTaskController />
 
-      <div style={{ marginBottom: '16px' }}>
-        <ArtworkProgressDisplay />
-      </div>
+      <BaseProgressDisplay stats={taskStats} />
 
-      <div style={{ marginBottom: '16px' }}>
-        <BaseLogViewer logs={logs} onClear={clearLogs} />
-      </div>
+      <BaseLogViewer logs={logs} onClear={clearLogs} />
     </div>
   )
 }
