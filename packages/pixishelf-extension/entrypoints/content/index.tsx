@@ -1,10 +1,11 @@
 // oxlint-disable no-console
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { AppContainer } from './components/AppContainer'
 import { Toaster } from '@/components/ui/sonner'
 import tailwindStyles from '@/assets/tailwind.css?inline'
 import { ShadowRootContext } from '@/lib/shadow-root-context'
+import { ToggleButton } from './components/ToggleButton'
+import App from './App'
 
 export default defineContentScript({
   matches: ['https://www.pixiv.net/*'],
@@ -41,7 +42,23 @@ export default defineContentScript({
           <StrictMode>
             {/* 将 Shadow Root 内部的挂载点提供给 Context，确保 Portal 渲染到 Shadow DOM 内部 */}
             <ShadowRootContext.Provider value={appRoot}>
-              <AppContainer />
+              <div
+                id="pixiv-extension-root"
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  pointerEvents: 'none',
+                  zIndex: 0 // Lower z-index to allow portals (z-50) to appear on top
+                }}
+              >
+                <div style={{ pointerEvents: 'auto' }}>
+                  <ToggleButton />
+                  <App />
+                </div>
+              </div>
               <Toaster />
             </ShadowRootContext.Provider>
           </StrictMode>

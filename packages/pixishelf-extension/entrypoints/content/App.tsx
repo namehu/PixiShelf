@@ -1,15 +1,13 @@
 import React, { useEffect } from 'react'
 import { FloatingPanel } from './components/FloatingPanel'
 import { TabNavigation } from './components/TabNavigation'
-import { TaskController } from './components/TaskController'
-import { ProgressDisplay } from './components/ProgressDisplay'
-import { LogViewer } from './components/LogViewer'
 import { useAppStore } from './stores/appStore'
 import { useUIStore } from './stores/uiStore'
-import { SettingContent } from './components/setting-content'
-import UserContent from './components/user-content'
 
+import TagTaskContent from './components/tag-content'
+import UserContent from './components/user-content'
 import ArtworkContent from './components/artwork-content'
+import { SettingContent } from './components/setting-content'
 
 const App: React.FC = () => {
   const { isInitialized, error, isLoading, initializeApp } = useAppStore()
@@ -25,9 +23,7 @@ const App: React.FC = () => {
       case 'tags':
         return (
           <div className="tags-content">
-            <TaskController />
-            <ProgressDisplay />
-            <LogViewer />
+            <TagTaskContent />
           </div>
         )
       case 'users':

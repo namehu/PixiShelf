@@ -16,9 +16,9 @@ export const BaseLogViewer: React.FC<BaseLogViewerProps> = ({
   const logsEndRef = useRef<HTMLDivElement>(null)
 
   // 自动滚动到最新日志
-  useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs])
+  // useEffect(() => {
+  //   logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  // }, [logs])
 
   return (
     <div className="log-viewer">

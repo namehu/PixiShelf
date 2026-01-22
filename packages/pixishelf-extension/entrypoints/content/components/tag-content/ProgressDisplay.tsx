@@ -1,5 +1,5 @@
 import React from 'react'
-import { useTaskStore } from '../stores/taskStore'
+import { useTaskStore } from '../../stores/taskStore'
 import { Progress } from '@/components/ui/progress'
 
 export const ProgressDisplay: React.FC = () => {

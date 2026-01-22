@@ -1,8 +1,8 @@
 import React from 'react'
-import { useTaskStore } from '../stores/taskStore'
-import ContentPixivService from '../services/ContentPixivService'
+import { useTaskStore } from '../../stores/taskStore'
+import ContentPixivService from '../../services/ContentPixivService'
 import { Button } from '@/components/ui/button'
-import { useSettingStore } from '../stores/setting-store'
+import { useSettingStore } from '../../stores/setting-store'
 import { MTagDownloadMode } from '@/enums/ETagDownloadMode'
 
 export const TaskController: React.FC = () => {
