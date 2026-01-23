@@ -1,4 +1,3 @@
-
 // Pixiv 标签翻译相关类型定义
 
 export interface PixivTagData {
@@ -100,7 +99,13 @@ export interface PixivArtworkData {
   pageCount: number
   width: number
   height: number
-  tags: string[]
+  tags: {
+    name: string
+    translation?: {
+      en?: string
+      zh?: string
+    }
+  }[]
   series: {
     id: string
     title: string
@@ -110,24 +115,25 @@ export interface PixivArtworkData {
   bookmarkCount: number
   likeCount: number
   viewCount: number
-  
+  xRestrict: number
+
   // Metadata
   downloadCount?: number // 预留
   fileSize?: number // 预留
   resolution?: string // width x height
-  
+
   // URLs
   url: string // original url
   thumbnailUrl: string
 }
 
 export interface ArtworkProgress {
-    status: 'fulfilled' | 'rejected';
-    data: PixivArtworkData | string;
+  status: 'fulfilled' | 'rejected'
+  data: PixivArtworkData | string
 }
 
 export interface ArtworkProgressStorage {
-    [artworkId: string]: ArtworkProgress;
+  [artworkId: string]: ArtworkProgress
 }
 
 export interface ArtworkStats {

@@ -36,9 +36,14 @@ export async function fetchPixivArtworkData(id: string): Promise<PixivArtworkDat
     const bookmarkCount = body.bookmarkCount || 0
     const likeCount = body.likeCount || 0
     const viewCount = body.viewCount || 0
+    const xRestrict = body.xRestrict || 0
 
     // Extract Tags
-    const tags = body.tags?.tags?.map((t: any) => t.tag) || []
+    const tags =
+      body.tags?.tags?.map((t: any) => ({
+        name: t.tag,
+        translation: t.translation
+      })) || []
 
     // Extract Resolution
     const resolution = `${body.width}x${body.height}`
@@ -59,6 +64,7 @@ export async function fetchPixivArtworkData(id: string): Promise<PixivArtworkDat
       bookmarkCount,
       likeCount,
       viewCount,
+      xRestrict,
       resolution,
       downloadCount: 0, // Default
       fileSize: 0, // Default

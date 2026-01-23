@@ -13,7 +13,7 @@ model Artist {
   id            Int       @id @default(autoincrement())
   name          String
   username      String?
-  userId        String?
+  userId        String?  // pixiv 用户id
   bio           String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -61,6 +61,7 @@ model Artwork {
   @@index([sourceDate])
   @@index([externalId])
   @@index([likeCount])
+  @@unique([externalId])
 }
 
 model Tag {
@@ -202,10 +203,21 @@ model Series {
   title         String
   description   String?
   coverImageUrl String?
+  source        String          @default("LOCAL")   // 用于区分数据来源，'LOCAL'是自己建的，'PIXIV'是导入的
+  externalId    String?                             // 用于存原来的Pixiv 系列 ID，比如 '123456'
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   artworks      Artwork[]
   seriesArtworks SeriesArtwork[]
+
+  // 这个索引让数据库知道：同一个来源下的同一个外部ID，只能有一条记录
+  @@unique([source, externalId])
+}
+
+// 定义枚举
+enum SeriesType {
+  LOCAL   // 本地创建
+  PIXIV   // Pixiv 导入
 }
 
 model SeriesArtwork {

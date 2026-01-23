@@ -46,13 +46,25 @@ export default function ArtworkContent() {
     try {
       const validData = successfulItems.filter((item) => item.data).map((item) => item.data!)
 
+      // @ts-ignore
       const result = generateArtworkSql(validData)
       if (result.success && result.content) {
-        const downloadResult = downloadFile(result.content, `pixiv_artworks_${new Date().getTime()}.sql`)
-        if (downloadResult.success) {
-          success('SQL文件下载成功')
+        const timestamp = new Date().getTime()
+        
+        // Handle new return structure { main: string, tags: string }
+        // We cast to any/unknown because the type inference might need a moment or explicit interface
+        const content = result.content as unknown as { main: string, tags: string }
+
+        const mainRes = downloadFile(content.main, `pixiv_artworks_main_${timestamp}.sql`)
+        const tagsRes = downloadFile(content.tags, `pixiv_artworks_tags_${timestamp}.sql`)
+
+        if (mainRes.success && tagsRes.success) {
+          success('SQL文件下载成功 (Main & Tags)')
         } else {
-          logError(`SQL下载失败: ${downloadResult.error}`)
+          const errors = []
+          if (!mainRes.success) errors.push(`Main: ${mainRes.error}`)
+          if (!tagsRes.success) errors.push(`Tags: ${tagsRes.error}`)
+          logError(`SQL下载部分失败: ${errors.join(', ')}`)
         }
       } else {
         logError(`SQL生成失败: ${result.error}`)
