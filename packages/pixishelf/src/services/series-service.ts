@@ -1,4 +1,6 @@
 import { prisma } from '@/lib/prisma'
+import { transformSingleArtwork } from '@/services/artwork-service/utils'
+import { combinationApiResource } from '@/utils/combinationStatic'
 
 export async function getSeriesList(params: { page: number; pageSize: number; query?: string }) {
   const { page, pageSize, query } = params
@@ -16,13 +18,20 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
       take: pageSize,
       include: {
         _count: {
-          select: { artworks: true }
+          select: { seriesArtworks: true }
         },
-        // Optionally get the first artwork as cover if coverImageUrl is missing
-        artworks: {
+        // Get the first artwork in series order to use as cover fallback
+        seriesArtworks: {
           take: 1,
-          orderBy: { createdAt: 'desc' }, // or by series order
-          select: { thumbnailUrl: true }
+          orderBy: { sortOrder: 'asc' },
+          include: {
+            artwork: {
+              include: {
+                images: { orderBy: { sortOrder: 'asc' } },
+                artworkTags: { include: { tag: true } }
+              }
+            }
+          }
         }
       },
       orderBy: { updatedAt: 'desc' }
@@ -31,11 +40,28 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
   ])
 
   // Enhance items with derived cover
-  const enhancedItems = items.map((item) => ({
-    ...item,
-    coverImageUrl: item.coverImageUrl || item.artworks[0]?.thumbnailUrl || null,
-    artworkCount: item._count.artworks
-  }))
+  const enhancedItems = items.map((item) => {
+    let derivedCover = null
+    const firstSeriesArtwork = item.seriesArtworks[0]
+
+    if (firstSeriesArtwork?.artwork) {
+      const transformed = transformSingleArtwork({
+        ...firstSeriesArtwork.artwork,
+        _count: { images: firstSeriesArtwork.artwork.images.length }
+      })
+
+      if (transformed.images.length > 0) {
+        const firstImg = transformed.images[0]
+        derivedCover = firstImg.mediaType === 'video' ? combinationApiResource(firstImg.path) : firstImg.path
+      }
+    }
+
+    return {
+      ...item,
+      coverImageUrl: item.coverImageUrl || derivedCover || null,
+      artworkCount: item._count.seriesArtworks
+    }
+  })
 
   return { items: enhancedItems, total }
 }
@@ -49,7 +75,7 @@ export async function getSeriesDetail(id: number) {
           artwork: {
             include: {
               artist: true,
-              images: true,
+              images: { orderBy: { sortOrder: 'asc' } },
               artworkTags: { include: { tag: true } }
             }
           }
@@ -63,12 +89,30 @@ export async function getSeriesDetail(id: number) {
   if (!series) return null
 
   // Transform to flat artworks list with order
-  const artworks = series.seriesArtworks.map((sa) => ({
-    ...sa.artwork,
-    seriesOrder: sa.sortOrder
-  }))
+  const artworks = series.seriesArtworks.map((sa) => {
+    const transformed = transformSingleArtwork({
+      ...sa.artwork,
+      _count: { images: sa.artwork.images.length }
+    })
 
-  return { ...series, artworks }
+    return {
+      ...transformed,
+      seriesOrder: sa.sortOrder
+    }
+  })
+
+  // Handle Cover Fallback
+  let coverImageUrl = series.coverImageUrl
+  if (!coverImageUrl && artworks.length > 0) {
+    const firstArtwork = artworks[0]
+    if (firstArtwork.images && firstArtwork.images.length > 0) {
+      const firstImg = firstArtwork.images[0]
+      // @ts-ignore - transformSingleArtwork result type might not be fully inferred here
+      coverImageUrl = firstImg.mediaType === 'video' ? combinationApiResource(firstImg.path) : firstImg.path
+    }
+  }
+
+  return { ...series, artworks, coverImageUrl }
 }
 
 export async function createSeries(data: { title: string; description?: string; coverImageUrl?: string }) {

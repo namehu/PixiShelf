@@ -4,7 +4,7 @@ import RecentArtists from './_components/RecentArtists'
 import PNav from '@/components/layout/PNav'
 import Link from 'next/link'
 import { ROUTES } from '@/lib/constants'
-import { HashIcon, ImageIcon, ImageUpIcon, UsersIcon } from 'lucide-react'
+import { BookIcon, HashIcon, ImageIcon, ImageUpIcon, UsersIcon } from 'lucide-react'
 import ArtworkGrid from './_components/ArtworkGrid'
 import { Button } from '@/components/ui/button'
 import InfiniteArtworkGrid from './_components/InfiniteArtworkGrid'
@@ -37,6 +37,10 @@ export default async function DashboardPage(_: PageProps<'/dashboard'>) {
           <Link href={ROUTES.TAGS} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
             <HashIcon className="h-5 w-5" />
             <span className="hidden sm:inline">标签</span>
+          </Link>
+          <Link href={ROUTES.SERIES} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
+            <BookIcon className="h-5 w-5" />
+            <span className="hidden sm:inline">系列</span>
           </Link>
           <Link href={ROUTES.VIEWER} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
             <ImageUpIcon className="h-5 w-5" />

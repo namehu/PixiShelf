@@ -1,8 +1,7 @@
-
 import { getSeriesDetail } from '@/services/series-service'
 import { notFound } from 'next/navigation'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
-import { transformSingleArtwork } from '@/services/artwork-service/utils'
+import Image from 'next/image'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -16,20 +15,24 @@ export default async function SeriesDetailPage({ params }: PageProps) {
   const series = await getSeriesDetail(seriesId)
   if (!series) notFound()
 
-  // Transform artworks to DTOs
-  const artworks = series.artworks.map((a: any) => transformSingleArtwork({
-    ...a,
-    _count: { images: a.images.length }
-  }))
+  // Service already returns transformed artworks
+  const artworks = series.artworks
 
   return (
     <div className="container mx-auto p-4 space-y-6 pt-16">
       <div className="flex flex-col md:flex-row gap-6 mb-8 bg-white p-6 rounded-lg shadow-sm">
         <div className="w-full md:w-48 aspect-[3/4] bg-muted rounded-lg overflow-hidden shrink-0">
           {series.coverImageUrl ? (
-            <img src={series.coverImageUrl} alt={series.title} className="w-full h-full object-cover" />
+            <Image
+              src={series.coverImageUrl}
+              alt={series.title}
+              width={0}
+              height={0}
+              sizes="100vw"
+              className="w-full h-full object-cover"
+            />
           ) : (
-             <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">No Cover</div>
+            <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">No Cover</div>
           )}
         </div>
         <div className="flex-1 space-y-4">

@@ -13,6 +13,7 @@ export const ROUTES = {
   ARTWORKS: '/artworks',
   ARTISTS: '/artists',
   ADMIN: '/admin',
+  SERIES: '/series',
   ADMINSETTING: '/admin/setting',
   ADMINSTATS: '/admin/statistics',
   TAGS: '/tags',
