@@ -4,7 +4,6 @@
     // 基础 JavaScript 规则
     "no-var": "error",
     "no-void": "error",
-    "radix": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "no-console": "error",
     "no-return-assign": "error",
