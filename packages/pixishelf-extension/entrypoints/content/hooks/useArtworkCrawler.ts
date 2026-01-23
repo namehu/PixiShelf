@@ -50,6 +50,7 @@ export const useArtworkCrawler = () => {
       try {
         let retries = 0
         let data = null
+        let _error: Error | null = null
 
         while (retries < MAX_RETRIES) {
           if (!useArtworkTaskStore.getState().isRunning) break
@@ -58,6 +59,12 @@ export const useArtworkCrawler = () => {
             data = await fetchPixivArtworkData(id)
             break
           } catch (e: any) {
+            // 404 错误不重试，直接抛出
+            if (e.message?.includes('404')) {
+              _error = e
+              break
+            }
+
             if (e.message?.includes('429')) {
               warn(`触发速率限制(429)，等待 5 秒...`)
               await sleep(5000)
@@ -82,8 +89,9 @@ export const useArtworkCrawler = () => {
           updateItem(id, { status: 'fulfilled', data })
           success(`获取作品成功: ${data.title}`)
         } else {
-          updateItem(id, { status: 'rejected', error: '获取失败或数据为空' })
-          error(`获取作品失败: ${id}`)
+          const _erroMsg = _error?.message || '获取失败或数据为空'
+          updateItem(id, { status: 'rejected', error: _erroMsg })
+          error(`获取作品失败: ${id} ${_erroMsg}`)
         }
       } catch (err: any) {
         updateItem(id, { status: 'rejected', error: err.message })
