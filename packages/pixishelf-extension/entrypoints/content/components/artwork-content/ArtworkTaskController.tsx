@@ -4,17 +4,8 @@ import ArtworkPixivService from '../../services/ArtworkPixivService'
 import { Button } from '@/components/ui/button'
 
 export const ArtworkTaskController: React.FC = () => {
-  const {
-    artworkInput,
-    setArtworkInput,
-    addArtworks,
-    isRunning,
-    taskStats,
-    setTaskStatus,
-    addLog,
-    clearAll,
-    getArtworkList
-  } = useArtworkTaskStore()
+  const { artworkInput, setArtworkInput, addArtworks, isRunning, setTaskStatus, addLog, clearAll, getArtworkList } =
+    useArtworkTaskStore()
 
   const handleStartTask = async () => {
     try {
@@ -77,15 +68,13 @@ export const ArtworkTaskController: React.FC = () => {
 
   return (
     <div className="task-controller bg-white rounded-lg shadow space-y-4">
-      <div className="space-y-2">
-        <textarea
-          value={artworkInput}
-          onChange={(e) => setArtworkInput(e.target.value)}
-          placeholder="添加作品ID(每行一个), 例如:&#10;139095372&#10;..."
-          rows={4}
-          className="w-full p-2 border border-gray-300 rounded text-sm font-sans resize-y min-h-20"
-        />
-      </div>
+      <textarea
+        value={artworkInput}
+        onChange={(e) => setArtworkInput(e.target.value)}
+        placeholder="添加作品ID(每行一个), 例如:&#10;139095372&#10;..."
+        rows={4}
+        className="w-full p-2 border border-gray-300 rounded text-sm font-sans resize-y min-h-20"
+      />
 
       {/* 任务控制 */}
       <div className="flex flex-wrap gap-2">
@@ -112,19 +101,6 @@ export const ArtworkTaskController: React.FC = () => {
         <Button variant="destructive" onClick={handleClear} disabled={isRunning}>
           清除所有数据
         </Button>
-      </div>
-
-      {/* 统计信息 */}
-      <div className="text-sm text-gray-500 space-y-1">
-        <div className="flex justify-between">
-          <span>总任务数: {taskStats.total}</span>
-          <span>已完成: {taskStats.completed}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-green-600">成功: {taskStats.successful}</span>
-          <span className="text-red-600">失败: {taskStats.failed}</span>
-        </div>
-        <div>剩余: {taskStats.pending}</div>
       </div>
     </div>
   )
