@@ -45,15 +45,7 @@ const App: React.FC = () => {
   if (isLoading) {
     return (
       <FloatingPanel>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '40px',
-            color: '#666'
-          }}
-        >
+        <div className="flex items-center justify-center p-10 text-[#666]">
           <div>正在初始化...</div>
         </div>
       </FloatingPanel>
@@ -64,14 +56,8 @@ const App: React.FC = () => {
   if (error) {
     return (
       <FloatingPanel>
-        <div
-          style={{
-            padding: '20px',
-            textAlign: 'center',
-            color: '#dc3545'
-          }}
-        >
-          <h3 style={{ margin: '0 0 12px 0', color: '#dc3545' }}>初始化失败</h3>
+        <div className="p-5 text-center text-[#dc3545]">
+          <h3 className="mb-3 text-[#dc3545]">初始化失败</h3>
           <p>{error}</p>
         </div>
       </FloatingPanel>

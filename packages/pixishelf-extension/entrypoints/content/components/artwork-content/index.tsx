@@ -8,9 +8,10 @@ import { downloadFile, generateArtworkSql } from '../../utils/sql-helper'
 import { Button } from '@/components/ui/button'
 
 export default function ArtworkContent() {
-  const { logs, clear, log, error: logError, success, warn } = useLogger('artwork')
+  const { logs, clear, error: logError, success, warn } = useLogger('artwork')
 
-  const { taskStats, artworkInput, setArtworkInput, addIds, isRunning, clearAll, artworkList, successfulArtworks } =
+  // 使用 shallow 比较来优化渲染
+  const { taskStats, artworkInput, setArtworkInput, addIds, isRunning, clearAll, queue, successfulItems } =
     useArtworkTaskStore(
       useShallow((state) => ({
         taskStats: state.taskStats,
@@ -19,8 +20,8 @@ export default function ArtworkContent() {
         addIds: state.addIds,
         isRunning: state.isRunning,
         clearAll: state.clearAll,
-        artworkList: state.artworkList,
-        successfulArtworks: state.successfulArtworks
+        queue: state.queue,
+        successfulItems: state.successfulItems
       }))
     )
 
@@ -28,12 +29,9 @@ export default function ArtworkContent() {
 
   const handleStartTask = async () => {
     try {
-      log('开始抓取作品信息任务...')
-      if (!artworkList || artworkList.length === 0) {
-        warn('请先添加作品ID')
-        return
+      if (!queue || queue.length === 0) {
+        return warn('请先添加作品ID')
       }
-
       await startTask()
     } catch (error) {
       logError(`任务执行失败: ${error}`)
@@ -46,7 +44,9 @@ export default function ArtworkContent() {
 
   const handleGenerateSQL = async () => {
     try {
-      const result = generateArtworkSql(successfulArtworks.map((item) => item.data))
+      const validData = successfulItems.filter((item) => item.data).map((item) => item.data!)
+
+      const result = generateArtworkSql(validData)
       if (result.success && result.content) {
         const downloadResult = downloadFile(result.content, `pixiv_artworks_${new Date().getTime()}.sql`)
         if (downloadResult.success) {

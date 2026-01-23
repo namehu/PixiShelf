@@ -1,17 +1,17 @@
-import React from 'react';
-import { Progress } from '@/components/ui/progress';
+import React from 'react'
+import { Progress } from '@/components/ui/progress'
 
 export interface TaskStats {
-  total: number;
-  completed: number;
-  successful: number;
-  failed: number;
-  pending: number;
+  total: number
+  completed: number
+  successful: number
+  failed: number
+  pending: number
 }
 
 interface BaseProgressDisplayProps {
-  stats: TaskStats;
-  className?: string;
+  stats: TaskStats
+  className?: string
 }
 
 export const BaseProgressDisplay: React.FC<BaseProgressDisplayProps> = ({ stats, className }) => {
@@ -24,7 +24,7 @@ export const BaseProgressDisplay: React.FC<BaseProgressDisplayProps> = ({ stats,
     borderRadius: '3px',
     textAlign: 'center' as const,
     minWidth: '0'
-  };
+  }
 
   const statLabelStyle = {
     fontWeight: '500',
@@ -32,34 +32,34 @@ export const BaseProgressDisplay: React.FC<BaseProgressDisplayProps> = ({ stats,
     fontSize: '10px',
     marginBottom: '2px',
     whiteSpace: 'nowrap' as const
-  };
+  }
 
   const statValueStyle = {
     fontWeight: '600',
     fontSize: '14px'
-  };
+  }
 
   const successStyle = {
     ...statValueStyle,
     color: '#28a745'
-  };
+  }
 
   const errorStyle = {
     ...statValueStyle,
     color: '#dc3545'
-  };
+  }
 
   const pendingStyle = {
     ...statValueStyle,
     color: '#ffc107'
-  };
+  }
 
   const statsGridStyle = {
     display: 'grid',
     gridTemplateColumns: 'repeat(5, 1fr)',
     gap: '4px',
     marginBottom: '6px'
-  };
+  }
 
   return (
     <div className={`progress-display ${className || ''}`} style={{ marginBottom: '8px' }}>
@@ -68,6 +68,11 @@ export const BaseProgressDisplay: React.FC<BaseProgressDisplayProps> = ({ stats,
         <div style={statItemStyle}>
           <span style={statLabelStyle}>总计</span>
           <span style={statValueStyle}>{stats.total}</span>
+        </div>
+
+        <div style={statItemStyle}>
+          <span style={statLabelStyle}>待处理</span>
+          <span style={pendingStyle}>{stats.pending}</span>
         </div>
 
         <div style={statItemStyle}>
@@ -83,11 +88,6 @@ export const BaseProgressDisplay: React.FC<BaseProgressDisplayProps> = ({ stats,
         <div style={statItemStyle}>
           <span style={statLabelStyle}>失败</span>
           <span style={errorStyle}>{stats.failed}</span>
-        </div>
-
-        <div style={statItemStyle}>
-          <span style={statLabelStyle}>待处理</span>
-          <span style={pendingStyle}>{stats.pending}</span>
         </div>
       </div>
 
@@ -108,5 +108,5 @@ export const BaseProgressDisplay: React.FC<BaseProgressDisplayProps> = ({ stats,
         </div>
       )}
     </div>
-  );
-};
+  )
+}

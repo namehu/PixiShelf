@@ -13,34 +13,39 @@ export const useArtworkCrawler = () => {
   const { log, warn, error, success } = useLogger('artwork')
 
   const startTask = useCallback(async () => {
-    const { artworkList, progressData, setTaskStatus, updateProgress, updateTaskStats } = useArtworkTaskStore.getState()
+    const { queue, setTaskStatus, updateItem } = useArtworkTaskStore.getState()
 
-    // 再次检查 store 中的状态，防止外部直接修改导致不一致
+    // 再次检查 store 中的状态
     if (useArtworkTaskStore.getState().isRunning) {
       warn('任务已在运行中')
       return
     }
 
-    // Filter pending
-    const pendingIds = artworkList.filter((id) => {
-      const progress = progressData[id]
-      return !progress || progress.status !== 'fulfilled'
-    })
+    log('开始抓取作品信息任务...')
 
-    if (pendingIds.length === 0) {
+    // Filter pending
+    // 注意：这里可以筛选 'pending' 甚至 'rejected' (如果支持自动重试失败任务)
+    // 暂时只处理 pending
+    const pendingItems = queue.filter((item) => item.status === 'pending')
+
+    if (pendingItems.length === 0) {
       log('所有作品已处理完成')
       return
     }
 
     setTaskStatus({ isRunning: true })
-    log(`开始处理 ${pendingIds.length} 个作品`)
+    log(`开始处理 ${pendingItems.length} 个作品`)
 
-    for (const id of pendingIds) {
+    for (const item of pendingItems) {
+      const { id } = item
       // Check if paused/stopped
       if (!useArtworkTaskStore.getState().isRunning) {
         warn('任务已暂停')
         break
       }
+
+      // Set to running
+      updateItem(id, { status: 'running' })
 
       try {
         let retries = 0
@@ -65,22 +70,26 @@ export const useArtworkCrawler = () => {
         }
 
         if (!useArtworkTaskStore.getState().isRunning) {
+          // 如果被暂停，改回 pending 状态以便下次继续？或者保持 running 但实际上停止了？
+          // 通常改为 pending 比较合理，或者保持 running 但 UI 显示暂停
+          // 这里简单起见，如果没完成就还是 pending
+          updateItem(id, { status: 'pending' })
           warn('任务已暂停')
           break
         }
 
         if (data) {
-          updateProgress(id, { status: 'fulfilled', data })
+          updateItem(id, { status: 'fulfilled', data })
           success(`获取作品成功: ${data.title}`)
         } else {
-          updateProgress(id, { status: 'rejected', data: '获取失败或数据为空' })
+          updateItem(id, { status: 'rejected', error: '获取失败或数据为空' })
           error(`获取作品失败: ${id}`)
         }
       } catch (err: any) {
-        updateProgress(id, { status: 'rejected', data: err.message })
+        updateItem(id, { status: 'rejected', error: err.message })
         error(`处理作品出错 ${id}: ${err.message}`)
       } finally {
-        updateTaskStats()
+        // No need to manually update task stats, it's computed automatically!
         // Random delay
         const delay = REQUEST_DELAY + Math.random() * 1000
         await sleep(delay)

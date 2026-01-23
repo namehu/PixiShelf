@@ -1,47 +1,42 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import localforage from 'localforage'
-import { ArtworkStats, ArtworkProgressStorage, ArtworkProgress, PixivArtworkData } from '../../../types/pixiv'
+import { ArtworkStats, PixivArtworkData } from '../../../types/pixiv'
 import { createComputed } from './zustandComputed'
 
+export interface ArtworkItem {
+  id: string
+  status: 'pending' | 'running' | 'fulfilled' | 'rejected'
+  data?: PixivArtworkData
+  error?: string
+}
+
 interface ComputedValues {
-  successfulArtworks: Array<{ id: string; data: PixivArtworkData }>
-  failedArtworks: Array<{ id: string; error: string }>
+  taskStats: ArtworkStats
+  successfulItems: ArtworkItem[]
 }
 
 type ArtworkTaskBaseState = Omit<ArtworkTaskState, keyof ComputedValues>
 
 interface ArtworkTaskState extends ComputedValues {
-  // 原始数据（持久化）
-  artworkList: string[]
-  progressData: ArtworkProgressStorage
-  taskStats: ArtworkStats
+  // 核心数据
+  queue: ArtworkItem[]
 
-  // 运行时状态（不持久化）
+  // 运行时状态
   isRunning: boolean
   isPaused: boolean
   artworkInput: string
 
-  // 数据操作方法
+  // Actions
   addIds: (ids: string[]) => { added: number; total: number; duplicates: number }
-  removeArtwork: (id: string) => void
-  updateProgress: (id: string, progress: ArtworkProgress) => void
-  clearProgress: () => void
+  updateItem: (id: string, updates: Partial<Omit<ArtworkItem, 'id'>>) => void
+  removeItem: (id: string) => void
   clearAll: () => void
-  updateTaskStats: () => void
 
-  // 运行时状态操作方法
+  // 运行时 Actions
   setTaskStatus: (status: { isRunning?: boolean; isPaused?: boolean }) => void
   setArtworkInput: (input: string) => void
   resetTaskState: () => void
-}
-
-const initialTaskStats: ArtworkStats = {
-  total: 0,
-  completed: 0,
-  successful: 0,
-  failed: 0,
-  pending: 0
 }
 
 // 配置 localforage 实例
@@ -51,138 +46,89 @@ const artworkStorage = localforage.createInstance({
 })
 
 export const useArtworkTaskStore = create<ArtworkTaskBaseState>()(
-  persist(
-    createComputed<ArtworkTaskBaseState, ComputedValues>(
-      (state) => {
-        const successfulArtworks: Array<{ id: string; data: PixivArtworkData }> = []
-        const failedArtworks: Array<{ id: string; error: string }> = []
+  createComputed<ArtworkTaskBaseState, ComputedValues>(
+    (state) => {
+      const queue = state.queue
+      const total = queue.length
+      const pending = queue.filter((i) => i.status === 'pending').length
+      const running = queue.filter((i) => i.status === 'running').length
+      const successful = queue.filter((i) => i.status === 'fulfilled').length
+      const failed = queue.filter((i) => i.status === 'rejected').length
 
-        Object.entries(state.progressData).forEach(([id, progress]) => {
-          if (progress.status === 'fulfilled') {
-            successfulArtworks.push({
-              id,
-              data: progress.data as PixivArtworkData
-            })
-          } else if (progress.status === 'rejected') {
-            failedArtworks.push({
-              id,
-              error: progress.data as string
-            })
-          }
-        })
-
-        return {
-          successfulArtworks,
-          failedArtworks
-        }
-      },
-      { keys: ['progressData'] }
-    )((set, get) => {
-      // 计算统计信息的辅助函数
-      const calculateTaskStats = (list: string[], progressData: ArtworkProgressStorage): ArtworkStats => {
-        const total = new Set(list).size
-        const completedCount = Object.keys(progressData).length
-        const successCount = Object.values(progressData).filter((p) => p.status === 'fulfilled').length
-        const errorCount = completedCount - successCount
-
-        return {
-          total,
-          completed: completedCount,
-          successful: successCount,
-          failed: errorCount,
-          pending: total - completedCount
-        }
-      }
+      // Completed = successful + failed (running is not completed, pending is not completed)
+      const completed = successful + failed
 
       return {
-        // 原始数据
-        artworkList: [],
-        progressData: {},
-        taskStats: initialTaskStats,
+        taskStats: {
+          total,
+          completed,
+          successful,
+          failed,
+          pending: pending + running // running is also technically pending completion
+        },
+        successfulItems: queue.filter((i) => i.status === 'fulfilled')
+      }
+    },
+    { keys: ['queue'] }
+  )(
+    persist(
+      (set, get) => ({
+        // 核心数据
+        queue: [],
 
         // 运行时状态
         isRunning: false,
         isPaused: false,
         artworkInput: '',
 
-        // 更新统计信息的方法
-        updateTaskStats: () => {
-          const state = get()
-          const newStats = calculateTaskStats(state.artworkList, state.progressData)
-          set({ taskStats: newStats })
-        },
-
-        // 数据操作方法
-        addIds: (ids: string[]) => {
+        // Actions
+        addIds: (ids) => {
           if (ids.length === 0) {
-            return { added: 0, total: get().artworkList.length, duplicates: 0 }
+            return { added: 0, total: get().queue.length, duplicates: 0 }
           }
 
-          const existingIds = get().artworkList
-          const newIds = ids.filter((id) => !existingIds.includes(id))
+          const currentQueue = get().queue
+          const existingIds = new Set(currentQueue.map((i) => i.id))
+          const newIds = ids.filter((id) => !existingIds.has(id))
 
           const added = newIds.length
           const duplicates = ids.length - added
 
           if (newIds.length > 0) {
-            set((state) => {
-              const currentIds = new Set(state.artworkList)
-              newIds.forEach((id) => currentIds.add(id))
-              const newArtworkList = Array.from(currentIds)
-              const newStats = calculateTaskStats(newArtworkList, state.progressData)
-              return { artworkList: newArtworkList, taskStats: newStats }
-            })
+            const newItems: ArtworkItem[] = newIds.map((id) => ({
+              id,
+              status: 'pending'
+            }))
+
+            set((state) => ({
+              queue: [...state.queue, ...newItems]
+            }))
           }
 
-          const total = existingIds.length + added
-          return { added, total, duplicates }
+          return { added, total: get().queue.length, duplicates }
         },
 
-        removeArtwork: (id) => {
-          set((state) => {
-            const newList = state.artworkList.filter((t) => t !== id)
-            const newProgressData = { ...state.progressData }
-            delete newProgressData[id]
-            const newStats = calculateTaskStats(newList, newProgressData)
-            return {
-              artworkList: newList,
-              progressData: newProgressData,
-              taskStats: newStats
-            }
-          })
+        updateItem: (id, updates) => {
+          set((state) => ({
+            queue: state.queue.map((item) => (item.id === id ? { ...item, ...updates } : item))
+          }))
         },
 
-        updateProgress: (id, progress) => {
-          set((state) => {
-            const newProgressData = {
-              ...state.progressData,
-              [id]: progress
-            }
-            const newStats = calculateTaskStats(state.artworkList, newProgressData)
-            return {
-              progressData: newProgressData,
-              taskStats: newStats
-            }
-          })
-        },
-
-        clearProgress: () => {
-          set((state) => {
-            const newStats = calculateTaskStats(state.artworkList, {})
-            return { progressData: {}, taskStats: newStats }
-          })
+        removeItem: (id) => {
+          set((state) => ({
+            queue: state.queue.filter((item) => item.id !== id)
+          }))
         },
 
         clearAll: () => {
           set({
-            artworkList: [],
-            progressData: {},
+            queue: [],
             artworkInput: '',
-            taskStats: initialTaskStats
+            isRunning: false,
+            isPaused: false
           })
         },
 
-        // 运行时状态操作方法
         setTaskStatus: (status) => {
           set((state) => ({
             isRunning: status.isRunning ?? state.isRunning,
@@ -201,22 +147,15 @@ export const useArtworkTaskStore = create<ArtworkTaskBaseState>()(
             artworkInput: ''
           })
         }
-      }
-    }),
-    {
-      name: 'pixiv-artwork-task-store',
-      storage: artworkStorage,
-      partialize: (state) => ({
-        artworkList: state.artworkList,
-        progressData: state.progressData,
-        taskStats: state.taskStats,
-        artworkInput: state.artworkInput
       }),
-      onRehydrateStorage: () => (state) => {
-        if (state) {
-          state.updateTaskStats()
-        }
+      {
+        name: 'pixiv-artwork-task-store',
+        storage: artworkStorage,
+        partialize: (state) => ({
+          queue: state.queue,
+          artworkInput: state.artworkInput
+        })
       }
-    }
+    )
   )
 )

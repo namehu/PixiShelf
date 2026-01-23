@@ -62,49 +62,22 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({ children }) => {
   return (
     <div
       ref={panelRef}
-      className="pixiv-floating-panel"
+      className="pixiv-floating-panel fixed w-[768px] bg-white border border-[#e0e0e0] rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] z-[10000] text-sm select-none"
       style={{
-        position: 'fixed',
         left: `${position.x}px`,
-        top: `${position.y}px`,
-        width: '768px',
-        backgroundColor: '#ffffff',
-        border: '1px solid #e0e0e0',
-        borderRadius: '8px',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-        zIndex: 10000,
-        fontSize: '14px',
-        userSelect: 'none'
+        top: `${position.y}px`
       }}
     >
       {/* 标题栏 */}
       <div
-        className="panel-header"
-        style={{
-          padding: '12px 16px',
-          backgroundColor: '#f5f5f5',
-          borderBottom: '1px solid #e0e0e0',
-          borderRadius: '8px 8px 0 0',
-          cursor: 'move',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}
+        className="panel-header p-2 bg-[#f5f5f5] border-b border-[#e0e0e0] rounded-t-lg cursor-move flex justify-between items-center"
         onMouseDown={handleMouseDown}
       >
-        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#333' }}>PixiShelf Downloader</h3>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <h3 className="m-0 text-base font-semibold text-[#333]">PixiShelf Downloader</h3>
+        <div className="">
           <button
             onClick={toggleCollapse}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '4px',
-              borderRadius: '4px',
-              color: '#666',
-              fontSize: '16px'
-            }}
+            className="bg-transparent border-none cursor-pointer p-1 rounded text-[#666] text-base hover:bg-black/5"
             title={isCollapsed ? '展开' : '折叠'}
           >
             {isCollapsed ? '▼' : '▲'}
@@ -113,17 +86,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({ children }) => {
       </div>
 
       {/* 内容区域 */}
-      {!isCollapsed && (
-        <div
-          className="panel-content"
-          style={{
-            maxHeight: '600px',
-            overflowY: 'auto'
-          }}
-        >
-          {children}
-        </div>
-      )}
+      {!isCollapsed && <div className="panel-content max-h-[700px] overflow-y-auto">{children}</div>}
     </div>
   )
 }
