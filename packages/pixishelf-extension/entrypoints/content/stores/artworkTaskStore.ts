@@ -4,12 +4,6 @@ import localforage from 'localforage'
 import { ArtworkStats, ArtworkProgressStorage, ArtworkProgress, PixivArtworkData } from '../../../types/pixiv'
 import { createComputed } from './zustandComputed'
 
-interface DownloadProgress {
-  current: number
-  total: number
-  isDownloading: boolean
-}
-
 interface ComputedValues {
   successfulArtworks: Array<{ id: string; data: PixivArtworkData }>
   failedArtworks: Array<{ id: string; error: string }>
@@ -26,14 +20,10 @@ interface ArtworkTaskState extends ComputedValues {
   // 运行时状态（不持久化）
   isRunning: boolean
   isPaused: boolean
-  downloadProgress: DownloadProgress
-  logs: string[]
   artworkInput: string
 
   // 数据操作方法
-  setArtworkList: (ids: string[]) => void
-  addArtworks: (input: string) => { added: number; total: number; duplicates: number }
-  addArtworkArray: (ids: string[]) => void
+  addIds: (ids: string[]) => { added: number; total: number; duplicates: number }
   removeArtwork: (id: string) => void
   updateProgress: (id: string, progress: ArtworkProgress) => void
   clearProgress: () => void
@@ -42,23 +32,8 @@ interface ArtworkTaskState extends ComputedValues {
 
   // 运行时状态操作方法
   setTaskStatus: (status: { isRunning?: boolean; isPaused?: boolean }) => void
-  setDownloadProgress: (progress: Partial<DownloadProgress>) => void
-  addLog: (message: string) => void
-  clearLogs: () => void
   setArtworkInput: (input: string) => void
-
-  // 重置状态
   resetTaskState: () => void
-
-  // 数据查询方法
-  getProgress: () => ArtworkProgressStorage
-  getArtworkList: () => string[]
-}
-
-const initialDownloadProgress: DownloadProgress = {
-  current: 0,
-  total: 0,
-  isDownloading: false
 }
 
 const initialTaskStats: ArtworkStats = {
@@ -128,8 +103,6 @@ export const useArtworkTaskStore = create<ArtworkTaskBaseState>()(
         // 运行时状态
         isRunning: false,
         isPaused: false,
-        downloadProgress: initialDownloadProgress,
-        logs: [],
         artworkInput: '',
 
         // 更新统计信息的方法
@@ -140,19 +113,7 @@ export const useArtworkTaskStore = create<ArtworkTaskBaseState>()(
         },
 
         // 数据操作方法
-        setArtworkList: (ids) => {
-          set((state) => {
-            const newStats = calculateTaskStats(ids, state.progressData)
-            return { artworkList: ids, taskStats: newStats }
-          })
-        },
-
-        addArtworks: (input: string) => {
-          const ids = input
-            .split(/[\n,]+/) // Split by newline or comma
-            .map((id) => id.trim())
-            .filter((id) => id.length > 0 && /^\d+$/.test(id)) // Ensure numeric ID
-
+        addIds: (ids: string[]) => {
           if (ids.length === 0) {
             return { added: 0, total: get().artworkList.length, duplicates: 0 }
           }
@@ -175,16 +136,6 @@ export const useArtworkTaskStore = create<ArtworkTaskBaseState>()(
 
           const total = existingIds.length + added
           return { added, total, duplicates }
-        },
-
-        addArtworkArray: (ids) => {
-          set((state) => {
-            const currentIds = new Set(state.artworkList)
-            ids.forEach((id) => currentIds.add(id))
-            const newArtworkList = Array.from(currentIds)
-            const newStats = calculateTaskStats(newArtworkList, state.progressData)
-            return { artworkList: newArtworkList, taskStats: newStats }
-          })
         },
 
         removeArtwork: (id) => {
@@ -239,25 +190,6 @@ export const useArtworkTaskStore = create<ArtworkTaskBaseState>()(
           }))
         },
 
-        setDownloadProgress: (progress) => {
-          set((state) => ({
-            downloadProgress: { ...state.downloadProgress, ...progress }
-          }))
-        },
-
-        addLog: (message) => {
-          const timestamp = new Date().toLocaleTimeString()
-          const logMessage = `[${timestamp}] ${message}`
-
-          set((state) => ({
-            logs: [...state.logs, logMessage].slice(-100)
-          }))
-        },
-
-        clearLogs: () => {
-          set({ logs: [] })
-        },
-
         setArtworkInput: (input) => {
           set({ artworkInput: input })
         },
@@ -266,17 +198,8 @@ export const useArtworkTaskStore = create<ArtworkTaskBaseState>()(
           set({
             isRunning: false,
             isPaused: false,
-            downloadProgress: initialDownloadProgress,
             artworkInput: ''
           })
-        },
-
-        getProgress: () => {
-          return get().progressData
-        },
-
-        getArtworkList: () => {
-          return get().artworkList
         }
       }
     }),
@@ -287,8 +210,7 @@ export const useArtworkTaskStore = create<ArtworkTaskBaseState>()(
         artworkList: state.artworkList,
         progressData: state.progressData,
         taskStats: state.taskStats,
-        artworkInput: state.artworkInput,
-        logs: state.logs.slice(-500)
+        artworkInput: state.artworkInput
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {

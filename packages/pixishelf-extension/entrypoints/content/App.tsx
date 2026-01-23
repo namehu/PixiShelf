@@ -8,10 +8,18 @@ import TagTaskContent from './components/tag-content'
 import UserContent from './components/user-content'
 import ArtworkContent from './components/artwork-content'
 import { SettingContent } from './components/setting-content'
+import { useShallow } from 'zustand/shallow'
 
 const App: React.FC = () => {
-  const { isInitialized, error, isLoading, initializeApp } = useAppStore()
-  const { activeTab } = useUIStore()
+  const { isInitialized, error, isLoading, initializeApp } = useAppStore(
+    useShallow((state) => ({
+      isInitialized: state.isInitialized,
+      error: state.error,
+      isLoading: state.isLoading,
+      initializeApp: state.initializeApp
+    }))
+  )
+  const activeTab = useUIStore((state) => state.activeTab)
 
   useEffect(() => {
     initializeApp()
@@ -21,25 +29,13 @@ const App: React.FC = () => {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'tags':
-        return (
-          <div className="tags-content">
-            <TagTaskContent />
-          </div>
-        )
+        return <TagTaskContent />
       case 'users':
         return <UserContent />
       case 'artworks':
-        return (
-          <div className="artworks-content">
-            <ArtworkContent />
-          </div>
-        )
+        return <ArtworkContent />
       case 'setting':
-        return (
-          <div className="setting-content">
-            <SettingContent />
-          </div>
-        )
+        return <SettingContent />
       default:
         return null
     }

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react'
+import { LogEntry } from '../stores/logStore'
 
 interface BaseLogViewerProps {
-  logs: string[]
+  logs: string[] | LogEntry[]
   onClear: () => void
   title?: string
   height?: string
@@ -88,7 +89,7 @@ export const BaseLogViewer: React.FC<BaseLogViewerProps> = ({
                   wordBreak: 'break-word'
                 }}
               >
-                {log}
+                {typeof log === 'string' ? log : log.message}
               </div>
             ))}
             <div ref={logsEndRef} />
