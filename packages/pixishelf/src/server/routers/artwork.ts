@@ -39,13 +39,15 @@ export const artworkRouter = router({
    * 更新作品
    */
   update: authProcedure
-    .input(z.object({
-      id: z.number(),
-      data: z.object({
-        title: z.string().optional(),
-        description: z.string().optional()
+    .input(
+      z.object({
+        id: z.number(),
+        data: z.object({
+          title: z.string().optional(),
+          description: z.string().optional()
+        })
       })
-    }))
+    )
     .mutation(async ({ input }) => {
       return updateArtwork(input.id, input.data)
     }),
@@ -53,11 +55,9 @@ export const artworkRouter = router({
   /**
    * 删除作品
    */
-  delete: authProcedure
-    .input(z.number())
-    .mutation(async ({ input }) => {
-      return deleteArtwork(input)
-    }),
+  delete: authProcedure.input(z.number()).mutation(async ({ input }) => {
+    return deleteArtwork(input)
+  }),
 
   /**
    * 获取邻近作品（前后作品）

@@ -203,6 +203,28 @@ export async function updateArtwork(id: number, data: Prisma.ArtworkUpdateInput)
   })
 }
 
+/**
+ * 获取没有系列的作品的 External ID 列表
+ */
+export async function getNoSeriesArtworkExternalIds(): Promise<string[]> {
+  const artworks = await prisma.artwork.findMany({
+    where: {
+      seriesId: null,
+      seriesArtworks: {
+        none: {}
+      },
+      externalId: {
+        not: null
+      }
+    },
+    select: {
+      externalId: true
+    }
+  })
+
+  return artworks.map((a) => a.externalId).filter((id): id is string => id !== null)
+}
+
 // 辅助：SQL 排序映射
 function mapSortOptionToSQL(sortBy: string): string {
   switch (sortBy) {
