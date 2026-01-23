@@ -1,4 +1,4 @@
-import { Activity, AlbumIcon, Settings, Tags, Users, UserStar } from 'lucide-react'
+import { Activity, AlbumIcon, Settings, Tags, Users, UserStar, ImageIcon } from 'lucide-react'
 
 export const sections = [
   {
@@ -16,11 +16,11 @@ export const sections = [
     color: 'text-green-500'
   },
   {
-    title: '用户管理',
-    description: '管理注册用户和权限',
-    href: '/admin/users',
-    icon: Users,
-    color: 'text-purple-500'
+    title: '作品管理',
+    description: '管理作品信息',
+    href: '/admin/artworks',
+    icon: ImageIcon,
+    color: 'text-pink-500'
   },
   {
     title: '艺术家管理',
@@ -35,6 +35,13 @@ export const sections = [
     href: '/admin/series',
     icon: AlbumIcon,
     color: 'text-gray-500'
+  },
+  {
+    title: '用户管理',
+    description: '管理注册用户和权限',
+    href: '/admin/users',
+    icon: Users,
+    color: 'text-purple-500'
   },
   {
     title: '设置管理',

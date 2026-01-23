@@ -16,6 +16,7 @@ import { EMediaType } from '@/enums/EMediaType'
 import { shuffleArray, transformImages, transformSingleArtwork } from './utils'
 import { fetchRandomIds } from './dao'
 import { RandomTagDto } from '@/schemas/tag.dto'
+import { Prisma } from '@prisma/client'
 export * from './related'
 
 /**
@@ -181,6 +182,25 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
   })
 
   return { items, total, page, pageSize }
+}
+
+/**
+ * 删除作品
+ */
+export async function deleteArtwork(id: number) {
+  return prisma.artwork.delete({
+    where: { id }
+  })
+}
+
+/**
+ * 更新作品
+ */
+export async function updateArtwork(id: number, data: Prisma.ArtworkUpdateInput) {
+  return prisma.artwork.update({
+    where: { id },
+    data
+  })
 }
 
 // 辅助：SQL 排序映射
@@ -456,12 +476,13 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
 
   let seriesData = null
   if (artwork.series) {
-    const currentItem = artwork.series.seriesArtworks.find(sa => sa.artworkId === id)
+    const currentItem = artwork.series.seriesArtworks.find((sa) => sa.artworkId === id)
     if (currentItem) {
       const currentIndex = artwork.series.seriesArtworks.indexOf(currentItem)
       const prev = currentIndex > 0 ? artwork.series.seriesArtworks[currentIndex - 1] : null
-      const next = currentIndex < artwork.series.seriesArtworks.length - 1 ? artwork.series.seriesArtworks[currentIndex + 1] : null
-      
+      const next =
+        currentIndex < artwork.series.seriesArtworks.length - 1 ? artwork.series.seriesArtworks[currentIndex + 1] : null
+
       seriesData = {
         id: artwork.series.id,
         title: artwork.series.title,

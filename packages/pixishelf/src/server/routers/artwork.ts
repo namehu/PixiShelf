@@ -1,4 +1,5 @@
 import { authProcedure, publicProcedure, router } from '@/server/trpc'
+import { z } from 'zod'
 import {
   ArtworksInfiniteQuerySchema,
   NeighboringArtworksGetSchema,
@@ -9,7 +10,9 @@ import {
   getArtworksList,
   getNeighboringArtworks,
   getRecommendedArtworks,
-  getRandomArtworks
+  getRandomArtworks,
+  deleteArtwork,
+  updateArtwork
 } from '@/services/artwork-service'
 import logger from '@/lib/logger'
 import { TRPCError } from '@trpc/server'
@@ -31,6 +34,30 @@ export const artworkRouter = router({
       total: result.total
     }
   }),
+
+  /**
+   * 更新作品
+   */
+  update: authProcedure
+    .input(z.object({
+      id: z.number(),
+      data: z.object({
+        title: z.string().optional(),
+        description: z.string().optional()
+      })
+    }))
+    .mutation(async ({ input }) => {
+      return updateArtwork(input.id, input.data)
+    }),
+
+  /**
+   * 删除作品
+   */
+  delete: authProcedure
+    .input(z.number())
+    .mutation(async ({ input }) => {
+      return deleteArtwork(input)
+    }),
 
   /**
    * 获取邻近作品（前后作品）
