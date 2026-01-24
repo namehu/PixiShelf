@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { useArtworkTaskStore } from '../stores/artworkTaskStore'
 import { fetchPixivArtworkData } from '../utils/pixiv-api'
 import { useLogger } from './useLogger'
+import { db } from '../services/db'
 
 const MAX_RETRIES = 3
 const RETRY_DELAY = 1000
@@ -13,7 +14,7 @@ export const useArtworkCrawler = () => {
   const { log, warn, error, success } = useLogger('artwork')
 
   const startTask = useCallback(async () => {
-    const { queue, setTaskStatus, updateItem } = useArtworkTaskStore.getState()
+    const { setTaskStatus } = useArtworkTaskStore.getState()
 
     // 再次检查 store 中的状态
     if (useArtworkTaskStore.getState().isRunning) {
@@ -23,10 +24,8 @@ export const useArtworkCrawler = () => {
 
     log('开始抓取作品信息任务...')
 
-    // Filter pending
-    // 注意：这里可以筛选 'pending' 甚至 'rejected' (如果支持自动重试失败任务)
-    // 暂时只处理 pending
-    const pendingItems = queue.filter((item) => item.status === 'pending')
+    // 从 DB 获取 pending 任务
+    const pendingItems = await db.tasks.where('status').equals('pending').toArray()
 
     if (pendingItems.length === 0) {
       log('所有作品已处理完成')
@@ -45,7 +44,7 @@ export const useArtworkCrawler = () => {
       }
 
       // Set to running
-      updateItem(id, { status: 'running' })
+      await db.tasks.update(id, { status: 'running', updatedAt: Date.now() })
 
       try {
         let retries = 0
@@ -77,28 +76,24 @@ export const useArtworkCrawler = () => {
         }
 
         if (!useArtworkTaskStore.getState().isRunning) {
-          // 如果被暂停，改回 pending 状态以便下次继续？或者保持 running 但实际上停止了？
-          // 通常改为 pending 比较合理，或者保持 running 但 UI 显示暂停
-          // 这里简单起见，如果没完成就还是 pending
-          updateItem(id, { status: 'pending' })
+          // 如果被暂停，改回 pending 状态
+          await db.tasks.update(id, { status: 'pending', updatedAt: Date.now() })
           warn('任务已暂停')
           break
         }
 
         if (data) {
-          updateItem(id, { status: 'fulfilled', data })
+          await db.tasks.update(id, { status: 'fulfilled', data, updatedAt: Date.now() })
           success(`获取作品成功: ${data.title}`)
         } else {
           const _erroMsg = _error?.message || '获取失败或数据为空'
-          updateItem(id, { status: 'rejected', error: _erroMsg })
+          await db.tasks.update(id, { status: 'rejected', error: _erroMsg, updatedAt: Date.now() })
           error(`获取作品失败: ${id} ${_erroMsg}`)
         }
       } catch (err: any) {
-        updateItem(id, { status: 'rejected', error: err.message })
+        await db.tasks.update(id, { status: 'rejected', error: err.message, updatedAt: Date.now() })
         error(`处理作品出错 ${id}: ${err.message}`)
       } finally {
-        // No need to manually update task stats, it's computed automatically!
-        // Random delay (500-1000ms)
         const delay = REQUEST_DELAY + Math.random() * 500
         await sleep(delay)
       }

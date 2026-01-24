@@ -6,31 +6,41 @@ import { useArtworkCrawler } from '../../hooks/useArtworkCrawler'
 import { useShallow } from 'zustand/shallow'
 import { downloadFile, generateArtworkSql } from '../../utils/sql-helper'
 import { Button } from '@/components/ui/button'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db, ArtworkItem } from '../../services/db'
 
 export default function ArtworkContent() {
   const { logs, clear, error: logError, success, warn } = useLogger('artwork')
 
-  // 使用 shallow 比较来优化渲染
-  const { taskStats, artworkInput, setArtworkInput, addIds, isRunning, clearAll, queue, successfulItems } =
-    useArtworkTaskStore(
-      useShallow((state) => ({
-        taskStats: state.taskStats,
-        artworkInput: state.artworkInput,
-        setArtworkInput: state.setArtworkInput,
-        addIds: state.addIds,
-        isRunning: state.isRunning,
-        clearAll: state.clearAll,
-        queue: state.queue,
-        successfulItems: state.successfulItems
-      }))
-    )
+  const { artworkInput, setArtworkInput, isRunning } = useArtworkTaskStore(
+    useShallow((state) => ({
+      artworkInput: state.artworkInput,
+      setArtworkInput: state.setArtworkInput,
+      isRunning: state.isRunning
+    }))
+  )
+
+  const taskStats = useLiveQuery(async () => {
+    return {
+      total: await db.tasks.count(),
+      completed:
+        (await db.tasks.where('status').equals('fulfilled').count()) +
+        (await db.tasks.where('status').equals('rejected').count()),
+      successful: await db.tasks.where('status').equals('fulfilled').count(),
+      failed: await db.tasks.where('status').equals('rejected').count(),
+      pending:
+        (await db.tasks.where('status').equals('pending').count()) +
+        (await db.tasks.where('status').equals('running').count())
+    }
+  }, []) || { total: 0, completed: 0, successful: 0, failed: 0, pending: 0 }
 
   const { startTask, stopTask } = useArtworkCrawler()
 
   const handleStartTask = async () => {
     try {
-      if (!queue || queue.length === 0) {
-        return warn('请先添加作品ID')
+      const pendingCount = await db.tasks.where('status').equals('pending').count()
+      if (pendingCount === 0) {
+        return warn('没有待处理的任务')
       }
       await startTask()
     } catch (error) {
@@ -44,6 +54,7 @@ export default function ArtworkContent() {
 
   const handleGenerateSQL = async () => {
     try {
+      const successfulItems = await db.tasks.where('status').equals('fulfilled').toArray()
       const validData = successfulItems.filter((item) => item.data).map((item) => item.data!)
 
       // @ts-ignore
@@ -80,14 +91,14 @@ export default function ArtworkContent() {
     if (!confirm('确定要清除所有作品数据吗？此操作不可恢复。')) return
 
     try {
-      clearAll()
+      await db.tasks.clear()
       warn('数据已清除')
     } catch (error) {
       logError(`清除失败: ${error}`)
     }
   }
 
-  const handleAddArtworks = () => {
+  const handleAddArtworks = async () => {
     if (!artworkInput.trim()) return
 
     const ids = artworkInput
@@ -100,15 +111,36 @@ export default function ArtworkContent() {
       return
     }
 
-    const result = addIds(ids)
+    try {
+      const uniqueInputIds = [...new Set(ids)]
+      const existingItems = await db.tasks.bulkGet(uniqueInputIds)
 
-    if (result.added === 0 && result.duplicates === 0) {
-      warn('没有添加任何新作品ID')
-      return
+      // newIds are those where existingItems[i] is undefined
+      const newIds = uniqueInputIds.filter((_, index) => existingItems[index] === undefined)
+
+      const itemsToAdd: ArtworkItem[] = newIds.map((id) => ({
+        id,
+        status: 'pending',
+        updatedAt: Date.now()
+      }))
+
+      if (itemsToAdd.length > 0) {
+        await db.tasks.bulkAdd(itemsToAdd)
+      }
+
+      const added = itemsToAdd.length
+      const duplicates = uniqueInputIds.length - added
+
+      if (added === 0) {
+        warn('没有添加任何新作品ID')
+        return
+      }
+
+      success(`成功添加 ${added} 个作品` + (duplicates > 0 ? `(忽略重复${duplicates}个)` : ''))
+      setArtworkInput('')
+    } catch (err: any) {
+      logError(`添加失败: ${err.message}`)
     }
-
-    success(`成功添加 ${result.added} 个作品` + (result.duplicates ? `(忽略重复${result.duplicates}个)` : ''))
-    setArtworkInput('')
   }
 
   return (

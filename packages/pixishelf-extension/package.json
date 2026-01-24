@@ -28,6 +28,8 @@
     "ansi-to-react": "^6.2.6",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dexie": "^4.2.1",
+    "dexie-react-hooks": "^4.2.0",
     "jszip": "^3.10.1",
     "localforage": "^1.10.0",
     "lucide-react": "^0.544.0",
