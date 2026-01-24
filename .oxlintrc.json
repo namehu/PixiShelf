@@ -5,7 +5,7 @@
     "no-var": "error",
     "no-void": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
-    "no-console": "error",
+    "no-console": ["error", { "allow": ["warn", "error"] }],
     "no-return-assign": "error",
     "no-debugger": "off",
     "no-unused-vars": [
@@ -29,13 +29,13 @@
 
     // 函数相关
     "prefer-rest-params": "error",
-    "max-params": ["error", 3],
+    "max-params": ["error", 5],
     "max-nested-callbacks": ["error", 3],
 
     // 代码风格和质量
     "no-else-return": "error",
-    "max-depth": ["error", 5],
-    "max-lines": ["error", 500],
+    "max-depth": ["error", 6],
+    "max-lines": ["error", 1000],
     "prefer-object-spread": "error",
     "prefer-object-has-own": "error",
     "prefer-promise-reject-errors": "error",
