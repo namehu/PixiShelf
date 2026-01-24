@@ -7,17 +7,16 @@ export function generateArtworkSql(artworks: PixivArtworkData[]) {
 
   try {
     const timestamp = new Date().toISOString()
-    let mainSql = `-- PixiShelf Artwork Data Export (Main)\n`
-    mainSql += `-- Generated at ${timestamp}\n\n`
+    let seriesSql = `-- PixiShelf Artwork Data Export (Series)\n`
+    seriesSql += `-- Generated at ${timestamp}\n\n`
+
+    let noSeriesSql = `-- PixiShelf Artwork Data Export (No Series)\n`
+    noSeriesSql += `-- Generated at ${timestamp}\n\n`
 
     let tagsSql = `-- PixiShelf Artwork Data Export (Tags)\n`
     tagsSql += `-- Generated at ${timestamp}\n\n`
 
     for (const data of artworks) {
-      // --- Main SQL ---
-      mainSql += `-- Transaction for Artwork: ${data.id}\n`
-      mainSql += `BEGIN;\n\n`
-
       // Helper for escaping SQL strings
       const escapeSql = (str: string | null | undefined) => {
         if (!str) return ''
@@ -43,51 +42,59 @@ export function generateArtworkSql(artworks: PixivArtworkData[]) {
       // 1. Series & Artwork (Update with CTE) - Scenario B
       // 使用 CTE 动态获取 Series ID 和 Artwork ID 并插入 SeriesArtwork
       if (data.series) {
+        seriesSql += `-- Transaction for Artwork: ${data.id}\n`
+        seriesSql += `BEGIN;\n\n`
+
         const seriesExternalId = escapeSql(data.series.id)
         const seriesTitle = escapeSql(data.series.title)
         const sortOrder = data.series.order
 
-        mainSql += `-- 1. Series Upsert & Artwork Update (CTE)\n`
-        mainSql += `WITH upserted_series AS (\n`
-        mainSql += `    INSERT INTO "Series" ("title", "source", "externalId", "updatedAt")\n`
-        mainSql += `    VALUES ('${seriesTitle}', 'PIXIV', '${seriesExternalId}', NOW())\n`
-        mainSql += `    ON CONFLICT ("source", "externalId")\n`
-        mainSql += `    DO UPDATE SET "title" = EXCLUDED."title", "updatedAt" = NOW()\n`
-        mainSql += `    RETURNING "id"\n`
-        mainSql += `),\n`
-        mainSql += `updated_artwork AS (\n`
-        mainSql += `    UPDATE "Artwork" SET \n`
-        mainSql += `        "title" = '${title}',\n`
-        mainSql += `        "description" = '${description}',\n`
-        mainSql += `        "updatedAt" = '${updateTime}',\n`
-        mainSql += `        "bookmarkCount" = ${bookmarkCount},\n`
-        mainSql += `        "originalUrl" = '${originalUrl}',\n`
-        mainSql += `        "thumbnailUrl" = '${thumbnailUrl}',\n`
-        mainSql += `        "size" = '${sizeStr}',\n`
-        mainSql += `        "descriptionLength" = ${descriptionLength}\n`
-        mainSql += `    WHERE "externalId" = '${artworkExternalId}'\n`
-        mainSql += `    RETURNING "id"\n`
-        mainSql += `)\n`
-        mainSql += `INSERT INTO "SeriesArtwork" ("seriesId", "artworkId", "sortOrder")\n`
-        mainSql += `SELECT s.id, a.id, ${sortOrder}\n`
-        mainSql += `FROM upserted_series s, updated_artwork a\n`
-        mainSql += `ON CONFLICT ("seriesId", "artworkId") DO UPDATE SET "sortOrder" = EXCLUDED."sortOrder";\n\n`
-      } else {
-        // 2. No Series - Just Update Artwork
-        mainSql += `-- 2. Artwork Update (No Series)\n`
-        mainSql += `UPDATE "Artwork" SET \n`
-        mainSql += `    "title" = '${title}',\n`
-        mainSql += `    "description" = '${description}',\n`
-        mainSql += `    "updatedAt" = '${updateTime}',\n`
-        mainSql += `    "bookmarkCount" = ${bookmarkCount},\n`
-        mainSql += `    "originalUrl" = '${originalUrl}',\n`
-        mainSql += `    "thumbnailUrl" = '${thumbnailUrl}',\n`
-        mainSql += `    "size" = '${sizeStr}',\n`
-        mainSql += `    "descriptionLength" = ${descriptionLength}\n`
-        mainSql += `WHERE "externalId" = '${artworkExternalId}';\n\n`
-      }
+        seriesSql += `-- 1. Series Upsert & Artwork Update (CTE)\n`
+        seriesSql += `WITH upserted_series AS (\n`
+        seriesSql += `    INSERT INTO "Series" ("title", "source", "externalId", "updatedAt")\n`
+        seriesSql += `    VALUES ('${seriesTitle}', 'PIXIV', '${seriesExternalId}', NOW())\n`
+        seriesSql += `    ON CONFLICT ("source", "externalId")\n`
+        seriesSql += `    DO UPDATE SET "title" = EXCLUDED."title", "updatedAt" = NOW()\n`
+        seriesSql += `    RETURNING "id"\n`
+        seriesSql += `),\n`
+        seriesSql += `updated_artwork AS (\n`
+        seriesSql += `    UPDATE "Artwork" SET \n`
+        seriesSql += `        "title" = '${title}',\n`
+        seriesSql += `        "description" = '${description}',\n`
+        seriesSql += `        "updatedAt" = '${updateTime}',\n`
+        seriesSql += `        "bookmarkCount" = ${bookmarkCount},\n`
+        seriesSql += `        "originalUrl" = '${originalUrl}',\n`
+        seriesSql += `        "thumbnailUrl" = '${thumbnailUrl}',\n`
+        seriesSql += `        "size" = '${sizeStr}',\n`
+        seriesSql += `        "descriptionLength" = ${descriptionLength}\n`
+        seriesSql += `    WHERE "externalId" = '${artworkExternalId}'\n`
+        seriesSql += `    RETURNING "id"\n`
+        seriesSql += `)\n`
+        seriesSql += `INSERT INTO "SeriesArtwork" ("seriesId", "artworkId", "sortOrder")\n`
+        seriesSql += `SELECT s.id, a.id, ${sortOrder}\n`
+        seriesSql += `FROM upserted_series s, updated_artwork a\n`
+        seriesSql += `ON CONFLICT ("seriesId", "artworkId") DO UPDATE SET "sortOrder" = EXCLUDED."sortOrder";\n\n`
 
-      mainSql += `COMMIT;\n\n`
+        seriesSql += `COMMIT;\n\n`
+      } else {
+        noSeriesSql += `-- Transaction for Artwork: ${data.id}\n`
+        noSeriesSql += `BEGIN;\n\n`
+
+        // 2. No Series - Just Update Artwork
+        noSeriesSql += `-- 2. Artwork Update (No Series)\n`
+        noSeriesSql += `UPDATE "Artwork" SET \n`
+        noSeriesSql += `    "title" = '${title}',\n`
+        noSeriesSql += `    "description" = '${description}',\n`
+        noSeriesSql += `    "updatedAt" = '${updateTime}',\n`
+        noSeriesSql += `    "bookmarkCount" = ${bookmarkCount},\n`
+        noSeriesSql += `    "originalUrl" = '${originalUrl}',\n`
+        noSeriesSql += `    "thumbnailUrl" = '${thumbnailUrl}',\n`
+        noSeriesSql += `    "size" = '${sizeStr}',\n`
+        noSeriesSql += `    "descriptionLength" = ${descriptionLength}\n`
+        noSeriesSql += `WHERE "externalId" = '${artworkExternalId}';\n\n`
+
+        noSeriesSql += `COMMIT;\n\n`
+      }
 
       // --- Tags SQL ---
       if (data.tags && data.tags.length > 0) {
@@ -119,7 +126,7 @@ export function generateArtworkSql(artworks: PixivArtworkData[]) {
       }
     }
 
-    return { success: true, content: { main: mainSql, tags: tagsSql } }
+    return { success: true, content: { series: seriesSql, noSeries: noSeriesSql, tags: tagsSql } }
   } catch (error) {
     return { success: false, error: String(error) }
   }

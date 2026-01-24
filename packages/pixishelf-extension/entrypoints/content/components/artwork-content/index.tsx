@@ -50,19 +50,21 @@ export default function ArtworkContent() {
       const result = generateArtworkSql(validData)
       if (result.success && result.content) {
         const timestamp = new Date().getTime()
-        
-        // Handle new return structure { main: string, tags: string }
-        // We cast to any/unknown because the type inference might need a moment or explicit interface
-        const content = result.content as unknown as { main: string, tags: string }
 
-        const mainRes = downloadFile(content.main, `pixiv_artworks_main_${timestamp}.sql`)
+        // Handle new return structure { series: string, noSeries: string, tags: string }
+        // We cast to any/unknown because the type inference might need a moment or explicit interface
+        const content = result.content as unknown as { series: string; noSeries: string; tags: string }
+
+        const seriesRes = downloadFile(content.series, `pixiv_artworks_series_${timestamp}.sql`)
+        const noSeriesRes = downloadFile(content.noSeries, `pixiv_artworks_noseries_${timestamp}.sql`)
         const tagsRes = downloadFile(content.tags, `pixiv_artworks_tags_${timestamp}.sql`)
 
-        if (mainRes.success && tagsRes.success) {
-          success('SQL文件下载成功 (Main & Tags)')
+        if (seriesRes.success && noSeriesRes.success && tagsRes.success) {
+          success('SQL文件下载成功 (Series, No-Series & Tags)')
         } else {
           const errors = []
-          if (!mainRes.success) errors.push(`Main: ${mainRes.error}`)
+          if (!seriesRes.success) errors.push(`Series: ${seriesRes.error}`)
+          if (!noSeriesRes.success) errors.push(`NoSeries: ${noSeriesRes.error}`)
           if (!tagsRes.success) errors.push(`Tags: ${tagsRes.error}`)
           logError(`SQL下载部分失败: ${errors.join(', ')}`)
         }
