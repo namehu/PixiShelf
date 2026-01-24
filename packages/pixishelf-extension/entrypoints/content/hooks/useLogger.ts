@@ -10,7 +10,10 @@ import { db, LogModule, LogLevel } from '../services/db'
  */
 export const useLogger = (module: LogModule) => {
   const logs =
-    useLiveQuery(() => db.logs.where('module').equals(module).reverse().limit(2000).toArray(), [module]) || []
+    useLiveQuery(async () => {
+      const result = await db.logs.where('module').equals(module).reverse().limit(2000).toArray()
+      return result.reverse()
+    }, [module]) || []
 
   const addLog = useCallback(
     async (message: string, level: LogLevel) => {
