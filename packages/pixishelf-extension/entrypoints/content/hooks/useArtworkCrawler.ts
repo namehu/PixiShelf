@@ -3,12 +3,11 @@ import { useArtworkTaskStore } from '../stores/artworkTaskStore'
 import { fetchPixivArtworkData } from '../utils/pixiv-api'
 import { useLogger } from './useLogger'
 import { db } from '../services/db'
+import { sleep } from '../utils/common'
 
 const MAX_RETRIES = 3
 const RETRY_DELAY = 1000
 const REQUEST_DELAY = 500
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export const useArtworkCrawler = () => {
   const { log, warn, error, success } = useLogger('artwork')

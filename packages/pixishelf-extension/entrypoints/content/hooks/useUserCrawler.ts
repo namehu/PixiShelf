@@ -4,15 +4,13 @@ import { fetchPixivUserData } from '../utils/pixiv-api'
 import { useLogger } from './useLogger'
 import { db } from '../services/db'
 import JSZip from 'jszip'
-import type { DownloadMessage, DownloadResponse } from '../../../types/messages'
 import { DownloadRequest, FileDownloadOptions, SqlGenerationOptions } from '@/types/service'
 import { ETagDownloadMode } from '@/enums/ETagDownloadMode'
+import { sleep, downloadFile } from '../utils/common'
 
 const MAX_RETRIES = 3
 const RETRY_DELAY = 1000
 const REQUEST_DELAY = 500
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export const useUserCrawler = () => {
   const { log, warn, error, success } = useLogger('artist')
@@ -110,46 +108,6 @@ export const useUserCrawler = () => {
     setTaskStatus({ isRunning: false })
     warn('正在停止任务...')
   }, [warn])
-
-  // --- 辅助函数 ---
-  const downloadFile = async (content: string | Blob, filename: string, mimeType: string, customDirectory?: string) => {
-    const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType })
-
-    if (customDirectory) {
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => {
-            const dataUrl = reader.result as string
-            const message: DownloadMessage = {
-              type: 'DOWNLOAD_FILE',
-              data: { dataUrl, filename, customDirectory }
-            }
-            chrome.runtime.sendMessage(message, (response: DownloadResponse) => {
-              if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message))
-              else if (response.success) resolve()
-              else reject(new Error(response.error || '下载失败'))
-            })
-          }
-          reader.onerror = () => reject(new Error('无法读取 Blob'))
-          reader.readAsDataURL(blob)
-        })
-        return
-      } catch (error) {
-        console.warn('Background script 下载失败，回退默认:', error)
-      }
-    }
-
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.style.display = 'none'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }
 
   const generateSql = async (options?: SqlGenerationOptions) => {
     try {

@@ -4,10 +4,11 @@ import { BaseProgressDisplay } from '../BaseProgressDisplay'
 import { useLogger } from '../../hooks/useLogger'
 import { useArtworkCrawler } from '../../hooks/useArtworkCrawler'
 import { useShallow } from 'zustand/shallow'
-import { downloadFile, generateArtworkSql } from '../../utils/sql-helper'
+import { generateArtworkSql } from '../../utils/sql-helper'
 import { Button } from '@/components/ui/button'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, ArtworkItem } from '../../services/db'
+import { downloadFile } from '../../utils/common'
 
 export default function ArtworkContent() {
   const { logs, clear, error: logError, success, warn } = useLogger('artwork')
@@ -66,18 +67,13 @@ export default function ArtworkContent() {
         // We cast to any/unknown because the type inference might need a moment or explicit interface
         const content = result.content as unknown as { series: string; noSeries: string; tags: string }
 
-        const seriesRes = downloadFile(content.series, `pixiv_artworks_series_${timestamp}.sql`)
-        const noSeriesRes = downloadFile(content.noSeries, `pixiv_artworks_noseries_${timestamp}.sql`)
-        const tagsRes = downloadFile(content.tags, `pixiv_artworks_tags_${timestamp}.sql`)
-
-        if (seriesRes.success && noSeriesRes.success && tagsRes.success) {
+        try {
+          await downloadFile(content.series, `pixiv_artworks_series_${timestamp}.sql`)
+          await downloadFile(content.noSeries, `pixiv_artworks_noseries_${timestamp}.sql`)
+          await downloadFile(content.tags, `pixiv_artworks_tags_${timestamp}.sql`)
           success('SQL文件下载成功 (Series, No-Series & Tags)')
-        } else {
-          const errors = []
-          if (!seriesRes.success) errors.push(`Series: ${seriesRes.error}`)
-          if (!noSeriesRes.success) errors.push(`NoSeries: ${noSeriesRes.error}`)
-          if (!tagsRes.success) errors.push(`Tags: ${tagsRes.error}`)
-          logError(`SQL下载部分失败: ${errors.join(', ')}`)
+        } catch (error) {
+          logError(`SQL下载失败: ${error}`)
         }
       } else {
         logError(`SQL生成失败: ${result.error}`)
