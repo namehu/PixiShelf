@@ -1,5 +1,7 @@
+// oxlint-disable no-console
 import { useCallback } from 'react'
-import { useLogStore, LogModule } from '../stores/logStore'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db, LogModule, LogLevel } from '../services/db'
 
 /**
  * 自定义日志钩子，用于在指定模块下记录日志
@@ -7,38 +9,63 @@ import { useLogStore, LogModule } from '../stores/logStore'
  * @returns 包含日志记录方法和日志列表的对象
  */
 export const useLogger = (module: LogModule) => {
-  const addLog = useLogStore((state) => state.addLog)
-  const clearLogsAction = useLogStore((state) => state.clearLogs)
-  const storeLogs = useLogStore((state) => state.logs)
+  const logs =
+    useLiveQuery(() => db.logs.where('module').equals(module).reverse().limit(2000).toArray(), [module]) || []
 
-  const logs = useMemo(() => storeLogs.filter((l) => l.module === module), [storeLogs, module])
+  const addLog = useCallback(
+    async (message: string, level: LogLevel) => {
+      try {
+        await db.logs.add({
+          module,
+          level,
+          message,
+          timestamp: Date.now()
+        })
+      } catch (e) {
+        console.error('Failed to add log', e)
+      }
+    },
+    [module]
+  )
+
+  const clearLogsAction = useCallback(async (mod?: LogModule) => {
+    try {
+      if (mod) {
+        await db.logs.where('module').equals(mod).delete()
+      } else {
+        await db.logs.clear()
+      }
+    } catch (e) {
+      console.error('Failed to clear logs', e)
+    }
+  }, [])
 
   const log = useCallback(
     (message: string) => {
-      addLog(module, message, 'info')
+      addLog(message, 'info')
     },
-    [addLog, module]
+    [addLog]
   )
 
   const success = useCallback(
     (message: string) => {
-      addLog(module, message, 'success')
+      addLog(message, 'success')
     },
-    [addLog, module]
+    [addLog]
   )
 
   const warn = useCallback(
     (message: string) => {
-      addLog(module, message, 'warn')
+      addLog(message, 'warn')
     },
-    [addLog, module]
+    [addLog]
   )
 
   const error = useCallback(
     (message: string) => {
-      addLog(module, message, 'error')
+      addLog(message, 'error')
     },
-    [addLog, module]
+    [addLog]
   )
 
   const clear = useCallback(() => {

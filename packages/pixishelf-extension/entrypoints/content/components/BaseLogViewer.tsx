@@ -1,7 +1,7 @@
 import React, { useState, memo } from 'react'
-import { LogEntry } from '../stores/logStore'
 import { Virtuoso } from 'react-virtuoso'
 import Ansi from 'ansi-to-react'
+import { LogEntry } from '../services/db'
 
 interface BaseLogViewerProps {
   logs: string[] | LogEntry[]
