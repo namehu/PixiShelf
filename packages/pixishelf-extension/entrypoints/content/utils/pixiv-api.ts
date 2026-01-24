@@ -1,4 +1,4 @@
-import { PixivArtworkData, PixivTagData, PixivApiResponse } from '../../../types/pixiv'
+import { PixivArtworkData, PixivTagData, PixivApiResponse, PixivUserApiResponse, PixivUserData } from '../../../types/pixiv'
 
 /**
  * 从 Pixiv API 获取作品数据
@@ -124,5 +124,50 @@ export async function fetchPixivTagData(tag: string): Promise<PixivTagData> {
     englishTranslation: englishTranslation || null,
     abstract: abstract || null,
     imageUrl: imageUrl || null
+  }
+}
+
+/**
+ * 从 Pixiv API 获取用户数据
+ * @param userId 用户 ID
+ * @returns 用户数据
+ */
+export async function fetchPixivUserData(userId: string): Promise<PixivUserData> {
+  const apiUrl = `https://www.pixiv.net/ajax/user/${userId}?full=1&lang=zh`
+  const response = await fetch(apiUrl, {
+    headers: { accept: 'application/json' }
+  })
+
+  if (response.status === 429) {
+    const error = new Error('HTTP 请求失败! 状态: 429')
+    error.name = 'RateLimitError'
+    throw error
+  }
+
+  if (response.status === 404) {
+    throw new Error(`用户 ID 不存在: ${userId}`)
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP 请求失败! 状态: ${response.status}`)
+  }
+
+  const data = await response.json()
+
+  if (data.error || !data.body) {
+    throw new Error(`Pixiv API 返回错误: ${data.message || '响应中没有 body'}`)
+  }
+
+  const body = data.body
+
+  // 提取头像和背景图，优先使用 imageBig，并考虑为空的情况
+  const avatarUrl = body.imageBig || body.image || null
+  const backgroundUrl = body.background?.url || null
+
+  return {
+    userId: body.userId,
+    name: body.name,
+    avatarUrl: avatarUrl,
+    backgroundUrl: backgroundUrl
   }
 }

@@ -1,114 +1,109 @@
 import React from 'react'
 import { useUserInfoStore } from '../../stores/userInfoStore'
-import { userInfoService } from '../../services/UserInfoService'
 import { Button } from '@/components/ui/button'
-import { MTagDownloadMode } from '@/enums/ETagDownloadMode'
-import { useShallow } from 'zustand/shallow'
 import { toast } from 'sonner'
+import { useUserCrawler } from '../../hooks/useUserCrawler'
+import { useLogger } from '../../hooks/useLogger'
+import { db, UserItem } from '../../services/db'
+import { useLiveQuery } from 'dexie-react-hooks'
 
 export const UserController: React.FC = () => {
-  const { userIdList, isRunning, addUserIds, getStats, clearAll, progressData, addLog } = useUserInfoStore(
-    useShallow((state) => ({
-      addLog: state.addLog,
-      progressData: state.progressData,
-      userIdList: state.userIdList,
-      isRunning: state.isRunning,
-      addUserIds: state.addUserIds,
-      getStats: state.getStats,
-      clearAll: state.clearAll
-    }))
-  )
+  const { userInput, setUserInput, isRunning, downloadProgress } = useUserInfoStore()
 
-  const failedUsers = React.useMemo(() => {
-    return Object.entries(progressData)
-      .filter(([_, progress]) => progress.status === 'rejected')
-      .map(([userId, progress]) => ({
-        userId,
-        error: typeof progress.data === 'string' ? progress.data : '未知错误'
-      }))
-  }, [progressData])
+  const { startTask, downloadUserSqlFile, downloadUserImages } = useUserCrawler()
+  const { success, warn, error: logError } = useLogger('artist')
 
-  const [userInput, setUserInput] = React.useState('')
-  const [downloadProgress, setDownloadProgress] = React.useState({
-    current: 0,
-    total: 0,
-    isDownloading: false
-  })
+  // Live query for failed users to filter
+  const failedUsersCount = useLiveQuery(() => db.users.where('status').equals('rejected').count()) || 0
+  const hasSuccessfulUsers = useLiveQuery(() => db.users.where('status').equals('fulfilled').count()) || 0
+  const hasUsers = useLiveQuery(() => db.users.count()) || 0
 
   const handleStartTask = async () => {
     try {
-      addLog('开始抓取用户信息任务...')
-      await userInfoService.processUsers(userIdList)
-      addLog('用户信息抓取完成')
+      const pendingCount = await db.users.where('status').equals('pending').count()
+      if (pendingCount === 0) {
+        return warn('没有待处理的用户')
+      }
+      await startTask()
     } catch (error) {
-      addLog(`任务执行失败: ${error}`)
+      logError(`任务执行失败: ${error}`)
     }
   }
 
   const handleGenerateSQL = async () => {
-    try {
-      const result = await userInfoService.downloadUserSqlFile()
-      if (result.success) {
-        addLog('用户SQL文件下载成功')
-      } else {
-        addLog(`SQL下载失败: ${result.error}`)
-      }
-    } catch (error) {
-      addLog(`SQL下载失败: ${error}`)
-    }
+    await downloadUserSqlFile()
   }
 
   const handleDownloadImages = async () => {
-    try {
-      setDownloadProgress({ current: 0, total: 0, isDownloading: true })
-      addLog(`开始下载用户图片...`)
-
-      const result = await userInfoService.downloadUserImages({
-        images: [], // 空数组，方法内部会自动收集图片
-        onProgress: (current, total) => {
-          setDownloadProgress({ current, total, isDownloading: true })
-          addLog(`图片下载进度: ${current}/${total}`)
-        }
-      })
-
-      if (result.success) {
-        addLog(`用户图片下载完成`)
-      } else {
-        addLog(`图片下载失败: ${result.error}`)
-      }
-    } catch (error) {
-      addLog(`图片下载失败: ${error}`)
-    } finally {
-      setDownloadProgress({ current: 0, total: 0, isDownloading: false })
+    if (hasSuccessfulUsers === 0) {
+      warn('没有成功的用户数据可下载图片')
+      return
     }
+    await downloadUserImages()
   }
 
-  const handleAddUserIds = () => {
+  const handleAddUserIds = async () => {
     const ids = userInput.trim()
     if (!ids.length) {
       toast.warning('请输入有效的用户ID')
       return
     }
-    const result = addUserIds(ids)
-    addLog(`添加成功: ${result.added}个用户, 共${result.total}个用户, 重复${result.duplicates}个`)
-    setUserInput('')
+
+    const userIds = ids
+      .split('\n')
+      .map((id) => id.trim())
+      .filter(Boolean)
+
+    try {
+      const uniqueInputIds = [...new Set(userIds)]
+      const existingItems = await db.users.bulkGet(uniqueInputIds)
+
+      const itemsToAdd: UserItem[] = uniqueInputIds
+        .filter((_, index) => existingItems[index] === undefined)
+        .map((uid) => ({
+          uid,
+          status: 'pending',
+          updatedAt: Date.now()
+        }))
+
+      if (itemsToAdd.length > 0) {
+        await db.users.bulkAdd(itemsToAdd)
+      }
+
+      const added = itemsToAdd.length
+      const duplicates = userIds.length - added
+
+      if (added === 0) {
+        warn('没有添加任何新用户')
+      } else {
+        success(`添加成功: ${added}个用户` + (duplicates > 0 ? `, 重复${duplicates}个` : ''))
+        setUserInput('')
+      }
+    } catch (err: any) {
+      logError(`添加用户失败: ${err.message}`)
+    }
   }
 
   const handleClear = async () => {
     if (!confirm('确定要清除所有用户数据吗？此操作不可恢复。')) return
-    clearAll()
-    addLog('用户数据已清除')
+    try {
+      await db.users.clear()
+      warn('用户数据已清除')
+    } catch (e) {
+      logError(`清除失败: ${e}`)
+    }
   }
 
-  const handleFilterFailed = () => {
-    // 从失败的用户中移除
-    failedUsers.forEach(({ userId }) => {
-      useUserInfoStore.getState().removeUserId(userId)
-    })
-    addLog('已过滤失败的用户数据')
+  const handleFilterFailed = async () => {
+    try {
+      // Find all rejected users and delete them
+      const failedKeys = await db.users.where('status').equals('rejected').primaryKeys()
+      await db.users.bulkDelete(failedKeys)
+      warn(`已移除 ${failedKeys.length} 个失败的用户数据`)
+    } catch (e) {
+      logError(`过滤失败: ${e}`)
+    }
   }
-
-  const stats = getStats()
 
   return (
     <div className="user-controller">
@@ -136,7 +131,7 @@ export const UserController: React.FC = () => {
 
         <Button
           variant={isRunning ? 'secondary' : 'default'}
-          disabled={isRunning || userIdList.length === 0}
+          disabled={isRunning || hasUsers === 0}
           style={{ margin: '4px' }}
           onClick={handleStartTask}
         >
@@ -150,7 +145,7 @@ export const UserController: React.FC = () => {
         <Button
           onClick={handleDownloadImages}
           variant="outline"
-          disabled={downloadProgress.isDownloading || stats.successful === 0}
+          disabled={downloadProgress.isDownloading || hasSuccessfulUsers === 0}
           style={{ margin: '4px' }}
         >
           {downloadProgress.isDownloading
@@ -161,7 +156,7 @@ export const UserController: React.FC = () => {
         <Button
           variant="outline"
           onClick={handleFilterFailed}
-          disabled={isRunning || stats.failed === 0}
+          disabled={isRunning || failedUsersCount === 0}
           style={{ margin: '4px' }}
         >
           过滤失败

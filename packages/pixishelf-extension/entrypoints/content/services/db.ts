@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import { PixivArtworkData, PixivTagData } from '../../../types/pixiv'
+import { PixivArtworkData, PixivTagData, PixivUserData } from '../../../types/pixiv'
 
 export interface ArtworkItem {
   id: string
@@ -13,6 +13,14 @@ export interface TagItem {
   name: string // 标签名 (主键)
   status: 'pending' | 'running' | 'fulfilled' | 'rejected'
   data?: PixivTagData
+  error?: string
+  updatedAt: number
+}
+
+export interface UserItem {
+  uid: string // 用户ID (主键)
+  status: 'pending' | 'running' | 'fulfilled' | 'rejected'
+  data?: PixivUserData
   error?: string
   updatedAt: number
 }
@@ -32,6 +40,7 @@ export class PixiShelfDB extends Dexie {
   tasks!: Table<ArtworkItem>
   logs!: Table<LogEntry>
   tags!: Table<TagItem>
+  users!: Table<UserItem>
 
   constructor() {
     super('PixiShelfDB')
@@ -50,6 +59,14 @@ export class PixiShelfDB extends Dexie {
       tasks: 'id, status',
       logs: '++id, module, level',
       tags: 'name, status'
+    })
+
+    // Add users table in version 4
+    this.version(4).stores({
+      tasks: 'id, status',
+      logs: '++id, module, level',
+      tags: 'name, status',
+      users: 'uid, status'
     })
   }
 }
