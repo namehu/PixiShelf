@@ -1,4 +1,4 @@
-import { PixivArtworkData } from '../../../types/pixiv'
+import { PixivArtworkData, PixivTagData, PixivApiResponse } from '../../../types/pixiv'
 
 /**
  * 从 Pixiv API 获取作品数据
@@ -75,5 +75,54 @@ export async function fetchPixivArtworkData(id: string): Promise<PixivArtworkDat
     // oxlint-disable-next-line no-console
     console.error(`Failed to fetch artwork ${id}:`, error)
     throw error
+  }
+}
+
+/**
+ * 从 Pixiv API 获取标签数据
+ * @param tag 标签名
+ * @returns 标签数据
+ */
+export async function fetchPixivTagData(tag: string): Promise<PixivTagData> {
+  const url = `https://www.pixiv.net/ajax/search/tags/${encodeURIComponent(tag)}?lang=zh`
+
+  const response = await fetch(url, {
+    headers: { accept: 'application/json' }
+  })
+
+  if (response.status === 429) {
+    const error = new Error('HTTP 请求失败! 状态: 429')
+    error.name = 'RateLimitError'
+    throw error
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP 请求失败! 状态: ${response.status} for tag: ${tag}`)
+  }
+
+  const data: PixivApiResponse = await response.json()
+
+  if (data.error || !data.body) {
+    throw new Error(`Pixiv API 返回错误: ${data.message || '响应中没有 body'}`)
+  }
+
+  const body = data.body
+  const translationData = body.tagTranslation?.[tag]
+  const pixpedia = body.pixpedia || {}
+
+  // 提取中文和英文翻译
+  const chineseTranslation = translationData?.zh
+  const englishTranslation = translationData?.en
+
+  // 提取 abstract 和 image
+  const abstract = pixpedia.abstract
+  const imageUrl = pixpedia.image
+
+  return {
+    originalTag: tag,
+    translation: chineseTranslation || null,
+    englishTranslation: englishTranslation || null,
+    abstract: abstract || null,
+    imageUrl: imageUrl || null
   }
 }

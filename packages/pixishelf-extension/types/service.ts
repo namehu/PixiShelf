@@ -42,7 +42,7 @@ export interface ApiRequestOptions {
 
 // 下载请求
 export interface DownloadRequest {
-  images: ImageDownloadData[]
+  images?: ImageDownloadData[]
   downloadMode?: ETagDownloadMode // 下载模式：individual-单独下载，zip-打包下载
   customDirectory?: string // 自定义下载目录，如 "tags"
   onProgress?: (current: number, total: number) => void
