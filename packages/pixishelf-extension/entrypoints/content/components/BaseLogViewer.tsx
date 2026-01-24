@@ -128,7 +128,11 @@ export const BaseLogViewer: React.FC<BaseLogViewerProps> = ({
         ) : (
           <Virtuoso<string | LogEntry>
             data={logs as (string | LogEntry)[]}
-            followOutput={autoScroll ? 'smooth' : false}
+            followOutput={(isAtBottom) => {
+              // 如果开启了锁定滚动，无论当前位置在哪里，都强制滚动到底部
+              // 否则保持默认行为（只有在底部时才滚动，或者完全不滚动）
+              return autoScroll ? 'smooth' : false
+            }}
             initialTopMostItemIndex={logs.length - 1}
             itemContent={(index, log) => <LogItem index={index} log={log} />}
           />

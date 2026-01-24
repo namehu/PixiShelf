@@ -5,7 +5,7 @@ import { useLogger } from './useLogger'
 
 const MAX_RETRIES = 3
 const RETRY_DELAY = 1000
-const REQUEST_DELAY = 1500
+const REQUEST_DELAY = 500
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -98,8 +98,8 @@ export const useArtworkCrawler = () => {
         error(`处理作品出错 ${id}: ${err.message}`)
       } finally {
         // No need to manually update task stats, it's computed automatically!
-        // Random delay
-        const delay = REQUEST_DELAY + Math.random() * 1000
+        // Random delay (500-1000ms)
+        const delay = REQUEST_DELAY + Math.random() * 500
         await sleep(delay)
       }
     }
