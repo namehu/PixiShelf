@@ -96,8 +96,6 @@ function ScanManagement() {
         <ScanResultCard
           onCancel={actions.cancelScan}
           elapsed={state.elapsed}
-          autoScroll={actions.autoScroll}
-          setAutoScroll={actions.setAutoScroll}
         />
       </div>
     </div>

@@ -1,8 +1,9 @@
 import React from 'react'
 import { toast } from 'sonner'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
-import { ScanResult, ScanProgress, LogEntry } from '@/types'
+import { ScanResult, ScanProgress } from '@/types'
 import { useScanStore } from '@/store/scanStore'
+import { useLogger } from '@/hooks/use-logger'
 
 /**
  * Fatal Error that should not be retried
@@ -32,7 +33,6 @@ interface SseScanState {
   progress: ScanProgress | null
   streamResult: ScanResult | null
   streamError: string | null
-  logs: LogEntry[]
   elapsed: number
   retryCount: number
 }
@@ -44,10 +44,6 @@ interface SseScanActions {
   startScan: (options: ScanOptions) => void
   cancelScan: () => void
   clearLogs: () => void
-  setAutoScroll: (auto: boolean) => void
-  setShowDetailedLogs: (show: boolean) => void
-  showDetailedLogs: boolean
-  autoScroll: boolean
 }
 
 /**
@@ -57,24 +53,23 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
   // 1. Global Store State
   const {
     isScanning,
-    logs,
     result,
     error,
     setIsScanning,
-    addLog,
     setResult,
     setError,
-    clearLogs: storeClearLogs
+    clearLogs: storeClearLogs // 我们仍需清除 store 中的状态，但日志由 useLogger 管理
   } = useScanStore()
 
-  // 2. Local State
+  // 2. Logger Hook
+  const logger = useLogger('scan-server')
+
+  // 3. Local State
   const [progress, setProgress] = React.useState<ScanProgress | null>(null)
   const [elapsed, setElapsed] = React.useState(0)
   const [retryCount, setRetryCount] = React.useState(0)
-  const [showDetailedLogs, setShowDetailedLogs] = React.useState(false)
-  const [autoScroll, setAutoScroll] = React.useState(true)
 
-  // 3. Refs
+  // 4. Refs
   const fetchControllerRef = React.useRef<AbortController | null>(null)
   const streamingRef = React.useRef(false)
   const retryCountRef = React.useRef(0) // Use ref for retry logic inside callbacks
@@ -106,30 +101,17 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
 
   // --- Helpers ---
 
-  const addLogEntry = React.useCallback(
-    (type: LogEntry['type'], data: any, message: string) => {
-      const entry: LogEntry = {
-        timestamp: new Date().toLocaleTimeString(),
-        type,
-        data,
-        message
-      }
-      addLog(entry)
-    },
-    [addLog]
-  )
-
   const handleSseEvent = React.useCallback(
     (eventName: string, data: any) => {
       switch (eventName) {
         case 'connection':
-          addLogEntry('connection', data, data?.result || '连接已建立')
+          logger.addLog(data?.result || '连接已建立', 'connection', data)
           break
 
         case 'progress':
           const progressData = data as ScanProgress
           setProgress(progressData)
-          addLogEntry('progress', progressData, `进度: ${progressData.message} (${progressData.percentage || 0}%)`)
+          logger.addLog(`进度: ${progressData.message} (${progressData.percentage || 0}%)`, 'progress', progressData)
           break
 
         case 'complete':
@@ -137,10 +119,10 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
           setIsScanning(false)
           setResult(completeData.result)
           setError(null)
-          addLogEntry(
+          logger.addLog(
+            `完成: 新增${completeData.result.newArtworks}个作品，${completeData.result.newImages}张图片`,
             'complete',
-            completeData,
-            `完成: 新增${completeData.result.newArtworks}个作品，${completeData.result.newImages}张图片`
+            completeData
           )
           toast.success('扫描完成')
           break
@@ -151,14 +133,14 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
           setIsScanning(false)
           setError(errorMsg)
           setResult(null)
-          addLogEntry('error', errorData, `错误: ${errorMsg}`)
+          logger.error(`错误: ${errorMsg}`, errorData)
           break
 
         case 'cancelled':
           setIsScanning(false)
           setError('扫描已取消')
           setResult(null)
-          addLogEntry('cancelled', data, '扫描已取消')
+          logger.addLog('扫描已取消', 'cancelled', data)
           break
       }
 
@@ -168,7 +150,7 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
         fetchControllerRef.current = null
       }
     },
-    [addLogEntry, setError, setIsScanning, setResult]
+    [logger, setError, setIsScanning, setResult]
   )
 
   // --- Core Logic ---
@@ -183,7 +165,7 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
         metadataList: options.metadataList
       }
 
-      addLogEntry('connection', { url, type: body.type, items: options.metadataList?.length }, `开始连接(POST): ${url}`)
+      logger.addLog(`开始连接(POST): ${url}`, 'connection', { url, type: body.type, items: options.metadataList?.length })
 
       const controller = new AbortController()
       fetchControllerRef.current = controller
@@ -198,154 +180,94 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
           signal: controller.signal,
 
           async onopen(response) {
-            if (response.ok && response.headers.get('content-type')?.includes('text/event-stream')) {
-              // Connection successful
-              retryCountRef.current = 0
-              setRetryCount(0)
+            if (response.ok) {
+              setIsScanning(true)
+              setError(null)
+              setResult(null)
+              retryCountRef.current = 0 // Reset retry count on success
               return
+            } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+              const errorText = await response.text()
+              throw new FatalError(errorText)
             }
-
-            // Client errors (4xx) should not be retried
-            if (response.status >= 400 && response.status < 500) {
-              throw new FatalError(`Client Error: ${response.status} ${response.statusText}`)
-            }
-
-            // If we get here, it's an error (e.g. 500)
-            const errorText = await response.text()
-            // Throwing here triggers onerror
-            throw new Error(`Connection failed: ${response.status} ${errorText}`)
           },
 
           onmessage(msg) {
             if (msg.event === 'ping') return
             try {
               const data = JSON.parse(msg.data)
-              handleSseEvent(msg.event, data)
-            } catch (e) {
-              addLogEntry('error', { error: e, rawData: msg.data }, '解析SSE数据失败')
+              handleSseEvent(msg.event || 'message', data)
+            } catch (err) {
+              logger.error('Failed to parse SSE message', err)
             }
           },
 
           onclose() {
-            // If the server closes the connection, we consider it done unless we haven't finished.
-            // But usually 'complete' event handles the cleanup.
-            // If we reach here without 'complete', it might be a premature close.
-            // fetch-event-source retries on close by default unless we throw.
-            // We'll throw to stop unless we want to retry?
-            // If we are not scanning anymore, do nothing.
-            if (!streamingRef.current) return
-
-            // If we are still scanning and connection closed, maybe retry?
-            // But let's assume server closes only when done or error.
-            // We'll throw to stop the library from retrying automatically without our control.
-            throw new Error('Connection closed by server')
+            if (streamingRef.current) {
+               // 如果是意外关闭（streaming 仍为 true），可能需要处理重连或报错
+               // 这里简单视为结束
+               // setIsScanning(false)
+            }
           },
 
           onerror(err) {
-            // Stop retrying on fatal errors (4xx)
             if (err instanceof FatalError) {
-              throw err
+              logger.error(`Fatal Error: ${err.message}`)
+              throw err // Stop retrying
             }
-
-            if (controller.signal.aborted) {
-              // User aborted, rethrow to stop
-              throw err
-            }
-
-            // Retry logic
-            const currentRetry = retryCountRef.current
-            if (currentRetry < 3) {
-              const nextRetry = currentRetry + 1
-              retryCountRef.current = nextRetry
-              setRetryCount(nextRetry)
-
-              const timeout = 2000 * nextRetry
-              addLogEntry(
-                'connection',
-                { retryCount: nextRetry, error: err.message },
-                `连接中断，${timeout}ms后第${nextRetry}次重连`
-              )
-
-              // return timeout in ms to retry
-              return timeout
-            }
-            // Max retries reached
-            addLogEntry('error', { retryCount: currentRetry, error: err.message }, '连接中断，重试次数已达上限')
-            setIsScanning(false)
-            setError(`连接失败: ${err.message}`)
-            throw err // Stop retrying
+            logger.warn(`Connection error: ${err.message}. Retrying...`)
+            // Default retry logic applies
           }
         })
       } catch (err: any) {
-        if (controller.signal.aborted) {
-          // Expected abort
+        if (err.name === 'AbortError') {
+          // Normal cancellation
           return
         }
-        // Other errors not handled by onerror or thrown by onerror
-        // If we haven't already set error state:
-        if (streamingRef.current) {
-          setIsScanning(false)
-          setError(err.message || 'Unknown error')
-          addLogEntry('error', { error: err }, `扫描失败: ${err.message}`)
-        }
-      } finally {
-        if (fetchControllerRef.current === controller) {
-          fetchControllerRef.current = null
-        }
+        setIsScanning(false)
+        setError(err.message)
+        logger.error(`扫描失败: ${err.message}`)
       }
     },
-    [addLogEntry, handleSseEvent, setIsScanning, setError]
+    [handleSseEvent, setIsScanning, setError, setResult, logger]
   )
-
-  // --- Actions ---
 
   const startScan = React.useCallback(
     (options: ScanOptions) => {
-      // Reset state
-      fetchControllerRef.current?.abort()
-      storeClearLogs()
-      setIsScanning(true)
-      setResult(null)
-      setError(null)
-      setProgress(null)
-      setRetryCount(0)
-      retryCountRef.current = 0
-      setShowDetailedLogs(false)
-
-      streamingRef.current = true
-
+      if (isScanning) return
+      storeClearLogs() // 清除 UI store 状态
+      logger.clearLogs() // 清除 DB 日志
       runScan(options)
     },
-    [storeClearLogs, setIsScanning, setResult, setError, runScan]
+    [isScanning, storeClearLogs, logger, runScan]
   )
 
   const cancelScan = React.useCallback(() => {
-    fetchControllerRef.current?.abort()
-    fetchControllerRef.current = null
-
-    if (streamingRef.current) {
-      handleSseEvent('cancelled', { client: true, message: 'User cancelled' })
+    if (fetchControllerRef.current) {
+      fetchControllerRef.current.abort()
+      fetchControllerRef.current = null
+      handleSseEvent('cancelled', {})
     }
   }, [handleSseEvent])
+
+  const clearLogs = React.useCallback(() => {
+    logger.clearLogs()
+    storeClearLogs()
+  }, [logger, storeClearLogs])
 
   return {
     state: {
       streaming: isScanning,
-      logs,
+      progress,
       streamResult: result,
       streamError: error,
-      progress,
       elapsed,
       retryCount
     },
     actions: {
       startScan,
       cancelScan,
-      clearLogs: storeClearLogs,
-      autoScroll,
-      setAutoScroll,
-      showDetailedLogs,
-      setShowDetailedLogs
+      clearLogs
     }
   }
 }
