@@ -165,7 +165,11 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
         metadataList: options.metadataList
       }
 
-      logger.addLog(`开始连接(POST): ${url}`, 'connection', { url, type: body.type, items: options.metadataList?.length })
+      logger.addLog(`开始连接(POST): ${url}`, 'connection', {
+        url,
+        type: body.type,
+        items: options.metadataList?.length
+      })
 
       const controller = new AbortController()
       fetchControllerRef.current = controller
@@ -204,9 +208,9 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
 
           onclose() {
             if (streamingRef.current) {
-               // 如果是意外关闭（streaming 仍为 true），可能需要处理重连或报错
-               // 这里简单视为结束
-               // setIsScanning(false)
+              // 如果是意外关闭（streaming 仍为 true），可能需要处理重连或报错
+              // 这里简单视为结束
+              // setIsScanning(false)
             }
           },
 
@@ -236,10 +240,9 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
     (options: ScanOptions) => {
       if (isScanning) return
       storeClearLogs() // 清除 UI store 状态
-      logger.clearLogs() // 清除 DB 日志
       runScan(options)
     },
-    [isScanning, storeClearLogs, logger, runScan]
+    [isScanning, storeClearLogs, runScan]
   )
 
   const cancelScan = React.useCallback(() => {
