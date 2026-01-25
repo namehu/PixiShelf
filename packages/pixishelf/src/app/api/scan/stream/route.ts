@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getScannerService } from '@/lib/services/scanner'
+import { scan } from '@/services/scan-service'
 import { ScanProgress } from '@/types'
 import logger from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
@@ -31,7 +31,6 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
     return NextResponse.json({ error: 'SCAN_PATH is not configured' }, { status: 400 })
   }
 
-  const scannerService = getScannerService()
   const encoder = new TextEncoder()
 
   const stream = new ReadableStream({
@@ -62,7 +61,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
         let lastDbUpdate = 0
         const DB_UPDATE_INTERVAL = 1000
 
-        const result = await scannerService.scan({
+        const result = await scan({
           scanPath,
           forceUpdate: force,
           metadataRelativePaths: type === 'list' ? metadataList : undefined,
