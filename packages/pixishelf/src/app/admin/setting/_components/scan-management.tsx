@@ -31,7 +31,7 @@ function useScanPath() {
 }
 
 /**
- * 扫描管理主组件 (已重构)
+ * 扫描管理主组件
  */
 function ScanManagement() {
   const trpc = useTRPC()

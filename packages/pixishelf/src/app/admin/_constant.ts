@@ -44,7 +44,7 @@ export const sections = [
     color: 'text-purple-500'
   },
   {
-    title: '设置管理',
+    title: '扫描管理',
     description: '配置扫描路径和系统选项',
     href: '/admin/setting',
     icon: Settings,
