@@ -1,6 +1,8 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, LogModule, LogLevel } from '../lib/db'
+
+const LOG_RETENTION_DAYS = 30
 
 /**
  * 自定义日志钩子，用于在指定模块下记录日志
@@ -11,16 +13,28 @@ export const useLogger = (module: LogModule, limit = 2000) => {
   const logs =
     useLiveQuery(async () => {
       // 获取最新的 N 条日志 (ID 倒序)
-      const result = await db.logs
-        .where('module')
-        .equals(module)
-        .reverse()
-        .limit(limit)
-        .toArray()
-      
+      const result = await db.logs.where('module').equals(module).reverse().limit(limit).toArray()
+
       // 反转回正序 (旧 -> 新)，以便在 UI 中按时间顺序显示
       return result.reverse()
     }, [module, limit]) || []
+
+  // 自动清理过期日志 (30天前)
+  useEffect(() => {
+    const cleanupOldLogs = async () => {
+      try {
+        const expirationTime = Date.now() - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000
+        // 删除所有模块的过期日志，保持数据库健康
+        await db.logs.where('timestamp').below(expirationTime).delete()
+      } catch (e) {
+        console.error('Auto cleanup failed', e)
+      }
+    }
+
+    // 延迟执行清理，避免阻塞初始化渲染
+    const timer = setTimeout(cleanupOldLogs, 5000)
+    return () => clearTimeout(timer)
+  }, [])
 
   const addLog = useCallback(
     async (message: string, level: LogLevel, data?: any) => {
