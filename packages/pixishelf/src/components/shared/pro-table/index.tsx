@@ -108,6 +108,16 @@ interface ProTableProps<TData, TValue> {
    * @default 10
    */
   defaultPageSize?: number
+
+  /**
+   * 分页状态 (受控模式)
+   */
+  pagination?: PaginationState
+
+  /**
+   * 分页状态改变回调 (受控模式)
+   */
+  onPaginationChange?: OnChangeFn<PaginationState>
 }
 
 export function ProTable<TData, TValue>({
@@ -120,7 +130,9 @@ export function ProTable<TData, TValue>({
   onRowSelectionChange,
   rowKey = 'id',
   actionRef,
-  defaultPageSize = 10
+  defaultPageSize = 10,
+  pagination: controlledPagination,
+  onPaginationChange: controlledOnPaginationChange
 }: ProTableProps<TData, TValue>) {
   // --- 状态管理 ---
   const [data, setData] = React.useState<TData[]>([])
@@ -128,10 +140,14 @@ export function ProTable<TData, TValue>({
   const [rowCount, setRowCount] = React.useState<number>(0)
 
   // 分页、排序、筛选状态
-  const [pagination, setPagination] = React.useState<PaginationState>({
+  const [internalPagination, setInternalPagination] = React.useState<PaginationState>({
     pageIndex: 0,
     pageSize: defaultPageSize
   })
+
+  const pagination = controlledPagination ?? internalPagination
+  const onPaginationChange = controlledOnPaginationChange ?? setInternalPagination
+
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
@@ -170,10 +186,17 @@ export function ProTable<TData, TValue>({
   React.useImperativeHandle(actionRef, () => ({
     reload: () => fetchData(),
     reset: () => {
-      setPagination({ pageIndex: 0, pageSize: defaultPageSize })
+      if (controlledOnPaginationChange) {
+        // 如果是受控模式，调用回调重置
+        controlledOnPaginationChange({ pageIndex: 0, pageSize: defaultPageSize })
+      } else {
+        setInternalPagination({ pageIndex: 0, pageSize: defaultPageSize })
+      }
       setSorting([])
       setColumnFilters([])
-      fetchData() // reset 后通常需要立即刷新
+      // 注意：如果是受控模式，pagination 的更新可能还没生效，fetchData 可能会用旧的 pagination
+      // 这里可能需要优化，但目前先保持简单，依赖 useEffect 自动触发
+      setTimeout(() => fetchData(), 0)
     }
   }))
 
@@ -202,7 +225,7 @@ export function ProTable<TData, TValue>({
       return (row as any)[rowKey]
     },
 
-    onPaginationChange: setPagination,
+    onPaginationChange: onPaginationChange,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,

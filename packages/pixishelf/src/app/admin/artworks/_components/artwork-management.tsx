@@ -10,12 +10,13 @@ import { exportNoSeriesArtworksAction } from '@/actions/artwork-action'
 import { useMigration } from '../_hooks/use-migration'
 import { MigrationDialog } from './migration-dialog'
 import { confirm } from '@/components/shared/global-confirm'
-import { useQueryStates, parseAsString } from 'nuqs'
+import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
 import { ProTable } from '@/components/shared/pro-table'
 import { useMutation } from '@tanstack/react-query'
 import { ColumnDef, RowSelectionState } from '@tanstack/react-table'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import { Search, RotateCcw } from 'lucide-react'
 
 // 定义作品列表项类型
 export interface ArtworkListItem {
@@ -46,8 +47,34 @@ export default function ArtworkManagement() {
   // URL Search Params Sync
   const [searchState, setSearchState] = useQueryStates({
     title: parseAsString,
-    artistName: parseAsString
+    artistName: parseAsString,
+    page: parseAsInteger.withDefault(1),
+    pageSize: parseAsInteger.withDefault(20)
   })
+
+  // Local state for search inputs
+  const [localSearch, setLocalSearch] = useState({
+    title: searchState.title || '',
+    artistName: searchState.artistName || ''
+  })
+
+  const handleSearch = () => {
+    setSearchState({
+      title: localSearch.title || null,
+      artistName: localSearch.artistName || null,
+      page: 1 // 重置到第一页
+    })
+  }
+
+  const handleReset = () => {
+    setLocalSearch({ title: '', artistName: '' })
+    setSearchState({
+      title: null,
+      artistName: null,
+      page: 1,
+      pageSize: 20
+    })
+  }
 
   // Migration Hook
   const { state: migrationState, actions: migrationActions, logger: migrationLogger } = useMigration()
@@ -280,6 +307,10 @@ export default function ArtworkManagement() {
   // ProTable 请求函数
   const request = useCallback(
     async (params: { pageSize: number; current: number }) => {
+      // 这里的 params 实际上会和 searchState 中的 page/pageSize 同步
+      // 但为了保险起见，我们直接使用 searchState 中的值，
+      // 或者依赖 ProTable 传回来的值（如果 ProTable 是完全受控的，传回来的也是正确的）
+
       const res = await trpcClient.artwork.list.query({
         cursor: params.current,
         pageSize: params.pageSize,
@@ -301,6 +332,22 @@ export default function ArtworkManagement() {
     },
     [trpcClient, searchState]
   )
+
+  const handlePaginationChange = (updaterOrValue: any) => {
+    // 处理 React Table 的 updater 模式
+    const newPagination =
+      typeof updaterOrValue === 'function'
+        ? updaterOrValue({
+            pageIndex: (searchState.page || 1) - 1,
+            pageSize: searchState.pageSize || 20
+          })
+        : updaterOrValue
+
+    setSearchState({
+      page: newPagination.pageIndex + 1,
+      pageSize: newPagination.pageSize
+    })
+  }
 
   return (
     <div className="space-y-4 p-4">
@@ -335,26 +382,43 @@ export default function ArtworkManagement() {
 
       <ProTable
         key={refreshKey}
+        headerTitle="作品管理"
         rowKey="id"
         columns={columns}
         request={request}
         defaultPageSize={20}
+        // 分页受控
+        pagination={{
+          pageIndex: (searchState.page || 1) - 1,
+          pageSize: searchState.pageSize || 20
+        }}
+        onPaginationChange={handlePaginationChange}
         rowSelection={rowSelection}
         onRowSelectionChange={setRowSelection}
         searchRender={() => (
           <div className="flex items-center gap-2">
             <Input
               placeholder="搜索作品标题..."
-              value={searchState.title || ''}
-              onChange={(e) => setSearchState({ title: e.target.value || null })}
+              value={localSearch.title}
+              onChange={(e) => setLocalSearch((prev) => ({ ...prev, title: e.target.value }))}
               className="h-8 w-[150px] lg:w-[250px]"
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
             <Input
               placeholder="搜索作者..."
-              value={searchState.artistName || ''}
-              onChange={(e) => setSearchState({ artistName: e.target.value || null })}
+              value={localSearch.artistName}
+              onChange={(e) => setLocalSearch((prev) => ({ ...prev, artistName: e.target.value }))}
               className="h-8 w-[150px]"
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
+            <Button variant="default" size="sm" onClick={handleSearch} className="h-8 px-3">
+              <Search className="w-4 h-4 mr-1" />
+              搜索
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleReset} className="h-8 px-3">
+              <RotateCcw className="w-4 h-4 mr-1" />
+              重置
+            </Button>
           </div>
         )}
         toolBarRender={() => (
