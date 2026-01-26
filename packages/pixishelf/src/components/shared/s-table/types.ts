@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 
-export type ValueType = 'text' | 'select' | 'date' | 'digit'
+export type ValueType = 'text' | 'select' | 'date' | 'digit' | 'option'
 
 export interface STableColumn<T = any> {
   /** 列标题 */
@@ -55,6 +55,13 @@ export interface STableResponse<T> {
   success?: boolean
 }
 
+export interface STableRowSelection<T> {
+  /** 选中项的 key 数组 */
+  selectedRowKeys: (string | number)[]
+  /** 选中项发生变化时的回调 */
+  onChange: (selectedRowKeys: (string | number)[], selectedRows: T[]) => void
+}
+
 export interface STableProps<T> {
   /** 列定义 */
   columns: STableColumn<T>[]
@@ -80,4 +87,6 @@ export interface STableProps<T> {
   loading?: boolean
   /** 额外的样式类名 */
   className?: string
+  /** 行选择配置 */
+  rowSelection?: STableRowSelection<T>
 }

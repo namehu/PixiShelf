@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SSearch } from './s-search'
 import { SPagination } from './s-pagination'
@@ -28,6 +29,7 @@ export function STable<T extends Record<string, any>>({
   defaultPageSize = 10,
   loading: externalLoading,
   className,
+  rowSelection,
 }: STableProps<T>) {
   // 状态管理
   const [data, setData] = useState<T[]>([])
@@ -74,6 +76,10 @@ export function STable<T extends Record<string, any>>({
   const handleSearch = (values: Record<string, any>) => {
     setSearchParams(values)
     setCurrent(1) // 重置到第一页
+    // 清空选择
+    if (rowSelection) {
+      rowSelection.onChange([], [])
+    }
   }
 
   // 处理重置
@@ -81,6 +87,9 @@ export function STable<T extends Record<string, any>>({
     setSearchParams({})
     setSortParams({})
     setCurrent(1)
+    if (rowSelection) {
+      rowSelection.onChange([], [])
+    }
   }
 
   // 处理排序
@@ -108,6 +117,42 @@ export function STable<T extends Record<string, any>>({
     return record[rowKey] as string
   }
 
+  // 行选择逻辑
+  const handleSelectAll = (checked: boolean) => {
+    if (!rowSelection) return
+
+    if (checked) {
+      const allKeys = data.map(getRowKey)
+      rowSelection.onChange(allKeys, data)
+    } else {
+      rowSelection.onChange([], [])
+    }
+  }
+
+  const handleSelectRow = (checked: boolean, record: T) => {
+    if (!rowSelection) return
+
+    const key = getRowKey(record)
+    const selectedKeys = [...rowSelection.selectedRowKeys]
+    
+    if (checked) {
+      selectedKeys.push(key)
+    } else {
+      const index = selectedKeys.indexOf(key)
+      if (index > -1) {
+        selectedKeys.splice(index, 1)
+      }
+    }
+
+    // 计算新的选中行数据
+    // 注意：这里只能获取当前页的选中行数据，如果需要跨页选择，需要上层业务处理数据缓存
+    const selectedRows = data.filter(item => selectedKeys.includes(getRowKey(item)))
+    rowSelection.onChange(selectedKeys, selectedRows)
+  }
+
+  const isAllSelected = data.length > 0 && data.every(item => rowSelection?.selectedRowKeys.includes(getRowKey(item)))
+  const isIndeterminate = data.some(item => rowSelection?.selectedRowKeys.includes(getRowKey(item))) && !isAllSelected
+
   // 渲染移动端卡片列表
   const renderMobileList = () => {
     if (data.length === 0) {
@@ -117,8 +162,23 @@ export function STable<T extends Record<string, any>>({
     return (
       <div className="space-y-4">
         {data.map((record, index) => {
+          const key = getRowKey(record)
+          const isSelected = rowSelection?.selectedRowKeys.includes(key)
+
           if (mobileRender) {
-            return <div key={getRowKey(record)}>{mobileRender(record, index)}</div>
+            return (
+              <div key={key} className="relative">
+                 {rowSelection && (
+                  <div className="absolute top-4 right-4 z-10">
+                     <Checkbox 
+                      checked={isSelected}
+                      onCheckedChange={(checked) => handleSelectRow(!!checked, record)}
+                    />
+                  </div>
+                )}
+                {mobileRender(record, index)}
+              </div>
+            )
           }
 
           // 默认移动端渲染：卡片式
@@ -128,15 +188,27 @@ export function STable<T extends Record<string, any>>({
           const contentCols = visibleColumns.slice(1)
 
           return (
-            <div key={getRowKey(record)} className="bg-white p-4 rounded-lg border border-neutral-200 space-y-3">
-              {titleCol && (
-                <div className="font-medium text-neutral-900 border-b pb-2 mb-2">
-                  {titleCol.render 
-                    ? titleCol.render(record[titleCol.dataIndex as keyof T], record, index)
-                    : record[titleCol.dataIndex as keyof T]}
-                </div>
-              )}
-              <div className="space-y-2 text-sm">
+            <div key={key} className={cn(
+              "bg-white p-4 rounded-lg border space-y-3 transition-colors",
+              isSelected ? "border-blue-500 bg-blue-50" : "border-neutral-200"
+            )}>
+              <div className="flex items-start justify-between gap-3">
+                {titleCol && (
+                  <div className="font-medium text-neutral-900 flex-1">
+                    {titleCol.render 
+                      ? titleCol.render(record[titleCol.dataIndex as keyof T], record, index)
+                      : record[titleCol.dataIndex as keyof T]}
+                  </div>
+                )}
+                {rowSelection && (
+                   <Checkbox 
+                    checked={isSelected}
+                    onCheckedChange={(checked) => handleSelectRow(!!checked, record)}
+                  />
+                )}
+              </div>
+              
+              <div className="space-y-2 text-sm border-t pt-2 mt-2">
                 {contentCols.map((col) => (
                   <div key={col.key || col.dataIndex as string} className="flex justify-between">
                     <span className="text-neutral-500">{col.title}:</span>
@@ -167,10 +239,17 @@ export function STable<T extends Record<string, any>>({
       {/* 表格区域 */}
       <div className="bg-white rounded-lg border border-neutral-200 overflow-hidden">
         {/* 工具栏 */}
-        {(headerTitle || toolBarRender) && (
+        {(headerTitle || toolBarRender || rowSelection) && (
           <div className="p-4 border-b border-neutral-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            {headerTitle && <div className="font-medium text-lg">{headerTitle}</div>}
-            {toolBarRender && <div className="flex items-center gap-2">{toolBarRender()}</div>}
+            <div className="flex items-center gap-4">
+              {headerTitle && <div className="font-medium text-lg">{headerTitle}</div>}
+              {rowSelection && rowSelection.selectedRowKeys.length > 0 && (
+                <div className="text-sm text-neutral-500 bg-blue-50 px-3 py-1 rounded-md border border-blue-100">
+                  已选择 <span className="font-medium text-blue-600">{rowSelection.selectedRowKeys.length}</span> 项
+                </div>
+              )}
+            </div>
+            {toolBarRender && <div className="flex items-center gap-2 flex-wrap">{toolBarRender()}</div>}
           </div>
         )}
 
@@ -188,6 +267,15 @@ export function STable<T extends Record<string, any>>({
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {rowSelection && (
+                      <TableHead className="w-[50px]">
+                        <Checkbox 
+                          checked={isAllSelected}
+                          // indeterminate={isIndeterminate} // shadcn checkbox 不支持 indeterminate prop，需要 ref 设置
+                          onCheckedChange={(checked) => handleSelectAll(!!checked)}
+                        />
+                      </TableHead>
+                    )}
                     {columns.filter(col => !col.hideInTable).map((col) => (
                       <TableHead 
                         key={col.key || col.dataIndex as string}
@@ -214,6 +302,14 @@ export function STable<T extends Record<string, any>>({
                   {data.length > 0 ? (
                     data.map((record, index) => (
                       <TableRow key={getRowKey(record)}>
+                        {rowSelection && (
+                          <TableCell>
+                            <Checkbox 
+                              checked={rowSelection.selectedRowKeys.includes(getRowKey(record))}
+                              onCheckedChange={(checked) => handleSelectRow(!!checked, record)}
+                            />
+                          </TableCell>
+                        )}
                         {columns.filter(col => !col.hideInTable).map((col) => (
                           <TableCell key={col.key || col.dataIndex as string} className={col.className}>
                             {col.render 
@@ -225,7 +321,7 @@ export function STable<T extends Record<string, any>>({
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={columns.length} className="h-24 text-center">
+                      <TableCell colSpan={columns.length + (rowSelection ? 1 : 0)} className="h-24 text-center">
                         暂无数据
                       </TableCell>
                     </TableRow>
