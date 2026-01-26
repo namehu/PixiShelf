@@ -152,6 +152,13 @@ export function ProTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
 
+  // Row Selection (如果外部没有传入，则使用内部状态，或者默认为空对象)
+  const [internalRowSelection, setInternalRowSelection] = React.useState<RowSelectionState>({})
+  const finalRowSelection = rowSelection ?? internalRowSelection
+  const finalOnRowSelectionChange = onRowSelectionChange ?? setInternalRowSelection
+  // 如果外部传入了 rowSelection 或 onRowSelectionChange，则启用选择功能，否则禁用
+  const enableRowSelection = !!(rowSelection || onRowSelectionChange)
+
   // --- 核心逻辑：数据请求 ---
   const fetchData = React.useCallback(async () => {
     setLoading(true)
@@ -205,13 +212,6 @@ export function ProTable<TData, TValue>({
     data,
     columns,
     pageCount: Math.ceil(rowCount / pagination.pageSize), // 服务端分页必须计算页数
-    state: {
-      pagination,
-      sorting,
-      columnFilters,
-      columnVisibility,
-      rowSelection
-    },
     // 开启手动模式（服务端模式），这告诉 table 不要自己在前端做分页/排序/筛选
     manualPagination: true,
     manualSorting: true,
@@ -229,8 +229,15 @@ export function ProTable<TData, TValue>({
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
-    onRowSelectionChange: onRowSelectionChange,
-    enableRowSelection: true,
+    onRowSelectionChange: finalOnRowSelectionChange,
+    enableRowSelection: enableRowSelection,
+    state: {
+      pagination,
+      sorting,
+      columnFilters,
+      columnVisibility,
+      rowSelection: finalRowSelection
+    },
     getCoreRowModel: getCoreRowModel()
   })
 
