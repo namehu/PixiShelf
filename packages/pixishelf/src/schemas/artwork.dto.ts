@@ -38,10 +38,10 @@ export const ArtworksInfiniteQuerySchema = z.object({
     .transform((val) => val?.split(',').filter(Boolean) || []),
   search: z
     .string()
-    .optional()
+    .nullish()
     .transform((val) => val?.trim() || ''),
   artistId: z.coerce.number().int().optional(),
-  artistName: z.string().optional(),
+  artistName: z.string().nullish(),
   tagId: z.coerce.number().int().optional(),
   sortBy: z
     .string()
@@ -156,13 +156,16 @@ export const ArtworkResponseDto = ArtworkModel.extend({
   /**
    * 系列信息
    */
-  series: z.object({
-    id: z.number(),
-    title: z.string(),
-    order: z.number(),
-    prev: z.object({ id: z.number(), title: z.string() }).nullable(),
-    next: z.object({ id: z.number(), title: z.string() }).nullable()
-  }).nullable().optional()
+  series: z
+    .object({
+      id: z.number(),
+      title: z.string(),
+      order: z.number(),
+      prev: z.object({ id: z.number(), title: z.string() }).nullable(),
+      next: z.object({ id: z.number(), title: z.string() }).nullable()
+    })
+    .nullable()
+    .optional()
 })
 
 // export type ArtistResponse = z.infer<typeof ArtistResponseDto>

@@ -45,11 +45,11 @@ export async function migrateArtwork(artworkId: number, scanRoot: string): Promi
 
   // 2. 幂等性检查：如果已经在目标路径下
   // Windows下路径可能包含反斜杠，统一替换为正斜杠比较
-  const normalizedCurrent = currentRelPath.replace(/\\/g, '/')
+  const normalizedCurrent = currentRelPath.replace(/\\/g, '/').replace(/^\//, '')
   const normalizedTarget = targetRelDir.replace(/\\/g, '/')
 
   if (normalizedCurrent.startsWith(normalizedTarget)) {
-    return { artworkId, status: 'SKIPPED', msg: '路径已符合规范' }
+    return { artworkId, status: 'SKIPPED', msg: `路径已符合规范: ${currentRelPath}` }
   }
 
   try {
@@ -114,7 +114,7 @@ export async function migrateArtwork(artworkId: number, scanRoot: string): Promi
         const newPath = path.join(targetRelDir, fileName).replace(/\\/g, '/') // 统一存为 POSIX 路径
         await tx.image.update({
           where: { id: img.id },
-          data: { path: path.sep + newPath }
+          data: { path: '/' + newPath }
         })
       }
     })

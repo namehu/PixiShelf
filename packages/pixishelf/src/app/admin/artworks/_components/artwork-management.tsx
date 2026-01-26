@@ -10,6 +10,7 @@ import { exportNoSeriesArtworksAction } from '@/actions/artwork-action'
 import { useMigration } from '../_hooks/use-migration'
 import { MigrationDialog } from './migration-dialog'
 import { confirm } from '@/components/shared/global-confirm'
+import { useQueryStates, parseAsString } from 'nuqs'
 import { STable, STableColumn, STableRequestParams } from '@/components/shared/s-table'
 import { useMutation } from '@tanstack/react-query'
 
@@ -35,6 +36,12 @@ export default function ArtworkManagement() {
   const [editingArtwork, setEditingArtwork] = useState<any>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [selectedRowKeys, setSelectedRowKeys] = useState<(string | number)[]>([])
+
+  // URL Search Params Sync
+  const [searchState, setSearchState] = useQueryStates({
+    title: parseAsString,
+    artistName: parseAsString
+  })
 
   // Migration Hook
   const { state: migrationState, actions: migrationActions, logger: migrationLogger } = useMigration()
@@ -184,7 +191,7 @@ export default function ArtworkManagement() {
       dataIndex: 'title',
       searchPlaceholder: '搜索作品标题...',
       render: (_, record) => (
-        <Link href={`/artwork/${record.id}`} className="hover:underline font-medium" target="_blank">
+        <Link href={`/artworks/${record.id}`} className="hover:underline font-medium" target="_blank">
           {record.title}
         </Link>
       )
@@ -201,10 +208,10 @@ export default function ArtworkManagement() {
     },
     {
       title: '作者',
-      dataIndex: 'artist.name', // STable 目前不支持嵌套路径取值，需要自定义 render
+      dataIndex: 'artistName',
+      searchKey: 'artistName',
       render: (_, record) => record.artist?.name || '未知',
       searchPlaceholder: '搜索作者...'
-      // hideInSearch: true // 暂时隐藏作者搜索，因为后端 list 接口 search 参数是通用的字符串
     },
     {
       title: '图片数',
@@ -253,8 +260,8 @@ export default function ArtworkManagement() {
       const res = await trpcClient.artwork.list.query({
         cursor: params.current,
         pageSize: params.pageSize,
-        search: params.title, // 使用 title 作为搜索关键词
-        artistName: params['artist.name'] // 作者名搜索
+        search: params.title,
+        artistName: params.artistName
       })
 
       return {
@@ -299,6 +306,8 @@ export default function ArtworkManagement() {
         columns={columns}
         request={request}
         defaultPageSize={20}
+        defaultSearchParams={searchState}
+        onSearchSubmit={setSearchState}
         rowSelection={{
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys)
