@@ -15,7 +15,7 @@ export interface STableColumn<T = any> {
   width?: number | string
   /** 自定义样式类名 */
   className?: string
-  
+
   // --- 搜索相关配置 ---
   /** 是否在搜索表单中隐藏 */
   hideInSearch?: boolean
@@ -65,7 +65,7 @@ export interface STableRowSelection<T> {
 export interface STableProps<T> {
   /** 列定义 */
   columns: STableColumn<T>[]
-  /** 
+  /**
    * 获取数据的请求方法
    * 接收分页参数和搜索参数，返回数据和总数
    */
@@ -76,8 +76,8 @@ export interface STableProps<T> {
   headerTitle?: ReactNode
   /** 工具栏渲染 */
   toolBarRender?: () => ReactNode[]
-  /** 
-   * 移动端自定义渲染内容 
+  /**
+   * 移动端自定义渲染内容
    * 如果不提供，默认使用 Card 布局展示非隐藏列
    */
   mobileRender?: (record: T, index: number) => ReactNode
@@ -89,4 +89,8 @@ export interface STableProps<T> {
   className?: string
   /** 行选择配置 */
   rowSelection?: STableRowSelection<T>
+  /** 默认搜索参数 (用于从 URL 初始化) */
+  defaultSearchParams?: Record<string, any>
+  /** 搜索提交回调 (用于同步 URL) */
+  onSearchSubmit?: (values: Record<string, any>) => void
 }
