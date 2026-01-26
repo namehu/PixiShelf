@@ -1,5 +1,3 @@
-'use client'
-
 import { useState, useEffect, useCallback } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -11,7 +9,9 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
-import { STable, STableColumn, STableRequestParams } from '@/components/shared/s-table'
+import { ProTable } from '@/components/shared/pro-table'
+import { ColumnDef } from '@tanstack/react-table'
+import { MEDIA_EXTENSIONS } from '../../../../../lib/constant'
 
 interface ImageManagerDialogProps {
   open: boolean
@@ -57,7 +57,7 @@ export function ImageManagerDialog({
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
 
-  const [artwork, setArtwork] = useState<{ title?: string; externalId?: string } | null>(null)
+  const [artwork, setArtwork] = useState<{ title?: string; externalId?: string }>({})
 
   // 当 Dialog 打开时刷新
   useEffect(() => {
@@ -77,9 +77,9 @@ export function ImageManagerDialog({
     }
   }, [open, artworkId, trpcClient])
 
-  // STable 请求函数
+  // ProTable 请求函数
   const request = useCallback(
-    async (params: STableRequestParams) => {
+    async (params: { pageSize: number; current: number }) => {
       if (!artworkId) return { data: [], total: 0, success: true }
 
       const res = await trpcClient.artwork.getById.query(artworkId)
@@ -101,44 +101,45 @@ export function ImageManagerDialog({
     [artworkId, trpcClient]
   )
 
-  // STable 列定义
-  const columns: STableColumn<ImageListItem>[] = [
+  // ProTable 列定义
+  const columns: ColumnDef<ImageListItem>[] = [
     {
-      title: 'Order',
-      dataIndex: 'sortOrder',
-      width: 80,
-      className: 'font-medium',
-      hideInSearch: true
+      header: 'Order',
+      accessorKey: 'sortOrder',
+      size: 80
     },
     {
-      title: '路径 / 文件名',
-      dataIndex: 'path',
-      hideInSearch: true,
-      render: (val: string) => (
-        <div className="flex flex-col gap-0.5">
-          <span className="font-medium text-sm">{val.split('/').pop()}</span>
-          <span className="text-[10px] text-neutral-400 truncate max-w-[200px]" title={val}>
-            {val}
-          </span>
-        </div>
+      header: '路径 / 文件名',
+      accessorKey: 'path',
+      cell: ({ getValue }) => {
+        const val = getValue<string>()
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span className="font-medium text-sm">{val.split('/').pop()}</span>
+            <span className="text-[10px] text-neutral-400 truncate max-w-[300px]" title={val}>
+              {val}
+            </span>
+          </div>
+        )
+      }
+    },
+    {
+      header: '尺寸',
+      accessorKey: 'width', // Use width as key, but render combined
+      size: 100,
+      cell: ({ row }) => (
+        <span className="text-xs">
+          {row.original.width && row.original.height ? `${row.original.width}x${row.original.height}` : '-'}
+        </span>
       )
     },
     {
-      title: '尺寸',
-      dataIndex: 'width',
-      hideInSearch: true,
-      width: 100,
-      render: (_, record) => (
-        <span className="text-xs">{record.width && record.height ? `${record.width}x${record.height}` : '-'}</span>
+      header: '大小',
+      accessorKey: 'size',
+      size: 100,
+      cell: ({ getValue }) => (
+        <span className="text-xs text-neutral-500 block text-right">{formatBytes(getValue<number>() || 0)}</span>
       )
-    },
-    {
-      title: '大小',
-      dataIndex: 'size',
-      hideInSearch: true,
-      width: 100,
-      className: 'text-right',
-      render: (val: number | null) => <span className="text-xs text-neutral-500">{formatBytes(val || 0)}</span>
     }
   ]
 
@@ -147,7 +148,8 @@ export function ImageManagerDialog({
     if (e.target.files && e.target.files.length > 0) {
       const selectedFiles = Array.from(e.target.files)
       // 过滤掉非媒体文件
-      const validFiles = selectedFiles.filter((f) => !f.name.startsWith('.'))
+
+      const validFiles = selectedFiles.filter((f) => MEDIA_EXTENSIONS.includes('.' + (f.name.split('.').pop() || '')))
 
       setFiles(validFiles)
       generatePreview(validFiles)
@@ -156,16 +158,10 @@ export function ImageManagerDialog({
 
   // 生成预览数据
   const generatePreview = (fileList: File[]) => {
-    // 假设 externalId 存在于 request 的闭包中不太好拿，这里暂时从 path 猜测或者先不依赖 externalId
-    // 实际上我们可以通过 request 获取到的 artwork 信息，但这里是 upload 逻辑
-    // 我们可以再发一个简单的 query 获取 externalId 或者让后端处理
-    // 这里为了预览简单，先用 placeholder
-    const externalId = 'artwork'
-
     const items: PreviewItem[] = fileList.map((file) => {
       const order = extractOrder(file.name)
       const ext = file.name.split('.').pop()
-      const newName = `${externalId}_p${order}.${ext}`
+      const newName = `${artwork.externalId}_p${order}.${ext}`
 
       return {
         file,
@@ -202,7 +198,7 @@ export function ImageManagerDialog({
 
     item.order = newOrder
     const ext = item.file.name.split('.').pop()
-    item.newName = `artwork_p${newOrder}.${ext}`
+    item.newName = `${artwork.externalId}_p${newOrder}.${ext}`
 
     // 重新校验冲突
     const orderCounts = new Map<number, number>()
@@ -221,32 +217,13 @@ export function ImageManagerDialog({
   // 执行全量替换
   const handleReplace = async () => {
     if (!artworkId || files.length === 0) return
+
     if (previewItems.some((i) => i.error)) {
       toast.error('存在序号冲突，请先修正')
       return
     }
 
-    // 获取 targetPath
-    // 由于 artwork 数据现在在 STable 内部获取，我们需要一个方式拿到 path
-    // 简单起见，如果 firstImagePath 没传，我们先阻止
-    // 实际场景：如果列表为空，firstImagePath 也是空的。这时应该允许替换，后端需要处理
-    const targetPath = firstImagePath || ''
-
-    // 如果没有 path 且是全量替换，需要确保后端能根据 artworkId 找到目录 (目前后端逻辑依赖 path)
-    // 这是一个潜在问题。如果作品从未有过图片，数据库里 path 为空。
-    // 我们需要通过 artwork.getById 获取到的数据来决定。
-    // 这里先简单处理：如果没 path，尝试再次 fetch 获取第一张图
-    let finalPath = targetPath
-    if (!finalPath) {
-      const res = await trpcClient.artwork.getById.query(artworkId)
-      if (res && res.images.length > 0) {
-        finalPath = res.images[0].path
-      }
-    }
-
-    if (!finalPath) {
-      // 如果还是没有，说明是全新作品，后端需要支持仅传 artworkId
-      // 但目前后端 replace API 强依赖 path 参数来定位目录
+    if (!firstImagePath) {
       toast.error('无法定位目标目录 (作品当前无图片路径)')
       return
     }
@@ -259,8 +236,7 @@ export function ImageManagerDialog({
     files.forEach((file) => {
       const item = previewItems.find((p) => p.originalName === file.name && p.size === file.size)
       if (item) {
-        const ext = file.name.split('.').pop()
-        const nameWithOrder = `upload_p${item.order}.${ext}`
+        const nameWithOrder = item.newName
         const renamedFile = new File([file], nameWithOrder, { type: file.type })
         formData.append('files', renamedFile)
       } else {
@@ -305,26 +281,25 @@ export function ImageManagerDialog({
       toast.error('网络错误，上传失败')
     }
 
-    xhr.open('POST', `/api/artwork/${artworkId}/replace?path=${encodeURIComponent(finalPath)}`)
+    xhr.open('POST', `/api/artwork/${artworkId}/replace?path=${encodeURIComponent(firstImagePath)}`)
     xhr.send(formData)
   }
 
   // 渲染列表 Tab
   const renderListTab = () => (
     <div className="h-full flex flex-col">
-      <STable
+      <ProTable
         key={refreshKey}
         rowKey="id"
         columns={columns}
         request={request}
         defaultPageSize={10}
-        className="border rounded-md"
-        toolBarRender={() => [
+        toolBarRender={() => (
           <Button key="refresh" variant="outline" size="sm" onClick={() => setRefreshKey((k) => k + 1)}>
             <RefreshCw className="w-4 h-4 mr-2" />
             刷新
           </Button>
-        ]}
+        )}
       />
     </div>
   )
@@ -339,8 +314,6 @@ export function ImageManagerDialog({
           multiple
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           onChange={handleFileSelect}
-          // @ts-ignore - webkitdirectory is non-standard but supported
-          webkitdirectory=""
         />
         <div className="flex flex-col items-center gap-2 text-neutral-500">
           <FolderInput className="w-8 h-8 text-neutral-400" />
@@ -462,7 +435,7 @@ export function ImageManagerDialog({
         onOpenChange(val)
       }}
     >
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+      <DialogContent className="sm:max-w-4xl max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>图片管理 - {artwork?.title || '加载中...'}</DialogTitle>
         </DialogHeader>

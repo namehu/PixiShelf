@@ -249,6 +249,12 @@ export default function ArtworkManagement() {
       enableHiding: false
     },
     {
+      header: '作品id',
+      accessorKey: 'externalId',
+      size: 180,
+      cell: ({ row }) => (row.original as any).externalId || '-'
+    },
+    {
       header: '标题',
       accessorKey: 'title',
       cell: ({ row }) => (
@@ -289,11 +295,7 @@ export default function ArtworkManagement() {
         </Button>
       )
     },
-    {
-      header: '创建时间',
-      accessorKey: 'createdAt',
-      size: 180
-    },
+
     {
       id: 'actions',
       header: '操作',
