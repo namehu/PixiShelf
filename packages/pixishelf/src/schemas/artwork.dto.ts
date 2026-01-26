@@ -41,6 +41,7 @@ export const ArtworksInfiniteQuerySchema = z.object({
     .optional()
     .transform((val) => val?.trim() || ''),
   artistId: z.coerce.number().int().optional(),
+  artistName: z.string().optional(),
   tagId: z.coerce.number().int().optional(),
   sortBy: z
     .string()

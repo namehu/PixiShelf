@@ -184,8 +184,8 @@ export default function ArtworkManagement() {
       title: '作者',
       dataIndex: 'artist.name', // STable 目前不支持嵌套路径取值，需要自定义 render
       render: (_, record) => record.artist?.name || '未知',
-      searchPlaceholder: '搜索作者...', // 搜索时需要后端支持
-      hideInSearch: true // 暂时隐藏作者搜索，因为后端 list 接口 search 参数是通用的字符串
+      searchPlaceholder: '搜索作者...'
+      // hideInSearch: true // 暂时隐藏作者搜索，因为后端 list 接口 search 参数是通用的字符串
     },
     {
       title: '图片数',
@@ -243,7 +243,8 @@ export default function ArtworkManagement() {
       const res = await trpcClient.artwork.list.query({
         cursor: params.current,
         pageSize: params.pageSize,
-        search: params.title // 使用 title 作为搜索关键词
+        search: params.title, // 使用 title 作为搜索关键词
+        artistName: params['artist.name'] // 作者名搜索
       })
 
       return {

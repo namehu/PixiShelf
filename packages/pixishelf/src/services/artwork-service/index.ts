@@ -25,7 +25,7 @@ export * from './related'
  * 同时复用 transformSingleArtwork 确保返回数据格式一致。
  */
 export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Promise<EnhancedArtworksResponse> {
-  const { cursor, tags, search, artistId, tagId, sortBy, mediaType } = params
+  const { cursor, tags, search, artistId, artistName, tagId, sortBy, mediaType } = params
   const page = cursor ?? 1
   const pageSize = 24
   const skip = (page - 1) * pageSize
@@ -38,6 +38,13 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
   if (artistId && Number.isFinite(artistId)) {
     whereSQL += ` AND a."artistId" = $${paramIndex}`
     sqlParams.push(artistId)
+    paramIndex++
+  }
+
+  // 1.1.2 艺术家名称筛选
+  if (artistName) {
+    whereSQL += ` AND artist.name ILIKE $${paramIndex}`
+    sqlParams.push(`%${artistName}%`)
     paramIndex++
   }
 
