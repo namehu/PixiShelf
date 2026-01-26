@@ -244,23 +244,23 @@ export function ProTable<TData, TValue>({
   return (
     <div className="space-y-4 w-full">
       {/* 1. 工具栏区域 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          {headerTitle && <h3 className="text-lg font-medium">{headerTitle}</h3>}
-          {searchRender ? searchRender() : null}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-2 w-full lg:flex-row lg:items-center lg:w-auto">
+          {headerTitle && <h3 className="text-lg font-medium hidden lg:block">{headerTitle}</h3>}
+          <div className="w-full lg:w-auto">{searchRender ? searchRender() : null}</div>
         </div>
-        <div className="flex items-center space-x-2">
-          {toolBarRender && toolBarRender()}
-          <Button
+        <div className="flex items-center gap-2 justify-between lg:justify-end w-full lg:w-auto">
+          <div className="flex items-center gap-2">{toolBarRender && toolBarRender()}</div>
+          {/* <Button
             variant="outline"
             size="icon"
             onClick={() => fetchData()}
             disabled={loading}
-            className="h-8 w-8"
+            className="h-8 w-8 shrink-0"
             title="Refresh"
           >
             <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+          </Button> */}
         </div>
       </div>
 

@@ -2,15 +2,17 @@
 
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { BarChart3, RefreshCw, Download, Edit2, Save, X, Languages } from 'lucide-react'
-import type { TagManagementParams, TagManagementStats } from '@/types/tags'
-import { Tag } from '@/types'
+import { BarChart3, RefreshCw, Download, Edit2, Save, X, Languages, Search, RotateCcw } from 'lucide-react'
+import type { TagManagementStats } from '@/types/tags'
 import { useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { updateTagStatsAction, exportUntranslatedTagsAction } from '@/actions/tag-action'
 import { getTranslateName } from '@/utils/tags'
-import { STable, STableColumn, STableRequestParams } from '@/components/shared/s-table'
+import { ProTable } from '@/components/shared/pro-table'
+import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
+import { ColumnDef, SortingState } from '@tanstack/react-table'
 
 // 导入子组件
 import { TagStatsCards } from './tag-stats-cards'
@@ -94,6 +96,38 @@ export default function TagManagement() {
   const [editingTagId, setEditingTagId] = useState<number | null>(null)
   const [editValues, setEditValues] = useState<{ name: string; name_zh: string }>({ name: '', name_zh: '' })
 
+  // URL Search Params Sync
+  const [searchState, setSearchState] = useQueryStates({
+    name: parseAsString,
+    filter: parseAsString.withDefault('all'),
+    page: parseAsInteger.withDefault(1),
+    pageSize: parseAsInteger.withDefault(20)
+  })
+
+  // Local state for search inputs
+  const [localSearch, setLocalSearch] = useState({
+    name: searchState.name || '',
+    filter: searchState.filter || 'all'
+  })
+
+  const handleSearch = () => {
+    setSearchState({
+      name: localSearch.name || null,
+      filter: localSearch.filter,
+      page: 1 // 重置到第一页
+    })
+  }
+
+  const handleReset = () => {
+    setLocalSearch({ name: '', filter: 'all' })
+    setSearchState({
+      name: null,
+      filter: 'all',
+      page: 1,
+      pageSize: 20
+    })
+  }
+
   // 手动更新标签统计
   const handleUpdateStats = async () => {
     try {
@@ -102,14 +136,6 @@ export default function TagManagement() {
 
       if (result.success) {
         toast.success('标签统计更新成功')
-        // 这里不需要手动刷新列表，因为统计数据会在下一次列表请求时更新
-        // 或者我们可以强制触发 table 的 reload，但目前 STable 没有暴露 reload
-        // 如果需要，可以通过 key 强制刷新 STable，或者 just let it be
-        // 实际上，下面的 STable request 会在 params 变化时触发。
-        // 如果仅仅是更新统计，列表数据可能没变。
-        // 为了刷新统计卡片，我们需要重新 fetch data
-        // 这里我们可以简单的 refresh 页面或者...
-        // 既然 STable 自己管理请求，我们可以在 request 里更新 stats
       } else {
         throw new Error(result.message || '更新失败')
       }
@@ -142,12 +168,12 @@ export default function TagManagement() {
   }
 
   // 表格列定义
-  const columns: STableColumn<TagListItem>[] = [
+  const columns: ColumnDef<TagListItem>[] = [
     {
-      title: '标签名称',
-      dataIndex: 'name',
-      searchPlaceholder: '搜索标签名称...',
-      render: (_, record) => {
+      header: '标签名称',
+      accessorKey: 'name',
+      cell: ({ row }) => {
+        const record = row.original
         if (editingTagId === record.id) {
           return (
             <Input
@@ -162,9 +188,10 @@ export default function TagManagement() {
       }
     },
     {
-      title: '中文翻译',
-      dataIndex: 'name_zh',
-      render: (_, record) => {
+      header: '中文翻译',
+      accessorKey: 'name_zh',
+      cell: ({ row }) => {
+        const record = row.original
         if (editingTagId === record.id) {
           return (
             <Input
@@ -180,37 +207,27 @@ export default function TagManagement() {
       }
     },
     {
-      title: '翻译状态',
-      key: 'filter',
-      hideInTable: true,
-      valueType: 'select',
-      valueEnum: {
-        all: { text: '全部' },
-        translated: { text: '已翻译' },
-        untranslated: { text: '未翻译' }
+      header: '作品数量',
+      accessorKey: 'artworkCount',
+      enableSorting: true,
+      size: 120
+    },
+    {
+      header: '创建时间',
+      accessorKey: 'createdAt',
+      enableSorting: true,
+      size: 180,
+      cell: ({ getValue }) => {
+        const val = getValue<string>()
+        return val ? new Date(val).toLocaleDateString('zh-CN') : '-'
       }
     },
     {
-      title: '作品数量',
-      dataIndex: 'artworkCount',
-      sorter: true,
-      hideInSearch: true,
-      width: 120
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'createdAt',
-      sorter: true,
-      hideInSearch: true,
-      width: 180,
-      render: (val) => (val ? new Date(val).toLocaleDateString('zh-CN') : '-')
-    },
-    {
-      title: '操作',
-      key: 'action',
-      hideInSearch: true,
-      width: 150,
-      render: (_, record) => {
+      id: 'actions',
+      header: '操作',
+      size: 150,
+      cell: ({ row }) => {
+        const record = row.original
         const isEditing = editingTagId === record.id
         const tName = getTranslateName(record)
 
@@ -260,20 +277,24 @@ export default function TagManagement() {
 
   // 数据请求
   const request = useCallback(
-    async (params: STableRequestParams, sort?: Record<string, 'asc' | 'desc'>) => {
+    async (params: { pageSize: number; current: number }, sort: SortingState) => {
       // 处理排序
-      const sortKeys = sort ? Object.keys(sort) : []
-      const sortField = sortKeys.length > 0 ? sortKeys[0] : 'artworkCount'
-      const sortOrder = sortKeys.length > 0 ? sort![sortField!] : 'desc'
+      let sortField = 'artworkCount'
+      let sortOrder = 'desc'
+
+      if (sort && sort.length > 0) {
+        sortField = sort[0].id
+        sortOrder = sort[0].desc ? 'desc' : 'asc'
+      }
 
       // 调用 TRPC
       const res = await trpcClient.tag.management.query({
         page: params.current,
         limit: params.pageSize,
-        search: params.name, // 对应 columns 中的 dataIndex: 'name'
-        filter: params.filter || 'all', // 对应 columns 中的 key: 'filter'
+        search: searchState.name || undefined,
+        filter: (searchState.filter as any) || 'all',
         sort: sortField as any,
-        order: sortOrder
+        order: sortOrder as any
       })
 
       // 更新统计数据
@@ -287,8 +308,24 @@ export default function TagManagement() {
         success: true
       }
     },
-    [trpcClient]
+    [trpcClient, searchState]
   )
+
+  const handlePaginationChange = (updaterOrValue: any) => {
+    // 处理 React Table 的 updater 模式
+    const newPagination =
+      typeof updaterOrValue === 'function'
+        ? updaterOrValue({
+            pageIndex: (searchState.page || 1) - 1,
+            pageSize: searchState.pageSize || 20
+          })
+        : updaterOrValue
+
+    setSearchState({
+      page: newPagination.pageIndex + 1,
+      pageSize: newPagination.pageSize
+    })
+  }
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
@@ -327,7 +364,53 @@ export default function TagManagement() {
       <TagStatsCards stats={stats} isLoading={false} />
 
       {/* 高级表格 */}
-      <STable rowKey="id" columns={columns} request={request} defaultPageSize={20} />
+      <ProTable
+        rowKey="id"
+        headerTitle="标签列表"
+        columns={columns}
+        request={request}
+        defaultPageSize={20}
+        // 分页受控
+        pagination={{
+          pageIndex: (searchState.page || 1) - 1,
+          pageSize: searchState.pageSize || 20
+        }}
+        onPaginationChange={handlePaginationChange}
+        searchRender={() => (
+          <div className="flex flex-wrap items-center gap-2 w-full">
+            <Input
+              placeholder="搜索标签名称..."
+              value={localSearch.name}
+              onChange={(e) => setLocalSearch((prev) => ({ ...prev, name: e.target.value }))}
+              className="h-8 w-full md:w-[200px]"
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            />
+            <Select
+              value={localSearch.filter}
+              onValueChange={(value) => setLocalSearch((prev) => ({ ...prev, filter: value }))}
+            >
+              <SelectTrigger className="h-8 w-full md:w-[120px]">
+                <SelectValue placeholder="翻译状态" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部</SelectItem>
+                <SelectItem value="translated">已翻译</SelectItem>
+                <SelectItem value="untranslated">未翻译</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
+              <Button variant="default" size="sm" onClick={handleSearch} className="h-8 px-3 flex-1 md:flex-none">
+                <Search className="w-4 h-4 mr-1" />
+                搜索
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleReset} className="h-8 px-3 flex-1 md:flex-none">
+                <RotateCcw className="w-4 h-4 mr-1" />
+                重置
+              </Button>
+            </div>
+          </div>
+        )}
+      />
     </div>
   )
 }
