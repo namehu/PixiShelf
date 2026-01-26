@@ -31,6 +31,47 @@ export async function createScanJob() {
 }
 
 /**
+ * 尝试创建一个迁移任务
+ */
+export async function createMigrationJob() {
+  return await prisma.$transaction(async (tx) => {
+    // 检查是否有正在运行或正在取消的迁移任务
+    const activeJob = await tx.systemJob.findFirst({
+      where: {
+        type: 'MIGRATION',
+        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+      }
+    })
+
+    if (activeJob) {
+      throw new Error('Migration already in progress')
+    }
+
+    return await tx.systemJob.create({
+      data: {
+        type: 'MIGRATION',
+        status: JobStatus.RUNNING,
+        message: '初始化迁移...',
+        progress: 0
+      }
+    })
+  })
+}
+
+/**
+ * 获取当前活跃的迁移任务
+ */
+export async function getActiveMigrationJob() {
+  return await prisma.systemJob.findFirst({
+    where: {
+      type: 'MIGRATION',
+      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+    },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+/**
  * 获取当前活跃的扫描任务
  */
 export async function getActiveScanJob() {
