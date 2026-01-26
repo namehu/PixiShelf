@@ -10,7 +10,7 @@ export type MigrationStatus = 'PENDING' | 'SKIPPED' | 'SUCCESS' | 'FAILED'
 export interface MigrationResult {
   artworkId: number
   status: MigrationStatus
-  msg: string
+  msg: string[]
 }
 
 export interface MigrationStats {
@@ -25,6 +25,14 @@ export interface MigrationStats {
  * 迁移单个作品
  */
 export async function migrateArtwork(artworkId: number, scanRoot: string): Promise<MigrationResult> {
+  const logs: string[] = []
+  const log = (msg: string, level: 'info' | 'warn' | 'error' = 'info') => {
+    logs.push(msg)
+    if (level === 'error') migrationLogger.error(msg)
+    else if (level === 'warn') migrationLogger.warn(msg)
+    else migrationLogger.info(msg)
+  }
+
   // 1. 获取数据
   const artwork = await prisma.artwork.findUnique({
     where: { id: artworkId },
@@ -32,7 +40,7 @@ export async function migrateArtwork(artworkId: number, scanRoot: string): Promi
   })
 
   if (!artwork || !artwork.artist?.userId || !artwork.externalId || !artwork.images.length) {
-    return { artworkId, status: 'FAILED', msg: '数据不完整 (Artist或Images缺失)' }
+    return { artworkId, status: 'FAILED', msg: ['数据不完整 (Artist或Images缺失)'] }
   }
 
   const targetRelDir = path.join(artwork.artist.userId, artwork.externalId)
@@ -49,7 +57,7 @@ export async function migrateArtwork(artworkId: number, scanRoot: string): Promi
   const normalizedTarget = targetRelDir.replace(/\\/g, '/')
 
   if (normalizedCurrent.startsWith(normalizedTarget)) {
-    return { artworkId, status: 'SKIPPED', msg: `路径已符合规范: ${currentRelPath}` }
+    return { artworkId, status: 'SKIPPED', msg: [`路径已符合规范: ${currentRelPath}`] }
   }
 
   try {
@@ -69,10 +77,10 @@ export async function migrateArtwork(artworkId: number, scanRoot: string): Promi
           // 目标有文件，且数据库没更，这种情况比较危险。
           // 但既然源文件没了，也没法搬了。
           // 暂时标记失败，需要人工介入或更复杂的恢复逻辑
-          return { artworkId, status: 'FAILED', msg: '源目录不存在，目标目录已有文件' }
+          return { artworkId, status: 'FAILED', msg: ['源目录不存在，目标目录已有文件'] }
         }
       } catch {}
-      return { artworkId, status: 'FAILED', msg: '源目录不存在' }
+      return { artworkId, status: 'FAILED', msg: ['源目录不存在'] }
     }
 
     // 查找源目录下所有属于该 ID 的文件 (防止误伤同目录其他作品)
@@ -80,7 +88,7 @@ export async function migrateArtwork(artworkId: number, scanRoot: string): Promi
     const relatedFiles = sourceFiles.filter((f) => f.startsWith(artwork.externalId!)) // 匹配 12345_p0.jpg 和 12345-meta.txt
 
     if (relatedFiles.length === 0) {
-      return { artworkId, status: 'FAILED', msg: '源目录中未找到相关文件' }
+      return { artworkId, status: 'FAILED', msg: ['源目录中未找到相关文件'] }
     }
 
     // 4. 物理搬运
@@ -127,23 +135,25 @@ export async function migrateArtwork(artworkId: number, scanRoot: string): Promi
         const remaining = await fs.readdir(sourceAbsDir)
         if (remaining.length === 0) {
           await fs.rmdir(sourceAbsDir)
-          migrationLogger.info(`[Migrate] 已移除空目录: ${sourceAbsDir}`)
+          log(`[Migrate] 已移除空目录: ${sourceAbsDir}`, 'info')
         } else {
-          migrationLogger.info(
-            `[Migrate] 源目录非空，跳过删除: ${sourceAbsDir} (剩余 ${remaining.length} 个文件: ${remaining.slice(0, 3).join(', ')}...)`
+          log(
+            `[Migrate] 源目录非空，跳过删除: ${sourceAbsDir} (剩余 ${remaining.length} 个文件: ${remaining.slice(0, 3).join(', ')}...)`,
+            'info'
           )
         }
       } catch (e: any) {
-        migrationLogger.warn(`[Migrate] 尝试删除源目录失败: ${sourceAbsDir}, Error: ${e.message}`)
+        log(`[Migrate] 尝试删除源目录失败: ${sourceAbsDir}, Error: ${e.message}`, 'warn')
       }
     } else {
-      migrationLogger.info(`[Migrate] 源目录为根目录，跳过删除: ${sourceAbsDir} （防止删除根目录） ${scanRoot}`)
+      log(`[Migrate] 源目录为根目录，跳过删除: ${sourceAbsDir} （防止删除根目录） ${scanRoot}`, 'info')
     }
 
-    return { artworkId, status: 'SUCCESS', msg: `迁移至 ${targetRelDir}` }
+    logs.push(`迁移至 ${targetRelDir}`)
+    return { artworkId, status: 'SUCCESS', msg: logs }
   } catch (error: any) {
-    migrationLogger.error(`[Migrate] ID:${artworkId} Failed: ${error.message}`)
-    return { artworkId, status: 'FAILED', msg: error.message }
+    log(`[Migrate] ID:${artworkId} Failed: ${error.message}`, 'error')
+    return { artworkId, status: 'FAILED', msg: logs } // Return collected logs even on failure
   }
 }
 
@@ -151,7 +161,7 @@ export async function migrateArtwork(artworkId: number, scanRoot: string): Promi
  * 运行迁移任务
  */
 export async function runMigrationJob(
-  onProgress: (stats: MigrationStats, currentMsg: string) => void,
+  onProgress: (stats: MigrationStats, currentMsg: string[]) => void,
   checkCancelled: () => Promise<boolean>,
   targetIds?: number[]
 ): Promise<MigrationStats> {
@@ -203,12 +213,15 @@ export async function runMigrationJob(
     else stats.failed++
 
     if (result.status === 'FAILED') {
-      migrationLogger.warn(`[ID:${art.id}] ${result.msg}`)
+      migrationLogger.warn(`[ID:${art.id}] ${result.msg.join('; ')}`)
     } else if (result.status === 'SUCCESS') {
-      migrationLogger.info(`[ID:${art.id}] ${result.msg}`)
+      migrationLogger.info(`[ID:${art.id}] ${result.msg.join('; ')}`)
     }
 
-    onProgress(stats, `正在处理 [${art.externalId}]: ${result.msg}`)
+    onProgress(
+      stats,
+      result.msg.map((m) => `[${art.externalId}] ${m}`)
+    )
 
     // 简单延时，避免IO过载
     await new Promise((resolve) => setTimeout(resolve, 50))

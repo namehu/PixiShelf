@@ -51,7 +51,7 @@ export const POST = apiHandler(MigrationSchema, async (req, data) => {
         const DB_UPDATE_INTERVAL = 1000
 
         const result = await runMigrationJob(
-          (stats: MigrationStats, msg: string) => {
+          (stats: MigrationStats, msg: string[]) => {
             const progress = stats.total > 0 ? Math.floor((stats.processed / stats.total) * 100) : 0
 
             // 发送给前端
@@ -64,7 +64,7 @@ export const POST = apiHandler(MigrationSchema, async (req, data) => {
             // 更新数据库
             const now = Date.now()
             if (now - lastDbUpdate > DB_UPDATE_INTERVAL && currentJobId) {
-              JobService.updateProgress(currentJobId, progress, msg).catch((err) =>
+              JobService.updateProgress(currentJobId, progress, msg.join('\n')).catch((err) =>
                 migrationLogger.error('Failed to update job progress', err)
               )
               lastDbUpdate = now

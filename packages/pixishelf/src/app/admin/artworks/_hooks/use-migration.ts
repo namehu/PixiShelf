@@ -132,11 +132,16 @@ export function useMigration(): {
           break
 
         case 'progress':
-          // data structure: { progress: number, message: string, stats: MigrationStats }
+          // data structure: { progress: number, message: string[], stats: MigrationStats }
           const { message, stats: newStats, progress } = data
-          setCurrentMessage(message)
+          const msgs = Array.isArray(message) ? message : [message]
+
+          setCurrentMessage(msgs[msgs.length - 1] || '')
           setStats(newStats)
-          logger.addLog(`[${progress}%] ${message}`, 'progress', data)
+
+          msgs.forEach((msg: string) => {
+            logger.addLog(`[${progress}%] ${msg}`, 'progress', data)
+          })
           break
 
         case 'complete':
