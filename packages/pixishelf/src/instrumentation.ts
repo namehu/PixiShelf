@@ -1,9 +1,9 @@
 import 'server-only'
-import logger from './lib/logger'
 import { APP_VERSION } from './_config'
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { default: logger } = await import('./lib/logger')
     logger.log({
       level: 'info',
       message: '🚀 Server is starting up... Performing initialization.'
