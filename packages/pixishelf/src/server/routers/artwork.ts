@@ -12,7 +12,8 @@ import {
   getRecommendedArtworks,
   getRandomArtworks,
   deleteArtwork,
-  updateArtwork
+  updateArtwork,
+  getArtworkById
 } from '@/services/artwork-service'
 import logger from '@/lib/logger'
 import { TRPCError } from '@trpc/server'
@@ -21,6 +22,13 @@ import { TRPCError } from '@trpc/server'
  * 作品路由
  */
 export const artworkRouter = router({
+  /**
+   * 获取作品详情
+   */
+  getById: publicProcedure.input(z.number()).query(async ({ input }) => {
+    return getArtworkById(input)
+  }),
+
   /**
    * 获取作品列表 (无限加载)
    */

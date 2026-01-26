@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { exportNoSeriesArtworksAction } from '@/actions/artwork-action'
 import { useMigration } from '../_hooks/use-migration'
 import { MigrationDialog } from './migration-dialog'
+import { ImageManagerDialog } from './image-manager-dialog'
 import { confirm } from '@/components/shared/global-confirm'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
 import { ProTable } from '@/components/shared/pro-table'
@@ -38,6 +39,8 @@ export default function ArtworkManagement() {
   const trpcClient = useTRPCClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingArtwork, setEditingArtwork] = useState<any>(null)
+  const [imageManagerOpen, setImageManagerOpen] = useState(false)
+  const [managingArtwork, setManagingArtwork] = useState<ArtworkListItem | null>(null)
   const [isExporting, setIsExporting] = useState(false)
 
   // Row Selection State
@@ -171,6 +174,11 @@ export default function ArtworkManagement() {
     setDialogOpen(true)
   }
 
+  const handleOpenImageManager = (item: ArtworkListItem) => {
+    setManagingArtwork(item)
+    setImageManagerOpen(true)
+  }
+
   // --- Migration Handlers ---
   const handleMigrationClick = () => {
     const isBatch = selectedRowKeys.length > 0
@@ -269,7 +277,17 @@ export default function ArtworkManagement() {
     {
       header: '图片数',
       accessorKey: 'imageCount',
-      size: 100
+      size: 100,
+      cell: ({ row }) => (
+        <Button
+          variant="link"
+          className="p-0 h-auto font-mono hover:underline text-neutral-900"
+          onClick={() => handleOpenImageManager(row.original)}
+          title="管理图片"
+        >
+          {row.original.imageCount}
+        </Button>
+      )
     },
     {
       header: '创建时间',
@@ -458,6 +476,14 @@ export default function ArtworkManagement() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         artwork={editingArtwork}
+        onSuccess={() => setRefreshKey((prev) => prev + 1)}
+      />
+
+      <ImageManagerDialog
+        open={imageManagerOpen}
+        onOpenChange={setImageManagerOpen}
+        artworkId={managingArtwork?.id || null}
+        firstImagePath={managingArtwork?.firstImagePath}
         onSuccess={() => setRefreshKey((prev) => prev + 1)}
       />
 
