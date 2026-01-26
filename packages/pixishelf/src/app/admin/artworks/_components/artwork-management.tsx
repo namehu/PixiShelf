@@ -1,51 +1,57 @@
 'use client'
-import { useState } from 'react'
-import { useTRPC } from '@/lib/trpc'
+import { useState, useCallback } from 'react'
+import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Edit, Trash, ExternalLink, Download } from 'lucide-react'
+import { Edit, Trash, ExternalLink, Download, FolderInput, BarChart3 } from 'lucide-react'
 import { ArtworkDialog } from './artwork-dialog'
-import { useDebounce } from '@/hooks/useDebounce'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { exportNoSeriesArtworksAction } from '@/actions/artwork-action'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useMigration } from '../_hooks/use-migration'
 import { MigrationDialog } from './migration-dialog'
-import { FolderInput } from 'lucide-react'
 import { confirm } from '@/components/shared/global-confirm'
+import { STable, STableColumn, STableRequestParams } from '@/components/shared/s-table'
+import { useMutation } from '@tanstack/react-query'
+
+// 定义作品列表项类型
+interface ArtworkListItem {
+  id: number
+  title: string
+  description: string | null
+  imageCount: number
+  firstImagePath?: string
+  artist?: {
+    id: number
+    name: string
+  } | null
+  createdAt: string
+  updatedAt: string
+}
 
 export default function ArtworkManagement() {
   const trpc = useTRPC()
-  const queryClient = useQueryClient()
-  const [page, setPage] = useState(1)
-  const [query, setQuery] = useState('')
-  const debouncedQuery = useDebounce(query, 500)
+  const trpcClient = useTRPCClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingArtwork, setEditingArtwork] = useState<any>(null)
   const [isExporting, setIsExporting] = useState(false)
+  const [selectedRowKeys, setSelectedRowKeys] = useState<(string | number)[]>([])
 
   // Migration Hook
   const { state: migrationState, actions: migrationActions, logger: migrationLogger } = useMigration()
   const [logOpen, setLogOpen] = useState(false)
 
-  const { data, isLoading } = useQuery(
-    trpc.artwork.list.queryOptions({
-      cursor: page,
-      pageSize: 20,
-      search: debouncedQuery
-    })
-  )
-
+  // 批量删除 Mutation
   const deleteMutation = useMutation(
     trpc.artwork.delete.mutationOptions({
       onSuccess: () => {
         toast.success('删除成功')
-        queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
+        setRefreshKey((prev) => prev + 1)
+        setSelectedRowKeys([])
       }
     })
   )
+
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const handleExportNoSeries = async () => {
     try {
@@ -92,6 +98,34 @@ export default function ArtworkManagement() {
     })
   }
 
+  const handleBatchDelete = () => {
+    if (selectedRowKeys.length === 0) return
+
+    confirm({
+      title: `确定删除选中的 ${selectedRowKeys.length} 个作品吗？`,
+      onConfirm: async () => {
+        // 由于后端只提供了单删接口，这里循环调用（实际项目中应提供批量接口）
+        // 演示目的，我们假设只能单删
+        // 实际操作：循环调用
+        // 注意：并发过多可能会有问题
+        try {
+          // 这里使用 deleteMutation.mutateAsync 进行删除
+          // 但 mutateAsync 是针对单个 mutation 的，如果在循环中调用同一个 mutation 实例，可能会有状态覆盖问题
+          // 不过 react-query 的 mutation 可以多次调用
+          // 或者直接使用 trpcClient (vanilla client) 来进行批量请求
+
+          await Promise.all(selectedRowKeys.map((id) => deleteMutation.mutateAsync(Number(id))))
+
+          toast.success('批量删除成功')
+          setRefreshKey((prev) => prev + 1)
+          setSelectedRowKeys([])
+        } catch (error) {
+          toast.error('部分删除失败')
+        }
+      }
+    })
+  }
+
   const handleEdit = (item: any) => {
     setEditingArtwork(item)
     setDialogOpen(true)
@@ -124,12 +158,122 @@ export default function ArtworkManagement() {
     migrationActions.startMigration({ targetIds: [id] })
   }
 
+  // STable 列定义
+  const columns: STableColumn<ArtworkListItem>[] = [
+    {
+      title: '标题',
+      dataIndex: 'title',
+      searchPlaceholder: '搜索作品标题...',
+      render: (_, record) => (
+        <Link href={`/artwork/${record.id}`} className="hover:underline font-medium" target="_blank">
+          {record.title}
+        </Link>
+      )
+    },
+    {
+      title: '路径',
+      dataIndex: 'firstImagePath',
+      hideInSearch: true,
+      render: (val) => (
+        <span className="font-mono text-xs text-neutral-400 truncate max-w-[200px] block" title={val}>
+          {val || '-'}
+        </span>
+      )
+    },
+    {
+      title: '作者',
+      dataIndex: 'artist.name', // STable 目前不支持嵌套路径取值，需要自定义 render
+      render: (_, record) => record.artist?.name || '未知',
+      searchPlaceholder: '搜索作者...', // 搜索时需要后端支持
+      hideInSearch: true // 暂时隐藏作者搜索，因为后端 list 接口 search 参数是通用的字符串
+    },
+    {
+      title: '图片数',
+      dataIndex: 'imageCount',
+      hideInSearch: true,
+      width: 100
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'createdAt',
+      hideInSearch: true,
+      width: 180
+    },
+    {
+      title: '操作',
+      key: 'action',
+      hideInSearch: true,
+      width: 200,
+      render: (_, record) => (
+        <div className="flex gap-1">
+          <Button variant="ghost" size="icon" onClick={() => handleEdit(record)} title="编辑">
+            <Edit className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => handleSingleMigration(record.id)}
+            title="执行文件结构迁移"
+            disabled={migrationState.migrating}
+          >
+            <FolderInput className="w-4 h-4 text-blue-500" />
+          </Button>
+          <Link href={`/artwork/${record.id}`} target="_blank">
+            <Button variant="ghost" size="icon" title="新标签页打开">
+              <ExternalLink className="w-4 h-4" />
+            </Button>
+          </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-red-500"
+            onClick={() => handleDelete(record.id)}
+            title="删除"
+          >
+            <Trash className="w-4 h-4" />
+          </Button>
+        </div>
+      )
+    }
+  ]
+
+  // STable 请求函数
+  const request = useCallback(
+    async (params: STableRequestParams) => {
+      const res = await trpcClient.artwork.list.query({
+        cursor: params.current,
+        pageSize: params.pageSize,
+        search: params.title // 使用 title 作为搜索关键词
+      })
+
+      return {
+        data: res.items.map((item) => ({
+          ...item,
+          // 确保 createdAt 是字符串
+          createdAt: new Date(item.createdAt).toLocaleString('zh-CN'),
+          updatedAt: new Date(item.updatedAt).toLocaleString('zh-CN')
+        })),
+        total: res.total,
+        success: true
+      }
+    },
+    [trpcClient]
+  )
+
   return (
     <div className="space-y-4 p-4">
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-4">
-          <h2 className="text-2xl font-bold">作品管理</h2>
+      {/* 页面标题 */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-neutral-200 pb-4">
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold text-neutral-900 flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 md:w-6 md:h-6" />
+            作品管理
+          </h1>
+          <p className="text-sm md:text-base text-neutral-600 mt-1">管理作品，支持搜索、筛选和批量操作</p>
+        </div>
+        <div className="flex gap-2 w-full md:w-auto">
           <Button
+            key="migrate"
             variant="secondary"
             size="sm"
             className="gap-2"
@@ -148,113 +292,52 @@ export default function ArtworkManagement() {
               </>
             )}
           </Button>
-
-          {/* 只有在迁移中或有日志时才显示日志按钮 */}
           {(migrationState.migrating || migrationLogger.logs.length > 0) && (
-            <Button variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
+            <Button key="logs" variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
               查看日志
             </Button>
           )}
         </div>
-
-        <Button
-          variant="outline"
-          onClick={handleExportNoSeries}
-          disabled={isExporting}
-          className="flex items-center gap-2"
-        >
-          <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
-          {isExporting ? '导出中...' : '导出无系列ID'}
-        </Button>
       </div>
 
-      <div className="flex gap-4">
-        <Input
-          placeholder="搜索作品..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="max-w-sm"
-        />
-      </div>
+      <STable
+        key={refreshKey}
+        headerTitle="作品管理"
+        rowKey="id"
+        columns={columns}
+        request={request}
+        defaultPageSize={20}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys)
+        }}
+        toolBarRender={() => [
+          selectedRowKeys.length > 0 && (
+            <Button key="batch-delete" variant="destructive" size="sm" onClick={handleBatchDelete}>
+              删除选中 ({selectedRowKeys.length})
+            </Button>
+          ),
+          <Button
+            key="export"
+            variant="outline"
+            size="sm"
+            onClick={handleExportNoSeries}
+            disabled={isExporting}
+            className="flex items-center gap-2"
+          >
+            <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
+            {isExporting ? '导出中...' : '导出无系列ID'}
+          </Button>
+        ]}
+      />
 
-      <div className="border rounded-md">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>标题</TableHead>
-              <TableHead>路径</TableHead>
-              <TableHead>作者</TableHead>
-              <TableHead>图片数</TableHead>
-              <TableHead>创建时间</TableHead>
-              <TableHead>操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center">
-                  加载中...
-                </TableCell>
-              </TableRow>
-            ) : (
-              data?.items.map((item: any) => (
-                <TableRow key={item.id}>
-                  <TableCell>
-                    <Link href={`/artwork/${item.id}`} className="hover:underline font-medium" target="_blank">
-                      {item.title}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="max-w-[200px] truncate" title={item.firstImagePath}>
-                    <span className="font-mono text-xs text-neutral-400">{item.firstImagePath || '-'}</span>
-                  </TableCell>
-                  <TableCell>{item.artist?.name || '未知'}</TableCell>
-                  <TableCell>{item.imageCount}</TableCell>
-                  <TableCell>{item.createdAt}</TableCell>
-                  <TableCell className="flex gap-2">
-                    <Button variant="ghost" size="icon" onClick={() => handleEdit(item)} title="编辑">
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleSingleMigration(item.id)}
-                      title="执行文件结构迁移"
-                      disabled={migrationState.migrating}
-                    >
-                      <FolderInput className="w-4 h-4 text-blue-500" />
-                    </Button>
-                    <Link href={`/artwork/${item.id}`} target="_blank">
-                      <Button variant="ghost" size="icon" title="新标签页打开">
-                        <ExternalLink className="w-4 h-4" />
-                      </Button>
-                    </Link>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-red-500"
-                      onClick={() => handleDelete(item.id)}
-                      title="删除"
-                    >
-                      <Trash className="w-4 h-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-            {!isLoading && (!data?.items || data.items.length === 0) && (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center">
-                  暂无数据
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <ArtworkDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        artwork={editingArtwork}
+        onSuccess={() => setRefreshKey((prev) => prev + 1)}
+      />
 
-      <ArtworkDialog open={dialogOpen} onOpenChange={setDialogOpen} artwork={editingArtwork} onSuccess={() => {}} />
-
-      {/* 迁移日志弹窗 */}
       <MigrationDialog
         open={logOpen}
         onOpenChange={setLogOpen}
