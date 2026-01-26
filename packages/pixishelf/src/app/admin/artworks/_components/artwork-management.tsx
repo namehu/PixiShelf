@@ -14,7 +14,7 @@ import { STable, STableColumn, STableRequestParams } from '@/components/shared/s
 import { useMutation } from '@tanstack/react-query'
 
 // 定义作品列表项类型
-interface ArtworkListItem {
+export interface ArtworkListItem {
   id: number
   title: string
   description: string | null
@@ -250,6 +250,7 @@ export default function ArtworkManagement() {
       return {
         data: res.items.map((item) => ({
           ...item,
+          description: item.description || null, // 确保 description 至少是 null 而不是 undefined
           // 确保 createdAt 是字符串
           createdAt: new Date(item.createdAt).toLocaleString('zh-CN'),
           updatedAt: new Date(item.updatedAt).toLocaleString('zh-CN')
