@@ -11,8 +11,11 @@ import { useMigration } from '../_hooks/use-migration'
 import { MigrationDialog } from './migration-dialog'
 import { confirm } from '@/components/shared/global-confirm'
 import { useQueryStates, parseAsString } from 'nuqs'
-import { STable, STableColumn, STableRequestParams } from '@/components/shared/s-table'
+import { ProTable } from '@/components/shared/pro-table'
 import { useMutation } from '@tanstack/react-query'
+import { ColumnDef, RowSelectionState } from '@tanstack/react-table'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 
 // 定义作品列表项类型
 export interface ArtworkListItem {
@@ -35,7 +38,10 @@ export default function ArtworkManagement() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingArtwork, setEditingArtwork] = useState<any>(null)
   const [isExporting, setIsExporting] = useState(false)
-  const [selectedRowKeys, setSelectedRowKeys] = useState<(string | number)[]>([])
+
+  // Row Selection State
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const selectedRowKeys = Object.keys(rowSelection)
 
   // URL Search Params Sync
   const [searchState, setSearchState] = useQueryStates({
@@ -53,7 +59,7 @@ export default function ArtworkManagement() {
       onSuccess: () => {
         toast.success('删除成功')
         setRefreshKey((prev) => prev + 1)
-        setSelectedRowKeys([])
+        setRowSelection({})
       }
     })
   )
@@ -125,7 +131,7 @@ export default function ArtworkManagement() {
 
           toast.success('批量删除成功')
           setRefreshKey((prev) => prev + 1)
-          setSelectedRowKeys([])
+          setRowSelection({})
         } catch (error) {
           toast.error('部分删除失败')
         }
@@ -167,7 +173,7 @@ export default function ArtworkManagement() {
         setLogOpen(true)
         const onComplete = () => {
           setRefreshKey((prev) => prev + 1)
-          setSelectedRowKeys([])
+          setRowSelection({})
         }
 
         if (isBatch) {
@@ -184,58 +190,75 @@ export default function ArtworkManagement() {
     })
   }
 
-  // STable 列定义
-  const columns: STableColumn<ArtworkListItem>[] = [
+  // ProTable 列定义
+  const columns: ColumnDef<ArtworkListItem>[] = [
     {
-      title: '标题',
-      dataIndex: 'title',
-      searchPlaceholder: '搜索作品标题...',
-      render: (_, record) => (
-        <Link href={`/artworks/${record.id}`} className="hover:underline font-medium" target="_blank">
-          {record.title}
+      id: 'select',
+      header: ({ table }) => (
+        <Checkbox
+          checked={table.getIsAllPageRowsSelected()}
+          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          aria-label="Select all"
+          className="translate-y-[2px]"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label="Select row"
+          className="translate-y-[2px]"
+        />
+      ),
+      enableSorting: false,
+      enableHiding: false
+    },
+    {
+      header: '标题',
+      accessorKey: 'title',
+      cell: ({ row }) => (
+        <Link href={`/artworks/${row.original.id}`} className="hover:underline font-medium" target="_blank">
+          {row.original.title}
         </Link>
       )
     },
     {
-      title: '路径',
-      dataIndex: 'firstImagePath',
-      hideInSearch: true,
-      render: (val) => (
-        <span className="font-mono text-xs text-neutral-400 truncate max-w-[200px] block" title={val}>
-          {val || '-'}
+      header: '路径',
+      accessorKey: 'firstImagePath',
+      cell: ({ row }) => (
+        <span
+          className="font-mono text-xs text-neutral-400 truncate max-w-[200px] block"
+          title={row.original.firstImagePath}
+        >
+          {row.original.firstImagePath || '-'}
         </span>
       )
     },
     {
-      title: '作者',
-      dataIndex: 'artistName',
-      searchKey: 'artistName',
-      render: (_, record) => record.artist?.name || '未知',
-      searchPlaceholder: '搜索作者...'
+      header: '作者',
+      accessorKey: 'artist', // or use a custom accessor
+      cell: ({ row }) => row.original.artist?.name || '未知'
     },
     {
-      title: '图片数',
-      dataIndex: 'imageCount',
-      hideInSearch: true,
-      width: 100
+      header: '图片数',
+      accessorKey: 'imageCount',
+      size: 100
     },
     {
-      title: '创建时间',
-      dataIndex: 'createdAt',
-      hideInSearch: true,
-      width: 180
+      header: '创建时间',
+      accessorKey: 'createdAt',
+      size: 180
     },
     {
-      title: '操作',
-      key: 'action',
-      hideInSearch: true,
-      width: 160,
-      render: (_, record) => (
+      id: 'actions',
+      header: '操作',
+      size: 160,
+      cell: ({ row }) => (
         <div className="flex gap-1">
-          <Button variant="ghost" size="icon" onClick={() => handleEdit(record)} title="编辑">
+          <Button variant="ghost" size="icon" onClick={() => handleEdit(row.original)} title="编辑">
             <Edit className="w-4 h-4" />
           </Button>
-          <Link href={`/artwork/${record.id}`} target="_blank">
+          <Link href={`/artwork/${row.original.id}`} target="_blank">
             <Button variant="ghost" size="icon" title="新标签页打开">
               <ExternalLink className="w-4 h-4" />
             </Button>
@@ -244,7 +267,7 @@ export default function ArtworkManagement() {
             variant="ghost"
             size="icon"
             className="text-red-500"
-            onClick={() => handleDelete(record.id)}
+            onClick={() => handleDelete(row.original.id)}
             title="删除"
           >
             <Trash className="w-4 h-4" />
@@ -254,14 +277,14 @@ export default function ArtworkManagement() {
     }
   ]
 
-  // STable 请求函数
+  // ProTable 请求函数
   const request = useCallback(
-    async (params: STableRequestParams) => {
+    async (params: { pageSize: number; current: number }) => {
       const res = await trpcClient.artwork.list.query({
         cursor: params.current,
         pageSize: params.pageSize,
-        search: params.title,
-        artistName: params.artistName
+        search: searchState.title || undefined,
+        artistName: searchState.artistName || undefined
       })
 
       return {
@@ -276,7 +299,7 @@ export default function ArtworkManagement() {
         success: true
       }
     },
-    [trpcClient]
+    [trpcClient, searchState]
   )
 
   return (
@@ -291,53 +314,6 @@ export default function ArtworkManagement() {
           <p className="text-sm md:text-base text-neutral-600 mt-1">管理作品，支持搜索、筛选和批量操作</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
-          {(migrationState.migrating || migrationLogger.logs.length > 0) && (
-            <Button key="logs" variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
-              查看日志
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <STable
-        key={refreshKey}
-        headerTitle="作品管理"
-        rowKey="id"
-        columns={columns}
-        request={request}
-        defaultPageSize={20}
-        defaultSearchParams={searchState}
-        onSearchSubmit={setSearchState}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys)
-        }}
-        toolBarRender={() => [
-          selectedRowKeys.length > 0 && (
-            <Button key="batch-delete" variant="destructive" size="sm" onClick={handleBatchDelete}>
-              删除选中 ({selectedRowKeys.length})
-            </Button>
-          ),
-          <Button
-            key="migrate"
-            variant="secondary"
-            size="sm"
-            className="gap-2"
-            onClick={handleMigrationClick}
-            disabled={migrationState.migrating}
-          >
-            {migrationState.migrating ? (
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                迁移中...
-              </span>
-            ) : (
-              <>
-                <FolderInput className="w-4 h-4" />
-                {selectedRowKeys.length > 0 ? `批量迁移 (${selectedRowKeys.length})` : '全量迁移'}
-              </>
-            )}
-          </Button>,
           <Button
             key="export"
             variant="outline"
@@ -349,7 +325,67 @@ export default function ArtworkManagement() {
             <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
             {isExporting ? '导出中...' : '导出无系列ID'}
           </Button>
-        ]}
+          {(migrationState.migrating || migrationLogger.logs.length > 0) && (
+            <Button key="logs" variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
+              查看日志
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <ProTable
+        key={refreshKey}
+        rowKey="id"
+        columns={columns}
+        request={request}
+        defaultPageSize={20}
+        rowSelection={rowSelection}
+        onRowSelectionChange={setRowSelection}
+        searchRender={() => (
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="搜索作品标题..."
+              value={searchState.title || ''}
+              onChange={(e) => setSearchState({ title: e.target.value || null })}
+              className="h-8 w-[150px] lg:w-[250px]"
+            />
+            <Input
+              placeholder="搜索作者..."
+              value={searchState.artistName || ''}
+              onChange={(e) => setSearchState({ artistName: e.target.value || null })}
+              className="h-8 w-[150px]"
+            />
+          </div>
+        )}
+        toolBarRender={() => (
+          <>
+            {selectedRowKeys.length > 0 && (
+              <Button key="batch-delete" variant="destructive" size="sm" onClick={handleBatchDelete}>
+                删除选中 ({selectedRowKeys.length})
+              </Button>
+            )}
+            <Button
+              key="migrate"
+              variant="secondary"
+              size="sm"
+              className="gap-2"
+              onClick={handleMigrationClick}
+              disabled={migrationState.migrating}
+            >
+              {migrationState.migrating ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                  迁移中...
+                </span>
+              ) : (
+                <>
+                  <FolderInput className="w-4 h-4" />
+                  {selectedRowKeys.length > 0 ? `批量迁移 (${selectedRowKeys.length})` : '全量迁移'}
+                </>
+              )}
+            </Button>
+          </>
+        )}
       />
 
       <ArtworkDialog
