@@ -114,7 +114,7 @@ export async function migrateArtwork(artworkId: number, scanRoot: string): Promi
         const newPath = path.join(targetRelDir, fileName).replace(/\\/g, '/') // 统一存为 POSIX 路径
         await tx.image.update({
           where: { id: img.id },
-          data: { path: newPath }
+          data: { path: path.sep + newPath }
         })
       }
     })
