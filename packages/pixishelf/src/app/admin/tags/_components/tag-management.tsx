@@ -282,7 +282,7 @@ export default function TagManagement() {
       let sortField = 'artworkCount'
       let sortOrder = 'desc'
 
-      if (sort && sort.length > 0) {
+      if (sort && sort.length > 0 && sort[0]) {
         sortField = sort[0].id
         sortOrder = sort[0].desc ? 'desc' : 'asc'
       }

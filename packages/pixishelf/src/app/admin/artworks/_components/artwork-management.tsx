@@ -285,7 +285,7 @@ export default function ArtworkManagement() {
           <Button variant="ghost" size="icon" onClick={() => handleEdit(row.original)} title="编辑">
             <Edit className="w-4 h-4" />
           </Button>
-          <Link href={`/artwork/${row.original.id}`} target="_blank">
+          <Link href={`/artworks/${row.original.id}`} target="_blank">
             <Button variant="ghost" size="icon" title="新标签页打开">
               <ExternalLink className="w-4 h-4" />
             </Button>
@@ -396,29 +396,31 @@ export default function ArtworkManagement() {
         rowSelection={rowSelection}
         onRowSelectionChange={setRowSelection}
         searchRender={() => (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full">
             <Input
               placeholder="搜索作品标题..."
               value={localSearch.title}
               onChange={(e) => setLocalSearch((prev) => ({ ...prev, title: e.target.value }))}
-              className="h-8 w-[150px] lg:w-[250px]"
+              className="h-8 w-full md:w-[200px]"
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
             <Input
               placeholder="搜索作者..."
               value={localSearch.artistName}
               onChange={(e) => setLocalSearch((prev) => ({ ...prev, artistName: e.target.value }))}
-              className="h-8 w-[150px]"
+              className="h-8 w-full md:w-[150px]"
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
-            <Button variant="default" size="sm" onClick={handleSearch} className="h-8 px-3">
-              <Search className="w-4 h-4 mr-1" />
-              搜索
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleReset} className="h-8 px-3">
-              <RotateCcw className="w-4 h-4 mr-1" />
-              重置
-            </Button>
+            <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
+              <Button variant="default" size="sm" onClick={handleSearch} className="h-8 px-3 flex-1 md:flex-none">
+                <Search className="w-4 h-4 mr-1" />
+                搜索
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleReset} className="h-8 px-3 flex-1 md:flex-none">
+                <RotateCcw className="w-4 h-4 mr-1" />
+                重置
+              </Button>
+            </div>
           </div>
         )}
         toolBarRender={() => (
