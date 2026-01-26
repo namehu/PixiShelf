@@ -4,24 +4,29 @@ import React from 'react'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { PaginationInfo } from '@/types'
 
-interface TagPaginationProps extends PaginationInfo {
-  currentPage: number
+export interface SPaginationProps {
+  current: number
+  pageSize: number
+  total: number
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
 }
 
 /**
- * 标签分页组件
- *
- * 功能：
- * - 分页导航
- * - 页码切换逻辑
- * - 每页显示数量选择
+ * 通用分页组件
+ * 
+ * 基于原 TagPagination 改造，支持响应式布局
  */
-export function TagPagination(propos: TagPaginationProps) {
-  const { currentPage, limit: pageSize, totalCount: totalItems, totalPages, onPageChange, onPageSizeChange } = propos
+export function SPagination({ 
+  current, 
+  pageSize, 
+  total, 
+  onPageChange, 
+  onPageSizeChange 
+}: SPaginationProps) {
+  const totalPages = Math.ceil(total / pageSize)
+
   // 生成页码数组
   const generatePageNumbers = () => {
     const pages: (number | string)[] = []
@@ -34,14 +39,14 @@ export function TagPagination(propos: TagPaginationProps) {
       }
     } else {
       // 复杂的分页逻辑
-      if (currentPage <= 4) {
+      if (current <= 4) {
         // 当前页在前面
         for (let i = 1; i <= 5; i++) {
           pages.push(i)
         }
         pages.push('...')
         pages.push(totalPages)
-      } else if (currentPage >= totalPages - 3) {
+      } else if (current >= totalPages - 3) {
         // 当前页在后面
         pages.push(1)
         pages.push('...')
@@ -52,7 +57,7 @@ export function TagPagination(propos: TagPaginationProps) {
         // 当前页在中间
         pages.push(1)
         pages.push('...')
-        for (let i = currentPage - 1; i <= currentPage + 1; i++) {
+        for (let i = current - 1; i <= current + 1; i++) {
           pages.push(i)
         }
         pages.push('...')
@@ -64,10 +69,10 @@ export function TagPagination(propos: TagPaginationProps) {
   }
 
   const pageNumbers = generatePageNumbers()
-  const startItem = (currentPage - 1) * pageSize + 1
-  const endItem = Math.min(currentPage * pageSize, totalItems)
+  const startItem = (current - 1) * pageSize + 1
+  const endItem = Math.min(current * pageSize, total)
 
-  if (totalPages <= 1) {
+  if (totalPages <= 0) {
     return null
   }
 
@@ -78,12 +83,12 @@ export function TagPagination(propos: TagPaginationProps) {
         <div className="flex flex-col md:flex-row items-center gap-2 md:gap-4">
           {/* Mobile Info */}
           <div className="md:hidden text-sm text-neutral-600">
-            第 {currentPage} / {totalPages} 页 · 共 {totalItems} 条
+            第 {current} / {totalPages} 页 · 共 {total} 条
           </div>
 
           {/* Desktop Info */}
           <div className="hidden md:block text-sm text-neutral-600">
-            显示 {startItem} - {endItem} 条，共 {totalItems} 条
+            显示 {startItem} - {endItem} 条，共 {total} 条
           </div>
 
           {/* 每页显示数量选择 - Desktop only */}
@@ -111,7 +116,7 @@ export function TagPagination(propos: TagPaginationProps) {
             variant="outline"
             size="sm"
             onClick={() => onPageChange(1)}
-            disabled={currentPage === 1}
+            disabled={current === 1}
             className="p-2 hidden md:flex"
           >
             <ChevronsLeft className="w-4 h-4" />
@@ -121,8 +126,8 @@ export function TagPagination(propos: TagPaginationProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onPageChange(currentPage - 1)}
-            disabled={currentPage === 1}
+            onClick={() => onPageChange(current - 1)}
+            disabled={current === 1}
             className="p-2 flex-1 md:flex-none"
           >
             <ChevronLeft className="w-4 h-4 md:mr-0 mr-1" />
@@ -137,11 +142,11 @@ export function TagPagination(propos: TagPaginationProps) {
                   <span className="px-3 py-2 text-neutral-400">...</span>
                 ) : (
                   <Button
-                    variant={currentPage === page ? 'default' : 'outline'}
+                    variant={current === page ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => onPageChange(page as number)}
                     className={`min-w-[40px] ${
-                      currentPage === page
+                      current === page
                         ? 'bg-blue-600 text-white hover:bg-blue-700'
                         : 'text-neutral-600 hover:text-neutral-900'
                     }`}
@@ -157,8 +162,8 @@ export function TagPagination(propos: TagPaginationProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onPageChange(currentPage + 1)}
-            disabled={currentPage === totalPages}
+            onClick={() => onPageChange(current + 1)}
+            disabled={current === totalPages}
             className="p-2 flex-1 md:flex-none"
           >
             <span className="md:hidden">下一页</span>
@@ -170,7 +175,7 @@ export function TagPagination(propos: TagPaginationProps) {
             variant="outline"
             size="sm"
             onClick={() => onPageChange(totalPages)}
-            disabled={currentPage === totalPages}
+            disabled={current === totalPages}
             className="p-2 hidden md:flex"
           >
             <ChevronsRight className="w-4 h-4" />

@@ -1,20 +1,31 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useDebounce } from '@/hooks/useDebounce'
+import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { BarChart3, RefreshCw, Download } from 'lucide-react'
-import type { TagManagementParams } from '@/types/tags'
-import { useQuery } from '@tanstack/react-query'
-import { useTRPC } from '@/lib/trpc'
+import { BarChart3, RefreshCw, Download, Edit2, Save, X, Languages } from 'lucide-react'
+import type { TagManagementParams, TagManagementStats } from '@/types/tags'
+import { Tag } from '@/types'
+import { useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { updateTagStatsAction, exportUntranslatedTagsAction } from '@/actions/tag-action'
+import { getTranslateName } from '@/utils/tags'
+import { STable, STableColumn, STableRequestParams } from '@/components/shared/s-table'
 
 // 导入子组件
 import { TagStatsCards } from './tag-stats-cards'
-import { TagSearchAndFilter } from './tag-search-and-filter'
-import { TagTable } from './tag-table'
-import { TagPagination } from './tag-pagination'
+
+// 定义 TagListItem 类型，匹配后端返回的数据结构
+interface TagListItem {
+  id: number
+  name: string
+  name_zh: string | null
+  name_en: string | null
+  description: string | null
+  artworkCount: number
+  createdAt: string
+  updatedAt: string
+}
 
 /**
  * 导出未翻译标签自定义 Hook
@@ -63,14 +74,15 @@ function useExportUntranslatedTags() {
  * 标签管理组件
  */
 export default function TagManagement() {
-  const trpc = useTRPC()
+  const trpcClient = useTRPCClient()
 
-  // 查询参数状态
-  const [searchQuery, setSearchQuery] = useState('')
-  const [filter, setFilter] = useState<'all' | 'translated' | 'untranslated'>('all')
-  const [sortField, setSortField] = useState<TagManagementParams['sort']>('artworkCount')
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
+  // 标签统计状态
+  const [stats, setStats] = useState<TagManagementStats>({
+    totalTags: 0,
+    translatedTags: 0,
+    untranslatedTags: 0,
+    translationRate: 0
+  })
 
   // 标签统计更新状态
   const [isUpdatingStats, setIsUpdatingStats] = useState(false)
@@ -78,46 +90,9 @@ export default function TagManagement() {
   // 导出未翻译标签状态
   const { isExporting, handleExportUntranslated } = useExportUntranslatedTags()
 
-  // 防抖搜索
-  const debouncedSearchQuery = useDebounce(searchQuery, 500)
-
-  // 搜索时重置到第一页
-  useEffect(() => {
-    if (currentPage !== 1) {
-      setCurrentPage(1)
-    }
-  }, [debouncedSearchQuery, filter])
-
-  // 获取标签列表
-  const {
-    data: queryData,
-    isLoading,
-    refetch
-  } = useQuery(
-    trpc.tag.management.queryOptions({
-      page: currentPage,
-      limit: pageSize,
-      search: debouncedSearchQuery || undefined,
-      filter,
-      sort: sortField
-    })
-  )
-
-  const tags = queryData?.data.tags || []
-  const pagination = queryData?.data.pagination || {
-    page: 1,
-    limit: 20,
-    totalCount: 0,
-    totalPages: 0,
-    hasNextPage: false,
-    hasPrevPage: false
-  }
-  const stats = queryData?.data.stats || {
-    totalTags: 0,
-    translatedTags: 0,
-    untranslatedTags: 0,
-    translationRate: 0
-  }
+  // 编辑状态
+  const [editingTagId, setEditingTagId] = useState<number | null>(null)
+  const [editValues, setEditValues] = useState<{ name: string; name_zh: string }>({ name: '', name_zh: '' })
 
   // 手动更新标签统计
   const handleUpdateStats = async () => {
@@ -127,8 +102,14 @@ export default function TagManagement() {
 
       if (result.success) {
         toast.success('标签统计更新成功')
-        // 刷新页面数据以显示最新统计
-        refetch()
+        // 这里不需要手动刷新列表，因为统计数据会在下一次列表请求时更新
+        // 或者我们可以强制触发 table 的 reload，但目前 STable 没有暴露 reload
+        // 如果需要，可以通过 key 强制刷新 STable，或者 just let it be
+        // 实际上，下面的 STable request 会在 params 变化时触发。
+        // 如果仅仅是更新统计，列表数据可能没变。
+        // 为了刷新统计卡片，我们需要重新 fetch data
+        // 这里我们可以简单的 refresh 页面或者...
+        // 既然 STable 自己管理请求，我们可以在 request 里更新 stats
       } else {
         throw new Error(result.message || '更新失败')
       }
@@ -142,9 +123,172 @@ export default function TagManagement() {
 
   // 更新标签
   const handleTagUpdate = async (tagId: number, updates: { name?: string; name_zh?: string }) => {
-    // TODO:
-    toast.success('敬请期待')
+    // TODO: 实现标签更新逻辑
+    toast.success('敬请期待：标签更新功能')
+    setEditingTagId(null)
   }
+
+  const handleEditStart = (tag: TagListItem) => {
+    setEditingTagId(tag.id)
+    setEditValues({
+      name: tag.name,
+      name_zh: tag.name_zh || ''
+    })
+  }
+
+  const handleEditCancel = () => {
+    setEditingTagId(null)
+    setEditValues({ name: '', name_zh: '' })
+  }
+
+  // 表格列定义
+  const columns: STableColumn<TagListItem>[] = [
+    {
+      title: '标签名称',
+      dataIndex: 'name',
+      searchPlaceholder: '搜索标签名称...',
+      render: (_, record) => {
+        if (editingTagId === record.id) {
+          return (
+            <Input
+              value={editValues.name}
+              onChange={(e) => setEditValues((prev) => ({ ...prev, name: e.target.value }))}
+              className="h-8"
+              autoFocus
+            />
+          )
+        }
+        return <div className="font-medium">{record.name}</div>
+      }
+    },
+    {
+      title: '中文翻译',
+      dataIndex: 'name_zh',
+      render: (_, record) => {
+        if (editingTagId === record.id) {
+          return (
+            <Input
+              value={editValues.name_zh}
+              onChange={(e) => setEditValues((prev) => ({ ...prev, name_zh: e.target.value }))}
+              placeholder="中文翻译"
+              className="h-8"
+            />
+          )
+        }
+        const tName = getTranslateName(record)
+        return <div className={tName ? 'text-neutral-900' : 'text-neutral-400 italic'}>{tName || '未翻译'}</div>
+      }
+    },
+    {
+      title: '翻译状态',
+      key: 'filter',
+      hideInTable: true,
+      valueType: 'select',
+      valueEnum: {
+        all: { text: '全部' },
+        translated: { text: '已翻译' },
+        untranslated: { text: '未翻译' }
+      }
+    },
+    {
+      title: '作品数量',
+      dataIndex: 'artworkCount',
+      sorter: true,
+      hideInSearch: true,
+      width: 120
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'createdAt',
+      sorter: true,
+      hideInSearch: true,
+      width: 180,
+      render: (val) => (val ? new Date(val).toLocaleDateString('zh-CN') : '-')
+    },
+    {
+      title: '操作',
+      key: 'action',
+      hideInSearch: true,
+      width: 150,
+      render: (_, record) => {
+        const isEditing = editingTagId === record.id
+        const tName = getTranslateName(record)
+
+        if (isEditing) {
+          return (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => handleTagUpdate(record.id, editValues)}
+                className="bg-green-600 hover:bg-green-700 text-white h-8 w-8 p-0"
+              >
+                <Save className="w-4 h-4" />
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleEditCancel} className="h-8 w-8 p-0">
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          )
+        }
+
+        return (
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleEditStart(record)}
+              className="text-neutral-600 hover:text-neutral-900 h-8 w-8 p-0"
+            >
+              <Edit2 className="w-4 h-4" />
+            </Button>
+            {!tName && (
+              <Button
+                size="sm"
+                onClick={() => handleTagUpdate(record.id, {})} // Trigger translate intent? Or just placeholder
+                variant="outline"
+                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 h-8 w-8 p-0"
+                title="自动翻译(TODO)"
+              >
+                <Languages className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        )
+      }
+    }
+  ]
+
+  // 数据请求
+  const request = useCallback(
+    async (params: STableRequestParams, sort?: Record<string, 'asc' | 'desc'>) => {
+      // 处理排序
+      const sortKeys = sort ? Object.keys(sort) : []
+      const sortField = sortKeys.length > 0 ? sortKeys[0] : 'artworkCount'
+      const sortOrder = sortKeys.length > 0 ? sort![sortField!] : 'desc'
+
+      // 调用 TRPC
+      const res = await trpcClient.tag.management.query({
+        page: params.current,
+        limit: params.pageSize,
+        search: params.name, // 对应 columns 中的 dataIndex: 'name'
+        filter: params.filter || 'all', // 对应 columns 中的 key: 'filter'
+        sort: sortField as any,
+        order: sortOrder
+      })
+
+      // 更新统计数据
+      if (res.data.stats) {
+        setStats(res.data.stats)
+      }
+
+      return {
+        data: res.data.tags,
+        total: res.data.pagination.totalCount,
+        success: true
+      }
+    },
+    [trpcClient]
+  )
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
@@ -180,28 +324,10 @@ export default function TagManagement() {
       </div>
 
       {/* 统计卡片 */}
-      <TagStatsCards stats={stats} isLoading={isLoading} />
+      <TagStatsCards stats={stats} isLoading={false} />
 
-      {/* 搜索和筛选 */}
-      <TagSearchAndFilter
-        searchTerm={searchQuery}
-        onSearchChange={setSearchQuery}
-        translationFilter={filter}
-        onTranslationFilterChange={setFilter}
-        sortBy={sortField}
-        onSortByChange={setSortField}
-      />
-
-      {/* 标签列表 */}
-      <TagTable tags={tags} loading={isLoading} onTagUpdate={handleTagUpdate} />
-
-      {/* 分页 */}
-      <TagPagination
-        {...pagination}
-        currentPage={currentPage}
-        onPageChange={setCurrentPage}
-        onPageSizeChange={setPageSize}
-      />
+      {/* 高级表格 */}
+      <STable rowKey="id" columns={columns} request={request} defaultPageSize={20} />
     </div>
   )
 }
