@@ -101,7 +101,11 @@ export function GlobalConfirmDialog() {
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{options.title}</AlertDialogTitle>
-          {options.description && <AlertDialogDescription>{options.description}</AlertDialogDescription>}
+          {options.description && (
+            <AlertDialogDescription asChild>
+              <div>{options.description}</div>
+            </AlertDialogDescription>
+          )}
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel onClick={handleCancel} disabled={isLoading}>

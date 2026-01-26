@@ -9,12 +9,12 @@ import { ArtworkDialog } from './artwork-dialog'
 import { useDebounce } from '@/hooks/useDebounce'
 import { toast } from 'sonner'
 import Link from 'next/link'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { exportNoSeriesArtworksAction } from '@/actions/artwork-action'
-import { LogViewer } from '@/components/shared/log-viewer'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useMigration } from '../_hooks/use-migration'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { FolderInput, Play, StopCircle, RotateCcw } from 'lucide-react'
+import { MigrationDialog } from './migration-dialog'
+import { FolderInput } from 'lucide-react'
+import { confirm } from '@/components/shared/global-confirm'
 
 export default function ArtworkManagement() {
   const trpc = useTRPC()
@@ -84,9 +84,12 @@ export default function ArtworkManagement() {
   }
 
   const handleDelete = (id: number) => {
-    if (confirm('确定删除该作品吗？')) {
-      deleteMutation.mutate(id)
-    }
+    confirm({
+      title: '确定删除该作品吗？',
+      onConfirm: () => {
+        deleteMutation.mutate(id)
+      }
+    })
   }
 
   const handleEdit = (item: any) => {
@@ -95,9 +98,25 @@ export default function ArtworkManagement() {
   }
 
   // --- Migration Handlers ---
-  const handleFullMigration = () => {
-    setLogOpen(true)
-    migrationActions.startMigration()
+  const handleFullMigrationClick = () => {
+    confirm({
+      title: '确认执行全量迁移？',
+      description: (
+        <div className="text-sm text-neutral-400 mt-2 space-y-2">
+          <div>此操作将扫描所有作品，并尝试将其文件移动到标准化的目录结构中。</div>
+          <ul className="list-disc list-inside space-y-1 pl-2">
+            <li>涉及大量文件移动，可能需要较长时间。</li>
+            <li>建议在执行前备份数据。</li>
+            <li>迁移过程中请勿关闭浏览器窗口。</li>
+          </ul>
+        </div>
+      ),
+      confirmText: '确认开始',
+      onConfirm: () => {
+        setLogOpen(true)
+        migrationActions.startMigration()
+      }
+    })
   }
 
   const handleSingleMigration = (id: number) => {
@@ -114,7 +133,7 @@ export default function ArtworkManagement() {
             variant="secondary"
             size="sm"
             className="gap-2"
-            onClick={handleFullMigration}
+            onClick={handleFullMigrationClick}
             disabled={migrationState.migrating}
           >
             {migrationState.migrating ? (
@@ -236,60 +255,13 @@ export default function ArtworkManagement() {
       <ArtworkDialog open={dialogOpen} onOpenChange={setDialogOpen} artwork={editingArtwork} onSuccess={() => {}} />
 
       {/* 迁移日志弹窗 */}
-      <Dialog open={logOpen} onOpenChange={setLogOpen}>
-        <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0 gap-0 bg-[#1e1e1e] border-neutral-800">
-          <DialogHeader className="p-4 border-b border-white/10 bg-neutral-900">
-            <div className="flex items-center justify-between">
-              <DialogTitle className="text-neutral-200 flex items-center gap-2 text-sm font-mono">
-                <FolderInput className="w-4 h-4" />
-                MIGRATION_CONSOLE
-                {migrationState.migrating && (
-                  <span className="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400 ml-2 animate-pulse">
-                    RUNNING
-                  </span>
-                )}
-              </DialogTitle>
-              <div className="flex items-center gap-2">
-                {migrationState.migrating && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={migrationActions.cancelMigration}
-                  >
-                    <StopCircle className="w-3 h-3 mr-1" />
-                    中止
-                  </Button>
-                )}
-              </div>
-            </div>
-            <DialogDescription className="hidden">文件迁移日志控制台</DialogDescription>
-          </DialogHeader>
-
-          <div className="flex-1 overflow-hidden relative">
-            <LogViewer
-              logs={migrationLogger.logs}
-              onClear={migrationActions.clearLogs}
-              height="100%"
-              className="border-0 rounded-none h-full"
-              loading={migrationState.migrating}
-            />
-          </div>
-
-          {/* 底部状态栏 */}
-          <div className="h-8 bg-neutral-900 border-t border-white/10 flex items-center px-4 text-[10px] font-mono text-neutral-500 gap-4">
-            {migrationState.stats && (
-              <>
-                <span>TOTAL: {migrationState.stats.total}</span>
-                <span className="text-green-500">SUCCESS: {migrationState.stats.success}</span>
-                <span className="text-blue-500">SKIPPED: {migrationState.stats.skipped}</span>
-                <span className="text-red-500">FAILED: {migrationState.stats.failed}</span>
-                <span className="ml-auto text-neutral-400">{migrationState.currentMessage}</span>
-              </>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <MigrationDialog
+        open={logOpen}
+        onOpenChange={setLogOpen}
+        migrationState={migrationState}
+        migrationActions={migrationActions}
+        migrationLogger={migrationLogger}
+      />
     </div>
   )
 }
