@@ -27,7 +27,7 @@ export * from './related'
 export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Promise<EnhancedArtworksResponse> {
   const { cursor, tags, search, artistId, artistName, tagId, sortBy, mediaType } = params
   const page = cursor ?? 1
-  const pageSize = 24
+  const pageSize = params.pageSize
   const skip = (page - 1) * pageSize
 
   let whereSQL = 'WHERE 1=1'
