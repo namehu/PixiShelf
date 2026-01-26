@@ -132,10 +132,20 @@ export default function ArtworkManagement() {
   }
 
   // --- Migration Handlers ---
-  const handleFullMigrationClick = () => {
+  const handleMigrationClick = () => {
+    const isBatch = selectedRowKeys.length > 0
+    const count = selectedRowKeys.length
+
     confirm({
-      title: '确认执行全量迁移？',
-      description: (
+      title: isBatch ? `确认迁移选中的 ${count} 个作品？` : '确认执行全量迁移？',
+      description: isBatch ? (
+        <div className="text-sm text-neutral-400 mt-2 space-y-2">
+          <div>此操作将对选中的作品执行结构化迁移，尝试将其文件移动到标准化的目录结构中。</div>
+          <ul className="list-disc list-inside space-y-1 pl-2">
+            <li>迁移过程中请勿关闭浏览器窗口。</li>
+          </ul>
+        </div>
+      ) : (
         <div className="text-sm text-neutral-400 mt-2 space-y-2">
           <div>此操作将扫描所有作品，并尝试将其文件移动到标准化的目录结构中。</div>
           <ul className="list-disc list-inside space-y-1 pl-2">
@@ -148,14 +158,23 @@ export default function ArtworkManagement() {
       confirmText: '确认开始',
       onConfirm: () => {
         setLogOpen(true)
-        migrationActions.startMigration()
+        const onComplete = () => {
+          setRefreshKey((prev) => prev + 1)
+          setSelectedRowKeys([])
+        }
+
+        if (isBatch) {
+          migrationActions.startMigration({
+            targetIds: selectedRowKeys.map(Number),
+            onComplete
+          })
+        } else {
+          migrationActions.startMigration({
+            onComplete
+          })
+        }
       }
     })
-  }
-
-  const handleSingleMigration = (id: number) => {
-    setLogOpen(true)
-    migrationActions.startMigration({ targetIds: [id] })
   }
 
   // STable 列定义
@@ -203,20 +222,11 @@ export default function ArtworkManagement() {
       title: '操作',
       key: 'action',
       hideInSearch: true,
-      width: 200,
+      width: 160,
       render: (_, record) => (
         <div className="flex gap-1">
           <Button variant="ghost" size="icon" onClick={() => handleEdit(record)} title="编辑">
             <Edit className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => handleSingleMigration(record.id)}
-            title="执行文件结构迁移"
-            disabled={migrationState.migrating}
-          >
-            <FolderInput className="w-4 h-4 text-blue-500" />
           </Button>
           <Link href={`/artwork/${record.id}`} target="_blank">
             <Button variant="ghost" size="icon" title="新标签页打开">
@@ -274,26 +284,6 @@ export default function ArtworkManagement() {
           <p className="text-sm md:text-base text-neutral-600 mt-1">管理作品，支持搜索、筛选和批量操作</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
-          <Button
-            key="migrate"
-            variant="secondary"
-            size="sm"
-            className="gap-2"
-            onClick={handleFullMigrationClick}
-            disabled={migrationState.migrating}
-          >
-            {migrationState.migrating ? (
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                迁移中...
-              </span>
-            ) : (
-              <>
-                <FolderInput className="w-4 h-4" />
-                结构化迁移
-              </>
-            )}
-          </Button>
           {(migrationState.migrating || migrationLogger.logs.length > 0) && (
             <Button key="logs" variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
               查看日志
@@ -319,6 +309,26 @@ export default function ArtworkManagement() {
               删除选中 ({selectedRowKeys.length})
             </Button>
           ),
+          <Button
+            key="migrate"
+            variant="secondary"
+            size="sm"
+            className="gap-2"
+            onClick={handleMigrationClick}
+            disabled={migrationState.migrating}
+          >
+            {migrationState.migrating ? (
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                迁移中...
+              </span>
+            ) : (
+              <>
+                <FolderInput className="w-4 h-4" />
+                {selectedRowKeys.length > 0 ? `批量迁移 (${selectedRowKeys.length})` : '全量迁移'}
+              </>
+            )}
+          </Button>,
           <Button
             key="export"
             variant="outline"

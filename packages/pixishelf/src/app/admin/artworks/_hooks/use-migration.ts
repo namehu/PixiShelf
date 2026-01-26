@@ -17,6 +17,7 @@ export interface MigrationStats {
 
 export interface MigrationOptions {
   targetIds?: number[]
+  onComplete?: () => void
 }
 
 /**
@@ -76,17 +77,13 @@ interface SseMigrationActions {
 /**
  * SSE Migration Hook
  */
-export function useMigration(): { state: SseMigrationState; actions: SseMigrationActions; logger: ReturnType<typeof useLogger> } {
+export function useMigration(): {
+  state: SseMigrationState
+  actions: SseMigrationActions
+  logger: ReturnType<typeof useLogger>
+} {
   // 1. Global Store State
-  const {
-    isMigrating,
-    stats,
-    error,
-    setIsMigrating,
-    setStats,
-    setError,
-    reset
-  } = useMigrationStore()
+  const { isMigrating, stats, error, setIsMigrating, setStats, setError, reset } = useMigrationStore()
 
   // 2. Logger Hook - use independent logger namespace
   const logger = useLogger('migration-client')
@@ -98,6 +95,7 @@ export function useMigration(): { state: SseMigrationState; actions: SseMigratio
   // 4. Refs
   const fetchControllerRef = React.useRef<AbortController | null>(null)
   const streamingRef = React.useRef(false)
+  const onCompleteRef = React.useRef<(() => void) | undefined>(undefined)
 
   // Sync streaming ref
   React.useEffect(() => {
@@ -152,6 +150,9 @@ export function useMigration(): { state: SseMigrationState; actions: SseMigratio
             completeData
           )
           toast.success('迁移任务完成')
+          if (onCompleteRef.current) {
+            onCompleteRef.current()
+          }
           break
 
         case 'error':
@@ -182,6 +183,7 @@ export function useMigration(): { state: SseMigrationState; actions: SseMigratio
 
   const runStream = React.useCallback(
     async (options?: MigrationOptions) => {
+      onCompleteRef.current = options?.onComplete
       const url = '/api/migration/stream'
       const body = {
         targetIds: options?.targetIds
@@ -226,20 +228,20 @@ export function useMigration(): { state: SseMigrationState; actions: SseMigratio
           },
 
           onclose() {
-             // Normal closure handled by event logic
+            // Normal closure handled by event logic
           },
 
           onerror(err) {
             if (err instanceof FatalError) {
               logger.error(`Fatal Error: ${err.message}`)
-              throw err 
+              throw err
             }
             logger.warn(`Connection error: ${err.message}. Retrying...`)
           }
         })
       } catch (err: any) {
         if (err.name === 'AbortError') return
-        
+
         setIsMigrating(false)
         setError(err.message)
         logger.error(`连接失败: ${err.message}`)
