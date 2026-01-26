@@ -128,10 +128,16 @@ export async function migrateArtwork(artworkId: number, scanRoot: string): Promi
         if (remaining.length === 0) {
           await fs.rmdir(sourceAbsDir)
           migrationLogger.info(`[Migrate] 已移除空目录: ${sourceAbsDir}`)
+        } else {
+          migrationLogger.info(
+            `[Migrate] 源目录非空，跳过删除: ${sourceAbsDir} (剩余 ${remaining.length} 个文件: ${remaining.slice(0, 3).join(', ')}...)`
+          )
         }
-      } catch (e) {
-        /* 忽略非空目录删除错误 */
+      } catch (e: any) {
+        migrationLogger.warn(`[Migrate] 尝试删除源目录失败: ${sourceAbsDir}, Error: ${e.message}`)
       }
+    } else {
+      migrationLogger.info(`[Migrate] 源目录为根目录，跳过删除: ${sourceAbsDir} （防止删除根目录） ${scanRoot}`)
     }
 
     return { artworkId, status: 'SUCCESS', msg: `迁移至 ${targetRelDir}` }
