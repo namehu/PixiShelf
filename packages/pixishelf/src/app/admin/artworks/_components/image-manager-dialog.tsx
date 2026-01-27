@@ -217,54 +217,37 @@ export function ImageManagerDialog({
       return
     }
 
-    // 这里不再强制 firstImagePath，因为后端有 fallback 策略
-    // if (!firstImagePath) { ... }
-
     setUploadStatus('backup')
     setUploadProgress(0)
 
     try {
       // 1. 发起初始化 (备份)
       const initRes = await fetch(`/api/artwork/${artworkId}/replace?action=init`, { method: 'POST' })
-      if (!initRes.ok) throw new Error('初始化备份失败')
+      const initData = await initRes.json()
+
+      if (!initRes.ok) throw new Error(initData.error || '初始化备份失败')
+
+      const { uploadTargetDir, targetRelDir } = initData
+      if (!uploadTargetDir) throw new Error('未能获取上传目标路径')
 
       setUploadStatus('uploading')
 
-      // 2. 准备分批上传
-      // 建议每批次 5-10 个文件，或者根据总大小动态计算
-      const BATCH_SIZE = 5
-      const fileChunks = chunkArray(files, BATCH_SIZE)
-      const totalBatches = fileChunks.length
-
+      // 2. 逐个文件分片上传
+      const totalFiles = previewItems.length
       const allUploadedMeta: any[] = []
 
-      for (let i = 0; i < totalBatches; i++) {
-        const chunk = fileChunks[i]!
-        setBatchProgress({ current: i + 1, total: totalBatches }) // 更新批次进度
-        setUploadProgress(Math.round((i / totalBatches) * 100))
+      for (let i = 0; i < totalFiles; i++) {
+        const item = previewItems[i]!
+        setBatchProgress({ current: i + 1, total: totalFiles })
+        setUploadProgress(0)
 
-        const formData = new FormData()
-
-        // 构建当前批次的 FormData
-        chunk.forEach((file) => {
-          const item = previewItems.find((p) => p.originalName === file.name && p.size === file.size)
-          const nameToSend = item ? item.newName : file.name
-          // 这里必须使用 rename 后的文件
-          formData.append('files', new File([file], nameToSend, { type: file.type }))
-        })
-
-        // 上传当前批次
-        const res = await fetch(`/api/artwork/${artworkId}/replace?action=upload`, {
-          method: 'POST',
-          body: formData
-          // fetch 自动处理 multipart headers，不需要手动设置
-        })
-
-        if (!res.ok) throw new Error(`批次 ${i + 1} 上传失败`)
-
-        const json = await res.json()
-        if (json.meta) {
-          allUploadedMeta.push(...json.meta)
+        try {
+          const meta = await uploadLargeFile(item.file, item.newName, uploadTargetDir, targetRelDir, (percent) =>
+            setUploadProgress(percent)
+          )
+          if (meta) allUploadedMeta.push(meta)
+        } catch (err: any) {
+          throw new Error(`文件 ${item.originalName} 上传失败: ${err.message}`)
         }
       }
 
@@ -302,6 +285,55 @@ export function ImageManagerDialog({
         toast.error('回滚失败，请手动检查文件')
       }
     }
+  }
+
+  // 分片上传函数
+  const uploadLargeFile = async (
+    file: File,
+    fileName: string,
+    targetDir: string,
+    targetRelDir: string,
+    onProgress: (percent: number) => void
+  ): Promise<any> => {
+    const CHUNK_SIZE = 2 * 1024 * 1024 // 2MB
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
+    let lastMeta = null
+
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+      const start = chunkIndex * CHUNK_SIZE
+      const end = Math.min(start + CHUNK_SIZE, file.size)
+      const chunk = file.slice(start, end)
+
+      const headers: Record<string, string> = {
+        'x-file-name': encodeURIComponent(fileName),
+        'x-target-dir': encodeURIComponent(targetDir),
+        'x-target-rel-dir': encodeURIComponent(targetRelDir || ''),
+        'x-chunk-index': chunkIndex.toString(),
+        'x-total-chunks': totalChunks.toString()
+      }
+
+      const res = await fetch('/api/artwork/upload-chunk', {
+        method: 'POST',
+        headers,
+        body: chunk
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || `Chunk ${chunkIndex} failed`)
+      }
+
+      if (chunkIndex === totalChunks - 1) {
+        const json = await res.json()
+        if (json.meta) {
+          lastMeta = json.meta[0]
+        }
+      }
+
+      onProgress(Math.round(((chunkIndex + 1) / totalChunks) * 100))
+    }
+
+    return lastMeta
   }
 
   // 渲染列表 Tab
