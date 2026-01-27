@@ -23,7 +23,7 @@ import { Search, RotateCcw } from 'lucide-react'
 export interface ArtworkListItem {
   id: number
   title: string
-  description: string | null
+  description?: string
   imageCount: number
   firstImagePath?: string
   artist?: {
@@ -340,11 +340,7 @@ export default function ArtworkManagement() {
 
       return {
         data: res.items.map((item) => ({
-          ...item,
-          description: item.description || null, // 确保 description 至少是 null 而不是 undefined
-          // 确保 createdAt 是字符串
-          createdAt: new Date(item.createdAt).toLocaleString('zh-CN'),
-          updatedAt: new Date(item.updatedAt).toLocaleString('zh-CN')
+          ...item
         })),
         total: res.total,
         success: true
