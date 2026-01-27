@@ -8,6 +8,9 @@ import {
   VisibilityState,
   flexRender,
   getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
   useReactTable,
   PaginationState,
   RowSelectionState,
@@ -52,13 +55,19 @@ interface ProTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
 
   /**
+   * 本地数据源。
+   * 如果提供了 dataSource，则组件将使用前端分页/排序/筛选，忽略 request。
+   */
+  dataSource?: TData[]
+
+  /**
    * 获取数据的异步函数。
    * 组件会自动处理 loading 状态，你只需要返回 Promise<RequestData<T>>。
    * * @param params 包含分页参数 { pageSize, current } 以及其他自定义搜索参数
    * @param sort 当前的排序状态
    * @param filter 当前的筛选状态
    */
-  request: (
+  request?: (
     params: {
       pageSize: number
       current: number
@@ -122,6 +131,7 @@ interface ProTableProps<TData, TValue> {
 
 export function ProTable<TData, TValue>({
   columns,
+  dataSource,
   request,
   toolBarRender,
   headerTitle,
@@ -135,9 +145,13 @@ export function ProTable<TData, TValue>({
   onPaginationChange: controlledOnPaginationChange
 }: ProTableProps<TData, TValue>) {
   // --- 状态管理 ---
-  const [data, setData] = React.useState<TData[]>([])
+  const [internalData, setInternalData] = React.useState<TData[]>([])
   const [loading, setLoading] = React.useState<boolean>(false)
-  const [rowCount, setRowCount] = React.useState<number>(0)
+  const [internalRowCount, setInternalRowCount] = React.useState<number>(0)
+
+  const isLocal = !!dataSource
+  const data = isLocal ? dataSource || [] : internalData
+  const rowCount = isLocal ? dataSource?.length || 0 : internalRowCount
 
   // 分页、排序、筛选状态
   const [internalPagination, setInternalPagination] = React.useState<PaginationState>({
@@ -161,6 +175,8 @@ export function ProTable<TData, TValue>({
 
   // --- 核心逻辑：数据请求 ---
   const fetchData = React.useCallback(async () => {
+    if (isLocal || !request) return
+
     setLoading(true)
     try {
       // 构造请求参数
@@ -173,8 +189,8 @@ export function ProTable<TData, TValue>({
       const response = await request(params, sorting, columnFilters)
 
       if (response.success) {
-        setData(response.data)
-        setRowCount(response.total)
+        setInternalData(response.data)
+        setInternalRowCount(response.total)
       }
     } catch (error) {
       console.error('ProDataTable Request Failed:', error)
@@ -182,7 +198,7 @@ export function ProTable<TData, TValue>({
     } finally {
       setLoading(false)
     }
-  }, [pagination.pageIndex, pagination.pageSize, sorting, columnFilters, request])
+  }, [pagination.pageIndex, pagination.pageSize, sorting, columnFilters, request, isLocal])
 
   // 监听状态变化自动触发请求 (类似 Antd Pro Table 的行为)
   React.useEffect(() => {
@@ -211,11 +227,14 @@ export function ProTable<TData, TValue>({
   const table = useReactTable({
     data,
     columns,
-    pageCount: Math.ceil(rowCount / pagination.pageSize), // 服务端分页必须计算页数
+    pageCount: isLocal ? undefined : Math.ceil(rowCount / pagination.pageSize), // 服务端分页必须计算页数
     // 开启手动模式（服务端模式），这告诉 table 不要自己在前端做分页/排序/筛选
-    manualPagination: true,
-    manualSorting: true,
-    manualFiltering: true,
+    manualPagination: !isLocal,
+    manualSorting: !isLocal,
+    manualFiltering: !isLocal,
+    getPaginationRowModel: isLocal ? getPaginationRowModel() : undefined,
+    getSortedRowModel: isLocal ? getSortedRowModel() : undefined,
+    getFilteredRowModel: isLocal ? getFilteredRowModel() : undefined,
 
     // 行 ID
     getRowId: (row) => {
