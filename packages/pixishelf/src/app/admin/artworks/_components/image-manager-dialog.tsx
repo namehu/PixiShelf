@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -56,8 +56,19 @@ export function ImageManagerDialog({
   const [files, setFiles] = useState<File[]>([])
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
+  const [imageList, setImageList] = useState<ImageListItem[]>([])
 
   const [artwork, setArtwork] = useState<{ title?: string; externalId?: string }>({})
+
+  const fetchArtworkData = useCallback(() => {
+    if (!artworkId) return
+    trpcClient.artwork.getById.query(artworkId).then((res) => {
+      if (res) {
+        setArtwork({ title: res.title, externalId: res.externalId || undefined })
+        setImageList((res.images || []) as unknown as ImageListItem[])
+      }
+    })
+  }, [artworkId, trpcClient])
 
   // 当 Dialog 打开时刷新
   useEffect(() => {
@@ -67,39 +78,11 @@ export function ImageManagerDialog({
       setFiles([])
       setPreviewItems([])
       setUploadProgress(0)
+      setImageList([])
 
-      // 获取作品信息用于标题显示
-      trpcClient.artwork.getById.query(artworkId).then((res) => {
-        if (res) {
-          setArtwork({ title: res.title, externalId: res.externalId || undefined })
-        }
-      })
+      fetchArtworkData()
     }
-  }, [open, artworkId, trpcClient])
-
-  // ProTable 请求函数
-  const request = useCallback(
-    async (params: { pageSize: number; current: number }) => {
-      if (!artworkId) return { data: [], total: 0, success: true }
-
-      const res = await trpcClient.artwork.getById.query(artworkId)
-
-      if (!res) return { data: [], total: 0, success: true }
-
-      // 前端分页处理 (因为 getById 返回的是全量图片)
-      const allImages = (res.images || []) as unknown as ImageListItem[]
-      const start = (params.current - 1) * params.pageSize
-      const end = start + params.pageSize
-      const pagedImages = allImages.slice(start, end)
-
-      return {
-        data: pagedImages,
-        total: allImages.length,
-        success: true
-      }
-    },
-    [artworkId, trpcClient]
-  )
+  }, [open, artworkId, fetchArtworkData])
 
   // ProTable 列定义
   const columns: ColumnDef<ImageListItem>[] = [
@@ -148,7 +131,6 @@ export function ImageManagerDialog({
     if (e.target.files && e.target.files.length > 0) {
       const selectedFiles = Array.from(e.target.files)
       // 过滤掉非媒体文件
-
       const validFiles = selectedFiles.filter((f) => MEDIA_EXTENSIONS.includes('.' + (f.name.split('.').pop() || '')))
 
       setFiles(validFiles)
@@ -262,6 +244,7 @@ export function ImageManagerDialog({
         toast.success('全量替换成功')
         onSuccess?.()
         setRefreshKey((prev) => prev + 1) // 刷新 STable
+        fetchArtworkData() // 重新获取数据
         setTimeout(() => {
           setActiveTab('list')
         }, 1500)
@@ -281,7 +264,7 @@ export function ImageManagerDialog({
       toast.error('网络错误，上传失败')
     }
 
-    xhr.open('POST', `/api/artwork/${artworkId}/replace?path=${encodeURIComponent(firstImagePath)}`)
+    xhr.open('POST', `/api/artwork/${artworkId}/replace`)
     xhr.send(formData)
   }
 
@@ -292,10 +275,18 @@ export function ImageManagerDialog({
         key={refreshKey}
         rowKey="id"
         columns={columns}
-        request={request}
+        dataSource={imageList}
         defaultPageSize={10}
         toolBarRender={() => (
-          <Button key="refresh" variant="outline" size="sm" onClick={() => setRefreshKey((k) => k + 1)}>
+          <Button
+            key="refresh"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setRefreshKey((k) => k + 1)
+              fetchArtworkData()
+            }}
+          >
             <RefreshCw className="w-4 h-4 mr-2" />
             刷新
           </Button>
@@ -437,7 +428,17 @@ export function ImageManagerDialog({
     >
       <DialogContent className="sm:max-w-4xl max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>图片管理 - {artwork?.title || '加载中...'}</DialogTitle>
+          <DialogTitle>
+            <div>图片管理 - {artwork?.title || '加载中...'}</div>
+          </DialogTitle>
+
+          <DialogDescription>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{artwork.externalId}</span>
+              <span>-</span>
+              <span className="text-neutral-500">{firstImagePath}</span>
+            </div>
+          </DialogDescription>
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
@@ -465,7 +466,7 @@ const extractOrder = (fileName: string): number => {
   const match = fileName.match(/[-_](\d+)|(\d+)/g)
   if (match) {
     const lastMatch = match[match.length - 1]
-    return parseInt(lastMatch.replace(/[-_]/, ''), 10)
+    return lastMatch !== undefined ? parseInt(lastMatch.replace(/[-_]/, ''), 10) : 0
   }
   return 0
 }

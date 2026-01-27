@@ -327,24 +327,15 @@ export default function ArtworkManagement() {
   // ProTable 请求函数
   const request = useCallback(
     async (params: { pageSize: number; current: number }) => {
-      // 这里的 params 实际上会和 searchState 中的 page/pageSize 同步
-      // 但为了保险起见，我们直接使用 searchState 中的值，
-      // 或者依赖 ProTable 传回来的值（如果 ProTable 是完全受控的，传回来的也是正确的）
-
       const res = await trpcClient.artwork.list.query({
         cursor: params.current,
         pageSize: params.pageSize,
-        search: searchState.title || undefined,
-        artistName: searchState.artistName || undefined
+        search: searchState.title,
+        artistName: searchState.artistName
       })
+      const { items, total } = res
 
-      return {
-        data: res.items.map((item) => ({
-          ...item
-        })),
-        total: res.total,
-        success: true
-      }
+      return { data: items, total, success: true }
     },
     [trpcClient, searchState]
   )
@@ -398,12 +389,10 @@ export default function ArtworkManagement() {
 
       <ProTable
         key={refreshKey}
-        headerTitle="作品管理"
         rowKey="id"
         columns={columns}
         request={request}
         defaultPageSize={20}
-        // 分页受控
         pagination={{
           pageIndex: (searchState.page || 1) - 1,
           pageSize: searchState.pageSize || 20
