@@ -44,6 +44,14 @@ interface ImageListItem {
   size: number | null
 }
 
+function chunkArray<T>(array: T[], size: number): T[][] {
+  const result = []
+  for (let i = 0; i < array.length; i += size) {
+    result.push(array.slice(i, i + size))
+  }
+  return result
+}
+
 export function ImageManagerDialog({
   open,
   onOpenChange,
@@ -59,6 +67,7 @@ export function ImageManagerDialog({
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
   const [imageList, setImageList] = useState<ImageListItem[]>([])
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 })
 
   const [artwork, setArtwork] = useState<{ title?: string; externalId?: string }>({})
 
@@ -81,6 +90,7 @@ export function ImageManagerDialog({
       setPreviewItems([])
       setUploadProgress(0)
       setImageList([])
+      setBatchProgress({ current: 0, total: 0 })
 
       fetchArtworkData()
     }
@@ -207,67 +217,91 @@ export function ImageManagerDialog({
       return
     }
 
-    if (!firstImagePath) {
-      toast.error('无法定位目标目录 (作品当前无图片路径)')
-      return
-    }
+    // 这里不再强制 firstImagePath，因为后端有 fallback 策略
+    // if (!firstImagePath) { ... }
 
-    setUploadStatus('uploading')
+    setUploadStatus('backup')
     setUploadProgress(0)
 
-    const formData = new FormData()
+    try {
+      // 1. 发起初始化 (备份)
+      const initRes = await fetch(`/api/artwork/${artworkId}/replace?action=init`, { method: 'POST' })
+      if (!initRes.ok) throw new Error('初始化备份失败')
 
-    files.forEach((file) => {
-      const item = previewItems.find((p) => p.originalName === file.name && p.size === file.size)
-      if (item) {
-        const nameWithOrder = item.newName
-        const renamedFile = new File([file], nameWithOrder, { type: file.type })
-        formData.append('files', renamedFile)
-      } else {
-        formData.append('files', file)
-      }
-    })
+      setUploadStatus('uploading')
 
-    const xhr = new XMLHttpRequest()
+      // 2. 准备分批上传
+      // 建议每批次 5-10 个文件，或者根据总大小动态计算
+      const BATCH_SIZE = 5
+      const fileChunks = chunkArray(files, BATCH_SIZE)
+      const totalBatches = fileChunks.length
 
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const percentComplete = (event.loaded / event.total) * 100
-        setUploadProgress(percentComplete)
-        if (percentComplete === 100) {
-          setUploadStatus('syncing')
+      const allUploadedMeta: any[] = []
+
+      for (let i = 0; i < totalBatches; i++) {
+        const chunk = fileChunks[i]!
+        setBatchProgress({ current: i + 1, total: totalBatches }) // 更新批次进度
+        setUploadProgress(Math.round((i / totalBatches) * 100))
+
+        const formData = new FormData()
+
+        // 构建当前批次的 FormData
+        chunk.forEach((file) => {
+          const item = previewItems.find((p) => p.originalName === file.name && p.size === file.size)
+          const nameToSend = item ? item.newName : file.name
+          // 这里必须使用 rename 后的文件
+          formData.append('files', new File([file], nameToSend, { type: file.type }))
+        })
+
+        // 上传当前批次
+        const res = await fetch(`/api/artwork/${artworkId}/replace?action=upload`, {
+          method: 'POST',
+          body: formData
+          // fetch 自动处理 multipart headers，不需要手动设置
+        })
+
+        if (!res.ok) throw new Error(`批次 ${i + 1} 上传失败`)
+
+        const json = await res.json()
+        if (json.meta) {
+          allUploadedMeta.push(...json.meta)
         }
       }
-    }
 
-    xhr.onload = () => {
-      if (xhr.status === 200) {
-        setUploadStatus('success')
-        toast.success('全量替换成功')
-        onSuccess?.()
-        setRefreshKey((prev) => prev + 1) // 刷新 STable
-        fetchArtworkData() // 重新获取数据
-        setTimeout(() => {
-          setActiveTab('list')
-        }, 1500)
-      } else {
-        setUploadStatus('error')
-        try {
-          const res = JSON.parse(xhr.responseText)
-          toast.error(`替换失败: ${res.error || '未知错误'}`)
-        } catch {
-          toast.error('替换失败: 服务器错误')
-        }
-      }
-    }
+      setUploadProgress(100)
 
-    xhr.onerror = () => {
+      // 3. 提交事务 (Commit)
+      setUploadStatus('syncing')
+      const commitRes = await fetch(`/api/artwork/${artworkId}/replace?action=commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filesMeta: allUploadedMeta })
+      })
+
+      if (!commitRes.ok) throw new Error('数据库同步失败')
+
+      setUploadStatus('success')
+      toast.success('全量替换成功')
+      onSuccess?.()
+      setRefreshKey((p) => p + 1)
+      fetchArtworkData()
+
+      setTimeout(() => {
+        setActiveTab('list')
+      }, 1500)
+    } catch (error: any) {
+      console.error(error)
       setUploadStatus('error')
-      toast.error('网络错误，上传失败')
-    }
+      toast.error(`操作失败: ${error.message}`)
 
-    xhr.open('POST', `/api/artwork/${artworkId}/replace`)
-    xhr.send(formData)
+      // 4. 发生错误尝试回滚
+      try {
+        await fetch(`/api/artwork/${artworkId}/replace?action=rollback`, { method: 'POST' })
+        toast.info('已自动回滚至原状态')
+      } catch (e) {
+        toast.error('回滚失败，请手动检查文件')
+      }
+    }
   }
 
   // 渲染列表 Tab
@@ -380,12 +414,14 @@ export function ImageManagerDialog({
         <div className="space-y-2 p-4 bg-neutral-50 rounded-lg border border-neutral-100">
           <div className="flex justify-between text-sm mb-1">
             <span className="font-medium flex items-center gap-2">
+              {uploadStatus === 'backup' && <Loader2 className="w-3 h-3 animate-spin" />}
               {uploadStatus === 'uploading' && <Loader2 className="w-3 h-3 animate-spin" />}
               {uploadStatus === 'syncing' && <RefreshCw className="w-3 h-3 animate-spin" />}
               {uploadStatus === 'success' && <CheckCircle className="w-3 h-3 text-green-500" />}
               {uploadStatus === 'error' && <XCircle className="w-3 h-3 text-red-500" />}
 
-              {uploadStatus === 'uploading' && '正在上传文件...'}
+              {uploadStatus === 'backup' && '正在备份旧文件...'}
+              {uploadStatus === 'uploading' && `正在分批上传 (${batchProgress.current}/${batchProgress.total})...`}
               {uploadStatus === 'syncing' && '正在同步数据库...'}
               {uploadStatus === 'success' && '全量替换成功！'}
               {uploadStatus === 'error' && '操作失败'}

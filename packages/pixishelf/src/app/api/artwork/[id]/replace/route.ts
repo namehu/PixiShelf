@@ -1,3 +1,4 @@
+// oxlint-disable max-nested-callbacks
 import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 import fs from 'fs'
@@ -11,194 +12,186 @@ import { MEDIA_EXTENSIONS } from '../../../../../../lib/constant'
 import { getArtworkById } from '@/services/artwork-service'
 import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 
+// 定义 API 支持的操作类型
+type ActionType = 'init' | 'upload' | 'commit' | 'rollback'
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const artworkId = Number(id)
+  const searchParams = req.nextUrl.searchParams
+  const action = (searchParams.get('action') as ActionType) || 'init'
 
+  // 1. 基础校验
   if (!artworkId || isNaN(artworkId)) {
-    return NextResponse.json({ error: 'Invalid artwork ID' }, { status: 400 })
+    return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
   }
+  const scanRoot = await getScanPath()
+  if (!scanRoot) return NextResponse.json({ error: 'No SCAN_ROOT' }, { status: 500 })
 
   const artwork = await getArtworkById(artworkId)
-  if (!artwork) {
-    return NextResponse.json({ error: 'Artwork not found' }, { status: 404 })
+  if (!artwork) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // 2. 确定路径
+  let targetRelDir = ''
+  if (artwork.images && artwork.images.length > 0 && artwork.images[0]?.path) {
+    targetRelDir = path.dirname(artwork.images[0].path)
+  } else if (artwork.artist?.userId && artwork.externalId) {
+    targetRelDir = `/${artwork.artist.userId}/${artwork.externalId}`
+  } else {
+    return NextResponse.json({ error: 'Cannot determine path' }, { status: 400 })
   }
 
-  const scanRoot = await getScanPath()
-  if (!scanRoot) {
-    return NextResponse.json({ error: 'SCAN_ROOT not configured' }, { status: 500 })
-  }
+  const targetDir = path.join(scanRoot, targetRelDir)
+  const backupDir = path.join(targetDir, `.bak_session`) // 固定备份目录名，方便会话内复用
 
   try {
-    // 确定目标目录
-    let targetRelDir = ''
-
-    // 1. 优先尝试沿用现有路径
-    if (artwork.images && artwork.images.length > 0 && artwork.images[0]?.path) {
-      targetRelDir = path.dirname(artwork.images[0].path)
-    }
-    // 2. 如果是空作品，根据标准规则生成新路径: /{artistId}/{externalId}
-    else {
-      // 这里的 artist 获取取决于你的 getArtworkById 实现，确保它 include 了 artist
-      if (artwork.artist && artwork.artist.userId && artwork.externalId) {
-        targetRelDir = `/${artwork.artist.userId}/${artwork.externalId}`
+    // ==========================================
+    // Phase 1: 初始化 (备份旧文件)
+    // ==========================================
+    if (action === 'init') {
+      if (!fs.existsSync(targetDir)) {
+        await fsPromises.mkdir(targetDir, { recursive: true })
       } else {
-        return NextResponse.json({ error: '无法确定目标路径: 缺少作者ID或外部ID' }, { status: 400 })
-      }
-    }
+        // 如果存在上次未清理的备份，先还原或清理，这里简单处理为：如果有备份则认为已备份
+        if (!fs.existsSync(backupDir)) {
+          await fsPromises.mkdir(backupDir, { recursive: true })
+          const existingFiles = await fsPromises.readdir(targetDir)
+          for (const f of existingFiles) {
+            // 排除备份文件夹本身
+            if (f === '.bak_session') continue
 
-    const targetDir = path.join(scanRoot, targetRelDir)
-    const backupDir = path.join(targetDir, `.bak_${Date.now()}`)
-
-    // 物理备份
-    if (!fs.existsSync(targetDir)) {
-      await fsPromises.mkdir(targetDir, { recursive: true })
-    } else {
-      await fsPromises.mkdir(backupDir, { recursive: true })
-      const existingFiles = await fsPromises.readdir(targetDir)
-
-      for (const f of existingFiles) {
-        if (f.startsWith('.bak_')) continue
-
-        const ext = path.extname(f).toLowerCase()
-        if (MEDIA_EXTENSIONS.includes(ext)) {
-          const srcPath = path.join(targetDir, f)
-          const destPath = path.join(backupDir, f)
-          await fsPromises.rename(srcPath, destPath)
+            const ext = path.extname(f).toLowerCase()
+            if (MEDIA_EXTENSIONS.includes(ext)) {
+              await fsPromises.rename(path.join(targetDir, f), path.join(backupDir, f))
+            }
+          }
         }
       }
+      return NextResponse.json({ success: true, message: 'Initialized & Backed up' })
     }
 
-    // 5. Busboy 流式处理 (App Router 适配)
-    // 将 Web Request Headers 转换为 Node Headers 对象，供 busboy 使用
-    const headers: any = {}
-    req.headers.forEach((value, key) => {
-      headers[key] = value
-    })
+    // ==========================================
+    // Phase 2: 分批上传 (流式写入)
+    // ==========================================
+    if (action === 'upload') {
+      const headers: any = {}
+      for (const [key, value] of req.headers.entries()) headers[key] = value
+      const bb = busboy({ headers })
 
-    const bb = busboy({ headers })
-    const filesMeta: ImageMeta[] = []
+      const filesMeta: ImageMeta[] = []
+      const filePromises: Promise<void>[] = []
 
-    // 使用 uploadErrors 收集错误，而不是让 Promise 悬空导致崩溃
-    const uploadErrors: Error[] = []
-    const filePromises: Promise<void>[] = []
-    const newFilePaths: string[] = []
+      bb.on('file', (name, file, info) => {
+        const { filename } = info
+        const savePath = path.join(targetDir, filename)
 
-    // 监听文件事件
-    bb.on('file', (name, file, info) => {
-      const { filename } = info
-      const savePath = path.join(targetDir, filename)
-      newFilePaths.push(savePath)
+        const p = new Promise<void>((resolve, reject) => {
+          const writeStream = fs.createWriteStream(savePath)
+          file.on('error', reject)
+          writeStream.on('error', reject)
 
-      const p = new Promise<void>((resolve, reject) => {
-        const writeStream = fs.createWriteStream(savePath)
-
-        // 错误处理：如果流写入出错，直接 reject
-        file.on('error', reject)
-        writeStream.on('error', reject)
-
-        file.pipe(writeStream)
-
-        writeStream.on('finish', async () => {
-          try {
-            // 获取图片元数据 (此处 sharp 只读头信息，内存消耗极低)
-            const metadata = await sharp(savePath).metadata()
-            const order = extractOrderFromName(filename)
-
-            filesMeta.push({
-              fileName: filename,
-              order: order,
-              width: metadata.width || 0,
-              height: metadata.height || 0,
-              size: metadata.size || 0,
-              path: path.join(targetRelDir, filename).replace(/\\/g, '/')
+          // 使用 sharp 流式获取元数据
+          const pipeline = sharp()
+          pipeline
+            .metadata()
+            .then((metadata) => {
+              filesMeta.push({
+                fileName: filename,
+                // 注意：这里我们不立即生成 Order，而是返回给前端，由前端最终汇总
+                order: extractOrderFromName(filename),
+                width: metadata.width || 0,
+                height: metadata.height || 0,
+                size: metadata.size || 0,
+                path: path.join(targetRelDir, filename).replace(/\\/g, '/')
+              })
             })
+            .catch((err) => console.warn('Sharp meta error:', err))
 
-            // 补全文件大小
-            const stats = await fsPromises.stat(savePath)
-            const metaIndex = filesMeta.findIndex((m) => m.fileName === filename)
-            if (metaIndex !== -1 && filesMeta[metaIndex]) {
-              filesMeta[metaIndex]!.size = stats.size
-            }
+          file
+            .pipe(pipeline)
+            .pipe(writeStream)
+            .on('finish', () => {
+              // 再次确认文件大小（sharp流可能不准）
+              fsPromises
+                .stat(savePath)
+                .then((stats) => {
+                  const meta = filesMeta.find((m) => m.fileName === filename)
+                  if (meta) meta.size = stats.size
+                  resolve()
+                })
+                .catch(reject)
+            })
+        })
+        filePromises.push(p)
+      })
 
-            resolve()
-          } catch (err) {
-            reject(err)
+      // 将 Web Stream 转 Node Stream
+      // @ts-ignore
+      Readable.fromWeb(req.body as any).pipe(bb)
+
+      return new Promise((resolve) => {
+        bb.on('finish', async () => {
+          try {
+            await Promise.all(filePromises)
+            // 返回这一批次上传成功的文件的元数据
+            resolve(NextResponse.json({ success: true, meta: filesMeta }))
+          } catch (error: any) {
+            resolve(NextResponse.json({ error: error.message }, { status: 500 }))
           }
         })
+        bb.on('error', (err: any) =>
+          resolve(NextResponse.json({ error: err?.message || 'Busboy error' }, { status: 500 }))
+        )
       })
+    }
 
-      // 立即挂载 catch，防止长耗时任务中的 Unhandled Rejection 导致 Node 进程退出
-      // 我们将 Promise 包装一层，使其永远 resolve，但将错误记录到 uploadErrors
-      const safePromise = p.catch((err) => {
-        console.error(`File processing error [${filename}]:`, err)
-        uploadErrors.push(err)
-      })
+    // ==========================================
+    // Phase 3: 提交 (数据库更新 & 清理)
+    // ==========================================
+    if (action === 'commit') {
+      // 从 Body 获取前端汇总的所有 metadata
+      const body = await req.json()
+      const allFilesMeta: ImageMeta[] = body.filesMeta
 
-      filePromises.push(safePromise)
-    })
+      if (!allFilesMeta || !Array.isArray(allFilesMeta)) {
+        throw new Error('Invalid commit data')
+      }
 
-    const processing = new Promise<NextResponse>((resolve, reject) => {
-      bb.on('finish', async () => {
-        try {
-          // 等待所有文件的处理流程结束（因为我们用了 safePromise，这里不会 throw）
-          await Promise.all(filePromises)
+      // 重新排序
+      allFilesMeta.sort((a, b) => a.order - b.order)
 
-          // [检查]: 如果有任何一个文件失败，抛出第一个错误触发整体回滚
-          if (uploadErrors.length > 0) {
-            throw uploadErrors[0]
-          }
+      // 执行数据库事务
+      await updateArtworkImagesTransaction(artworkId, allFilesMeta)
 
-          // 数据库事务更新
-          filesMeta.sort((a, b) => a.order - b.order)
-          await updateArtworkImagesTransaction(artworkId, filesMeta)
+      // 删除备份
+      await fsPromises.rm(backupDir, { recursive: true, force: true }).catch(console.error)
 
-          // 成功后异步删除备份
-          fsPromises.rm(backupDir, { recursive: true, force: true }).catch(console.error)
+      return NextResponse.json({ success: true })
+    }
 
-          resolve(NextResponse.json({ success: true, count: filesMeta.length }))
-        } catch (err: any) {
-          console.error('Replace transaction failed:', err)
+    // ==========================================
+    // Phase 4: 回滚 (恢复备份)
+    // ==========================================
+    if (action === 'rollback') {
+      // 1. 删除当前目录下的所有媒体文件（这些是上传失败产生的新文件）
+      const currentFiles = await fsPromises.readdir(targetDir)
+      for (const f of currentFiles) {
+        if (f === '.bak_session') continue
+        await fsPromises.unlink(path.join(targetDir, f)).catch(() => {})
+      }
 
-          // 失败回滚：删除新文件
-          for (const f of newFilePaths) {
-            try {
-              await fsPromises.unlink(f)
-            } catch {}
-          }
-
-          // 还原备份
-          if (fs.existsSync(backupDir)) {
-            const backupFiles = await fsPromises.readdir(backupDir)
-            for (const f of backupFiles) {
-              await fsPromises.rename(path.join(backupDir, f), path.join(targetDir, f))
-            }
-            await fsPromises.rmdir(backupDir)
-          }
-
-          resolve(
-            NextResponse.json(
-              {
-                error: 'Transaction failed, rolled back.',
-                details: err.message
-              },
-              { status: 500 }
-            )
-          )
+      // 2. 将 .bak_session 里的东西移回来
+      if (fs.existsSync(backupDir)) {
+        const backupFiles = await fsPromises.readdir(backupDir)
+        for (const f of backupFiles) {
+          await fsPromises.rename(path.join(backupDir, f), path.join(targetDir, f))
         }
-      })
+        await fsPromises.rmdir(backupDir)
+      }
+      return NextResponse.json({ success: true, message: 'Rolled back' })
+    }
 
-      bb.on('error', (err: any) => {
-        resolve(NextResponse.json({ error: err?.message || 'Busboy error' }, { status: 500 }))
-      })
-    })
-
-    // 关键步骤：将 Web ReadableStream 转换为 Node Readable Stream 并管道给 Busboy
-    // @ts-ignore: Readable.fromWeb 在 Node 环境中可用
-    const nodeStream = Readable.fromWeb(req.body as any)
-    nodeStream.pipe(bb)
-
-    return await processing
+    return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
   } catch (error: any) {
     console.error('API Error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
