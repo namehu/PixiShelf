@@ -287,7 +287,7 @@ export default function ArtworkManagement() {
       cell: ({ row }) => (
         <Button
           variant="link"
-          className="p-0 h-auto font-mono hover:underline text-neutral-900"
+          className="p-0 h-auto font-mono hover:underline text-neutral-900 cursor-pointer"
           onClick={() => handleOpenImageManager(row.original)}
           title="管理图片"
         >
