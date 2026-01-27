@@ -295,7 +295,7 @@ export function ImageManagerDialog({
     targetRelDir: string,
     onProgress: (percent: number) => void
   ): Promise<any> => {
-    const CHUNK_SIZE = 2 * 1024 * 1024 // 2MB
+    const CHUNK_SIZE = 10 * 1024 * 1024 // 10MB
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
     let lastMeta = null
 
