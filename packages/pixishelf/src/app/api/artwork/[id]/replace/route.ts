@@ -40,11 +40,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // 2. 如果是空作品，根据标准规则生成新路径: /{artistId}/{externalId}
     else {
       // 这里的 artist 获取取决于你的 getArtworkById 实现，确保它 include 了 artist
-      // 如果 artwork 对象里没有 artist，可能需要额外查询一次
       if (artwork.artist && artwork.artist.userId && artwork.externalId) {
         targetRelDir = `/${artwork.artist.userId}/${artwork.externalId}`
       } else {
-        // 如果连作者ID和外部ID都没有，那就是脏数据了
         return NextResponse.json({ error: '无法确定目标路径: 缺少作者ID或外部ID' }, { status: 400 })
       }
     }
@@ -52,7 +50,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const targetDir = path.join(scanRoot, targetRelDir)
     const backupDir = path.join(targetDir, `.bak_${Date.now()}`)
 
-    //  物理备份
+    // 物理备份
     if (!fs.existsSync(targetDir)) {
       await fsPromises.mkdir(targetDir, { recursive: true })
     } else {
@@ -80,6 +78,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const bb = busboy({ headers })
     const filesMeta: ImageMeta[] = []
+
+    // 使用 uploadErrors 收集错误，而不是让 Promise 悬空导致崩溃
+    const uploadErrors: Error[] = []
     const filePromises: Promise<void>[] = []
     const newFilePaths: string[] = []
 
@@ -91,11 +92,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       const p = new Promise<void>((resolve, reject) => {
         const writeStream = fs.createWriteStream(savePath)
+
+        // 错误处理：如果流写入出错，直接 reject
+        file.on('error', reject)
+        writeStream.on('error', reject)
+
         file.pipe(writeStream)
 
         writeStream.on('finish', async () => {
           try {
-            // 获取图片元数据
+            // 获取图片元数据 (此处 sharp 只读头信息，内存消耗极低)
             const metadata = await sharp(savePath).metadata()
             const order = extractOrderFromName(filename)
 
@@ -120,18 +126,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             reject(err)
           }
         })
-
-        writeStream.on('error', reject)
       })
 
-      filePromises.push(p)
+      // 立即挂载 catch，防止长耗时任务中的 Unhandled Rejection 导致 Node 进程退出
+      // 我们将 Promise 包装一层，使其永远 resolve，但将错误记录到 uploadErrors
+      const safePromise = p.catch((err) => {
+        console.error(`File processing error [${filename}]:`, err)
+        uploadErrors.push(err)
+      })
+
+      filePromises.push(safePromise)
     })
 
-    // 创建 Promise 等待 busboy 处理完成
     const processing = new Promise<NextResponse>((resolve, reject) => {
       bb.on('finish', async () => {
         try {
+          // 等待所有文件的处理流程结束（因为我们用了 safePromise，这里不会 throw）
           await Promise.all(filePromises)
+
+          // [检查]: 如果有任何一个文件失败，抛出第一个错误触发整体回滚
+          if (uploadErrors.length > 0) {
+            throw uploadErrors[0]
+          }
 
           // 数据库事务更新
           filesMeta.sort((a, b) => a.order - b.order)
