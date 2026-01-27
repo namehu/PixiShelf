@@ -18,7 +18,7 @@ export interface ImageMeta {
  * 1. 删除该作品关联的所有旧 Image 记录
  * 2. 批量插入新的 Image 记录
  * 3. 更新 Artwork 的 imageCount 字段
- * 
+ *
  * @param artworkId 作品ID
  * @param files 图片元数据列表
  */
@@ -36,7 +36,7 @@ export async function updateArtworkImagesTransaction(artworkId: number, files: I
       sortOrder: file.order,
       width: file.width,
       height: file.height,
-      size: file.size,
+      size: file.size
     }))
 
     // 3. 批量创建新图片
@@ -47,7 +47,6 @@ export async function updateArtworkImagesTransaction(artworkId: number, files: I
     }
 
     // 4. 更新作品图片数量
-    // 根据需求说明：不更新 thumbnailUrl
     await tx.artwork.update({
       where: { id: artworkId },
       data: {

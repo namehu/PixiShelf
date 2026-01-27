@@ -12,6 +12,8 @@ import { Input } from '@/components/ui/input'
 import { ProTable } from '@/components/shared/pro-table'
 import { ColumnDef } from '@tanstack/react-table'
 import { MEDIA_EXTENSIONS } from '../../../../../lib/constant'
+import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
+import { formatFileSize } from '@/utils/media'
 
 interface ImageManagerDialogProps {
   open: boolean
@@ -121,7 +123,7 @@ export function ImageManagerDialog({
       accessorKey: 'size',
       size: 100,
       cell: ({ getValue }) => (
-        <span className="text-xs text-neutral-500 block text-right">{formatBytes(getValue<number>() || 0)}</span>
+        <span className="text-xs text-neutral-500 block text-right">{formatFileSize(getValue<number>() || 0)}</span>
       )
     }
   ]
@@ -141,7 +143,7 @@ export function ImageManagerDialog({
   // 生成预览数据
   const generatePreview = (fileList: File[]) => {
     const items: PreviewItem[] = fileList.map((file) => {
-      const order = extractOrder(file.name)
+      const order = extractOrderFromName(file.name)
       const ext = file.name.split('.').pop()
       const newName = `${artwork.externalId}_p${order}.${ext}`
 
@@ -319,7 +321,7 @@ export function ImageManagerDialog({
           <div className="bg-neutral-100 px-4 py-2 text-xs font-medium text-neutral-500 flex justify-between items-center">
             <span>待上传: {previewItems.length} 个文件</span>
             <span className="text-neutral-400">
-              总大小: {formatBytes(previewItems.reduce((acc, cur) => acc + cur.size, 0))}
+              总大小: {formatFileSize(previewItems.reduce((acc, cur) => acc + cur.size, 0))}
             </span>
           </div>
           <div className="max-h-[300px] overflow-y-auto">
@@ -432,7 +434,7 @@ export function ImageManagerDialog({
             <div>图片管理 - {artwork?.title || '加载中...'}</div>
           </DialogTitle>
 
-          <DialogDescription>
+          <DialogDescription asChild>
             <div className="flex items-center gap-2">
               <span className="font-medium">{artwork.externalId}</span>
               <span>-</span>
@@ -459,24 +461,4 @@ export function ImageManagerDialog({
       </DialogContent>
     </Dialog>
   )
-}
-
-// 辅助函数：提取排序序号
-const extractOrder = (fileName: string): number => {
-  const match = fileName.match(/[-_](\d+)|(\d+)/g)
-  if (match) {
-    const lastMatch = match[match.length - 1]
-    return lastMatch !== undefined ? parseInt(lastMatch.replace(/[-_]/, ''), 10) : 0
-  }
-  return 0
-}
-
-// 辅助函数：格式化字节
-function formatBytes(bytes: number, decimals = 2) {
-  if (!+bytes) return '0 Bytes'
-  const k = 1024
-  const dm = decimals < 0 ? 0 : decimals
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
 }
