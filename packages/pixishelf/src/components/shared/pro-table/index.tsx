@@ -20,6 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Loader2, RefreshCcw } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 // --- 类型定义 ---
 
@@ -80,7 +81,7 @@ interface ProTableProps<TData, TValue> {
   /**
    * 自定义工具栏渲染，通常用于放置 "新建"、"导出" 等按钮
    */
-  toolBarRender?: () => React.ReactNode
+  toolBarRender?: boolean | (() => React.ReactNode)
 
   /**
    * 标题
@@ -127,6 +128,11 @@ interface ProTableProps<TData, TValue> {
    * 分页状态改变回调 (受控模式)
    */
   onPaginationChange?: OnChangeFn<PaginationState>
+
+  /**
+   * 自定义类名
+   */
+  className?: string
 }
 
 export function ProTable<TData, TValue>({
@@ -142,7 +148,8 @@ export function ProTable<TData, TValue>({
   actionRef,
   defaultPageSize = 10,
   pagination: controlledPagination,
-  onPaginationChange: controlledOnPaginationChange
+  onPaginationChange: controlledOnPaginationChange,
+  className
 }: ProTableProps<TData, TValue>) {
   // --- 状态管理 ---
   const [internalData, setInternalData] = React.useState<TData[]>([])
@@ -261,7 +268,7 @@ export function ProTable<TData, TValue>({
   })
 
   return (
-    <div className="space-y-4 w-full">
+    <div className={cn('space-y-4 w-full', className)}>
       {/* 1. 工具栏区域 */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-col gap-2 w-full lg:flex-row lg:items-center lg:w-auto">
@@ -269,7 +276,9 @@ export function ProTable<TData, TValue>({
           <div className="w-full lg:w-auto">{searchRender ? searchRender() : null}</div>
         </div>
         <div className="flex items-center gap-2 justify-between lg:justify-end w-full lg:w-auto">
-          <div className="flex items-center gap-2">{toolBarRender && toolBarRender()}</div>
+          <div className="flex items-center gap-2">
+            {toolBarRender && typeof toolBarRender === 'function' && toolBarRender()}
+          </div>
           {/* <Button
             variant="outline"
             size="icon"

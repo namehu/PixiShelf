@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { cn } from '@/lib/utils'
+import { XIcon } from 'lucide-react'
 import {
   Drawer,
   DrawerClose,
@@ -38,6 +39,12 @@ export interface ProDrawerProps extends Omit<DialogProps, 'direction' | 'fadeFro
    */
   direction?: 'top' | 'bottom' | 'left' | 'right'
   /**
+   * 抽屉宽度 (仅在 direction 为 left 或 right 时生效)
+   * 支持 CSS 宽度值，如 "500px", "45%", "30rem" 等
+   * @default '45%'
+   */
+  width?: string | number
+  /**
    * 内容区域的类名
    */
   bodyClassName?: string
@@ -60,24 +67,39 @@ export function ProDrawer({
   className,
   bodyClassName,
   direction = 'bottom',
+  width = '45%',
   ...props
 }: ProDrawerProps) {
   // 判断是否需要显示 Header
   const showHeader = title || description
+
+  // 计算样式：如果是左右方向，则应用宽度
+  const isHorizontal = direction === 'left' || direction === 'right'
+  const contentStyle = isHorizontal
+    ? {
+        width,
+        maxWidth: 'none' // 强制覆盖默认的 max-width 限制
+      }
+    : undefined
 
   return (
     <Drawer direction={direction} {...props}>
       {/* 触发器逻辑 */}
       {trigger && <DrawerTrigger asChild>{trigger}</DrawerTrigger>}
 
-      <DrawerContent className={cn('flex flex-col', className)}>
+      <DrawerContent style={contentStyle} className={cn('flex flex-col', className)}>
         {/* 头部区域 */}
-        {showHeader && (
-          <DrawerHeader className="shrink-0">
-            {title && <DrawerTitle>{title}</DrawerTitle>}
-            {description && <DrawerDescription>{description}</DrawerDescription>}
-          </DrawerHeader>
-        )}
+        <DrawerHeader className="shrink-0">
+          <div className="flex justify-between items-center">
+            <DrawerTitle>{title}</DrawerTitle>
+            <DrawerClose asChild>
+              <button className="text-foreground/50 hover:text-foreground/80 transition-colors cursor-pointer">
+                <XIcon className="h-6 w-6 cursor-pointer" />
+              </button>
+            </DrawerClose>
+          </div>
+          {description && <DrawerDescription>{description}</DrawerDescription>}
+        </DrawerHeader>
 
         {/* 内容区域
            使用 flex-1 和 overflow-auto 确保头部和底部固定时，内容可滚动
