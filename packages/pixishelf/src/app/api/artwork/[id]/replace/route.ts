@@ -123,6 +123,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Phase 3: 回滚 (恢复备份)
     // ==========================================
     if (action === 'rollback') {
+      // [安全检查] 必须存在备份目录才能回滚，否则可能误删文件
+      if (!fs.existsSync(backupDir)) {
+        return NextResponse.json({ error: 'No active backup session found (cannot rollback)' }, { status: 400 })
+      }
+
       // 1. 删除当前目录下的所有媒体文件（这些是上传失败产生的新文件）
       const currentFiles = await fsPromises.readdir(targetDir)
       for (const f of currentFiles) {
@@ -131,14 +136,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
 
       // 2. 将 .bak_session 里的东西移回来
-      if (fs.existsSync(backupDir)) {
-        const backupFiles = await fsPromises.readdir(backupDir)
-        for (const f of backupFiles) {
-          await fsPromises.rename(path.join(backupDir, f), path.join(targetDir, f))
-        }
-        await fsPromises.rmdir(backupDir)
+      const backupFiles = await fsPromises.readdir(backupDir)
+      for (const f of backupFiles) {
+        await fsPromises.rename(path.join(backupDir, f), path.join(targetDir, f))
       }
-      return NextResponse.json({ success: true, message: 'Rolled back' })
+
+      // 3. 删除备份目录
+      await fsPromises.rm(backupDir, { recursive: true, force: true })
+
+      return NextResponse.json({ success: true, message: 'Rolled back successfully' })
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })

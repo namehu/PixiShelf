@@ -38,7 +38,15 @@ interface ImageReplaceDialogProps {
   onSuccess?: () => void
 }
 
-type GlobalUploadStatus = 'idle' | 'backup' | 'uploading' | 'syncing' | 'success' | 'error' | 'partial-error'
+type GlobalUploadStatus =
+  | 'idle'
+  | 'backup'
+  | 'uploading'
+  | 'syncing'
+  | 'success'
+  | 'error'
+  | 'partial-error'
+  | 'rolling-back' // ROLLBACK-TODO: 新增状态
 
 interface PreviewItem {
   id: string
@@ -222,6 +230,30 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     setPreviewItems(validateItems(newItems))
   }
 
+  // ROLLBACK-TODO: 客户端回滚执行函数
+  const executeRollback = async () => {
+    setGlobalStatus('rolling-back')
+    try {
+      const res = await fetch(`/api/artwork/${artworkId}/replace?action=rollback`, { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        // 忽略 "No active backup" 错误，视为回滚成功
+        if (!(res.status === 400 && data.error?.includes('No active backup'))) {
+          throw new Error(data.error || '回滚请求失败')
+        }
+      }
+
+      // 重置本地状态
+      setFiles([])
+      setPreviewItems([])
+      setUploadConfig(null)
+      uploadedMetaRef.current = {}
+      return true
+    } catch (error) {
+      throw error
+    }
+  }
+
   const startReplace = async () => {
     if (!artworkId || previewItems.length === 0) return
     if (previewItems.some((i) => i.error)) {
@@ -364,8 +396,17 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       onOpenChange(false)
     } catch (error: any) {
       console.error(error)
-      setGlobalStatus('error')
-      toast.error(`提交失败: ${error.message}`)
+      // ROLLBACK-TODO: 提交失败触发自动回滚
+      toast.error(`提交失败: ${error.message}，正在回滚...`)
+
+      try {
+        await executeRollback()
+        setGlobalStatus('idle')
+        toast.info('已自动回滚到初始状态，请重试')
+      } catch (rollbackError: any) {
+        setGlobalStatus('error')
+        toast.error(`严重错误：回滚失败 (${rollbackError.message})`)
+      }
     } finally {
       isCommittingRef.current = false
     }
@@ -467,7 +508,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     <Dialog
       open={open}
       onOpenChange={(val) => {
-        if (globalStatus === 'uploading' || globalStatus === 'syncing') return
+        if (globalStatus === 'uploading' || globalStatus === 'syncing' || globalStatus === 'rolling-back') return
         onOpenChange(val)
       }}
     >
@@ -482,7 +523,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
           <div
             className={cn(
               'border-2 border-dashed border-neutral-200 rounded-lg p-6 text-center transition-colors relative',
-              globalStatus === 'uploading' || globalStatus === 'syncing'
+              globalStatus === 'uploading' || globalStatus === 'syncing' || globalStatus === 'rolling-back'
                 ? 'opacity-50 cursor-not-allowed'
                 : 'hover:bg-neutral-50 cursor-pointer'
             )}
@@ -494,7 +535,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
               multiple
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
               onChange={handleFileSelect}
-              disabled={globalStatus === 'uploading' || globalStatus === 'syncing'}
+              disabled={globalStatus === 'uploading' || globalStatus === 'syncing' || globalStatus === 'rolling-back'}
             />
             <div className="flex flex-col items-center gap-2 text-neutral-500">
               <FolderInput className="w-8 h-8 text-neutral-400" />
@@ -517,6 +558,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
               {globalStatus === 'success' && <CheckCircle className="w-4 h-4 text-green-500" />}
               {globalStatus === 'error' && <XCircle className="w-4 h-4 text-red-500" />}
               {globalStatus === 'partial-error' && <AlertTriangle className="w-4 h-4 text-amber-500" />}
+              {globalStatus === 'rolling-back' && <RotateCcw className="w-4 h-4 animate-spin" />}
 
               <div className="flex-1 font-medium flex justify-between items-center">
                 <span>
@@ -526,6 +568,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                   {globalStatus === 'success' && '替换成功'}
                   {globalStatus === 'error' && '操作失败'}
                   {globalStatus === 'partial-error' && '部分文件上传失败，请选择后续操作'}
+                  {globalStatus === 'rolling-back' && '正在回滚操作，请稍候...'}
                 </span>
 
                 {globalStatus === 'partial-error' && (
@@ -683,7 +726,20 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
           <div className="flex gap-2 justify-end">
             {globalStatus === 'partial-error' ? (
               <>
-                <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    if (confirm('确定要放弃并回滚所有更改吗？')) {
+                      try {
+                        await executeRollback()
+                        onOpenChange(false)
+                        toast.success('已回滚并关闭')
+                      } catch (e: any) {
+                        toast.error(`回滚失败: ${e.message}`)
+                      }
+                    }
+                  }}
+                >
                   取消 (回滚)
                 </Button>
                 <Button variant="outline" onClick={handleRetryAllFailed} className="gap-1">
@@ -698,7 +754,9 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                 <Button
                   variant="ghost"
                   onClick={() => onOpenChange(false)}
-                  disabled={globalStatus === 'uploading' || globalStatus === 'syncing'}
+                  disabled={
+                    globalStatus === 'uploading' || globalStatus === 'syncing' || globalStatus === 'rolling-back'
+                  }
                 >
                   取消
                 </Button>
@@ -709,6 +767,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                     files.length === 0 ||
                     globalStatus === 'uploading' ||
                     globalStatus === 'syncing' ||
+                    globalStatus === 'rolling-back' ||
                     previewItems.some((i) => i.error)
                   }
                 >
