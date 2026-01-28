@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,19 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Loader2, AlertTriangle, CheckCircle, XCircle, FolderInput, RefreshCw } from 'lucide-react'
+import {
+  Loader2,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  FolderInput,
+  RefreshCw,
+  Play,
+  RotateCcw,
+  FileWarning,
+  ArrowRight,
+  Download
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Progress } from '@/components/ui/progress'
@@ -26,9 +38,10 @@ interface ImageReplaceDialogProps {
   onSuccess?: () => void
 }
 
-type GlobalUploadStatus = 'idle' | 'backup' | 'uploading' | 'syncing' | 'success' | 'error'
+type GlobalUploadStatus = 'idle' | 'backup' | 'uploading' | 'syncing' | 'success' | 'error' | 'partial-error'
 
 interface PreviewItem {
+  id: string
   file: File
   originalName: string
   newName: string
@@ -43,6 +56,11 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   const [globalStatus, setGlobalStatus] = useState<GlobalUploadStatus>('idle')
   const [files, setFiles] = useState<File[]>([])
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
+  const [uploadConfig, setUploadConfig] = useState<{ uploadTargetDir: string; targetRelDir: string } | null>(null)
+  // Use ref to store uploaded meta to avoid closure staleness issues in async flows
+  const uploadedMetaRef = useRef<Record<string, any>>({})
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const isCommittingRef = useRef(false)
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -50,39 +68,134 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       setGlobalStatus('idle')
       setFiles([])
       setPreviewItems([])
+      setUploadConfig(null)
+      uploadedMetaRef.current = {}
+      isCommittingRef.current = false
     }
   }, [open])
+
+  // Auto-scroll to uploading item
+  useEffect(() => {
+    if (globalStatus === 'uploading') {
+      const uploadingIndex = previewItems.findIndex((item) => item.status === 'uploading')
+      if (uploadingIndex !== -1) {
+        scrollToItem(uploadingIndex)
+      }
+    }
+  }, [previewItems, globalStatus])
+
+  const scrollToItem = (index: number) => {
+    const row = document.getElementById(`file-row-${index}`)
+    if (row && scrollContainerRef.current) {
+      const container = scrollContainerRef.current
+      const rowRect = row.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+
+      if (rowRect.top < containerRect.top || rowRect.bottom > containerRect.bottom) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }
+  }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const selectedFiles = Array.from(e.target.files)
-      const validFiles = selectedFiles.filter((f) => MEDIA_EXTENSIONS.includes('.' + (f.name.split('.').pop() || '')))
-      setFiles(validFiles)
-      generatePreview(validFiles)
+      addFiles(selectedFiles)
     }
   }
 
-  const generatePreview = (fileList: File[]) => {
-    const items: PreviewItem[] = fileList.map((file) => {
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (globalStatus === 'uploading' || globalStatus === 'syncing') return
+
+    const items = e.dataTransfer.items
+    if (!items) return
+
+    const fileList: File[] = []
+
+    const scanEntry = async (entry: any) => {
+      if (entry.isFile) {
+        return new Promise<void>((resolve) => {
+          entry.file((file: File) => {
+            fileList.push(file)
+            resolve()
+          })
+        })
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader()
+        const readEntries = async () => {
+          return new Promise<void>((resolve) => {
+            reader.readEntries(async (entries: any[]) => {
+              if (entries.length === 0) {
+                resolve()
+                return
+              }
+              await Promise.all(entries.map(scanEntry))
+              await readEntries() // Continue reading
+              resolve()
+            })
+          })
+        }
+        await readEntries()
+      }
+    }
+
+    const promises = []
+    for (const item of Array.from(items)) {
+      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null
+      if (entry) {
+        promises.push(scanEntry(entry))
+      } else if (item.kind === 'file') {
+        const file = item.getAsFile()
+        if (file) fileList.push(file)
+      }
+    }
+
+    await Promise.all(promises)
+    if (fileList.length > 0) {
+      addFiles(fileList)
+    }
+  }
+
+  const addFiles = (newFiles: File[]) => {
+    const validFiles = newFiles.filter((f) => MEDIA_EXTENSIONS.includes('.' + (f.name.split('.').pop() || '')))
+    if (validFiles.length === 0) {
+      toast.warning('未找到符合格式的图片文件')
+      return
+    }
+
+    setFiles((prev) => [...prev, ...validFiles])
+
+    const newItems = validFiles.map((file) => {
       const order = extractOrderFromName(file.name)
       const ext = file.name.split('.').pop()
       const newName = `${artwork.externalId}_p${order}.${ext}`
 
       return {
+        id: Math.random().toString(36).substring(7),
         file,
         originalName: file.name,
         newName,
         order,
         size: file.size,
-        status: 'pending',
+        status: 'pending' as const,
         progress: 0
       }
     })
 
-    validateAndSetItems(items)
+    setPreviewItems((prev) => {
+      const combined = [...prev, ...newItems]
+      return validateItems(combined)
+    })
   }
 
-  const validateAndSetItems = (items: PreviewItem[]) => {
+  const validateItems = (items: PreviewItem[]) => {
     const orderCounts = new Map<number, number>()
     items.forEach((item) => {
       orderCounts.set(item.order, (orderCounts.get(item.order) || 0) + 1)
@@ -94,7 +207,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     }))
 
     validatedItems.sort((a, b) => a.order - b.order)
-    setPreviewItems(validatedItems)
+    return validatedItems
   }
 
   const handleOrderChange = (index: number, newOrder: number) => {
@@ -106,11 +219,11 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     const ext = item.file.name.split('.').pop()
     item.newName = `${artwork.externalId}_p${newOrder}.${ext}`
 
-    validateAndSetItems(newItems)
+    setPreviewItems(validateItems(newItems))
   }
 
-  const handleReplace = async () => {
-    if (!artworkId || files.length === 0) return
+  const startReplace = async () => {
+    if (!artworkId || previewItems.length === 0) return
     if (previewItems.some((i) => i.error)) {
       toast.error('存在序号冲突，请先修正')
       return
@@ -119,84 +232,183 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     setGlobalStatus('backup')
 
     try {
-      // 1. Init (Backup)
-      const initRes = await fetch(`/api/artwork/${artworkId}/replace?action=init`, { method: 'POST' })
-      const initData = await initRes.json()
-      if (!initRes.ok) throw new Error(initData.error || '初始化备份失败')
+      let config = uploadConfig
+      if (!config) {
+        const initRes = await fetch(`/api/artwork/${artworkId}/replace?action=init`, { method: 'POST' })
+        const initData = await initRes.json()
+        if (!initRes.ok) throw new Error(initData.error || '初始化备份失败')
 
-      const { uploadTargetDir, targetRelDir } = initData
-      if (!uploadTargetDir) throw new Error('未能获取上传目标路径')
-
-      setGlobalStatus('uploading')
-
-      // 2. Upload Files
-      const allUploadedMeta: any[] = []
-
-      // Update all to pending
-      setPreviewItems((prev) => prev.map((p) => ({ ...p, status: 'pending', progress: 0 })))
-
-      for (let i = 0; i < previewItems.length; i++) {
-        const item = previewItems[i]!
-
-        // Update current item status
-        setPreviewItems((prev) => {
-          const newItems = [...prev]
-          newItems[i] = { ...newItems[i]!, status: 'uploading', progress: 0 }
-          return newItems
-        })
-
-        try {
-          const meta = await uploadLargeFile(item.file, item.newName, uploadTargetDir, targetRelDir, (percent) => {
-            setPreviewItems((prev) => {
-              const newItems = [...prev]
-              newItems[i] = { ...newItems[i]!, progress: percent }
-              return newItems
-            })
-          })
-          if (meta) allUploadedMeta.push(meta)
-
-          setPreviewItems((prev) => {
-            const newItems = [...prev]
-            newItems[i] = { ...newItems[i]!, status: 'success', progress: 100 }
-            return newItems
-          })
-        } catch (err: any) {
-          setPreviewItems((prev) => {
-            const newItems = [...prev]
-            newItems[i] = { ...newItems[i]!, status: 'error', error: err.message }
-            return newItems
-          })
-          throw new Error(`文件 ${item.originalName} 上传失败: ${err.message}`)
+        config = {
+          uploadTargetDir: initData.uploadTargetDir,
+          targetRelDir: initData.targetRelDir
         }
+        setUploadConfig(config)
       }
 
-      // 3. Commit
-      setGlobalStatus('syncing')
+      setGlobalStatus('uploading')
+      processQueue(config)
+    } catch (error: any) {
+      console.error(error)
+      setGlobalStatus('error')
+      toast.error(`初始化失败: ${error.message}`)
+    }
+  }
+
+  const processQueue = async (config: { uploadTargetDir: string; targetRelDir: string }) => {
+    // Filter items that need processing
+    const itemsToProcess = previewItems
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.status === 'pending' || item.status === 'error')
+
+    for (const { item, index } of itemsToProcess) {
+      if (uploadedMetaRef.current[item.id]) continue
+
+      // Update status to uploading
+      setPreviewItems((prev) => {
+        const newItems = [...prev]
+        const currentItem = newItems[index]
+        if (currentItem) {
+          newItems[index] = { ...currentItem, status: 'uploading', progress: 0, error: undefined }
+        }
+        return newItems
+      })
+
+      try {
+        const meta = await uploadLargeFile(
+          item.file,
+          item.newName,
+          config.uploadTargetDir,
+          config.targetRelDir,
+          (percent) => {
+            setPreviewItems((prev) => {
+              const newItems = [...prev]
+              const currentItem = newItems[index]
+              if (currentItem) {
+                newItems[index] = { ...currentItem, progress: percent }
+              }
+              return newItems
+            })
+          }
+        )
+
+        uploadedMetaRef.current[item.id] = meta
+
+        setPreviewItems((prev) => {
+          const newItems = [...prev]
+          const currentItem = newItems[index]
+          if (currentItem) {
+            newItems[index] = { ...currentItem, status: 'success', progress: 100 }
+          }
+          return newItems
+        })
+      } catch (err: any) {
+        setPreviewItems((prev) => {
+          const newItems = [...prev]
+          const currentItem = newItems[index]
+          if (currentItem) {
+            newItems[index] = { ...currentItem, status: 'error', error: err.message }
+          }
+          return newItems
+        })
+      }
+    }
+
+    // Check final status
+    setPreviewItems((currentItems) => {
+      const anyError = currentItems.some((i) => i.status === 'error')
+      const anyPending = currentItems.some((i) => i.status === 'pending')
+
+      if (anyError) {
+        setGlobalStatus('partial-error')
+      } else if (!anyPending) {
+        // All done, trigger commit automatically
+        // Use setTimeout to move side effect out of updater function
+        setTimeout(() => {
+          commitReplace(currentItems)
+        }, 0)
+      } else {
+        // Should be idle if interrupted
+        setGlobalStatus('idle')
+      }
+      return currentItems
+    })
+  }
+
+  const commitReplace = async (items: PreviewItem[], ignoreErrors = false) => {
+    if (isCommittingRef.current) return
+    isCommittingRef.current = true
+
+    setGlobalStatus('syncing')
+
+    try {
+      const metas = items
+        .filter((item) => (ignoreErrors ? item.status === 'success' : true))
+        .map((item) => uploadedMetaRef.current[item.id])
+        .filter(Boolean)
+
       const commitRes = await fetch(`/api/artwork/${artworkId}/replace?action=commit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filesMeta: allUploadedMeta })
+        body: JSON.stringify({ filesMeta: metas })
       })
 
-      if (!commitRes.ok) throw new Error('数据库同步失败')
+      if (!commitRes.ok) {
+        // [新增] 如果后端返回 400 重复错误，可以在这里处理
+        const errorData = await commitRes.json()
+        throw new Error(errorData.error || '数据库同步失败')
+      }
 
       setGlobalStatus('success')
-      toast.success('全量替换成功')
+      toast.success('替换完成')
       onSuccess?.()
       onOpenChange(false)
     } catch (error: any) {
       console.error(error)
       setGlobalStatus('error')
-      toast.error(`操作失败: ${error.message}`)
-
-      // Rollback
-      try {
-        await fetch(`/api/artwork/${artworkId}/replace?action=rollback`, { method: 'POST' })
-        toast.info('已自动回滚至原状态')
-      } catch (e) {
-        toast.error('回滚失败，请手动检查文件')
-      }
+      toast.error(`提交失败: ${error.message}`)
+    } finally {
+      isCommittingRef.current = false
     }
+  }
+
+  const handleRetryAllFailed = () => {
+    if (!uploadConfig) return
+    setGlobalStatus('uploading')
+    processQueue(uploadConfig)
+  }
+
+  const handleRetrySingle = (index: number) => {
+    if (!uploadConfig) return
+    setPreviewItems((prev) => {
+      const newItems = [...prev]
+      const currentItem = newItems[index]
+      if (currentItem) {
+        newItems[index] = { ...currentItem, status: 'pending', error: undefined }
+      }
+      return newItems
+    })
+    setGlobalStatus('uploading')
+    processQueue(uploadConfig)
+  }
+
+  const handleIgnoreAndCommit = () => {
+    if (confirm('确定要忽略失败文件并提交吗？失败的文件将不会出现在最终作品中。')) {
+      commitReplace(previewItems, true)
+    }
+  }
+
+  const exportErrorReport = () => {
+    const failedItems = previewItems.filter((i) => i.status === 'error')
+    const content = failedItems
+      .map((i) => `File: ${i.originalName}\nError: ${i.error}\nOrder: ${i.order}\n---`)
+      .join('\n')
+    const blob = new Blob([content], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `upload-errors-${artwork.externalId}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const uploadLargeFile = async (
@@ -258,57 +470,82 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       <DialogContent className="sm:max-w-4xl max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>全量替换 - {artwork.title || artwork.externalId}</DialogTitle>
-          <DialogDescription>
-            将会清空当前作品的所有图片，并替换为上传的新文件。请确保文件名包含排序序号（如 _p1.jpg）。
-          </DialogDescription>
+          <DialogDescription>将会清空当前作品的所有图片，并替换为上传的新文件。支持拖拽文件夹。</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto p-1 space-y-4">
           {/* File Selection */}
-          <div className="border-2 border-dashed border-neutral-200 rounded-lg p-6 text-center hover:bg-neutral-50 transition-colors relative">
+          <div
+            className={cn(
+              'border-2 border-dashed border-neutral-200 rounded-lg p-6 text-center transition-colors relative',
+              globalStatus === 'uploading' || globalStatus === 'syncing'
+                ? 'opacity-50 cursor-not-allowed'
+                : 'hover:bg-neutral-50 cursor-pointer'
+            )}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+          >
             <input
               type="file"
               multiple
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
               onChange={handleFileSelect}
               disabled={globalStatus === 'uploading' || globalStatus === 'syncing'}
             />
             <div className="flex flex-col items-center gap-2 text-neutral-500">
               <FolderInput className="w-8 h-8 text-neutral-400" />
-              <p className="text-sm font-medium">点击选择文件夹 或 拖拽文件到此处</p>
+              <p className="text-sm font-medium">点击选择 / 拖拽文件夹或文件</p>
               <p className="text-xs text-neutral-400">支持批量选择，自动解析排序序号</p>
             </div>
           </div>
 
           {/* Global Status */}
           {globalStatus !== 'idle' && (
-            <div className="flex items-center gap-2 text-sm p-2 bg-muted rounded">
+            <div
+              className={cn(
+                'flex items-center gap-2 text-sm p-3 rounded border',
+                globalStatus === 'partial-error' ? 'bg-amber-50 border-amber-200' : 'bg-muted'
+              )}
+            >
               {globalStatus === 'backup' && <Loader2 className="w-4 h-4 animate-spin" />}
               {globalStatus === 'uploading' && <Loader2 className="w-4 h-4 animate-spin" />}
               {globalStatus === 'syncing' && <RefreshCw className="w-4 h-4 animate-spin" />}
               {globalStatus === 'success' && <CheckCircle className="w-4 h-4 text-green-500" />}
               {globalStatus === 'error' && <XCircle className="w-4 h-4 text-red-500" />}
+              {globalStatus === 'partial-error' && <AlertTriangle className="w-4 h-4 text-amber-500" />}
 
-              <span className="font-medium">
-                {globalStatus === 'backup' && '正在备份旧文件...'}
-                {globalStatus === 'uploading' && '正在上传文件...'}
-                {globalStatus === 'syncing' && '正在同步数据库...'}
-                {globalStatus === 'success' && '替换成功'}
-                {globalStatus === 'error' && '操作失败'}
-              </span>
+              <div className="flex-1 font-medium flex justify-between items-center">
+                <span>
+                  {globalStatus === 'backup' && '正在备份旧文件...'}
+                  {globalStatus === 'uploading' && '正在上传文件...'}
+                  {globalStatus === 'syncing' && '正在同步数据库...'}
+                  {globalStatus === 'success' && '替换成功'}
+                  {globalStatus === 'error' && '操作失败'}
+                  {globalStatus === 'partial-error' && '部分文件上传失败，请选择后续操作'}
+                </span>
+
+                {globalStatus === 'partial-error' && (
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={exportErrorReport} className="h-7 text-xs gap-1">
+                      <Download className="w-3 h-3" />
+                      导出报告
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {/* Preview List */}
           {previewItems.length > 0 && (
-            <div className="border rounded-md overflow-hidden">
-              <div className="bg-neutral-100 px-4 py-2 text-xs font-medium text-neutral-500 flex justify-between items-center">
+            <div className="border rounded-md overflow-hidden flex flex-col max-h-[400px]">
+              <div className="bg-neutral-100 px-4 py-2 text-xs font-medium text-neutral-500 flex justify-between items-center shrink-0">
                 <span>待上传: {previewItems.length} 个文件</span>
                 <span className="text-neutral-400">
                   总大小: {formatFileSize(previewItems.reduce((acc, cur) => acc + cur.size, 0))}
                 </span>
               </div>
-              <div className="max-h-[300px] overflow-y-auto">
+              <div className="overflow-y-auto flex-1" ref={scrollContainerRef}>
                 <Table>
                   <TableHeader className="sticky top-0 bg-white z-10">
                     <TableRow>
@@ -316,12 +553,16 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                       <TableHead>原文件名</TableHead>
                       <TableHead>新文件名</TableHead>
                       <TableHead className="w-[150px]">进度</TableHead>
-                      <TableHead className="w-[80px]">状态</TableHead>
+                      <TableHead className="w-[100px]">状态</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {previewItems.map((item, index) => (
-                      <TableRow key={index} className={cn(item.error && 'bg-red-50')}>
+                      <TableRow
+                        key={item.id}
+                        id={`file-row-${index}`}
+                        className={cn(item.error && 'bg-red-50', item.status === 'uploading' && 'bg-blue-50')}
+                      >
                         <TableCell>
                           <Input
                             type="number"
@@ -347,20 +588,38 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                           </div>
                         </TableCell>
                         <TableCell>
-                          {item.error ? (
-                            <span className="text-red-500 text-xs flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" />
-                              冲突
-                            </span>
+                          {item.status === 'error' ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-red-500 text-xs flex items-center gap-1">
+                                <XCircle className="w-3 h-3" />
+                                失败
+                              </span>
+                              {globalStatus === 'partial-error' && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-5 w-5"
+                                  onClick={() => handleRetrySingle(index)}
+                                  title="重试"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </div>
                           ) : item.status === 'success' ? (
                             <span className="text-green-500 text-xs flex items-center gap-1">
                               <CheckCircle className="w-3 h-3" />
                               完成
                             </span>
-                          ) : item.status === 'error' ? (
+                          ) : item.status === 'uploading' ? (
+                            <span className="text-blue-500 text-xs flex items-center gap-1">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              上传中
+                            </span>
+                          ) : item.error ? (
                             <span className="text-red-500 text-xs flex items-center gap-1">
-                              <XCircle className="w-3 h-3" />
-                              失败
+                              <AlertTriangle className="w-3 h-3" />
+                              冲突
                             </span>
                           ) : (
                             <span className="text-neutral-400 text-xs">等待</span>
@@ -376,25 +635,41 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         </div>
 
         <DialogFooter className="gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={globalStatus === 'uploading' || globalStatus === 'syncing'}
-          >
-            取消
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={handleReplace}
-            disabled={
-              files.length === 0 ||
-              globalStatus === 'uploading' ||
-              globalStatus === 'syncing' ||
-              previewItems.some((i) => i.error)
-            }
-          >
-            {globalStatus === 'uploading' ? '上传中...' : '确认全量替换'}
-          </Button>
+          {globalStatus === 'partial-error' ? (
+            <>
+              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                取消 (回滚)
+              </Button>
+              <Button variant="outline" onClick={handleRetryAllFailed} className="gap-1">
+                <RotateCcw className="w-4 h-4" /> 重试失败项
+              </Button>
+              <Button variant="destructive" onClick={handleIgnoreAndCommit} className="gap-1">
+                <FileWarning className="w-4 h-4" /> 忽略失败并提交
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                onClick={() => onOpenChange(false)}
+                disabled={globalStatus === 'uploading' || globalStatus === 'syncing'}
+              >
+                取消
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={startReplace}
+                disabled={
+                  files.length === 0 ||
+                  globalStatus === 'uploading' ||
+                  globalStatus === 'syncing' ||
+                  previewItems.some((i) => i.error)
+                }
+              >
+                {globalStatus === 'uploading' ? '上传中...' : '确认全量替换'}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

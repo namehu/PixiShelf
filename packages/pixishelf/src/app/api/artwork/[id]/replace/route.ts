@@ -154,12 +154,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Phase 3: 提交 (数据库更新 & 清理)
     // ==========================================
     if (action === 'commit') {
-      // 从 Body 获取前端汇总的所有 metadata
       const body = await req.json()
       const allFilesMeta: ImageMeta[] = body.filesMeta
 
       if (!allFilesMeta || !Array.isArray(allFilesMeta)) {
-        throw new Error('Invalid commit data')
+        return NextResponse.json({ error: 'Invalid data format' }, { status: 400 })
+      }
+
+      // [新增] 唯一性校验：检查是否有重复的 Path
+      const pathSet = new Set<string>()
+      const duplicatePaths: string[] = []
+
+      for (const file of allFilesMeta) {
+        // 检查 path 是否已存在
+        if (pathSet.has(file.path)) {
+          duplicatePaths.push(file.path)
+        } else {
+          pathSet.add(file.path)
+        }
+      }
+
+      // [策略选择]：直接抛错给客户端
+      if (duplicatePaths.length > 0) {
+        console.error('Duplicate paths detected:', duplicatePaths)
+        return NextResponse.json(
+          {
+            error: 'Duplicate files detected',
+            details: duplicatePaths
+          },
+          { status: 400 }
+        )
       }
 
       // 重新排序
