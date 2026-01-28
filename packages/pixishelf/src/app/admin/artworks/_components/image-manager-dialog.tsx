@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { useTRPCClient } from '@/lib/trpc'
-import { RefreshCw, LayoutGrid, List as ListIcon, ZoomIn, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { RefreshCw, LayoutGrid, List as ListIcon, ZoomIn, ChevronLeft, ChevronRight, X, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProTable } from '@/components/shared/pro-table'
 import { ColumnDef } from '@tanstack/react-table'
@@ -13,6 +14,63 @@ import { ImageReplaceDialog } from './image-replace-dialog'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import Image from 'next/image'
 import Link from 'next/link'
+import { useInView } from 'react-intersection-observer'
+
+// --- Lazy Image Component ---
+const LazyImage = ({ src, alt, className, ...props }: any) => {
+  const { ref, inView } = useInView({
+    triggerOnce: true,
+    rootMargin: '100px 0px', // Preload when close
+    threshold: 0.1
+  })
+
+  return (
+    <div ref={ref} className={cn('relative w-full h-full bg-muted/30', className)}>
+      {inView ? (
+        <Image
+          src={src}
+          alt={alt}
+          className={cn('transition-opacity duration-300', className)}
+          loading="lazy"
+          {...props}
+        />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/20">
+          <Loader2 className="w-6 h-6 animate-spin" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// --- Hover Preview Portal ---
+const HoverPreview = ({ src, x, y, visible }: { src: string | null; x: number; y: number; visible: boolean }) => {
+  if (!visible || !src) return null
+
+  // Create portal to body to ensure it's on top of everything
+  if (typeof document === 'undefined') return null
+
+  // Limit position to avoid overflow
+  const screenW = typeof window !== 'undefined' ? window.innerWidth : 1000
+  const screenH = typeof window !== 'undefined' ? window.innerHeight : 800
+
+  // Adjust position if too close to right/bottom edge
+  const finalX = x + 320 > screenW ? x - 340 : x + 20
+  const finalY = y + 320 > screenH ? y - 320 : y + 20
+
+  return createPortal(
+    <div
+      className="fixed z-[9999] bg-background/95 backdrop-blur-sm border rounded-lg shadow-xl p-2 animate-in fade-in zoom-in-95 duration-200"
+      style={{ left: finalX, top: finalY, width: 320, maxWidth: '90vw' }}
+    >
+      <div className="relative aspect-square w-full bg-black/5 rounded-md overflow-hidden">
+        <Image src={src} alt="Preview" fill className="object-contain" />
+      </div>
+      <div className="mt-2 text-xs text-muted-foreground text-center break-all font-mono">{src.split('/').pop()}</div>
+    </div>,
+    document.body
+  )
+}
 
 interface ImageManagerDialogProps {
   open: boolean
@@ -48,6 +106,25 @@ export function ImageManagerDialog({
   const [showThumbnails, setShowThumbnails] = useState(false)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [showReplaceDialog, setShowReplaceDialog] = useState(false)
+
+  // --- Hover Preview Logic ---
+  const [hoverImage, setHoverImage] = useState<string | null>(null)
+  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
+  const hoverTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  const handleMouseEnter = useCallback((path: string, e: React.MouseEvent) => {
+    const { clientX, clientY } = e
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+    hoverTimerRef.current = setTimeout(() => {
+      setHoverImage(path)
+      setHoverPos({ x: clientX, y: clientY })
+    }, 600)
+  }, [])
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+    setHoverImage(null)
+  }, [])
 
   const fetchArtworkData = useCallback(() => {
     if (!artworkId) return
@@ -108,7 +185,12 @@ export function ImageManagerDialog({
       cell: ({ getValue }) => {
         const val = getValue<string>()
         return (
-          <div className="flex flex-col gap-0.5">
+          <div
+            className="flex flex-col gap-0.5 cursor-help"
+            onMouseEnter={(e) => handleMouseEnter(val, e)}
+            onMouseLeave={handleMouseLeave}
+            onClick={() => setHoverImage(null)} // Close on click if needed
+          >
             <span className="font-medium text-sm">{val.split('/').pop()}</span>
             <span className="text-[10px] text-neutral-400 truncate max-w-[300px]" title={val}>
               {val}
@@ -177,7 +259,7 @@ export function ImageManagerDialog({
       >
         <div className="flex flex-col h-full gap-4">
           {/* Toolbar */}
-          <div className="flex justify-between items-center px-1">
+          <div className="flex justify-between items-center px-1 shrink-0">
             <div className="flex items-center gap-2">
               <div className="flex items-center bg-muted p-1 rounded-md">
                 <Button
@@ -220,43 +302,56 @@ export function ImageManagerDialog({
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-hidden min-h-[400px]">
+          <div className="flex-1 min-h-0 relative flex flex-col">
             {showThumbnails ? (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-4 p-2 overflow-y-auto h-full content-start">
-                {imageList.map((img, index) => (
-                  <div
-                    key={img.id}
-                    className="group relative aspect-square bg-muted rounded-md overflow-hidden border hover:ring-2 hover:ring-primary cursor-pointer"
-                    onClick={() => setPreviewIndex(index)}
-                  >
-                    <Image
-                      src={`${img.path}`}
-                      alt={img.path}
-                      fill
-                      className="object-cover"
-                      sizes="(max-width: 768px) 33vw, 150px"
-                    />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <ZoomIn className="text-white w-6 h-6" />
-                    </div>
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] p-1 truncate text-center">
-                      #{img.sortOrder}
-                    </div>
-                  </div>
-                ))}
+              <div className="flex-1 overflow-y-auto p-2 pr-2">
+                <div className="columns-[240px] gap-4 space-y-4">
+                  {imageList.map((img, index) => {
+                    // Calculate aspect ratio or default to square if missing
+                    const aspectRatio = img.width && img.height ? img.width / img.height : 1
+
+                    return (
+                      <div
+                        key={img.id}
+                        className="group relative bg-muted rounded-md overflow-hidden border hover:ring-2 hover:ring-primary cursor-pointer shadow-sm break-inside-avoid"
+                        onClick={() => setPreviewIndex(index)}
+                      >
+                        <div style={{ aspectRatio: aspectRatio }} className="relative w-full">
+                          <LazyImage
+                            src={`${img.path}`}
+                            alt={img.path}
+                            fill
+                            className="object-cover"
+                            sizes="(max-width: 768px) 50vw, 240px"
+                          />
+                        </div>
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                          <ZoomIn className="text-white w-6 h-6" />
+                        </div>
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] p-1 truncate text-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                          #{img.sortOrder}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             ) : (
-              <ProTable
-                key={refreshKey}
-                columns={columns}
-                dataSource={imageList}
-                defaultPageSize={50}
-                className="h-full"
-              />
+              <div className="flex-1 overflow-auto h-full">
+                <ProTable
+                  key={refreshKey}
+                  columns={columns}
+                  dataSource={imageList}
+                  defaultPageSize={50}
+                  className="h-full"
+                />
+              </div>
             )}
           </div>
         </div>
       </ProDrawer>
+
+      <HoverPreview src={hoverImage} x={hoverPos.x} y={hoverPos.y} visible={!!hoverImage} />
 
       {/* Lightbox Preview */}
       <Dialog open={previewIndex !== null} onOpenChange={(open) => !open && setPreviewIndex(null)}>
