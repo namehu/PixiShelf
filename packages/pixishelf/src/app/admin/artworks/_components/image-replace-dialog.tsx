@@ -29,6 +29,7 @@ import { MEDIA_EXTENSIONS } from '../../../../../lib/constant'
 import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 import { formatFileSize } from '@/utils/media'
 import { guid } from '@/utils/guid'
+import { useThrottleFn } from 'ahooks'
 
 interface ImageReplaceDialogProps {
   open: boolean
@@ -94,30 +95,44 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   }, [previewItems, globalStatus])
 
   // 2. Scroll control logic
+  const { run: runThrottledScroll } = useThrottleFn(
+    (id: string) => {
+      const row = document.getElementById(`row-${id}`)
+      const container = scrollContainerRef.current
+
+      if (row && container) {
+        const rowTop = row.offsetTop
+        const rowBottom = rowTop + row.offsetHeight
+        const containerTop = container.scrollTop
+        const containerBottom = containerTop + container.clientHeight
+
+        const isAbove = rowTop < containerTop
+        const isBelow = rowBottom > containerBottom
+
+        if (isAbove || isBelow) {
+          // 计算当前视口位置与目标位置的距离
+          // 如果距离过大（例如 > 2000px），使用 'auto' 瞬间跳转，避免过长的平滑滚动导致等待
+          const distance = Math.abs(containerTop - rowTop)
+          const isFar = distance > 2000
+
+          row.scrollIntoView({
+            behavior: isFar ? 'auto' : 'smooth', // 智能切换滚动模式
+            block: 'nearest'
+          })
+        }
+      }
+    },
+    { wait: 200 } // 200ms 节流，平衡流畅度与性能
+  )
+
   useEffect(() => {
     if (!activeItemId || activeItemId === lastScrolledIdRef.current) return
 
     lastScrolledIdRef.current = activeItemId
 
-    requestAnimationFrame(() => {
-      const row = document.getElementById(`row-${activeItemId}`)
-
-      if (row && scrollContainerRef.current) {
-        const container = scrollContainerRef.current
-        const rowRect = row.getBoundingClientRect()
-        const containerRect = container.getBoundingClientRect()
-
-        const isOutOfView = rowRect.bottom > containerRect.bottom || rowRect.top < containerRect.top
-
-        if (isOutOfView) {
-          row.scrollIntoView({
-            behavior: 'smooth',
-            block: 'nearest'
-          })
-        }
-      }
-    })
-  }, [activeItemId])
+    // 调用节流滚动函数
+    runThrottledScroll(activeItemId)
+  }, [activeItemId, runThrottledScroll])
 
   // 3. Auto-scroll to bottom when new files are added
   useEffect(() => {
