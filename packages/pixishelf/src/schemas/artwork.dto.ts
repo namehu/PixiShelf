@@ -51,7 +51,17 @@ export const ArtworksInfiniteQuerySchema = z.object({
     .string()
     .optional()
     .default('all')
-    .transform((val) => (val as MediaTypeFilter) || 'all')
+    .transform((val) => (val as MediaTypeFilter) || 'all'),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
+    .optional()
+    .nullish(),
+  endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
+    .optional()
+    .nullish()
 })
 
 export type ArtworksInfiniteQuerySchema = z.infer<typeof ArtworksInfiniteQuerySchema>

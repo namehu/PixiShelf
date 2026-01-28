@@ -4,6 +4,7 @@ import path from 'path'
 import { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { TImageModel } from '@/schemas/models'
 import { isApngFile, isVideoFile } from '../../../lib/media'
+import dayjs from 'dayjs'
 
 /**
  * 转换单个作品数据为 DTO 格式
@@ -15,6 +16,7 @@ export function transformSingleArtwork(artwork: any) {
   // 构建响应对象
   const result = {
     ...artwork,
+    sourceDate: artwork.sourceDate ? dayjs(artwork.sourceDate).format('YYYY-MM-DD HH:mm:ss') : null,
     images: images,
     firstImagePath: images.length > 0 ? path.dirname(images[0]!.path) : null, // 新增：首图路径
     tags: artwork.artworkTags?.map((at: any) => at.tag.name) || [],

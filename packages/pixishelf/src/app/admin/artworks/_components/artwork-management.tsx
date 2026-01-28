@@ -18,6 +18,9 @@ import { ColumnDef, RowSelectionState } from '@tanstack/react-table'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Search, RotateCcw } from 'lucide-react'
+import { ProDatePicker, ProDatePickerPresets } from '@/components/shared/pro-date-picker'
+import { format } from 'date-fns'
+import { DateRange } from 'react-day-picker'
 
 // 定义作品列表项类型
 export interface ArtworkListItem {
@@ -51,6 +54,8 @@ export default function ArtworkManagement() {
   const [searchState, setSearchState] = useQueryStates({
     title: parseAsString,
     artistName: parseAsString,
+    startDate: parseAsString,
+    endDate: parseAsString,
     page: parseAsInteger.withDefault(1),
     pageSize: parseAsInteger.withDefault(20)
   })
@@ -58,22 +63,28 @@ export default function ArtworkManagement() {
   // Local state for search inputs
   const [localSearch, setLocalSearch] = useState({
     title: searchState.title || '',
-    artistName: searchState.artistName || ''
+    artistName: searchState.artistName || '',
+    startDate: searchState.startDate || '',
+    endDate: searchState.endDate || ''
   })
 
   const handleSearch = () => {
     setSearchState({
       title: localSearch.title || null,
       artistName: localSearch.artistName || null,
+      startDate: localSearch.startDate || null,
+      endDate: localSearch.endDate || null,
       page: 1 // 重置到第一页
     })
   }
 
   const handleReset = () => {
-    setLocalSearch({ title: '', artistName: '' })
+    setLocalSearch({ title: '', artistName: '', startDate: '', endDate: '' })
     setSearchState({
       title: null,
       artistName: null,
+      startDate: null,
+      endDate: null,
       page: 1,
       pageSize: 20
     })
@@ -257,28 +268,24 @@ export default function ArtworkManagement() {
     {
       header: '标题',
       accessorKey: 'title',
+      size: 220,
       cell: ({ row }) => (
-        <Link href={`/artworks/${row.original.id}`} className="hover:underline font-medium" target="_blank">
-          {row.original.title}
-        </Link>
-      )
-    },
-    {
-      header: '路径',
-      accessorKey: 'firstImagePath',
-      cell: ({ row }) => (
-        <span
-          className="font-mono text-xs text-neutral-400 truncate max-w-[200px] block"
-          title={row.original.firstImagePath}
-        >
-          {row.original.firstImagePath || '-'}
-        </span>
+        <div className="font-medium">
+          <div className="text-ellipsis whitespace-nowrap">{row.original.title}</div>
+          <span className="font-mono text-xs text-neutral-400 truncate max-w-[200px] block">
+            {row.original.firstImagePath || '-'}
+          </span>
+        </div>
       )
     },
     {
       header: '作者',
-      accessorKey: 'artist', // or use a custom accessor
+      accessorKey: 'artist',
       cell: ({ row }) => row.original.artist?.name || '未知'
+    },
+    {
+      header: '发布日期',
+      accessorKey: 'sourceDate'
     },
     {
       header: '图片数',
@@ -287,7 +294,7 @@ export default function ArtworkManagement() {
       cell: ({ row }) => (
         <Button
           variant="link"
-          className="p-0 h-auto font-mono hover:underline text-neutral-900 cursor-pointer"
+          className="h-auto font-mono hover:underline cursor-pointer"
           onClick={() => handleOpenImageManager(row.original)}
           title="管理图片"
         >
@@ -331,7 +338,9 @@ export default function ArtworkManagement() {
         cursor: params.current,
         pageSize: params.pageSize,
         search: searchState.title,
-        artistName: searchState.artistName
+        artistName: searchState.artistName,
+        startDate: searchState.startDate,
+        endDate: searchState.endDate
       })
       const { items, total } = res
 
@@ -416,6 +425,29 @@ export default function ArtworkManagement() {
               className="h-8 w-full md:w-[150px]"
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
+
+            {/* 时间范围筛选 */}
+            <div className="w-[260px]">
+              <ProDatePicker
+                mode="range"
+                placeholder="选择日期范围"
+                value={{
+                  from: localSearch.startDate ? new Date(localSearch.startDate) : undefined,
+                  to: localSearch.endDate ? new Date(localSearch.endDate) : undefined
+                }}
+                onChange={(date) => {
+                  const range = date as DateRange | undefined
+                  setLocalSearch((prev) => ({
+                    ...prev,
+                    startDate: range?.from ? format(range.from, 'yyyy-MM-dd') : '',
+                    endDate: range?.to ? format(range.to, 'yyyy-MM-dd') : ''
+                  }))
+                }}
+                presets={ProDatePickerPresets.range}
+                className="w-full"
+              />
+            </div>
+
             <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
               <Button variant="default" size="sm" onClick={handleSearch} className="h-8 px-3 flex-1 md:flex-none">
                 <Search className="w-4 h-4 mr-1" />
