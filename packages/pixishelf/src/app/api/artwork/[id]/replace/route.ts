@@ -3,17 +3,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 import fs from 'fs'
 import fsPromises from 'fs/promises'
-import busboy from 'busboy'
-import sharp from 'sharp'
-import { Readable } from 'stream'
 import { getScanPath } from '@/services/setting.service'
 import { updateArtworkImagesTransaction, ImageMeta } from '@/services/artwork-service/image-manager'
 import { MEDIA_EXTENSIONS } from '../../../../../../lib/constant'
 import { getArtworkById } from '@/services/artwork-service'
-import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 
 // 定义 API 支持的操作类型
-type ActionType = 'init' | 'upload' | 'commit' | 'rollback'
+type ActionType = 'init' | 'commit' | 'rollback'
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -76,82 +72,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     // ==========================================
-    // Phase 2: 分批上传 (流式写入)
-    // ==========================================
-    if (action === 'upload') {
-      const headers: any = {}
-      for (const [key, value] of req.headers.entries()) headers[key] = value
-      const bb = busboy({ headers })
-
-      const filesMeta: ImageMeta[] = []
-      const filePromises: Promise<void>[] = []
-
-      bb.on('file', (name, file, info) => {
-        const { filename } = info
-        const savePath = path.join(targetDir, filename)
-
-        const p = new Promise<void>((resolve, reject) => {
-          const writeStream = fs.createWriteStream(savePath)
-          file.on('error', reject)
-          writeStream.on('error', reject)
-
-          // 使用 sharp 流式获取元数据
-          const pipeline = sharp()
-          pipeline
-            .metadata()
-            .then((metadata) => {
-              filesMeta.push({
-                fileName: filename,
-                // 注意：这里我们不立即生成 Order，而是返回给前端，由前端最终汇总
-                order: extractOrderFromName(filename),
-                width: metadata.width || 0,
-                height: metadata.height || 0,
-                size: metadata.size || 0,
-                path: path.join(targetRelDir, filename).replace(/\\/g, '/')
-              })
-            })
-            .catch((err) => console.warn('Sharp meta error:', err))
-
-          file
-            .pipe(pipeline)
-            .pipe(writeStream)
-            .on('finish', () => {
-              // 再次确认文件大小（sharp流可能不准）
-              fsPromises
-                .stat(savePath)
-                .then((stats) => {
-                  const meta = filesMeta.find((m) => m.fileName === filename)
-                  if (meta) meta.size = stats.size
-                  resolve()
-                })
-                .catch(reject)
-            })
-        })
-        filePromises.push(p)
-      })
-
-      // 将 Web Stream 转 Node Stream
-      // @ts-ignore
-      Readable.fromWeb(req.body as any).pipe(bb)
-
-      return new Promise((resolve) => {
-        bb.on('finish', async () => {
-          try {
-            await Promise.all(filePromises)
-            // 返回这一批次上传成功的文件的元数据
-            resolve(NextResponse.json({ success: true, meta: filesMeta }))
-          } catch (error: any) {
-            resolve(NextResponse.json({ error: error.message }, { status: 500 }))
-          }
-        })
-        bb.on('error', (err: any) =>
-          resolve(NextResponse.json({ error: err?.message || 'Busboy error' }, { status: 500 }))
-        )
-      })
-    }
-
-    // ==========================================
-    // Phase 3: 提交 (数据库更新 & 清理)
+    // Phase 2: 提交 (数据库更新 & 清理)
     // ==========================================
     if (action === 'commit') {
       const body = await req.json()
@@ -199,7 +120,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     // ==========================================
-    // Phase 4: 回滚 (恢复备份)
+    // Phase 3: 回滚 (恢复备份)
     // ==========================================
     if (action === 'rollback') {
       // 1. 删除当前目录下的所有媒体文件（这些是上传失败产生的新文件）
