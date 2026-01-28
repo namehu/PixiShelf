@@ -12,9 +12,9 @@ import { MigrationDialog } from './migration-dialog'
 import { ImageManagerDialog } from './image-manager-dialog'
 import { confirm } from '@/components/shared/global-confirm'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
-import { ProTable } from '@/components/shared/pro-table'
+import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { useMutation } from '@tanstack/react-query'
-import { ColumnDef, RowSelectionState } from '@tanstack/react-table'
+import { RowSelectionState } from '@tanstack/react-table'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Search, RotateCcw } from 'lucide-react'
@@ -237,7 +237,7 @@ export default function ArtworkManagement() {
   }
 
   // ProTable 列定义
-  const columns: ColumnDef<ArtworkListItem>[] = [
+  const columns: ProColumnDef<ArtworkListItem>[] = [
     {
       id: 'select',
       header: ({ table }) => (
@@ -263,16 +263,23 @@ export default function ArtworkManagement() {
       header: '作品id',
       accessorKey: 'externalId',
       size: 180,
+      copyable: true,
       cell: ({ row }) => (row.original as any).externalId || '-'
     },
     {
       header: '标题',
       accessorKey: 'title',
-      size: 220,
+      size: 240,
+      ellipsis: true,
       cell: ({ row }) => (
         <div className="font-medium">
-          <div className="text-ellipsis whitespace-nowrap">{row.original.title}</div>
-          <span className="font-mono text-xs text-neutral-400 truncate max-w-[200px] block">
+          <div className="truncate" title={row.original.title}>
+            {row.original.title}
+          </div>
+          <span
+            className="font-mono text-xs text-neutral-400 truncate max-w-[200px] block"
+            title={row.original.firstImagePath}
+          >
             {row.original.firstImagePath || '-'}
           </span>
         </div>

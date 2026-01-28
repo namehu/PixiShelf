@@ -6,8 +6,7 @@ import { Button } from '@/components/ui/button'
 import { useTRPCClient } from '@/lib/trpc'
 import { RefreshCw, LayoutGrid, List as ListIcon, ZoomIn, ChevronLeft, ChevronRight, X, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { ProTable } from '@/components/shared/pro-table'
-import { ColumnDef } from '@tanstack/react-table'
+import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { formatFileSize } from '@/utils/media'
 import { ProDrawer } from '@/components/shared/pro-drawer'
 import { ImageReplaceDialog } from './image-replace-dialog'
@@ -172,7 +171,7 @@ export function ImageManagerDialog({
   }, [handleKeyDown])
 
   // --- Table Columns ---
-  const columns: ColumnDef<ImageListItem>[] = [
+  const columns: ProColumnDef<ImageListItem>[] = [
     {
       header: 'Order',
       accessorKey: 'sortOrder',

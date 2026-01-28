@@ -10,9 +10,9 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { updateTagStatsAction, exportUntranslatedTagsAction } from '@/actions/tag-action'
 import { getTranslateName } from '@/utils/tags'
-import { ProTable } from '@/components/shared/pro-table'
+import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
-import { ColumnDef, SortingState } from '@tanstack/react-table'
+import { SortingState } from '@tanstack/react-table'
 
 // 导入子组件
 import { TagStatsCards } from './tag-stats-cards'
@@ -168,7 +168,7 @@ export default function TagManagement() {
   }
 
   // 表格列定义
-  const columns: ColumnDef<TagListItem>[] = [
+  const columns: ProColumnDef<TagListItem>[] = [
     {
       header: '标签名称',
       accessorKey: 'name',

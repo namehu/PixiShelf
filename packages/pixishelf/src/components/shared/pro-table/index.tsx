@@ -19,10 +19,27 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, RefreshCcw } from 'lucide-react'
+import { Loader2, RefreshCcw, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 // --- 类型定义 ---
+
+/**
+ * 扩展的列定义，支持 ellipsis 和 copyable
+ */
+export type ProColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
+  /**
+   * 是否自动处理超出隐藏 (text-overflow: ellipsis)
+   * @default false
+   */
+  ellipsis?: boolean
+  /**
+   * 是否支持点击复制内容
+   * @default false
+   */
+  copyable?: boolean
+}
 
 /**
  * request 函数返回的数据结构
@@ -51,9 +68,9 @@ export type ActionType = {
  */
 interface ProTableProps<TData, TValue> {
   /**
-   * @tanstack/react-table 的列定义
+   * @tanstack/react-table 的列定义 (扩展了 ellipsis/copyable)
    */
-  columns: ColumnDef<TData, TValue>[]
+  columns: ProColumnDef<TData, TValue>[]
 
   /**
    * 本地数据源。
@@ -327,9 +344,44 @@ export function ProTable<TData, TValue>({
             ) : table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
-                  ))}
+                  {row.getVisibleCells().map((cell) => {
+                    const columnDef = cell.column.columnDef as ProColumnDef<TData, TValue>
+                    const content = flexRender(columnDef.cell, cell.getContext())
+
+                    if (columnDef.ellipsis || columnDef.copyable) {
+                      const value = cell.getValue()
+                      const displayValue =
+                        typeof value === 'string' || typeof value === 'number' ? String(value) : undefined
+
+                      return (
+                        <TableCell
+                          key={cell.id}
+                          style={{ maxWidth: columnDef.size !== 150 ? columnDef.size : undefined }}
+                        >
+                          <div className="flex items-center gap-2 max-w-full">
+                            {columnDef.copyable && displayValue && (
+                              <Copy
+                                className="h-3 w-3 cursor-pointer text-muted-foreground hover:text-foreground shrink-0"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  navigator.clipboard.writeText(displayValue)
+                                  toast.success('已复制')
+                                }}
+                              />
+                            )}
+                            <div
+                              className={cn('flex-1', columnDef.ellipsis && 'truncate')}
+                              title={columnDef.ellipsis ? displayValue : undefined}
+                            >
+                              {content}
+                            </div>
+                          </div>
+                        </TableCell>
+                      )
+                    }
+
+                    return <TableCell key={cell.id}>{content}</TableCell>
+                  })}
                 </TableRow>
               ))
             ) : (
