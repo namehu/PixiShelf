@@ -9,9 +9,10 @@ import {
   startOfMonth,
   endOfMonth,
   isValid,
+  isSameMonth,
   type Locale
 } from 'date-fns'
-import { zhCN } from 'date-fns/locale' // 默认引入中文，可按需修改
+import { zhCN } from 'date-fns/locale'
 import { Calendar as CalendarIcon, X } from 'lucide-react'
 import { DateRange, Matcher, SelectRangeEventHandler, SelectSingleEventHandler } from 'react-day-picker'
 
@@ -87,7 +88,7 @@ const formatDateValue = (
     const range = value as DateRange
     // 只显示 from
     if (range.from && !range.to) {
-      return format(range.from, formatStr, formatOptions)
+      return `${format(range.from, formatStr, formatOptions)} - ` // AntD 风格：只选开始时显示 "开始 - "
     }
     // 显示完整区间
     if (range.from && range.to) {
@@ -122,25 +123,61 @@ export function ProDatePicker({
   const [open, setOpen] = React.useState(false)
   const [internalDate, setInternalDate] = React.useState<Date | DateRange | undefined>(defaultValue)
 
-  // 1. 核心状态逻辑：判断是受控还是非受控
+  // 核心修复1：显式控制日历当前显示的月份
+  const [currentMonth, setCurrentMonth] = React.useState<Date>(new Date())
+
   const isControlled = valueProp !== undefined
   const date = isControlled ? valueProp : internalDate
 
-  // 2. 统一处理选值
+  // 核心修复1续：当弹窗打开时，定位到当前选中的月份
+  React.useEffect(() => {
+    if (open) {
+      let targetMonth = new Date()
+      if (mode === 'single' && date instanceof Date) {
+        targetMonth = date
+      } else if (mode === 'range') {
+        const range = date as DateRange
+        if (range?.from) targetMonth = range.from
+        // 如果有 to 且 from 和 to 不在同一个月，AntD通常也是定位到 from
+      }
+      setCurrentMonth(startOfMonth(targetMonth))
+    }
+  }, [open, mode, date])
+
   const handleSelect = React.useCallback(
     (selected: Date | DateRange | undefined) => {
-      if (!isControlled) {
-        setInternalDate(selected)
+      let finalSelected = selected
+
+      // 核心修复2 & 3：Range 模式下的 AntD 逻辑对其
+      if (mode === 'range' && selected) {
+        const range = selected as DateRange
+
+        // 1. 强制时间标准化：From 设为 00:00:00, To 设为 23:59:59
+        const normalizedRange: DateRange = {
+          from: range.from ? startOfDay(range.from) : undefined,
+          to: range.to ? endOfDay(range.to) : undefined
+        }
+
+        // react-day-picker 的 range 模式有个特性：
+        // 如果你点击同一个日期两次，它可能会把 range 变成 undefined 或者 {from: T, to: T}
+        // 为了符合 AntD 直觉：
+        // - 如果只有 from，没 to -> 只是开始
+        // - 如果 from 和 to 都有 -> 结束
+        finalSelected = normalizedRange
       }
-      onChange?.(selected)
+
+      if (!isControlled) {
+        setInternalDate(finalSelected)
+      }
+      onChange?.(finalSelected)
 
       // 自动关闭逻辑
       if (closeOnSelect) {
-        if (mode === 'single' && selected) {
+        if (mode === 'single' && finalSelected) {
           setOpen(false)
         } else if (mode === 'range') {
-          const range = selected as DateRange
-          // 当 from 和 to 都存在时才关闭，且防止同日点击造成的闪烁
+          const range = finalSelected as DateRange
+          // 只有当完整选择区间后才关闭
           if (range?.from && range?.to) {
             setOpen(false)
           }
@@ -150,33 +187,42 @@ export function ProDatePicker({
     [isControlled, onChange, closeOnSelect, mode]
   )
 
-  // 3. 处理清空
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation()
     handleSelect(undefined)
   }
 
-  // 4. 处理预设点击
   const handlePresetSelect = (presetValue: Date | DateRange) => {
     handleSelect(presetValue)
-    // 预设点击通常直接关闭弹窗
     setOpen(false)
   }
 
   const displayValue = formatDateValue(date, formatStr, mode, placeholder, locale)
   const hasValue = mode === 'single' ? date instanceof Date && isValid(date) : !!(date as DateRange)?.from
 
-  // 5. 分离 Single 和 Range 的 Props 以满足 TypeScript 类型检查
+  // ----------------------------------------------------------------------
+  // Render Calendar
+  // ----------------------------------------------------------------------
+
   const renderCalendar = () => {
+    const commonProps = {
+      locale,
+      disabled: disabledDate,
+      // 核心修复1：受控的 month
+      month: currentMonth,
+      onMonthChange: setCurrentMonth
+    }
+
     if (mode === 'range') {
       return (
         <Calendar
           mode="range"
           selected={date as DateRange | undefined}
           onSelect={handleSelect as SelectRangeEventHandler}
-          disabled={disabledDate}
           numberOfMonths={2}
-          locale={locale}
+          // 默认选中行为设置，防止点击已选范围变成取消选择
+          min={2}
+          {...commonProps}
         />
       )
     }
@@ -186,8 +232,7 @@ export function ProDatePicker({
         mode="single"
         selected={date as Date | undefined}
         onSelect={handleSelect as SelectSingleEventHandler}
-        disabled={disabledDate}
-        locale={locale}
+        {...commonProps}
       />
     )
   }
@@ -202,7 +247,6 @@ export function ProDatePicker({
             'flex w-full justify-start text-left font-normal relative',
             !hasValue && 'text-muted-foreground',
             error && 'border-destructive text-destructive hover:bg-destructive/5 focus-visible:ring-destructive/20',
-            // 给清除按钮留出 padding
             clearable && hasValue ? 'pr-8' : 'pr-3',
             className
           )}
@@ -238,7 +282,6 @@ export function ProDatePicker({
                       size="sm"
                       className={cn(
                         'justify-start font-normal text-xs h-8 px-2 overflow-hidden text-ellipsis whitespace-nowrap'
-                        // 可选：如果预设值等于当前值，高亮显示（比较复杂，这里暂略）
                       )}
                       onClick={() => handlePresetSelect(preset.value)}
                     >
@@ -264,7 +307,7 @@ export function ProDatePicker({
 }
 
 // ----------------------------------------------------------------------
-// Common Presets (Exports)
+// Common Presets
 // ----------------------------------------------------------------------
 
 export const ProDatePickerPresets = {
@@ -284,11 +327,11 @@ export const ProDatePickerPresets = {
     },
     {
       label: '最近7天',
-      value: { from: subDays(new Date(), 6), to: new Date() }
+      value: { from: startOfDay(subDays(new Date(), 6)), to: endOfDay(new Date()) } // 修复预设: 保证是start/end
     },
     {
       label: '最近30天',
-      value: { from: subDays(new Date(), 29), to: new Date() }
+      value: { from: startOfDay(subDays(new Date(), 29)), to: endOfDay(new Date()) }
     },
     {
       label: '本周',
