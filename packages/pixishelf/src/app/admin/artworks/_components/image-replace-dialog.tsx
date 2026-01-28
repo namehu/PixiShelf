@@ -524,10 +524,6 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     return lastMeta
   }
 
-  // Design Decisions:
-  // 1. Continuity Check: Detects gaps in the file sequence (e.g., 1, 3) and inserts a visual warning row to alert the user.
-  // 2. Visual Hierarchy: Emphasizes the 'New Filename' (bold, dark) over 'Original Filename' (muted, small) to focus on the final state.
-  // 3. Layout Optimization: Moves statistics to the footer to declutter the list view and group status info with actions.
   return (
     <Dialog
       open={open}

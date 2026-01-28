@@ -63,7 +63,7 @@ const HoverPreview = ({ src, x, y, visible }: { src: string | null; x: number; y
       style={{ left: finalX, top: finalY, width: 320, maxWidth: '90vw' }}
     >
       <div className="relative aspect-square w-full bg-black/5 rounded-md overflow-hidden">
-        <Image src={src} alt="Preview" fill className="object-contain" />
+        <Image src={src} alt="Preview" sizes="(max-width: 320px) 100vw, 320px" fill className="object-contain" />
       </div>
       <div className="mt-2 text-xs text-muted-foreground text-center break-all font-mono">{src.split('/').pop()}</div>
     </div>,
@@ -117,7 +117,7 @@ export function ImageManagerDialog({
     hoverTimerRef.current = setTimeout(() => {
       setHoverImage(path)
       setHoverPos({ x: clientX, y: clientY })
-    }, 600)
+    }, 150)
   }, [])
 
   const handleMouseLeave = useCallback(() => {
@@ -185,12 +185,18 @@ export function ImageManagerDialog({
         const val = getValue<string>()
         return (
           <div
-            className="flex flex-col gap-0.5 cursor-help"
-            onMouseEnter={(e) => handleMouseEnter(val, e)}
-            onMouseLeave={handleMouseLeave}
+            className="flex flex-col gap-0.5"
             onClick={() => setHoverImage(null)} // Close on click if needed
           >
-            <span className="font-medium text-sm">{val.split('/').pop()}</span>
+            <span>
+              <span
+                className="font-medium text-sm cursor-help"
+                onMouseEnter={(e) => handleMouseEnter(val, e)}
+                onMouseLeave={handleMouseLeave}
+              >
+                {val.split('/').pop()}
+              </span>
+            </span>
             <span className="text-[10px] text-neutral-400 truncate max-w-[300px]" title={val}>
               {val}
             </span>
