@@ -241,11 +241,9 @@ export function ImageManagerDialog({
         }
         description={
           <span className="flex items-center gap-2 text-xs">
-            <span className="font-mono">{artwork.externalId}</span>
+            <span className="font-mono">ID: {artwork.externalId}</span>
             <span>•</span>
-            <span>{imageList.length} images</span>
-            <span>•</span>
-            <span>{firstImagePath} </span>
+            <span>图片路径: {firstImagePath} </span>
           </span>
         }
         width="80%"
@@ -294,11 +292,13 @@ export function ImageManagerDialog({
                 刷新
               </Button>
             </div>
-            <div className="text-xs text-muted-foreground">
-              {imageList.length > 0 && (
-                <span>Total Size: {formatFileSize(imageList.reduce((acc, cur) => acc + (cur.size || 0), 0))}</span>
-              )}
-            </div>
+            {imageList.length > 0 && (
+              <div className="text-xs text-muted-foreground flex items-center gap-3">
+                <span>{imageList.length} 张</span>
+                <span>•</span>
+                <span>共: {formatFileSize(imageList.reduce((acc, cur) => acc + (cur.size || 0), 0))}</span>
+              </div>
+            )}
           </div>
 
           {/* Content */}

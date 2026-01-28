@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -459,6 +459,10 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     return lastMeta
   }
 
+  // Design Decisions:
+  // 1. Continuity Check: Detects gaps in the file sequence (e.g., 1, 3) and inserts a visual warning row to alert the user.
+  // 2. Visual Hierarchy: Emphasizes the 'New Filename' (bold, dark) over 'Original Filename' (muted, small) to focus on the final state.
+  // 3. Layout Optimization: Moves statistics to the footer to declutter the list view and group status info with actions.
   return (
     <Dialog
       open={open}
@@ -539,12 +543,6 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
           {/* Preview List */}
           {previewItems.length > 0 && (
             <div className="border rounded-md overflow-hidden flex flex-col max-h-[400px]">
-              <div className="bg-neutral-100 px-4 py-2 text-xs font-medium text-neutral-500 flex justify-between items-center shrink-0">
-                <span>待上传: {previewItems.length} 个文件</span>
-                <span className="text-neutral-400">
-                  总大小: {formatFileSize(previewItems.reduce((acc, cur) => acc + cur.size, 0))}
-                </span>
-              </div>
               <div className="overflow-y-auto flex-1" ref={scrollContainerRef}>
                 <Table>
                   <TableHeader className="sticky top-0 bg-white z-10">
@@ -552,81 +550,122 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                       <TableHead className="w-[80px]">Order</TableHead>
                       <TableHead>原文件名</TableHead>
                       <TableHead>新文件名</TableHead>
-                      <TableHead className="w-[150px]">进度</TableHead>
+                      <TableHead className="w-[180px]">进度</TableHead>
                       <TableHead className="w-[100px]">状态</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {previewItems.map((item, index) => (
-                      <TableRow
-                        key={item.id}
-                        id={`file-row-${index}`}
-                        className={cn(item.error && 'bg-red-50', item.status === 'uploading' && 'bg-blue-50')}
-                      >
-                        <TableCell>
-                          <Input
-                            type="number"
-                            value={item.order}
-                            onChange={(e) => handleOrderChange(index, parseInt(e.target.value) || 0)}
-                            className="h-7 w-16 text-center px-1"
-                            disabled={globalStatus !== 'idle'}
-                          />
-                        </TableCell>
-                        <TableCell className="font-mono text-xs truncate max-w-[150px]" title={item.originalName}>
-                          {item.originalName}
-                        </TableCell>
-                        <TableCell
-                          className="font-mono text-xs text-neutral-500 truncate max-w-[150px]"
-                          title={item.newName}
-                        >
-                          {item.newName}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Progress value={item.progress} className="h-2 w-20" />
-                            <span className="text-[10px] text-muted-foreground">{item.progress}%</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {item.status === 'error' ? (
-                            <div className="flex items-center gap-1">
-                              <span className="text-red-500 text-xs flex items-center gap-1">
-                                <XCircle className="w-3 h-3" />
-                                失败
-                              </span>
-                              {globalStatus === 'partial-error' && (
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-5 w-5"
-                                  onClick={() => handleRetrySingle(index)}
-                                  title="重试"
-                                >
-                                  <RotateCcw className="w-3 h-3" />
-                                </Button>
-                              )}
-                            </div>
-                          ) : item.status === 'success' ? (
-                            <span className="text-green-500 text-xs flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" />
-                              完成
-                            </span>
-                          ) : item.status === 'uploading' ? (
-                            <span className="text-blue-500 text-xs flex items-center gap-1">
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                              上传中
-                            </span>
-                          ) : item.error ? (
-                            <span className="text-red-500 text-xs flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" />
-                              冲突
-                            </span>
-                          ) : (
-                            <span className="text-neutral-400 text-xs">等待</span>
+                    {previewItems.map((item, index) => {
+                      const prevItem = previewItems[index - 1]
+                      const isGap = prevItem && item.order !== prevItem.order + 1
+                      const gapSize = prevItem ? item.order - prevItem.order - 1 : 0
+
+                      return (
+                        <Fragment key={item.id}>
+                          {isGap && (
+                            <TableRow className="bg-orange-50/50 hover:bg-orange-50/50">
+                              <TableCell
+                                colSpan={5}
+                                className="py-2 text-center text-xs text-orange-600 font-medium border-y border-orange-100"
+                              >
+                                <div className="flex items-center justify-center gap-2">
+                                  <AlertTriangle className="w-3 h-3" />
+                                  <span>
+                                    序号中断：缺少 {gapSize} 个文件 (序号 {prevItem.order + 1} - {item.order - 1})
+                                  </span>
+                                </div>
+                              </TableCell>
+                            </TableRow>
                           )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          <TableRow
+                            id={`file-row-${index}`}
+                            className={cn(item.error && 'bg-red-50', item.status === 'uploading' && 'bg-blue-50')}
+                          >
+                            <TableCell>
+                              <Input
+                                type="number"
+                                value={item.order}
+                                onChange={(e) => handleOrderChange(index, parseInt(e.target.value) || 0)}
+                                className="h-7 w-16 text-center px-1"
+                                disabled={globalStatus !== 'idle'}
+                              />
+                            </TableCell>
+                            <TableCell
+                              className="font-mono text-xs text-neutral-400 truncate max-w-[150px]"
+                              title={item.originalName}
+                            >
+                              {item.originalName}
+                            </TableCell>
+                            <TableCell className="max-w-[150px]" title={item.newName}>
+                              {(() => {
+                                const match = item.newName.match(/^(.*_p)(\d+)(\..*)$/)
+                                if (match) {
+                                  return (
+                                    <div className="font-mono text-xs truncate">
+                                      <span className="text-neutral-400">{match[1]}</span>
+                                      <span className="text-foreground font-bold text-base mx-0.5">{match[2]}</span>
+                                      <span className="text-neutral-400">{match[3]}</span>
+                                    </div>
+                                  )
+                                }
+                                return (
+                                  <div className="font-mono text-sm font-bold text-foreground truncate">
+                                    {item.newName}
+                                  </div>
+                                )
+                              })()}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-2">
+                                  <Progress value={item.progress} className="h-2 w-20" />
+                                  <span className="text-[10px] text-muted-foreground">{item.progress}%</span>
+                                </div>
+                                <span className="text-[10px] text-neutral-400">{formatFileSize(item.size)}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {item.status === 'error' ? (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-red-500 text-xs flex items-center gap-1">
+                                    <XCircle className="w-3 h-3" />
+                                    失败
+                                  </span>
+                                  {globalStatus === 'partial-error' && (
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-5 w-5"
+                                      onClick={() => handleRetrySingle(index)}
+                                      title="重试"
+                                    >
+                                      <RotateCcw className="w-3 h-3" />
+                                    </Button>
+                                  )}
+                                </div>
+                              ) : item.status === 'success' ? (
+                                <span className="text-green-500 text-xs flex items-center gap-1">
+                                  <CheckCircle className="w-3 h-3" />
+                                  完成
+                                </span>
+                              ) : item.status === 'uploading' ? (
+                                <span className="text-blue-500 text-xs flex items-center gap-1">
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  上传中
+                                </span>
+                              ) : item.error ? (
+                                <span className="text-red-500 text-xs flex items-center gap-1">
+                                  <AlertTriangle className="w-3 h-3" />
+                                  冲突
+                                </span>
+                              ) : (
+                                <span className="text-neutral-400 text-xs">等待</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        </Fragment>
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -634,42 +673,50 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
           )}
         </div>
 
-        <DialogFooter className="gap-2">
-          {globalStatus === 'partial-error' ? (
-            <>
-              <Button variant="ghost" onClick={() => onOpenChange(false)}>
-                取消 (回滚)
-              </Button>
-              <Button variant="outline" onClick={handleRetryAllFailed} className="gap-1">
-                <RotateCcw className="w-4 h-4" /> 重试失败项
-              </Button>
-              <Button variant="destructive" onClick={handleIgnoreAndCommit} className="gap-1">
-                <FileWarning className="w-4 h-4" /> 忽略失败并提交
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="ghost"
-                onClick={() => onOpenChange(false)}
-                disabled={globalStatus === 'uploading' || globalStatus === 'syncing'}
-              >
-                取消
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={startReplace}
-                disabled={
-                  files.length === 0 ||
-                  globalStatus === 'uploading' ||
-                  globalStatus === 'syncing' ||
-                  previewItems.some((i) => i.error)
-                }
-              >
-                {globalStatus === 'uploading' ? '上传中...' : '确认全量替换'}
-              </Button>
-            </>
-          )}
+        <DialogFooter className="gap-2 sm:justify-between">
+          <div className="text-xs text-neutral-500 flex gap-4 items-center">
+            <span>待上传: {previewItems.length} 个文件</span>
+            <span className="text-neutral-400">
+              总大小: {formatFileSize(previewItems.reduce((acc, cur) => acc + cur.size, 0))}
+            </span>
+          </div>
+          <div className="flex gap-2 justify-end">
+            {globalStatus === 'partial-error' ? (
+              <>
+                <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                  取消 (回滚)
+                </Button>
+                <Button variant="outline" onClick={handleRetryAllFailed} className="gap-1">
+                  <RotateCcw className="w-4 h-4" /> 重试失败项
+                </Button>
+                <Button variant="destructive" onClick={handleIgnoreAndCommit} className="gap-1">
+                  <FileWarning className="w-4 h-4" /> 忽略失败并提交
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => onOpenChange(false)}
+                  disabled={globalStatus === 'uploading' || globalStatus === 'syncing'}
+                >
+                  取消
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={startReplace}
+                  disabled={
+                    files.length === 0 ||
+                    globalStatus === 'uploading' ||
+                    globalStatus === 'syncing' ||
+                    previewItems.some((i) => i.error)
+                  }
+                >
+                  {globalStatus === 'uploading' ? '上传中...' : '确认全量替换'}
+                </Button>
+              </>
+            )}
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
