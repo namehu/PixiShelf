@@ -267,19 +267,24 @@ export function ProTable<TData, TValue>({
     getCoreRowModel: getCoreRowModel()
   })
 
+  // --- 渲染逻辑准备 ---
+  const searchContent = searchRender ? searchRender() : null
+  const toolBarContent = toolBarRender && typeof toolBarRender === 'function' ? toolBarRender() : null
+  // 检查是否有任何工具栏内容需要显示
+  const showToolbar = !!headerTitle || !!searchContent || !!toolBarContent
+
   return (
     <div className={cn('space-y-4 w-full', className)}>
       {/* 1. 工具栏区域 */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-col gap-2 w-full lg:flex-row lg:items-center lg:w-auto">
-          {headerTitle && <h3 className="text-lg font-medium hidden lg:block">{headerTitle}</h3>}
-          <div className="w-full lg:w-auto">{searchRender ? searchRender() : null}</div>
-        </div>
-        <div className="flex items-center gap-2 justify-between lg:justify-end w-full lg:w-auto">
-          <div className="flex items-center gap-2">
-            {toolBarRender && typeof toolBarRender === 'function' && toolBarRender()}
+      {showToolbar && (
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-2 w-full lg:flex-row lg:items-center lg:w-auto">
+            {headerTitle && <h3 className="text-lg font-medium hidden lg:block">{headerTitle}</h3>}
+            <div className="w-full lg:w-auto">{searchContent}</div>
           </div>
-          {/* <Button
+          <div className="flex items-center gap-2 justify-between lg:justify-end w-full lg:w-auto">
+            <div className="flex items-center gap-2">{toolBarContent}</div>
+            {/* <Button
             variant="outline"
             size="icon"
             onClick={() => fetchData()}
@@ -289,8 +294,9 @@ export function ProTable<TData, TValue>({
           >
             <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </Button> */}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 2. 表格主体 */}
       <div className="rounded-md border relative">
