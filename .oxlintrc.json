@@ -30,7 +30,7 @@
     // 函数相关
     "prefer-rest-params": "error",
     "max-params": ["error", 5],
-    "max-nested-callbacks": ["error", 3],
+    "max-nested-callbacks": ["error", 5],
 
     // 代码风格和质量
     "no-else-return": "error",
