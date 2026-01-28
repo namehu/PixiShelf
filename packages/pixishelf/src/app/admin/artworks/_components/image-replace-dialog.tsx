@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from 'react'
+import { useState, useEffect, useRef, Fragment, useMemo } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -16,10 +16,8 @@ import {
   XCircle,
   FolderInput,
   RefreshCw,
-  Play,
   RotateCcw,
   FileWarning,
-  ArrowRight,
   Download
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -29,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { MEDIA_EXTENSIONS } from '../../../../../lib/constant'
 import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 import { formatFileSize } from '@/utils/media'
+import { guid } from '@/utils/guid'
 
 interface ImageReplaceDialogProps {
   open: boolean
@@ -69,6 +68,8 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   const uploadedMetaRef = useRef<Record<string, any>>({})
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isCommittingRef = useRef(false)
+  const lastScrolledIdRef = useRef<string | null>(null)
+  const prevFileCountRef = useRef(0)
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -79,31 +80,53 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       setUploadConfig(null)
       uploadedMetaRef.current = {}
       isCommittingRef.current = false
+      lastScrolledIdRef.current = null
+      prevFileCountRef.current = 0
     }
   }, [open])
 
-  // Auto-scroll to uploading item
-  useEffect(() => {
-    if (globalStatus === 'uploading') {
-      const uploadingIndex = previewItems.findIndex((item) => item.status === 'uploading')
-      if (uploadingIndex !== -1) {
-        scrollToItem(uploadingIndex)
-      }
-    }
+  // 1. Calculate active item ID (low frequency)
+  const activeItemId = useMemo(() => {
+    if (globalStatus !== 'uploading') return null
+    const item = previewItems.find((i) => i.status === 'uploading')
+    return item ? item.id : null
   }, [previewItems, globalStatus])
 
-  const scrollToItem = (index: number) => {
-    const row = document.getElementById(`file-row-${index}`)
-    if (row && scrollContainerRef.current) {
-      const container = scrollContainerRef.current
-      const rowRect = row.getBoundingClientRect()
-      const containerRect = container.getBoundingClientRect()
+  // 2. Scroll control logic
+  useEffect(() => {
+    if (!activeItemId || activeItemId === lastScrolledIdRef.current) return
 
-      if (rowRect.top < containerRect.top || rowRect.bottom > containerRect.bottom) {
-        row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    lastScrolledIdRef.current = activeItemId
+
+    requestAnimationFrame(() => {
+      const row = document.getElementById(`row-${activeItemId}`)
+
+      if (row && scrollContainerRef.current) {
+        const container = scrollContainerRef.current
+        const rowRect = row.getBoundingClientRect()
+        const containerRect = container.getBoundingClientRect()
+
+        const isOutOfView = rowRect.bottom > containerRect.bottom || rowRect.top < containerRect.top
+
+        if (isOutOfView) {
+          row.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest'
+          })
+        }
       }
+    })
+  }, [activeItemId])
+
+  // 3. Auto-scroll to bottom when new files are added
+  useEffect(() => {
+    if (previewItems.length > prevFileCountRef.current && prevFileCountRef.current !== 0) {
+      setTimeout(() => {
+        scrollContainerRef.current?.scrollTo({ top: 99999, behavior: 'smooth' })
+      }, 100)
     }
-  }
+    prevFileCountRef.current = previewItems.length
+  }, [previewItems.length])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -186,7 +209,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       const newName = `${artwork.externalId}_p${order}.${ext}`
 
       return {
-        id: Math.random().toString(36).substring(7),
+        id: guid(),
         file,
         originalName: file.name,
         newName,
@@ -355,9 +378,10 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       } else if (!anyPending) {
         // All done, trigger commit automatically
         // Use setTimeout to move side effect out of updater function
+        toast.success('所有文件上传完成，准备提交...')
         setTimeout(() => {
           commitReplace(currentItems)
-        }, 0)
+        }, 1000)
       } else {
         // Should be idle if interrupted
         setGlobalStatus('idle')
@@ -621,7 +645,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                             </TableRow>
                           )}
                           <TableRow
-                            id={`file-row-${index}`}
+                            id={`row-${item.id}`}
                             className={cn(item.error && 'bg-red-50', item.status === 'uploading' && 'bg-blue-50')}
                           >
                             <TableCell>
