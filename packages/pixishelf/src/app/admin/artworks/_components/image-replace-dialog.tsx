@@ -18,7 +18,8 @@ import {
   RefreshCw,
   RotateCcw,
   FileWarning,
-  Download
+  Download,
+  Trash2
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -251,6 +252,16 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     item.newName = `${artwork.externalId}_p${newOrder}.${ext}`
 
     setPreviewItems(validateItems(newItems))
+  }
+
+  const handleRemoveItem = (index: number) => {
+    if (!confirm('确定要删除该文件吗？')) return
+
+    setPreviewItems((prev) => {
+      const newItems = [...prev]
+      newItems.splice(index, 1)
+      return validateItems(newItems)
+    })
   }
 
   // ROLLBACK-TODO: 客户端回滚执行函数
@@ -615,6 +626,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                       <TableHead>新文件名</TableHead>
                       <TableHead className="w-[180px]">进度</TableHead>
                       <TableHead className="w-[100px]">状态</TableHead>
+                      <TableHead className="w-[50px]">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -628,7 +640,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                           {isGap && (
                             <TableRow className="bg-orange-50/50 hover:bg-orange-50/50">
                               <TableCell
-                                colSpan={5}
+                                colSpan={6}
                                 className="py-2 text-center text-xs text-orange-600 font-medium border-y border-orange-100"
                               >
                                 <div className="flex items-center justify-center gap-2">
@@ -725,6 +737,18 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                                 <span className="text-neutral-400 text-xs">等待</span>
                               )}
                             </TableCell>
+                            <TableCell>
+                              {globalStatus === 'idle' && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6 text-neutral-400 hover:text-red-500"
+                                  onClick={() => handleRemoveItem(index)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </TableCell>
                           </TableRow>
                         </Fragment>
                       )
@@ -784,7 +808,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                   variant="destructive"
                   onClick={startReplace}
                   disabled={
-                    files.length === 0 ||
+                    previewItems.length === 0 ||
                     globalStatus === 'uploading' ||
                     globalStatus === 'syncing' ||
                     globalStatus === 'rolling-back' ||
