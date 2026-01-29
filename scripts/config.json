@@ -1,0 +1,19 @@
+{
+  "Rules": [
+    {
+      "Name": "MonthDatePattern",
+      "Description": "匹配以 MM.dd 开头的文件名 (例如 11.01_xxx.png)",
+      "Regex": "(?<date>\\d{1,2}\\.\\d{1,2})",
+      "DateFormat": "MM.dd"
+    }
+  ],
+  "Logging": {
+    "LogFile": "AutoSort.log",
+    "LogLevel": "Info",
+    "MaxLogSizeMB": 10
+  },
+  "Cache": {
+    "Enabled": true,
+    "CacheFile": "file_cache.json"
+  }
+}
