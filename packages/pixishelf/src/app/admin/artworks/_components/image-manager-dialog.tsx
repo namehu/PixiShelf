@@ -252,13 +252,7 @@ export function ImageManagerDialog({
           </span>
         }
         width="80%"
-        footer={
-          <div className="flex justify-end w-full">
-            <Button variant="outline" size="sm" onClick={() => setShowReplaceDialog(true)}>
-              全量替换
-            </Button>
-          </div>
-        }
+        footer={null}
       >
         <div className="flex flex-col h-full gap-4">
           {/* Toolbar */}
@@ -295,6 +289,10 @@ export function ImageManagerDialog({
               >
                 <RefreshCw className="w-3.5 h-3.5 mr-2" />
                 刷新
+              </Button>
+
+              <Button variant="danger" size="sm" onClick={() => setShowReplaceDialog(true)}>
+                全量替换
               </Button>
             </div>
             {imageList.length > 0 && (
