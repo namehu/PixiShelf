@@ -1,17 +1,17 @@
-import * as React from "react"
-import { Loader2 } from "lucide-react"
+import * as React from 'react'
+import { Loader2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+  DialogTitle
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
-export interface SDialogProps {
+export interface ProDialogProps {
   /** 控制弹窗显示隐藏 (受控) */
   open?: boolean
   /** 状态改变回调，用于受控模式或关闭 */
@@ -50,7 +50,7 @@ export interface SDialogProps {
  * 符合 Ant Design 规范的 Dialog 组件
  * 基于 shadcn/ui Dialog 封装
  */
-export function SDialog({
+export function ProDialog({
   open,
   onOpenChange,
   onOk,
@@ -58,17 +58,16 @@ export function SDialog({
   title,
   children,
   footer,
-  okText = "确定",
-  cancelText = "取消",
+  okText = '确定',
+  cancelText = '取消',
   okButtonProps,
   cancelButtonProps,
   confirmLoading = false,
   width,
   description,
   className,
-  showCloseButton = true,
-}: SDialogProps) {
-  
+  showCloseButton = true
+}: ProDialogProps) {
   // 处理 onOpenChange，适配 Antd 的 onCancel
   // 当用户点击遮罩层、ESC 或右上角关闭按钮时触发
   const handleOpenChange = (newOpen: boolean) => {
@@ -78,7 +77,7 @@ export function SDialog({
       const syntheticEvent = new Event('close')
       onCancel?.(syntheticEvent)
     }
-    
+
     onOpenChange?.(newOpen)
   }
 
@@ -93,22 +92,14 @@ export function SDialog({
   const handleOkClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     onOk?.(e)
   }
-  
+
   // 默认 Footer
   const defaultFooter = (
     <>
-      <Button
-        variant="outline"
-        onClick={handleCancelClick}
-        {...cancelButtonProps}
-      >
+      <Button variant="outline" onClick={handleCancelClick} {...cancelButtonProps}>
         {cancelText}
       </Button>
-      <Button
-        onClick={handleOkClick}
-        disabled={confirmLoading}
-        {...okButtonProps}
-      >
+      <Button onClick={handleOkClick} disabled={confirmLoading} {...okButtonProps}>
         {confirmLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         {okText}
       </Button>
@@ -118,7 +109,7 @@ export function SDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className={cn("sm:max-w-lg", className)}
+        className={cn('sm:max-w-lg', className)}
         style={width ? { maxWidth: width, width: '100%' } : undefined}
         showCloseButton={showCloseButton}
       >
@@ -131,16 +122,10 @@ export function SDialog({
             <DialogDescription className="sr-only">Dialog Content</DialogDescription>
           )}
         </DialogHeader>
-        
-        <div className="py-2">
-          {children}
-        </div>
 
-        {footer === null ? null : (
-          <DialogFooter>
-            {footer || defaultFooter}
-          </DialogFooter>
-        )}
+        <div className="py-2">{children}</div>
+
+        {footer === null ? null : <DialogFooter>{footer || defaultFooter}</DialogFooter>}
       </DialogContent>
     </Dialog>
   )
