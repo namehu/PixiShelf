@@ -3,7 +3,6 @@
   "rules": {
     // 基础 JavaScript 规则
     "no-var": "error",
-    "no-void": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "no-console": ["error", { "allow": ["warn", "error"] }],
     "no-return-assign": "error",
@@ -24,7 +23,7 @@
     "curly": ["error", "multi-line"],
 
     // 变量和类型相关
-    "new-cap": "error",
+    "new-cap": "warn",
     "exhaustive-deps": "off",
 
     // 函数相关
@@ -42,7 +41,7 @@
 
     // React 相关
     "react/self-closing-comp": "error",
-    "react/jsx-no-useless-fragment": "error",
+    "react/jsx-no-useless-fragment": "warn",
     "react/no-unescaped-entities": "error",
     "react/no-unknown-property": "error",
     // "react/jsx-curly-brace-presence": ["error", "never"],
