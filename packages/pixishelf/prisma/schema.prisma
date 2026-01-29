@@ -53,6 +53,7 @@ model Artwork {
   seriesArtworks     SeriesArtwork[]
   artworkTags        ArtworkTag[]
   images             Image[]
+  source             ArtworkSource @default(PIXIV_IMPORTED)
 
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin)
@@ -218,6 +219,11 @@ model Series {
 enum SeriesType {
   LOCAL   // 本地创建
   PIXIV   // Pixiv 导入
+}
+
+enum ArtworkSource {
+  LOCAL_CREATED
+  PIXIV_IMPORTED
 }
 
 model SeriesArtwork {

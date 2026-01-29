@@ -110,7 +110,10 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
         data: payload
       })
     } else {
-      createMutation.mutate(payload)
+      createMutation.mutate({
+        ...payload,
+        source: 'LOCAL_CREATED'
+      })
     }
   }
 

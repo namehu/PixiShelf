@@ -164,12 +164,14 @@ export async function createArtwork(data: {
   description?: string
   artistId?: number | null
   tags?: number[]
+  source?: 'LOCAL_CREATED' | 'PIXIV_IMPORTED'
 }) {
-  const { tags, artistId, ...rest } = data
+  const { tags, artistId, source, ...rest } = data
 
-  return prisma.artwork.create({
+  const artwork = await prisma.artwork.create({
     data: {
       ...rest,
+      source: source as any,
       artist: artistId ? { connect: { id: artistId } } : undefined,
       artworkTags:
         tags && tags.length > 0
@@ -179,6 +181,18 @@ export async function createArtwork(data: {
           : undefined
     }
   })
+
+  if (source === 'LOCAL_CREATED') {
+    const randomSuffix = Math.floor(1000000 + Math.random() * 9000000).toString()
+    const externalId = `e_${artwork.id}_${randomSuffix}`
+
+    return prisma.artwork.update({
+      where: { id: artwork.id },
+      data: { externalId, sourceDate: new Date() }
+    })
+  }
+
+  return artwork
 }
 
 /**

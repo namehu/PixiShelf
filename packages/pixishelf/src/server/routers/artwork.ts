@@ -53,7 +53,8 @@ export const artworkRouter = router({
         title: z.string().min(1, '标题不能为空'),
         description: z.string().optional(),
         artistId: z.number('请选择艺术家'),
-        tags: z.array(z.number()).optional()
+        tags: z.array(z.number()).optional(),
+        source: z.enum(['LOCAL_CREATED', 'PIXIV_IMPORTED']).optional()
       })
     )
     .mutation(async ({ input }) => {
