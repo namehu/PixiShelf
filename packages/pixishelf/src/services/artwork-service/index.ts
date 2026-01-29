@@ -18,6 +18,10 @@ import { fetchRandomIds } from './dao'
 import { RandomTagDto } from '@/schemas/tag.dto'
 import { Prisma } from '@prisma/client'
 import { buildArtworkWhereClause } from './query-builder'
+import fs from 'fs/promises'
+import path from 'path'
+import { getScanPath } from '@/services/setting.service'
+
 export * from './related'
 
 /**
@@ -121,8 +125,43 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
 
 /**
  * 删除作品
+ * 级联删除逻辑：
+ * 1. 物理删除关联的图片文件
+ * 2. 删除 Image 表记录 (无数据库级联)
+ * 3. 删除 Artwork 表记录 (数据库级联删除 ArtworkTag, ArtworkLike, SeriesArtwork)
  */
 export async function deleteArtwork(id: number) {
+  // 1. 获取关联图片
+  const images = await prisma.image.findMany({
+    where: { artworkId: id }
+  })
+
+  // 2. 尝试删除物理文件
+  const scanRoot = await getScanPath()
+  if (scanRoot && images.length > 0) {
+    await Promise.all(
+      images.map(async (img) => {
+        if (!img.path) return
+        // 去除开头的 /，防止 path.join 认为是绝对路径
+        const relativePath = img.path.startsWith('/') ? img.path.slice(1) : img.path
+        const absolutePath = path.join(scanRoot, relativePath)
+        try {
+          await fs.unlink(absolutePath)
+        } catch (e: any) {
+          // 忽略文件不存在等错误
+          logger.warn(`[DeleteArtwork] Failed to delete file: ${absolutePath}, error: ${e.message}`)
+        }
+      })
+    )
+    // TODO: 删除关联文件夹
+  }
+
+  // 3. 删除图片记录 (显式删除，因为没有级联)
+  await prisma.image.deleteMany({
+    where: { artworkId: id }
+  })
+
+  // 4. 删除作品
   return prisma.artwork.delete({
     where: { id }
   })
