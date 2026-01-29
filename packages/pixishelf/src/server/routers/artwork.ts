@@ -13,7 +13,8 @@ import {
   getRandomArtworks,
   deleteArtwork,
   updateArtwork,
-  getArtworkById
+  getArtworkById,
+  createArtwork
 } from '@/services/artwork-service'
 import logger from '@/lib/logger'
 import { TRPCError } from '@trpc/server'
@@ -44,6 +45,22 @@ export const artworkRouter = router({
   }),
 
   /**
+   * 创建作品
+   */
+  create: authProcedure
+    .input(
+      z.object({
+        title: z.string().min(1, '标题不能为空'),
+        description: z.string().optional(),
+        artistId: z.number('请选择艺术家'),
+        tags: z.array(z.number()).optional()
+      })
+    )
+    .mutation(async ({ input }) => {
+      return createArtwork(input)
+    }),
+
+  /**
    * 更新作品
    */
   update: authProcedure
@@ -52,7 +69,9 @@ export const artworkRouter = router({
         id: z.number(),
         data: z.object({
           title: z.string().optional(),
-          description: z.string().optional()
+          description: z.string().optional(),
+          artistId: z.number('请选择艺术家'),
+          tags: z.array(z.number()).optional()
         })
       })
     )

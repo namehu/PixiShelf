@@ -2,7 +2,7 @@
 import { useState, useCallback } from 'react'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
-import { Edit, Trash, ExternalLink, Download, FolderInput, BarChart3 } from 'lucide-react'
+import { Edit, Trash, ExternalLink, Download, FolderInput, BarChart3, Plus } from 'lucide-react'
 import { ArtworkDialog } from './artwork-dialog'
 import { toast } from 'sonner'
 import Link from 'next/link'
@@ -20,7 +20,6 @@ import { Input } from '@/components/ui/input'
 import { Search, RotateCcw } from 'lucide-react'
 import { ProDatePicker, ProDatePickerPresets } from '@/components/shared/pro-date-picker'
 import { format } from 'date-fns'
-import { DateRange } from 'react-day-picker'
 
 // 定义作品列表项类型
 export interface ArtworkListItem {
@@ -473,6 +472,19 @@ export default function ArtworkManagement() {
         )}
         toolBarRender={() => (
           <>
+            <Button
+              key="create"
+              variant="default"
+              size="sm"
+              className="gap-2"
+              onClick={() => {
+                setEditingArtwork(null)
+                setDialogOpen(true)
+              }}
+            >
+              <Plus className="w-4 h-4" />
+              新增作品
+            </Button>
             {selectedRowKeys.length > 0 && (
               <Button key="batch-delete" variant="destructive" size="sm" onClick={handleBatchDelete}>
                 删除选中 ({selectedRowKeys.length})

@@ -131,10 +131,53 @@ export async function deleteArtwork(id: number) {
 /**
  * 更新作品
  */
-export async function updateArtwork(id: number, data: Prisma.ArtworkUpdateInput) {
+export async function updateArtwork(
+  id: number,
+  data: { title?: string; description?: string; artistId?: number | null; tags?: number[] }
+) {
+  const { tags, artistId, ...rest } = data
+
+  const updateData: Prisma.ArtworkUpdateInput = { ...rest }
+
+  if (artistId !== undefined) {
+    updateData.artist = artistId ? { connect: { id: artistId } } : { disconnect: true }
+  }
+
+  if (tags !== undefined) {
+    updateData.artworkTags = {
+      deleteMany: {},
+      create: tags.map((tagId) => ({ tagId }))
+    }
+  }
+
   return prisma.artwork.update({
     where: { id },
-    data
+    data: updateData
+  })
+}
+
+/**
+ * 创建作品
+ */
+export async function createArtwork(data: {
+  title: string
+  description?: string
+  artistId?: number | null
+  tags?: number[]
+}) {
+  const { tags, artistId, ...rest } = data
+
+  return prisma.artwork.create({
+    data: {
+      ...rest,
+      artist: artistId ? { connect: { id: artistId } } : undefined,
+      artworkTags:
+        tags && tags.length > 0
+          ? {
+              create: tags.map((tagId) => ({ tagId }))
+            }
+          : undefined
+    }
   })
 }
 
