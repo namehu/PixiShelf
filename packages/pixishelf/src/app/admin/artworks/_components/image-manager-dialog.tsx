@@ -10,7 +10,7 @@ import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { formatFileSize } from '@/utils/media'
 import { ProDrawer } from '@/components/shared/pro-drawer'
 import { ImageReplaceDialog } from './image-replace-dialog'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useInView } from 'react-intersection-observer'
@@ -328,8 +328,8 @@ export function ImageManagerDialog({
                             sizes="(max-width: 768px) 50vw, 240px"
                           />
                         </div>
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                          <ZoomIn className="text-white w-6 h-6" />
+                        <div className="absolute inset-0  opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                          <ZoomIn className="text-white w-6 h-6 opacity-30" />
                         </div>
                         <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] p-1 truncate text-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
                           #{img.sortOrder}
@@ -358,7 +358,11 @@ export function ImageManagerDialog({
 
       {/* Lightbox Preview */}
       <Dialog open={previewIndex !== null} onOpenChange={(open) => !open && setPreviewIndex(null)}>
-        <DialogContent className="max-w-screen-xl w-full h-screen sm:h-[90vh] p-0 gap-0 bg-black/95 border-none flex flex-col overflow-hidden">
+        <DialogContent
+          aria-describedby={undefined}
+          className="max-w-screen-xl w-full h-screen sm:h-[90vh] p-0 gap-0 bg-black/95 border-none flex flex-col overflow-hidden"
+        >
+          <DialogTitle className="sr-only">Image Preview</DialogTitle>
           {previewIndex !== null && imageList[previewIndex] && (
             <>
               <div className="absolute top-4 right-4 z-50 flex gap-2">
