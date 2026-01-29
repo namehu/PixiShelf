@@ -438,16 +438,20 @@ export default function ArtworkManagement() {
               <ProDatePicker
                 mode="range"
                 placeholder="选择日期范围"
-                value={{
-                  from: localSearch.startDate ? new Date(localSearch.startDate) : undefined,
-                  to: localSearch.endDate ? new Date(localSearch.endDate) : undefined
-                }}
-                onChange={(date) => {
-                  const range = date as DateRange | undefined
+                // value={{
+                //   from: localSearch.startDate ? new Date(localSearch.startDate) : undefined,
+                //   to: localSearch.endDate ? new Date(localSearch.endDate) : undefined
+                // }}
+                value={[
+                  localSearch.startDate ? new Date(localSearch.startDate) : undefined,
+                  localSearch.endDate ? new Date(localSearch.endDate) : undefined
+                ]}
+                onChange={(value = []) => {
+                  const [from, to] = value
                   setLocalSearch((prev) => ({
                     ...prev,
-                    startDate: range?.from ? format(range.from, 'yyyy-MM-dd') : '',
-                    endDate: range?.to ? format(range.to, 'yyyy-MM-dd') : ''
+                    startDate: from ? format(from, 'yyyy-MM-dd') : '',
+                    endDate: to ? format(to, 'yyyy-MM-dd') : ''
                   }))
                 }}
                 presets={ProDatePickerPresets.range}
