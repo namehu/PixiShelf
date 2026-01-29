@@ -337,64 +337,47 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
 
   const processQueue = async (config: { uploadTargetDir: string; targetRelDir: string }) => {
     // Filter items that need processing
-    const itemsToProcess = previewItems
-      .map((item, index) => ({ item, index }))
-      .filter(({ item }) => item.status === 'pending' || item.status === 'error')
+    const itemsToProcess = previewItems.filter(
+      (item) => (item.status === 'pending' || item.status === 'error') && !uploadedMetaRef.current[item.id]
+    )
 
-    for (const { item, index } of itemsToProcess) {
-      if (uploadedMetaRef.current[item.id]) continue
-
-      // Update status to uploading
-      setPreviewItems((prev) => {
-        const newItems = [...prev]
-        const currentItem = newItems[index]
-        if (currentItem) {
-          newItems[index] = { ...currentItem, status: 'uploading', progress: 0, error: undefined }
-        }
-        return newItems
-      })
-
-      try {
-        const meta = await uploadLargeFile(
-          item.file,
-          item.newName,
-          config.uploadTargetDir,
-          config.targetRelDir,
-          (percent) => {
-            setPreviewItems((prev) => {
-              const newItems = [...prev]
-              const currentItem = newItems[index]
-              if (currentItem) {
-                newItems[index] = { ...currentItem, progress: percent }
-              }
-              return newItems
-            })
-          }
-        )
-
-        uploadedMetaRef.current[item.id] = meta
-
-        setPreviewItems((prev) => {
-          const newItems = [...prev]
-          const currentItem = newItems[index]
-          if (currentItem) {
-            newItems[index] = { ...currentItem, status: 'success', progress: 100 }
-          }
-          return newItems
-        })
-      } catch (err: any) {
-        setPreviewItems((prev) => {
-          const newItems = [...prev]
-          const currentItem = newItems[index]
-          if (currentItem) {
-            newItems[index] = { ...currentItem, status: 'error', error: err.message }
-          }
-          return newItems
-        })
-      }
+    if (itemsToProcess.length === 0) {
+      checkFinalStatus()
+      return
     }
 
-    // Check final status
+    const uploadItems = itemsToProcess.map((item) => ({
+      id: item.id,
+      file: item.file,
+      newName: item.newName
+    }))
+
+    await uploadLargeFile(uploadItems, config.uploadTargetDir, config.targetRelDir, 3, {
+      onStart: (id) => {
+        setPreviewItems((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, status: 'uploading', progress: 0, error: undefined } : item))
+        )
+      },
+      onProgress: (id, percent) => {
+        setPreviewItems((prev) => prev.map((item) => (item.id === id ? { ...item, progress: percent } : item)))
+      },
+      onSuccess: (id, meta) => {
+        uploadedMetaRef.current[id] = meta
+        setPreviewItems((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, status: 'success', progress: 100 } : item))
+        )
+      },
+      onError: (id, err) => {
+        setPreviewItems((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, status: 'error', error: err.message } : item))
+        )
+      }
+    })
+
+    checkFinalStatus()
+  }
+
+  const checkFinalStatus = () => {
     setPreviewItems((currentItems) => {
       const anyError = currentItems.some((i) => i.status === 'error')
       const anyPending = currentItems.some((i) => i.status === 'pending')
@@ -407,7 +390,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         toast.success('所有文件上传完成，准备提交...')
         setTimeout(() => {
           commitReplace(currentItems)
-        }, 1000)
+        }, 250)
       } else {
         // Should be idle if interrupted
         setGlobalStatus('idle')
@@ -502,7 +485,10 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     URL.revokeObjectURL(url)
   }
 
-  const uploadLargeFile = async (
+  /**
+   * Upload a single file in chunks (Internal)
+   */
+  const uploadSingleFile = async (
     file: File,
     fileName: string,
     targetDir: string,
@@ -548,6 +534,54 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     }
 
     return lastMeta
+  }
+
+  /**
+   * Batch upload files with concurrency control
+   */
+  const uploadLargeFile = async (
+    items: { id: string; file: File; newName: string }[],
+    targetDir: string,
+    targetRelDir: string,
+    concurrency: number = 3,
+    callbacks?: {
+      onStart?: (id: string) => void
+      onProgress?: (id: string, percent: number) => void
+      onSuccess?: (id: string, meta: any) => void
+      onError?: (id: string, error: Error) => void
+    }
+  ): Promise<Array<{ id: string; meta?: any; error?: Error; status: 'success' | 'error' }>> => {
+    const resultsMap = new Map<string, { id: string; meta?: any; error?: Error; status: 'success' | 'error' }>()
+    const executing = new Set<Promise<void>>()
+
+    const runTask = async (item: (typeof items)[0]) => {
+      callbacks?.onStart?.(item.id)
+      try {
+        const meta = await uploadSingleFile(item.file, item.newName, targetDir, targetRelDir, (p) =>
+          callbacks?.onProgress?.(item.id, p)
+        )
+        callbacks?.onSuccess?.(item.id, meta)
+        resultsMap.set(item.id, { id: item.id, meta, status: 'success' })
+      } catch (err: any) {
+        callbacks?.onError?.(item.id, err)
+        resultsMap.set(item.id, { id: item.id, error: err, status: 'error' })
+      }
+    }
+
+    for (const item of items) {
+      const p = runTask(item).then(() => {
+        executing.delete(p)
+      })
+      executing.add(p)
+
+      if (executing.size >= concurrency) {
+        await Promise.race(executing)
+      }
+    }
+
+    await Promise.all(executing)
+
+    return items.map((item) => resultsMap.get(item.id)!)
   }
 
   return (
