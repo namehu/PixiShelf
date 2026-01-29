@@ -48,10 +48,13 @@ export async function searchTags(params: { page: number; pageSize: number; query
   let totalCount = 0
 
   if (tsquery) {
-    // Tie-breaker: 始终在排序末尾添加 id ASC，防止分页重复
-    const orderByClause = "ORDER BY ts_rank(search_vector, to_tsquery('simple', $1)) DESC, id ASC"
+    // 1. 定义排序逻辑
+    // 注意：在 $queryRaw 中，如果一段 SQL 是动态拼接的，需要用 Prisma.raw() 包裹
+    // 但在这里，我们直接写在模板里最安全。
 
-    const searchQuery = `
+    const [searchResults, countResults] = await Promise.all([
+      // 查询结果
+      prisma.$queryRaw<any[]>`
       SELECT
         id,
         name,
@@ -61,22 +64,19 @@ export async function searchTags(params: { page: number; pageSize: number; query
         "artworkCount",
         "createdAt",
         "updatedAt",
-        ts_rank(search_vector, to_tsquery('simple', $1)) as relevance_score
+        ts_rank(search_vector, to_tsquery('simple', ${tsquery})) as relevance_score
       FROM "Tag"
-      WHERE search_vector @@ to_tsquery('simple', $1)
-      ${orderByClause}
-      LIMIT $2 OFFSET $3
-    `
+      WHERE search_vector @@ to_tsquery('simple', ${tsquery})
+      ORDER BY ts_rank(search_vector, to_tsquery('simple', ${tsquery})) DESC, id ASC
+      LIMIT ${pageSize} OFFSET ${offset}
+    `,
 
-    const countQuery = `
+      // 查询总数
+      prisma.$queryRaw<{ count: bigint }[]>`
       SELECT COUNT(*) as count
       FROM "Tag"
-      WHERE search_vector @@ to_tsquery('simple', $1)
+      WHERE search_vector @@ to_tsquery('simple', ${tsquery})
     `
-
-    const [searchResults, countResults] = await Promise.all([
-      prisma.$queryRaw<any[]>(Prisma.sql([searchQuery], tsquery, pageSize, offset)),
-      prisma.$queryRaw<[{ count: bigint }]>(Prisma.sql([countQuery], tsquery))
     ])
 
     tags = searchResults.map((tag) => ({
