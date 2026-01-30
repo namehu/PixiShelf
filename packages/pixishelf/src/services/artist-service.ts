@@ -1,7 +1,7 @@
 import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
 import { ARTIST_SELECT } from '@/schemas/models/artists'
-import { ArtistsGetSchema } from '@/schemas/artist.dto'
+import { ArtistCreateSchema, ArtistsGetSchema, ArtistUpdateSchema } from '@/schemas/artist.dto'
 import { ArtistResponseDto } from '@/schemas/artist.dto'
 import { PaginationResponseData } from '@/types'
 
@@ -217,4 +217,67 @@ export async function getRecentArtists(
       }
     }
   }
+}
+
+/**
+ * 创建艺术家
+ */
+export async function createArtist(data: ArtistCreateSchema): Promise<ArtistResponseDto> {
+  // 1. 强制 username = name (如果 username 未提供或为空)
+  // 虽然前端已经处理了，但后端做个兜底
+  if (!data.username) {
+    data.username = data.name
+  }
+
+  // 2. 创建艺术家
+  const artist = await prisma.artist.create({
+    data
+  })
+
+  // 3. 检查 userId 是否为空，如果为空则生成 p_{id}
+  if (!artist.userId) {
+    const newUserId = `p_${artist.id}`
+    const updatedArtist = await prisma.artist.update({
+      where: { id: artist.id },
+      data: { userId: newUserId }
+    })
+    return ArtistResponseDto.parse(updatedArtist)
+  }
+
+  return ArtistResponseDto.parse(artist)
+}
+
+/**
+ * 更新艺术家
+ */
+export async function updateArtist(id: number, data: ArtistUpdateSchema['data']): Promise<ArtistResponseDto> {
+  // 如果更新了 name 且没有显式提供 username，则同步更新 username
+  // 注意：前端目前逻辑是 username 始终跟随 name，所以这里我们也可以强制同步
+  if (data.name && !data.username) {
+    data.username = data.name
+  }
+
+  const artist = await prisma.artist.update({
+    where: { id },
+    data
+  })
+  return ArtistResponseDto.parse(artist)
+}
+
+/**
+ * 删除艺术家
+ */
+export async function deleteArtist(id: number): Promise<void> {
+  // 检查是否有关联作品
+  const artworksCount = await prisma.artwork.count({
+    where: { artistId: id }
+  })
+
+  if (artworksCount > 0) {
+    throw new Error(`无法删除：该艺术家名下还有 ${artworksCount} 个作品`)
+  }
+
+  await prisma.artist.delete({
+    where: { id }
+  })
 }

@@ -1,17 +1,27 @@
 'use client'
 
 import { useState, useCallback, useMemo } from 'react'
-import { useTRPCClient } from '@/lib/trpc'
-import { ProTable } from '@/components/shared/pro-table'
-import { columns } from './columns'
+import { useTRPCClient, useTRPC } from '@/lib/trpc'
+import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { Input } from '@/components/ui/input'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
 import { SortingState } from '@tanstack/react-table'
-import { Search, RotateCcw, Users } from 'lucide-react'
+import { Search, RotateCcw, Edit, Trash, ExternalLink, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ArtistDialog } from './artist-dialog'
+import { confirm } from '@/components/shared/global-confirm'
+import { useMutation } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import Link from 'next/link'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 export function ArtistManagement() {
+  const trpc = useTRPC()
   const trpcClient = useTRPCClient()
+
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingArtist, setEditingArtist] = useState<any>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   // 1. URL 参数同步状态
   const [searchState, setSearchState] = useQueryStates({
@@ -50,6 +60,34 @@ export function ArtistManagement() {
     },
     [sorting, setSearchState]
   )
+
+  // 删除 Mutation
+  const deleteMutation = useMutation(
+    trpc.artist.delete.mutationOptions({
+      onSuccess: () => {
+        toast.success('删除成功')
+        setRefreshKey((prev) => prev + 1)
+      },
+      onError: (err) => {
+        toast.error(`删除失败: ${err.message}`)
+      }
+    })
+  )
+
+  const handleDelete = (id: number) => {
+    confirm({
+      title: '确定删除该艺术家吗？',
+      description: '删除后无法恢复，且如果有作品关联将无法删除。',
+      onConfirm: () => {
+        deleteMutation.mutate(id)
+      }
+    })
+  }
+
+  const handleEdit = (item: any) => {
+    setEditingArtist(item)
+    setDialogOpen(true)
+  }
 
   // 4. 数据请求函数
   const request = useCallback(
@@ -113,20 +151,86 @@ export function ArtistManagement() {
     })
   }
 
-  return (
-    <div className="space-y-4 p-4">
-      {/* 页面标题 */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-neutral-200 pb-4">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-neutral-900 flex items-center gap-2">
-            <Users className="w-5 h-5 md:w-6 md:h-6" />
-            艺术家管理
-          </h1>
-          <p className="text-sm md:text-base text-neutral-600 mt-1">管理艺术家信息，支持搜索和排序</p>
+  // 列定义
+  const columns: ProColumnDef<any>[] = [
+    {
+      accessorKey: 'id',
+      header: 'ID',
+      cell: ({ row }) => <div className="w-[50px]">{row.getValue('id')}</div>
+    },
+    {
+      accessorKey: 'avatar',
+      header: '头像',
+      cell: ({ row }) => {
+        const avatar = row.getValue('avatar') as string
+        const name = row.getValue('name') as string
+        return (
+          <Avatar>
+            <AvatarImage src={avatar || ''} alt={name} />
+            <AvatarFallback>{name?.substring(0, 2).toUpperCase()}</AvatarFallback>
+          </Avatar>
+        )
+      }
+    },
+    {
+      accessorKey: 'name',
+      header: '姓名',
+      enableSorting: true
+    },
+    {
+      accessorKey: 'username',
+      header: '用户名',
+      cell: ({ row }) => {
+        const username = row.getValue('username') as string
+        return username ? <div className="text-muted-foreground">@{username}</div> : '-'
+      }
+    },
+    {
+      accessorKey: 'artworksCount',
+      header: '作品数',
+      cell: ({ row }) => {
+        return <div className="font-medium">{row.getValue('artworksCount')}</div>
+      },
+      enableSorting: true
+    },
+    {
+      accessorKey: 'createdAt',
+      header: '创建时间',
+      cell: ({ row }) => {
+        return <div className="text-muted-foreground">{row.getValue('createdAt')}</div>
+      }
+    },
+    {
+      id: 'actions',
+      header: '操作',
+      cell: ({ row }) => (
+        <div className="flex gap-1">
+          <Button variant="ghost" size="icon" onClick={() => handleEdit(row.original)} title="编辑">
+            <Edit className="w-4 h-4" />
+          </Button>
+          <Link href={`/artists/${row.original.id}`} target="_blank">
+            <Button variant="ghost" size="icon" title="新标签页打开">
+              <ExternalLink className="w-4 h-4" />
+            </Button>
+          </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-red-500"
+            onClick={() => handleDelete(row.original.id)}
+            title="删除"
+          >
+            <Trash className="w-4 h-4" />
+          </Button>
         </div>
-      </div>
+      )
+    }
+  ]
 
+  return (
+    <div>
       <ProTable
+        key={refreshKey}
         columns={columns}
         request={request}
         defaultPageSize={20}
@@ -136,10 +240,8 @@ export function ArtistManagement() {
           pageSize: searchState.pageSize || 20
         }}
         onPaginationChange={handlePaginationChange}
-        // 排序控制
         sorting={sorting}
         onSortingChange={handleSortingChange}
-        // 搜索栏
         searchRender={() => (
           <div className="flex flex-wrap items-center gap-2 w-full">
             <Input
@@ -157,8 +259,27 @@ export function ArtistManagement() {
               <RotateCcw className="w-4 h-4 mr-1" />
               重置
             </Button>
+            <Button
+              variant="default"
+              size="sm"
+              className="gap-2"
+              onClick={() => {
+                setEditingArtist(null)
+                setDialogOpen(true)
+              }}
+            >
+              <Plus className="w-4 h-4" />
+              新增艺术家
+            </Button>
           </div>
         )}
+      />
+
+      <ArtistDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        artist={editingArtist}
+        onSuccess={() => setRefreshKey((prev) => prev + 1)}
       />
     </div>
   )

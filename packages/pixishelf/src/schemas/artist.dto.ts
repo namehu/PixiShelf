@@ -53,3 +53,27 @@ export const ArtistsGetSchema = z.object({
 
 export type ArtistsGetSchema = z.infer<typeof ArtistsGetSchema>
 export type ArtistsGetRequest = z.input<typeof ArtistsGetSchema>
+
+/**
+ * 创建艺术家 Schema
+ */
+export const ArtistCreateSchema = z.object({
+  name: z.string().min(1, '名称不能为空'),
+  username: z.string().optional(),
+  userId: z.string().optional(),
+  bio: z.string().optional(),
+  avatar: z.string().nullable(),
+  backgroundImg: z.string().nullish()
+})
+
+export type ArtistCreateSchema = z.infer<typeof ArtistCreateSchema>
+
+/**
+ * 更新艺术家 Schema
+ */
+export const ArtistUpdateSchema = z.object({
+  id: z.number().int(),
+  data: ArtistCreateSchema.partial()
+})
+
+export type ArtistUpdateSchema = z.infer<typeof ArtistUpdateSchema>
