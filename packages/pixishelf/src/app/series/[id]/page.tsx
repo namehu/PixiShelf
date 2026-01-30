@@ -15,7 +15,6 @@ export default async function SeriesDetailPage({ params }: PageProps) {
   const series = await getSeriesDetail(seriesId)
   if (!series) notFound()
 
-  // Service already returns transformed artworks
   const artworks = series.artworks
 
   return (
