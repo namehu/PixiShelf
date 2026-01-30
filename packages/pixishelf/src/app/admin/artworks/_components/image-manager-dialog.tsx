@@ -4,7 +4,17 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { useTRPCClient } from '@/lib/trpc'
-import { RefreshCw, LayoutGrid, List as ListIcon, ZoomIn, ChevronLeft, ChevronRight, X, Loader2 } from 'lucide-react'
+import {
+  RefreshCw,
+  LayoutGrid,
+  List as ListIcon,
+  ZoomIn,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Loader2,
+  FileUp
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { formatFileSize } from '@/utils/media'
@@ -14,6 +24,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useInView } from 'react-intersection-observer'
+import { useDragDropStore } from '../_store/drag-drop-store'
 
 // --- Lazy Image Component ---
 const LazyImage = ({ src, alt, className, ...props }: any) => {
@@ -224,6 +235,102 @@ export function ImageManagerDialog({
     }
   ]
 
+  // --- Drag & Drop Logic ---
+  // Use selectors to prevent unnecessary re-renders
+  const isDragging = useDragDropStore((state) => state.isDragging)
+  const setDragging = useDragDropStore((state) => state.setDragging)
+  const addFilesToQueue = useDragDropStore((state) => state.addFilesToQueue)
+
+  const dragCounterRef = useRef(0)
+
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragCounterRef.current += 1
+      if (dragCounterRef.current === 1) {
+        setDragging(true)
+      }
+    },
+    [setDragging]
+  )
+
+  const handleDragLeave = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragCounterRef.current -= 1
+      if (dragCounterRef.current === 0) {
+        setDragging(false)
+      }
+    },
+    [setDragging]
+  )
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }, [])
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setDragging(false)
+      dragCounterRef.current = 0
+
+      const items = e.dataTransfer.items
+      if (!items) return
+
+      const fileList: File[] = []
+      const scanEntry = async (entry: any) => {
+        if (entry.isFile) {
+          return new Promise<void>((resolve) => {
+            entry.file((file: File) => {
+              fileList.push(file)
+              resolve()
+            })
+          })
+        } else if (entry.isDirectory) {
+          const reader = entry.createReader()
+          const readEntries = async () => {
+            return new Promise<void>((resolve) => {
+              reader.readEntries(async (entries: any[]) => {
+                if (entries.length === 0) {
+                  resolve()
+                  return
+                }
+                await Promise.all(entries.map(scanEntry))
+                await readEntries()
+                resolve()
+              })
+            })
+          }
+          await readEntries()
+        }
+      }
+
+      const promises = []
+      for (const item of Array.from(items)) {
+        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null
+        if (entry) {
+          promises.push(scanEntry(entry))
+        } else {
+          const file = item.getAsFile()
+          if (file) fileList.push(file)
+        }
+      }
+
+      await Promise.all(promises)
+
+      if (fileList.length > 0) {
+        addFilesToQueue(fileList)
+        setShowReplaceDialog(true)
+      }
+    },
+    [addFilesToQueue]
+  )
+
   return (
     <>
       <ProDrawer
@@ -305,7 +412,36 @@ export function ImageManagerDialog({
           </div>
 
           {/* Content */}
-          <div className="flex-1 min-h-0 relative flex flex-col">
+          <div
+            className={cn(
+              'flex-1 min-h-0 relative flex flex-col transition-colors duration-150 ease-out',
+              isDragging && 'bg-[#1890ff]/10'
+            )}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+          >
+            {isDragging && (
+              <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none bg-background/50 backdrop-blur-[1px] animate-in fade-in duration-200">
+                <style
+                  dangerouslySetInnerHTML={{
+                    __html: `
+                  @keyframes breathe {
+                    0%, 100% { transform: scale(0.8); }
+                    50% { transform: scale(1); }
+                  }
+                `
+                  }}
+                />
+                <div style={{ animation: 'breathe 1.5s infinite ease-in-out' }}>
+                  <FileUp className="w-12 h-12 text-[#1890ff]" strokeWidth={1.5} />
+                </div>
+                <div className="mt-4 text-sm font-medium text-[#1890ff] animate-in slide-in-from-bottom-2 duration-200">
+                  全量替换
+                </div>
+              </div>
+            )}
             {showThumbnails ? (
               <div className="flex-1 overflow-y-auto p-2 pr-2">
                 <div className="columns-[240px] gap-4 space-y-4">

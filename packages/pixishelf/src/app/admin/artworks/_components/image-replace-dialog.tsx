@@ -30,6 +30,7 @@ import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 import { formatFileSize } from '@/utils/media'
 import { guid } from '@/utils/guid'
 import { useThrottleFn } from 'ahooks'
+import { useDragDropStore } from '../_store/drag-drop-store'
 
 interface ImageReplaceDialogProps {
   open: boolean
@@ -245,6 +246,18 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       return validateItems(combined)
     })
   }
+
+  // --- Consume Store Files ---
+  // Use selectors to prevent unnecessary re-renders
+  const fileQueue = useDragDropStore((state) => state.fileQueue)
+  const resetQueue = useDragDropStore((state) => state.resetQueue)
+
+  useEffect(() => {
+    if (open && fileQueue.length > 0) {
+      addFiles(fileQueue)
+      resetQueue()
+    }
+  }, [open, fileQueue, resetQueue, addFiles])
 
   const validateItems = (items: PreviewItem[]) => {
     const orderCounts = new Map<number, number>()
