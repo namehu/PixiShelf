@@ -147,6 +147,16 @@ interface ProTableProps<TData, TValue> {
   onPaginationChange?: OnChangeFn<PaginationState>
 
   /**
+   * 排序状态 (受控模式)
+   */
+  sorting?: SortingState
+
+  /**
+   * 排序状态改变回调 (受控模式)
+   */
+  onSortingChange?: OnChangeFn<SortingState>
+
+  /**
    * 自定义类名
    */
   className?: string
@@ -166,6 +176,8 @@ export function ProTable<TData, TValue>({
   defaultPageSize = 10,
   pagination: controlledPagination,
   onPaginationChange: controlledOnPaginationChange,
+  sorting: controlledSorting,
+  onSortingChange: controlledOnSortingChange,
   className
 }: ProTableProps<TData, TValue>) {
   // --- 状态管理 ---
@@ -186,7 +198,10 @@ export function ProTable<TData, TValue>({
   const pagination = controlledPagination ?? internalPagination
   const onPaginationChange = controlledOnPaginationChange ?? setInternalPagination
 
-  const [sorting, setSorting] = React.useState<SortingState>([])
+  const [internalSorting, setInternalSorting] = React.useState<SortingState>([])
+  const sorting = controlledSorting ?? internalSorting
+  const onSortingChange = controlledOnSortingChange ?? setInternalSorting
+
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
 
@@ -239,7 +254,11 @@ export function ProTable<TData, TValue>({
       } else {
         setInternalPagination({ pageIndex: 0, pageSize: defaultPageSize })
       }
-      setSorting([])
+      if (controlledOnSortingChange) {
+        controlledOnSortingChange([])
+      } else {
+        setInternalSorting([])
+      }
       setColumnFilters([])
       // 注意：如果是受控模式，pagination 的更新可能还没生效，fetchData 可能会用旧的 pagination
       // 这里可能需要优化，但目前先保持简单，依赖 useEffect 自动触发
@@ -269,7 +288,7 @@ export function ProTable<TData, TValue>({
     },
 
     onPaginationChange: onPaginationChange,
-    onSortingChange: setSorting,
+    onSortingChange: onSortingChange,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: finalOnRowSelectionChange,
