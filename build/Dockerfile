@@ -86,18 +86,18 @@ COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/prisma ./packa
 # 复制 public 文件夹 (注意 monorepo 路径)
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/public ./packages/pixishelf/public
 
-# 关键：复制 Standalone 构建产物
-# Standalone 文件夹结构会自动包含 monorepo 的结构 (packages/pixishelf/...)
-COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/.next/static ./packages/pixishelf/.next/static
+# 复制 entrypoint 脚本并赋予执行权限
+COPY --chown=nextjs:nodejs build/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # 复制 lib 和 scripts 文件夹 (用户自定义需求)
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/lib ./packages/pixishelf/lib
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/scripts ./packages/pixishelf/scripts
 
-# 复制 entrypoint 脚本并赋予执行权限
-COPY --chown=nextjs:nodejs build/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+# 关键：复制 Standalone 构建产物
+# Standalone 文件夹结构会自动包含 monorepo 的结构 (packages/pixishelf/...)
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/.next/static ./packages/pixishelf/.next/static
 
 # 切换用户
 USER nextjs
