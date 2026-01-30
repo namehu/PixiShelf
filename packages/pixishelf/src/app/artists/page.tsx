@@ -1,8 +1,9 @@
 'use client'
 
 import { useCallback, useMemo } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useInfiniteQuery } from '@tanstack/react-query'
+import { useQueryState, parseAsString } from 'nuqs'
 import { ArtistsQuery } from '@/types'
 import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 import ArtistsNavigation from './_components/ArtistsNavigation'
@@ -12,18 +13,17 @@ import { useTRPC } from '@/lib/trpc'
 
 function ArtistsPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
 
-  // 1. 直接从 URL 读取状态
-  const searchTerm = searchParams.get('search') || ''
-  const sortBy = (searchParams.get('sortBy') as ArtistsQuery['sortBy']) || 'name_asc'
+  // 1. 使用 nuqs 读取和同步状态
+  const [searchTerm] = useQueryState('search', parseAsString.withDefault('').withOptions({ history: 'replace' }))
+  const [sortBy] = useQueryState('sortBy', parseAsString.withDefault('name_asc').withOptions({ history: 'replace' }))
 
   const trpc = useTRPC()
 
   // 2. 使用 useInfiniteQuery
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery(
     trpc.artist.queryPage.infiniteQueryOptions(
-      { search: searchTerm, sortBy },
+      { search: searchTerm, sortBy: sortBy as ArtistsQuery['sortBy'] },
       {
         getNextPageParam: ({ nextCursor }) => nextCursor,
         initialCursor: 1,
