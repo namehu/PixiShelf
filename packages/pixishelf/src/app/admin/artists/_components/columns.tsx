@@ -2,17 +2,13 @@
 
 import { ColumnDef } from '@tanstack/react-table'
 import { ArtistResponseDto } from '@/schemas/artist.dto'
-import { Button } from '@/components/ui/button'
-import { ArrowUpDown } from 'lucide-react'
-import Image from 'next/image'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 export const columns: ColumnDef<ArtistResponseDto>[] = [
   {
     accessorKey: 'id',
     header: 'ID',
-    cell: ({ row }) => <div className="w-[50px]">{row.getValue('id')}</div>,
-    enableSorting: false
+    cell: ({ row }) => <div className="w-[50px]">{row.getValue('id')}</div>
   },
   {
     accessorKey: 'avatar',
@@ -26,23 +22,12 @@ export const columns: ColumnDef<ArtistResponseDto>[] = [
           <AvatarFallback>{name?.substring(0, 2).toUpperCase()}</AvatarFallback>
         </Avatar>
       )
-    },
-    enableSorting: false
+    }
   },
   {
     accessorKey: 'name',
-    header: ({ column }) => {
-      return (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="pl-0 hover:bg-transparent"
-        >
-          姓名
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      )
-    }
+    header: '姓名',
+    enableSorting: true
   },
   {
     accessorKey: 'username',
@@ -54,21 +39,11 @@ export const columns: ColumnDef<ArtistResponseDto>[] = [
   },
   {
     accessorKey: 'artworksCount',
-    header: ({ column }) => {
-      return (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="pl-0 hover:bg-transparent"
-        >
-          作品数
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      )
-    },
+    header: '作品数',
     cell: ({ row }) => {
       return <div className="font-medium">{row.getValue('artworksCount')}</div>
-    }
+    },
+    enableSorting: true
   },
   {
     accessorKey: 'createdAt',
