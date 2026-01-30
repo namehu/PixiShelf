@@ -11,6 +11,7 @@ import Image from 'next/image'
 import { VideoIcon, Loader2 } from 'lucide-react'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 
 interface RelatedArtworksProps {
   artistId: number
@@ -179,11 +180,15 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
                     sizes="128px"
                   />
                   {isCurrent && <div className="absolute inset-0 bg-white opacity-20 z-10" />}
-                  {(artwork as any).isVideo && (
-                    <div className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full z-20">
-                      <VideoIcon size={10} />
+                  {(artwork as any).isVideo ? (
+                    <div className="absolute top-1 right-1 bg-black/50 text-white p-1 flex items-center justify-center w-6 h-6 rounded-full z-20">
+                      <VideoIcon size={14} />
                     </div>
-                  )}
+                  ) : artwork.imageCount > 1 ? (
+                    <div className="absolute top-1 right-1 bg-black/50 text-white p-1 flex items-center justify-center w-6 h-6 rounded-full z-20 text-[10px]">
+                      {artwork.imageCount}
+                    </div>
+                  ) : null}
                 </Link>
               )
             })}
