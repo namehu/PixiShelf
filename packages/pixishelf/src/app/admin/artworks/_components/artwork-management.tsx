@@ -151,34 +151,6 @@ export default function ArtworkManagement() {
     })
   }
 
-  const handleBatchDelete = () => {
-    if (selectedRowKeys.length === 0) return
-
-    confirm({
-      title: `确定删除选中的 ${selectedRowKeys.length} 个作品吗？`,
-      onConfirm: async () => {
-        // 由于后端只提供了单删接口，这里循环调用（实际项目中应提供批量接口）
-        // 演示目的，我们假设只能单删
-        // 实际操作：循环调用
-        // 注意：并发过多可能会有问题
-        try {
-          // 这里使用 deleteMutation.mutateAsync 进行删除
-          // 但 mutateAsync 是针对单个 mutation 的，如果在循环中调用同一个 mutation 实例，可能会有状态覆盖问题
-          // 不过 react-query 的 mutation 可以多次调用
-          // 或者直接使用 trpcClient (vanilla client) 来进行批量请求
-
-          await Promise.all(selectedRowKeys.map((id) => deleteMutation.mutateAsync(Number(id))))
-
-          toast.success('批量删除成功')
-          setRefreshKey((prev) => prev + 1)
-          setRowSelection({})
-        } catch (error) {
-          toast.error('部分删除失败')
-        }
-      }
-    })
-  }
-
   const handleEdit = (item: any) => {
     setEditingArtwork(item)
     setDialogOpen(true)
@@ -394,6 +366,26 @@ export default function ArtworkManagement() {
             <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
             {isExporting ? '导出中...' : '导出无系列ID'}
           </Button>
+          <Button
+            key="migrate"
+            variant="secondary"
+            size="sm"
+            className="gap-2"
+            onClick={handleMigrationClick}
+            disabled={migrationState.migrating}
+          >
+            {migrationState.migrating ? (
+              <span className="flex items-center gap-2">
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                迁移中...
+              </span>
+            ) : (
+              <>
+                <FolderInput className="w-4 h-4" />
+                {selectedRowKeys.length > 0 ? `批量迁移 (${selectedRowKeys.length})` : '目录迁移'}
+              </>
+            )}
+          </Button>
           {(migrationState.migrating || migrationLogger.logs.length > 0) && (
             <Button key="logs" variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
               查看日志
@@ -404,7 +396,6 @@ export default function ArtworkManagement() {
 
       <ProTable
         key={refreshKey}
-        rowKey="id"
         columns={columns}
         request={request}
         defaultPageSize={20}
@@ -437,10 +428,6 @@ export default function ArtworkManagement() {
               <ProDatePicker
                 mode="range"
                 placeholder="选择日期范围"
-                // value={{
-                //   from: localSearch.startDate ? new Date(localSearch.startDate) : undefined,
-                //   to: localSearch.endDate ? new Date(localSearch.endDate) : undefined
-                // }}
                 value={[
                   localSearch.startDate ? new Date(localSearch.startDate) : undefined,
                   localSearch.endDate ? new Date(localSearch.endDate) : undefined
@@ -467,50 +454,21 @@ export default function ArtworkManagement() {
                 <RotateCcw className="w-4 h-4 mr-1" />
                 重置
               </Button>
+              <Button
+                key="create"
+                variant="default"
+                size="sm"
+                className="gap-2"
+                onClick={() => {
+                  setEditingArtwork(null)
+                  setDialogOpen(true)
+                }}
+              >
+                <Plus className="w-4 h-4" />
+                新增作品
+              </Button>
             </div>
           </div>
-        )}
-        toolBarRender={() => (
-          <>
-            <Button
-              key="create"
-              variant="default"
-              size="sm"
-              className="gap-2"
-              onClick={() => {
-                setEditingArtwork(null)
-                setDialogOpen(true)
-              }}
-            >
-              <Plus className="w-4 h-4" />
-              新增作品
-            </Button>
-            {selectedRowKeys.length > 0 && (
-              <Button key="batch-delete" variant="destructive" size="sm" onClick={handleBatchDelete}>
-                删除选中 ({selectedRowKeys.length})
-              </Button>
-            )}
-            <Button
-              key="migrate"
-              variant="secondary"
-              size="sm"
-              className="gap-2"
-              onClick={handleMigrationClick}
-              disabled={migrationState.migrating}
-            >
-              {migrationState.migrating ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  迁移中...
-                </span>
-              ) : (
-                <>
-                  <FolderInput className="w-4 h-4" />
-                  {selectedRowKeys.length > 0 ? `批量迁移 (${selectedRowKeys.length})` : '全量迁移'}
-                </>
-              )}
-            </Button>
-          </>
         )}
       />
 
