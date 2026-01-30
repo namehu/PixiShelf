@@ -19,7 +19,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, RefreshCcw, Copy } from 'lucide-react'
+import { Loader2, RefreshCcw, Copy, ChevronUp, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -287,6 +287,11 @@ export function ProTable<TData, TValue>({
       return (row as any)[rowKey]
     },
 
+    defaultColumn: {
+      // 默认关闭排序，需在 ColumnDef 中显式开启 enableSorting: true
+      enableSorting: false
+    },
+
     onPaginationChange: onPaginationChange,
     onSortingChange: onSortingChange,
     onColumnFiltersChange: setColumnFilters,
@@ -331,7 +336,33 @@ export function ProTable<TData, TValue>({
                 {headerGroup.headers.map((header) => {
                   return (
                     <TableHead key={header.id}>
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.isPlaceholder ? null : (
+                        <div
+                          className={cn(
+                            'flex items-center gap-2',
+                            header.column.getCanSort() && 'cursor-pointer select-none'
+                          )}
+                          onClick={header.column.getToggleSortingHandler()}
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          {header.column.getCanSort() && (
+                            <div className="flex flex-col">
+                              <ChevronUp
+                                className={cn(
+                                  'h-3 w-3 -mb-1',
+                                  header.column.getIsSorted() === 'asc' ? 'text-primary' : 'text-muted-foreground/70'
+                                )}
+                              />
+                              <ChevronDown
+                                className={cn(
+                                  'h-3 w-3',
+                                  header.column.getIsSorted() === 'desc' ? 'text-primary' : 'text-muted-foreground/70'
+                                )}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </TableHead>
                   )
                 })}
