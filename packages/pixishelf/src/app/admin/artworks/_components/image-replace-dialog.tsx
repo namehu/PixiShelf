@@ -31,6 +31,7 @@ import { formatFileSize } from '@/utils/media'
 import { guid } from '@/utils/guid'
 import { useThrottleFn } from 'ahooks'
 import { useDragDropStore } from '../_store/drag-drop-store'
+import { useDragImages } from '../_hooks/use-drag-images'
 
 interface ImageReplaceDialogProps {
   open: boolean
@@ -153,64 +154,12 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     }
   }
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }
-
-  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (globalStatus === 'uploading' || globalStatus === 'syncing') return
-
-    const items = e.dataTransfer.items
-    if (!items) return
-
-    const fileList: File[] = []
-
-    const scanEntry = async (entry: any) => {
-      if (entry.isFile) {
-        return new Promise<void>((resolve) => {
-          entry.file((file: File) => {
-            fileList.push(file)
-            resolve()
-          })
-        })
-      } else if (entry.isDirectory) {
-        const reader = entry.createReader()
-        const readEntries = async () => {
-          return new Promise<void>((resolve) => {
-            reader.readEntries(async (entries: any[]) => {
-              if (entries.length === 0) {
-                resolve()
-                return
-              }
-              await Promise.all(entries.map(scanEntry))
-              await readEntries() // Continue reading
-              resolve()
-            })
-          })
-        }
-        await readEntries()
-      }
-    }
-
-    const promises = []
-    for (const item of Array.from(items)) {
-      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null
-      if (entry) {
-        promises.push(scanEntry(entry))
-      } else if (item.kind === 'file') {
-        const file = item.getAsFile()
-        if (file) fileList.push(file)
-      }
-    }
-
-    await Promise.all(promises)
-    if (fileList.length > 0) {
-      addFiles(fileList)
-    }
-  }
+  const { dragHandlers } = useDragImages({
+    onDrop: (newFiles) => {
+      addFiles(newFiles)
+    },
+    disabled: globalStatus === 'uploading' || globalStatus === 'syncing' || globalStatus === 'rolling-back'
+  })
 
   const addFiles = (newFiles: File[]) => {
     const validFiles = newFiles.filter((f) =>
@@ -647,8 +596,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                 ? 'opacity-50 cursor-not-allowed'
                 : 'hover:bg-neutral-50 cursor-pointer'
             )}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
+            {...dragHandlers}
           >
             <input
               type="file"

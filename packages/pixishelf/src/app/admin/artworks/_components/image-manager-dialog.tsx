@@ -25,6 +25,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { useInView } from 'react-intersection-observer'
 import { useDragDropStore } from '../_store/drag-drop-store'
+import { useDragImages } from '../_hooks/use-drag-images'
 
 // --- Lazy Image Component ---
 const LazyImage = ({ src, alt, className, ...props }: any) => {
@@ -241,95 +242,13 @@ export function ImageManagerDialog({
   const setDragging = useDragDropStore((state) => state.setDragging)
   const addFilesToQueue = useDragDropStore((state) => state.addFilesToQueue)
 
-  const dragCounterRef = useRef(0)
-
-  const handleDragEnter = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      dragCounterRef.current += 1
-      if (dragCounterRef.current === 1) {
-        setDragging(true)
-      }
+  const { dragHandlers } = useDragImages({
+    onDrop: (files) => {
+      addFilesToQueue(files)
+      setShowReplaceDialog(true)
     },
-    [setDragging]
-  )
-
-  const handleDragLeave = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      dragCounterRef.current -= 1
-      if (dragCounterRef.current === 0) {
-        setDragging(false)
-      }
-    },
-    [setDragging]
-  )
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }, [])
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      setDragging(false)
-      dragCounterRef.current = 0
-
-      const items = e.dataTransfer.items
-      if (!items) return
-
-      const fileList: File[] = []
-      const scanEntry = async (entry: any) => {
-        if (entry.isFile) {
-          return new Promise<void>((resolve) => {
-            entry.file((file: File) => {
-              fileList.push(file)
-              resolve()
-            })
-          })
-        } else if (entry.isDirectory) {
-          const reader = entry.createReader()
-          const readEntries = async () => {
-            return new Promise<void>((resolve) => {
-              reader.readEntries(async (entries: any[]) => {
-                if (entries.length === 0) {
-                  resolve()
-                  return
-                }
-                await Promise.all(entries.map(scanEntry))
-                await readEntries()
-                resolve()
-              })
-            })
-          }
-          await readEntries()
-        }
-      }
-
-      const promises = []
-      for (const item of Array.from(items)) {
-        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null
-        if (entry) {
-          promises.push(scanEntry(entry))
-        } else {
-          const file = item.getAsFile()
-          if (file) fileList.push(file)
-        }
-      }
-
-      await Promise.all(promises)
-
-      if (fileList.length > 0) {
-        addFilesToQueue(fileList)
-        setShowReplaceDialog(true)
-      }
-    },
-    [addFilesToQueue]
-  )
+    onDragStateChange: setDragging
+  })
 
   return (
     <>
@@ -417,10 +336,7 @@ export function ImageManagerDialog({
               'flex-1 min-h-0 relative flex flex-col transition-colors duration-150 ease-out',
               isDragging && 'bg-[#1890ff]/10'
             )}
-            onDragEnter={handleDragEnter}
-            onDragLeave={handleDragLeave}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
+            {...dragHandlers}
           >
             {isDragging && (
               <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none bg-background/50 backdrop-blur-[1px] animate-in fade-in duration-200">
