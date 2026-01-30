@@ -166,7 +166,7 @@ export function ArtistManagement() {
         const name = row.getValue('name') as string
         return (
           <Avatar>
-            <AvatarImage src={avatar || ''} alt={name} />
+            <AvatarImage src={avatar} alt={name} className="w-[32px] h-[32px]" />
             <AvatarFallback>{name?.substring(0, 2).toUpperCase()}</AvatarFallback>
           </Avatar>
         )
@@ -176,14 +176,6 @@ export function ArtistManagement() {
       accessorKey: 'name',
       header: '姓名',
       enableSorting: true
-    },
-    {
-      accessorKey: 'username',
-      header: '用户名',
-      cell: ({ row }) => {
-        const username = row.getValue('username') as string
-        return username ? <div className="text-muted-foreground">@{username}</div> : '-'
-      }
     },
     {
       accessorKey: 'artworksCount',

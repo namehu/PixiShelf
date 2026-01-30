@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
+import { cn } from '@/lib/utils'
 
 interface ArtistAvatarProps {
   src?: string | null
@@ -43,12 +44,18 @@ export function ArtistAvatar({ src, name, size = 12, className }: ArtistAvatarPr
     }
   }
 
+  // 计算默认尺寸类名
+  const defaultSizeClass = `w-${size} h-${size}`
+
   return (
-    <Avatar className={`size-${size} w-${size} h-${size} ${className}`}>
-      <AvatarImage src={src ?? undefined} alt={name} width={size} height={size} onError={handleImageError} />
-      <AvatarFallback
-        className={`h-${size} w-${size} bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 text-2xl font-bold`}
-      >
+    <Avatar className={cn(defaultSizeClass, className)}>
+      <AvatarImage
+        src={src ?? undefined}
+        alt={name}
+        className="h-full w-full object-cover"
+        onError={handleImageError}
+      />
+      <AvatarFallback className="h-full w-full bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 text-2xl font-bold flex items-center justify-center">
         {getInitials(name)}
       </AvatarFallback>
     </Avatar>
