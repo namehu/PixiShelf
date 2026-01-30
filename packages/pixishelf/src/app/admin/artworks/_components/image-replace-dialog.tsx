@@ -25,7 +25,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
-import { MEDIA_EXTENSIONS } from '../../../../../lib/constant'
+import { MEDIA_EXTENSIONS, VIDEO_EXTENSIONS } from '../../../../../lib/constant'
 import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 import { formatFileSize } from '@/utils/media'
 import { guid } from '@/utils/guid'
@@ -59,6 +59,7 @@ interface PreviewItem {
   error?: string
   status: 'pending' | 'uploading' | 'success' | 'error'
   progress: number
+  previewUrl?: string
 }
 
 export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onSuccess }: ImageReplaceDialogProps) {
@@ -211,9 +212,11 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   }
 
   const addFiles = (newFiles: File[]) => {
-    const validFiles = newFiles.filter((f) => MEDIA_EXTENSIONS.includes('.' + (f.name.split('.').pop() || '')))
+    const validFiles = newFiles.filter((f) =>
+      MEDIA_EXTENSIONS.includes('.' + (f.name.split('.').pop() || '').toLowerCase())
+    )
     if (validFiles.length === 0) {
-      toast.warning('未找到符合格式的图片文件')
+      toast.warning('未找到符合格式的媒体文件')
       return
     }
 
@@ -232,7 +235,8 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         order,
         size: file.size,
         status: 'pending' as const,
-        progress: 0
+        progress: 0,
+        previewUrl: URL.createObjectURL(file)
       }
     })
 
@@ -274,7 +278,8 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
 
     setPreviewItems((prev) => {
       const newItems = [...prev]
-      newItems.splice(index, 1)
+      const removed = newItems.splice(index, 1)[0]
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl)
       return validateItems(newItems)
     })
   }
@@ -282,25 +287,22 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   // ROLLBACK-TODO: 客户端回滚执行函数
   const executeRollback = async () => {
     setGlobalStatus('rolling-back')
-    try {
-      const res = await fetch(`/api/artwork/${artworkId}/replace?action=rollback`, { method: 'POST' })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        // 忽略 "No active backup" 错误，视为回滚成功
-        if (!(res.status === 400 && data.error?.includes('No active backup'))) {
-          throw new Error(data.error || '回滚请求失败')
-        }
+    const res = await fetch(`/api/artwork/${artworkId}/replace?action=rollback`, { method: 'POST' })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      // 忽略 "No active backup" 错误，视为回滚成功
+      if (!(res.status === 400 && data.error?.includes('No active backup'))) {
+        throw new Error(data.error || '回滚请求失败')
       }
-
-      // 重置本地状态
-      setFiles([])
-      setPreviewItems([])
-      setUploadConfig(null)
-      uploadedMetaRef.current = {}
-      return true
-    } catch (error) {
-      throw error
     }
+
+    // 重置本地状态
+    previewItems.forEach((item) => item.previewUrl && URL.revokeObjectURL(item.previewUrl))
+    setFiles([])
+    setPreviewItems([])
+    setUploadConfig(null)
+    uploadedMetaRef.current = {}
+    return true
   }
 
   const startReplace = async () => {
@@ -499,7 +501,31 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
     let lastMeta = null
 
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+    // 1. Check if file exists on server to resume (Video only)
+    let resumeIndex = 0
+    const isVideo = VIDEO_EXTENSIONS.includes('.' + (fileName.split('.').pop() || '').toLowerCase())
+
+    if (isVideo) {
+      try {
+        const checkUrl = `/api/artwork/upload-chunk?fileName=${encodeURIComponent(
+          fileName
+        )}&targetDir=${encodeURIComponent(targetDir)}`
+        const checkRes = await fetch(checkUrl)
+        if (checkRes.ok) {
+          const checkData = await checkRes.json()
+          if (checkData.exists && checkData.size > 0) {
+            // If file exists, resume from the last complete chunk
+            resumeIndex = Math.floor(checkData.size / CHUNK_SIZE)
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to check file status, starting from scratch', e)
+      }
+    }
+
+    const startIndex = Math.min(resumeIndex, Math.max(0, totalChunks - 1))
+
+    for (let chunkIndex = startIndex; chunkIndex < totalChunks; chunkIndex++) {
       const start = chunkIndex * CHUNK_SIZE
       const end = Math.min(start + CHUNK_SIZE, file.size)
       const chunk = file.slice(start, end)
@@ -509,7 +535,8 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         'x-target-dir': encodeURIComponent(targetDir),
         'x-target-rel-dir': encodeURIComponent(targetRelDir || ''),
         'x-chunk-index': chunkIndex.toString(),
-        'x-total-chunks': totalChunks.toString()
+        'x-total-chunks': totalChunks.toString(),
+        'x-offset': start.toString()
       }
 
       const res = await fetch('/api/artwork/upload-chunk', {
@@ -671,6 +698,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                   <TableHeader className="sticky top-0 bg-white z-10">
                     <TableRow>
                       <TableHead className="w-[80px]">Order</TableHead>
+                      <TableHead className="w-[60px]">预览</TableHead>
                       <TableHead>原文件名</TableHead>
                       <TableHead>新文件名</TableHead>
                       <TableHead className="w-[180px]">进度</TableHead>
@@ -689,7 +717,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                           {isGap && (
                             <TableRow className="bg-orange-50/50 hover:bg-orange-50/50">
                               <TableCell
-                                colSpan={6}
+                                colSpan={7}
                                 className="py-2 text-center text-xs text-orange-600 font-medium border-y border-orange-100"
                               >
                                 <div className="flex items-center justify-center gap-2">
@@ -713,6 +741,18 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                                 className="h-7 w-16 text-center px-1"
                                 disabled={globalStatus !== 'idle'}
                               />
+                            </TableCell>
+                            <TableCell>
+                              <div className="w-10 h-10 rounded overflow-hidden bg-neutral-100 flex items-center justify-center border">
+                                {item.previewUrl &&
+                                  (VIDEO_EXTENSIONS.includes(
+                                    '.' + (item.file.name.split('.').pop() || '').toLowerCase()
+                                  ) ? (
+                                    <video src={item.previewUrl} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <img src={item.previewUrl} alt="preview" className="w-full h-full object-cover" />
+                                  ))}
+                              </div>
                             </TableCell>
                             <TableCell
                               className="font-mono text-xs text-neutral-400 truncate max-w-[150px]"
