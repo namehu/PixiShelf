@@ -2,7 +2,19 @@
 import { useState, useCallback } from 'react'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
-import { Edit, Trash, ExternalLink, Download, FolderInput, BarChart3, Plus } from 'lucide-react'
+import { SDropdown } from '@/components/shared/s-dropdown'
+import {
+  Edit,
+  Trash,
+  ExternalLink,
+  Download,
+  FolderInput,
+  BarChart3,
+  Plus,
+  MoreHorizontal,
+  FileText,
+  ChevronDown
+} from 'lucide-react'
 import { ArtworkDialog } from './artwork-dialog'
 import { toast } from 'sonner'
 import Link from 'next/link'
@@ -11,7 +23,7 @@ import { useMigration } from '../_hooks/use-migration'
 import { MigrationDialog } from './migration-dialog'
 import { ImageManagerDialog } from './image-manager-dialog'
 import { confirm } from '@/components/shared/global-confirm'
-import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
+import { useQueryStates, parseAsString, parseAsInteger, parseAsBoolean } from 'nuqs'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { useMutation } from '@tanstack/react-query'
 import { RowSelectionState } from '@tanstack/react-table'
@@ -36,10 +48,13 @@ export interface ArtworkListItem {
   updatedAt: string
 }
 
+import { BatchImportDialog } from './batch-import-dialog'
+
 export default function ArtworkManagement() {
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [batchImportOpen, setBatchImportOpen] = useState(false)
   const [editingArtwork, setEditingArtwork] = useState<any>(null)
   const [imageManagerOpen, setImageManagerOpen] = useState(false)
   const [managingArtwork, setManagingArtwork] = useState<ArtworkListItem | null>(null)
@@ -55,6 +70,8 @@ export default function ArtworkManagement() {
     artistName: parseAsString,
     startDate: parseAsString,
     endDate: parseAsString,
+    externalId: parseAsString,
+    exactMatch: parseAsBoolean.withDefault(false),
     page: parseAsInteger.withDefault(1),
     pageSize: parseAsInteger.withDefault(20)
   })
@@ -64,7 +81,9 @@ export default function ArtworkManagement() {
     title: searchState.title || '',
     artistName: searchState.artistName || '',
     startDate: searchState.startDate || '',
-    endDate: searchState.endDate || ''
+    endDate: searchState.endDate || '',
+    externalId: searchState.externalId || '',
+    exactMatch: searchState.exactMatch || false
   })
 
   const handleSearch = () => {
@@ -73,17 +92,21 @@ export default function ArtworkManagement() {
       artistName: localSearch.artistName || null,
       startDate: localSearch.startDate || null,
       endDate: localSearch.endDate || null,
+      externalId: localSearch.externalId || null,
+      exactMatch: localSearch.exactMatch || null,
       page: 1 // 重置到第一页
     })
   }
 
   const handleReset = () => {
-    setLocalSearch({ title: '', artistName: '', startDate: '', endDate: '' })
+    setLocalSearch({ title: '', artistName: '', startDate: '', endDate: '', externalId: '', exactMatch: false })
     setSearchState({
       title: null,
       artistName: null,
       startDate: null,
       endDate: null,
+      externalId: null,
+      exactMatch: null,
       page: 1,
       pageSize: 20
     })
@@ -318,7 +341,9 @@ export default function ArtworkManagement() {
         search: searchState.title,
         artistName: searchState.artistName,
         startDate: searchState.startDate,
-        endDate: searchState.endDate
+        endDate: searchState.endDate,
+        externalId: searchState.externalId,
+        exactMatch: searchState.exactMatch
       })
       const { items, total } = res
 
@@ -356,41 +381,70 @@ export default function ArtworkManagement() {
         </div>
         <div className="flex gap-2 w-full md:w-auto">
           <Button
-            key="export"
-            variant="outline"
-            size="sm"
-            onClick={handleExportNoSeries}
-            disabled={isExporting}
-            className="flex items-center gap-2"
-          >
-            <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
-            {isExporting ? '导出中...' : '导出无系列ID'}
-          </Button>
-          <Button
-            key="migrate"
-            variant="secondary"
+            key="create"
+            variant="default"
             size="sm"
             className="gap-2"
-            onClick={handleMigrationClick}
-            disabled={migrationState.migrating}
+            onClick={() => {
+              setEditingArtwork(null)
+              setDialogOpen(true)
+            }}
           >
-            {migrationState.migrating ? (
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                迁移中...
-              </span>
-            ) : (
-              <>
-                <FolderInput className="w-4 h-4" />
-                {selectedRowKeys.length > 0 ? `批量迁移 (${selectedRowKeys.length})` : '目录迁移'}
-              </>
-            )}
+            <Plus className="w-4 h-4" />
+            新增作品
           </Button>
-          {(migrationState.migrating || migrationLogger.logs.length > 0) && (
-            <Button key="logs" variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
-              查看日志
+
+          <SDropdown
+            menu={{
+              items: [
+                {
+                  key: 'batchImport',
+                  icon: <Plus className="w-4 h-4" />,
+                  label: '批量导入',
+                  onClick: () => setBatchImportOpen(true)
+                },
+                {
+                  key: 'export',
+                  icon: <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />,
+                  label: isExporting ? '导出中...' : '导出无系列ID',
+                  disabled: isExporting,
+                  onClick: handleExportNoSeries
+                },
+                {
+                  key: 'migrate',
+                  icon: migrationState.migrating ? (
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                  ) : (
+                    <FolderInput className="w-4 h-4" />
+                  ),
+                  label: migrationState.migrating
+                    ? '迁移中...'
+                    : selectedRowKeys.length > 0
+                      ? `批量迁移 (${selectedRowKeys.length})`
+                      : '目录迁移',
+                  disabled: migrationState.migrating,
+                  onClick: handleMigrationClick
+                },
+                {
+                  key: 'log-separator',
+                  type: 'divider',
+                  hidden: !(migrationState.migrating || migrationLogger.logs.length > 0)
+                },
+                {
+                  key: 'logs',
+                  icon: <FileText className="w-4 h-4" />,
+                  label: '查看日志',
+                  hidden: !(migrationState.migrating || migrationLogger.logs.length > 0),
+                  onClick: () => setLogOpen(true)
+                }
+              ]
+            }}
+          >
+            <Button variant="outline" size="sm" className="flex items-center gap-2">
+              更多操作
+              <ChevronDown className="w-4 h-4" />
             </Button>
-          )}
+          </SDropdown>
         </div>
       </div>
 
@@ -408,13 +462,24 @@ export default function ArtworkManagement() {
         onRowSelectionChange={setRowSelection}
         searchRender={() => (
           <div className="flex flex-wrap items-center gap-2 w-full">
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="搜索作品标题..."
+                value={localSearch.title}
+                onChange={(e) => setLocalSearch((prev) => ({ ...prev, title: e.target.value }))}
+                className="h-8 w-full md:w-[200px]"
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              />
+            </div>
+
             <Input
-              placeholder="搜索作品标题..."
-              value={localSearch.title}
-              onChange={(e) => setLocalSearch((prev) => ({ ...prev, title: e.target.value }))}
-              className="h-8 w-full md:w-[200px]"
+              placeholder="外部ID..."
+              value={localSearch.externalId}
+              onChange={(e) => setLocalSearch((prev) => ({ ...prev, externalId: e.target.value }))}
+              className="h-8 w-full md:w-[150px]"
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
+
             <Input
               placeholder="搜索作者..."
               value={localSearch.artistName}
@@ -445,6 +510,19 @@ export default function ArtworkManagement() {
               />
             </div>
 
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="exactMatch"
+                checked={localSearch.exactMatch}
+                onCheckedChange={(checked) => setLocalSearch((prev) => ({ ...prev, exactMatch: !!checked }))}
+              />
+              <label
+                htmlFor="exactMatch"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 whitespace-nowrap"
+              >
+                精确
+              </label>
+            </div>
             <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
               <Button variant="default" size="sm" onClick={handleSearch} className="h-8 px-3 flex-1 md:flex-none">
                 <Search className="w-4 h-4 mr-1" />
@@ -453,19 +531,6 @@ export default function ArtworkManagement() {
               <Button variant="outline" size="sm" onClick={handleReset} className="h-8 px-3 flex-1 md:flex-none">
                 <RotateCcw className="w-4 h-4 mr-1" />
                 重置
-              </Button>
-              <Button
-                key="create"
-                variant="default"
-                size="sm"
-                className="gap-2"
-                onClick={() => {
-                  setEditingArtwork(null)
-                  setDialogOpen(true)
-                }}
-              >
-                <Plus className="w-4 h-4" />
-                新增作品
               </Button>
             </div>
           </div>
@@ -493,6 +558,13 @@ export default function ArtworkManagement() {
         migrationState={migrationState}
         migrationActions={migrationActions}
         migrationLogger={migrationLogger}
+      />
+      <BatchImportDialog
+        open={batchImportOpen}
+        onOpenChange={setBatchImportOpen}
+        onSuccess={() => {
+          setRefreshKey((prev) => prev + 1)
+        }}
       />
     </div>
   )

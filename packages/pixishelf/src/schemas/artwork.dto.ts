@@ -61,7 +61,9 @@ export const ArtworksInfiniteQuerySchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
     .optional()
-    .nullish()
+    .nullish(),
+  externalId: z.string().nullish().optional(),
+  exactMatch: z.boolean().optional().default(false)
 })
 
 export type ArtworksInfiniteQuerySchema = z.infer<typeof ArtworksInfiniteQuerySchema>
@@ -181,3 +183,57 @@ export const ArtworkResponseDto = ArtworkModel.extend({
 // export type ArtistResponse = z.infer<typeof ArtistResponseDto>
 // export type TagResponse = z.infer<typeof TagResponseDto>
 export type ArtworkResponseDto = z.infer<typeof ArtworkResponseDto>
+
+/**
+ * 批量创建作品参数 Schema
+ */
+export const BatchCreateArtworkSchema = z.object({
+  artworks: z.array(
+    z.object({
+      tempId: z.string(), // 前端临时ID
+      title: z.string().min(1),
+      artistId: z.number().int(),
+      artistUserId: z.string(),
+      tagIds: z.array(z.number().int()).default([])
+    })
+  )
+})
+
+export type BatchCreateArtworkSchema = z.infer<typeof BatchCreateArtworkSchema>
+
+/**
+ * 批量导入作品参数 Schema
+ */
+export const BatchImportArtworkSchema = z.object({
+  tempId: z.string(),
+  id: z.number().int(),
+  externalId: z.string(),
+  /** 目标相对目录 */
+  targetRelDir: z.string(),
+  /** 上传目标目录 */
+  uploadTargetDir: z.string(),
+  title: z.string()
+})
+
+export type BatchImportArtworkSchema = z.infer<typeof BatchImportArtworkSchema>
+
+/**
+ * 批量注册图片参数 Schema
+ */
+export const BatchRegisterImageSchema = z.object({
+  items: z.array(
+    z.object({
+      artworkId: z.number().int(),
+      images: z.array(
+        z.object({
+          path: z.string(),
+          size: z.number().int(),
+          width: z.number().int().optional(),
+          height: z.number().int().optional()
+        })
+      )
+    })
+  )
+})
+
+export type BatchRegisterImageSchema = z.infer<typeof BatchRegisterImageSchema>

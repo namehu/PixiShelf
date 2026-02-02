@@ -111,3 +111,8 @@ export const getStem = (p: string) => {
   const ext = path.extname(name)
   return name.slice(0, name.length - ext.length)
 }
+
+export const generateLocalExternalId = (artworkId: number) => {
+  const randomSuffix = Math.floor(1000000 + Math.random() * 9000000).toString()
+  return `e_${artworkId}_${randomSuffix}`
+}
