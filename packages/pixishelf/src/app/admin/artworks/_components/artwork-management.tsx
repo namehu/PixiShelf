@@ -36,10 +36,13 @@ export interface ArtworkListItem {
   updatedAt: string
 }
 
+import { BatchImportDialog } from './batch-import-dialog'
+
 export default function ArtworkManagement() {
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [batchImportOpen, setBatchImportOpen] = useState(false)
   const [editingArtwork, setEditingArtwork] = useState<any>(null)
   const [imageManagerOpen, setImageManagerOpen] = useState(false)
   const [managingArtwork, setManagingArtwork] = useState<ArtworkListItem | null>(null)
@@ -356,6 +359,16 @@ export default function ArtworkManagement() {
         </div>
         <div className="flex gap-2 w-full md:w-auto">
           <Button
+            key="batch-import"
+            variant="default"
+            size="sm"
+            onClick={() => setBatchImportOpen(true)}
+            className="flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            批量导入
+          </Button>
+          <Button
             key="export"
             variant="outline"
             size="sm"
@@ -493,6 +506,13 @@ export default function ArtworkManagement() {
         migrationState={migrationState}
         migrationActions={migrationActions}
         migrationLogger={migrationLogger}
+      />
+      <BatchImportDialog
+        open={batchImportOpen}
+        onOpenChange={setBatchImportOpen}
+        onSuccess={() => {
+          setRefreshKey((prev) => prev + 1)
+        }}
       />
     </div>
   )
