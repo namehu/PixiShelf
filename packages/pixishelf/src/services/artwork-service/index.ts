@@ -13,7 +13,7 @@ import { combinationApiResource, combinationStaticAvatar } from '@/utils/combina
 import { getUserArtworkLikeStatus } from '@/services/like-service'
 import logger from '@/lib/logger'
 import { EMediaType } from '@/enums/EMediaType'
-import { shuffleArray, transformImages, transformSingleArtwork } from './utils'
+import { generateLocalExternalId, shuffleArray, transformImages, transformSingleArtwork } from './utils'
 import { fetchRandomIds } from './dao'
 import { RandomTagDto } from '@/schemas/tag.dto'
 import { Prisma } from '@prisma/client'
@@ -222,8 +222,7 @@ export async function createArtwork(data: {
   })
 
   if (source === 'LOCAL_CREATED') {
-    const randomSuffix = Math.floor(1000000 + Math.random() * 9000000).toString()
-    const externalId = `e_${artwork.id}_${randomSuffix}`
+    const externalId = generateLocalExternalId(artwork.id)
 
     return prisma.artwork.update({
       where: { id: artwork.id },
