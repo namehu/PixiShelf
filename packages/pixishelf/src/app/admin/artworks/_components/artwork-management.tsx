@@ -11,7 +11,7 @@ import { useMigration } from '../_hooks/use-migration'
 import { MigrationDialog } from './migration-dialog'
 import { ImageManagerDialog } from './image-manager-dialog'
 import { confirm } from '@/components/shared/global-confirm'
-import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
+import { useQueryStates, parseAsString, parseAsInteger, parseAsBoolean } from 'nuqs'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { useMutation } from '@tanstack/react-query'
 import { RowSelectionState } from '@tanstack/react-table'
@@ -58,6 +58,8 @@ export default function ArtworkManagement() {
     artistName: parseAsString,
     startDate: parseAsString,
     endDate: parseAsString,
+    externalId: parseAsString,
+    exactMatch: parseAsBoolean.withDefault(false),
     page: parseAsInteger.withDefault(1),
     pageSize: parseAsInteger.withDefault(20)
   })
@@ -67,7 +69,9 @@ export default function ArtworkManagement() {
     title: searchState.title || '',
     artistName: searchState.artistName || '',
     startDate: searchState.startDate || '',
-    endDate: searchState.endDate || ''
+    endDate: searchState.endDate || '',
+    externalId: searchState.externalId || '',
+    exactMatch: searchState.exactMatch || false
   })
 
   const handleSearch = () => {
@@ -76,17 +80,21 @@ export default function ArtworkManagement() {
       artistName: localSearch.artistName || null,
       startDate: localSearch.startDate || null,
       endDate: localSearch.endDate || null,
+      externalId: localSearch.externalId || null,
+      exactMatch: localSearch.exactMatch || null,
       page: 1 // 重置到第一页
     })
   }
 
   const handleReset = () => {
-    setLocalSearch({ title: '', artistName: '', startDate: '', endDate: '' })
+    setLocalSearch({ title: '', artistName: '', startDate: '', endDate: '', externalId: '', exactMatch: false })
     setSearchState({
       title: null,
       artistName: null,
       startDate: null,
       endDate: null,
+      externalId: null,
+      exactMatch: null,
       page: 1,
       pageSize: 20
     })
@@ -321,7 +329,9 @@ export default function ArtworkManagement() {
         search: searchState.title,
         artistName: searchState.artistName,
         startDate: searchState.startDate,
-        endDate: searchState.endDate
+        endDate: searchState.endDate,
+        externalId: searchState.externalId,
+        exactMatch: searchState.exactMatch
       })
       const { items, total } = res
 
@@ -421,13 +431,24 @@ export default function ArtworkManagement() {
         onRowSelectionChange={setRowSelection}
         searchRender={() => (
           <div className="flex flex-wrap items-center gap-2 w-full">
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="搜索作品标题..."
+                value={localSearch.title}
+                onChange={(e) => setLocalSearch((prev) => ({ ...prev, title: e.target.value }))}
+                className="h-8 w-full md:w-[200px]"
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              />
+            </div>
+
             <Input
-              placeholder="搜索作品标题..."
-              value={localSearch.title}
-              onChange={(e) => setLocalSearch((prev) => ({ ...prev, title: e.target.value }))}
-              className="h-8 w-full md:w-[200px]"
+              placeholder="外部ID..."
+              value={localSearch.externalId}
+              onChange={(e) => setLocalSearch((prev) => ({ ...prev, externalId: e.target.value }))}
+              className="h-8 w-full md:w-[150px]"
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
+
             <Input
               placeholder="搜索作者..."
               value={localSearch.artistName}
@@ -458,6 +479,19 @@ export default function ArtworkManagement() {
               />
             </div>
 
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="exactMatch"
+                checked={localSearch.exactMatch}
+                onCheckedChange={(checked) => setLocalSearch((prev) => ({ ...prev, exactMatch: !!checked }))}
+              />
+              <label
+                htmlFor="exactMatch"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 whitespace-nowrap"
+              >
+                精确
+              </label>
+            </div>
             <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
               <Button variant="default" size="sm" onClick={handleSearch} className="h-8 px-3 flex-1 md:flex-none">
                 <Search className="w-4 h-4 mr-1" />

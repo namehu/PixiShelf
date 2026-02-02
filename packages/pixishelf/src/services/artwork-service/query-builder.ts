@@ -6,11 +6,18 @@ import { VIDEO_EXTENSIONS } from '../../../lib/constant'
  * 构建作品查询的 WHERE 子句
  */
 export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, initialParamIndex = 1) {
-  const { tags, search, artistId, artistName, tagId, mediaType, startDate, endDate } = params
-  
+  const { tags, search, artistId, artistName, tagId, mediaType, startDate, endDate, externalId, exactMatch } = params
+
   let whereSQL = 'WHERE 1=1'
   const sqlParams: any[] = []
   let paramIndex = initialParamIndex
+
+  // 1.0 External ID
+  if (externalId) {
+    whereSQL += ` AND a."externalId" = $${paramIndex}`
+    sqlParams.push(externalId)
+    paramIndex++
+  }
 
   // 1.1 艺术家筛选
   if (artistId && Number.isFinite(artistId)) {
@@ -21,9 +28,15 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
 
   // 1.1.2 艺术家名称筛选
   if (artistName) {
-    whereSQL += ` AND artist.name ILIKE $${paramIndex}`
-    sqlParams.push(`%${artistName}%`)
-    paramIndex++
+    if (exactMatch) {
+      whereSQL += ` AND artist.name = $${paramIndex}`
+      sqlParams.push(artistName)
+      paramIndex++
+    } else {
+      whereSQL += ` AND artist.name ILIKE $${paramIndex}`
+      sqlParams.push(`%${artistName}%`)
+      paramIndex++
+    }
   }
 
   // 1.2 标签名筛选
@@ -49,14 +62,20 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
 
   // 1.4 文本搜索
   if (search) {
-    const searchCondition = `%${search}%`
-    whereSQL += ` AND (
-      a.title ILIKE $${paramIndex} OR
-      a.description ILIKE $${paramIndex} OR
-      artist.name ILIKE $${paramIndex}
-    )`
-    sqlParams.push(searchCondition)
-    paramIndex++
+    if (exactMatch) {
+      whereSQL += ` AND a.title = $${paramIndex}`
+      sqlParams.push(search)
+      paramIndex++
+    } else {
+      const searchCondition = `%${search}%`
+      whereSQL += ` AND (
+        a.title ILIKE $${paramIndex} OR
+        a.description ILIKE $${paramIndex} OR
+        artist.name ILIKE $${paramIndex}
+      )`
+      sqlParams.push(searchCondition)
+      paramIndex++
+    }
   }
 
   // 1.5 媒体类型筛选
