@@ -2,7 +2,19 @@
 import { useState, useCallback } from 'react'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
-import { Edit, Trash, ExternalLink, Download, FolderInput, BarChart3, Plus } from 'lucide-react'
+import { SDropdown } from '@/components/shared/s-dropdown'
+import {
+  Edit,
+  Trash,
+  ExternalLink,
+  Download,
+  FolderInput,
+  BarChart3,
+  Plus,
+  MoreHorizontal,
+  FileText,
+  ChevronDown
+} from 'lucide-react'
 import { ArtworkDialog } from './artwork-dialog'
 import { toast } from 'sonner'
 import Link from 'next/link'
@@ -369,51 +381,70 @@ export default function ArtworkManagement() {
         </div>
         <div className="flex gap-2 w-full md:w-auto">
           <Button
-            key="batch-import"
+            key="create"
             variant="default"
             size="sm"
-            onClick={() => setBatchImportOpen(true)}
-            className="flex items-center gap-2"
+            className="gap-2"
+            onClick={() => {
+              setEditingArtwork(null)
+              setDialogOpen(true)
+            }}
           >
             <Plus className="w-4 h-4" />
-            批量导入
+            新增作品
           </Button>
-          <Button
-            key="export"
-            variant="outline"
-            size="sm"
-            onClick={handleExportNoSeries}
-            disabled={isExporting}
-            className="flex items-center gap-2"
+
+          <SDropdown
+            menu={{
+              items: [
+                {
+                  key: 'batchImport',
+                  icon: <Plus className="w-4 h-4" />,
+                  label: '批量导入',
+                  onClick: () => setBatchImportOpen(true)
+                },
+                {
+                  key: 'export',
+                  icon: <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />,
+                  label: isExporting ? '导出中...' : '导出无系列ID',
+                  disabled: isExporting,
+                  onClick: handleExportNoSeries
+                },
+                {
+                  key: 'migrate',
+                  icon: migrationState.migrating ? (
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                  ) : (
+                    <FolderInput className="w-4 h-4" />
+                  ),
+                  label: migrationState.migrating
+                    ? '迁移中...'
+                    : selectedRowKeys.length > 0
+                      ? `批量迁移 (${selectedRowKeys.length})`
+                      : '目录迁移',
+                  disabled: migrationState.migrating,
+                  onClick: handleMigrationClick
+                },
+                {
+                  key: 'log-separator',
+                  type: 'divider',
+                  hidden: !(migrationState.migrating || migrationLogger.logs.length > 0)
+                },
+                {
+                  key: 'logs',
+                  icon: <FileText className="w-4 h-4" />,
+                  label: '查看日志',
+                  hidden: !(migrationState.migrating || migrationLogger.logs.length > 0),
+                  onClick: () => setLogOpen(true)
+                }
+              ]
+            }}
           >
-            <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
-            {isExporting ? '导出中...' : '导出无系列ID'}
-          </Button>
-          <Button
-            key="migrate"
-            variant="secondary"
-            size="sm"
-            className="gap-2"
-            onClick={handleMigrationClick}
-            disabled={migrationState.migrating}
-          >
-            {migrationState.migrating ? (
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                迁移中...
-              </span>
-            ) : (
-              <>
-                <FolderInput className="w-4 h-4" />
-                {selectedRowKeys.length > 0 ? `批量迁移 (${selectedRowKeys.length})` : '目录迁移'}
-              </>
-            )}
-          </Button>
-          {(migrationState.migrating || migrationLogger.logs.length > 0) && (
-            <Button key="logs" variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
-              查看日志
+            <Button variant="outline" size="sm" className="flex items-center gap-2">
+              更多操作
+              <ChevronDown className="w-4 h-4" />
             </Button>
-          )}
+          </SDropdown>
         </div>
       </div>
 
@@ -500,19 +531,6 @@ export default function ArtworkManagement() {
               <Button variant="outline" size="sm" onClick={handleReset} className="h-8 px-3 flex-1 md:flex-none">
                 <RotateCcw className="w-4 h-4 mr-1" />
                 重置
-              </Button>
-              <Button
-                key="create"
-                variant="default"
-                size="sm"
-                className="gap-2"
-                onClick={() => {
-                  setEditingArtwork(null)
-                  setDialogOpen(true)
-                }}
-              >
-                <Plus className="w-4 h-4" />
-                新增作品
               </Button>
             </div>
           </div>
