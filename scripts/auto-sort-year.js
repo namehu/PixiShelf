@@ -5,11 +5,10 @@
  *
  * 功能：根据文件名中的日期模式自动分类文件。
  * 特性：
- * 1. 支持增量更新 (基于 SHA-256)
- * 2. 日志记录与滚动 (10MB 限制)
- * 3. 外部配置 (config.json)
- * 4. 进度显示
- * 5. DryRun 模拟模式
+ * 1. 日志记录与滚动 (10MB 限制)
+ * 2. 外部配置 (config.json)
+ * 3. 进度显示
+ * 4. DryRun 模拟模式
  *
  * 使用方法：
  * node auto-sort-year.js --source "C:\Photos" --dest "D:\Archive" --dry-run
@@ -17,7 +16,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 
 // --- 颜色常量 ---
 const COLORS = {
@@ -134,64 +132,7 @@ class Logger {
   }
 }
 
-// --- 缓存系统 ---
-class CacheManager {
-  constructor(cacheFile, logger) {
-    this.cacheFile = cacheFile;
-    this.logger = logger;
-    this.cache = {};
-    this.isModified = false;
-  }
-
-  load() {
-    if (fs.existsSync(this.cacheFile)) {
-      try {
-        const data = fs.readFileSync(this.cacheFile, 'utf8');
-        this.cache = JSON.parse(data);
-        this.logger.log(`已从 ${this.cacheFile} 加载缓存`, 'Debug');
-      } catch (err) {
-        this.logger.log(`加载缓存失败，将重新开始: ${err.message}`, 'Warning');
-        this.cache = {};
-      }
-    }
-  }
-
-  save() {
-    if (!this.isModified) return;
-    try {
-      fs.writeFileSync(this.cacheFile, JSON.stringify(this.cache, null, 2), 'utf8');
-      this.logger.log(`缓存已保存到 ${this.cacheFile}`, 'Debug');
-    } catch (err) {
-      this.logger.log(`保存缓存失败: ${err.message}`, 'Error');
-    }
-  }
-
-  get(hash) {
-    return this.cache[hash];
-  }
-
-  set(hash, path) {
-    this.cache[hash] = path;
-    this.isModified = true;
-  }
-
-  has(hash) {
-    return Object.prototype.hasOwnProperty.call(this.cache, hash);
-  }
-}
-
 // --- 核心逻辑 ---
-
-function getFileHash(filePath) {
-  try {
-    const fileBuffer = fs.readFileSync(filePath);
-    const hashSum = crypto.createHash('sha256');
-    hashSum.update(fileBuffer);
-    return hashSum.digest('hex').toUpperCase(); // 保持与 PS 脚本一致的大写
-  } catch (err) {
-    return null;
-  }
-}
 
 function getAllFiles(dirPath, arrayOfFiles) {
   const files = fs.readdirSync(dirPath);
@@ -245,16 +186,6 @@ async function main() {
   logger.log(`目标目录: ${params.destPath}`, "Info");
   if (params.dryRun) logger.log("模式: 模拟运行 (DryRun)", "Warning");
 
-  // 初始化缓存
-  const cachePath = config.Cache?.CacheFile
-    ? path.join(path.dirname(params.configFile), config.Cache.CacheFile)
-    : path.join(__dirname, 'file_cache.json');
-
-  const cacheManager = new CacheManager(cachePath, logger);
-  if (config.Cache?.Enabled !== false) {
-    cacheManager.load();
-  }
-
   // 准备正则
   const patternStr = config.Rules?.[0]?.Regex || "^(?<date>\\d{1,2}\\.\\d{1,2})";
   const regex = new RegExp(patternStr);
@@ -287,23 +218,7 @@ async function main() {
       if (match && match.groups && match.groups.date) {
         const datePart = match.groups.date;
 
-        // 2. 检查缓存
-        const hash = getFileHash(file);
-        if (!hash) {
-          logger.log(`\n无法计算哈希: ${fileName}`, "Error");
-          continue;
-        }
-
-        if (config.Cache?.Enabled !== false && cacheManager.has(hash)) {
-          const cachedPath = cacheManager.get(hash);
-          if (fs.existsSync(cachedPath)) {
-            // 如果缓存路径存在，跳过
-            // logger.log(`\n跳过 [${fileName}] - 已存在`, "Debug"); // 减少刷屏
-            continue;
-          }
-        }
-
-        // 3. 确定路径
+        // 2. 确定路径
         const targetFolder = path.join(params.destPath, datePart);
         const destFile = path.join(targetFolder, fileName);
 
@@ -315,17 +230,13 @@ async function main() {
             fs.mkdirSync(targetFolder, { recursive: true });
           }
 
-          // 4. 移动文件
+          // 3. 移动文件
           if (fs.existsSync(destFile)) {
             logger.log(`\n冲突: 目标文件已存在 [${destFile}]。跳过。`, "Warning");
           } else {
             try {
               fs.renameSync(file, destFile);
               logger.log(`\n已移动: ${fileName} -> ${destFile}`, "Info", COLORS.Green);
-
-              if (config.Cache?.Enabled !== false) {
-                cacheManager.set(hash, destFile);
-              }
             } catch (moveErr) {
               logger.log(`\n移动失败: ${moveErr.message}`, "Error");
             }
@@ -340,11 +251,6 @@ async function main() {
 
     if (process.stdout.isTTY) {
       process.stdout.write('\n'); // 换行结束进度条
-    }
-
-    // 保存缓存
-    if (!params.dryRun && config.Cache?.Enabled !== false) {
-      cacheManager.save();
     }
 
     logger.log("完成。", "Info", COLORS.Green);
