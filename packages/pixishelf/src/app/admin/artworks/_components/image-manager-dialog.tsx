@@ -109,6 +109,191 @@ interface ImageListItem {
   size: number | null
 }
 
+// --- Image Preview Dialog ---
+interface ImagePreviewDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  images: ImageListItem[]
+  currentIndex: number | null
+  onIndexChange: (index: number) => void
+}
+
+function ImagePreviewDialog({ open, onOpenChange, images, currentIndex, onIndexChange }: ImagePreviewDialogProps) {
+  const handlePrev = useCallback(() => {
+    if (currentIndex !== null && currentIndex > 0) {
+      onIndexChange(currentIndex - 1)
+    }
+  }, [currentIndex, onIndexChange])
+
+  const handleNext = useCallback(() => {
+    if (currentIndex !== null && currentIndex < images.length - 1) {
+      onIndexChange(currentIndex + 1)
+    }
+  }, [currentIndex, images.length, onIndexChange])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!open || currentIndex === null) return
+      if (e.key === 'ArrowLeft') handlePrev()
+      if (e.key === 'ArrowRight') handleNext()
+      if (e.key === 'Escape') onOpenChange(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open, currentIndex, handlePrev, handleNext, onOpenChange])
+
+  // Early return if no valid image to show, but only if open
+  // We render ProDialog anyway so it handles the "open" state animation correctly
+  const currentImage = currentIndex !== null ? images[currentIndex] : null
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="max-w-screen-xl w-full h-screen sm:h-[90vh] p-0 gap-0 bg-black/95 border-none flex flex-col overflow-hidden"
+      >
+        <DialogTitle className="sr-only">Image Preview</DialogTitle>
+        {currentImage && (
+          <>
+            <div className="absolute top-4 right-4 z-50 flex gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-white/70 hover:text-white hover:bg-white/10 rounded-full"
+                onClick={() => onOpenChange(false)}
+              >
+                <X className="w-6 h-6" />
+              </Button>
+            </div>
+
+            <div className="flex-1 relative flex items-center justify-center w-full h-full overflow-hidden">
+              <div className="relative w-full h-full">
+                <Image src={currentImage.path} alt="Preview" fill className="object-contain" quality={90} priority />
+              </div>
+
+              {/* Navigation */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white hover:bg-white/10 rounded-full w-12 h-12"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handlePrev()
+                }}
+                disabled={currentIndex === 0}
+              >
+                <ChevronLeft className="w-8 h-8" />
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white hover:bg-white/10 rounded-full w-12 h-12"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleNext()
+                }}
+                disabled={currentIndex === images.length - 1}
+              >
+                <ChevronRight className="w-8 h-8" />
+              </Button>
+            </div>
+
+            <div className="h-16 bg-black/50 flex items-center justify-center text-white/80 gap-4 text-sm font-mono shrink-0">
+              <span>
+                {(currentIndex || 0) + 1} / {images.length}
+              </span>
+              <span>|</span>
+              <span>{currentImage.path.split('/').pop()}</span>
+              <span>|</span>
+              <span>
+                {currentImage.width}x{currentImage.height}
+              </span>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// --- Add Image Dialog ---
+interface AddImageDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSubmit: (file: File, order: number) => Promise<void>
+  isSubmitting: boolean
+  progress: number
+  defaultOrder: number
+}
+
+function AddImageDialog({ open, onOpenChange, onSubmit, isSubmitting, progress, defaultOrder }: AddImageDialogProps) {
+  const [file, setFile] = useState<File | null>(null)
+  const [order, setOrder] = useState(defaultOrder)
+
+  // Reset state when dialog opens
+  useEffect(() => {
+    if (open) {
+      setOrder(defaultOrder)
+      setFile(null)
+    }
+  }, [open, defaultOrder])
+
+  const handleSubmit = async () => {
+    if (file) {
+      await onSubmit(file, order)
+    }
+  }
+
+  return (
+    <ProDialog
+      open={open}
+      onOpenChange={(v) => !isSubmitting && onOpenChange(v)}
+      title="新增图片"
+      onOk={handleSubmit}
+      confirmLoading={isSubmitting}
+      okButtonProps={{ disabled: !file || isSubmitting }}
+      cancelButtonProps={{ disabled: isSubmitting }}
+      okText={isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : '确认添加'}
+    >
+      <div className="space-y-4 py-4">
+        <div className="grid w-full max-w-sm items-center gap-1.5">
+          <Label htmlFor="picture">图片/视频文件</Label>
+          <Input
+            id="picture"
+            type="file"
+            accept="image/*,video/*"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            disabled={isSubmitting}
+          />
+        </div>
+        <div className="grid w-full max-w-sm items-center gap-1.5">
+          <Label htmlFor="order">排序 (Order)</Label>
+          <Input
+            id="order"
+            type="number"
+            value={order}
+            onChange={(e) => setOrder(parseInt(e.target.value) || 0)}
+            disabled={isSubmitting}
+          />
+        </div>
+
+        {isSubmitting && (
+          <div className="space-y-1">
+            <div className="text-xs text-muted-foreground flex justify-between">
+              <span>上传中...</span>
+              <span>{progress}%</span>
+            </div>
+            <div className="h-1 bg-muted rounded overflow-hidden">
+              <div className="h-full bg-primary transition-all duration-300" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+        )}
+      </div>
+    </ProDialog>
+  )
+}
+
 export function ImageManagerDialog({
   open,
   onOpenChange,
@@ -128,14 +313,13 @@ export function ImageManagerDialog({
   const [showAddDialog, setShowAddDialog] = useState(false)
 
   // Add State
-  const [addFile, setAddFile] = useState<File | null>(null)
-  const [addOrder, setAddOrder] = useState(0)
+  const [defaultAddOrder, setDefaultAddOrder] = useState(0)
   const [isAdding, setIsAdding] = useState(false)
   const [addProgress, setAddProgress] = useState(0)
   const { uploadSingleFile } = useChunkUpload()
 
-  const handleAddSubmit = async () => {
-    if (!addFile || !artworkId) return
+  const handleAddSubmit = async (file: File, order: number) => {
+    if (!artworkId) return
 
     try {
       setIsAdding(true)
@@ -145,11 +329,11 @@ export function ImageManagerDialog({
       const { targetDir, targetRelDir } = await trpcClient.artwork.getUploadPath.query(artworkId)
 
       // 2. Generate filename: {externalId}_p{order}.{ext}
-      const ext = addFile.name.split('.').pop() || ''
-      const fileName = `${artwork.externalId}_p${addOrder}.${ext}`
+      const ext = file.name.split('.').pop() || ''
+      const fileName = `${artwork.externalId}_p${order}.${ext}`
 
       // 3. Upload file
-      const meta = await uploadSingleFile(addFile, fileName, targetDir, targetRelDir, (progress) => {
+      const meta = await uploadSingleFile(file, fileName, targetDir, targetRelDir, (progress) => {
         setAddProgress(progress)
       })
 
@@ -162,7 +346,7 @@ export function ImageManagerDialog({
         artworkId,
         file: {
           fileName: meta.fileName,
-          order: addOrder,
+          order: order,
           width: meta.width,
           height: meta.height,
           size: meta.size,
@@ -172,7 +356,6 @@ export function ImageManagerDialog({
 
       toast.success('图片添加成功')
       setShowAddDialog(false)
-      setAddFile(null)
       setRefreshKey((k) => k + 1)
       fetchArtworkData()
       onSuccess?.()
@@ -244,32 +427,7 @@ export function ImageManagerDialog({
   }, [open, artworkId, fetchArtworkData])
 
   // --- Lightbox Logic ---
-  const handlePrev = () => {
-    if (previewIndex !== null && previewIndex > 0) {
-      setPreviewIndex(previewIndex - 1)
-    }
-  }
-
-  const handleNext = () => {
-    if (previewIndex !== null && previewIndex < imageList.length - 1) {
-      setPreviewIndex(previewIndex + 1)
-    }
-  }
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (previewIndex === null) return
-      if (e.key === 'ArrowLeft') handlePrev()
-      if (e.key === 'ArrowRight') handleNext()
-      if (e.key === 'Escape') setPreviewIndex(null)
-    },
-    [previewIndex, imageList.length]
-  )
-
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleKeyDown])
+  // Moved to ImagePreviewDialog
 
   // --- Table Columns ---
   const columns: ProColumnDef<ImageListItem>[] = [
@@ -428,7 +586,7 @@ export function ImageManagerDialog({
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setAddOrder(imageList.length > 0 ? Math.max(...imageList.map((i) => i.sortOrder)) + 1 : 1)
+                  setDefaultAddOrder(imageList.length > 0 ? Math.max(...imageList.map((i) => i.sortOrder)) + 1 : 1)
                   setShowAddDialog(true)
                 }}
                 className="h-8"
@@ -542,129 +700,23 @@ export function ImageManagerDialog({
       <HoverPreview src={hoverImage} x={hoverPos.x} y={hoverPos.y} visible={!!hoverImage} />
 
       {/* Lightbox Preview */}
-      <Dialog open={previewIndex !== null} onOpenChange={(open) => !open && setPreviewIndex(null)}>
-        <DialogContent
-          aria-describedby={undefined}
-          className="max-w-screen-xl w-full h-screen sm:h-[90vh] p-0 gap-0 bg-black/95 border-none flex flex-col overflow-hidden"
-        >
-          <DialogTitle className="sr-only">Image Preview</DialogTitle>
-          {previewIndex !== null && imageList[previewIndex] && (
-            <>
-              <div className="absolute top-4 right-4 z-50 flex gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-white/70 hover:text-white hover:bg-white/10 rounded-full"
-                  onClick={() => setPreviewIndex(null)}
-                >
-                  <X className="w-6 h-6" />
-                </Button>
-              </div>
-
-              <div className="flex-1 relative flex items-center justify-center w-full h-full overflow-hidden">
-                <div className="relative w-full h-full">
-                  <Image
-                    src={imageList[previewIndex].path}
-                    alt="Preview"
-                    fill
-                    className="object-contain"
-                    quality={90}
-                    priority
-                  />
-                </div>
-
-                {/* Navigation */}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white hover:bg-white/10 rounded-full w-12 h-12"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handlePrev()
-                  }}
-                  disabled={previewIndex === 0}
-                >
-                  <ChevronLeft className="w-8 h-8" />
-                </Button>
-
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white hover:bg-white/10 rounded-full w-12 h-12"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleNext()
-                  }}
-                  disabled={previewIndex === imageList.length - 1}
-                >
-                  <ChevronRight className="w-8 h-8" />
-                </Button>
-              </div>
-
-              <div className="h-16 bg-black/50 flex items-center justify-center text-white/80 gap-4 text-sm font-mono shrink-0">
-                <span>
-                  {previewIndex + 1} / {imageList.length}
-                </span>
-                <span>|</span>
-                <span>{imageList[previewIndex].path.split('/').pop()}</span>
-                <span>|</span>
-                <span>
-                  {imageList[previewIndex].width}x{imageList[previewIndex].height}
-                </span>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      <ImagePreviewDialog
+        open={previewIndex !== null}
+        onOpenChange={(open) => !open && setPreviewIndex(null)}
+        images={imageList}
+        currentIndex={previewIndex}
+        onIndexChange={setPreviewIndex}
+      />
 
       {/* Add Image Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={(v) => !isAdding && setShowAddDialog(v)}>
-        <DialogContent>
-          <DialogTitle>新增图片</DialogTitle>
-          <div className="space-y-4 py-4">
-            <div className="grid w-full max-w-sm items-center gap-1.5">
-              <Label htmlFor="picture">图片/视频文件</Label>
-              <Input
-                id="picture"
-                type="file"
-                accept="image/*,video/*"
-                onChange={(e) => setAddFile(e.target.files?.[0] || null)}
-                disabled={isAdding}
-              />
-            </div>
-            <div className="grid w-full max-w-sm items-center gap-1.5">
-              <Label htmlFor="order">排序 (Order)</Label>
-              <Input
-                id="order"
-                type="number"
-                value={addOrder}
-                onChange={(e) => setAddOrder(parseInt(e.target.value) || 0)}
-                disabled={isAdding}
-              />
-            </div>
-
-            {isAdding && (
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground flex justify-between">
-                  <span>上传中...</span>
-                  <span>{addProgress}%</span>
-                </div>
-                <div className="h-1 bg-muted rounded overflow-hidden">
-                  <div className="h-full bg-primary transition-all duration-300" style={{ width: `${addProgress}%` }} />
-                </div>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)} disabled={isAdding}>
-              取消
-            </Button>
-            <Button onClick={handleAddSubmit} disabled={!addFile || isAdding}>
-              {isAdding ? <Loader2 className="w-4 h-4 animate-spin" /> : '确认添加'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AddImageDialog
+        open={showAddDialog}
+        onOpenChange={setShowAddDialog}
+        onSubmit={handleAddSubmit}
+        isSubmitting={isAdding}
+        progress={addProgress}
+        defaultOrder={defaultAddOrder}
+      />
 
       {/* Replace Dialog */}
       <ImageReplaceDialog
