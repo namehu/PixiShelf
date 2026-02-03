@@ -116,14 +116,6 @@ export async function batchRegisterImagesService(data: BatchRegisterImageSchema)
             }
           })
         })
-
-        // 2. 更新作品 imageCount
-        await tx.artwork.update({
-          where: { id: artworkId },
-          data: {
-            imageCount: images.length
-          }
-        })
       }
     })
   } catch (error) {

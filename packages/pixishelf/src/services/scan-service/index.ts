@@ -501,7 +501,7 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
       const artworkTagsToCreate = []
 
       for (const artworkData of batch) {
-        const { metadata, mediaFiles, directoryCreatedAt } = artworkData
+        const { metadata, directoryCreatedAt } = artworkData
 
         // 从缓存获取艺术家
         const artist = context.artistCache.get(metadata.userId)
@@ -512,14 +512,12 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
           continue
         }
 
-        const imageCount = mediaFiles.length
-
         // 准备作品数据
         const artworkToCreate = {
           title: metadata.title,
           description: metadata.description || null,
           artistId: artist.id,
-          imageCount,
+          imageCount: 0, // 初始为 0，由 DB 触发器在插入图片时自动增加
           descriptionLength: metadata.description?.length || 0,
           externalId: metadata.id,
           sourceUrl: metadata.url || null,
