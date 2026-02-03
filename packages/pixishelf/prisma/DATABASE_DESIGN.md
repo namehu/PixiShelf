@@ -45,6 +45,18 @@
   ```
   使用 `simple` 配置以避免语言特定的词干提取（Stemming），适合中英文混合环境及精确匹配需求。
 
+### 2.4 作品图片计数 (`Artwork.imageCount`)
+**机制**: 当 `Image` 表发生记录插入、删除或更新（修改归属作品）时，数据库自动更新对应 `Artwork` 的 `imageCount` 字段。
+
+- **触发器**:
+  - `artwork_image_count_trigger` (AFTER INSERT): 批量增加计数。
+  - `artwork_image_count_delete_trigger` (AFTER DELETE): 批量减少计数。
+  - `artwork_image_count_update_trigger` (AFTER UPDATE): 处理图片所属作品变更的情况（旧作品-1，新作品+1）。
+- **优化**:
+  - 采用 **语句级触发器 (FOR EACH STATEMENT)** 而非行级触发器，在批量操作时极大减少数据库 I/O 和锁竞争。
+  - 逻辑封装在 `update_artwork_image_count()` 函数中。
+- **初始化**: Migration 脚本中包含了全量校正 SQL。
+
 ## 3. 高级索引设计 (Advanced Indexes)
 
 部分复杂索引无法在 Prisma Schema 中直接定义，或需要通过 Raw SQL 优化以获得最佳性能。
@@ -84,3 +96,4 @@
 | `20250929103727` | 添加 Tag 搜索向量列 (`search_vector`) 及基础更新触发器 |
 | `20251001054605` | 更新 Tag 搜索触发器以支持 `name_en` (多语言搜索) |
 | `20251003034237` | 添加作品点赞计数触发器 (`ArtworkLike`) |
+| `20260203000000` | 添加作品图片计数触发器 (`Artwork.imageCount`, 语句级优化) |
