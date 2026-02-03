@@ -14,7 +14,8 @@ import {
   X,
   Loader2,
   FileUp,
-  Trash2
+  Trash2,
+  Plus
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
@@ -22,9 +23,11 @@ import { formatFileSize } from '@/utils/media'
 import { ProDrawer } from '@/components/shared/pro-drawer'
 import { ProDialog } from '@/components/shared/pro-dialog'
 import { ImageReplaceDialog } from './image-replace-dialog'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { useChunkUpload } from '../_hooks/use-chunk-upload'
 import { toast } from 'sonner'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -122,6 +125,64 @@ export function ImageManagerDialog({
   const [showThumbnails, setShowThumbnails] = useState(false)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [showReplaceDialog, setShowReplaceDialog] = useState(false)
+  const [showAddDialog, setShowAddDialog] = useState(false)
+
+  // Add State
+  const [addFile, setAddFile] = useState<File | null>(null)
+  const [addOrder, setAddOrder] = useState(0)
+  const [isAdding, setIsAdding] = useState(false)
+  const [addProgress, setAddProgress] = useState(0)
+  const { uploadSingleFile } = useChunkUpload()
+
+  const handleAddSubmit = async () => {
+    if (!addFile || !artworkId) return
+
+    try {
+      setIsAdding(true)
+      setAddProgress(0)
+
+      // 1. Get upload path
+      const { targetDir, targetRelDir } = await trpcClient.artwork.getUploadPath.query(artworkId)
+
+      // 2. Generate filename: {externalId}_p{order}.{ext}
+      const ext = addFile.name.split('.').pop() || ''
+      const fileName = `${artwork.externalId}_p${addOrder}.${ext}`
+
+      // 3. Upload file
+      const meta = await uploadSingleFile(addFile, fileName, targetDir, targetRelDir, (progress) => {
+        setAddProgress(progress)
+      })
+
+      if (!meta) {
+        throw new Error('Upload failed: No metadata returned')
+      }
+
+      // 4. Add database record
+      await trpcClient.artwork.addImage.mutate({
+        artworkId,
+        file: {
+          fileName: meta.fileName,
+          order: addOrder,
+          width: meta.width,
+          height: meta.height,
+          size: meta.size,
+          path: meta.path // This should be the relative path returned by upload
+        }
+      })
+
+      toast.success('图片添加成功')
+      setShowAddDialog(false)
+      setAddFile(null)
+      setRefreshKey((k) => k + 1)
+      fetchArtworkData()
+      onSuccess?.()
+    } catch (error: any) {
+      console.error('Add image failed:', error)
+      toast.error(`添加失败: ${error.message}`)
+    } finally {
+      setIsAdding(false)
+    }
+  }
 
   // Delete State
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
@@ -363,6 +424,19 @@ export function ImageManagerDialog({
                 刷新
               </Button>
 
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setAddOrder(imageList.length > 0 ? Math.max(...imageList.map((i) => i.sortOrder)) + 1 : 1)
+                  setShowAddDialog(true)
+                }}
+                className="h-8"
+              >
+                <Plus className="w-3.5 h-3.5 mr-2" />
+                新增图片
+              </Button>
+
               <Button variant="danger" size="sm" onClick={() => setShowReplaceDialog(true)}>
                 全量替换
               </Button>
@@ -540,6 +614,55 @@ export function ImageManagerDialog({
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Image Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={(v) => !isAdding && setShowAddDialog(v)}>
+        <DialogContent>
+          <DialogTitle>新增图片</DialogTitle>
+          <div className="space-y-4 py-4">
+            <div className="grid w-full max-w-sm items-center gap-1.5">
+              <Label htmlFor="picture">图片/视频文件</Label>
+              <Input
+                id="picture"
+                type="file"
+                accept="image/*,video/*"
+                onChange={(e) => setAddFile(e.target.files?.[0] || null)}
+                disabled={isAdding}
+              />
+            </div>
+            <div className="grid w-full max-w-sm items-center gap-1.5">
+              <Label htmlFor="order">排序 (Order)</Label>
+              <Input
+                id="order"
+                type="number"
+                value={addOrder}
+                onChange={(e) => setAddOrder(parseInt(e.target.value) || 0)}
+                disabled={isAdding}
+              />
+            </div>
+
+            {isAdding && (
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground flex justify-between">
+                  <span>上传中...</span>
+                  <span>{addProgress}%</span>
+                </div>
+                <div className="h-1 bg-muted rounded overflow-hidden">
+                  <div className="h-full bg-primary transition-all duration-300" style={{ width: `${addProgress}%` }} />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)} disabled={isAdding}>
+              取消
+            </Button>
+            <Button onClick={handleAddSubmit} disabled={!addFile || isAdding}>
+              {isAdding ? <Loader2 className="w-4 h-4 animate-spin" /> : '确认添加'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

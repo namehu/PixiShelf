@@ -93,3 +93,21 @@ export async function deleteImage(imageId: number, deleteFile: boolean) {
 
   return true
 }
+
+/**
+ * 新增单张图片
+ * @param artworkId 作品ID
+ * @param file 图片元数据
+ */
+export async function addImage(artworkId: number, file: ImageMeta) {
+  return await prisma.image.create({
+    data: {
+      artworkId,
+      path: file.path,
+      sortOrder: file.order,
+      width: file.width,
+      height: file.height,
+      size: file.size
+    }
+  })
+}

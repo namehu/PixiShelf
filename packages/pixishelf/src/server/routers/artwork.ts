@@ -1,4 +1,6 @@
+import 'server-only'
 import { authProcedure, publicProcedure, router } from '@/server/trpc'
+import path from 'path'
 import { z } from 'zod'
 import {
   ArtworksInfiniteQuerySchema,
@@ -18,7 +20,8 @@ import {
 } from '@/services/artwork-service'
 import logger from '@/lib/logger'
 import { TRPCError } from '@trpc/server'
-import { deleteImage } from '@/services/artwork-service/image-manager'
+import { deleteImage, addImage } from '@/services/artwork-service/image-manager'
+import { getScanPath } from '@/services/setting.service'
 
 /**
  * 作品路由
@@ -101,6 +104,57 @@ export const artworkRouter = router({
     .mutation(async ({ input }) => {
       return deleteImage(input.id, input.deleteFile)
     }),
+
+  /**
+   * 新增图片
+   */
+  addImage: authProcedure
+    .input(
+      z.object({
+        artworkId: z.number(),
+        file: z.object({
+          fileName: z.string(),
+          order: z.number(),
+          width: z.number(),
+          height: z.number(),
+          size: z.number(),
+          path: z.string()
+        })
+      })
+    )
+    .mutation(async ({ input }) => {
+      return addImage(input.artworkId, input.file)
+    }),
+
+  /**
+   * 获取上传路径
+   */
+  getUploadPath: authProcedure.input(z.number()).query(async ({ input }) => {
+    const artwork = await getArtworkById(input)
+    if (!artwork) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
+    }
+
+    const scanPath = await getScanPath()
+    if (!scanPath) {
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'SCAN_PATH not set' })
+    }
+
+    let targetRelDir = ''
+    if (artwork.images && artwork.images.length > 0 && artwork.images[0]?.path) {
+      targetRelDir = path.dirname(artwork.images[0].path)
+    } else if (artwork.artist?.userId && artwork.externalId) {
+      targetRelDir = `/${artwork.artist.userId}/${artwork.externalId}`
+    } else {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot determine upload path' })
+    }
+
+    // Normalize separator to /
+    targetRelDir = targetRelDir.replace(/\\/g, '/')
+    const targetDir = path.join(scanPath, targetRelDir)
+
+    return { targetDir, targetRelDir }
+  }),
 
   /**
    * 获取邻近作品（前后作品）
