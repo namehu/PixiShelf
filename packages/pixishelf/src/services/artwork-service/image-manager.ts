@@ -1,4 +1,7 @@
 import { prisma } from '@/lib/prisma'
+import fs from 'fs/promises'
+import path from 'path'
+import { getScanPath } from '@/services/setting.service'
 
 /**
  * 图片元数据接口
@@ -45,4 +48,48 @@ export async function updateArtworkImagesTransaction(artworkId: number, files: I
       })
     }
   })
+}
+
+/**
+ * 删除单个图片
+ * @param imageId 图片ID
+ * @param deleteFile 是否同时删除物理文件
+ */
+export async function deleteImage(imageId: number, deleteFile: boolean) {
+  // 1. 获取图片信息
+  const image = await prisma.image.findUnique({
+    where: { id: imageId }
+  })
+
+  if (!image) {
+    throw new Error('Image not found')
+  }
+
+  // 2. 如果需要删除文件，执行物理删除
+  if (deleteFile) {
+    const scanPath = await getScanPath()
+    if (scanPath) {
+      let fullPath = path.resolve(scanPath, `${image.path}`.replace(/^\//, ''))
+
+      try {
+        // 检查文件是否存在
+        await fs.access(fullPath)
+        // 删除文件
+        await fs.unlink(fullPath)
+      } catch (error: any) {
+        // 如果是文件不存在，可以忽略错误继续删除数据库记录
+        if (error.code !== 'ENOENT') {
+          console.error(`Failed to delete file: ${fullPath}`, error)
+          throw new Error(`Failed to delete physical file: ${error.message}`)
+        }
+      }
+    }
+  }
+
+  // 3. 删除数据库记录
+  await prisma.image.delete({
+    where: { id: imageId }
+  })
+
+  return true
 }

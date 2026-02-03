@@ -18,6 +18,7 @@ import {
 } from '@/services/artwork-service'
 import logger from '@/lib/logger'
 import { TRPCError } from '@trpc/server'
+import { deleteImage } from '@/services/artwork-service/image-manager'
 
 /**
  * 作品路由
@@ -86,6 +87,20 @@ export const artworkRouter = router({
   delete: authProcedure.input(z.number()).mutation(async ({ input }) => {
     return deleteArtwork(input)
   }),
+
+  /**
+   * 删除图片
+   */
+  deleteImage: authProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        deleteFile: z.boolean().default(false)
+      })
+    )
+    .mutation(async ({ input }) => {
+      return deleteImage(input.id, input.deleteFile)
+    }),
 
   /**
    * 获取邻近作品（前后作品）

@@ -13,14 +13,19 @@ import {
   ChevronRight,
   X,
   Loader2,
-  FileUp
+  FileUp,
+  Trash2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { formatFileSize } from '@/utils/media'
 import { ProDrawer } from '@/components/shared/pro-drawer'
+import { ProDialog } from '@/components/shared/pro-dialog'
 import { ImageReplaceDialog } from './image-replace-dialog'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { toast } from 'sonner'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useInView } from 'react-intersection-observer'
@@ -117,6 +122,29 @@ export function ImageManagerDialog({
   const [showThumbnails, setShowThumbnails] = useState(false)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [showReplaceDialog, setShowReplaceDialog] = useState(false)
+
+  // Delete State
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
+  const [deletePhysical, setDeletePhysical] = useState(false)
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    try {
+      await trpcClient.artwork.deleteImage.mutate({
+        id: deleteTarget,
+        deleteFile: deletePhysical
+      })
+      toast.success('删除成功')
+      setDeleteTarget(null)
+      setDeletePhysical(false)
+      // Refresh
+      setRefreshKey((k) => k + 1)
+      fetchArtworkData()
+    } catch (error) {
+      toast.error('删除失败')
+      console.error(error)
+    }
+  }
 
   // --- Hover Preview Logic ---
   const [hoverImage, setHoverImage] = useState<string | null>(null)
@@ -232,6 +260,24 @@ export function ImageManagerDialog({
       size: 80,
       cell: ({ getValue }) => (
         <span className="text-xs text-neutral-500">{formatFileSize(getValue<number>() || 0)}</span>
+      )
+    },
+    {
+      header: '操作',
+      id: 'actions',
+      size: 60,
+      cell: ({ row }) => (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-muted-foreground hover:text-destructive"
+          onClick={(e) => {
+            e.stopPropagation()
+            setDeleteTarget(row.original.id)
+          }}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
       )
     }
   ]
@@ -371,6 +417,19 @@ export function ImageManagerDialog({
                         className="group relative bg-muted rounded-md overflow-hidden border hover:ring-2 hover:ring-primary cursor-pointer shadow-sm break-inside-avoid"
                         onClick={() => setPreviewIndex(index)}
                       >
+                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            className="h-6 w-6 shadow-sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setDeleteTarget(img.id)
+                            }}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
                         <div style={{ aspectRatio: aspectRatio }} className="relative w-full">
                           <LazyImage
                             src={`${img.path}`}
@@ -496,6 +555,38 @@ export function ImageManagerDialog({
           fetchArtworkData()
         }}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <ProDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="删除图片"
+        description="确定要删除这张图片吗？"
+        onOk={handleDelete}
+        okText="确定删除"
+        okButtonProps={{ variant: 'destructive' }}
+        onCancel={() => setDeleteTarget(null)}
+      >
+        <div className="flex flex-row items-start space-x-3 space-y-0 py-4">
+          <Checkbox
+            id="delete-physical"
+            checked={deletePhysical}
+            onCheckedChange={(checked) => setDeletePhysical(checked as boolean)}
+            className="mt-1"
+          />
+          <div className="space-y-1 leading-none">
+            <Label
+              htmlFor="delete-physical"
+              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+            >
+              同时删除物理文件
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              物理删除不可撤销（能否恢复取决于系统回收站），请确保拥有文件删除权限。
+            </p>
+          </div>
+        </div>
+      </ProDialog>
     </>
   )
 }
