@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { useTRPCClient } from '@/lib/trpc'
 import { useBatchImportDrag, BatchImportItem } from '../_hooks/use-batch-import-drag'
+import { useChunkUpload } from '../_hooks/use-chunk-upload'
 import { batchCreateArtworksAction, batchRegisterImagesAction } from '@/actions/batch-import-action'
 import { cn } from '@/lib/utils'
 import { BatchImportArtworkSchema } from '@/schemas/artwork.dto'
@@ -42,6 +43,8 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
   // Global Config
   const [artist, setArtist] = useState<Option | null>(null)
   const [tags, setTags] = useState<Option[]>([])
+
+  const { uploadSingleFile } = useChunkUpload()
 
   const disabled = (status !== 'idle' && status !== 'error') || !items.length || !artist
   // Drag Hook
@@ -114,40 +117,6 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
   }
 
   // --- Core Logic ---
-  const uploadSingleFile = async (
-    data: { file: File; fileName: string; targetRelDir: string; uploadTargetDir: string },
-    onProgress: (percent: number) => void
-  ) => {
-    const { file, fileName, targetRelDir, uploadTargetDir } = data
-    const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
-
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-      const start = chunkIndex * CHUNK_SIZE
-      const end = Math.min(start + CHUNK_SIZE, file.size)
-      const chunk = file.slice(start, end)
-
-      const headers: Record<string, string> = {
-        'x-file-name': encodeURIComponent(fileName),
-        'x-target-dir': encodeURIComponent(uploadTargetDir),
-        'x-target-rel-dir': encodeURIComponent(targetRelDir || ''),
-        'x-chunk-index': chunkIndex.toString(),
-        'x-total-chunks': totalChunks.toString()
-      }
-
-      const res = await fetch('/api/artwork/upload-chunk', {
-        method: 'POST',
-        headers,
-        body: chunk
-      })
-
-      if (!res.ok) {
-        throw new Error(`Chunk ${chunkIndex} upload failed`)
-      }
-
-      onProgress(Math.round(((chunkIndex + 1) / totalChunks) * 100))
-    }
-  }
 
   // Refactored Start Import
   const handleStartImport = async () => {
@@ -208,7 +177,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
           const newName = `${item.externalId}_p${j}.${ext}`
 
           try {
-            await uploadSingleFile({ file, fileName: newName, targetRelDir, uploadTargetDir }, (pct) => {
+            await uploadSingleFile(file, newName, uploadTargetDir, targetRelDir, (pct) => {
               setItems((prev) =>
                 prev.map((i) =>
                   i.id === item.id
