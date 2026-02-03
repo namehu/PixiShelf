@@ -788,6 +788,210 @@ async function batchProcessTags(artworks: ArtworkData[], context: ScanContext): 
 }
 
 /**
+ * 重新扫描单个作品
+ * @param options 扫描选项
+ * @param artworkId 目标作品ID
+ * @param targetDirectoryRelativePath 目标作品目录的相对路径
+ */
+export async function rescanArtwork(
+  options: ScanOptions,
+  artworkId: string,
+  targetDirectoryRelativePath: string
+): Promise<ScanResult> {
+  const startTime = Date.now()
+  const context: ScanContext = {
+    tagCache: new Map(),
+    artistCache: new Map(),
+    scanResult: {
+      totalArtworks: 0,
+      newArtists: 0,
+      newArtworks: 0,
+      newImages: 0,
+      newTags: 0,
+      skippedArtworks: 0,
+      errors: [],
+      processingTime: 0,
+      removedArtworks: 0
+    },
+    options
+  }
+
+  try {
+    logger.info('Starting rescan for artwork:', { artworkId, targetDirectoryRelativePath })
+
+    // 1. 构造目标目录的绝对路径
+    // 如果 targetDirectoryRelativePath 为空或 "."，则扫描根目录
+    // 移除开头的斜杠
+    const cleanPath = targetDirectoryRelativePath.startsWith('/')
+      ? targetDirectoryRelativePath.slice(1)
+      : targetDirectoryRelativePath
+    const targetDir = path.resolve(options.scanPath, cleanPath)
+
+    options.onProgress?.({
+      phase: 'scanning',
+      message: `正在扫描目录: ${cleanPath}`,
+      percentage: 10
+    })
+
+    // 2. 查找元数据文件
+    // 仅在指定目录下查找 ID-meta.txt
+    const files = await fg([`${artworkId}-meta.txt`], {
+      cwd: targetDir,
+      absolute: true,
+      deep: 1, // 仅在当前目录查找，不递归
+      onlyFiles: true
+    })
+
+    if (files.length <= 0) {
+      throw new Error(`在目录 "${cleanPath}" 中未找到作品 ${artworkId} 的元数据文件`)
+    }
+
+    const _file = files[0]!
+    const metadataFile: GlobMetadataFile = {
+      name: path.basename(_file),
+      artworkId: artworkId,
+      path: _file,
+      createdAt: new Date()
+    }
+
+    context.scanResult.totalArtworks = 1
+
+    options.onProgress?.({
+      phase: 'scanning',
+      message: '正在解析元数据...',
+      percentage: 30
+    })
+
+    // 3. 解析元数据
+    const artworkData = await parseAndCollect(metadataFile)
+    if (!artworkData) {
+      throw new Error('元数据文件解析失败或媒体文件缺失')
+    }
+
+    options.onProgress?.({
+      phase: 'counting',
+      message: '正在更新数据...',
+      percentage: 50
+    })
+
+    // 4. 预处理 Artist (填充缓存)
+    // 注意：重新扫描逻辑不再更新 Tag，因此无需 batchProcessTags
+    await batchProcessArtists([artworkData], context)
+
+    // 5. 执行更新
+    await processRescanBatch([artworkData], context)
+
+    options.onProgress?.({
+      phase: 'complete',
+      message: '重新扫描完成',
+      percentage: 100
+    })
+  } catch (error) {
+    logger.error('Rescan failed:', { error, artworkId })
+    context.scanResult.errors.push(error instanceof Error ? error.message : 'Unknown error')
+    // 重新抛出以便上层处理（虽然 scan 方法通常吞掉错误返回 result，但这里是单次操作，抛出可能更合适？
+    // 为了保持一致性，我们还是返回 result，但 result 里有 errors）
+  }
+
+  context.scanResult.processingTime = Date.now() - startTime
+  return context.scanResult
+}
+
+/**
+ * 批量处理重新扫描的作品（更新逻辑）
+ * @param batch 作品数据数组
+ * @param context 扫描上下文
+ */
+async function processRescanBatch(batch: ArtworkData[], context: ScanContext): Promise<void> {
+  await prisma.$transaction(
+    async (tx) => {
+      for (const artworkData of batch) {
+        const { metadata, directoryCreatedAt } = artworkData
+
+        // 获取 Artist ID
+        const artist = context.artistCache.get(metadata.userId)
+        if (!artist) {
+          throw new Error(`Artist not found for user ID: ${metadata.userId}`)
+        }
+
+        // 1. 更新 Artwork 基础信息
+        // 查找现有 Artwork
+        const existingArtwork = await tx.artwork.findUnique({
+          where: { externalId: metadata.id }
+        })
+
+        if (!existingArtwork) {
+          throw new Error(`Artwork with externalId ${metadata.id} not found in database`)
+        }
+
+        logger.debug('update artwork:', existingArtwork, {
+          title: metadata.title,
+          description: metadata.description || null,
+          artistId: artist.id,
+          descriptionLength: metadata.description?.length || 0,
+          sourceUrl: metadata.url || null,
+          originalUrl: metadata.original || null,
+          thumbnailUrl: metadata.thumbnail || null,
+          xRestrict: metadata.xRestrict || null,
+          isAiGenerated: metadata.ai === 'Yes',
+          size: metadata.size || null,
+          bookmarkCount: metadata.bookmark || null,
+          sourceDate: metadata.date || null,
+          directoryCreatedAt
+        })
+
+        await tx.artwork.update({
+          where: { id: existingArtwork.id },
+          data: {
+            title: metadata.title,
+            description: metadata.description || null,
+            artistId: artist.id,
+            descriptionLength: metadata.description?.length || 0,
+            sourceUrl: metadata.url || null,
+            originalUrl: metadata.original || null,
+            thumbnailUrl: metadata.thumbnail || null,
+            xRestrict: metadata.xRestrict || null,
+            isAiGenerated: metadata.ai === 'Yes',
+            size: metadata.size || null,
+            bookmarkCount: metadata.bookmark || null,
+            sourceDate: metadata.date || null,
+            directoryCreatedAt
+          }
+        })
+
+        // 2. 更新图片 (删除旧的，插入新的)
+        // 删除旧图片
+        await tx.image.deleteMany({
+          where: { artworkId: existingArtwork.id }
+        })
+
+        // 插入新图片
+        if (artworkData.mediaFiles.length > 0) {
+          const imagesToCreate = artworkData.mediaFiles.map((mediaFile) => ({
+            path: getRelativePath(mediaFile.path, context.options.scanPath),
+            size: mediaFile.size,
+            sortOrder: mediaFile.sortOrder,
+            artworkId: existingArtwork.id
+          }))
+
+          logger.debug('imagesToCreate:', imagesToCreate)
+          await tx.image.createMany({
+            data: imagesToCreate
+          })
+          context.scanResult.newImages += imagesToCreate.length
+        }
+
+        context.scanResult.newArtworks += 1 // 借用这个字段表示处理成功数
+      }
+    },
+    {
+      timeout: 30000,
+      maxWait: 5000
+    }
+  )
+}
+
+/**
  * 清空数据库（保留 user 和 setting 表）
  * 用于强制全量扫描时清空所有艺术相关数据
  * 使用 TRUNCATE 提供更高的性能

@@ -23,3 +23,12 @@ export const ScanStreamSchema = z
   )
 
 export type ScanStreamSchema = z.infer<typeof ScanStreamSchema>
+
+/**
+ * Request body for rescan stream
+ */
+export const ScanRescanSchema = z.object({
+  artworkId: z.string()
+})
+
+export type ScanRescanSchema = z.infer<typeof ScanRescanSchema>

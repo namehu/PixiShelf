@@ -44,11 +44,13 @@ export interface ArtworkListItem {
     id: number
     name: string
   } | null
+  externalId?: string | null
   createdAt: string
   updatedAt: string
 }
 
 import { BatchImportDialog } from './batch-import-dialog'
+import { ArtworkRescanButton } from './artwork-rescan-button'
 
 export default function ArtworkManagement() {
   const trpc = useTRPC()
@@ -313,6 +315,7 @@ export default function ArtworkManagement() {
           <Button variant="ghost" size="icon" onClick={() => handleEdit(row.original)} title="编辑">
             <Edit className="w-4 h-4" />
           </Button>
+          <ArtworkRescanButton artwork={row.original} onComplete={() => setRefreshKey((prev) => prev + 1)} />
           <Link href={`/artworks/${row.original.id}`} target="_blank">
             <Button variant="ghost" size="icon" title="新标签页打开">
               <ExternalLink className="w-4 h-4" />

@@ -1,3 +1,5 @@
+import 'server-only'
+
 import { NextResponse } from 'next/server'
 import { scan } from '@/services/scan-service'
 import { ScanProgress } from '@/types'
