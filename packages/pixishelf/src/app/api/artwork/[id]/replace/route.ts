@@ -7,6 +7,7 @@ import { getScanPath } from '@/services/setting.service'
 import { updateArtworkImagesTransaction, ImageMeta } from '@/services/artwork-service/image-manager'
 import { MEDIA_EXTENSIONS } from '../../../../../../lib/constant'
 import { getArtworkById } from '@/services/artwork-service'
+import { determineArtworkRelDir } from '@/services/artwork-service/utils'
 
 // 定义 API 支持的操作类型
 type ActionType = 'init' | 'commit' | 'rollback'
@@ -28,12 +29,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!artwork) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // 2. 确定路径
-  let targetRelDir = ''
-  if (artwork.images && artwork.images.length > 0 && artwork.images[0]?.path) {
-    targetRelDir = path.dirname(artwork.images[0].path)
-  } else if (artwork.artist?.userId && artwork.externalId) {
-    targetRelDir = `/${artwork.artist.userId}/${artwork.externalId}`
-  } else {
+  const targetRelDir = determineArtworkRelDir(artwork)
+
+  if (!targetRelDir) {
     return NextResponse.json({ error: 'Cannot determine path' }, { status: 400 })
   }
 
