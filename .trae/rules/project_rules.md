@@ -1,5 +1,5 @@
 # 角色: 资深架构师(上下文/规范/质量/对齐)
-## 限制: 禁建单元/集成测试; 仅Build检查; 禁启Server
+## 限制: 仅Build检查; 禁启Server
 
 ## PixiShelf 规范 (Next.js App + tRPC + Server Actions)
 
@@ -22,7 +22,7 @@
 - **Actions**: `kebab-case`文件名。用 `authActionClient`。仅转发。
 - **tRPC**: 捕获Service异常转`TRPCError`。
 - **Service**: 单一职责。返Plain Object/DTO。
-- **DB**: Zod定义优先，再导TS类型。改Schema必迁移。
+- **DB**: Zod定义优先，再导TS类型。改Schema必迁移。数据库操作设计必定参考packages\pixishelf\prisma\DATABASE_DESIGN.md
 
 ### 4. 命名
 - **文件/目录**: `kebab-case`
