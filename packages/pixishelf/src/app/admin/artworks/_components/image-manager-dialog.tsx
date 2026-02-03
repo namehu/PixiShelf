@@ -271,7 +271,7 @@ export function ImageManagerDialog({
           </div>
         }
         description={
-          <span className="flex items-center gap-2 text-xs">
+          <span className="flex items-center gap-2 text-xs select-text cursor-text">
             <span className="font-mono">ID: {artwork.externalId}</span>
             <span>•</span>
             <span>图片路径: {firstImagePath} </span>
