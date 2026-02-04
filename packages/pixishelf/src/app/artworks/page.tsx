@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
 import { SlidersHorizontal } from 'lucide-react'
 import { SortOption, MediaTypeFilter } from '@/types'
 import { SearchBox } from './_components/search-box'
@@ -10,66 +9,59 @@ import PNav from '@/components/layout/PNav'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import InfiniteArtworkList from './_components/InfiniteArtworkList'
+import { useQueryStates, parseAsString } from 'nuqs'
+
+const searchParamsParsers = {
+  search: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  sortBy: parseAsString.withDefault('source_date_desc').withOptions({ history: 'replace', clearOnDefault: true }),
+  mediaType: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true })
+}
 
 function GalleryPageContent() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  const [queryStates, setQueryStates] = useQueryStates(searchParamsParsers)
+  const { search: searchQuery, sortBy, mediaType } = queryStates
 
   // 控制筛选抽屉的开关
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   // 用于显示总数的本地状态
   const [total, setTotal] = useState(0)
 
-  // --- 2. 解析 URL 参数 ---
-  const searchQuery = searchParams.get('search') || ''
-  const sortBy = (searchParams.get('sortBy') as SortOption) || 'source_date_desc'
-  const mediaType = (searchParams.get('mediaType') as MediaTypeFilter) || 'all'
-
-  const updateParams = (key: string, value: string | null) => {
-    const newParams = new URLSearchParams(searchParams.toString())
-    if (value === null) {
-      newParams.delete(key)
-    } else {
-      newParams.set(key, value)
-    }
-    router.push(`/artworks?${newParams.toString()}`)
+  const handleSearch = (query: string) => {
+    setQueryStates({ search: query.trim() || null })
   }
 
   const handleApplyFilters = (filters?: { mediaType: MediaTypeFilter; sortBy: SortOption }) => {
-    const newParams = new URLSearchParams(searchParams.toString())
-
     if (!filters) {
       return clearAllFilters()
     }
 
-    if (filters.mediaType !== 'all') {
-      newParams.set('mediaType', filters.mediaType)
-    } else {
-      newParams.delete('mediaType')
-    }
-
-    if (filters.sortBy !== 'source_date_desc') {
-      newParams.set('sortBy', filters.sortBy)
-    } else {
-      newParams.delete('sortBy')
-    }
-
-    router.push(`/artworks?${newParams.toString()}`)
+    setQueryStates({
+      mediaType: filters.mediaType,
+      sortBy: filters.sortBy
+    })
   }
 
   const clearAllFilters = () => {
-    router.push('/artworks')
+    setQueryStates({
+      search: null,
+      sortBy: null,
+      mediaType: null
+    })
   }
 
   return (
     <div className="min-h-screen bg-gray-50/50">
       {/* 1. 顶部导航栏集成搜索框 */}
-      <PNav border={false}>
-        <SearchBox
-          value={searchQuery}
-          onSearch={(query: string) => updateParams('search', query.trim() || null)}
-          className="w-full shadow-sm"
-        />
+      <PNav
+        border={false}
+        showUserMenu={false}
+        renderExtra={
+          <Button variant="outline" className=" " onClick={() => setIsFilterOpen(true)}>
+            <SlidersHorizontal className="w-4 h-4" />
+          </Button>
+        }
+      >
+        <SearchBox value={searchQuery} onSearch={handleSearch} className="w-full shadow-sm" />
       </PNav>
 
       {/* 2. 顶部工具栏 (Sticky) */}
@@ -84,23 +76,13 @@ function GalleryPageContent() {
             )}
           </h1>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2 rounded-full border-gray-300 shadow-sm hover:bg-white relative"
-          onClick={() => setIsFilterOpen(true)}
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-          <span className="hidden sm:inline">筛选与排序</span>
-          <span className="sm:hidden">筛选</span>
-        </Button>
 
         {/* 筛选按钮 (触发 Sheet) */}
         <FilterSheet
           open={isFilterOpen}
           onOpenChange={setIsFilterOpen}
-          currentMediaType={mediaType}
-          currentSortBy={sortBy}
+          currentMediaType={mediaType as MediaTypeFilter}
+          currentSortBy={sortBy as SortOption}
           onApply={handleApplyFilters}
         />
       </div>
@@ -109,8 +91,8 @@ function GalleryPageContent() {
         {/* 3. 虚拟滚动列表 */}
         <InfiniteArtworkList
           searchQuery={searchQuery}
-          sortBy={sortBy}
-          mediaType={mediaType}
+          sortBy={sortBy as SortOption}
+          mediaType={mediaType as MediaTypeFilter}
           onTotalChange={setTotal}
           onClearFilters={clearAllFilters}
         />
