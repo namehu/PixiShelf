@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, useLayoutEffect, useCallback } from 'react'
-import { useQueryState, parseAsString } from 'nuqs'
+import { useQueryStates, parseAsString } from 'nuqs'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { SortOption } from '@/types'
 import { SortControl } from '@/components/ui/SortControl'
@@ -15,6 +15,8 @@ import { useColumns } from '@/hooks/use-columns'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { format, parseISO } from 'date-fns'
+import { DatePickerRange } from '@/components/shared/date-range-picker'
 
 export default function ArtistDetailPage({ artist, id }: { artist: ArtistResponseDto; id: string }) {
   const trpc = useTRPC()
@@ -28,9 +30,32 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
 
   const pageSize = 24
 
-  const [sortBy, setSortBy] = useQueryState(
-    'sortBy',
-    parseAsString.withDefault('source_date_desc').withOptions({ history: 'replace' })
+  const [{ sortBy, startDate, endDate }, setQuery] = useQueryStates(
+    {
+      sortBy: parseAsString.withDefault('source_date_desc').withOptions({ history: 'replace' }),
+      startDate: parseAsString.withDefault('').withOptions({ history: 'replace' }),
+      endDate: parseAsString.withDefault('').withOptions({ history: 'replace' })
+    },
+    { history: 'replace' }
+  )
+
+  // 构造 DatePickerRange 需要的 value 格式
+  const dateRange = useMemo<[Date | undefined, Date | undefined]>(() => {
+    const start = startDate ? parseISO(startDate) : undefined
+    const end = endDate ? parseISO(endDate) : undefined
+    return [start, end]
+  }, [startDate, endDate])
+
+  // 处理变更
+  const handleDateChange = useCallback(
+    (vals: [Date | undefined, Date | undefined]) => {
+      const [start, end] = vals
+      setQuery({
+        startDate: start ? format(start, 'yyyy-MM-dd') : null,
+        endDate: end ? format(end, 'yyyy-MM-dd') : null
+      })
+    },
+    [setQuery]
   )
 
   const {
@@ -45,7 +70,9 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
       {
         artistId: id,
         pageSize,
-        sortBy: sortBy as SortOption
+        sortBy: sortBy as SortOption,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined
       },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -163,7 +190,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
 
   // 处理排序变化
   const handleSortChange = (newSortBy: SortOption) => {
-    setSortBy(newSortBy)
+    setQuery({ sortBy: newSortBy })
   }
 
   return (
@@ -178,7 +205,15 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
             <p className="text-gray-600 mt-1">{artworksLoading && !data ? '加载中...' : `共 ${total} 件作品`}</p>
           </div>
 
-          <SortControl value={sortBy as SortOption} onChange={handleSortChange} size="md" />
+          <div className="flex flex-row items-center gap-2 w-full sm:w-auto">
+            <DatePickerRange value={dateRange} onChange={handleDateChange} className="flex-1 sm:flex-none w-auto" />
+            <SortControl
+              value={sortBy as SortOption}
+              onChange={handleSortChange}
+              size="md"
+              className="flex-1 sm:flex-none"
+            />
+          </div>
         </div>
 
         {/* 错误状态 */}
