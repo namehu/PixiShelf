@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useRef, useState, useLayoutEffect, useCallback } from 'react'
 import { useQueryStates, parseAsString } from 'nuqs'
 import { useInfiniteQuery } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
 import { SortOption } from '@/types'
 import { SortControl } from '@/components/ui/SortControl'
 import HeadInfo from './HeadInfo'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
 import { useTRPC } from '@/lib/trpc'
 import { useInView } from 'react-intersection-observer'
-import { Loader2, Filter } from 'lucide-react'
+import { Loader2, Filter, ChevronLeft } from 'lucide-react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { useColumns } from '@/hooks/use-columns'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
@@ -17,9 +18,13 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { format, parseISO } from 'date-fns'
 import { DatePickerRange } from '@/components/shared/date-range-picker'
+import PNav from '@/components/layout/PNav'
+import { SearchBox } from '@/app/artworks/_components/search-box'
+import { cn } from '@/lib/utils'
 
 export default function ArtistDetailPage({ artist, id }: { artist: ArtistResponseDto; id: string }) {
   const trpc = useTRPC()
+  const router = useRouter()
   const containerRef = useRef<HTMLDivElement>(null)
   const virtualListRef = useRef<HTMLDivElement>(null)
   const columns = useColumns()
@@ -27,14 +32,25 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
   const [containerWidth, setContainerWidth] = useState(0)
   const [isReady, setIsReady] = useState(false)
   const [offsetTop, setOffsetTop] = useState(0)
+  const [isScrolled, setIsScrolled] = useState(false)
+
+  // 监听滚动以切换导航栏样式
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 50)
+    }
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   const pageSize = 24
 
-  const [{ sortBy, startDate, endDate }, setQuery] = useQueryStates(
+  const [{ sortBy, startDate, endDate, search }, setQuery] = useQueryStates(
     {
       sortBy: parseAsString.withDefault('source_date_desc').withOptions({ history: 'replace' }),
       startDate: parseAsString.withDefault('').withOptions({ history: 'replace' }),
-      endDate: parseAsString.withDefault('').withOptions({ history: 'replace' })
+      endDate: parseAsString.withDefault('').withOptions({ history: 'replace' }),
+      search: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true })
     },
     { history: 'replace' }
   )
@@ -72,7 +88,8 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
         pageSize,
         sortBy: sortBy as SortOption,
         startDate: startDate || undefined,
-        endDate: endDate || undefined
+        endDate: endDate || undefined,
+        search: search || undefined
       },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -195,6 +212,38 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
 
   return (
     <div className="relative">
+      {/* 顶部悬浮导航栏 */}
+      <PNav
+        border={false}
+        showLogo={false}
+        showUserMenu={false}
+        placeholder={false}
+        className={cn(
+          'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
+          isScrolled ? 'bg-white/80 backdrop-blur-md shadow-sm' : 'bg-transparent'
+        )}
+        renderLeft={
+          <div
+            className={cn(
+              'flex items-center cursor-pointer transition-colors hover:opacity-80',
+              isScrolled ? 'text-gray-700' : 'text-white/90 drop-shadow-md'
+            )}
+            onClick={() => router.back()}
+          >
+            <ChevronLeft className="w-5 h-5 mr-0.5" />
+            <span className="text-base font-medium">返回</span>
+          </div>
+        }
+      >
+        <div className="w-full max-w-xl transition-opacity duration-300">
+          <SearchBox
+            value={search || ''}
+            onSearch={(val) => setQuery({ search: val })}
+            className={cn('w-full shadow-sm', !isScrolled && 'bg-white/90 backdrop-blur-sm border-transparent')}
+          />
+        </div>
+      </PNav>
+
       <HeadInfo artist={artist} />
       {/* 作品列表部分 */}
       <div className="space-y-6 px-4 my-4">

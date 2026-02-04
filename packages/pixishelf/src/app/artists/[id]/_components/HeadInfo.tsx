@@ -1,9 +1,7 @@
-import { ChevronLeft, Calendar, Image as ImageIcon, ExternalLink } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { Calendar, Image as ImageIcon, ExternalLink } from 'lucide-react'
 import { FC, memo } from 'react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { ArtistResponseDto } from '@/schemas/artist.dto'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
 interface IHeadInfoProps {
@@ -12,25 +10,11 @@ interface IHeadInfoProps {
 
 const Component: FC<IHeadInfoProps> = (props) => {
   const { artist } = props
-  const router = useRouter()
 
   return (
     <div className="bg-background relative mb-8">
       {/* 顶部 Banner 区域 */}
       <div className="relative h-48 md:h-64 w-full overflow-hidden bg-muted">
-        {/* 返回按钮 */}
-        <div className="absolute top-4 left-4 z-20">
-          <Button
-            variant="secondary"
-            size="sm"
-            className="backdrop-blur-md bg-background/30 hover:bg-background/50 border-transparent text-white"
-            onClick={() => router.back()}
-          >
-            <ChevronLeft className="w-4 h-4 mr-1" />
-            返回
-          </Button>
-        </div>
-
         {/* Banner 图片 */}
         {artist.backgroundImg ? (
           <div className="w-full h-full relative">
