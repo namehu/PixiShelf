@@ -160,6 +160,11 @@ interface ProTableProps<TData, TValue> {
    * 自定义类名
    */
   className?: string
+  /**
+   * 分页切换时自动滚动到顶部
+   * @default true
+   */
+  scrollToTopOnPageChange?: boolean
 }
 
 export function ProTable<TData, TValue>({
@@ -178,7 +183,8 @@ export function ProTable<TData, TValue>({
   onPaginationChange: controlledOnPaginationChange,
   sorting: controlledSorting,
   onSortingChange: controlledOnSortingChange,
-  className
+  className,
+  scrollToTopOnPageChange = true
 }: ProTableProps<TData, TValue>) {
   // --- 状态管理 ---
   const [internalData, setInternalData] = React.useState<TData[]>([])
@@ -313,9 +319,32 @@ export function ProTable<TData, TValue>({
   const toolBarContent = toolBarRender && typeof toolBarRender === 'function' ? toolBarRender() : null
   // 检查是否有任何工具栏内容需要显示
   const showToolbar = !!headerTitle || !!searchContent || !!toolBarContent
+  const rootRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    if (!scrollToTopOnPageChange) return
+    const el = rootRef.current
+    if (!el) return
+    let cur: HTMLElement | null = el
+    let target: HTMLElement | null = null
+    while (cur) {
+      const style = window.getComputedStyle(cur)
+      const canScroll = cur.scrollHeight > cur.clientHeight && /(auto|scroll)/.test(style.overflowY)
+      if (canScroll) {
+        target = cur
+        break
+      }
+      cur = cur.parentElement
+    }
+    if (target) {
+      target.scrollTo({ top: 0, behavior: 'auto' })
+    } else {
+      window.scrollTo({ top: 0, behavior: 'auto' })
+    }
+  }, [pagination.pageIndex, pagination.pageSize, scrollToTopOnPageChange])
 
   return (
-    <div className={cn('space-y-4 w-full', className)}>
+    <div ref={rootRef} className={cn('space-y-4 w-full', className)}>
       {/* 1. 工具栏区域 */}
       {showToolbar && (
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
