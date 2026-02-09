@@ -7,6 +7,7 @@ import { SCard } from '@/components/shared/s-card' // 使用我们之前封装�
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea' // 记得使用 shadcn 的 Textarea
 import { Badge } from '@/components/ui/badge'
+import { useDragImages } from '../../artworks/_hooks/use-drag-images'
 
 interface ClientScanCardProps {
   /** 扫描路径是否配置 (用于控制禁用状态) */
@@ -55,6 +56,37 @@ export function ClientScanCard({ hasScanPath, isScanning, onScan, className }: C
     reader.onerror = () => toast.error('读取文件失败')
     reader.readAsText(file)
   }
+
+  const readFileAsText = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (e) => resolve((e.target?.result as string) || '')
+      reader.onerror = () => reject(new Error('读取失败'))
+      reader.readAsText(file)
+    })
+
+  const handleDropTxtFiles = async (files: File[]) => {
+    if (isScanning) return
+    const txtFiles = files.filter((f) => f.type === 'text/plain' || f.name.toLowerCase().endsWith('.txt'))
+    if (txtFiles.length === 0) {
+      toast.error('请拖拽 .txt 文本文件')
+      return
+    }
+    try {
+      const contents = await Promise.all(txtFiles.map((f) => readFileAsText(f)))
+      const combined = contents.join('\n')
+      setText(combined)
+      toast.success(`已导入 ${txtFiles.length} 个 TXT 文件`)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch {
+      toast.error('读取文件失败')
+    }
+  }
+
+  const { isDragging, dragHandlers } = useDragImages({
+    onDrop: handleDropTxtFiles,
+    disabled: isScanning
+  })
 
   // 提交扫描
   const handleSubmit = () => {
@@ -106,7 +138,7 @@ export function ClientScanCard({ hasScanPath, isScanning, onScan, className }: C
         </div>
       }
     >
-      <div className="space-y-3">
+      <div className={`space-y-3 transition-colors ${isDragging ? 'bg-neutral-50' : ''}`} {...dragHandlers}>
         {/* 工具栏区域 */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
