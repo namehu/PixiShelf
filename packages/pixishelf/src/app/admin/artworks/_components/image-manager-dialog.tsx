@@ -35,6 +35,11 @@ import { useInView } from 'react-intersection-observer'
 import { useDragDropStore } from '../_store/drag-drop-store'
 import { useDragImages } from '../_hooks/use-drag-images'
 
+const appendCacheKey = (src: string, cacheKey: number) => {
+  const separator = src.includes('?') ? '&' : '?'
+  return `${src}${separator}v=${cacheKey}`
+}
+
 // --- Lazy Image Component ---
 const LazyImage = ({ src, alt, className, ...props }: any) => {
   const { ref, inView } = useInView({
@@ -63,7 +68,19 @@ const LazyImage = ({ src, alt, className, ...props }: any) => {
 }
 
 // --- Hover Preview Portal ---
-const HoverPreview = ({ src, x, y, visible }: { src: string | null; x: number; y: number; visible: boolean }) => {
+const HoverPreview = ({
+  src,
+  x,
+  y,
+  visible,
+  cacheKey
+}: {
+  src: string | null
+  x: number
+  y: number
+  visible: boolean
+  cacheKey: number
+}) => {
   if (!visible || !src) return null
 
   // Create portal to body to ensure it's on top of everything
@@ -83,7 +100,13 @@ const HoverPreview = ({ src, x, y, visible }: { src: string | null; x: number; y
       style={{ left: finalX, top: finalY, width: 320, maxWidth: '90vw' }}
     >
       <div className="relative aspect-square w-full bg-black/5 rounded-md overflow-hidden">
-        <Image src={src} alt="Preview" sizes="(max-width: 320px) 100vw, 320px" fill className="object-contain" />
+        <Image
+          src={appendCacheKey(src, cacheKey)}
+          alt="Preview"
+          sizes="(max-width: 320px) 100vw, 320px"
+          fill
+          className="object-contain"
+        />
       </div>
       <div className="mt-2 text-xs text-muted-foreground text-center break-all font-mono">{src.split('/').pop()}</div>
     </div>,
@@ -116,9 +139,17 @@ interface ImagePreviewDialogProps {
   images: ImageListItem[]
   currentIndex: number | null
   onIndexChange: (index: number) => void
+  cacheKey: number
 }
 
-function ImagePreviewDialog({ open, onOpenChange, images, currentIndex, onIndexChange }: ImagePreviewDialogProps) {
+function ImagePreviewDialog({
+  open,
+  onOpenChange,
+  images,
+  currentIndex,
+  onIndexChange,
+  cacheKey
+}: ImagePreviewDialogProps) {
   const handlePrev = useCallback(() => {
     if (currentIndex !== null && currentIndex > 0) {
       onIndexChange(currentIndex - 1)
@@ -168,7 +199,14 @@ function ImagePreviewDialog({ open, onOpenChange, images, currentIndex, onIndexC
 
             <div className="flex-1 relative flex items-center justify-center w-full h-full overflow-hidden">
               <div className="relative w-full h-full">
-                <Image src={currentImage.path} alt="Preview" fill className="object-contain" quality={90} priority />
+                <Image
+                  src={appendCacheKey(currentImage.path, cacheKey)}
+                  alt="Preview"
+                  fill
+                  className="object-contain"
+                  quality={90}
+                  priority
+                />
               </div>
 
               {/* Navigation */}
@@ -664,7 +702,7 @@ export function ImageManagerDialog({
                         </div>
                         <div style={{ aspectRatio: aspectRatio }} className="relative w-full">
                           <LazyImage
-                            src={`${img.path}`}
+                            src={appendCacheKey(img.path, refreshKey)}
                             alt={img.path}
                             fill
                             className="object-cover"
@@ -697,7 +735,7 @@ export function ImageManagerDialog({
         </div>
       </ProDrawer>
 
-      <HoverPreview src={hoverImage} x={hoverPos.x} y={hoverPos.y} visible={!!hoverImage} />
+      <HoverPreview src={hoverImage} x={hoverPos.x} y={hoverPos.y} visible={!!hoverImage} cacheKey={refreshKey} />
 
       {/* Lightbox Preview */}
       <ImagePreviewDialog
@@ -706,6 +744,7 @@ export function ImageManagerDialog({
         images={imageList}
         currentIndex={previewIndex}
         onIndexChange={setPreviewIndex}
+        cacheKey={refreshKey}
       />
 
       {/* Add Image Dialog */}
