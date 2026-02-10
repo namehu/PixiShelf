@@ -132,6 +132,15 @@ export async function migrateArtwork(artworkId: number, scanRoot: string): Promi
     // 并且源目录不在目标目录路径上 (虽然不太可能)
     if (path.relative(scanRoot, sourceAbsDir) !== '') {
       try {
+        const deleteCandidates = new Set(['@eaDir', '.DS_Store'])
+        const entries = await fs.readdir(sourceAbsDir)
+        for (const entry of entries) {
+          if (deleteCandidates.has(entry)) {
+            const entryPath = path.join(sourceAbsDir, entry)
+            await fs.rm(entryPath, { recursive: true, force: true })
+          }
+        }
+
         const remaining = await fs.readdir(sourceAbsDir)
         if (remaining.length === 0) {
           await fs.rmdir(sourceAbsDir)
