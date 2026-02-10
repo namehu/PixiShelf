@@ -351,7 +351,7 @@ export async function migrateArtwork(
 
       if (path.relative(scanRoot, sourceAbsDir) !== '') {
         try {
-          const deleteCandidates = new Set(['@eaDir', '.DS_Store'])
+          const deleteCandidates = new Set(['@eaDir', '.DS_Store', 'Thumbs.db'])
           const entries = await fs.readdir(sourceAbsDir)
           for (const entry of entries) {
             if (deleteCandidates.has(entry)) {
