@@ -8,7 +8,26 @@ import { JobStatus } from '@prisma/client'
 
 // 定义 Schema，支持 targetIds
 const MigrationSchema = z.object({
-  targetIds: z.array(z.number()).optional()
+  targetIds: z.array(z.number()).optional(),
+  batchSize: z.number().int().min(1).max(1000).optional(),
+  concurrency: z.number().int().min(1).max(10).optional(),
+  search: z.string().nullish().optional(),
+  artistName: z.string().nullish().optional(),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .nullish(),
+  endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .nullish(),
+  externalId: z.string().nullish().optional(),
+  exactMatch: z.boolean().optional(),
+  transferMode: z.enum(['move', 'copy']).optional(),
+  verifyAfterCopy: z.boolean().optional(),
+  cleanupSource: z.boolean().optional()
 })
 
 function createEventSender(controller: ReadableStreamDefaultController, encoder: TextEncoder) {
@@ -20,7 +39,7 @@ function createEventSender(controller: ReadableStreamDefaultController, encoder:
 }
 
 export const POST = apiHandler(MigrationSchema, async (req, data) => {
-  const { targetIds } = data
+  const { targetIds, batchSize, concurrency } = data
   const encoder = new TextEncoder()
 
   const stream = new ReadableStream({
@@ -76,8 +95,32 @@ export const POST = apiHandler(MigrationSchema, async (req, data) => {
             const job = await JobService.getJob(currentJobId)
             return job?.status === JobStatus.CANCELLING
           },
-          // 传入目标ID
-          targetIds
+          async () => {
+            if (!currentJobId) return false
+            const job = await JobService.getJob(currentJobId)
+            return job?.status === JobStatus.PAUSED
+          },
+          (state) => {
+            sendEvent(state === 'PAUSED' ? 'paused' : 'resumed', { state })
+          },
+          {
+            targetIds,
+            batchSize,
+            concurrency,
+            filters: {
+              search: data.search ?? null,
+              artistName: data.artistName ?? null,
+              startDate: data.startDate ?? null,
+              endDate: data.endDate ?? null,
+              externalId: data.externalId ?? null,
+              exactMatch: data.exactMatch ?? false
+            },
+            safety: {
+              transferMode: data.transferMode,
+              verifyAfterCopy: data.verifyAfterCopy,
+              cleanupSource: data.cleanupSource
+            }
+          }
         )
 
         if (currentJobId) {

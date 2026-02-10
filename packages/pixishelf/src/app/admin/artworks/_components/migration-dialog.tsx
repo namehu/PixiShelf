@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { FolderInput, StopCircle } from 'lucide-react'
+import { FolderInput, StopCircle, PauseCircle, PlayCircle, Download } from 'lucide-react'
 import { LogViewer } from '@/components/shared/log-viewer'
 import { useMigration } from '../_hooks/use-migration'
 
@@ -27,13 +27,40 @@ export function MigrationDialog({
             <DialogTitle className="text-neutral-200 flex items-center gap-2 text-sm font-mono">
               <FolderInput className="w-4 h-4" />
               MIGRATION_CONSOLE
-              {migrationState.migrating && (
+              {migrationState.migrating && !migrationState.paused && (
                 <span className="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400 ml-2 animate-pulse">
                   RUNNING
                 </span>
               )}
+              {migrationState.migrating && migrationState.paused && (
+                <span className="text-xs px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400 ml-2">PAUSED</span>
+              )}
             </DialogTitle>
             <div className="flex items-center gap-2">
+              {!migrationState.migrating && (migrationState.stats?.failed || 0) > 0 && (
+                <>
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={migrationActions.exportFailed}>
+                    <Download className="w-3 h-3 mr-1" />
+                    失败清单
+                  </Button>
+                  <Button size="sm" className="h-7 text-xs" onClick={migrationActions.retryFailed}>
+                    <PlayCircle className="w-3 h-3 mr-1" />
+                    失败重试
+                  </Button>
+                </>
+              )}
+              {migrationState.migrating && !migrationState.paused && (
+                <Button size="sm" className="h-7 text-xs" onClick={migrationActions.pauseMigration}>
+                  <PauseCircle className="w-3 h-3 mr-1" />
+                  暂停
+                </Button>
+              )}
+              {migrationState.migrating && migrationState.paused && (
+                <Button size="sm" className="h-7 text-xs" onClick={migrationActions.resumeMigration}>
+                  <PlayCircle className="w-3 h-3 mr-1" />
+                  继续
+                </Button>
+              )}
               {migrationState.migrating && (
                 <Button
                   variant="destructive"
@@ -56,7 +83,7 @@ export function MigrationDialog({
             onClear={migrationActions.clearLogs}
             height="100%"
             className="border-0 rounded-none h-full"
-            loading={migrationState.migrating}
+            loading={migrationState.migrating && !migrationState.paused}
           />
         </div>
 

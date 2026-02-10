@@ -2,6 +2,8 @@
 import { useState, useCallback } from 'react'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SDropdown } from '@/components/shared/s-dropdown'
 import {
   Edit,
@@ -11,9 +13,9 @@ import {
   FolderInput,
   BarChart3,
   Plus,
-  MoreHorizontal,
   FileText,
-  ChevronDown
+  ChevronDown,
+  Sliders
 } from 'lucide-react'
 import { ArtworkDialog } from './artwork-dialog'
 import { toast } from 'sonner'
@@ -61,6 +63,12 @@ export default function ArtworkManagement() {
   const [imageManagerOpen, setImageManagerOpen] = useState(false)
   const [managingArtwork, setManagingArtwork] = useState<ArtworkListItem | null>(null)
   const [isExporting, setIsExporting] = useState(false)
+  const [isPrechecking, setIsPrechecking] = useState(false)
+  const [migrationSafety, setMigrationSafety] = useState({
+    transferMode: 'move' as 'move' | 'copy',
+    verifyAfterCopy: true,
+    cleanupSource: true
+  })
 
   // Row Selection State
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
@@ -187,49 +195,87 @@ export default function ArtworkManagement() {
   }
 
   // --- Migration Handlers ---
-  const handleMigrationClick = () => {
+  const buildMigrationFilters = () => {
+    return {
+      search: searchState.title || null,
+      artistName: searchState.artistName || null,
+      startDate: searchState.startDate || null,
+      endDate: searchState.endDate || null,
+      externalId: searchState.externalId || null,
+      exactMatch: searchState.exactMatch || false
+    }
+  }
+
+  const handleMigrationClick = async () => {
+    if (isPrechecking) return
     const isBatch = selectedRowKeys.length > 0
     const count = selectedRowKeys.length
+    const filters = buildMigrationFilters()
+    const hasFilters =
+      !isBatch && !!(filters.search || filters.artistName || filters.startDate || filters.endDate || filters.externalId)
 
-    confirm({
-      title: isBatch ? `确认迁移选中的 ${count} 个作品？` : '确认执行全量迁移？',
-      description: isBatch ? (
-        <div className="text-sm text-neutral-400 mt-2 space-y-2">
-          <div>此操作将对选中的作品执行结构化迁移，尝试将其文件移动到标准化的目录结构中。</div>
-          <ul className="list-disc list-inside space-y-1 pl-2">
-            <li>迁移过程中请勿关闭浏览器窗口。</li>
-          </ul>
-        </div>
-      ) : (
-        <div className="text-sm text-neutral-400 mt-2 space-y-2">
-          <div>此操作将扫描所有作品，并尝试将其文件移动到标准化的目录结构中。</div>
-          <ul className="list-disc list-inside space-y-1 pl-2">
-            <li>涉及大量文件移动，可能需要较长时间。</li>
-            <li>建议在执行前备份数据。</li>
-            <li>迁移过程中请勿关闭浏览器窗口。</li>
-          </ul>
-        </div>
-      ),
-      confirmText: '确认开始',
-      onConfirm: () => {
-        setLogOpen(true)
-        const onComplete = () => {
-          setRefreshKey((prev) => prev + 1)
-          setRowSelection({})
-        }
-
-        if (isBatch) {
-          migrationActions.startMigration({
-            targetIds: selectedRowKeys.map(Number),
-            onComplete
-          })
-        } else {
-          migrationActions.startMigration({
-            onComplete
-          })
-        }
+    try {
+      setIsPrechecking(true)
+      const precheckPayload: any = {
+        targetIds: isBatch ? selectedRowKeys.map(Number) : undefined
       }
-    })
+      if (hasFilters) {
+        precheckPayload.search = filters.search
+        precheckPayload.artistName = filters.artistName
+        precheckPayload.startDate = filters.startDate
+        precheckPayload.endDate = filters.endDate
+        precheckPayload.externalId = filters.externalId
+        precheckPayload.exactMatch = filters.exactMatch
+      }
+
+      const result = await trpcClient.migration.precheck.query(precheckPayload)
+
+      confirm({
+        title: isBatch
+          ? `确认迁移选中的 ${count} 个作品？`
+          : hasFilters
+            ? `确认按筛选条件迁移 ${result.total} 个作品？`
+            : '确认执行全量迁移？',
+        description: (
+          <div className="text-sm text-neutral-400 mt-2 space-y-2">
+            <div>
+              预检结果：总数 {result.total}，可迁移 {result.eligible}，缺少艺术家 {result.missingArtist}，缺少
+              ExternalId {result.missingExternalId}，无图片 {result.missingImages}
+            </div>
+            <ul className="list-disc list-inside space-y-1 pl-2">
+              <li>迁移过程中请勿关闭浏览器窗口。</li>
+              {!isBatch && !hasFilters && <li>涉及大量文件移动，可能需要较长时间。</li>}
+            </ul>
+          </div>
+        ),
+        confirmText: '确认开始',
+        onConfirm: () => {
+          setLogOpen(true)
+          const onComplete = () => {
+            setRefreshKey((prev) => prev + 1)
+            setRowSelection({})
+          }
+
+          if (isBatch) {
+            migrationActions.startMigration({
+              targetIds: selectedRowKeys.map(Number),
+              safety: migrationSafety,
+              onComplete
+            })
+          } else {
+            migrationActions.startMigration({
+              filters: hasFilters ? filters : undefined,
+              safety: migrationSafety,
+              onComplete
+            })
+          }
+        }
+      })
+    } catch (error: any) {
+      toast.error(error?.message || '预检失败')
+    } finally {
+      setIsPrechecking(false)
+    }
   }
 
   // ProTable 列定义
@@ -383,6 +429,61 @@ export default function ArtworkManagement() {
           <p className="text-sm md:text-base text-neutral-600 mt-1">管理作品，支持搜索、筛选和批量操作</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="flex items-center gap-2">
+                <Sliders className="w-4 h-4" />
+                迁移策略
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64" align="end">
+              <div className="space-y-3">
+                <div className="text-sm font-medium text-neutral-800">传输方式</div>
+                <Select
+                  value={migrationSafety.transferMode}
+                  onValueChange={(value) =>
+                    setMigrationSafety((prev) => ({
+                      ...prev,
+                      transferMode: value as 'move' | 'copy'
+                    }))
+                  }
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="选择方式" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="move">移动</SelectItem>
+                    <SelectItem value="copy">复制</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={migrationSafety.verifyAfterCopy}
+                    onCheckedChange={(value) =>
+                      setMigrationSafety((prev) => ({
+                        ...prev,
+                        verifyAfterCopy: !!value
+                      }))
+                    }
+                    disabled={migrationSafety.transferMode !== 'copy'}
+                  />
+                  <span className="text-sm text-neutral-700">复制后校验</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={migrationSafety.cleanupSource}
+                    onCheckedChange={(value) =>
+                      setMigrationSafety((prev) => ({
+                        ...prev,
+                        cleanupSource: !!value
+                      }))
+                    }
+                  />
+                  <span className="text-sm text-neutral-700">清理源文件</span>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
           <Button
             key="create"
             variant="default"

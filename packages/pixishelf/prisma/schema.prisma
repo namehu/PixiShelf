@@ -193,6 +193,7 @@ model SystemJob {
 enum JobStatus {
   PENDING
   RUNNING
+  PAUSED
   COMPLETED
   FAILED
   CANCELLED

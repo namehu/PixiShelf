@@ -11,7 +11,7 @@
     "dev": "next dev  -p 5430",
     "build": "next build",
     "start": "next start -p 5430",
-    "lint": "eslint",
+    "lint": "oxlint",
     "test": "vitest run --exclude tests/integration"
   },
   "dependencies": {

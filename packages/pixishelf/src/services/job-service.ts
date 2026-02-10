@@ -39,7 +39,7 @@ export async function createMigrationJob() {
     const activeJob = await tx.systemJob.findFirst({
       where: {
         type: 'MIGRATION',
-        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED, JobStatus.CANCELLING] }
       }
     })
 
@@ -65,7 +65,16 @@ export async function getActiveMigrationJob() {
   return await prisma.systemJob.findFirst({
     where: {
       type: 'MIGRATION',
-      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED, JobStatus.CANCELLING] }
+    },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+export async function getLatestMigrationJob() {
+  return await prisma.systemJob.findFirst({
+    where: {
+      type: 'MIGRATION'
     },
     orderBy: { createdAt: 'desc' }
   })
@@ -111,6 +120,10 @@ export async function updateProgress(jobId: string, progress: number, message: s
 
   if (current.status === JobStatus.CANCELLING) {
     throw new Error('Scan cancelled')
+  }
+
+  if (current.status === JobStatus.PAUSED) {
+    return
   }
 
   // 如果任务已经结束，也不再更新
@@ -176,10 +189,38 @@ export async function cancelJob(jobId: string) {
     select: { status: true }
   })
 
-  if (current && [JobStatus.PENDING, JobStatus.RUNNING].includes(current.status as any)) {
+  if (current && [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED].includes(current.status as any)) {
     await prisma.systemJob.update({
       where: { id: jobId },
       data: { status: JobStatus.CANCELLING, message: '正在取消...' }
+    })
+  }
+}
+
+export async function pauseJob(jobId: string) {
+  const current = await prisma.systemJob.findUnique({
+    where: { id: jobId },
+    select: { status: true }
+  })
+
+  if (current && [JobStatus.RUNNING, JobStatus.PENDING].includes(current.status as any)) {
+    await prisma.systemJob.update({
+      where: { id: jobId },
+      data: { status: JobStatus.PAUSED, message: '已暂停' }
+    })
+  }
+}
+
+export async function resumeJob(jobId: string) {
+  const current = await prisma.systemJob.findUnique({
+    where: { id: jobId },
+    select: { status: true }
+  })
+
+  if (current && current.status === JobStatus.PAUSED) {
+    await prisma.systemJob.update({
+      where: { id: jobId },
+      data: { status: JobStatus.RUNNING, message: '继续执行' }
     })
   }
 }
