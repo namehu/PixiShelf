@@ -46,6 +46,7 @@ model Artwork {
   thumbnailUrl       String?
   xRestrict          String?
   likeCount          Int           @default(0)
+  metaSource           String?       @unique
   artist             Artist?       @relation(fields: [artistId], references: [id])
   likes              ArtworkLike[]
   seriesId           Int?
@@ -62,6 +63,7 @@ model Artwork {
   @@index([sourceDate])
   @@index([externalId])
   @@index([likeCount])
+  @@index([metaSource])
   @@unique([externalId])
 }
 

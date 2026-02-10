@@ -34,6 +34,7 @@ interface ArtworkData {
   metadata: MetadataInfo
   mediaFiles: MediaFileInfo[]
   directoryPath: string
+  metadataFilePath: string
   directoryCreatedAt: Date
 }
 
@@ -479,6 +480,7 @@ async function parseAndCollect(metadataFile: GlobMetadataFile): Promise<ArtworkD
       metadata: parseResult.metadata,
       mediaFiles: collectionResult.mediaFiles,
       directoryPath: path.dirname(metadataPath),
+      metadataFilePath: metadataPath,
       directoryCreatedAt: createdAt
     }
   } catch (error) {
@@ -501,7 +503,7 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
       const artworkTagsToCreate = []
 
       for (const artworkData of batch) {
-        const { metadata, directoryCreatedAt } = artworkData
+        const { metadata, directoryCreatedAt, metadataFilePath } = artworkData
 
         // 从缓存获取艺术家
         const artist = context.artistCache.get(metadata.userId)
@@ -520,6 +522,7 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
           imageCount: 0, // 初始为 0，由 DB 触发器在插入图片时自动增加
           descriptionLength: metadata.description?.length || 0,
           externalId: metadata.id,
+          metaSource: getMetaSource(metadataFilePath, context.options.scanPath),
           sourceUrl: metadata.url || null,
           originalUrl: metadata.original || null,
           thumbnailUrl: metadata.thumbnail || null,
@@ -906,7 +909,7 @@ async function processRescanBatch(batch: ArtworkData[], context: ScanContext): P
   await prisma.$transaction(
     async (tx) => {
       for (const artworkData of batch) {
-        const { metadata, directoryCreatedAt } = artworkData
+        const { metadata, directoryCreatedAt, metadataFilePath } = artworkData
 
         // 获取 Artist ID
         const artist = context.artistCache.get(metadata.userId)
@@ -955,7 +958,8 @@ async function processRescanBatch(batch: ArtworkData[], context: ScanContext): P
             size: metadata.size || null,
             bookmarkCount: metadata.bookmark || null,
             sourceDate: metadata.date || null,
-            directoryCreatedAt
+            directoryCreatedAt,
+            metaSource: getMetaSource(metadataFilePath, context.options.scanPath)
           }
         })
 
@@ -1020,8 +1024,25 @@ async function clearDatabase(): Promise<void> {
  * @returns 相对路径
  */
 function getRelativePath(fullPath: string, scanPath: string): string {
-  // 简单实现，可以根据需要调整
-  return fullPath.replace(scanPath, '').replaceAll(path.sep, '/')
+  // 1. 【清洗】强制把所有反斜杠 (\) 替换为正斜杠 (/)
+  // 这样无论输入是 Windows 风格还是混合风格，都统一变成 POSIX 风格
+  const normFull = fullPath.replace(/\\/g, '/')
+  const normScan = scanPath.replace(/\\/g, '/')
+
+  // 2. 【计算】强制使用 path.posix.relative
+  // 因为此时 inputs 已经确认为 / 分隔，使用 posix 算法是最安全、准确的
+  // const relative = path.posix.relative(normScan, normFull)
+  return normFull.replace(normScan, '') // WARNNING: 历史原因 需要保留 / 开头...
+}
+
+/**
+ * 获取元数据文件的相对路径
+ * @param fullPath 完整路径
+ * @param scanPath 扫描路径
+ * @returns 相对路径
+ */
+function getMetaSource(fullPath: string, scanPath: string): string {
+  return getRelativePath(fullPath, scanPath).replace(/^\//, '') // 移除开头的 /
 }
 
 /**
