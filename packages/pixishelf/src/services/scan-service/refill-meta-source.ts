@@ -6,7 +6,7 @@ import { sleep } from '@/utils/sleep'
 
 export interface RefillOptions {
   scanPath: string
-  onProgress?: (progress: { message: string; percentage: number }) => void
+  onProgress?: (progress: { message: string; percentage: number }) => Promise<void> | void
   checkCancelled?: () => Promise<boolean>
 }
 
@@ -15,7 +15,7 @@ export async function refillMetaSource(options: RefillOptions) {
 
   logger.info('Starting refill meta source task (DB based)', { scanPath })
 
-  onProgress?.({ message: '正在计算待处理作品...', percentage: 0 })
+  if (onProgress) await onProgress({ message: '正在计算待处理作品...', percentage: 0 })
 
   // 1. 获取所有待处理 ID
   // 我们只关心那些 metaSource 为空 且 externalId 不为空 的作品
@@ -31,7 +31,7 @@ export async function refillMetaSource(options: RefillOptions) {
   logger.info(`Found ${totalIds} artworks missing metaSource`)
 
   if (totalIds === 0) {
-    onProgress?.({ message: '没有发现需要补全的作品', percentage: 100 })
+    if (onProgress) await onProgress({ message: '没有发现需要补全的作品', percentage: 100 })
     return { updatedCount: 0, totalFiles: 0 }
   }
 
@@ -84,9 +84,7 @@ export async function refillMetaSource(options: RefillOptions) {
           // 4. 检查文件是否存在
           await fs.access(candidatePath)
 
-          // 5. 如果存在，记录下的是绝对路径还是相对路径？
-          // 通常 metaSource 应该存绝对路径，或者与 scanPath 相关联。
-          // 这里我们存绝对路径，与之前逻辑保持一致。
+          // 5. 如果存在，记录下相对路径
           const metaSource = path.relative(scanPath, candidatePath).replace(/\\/g, path.posix.sep)
           updates.push(
             prisma.artwork.update({
@@ -111,15 +109,18 @@ export async function refillMetaSource(options: RefillOptions) {
 
     processedCount += batchIds.length
     const percentage = Math.round((processedCount / totalIds) * 100)
-    onProgress?.({
-      message: `正在处理... ${processedCount}/${totalIds} (已更新 ${updatedCount})`,
-      percentage
-    })
+
+    if (onProgress) {
+      await onProgress({
+        message: `正在处理... ${processedCount}/${totalIds} (已更新 ${updatedCount})`,
+        percentage
+      })
+    }
 
     await sleep(10)
   }
 
-  onProgress?.({ message: '完成', percentage: 100 })
+  if (onProgress) await onProgress({ message: '完成', percentage: 100 })
   logger.info('Refill meta source task completed', { updatedCount, totalProcessed: totalIds })
   return { updatedCount, totalFiles: totalIds }
 }

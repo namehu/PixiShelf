@@ -160,7 +160,8 @@ export async function updateProgress(jobId: string, progress: number, message: s
   }
 
   if (current.status === JobStatus.CANCELLING) {
-    throw new Error('Scan cancelled')
+    // 如果正在取消中，不再更新进度，但也不抛出错误，以免干扰主流程
+    return
   }
 
   if (current.status === JobStatus.PAUSED) {

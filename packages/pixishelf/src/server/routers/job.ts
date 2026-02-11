@@ -48,7 +48,11 @@ export const jobRouter = router({
         await JobService.completeJob(job.id, { success: true })
       } catch (error) {
         logger.error('Refill meta source job failed', { error })
-        if (error instanceof Error && error.message === 'Task cancelled') {
+        
+        // 检查当前状态，如果是 CANCELLING，则标记为 CANCELLED
+        // 或者如果错误消息明确是 Task cancelled
+        const current = await JobService.getJob(job.id)
+        if (current?.status === 'CANCELLING' || (error instanceof Error && error.message === 'Task cancelled')) {
             await JobService.markAsCancelled(job.id)
         } else {
             await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
