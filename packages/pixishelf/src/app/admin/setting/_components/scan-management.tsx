@@ -93,10 +93,7 @@ function ScanManagement() {
 
         {/*  统一的状态、结果和日志区域 (新) */}
         {/* 仅在有任何活动或结果时显示此卡片 */}
-        <ScanResultCard
-          onCancel={actions.cancelScan}
-          elapsed={state.elapsed}
-        />
+        <ScanResultCard onCancel={actions.cancelScan} elapsed={state.elapsed} />
       </div>
     </div>
   )

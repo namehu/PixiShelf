@@ -8,6 +8,7 @@ import { searchRouter } from './routers/search'
 import { tagRouter } from './routers/tag'
 import { seriesRouter } from './routers/series'
 import { migrationRouter } from './routers/migration'
+import { jobRouter } from './routers/job'
 
 // 挂载子路由
 export const appRouter = router({
@@ -19,7 +20,8 @@ export const appRouter = router({
   search: searchRouter,
   tag: tagRouter,
   series: seriesRouter,
-  migration: migrationRouter
+  migration: migrationRouter,
+  job: jobRouter
 })
 
 // 导出类型供前端使用

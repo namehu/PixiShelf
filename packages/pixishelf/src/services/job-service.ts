@@ -94,6 +94,47 @@ export async function getActiveScanJob() {
 }
 
 /**
+ * 尝试创建一个元数据源补全任务
+ */
+export async function createRefillMetaSourceJob() {
+  return await prisma.$transaction(async (tx) => {
+    // 检查是否有正在运行或正在取消的任务
+    const activeJob = await tx.systemJob.findFirst({
+      where: {
+        type: 'REFILL_META_SOURCE',
+        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+      }
+    })
+
+    if (activeJob) {
+      throw new Error('Refill meta source job already in progress')
+    }
+
+    return await tx.systemJob.create({
+      data: {
+        type: 'REFILL_META_SOURCE',
+        status: JobStatus.RUNNING,
+        message: '初始化...',
+        progress: 0
+      }
+    })
+  })
+}
+
+/**
+ * 获取当前活跃的元数据源补全任务
+ */
+export async function getActiveRefillMetaSourceJob() {
+  return await prisma.systemJob.findFirst({
+    where: {
+      type: 'REFILL_META_SOURCE',
+      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+    },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+/**
  * 获取任务详情
  */
 export async function getJob(jobId: string) {

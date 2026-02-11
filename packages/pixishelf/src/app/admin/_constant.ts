@@ -1,4 +1,4 @@
-import { Activity, AlbumIcon, Settings, Tags, Users, UserStar, ImageIcon } from 'lucide-react'
+import { Activity, AlbumIcon, Settings, Tags, Users, UserStar, ImageIcon, ListTodo } from 'lucide-react'
 
 export const sections = [
   {
@@ -8,6 +8,7 @@ export const sections = [
     icon: Activity,
     color: 'text-blue-500'
   },
+
   {
     title: '标签管理',
     description: '管理图片标签和翻译',
@@ -49,5 +50,12 @@ export const sections = [
     href: '/admin/setting',
     icon: Settings,
     color: 'text-slate-500'
+  },
+  {
+    title: '任务计划',
+    description: '执行系统维护和后台任务',
+    href: '/admin/tasks',
+    icon: ListTodo,
+    color: 'text-orange-500'
   }
 ]
