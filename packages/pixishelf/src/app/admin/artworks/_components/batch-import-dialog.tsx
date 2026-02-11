@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
-import { Trash2, Folder, File, AlertCircle, CheckCircle, Loader2, FolderInput, X } from 'lucide-react'
+import { Trash2, Folder, File, AlertCircle, CheckCircle, Loader2, FolderInput } from 'lucide-react'
 import { toast } from 'sonner'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { useTRPCClient } from '@/lib/trpc'
@@ -35,11 +35,11 @@ interface ExtendedImportItem extends BatchImportItem, Partial<Omit<BatchImportAr
 }
 
 import { useRecentTags } from '@/store/admin/useRecentTags'
-import { Badge } from '@/components/ui/badge'
+import { RecentTagsList } from './recent-tags-list'
 
 export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImportDialogProps) {
-  const { tags: recentTags, addTag, removeTag } = useRecentTags()
   const trpcClient = useTRPCClient()
+  const { addTag } = useRecentTags()
   const [items, setItems] = useState<ExtendedImportItem[]>([])
   const [status, setStatus] = useState<ImportStatus>('idle')
   const [globalProgress, setGlobalProgress] = useState(0)
@@ -297,36 +297,12 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
                 setTags(options)
               }}
             />
-            {recentTags.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-2">
-                <span className="text-xs text-muted-foreground self-center">常用:</span>
-                {recentTags.slice(0, 10).map((tag) => (
-                  <Badge
-                    key={tag.value}
-                    variant="secondary"
-                    className="cursor-pointer hover:bg-secondary/80 pr-1 flex items-center gap-1"
-                    onClick={() => {
-                      if (!tags.some((t) => t.value === tag.value)) {
-                        setTags([...tags, tag as any])
-                        addTag(tag) // 刷新顺序
-                      }
-                    }}
-                  >
-                    {tag.label}
-                    <div
-                      role="button"
-                      className="hover:bg-destructive/20 rounded-full p-0.5 ml-1"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        removeTag(tag.value)
-                      }}
-                    >
-                      <X size={10} />
-                    </div>
-                  </Badge>
-                ))}
-              </div>
-            )}
+            <RecentTagsList
+              selectedValues={tags.map((t) => t.value)}
+              onSelect={(tag) => {
+                setTags([...tags, tag as any])
+              }}
+            />
           </div>
 
           <div className="mt-auto bg-neutral-50 p-4 rounded-lg border text-sm text-neutral-500 space-y-2">

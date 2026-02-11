@@ -23,11 +23,10 @@ interface TagItem {
 }
 
 import { useRecentTags } from '@/store/admin/useRecentTags'
-import { Badge } from '@/components/ui/badge'
-import { X } from 'lucide-react'
+import { RecentTagsList } from './recent-tags-list'
 
 export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: ArtworkDialogProps) {
-  const { tags: recentTags, addTag, removeTag } = useRecentTags()
+  const { addTag } = useRecentTags()
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
@@ -233,40 +232,16 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
               }}
               triggerSearchOnFocus
             />
-            {recentTags.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-2">
-                <span className="text-xs text-muted-foreground self-center">常用:</span>
-                {recentTags.slice(0, 10).map((tag) => (
-                  <Badge
-                    key={tag.value}
-                    variant="secondary"
-                    className="cursor-pointer hover:bg-secondary/80 pr-1 flex items-center gap-1"
-                    onClick={() => {
-                      if (!formData.tags.some((t) => t.id.toString() === tag.value)) {
-                        const newTag = { id: parseInt(tag.value), name: tag.label }
-                        setFormData({
-                          ...formData,
-                          tags: [...formData.tags, newTag]
-                        })
-                        addTag(tag) // 点击也视为使用，刷新顺序
-                      }
-                    }}
-                  >
-                    {tag.label}
-                    <div
-                      role="button"
-                      className="hover:bg-destructive/20 rounded-full p-0.5 ml-1"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        removeTag(tag.value)
-                      }}
-                    >
-                      <X size={10} />
-                    </div>
-                  </Badge>
-                ))}
-              </div>
-            )}
+            <RecentTagsList
+              selectedValues={formData.tags.map((t) => t.id.toString())}
+              onSelect={(tag) => {
+                const newTag = { id: parseInt(tag.value), name: tag.label }
+                setFormData({
+                  ...formData,
+                  tags: [...formData.tags, newTag]
+                })
+              }}
+            />
           </div>
 
           {/* Description */}
