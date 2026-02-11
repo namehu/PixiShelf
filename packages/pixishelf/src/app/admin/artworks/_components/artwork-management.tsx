@@ -53,6 +53,7 @@ export interface ArtworkListItem {
 
 import { BatchImportDialog } from './batch-import-dialog'
 import { ArtworkRescanButton } from './artwork-rescan-button'
+import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 
 export default function ArtworkManagement() {
   const trpc = useTRPC()
@@ -61,7 +62,7 @@ export default function ArtworkManagement() {
   const [batchImportOpen, setBatchImportOpen] = useState(false)
   const [editingArtwork, setEditingArtwork] = useState<any>(null)
   const [imageManagerOpen, setImageManagerOpen] = useState(false)
-  const [managingArtwork, setManagingArtwork] = useState<ArtworkListItem | null>(null)
+  const [managingArtwork, setManagingArtwork] = useState<ArtworkResponseDto | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isPrechecking, setIsPrechecking] = useState(false)
   const [migrationSafety, setMigrationSafety] = useState({
@@ -189,7 +190,7 @@ export default function ArtworkManagement() {
     setDialogOpen(true)
   }
 
-  const handleOpenImageManager = (item: ArtworkListItem) => {
+  const handleOpenImageManager = (item: ArtworkResponseDto) => {
     setManagingArtwork(item)
     setImageManagerOpen(true)
   }
@@ -279,7 +280,7 @@ export default function ArtworkManagement() {
   }
 
   // ProTable 列定义
-  const columns: ProColumnDef<ArtworkListItem>[] = [
+  const columns: ProColumnDef<ArtworkResponseDto>[] = [
     {
       id: 'select',
       header: ({ table }) => (
@@ -313,19 +314,19 @@ export default function ArtworkManagement() {
       accessorKey: 'title',
       size: 240,
       ellipsis: true,
-      cell: ({ row }) => (
-        <div className="font-medium">
-          <div className="truncate" title={row.original.title}>
-            {row.original.title}
+      cell: ({ row: { original } }) => {
+        const { title, metaSource = '-' } = original
+        return (
+          <div className="font-medium">
+            <div className="truncate" title={title}>
+              {title}
+            </div>
+            <span className="font-mono text-xs text-neutral-400 truncate max-w-[200px] block" title={metaSource!}>
+              {metaSource || '-'}
+            </span>
           </div>
-          <span
-            className="font-mono text-xs text-neutral-400 truncate max-w-[200px] block"
-            title={row.original.firstImagePath}
-          >
-            {row.original.firstImagePath || '-'}
-          </span>
-        </div>
-      )
+        )
+      }
     },
     {
       header: '作者',
@@ -555,7 +556,7 @@ export default function ArtworkManagement() {
       <ProTable
         key={refreshKey}
         columns={columns}
-        request={request}
+        request={request as any}
         defaultPageSize={20}
         pagination={{
           pageIndex: (searchState.page || 1) - 1,

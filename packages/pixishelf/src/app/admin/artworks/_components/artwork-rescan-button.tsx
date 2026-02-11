@@ -8,10 +8,10 @@ import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { toast } from 'sonner'
 import { ScanProgress } from '@/types'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import type { ArtworkListItem } from './artwork-management'
+import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 
 interface ArtworkRescanButtonProps {
-  artwork: ArtworkListItem
+  artwork: ArtworkResponseDto
   onComplete: () => void
 }
 

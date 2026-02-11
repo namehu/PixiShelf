@@ -9,6 +9,11 @@ export const TranslateTypeEnum = z.enum(['NONE', 'PIXIV', 'AI', 'MANUAL'])
 
 export type TranslateType = z.infer<typeof TranslateTypeEnum>
 
+// 对应 schema.prisma 中的 enum ArtworkSource
+export const ArtworkSourceEnum = z.enum(['LOCAL_CREATED', 'PIXIV_IMPORTED'])
+
+export type ArtworkSource = z.infer<typeof ArtworkSourceEnum>
+
 // ==========================================
 // 1. Base Models (1:1 Mirror of Prisma)
 // ==========================================
@@ -51,7 +56,9 @@ export const ArtworkModel = z.object({
   thumbnailUrl: z.string().nullable(),
   xRestrict: z.string().nullable(), // [cite: 13]
   likeCount: z.number().int().default(0), // [cite: 14]
-  seriesId: z.number().int().nullable()
+  metaSource: z.string().nullable(),
+  seriesId: z.number().int().nullable(),
+  source: ArtworkSourceEnum.default('PIXIV_IMPORTED')
 })
 
 /**
@@ -62,6 +69,8 @@ export const SeriesModel = z.object({
   title: z.string(),
   description: z.string().nullable(),
   coverImageUrl: z.string().nullable(),
+  source: z.string().default('LOCAL'),
+  externalId: z.string().nullable(),
   createdAt: z.date(),
   updatedAt: z.date()
 })
