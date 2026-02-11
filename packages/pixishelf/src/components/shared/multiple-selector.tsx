@@ -357,6 +357,10 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
             const newOptions = [...selected, { value, label: value }]
             setSelected(newOptions)
             onChange?.(newOptions)
+            if (newOptions.length >= maxSelected) {
+              setOpen(false)
+              inputRef.current?.blur()
+            }
           }}
         >
           {`Create "${inputValue}"`}
@@ -464,7 +468,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
                     }}
                     onClick={() => handleUnselect(option)}
                   >
-                    <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                    <X className="h-3 w-3 hover:text-foreground" />
                   </button>
                 </Badge>
               )
@@ -507,7 +511,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
               onChange?.(selected.filter((s) => s.fixed))
             }}
             className={cn(
-              'size-5',
+              'flex size-5 items-center justify-center text-muted-foreground/50 hover:text-foreground',
               (hideClearAllButton ||
                 disabled ||
                 selected.length < 1 ||
@@ -515,7 +519,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
                 'hidden'
             )}
           >
-            <X />
+            <X className="size-5" />
           </button>
           <ChevronDownIcon
             className={cn(
@@ -571,6 +575,10 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
                                 const newOptions = [...selected, option]
                                 setSelected(newOptions)
                                 onChange?.(newOptions)
+                                if (newOptions.length >= maxSelected) {
+                                  setOpen(false)
+                                  inputRef.current?.blur()
+                                }
                               }}
                               className={cn('cursor-pointer', option.disable && 'cursor-default text-muted-foreground')}
                             >

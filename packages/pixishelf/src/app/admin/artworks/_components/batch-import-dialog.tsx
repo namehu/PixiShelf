@@ -269,7 +269,6 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
             <Label>默认艺术家 (应用到所有)</Label>
             <MultipleSelector
               placeholder="搜索艺术家..."
-              defaultOptions={[]}
               value={artist ? [artist] : []}
               onSearch={handleSearchArtist}
               triggerSearchOnFocus
@@ -282,7 +281,6 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
             <MultipleSelector
               triggerSearchOnFocus
               placeholder="搜索标签..."
-              defaultOptions={[]}
               value={tags}
               onSearch={handleSearchTag}
               onChange={setTags}
