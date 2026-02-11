@@ -6,6 +6,9 @@ import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './constant'
  * @returns 文件扩展名（包含点号）
  */
 export function getFileExtension(filename) {
+  if (!filename) return ''
+
+  filename = filename.replace(/\?.*$/, '') // 移除查询参数
   const lastDotIndex = filename.lastIndexOf('.')
   if (lastDotIndex === -1) {
     return ''
