@@ -180,9 +180,13 @@ export async function updateArtwork(
     sourceDate?: Date | string | null
   }
 ) {
-  const { tags, artistId, ...rest } = data
+  const { tags, artistId, sourceDate, ...rest } = data
 
   const updateData: Prisma.ArtworkUpdateInput = { ...rest }
+
+  if (sourceDate !== undefined) {
+    updateData.sourceDate = typeof sourceDate === 'string' ? new Date(sourceDate) : sourceDate
+  }
 
   if (artistId !== undefined) {
     updateData.artist = artistId ? { connect: { id: artistId } } : { disconnect: true }
@@ -212,11 +216,12 @@ export async function createArtwork(data: {
   source?: 'LOCAL_CREATED' | 'PIXIV_IMPORTED'
   sourceDate?: Date | string | null
 }) {
-  const { tags, artistId, source, ...rest } = data
+  const { tags, artistId, source, sourceDate, ...rest } = data
 
   const artwork = await prisma.artwork.create({
     data: {
       ...rest,
+      sourceDate: typeof sourceDate === 'string' ? new Date(sourceDate) : sourceDate,
       source: source as any,
       artist: artistId ? { connect: { id: artistId } } : undefined,
       artworkTags:
