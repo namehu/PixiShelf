@@ -177,7 +177,7 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
           <Loader2 className="w-8 h-8 animate-spin text-neutral-400" />
         </div>
       ) : (
-        <div className="space-y-4 py-2">
+        <div className="space-y-4 py-2 max-h-[60vh] overflow-y-auto px-1">
           {/* Title */}
           <div className="space-y-2">
             <Label>
@@ -211,6 +211,18 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
               }}
               maxSelected={1}
               triggerSearchOnFocus
+            />
+          </div>
+
+          {/* Source Date */}
+          <div className="space-y-2 flex flex-col">
+            <Label>发布日期</Label>
+            <ProDatePicker
+              mode="single"
+              value={formData.sourceDate}
+              onChange={(date) => setFormData({ ...formData, sourceDate: date as Date })}
+              placeholder="选择发布日期"
+              clearable={false}
             />
           </div>
 
@@ -266,18 +278,7 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               rows={5}
               placeholder="作品描述..."
-            />
-          </div>
-
-          {/* Source Date */}
-          <div className="space-y-2 flex flex-col">
-            <Label>发布日期</Label>
-            <ProDatePicker
-              mode="single"
-              value={formData.sourceDate}
-              onChange={(date) => setFormData({ ...formData, sourceDate: date as Date })}
-              placeholder="选择发布日期"
-              clearable={false}
+              className="[field-sizing:fixed] min-h-[120px] max-h-[400px] break-all whitespace-pre-wrap"
             />
           </div>
         </div>
