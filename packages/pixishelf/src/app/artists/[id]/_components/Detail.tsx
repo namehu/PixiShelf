@@ -9,12 +9,12 @@ import { Button } from '@/components/ui/button'
 import { FilterSheet } from '@/components/artwork/filter-sheet'
 import HeadInfo from './HeadInfo'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
-import { format, parseISO } from 'date-fns'
 import { DatePickerRange } from '@/components/shared/date-range-picker'
 import PNav from '@/components/layout/PNav'
 import { SearchBox } from '@/app/artworks/_components/search-box'
 import { cn } from '@/lib/utils'
 import InfiniteArtworkList from '@/components/artwork/Infinite-artwork-list'
+import dayjs from 'dayjs'
 
 export default function ArtistDetailPage({ artist, id }: { artist: ArtistResponseDto; id: string }) {
   const router = useRouter()
@@ -44,8 +44,8 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
 
   // 构造 DatePickerRange 需要的 value 格式
   const dateRange = useMemo<[Date | undefined, Date | undefined]>(() => {
-    const start = startDate ? parseISO(startDate) : undefined
-    const end = endDate ? parseISO(endDate) : undefined
+    const start = startDate ? dayjs(startDate).toDate() : undefined
+    const end = endDate ? dayjs(endDate).toDate() : undefined
     return [start, end]
   }, [startDate, endDate])
 
@@ -54,20 +54,27 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
     (vals: [Date | undefined, Date | undefined]) => {
       const [start, end] = vals
       setQuery({
-        startDate: start ? format(start, 'yyyy-MM-dd') : null,
-        endDate: end ? format(end, 'yyyy-MM-dd') : null
+        startDate: start ? dayjs(start).format('YYYY-MM-DD') : null,
+        endDate: end ? dayjs(end).format('YYYY-MM-DD') : null
       })
     },
     [setQuery]
   )
 
   // 处理筛选变更
-  const handleApplyFilters = (filters?: { mediaType: MediaTypeFilter; sortBy: SortOption }) => {
+  const handleApplyFilters = (filters?: {
+    mediaType: MediaTypeFilter
+    sortBy: SortOption
+    startTime?: string
+    endTime?: string
+  }) => {
     if (!filters) return
 
     setQuery({
       mediaType: filters.mediaType,
-      sortBy: filters.sortBy
+      sortBy: filters.sortBy,
+      startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : null,
+      endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null
     })
   }
 
@@ -131,6 +138,8 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
         onOpenChange={setIsFilterOpen}
         currentMediaType={mediaType as MediaTypeFilter}
         currentSortBy={sortBy as SortOption}
+        startDate={startDate}
+        endDate={endDate}
         onApply={handleApplyFilters}
       />
 
@@ -138,15 +147,9 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
       {/* 作品列表部分 */}
       <div className="space-y-6 px-4 my-4">
         {/* 作品列表标题和排序 */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">作品集</h2>
-            <p className="text-gray-600 mt-1">{`共 ${total} 件作品`}</p>
-          </div>
-
-          <div className="flex flex-row items-center gap-2 w-full sm:w-auto justify-end">
-            <DatePickerRange value={dateRange} onChange={handleDateChange} className="flex-1 sm:flex-none w-auto" />
-          </div>
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-gray-900">作品集</h2>
+          <span className="text-gray-600">{`共 ${total} 件作品`}</span>
         </div>
 
         <InfiniteArtworkList
