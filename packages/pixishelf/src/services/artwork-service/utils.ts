@@ -14,7 +14,7 @@ dayjs.extend(utc)
  */
 export function transformSingleArtwork(artwork: any) {
   const _count = artwork._count?.images || artwork.imageCount || 0
-  const { images, totalMediaSize, imageCount, hasVideo } = transformImages(artwork.images, _count)
+  const { images, totalMediaSize, imageCount, hasVideo, mediaCount } = transformImages(artwork.images, _count)
 
   // 构建响应对象
   const result = {
@@ -24,6 +24,7 @@ export function transformSingleArtwork(artwork: any) {
     firstImagePath: images.length > 0 ? path.dirname(images[0]!.path) : null, // 新增：首图路径
     tags: artwork.artworkTags?.map((at: any) => at.tag.name) || [],
     imageCount,
+    mediaCount,
     isVideo: hasVideo,
     totalMediaSize,
     descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
@@ -59,30 +60,25 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
 
   // 2. 核心逻辑：过滤并挂载
   const finalItems = allItems.filter((item) => {
-    // 只有 APNG 需要检查是否要被合并
-    if (isApngFile(item.path)) {
-      const stem = getStem(item.path)
-
-      // 在列表中寻找是否存在同名的视频文件 (Webm/Mp4)
-      // 注意：这里利用了引用传递，找到的 videoOwner 就是数组里的同一个对象
-      const videoOwner = allItems.find((i) => i !== item && i.mediaType === 'video' && getStem(i.path) === stem)
-
-      if (videoOwner) {
-        // 找到了主人：把自己挂载到视频对象上 (作为原始资源)
-        // 你可能需要去扩展一下 TS 类型定义，或者暂时用 (videoOwner as any)
-        Object.assign(videoOwner, { raw: item })
-
-        // 返回 false -> 从最终列表中移除这个 APNG
-        return false
-      }
+    // 普通图片、视频、无主的APNG）都保留
+    if (!isApngFile(item.path)) {
+      return true
     }
-    // 其他情况（普通图片、视频、无主的APNG）都保留
-    return true
+    // 有 APNG 需要检查是否要被合并
+    const stem = getStem(item.path)
+    // 在列表中寻找是否存在同名的视频文件 (Webm/Mp4)
+    // 注意：这里利用了引用传递，找到的 videoOwner 就是数组里的同一个对象
+    const videoOwner = allItems.find((i) => i !== item && i.mediaType === 'video' && getStem(i.path) === stem)
+
+    if (videoOwner) {
+      // 找到了主人：把自己挂载到视频对象上 (作为原始资源)
+      Object.assign(videoOwner, { raw: item })
+      return false // 从最终列表中移除这个 APNG
+    }
   })
 
   // 3. 统计逻辑（基于合并后的 finalItems）
   const hasVideo = finalItems.some((img) => img.mediaType === 'video')
-
   // 计算总大小
   const totalMediaSize = finalItems.reduce((sum, img) => sum + (img.size || 0), 0)
 
@@ -90,6 +86,7 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
     images: finalItems,
     hasVideo,
     imageCount: hasVideo ? 0 : (dbImageCount ?? finalItems.length),
+    mediaCount: hasVideo ? finalItems.length : (dbImageCount ?? finalItems.length),
     totalMediaSize
   }
 }

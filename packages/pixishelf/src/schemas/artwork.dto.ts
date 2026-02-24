@@ -165,9 +165,24 @@ export const ArtworkResponseDto = ArtworkModel.extend({
 
   /**
    * 总媒体大小
-   * 目前来说仅计算 视频 / apng 文件大小 图片大小统一为0
    */
   totalMediaSize: z.number().int().default(0),
+
+  /**
+   * 图片数量
+   */
+  imageCount: z.number().int().default(0),
+
+  /**
+   * 媒体数量
+   * 最准确的数量
+   */
+  mediaCount: z.number().int().default(0),
+
+  /**
+   * 是否视频
+   */
+  isVideo: z.boolean().default(false),
 
   /**
    * 系列信息

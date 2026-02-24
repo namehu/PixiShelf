@@ -338,17 +338,17 @@ export default function ArtworkManagement() {
       accessorKey: 'sourceDate'
     },
     {
-      header: '图片数',
-      accessorKey: 'imageCount',
+      header: '媒体数',
+      accessorKey: 'mediaCount',
       size: 100,
       cell: ({ row }) => (
         <Button
           variant="link"
           className="h-auto font-mono hover:underline cursor-pointer"
           onClick={() => handleOpenImageManager(row.original)}
-          title="管理图片"
+          title="管理媒体"
         >
-          {row.original.imageCount}
+          {row.original.mediaCount}
         </Button>
       )
     },
