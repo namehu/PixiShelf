@@ -25,10 +25,10 @@ export const ScanStreamSchema = z
 export type ScanStreamSchema = z.infer<typeof ScanStreamSchema>
 
 /**
- * Request body for rescan stream
+ * 请求体：重新扫描指定作品
  */
 export const ScanRescanSchema = z.object({
-  artworkId: z.string()
+  externalId: z.string()
 })
 
 export type ScanRescanSchema = z.infer<typeof ScanRescanSchema>

@@ -23,10 +23,10 @@ function createEventSender(controller: ReadableStreamDefaultController, encoder:
 
 /**
  * POST /api/scan/rescan
- * Rescan artwork stream endpoint
+ * 根据作品 externalId 重新扫描该作品
  */
 export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
-  const { artworkId } = data
+  const { externalId } = data
 
   const scanPath = await getScanPath()
   if (!scanPath) {
@@ -35,7 +35,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
 
   // 服务端查询获取相对路径，防止路径穿透
   const artwork = await prisma.artwork.findUnique({
-    where: { externalId: artworkId },
+    where: { externalId },
     include: {
       images: {
         orderBy: { sortOrder: 'asc' },
@@ -83,7 +83,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
         // Create job lock
         const job = await JobService.createScanJob()
         currentJobId = job.id
-        logger.info(`Rescan job created: ${job.id} for artwork ${artworkId}`)
+        logger.info(`Rescan job created: ${job.id} for artwork ${artwork.id} ${artwork.title} ${relativePath}`)
 
         sendEvent('connection', { success: true, result: '连接成功，开始重新扫描' })
 
@@ -105,7 +105,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
               }
             }
           },
-          artworkId,
+          artwork.externalId!,
           relativePath
         )
 

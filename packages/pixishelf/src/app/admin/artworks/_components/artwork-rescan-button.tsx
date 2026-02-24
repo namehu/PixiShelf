@@ -23,17 +23,9 @@ export function ArtworkRescanButton({ artwork, onComplete }: ArtworkRescanButton
 
   const handleRescan = () => {
     if (scanning) return
-
-    const scanPath = artwork.firstImagePath ?? ''
-
-    if (!scanPath) {
-      toast.error('无法确定作品扫描路径')
-      return
-    }
-
     confirm({
       title: '重新扫描确认',
-      description: `即将重新扫描 ${scanPath} 目录，原有元数据将被增量更新，是否继续？`,
+      description: `即将重新扫描 ${artwork.title} 目录，原有元数据将被增量更新，是否继续？`,
       onConfirm: () => {
         startScan()
       }
@@ -52,9 +44,7 @@ export function ArtworkRescanButton({ artwork, onComplete }: ArtworkRescanButton
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          artworkId: artwork.externalId
-        }),
+        body: JSON.stringify({ externalId: artwork.externalId }),
         signal: controllerRef.current.signal,
         onopen: async (response) => {
           if (!response.ok) {
