@@ -13,15 +13,23 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 
 interface InfiniteArtworkListProps {
-  searchQuery: string
-  sortBy: SortOption
-  mediaType: MediaTypeFilter
+  searchQuery?: string
+  sortBy?: SortOption
+  mediaType?: MediaTypeFilter
+  tagId?: number
   onTotalChange?: (total: number) => void
   onClearFilters?: () => void
 }
 
 export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
-  const { searchQuery, sortBy, mediaType, onTotalChange, onClearFilters } = props
+  const {
+    searchQuery = '',
+    sortBy = 'source_date_desc',
+    mediaType = 'all',
+    tagId,
+    onTotalChange,
+    onClearFilters
+  } = props
 
   const trpc = useTRPC()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -37,7 +45,8 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
       {
         search: searchQuery || undefined,
         sortBy,
-        mediaType
+        mediaType,
+        tagId
       },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
