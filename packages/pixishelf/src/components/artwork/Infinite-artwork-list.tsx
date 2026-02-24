@@ -17,8 +17,12 @@ interface InfiniteArtworkListProps {
   sortBy?: SortOption
   mediaType?: MediaTypeFilter
   tagId?: number
+  artistId?: number | string
+  startDate?: string
+  endDate?: string
   onTotalChange?: (total: number) => void
   onClearFilters?: () => void
+  emptyMessage?: string
 }
 
 export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
@@ -27,8 +31,12 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     sortBy = 'source_date_desc',
     mediaType = 'all',
     tagId,
+    artistId,
+    startDate,
+    endDate,
     onTotalChange,
-    onClearFilters
+    onClearFilters,
+    emptyMessage
   } = props
 
   const trpc = useTRPC()
@@ -46,7 +54,10 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
         search: searchQuery || undefined,
         sortBy,
         mediaType,
-        tagId
+        tagId,
+        artistId: artistId ? Number(artistId) : undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined
       },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -113,7 +124,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   })
 
   // 生成唯一的存储 key，基于当前的筛选条件
-  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}`
+  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}-${tagId}-${artistId}-${startDate}-${endDate}`
 
   // 1. 处理滚动恢复
   useLayoutEffect(() => {
@@ -177,7 +188,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     return (
       <div className="flex flex-col items-center justify-center py-32 text-neutral-400">
         <Filter className="w-12 h-12 mb-4 opacity-20" />
-        <p className="text-lg font-medium">没有找到相关作品</p>
+        <p className="text-lg font-medium">{emptyMessage || '没有找到相关作品'}</p>
         {onClearFilters && (
           <Button variant="link" onClick={onClearFilters}>
             清除筛选条件试试？
@@ -241,9 +252,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
           <div ref={loadMoreRef} className="flex justify-center py-8">
             {isFetchingNextPage && <Loader2 className="h-6 w-6 animate-spin text-gray-400" />}
             {!hasNextPage && allItems.length > 0 && (
-              <div className="text-center text-xs text-neutral-400 uppercase tracking-widest">
-                — End of Collection —
-              </div>
+              <div className="text-center text-xs text-neutral-400 uppercase tracking-widest">— 已经到底了 —</div>
             )}
           </div>
         </>
