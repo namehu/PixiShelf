@@ -165,7 +165,15 @@ interface ProTableProps<TData, TValue> {
    * @default true
    */
   scrollToTopOnPageChange?: boolean
+
+  /**
+   * 分页大小选项
+   * @default [10, 20, 30, 50, 100]
+   */
+  pageSizeOptions?: number[]
 }
+
+import { ProTablePagination } from './pagination'
 
 export function ProTable<TData, TValue>({
   columns,
@@ -184,7 +192,8 @@ export function ProTable<TData, TValue>({
   sorting: controlledSorting,
   onSortingChange: controlledOnSortingChange,
   className,
-  scrollToTopOnPageChange = true
+  scrollToTopOnPageChange = true,
+  pageSizeOptions
 }: ProTableProps<TData, TValue>) {
   // --- 状态管理 ---
   const [internalData, setInternalData] = React.useState<TData[]>([])
@@ -470,52 +479,16 @@ export function ProTable<TData, TValue>({
       </div>
 
       {/* 3. 分页器 */}
-      <div className="flex items-center justify-between px-2">
-        <div className="flex-1 text-sm text-muted-foreground">共 {rowCount} 项</div>
-        <div className="flex items-center space-x-6 lg:space-x-8">
-          <div className="flex items-center space-x-2">
-            <p className="text-sm font-medium">每页显示</p>
-            <Select
-              value={`${table.getState().pagination.pageSize}`}
-              onValueChange={(value) => {
-                table.setPageSize(Number(value))
-              }}
-            >
-              <SelectTrigger className="h-8 w-[70px]">
-                <SelectValue placeholder={table.getState().pagination.pageSize} />
-              </SelectTrigger>
-              <SelectContent side="top">
-                {[10, 20, 30, 50, 100].map((pageSize) => (
-                  <SelectItem key={pageSize} value={`${pageSize}`}>
-                    {pageSize}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex w-[110px] items-center justify-center text-sm font-medium">
-            第 {table.getState().pagination.pageIndex + 1} 页，共 {table.getPageCount() || 1} 页
-          </div>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              className="h-8 w-8 p-0"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
-              {'<'}
-            </Button>
-            <Button
-              variant="outline"
-              className="h-8 w-8 p-0"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-            >
-              {'>'}
-            </Button>
-          </div>
-        </div>
-      </div>
+      <ProTablePagination
+        pageIndex={table.getState().pagination.pageIndex}
+        pageSize={table.getState().pagination.pageSize}
+        rowCount={rowCount}
+        loading={loading}
+        pageSizeOptions={pageSizeOptions}
+        onChange={(pageIndex, pageSize) => {
+          onPaginationChange({ pageIndex, pageSize })
+        }}
+      />
     </div>
   )
 }
