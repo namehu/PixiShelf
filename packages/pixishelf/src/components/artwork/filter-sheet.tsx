@@ -63,9 +63,8 @@ export function FilterSheet(props: FilterSheetProps) {
       open={open}
       onOpenChange={onOpenChange}
       side="bottom"
-      className="rounded-t-[20px] sm:max-w-md sm:rounded-none sm:side-right h-[85vh] sm:h-full"
-      title="筛选与显示"
-      description="调整选项以精确查找内容"
+      className="rounded-t-[20px] sm:max-w-md sm:rounded-none sm:side-right max-h-[85vh] h-auto sm:h-full sm:max-h-screen"
+      title="筛选"
       footer={
         <div className="flex w-full gap-2 ">
           <Button variant="outline" className="flex-1" onClick={handleReset}>
