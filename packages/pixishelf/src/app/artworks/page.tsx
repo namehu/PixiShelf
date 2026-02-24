@@ -10,16 +10,19 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import InfiniteArtworkList from '@/components/artwork/Infinite-artwork-list'
 import { useQueryStates, parseAsString } from 'nuqs'
+import dayjs from 'dayjs'
 
 const searchParamsParsers = {
   search: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   sortBy: parseAsString.withDefault('source_date_desc').withOptions({ history: 'replace', clearOnDefault: true }),
-  mediaType: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true })
+  mediaType: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
+  startDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  endDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true })
 }
 
-function GalleryPageContent() {
+export default function GalleryPage() {
   const [queryStates, setQueryStates] = useQueryStates(searchParamsParsers)
-  const { search: searchQuery, sortBy, mediaType } = queryStates
+  const { search: searchQuery, sortBy, mediaType, startDate, endDate } = queryStates
 
   // 控制筛选抽屉的开关
   const [isFilterOpen, setIsFilterOpen] = useState(false)
@@ -30,14 +33,21 @@ function GalleryPageContent() {
     setQueryStates({ search: query.trim() || null })
   }
 
-  const handleApplyFilters = (filters?: { mediaType: MediaTypeFilter; sortBy: SortOption }) => {
+  const handleApplyFilters = (filters?: {
+    mediaType: MediaTypeFilter
+    sortBy: SortOption
+    startTime?: string
+    endTime?: string
+  }) => {
     if (!filters) {
       return clearAllFilters()
     }
 
     setQueryStates({
       mediaType: filters.mediaType,
-      sortBy: filters.sortBy
+      sortBy: filters.sortBy,
+      startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : null,
+      endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null
     })
   }
 
@@ -45,7 +55,9 @@ function GalleryPageContent() {
     setQueryStates({
       search: null,
       sortBy: null,
-      mediaType: null
+      mediaType: null,
+      startDate: null,
+      endDate: null
     })
   }
 
@@ -83,6 +95,8 @@ function GalleryPageContent() {
           onOpenChange={setIsFilterOpen}
           currentMediaType={mediaType as MediaTypeFilter}
           currentSortBy={sortBy as SortOption}
+          startDate={startDate}
+          endDate={endDate}
           onApply={handleApplyFilters}
         />
       </div>
@@ -93,14 +107,12 @@ function GalleryPageContent() {
           searchQuery={searchQuery}
           sortBy={sortBy as SortOption}
           mediaType={mediaType as MediaTypeFilter}
+          startDate={startDate || undefined}
+          endDate={endDate || undefined}
           onTotalChange={setTotal}
           onClearFilters={clearAllFilters}
         />
       </main>
     </div>
   )
-}
-
-export default function GalleryPage() {
-  return <GalleryPageContent />
 }
