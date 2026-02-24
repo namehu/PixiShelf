@@ -21,7 +21,6 @@ export function transformSingleArtwork(artwork: any) {
     ...artwork,
     sourceDate: artwork.sourceDate ? dayjs(artwork.sourceDate).utc().format('YYYY-MM-DD HH:mm:ss') : null,
     images: images,
-    firstImagePath: images.length > 0 ? path.dirname(images[0]!.path) : null, // 新增：首图路径
     tags: artwork.artworkTags?.map((at: any) => at.tag.name) || [],
     imageCount,
     mediaCount,

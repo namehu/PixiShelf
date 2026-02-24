@@ -33,12 +33,13 @@ import { useThrottleFn } from 'ahooks'
 import { useDragDropStore } from '../_store/drag-drop-store'
 import { useDragImages } from '../_hooks/use-drag-images'
 import { useChunkUpload } from '../_hooks/use-chunk-upload'
+import { type ArtworkResponseDto } from '@/schemas/artwork.dto'
 
 interface ImageReplaceDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  artworkId: number | null
-  artwork: { title?: string; externalId?: string }
+  artworkId?: number
+  artwork: Partial<Pick<ArtworkResponseDto, 'title' | 'externalId' | 'images'>>
   onSuccess?: () => void
 }
 

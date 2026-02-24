@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { useTRPCClient } from '@/lib/trpc'
@@ -23,7 +23,7 @@ import { formatFileSize } from '@/utils/media'
 import { ProDrawer } from '@/components/shared/pro-drawer'
 import { ProDialog } from '@/components/shared/pro-dialog'
 import { ImageReplaceDialog } from './image-replace-dialog'
-import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -34,6 +34,7 @@ import Link from 'next/link'
 import { useInView } from 'react-intersection-observer'
 import { useDragDropStore } from '../_store/drag-drop-store'
 import { useDragImages } from '../_hooks/use-drag-images'
+import { type ArtworkResponseDto } from '@/schemas/artwork.dto'
 
 const appendCacheKey = (src: string, cacheKey: number) => {
   const separator = src.includes('?') ? '&' : '?'
@@ -116,9 +117,8 @@ const HoverPreview = ({
 
 interface ImageManagerDialogProps {
   open: boolean
+  data?: ArtworkResponseDto | null
   onOpenChange: (open: boolean) => void
-  artworkId: number | null
-  firstImagePath?: string
   onSuccess?: () => void
 }
 
@@ -332,17 +332,13 @@ function AddImageDialog({ open, onOpenChange, onSubmit, isSubmitting, progress, 
   )
 }
 
-export function ImageManagerDialog({
-  open,
-  onOpenChange,
-  artworkId,
-  firstImagePath,
-  onSuccess
-}: ImageManagerDialogProps) {
+export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: ImageManagerDialogProps) {
+  const { id: artworkId } = data ?? {}
+
   const trpcClient = useTRPCClient()
   const [refreshKey, setRefreshKey] = useState(0)
   const [imageList, setImageList] = useState<ImageListItem[]>([])
-  const [artwork, setArtwork] = useState<{ title?: string; externalId?: string }>({})
+  const [artwork, setArtwork] = useState<Partial<Pick<ArtworkResponseDto, 'title' | 'externalId' | 'images'>>>({})
 
   // View State
   const [showThumbnails, setShowThumbnails] = useState(false)
@@ -451,7 +447,7 @@ export function ImageManagerDialog({
     if (!artworkId) return
     trpcClient.artwork.getById.query(artworkId).then((res) => {
       if (res) {
-        setArtwork({ title: res.title, externalId: res.externalId || undefined })
+        setArtwork({ title: res.title, externalId: res.externalId || undefined, images: res.images || [] })
         setImageList((res.images || []) as unknown as ImageListItem[])
       }
     })
@@ -467,7 +463,7 @@ export function ImageManagerDialog({
       setDeleteTarget(null)
       setIsAdding(false)
       setAddProgress(0)
-      
+
       setRefreshKey((prev) => prev + 1)
       fetchArtworkData()
     } else if (!open) {
@@ -567,6 +563,11 @@ export function ImageManagerDialog({
     onDragStateChange: setDragging
   })
 
+  const firstImagePath = useMemo(() => {
+    const [image] = artwork.images || []
+    return image?.path ? image.path.split('/').slice(0, -1).join('/') : null
+  }, [artwork])
+
   return (
     <>
       <ProDrawer
@@ -591,7 +592,7 @@ export function ImageManagerDialog({
           <span className="flex items-center gap-2 text-xs select-text cursor-text">
             <span className="font-mono">ID: {artwork.externalId}</span>
             <span>•</span>
-            <span>图片路径: {firstImagePath} </span>
+            <span>上传路径: {firstImagePath} </span>
           </span>
         }
         width="80%"

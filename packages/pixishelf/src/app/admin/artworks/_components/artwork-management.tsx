@@ -34,23 +34,6 @@ import { Input } from '@/components/ui/input'
 import { Search, RotateCcw } from 'lucide-react'
 import { ProDatePicker, ProDatePickerPresets } from '@/components/shared/pro-date-picker'
 import { format } from 'date-fns'
-
-// 定义作品列表项类型
-export interface ArtworkListItem {
-  id: number
-  title: string
-  description?: string
-  imageCount: number
-  firstImagePath?: string
-  artist?: {
-    id: number
-    name: string
-  } | null
-  externalId?: string | null
-  createdAt: string
-  updatedAt: string
-}
-
 import { BatchImportDialog } from './batch-import-dialog'
 import { ArtworkRescanButton } from './artwork-rescan-button'
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
@@ -657,8 +640,7 @@ export default function ArtworkManagement() {
       <ImageManagerDialog
         open={imageManagerOpen}
         onOpenChange={setImageManagerOpen}
-        artworkId={managingArtwork?.id || null}
-        firstImagePath={managingArtwork?.firstImagePath}
+        data={managingArtwork}
         onSuccess={() => setRefreshKey((prev) => prev + 1)}
       />
 
