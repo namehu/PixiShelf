@@ -15,6 +15,7 @@ import dayjs from 'dayjs'
 const searchParamsParsers = {
   search: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   sortBy: parseAsString.withDefault('source_date_desc').withOptions({ history: 'replace', clearOnDefault: true }),
+  randomSeed: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   mediaType: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
   startDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   endDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true })
@@ -22,7 +23,7 @@ const searchParamsParsers = {
 
 export default function GalleryPage() {
   const [queryStates, setQueryStates] = useQueryStates(searchParamsParsers)
-  const { search: searchQuery, sortBy, mediaType, startDate, endDate } = queryStates
+  const { search: searchQuery, sortBy, randomSeed, mediaType, startDate, endDate } = queryStates
 
   // 控制筛选抽屉的开关
   const [isFilterOpen, setIsFilterOpen] = useState(false)
@@ -36,6 +37,7 @@ export default function GalleryPage() {
   const handleApplyFilters = (filters?: {
     mediaType: MediaTypeFilter
     sortBy: SortOption
+    randomSeed?: number
     startTime?: string
     endTime?: string
   }) => {
@@ -46,6 +48,7 @@ export default function GalleryPage() {
     setQueryStates({
       mediaType: filters.mediaType,
       sortBy: filters.sortBy,
+      randomSeed: filters.randomSeed ? filters.randomSeed.toString() : null,
       startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : null,
       endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null
     })
@@ -55,6 +58,7 @@ export default function GalleryPage() {
     setQueryStates({
       search: null,
       sortBy: null,
+      randomSeed: null,
       mediaType: null,
       startDate: null,
       endDate: null
@@ -95,6 +99,7 @@ export default function GalleryPage() {
           onOpenChange={setIsFilterOpen}
           currentMediaType={mediaType as MediaTypeFilter}
           currentSortBy={sortBy as SortOption}
+          randomSeed={randomSeed ? Number(randomSeed) : undefined}
           startDate={startDate}
           endDate={endDate}
           onApply={handleApplyFilters}
@@ -107,6 +112,7 @@ export default function GalleryPage() {
           searchQuery={searchQuery}
           sortBy={sortBy as SortOption}
           mediaType={mediaType as MediaTypeFilter}
+          randomSeed={randomSeed ? Number(randomSeed) : undefined}
           startDate={startDate || undefined}
           endDate={endDate || undefined}
           onTotalChange={setTotal}

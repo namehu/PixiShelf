@@ -3,13 +3,7 @@
 import React from 'react'
 import { SortOption } from '@/types'
 import { cn } from '@/lib/utils'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 // ============================================================================
 // SortControl 组件
@@ -39,7 +33,8 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: 'artist_asc', label: '艺术家 A-Z' },
   { value: 'artist_desc', label: '艺术家 Z-A' },
   { value: 'images_desc', label: '图片数量 ↓' },
-  { value: 'images_asc', label: '图片数量 ↑' }
+  { value: 'images_asc', label: '图片数量 ↑' },
+  { value: 'random', label: '随机排序' }
 ]
 
 /**
@@ -54,22 +49,13 @@ export const SortControl: React.FC<SortControlProps> = ({
 }) => {
   // 将自定义尺寸映射到 shadcn Select 的尺寸
   const selectSize = size === 'lg' ? 'default' : size === 'sm' ? 'sm' : 'default'
-  
-  const currentOption = SORT_OPTIONS.find(option => option.value === value)
+
+  const currentOption = SORT_OPTIONS.find((option) => option.value === value)
 
   return (
-    <Select
-      value={value}
-      onValueChange={onChange}
-      disabled={disabled}
-    >
-      <SelectTrigger 
-        className={cn('w-fit min-w-[140px]', className)}
-        size={selectSize}
-      >
-        <SelectValue>
-          {currentOption?.label || '请选择排序'}
-        </SelectValue>
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className={cn('w-fit min-w-[140px]', className)} size={selectSize}>
+        <SelectValue>{currentOption?.label || '请选择排序'}</SelectValue>
       </SelectTrigger>
       <SelectContent>
         {SORT_OPTIONS.map((option) => (

@@ -46,7 +46,11 @@ export const ArtworksInfiniteQuerySchema = z.object({
   sortBy: z
     .string()
     .optional()
-    .transform((val) => getSafeSortOption(val || null)),
+    .transform((val) => {
+      if (val === 'random') return 'random'
+      return getSafeSortOption(val || null)
+    }),
+  randomSeed: z.number().int().optional(),
   mediaType: z
     .string()
     .optional()

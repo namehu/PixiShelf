@@ -13,17 +13,25 @@ interface FilterSheetProps {
   open: boolean
   currentMediaType: MediaTypeFilter
   currentSortBy: SortOption
+  randomSeed?: number
   startDate?: string
   endDate?: string
   onOpenChange: (open: boolean) => void
-  onApply: (filters: { mediaType: MediaTypeFilter; sortBy: SortOption; startTime?: string; endTime?: string }) => void
+  onApply: (filters: {
+    mediaType: MediaTypeFilter
+    sortBy: SortOption
+    randomSeed?: number
+    startTime?: string
+    endTime?: string
+  }) => void
 }
 
 export function FilterSheet(props: FilterSheetProps) {
-  const { open, onOpenChange, currentMediaType, currentSortBy, startDate, endDate, onApply } = props
+  const { open, onOpenChange, currentMediaType, currentSortBy, randomSeed, startDate, endDate, onApply } = props
 
   const [localMediaType, setLocalMediaType] = useState<MediaTypeFilter>('all')
   const [localSortBy, setLocalSortBy] = useState<SortOption>('source_date_desc')
+  const [localRandomSeed, setLocalRandomSeed] = useState<number | undefined>(undefined)
   const [localDateRange, setLocalDateRange] = useState<[Date | undefined, Date | undefined]>([undefined, undefined])
 
   // 当 Sheet 打开时，同步外部状态到本地
@@ -31,6 +39,7 @@ export function FilterSheet(props: FilterSheetProps) {
     if (open) {
       setLocalMediaType(currentMediaType)
       setLocalSortBy(currentSortBy)
+      setLocalRandomSeed(randomSeed)
       setLocalDateRange([
         startDate ? dayjs(startDate).toDate() : undefined,
         endDate ? dayjs(endDate).toDate() : undefined
@@ -38,14 +47,21 @@ export function FilterSheet(props: FilterSheetProps) {
     } else {
       handleReset()
     }
-  }, [open, currentMediaType, currentSortBy, startDate, endDate])
+  }, [open, currentMediaType, currentSortBy, randomSeed, startDate, endDate])
 
   // 处理应用更改
   const handleApply = () => {
     const [start, end] = localDateRange
+    // 如果是随机排序，且没有种子或用户切换到了随机排序，则生成新种子
+    let seed = localRandomSeed
+    if (localSortBy === 'random' && !seed) {
+      seed = Math.floor(Math.random() * 1000000)
+    }
+
     onApply({
       mediaType: localMediaType,
       sortBy: localSortBy,
+      randomSeed: seed,
       startTime: start ? dayjs(start).toISOString() : undefined,
       endTime: end ? dayjs(end).toISOString() : undefined
     })
@@ -55,6 +71,7 @@ export function FilterSheet(props: FilterSheetProps) {
   function handleReset() {
     setLocalMediaType('all')
     setLocalSortBy('source_date_desc')
+    setLocalRandomSeed(undefined)
     setLocalDateRange([undefined, undefined])
   }
 

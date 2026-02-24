@@ -45,6 +45,8 @@ interface InfiniteArtworkListProps {
   onClearFilters?: () => void
   /** 自定义空状态文案 (默认: "没有找到相关作品") */
   emptyMessage?: string
+  /** 随机种子，用于随机排序时的稳定性 */
+  randomSeed?: number
 }
 
 export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
@@ -58,7 +60,8 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     endDate,
     onTotalChange,
     onClearFilters,
-    emptyMessage
+    emptyMessage,
+    randomSeed
   } = props
 
   const trpc = useTRPC()
@@ -75,6 +78,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
       {
         search: searchQuery || undefined,
         sortBy,
+        randomSeed: sortBy === 'random' ? randomSeed : undefined,
         mediaType,
         tagId,
         artistId: artistId ? Number(artistId) : undefined,
@@ -146,7 +150,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   })
 
   // 生成唯一的存储 key，基于当前的筛选条件
-  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}-${tagId}-${artistId}-${startDate}-${endDate}`
+  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}-${tagId}-${artistId}-${startDate}-${endDate}-${sortBy === 'random' ? randomSeed : ''}`
 
   // 1. 处理滚动恢复
   useLayoutEffect(() => {

@@ -35,7 +35,7 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
   const pageSize = params.pageSize
   const skip = (page - 1) * pageSize
 
-  const { whereSQL, sqlParams, paramIndex } = buildArtworkWhereClause(params)
+  let { whereSQL, sqlParams, paramIndex } = buildArtworkWhereClause(params)
 
   // --- 2. 获取总数 ---
   const countQuery = `
@@ -48,7 +48,14 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
   const total = Number(countResult[0]?.count || 0)
 
   // --- 3. 获取列表 ---
-  const orderBySQL = mapSortOptionToSQL(sortBy || 'source_date_desc')
+  let orderBySQL: string
+  if (sortBy === 'random' && params.randomSeed !== undefined) {
+    orderBySQL = `ORDER BY md5(a.id::text || $${paramIndex}) ASC`
+    sqlParams.push(params.randomSeed.toString())
+    paramIndex++
+  } else {
+    orderBySQL = mapSortOptionToSQL(sortBy || 'source_date_desc')
+  }
 
   const artworksQuery = `
     SELECT

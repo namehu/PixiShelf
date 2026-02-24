@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button'
 import { FilterSheet } from '@/components/artwork/filter-sheet'
 import HeadInfo from './HeadInfo'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
-import { DatePickerRange } from '@/components/shared/date-range-picker'
 import PNav from '@/components/layout/PNav'
 import { SearchBox } from '@/app/artworks/_components/search-box'
 import { cn } from '@/lib/utils'
@@ -31,40 +30,23 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
-  const [{ sortBy, startDate, endDate, search, mediaType }, setQuery] = useQueryStates(
+  const [{ sortBy, startDate, endDate, search, mediaType, randomSeed }, setQuery] = useQueryStates(
     {
       sortBy: parseAsString.withDefault('source_date_desc').withOptions({ history: 'replace' }),
       startDate: parseAsString.withDefault('').withOptions({ history: 'replace' }),
       endDate: parseAsString.withDefault('').withOptions({ history: 'replace' }),
       search: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-      mediaType: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true })
+      mediaType: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
+      randomSeed: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true })
     },
     { history: 'replace' }
-  )
-
-  // 构造 DatePickerRange 需要的 value 格式
-  const dateRange = useMemo<[Date | undefined, Date | undefined]>(() => {
-    const start = startDate ? dayjs(startDate).toDate() : undefined
-    const end = endDate ? dayjs(endDate).toDate() : undefined
-    return [start, end]
-  }, [startDate, endDate])
-
-  // 处理变更
-  const handleDateChange = useCallback(
-    (vals: [Date | undefined, Date | undefined]) => {
-      const [start, end] = vals
-      setQuery({
-        startDate: start ? dayjs(start).format('YYYY-MM-DD') : null,
-        endDate: end ? dayjs(end).format('YYYY-MM-DD') : null
-      })
-    },
-    [setQuery]
   )
 
   // 处理筛选变更
   const handleApplyFilters = (filters?: {
     mediaType: MediaTypeFilter
     sortBy: SortOption
+    randomSeed?: number
     startTime?: string
     endTime?: string
   }) => {
@@ -73,6 +55,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
     setQuery({
       mediaType: filters.mediaType,
       sortBy: filters.sortBy,
+      randomSeed: filters.randomSeed ? String(filters.randomSeed) : null,
       startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : null,
       endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null
     })
@@ -85,7 +68,8 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
       startDate: null,
       endDate: null,
       sortBy: 'source_date_desc',
-      mediaType: 'all'
+      mediaType: 'all',
+      randomSeed: null
     })
   }, [setQuery])
 
@@ -138,6 +122,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
         onOpenChange={setIsFilterOpen}
         currentMediaType={mediaType as MediaTypeFilter}
         currentSortBy={sortBy as SortOption}
+        randomSeed={randomSeed ? Number(randomSeed) : undefined}
         startDate={startDate}
         endDate={endDate}
         onApply={handleApplyFilters}
@@ -156,6 +141,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
           artistId={id}
           searchQuery={search || ''}
           sortBy={sortBy as SortOption}
+          randomSeed={randomSeed ? Number(randomSeed) : undefined}
           mediaType={mediaType as MediaTypeFilter}
           startDate={startDate || undefined}
           endDate={endDate || undefined}

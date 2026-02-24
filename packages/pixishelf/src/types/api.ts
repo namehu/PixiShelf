@@ -60,6 +60,7 @@ export type SortOption =
   | 'images_asc' // 按图片数量升序
   | 'source_date_desc' // 按作品创建时间降序（默认）
   | 'source_date_asc' // 按作品创建时间升序
+  | 'random' // 随机排序
 
 /**
  * 媒体类型筛选选项
