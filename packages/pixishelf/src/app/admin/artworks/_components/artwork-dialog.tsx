@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -119,7 +120,8 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
       description: formData.description,
       artistId: formData.artist.id,
       tags: formData.tags.map((t) => t.id),
-      sourceDate: formData.sourceDate
+      // 格式化为 yyyy-MM-dd 字符串，避免时区偏移导致日期回退一天
+      sourceDate: format(formData.sourceDate, 'yyyy-MM-dd')
     }
 
     if (isEdit && artwork) {
