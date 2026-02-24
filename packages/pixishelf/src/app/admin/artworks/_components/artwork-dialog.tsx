@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ProDialog } from '@/components/shared/pro-dialog'
+import { ProDatePicker } from '@/components/shared/pro-date-picker'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { Loader2 } from 'lucide-react'
 
@@ -35,6 +36,7 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
   const [formData, setFormData] = useState({
     title: '',
     description: '',
+    sourceDate: new Date(),
     artist: null as { id: number; name: string } | null,
     tags: [] as TagItem[]
   })
@@ -54,6 +56,7 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
         setFormData({
           title: fullArtwork.title,
           description: fullArtwork.description || '',
+          sourceDate: fullArtwork.sourceDate ? new Date(fullArtwork.sourceDate) : new Date(),
           artist: fullArtwork.artist ? { id: fullArtwork.artist.id, name: fullArtwork.artist.name } : null,
           tags: fullArtwork.tags?.map((t: any) => ({ id: t.id, name: t.name })) || []
         })
@@ -62,6 +65,7 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
         setFormData({
           title: '',
           description: '',
+          sourceDate: new Date(),
           artist: null,
           tags: []
         })
@@ -101,11 +105,21 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
   }
 
   const handleSubmit = () => {
+    if (!formData.title) {
+      toast.error('请输入标题')
+      return
+    }
+    if (!formData.artist) {
+      toast.error('请选择艺术家')
+      return
+    }
+
     const payload = {
       title: formData.title,
       description: formData.description,
-      artistId: formData.artist!.id,
-      tags: formData.tags.map((t) => t.id)
+      artistId: formData.artist.id,
+      tags: formData.tags.map((t) => t.id),
+      sourceDate: formData.sourceDate
     }
 
     if (isEdit && artwork) {
@@ -252,6 +266,18 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               rows={5}
               placeholder="作品描述..."
+            />
+          </div>
+
+          {/* Source Date */}
+          <div className="space-y-2 flex flex-col">
+            <Label>发布日期</Label>
+            <ProDatePicker
+              mode="single"
+              value={formData.sourceDate}
+              onChange={(date) => setFormData({ ...formData, sourceDate: date as Date })}
+              placeholder="选择发布日期"
+              clearable={false}
             />
           </div>
         </div>

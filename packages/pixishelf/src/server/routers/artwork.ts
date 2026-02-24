@@ -59,7 +59,8 @@ export const artworkRouter = router({
         description: z.string().optional(),
         artistId: z.number('请选择艺术家'),
         tags: z.array(z.number()).optional(),
-        source: z.enum(['LOCAL_CREATED', 'PIXIV_IMPORTED']).optional()
+        source: z.enum(['LOCAL_CREATED', 'PIXIV_IMPORTED']).optional(),
+        sourceDate: z.date().or(z.string())
       })
     )
     .mutation(async ({ input }) => {
@@ -77,7 +78,8 @@ export const artworkRouter = router({
           title: z.string().optional(),
           description: z.string().optional(),
           artistId: z.number('请选择艺术家'),
-          tags: z.array(z.number()).optional()
+          tags: z.array(z.number()).optional(),
+          sourceDate: z.date().or(z.string())
         })
       })
     )

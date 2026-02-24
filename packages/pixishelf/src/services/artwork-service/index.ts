@@ -172,7 +172,13 @@ export async function deleteArtwork(id: number) {
  */
 export async function updateArtwork(
   id: number,
-  data: { title?: string; description?: string; artistId?: number | null; tags?: number[] }
+  data: {
+    title?: string
+    description?: string
+    artistId?: number | null
+    tags?: number[]
+    sourceDate?: Date | string | null
+  }
 ) {
   const { tags, artistId, ...rest } = data
 
@@ -204,6 +210,7 @@ export async function createArtwork(data: {
   artistId?: number | null
   tags?: number[]
   source?: 'LOCAL_CREATED' | 'PIXIV_IMPORTED'
+  sourceDate?: Date | string | null
 }) {
   const { tags, artistId, source, ...rest } = data
 
@@ -226,7 +233,7 @@ export async function createArtwork(data: {
 
     return prisma.artwork.update({
       where: { id: artwork.id },
-      data: { externalId, sourceDate: new Date() }
+      data: { externalId }
     })
   }
 
