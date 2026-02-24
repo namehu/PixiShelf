@@ -63,7 +63,7 @@ export const artworkRouter = router({
         sourceDate: z.date().or(z.string())
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(({ input }) => {
       return createArtwork(input)
     }),
 

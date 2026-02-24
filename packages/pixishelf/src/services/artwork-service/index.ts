@@ -230,14 +230,14 @@ export async function createArtwork(data: {
 
   if (source === 'LOCAL_CREATED') {
     const externalId = generateLocalExternalId(artwork.id)
-
-    return prisma.artwork.update({
+    await prisma.artwork.update({
       where: { id: artwork.id },
       data: { externalId }
     })
   }
 
-  return artwork
+  const result = await getArtworkById(artwork.id)
+  return result!
 }
 
 /**

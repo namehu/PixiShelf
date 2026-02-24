@@ -646,7 +646,12 @@ export default function ArtworkManagement() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         artwork={editingArtwork}
-        onSuccess={() => setRefreshKey((prev) => prev + 1)}
+        onSuccess={(createdArtwork) => {
+          setRefreshKey((prev) => prev + 1)
+          if (createdArtwork && !editingArtwork) {
+            handleOpenImageManager(createdArtwork)
+          }
+        }}
       />
 
       <ImageManagerDialog

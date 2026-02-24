@@ -10,21 +10,21 @@ import { ProDialog } from '@/components/shared/pro-dialog'
 import { ProDatePicker } from '@/components/shared/pro-date-picker'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { Loader2 } from 'lucide-react'
+import { useRecentTags } from '@/store/admin/useRecentTags'
+import { RecentTagsList } from './recent-tags-list'
+import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 
 interface ArtworkDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   artwork?: { id: number; title: string } | null // Minimal info needed to trigger fetch
-  onSuccess: () => void
+  onSuccess: (data?: ArtworkResponseDto) => void
 }
 
 interface TagItem {
   id: number
   name: string
 }
-
-import { useRecentTags } from '@/store/admin/useRecentTags'
-import { RecentTagsList } from './recent-tags-list'
 
 export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: ArtworkDialogProps) {
   const { addTag } = useRecentTags()
@@ -88,9 +88,9 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
 
   const createMutation = useMutation(
     trpc.artwork.create.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (data) => {
         toast.success('创建成功')
-        handleSuccess()
+        handleSuccess(data)
       },
       onError: (err) => {
         toast.error(`创建失败: ${err.message}`)
@@ -98,8 +98,8 @@ export function ArtworkDialog({ open, onOpenChange, artwork, onSuccess }: Artwor
     })
   )
 
-  const handleSuccess = () => {
-    onSuccess()
+  const handleSuccess = (data?: ArtworkResponseDto) => {
+    onSuccess(data)
     onOpenChange(false)
     queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
   }

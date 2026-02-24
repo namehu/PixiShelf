@@ -459,8 +459,22 @@ export function ImageManagerDialog({
 
   useEffect(() => {
     if (open && artworkId) {
+      // Reset UI states
+      setShowReplaceDialog(false)
+      setShowAddDialog(false)
+      setPreviewIndex(null)
+      setHoverImage(null)
+      setDeleteTarget(null)
+      setIsAdding(false)
+      setAddProgress(0)
+      
       setRefreshKey((prev) => prev + 1)
       fetchArtworkData()
+    } else if (!open) {
+      // Clear sensitive data when closed to prevent flashing old data on next open
+      // Optional: keep cache for better UX if reopening same item
+      // But requirement says "reset before open", so clearing on close or open is fine.
+      // We'll rely on fetchArtworkData to populate.
     }
   }, [open, artworkId, fetchArtworkData])
 
