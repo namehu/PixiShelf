@@ -80,7 +80,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
             <ArtworkDes description={data.description} className="mt-6 px-6" />
 
             {/* Images */}
-            <div className="w-full px-4">
+            <div className="w-full px-2">
               {data.images.map((img, index) => (
                 <LazyMedia key={img.id} src={img.path} index={index} />
               ))}
@@ -88,7 +88,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
 
             {/* Series Navigation */}
             {data.series && (
-              <div className="px-4">
+              <div className="px-2">
                 <SeriesNav series={data.series} />
               </div>
             )}
