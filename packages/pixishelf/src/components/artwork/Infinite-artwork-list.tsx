@@ -20,13 +20,9 @@ interface InfiniteArtworkListProps {
   onClearFilters?: () => void
 }
 
-export default function InfiniteArtworkList({
-  searchQuery,
-  sortBy,
-  mediaType,
-  onTotalChange,
-  onClearFilters
-}: InfiniteArtworkListProps) {
+export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
+  const { searchQuery, sortBy, mediaType, onTotalChange, onClearFilters } = props
+
   const trpc = useTRPC()
   const containerRef = useRef<HTMLDivElement>(null)
   const virtualListRef = useRef<HTMLDivElement>(null)
@@ -36,7 +32,7 @@ export default function InfiniteArtworkList({
   const [isReady, setIsReady] = useState(false)
   const [offsetTop, setOffsetTop] = useState(0)
 
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status, isLoading, isError } = useInfiniteQuery(
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError } = useInfiniteQuery(
     trpc.artwork.list.infiniteQueryOptions(
       {
         search: searchQuery || undefined,

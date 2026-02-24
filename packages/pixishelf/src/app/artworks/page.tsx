@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { SortOption, MediaTypeFilter } from '@/types'
 import { SearchBox } from './_components/search-box'
@@ -8,7 +8,7 @@ import { FilterSheet } from './_components/filter-sheet'
 import PNav from '@/components/layout/PNav'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import InfiniteArtworkList from './_components/InfiniteArtworkList'
+import InfiniteArtworkList from '@/components/artwork/Infinite-artwork-list'
 import { useQueryStates, parseAsString } from 'nuqs'
 
 const searchParamsParsers = {
