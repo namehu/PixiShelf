@@ -12,16 +12,38 @@ import { SortOption, MediaTypeFilter } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 
+/**
+ * 无限滚动作品列表组件 (InfiniteArtworkList)
+ *
+ * @description
+ * 一个功能丰富的作品列表展示组件，集成了以下核心特性：
+ * 1. **虚拟滚动 (Virtual Scrolling)**: 使用 @tanstack/react-virtual 处理长列表渲染，大幅提升性能，支持万级数据流畅滚动。
+ * 2. **无限加载 (Infinite Loading)**: 结合 @tanstack/react-query 实现滚动到底部自动加载下一页数据。
+ * 3. **多维筛选**: 支持按搜索词、排序、媒体类型、标签、艺术家、日期范围等条件筛选作品。
+ * 4. **响应式布局**: 自动监听容器宽度变化，动态计算列数和卡片尺寸，适配各种屏幕尺寸。
+ * 5. **滚动位置恢复**: 自动记录并恢复用户的滚动位置，提升浏览体验。
+ * 6. **交互反馈**: 内置加载中 (Skeleton)、空状态、错误重试等交互状态。
+ */
 interface InfiniteArtworkListProps {
+  /** 搜索关键词 */
   searchQuery?: string
+  /** 排序方式 (如：最新发布、最旧发布、最多浏览等) */
   sortBy?: SortOption
+  /** 媒体类型筛选 (全部、图片、视频) */
   mediaType?: MediaTypeFilter
+  /** 标签 ID 筛选 */
   tagId?: number
+  /** 艺术家 ID 筛选 */
   artistId?: number | string
+  /** 开始日期 (格式: YYYY-MM-DD) */
   startDate?: string
+  /** 结束日期 (格式: YYYY-MM-DD) */
   endDate?: string
+  /** 总数变化回调，用于通知父组件更新统计信息 */
   onTotalChange?: (total: number) => void
+  /** 清除筛选回调，当用户点击空状态下的"清除筛选"按钮时触发 */
   onClearFilters?: () => void
+  /** 自定义空状态文案 (默认: "没有找到相关作品") */
   emptyMessage?: string
 }
 
