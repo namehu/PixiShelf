@@ -52,10 +52,10 @@ if (process.env.NODE_ENV !== 'production') {
 export async function testDatabaseConnection(): Promise<boolean> {
   try {
     await prisma.$connect()
-    console.log('✅ 数据库连接成功')
+    console.log('✅ Database connection successful')
     return true
   } catch (error) {
-    console.error('❌ 数据库连接失败:', error)
+    console.error('❌ Database connection failed:', error)
     return false
   }
 }
