@@ -1,335 +1,35 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { useTRPCClient } from '@/lib/trpc'
-import {
-  RefreshCw,
-  LayoutGrid,
-  List as ListIcon,
-  ZoomIn,
-  ChevronLeft,
-  ChevronRight,
-  X,
-  Loader2,
-  FileUp,
-  Trash2,
-  Plus
-} from 'lucide-react'
+import { RefreshCw, LayoutGrid, List as ListIcon, ZoomIn, FileUp, Trash2, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { formatFileSize } from '@/utils/media'
 import { ProDrawer } from '@/components/shared/pro-drawer'
 import { ProDialog } from '@/components/shared/pro-dialog'
 import { ImageReplaceDialog } from './image-replace-dialog'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
 import { useChunkUpload } from '../_hooks/use-chunk-upload'
 import { toast } from 'sonner'
-import Image from 'next/image'
 import Link from 'next/link'
-import { useInView } from 'react-intersection-observer'
 import { useDragDropStore } from '../_store/drag-drop-store'
 import { useDragImages } from '../_hooks/use-drag-images'
 import { type ArtworkResponseDto } from '@/schemas/artwork.dto'
-
-const appendCacheKey = (src: string, cacheKey: number) => {
-  const separator = src.includes('?') ? '&' : '?'
-  return `${src}${separator}v=${cacheKey}`
-}
-
-// --- Lazy Image Component ---
-const LazyImage = ({ src, alt, className, ...props }: any) => {
-  const { ref, inView } = useInView({
-    triggerOnce: true,
-    rootMargin: '100px 0px', // Preload when close
-    threshold: 0.1
-  })
-
-  return (
-    <div ref={ref} className={cn('relative w-full h-full bg-muted/30', className)}>
-      {inView ? (
-        <Image
-          src={src}
-          alt={alt}
-          className={cn('transition-opacity duration-300', className)}
-          loading="lazy"
-          {...props}
-        />
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/20">
-          <Loader2 className="w-6 h-6 animate-spin" />
-        </div>
-      )}
-    </div>
-  )
-}
-
-// --- Hover Preview Portal ---
-const HoverPreview = ({
-  src,
-  x,
-  y,
-  visible,
-  cacheKey
-}: {
-  src: string | null
-  x: number
-  y: number
-  visible: boolean
-  cacheKey: number
-}) => {
-  if (!visible || !src) return null
-
-  // Create portal to body to ensure it's on top of everything
-  if (typeof document === 'undefined') return null
-
-  // Limit position to avoid overflow
-  const screenW = typeof window !== 'undefined' ? window.innerWidth : 1000
-  const screenH = typeof window !== 'undefined' ? window.innerHeight : 800
-
-  // Adjust position if too close to right/bottom edge
-  const finalX = x + 320 > screenW ? x - 340 : x + 20
-  const finalY = y + 320 > screenH ? y - 320 : y + 20
-
-  return createPortal(
-    <div
-      className="fixed z-[9999] bg-background/95 backdrop-blur-sm border rounded-lg shadow-xl p-2 animate-in fade-in zoom-in-95 duration-200"
-      style={{ left: finalX, top: finalY, width: 320, maxWidth: '90vw' }}
-    >
-      <div className="relative aspect-square w-full bg-black/5 rounded-md overflow-hidden">
-        <Image
-          src={appendCacheKey(src, cacheKey)}
-          alt="Preview"
-          sizes="(max-width: 320px) 100vw, 320px"
-          fill
-          className="object-contain"
-        />
-      </div>
-      <div className="mt-2 text-xs text-muted-foreground text-center break-all font-mono">{src.split('/').pop()}</div>
-    </div>,
-    document.body
-  )
-}
+import { LazyImage } from './lazy-image'
+import { HoverPreview } from './hover-preview'
+import { ImagePreviewDialog } from './image-preview-dialog'
+import { AddImageDialog } from './add-image-dialog'
+import { appendCacheKey } from './utils'
+import { ImageListItem } from './types'
 
 interface ImageManagerDialogProps {
   open: boolean
   data?: ArtworkResponseDto | null
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
-}
-
-// 图片列表项接口
-interface ImageListItem {
-  id: number
-  path: string
-  sortOrder: number
-  width: number | null
-  height: number | null
-  size: number | null
-}
-
-// --- Image Preview Dialog ---
-interface ImagePreviewDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  images: ImageListItem[]
-  currentIndex: number | null
-  onIndexChange: (index: number) => void
-  cacheKey: number
-}
-
-function ImagePreviewDialog({
-  open,
-  onOpenChange,
-  images,
-  currentIndex,
-  onIndexChange,
-  cacheKey
-}: ImagePreviewDialogProps) {
-  const handlePrev = useCallback(() => {
-    if (currentIndex !== null && currentIndex > 0) {
-      onIndexChange(currentIndex - 1)
-    }
-  }, [currentIndex, onIndexChange])
-
-  const handleNext = useCallback(() => {
-    if (currentIndex !== null && currentIndex < images.length - 1) {
-      onIndexChange(currentIndex + 1)
-    }
-  }, [currentIndex, images.length, onIndexChange])
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!open || currentIndex === null) return
-      if (e.key === 'ArrowLeft') handlePrev()
-      if (e.key === 'ArrowRight') handleNext()
-      if (e.key === 'Escape') onOpenChange(false)
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [open, currentIndex, handlePrev, handleNext, onOpenChange])
-
-  // Early return if no valid image to show, but only if open
-  // We render ProDialog anyway so it handles the "open" state animation correctly
-  const currentImage = currentIndex !== null ? images[currentIndex] : null
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        className="max-w-screen-xl w-full h-screen sm:h-[90vh] p-0 gap-0 bg-black/95 border-none flex flex-col overflow-hidden"
-      >
-        <DialogTitle className="sr-only">Image Preview</DialogTitle>
-        {currentImage && (
-          <>
-            <div className="absolute top-4 right-4 z-50 flex gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-white/70 hover:text-white hover:bg-white/10 rounded-full"
-                onClick={() => onOpenChange(false)}
-              >
-                <X className="w-6 h-6" />
-              </Button>
-            </div>
-
-            <div className="flex-1 relative flex items-center justify-center w-full h-full overflow-hidden">
-              <div className="relative w-full h-full">
-                <Image
-                  src={appendCacheKey(currentImage.path, cacheKey)}
-                  alt="Preview"
-                  fill
-                  className="object-contain"
-                  quality={90}
-                  priority
-                />
-              </div>
-
-              {/* Navigation */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white hover:bg-white/10 rounded-full w-12 h-12"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handlePrev()
-                }}
-                disabled={currentIndex === 0}
-              >
-                <ChevronLeft className="w-8 h-8" />
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white hover:bg-white/10 rounded-full w-12 h-12"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleNext()
-                }}
-                disabled={currentIndex === images.length - 1}
-              >
-                <ChevronRight className="w-8 h-8" />
-              </Button>
-            </div>
-
-            <div className="h-16 bg-black/50 flex items-center justify-center text-white/80 gap-4 text-sm font-mono shrink-0">
-              <span>
-                {(currentIndex || 0) + 1} / {images.length}
-              </span>
-              <span>|</span>
-              <span>{currentImage.path.split('/').pop()}</span>
-              <span>|</span>
-              <span>
-                {currentImage.width}x{currentImage.height}
-              </span>
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// --- Add Image Dialog ---
-interface AddImageDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onSubmit: (file: File, order: number) => Promise<void>
-  isSubmitting: boolean
-  progress: number
-  defaultOrder: number
-}
-
-function AddImageDialog({ open, onOpenChange, onSubmit, isSubmitting, progress, defaultOrder }: AddImageDialogProps) {
-  const [file, setFile] = useState<File | null>(null)
-  const [order, setOrder] = useState(defaultOrder)
-
-  // Reset state when dialog opens
-  useEffect(() => {
-    if (open) {
-      setOrder(defaultOrder)
-      setFile(null)
-    }
-  }, [open, defaultOrder])
-
-  const handleSubmit = async () => {
-    if (file) {
-      await onSubmit(file, order)
-    }
-  }
-
-  return (
-    <ProDialog
-      open={open}
-      onOpenChange={(v) => !isSubmitting && onOpenChange(v)}
-      title="新增图片"
-      onOk={handleSubmit}
-      confirmLoading={isSubmitting}
-      okButtonProps={{ disabled: !file || isSubmitting }}
-      cancelButtonProps={{ disabled: isSubmitting }}
-      okText={isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : '确认添加'}
-    >
-      <div className="space-y-4 py-4">
-        <div className="grid w-full max-w-sm items-center gap-1.5">
-          <Label htmlFor="picture">图片/视频文件</Label>
-          <Input
-            id="picture"
-            type="file"
-            accept="image/*,video/*"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-            disabled={isSubmitting}
-          />
-        </div>
-        <div className="grid w-full max-w-sm items-center gap-1.5">
-          <Label htmlFor="order">排序 (Order)</Label>
-          <Input
-            id="order"
-            type="number"
-            value={order}
-            onChange={(e) => setOrder(parseInt(e.target.value) || 0)}
-            disabled={isSubmitting}
-          />
-        </div>
-
-        {isSubmitting && (
-          <div className="space-y-1">
-            <div className="text-xs text-muted-foreground flex justify-between">
-              <span>上传中...</span>
-              <span>{progress}%</span>
-            </div>
-            <div className="h-1 bg-muted rounded overflow-hidden">
-              <div className="h-full bg-primary transition-all duration-300" style={{ width: `${progress}%` }} />
-            </div>
-          </div>
-        )}
-      </div>
-    </ProDialog>
-  )
 }
 
 export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: ImageManagerDialogProps) {
@@ -473,9 +173,6 @@ export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: Imag
       // We'll rely on fetchArtworkData to populate.
     }
   }, [open, artworkId, fetchArtworkData])
-
-  // --- Lightbox Logic ---
-  // Moved to ImagePreviewDialog
 
   // --- Table Columns ---
   const columns: ProColumnDef<ImageListItem>[] = [
