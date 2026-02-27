@@ -5,6 +5,7 @@ import { auth } from '@/lib/auth'
 import { authLoginSchema } from '@/schemas/auth.dto'
 import { changePasswordSchema } from '@/schemas/users.dto'
 import { returnValidationErrors } from 'next-safe-action'
+import { headers } from 'next/headers'
 
 export const loginUserAction = actionClient
   .inputSchema(authLoginSchema)
@@ -52,7 +53,8 @@ export const changePasswordAction = authActionClient
         body: {
           newPassword: newPassword,
           currentPassword
-        }
+        },
+        headers: await headers()
       })
     } catch (error) {
       return returnValidationErrors(changePasswordSchema, {
