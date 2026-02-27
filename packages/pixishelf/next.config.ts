@@ -1,5 +1,19 @@
 import type { NextConfig } from 'next'
 
+const cspHeader = `
+    default-src 'self';
+    script-src 'self' 'unsafe-eval' 'unsafe-inline' https:;
+    style-src 'self' 'unsafe-inline' https:;
+    img-src 'self' blob: data: http: https:;
+    media-src 'self' blob: data: http: https:;
+    font-src 'self' data:;
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+    frame-ancestors 'none';
+    block-all-mixed-content;
+`
+
 const nextConfig: NextConfig = {
   output: 'standalone',
   images: {
@@ -13,8 +27,32 @@ const nextConfig: NextConfig = {
   },
   typescript: {
     ignoreBuildErrors: true // 忽略类型检查错误
-  }
-  /* config options here */
+  },
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: cspHeader.replace(/\n/g, ''),
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY',
+          },
+          {
+            key: 'Referrer-Policy',
+            value: 'strict-origin-when-cross-origin',
+          },
+        ],
+      },
+    ]
+  },
 }
 
 export default nextConfig
