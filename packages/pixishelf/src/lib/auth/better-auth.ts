@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { nextCookies } from 'better-auth/next-js'
 
 export const auth = betterAuth({
-  debug: true,
+  debug: process.env.NODE_ENV !== 'production',
   database: prismaAdapter(prisma, {
     provider: 'postgresql'
   }),
@@ -24,7 +24,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: false,
-    minPasswordLength: 6
+    minPasswordLength: 8
   },
   cookieCache: {
     enabled: true,
