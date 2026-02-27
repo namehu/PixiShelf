@@ -51,6 +51,7 @@ export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: Imag
   const [isAdding, setIsAdding] = useState(false)
   const [addProgress, setAddProgress] = useState(0)
   const { uploadSingleFile } = useChunkUpload()
+  const [addInitialFile, setAddInitialFile] = useState<File | null>(null)
 
   const handleAddSubmit = async (file: File, order: number) => {
     if (!artworkId) return
@@ -252,13 +253,79 @@ export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: Imag
   const setDragging = useDragDropStore((state) => state.setDragging)
   const addFilesToQueue = useDragDropStore((state) => state.addFilesToQueue)
 
+  const [dragZone, setDragZone] = useState<'add' | 'replace' | null>(null)
+  const dragZoneRef = useRef<'add' | 'replace' | null>(null)
+  const capturedZoneRef = useRef<'add' | 'replace' | null>(null)
+
+  const updateDragZone = useCallback((zone: 'add' | 'replace' | null) => {
+    setDragZone(zone)
+    dragZoneRef.current = zone
+  }, [])
+
   const { dragHandlers } = useDragImages({
     onDrop: (files) => {
-      addFilesToQueue(files)
-      setShowReplaceDialog(true)
+      // Use captured zone from drop event
+      const currentZone = capturedZoneRef.current
+      if (currentZone === 'add') {
+        if (files.length > 0) {
+          setAddInitialFile(files[0]!)
+          const maxOrder = imageList.length > 0 ? Math.max(...imageList.map((i) => i.sortOrder)) : 0
+          setDefaultAddOrder(maxOrder + 1)
+          setShowAddDialog(true)
+        }
+      } else {
+        // Default to replace logic
+        addFilesToQueue(files)
+        setShowReplaceDialog(true)
+      }
+      updateDragZone(null)
+      capturedZoneRef.current = null
     },
-    onDragStateChange: setDragging
+    onDragStateChange: (dragging) => {
+      setDragging(dragging)
+      if (!dragging) updateDragZone(null)
+    }
   })
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      dragHandlers.onDragOver(e)
+      const rect = e.currentTarget.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const width = rect.width
+      const zone = x < width / 2 ? 'add' : 'replace'
+      if (dragZoneRef.current !== zone) {
+        updateDragZone(zone)
+      }
+    },
+    [dragHandlers, updateDragZone]
+  )
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      // Capture zone before useDragImages resets state
+      const rect = e.currentTarget.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const width = rect.width
+      const zone = x < width / 2 ? 'add' : 'replace'
+      capturedZoneRef.current = zone
+
+      // Pass event to useDragImages handler
+      // If for some reason useDragImages fails to process, we can add a fallback here if needed
+      // But adding e.preventDefault() here is crucial for some browsers
+      dragHandlers.onDrop(e)
+    },
+    [dragHandlers]
+  )
+
+  const finalDragHandlers = {
+    ...dragHandlers,
+    onDragOver: handleDragOver,
+    onDrop: handleDrop
+  }
 
   const firstImagePath = useMemo(() => {
     const [image] = artwork.images || []
@@ -336,6 +403,7 @@ export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: Imag
                 variant="outline"
                 size="sm"
                 onClick={() => {
+                  setAddInitialFile(null)
                   setDefaultAddOrder(imageList.length > 0 ? Math.max(...imageList.map((i) => i.sortOrder)) + 1 : 1)
                   setShowAddDialog(true)
                 }}
@@ -362,27 +430,48 @@ export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: Imag
           <div
             className={cn(
               'flex-1 min-h-0 relative flex flex-col transition-colors duration-150 ease-out',
-              isDragging && 'bg-[#1890ff]/10'
+              isDragging && 'bg-accent/10'
             )}
-            {...dragHandlers}
+            {...finalDragHandlers}
           >
             {isDragging && (
-              <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none bg-background/50 backdrop-blur-[1px] animate-in fade-in duration-200">
-                <style
-                  dangerouslySetInnerHTML={{
-                    __html: `
-                  @keyframes breathe {
-                    0%, 100% { transform: scale(0.8); }
-                    50% { transform: scale(1); }
-                  }
-                `
-                  }}
-                />
-                <div style={{ animation: 'breathe 1.5s infinite ease-in-out' }}>
-                  <FileUp className="w-12 h-12 text-[#1890ff]" strokeWidth={1.5} />
+              <div className="absolute inset-0 z-50 flex pointer-events-none bg-background/50 backdrop-blur-[1px] animate-in fade-in duration-200">
+                {/* Left Zone: Add */}
+                <div
+                  className={cn(
+                    'flex-1 flex flex-col items-center justify-center h-full border-r-2 border-dashed transition-colors duration-200',
+                    dragZone === 'add'
+                      ? 'bg-blue-500/10 border-blue-500/30'
+                      : 'bg-transparent border-muted-foreground/10'
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'flex flex-col items-center transition-all duration-200',
+                      dragZone === 'add' ? 'scale-110 opacity-100' : 'opacity-40 scale-90'
+                    )}
+                  >
+                    <Plus className="w-16 h-16 text-blue-500" strokeWidth={1.5} />
+                    <div className="mt-4 text-lg font-medium text-blue-500">新增图片</div>
+                  </div>
                 </div>
-                <div className="mt-4 text-sm font-medium text-[#1890ff] animate-in slide-in-from-bottom-2 duration-200">
-                  全量替换
+
+                {/* Right Zone: Replace */}
+                <div
+                  className={cn(
+                    'flex-1 flex flex-col items-center justify-center h-full transition-colors duration-200',
+                    dragZone === 'replace' ? 'bg-red-500/10' : 'bg-transparent'
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'flex flex-col items-center transition-all duration-200',
+                      dragZone === 'replace' ? 'scale-110 opacity-100' : 'opacity-40 scale-90'
+                    )}
+                  >
+                    <FileUp className="w-16 h-16 text-red-500" strokeWidth={1.5} />
+                    <div className="mt-4 text-lg font-medium text-red-500">全量替换</div>
+                  </div>
                 </div>
               </div>
             )}
@@ -473,6 +562,7 @@ export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: Imag
         isSubmitting={isAdding}
         progress={addProgress}
         defaultOrder={defaultAddOrder}
+        initialFile={addInitialFile}
       />
 
       {/* Replace Dialog */}
