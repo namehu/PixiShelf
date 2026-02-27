@@ -7,7 +7,7 @@ import { prisma } from '@/lib/prisma'
  * @param artworkId 作品ID
  * @returns 点赞结果
  */
-export async function toggleLike(userId: number, artworkId: number) {
+export async function toggleLike(userId: string, artworkId: number) {
   // 参数验证
   if (!userId || !artworkId) {
     throw new Error('用户ID和作品ID不能为空')
@@ -53,7 +53,7 @@ export async function toggleLike(userId: number, artworkId: number) {
  * @param artworkIds 作品ID数组
  * @returns 作品点赞状态映射 { [artworkId]: boolean }
  */
-export async function getUserArtworkLikeStatus(uid: number, artworkIds: number[]): Promise<Record<number, boolean>> {
+export async function getUserArtworkLikeStatus(uid: string, artworkIds: number[]): Promise<Record<number, boolean>> {
   const result: Record<number, boolean> = {}
 
   // 参数验证

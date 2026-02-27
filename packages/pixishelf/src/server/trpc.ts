@@ -19,13 +19,14 @@ export const publicProcedure = t.procedure
  *受保护的过程
  */
 export const authProcedure = t.procedure.use(({ ctx, next }) => {
-  if (!ctx.session || !ctx.session.userId) {
+  if (!ctx.session || !ctx.user) {
     throw new TRPCError({ code: 'UNAUTHORIZED' })
   }
   return next({
     ctx: {
       session: ctx.session,
-      userId: Number(ctx.session.userId)
+      user: ctx.user,
+      userId: ctx.user.id
     }
   })
 })

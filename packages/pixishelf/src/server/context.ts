@@ -1,19 +1,14 @@
-import { cookies } from 'next/headers'
-import { sessionManager } from '@/lib/session'
-import { COOKIE_AUTH_TOKEN } from '@/lib/constants'
+import { auth } from '@/lib/auth'
 
-/**
- * 创建 tRPC 上下文
- */
 export async function createTRPCContext(opts: { headers: Headers }) {
-  const cookieStore = await cookies()
-  const token = cookieStore.get(COOKIE_AUTH_TOKEN)?.value
-
-  const session = token ? await sessionManager.getSession(token) : null
+  const session = await auth.api.getSession({
+    headers: opts.headers
+  })
 
   return {
-    session,
-    userId: session?.userId ? Number(session.userId) : undefined,
+    session: session?.session,
+    user: session?.user,
+    userId: session?.user?.id,
     headers: opts.headers
   }
 }

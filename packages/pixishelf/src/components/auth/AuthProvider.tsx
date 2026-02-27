@@ -1,109 +1,83 @@
 'use client'
 
-import React, { createContext, useContext, useState, useCallback, useMemo, PropsWithChildren } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
-import { ROUTES, ERROR_MESSAGES } from '@/lib/constants'
-import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
-import { logoutUserAction } from '@/actions/auth-action'
-import { toast } from 'sonner'
-import { useTRPC } from '@/lib/trpc'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import React, { createContext, useContext, useMemo, PropsWithChildren } from 'react'
+import { useRouter } from 'next/navigation'
+import { ROUTES } from '@/lib/constants'
+import { authClient } from '@/lib/auth/client'
 
-// ============================================================================
-// 认证上下文提供者
-// ============================================================================
-
-/**
- * 认证上下文
- */
 interface AuthContextType {
-  /** 当前用户 */
-  user: AuthMeResponseDTO | null
-  /** 登出方法 */
+  user: {
+    id: string
+    name: string | null
+    email: string | null
+    image: string | null
+  } | null
   logout: () => Promise<void>
-  /** 刷新用户信息 */
-  refreshUser: () => Promise<any>
+  refreshUser: () => void
 }
 
-/**
- * 认证上下文
- */
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-/**
- * 认证提供者组件
- */
-export const AuthProvider: React.FC<
-  PropsWithChildren<{
-    /** 初始用户信息（服务端注入） */
-    initialUser?: AuthMeResponseDTO | null
-  }>
-> = ({ children, initialUser }) => {
+function AuthSync({ children, initialUser }: PropsWithChildren<{ initialUser?: AuthContextType['user'] }>) {
   const router = useRouter()
-  const pathname = usePathname()
-  const trpc = useTRPC()
-  const queryClient = useQueryClient()
+  const { data: session, isPending } = authClient.useSession()
 
-  // 使用 state 保存 initialUser，以便在登出时可以将其清除，
-  // 防止 React Query 在缓存被清空后回退到 initialData
-  const [initialUserData, setInitialUserData] = useState(initialUser)
+  const logout = async () => {
+    await authClient.signOut()
+    router.push(ROUTES.LOGIN)
+  }
 
-  const userQuery = useQuery({
-    ...trpc.auth.me.queryOptions(),
-    initialData: initialUserData ? initialUserData : undefined,
-    enabled: pathname !== ROUTES.LOGIN,
-    staleTime: 5 * 60 * 1000, // 5分钟内数据视为新鲜
-    retry: false,
-    refetchOnWindowFocus: false
-  })
+  const contextValue = useMemo(() => {
+    const user = session?.user
+      ? {
+          id: session.user.id,
+          name: session.user.name,
+          email: session.user.email,
+          image: session.user.image ?? null
+        }
+      : initialUser
+        ? {
+            ...initialUser,
+            id: String(initialUser.id),
+            image: initialUser.image ?? null
+          }
+        : null
 
-  /**
-   * 登出
-   */
-  const logout = useCallback(async () => {
-    // 登出时清除初始数据，防止 React Query 回退
-    setInitialUserData(null)
-
-    try {
-      await logoutUserAction()
-    } catch (error) {
-      toast.error('登出失败', {
-        description: error instanceof Error ? error.message : ERROR_MESSAGES.SERVER_ERROR
-      })
-    } finally {
-      // 清除缓存数据
-      const queryKey = trpc.auth.me.queryOptions().queryKey
-
-      // 1. 取消任何正在进行的请求
-      await queryClient.cancelQueries({ queryKey })
-
-      // 2. 显式将数据设置为 null，这会立即触发 UI 更新
-      queryClient.setQueryData(queryKey, undefined)
-
-      // 3. 移除查询缓存，确保下次请求重新获取
-      queryClient.removeQueries({ queryKey })
-
-      router.push(ROUTES.LOGIN)
-    }
-  }, [router, trpc, queryClient])
-
-  /**
-   * 构建上下文值
-   */
-  const contextValue: AuthContextType = useMemo(() => {
     return {
-      user: userQuery.data ?? null,
+      user,
       logout,
-      refreshUser: () => userQuery.refetch()
+      refreshUser: () => {}
     }
-  }, [userQuery.data, logout])
+  }, [session, initialUser, logout])
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
 }
 
-/**
- * 使用认证上下文的Hook
- */
+export function AuthProvider({
+  children,
+  initialUser
+}: PropsWithChildren<{
+  initialUser?: {
+    id: string | number
+    name?: string | null
+    email?: string | null
+    username?: string | null
+    image?: string | null
+  } | null
+}>) {
+  // Convert initialUser to AuthContextType['user'] format if needed
+  const user = initialUser
+    ? {
+        id: String(initialUser.id),
+        name: initialUser.name ?? null,
+        email: initialUser.email ?? null,
+        image: initialUser.image ?? null
+      }
+    : null
+
+  return <AuthSync initialUser={user}>{children}</AuthSync>
+}
+
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext)
 

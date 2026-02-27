@@ -53,7 +53,7 @@ function UserManagement() {
   }
 
   // 处理删除用户
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: string) => {
     confirm({
       title: '确认删除用户？',
       description: '此操作将永久删除该用户账户。此操作不可撤销。',

@@ -119,23 +119,71 @@ model Image {
   @@unique([artworkId, path], name: "unique_artwork_path")
 }
 
-model User {
-  id        Int           @id @default(autoincrement())
-  username  String        @unique
-  password  String
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  likes     ArtworkLike[]
+model UserBA {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified Boolean?
+  image         String?
+  password      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  likes         ArtworkLike[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String?
+  providerId        String
+  accountId         String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  password          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user UserBA @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  token        String   @unique
+  userId       String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  ipAddress    String?
+  userAgent    String?
+  user         UserBA   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
 }
 
 model ArtworkLike {
   id        Int      @id @default(autoincrement())
-  userId    Int
+  userId    String
   artworkId Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   artwork   Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      UserBA   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, artworkId])
   @@index([artworkId])

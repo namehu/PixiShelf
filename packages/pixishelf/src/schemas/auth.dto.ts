@@ -18,12 +18,10 @@ export const authLoginSchema = z.object({
 
 /** 登录用户响应 DTO */
 export const AuthMeResponseDTO = z.object({
-  id: z
-    .number()
-    .int()
-    .positive()
-    // cookie 中 id 为字符串.转换为数字
-    .or(z.string().transform((val) => Number(val))),
-  username: z.string()
+  id: z.union([z.string(), z.number()]),
+  username: z.string().nullable().optional(),
+  name: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  image: z.string().nullable().optional()
 })
 export type AuthMeResponseDTO = z.infer<typeof AuthMeResponseDTO>

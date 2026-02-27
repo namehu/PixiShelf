@@ -1,7 +1,6 @@
 import { createSafeActionClient, DEFAULT_SERVER_ERROR_MESSAGE } from 'next-safe-action'
-import { cookies } from 'next/headers'
-import { sessionManager } from './session'
-import { COOKIE_AUTH_TOKEN } from './constants'
+import { auth } from './auth'
+import { headers } from 'next/headers'
 
 // 定义一个错误类
 export class ActionError extends Error {
@@ -26,29 +25,14 @@ export const actionClient = createSafeActionClient({
   }
 })
 
-// Auth client defined by extending the base one.
-// Note that the same initialization options and middleware functions of the base client
-// will also be used for this one.
-export const authActionClient = actionClient
-  // Define authorization middleware.
-  .use(async ({ next }) => {
-    // 1. 获取当前用户 Session
-    const cookieStore = await cookies()
-    const token = cookieStore.get(COOKIE_AUTH_TOKEN)?.value
-
-    if (!token) {
-      throw new Error('token not found!')
-    }
-
-    const session = await sessionManager.getSession(token)
-    if (!session || !session.isActive) {
-      throw new Error('token is invalid!')
-    }
-
-    if (!session.userId) {
-      throw new Error('Session is not valid!')
-    }
-
-    // Return the next middleware with `userId` value in the context
-    return next({ ctx: { userId: Number(session.userId) } })
+export const authActionClient = actionClient.use(async ({ next }) => {
+  const session = await auth.api.getSession({
+    headers: await headers()
   })
+
+  if (!session) {
+    throw new Error('Not authenticated')
+  }
+
+  return next({ ctx: { userId: session.user.id } })
+})

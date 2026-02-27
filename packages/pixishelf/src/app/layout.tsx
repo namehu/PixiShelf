@@ -40,7 +40,10 @@ export default async function RootLayout({ children }: RootLayoutProps) {
       const session = JSON.parse(sessionHeader)
       initialUser = {
         id: session.userId,
-        username: session.username
+        username: session.username,
+        name: session.name,
+        email: session.email,
+        image: session.image
       }
     } catch (e) {
       // console.error('Failed to parse user session', e)

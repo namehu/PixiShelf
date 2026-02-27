@@ -4,6 +4,8 @@ import PLogo from '@/components/layout/p-logo'
 import { AuthLoading } from './_components/auth-loading'
 import { APP_VERSION } from '@/_config'
 import { LoginForm } from './_components/login-form'
+import { InitAdminForm } from './_components/init-admin-form'
+import { hasUsers } from '@/lib/auth/init'
 
 export const metadata: Metadata = {
   title: '登录 - PixiShelf',
@@ -14,7 +16,9 @@ export const metadata: Metadata = {
   }
 }
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  const needInit = !(await hasUsers())
+
   return (
     <div className="min-h-screen w-full flex bg-background">
       {/* 左侧：静态插画区域 */}
@@ -65,14 +69,19 @@ export default function LoginPage() {
         </div>
 
         <div className="w-full max-w-[400px] space-y-8">
-          <div className="space-y-2 text-center lg:text-left">
-            <h2 className="text-3xl font-bold tracking-tight text-foreground">欢迎回来</h2>
-            <p className="text-muted-foreground">请输入您的账户信息以继续</p>
-          </div>
+          {needInit ? (
+            <div className="space-y-2 text-center lg:text-left">
+              <h2 className="text-3xl font-bold tracking-tight text-foreground">初始化系统</h2>
+              <p className="text-muted-foreground">创建第一个管理员账户</p>
+            </div>
+          ) : (
+            <div className="space-y-2 text-center lg:text-left">
+              <h2 className="text-3xl font-bold tracking-tight text-foreground">欢迎回来</h2>
+              <p className="text-muted-foreground">请输入您的账户信息以继续</p>
+            </div>
+          )}
 
-          <Suspense fallback={<AuthLoading />}>
-            <LoginForm />
-          </Suspense>
+          <Suspense fallback={<AuthLoading />}>{needInit ? <InitAdminForm /> : <LoginForm />}</Suspense>
 
           {/* 底部版权 (移动端) */}
           <div className="lg:hidden text-center mt-8 text-xs text-muted-foreground/50">

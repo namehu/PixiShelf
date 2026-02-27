@@ -25,7 +25,7 @@ export const userRouter = router({
    * 删除用户
    */
   deleteUser: authProcedure
-    .input(z.number({ error: '用户ID必须是数字' }).int('用户ID必须是整数').positive('用户ID必须是正数'))
+    .input(z.string({ error: '用户ID必须是字符串' }))
     .mutation(async ({ ctx: { userId }, input }) => {
       // 防止删除自己
       if (userId === input) {

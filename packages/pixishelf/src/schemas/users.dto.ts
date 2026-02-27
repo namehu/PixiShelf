@@ -4,13 +4,14 @@ import { z } from 'zod'
 /** 获取用户列表响应 Schema */
 export const getUsersResponseDTO = z.array(
   z.object({
-    id: z.number(),
-    username: z.string(),
+    id: z.string(),
+    username: z.string().nullable().optional(), // UserBA.name
+    name: z.string().nullable().optional(),
+    email: z.string().nullable().optional(),
     createdAt: z.date().or(z.string())
   })
 )
 
-/** 创建用户 Schema */
 export const createUserSchema = z.object({
   username: z
     .string({ error: '用户名不能为空' })
@@ -26,9 +27,8 @@ export const createUserSchema = z.object({
     .max(VALIDATION.PASSWORD.MAX_LENGTH, `密码长度不能超过${VALIDATION.PASSWORD.MAX_LENGTH}个字符`)
 })
 
-/** 创建用户响应 Schema */
 export const createUserResponseDTO = z.object({
-  id: z.number()
+  id: z.string()
 })
 
 /** 修改密码 Schema */

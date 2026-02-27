@@ -372,7 +372,7 @@ export const getRecentArtworks = async (
  * 随机获取单张图片作品的业务逻辑
  */
 export async function getRandomArtworks(
-  input: RandomArtworksGetSchema & { userId: number }
+  input: RandomArtworksGetSchema & { userId: string }
 ): Promise<RandomImagesResponse> {
   const { cursor, pageSize, count: maxImageCount, mediaType: mediaTypeParam, userId } = input
   const page = cursor ?? 1

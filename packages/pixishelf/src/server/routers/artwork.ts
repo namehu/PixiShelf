@@ -1,5 +1,5 @@
 import 'server-only'
-import { authProcedure, publicProcedure, router } from '@/server/trpc'
+import { authProcedure, router } from '@/server/trpc'
 import path from 'path'
 import { z } from 'zod'
 import {
@@ -31,14 +31,14 @@ export const artworkRouter = router({
   /**
    * 获取作品详情
    */
-  getById: publicProcedure.input(z.number()).query(async ({ input }) => {
+  getById: authProcedure.input(z.number()).query(async ({ input }) => {
     return getArtworkById(input)
   }),
 
   /**
    * 获取作品列表 (无限加载)
    */
-  list: publicProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input }) => {
+  list: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input }) => {
     const page = input.cursor ?? 1
     const result = await getArtworksList(input)
     const totalPages = Math.ceil(result.total / result.pageSize)
@@ -157,7 +157,7 @@ export const artworkRouter = router({
   /**
    * 获取邻近作品（前后作品）
    */
-  getNeighbors: publicProcedure.input(NeighboringArtworksGetSchema).query(async ({ input }) => {
+  getNeighbors: authProcedure.input(NeighboringArtworksGetSchema).query(async ({ input }) => {
     return await getNeighboringArtworks(input)
   }),
 
@@ -178,7 +178,7 @@ export const artworkRouter = router({
     try {
       return getRandomArtworks({
         ...input,
-        userId: ctx.userId!
+        userId: ctx.userId
       })
     } catch (error) {
       logger.error('获取随机图片失败:', error)

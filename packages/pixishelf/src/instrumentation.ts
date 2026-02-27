@@ -11,11 +11,9 @@ export async function register() {
 
     // 在这里执行你的启动任务
     // 例如：连接数据库、初始化缓存、打印环境信息等
-    const { initializeAdmin, testDatabaseConnection } = await import('./lib/prisma')
+    const { testDatabaseConnection } = await import('./lib/prisma')
     try {
-      if (await testDatabaseConnection()) {
-        await initializeAdmin()
-      }
+      await testDatabaseConnection()
     } catch (error) {
       logger.error({
         level: 'error',
