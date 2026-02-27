@@ -30,43 +30,43 @@ describe('ArtworkImages', () => {
       path: `/path/to/image-${i + 1}.jpg`
     }))
 
-  it('renders all images when count is <= 10', () => {
-    const images = generateImages(9)
+  it('renders all images when count is <= 20', () => {
+    const images = generateImages(19)
     render(<ArtworkImages images={images} />)
 
     const mediaItems = screen.getAllByTestId('lazy-media')
-    expect(mediaItems).toHaveLength(9)
+    expect(mediaItems).toHaveLength(19)
 
-    const button = screen.queryByRole('button', { name: /查看全部/i })
+    const button = screen.queryByRole('button', { name: /查看剩余/i })
     expect(button).toBeNull()
   })
 
-  it('renders only first 10 images initially when count > 10', () => {
-    const images = generateImages(11)
+  it('renders only first 20 images initially when count > 20', () => {
+    const images = generateImages(21)
     render(<ArtworkImages images={images} />)
 
     const mediaItems = screen.getAllByTestId('lazy-media')
-    expect(mediaItems).toHaveLength(10)
+    expect(mediaItems).toHaveLength(20)
 
-    const button = screen.getByRole('button', { name: /查看全部 11 张图片/i })
+    const button = screen.getByRole('button', { name: /查看剩余\s*1\s*张图片/i })
     expect(button).toBeTruthy()
   })
 
   it('expands to show all images when button is clicked', async () => {
-    const images = generateImages(11)
+    const images = generateImages(21)
     render(<ArtworkImages images={images} />)
 
-    const button = screen.getByRole('button', { name: /查看全部 11 张图片/i })
+    const button = screen.getByRole('button', { name: /查看剩余\s*1\s*张图片/i })
     fireEvent.click(button)
 
     // Wait for new items to appear
     await waitFor(() => {
       const mediaItems = screen.getAllByTestId('lazy-media')
-      expect(mediaItems).toHaveLength(11)
+      expect(mediaItems).toHaveLength(21)
     })
 
     // Button should be gone
-    const buttonAfterClick = screen.queryByRole('button', { name: /查看全部/i })
+    const buttonAfterClick = screen.queryByRole('button', { name: /查看剩余/i })
     expect(buttonAfterClick).toBeNull()
   })
 })
