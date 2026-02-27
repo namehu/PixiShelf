@@ -4,6 +4,7 @@ import { ROUTES } from '@/lib/constants'
 import logger from './lib/logger'
 import { responseUnauthorized } from './lib/api-handler'
 import { headers } from 'next/headers'
+import { rateLimiter } from './lib/rate-limit'
 
 /**
  * 公开访问的路径模式（不需要认证）
@@ -24,6 +25,15 @@ function matchesPattern(pathname: string, patterns: string[]): boolean {
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl
+
+  // 1. 全局限流 (Global Rate Limit)
+  // 限制每个 IP 每分钟 600 次请求 (10 requests/sec average)
+  // 这是一个宽松的限制，主要用于防止 DDoS 攻击
+  // 静态资源已被 config.matcher 排除
+  const ip = request.headers.get('x-forwarded-for') || 'unknown'
+  if (!rateLimiter.check(600, `mw:${ip}`)) {
+    return new NextResponse('Too Many Requests', { status: 429 })
+  }
 
   // 1. 特殊处理：如果用户访问登录页且已持有有效令牌，重定向到仪表盘
   if (pathname === ROUTES.LOGIN) {
