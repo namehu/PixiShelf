@@ -29,6 +29,12 @@ export const auth = betterAuth({
   cookieCache: {
     enabled: true,
     maxAge: 5 * 60
+  },
+  advanced: {
+    useSecureCookies:
+      process.env.NODE_ENV === 'production' &&
+      process.env.BETTER_AUTH_URL?.startsWith('https') &&
+      !process.env.BETTER_AUTH_TRUSTED_ORIGINS
   }
 })
 
