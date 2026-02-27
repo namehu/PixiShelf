@@ -90,5 +90,8 @@ ALTER TABLE "Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId"
 -- AddForeignKey
 ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "UserBA"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- Clean up invalid ArtworkLikes before adding foreign key constraint
+DELETE FROM "ArtworkLike" WHERE "userId" NOT IN (SELECT "id" FROM "UserBA");
+
 -- AddForeignKey
 ALTER TABLE "ArtworkLike" ADD CONSTRAINT "ArtworkLike_userId_fkey" FOREIGN KEY ("userId") REFERENCES "UserBA"("id") ON DELETE CASCADE ON UPDATE CASCADE;
