@@ -29,7 +29,7 @@ export async function batchCreateArtworksService(data: BatchCreateArtworkSchema)
           data: {
             title: item.title,
             source: 'LOCAL_CREATED',
-            sourceDate: new Date(),
+            sourceDate: item.sourceDate ? new Date(item.sourceDate) : new Date(),
             artistId: item.artistId
           }
         })

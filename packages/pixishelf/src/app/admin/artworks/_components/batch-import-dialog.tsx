@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { ProDialog } from '@/components/shared/pro-dialog'
+import { ProDatePicker } from '@/components/shared/pro-date-picker'
+import { format } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -47,6 +49,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
   // Global Config
   const [artist, setArtist] = useState<Option | null>(null)
   const [tags, setTags] = useState<Option[]>([])
+  const [sourceDate, setSourceDate] = useState<Date>(new Date())
 
   const { uploadSingleFile } = useChunkUpload()
 
@@ -71,6 +74,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
       setStatus('idle')
       setGlobalProgress(0)
       setItems([])
+      setSourceDate(new Date())
     }
   }, [open])
 
@@ -136,7 +140,8 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
           title: item.title,
           artistId: parseInt(artist.value),
           artistUserId: artist.userId as any,
-          tagIds: tags.map((t) => parseInt(t.value))
+          tagIds: tags.map((t) => parseInt(t.value)),
+          sourceDate: format(sourceDate, 'yyyy-MM-dd')
         }))
       })
 
@@ -278,6 +283,16 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
               triggerSearchOnFocus
               onChange={(opts) => setArtist(opts[0] || null)}
               maxSelected={1}
+            />
+          </div>
+          <div className="space-y-2 flex flex-col">
+            <Label>发布日期</Label>
+            <ProDatePicker
+              mode="single"
+              value={sourceDate}
+              onChange={(date) => setSourceDate(date as Date)}
+              placeholder="选择发布日期"
+              clearable={false}
             />
           </div>
           <div className="space-y-2">
