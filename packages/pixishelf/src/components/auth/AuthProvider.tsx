@@ -20,11 +20,16 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 function AuthSync({ children, initialUser }: PropsWithChildren<{ initialUser?: AuthContextType['user'] }>) {
   const router = useRouter()
-  const { data: session, isPending } = authClient.useSession()
+  const { data: session } = authClient.useSession()
 
   const logout = async () => {
-    await authClient.signOut()
-    router.push(ROUTES.LOGIN)
+    await authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          router.push(ROUTES.LOGIN) // redirect to login page
+        }
+      }
+    })
   }
 
   const contextValue = useMemo(() => {

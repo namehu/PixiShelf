@@ -35,16 +35,6 @@ export const loginUserAction = actionClient
     }
   })
 
-export const logoutUserAction = actionClient.action(async () => {
-  try {
-    await auth.api.signOut()
-  } catch (error) {
-    return new ActionError('登出失败')
-  }
-
-  return { code: 0 }
-})
-
 export const changePasswordAction = authActionClient
   .inputSchema(changePasswordSchema)
   .action(async ({ parsedInput: { currentPassword, newPassword } }) => {
