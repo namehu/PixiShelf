@@ -9,6 +9,7 @@ export const auth = betterAuth({
     provider: 'postgresql'
   }),
   plugins: [nextCookies()],
+  trustedOrigins: process.env.BETTER_AUTH_TRUSTED_ORIGINS ? process.env.BETTER_AUTH_TRUSTED_ORIGINS.split(',') : [],
   user: {
     modelName: 'UserBA'
   },
