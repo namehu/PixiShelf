@@ -388,15 +388,13 @@ export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: Imag
             )}
             {showThumbnails ? (
               <div className="flex-1 overflow-y-auto p-2 pr-2">
-                <div className="columns-[240px] gap-4 space-y-4">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">
                   {imageList.map((img, index) => {
-                    // Calculate aspect ratio or default to square if missing
-                    const aspectRatio = img.width && img.height ? img.width / img.height : 1
-
+                    const fileName = img.path.split('/').pop() || ''
                     return (
                       <div
                         key={img.id}
-                        className="group relative bg-muted rounded-md overflow-hidden border hover:ring-2 hover:ring-primary cursor-pointer shadow-sm break-inside-avoid"
+                        className="group relative bg-muted rounded-md overflow-hidden border hover:ring-2 hover:ring-primary cursor-pointer shadow-sm flex flex-col"
                         onClick={() => setPreviewIndex(index)}
                       >
                         <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
@@ -412,20 +410,28 @@ export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: Imag
                             <Trash2 className="w-3 h-3" />
                           </Button>
                         </div>
-                        <div style={{ aspectRatio: aspectRatio }} className="relative w-full">
+                        <div className="relative w-full aspect-square bg-neutral-100/50 dark:bg-neutral-800/50">
                           <LazyImage
                             src={appendCacheKey(img.path, refreshKey)}
                             alt={img.path}
                             fill
-                            className="object-cover"
-                            sizes="(max-width: 768px) 50vw, 240px"
+                            className="object-contain p-2"
+                            sizes="(max-width: 768px) 50vw, 200px"
                           />
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            <ZoomIn className="text-primary/50 w-8 h-8 drop-shadow-sm" />
+                          </div>
                         </div>
-                        <div className="absolute inset-0  opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                          <ZoomIn className="text-white w-6 h-6 opacity-30" />
-                        </div>
-                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] p-1 truncate text-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
-                          #{img.sortOrder}
+                        <div className="p-2 bg-background border-t text-xs space-y-0.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-muted-foreground shrink-0">#{img.sortOrder}</span>
+                            <span className="truncate font-medium text-foreground" title={fileName}>
+                              {fileName}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground text-right truncate">
+                            {img.width && img.height ? `${img.width} × ${img.height}` : ''}
+                          </div>
                         </div>
                       </div>
                     )
