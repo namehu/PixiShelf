@@ -4,8 +4,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { Swiper, SwiperSlide } from 'swiper/react'
-import { Zoom, Navigation, Pagination } from 'swiper/modules'
-import { X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Zoom, Navigation, Pagination, Mousewheel, Keyboard } from 'swiper/modules'
+import { X, ChevronUp, ChevronDown } from 'lucide-react'
 import { useArtworkStore } from '@/store/useArtworkStore'
 import { isVideoFile } from '@/types'
 import { combinationApiResource } from '@/utils/combinationStatic'
@@ -34,6 +34,9 @@ export default function ArtworkPreviewPage() {
 
   const [currentIndex, setCurrentIndex] = useState(0)
   const [mounted, setMounted] = useState(false)
+  const [swiperInstance, setSwiperInstance] = useState<any>(null)
+  const [isJumping, setIsJumping] = useState(false)
+  const [jumpValue, setJumpValue] = useState('')
 
   const { ext, isApng, isVideo } = useMemo(() => {
     const it: any = images[currentIndex] ?? {}
@@ -53,6 +56,15 @@ export default function ArtworkPreviewPage() {
       }
     }
   }, [])
+
+  const handleJumpSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const target = parseInt(jumpValue)
+    if (!isNaN(target) && target > 0 && target <= images.length && swiperInstance) {
+      swiperInstance.slideTo(target - 1)
+      setIsJumping(false)
+    }
+  }
 
   if (!mounted) return null
 
@@ -120,11 +132,35 @@ export default function ArtworkPreviewPage() {
             <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wider text-white/90 backdrop-blur-md">
               {ext}
             </span>
-          ) : (
-            <div className="text-sm font-medium">
-              {currentIndex + 1} / {images.length}
-            </div>
-          )}
+          ) : null}
+
+          <div className="flex items-center">
+            {isJumping ? (
+              <form onSubmit={handleJumpSubmit} className="flex items-center">
+                <input
+                  autoFocus
+                  type="number"
+                  min={1}
+                  max={images.length}
+                  value={jumpValue}
+                  onChange={(e) => setJumpValue(e.target.value)}
+                  onBlur={() => setIsJumping(false)}
+                  className="w-16 rounded bg-white/20 px-2 py-0.5 text-center text-sm text-white backdrop-blur-md focus:outline-none focus:ring-1 focus:ring-white/50"
+                />
+                <span className="ml-2 text-sm font-medium">/ {images.length}</span>
+              </form>
+            ) : (
+              <div
+                className="cursor-pointer rounded px-2 py-0.5 text-sm font-medium hover:bg-white/10"
+                onClick={() => {
+                  setJumpValue((currentIndex + 1).toString())
+                  setIsJumping(true)
+                }}
+              >
+                {currentIndex + 1} / {images.length}
+              </div>
+            )}
+          </div>
         </div>
         <button
           onClick={() => router.back()}
@@ -136,10 +172,15 @@ export default function ArtworkPreviewPage() {
 
       {/* Swiper */}
       <Swiper
-        modules={[Zoom, Navigation, Pagination]}
+        direction="vertical"
+        modules={[Zoom, Navigation, Pagination, Mousewheel, Keyboard]}
         zoom={{
           maxRatio: 3,
           minRatio: 1
+        }}
+        mousewheel={true}
+        keyboard={{
+          enabled: true
         }}
         navigation={{
           prevEl: '.swiper-button-prev-custom',
@@ -147,18 +188,21 @@ export default function ArtworkPreviewPage() {
         }}
         pagination={false}
         initialSlide={currentIndex}
+        onSwiper={setSwiperInstance}
         onSlideChange={(swiper) => setCurrentIndex(swiper.activeIndex)}
         className="h-full w-full"
         spaceBetween={20}
       >
         {images.map(renderSwiperSlide)}
 
-        {/* Custom Navigation Buttons (Desktop) */}
-        <div className="swiper-button-prev-custom absolute left-4 top-1/2 z-10 -translate-y-1/2 cursor-pointer rounded-full bg-black/20 p-2 text-white backdrop-blur-sm transition-all hover:bg-black/40 sm:block hidden">
-          <ChevronLeft size={32} />
-        </div>
-        <div className="swiper-button-next-custom absolute right-4 top-1/2 z-10 -translate-y-1/2 cursor-pointer rounded-full bg-black/20 p-2 text-white backdrop-blur-sm transition-all hover:bg-black/40 sm:block hidden">
-          <ChevronRight size={32} />
+        {/* Custom Navigation Buttons (Desktop) - Vertical Layout */}
+        <div className="absolute bottom-8 right-8 z-10 hidden flex-col gap-4 sm:flex">
+          <div className="swiper-button-prev-custom flex h-12 w-12 cursor-pointer items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-all hover:bg-black/40">
+            <ChevronUp size={24} />
+          </div>
+          <div className="swiper-button-next-custom flex h-12 w-12 cursor-pointer items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-all hover:bg-black/40">
+            <ChevronDown size={24} />
+          </div>
         </div>
       </Swiper>
     </div>
