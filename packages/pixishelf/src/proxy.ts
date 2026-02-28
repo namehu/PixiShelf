@@ -27,11 +27,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl
 
   // 1. 全局限流 (Global Rate Limit)
-  // 限制每个 IP 每分钟 600 次请求 (10 requests/sec average)
+  // 限制每个 IP 每分钟 1000 次请求 (16 requests/sec average)
   // 这是一个宽松的限制，主要用于防止 DDoS 攻击
   // 静态资源已被 config.matcher 排除
   const ip = request.headers.get('x-forwarded-for') || 'unknown'
-  if (!rateLimiter.check(600, `mw:${ip}`)) {
+  if (!rateLimiter.check(1000, `mw:${ip}`)) {
     return new NextResponse('Too Many Requests', { status: 429 })
   }
 
