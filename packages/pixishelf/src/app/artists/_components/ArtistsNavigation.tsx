@@ -87,10 +87,7 @@ const ArtistsNavigation = () => {
   )
 
   return (
-    <PNav
-      showUserMenu={false}
-      className="sticky top-0 z-40 border-b border-gray-100/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-gray-950/60"
-    >
+    <PNav showUserMenu={false}>
       <div className="flex items-center gap-2 md:gap-3 w-full pr-2 md:pr-4">
         {/* 搜索框区域 */}
         <div
