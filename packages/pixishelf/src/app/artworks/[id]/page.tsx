@@ -79,7 +79,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
             <ArtworkDes description={data.description} className="mt-6 px-6" />
 
             {/* Images */}
-            <ArtworkImages images={data.images} />
+            <ArtworkImages images={data.images} artworkId={data.id} />
 
             {/* Series Navigation */}
             {data.series && (

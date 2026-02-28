@@ -11,6 +11,7 @@ import { isVideoFile } from '@/types'
 import { combinationApiResource } from '@/utils/combinationStatic'
 import VideoPlayer from '@/components/players/VideoPlayer'
 import ApngPlayer from '@/components/players/ApngPlayer'
+import { useQueryState, parseAsInteger } from 'nuqs'
 
 // Import Swiper styles
 import 'swiper/css'
@@ -32,7 +33,7 @@ export default function ArtworkPreviewPage() {
     }))
   )
 
-  const [currentIndex, setCurrentIndex] = useState(0)
+  const [currentIndex, setCurrentIndex] = useQueryState('index', parseAsInteger.withDefault(0))
   const [mounted, setMounted] = useState(false)
   const [swiperInstance, setSwiperInstance] = useState<any>(null)
   const [isJumping, setIsJumping] = useState(false)
