@@ -15,6 +15,7 @@ import {
   Plus,
   FileText,
   ChevronDown,
+  ChevronUp,
   Sliders
 } from 'lucide-react'
 import { ArtworkDialog } from './artwork-dialog'
@@ -37,6 +38,9 @@ import { format } from 'date-fns'
 import { BatchImportDialog } from './batch-import-dialog'
 import { ArtworkRescanButton } from './artwork-rescan-button'
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
+import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 
 export default function ArtworkManagement() {
   const trpc = useTRPC()
@@ -66,8 +70,15 @@ export default function ArtworkManagement() {
     endDate: parseAsString,
     externalId: parseAsString,
     exactMatch: parseAsBoolean.withDefault(false),
+    tags: parseAsString,
+    mediaCountMin: parseAsInteger,
+    mediaCountMax: parseAsInteger,
     page: parseAsInteger.withDefault(1),
     pageSize: parseAsInteger.withDefault(20)
+  })
+
+  const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useQueryStates({
+    advancedSearch: parseAsBoolean.withDefault(false)
   })
 
   // Local state for search inputs
@@ -77,7 +88,10 @@ export default function ArtworkManagement() {
     startDate: searchState.startDate || '',
     endDate: searchState.endDate || '',
     externalId: searchState.externalId || '',
-    exactMatch: searchState.exactMatch || false
+    exactMatch: searchState.exactMatch || false,
+    tags: searchState.tags ? searchState.tags.split(',').map((tag) => ({ label: tag, value: tag })) : ([] as Option[]),
+    mediaCountMin: searchState.mediaCountMin ?? '',
+    mediaCountMax: searchState.mediaCountMax ?? ''
   })
 
   const handleSearch = () => {
@@ -88,12 +102,25 @@ export default function ArtworkManagement() {
       endDate: localSearch.endDate || null,
       externalId: localSearch.externalId || null,
       exactMatch: localSearch.exactMatch || null,
+      tags: localSearch.tags.length > 0 ? localSearch.tags.map((t) => t.value).join(',') : null,
+      mediaCountMin: localSearch.mediaCountMin === '' ? null : Number(localSearch.mediaCountMin),
+      mediaCountMax: localSearch.mediaCountMax === '' ? null : Number(localSearch.mediaCountMax),
       page: 1 // 重置到第一页
     })
   }
 
   const handleReset = () => {
-    setLocalSearch({ title: '', artistName: '', startDate: '', endDate: '', externalId: '', exactMatch: false })
+    setLocalSearch({
+      title: '',
+      artistName: '',
+      startDate: '',
+      endDate: '',
+      externalId: '',
+      exactMatch: false,
+      tags: [],
+      mediaCountMin: '',
+      mediaCountMax: ''
+    })
     setSearchState({
       title: null,
       artistName: null,
@@ -101,6 +128,9 @@ export default function ArtworkManagement() {
       endDate: null,
       externalId: null,
       exactMatch: null,
+      tags: null,
+      mediaCountMin: null,
+      mediaCountMax: null,
       page: 1,
       pageSize: 20
     })
@@ -376,7 +406,10 @@ export default function ArtworkManagement() {
         startDate: searchState.startDate,
         endDate: searchState.endDate,
         externalId: searchState.externalId,
-        exactMatch: searchState.exactMatch
+        exactMatch: searchState.exactMatch,
+        tags: searchState.tags,
+        mediaCountMin: searchState.mediaCountMin,
+        mediaCountMax: searchState.mediaCountMax
       })
       const { items, total } = res
 
@@ -549,78 +582,154 @@ export default function ArtworkManagement() {
         rowSelection={rowSelection}
         onRowSelectionChange={setRowSelection}
         searchRender={() => (
-          <div className="flex flex-wrap items-center gap-2 w-full">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-4 w-full bg-white p-4 rounded-lg border border-neutral-200 shadow-sm">
+            {/* 第一行：基础搜索 + 常用筛选 */}
+            <div className="flex flex-wrap items-center gap-2 w-full">
               <Input
                 placeholder="搜索作品标题..."
                 value={localSearch.title}
                 onChange={(e) => setLocalSearch((prev) => ({ ...prev, title: e.target.value }))}
-                className="h-8 w-full md:w-[200px]"
+                className="h-9 w-full md:w-[240px]"
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               />
-            </div>
 
-            <Input
-              placeholder="外部ID..."
-              value={localSearch.externalId}
-              onChange={(e) => setLocalSearch((prev) => ({ ...prev, externalId: e.target.value }))}
-              className="h-8 w-full md:w-[150px]"
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            />
-
-            <Input
-              placeholder="搜索作者..."
-              value={localSearch.artistName}
-              onChange={(e) => setLocalSearch((prev) => ({ ...prev, artistName: e.target.value }))}
-              className="h-8 w-full md:w-[150px]"
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            />
-
-            {/* 时间范围筛选 */}
-            <div className="w-[260px]">
-              <ProDatePicker
-                mode="range"
-                placeholder="选择日期范围"
-                value={[
-                  localSearch.startDate ? new Date(localSearch.startDate) : undefined,
-                  localSearch.endDate ? new Date(localSearch.endDate) : undefined
-                ]}
-                onChange={(value = []) => {
-                  const [from, to] = value
-                  setLocalSearch((prev) => ({
-                    ...prev,
-                    startDate: from ? format(from, 'yyyy-MM-dd') : '',
-                    endDate: to ? format(to, 'yyyy-MM-dd') : ''
-                  }))
-                }}
-                presets={ProDatePickerPresets.range}
-                className="w-full"
+              <Input
+                placeholder="外部ID..."
+                value={localSearch.externalId}
+                onChange={(e) => setLocalSearch((prev) => ({ ...prev, externalId: e.target.value }))}
+                className="h-9 w-full md:w-[140px]"
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               />
+
+              <Input
+                placeholder="搜索作者..."
+                value={localSearch.artistName}
+                onChange={(e) => setLocalSearch((prev) => ({ ...prev, artistName: e.target.value }))}
+                className="h-9 w-full md:w-[140px]"
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              />
+
+              {/* 时间范围筛选 */}
+              <div className="w-[240px]">
+                <ProDatePicker
+                  mode="range"
+                  placeholder="选择日期范围"
+                  value={[
+                    localSearch.startDate ? new Date(localSearch.startDate) : undefined,
+                    localSearch.endDate ? new Date(localSearch.endDate) : undefined
+                  ]}
+                  onChange={(value = []) => {
+                    const [from, to] = value
+                    setLocalSearch((prev) => ({
+                      ...prev,
+                      startDate: from ? format(from, 'yyyy-MM-dd') : '',
+                      endDate: to ? format(to, 'yyyy-MM-dd') : ''
+                    }))
+                  }}
+                  presets={ProDatePickerPresets.range}
+                  className="w-full"
+                />
+              </div>
+
+              <div className="flex items-center space-x-2 bg-neutral-100 px-3 py-2 rounded-md h-9">
+                <Checkbox
+                  id="exactMatch"
+                  checked={localSearch.exactMatch}
+                  onCheckedChange={(checked) => setLocalSearch((prev) => ({ ...prev, exactMatch: !!checked }))}
+                />
+                <label
+                  htmlFor="exactMatch"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 whitespace-nowrap cursor-pointer"
+                >
+                  精确
+                </label>
+              </div>
+
+              <div className="flex gap-2 ml-auto">
+                <Button variant="default" size="sm" onClick={handleSearch} className="h-9 px-4">
+                  <Search className="w-4 h-4 mr-1" />
+                  搜索
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleReset} className="h-9 px-4">
+                  <RotateCcw className="w-4 h-4 mr-1" />
+                  重置
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsAdvancedSearchOpen({ advancedSearch: !isAdvancedSearchOpen.advancedSearch })}
+                  className={cn('h-9 px-3', isAdvancedSearchOpen.advancedSearch && 'bg-neutral-100 text-neutral-900')}
+                >
+                  {isAdvancedSearchOpen.advancedSearch ? (
+                    <>
+                      <ChevronUp className="w-4 h-4 mr-1" />
+                      收起
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-4 h-4 mr-1" />
+                      高级
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="exactMatch"
-                checked={localSearch.exactMatch}
-                onCheckedChange={(checked) => setLocalSearch((prev) => ({ ...prev, exactMatch: !!checked }))}
-              />
-              <label
-                htmlFor="exactMatch"
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 whitespace-nowrap"
-              >
-                精确
-              </label>
-            </div>
-            <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
-              <Button variant="default" size="sm" onClick={handleSearch} className="h-8 px-3 flex-1 md:flex-none">
-                <Search className="w-4 h-4 mr-1" />
-                搜索
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleReset} className="h-8 px-3 flex-1 md:flex-none">
-                <RotateCcw className="w-4 h-4 mr-1" />
-                重置
-              </Button>
-            </div>
+            {/* 第二行：高级搜索区域 */}
+            {isAdvancedSearchOpen.advancedSearch && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4 pt-4 border-t border-neutral-100 animate-in fade-in slide-in-from-top-2 duration-200">
+                {/* 媒体数量 */}
+                <div className="col-span-1 lg:col-span-3 space-y-2">
+                  <Label className="text-xs text-neutral-500 font-medium uppercase tracking-wider">媒体数量</Label>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Input
+                        placeholder="最小"
+                        type="number"
+                        min={0}
+                        value={localSearch.mediaCountMin}
+                        onChange={(e) => setLocalSearch((prev) => ({ ...prev, mediaCountMin: e.target.value }))}
+                        className="h-9"
+                      />
+                      <span className="absolute right-3 top-2.5 text-xs text-neutral-400">个</span>
+                    </div>
+                    <span className="text-neutral-400">-</span>
+                    <div className="relative flex-1">
+                      <Input
+                        placeholder="最大"
+                        type="number"
+                        min={0}
+                        value={localSearch.mediaCountMax}
+                        onChange={(e) => setLocalSearch((prev) => ({ ...prev, mediaCountMax: e.target.value }))}
+                        className="h-9"
+                      />
+                      <span className="absolute right-3 top-2.5 text-xs text-neutral-400">个</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 标签筛选 */}
+                <div className="col-span-1 lg:col-span-9 space-y-2">
+                  <Label className="text-xs text-neutral-500 font-medium uppercase tracking-wider">包含标签</Label>
+                  <MultipleSelector
+                    value={localSearch.tags}
+                    onChange={(options) => setLocalSearch((prev) => ({ ...prev, tags: options }))}
+                    onSearch={async (query) => {
+                      const res = await trpcClient.tag.list.query({ query, pageSize: 20 })
+                      return (res as any).items.map((tag: any) => ({
+                        label: tag.name_zh ? `${tag.name} (${tag.name_zh})` : tag.name,
+                        value: tag.name
+                      }))
+                    }}
+                    triggerSearchOnFocus
+                    placeholder="搜索并选择标签..."
+                    emptyIndicator={<p className="text-center text-sm text-gray-500 py-2">未找到相关标签</p>}
+                    className="bg-white"
+                    badgeClassName="bg-primary/10 text-primary hover:bg-primary/20 border-transparent"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
       />

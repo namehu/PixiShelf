@@ -6,7 +6,20 @@ import { VIDEO_EXTENSIONS } from '../../../lib/constant'
  * 构建作品查询的 WHERE 子句
  */
 export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, initialParamIndex = 1) {
-  const { tags, search, artistId, artistName, tagId, mediaType, startDate, endDate, externalId, exactMatch } = params
+  const {
+    tags,
+    search,
+    artistId,
+    artistName,
+    tagId,
+    mediaType,
+    startDate,
+    endDate,
+    externalId,
+    exactMatch,
+    mediaCountMin,
+    mediaCountMax
+  } = params
 
   let whereSQL = 'WHERE 1=1'
   const sqlParams: any[] = []
@@ -112,6 +125,19 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
   if (endDate) {
     whereSQL += ` AND a."sourceDate" < ($${paramIndex}::date + 1)`
     sqlParams.push(endDate)
+    paramIndex++
+  }
+
+  // 1.7 媒体数量筛选
+  if (mediaCountMin !== undefined && mediaCountMin !== null) {
+    whereSQL += ` AND a."imageCount" >= $${paramIndex}`
+    sqlParams.push(mediaCountMin)
+    paramIndex++
+  }
+
+  if (mediaCountMax !== undefined && mediaCountMax !== null) {
+    whereSQL += ` AND a."imageCount" <= $${paramIndex}`
+    sqlParams.push(mediaCountMax)
     paramIndex++
   }
 

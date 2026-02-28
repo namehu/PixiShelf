@@ -34,7 +34,7 @@ export const ArtworksInfiniteQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(10000).default(24),
   tags: z
     .string()
-    .optional()
+    .nullish()
     .transform((val) => val?.split(',').filter(Boolean) || []),
   search: z
     .string()
@@ -67,7 +67,9 @@ export const ArtworksInfiniteQuerySchema = z.object({
     .optional()
     .nullish(),
   externalId: z.string().nullish().optional(),
-  exactMatch: z.boolean().optional().default(false)
+  exactMatch: z.boolean().optional().default(false),
+  mediaCountMin: z.coerce.number().int().min(0).nullish(),
+  mediaCountMax: z.coerce.number().int().min(0).nullish()
 })
 
 export type ArtworksInfiniteQuerySchema = z.infer<typeof ArtworksInfiniteQuerySchema>
