@@ -583,95 +583,110 @@ export default function ArtworkManagement() {
         onRowSelectionChange={setRowSelection}
         searchRender={() => (
           <div className="flex flex-col gap-4 w-full bg-white p-4 rounded-lg border border-neutral-200 shadow-sm">
-            {/* 第一行：基础搜索 + 常用筛选 */}
-            <div className="flex flex-wrap items-center gap-2 w-full">
-              <Input
-                placeholder="搜索作品标题..."
-                value={localSearch.title}
-                onChange={(e) => setLocalSearch((prev) => ({ ...prev, title: e.target.value }))}
-                className="h-9 w-full md:w-[240px]"
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              />
-
-              <Input
-                placeholder="外部ID..."
-                value={localSearch.externalId}
-                onChange={(e) => setLocalSearch((prev) => ({ ...prev, externalId: e.target.value }))}
-                className="h-9 w-full md:w-[140px]"
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              />
-
-              <Input
-                placeholder="搜索作者..."
-                value={localSearch.artistName}
-                onChange={(e) => setLocalSearch((prev) => ({ ...prev, artistName: e.target.value }))}
-                className="h-9 w-full md:w-[140px]"
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              />
-
-              {/* 时间范围筛选 */}
-              <div className="w-[240px]">
-                <ProDatePicker
-                  mode="range"
-                  placeholder="选择日期范围"
-                  value={[
-                    localSearch.startDate ? new Date(localSearch.startDate) : undefined,
-                    localSearch.endDate ? new Date(localSearch.endDate) : undefined
-                  ]}
-                  onChange={(value = []) => {
-                    const [from, to] = value
-                    setLocalSearch((prev) => ({
-                      ...prev,
-                      startDate: from ? format(from, 'yyyy-MM-dd') : '',
-                      endDate: to ? format(to, 'yyyy-MM-dd') : ''
-                    }))
-                  }}
-                  presets={ProDatePickerPresets.range}
-                  className="w-full"
+            {/* Grid Layout for Search Filters */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+              {/* Title Search */}
+              <div className="col-span-12 md:col-span-4 space-y-1">
+                <Label className="text-xs font-medium text-neutral-500">标题</Label>
+                <Input
+                  placeholder="搜索作品标题..."
+                  value={localSearch.title}
+                  onChange={(e) => setLocalSearch((prev) => ({ ...prev, title: e.target.value }))}
+                  className="h-9 w-full"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                 />
               </div>
 
-              <div className="flex items-center space-x-2 bg-neutral-100 px-3 py-2 rounded-md h-9">
-                <Checkbox
-                  id="exactMatch"
-                  checked={localSearch.exactMatch}
-                  onCheckedChange={(checked) => setLocalSearch((prev) => ({ ...prev, exactMatch: !!checked }))}
+              {/* External ID */}
+              <div className="col-span-6 md:col-span-4 space-y-1">
+                <Label className="text-xs font-medium text-neutral-500">外部ID</Label>
+                <Input
+                  placeholder="外部ID..."
+                  value={localSearch.externalId}
+                  onChange={(e) => setLocalSearch((prev) => ({ ...prev, externalId: e.target.value }))}
+                  className="h-9 w-full"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                 />
-                <label
-                  htmlFor="exactMatch"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 whitespace-nowrap cursor-pointer"
-                >
-                  精确
-                </label>
               </div>
 
-              <div className="flex gap-2 ml-auto">
-                <Button variant="default" size="sm" onClick={handleSearch} className="h-9 px-4">
-                  <Search className="w-4 h-4 mr-1" />
-                  搜索
-                </Button>
-                <Button variant="outline" size="sm" onClick={handleReset} className="h-9 px-4">
-                  <RotateCcw className="w-4 h-4 mr-1" />
-                  重置
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsAdvancedSearchOpen({ advancedSearch: !isAdvancedSearchOpen.advancedSearch })}
-                  className={cn('h-9 px-3', isAdvancedSearchOpen.advancedSearch && 'bg-neutral-100 text-neutral-900')}
-                >
-                  {isAdvancedSearchOpen.advancedSearch ? (
-                    <>
-                      <ChevronUp className="w-4 h-4 mr-1" />
-                      收起
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown className="w-4 h-4 mr-1" />
-                      高级
-                    </>
-                  )}
-                </Button>
+              {/* Artist Search */}
+              <div className="col-span-6 md:col-span-4 space-y-1">
+                <Label className="text-xs font-medium text-neutral-500">作者</Label>
+                <Input
+                  placeholder="搜索作者..."
+                  value={localSearch.artistName}
+                  onChange={(e) => setLocalSearch((prev) => ({ ...prev, artistName: e.target.value }))}
+                  className="h-9 w-full"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                />
+              </div>
+
+              {/* Date Range & Buttons Group - Combined Row */}
+              <div className="col-span-12 flex flex-col md:flex-row gap-4 md:items-end justify-between">
+                <div className="w-full md:w-1/3 space-y-1">
+                  <Label className="text-xs font-medium text-neutral-500">发布日期</Label>
+                  <ProDatePicker
+                    mode="range"
+                    placeholder="选择日期范围"
+                    value={[
+                      localSearch.startDate ? new Date(localSearch.startDate) : undefined,
+                      localSearch.endDate ? new Date(localSearch.endDate) : undefined
+                    ]}
+                    onChange={(value = []) => {
+                      const [from, to] = value
+                      setLocalSearch((prev) => ({
+                        ...prev,
+                        startDate: from ? format(from, 'yyyy-MM-dd') : '',
+                        endDate: to ? format(to, 'yyyy-MM-dd') : ''
+                      }))
+                    }}
+                    presets={ProDatePickerPresets.range}
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="flex items-center gap-4 h-9 w-full md:w-auto justify-between md:justify-end">
+                  <div className="flex items-center space-x-2 bg-neutral-100 px-3 py-2 rounded-md h-full shrink-0">
+                    <Checkbox
+                      id="exactMatch"
+                      checked={localSearch.exactMatch}
+                      onCheckedChange={(checked) => setLocalSearch((prev) => ({ ...prev, exactMatch: !!checked }))}
+                    />
+                    <label
+                      htmlFor="exactMatch"
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 whitespace-nowrap cursor-pointer"
+                    >
+                      精确
+                    </label>
+                  </div>
+
+                  <div className="flex gap-1">
+                    <Button variant="default" size="sm" onClick={handleSearch} className="h-9 px-3 shrink-0">
+                      <Search className="w-3 h-3 mr-1" />
+                      搜索
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleReset} className="h-9 px-3 shrink-0">
+                      <RotateCcw className="w-3 h-3 mr-1" />
+                      重置
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsAdvancedSearchOpen({ advancedSearch: !isAdvancedSearchOpen.advancedSearch })}
+                      className={cn(
+                        'h-9 px-2 shrink-0',
+                        isAdvancedSearchOpen.advancedSearch && 'bg-neutral-100 text-neutral-900'
+                      )}
+                      title={isAdvancedSearchOpen.advancedSearch ? '收起高级搜索' : '展开高级搜索'}
+                    >
+                      {isAdvancedSearchOpen.advancedSearch ? (
+                        <ChevronUp className="w-4 h-4" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -679,8 +694,8 @@ export default function ArtworkManagement() {
             {isAdvancedSearchOpen.advancedSearch && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4 pt-4 border-t border-neutral-100 animate-in fade-in slide-in-from-top-2 duration-200">
                 {/* 媒体数量 */}
-                <div className="col-span-1 lg:col-span-3 space-y-2">
-                  <Label className="text-xs text-neutral-500 font-medium uppercase tracking-wider">媒体数量</Label>
+                <div className="col-span-1 lg:col-span-3 space-y-1">
+                  <Label className="text-xs font-medium text-neutral-500">媒体数量</Label>
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1">
                       <Input
@@ -709,8 +724,8 @@ export default function ArtworkManagement() {
                 </div>
 
                 {/* 标签筛选 */}
-                <div className="col-span-1 lg:col-span-9 space-y-2">
-                  <Label className="text-xs text-neutral-500 font-medium uppercase tracking-wider">包含标签</Label>
+                <div className="col-span-1 lg:col-span-9 space-y-1">
+                  <Label className="text-xs font-medium text-neutral-500">包含标签</Label>
                   <MultipleSelector
                     value={localSearch.tags}
                     onChange={(options) => setLocalSearch((prev) => ({ ...prev, tags: options }))}
@@ -724,7 +739,7 @@ export default function ArtworkManagement() {
                     triggerSearchOnFocus
                     placeholder="搜索并选择标签..."
                     emptyIndicator={<p className="text-center text-sm text-gray-500 py-2">未找到相关标签</p>}
-                    className="bg-white"
+                    className="bg-white min-h-[36px]"
                     badgeClassName="bg-primary/10 text-primary hover:bg-primary/20 border-transparent"
                   />
                 </div>

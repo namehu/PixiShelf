@@ -356,12 +356,14 @@ export function ProTable<TData, TValue>({
     <div ref={rootRef} className={cn('space-y-4 w-full', className)}>
       {/* 1. 工具栏区域 */}
       {showToolbar && (
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-col gap-2 w-full lg:flex-row lg:items-center lg:w-auto">
-            {headerTitle && <h3 className="text-lg font-medium hidden lg:block">{headerTitle}</h3>}
-            <div className="w-full lg:w-auto">{searchContent}</div>
-          </div>
-          <div className="flex items-center gap-2">{toolBarContent}</div>
+        <div className="flex flex-col gap-4">
+          {searchContent && <div className="w-full">{searchContent}</div>}
+          {(headerTitle || toolBarContent) && (
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              {headerTitle && <h3 className="text-lg font-medium">{headerTitle}</h3>}
+              <div className="flex items-center gap-2">{toolBarContent}</div>
+            </div>
+          )}
         </div>
       )}
 
