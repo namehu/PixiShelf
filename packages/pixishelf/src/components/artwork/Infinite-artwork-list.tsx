@@ -73,6 +73,9 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   const [isReady, setIsReady] = useState(false)
   const [offsetTop, setOffsetTop] = useState(0)
 
+  const isRequesting = useRef(false)
+  const prevInView = useRef(false)
+
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError } = useInfiniteQuery(
     trpc.artwork.list.infiniteQueryOptions(
       {
@@ -191,10 +194,17 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   }, [storageKey])
 
   useEffect(() => {
-    // 增加 containerWidth > 0 的判断，防止初始渲染时触发
-    if (inView && hasNextPage && !isFetchingNextPage && !isLoading && containerWidth > 0) {
-      fetchNextPage()
+    if (containerWidth <= 0) return
+    const enteredView = inView && !prevInView.current
+    if (enteredView && hasNextPage && !isFetchingNextPage && !isLoading) {
+      if (!isRequesting.current) {
+        isRequesting.current = true
+        fetchNextPage().finally(() => {
+          isRequesting.current = false
+        })
+      }
     }
+    prevInView.current = inView
   }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage, isLoading, containerWidth])
 
   // 错误状态
