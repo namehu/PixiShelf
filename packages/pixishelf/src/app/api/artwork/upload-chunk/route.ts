@@ -8,7 +8,7 @@ import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 import { ImageMeta } from '@/services/artwork-service/image-manager'
 import { MEDIA_EXTENSIONS, VIDEO_EXTENSIONS } from '../../../../../lib/constant'
 
-const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
+const MAX_FILE_SIZE = 1024 * 1024 * 1024 // 1GB
 
 export async function POST(req: NextRequest) {
   try {
