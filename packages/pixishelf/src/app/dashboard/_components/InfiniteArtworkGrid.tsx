@@ -35,8 +35,8 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
           pages: [initialData],
           pageParams: [1]
         },
-        staleTime: 5 * 60 * 1000,
-        gcTime: 10 * 60 * 1000
+        staleTime: 20 * 60 * 1000,
+        gcTime: 25 * 60 * 1000
       }
     )
   )
