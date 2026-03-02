@@ -71,6 +71,7 @@ export default function ArtworkManagement() {
     externalId: parseAsString,
     exactMatch: parseAsBoolean.withDefault(false),
     tags: parseAsString,
+    excludeTags: parseAsString,
     mediaCountMin: parseAsInteger,
     mediaCountMax: parseAsInteger,
     page: parseAsInteger.withDefault(1),
@@ -89,12 +90,22 @@ export default function ArtworkManagement() {
     endDate: searchState.endDate || '',
     externalId: searchState.externalId || '',
     exactMatch: searchState.exactMatch || false,
-    tags: searchState.tags ? searchState.tags.split(',').map((tag) => ({ label: tag, value: tag })) : ([] as Option[]),
+    // 初始化标签模式：如果 excludeTags 有值则默认为排除模式，否则为包含模式
+    // 注意：URL 可能同时包含 tags 和 excludeTags（手动修改时），此处优先展示 excludeTags
+    tagMode: searchState.excludeTags ? 'exclude' : ('include' as 'include' | 'exclude'),
+    // 初始化选中标签：根据模式从对应的 URL 参数中恢复
+    selectedTags: (searchState.excludeTags || searchState.tags || '')
+      .split(',')
+      .filter(Boolean)
+      .map((tag) => ({ label: tag, value: tag })) as Option[],
     mediaCountMin: searchState.mediaCountMin ?? '',
     mediaCountMax: searchState.mediaCountMax ?? ''
   })
 
   const handleSearch = () => {
+    // 处理标签参数：将选中项转换为逗号分隔字符串，空数组转为 null 以清除 URL 参数
+    const tagsStr = localSearch.selectedTags.length > 0 ? localSearch.selectedTags.map((t) => t.value).join(',') : null
+
     setSearchState({
       title: localSearch.title || null,
       artistName: localSearch.artistName || null,
@@ -102,7 +113,9 @@ export default function ArtworkManagement() {
       endDate: localSearch.endDate || null,
       externalId: localSearch.externalId || null,
       exactMatch: localSearch.exactMatch || null,
-      tags: localSearch.tags.length > 0 ? localSearch.tags.map((t) => t.value).join(',') : null,
+      // 根据当前模式设置对应的参数，同时清除另一种模式的参数，确保互斥
+      tags: localSearch.tagMode === 'include' ? tagsStr : null,
+      excludeTags: localSearch.tagMode === 'exclude' ? tagsStr : null,
       mediaCountMin: localSearch.mediaCountMin === '' ? null : Number(localSearch.mediaCountMin),
       mediaCountMax: localSearch.mediaCountMax === '' ? null : Number(localSearch.mediaCountMax),
       page: 1 // 重置到第一页
@@ -117,7 +130,8 @@ export default function ArtworkManagement() {
       endDate: '',
       externalId: '',
       exactMatch: false,
-      tags: [],
+      tagMode: 'include',
+      selectedTags: [],
       mediaCountMin: '',
       mediaCountMax: ''
     })
@@ -129,6 +143,7 @@ export default function ArtworkManagement() {
       externalId: null,
       exactMatch: null,
       tags: null,
+      excludeTags: null,
       mediaCountMin: null,
       mediaCountMax: null,
       page: 1,
@@ -408,6 +423,7 @@ export default function ArtworkManagement() {
         externalId: searchState.externalId,
         exactMatch: searchState.exactMatch,
         tags: searchState.tags,
+        excludeTags: searchState.excludeTags,
         mediaCountMin: searchState.mediaCountMin,
         mediaCountMax: searchState.mediaCountMax
       })
@@ -587,7 +603,9 @@ export default function ArtworkManagement() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
               {/* Title Search */}
               <div className="col-span-12 md:col-span-4 space-y-1">
-                <Label className="text-xs font-medium text-neutral-500">标题</Label>
+                <div className="h-6 flex items-center">
+                  <Label className="text-xs font-medium text-neutral-500">标题</Label>
+                </div>
                 <Input
                   placeholder="搜索作品标题..."
                   value={localSearch.title}
@@ -599,7 +617,9 @@ export default function ArtworkManagement() {
 
               {/* External ID */}
               <div className="col-span-6 md:col-span-4 space-y-1">
-                <Label className="text-xs font-medium text-neutral-500">外部ID</Label>
+                <div className="h-6 flex items-center">
+                  <Label className="text-xs font-medium text-neutral-500">外部ID</Label>
+                </div>
                 <Input
                   placeholder="外部ID..."
                   value={localSearch.externalId}
@@ -611,7 +631,9 @@ export default function ArtworkManagement() {
 
               {/* Artist Search */}
               <div className="col-span-6 md:col-span-4 space-y-1">
-                <Label className="text-xs font-medium text-neutral-500">作者</Label>
+                <div className="h-6 flex items-center">
+                  <Label className="text-xs font-medium text-neutral-500">作者</Label>
+                </div>
                 <Input
                   placeholder="搜索作者..."
                   value={localSearch.artistName}
@@ -624,7 +646,9 @@ export default function ArtworkManagement() {
               {/* Date Range & Buttons Group - Combined Row */}
               <div className="col-span-12 flex flex-col md:flex-row gap-4 md:items-end justify-between">
                 <div className="w-full md:w-1/3 space-y-1">
-                  <Label className="text-xs font-medium text-neutral-500">发布日期</Label>
+                  <div className="h-6 flex items-center">
+                    <Label className="text-xs font-medium text-neutral-500">发布日期</Label>
+                  </div>
                   <ProDatePicker
                     mode="range"
                     placeholder="选择日期范围"
@@ -695,7 +719,9 @@ export default function ArtworkManagement() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4 pt-4 border-t border-neutral-100 animate-in fade-in slide-in-from-top-2 duration-200">
                 {/* 媒体数量 */}
                 <div className="col-span-1 lg:col-span-3 space-y-1">
-                  <Label className="text-xs font-medium text-neutral-500">媒体数量</Label>
+                  <div className="h-6 flex items-center">
+                    <Label className="text-xs font-medium text-neutral-500">媒体数量</Label>
+                  </div>
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1">
                       <Input
@@ -725,10 +751,38 @@ export default function ArtworkManagement() {
 
                 {/* 标签筛选 */}
                 <div className="col-span-1 lg:col-span-9 space-y-1">
-                  <Label className="text-xs font-medium text-neutral-500">包含标签</Label>
+                  <div className="h-6 flex items-center justify-between">
+                    <Label className="text-xs font-medium text-neutral-500">标签筛选</Label>
+                    <div className="flex bg-neutral-100 rounded-md p-0.5">
+                      <button
+                        type="button"
+                        className={cn(
+                          'text-[10px] px-2 py-0.5 rounded-sm transition-all',
+                          localSearch.tagMode === 'include'
+                            ? 'bg-white shadow-sm text-neutral-900 font-medium'
+                            : 'text-neutral-500 hover:text-neutral-700'
+                        )}
+                        onClick={() => setLocalSearch((prev) => ({ ...prev, tagMode: 'include' }))}
+                      >
+                        包含
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(
+                          'text-[10px] px-2 py-0.5 rounded-sm transition-all',
+                          localSearch.tagMode === 'exclude'
+                            ? 'bg-white shadow-sm text-red-600 font-medium'
+                            : 'text-neutral-500 hover:text-neutral-700'
+                        )}
+                        onClick={() => setLocalSearch((prev) => ({ ...prev, tagMode: 'exclude' }))}
+                      >
+                        排除
+                      </button>
+                    </div>
+                  </div>
                   <MultipleSelector
-                    value={localSearch.tags}
-                    onChange={(options) => setLocalSearch((prev) => ({ ...prev, tags: options }))}
+                    value={localSearch.selectedTags}
+                    onChange={(options) => setLocalSearch((prev) => ({ ...prev, selectedTags: options }))}
                     onSearch={async (query) => {
                       const res = await trpcClient.tag.list.query({ query, pageSize: 20 })
                       return (res as any).items.map((tag: any) => ({
@@ -737,10 +791,14 @@ export default function ArtworkManagement() {
                       }))
                     }}
                     triggerSearchOnFocus
-                    placeholder="搜索并选择标签..."
+                    placeholder={localSearch.tagMode === 'include' ? '搜索并选择标签...' : '搜索并排除标签...'}
                     emptyIndicator={<p className="text-center text-sm text-gray-500 py-2">未找到相关标签</p>}
                     className="bg-white min-h-[36px]"
-                    badgeClassName="bg-primary/10 text-primary hover:bg-primary/20 border-transparent"
+                    badgeClassName={
+                      localSearch.tagMode === 'include'
+                        ? 'bg-primary/10 text-primary hover:bg-primary/20 border-transparent'
+                        : 'bg-red-50 text-red-600 hover:bg-red-100 border-transparent'
+                    }
                   />
                 </div>
               </div>

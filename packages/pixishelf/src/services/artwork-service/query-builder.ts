@@ -18,7 +18,8 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     externalId,
     exactMatch,
     mediaCountMin,
-    mediaCountMax
+    mediaCountMax,
+    excludeTags
   } = params
 
   let whereSQL = 'WHERE 1=1'
@@ -53,13 +54,24 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
   }
 
   // 1.2 标签名筛选
-  if (tags.length > 0) {
+  if (tags && tags.length > 0) {
     whereSQL += ` AND EXISTS (
       SELECT 1 FROM "ArtworkTag" at2
       JOIN "Tag" t2 ON at2."tagId" = t2.id
       WHERE at2."artworkId" = a.id AND t2.name = ANY($${paramIndex})
     )`
     sqlParams.push(tags)
+    paramIndex++
+  }
+
+  // 1.2.5 排除标签名筛选
+  if (excludeTags && excludeTags.length > 0) {
+    whereSQL += ` AND NOT EXISTS (
+      SELECT 1 FROM "ArtworkTag" at_ex
+      JOIN "Tag" t_ex ON at_ex."tagId" = t_ex.id
+      WHERE at_ex."artworkId" = a.id AND t_ex.name = ANY($${paramIndex})
+    )`
+    sqlParams.push(excludeTags)
     paramIndex++
   }
 

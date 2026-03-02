@@ -36,6 +36,11 @@ export const ArtworksInfiniteQuerySchema = z.object({
     .string()
     .nullish()
     .transform((val) => val?.split(',').filter(Boolean) || []),
+  excludeTags: z
+    .string()
+    .nullish()
+    .transform((val) => val?.split(',').filter(Boolean) || []),
+
   search: z
     .string()
     .nullish()
