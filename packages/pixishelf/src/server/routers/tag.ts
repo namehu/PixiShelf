@@ -163,5 +163,47 @@ export const tagRouter = router({
           query: input
         }
       }
-    })
+    }),
+
+  /**
+   * 创建标签
+   */
+  create: authProcedure
+    .input(
+      z.object({
+        name: z.string().min(1, '标签名不能为空'),
+        name_zh: z.string().optional().nullable(),
+        name_en: z.string().optional().nullable(),
+        description: z.string().optional().nullable()
+      })
+    )
+    .mutation(async ({ input }) => {
+      return tagService.createTag(input)
+    }),
+
+  /**
+   * 更新标签
+   */
+  update: authProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        data: z.object({
+          name: z.string().optional(),
+          name_zh: z.string().optional().nullable(),
+          name_en: z.string().optional().nullable(),
+          description: z.string().optional().nullable()
+        })
+      })
+    )
+    .mutation(async ({ input }) => {
+      return tagService.updateTag(input.id, input.data)
+    }),
+
+  /**
+   * 删除标签
+   */
+  delete: authProcedure.input(z.number()).mutation(async ({ input }) => {
+    return tagService.deleteTag(input)
+  })
 })

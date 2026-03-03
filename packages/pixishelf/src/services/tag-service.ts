@@ -211,3 +211,49 @@ export async function getUntranslatedTagNames(): Promise<string[]> {
 
   return tags.map((tag) => tag.name)
 }
+
+/**
+ * 创建标签
+ */
+export async function createTag(data: {
+  name: string
+  name_zh?: string | null
+  name_en?: string | null
+  description?: string | null
+}) {
+  // Check if tag exists
+  const existing = await prisma.tag.findUnique({ where: { name: data.name } })
+  if (existing) {
+    throw new Error('Tag already exists')
+  }
+  return prisma.tag.create({ data })
+}
+
+/**
+ * 更新标签
+ */
+export async function updateTag(
+  id: number,
+  data: { name?: string; name_zh?: string | null; name_en?: string | null; description?: string | null }
+) {
+  // If name is updated, check for duplicate
+  if (data.name) {
+    const existing = await prisma.tag.findFirst({
+      where: {
+        name: data.name,
+        NOT: { id }
+      }
+    })
+    if (existing) {
+      throw new Error('Tag name already exists')
+    }
+  }
+  return prisma.tag.update({ where: { id }, data })
+}
+
+/**
+ * 删除标签
+ */
+export async function deleteTag(id: number) {
+  return prisma.tag.delete({ where: { id } })
+}

@@ -2,9 +2,9 @@
 
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { BarChart3, RefreshCw, Download, Edit2, Save, X, Languages, Search, RotateCcw } from 'lucide-react'
+import { BarChart3, RefreshCw, Download, Edit2, Trash, Languages, Search, RotateCcw, Plus } from 'lucide-react'
 import type { TagManagementStats } from '@/types/tags'
-import { useTRPCClient } from '@/lib/trpc'
+import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -13,9 +13,12 @@ import { getTranslateName } from '@/utils/tags'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
 import { SortingState } from '@tanstack/react-table'
+import { useMutation } from '@tanstack/react-query'
+import { confirm } from '@/components/shared/global-confirm'
 
 // 导入子组件
 import { TagStatsCards } from './tag-stats-cards'
+import { TagDialog } from './tag-dialog'
 
 // 定义 TagListItem 类型，匹配后端返回的数据结构
 interface TagListItem {
@@ -76,6 +79,7 @@ function useExportUntranslatedTags() {
  * 标签管理组件
  */
 export default function TagManagement() {
+  const trpc = useTRPC()
   const trpcClient = useTRPCClient()
 
   // 标签统计状态
@@ -92,9 +96,10 @@ export default function TagManagement() {
   // 导出未翻译标签状态
   const { isExporting, handleExportUntranslated } = useExportUntranslatedTags()
 
-  // 编辑状态
-  const [editingTagId, setEditingTagId] = useState<number | null>(null)
-  const [editValues, setEditValues] = useState<{ name: string; name_zh: string }>({ name: '', name_zh: '' })
+  // 弹窗状态
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingTag, setEditingTag] = useState<TagListItem | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   // URL Search Params Sync
   const [searchState, setSearchState] = useQueryStates({
@@ -136,6 +141,7 @@ export default function TagManagement() {
 
       if (result.success) {
         toast.success('标签统计更新成功')
+        setRefreshKey((prev) => prev + 1)
       } else {
         throw new Error(result.message || '更新失败')
       }
@@ -147,24 +153,42 @@ export default function TagManagement() {
     }
   }
 
-  // 更新标签
-  const handleTagUpdate = async (tagId: number, updates: { name?: string; name_zh?: string }) => {
-    // TODO: 实现标签更新逻辑
-    toast.success('敬请期待：标签更新功能')
-    setEditingTagId(null)
-  }
+  // Delete Mutation
+  const deleteMutation = useMutation(
+    trpc.tag.delete.mutationOptions({
+      onSuccess: () => {
+        toast.success('删除成功')
+        setRefreshKey((prev) => prev + 1)
+      },
+      onError: (err) => {
+        toast.error(`删除失败: ${err.message}`)
+      }
+    })
+  )
 
-  const handleEditStart = (tag: TagListItem) => {
-    setEditingTagId(tag.id)
-    setEditValues({
-      name: tag.name,
-      name_zh: tag.name_zh || ''
+  const handleDelete = (id: number, artworkCount: number) => {
+    confirm({
+      title: '确定删除该标签吗？',
+      description:
+        artworkCount > 0
+          ? `该标签关联了 ${artworkCount} 个作品。删除标签将从所有作品中移除此标签。此操作无法撤销。`
+          : '删除后无法恢复。',
+      variant: 'destructive',
+      confirmText: '确认删除',
+      onConfirm: async () => {
+        await deleteMutation.mutateAsync(id)
+      }
     })
   }
 
-  const handleEditCancel = () => {
-    setEditingTagId(null)
-    setEditValues({ name: '', name_zh: '' })
+  const handleEdit = (tag: TagListItem) => {
+    setEditingTag(tag)
+    setDialogOpen(true)
+  }
+
+  const handleCreate = () => {
+    setEditingTag(null)
+    setDialogOpen(true)
   }
 
   // 表格列定义
@@ -172,36 +196,13 @@ export default function TagManagement() {
     {
       header: '标签名称',
       accessorKey: 'name',
-      cell: ({ row }) => {
-        const record = row.original
-        if (editingTagId === record.id) {
-          return (
-            <Input
-              value={editValues.name}
-              onChange={(e) => setEditValues((prev) => ({ ...prev, name: e.target.value }))}
-              className="h-8"
-              autoFocus
-            />
-          )
-        }
-        return <div className="font-medium">{record.name}</div>
-      }
+      cell: ({ row }) => <div className="font-medium">{row.original.name}</div>
     },
     {
       header: '中文翻译',
       accessorKey: 'name_zh',
       cell: ({ row }) => {
         const record = row.original
-        if (editingTagId === record.id) {
-          return (
-            <Input
-              value={editValues.name_zh}
-              onChange={(e) => setEditValues((prev) => ({ ...prev, name_zh: e.target.value }))}
-              placeholder="中文翻译"
-              className="h-8"
-            />
-          )
-        }
         const tName = getTranslateName(record)
         return <div className={tName ? 'text-neutral-900' : 'text-neutral-400 italic'}>{tName || '未翻译'}</div>
       }
@@ -228,47 +229,39 @@ export default function TagManagement() {
       size: 150,
       cell: ({ row }) => {
         const record = row.original
-        const isEditing = editingTagId === record.id
         const tName = getTranslateName(record)
-
-        if (isEditing) {
-          return (
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                onClick={() => handleTagUpdate(record.id, editValues)}
-                className="bg-green-600 hover:bg-green-700 text-white h-8 w-8 p-0"
-              >
-                <Save className="w-4 h-4" />
-              </Button>
-              <Button size="sm" variant="outline" onClick={handleEditCancel} className="h-8 w-8 p-0">
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          )
-        }
 
         return (
           <div className="flex items-center gap-2">
             <Button
               size="sm"
-              variant="outline"
-              onClick={() => handleEditStart(record)}
+              variant="ghost"
+              onClick={() => handleEdit(record)}
               className="text-neutral-600 hover:text-neutral-900 h-8 w-8 p-0"
+              title="编辑"
             >
               <Edit2 className="w-4 h-4" />
             </Button>
             {!tName && (
               <Button
                 size="sm"
-                onClick={() => handleTagUpdate(record.id, {})} // Trigger translate intent? Or just placeholder
-                variant="outline"
+                onClick={() => handleEdit(record)} // Quick edit usually targets translation
+                variant="ghost"
                 className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 h-8 w-8 p-0"
-                title="自动翻译(TODO)"
+                title="翻译"
               >
                 <Languages className="w-4 h-4" />
               </Button>
             )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-red-500 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
+              onClick={() => handleDelete(record.id, record.artworkCount)}
+              title="删除"
+            >
+              <Trash className="w-4 h-4" />
+            </Button>
           </div>
         )
       }
@@ -365,6 +358,7 @@ export default function TagManagement() {
 
       {/* 高级表格 */}
       <ProTable
+        key={refreshKey}
         rowKey="id"
         headerTitle="标签列表"
         columns={columns}
@@ -407,9 +401,20 @@ export default function TagManagement() {
                 <RotateCcw className="w-4 h-4 mr-1" />
                 重置
               </Button>
+              <Button variant="default" size="sm" className="gap-2 ml-auto" onClick={handleCreate}>
+                <Plus className="w-4 h-4" />
+                新增标签
+              </Button>
             </div>
           </div>
         )}
+      />
+
+      <TagDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        tag={editingTag}
+        onSuccess={() => setRefreshKey((prev) => prev + 1)}
       />
     </div>
   )
