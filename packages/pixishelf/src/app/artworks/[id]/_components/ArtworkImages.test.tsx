@@ -2,6 +2,13 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import ArtworkImages from './ArtworkImages'
 import React from 'react'
+import { useRouter } from 'next/navigation'
+
+vi.mock('next/navigation', () => ({
+  useRouter: vi.fn(() => ({
+    push: vi.fn()
+  }))
+}))
 
 // Mock LazyMedia 组件
 vi.mock('./LazyMedia', () => ({
@@ -32,7 +39,7 @@ describe('ArtworkImages', () => {
 
   it('renders all images when count is <= 20', () => {
     const images = generateImages(19)
-    render(<ArtworkImages images={images} />)
+    render(<ArtworkImages images={images} artworkId={1} />)
 
     const mediaItems = screen.getAllByTestId('lazy-media')
     expect(mediaItems).toHaveLength(19)
@@ -43,10 +50,11 @@ describe('ArtworkImages', () => {
 
   it('renders only first 20 images initially when count > 20', () => {
     const images = generateImages(21)
-    render(<ArtworkImages images={images} />)
+    render(<ArtworkImages images={images} artworkId={1} />)
 
+    // 20张可见 + 1张预加载（hidden，因为剩余只有1张）
     const mediaItems = screen.getAllByTestId('lazy-media')
-    expect(mediaItems).toHaveLength(20)
+    expect(mediaItems).toHaveLength(21)
 
     const button = screen.getByRole('button', { name: /查看剩余\s*1\s*张图片/i })
     expect(button).toBeTruthy()
@@ -54,12 +62,12 @@ describe('ArtworkImages', () => {
 
   it('expands to show all images when button is clicked', async () => {
     const images = generateImages(21)
-    render(<ArtworkImages images={images} />)
+    render(<ArtworkImages images={images} artworkId={1} />)
 
     const button = screen.getByRole('button', { name: /查看剩余\s*1\s*张图片/i })
     fireEvent.click(button)
 
-    // Wait for new items to appear
+    // 展开后显示全部21张（预加载的2张变成可见）
     await waitFor(() => {
       const mediaItems = screen.getAllByTestId('lazy-media')
       expect(mediaItems).toHaveLength(21)
@@ -68,5 +76,67 @@ describe('ArtworkImages', () => {
     // Button should be gone
     const buttonAfterClick = screen.queryByRole('button', { name: /查看剩余/i })
     expect(buttonAfterClick).toBeNull()
+  })
+
+  it('preloads only 2 images when remaining count > 2', () => {
+    const images = generateImages(25)
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    // 20张可见 + 2张预加载 = 22张
+    const mediaItems = screen.getAllByTestId('lazy-media')
+    expect(mediaItems).toHaveLength(22)
+
+    const button = screen.getByRole('button', { name: /查看剩余\s*5\s*张图片/i })
+    expect(button).toBeTruthy()
+  })
+
+  it('preloads exactly 2 images when remaining is exactly 2', () => {
+    const images = generateImages(22)
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    // 20张可见 + 2张预加载 = 22张
+    const mediaItems = screen.getAllByTestId('lazy-media')
+    expect(mediaItems).toHaveLength(22)
+
+    const button = screen.getByRole('button', { name: /查看剩余\s*2\s*张图片/i })
+    expect(button).toBeTruthy()
+  })
+
+  it('preloads only 2 images when remaining is 3', () => {
+    const images = generateImages(23)
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    // 20张可见 + 2张预加载 = 22张
+    const mediaItems = screen.getAllByTestId('lazy-media')
+    expect(mediaItems).toHaveLength(22)
+
+    const button = screen.getByRole('button', { name: /查看剩余\s*3\s*张图片/i })
+    expect(button).toBeTruthy()
+  })
+
+  it('expands correctly when remaining is exactly 2', async () => {
+    const images = generateImages(22)
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    const button = screen.getByRole('button', { name: /查看剩余\s*2\s*张图片/i })
+    fireEvent.click(button)
+
+    await waitFor(() => {
+      const mediaItems = screen.getAllByTestId('lazy-media')
+      expect(mediaItems).toHaveLength(22)
+    })
+  })
+
+  it('expands correctly when remaining is 3', async () => {
+    const images = generateImages(23)
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    const button = screen.getByRole('button', { name: /查看剩余\s*3\s*张图片/i })
+    fireEvent.click(button)
+
+    await waitFor(() => {
+      const mediaItems = screen.getAllByTestId('lazy-media')
+      expect(mediaItems).toHaveLength(23)
+    })
   })
 })
