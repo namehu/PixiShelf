@@ -31,6 +31,7 @@ export function VideoPlayer({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showPlayButton, setShowPlayButton] = useState(true)
+  const hasStartedPlayingRef = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const playButtonTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -52,7 +53,6 @@ export function VideoPlayer({
 
     const handleLoadedMetadata = () => {
       setDuration(video.duration)
-      setLoading(false)
     }
 
     const handleTimeUpdate = () => {
@@ -61,6 +61,7 @@ export function VideoPlayer({
 
     const handlePlay = () => {
       setIsPlaying(true)
+      hasStartedPlayingRef.current = true
       onPlay?.()
     }
 
@@ -91,6 +92,18 @@ export function VideoPlayer({
 
     const handleCanPlay = () => {
       setLoading(false)
+      hasStartedPlayingRef.current = true
+    }
+
+    const handleWaiting = () => {
+      if (hasStartedPlayingRef.current) {
+        setLoading(true)
+      }
+    }
+
+    const handlePlaying = () => {
+      setLoading(false)
+      hasStartedPlayingRef.current = true
     }
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata)
@@ -100,6 +113,8 @@ export function VideoPlayer({
     video.addEventListener('error', handleError)
     video.addEventListener('loadstart', handleLoadStart)
     video.addEventListener('canplay', handleCanPlay)
+    video.addEventListener('waiting', handleWaiting)
+    video.addEventListener('playing', handlePlaying)
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata)
@@ -109,6 +124,8 @@ export function VideoPlayer({
       video.removeEventListener('error', handleError)
       video.removeEventListener('loadstart', handleLoadStart)
       video.removeEventListener('canplay', handleCanPlay)
+      video.removeEventListener('waiting', handleWaiting)
+      video.removeEventListener('playing', handlePlaying)
     }
   }, [onPlay, onPause, onError])
 
