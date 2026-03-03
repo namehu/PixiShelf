@@ -55,6 +55,7 @@
     "dayjs": "^1.11.18",
     "dexie": "^4.2.1",
     "dexie-react-hooks": "^4.2.0",
+    "exifreader": "^4.36.2",
     "fast-glob": "^3.3.3",
     "framer-motion": "^11.0.0",
     "isomorphic-dompurify": "^2.35.0",
