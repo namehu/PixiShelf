@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ProDialog } from '@/components/shared/pro-dialog'
 import { ProDatePicker } from '@/components/shared/pro-date-picker'
 import { format } from 'date-fns'
@@ -20,6 +20,7 @@ import { BatchImportArtworkSchema } from '@/schemas/artwork.dto'
 import { useRecentTags } from '@/store/admin/useRecentTags'
 import { RecentTagsList } from './recent-tags-list'
 import { parseFileDate, parseDateFromFilename, DateSource } from '@/lib/date-parser'
+import { useVirtualizer } from '@tanstack/react-virtual'
 
 interface BatchImportDialogProps {
   open: boolean
@@ -54,6 +55,15 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
   const [artist, setArtist] = useState<Option | null>(null)
   const [defaultTags, setDefaultTags] = useState<Option[]>([])
   const [defaultSourceDate, setDefaultSourceDate] = useState<Date>(new Date())
+
+  const parentRef = useRef<HTMLDivElement>(null)
+
+  const rowVirtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 100,
+    overscan: 5
+  })
 
   const { uploadSingleFile } = useChunkUpload()
 
@@ -464,82 +474,105 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
               </div>
             </div>
           ) : (
-            <ScrollArea className="flex-1 min-h-0 border rounded-md bg-white">
-              <div className="space-y-1 p-2">
-                {items.map((item) => (
-                  <div
-                    key={item.id}
-                    className={cn(
-                      'flex flex-col gap-2 p-3 border rounded bg-white hover:bg-neutral-50 transition-colors',
-                      item.dateSource === 'default' && 'border-l-4 border-l-red-400' // Visual hint for fallback
-                    )}
-                  >
-                    {/* Top Row: Icon + Title + Status */}
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-neutral-100 flex items-center justify-center rounded shrink-0 text-neutral-500">
-                        {item.type === 'collection' ? <Folder size={16} /> : <FileIcon size={16} />}
-                      </div>
-                      <div className="flex-1 min-w-0 font-medium text-sm truncate" title={item.title}>
-                        {item.title}
-                      </div>
-                      <div className="shrink-0">
-                        {item.status === 'pending' ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-neutral-400 hover:text-red-500"
-                            onClick={() => setItems((prev) => prev.filter((i) => i.id !== item.id))}
-                          >
-                            <Trash2 size={14} />
-                          </Button>
-                        ) : item.status === 'done' ? (
-                          <CheckCircle className="text-green-500 w-5 h-5" />
-                        ) : item.status === 'error' ? (
-                          <div className="flex items-center gap-1 text-red-500 text-xs">
-                            <AlertCircle className="w-4 h-4" />
-                            <span>{item.errorMsg || 'Error'}</span>
+            <ScrollArea viewportRef={parentRef} className="flex-1 min-h-0 border rounded-md bg-white">
+              <div className="p-2 w-full">
+                <div
+                  style={{
+                    height: `${rowVirtualizer.getTotalSize()}px`,
+                    width: '100%',
+                    position: 'relative'
+                  }}
+                >
+                  {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                    const item = items[virtualItem.index]!
+                    return (
+                      <div
+                        key={item.id}
+                        ref={rowVirtualizer.measureElement}
+                        data-index={virtualItem.index}
+                        className="absolute top-0 left-0 w-full pb-1"
+                        style={{
+                          transform: `translateY(${virtualItem.start}px)`
+                        }}
+                      >
+                        <div
+                          className={cn(
+                            'flex flex-col gap-2 p-3 border rounded bg-white hover:bg-neutral-50 transition-colors',
+                            item.dateSource === 'default' && 'border-l-4 border-l-red-400' // Visual hint for fallback
+                          )}
+                        >
+                          {/* Top Row: Icon + Title + Status */}
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-neutral-100 flex items-center justify-center rounded shrink-0 text-neutral-500">
+                              {item.type === 'collection' ? <Folder size={16} /> : <FileIcon size={16} />}
+                            </div>
+                            <div className="flex-1 min-w-0 font-medium text-sm truncate" title={item.title}>
+                              {item.title}
+                            </div>
+                            <div className="shrink-0">
+                              {item.status === 'pending' ? (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 text-neutral-400 hover:text-red-500"
+                                  onClick={() => setItems((prev) => prev.filter((i) => i.id !== item.id))}
+                                >
+                                  <Trash2 size={14} />
+                                </Button>
+                              ) : item.status === 'done' ? (
+                                <CheckCircle className="text-green-500 w-5 h-5" />
+                              ) : item.status === 'error' ? (
+                                <div className="flex items-center gap-1 text-red-500 text-xs">
+                                  <AlertCircle className="w-4 h-4" />
+                                  <span>{item.errorMsg || 'Error'}</span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-blue-500">{item.progress}%</span>
+                                  <Loader2 className="animate-spin text-blue-500 w-4 h-4" />
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-blue-500">{item.progress}%</span>
-                            <Loader2 className="animate-spin text-blue-500 w-4 h-4" />
-                          </div>
-                        )}
-                      </div>
-                    </div>
 
-                    {/* Bottom Row: Controls */}
-                    {item.status === 'pending' && (
-                      <div className="flex gap-2 pl-11">
-                        {/* Date Picker */}
-                        <div className="w-[160px] shrink-0">
-                          <ProDatePicker
-                            mode="single"
-                            value={item.parsedDate}
-                            onChange={(date) => handleDateChange(item.id, date)}
-                            clearable={false}
-                            className={cn('h-8 text-xs', item.dateSource === 'default' && 'border-red-200 bg-red-50')}
-                          />
+                          {/* Bottom Row: Controls */}
+                          {item.status === 'pending' && (
+                            <div className="flex gap-2 pl-11">
+                              {/* Date Picker */}
+                              <div className="w-[160px] shrink-0">
+                                <ProDatePicker
+                                  mode="single"
+                                  value={item.parsedDate}
+                                  onChange={(date) => handleDateChange(item.id, date)}
+                                  clearable={false}
+                                  className={cn(
+                                    'h-8 text-xs',
+                                    item.dateSource === 'default' && 'border-red-200 bg-red-50'
+                                  )}
+                                />
+                              </div>
+
+                              {/* Tags */}
+                              <div className="flex-1 min-w-0">
+                                <MultipleSelector
+                                  value={item.tags}
+                                  onChange={(tags) => handleTagsChange(item.id, tags)}
+                                  onSearch={handleSearchTag}
+                                  triggerSearchOnFocus
+                                  placeholder="添加标签..."
+                                  className="text-xs py-1 min-h-[32px]"
+                                  badgeClassName="text-[10px] h-5"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {item.status !== 'pending' && <Progress value={item.progress} className="h-1 mt-1 mx-1" />}
                         </div>
-
-                        {/* Tags */}
-                        <div className="flex-1 min-w-0">
-                          <MultipleSelector
-                            value={item.tags}
-                            onChange={(tags) => handleTagsChange(item.id, tags)}
-                            onSearch={handleSearchTag}
-                            triggerSearchOnFocus
-                            placeholder="添加标签..."
-                            className="text-xs py-1 min-h-[32px]"
-                            badgeClassName="text-[10px] h-5"
-                          />
-                        </div>
                       </div>
-                    )}
-
-                    {item.status !== 'pending' && <Progress value={item.progress} className="h-1 mt-1 mx-1" />}
-                  </div>
-                ))}
+                    )
+                  })}
+                </div>
               </div>
             </ScrollArea>
           )}
