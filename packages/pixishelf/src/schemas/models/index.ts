@@ -30,7 +30,8 @@ export const ArtistModel = z.object({
   createdAt: z.date(), // [cite: 3]
   updatedAt: z.date(),
   avatar: z.string().nullable(),
-  backgroundImg: z.string().nullable() // [cite: 4]
+  backgroundImg: z.string().nullable(), // [cite: 4]
+  isStarred: z.boolean().default(false)
 })
 
 /**

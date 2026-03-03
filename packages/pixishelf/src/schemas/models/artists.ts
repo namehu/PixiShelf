@@ -10,5 +10,6 @@ export const ARTIST_SELECT = {
   createdAt: true,
   updatedAt: true,
   avatar: true,
-  backgroundImg: true
+  backgroundImg: true,
+  isStarred: true
 } satisfies Prisma.ArtistSelect

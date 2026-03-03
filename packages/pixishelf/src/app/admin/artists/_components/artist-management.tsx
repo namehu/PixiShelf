@@ -6,7 +6,7 @@ import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { Input } from '@/components/ui/input'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
 import { SortingState } from '@tanstack/react-table'
-import { Search, RotateCcw, Edit, Trash, ExternalLink, Plus } from 'lucide-react'
+import { Search, RotateCcw, Edit, Trash, ExternalLink, Plus, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ArtistDialog } from './artist-dialog'
 import { confirm } from '@/components/shared/global-confirm'
@@ -14,6 +14,50 @@ import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
+
+export function StarButton({
+  id,
+  initialIsStarred,
+  onToggle
+}: {
+  id: number
+  initialIsStarred: boolean
+  onToggle: (id: number, val: boolean) => Promise<void>
+}) {
+  const [isStarred, setIsStarred] = useState(initialIsStarred)
+  const [isLoading, setIsLoading] = useState(false)
+
+  const handleClick = async () => {
+    if (isLoading) return
+    const newValue = !isStarred
+    setIsStarred(newValue) // Optimistic update
+    setIsLoading(true)
+    try {
+      await onToggle(id, newValue)
+    } catch (error) {
+      setIsStarred(!newValue) // Rollback
+      toast.error('操作失败')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={handleClick}
+      title={isStarred ? '取消星标' : '设为星标'}
+      disabled={isLoading}
+    >
+      <Star className={cn('w-4 h-4', isStarred ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground')} />
+    </Button>
+  )
+}
+
+import { buildArtistQuery } from './utils'
 
 export function ArtistManagement() {
   const trpc = useTRPC()
@@ -29,11 +73,32 @@ export function ArtistManagement() {
     page: parseAsInteger.withDefault(1),
     pageSize: parseAsInteger.withDefault(20),
     sortId: parseAsString,
-    sortDesc: parseAsString // 'true' | 'false'
+    sortDesc: parseAsString, // 'true' | 'false'
+    isStarred: parseAsString // 'true' | 'false' | null
   })
 
   // 2. 本地搜索输入状态
   const [keyword, setKeyword] = useState(searchState.name || '')
+
+  // 星标 Mutation
+  const setStarMutation = useMutation(
+    trpc.artist.setStar.mutationOptions({
+      onSuccess: () => {
+        // 更新成功后刷新列表
+        setRefreshKey((prev) => prev + 1)
+      },
+      onError: (err) => {
+        toast.error(`操作失败: ${err.message}`)
+      }
+    })
+  )
+
+  const handleToggleStar = useCallback(
+    async (id: number, isStarred: boolean) => {
+      await setStarMutation.mutateAsync({ id, isStarred })
+    },
+    [setStarMutation]
+  )
 
   // 3. 排序状态 (从 URL 派生)
   const sorting = useMemo<SortingState>(() => {
@@ -92,21 +157,8 @@ export function ArtistManagement() {
   // 4. 数据请求函数
   const request = useCallback(
     async (params: { pageSize: number; current: number }) => {
-      // 计算 API 所需的 sortBy 参数
-      let sortBy: 'name_asc' | 'name_desc' | 'artworks_asc' | 'artworks_desc' = 'name_asc'
-
-      if (searchState.sortId) {
-        const isDesc = searchState.sortDesc === 'true'
-        if (searchState.sortId === 'name') sortBy = isDesc ? 'name_desc' : 'name_asc'
-        if (searchState.sortId === 'artworksCount') sortBy = isDesc ? 'artworks_desc' : 'artworks_asc'
-      }
-
-      const res = await trpcClient.artist.queryPage.query({
-        cursor: params.current,
-        pageSize: params.pageSize,
-        search: searchState.name || undefined,
-        sortBy
-      })
+      const queryParams = buildArtistQuery(params, searchState)
+      const res = await trpcClient.artist.queryPage.query(queryParams)
 
       return {
         data: res.data,
@@ -132,7 +184,8 @@ export function ArtistManagement() {
       page: 1,
       pageSize: 20,
       sortId: null,
-      sortDesc: null
+      sortDesc: null,
+      isStarred: null
     })
   }
 
@@ -152,72 +205,82 @@ export function ArtistManagement() {
   }
 
   // 列定义
-  const columns: ProColumnDef<any>[] = [
-    {
-      accessorKey: 'id',
-      header: 'ID',
-      cell: ({ row }) => <div className="w-[50px]">{row.getValue('id')}</div>
-    },
-    {
-      accessorKey: 'avatar',
-      header: '头像',
-      cell: ({ row }) => {
-        const avatar = row.getValue('avatar') as string
-        const name = row.getValue('name') as string
-        return (
-          <Avatar>
-            <AvatarImage src={avatar} alt={name} className="w-[32px] h-[32px]" />
-            <AvatarFallback>{name?.substring(0, 2).toUpperCase()}</AvatarFallback>
-          </Avatar>
+  const columns = useMemo<ProColumnDef<any>[]>(
+    () => [
+      {
+        accessorKey: 'id',
+        header: 'ID',
+        cell: ({ row }) => <div className="w-[50px]">{row.getValue('id')}</div>
+      },
+      {
+        accessorKey: 'isStarred',
+        header: '星标',
+        cell: ({ row }) => (
+          <StarButton id={row.original.id} initialIsStarred={row.getValue('isStarred')} onToggle={handleToggleStar} />
+        )
+      },
+      {
+        accessorKey: 'avatar',
+        header: '头像',
+        cell: ({ row }) => {
+          const avatar = row.getValue('avatar') as string
+          const name = row.getValue('name') as string
+          return (
+            <Avatar>
+              <AvatarImage src={avatar} alt={name} className="w-[32px] h-[32px]" />
+              <AvatarFallback>{name?.substring(0, 2).toUpperCase()}</AvatarFallback>
+            </Avatar>
+          )
+        }
+      },
+      {
+        accessorKey: 'name',
+        header: '姓名',
+        enableSorting: true
+      },
+      {
+        accessorKey: 'artworksCount',
+        header: '作品数',
+        cell: ({ row }) => {
+          return <div className="font-medium">{row.getValue('artworksCount')}</div>
+        },
+        enableSorting: true
+      },
+      {
+        accessorKey: 'createdAt',
+        header: '创建时间',
+        cell: ({ row }) => {
+          return <div className="text-muted-foreground">{row.getValue('createdAt')}</div>
+        }
+      },
+      {
+        id: 'actions',
+        header: '操作',
+        cell: ({ row }) => (
+          <div className="flex gap-1">
+            <Button variant="ghost" size="icon" onClick={() => handleEdit(row.original)} title="编辑">
+              <Edit className="w-4 h-4" />
+            </Button>
+            <Link href={`/artists/${row.original.id}`} target="_blank">
+              <Button variant="ghost" size="icon" title="新标签页打开">
+                <ExternalLink className="w-4 h-4" />
+              </Button>
+            </Link>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-red-500"
+              onClick={() => handleDelete(row.original.id)}
+              title="删除"
+            >
+              <Trash className="w-4 h-4" />
+            </Button>
+          </div>
         )
       }
-    },
-    {
-      accessorKey: 'name',
-      header: '姓名',
-      enableSorting: true
-    },
-    {
-      accessorKey: 'artworksCount',
-      header: '作品数',
-      cell: ({ row }) => {
-        return <div className="font-medium">{row.getValue('artworksCount')}</div>
-      },
-      enableSorting: true
-    },
-    {
-      accessorKey: 'createdAt',
-      header: '创建时间',
-      cell: ({ row }) => {
-        return <div className="text-muted-foreground">{row.getValue('createdAt')}</div>
-      }
-    },
-    {
-      id: 'actions',
-      header: '操作',
-      cell: ({ row }) => (
-        <div className="flex gap-1">
-          <Button variant="ghost" size="icon" onClick={() => handleEdit(row.original)} title="编辑">
-            <Edit className="w-4 h-4" />
-          </Button>
-          <Link href={`/artists/${row.original.id}`} target="_blank">
-            <Button variant="ghost" size="icon" title="新标签页打开">
-              <ExternalLink className="w-4 h-4" />
-            </Button>
-          </Link>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-red-500"
-            onClick={() => handleDelete(row.original.id)}
-            title="删除"
-          >
-            <Trash className="w-4 h-4" />
-          </Button>
-        </div>
-      )
-    }
-  ]
+    ],
+    [handleToggleStar]
+  )
 
   return (
     <div>
@@ -236,6 +299,21 @@ export function ArtistManagement() {
         onSortingChange={handleSortingChange}
         searchRender={() => (
           <div className="flex flex-wrap items-center gap-2 w-full">
+            <Select
+              value={searchState.isStarred || 'all'}
+              onValueChange={(val) => {
+                setSearchState({ isStarred: val === 'all' ? null : val, page: 1 })
+              }}
+            >
+              <SelectTrigger className="w-[120px] h-8">
+                <SelectValue placeholder="星标状态" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部</SelectItem>
+                <SelectItem value="true">已星标</SelectItem>
+                <SelectItem value="false">未星标</SelectItem>
+              </SelectContent>
+            </Select>
             <Input
               placeholder="搜索艺术家..."
               value={keyword}

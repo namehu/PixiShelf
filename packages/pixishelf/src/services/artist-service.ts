@@ -32,7 +32,7 @@ export async function getArtistById(id: number | string): Promise<ArtistResponse
  * @returns 艺术家列表响应
  */
 export async function getArtists(options: ArtistsGetSchema): Promise<PaginationResponseData<ArtistResponseDto>> {
-  const { pageSize, search, sortBy, cursor } = options
+  const { pageSize, search, sortBy, cursor, isStarred } = options
   const page = cursor ?? 1
   try {
     // 限制页面大小，防止过大的查询
@@ -41,6 +41,9 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
 
     // 构建搜索条件
     const whereClause: any = {}
+    if (isStarred !== undefined) {
+      whereClause.isStarred = isStarred
+    }
     if (search) {
       whereClause.OR = [
         {

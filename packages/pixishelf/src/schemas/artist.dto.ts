@@ -48,7 +48,8 @@ export const ArtistsGetSchema = z.object({
   cursor: z.number().int().min(1).default(1), // 用于无限滚动的游标，对应 page
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),
-  sortBy: z.enum(['name_asc', 'name_desc', 'artworks_desc', 'artworks_asc']).optional().default('name_asc')
+  sortBy: z.enum(['name_asc', 'name_desc', 'artworks_desc', 'artworks_asc']).optional().default('name_asc'),
+  isStarred: z.boolean().optional()
 })
 
 export type ArtistsGetSchema = z.infer<typeof ArtistsGetSchema>
@@ -63,7 +64,8 @@ export const ArtistCreateSchema = z.object({
   userId: z.string().optional(),
   bio: z.string().optional(),
   avatar: z.string().nullable(),
-  backgroundImg: z.string().nullish()
+  backgroundImg: z.string().nullish(),
+  isStarred: z.boolean().default(false)
 })
 
 export type ArtistCreateSchema = z.infer<typeof ArtistCreateSchema>

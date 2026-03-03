@@ -36,6 +36,15 @@ export const artistRouter = router({
   }),
 
   /**
+   * 设置艺术家星标状态
+   */
+  setStar: authProcedure
+    .input(z.object({ id: z.number(), isStarred: z.boolean() }))
+    .mutation(async ({ input }) => {
+      return await updateArtist(input.id, { isStarred: input.isStarred })
+    }),
+
+  /**
    * 删除艺术家
    */
   delete: authProcedure.input(z.number()).mutation(async ({ input }) => {

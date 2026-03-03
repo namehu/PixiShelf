@@ -19,9 +19,11 @@ model Artist {
   updatedAt     DateTime  @updatedAt
   avatar        String?
   backgroundImg String?
+  isStarred     Boolean   @default(false)
   artworks      Artwork[]
 
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([isStarred])
   @@unique([username, userId], name: "unique_username_userid")
 }
 
