@@ -9,16 +9,10 @@ import { apiHandler } from '@/lib/api-handler'
 import { ScanStreamSchema } from '@/schemas/scan.dto'
 import logger from '@/lib/logger'
 
-/**
- * POST /api/webhooks/scan
- * 使用 Bearer Token 认证通过 Webhook 触发扫描
- */
-export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
-  // 1. 安全检查：校验 Bearer Token
+function validateWebhookAuth(req: Request) {
   const authHeader = req.headers.get('Authorization')
   const expectedToken = process.env.SCAN_WEBHOOK_TOKEN
 
-  // 若服务端未配置 Token，为安全起见拒绝所有请求
   if (!expectedToken) {
     logger.warn('Webhook scan attempted but SCAN_WEBHOOK_TOKEN is not set')
     return NextResponse.json(
@@ -27,11 +21,39 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
     )
   }
 
-  // 简单 Bearer Token 校验
-  // 格式："Bearer <token>"
   if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
+
+  return null
+}
+
+export async function GET(req: Request) {
+  const authError = validateWebhookAuth(req)
+  if (authError) return authError
+
+  return NextResponse.json({
+    success: true,
+    data: {
+      status: 'ok'
+    }
+  })
+}
+
+export async function HEAD(req: Request) {
+  const authError = validateWebhookAuth(req)
+  if (authError) return authError
+
+  return new NextResponse(null, { status: 204 })
+}
+
+/**
+ * POST /api/webhooks/scan
+ * 使用 Bearer Token 认证通过 Webhook 触发扫描
+ */
+export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
+  const authError = validateWebhookAuth(req)
+  if (authError) return authError
 
   const { type, force, metadataList } = data
 
