@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { useTRPCClient } from '@/lib/trpc'
-import { RefreshCw, LayoutGrid, List as ListIcon, ZoomIn, FileUp, Trash2, Plus } from 'lucide-react'
+import { RefreshCw, LayoutGrid, List as ListIcon, ZoomIn, FileUp, Trash2, Plus, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { formatFileSize } from '@/utils/media'
+import { combinationApiResource } from '@/utils/combinationStatic'
 import { ProDrawer } from '@/components/shared/pro-drawer'
 import { ProDialog } from '@/components/shared/pro-dialog'
 import { ImageReplaceDialog } from './image-replace-dialog'
@@ -154,6 +155,38 @@ export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: Imag
     })
   }, [artworkId, trpcClient])
 
+  // --- Download Image Logic ---
+  const handleDownload = useCallback(async (path: string) => {
+    try {
+      const url = combinationApiResource(path)
+      if (!url) throw new Error('无效的图片路径')
+
+      const fileName = path.split('/').pop() || 'image'
+
+      // 使用 fetch 获取 blob 确保触发下载而不是在当前页打开
+      const response = await fetch(url)
+      if (!response.ok) throw new Error('网络请求失败')
+
+      const blob = await response.blob()
+      const blobUrl = window.URL.createObjectURL(blob)
+
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+
+      // 延迟释放，确保下载能够正常触发
+      setTimeout(() => {
+        window.URL.revokeObjectURL(blobUrl)
+      }, 1000)
+    } catch (error: any) {
+      console.error('Download failed:', error)
+      toast.error(`下载失败: ${error.message}`)
+    }
+  }, [])
+
   useEffect(() => {
     if (open && artworkId) {
       // Reset UI states
@@ -230,19 +263,34 @@ export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: Imag
     {
       header: '操作',
       id: 'actions',
-      size: 60,
+      size: 40,
       cell: ({ row }) => (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 text-muted-foreground hover:text-destructive"
-          onClick={(e) => {
-            e.stopPropagation()
-            setDeleteTarget(row.original.id)
-          }}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground hover:text-primary"
+            title="下载原图"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleDownload(row.original.path)
+            }}
+          >
+            <Download className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground hover:text-destructive"
+            title="删除"
+            onClick={(e) => {
+              e.stopPropagation()
+              setDeleteTarget(row.original.id)
+            }}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
       )
     }
   ]
@@ -486,11 +534,24 @@ export function ImageManagerDialog({ open, onOpenChange, data, onSuccess }: Imag
                         className="group relative bg-muted rounded-md overflow-hidden border hover:ring-2 hover:ring-primary cursor-pointer shadow-sm flex flex-col"
                         onClick={() => setPreviewIndex(index)}
                       >
-                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-1">
+                          <Button
+                            variant="secondary"
+                            size="icon"
+                            className="h-6 w-6 shadow-sm"
+                            title="下载原图"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDownload(img.path)
+                            }}
+                          >
+                            <Download className="w-3 h-3" />
+                          </Button>
                           <Button
                             variant="destructive"
                             size="icon"
                             className="h-6 w-6 shadow-sm"
+                            title="删除"
                             onClick={(e) => {
                               e.stopPropagation()
                               setDeleteTarget(img.id)
