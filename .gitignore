@@ -51,3 +51,5 @@ temp/
 # Coverage directory used by tools like istanbul
 coverage/
 .env
+.trae/skills
+.opencode

@@ -5,6 +5,7 @@
 ## ✨ 项目特性
 
 ### 🎯 核心功能
+
 - **智能文件扫描**: 自动扫描本地目录，解析文件夹结构和元数据
 - **艺术家管理**: 智能识别和管理艺术家信息，支持多种命名格式
 - **标签系统**: 灵活的标签管理，支持全文搜索、批量翻译和智能建议
@@ -14,6 +15,7 @@
 - **实时更新**: 使用SSE（Server-Sent Events）实现扫描进度实时推送
 
 ### 🚀 技术特性
+
 - **现代化架构**: 基于Next.js 15 App Router的分层架构设计
 - **类型安全**: 全面使用TypeScript，确保代码质量和开发体验
 - **高性能数据库**: PostgreSQL + Prisma ORM，支持全文搜索和复杂查询
@@ -25,6 +27,7 @@
 ## 🛠️ 技术栈
 
 ### 前端技术
+
 - **Next.js 15** - 全栈React框架，支持App Router和RSC
 - **React 19** - 现代化UI框架，支持并发特性
 - **TypeScript 5** - 类型安全的JavaScript超集
@@ -35,6 +38,7 @@
 - **Zustand** - 轻量级状态管理
 
 ### 后端技术
+
 - **Next.js API Routes** - 服务端API和中间件
 - **Prisma 5** - 现代化ORM和数据库工具
 - **PostgreSQL 15** - 强大的关系型数据库
@@ -44,11 +48,13 @@
 - **Zod** - 运行时类型验证
 
 ### 图片处理
+
 - **imgproxy** - 高性能图片处理和优化服务
 - **thumbor** - 视频缩略图生成和处理
 - **fast-glob** - 高效的文件系统扫描
 
 ### 开发工具
+
 - **pnpm** - 快速、节省磁盘空间的包管理器
 - **ESLint 9** - 代码质量检查
 - **Prettier** - 代码格式化
@@ -58,6 +64,7 @@
 ## 📋 环境要求
 
 ### 系统要求
+
 - **Node.js**: >= 20.0.0 (推荐使用最新LTS版本)
 - **pnpm**: >= 8.0.0
 - **Docker**: >= 24.0.0
@@ -66,6 +73,7 @@
 ### 开发环境安装
 
 1. **安装Node.js**
+
    ```bash
    # 使用nvm管理Node.js版本（推荐）
    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
@@ -74,6 +82,7 @@
    ```
 
 2. **安装pnpm**
+
    ```bash
    npm install -g pnpm@latest
    ```
@@ -85,12 +94,14 @@
 ## 🚀 快速开始
 
 ### 1. 克隆项目
+
 ```bash
 git clone https://github.com/your-username/PixiShelf.git
 cd PixiShelf
 ```
 
 ### 2. 安装依赖
+
 ```bash
 pnpm install
 ```
@@ -98,12 +109,14 @@ pnpm install
 ### 3. 环境配置
 
 #### 3.1 创建环境变量文件
+
 ```bash
 # 复制环境变量模板
 cp build/.env.example packages/pixishelf/.env
 ```
 
 #### 3.2 配置环境变量
+
 编辑 `packages/pixishelf/.env` 文件：
 
 ```env
@@ -130,13 +143,14 @@ NODE_ENV=development
 ```
 
 #### 3.3 配置图片目录
+
 编辑 `build/docker-compose.yml`，修改图片目录挂载路径：
 
 ```yaml
 # 将以下路径修改为你的图片目录
 volumes:
   # Windows示例
-  - "C:/Users/YourName/Pictures/Collection:/app/data:cached"
+  - 'C:/Users/YourName/Pictures/Collection:/app/data:cached'
   # macOS/Linux示例
   # - "/Users/yourname/Pictures/Collection:/app/data:cached"
 ```
@@ -144,12 +158,14 @@ volumes:
 ### 4. 启动服务
 
 #### 4.1 使用Docker启动（推荐）
+
 ```bash
 cd build
 docker-compose up -d
 ```
 
 #### 4.2 开发环境启动
+
 ```bash
 # 1. 启动数据库
 cd build
@@ -168,6 +184,7 @@ pnpm dev
 ```
 
 ### 5. 访问应用
+
 - **主应用**: http://localhost:5430
 - **管理后台**: http://localhost:5430/admin
 - **Prisma Studio**: http://localhost:5555 (开发环境)
@@ -175,6 +192,7 @@ pnpm dev
 ## 📁 项目架构
 
 ### 目录结构
+
 ```
 PixiShelf/
 ├── packages/pixishelf/          # 主应用
@@ -209,6 +227,7 @@ PixiShelf/
 ```
 
 ### 分层架构
+
 ```mermaid
 graph TB
     A[表示层 - Presentation] --> B[服务层 - Service]
@@ -280,6 +299,7 @@ pnpm dlx shadcn@canary add [COMPONENT]
 ### 开发工作流
 
 1. **功能开发**
+
    ```bash
    # 创建功能分支
    git checkout -b feature/new-feature
@@ -294,6 +314,7 @@ pnpm dlx shadcn@canary add [COMPONENT]
    ```
 
 2. **数据库变更**
+
    ```bash
    # 修改 prisma/schema.prisma
    pnpm db:generate  # 生成客户端
@@ -303,11 +324,20 @@ pnpm dlx shadcn@canary add [COMPONENT]
    pnpm db:migrate   # 创建迁移文件
    ```
 
+## 🤖 AI Coding 配置
+
+本项目已配置 AI Coding 工具（Trae / OpenCode）以提升开发效率。
+
+> **提示**: 在进行前端开发时，AI 工具会自动使用 `frontend-design` skill 来生成代码。该 skill 强调独特的设计方向、精选的字体、有特色的配色和精心设计的动画效果。
+
+详细配置说明和安装方法请参阅 [AI-CODING-SETUP.md](AI-CODING-SETUP.md)。
+
 ## 🐳 部署指南
 
 ### Docker部署
 
 #### 开发环境
+
 ```bash
 cd build
 
@@ -322,6 +352,7 @@ docker-compose logs -f app
 ```
 
 #### 生产环境
+
 ```bash
 cd build
 
@@ -334,35 +365,39 @@ docker-compose -f docker-compose.deploy.yml ps
 
 ### 服务配置
 
-| 服务 | 端口 | 描述 |
-|------|------|------|
-| app | 5430 | 主应用服务 |
-| postgres | 5432 | PostgreSQL数据库 |
-| imgproxy | 5431 | 图片处理服务 |
-| thumbor | 5433 | 视频处理服务 |
+| 服务          | 端口 | 描述                       |
+| ------------- | ---- | -------------------------- |
+| app           | 5430 | 主应用服务                 |
+| postgres      | 5432 | PostgreSQL数据库           |
+| imgproxy      | 5431 | 图片处理服务               |
+| thumbor       | 5433 | 视频处理服务               |
 | prisma-studio | 5555 | 数据库管理界面（开发环境） |
 
 ## 🔍 功能说明
 
 ### 文件扫描
+
 - 自动扫描指定目录下的图片和视频文件
 - 解析文件夹结构，提取艺术家和作品信息
 - 支持多种元数据格式（JSON、文件名解析等）
 - 实时进度反馈和错误处理
 
 ### 标签管理
+
 - 智能标签提取和管理
 - 支持中英文标签和批量翻译
 - 全文搜索和模糊匹配
 - 标签统计和热门标签展示
 
 ### 作品展示
+
 - 响应式瀑布流布局
 - 无限滚动加载
 - 多种排序和筛选选项
 - 作品详情页面和图片查看器
 
 ### 用户管理
+
 - JWT身份认证
 - 管理员权限控制
 - 用户偏好设置
@@ -373,6 +408,7 @@ docker-compose -f docker-compose.deploy.yml ps
 ### 常见问题
 
 1. **数据库连接失败**
+
    ```bash
    # 检查数据库状态
    docker-compose ps postgres
@@ -383,6 +419,7 @@ docker-compose -f docker-compose.deploy.yml ps
    ```
 
 2. **端口冲突**
+
    ```bash
    # 检查端口占用
    lsof -i :5430  # macOS/Linux
@@ -393,6 +430,7 @@ docker-compose -f docker-compose.deploy.yml ps
    ```
 
 3. **图片处理服务异常**
+
    ```bash
    # 检查服务状态
    curl http://localhost:5431/health
@@ -403,6 +441,7 @@ docker-compose -f docker-compose.deploy.yml ps
    ```
 
 4. **依赖安装问题**
+
    ```bash
    # 清理缓存
    pnpm store prune
@@ -429,6 +468,7 @@ docker-compose -f docker-compose.deploy.yml ps
 我们欢迎所有形式的贡献！
 
 ### 贡献流程
+
 1. Fork 项目到你的GitHub账户
 2. 创建功能分支: `git checkout -b feature/amazing-feature`
 3. 提交变更: `git commit -m 'Add amazing feature'`
@@ -436,12 +476,14 @@ docker-compose -f docker-compose.deploy.yml ps
 5. 创建Pull Request
 
 ### 代码规范
+
 - 遵循ESLint和Prettier配置
 - 编写清晰的提交信息
 - 添加必要的测试用例
 - 更新相关文档
 
 ### 问题报告
+
 - 使用GitHub Issues报告bug
 - 提供详细的复现步骤
 - 包含环境信息和错误日志
@@ -453,6 +495,7 @@ docker-compose -f docker-compose.deploy.yml ps
 ## 🙏 致谢
 
 感谢以下开源项目的支持：
+
 - [Next.js](https://nextjs.org/) - React全栈框架
 - [Prisma](https://www.prisma.io/) - 现代化数据库工具
 - [Tailwind CSS](https://tailwindcss.com/) - CSS框架
