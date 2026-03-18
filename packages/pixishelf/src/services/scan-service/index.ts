@@ -326,7 +326,7 @@ async function globMetadataFiles(
  * @param context 扫描上下文
  * @param forceUpdate 是否强制更新（影响去重与过滤）
  */
-async function prepareMetadataFilesFromList(
+export async function prepareMetadataFilesFromList(
   directoryPath: string,
   relativePaths: string[],
   context: ScanContext,
@@ -338,19 +338,34 @@ async function prepareMetadataFilesFromList(
   })
 
   const createdAt = new Date()
-  // 拼接为绝对路径并构建基础元数据文件对象
-  const files = relativePaths.map((relativePath) => {
-    const cleanPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath
-    const absolutePath = path.resolve(directoryPath, cleanPath)
-    const name = path.basename(absolutePath)
-    const artworkId = extractArtworkIdFromFilename(name) || ''
-    return {
-      name,
-      artworkId,
-      path: absolutePath,
-      createdAt
-    } as GlobMetadataFile
-  })
+  const scanRootPath = path.resolve(directoryPath)
+  const scanRootPrefix = `${scanRootPath}${path.sep}`
+  const files = relativePaths
+    .map((relativePath) => {
+      const cleanPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath
+      const absolutePath = path.resolve(scanRootPath, cleanPath)
+      const isInsideScanPath = absolutePath === scanRootPath || absolutePath.startsWith(scanRootPrefix)
+
+      if (!isInsideScanPath) {
+        context.scanResult.errors.push(`Invalid metadata path out of scan root: ${relativePath}`)
+        logger.warn('Invalid metadata path out of scan root', {
+          scanRootPath,
+          relativePath,
+          absolutePath
+        })
+        return null
+      }
+
+      const name = path.basename(absolutePath)
+      const artworkId = extractArtworkIdFromFilename(name) || ''
+      return {
+        name,
+        artworkId,
+        path: absolutePath,
+        createdAt
+      } as GlobMetadataFile
+    })
+    .filter((file): file is GlobMetadataFile => file !== null)
 
   // 过滤掉未能解析出作品ID的项
   const validFiles = files.filter((file) => !!file.artworkId)

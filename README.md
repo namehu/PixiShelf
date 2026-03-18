@@ -130,6 +130,9 @@ DATABASE_URL=postgresql://pixishelf:your-secure-password-123@localhost:5432/pixi
 JWT_SECRET=your-very-secure-jwt-secret-key-at-least-32-characters-long
 JWT_TTL=604800
 
+# Webhook 扫描令牌（用于 POST /api/webhooks/scan 的 Bearer Token 认证）
+SCAN_WEBHOOK_TOKEN=your-secure-random-token
+
 # 管理员账户（首次启动时创建）
 INIT_ADMIN_USERNAME=admin
 INIT_ADMIN_PASSWORD=admin123
@@ -140,6 +143,12 @@ NEXT_PUBLIC_THUMBOR_VIDEO_URL=http://localhost:5433
 
 # 运行环境
 NODE_ENV=development
+```
+
+Webhook 触发扫描时，请在请求头中携带：
+
+```http
+Authorization: Bearer <SCAN_WEBHOOK_TOKEN>
 ```
 
 #### 3.3 配置图片目录

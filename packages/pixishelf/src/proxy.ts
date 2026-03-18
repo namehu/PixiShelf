@@ -9,7 +9,7 @@ import { rateLimiter } from './lib/rate-limit'
 /**
  * 公开访问的路径模式（不需要认证）
  */
-const PUBLIC_PATHS = ['/', '/login']
+const PUBLIC_PATHS = ['/', '/login', '/api/webhooks/scan']
 
 /**
  * 检查路径是否匹配模式
