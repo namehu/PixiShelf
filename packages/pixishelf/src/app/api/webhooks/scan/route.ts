@@ -72,6 +72,11 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
     throw error
   }
   logger.info(`Webhook scan job started: ${job.id} (type: ${type})`)
+  const pendingProgressWrites = new Set<Promise<void>>()
+  const flushProgressWrites = async () => {
+    if (pendingProgressWrites.size === 0) return
+    await Promise.allSettled(Array.from(pendingProgressWrites))
+  }
 
   try {
     let lastDbUpdate = 0
@@ -93,9 +98,15 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
         const now = Date.now()
         // 定时将任务进度更新到数据库
         if (now - lastDbUpdate > DB_UPDATE_INTERVAL) {
-          JobService.updateProgress(job.id, progress.percentage || 0, progress.message || '').catch((err) =>
-            logger.error('Failed to update job progress', err)
-          )
+          let progressWrite: Promise<void>
+          progressWrite = JobService.updateProgress(job.id, progress.percentage || 0, progress.message || '')
+            .catch((err) => {
+              logger.error('Failed to update job progress', err)
+            })
+            .finally(() => {
+              pendingProgressWrites.delete(progressWrite)
+            })
+          pendingProgressWrites.add(progressWrite)
           lastDbUpdate = now
         }
       }
@@ -103,6 +114,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
 
     const isCancelled = result.errors.includes('Scan cancelled')
     if (isCancelled) {
+      await flushProgressWrites()
       await JobService.markAsCancelled(job.id)
       return NextResponse.json(
         {
@@ -114,6 +126,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
       )
     }
 
+    await flushProgressWrites()
     await JobService.completeJob(job.id, result)
 
     return NextResponse.json({
@@ -126,6 +139,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error'
 
     if (errorMsg === 'Scan cancelled') {
+      await flushProgressWrites()
       await JobService.markAsCancelled(job.id)
       return NextResponse.json(
         {
@@ -137,6 +151,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
       )
     }
 
+    await flushProgressWrites()
     await JobService.failJob(job.id, errorMsg)
 
     return NextResponse.json(
