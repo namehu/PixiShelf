@@ -306,7 +306,7 @@ function validateMetadata(metadata: Partial<MetadataInfo>): { success: boolean; 
  * @returns 作品ID或null
  */
 export function extractArtworkIdFromFilename(filename: string): string | null {
-  const match = filename.match(/^(\d+)-meta\.txt$/i)
+  const match = filename.match(/^(\d+)(?:_p\d+)?-meta\.txt$/i)
   return match && match[1] ? match[1] : null
 }
 
