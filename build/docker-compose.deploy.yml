@@ -70,6 +70,18 @@ services:
       - IMGPROXY_LOCAL_FILESYSTEM_ROOT=/data
       - IMGPROXY_MAX_SRC_FILE_SIZE=0
       - IMGPROXY_MAX_SRC_RESOLUTION=1000
+      # 开启并限制动图支持，防止 OOM (默认是 1 会变成静态图)
+      - IMGPROXY_MAX_ANIMATION_FRAMES=256 # 允许最多处理 256 帧的动图（你可以根据实际业务调整，0 表示无限制但不推荐）
+      - IMGPROXY_MAX_ANIMATION_RESOLUTION=50 # 动图所有帧的像素总和限制（单位：百万像素），防止超长超大动图卡死服务
+      # === 稳定性与防 503 配置 ===
+      # 增加允许在队列中等待的请求数，防止瞬时高并发导致请求被丢弃 (默认并发*10)
+      - IMGPROXY_MAX_CLIENTS=2000
+      # 防止大图处理时间过长导致网关认为超时
+      - IMGPROXY_READ_TIMEOUT=30
+      - IMGPROXY_WRITE_TIMEOUT=30
+      - IMGPROXY_DOWNLOAD_TIMEOUT=30
+      # 如果内存比较吃紧，可以开启积极的内存释放
+      - IMGPROXY_FREE_MEMORY_INTERVAL=10
     networks:
       - pixishelf-network
 
