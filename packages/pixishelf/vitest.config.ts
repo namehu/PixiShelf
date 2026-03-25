@@ -4,10 +4,11 @@ import path from 'path'
 export default defineConfig({
   test: {
     environment: 'jsdom',
+    exclude: ['**/node_modules/**', '**/dist/**', '**/cypress/**', '**/.{idea,git,cache,output,temp}/**', '**/.next/**'],
     alias: {
       '@': path.resolve(__dirname, './src'),
       'server-only': path.resolve(__dirname, './tests/mocks/server-only.ts'),
-    },
+    }
     // globals: true, // 如果需要全局变量
-  },
+  }
 })

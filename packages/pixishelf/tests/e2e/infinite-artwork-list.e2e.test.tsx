@@ -9,6 +9,11 @@ import { useWindowVirtualizer } from '@tanstack/react-virtual'
 
 vi.mock('react-intersection-observer')
 vi.mock('@/lib/trpc')
+vi.mock('@/components/user-setting', () => ({
+  useUserSettings: () => ({
+    settings: {}
+  })
+}))
 vi.mock('@/hooks/use-columns', () => ({
   useColumns: vi.fn()
 }))
@@ -34,6 +39,10 @@ const mockResizeObserver = vi.fn(function (this: any, callback: any) {
 })
 
 vi.stubGlobal('ResizeObserver', mockResizeObserver)
+Object.defineProperty(window, 'scrollTo', {
+  value: vi.fn(),
+  writable: true
+})
 
 describe('InfiniteArtworkList e2e', () => {
   it('should only request one extra page per inView entry', async () => {
