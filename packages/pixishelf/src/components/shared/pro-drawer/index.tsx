@@ -66,7 +66,7 @@ export function ProDrawer({
   children,
   className,
   bodyClassName,
-  direction = 'bottom',
+  direction = 'right',
   width = '45%',
   ...props
 }: ProDrawerProps) {
