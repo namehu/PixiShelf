@@ -9,12 +9,13 @@ interface ArtworkCardProps {
   artwork: ArtworkResponseDto
   priority?: boolean
   className?: string
+  displayMode?: 'card' | 'minimal'
 }
 
 /**
  * 作品卡片组件
  */
-export default function ArtworkCard({ artwork, priority = false, className }: ArtworkCardProps) {
+export default function ArtworkCard({ artwork, priority = false, className, displayMode = 'card' }: ArtworkCardProps) {
   const { id, title, imageCount, totalMediaSize = 0, images = [], artist } = artwork
 
   const { path: src = '', mediaType } = images[0] ?? {}
@@ -23,7 +24,12 @@ export default function ArtworkCard({ artwork, priority = false, className }: Ar
   return (
     <Link href={`/artworks/${id}`} className={cn('group block', className)}>
       {/* 作品封面 */}
-      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-gray-100 mb-2">
+      <div
+        className={cn(
+          'relative aspect-[3/4] w-full overflow-hidden bg-gray-100',
+          displayMode === 'minimal' ? 'rounded-none mb-0.5' : 'rounded-lg mb-2'
+        )}
+      >
         <Image
           src={src}
           alt={title}
@@ -56,16 +62,24 @@ export default function ArtworkCard({ artwork, priority = false, className }: Ar
       </div>
 
       {/* 作品信息 */}
-      <div className="space-y-0.5 px-0.5">
-        <h4 className="font-bold text-sm text-gray-900 truncate leading-snug group-hover:text-blue-600 transition-colors">
-          {title}
-        </h4>
-        {name && (
-          <div className="flex items-center gap-1 text-xs text-gray-500">
-            <span className="truncate hover:text-gray-700 transition-colors">{name}</span>
-          </div>
-        )}
-      </div>
+      {displayMode !== 'minimal' && (
+        <div className="space-y-0.5 px-0.5">
+          <h4 className="font-bold text-sm text-gray-900 truncate leading-snug group-hover:text-blue-600 transition-colors">
+            {title}
+          </h4>
+          {name && (
+            <div className="flex items-center gap-1 text-xs text-gray-500">
+              <span className="truncate hover:text-gray-700 transition-colors">{name}</span>
+            </div>
+          )}
+        </div>
+      )}
+      {displayMode === 'minimal' && (
+        <div className="sr-only">
+          <span>{title}</span>
+          {name && <span>{name}</span>}
+        </div>
+      )}
     </Link>
   )
 }

@@ -18,7 +18,9 @@ export const ROUTES = {
   ADMINSTATS: '/admin/statistics',
   TAGS: '/tags',
   VIEWER: '/viewer',
-  CHANGE_PASSWORD: '/change-password'
+  CHANGE_PASSWORD: '/change-password',
+  SETTINGS_PROFILE: '/settings/profile',
+  SETTINGS_PREFERENCES: '/settings/preferences'
 } as const
 
 /**

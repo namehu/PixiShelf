@@ -9,6 +9,7 @@ import { useTRPC } from '@/lib/trpc'
 import { EnhancedArtworksResponse } from '@/types'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { useColumns } from '@/hooks/use-columns'
+import { useUserSettings } from '@/components/user-setting'
 
 interface InfiniteArtworkGridProps {
   initialData: EnhancedArtworksResponse & { nextCursor?: number }
@@ -16,6 +17,7 @@ interface InfiniteArtworkGridProps {
 
 export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGridProps) {
   const trpc = useTRPC()
+  const { settings } = useUserSettings()
   const containerRef = useRef<HTMLDivElement>(null)
   const virtualListRef = useRef<HTMLDivElement>(null)
   const columns = useColumns()
@@ -24,6 +26,7 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
   const [isReady, setIsReady] = useState(false)
 
   const [offsetTop, setOffsetTop] = useState(0)
+  const displayMode = settings.artwork_display_mode === 'minimal' ? 'minimal' : 'card'
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status } = useInfiniteQuery(
     trpc.artwork.queryRecommendPage.infiniteQueryOptions(
@@ -69,16 +72,13 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
   }, [])
 
   const estimateSize = useCallback(() => {
-    // 这里的 48 是 padding (假设 px-6 = 24px * 2)
     const effectiveWidth = containerWidth
-
-    // 避免除以 0
     const safeColumns = columns > 0 ? columns : 1
-    const gapTotal = (safeColumns - 1) * 16
-
+    const gap = displayMode === 'minimal' ? 2 : 16
+    const gapTotal = (safeColumns - 1) * gap
     const cardWidth = (effectiveWidth - gapTotal) / safeColumns
-    return cardWidth * 1.33 + 60
-  }, [containerWidth, columns])
+    return displayMode === 'minimal' ? cardWidth * 1.33 + 2 : cardWidth * 1.33 + 60
+  }, [containerWidth, columns, displayMode])
 
   const rowVirtualizer = useWindowVirtualizer({
     useFlushSync: false,
@@ -163,7 +163,7 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
             <div
               key={virtualRow.key}
               data-index={virtualRow.index}
-              className="absolute top-0 left-0 w-full grid gap-4"
+              className={`absolute top-0 left-0 w-full grid ${displayMode === 'minimal' ? 'gap-[2px]' : 'gap-4'}`}
               style={{
                 height: `${virtualRow.size}px`,
                 transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
@@ -175,6 +175,7 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
                   key={`${artwork.id}-${startIndex + index}`}
                   artwork={artwork as any}
                   priority={index < 10}
+                  displayMode={displayMode}
                 />
               ))}
             </div>

@@ -9,7 +9,7 @@ import {
   MenubarSeparator
 } from '@/components/ui/menubar'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { UsersIcon, SettingsIcon, LogOutIcon, BarChart2Icon } from 'lucide-react'
+import { UsersIcon, SettingsIcon, LogOutIcon, BarChart2Icon, SlidersHorizontalIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { memo } from 'react'
 import { useAuth } from '@/components/auth'
@@ -27,10 +27,10 @@ const UserMenu = () => {
         <MenubarTrigger className="flex items-center cursor-pointer">
           <Avatar className="h-6 w-6">
             <AvatarFallback className="bg-primary text-primary-foreground">
-              {user?.username?.charAt(0).toUpperCase() || 'U'}
+              {user?.name?.charAt(0).toUpperCase() || 'U'}
             </AvatarFallback>
           </Avatar>
-          <span className="text-sm text-gray-700 ml-2 hidden sm:inline">{user?.username}</span>
+          <span className="text-sm text-gray-700 ml-2 hidden sm:inline">{user?.name || '用户'}</span>
         </MenubarTrigger>
 
         <MenubarContent>
@@ -41,6 +41,11 @@ const UserMenu = () => {
           <MenubarItem onClick={() => router.push(ROUTES.ADMIN)}>
             <SettingsIcon className="mr-2 h-4 w-4" />
             管理后台
+          </MenubarItem>
+          <MenubarSeparator />
+          <MenubarItem onClick={() => router.push(ROUTES.SETTINGS_PROFILE)}>
+            <SlidersHorizontalIcon className="mr-2 h-4 w-4" />
+            个人设置
           </MenubarItem>
           <MenubarSeparator />
           <MenubarItem onClick={() => router.push(ROUTES.CHANGE_PASSWORD)}>

@@ -8,6 +8,7 @@ import { createTRPCClient, httpBatchLink, loggerLink } from '@trpc/client'
 import { useState } from 'react'
 import { TRPCProvider as TRPCClientProvider } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
+import { UserSettingProvider } from '@/components/user-setting'
 
 function makeQueryClient() {
   return new QueryClient({
@@ -40,12 +41,13 @@ const queryClient = getQueryClient()
 export interface ProvidersProps {
   children: React.ReactNode
   initialUser?: AuthMeResponseDTO | null
+  initialSettings?: Record<string, unknown>
 }
 
 /**
  * 应用程序的所有 Context Providers
  */
-export function Providers({ children, initialUser }: ProvidersProps) {
+export function Providers({ children, initialUser, initialSettings }: ProvidersProps) {
   const [trpcClient] = useState(() =>
     createTRPCClient<AppRouter>({
       links: [
@@ -63,7 +65,9 @@ export function Providers({ children, initialUser }: ProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
       <TRPCClientProvider trpcClient={trpcClient} queryClient={queryClient}>
-        <AuthProvider initialUser={initialUser}>{children}</AuthProvider>
+        <AuthProvider initialUser={initialUser}>
+          <UserSettingProvider initialSettings={initialSettings}>{children}</UserSettingProvider>
+        </AuthProvider>
       </TRPCClientProvider>
     </QueryClientProvider>
   )

@@ -7,6 +7,7 @@ import { GlobalConfirmDialog } from '@/components/shared/global-confirm' // 引�
 import { headers } from 'next/headers'
 import './globals.css'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
+import { getUserSettings } from '@/services/user-setting-service'
 
 export const metadata: Metadata = {
   title: 'Pixishelf - 艺术家作品管理平台',
@@ -34,6 +35,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   const headersList = await headers()
   const sessionHeader = headersList.get('x-user-session')
   let initialUser: AuthMeResponseDTO | null = null
+  let initialSettings: Record<string, unknown> = {}
 
   if (sessionHeader) {
     try {
@@ -50,11 +52,15 @@ export default async function RootLayout({ children }: RootLayoutProps) {
     }
   }
 
+  if (initialUser?.id) {
+    initialSettings = await getUserSettings(String(initialUser.id))
+  }
+
   return (
     <html lang="zh-CN">
       <body suppressHydrationWarning={true}>
         <NuqsAdapter>
-          <Providers initialUser={initialUser}>
+          <Providers initialUser={initialUser} initialSettings={initialSettings}>
             <Toaster />
             {children}
             <GlobalConfirmDialog />

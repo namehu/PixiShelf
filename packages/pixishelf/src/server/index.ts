@@ -9,6 +9,7 @@ import { tagRouter } from './routers/tag'
 import { seriesRouter } from './routers/series'
 import { migrationRouter } from './routers/migration'
 import { jobRouter } from './routers/job'
+import { userSettingRouter } from './routers/user-setting'
 
 // 挂载子路由
 export const appRouter = router({
@@ -21,7 +22,8 @@ export const appRouter = router({
   tag: tagRouter,
   series: seriesRouter,
   migration: migrationRouter,
-  job: jobRouter
+  job: jobRouter,
+  userSetting: userSettingRouter
 })
 
 // 导出类型供前端使用

@@ -11,6 +11,7 @@ import { useColumns } from '@/hooks/use-columns'
 import { SortOption, MediaTypeFilter } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useUserSettings } from '@/components/user-setting'
 
 /**
  * 无限滚动作品列表组件 (InfiniteArtworkList)
@@ -65,6 +66,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   } = props
 
   const trpc = useTRPC()
+  const { settings } = useUserSettings()
   const containerRef = useRef<HTMLDivElement>(null)
   const virtualListRef = useRef<HTMLDivElement>(null)
   const columns = useColumns()
@@ -72,6 +74,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   const [containerWidth, setContainerWidth] = useState(0)
   const [isReady, setIsReady] = useState(false)
   const [offsetTop, setOffsetTop] = useState(0)
+  const displayMode = settings.artwork_display_mode === 'minimal' ? 'minimal' : 'card'
 
   const isRequesting = useRef(false)
   const prevInView = useRef(false)
@@ -132,12 +135,11 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   const estimateSize = useCallback(() => {
     const effectiveWidth = containerWidth
     const safeColumns = columns > 0 ? columns : 1
-    // gap-3 = 12px
-    const gapTotal = (safeColumns - 1) * 12
+    const gap = displayMode === 'minimal' ? 2 : 12
+    const gapTotal = (safeColumns - 1) * gap
     const cardWidth = (effectiveWidth - gapTotal) / safeColumns
-    // 假设卡片宽高比约为 3:4 (0.75)，加上底部信息高度约 60px
-    return cardWidth * 1.33 + 60
-  }, [containerWidth, columns])
+    return displayMode === 'minimal' ? cardWidth * 1.33 + 2 : cardWidth * 1.33 + 60
+  }, [containerWidth, columns, displayMode])
 
   const rowVirtualizer = useWindowVirtualizer({
     useFlushSync: false,
@@ -266,7 +268,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
                 <div
                   key={virtualRow.key}
                   data-index={virtualRow.index}
-                  className="absolute top-0 left-0 w-full grid gap-3"
+                  className={`absolute top-0 left-0 w-full grid ${displayMode === 'minimal' ? 'gap-[2px]' : 'gap-3'}`}
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
@@ -278,6 +280,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
                       key={`${artwork.id}-${startIndex + index}`}
                       artwork={artwork as any}
                       priority={index < 10}
+                      displayMode={displayMode}
                     />
                   ))}
                 </div>
