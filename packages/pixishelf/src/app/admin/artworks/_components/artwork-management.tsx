@@ -19,12 +19,12 @@ import {
   Sliders
 } from 'lucide-react'
 import { ArtworkDialog } from './artwork-dialog'
+import { ArtworkUnifiedEditor } from './artwork-unified-editor'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { exportNoSeriesArtworksAction } from '@/actions/artwork-action'
 import { useMigration } from '../_hooks/use-migration'
 import { MigrationDialog } from './migration-dialog'
-import { ImageManagerDialog } from './image-manager-dialog'
 import { confirm } from '@/components/shared/global-confirm'
 import { useQueryStates, parseAsString, parseAsInteger, parseAsBoolean } from 'nuqs'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
@@ -47,9 +47,7 @@ export default function ArtworkManagement() {
   const trpcClient = useTRPCClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [batchImportOpen, setBatchImportOpen] = useState(false)
-  const [editingArtwork, setEditingArtwork] = useState<any>(null)
-  const [imageManagerOpen, setImageManagerOpen] = useState(false)
-  const [managingArtwork, setManagingArtwork] = useState<ArtworkResponseDto | null>(null)
+  const [editorConfig, setEditorConfig] = useState<{ id: number; tab: 'info' | 'media' } | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isPrechecking, setIsPrechecking] = useState(false)
   const [migrationSafety, setMigrationSafety] = useState({
@@ -214,13 +212,11 @@ export default function ArtworkManagement() {
   }
 
   const handleEdit = (item: any) => {
-    setEditingArtwork(item)
-    setDialogOpen(true)
+    setEditorConfig({ id: item.id, tab: 'info' })
   }
 
   const handleOpenImageManager = (item: ArtworkResponseDto) => {
-    setManagingArtwork(item)
-    setImageManagerOpen(true)
+    setEditorConfig({ id: item.id, tab: 'media' })
   }
 
   // --- Migration Handlers ---
@@ -343,9 +339,12 @@ export default function ArtworkManagement() {
       size: 240,
       ellipsis: true,
       cell: ({ row: { original } }) => {
-        const { title, metaSource = '-' } = original
+        const { title, metaSource = '-', id } = original
         return (
-          <div className="font-medium">
+          <div
+            className="font-medium cursor-pointer hover:text-primary transition-colors"
+            onClick={() => setEditorConfig({ id, tab: 'info' })}
+          >
             <div className="truncate" title={title}>
               {title}
             </div>
@@ -523,7 +522,6 @@ export default function ArtworkManagement() {
             size="sm"
             className="gap-2"
             onClick={() => {
-              setEditingArtwork(null)
               setDialogOpen(true)
             }}
           >
@@ -810,20 +808,19 @@ export default function ArtworkManagement() {
       <ArtworkDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        artwork={editingArtwork}
         onSuccess={(createdArtwork) => {
           setRefreshKey((prev) => prev + 1)
-          if (createdArtwork && !editingArtwork) {
-            handleOpenImageManager(createdArtwork)
+          if (createdArtwork) {
+            handleOpenImageManager(createdArtwork as any)
           }
         }}
       />
 
-      <ImageManagerDialog
-        open={imageManagerOpen}
-        onOpenChange={setImageManagerOpen}
-        data={managingArtwork}
-        onSuccess={() => setRefreshKey((prev) => prev + 1)}
+      <ArtworkUnifiedEditor
+        open={!!editorConfig}
+        onOpenChange={(open) => !open && setEditorConfig(null)}
+        artworkId={editorConfig?.id ?? null}
+        initialTab={editorConfig?.tab}
       />
 
       <MigrationDialog
