@@ -7,11 +7,11 @@ import { useState, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import { Tag } from '@/types'
+import type { TRandomTagDto } from '@/schemas/tag.dto'
 import { getTranslateName } from '@/utils/tags'
 
 interface TagsPanelProps {
-  tags: Tag[]
+  tags: TRandomTagDto[]
   trigger: React.ReactNode
 }
 

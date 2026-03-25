@@ -1,9 +1,13 @@
+'use client'
+
 import Link from 'next/link'
 import { ImageIcon, VideoIcon } from 'lucide-react'
 import Image from 'next/image'
 import { formatFileSize } from '@/utils/media'
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { cn } from '@/lib/utils'
+import { useMemo } from 'react'
+import { useUserSettings } from '@/components/user-setting'
 
 interface ArtworkCardProps {
   artwork: ArtworkResponseDto
@@ -12,14 +16,25 @@ interface ArtworkCardProps {
   displayMode?: 'card' | 'minimal'
 }
 
+const PREFERRED_TAGS_KEY = 'preferred_tags'
+
 /**
  * 作品卡片组件
  */
 export default function ArtworkCard({ artwork, priority = false, className, displayMode = 'card' }: ArtworkCardProps) {
-  const { id, title, imageCount, totalMediaSize = 0, images = [], artist } = artwork
+  const { settings } = useUserSettings()
+  const { id, title, imageCount, totalMediaSize = 0, images = [], artist, tags = [] } = artwork
 
   const { path: src = '', mediaType } = images[0] ?? {}
   const { name } = artist ?? {}
+  const preferredTags = Array.isArray(settings[PREFERRED_TAGS_KEY])
+    ? settings[PREFERRED_TAGS_KEY].filter((item): item is string => typeof item === 'string')
+    : []
+  const preferredTag = useMemo(() => {
+    if (preferredTags.length === 0 || tags.length === 0) return ''
+    const artworkTagNames = new Set(tags.map((tag) => tag.name))
+    return preferredTags.find((tag) => artworkTagNames.has(tag)) || ''
+  }, [preferredTags, tags])
 
   return (
     <Link href={`/artworks/${id}`} className={cn('group block', className)}>
@@ -42,6 +57,12 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
 
         {/* 遮罩层 - 悬停时微微变暗增加层次感 */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300" />
+
+        {preferredTag && (
+          <div className="absolute top-2 left-2 max-w-[72%] rounded-sm bg-[#ff2f4d] px-2 py-0.5 text-[10px] font-semibold leading-tight text-white shadow-sm">
+            <span className="truncate block">{preferredTag}</span>
+          </div>
+        )}
 
         <div className="absolute top-2 right-2 flex flex-col gap-1">
           {/* 图片数量标识 */}

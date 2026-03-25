@@ -21,7 +21,12 @@ export function transformSingleArtwork(artwork: any) {
     ...artwork,
     sourceDate: artwork.sourceDate ? dayjs(artwork.sourceDate).utc().format('YYYY-MM-DD HH:mm:ss') : null,
     images: images,
-    tags: artwork.artworkTags?.map((at: any) => at.tag.name) || [],
+    tags:
+      artwork.artworkTags?.map((at: any) => ({
+        id: at.tag.id,
+        name: at.tag.name,
+        name_zh: at.tag.name_zh
+      })) || [],
     imageCount,
     mediaCount,
     isVideo: hasVideo,
