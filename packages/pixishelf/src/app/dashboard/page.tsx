@@ -16,10 +16,10 @@ export const dynamic = 'force-dynamic'
  */
 export default async function DashboardPage(_: PageProps<'/dashboard'>) {
   // 并行获取所有数据
-  const [recommendedArtworks, recentArtworks, recentArtists] = await Promise.all([
-    getRecommendedArtworks({ pageSize: 12 }), // 获取推荐作品数据
-    getRecentArtworks({ page: 1, pageSize: 12 }), // 获取最新作品数据
-    getRecentArtists({ page: 1, pageSize: 12 }) // 获取热门艺术家数据
+  const [recentArtworks, recentArtists, recommendedArtworks] = await Promise.all([
+    getRecentArtworks({ page: 1, pageSize: 15 }), // 获取最新作品数据
+    getRecentArtists({ page: 1, pageSize: 12 }), // 获取热门艺术家数据
+    getRecommendedArtworks({ pageSize: 15 }) // 获取推荐作品数据
   ])
 
   return (
