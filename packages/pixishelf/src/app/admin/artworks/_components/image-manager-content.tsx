@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { useTRPCClient } from '@/lib/trpc'
 import { RefreshCw, LayoutGrid, List as ListIcon, ZoomIn, FileUp, Trash2, Plus, Download } from 'lucide-react'
@@ -16,13 +16,15 @@ import { useChunkUpload } from '../_hooks/use-chunk-upload'
 import { toast } from 'sonner'
 import { useDragDropStore } from '../_store/drag-drop-store'
 import { useDragImages } from '../_hooks/use-drag-images'
-import { type ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { LazyImage } from './lazy-image'
 import { HoverPreview } from './hover-preview'
 import { ImagePreviewDialog } from './image-preview-dialog'
 import { AddImageDialog } from './add-image-dialog'
 import { appendCacheKey } from './utils'
 import { ImageListItem } from './types'
+import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
+import { useRecentTags } from '@/store/admin/useRecentTags'
+import { RecentTagsList } from './recent-tags-list'
 
 interface ImageManagerContentProps {
   data: any
@@ -35,7 +37,19 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   const imageList = (artwork.images || []) as unknown as ImageListItem[]
 
   const trpcClient = useTRPCClient()
+  const { addTag } = useRecentTags()
   const [refreshKey, setRefreshKey] = useState(0)
+  const [isSavingTags, setIsSavingTags] = useState(false)
+  const [selectedTagOptions, setSelectedTagOptions] = useState<Option[]>([])
+  const saveTagsQueueRef = useRef(Promise.resolve())
+
+  useEffect(() => {
+    const nextOptions = (artwork.tags || []).map((t: { id: number; name: string }) => ({
+      value: t.id.toString(),
+      label: t.name
+    }))
+    setSelectedTagOptions(nextOptions)
+  }, [artwork.id, artwork.tags])
 
   // View State
   const [showThumbnails, setShowThumbnails] = useState(false)
@@ -163,6 +177,57 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
       toast.error(`下载失败: ${error.message}`)
     }
   }, [])
+
+  const handleSearchTag = async (value: string): Promise<Option[]> => {
+    const res = await trpcClient.tag.list.query({
+      cursor: 1,
+      pageSize: 20,
+      mode: 'popular',
+      query: value
+    })
+    return res.items.map((tag) => ({
+      value: tag.id.toString(),
+      label: tag.name
+    }))
+  }
+
+  const handleTagsChange = async (options: Option[]) => {
+    const previousOptions = selectedTagOptions
+    setSelectedTagOptions(options)
+
+    options.forEach((opt) => {
+      if (!previousOptions.some((t) => t.value === opt.value)) {
+        addTag({ value: opt.value, label: opt.label })
+      }
+    })
+
+    if (!artworkId) return
+    if (!artwork.artist?.id) {
+      toast.error('当前作品缺少作者信息，无法保存标签')
+      return
+    }
+
+    saveTagsQueueRef.current = saveTagsQueueRef.current.then(async () => {
+      setIsSavingTags(true)
+      try {
+        await trpcClient.artwork.update.mutate({
+          id: artworkId,
+          data: {
+            title: artwork.title || '',
+            description: artwork.description || '',
+            artistId: artwork.artist.id,
+            sourceDate: artwork.sourceDate || new Date(),
+            tags: options.map((opt) => parseInt(opt.value))
+          }
+        })
+        onSuccess?.()
+      } catch (error: any) {
+        toast.error(`标签保存失败: ${error.message}`)
+      } finally {
+        setIsSavingTags(false)
+      }
+    })
+  }
 
   const columns: ProColumnDef<ImageListItem>[] = [
     {
@@ -326,7 +391,37 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
 
   return (
     <div className="flex flex-col h-full gap-4">
-      <div className="flex justify-between items-center px-1 shrink-0 pt-2">
+      <div className="space-y-2 px-1 shrink-0 pt-2">
+        <div className="flex items-center justify-between">
+          <Label>快捷标签</Label>
+          {isSavingTags && (
+            <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              保存中
+            </span>
+          )}
+        </div>
+        <MultipleSelector
+          placeholder="搜索并添加标签..."
+          defaultOptions={selectedTagOptions}
+          value={selectedTagOptions}
+          onSearch={handleSearchTag}
+          onChange={(options) => {
+            void handleTagsChange(options)
+          }}
+          triggerSearchOnFocus
+        />
+        <RecentTagsList
+          selectedValues={selectedTagOptions.map((t) => t.value)}
+          onSelect={(tag) => {
+            const exists = selectedTagOptions.some((t) => t.value === tag.value)
+            if (exists) return
+            void handleTagsChange([...selectedTagOptions, { value: tag.value, label: tag.label }])
+          }}
+        />
+      </div>
+
+      <div className="flex justify-between items-center px-1 shrink-0">
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-muted p-1 rounded-md">
             <Button
@@ -382,7 +477,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         {imageList.length > 0 && (
           <div className="text-xs text-muted-foreground flex items-center gap-3">
             <span className="font-mono" title={firstImagePath || ''}>
-               {firstImagePath ? `...${firstImagePath.slice(-20)}` : ''}
+              {firstImagePath ? `...${firstImagePath.slice(-20)}` : ''}
             </span>
             <span>{imageList.length} 张</span>
             <span>•</span>
@@ -403,9 +498,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
             <div
               className={cn(
                 'flex-1 flex flex-col items-center justify-center h-full border-r-2 border-dashed transition-colors duration-200',
-                dragZone === 'add'
-                  ? 'bg-blue-500/10 border-blue-500/30'
-                  : 'bg-transparent border-muted-foreground/10'
+                dragZone === 'add' ? 'bg-blue-500/10 border-blue-500/30' : 'bg-transparent border-muted-foreground/10'
               )}
             >
               <div
