@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { updateUserSettingAction } from '@/actions/user-setting-action'
 import { PreferenceItem } from '../_components/preference-item'
-import { useUserSettings } from '@/components/user-setting'
+import { useUserSettingValue, useUserSettingsStore } from '@/components/user-setting'
 import { useTRPC } from '@/lib/trpc'
 
 type DisplayMode = 'card' | 'minimal'
@@ -25,17 +25,22 @@ function parsePreferredTags(rawValue: unknown): string[] {
 
 export default function SettingsPreferencesPage() {
   const trpc = useTRPC()
-  const { settings, updateSettingLocally } = useUserSettings()
+  const displayModeSetting = useUserSettingValue(DISPLAY_MODE_KEY)
+  const preferredTagsSetting = useUserSettingValue(PREFERRED_TAGS_KEY)
+  const updateSettingLocally = useUserSettingsStore((state) => state.updateSettingLocally)
 
   const [displayMode, setDisplayMode] = useState<DisplayMode>(
-    settings[DISPLAY_MODE_KEY] === 'minimal' ? 'minimal' : 'card'
+    displayModeSetting === 'minimal' ? 'minimal' : 'card'
   )
-  const [preferredTags, setPreferredTags] = useState<string[]>(parsePreferredTags(settings[PREFERRED_TAGS_KEY]))
+  const [preferredTags, setPreferredTags] = useState<string[]>(parsePreferredTags(preferredTagsSetting))
 
   useEffect(() => {
-    setDisplayMode(settings[DISPLAY_MODE_KEY] === 'minimal' ? 'minimal' : 'card')
-    setPreferredTags(parsePreferredTags(settings[PREFERRED_TAGS_KEY]))
-  }, [settings])
+    setDisplayMode(displayModeSetting === 'minimal' ? 'minimal' : 'card')
+  }, [displayModeSetting])
+
+  useEffect(() => {
+    setPreferredTags(parsePreferredTags(preferredTagsSetting))
+  }, [preferredTagsSetting])
 
   const { data: tagsData } = useQuery(
     trpc.tag.list.queryOptions({

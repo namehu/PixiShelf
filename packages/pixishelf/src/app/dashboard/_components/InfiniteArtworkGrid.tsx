@@ -9,7 +9,7 @@ import { useTRPC } from '@/lib/trpc'
 import { EnhancedArtworksResponse } from '@/types'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { useColumns } from '@/hooks/use-columns'
-import { useUserSettings } from '@/components/user-setting'
+import { useUserSettingValue } from '@/components/user-setting'
 
 interface InfiniteArtworkGridProps {
   initialData: EnhancedArtworksResponse & { nextCursor?: number }
@@ -17,7 +17,7 @@ interface InfiniteArtworkGridProps {
 
 export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGridProps) {
   const trpc = useTRPC()
-  const { settings } = useUserSettings()
+  const displayModeSetting = useUserSettingValue<'card' | 'minimal'>('artwork_display_mode')
   const containerRef = useRef<HTMLDivElement>(null)
   const virtualListRef = useRef<HTMLDivElement>(null)
   const columns = useColumns()
@@ -26,7 +26,7 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
   const [isReady, setIsReady] = useState(false)
 
   const [offsetTop, setOffsetTop] = useState(0)
-  const displayMode = settings.artwork_display_mode === 'minimal' ? 'minimal' : 'card'
+  const displayMode = displayModeSetting === 'minimal' ? 'minimal' : 'card'
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status } = useInfiniteQuery(
     trpc.artwork.queryRecommendPage.infiniteQueryOptions(

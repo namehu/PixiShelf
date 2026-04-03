@@ -11,7 +11,7 @@ import { useColumns } from '@/hooks/use-columns'
 import { SortOption, MediaTypeFilter } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useUserSettings } from '@/components/user-setting'
+import { useUserSettingValue } from '@/components/user-setting'
 
 /**
  * 无限滚动作品列表组件 (InfiniteArtworkList)
@@ -66,7 +66,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   } = props
 
   const trpc = useTRPC()
-  const { settings } = useUserSettings()
+  const displayModeSetting = useUserSettingValue<'card' | 'minimal'>('artwork_display_mode')
   const containerRef = useRef<HTMLDivElement>(null)
   const virtualListRef = useRef<HTMLDivElement>(null)
   const columns = useColumns()
@@ -74,7 +74,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   const [containerWidth, setContainerWidth] = useState(0)
   const [isReady, setIsReady] = useState(false)
   const [offsetTop, setOffsetTop] = useState(0)
-  const displayMode = settings.artwork_display_mode === 'minimal' ? 'minimal' : 'card'
+  const displayMode = displayModeSetting === 'minimal' ? 'minimal' : 'card'
 
   const isRequesting = useRef(false)
   const prevInView = useRef(false)

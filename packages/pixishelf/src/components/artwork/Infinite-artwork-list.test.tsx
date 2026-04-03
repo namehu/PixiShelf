@@ -12,9 +12,7 @@ vi.mock('react-intersection-observer')
 vi.mock('@tanstack/react-query')
 vi.mock('@/lib/trpc')
 vi.mock('@/components/user-setting', () => ({
-  useUserSettings: () => ({
-    settings: {}
-  })
+  useUserSettingValue: vi.fn(() => undefined)
 }))
 vi.mock('@/hooks/use-columns', () => ({
   useColumns: vi.fn()

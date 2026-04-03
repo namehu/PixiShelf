@@ -1,43 +1,83 @@
 'use client'
 
-import React, { createContext, useContext, useMemo, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import { create } from 'zustand'
 
-interface UserSettingContextType {
-  settings: Record<string, unknown>
+type UserSettings = Record<string, unknown>
+
+interface UserSettingState {
+  settings: UserSettings
+  hydrateSettings: (nextSettings?: UserSettings) => void
   updateSettingLocally: (key: string, value: unknown) => void
-  updateSettingsLocally: (nextSettings: Record<string, unknown>) => void
+  updateSettingsLocally: (nextSettings: UserSettings) => void
 }
 
-const UserSettingContext = createContext<UserSettingContextType | undefined>(undefined)
+const useUserSettingsStore = create<UserSettingState>((set) => ({
+  settings: {},
+  hydrateSettings: (nextSettings) => {
+    set({ settings: nextSettings ?? {} })
+  },
+  updateSettingLocally: (key, value) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        [key]: value
+      }
+    }))
+  },
+  updateSettingsLocally: (nextSettings) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        ...nextSettings
+      }
+    }))
+  }
+}))
 
 export function UserSettingProvider({
   children,
   initialSettings
 }: React.PropsWithChildren<{
-  initialSettings?: Record<string, unknown>
+  initialSettings?: UserSettings
 }>) {
-  const [settings, setSettings] = useState<Record<string, unknown>>(initialSettings ?? {})
+  const initializedRef = useRef(false)
+  const [initialSnapshot] = useState<UserSettings>(() => initialSettings ?? {})
+  const serializedInitialSettings = JSON.stringify(initialSettings ?? {})
+  const lastHydratedSnapshotRef = useRef<string>(serializedInitialSettings)
 
-  const contextValue = useMemo<UserSettingContextType>(
-    () => ({
-      settings,
-      updateSettingLocally: (key, value) => {
-        setSettings((prev) => ({ ...prev, [key]: value }))
-      },
-      updateSettingsLocally: (nextSettings) => {
-        setSettings((prev) => ({ ...prev, ...nextSettings }))
-      }
-    }),
-    [settings]
-  )
+  if (!initializedRef.current) {
+    useUserSettingsStore.setState({ settings: initialSnapshot })
+    initializedRef.current = true
+    lastHydratedSnapshotRef.current = JSON.stringify(initialSnapshot)
+  }
 
-  return <UserSettingContext.Provider value={contextValue}>{children}</UserSettingContext.Provider>
+  useEffect(() => {
+    if (lastHydratedSnapshotRef.current === serializedInitialSettings) {
+      return
+    }
+
+    lastHydratedSnapshotRef.current = serializedInitialSettings
+    useUserSettingsStore.getState().hydrateSettings(initialSettings)
+  }, [initialSettings, serializedInitialSettings])
+
+  return <>{children}</>
 }
 
 export function useUserSettings() {
-  const context = useContext(UserSettingContext)
-  if (!context) {
-    throw new Error('useUserSettings must be used within UserSettingProvider')
+  const settings = useUserSettingsStore((state) => state.settings)
+  const updateSettingLocally = useUserSettingsStore((state) => state.updateSettingLocally)
+  const updateSettingsLocally = useUserSettingsStore((state) => state.updateSettingsLocally)
+
+  return {
+    settings,
+    updateSettingLocally,
+    updateSettingsLocally
   }
-  return context
 }
+
+export function useUserSettingValue<T = unknown>(key: string) {
+  return useUserSettingsStore((state) => state.settings[key] as T)
+}
+
+export { useUserSettingsStore }

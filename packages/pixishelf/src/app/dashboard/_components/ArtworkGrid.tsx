@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ImageIcon } from 'lucide-react'
 import { EnhancedArtworksResponse } from '@/types'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
-import { useUserSettings } from '@/components/user-setting'
+import { useUserSettingValue } from '@/components/user-setting'
 
 interface ArtworkGridProps {
   initialData: EnhancedArtworksResponse
@@ -15,8 +15,8 @@ interface ArtworkGridProps {
  * 负责处理作品列表的动态渲染和状态管理
  */
 export default function ArtworkGrid({ initialData }: ArtworkGridProps) {
-  const { settings } = useUserSettings()
-  const displayMode = settings.artwork_display_mode === 'minimal' ? 'minimal' : 'card'
+  const displayModeSetting = useUserSettingValue<'card' | 'minimal'>('artwork_display_mode')
+  const displayMode = displayModeSetting === 'minimal' ? 'minimal' : 'card'
 
   if (initialData?.items?.length) {
     return (
