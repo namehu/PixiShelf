@@ -419,10 +419,6 @@ export default function ArtworkManagement() {
       }
     },
     {
-      header: '发布日期',
-      accessorKey: 'sourceDate'
-    },
-    {
       header: '媒体数',
       accessorKey: 'mediaCount',
       size: 100,
@@ -437,11 +433,17 @@ export default function ArtworkManagement() {
         </Button>
       )
     },
+    {
+      header: '发布日期',
+      accessorKey: 'sourceDate'
+    },
 
     {
       id: 'actions',
       header: '操作',
       size: 160,
+      headerClassName: 'sticky right-0 z-20 bg-background shadow-[-1px_0_0_0_hsl(var(--border))]',
+      cellClassName: 'sticky right-0 z-10 bg-background shadow-[-1px_0_0_0_hsl(var(--border))]',
       cell: ({ row }) => (
         <div className="flex gap-1">
           <Button variant="ghost" size="icon" onClick={() => handleEdit(row.original)} title="编辑">

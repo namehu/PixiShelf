@@ -39,6 +39,14 @@ export type ProColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
    * @default false
    */
   copyable?: boolean
+  /**
+   * 自定义表头 className
+   */
+  headerClassName?: string
+  /**
+   * 自定义单元格 className
+   */
+  cellClassName?: string
 }
 
 /**
@@ -368,14 +376,15 @@ export function ProTable<TData, TValue>({
       )}
 
       {/* 2. 表格主体 */}
-      <div className="rounded-md border relative">
+      <div className="relative overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
+                  const columnDef = header.column.columnDef as ProColumnDef<TData, TValue>
                   return (
-                    <TableHead key={header.id}>
+                    <TableHead key={header.id} className={columnDef.headerClassName}>
                       {header.isPlaceholder ? null : (
                         <div
                           className={cn(
@@ -434,6 +443,7 @@ export function ProTable<TData, TValue>({
                       return (
                         <TableCell
                           key={cell.id}
+                          className={columnDef.cellClassName}
                           style={{ maxWidth: columnDef.size !== 150 ? columnDef.size : undefined }}
                         >
                           <div className="flex items-center gap-2 max-w-full">
@@ -458,7 +468,11 @@ export function ProTable<TData, TValue>({
                       )
                     }
 
-                    return <TableCell key={cell.id}>{content}</TableCell>
+                    return (
+                      <TableCell key={cell.id} className={columnDef.cellClassName}>
+                        {content}
+                      </TableCell>
+                    )
                   })}
                 </TableRow>
               ))
