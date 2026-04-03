@@ -2,20 +2,24 @@
 
 import React, { useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
-
-type UserSettings = Record<string, unknown>
+import { userSettingsWithDefaultsSchema } from '@/schemas/user-setting.dto'
+import type { ArtworkDisplayMode, UserSettings, UserSettingsWithDefaults } from '@/schemas/user-setting.dto'
 
 interface UserSettingState {
-  settings: UserSettings
+  settings: UserSettingsWithDefaults
   hydrateSettings: (nextSettings?: UserSettings) => void
-  updateSettingLocally: (key: string, value: unknown) => void
-  updateSettingsLocally: (nextSettings: UserSettings) => void
+  updateSettingLocally: <K extends keyof UserSettingsWithDefaults>(key: K, value: UserSettingsWithDefaults[K]) => void
+  updateSettingsLocally: (nextSettings: Partial<UserSettingsWithDefaults>) => void
 }
 
+const defaultSettings = userSettingsWithDefaultsSchema.parse({})
+
+const normalizeSettings = (settings?: UserSettings): UserSettingsWithDefaults => userSettingsWithDefaultsSchema.parse(settings ?? {})
+
 const useUserSettingsStore = create<UserSettingState>((set) => ({
-  settings: {},
+  settings: defaultSettings,
   hydrateSettings: (nextSettings) => {
-    set({ settings: nextSettings ?? {} })
+    set({ settings: normalizeSettings(nextSettings) })
   },
   updateSettingLocally: (key, value) => {
     set((state) => ({
@@ -42,14 +46,14 @@ export function UserSettingProvider({
   initialSettings?: UserSettings
 }>) {
   const initializedRef = useRef(false)
-  const [initialSnapshot] = useState<UserSettings>(() => initialSettings ?? {})
+  const [initialSnapshot] = useState<UserSettingsWithDefaults>(() => normalizeSettings(initialSettings))
   const serializedInitialSettings = JSON.stringify(initialSettings ?? {})
   const lastHydratedSnapshotRef = useRef<string>(serializedInitialSettings)
 
   if (!initializedRef.current) {
     useUserSettingsStore.setState({ settings: initialSnapshot })
     initializedRef.current = true
-    lastHydratedSnapshotRef.current = JSON.stringify(initialSnapshot)
+    lastHydratedSnapshotRef.current = JSON.stringify(initialSettings ?? {})
   }
 
   useEffect(() => {
@@ -76,8 +80,16 @@ export function useUserSettings() {
   }
 }
 
-export function useUserSettingValue<T = unknown>(key: string) {
-  return useUserSettingsStore((state) => state.settings[key] as T)
+export function useUserSettingValue<K extends keyof UserSettingsWithDefaults>(key: K): UserSettingsWithDefaults[K] {
+  return useUserSettingsStore((state) => state.settings[key])
+}
+
+export function useArtworkDisplayMode(): ArtworkDisplayMode {
+  return useUserSettingValue('artwork_display_mode')
+}
+
+export function usePreferredTags(): string[] {
+  return useUserSettingValue('preferred_tags')
 }
 
 export { useUserSettingsStore }

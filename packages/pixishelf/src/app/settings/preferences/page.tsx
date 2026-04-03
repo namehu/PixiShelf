@@ -8,38 +8,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { updateUserSettingAction } from '@/actions/user-setting-action'
 import { PreferenceItem } from '../_components/preference-item'
-import { useUserSettingValue, useUserSettingsStore } from '@/components/user-setting'
+import { useArtworkDisplayMode, usePreferredTags, useUserSettingsStore } from '@/components/user-setting'
 import { useTRPC } from '@/lib/trpc'
-
-type DisplayMode = 'card' | 'minimal'
+import type { ArtworkDisplayMode } from '@/schemas/user-setting.dto'
 
 const DISPLAY_MODE_KEY = 'artwork_display_mode'
 const PREFERRED_TAGS_KEY = 'preferred_tags'
 
-function parsePreferredTags(rawValue: unknown): string[] {
-  if (Array.isArray(rawValue)) {
-    return rawValue.filter((item) => typeof item === 'string')
-  }
-  return []
-}
-
 export default function SettingsPreferencesPage() {
   const trpc = useTRPC()
-  const displayModeSetting = useUserSettingValue(DISPLAY_MODE_KEY)
-  const preferredTagsSetting = useUserSettingValue(PREFERRED_TAGS_KEY)
+  const displayModeSetting = useArtworkDisplayMode()
+  const preferredTagsSetting = usePreferredTags()
   const updateSettingLocally = useUserSettingsStore((state) => state.updateSettingLocally)
 
-  const [displayMode, setDisplayMode] = useState<DisplayMode>(
-    displayModeSetting === 'minimal' ? 'minimal' : 'card'
-  )
-  const [preferredTags, setPreferredTags] = useState<string[]>(parsePreferredTags(preferredTagsSetting))
+  const [displayMode, setDisplayMode] = useState<ArtworkDisplayMode>(displayModeSetting)
+  const [preferredTags, setPreferredTags] = useState<string[]>(preferredTagsSetting)
 
   useEffect(() => {
-    setDisplayMode(displayModeSetting === 'minimal' ? 'minimal' : 'card')
+    setDisplayMode(displayModeSetting)
   }, [displayModeSetting])
 
   useEffect(() => {
-    setPreferredTags(parsePreferredTags(preferredTagsSetting))
+    setPreferredTags(preferredTagsSetting)
   }, [preferredTagsSetting])
 
   const { data: tagsData } = useQuery(
@@ -79,7 +69,7 @@ export default function SettingsPreferencesPage() {
     }
   })
 
-  const scheduleSave = (nextDisplayMode: DisplayMode, nextPreferredTags: string[]) => {
+  const scheduleSave = (nextDisplayMode: ArtworkDisplayMode, nextPreferredTags: string[]) => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current)
     }
@@ -93,7 +83,7 @@ export default function SettingsPreferencesPage() {
     }, 500)
   }
 
-  const onDisplayModeChange = (value: DisplayMode) => {
+  const onDisplayModeChange = (value: ArtworkDisplayMode) => {
     setDisplayMode(value)
     updateSettingLocally(DISPLAY_MODE_KEY, value)
     scheduleSave(value, preferredTags)
@@ -123,7 +113,7 @@ export default function SettingsPreferencesPage() {
       >
         <Select
           value={displayMode}
-          onValueChange={(value) => onDisplayModeChange(value as DisplayMode)}
+          onValueChange={(value) => onDisplayModeChange(value as ArtworkDisplayMode)}
           disabled={isExecuting}
         >
           <SelectTrigger className="w-full sm:w-[420px]">

@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { TRPCProvider as TRPCClientProvider } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
 import { UserSettingProvider } from '@/components/user-setting'
+import type { UserSettings } from '@/schemas/user-setting.dto'
 
 function makeQueryClient() {
   return new QueryClient({
@@ -41,7 +42,7 @@ const queryClient = getQueryClient()
 export interface ProvidersProps {
   children: React.ReactNode
   initialUser?: AuthMeResponseDTO | null
-  initialSettings?: Record<string, unknown>
+  initialSettings?: UserSettings
 }
 
 /**

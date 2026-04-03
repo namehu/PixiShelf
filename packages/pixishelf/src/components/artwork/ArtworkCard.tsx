@@ -7,7 +7,7 @@ import { formatFileSize } from '@/utils/media'
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { cn } from '@/lib/utils'
 import { useMemo } from 'react'
-import { useUserSettingValue } from '@/components/user-setting'
+import { usePreferredTags } from '@/components/user-setting'
 
 interface ArtworkCardProps {
   artwork: ArtworkResponseDto
@@ -16,20 +16,15 @@ interface ArtworkCardProps {
   displayMode?: 'card' | 'minimal'
 }
 
-const PREFERRED_TAGS_KEY = 'preferred_tags'
-
 /**
  * 作品卡片组件
  */
 export default function ArtworkCard({ artwork, priority = false, className, displayMode = 'card' }: ArtworkCardProps) {
-  const preferredTagsSetting = useUserSettingValue(PREFERRED_TAGS_KEY)
+  const preferredTags = usePreferredTags()
   const { id, title, imageCount, totalMediaSize = 0, images = [], artist, tags = [] } = artwork
 
   const { path: src = '', mediaType } = images[0] ?? {}
   const { name } = artist ?? {}
-  const preferredTags = Array.isArray(preferredTagsSetting)
-    ? preferredTagsSetting.filter((item): item is string => typeof item === 'string')
-    : []
   const preferredTag = useMemo(() => {
     if (preferredTags.length === 0 || tags.length === 0) return ''
     const artworkTagNames = new Set(tags.map((tag) => tag.name))

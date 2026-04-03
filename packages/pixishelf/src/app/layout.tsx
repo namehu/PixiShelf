@@ -7,6 +7,7 @@ import { GlobalConfirmDialog } from '@/components/shared/global-confirm' // å¼•å
 import { headers } from 'next/headers'
 import './globals.css'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
+import type { UserSettings } from '@/schemas/user-setting.dto'
 import { getUserSettings } from '@/services/user-setting-service'
 
 export const metadata: Metadata = {
@@ -35,7 +36,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   const headersList = await headers()
   const sessionHeader = headersList.get('x-user-session')
   let initialUser: AuthMeResponseDTO | null = null
-  let initialSettings: Record<string, unknown> = {}
+  let initialSettings: UserSettings = {}
 
   if (sessionHeader) {
     try {

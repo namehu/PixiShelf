@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
-import type { SettingType, UpdateProfileDTO, UpdateUserSettingDTO } from '@/schemas/user-setting.dto'
+import { userSettingsSchema } from '@/schemas/user-setting.dto'
+import type { SettingType, UpdateProfileDTO, UpdateUserSettingDTO, UserSettings } from '@/schemas/user-setting.dto'
 
 function inferSettingType(value: UpdateUserSettingDTO['value']): SettingType {
   if (value === null) return 'string'
@@ -33,7 +34,7 @@ function decodeSettingValue(value: string | null, type: string): unknown {
   return value
 }
 
-export async function getUserSettings(userId: string): Promise<Record<string, unknown>> {
+export async function getUserSettings(userId: string): Promise<UserSettings> {
   const settings: Array<{ key: string; value: string | null; type: string }> = await prisma.userSetting.findMany({
     where: { userId },
     select: {
@@ -43,10 +44,12 @@ export async function getUserSettings(userId: string): Promise<Record<string, un
     }
   })
 
-  return settings.reduce<Record<string, unknown>>((acc, item) => {
+  const rawSettings = settings.reduce<Record<string, unknown>>((acc, item) => {
     acc[item.key] = decodeSettingValue(item.value, item.type)
     return acc
   }, {})
+
+  return userSettingsSchema.parse(rawSettings)
 }
 
 export async function upsertUserSettings(userId: string, settings: UpdateUserSettingDTO[]) {

@@ -1,1 +1,8 @@
-export { UserSettingProvider, useUserSettings, useUserSettingValue, useUserSettingsStore } from './UserSettingProvider'
+export {
+  UserSettingProvider,
+  useUserSettings,
+  useUserSettingValue,
+  useUserSettingsStore,
+  useArtworkDisplayMode,
+  usePreferredTags
+} from './UserSettingProvider'

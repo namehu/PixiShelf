@@ -1,6 +1,6 @@
 'use client'
 
-import { useAuth } from '@/components/auth'
+import { useAuthStore, useAuthUser } from '@/components/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAction } from 'next-safe-action/hooks'
@@ -9,7 +9,8 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 export function ProfileForm() {
-  const { user } = useAuth()
+  const user = useAuthUser()
+  const setUser = useAuthStore((state) => state.setUser)
   const [name, setName] = useState(user?.name ?? '')
   const [image, setImage] = useState(user?.image ?? '')
 
@@ -19,7 +20,15 @@ export function ProfileForm() {
   }, [user?.name, user?.image])
 
   const { execute, isExecuting } = useAction(updateProfileAction, {
-    onSuccess: () => {
+    onSuccess: ({ data }) => {
+      if (data) {
+        setUser({
+          id: String(data.id),
+          name: data.name ?? null,
+          email: data.email ?? null,
+          image: data.image ?? null
+        })
+      }
       toast.success('资料已更新')
     },
     onError: ({ error }) => {

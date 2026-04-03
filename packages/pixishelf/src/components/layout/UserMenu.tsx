@@ -12,14 +12,15 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { UsersIcon, SettingsIcon, LogOutIcon, BarChart2Icon, SlidersHorizontalIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { memo } from 'react'
-import { useAuth } from '@/components/auth'
+import { useAuth, useAuthUser } from '@/components/auth'
 
 /**
  * 用户菜单组件
  */
 const UserMenu = () => {
   const router = useRouter()
-  const { user, logout } = useAuth()
+  const user = useAuthUser()
+  const { logout } = useAuth()
 
   return (
     <Menubar>
