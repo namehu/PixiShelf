@@ -30,7 +30,7 @@ export function RecentTagsList({ selectedValues, onSelect, limit = 10 }: RecentT
           <Badge
             key={tag.value}
             variant={isSelected ? 'outline' : 'secondary'}
-            className={`cursor-pointer pr-1 flex items-center gap-1 group relative ${
+            className={`cursor-pointer flex items-center gap-1 group ${
               isSelected ? 'opacity-50 cursor-not-allowed' : 'hover:bg-secondary/80'
             }`}
             onClick={() => {
@@ -43,7 +43,7 @@ export function RecentTagsList({ selectedValues, onSelect, limit = 10 }: RecentT
             {tag.label}
             <div
               role="button"
-              className="hover:bg-destructive/20 rounded-full p-0.5 ml-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-[2000ms]"
+              className="ml-0 h-5 w-0 overflow-hidden rounded-full opacity-0 pointer-events-none translate-x-1 hover:bg-destructive/20 flex items-center justify-center group-hover:ml-1 group-hover:w-5 group-hover:opacity-100 group-hover:pointer-events-auto group-hover:translate-x-0 transition-all duration-300 ease-out delay-[600ms]"
               onClick={(e) => {
                 e.stopPropagation()
                 removeTag(tag.value)
