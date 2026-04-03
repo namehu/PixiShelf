@@ -11,7 +11,8 @@ import Image from 'next/image'
 import { VideoIcon, Loader2 } from 'lucide-react'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { toast } from 'sonner'
-import { Badge } from '@/components/ui/badge'
+import { usePreferredTags } from '@/components/user-setting'
+import { getPreferredTagName } from '@/components/artwork/preferred-tag'
 
 interface RelatedArtworksProps {
   artistId: number
@@ -21,6 +22,7 @@ interface RelatedArtworksProps {
 export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedArtworksProps) {
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
+  const preferredTags = usePreferredTags()
   const [artworks, setArtworks] = useState<ArtworkResponseDto[]>([])
   const [hasFetchedInitial, setHasFetchedInitial] = useState(false)
   const [isFetchingMore, setIsFetchingMore] = useState(false)
@@ -158,6 +160,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
             {artworks.map((artwork) => {
               const isCurrent = artwork.id === currentArtworkId
               const cover = artwork.images[0]
+              const preferredTag = getPreferredTagName(preferredTags, artwork.tags)
               if (!cover) return null
 
               return (
@@ -180,6 +183,11 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
                     sizes="128px"
                   />
                   {isCurrent && <div className="absolute inset-0 bg-white opacity-20 z-10" />}
+                  {preferredTag && (
+                    <div className="absolute top-1 left-1 z-20 max-w-[72%] rounded-sm bg-[#ff2f4d] px-1.5 py-0.5 text-[10px] font-semibold leading-tight text-white shadow-sm">
+                      <span className="block truncate">{preferredTag}</span>
+                    </div>
+                  )}
                   {(artwork as any).isVideo ? (
                     <div className="absolute top-1 right-1 bg-black/50 text-white p-1 flex items-center justify-center w-6 h-6 rounded-full z-20">
                       <VideoIcon size={14} />

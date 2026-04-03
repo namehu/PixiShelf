@@ -25,6 +25,7 @@ export interface MigrationOptions {
 }
 
 export interface MigrationFilters {
+  id?: number | null
   search?: string | null
   artistName?: string | null
   startDate?: string | null
@@ -241,6 +242,7 @@ export function useMigration(): {
       const url = '/api/migration/stream'
       const body = {
         targetIds: options?.targetIds,
+        id: options?.filters?.id ?? null,
         search: options?.filters?.search ?? null,
         artistName: options?.filters?.artistName ?? null,
         startDate: options?.filters?.startDate ?? null,

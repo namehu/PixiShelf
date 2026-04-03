@@ -11,6 +11,7 @@ const MigrationSchema = z.object({
   targetIds: z.array(z.number()).optional(),
   batchSize: z.number().int().min(1).max(1000).optional(),
   concurrency: z.number().int().min(1).max(10).optional(),
+  id: z.number().int().positive().nullish().optional(),
   search: z.string().nullish().optional(),
   artistName: z.string().nullish().optional(),
   startDate: z
@@ -108,6 +109,7 @@ export const POST = apiHandler(MigrationSchema, async (req, data) => {
             batchSize,
             concurrency,
             filters: {
+              id: data.id ?? null,
               search: data.search ?? null,
               artistName: data.artistName ?? null,
               startDate: data.startDate ?? null,

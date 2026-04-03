@@ -8,6 +8,7 @@ import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { cn } from '@/lib/utils'
 import { useMemo } from 'react'
 import { usePreferredTags } from '@/components/user-setting'
+import { getPreferredTagName } from './preferred-tag'
 
 interface ArtworkCardProps {
   artwork: ArtworkResponseDto
@@ -25,11 +26,7 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
 
   const { path: src = '', mediaType } = images[0] ?? {}
   const { name } = artist ?? {}
-  const preferredTag = useMemo(() => {
-    if (preferredTags.length === 0 || tags.length === 0) return ''
-    const artworkTagNames = new Set(tags.map((tag) => tag.name))
-    return preferredTags.find((tag) => artworkTagNames.has(tag)) || ''
-  }, [preferredTags, tags])
+  const preferredTag = useMemo(() => getPreferredTagName(preferredTags, tags), [preferredTags, tags])
 
   return (
     <Link href={`/artworks/${id}`} className={cn('group block', className)}>

@@ -50,6 +50,7 @@ export interface MigrationRunOptions {
 }
 
 export interface MigrationFilters {
+  id?: number | null
   search?: string | null
   artistName?: string | null
   startDate?: string | null
@@ -83,6 +84,10 @@ const buildMigrationWhere = (filters?: MigrationFilters) => {
   const where: any = {
     artist: { isNot: null },
     externalId: { not: null }
+  }
+
+  if (filters?.id) {
+    where.id = filters.id
   }
 
   if (filters?.externalId) {
@@ -132,6 +137,7 @@ export async function precheckMigration(input: MigrationPrecheckInput): Promise<
   const parsedFilters = ArtworksInfiniteQuerySchema.parse({
     cursor: 1,
     pageSize: 1,
+    id: input.filters?.id ?? undefined,
     search: input.filters?.search ?? undefined,
     artistName: input.filters?.artistName ?? undefined,
     startDate: input.filters?.startDate ?? undefined,
@@ -526,12 +532,16 @@ export async function runMigrationJob(
     while (true) {
       await ensureNotCancelled()
       await ensureRunning()
+      const batchWhere =
+        typeof where.id === 'number'
+          ? where
+          : {
+              ...where,
+              id: { gt: lastId }
+            }
       const artworks = await prisma.artwork.findMany({
         select: { id: true, externalId: true },
-        where: {
-          ...where,
-          id: { gt: lastId }
-        },
+        where: batchWhere,
         orderBy: { id: 'asc' },
         take: batchSize
       })

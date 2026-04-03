@@ -32,6 +32,7 @@ function getSafeSortOption(sortBy: string | null): SortOption {
 export const ArtworksInfiniteQuerySchema = z.object({
   cursor: z.number().min(1).nullish().default(1),
   pageSize: z.coerce.number().int().min(1).max(10000).default(24),
+  id: z.coerce.number().int().positive().nullish(),
   tags: z
     .string()
     .nullish()

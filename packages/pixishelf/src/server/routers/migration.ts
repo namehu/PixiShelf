@@ -6,6 +6,7 @@ import * as JobService from '@/services/job-service'
 
 const MigrationPrecheckSchema = z.object({
   targetIds: z.array(z.number()).optional(),
+  id: z.number().int().positive().nullish().optional(),
   search: z.string().nullish().optional(),
   artistName: z.string().nullish().optional(),
   startDate: z
@@ -36,6 +37,7 @@ export const migrationRouter = router({
     return precheckMigration({
       targetIds: input.targetIds,
       filters: {
+        id: input.id ?? null,
         search: input.search ?? null,
         artistName: input.artistName ?? null,
         startDate: input.startDate ?? null,

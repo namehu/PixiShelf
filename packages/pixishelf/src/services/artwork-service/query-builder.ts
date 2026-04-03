@@ -7,6 +7,7 @@ import { VIDEO_EXTENSIONS } from '../../../lib/constant'
  */
 export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, initialParamIndex = 1) {
   const {
+    id,
     tags,
     search,
     artistId,
@@ -25,6 +26,12 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
   let whereSQL = 'WHERE 1=1'
   const sqlParams: any[] = []
   let paramIndex = initialParamIndex
+
+  if (id && Number.isFinite(id)) {
+    whereSQL += ` AND a.id = $${paramIndex}`
+    sqlParams.push(id)
+    paramIndex++
+  }
 
   // 1.0 External ID
   if (externalId) {

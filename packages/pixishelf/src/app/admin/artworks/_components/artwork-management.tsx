@@ -40,6 +40,23 @@ import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
+import { usePreferredTags } from '@/components/user-setting'
+import { getPreferredTagName } from '@/components/artwork/preferred-tag'
+
+function PreferredTagCell({ artwork }: { artwork: ArtworkResponseDto }) {
+  const preferredTags = usePreferredTags()
+  const preferredTag = getPreferredTagName(preferredTags, artwork.tags)
+
+  if (!preferredTag) {
+    return <span className="text-neutral-400">-</span>
+  }
+
+  return (
+    <span className="inline-flex max-w-full rounded-sm bg-[#ff2f4d]/10 px-2 py-0.5 text-xs font-medium text-[#c81e3a]">
+      <span className="truncate">{preferredTag}</span>
+    </span>
+  )
+}
 
 export default function ArtworkManagement() {
   const trpc = useTRPC()
@@ -60,6 +77,7 @@ export default function ArtworkManagement() {
 
   // URL Search Params Sync
   const [searchState, setSearchState] = useQueryStates({
+    id: parseAsInteger,
     title: parseAsString,
     artistName: parseAsString,
     startDate: parseAsString,
@@ -80,6 +98,7 @@ export default function ArtworkManagement() {
 
   // Local state for search inputs
   const [localSearch, setLocalSearch] = useState({
+    id: searchState.id?.toString() || '',
     title: searchState.title || '',
     artistName: searchState.artistName || '',
     startDate: searchState.startDate || '',
@@ -99,10 +118,14 @@ export default function ArtworkManagement() {
   })
 
   const handleSearch = () => {
+    const parsedArtworkId = Number(localSearch.id)
+    const artworkId = Number.isInteger(parsedArtworkId) && parsedArtworkId > 0 ? parsedArtworkId : null
+
     // 处理标签参数：将选中项转换为逗号分隔字符串，空数组转为 null 以清除 URL 参数
     const tagsStr = localSearch.selectedTags.length > 0 ? localSearch.selectedTags.map((t) => t.value).join(',') : null
 
     setSearchState({
+      id: artworkId,
       title: localSearch.title || null,
       artistName: localSearch.artistName || null,
       startDate: localSearch.startDate || null,
@@ -120,6 +143,7 @@ export default function ArtworkManagement() {
 
   const handleReset = () => {
     setLocalSearch({
+      id: '',
       title: '',
       artistName: '',
       startDate: '',
@@ -132,6 +156,7 @@ export default function ArtworkManagement() {
       mediaCountMax: ''
     })
     setSearchState({
+      id: null,
       title: null,
       artistName: null,
       startDate: null,
@@ -220,6 +245,7 @@ export default function ArtworkManagement() {
   // --- Migration Handlers ---
   const buildMigrationFilters = () => {
     return {
+      id: searchState.id || null,
       search: searchState.title || null,
       artistName: searchState.artistName || null,
       startDate: searchState.startDate || null,
@@ -235,7 +261,8 @@ export default function ArtworkManagement() {
     const count = selectedRowKeys.length
     const filters = buildMigrationFilters()
     const hasFilters =
-      !isBatch && !!(filters.search || filters.artistName || filters.startDate || filters.endDate || filters.externalId)
+      !isBatch &&
+      !!(filters.id || filters.search || filters.artistName || filters.startDate || filters.endDate || filters.externalId)
 
     try {
       setIsPrechecking(true)
@@ -243,6 +270,7 @@ export default function ArtworkManagement() {
         targetIds: isBatch ? selectedRowKeys.map(Number) : undefined
       }
       if (hasFilters) {
+        precheckPayload.id = filters.id
         precheckPayload.search = filters.search
         precheckPayload.artistName = filters.artistName
         precheckPayload.startDate = filters.startDate
@@ -325,11 +353,24 @@ export default function ArtworkManagement() {
       enableHiding: false
     },
     {
+      header: '内部ID',
+      accessorKey: 'id',
+      size: 100,
+      copyable: true,
+      cell: ({ row }) => <span className="font-mono">{row.original.id}</span>
+    },
+    {
       header: '作品id',
       accessorKey: 'externalId',
       size: 180,
       copyable: true,
       cell: ({ row }) => (row.original as any).externalId || '-'
+    },
+    {
+      header: '偏好',
+      id: 'preferredTag',
+      size: 120,
+      cell: ({ row }) => <PreferredTagCell artwork={row.original} />
     },
     {
       header: '标题',
@@ -432,6 +473,7 @@ export default function ArtworkManagement() {
       const res = await trpcClient.artwork.list.query({
         cursor: params.current,
         pageSize: params.pageSize,
+        id: searchState.id,
         search: searchState.title,
         artistName: searchState.artistName,
         startDate: searchState.startDate,
@@ -617,7 +659,22 @@ export default function ArtworkManagement() {
             {/* Grid Layout for Search Filters */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
               {/* Title Search */}
-              <div className="col-span-12 md:col-span-4 space-y-1">
+              <div className="col-span-12 md:col-span-3 space-y-1">
+                <div className="h-6 flex items-center">
+                  <Label className="text-xs font-medium text-neutral-500">内部ID</Label>
+                </div>
+                <Input
+                  placeholder="作品内部ID..."
+                  type="number"
+                  min={1}
+                  value={localSearch.id}
+                  onChange={(e) => setLocalSearch((prev) => ({ ...prev, id: e.target.value }))}
+                  className="h-9 w-full"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                />
+              </div>
+
+              <div className="col-span-12 md:col-span-3 space-y-1">
                 <div className="h-6 flex items-center">
                   <Label className="text-xs font-medium text-neutral-500">标题</Label>
                 </div>
@@ -631,7 +688,7 @@ export default function ArtworkManagement() {
               </div>
 
               {/* External ID */}
-              <div className="col-span-6 md:col-span-4 space-y-1">
+              <div className="col-span-6 md:col-span-3 space-y-1">
                 <div className="h-6 flex items-center">
                   <Label className="text-xs font-medium text-neutral-500">外部ID</Label>
                 </div>
@@ -645,7 +702,7 @@ export default function ArtworkManagement() {
               </div>
 
               {/* Artist Search */}
-              <div className="col-span-6 md:col-span-4 space-y-1">
+              <div className="col-span-6 md:col-span-3 space-y-1">
                 <div className="h-6 flex items-center">
                   <Label className="text-xs font-medium text-neutral-500">作者</Label>
                 </div>
