@@ -14,6 +14,7 @@ import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { useRecentTags } from '@/store/admin/useRecentTags'
 import { RecentTagsList } from './recent-tags-list'
 import { Save } from 'lucide-react'
+import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 
 interface TagItem {
   id: number
@@ -21,8 +22,8 @@ interface TagItem {
 }
 
 interface ArtworkInfoFormProps {
-  data: any // The full artwork data
-  onSuccess: () => void
+  data?: ArtworkResponseDto | null
+  onSuccess: (data?: ArtworkResponseDto) => void
 }
 
 export function ArtworkInfoForm({ data, onSuccess }: ArtworkInfoFormProps) {
@@ -48,6 +49,14 @@ export function ArtworkInfoForm({ data, onSuccess }: ArtworkInfoFormProps) {
         artist: data.artist ? { id: data.artist.id, name: data.artist.name } : null,
         tags: data.tags?.map((t: any) => ({ id: t.id, name: t.name })) || []
       })
+    } else {
+      setFormData({
+        title: '',
+        description: '',
+        sourceDate: new Date(),
+        artist: null,
+        tags: []
+      })
     }
   }, [data])
 
@@ -60,6 +69,19 @@ export function ArtworkInfoForm({ data, onSuccess }: ArtworkInfoFormProps) {
       },
       onError: (err) => {
         toast.error(`更新失败: ${err.message}`)
+      }
+    })
+  )
+
+  const createMutation = useMutation(
+    trpc.artwork.create.mutationOptions({
+      onSuccess: (createdArtwork) => {
+        toast.success('创建成功')
+        onSuccess(createdArtwork)
+        queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
+      },
+      onError: (err) => {
+        toast.error(`创建失败: ${err.message}`)
       }
     })
   )
@@ -82,9 +104,17 @@ export function ArtworkInfoForm({ data, onSuccess }: ArtworkInfoFormProps) {
       sourceDate: format(formData.sourceDate, 'yyyy-MM-dd')
     }
 
-    updateMutation.mutate({
-      id: data.id,
-      data: payload
+    if (data?.id) {
+      updateMutation.mutate({
+        id: data.id,
+        data: payload
+      })
+      return
+    }
+
+    createMutation.mutate({
+      ...payload,
+      source: 'LOCAL_CREATED'
     })
   }
 
@@ -113,7 +143,7 @@ export function ArtworkInfoForm({ data, onSuccess }: ArtworkInfoFormProps) {
     }))
   }
 
-  const isSubmitting = updateMutation.isPending
+  const isSubmitting = updateMutation.isPending || createMutation.isPending
 
   return (
     <div className="flex flex-col h-full">
@@ -219,7 +249,7 @@ export function ArtworkInfoForm({ data, onSuccess }: ArtworkInfoFormProps) {
       <div className="pt-4 mt-auto border-t">
         <Button onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto">
           <Save className="w-4 h-4 mr-2" />
-          保存更改
+          {data?.id ? '保存更改' : '创建作品'}
         </Button>
       </div>
     </div>

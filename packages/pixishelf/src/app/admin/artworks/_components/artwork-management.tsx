@@ -18,7 +18,6 @@ import {
   ChevronUp,
   Sliders
 } from 'lucide-react'
-import { ArtworkDialog } from './artwork-dialog'
 import { ArtworkUnifiedEditor } from './artwork-unified-editor'
 import { toast } from 'sonner'
 import Link from 'next/link'
@@ -45,9 +44,8 @@ import { cn } from '@/lib/utils'
 export default function ArtworkManagement() {
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
-  const [dialogOpen, setDialogOpen] = useState(false)
   const [batchImportOpen, setBatchImportOpen] = useState(false)
-  const [editorConfig, setEditorConfig] = useState<{ id: number; tab: 'info' | 'media' } | null>(null)
+  const [editorConfig, setEditorConfig] = useState<{ id: number | null; tab: 'info' | 'media' } | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isPrechecking, setIsPrechecking] = useState(false)
   const [migrationSafety, setMigrationSafety] = useState({
@@ -522,7 +520,7 @@ export default function ArtworkManagement() {
             size="sm"
             className="gap-2"
             onClick={() => {
-              setDialogOpen(true)
+              setEditorConfig({ id: null, tab: 'info' })
             }}
           >
             <Plus className="w-4 h-4" />
@@ -805,22 +803,14 @@ export default function ArtworkManagement() {
         )}
       />
 
-      <ArtworkDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onSuccess={(createdArtwork) => {
-          setRefreshKey((prev) => prev + 1)
-          if (createdArtwork) {
-            handleOpenImageManager(createdArtwork as any)
-          }
-        }}
-      />
-
       <ArtworkUnifiedEditor
         open={!!editorConfig}
         onOpenChange={(open) => !open && setEditorConfig(null)}
         artworkId={editorConfig?.id ?? null}
         initialTab={editorConfig?.tab}
+        onSuccess={() => {
+          setRefreshKey((prev) => prev + 1)
+        }}
       />
 
       <MigrationDialog
