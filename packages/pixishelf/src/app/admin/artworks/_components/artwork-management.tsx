@@ -356,7 +356,26 @@ export default function ArtworkManagement() {
     {
       header: '作者',
       accessorKey: 'artist',
-      cell: ({ row }) => row.original.artist?.name || '未知'
+      cell: ({ row }) => {
+        const artist = row.original.artist
+
+        if (!artist?.id) {
+          return '未知'
+        }
+
+        return (
+          <Link
+            href={`/artists/${artist.id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 hover:text-primary transition-colors"
+            title={`在新窗口打开 ${artist.name} 详情页`}
+          >
+            <span>{artist.name}</span>
+            <ExternalLink className="w-3 h-3" />
+          </Link>
+        )
+      }
     },
     {
       header: '发布日期',
