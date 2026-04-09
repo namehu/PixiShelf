@@ -1,5 +1,5 @@
 import { getRecommendedArtworks, getRecentArtworks } from '@/services/artwork-service'
-import { getRecentArtists } from '@/services/artist-service'
+import { getDashboardArtists } from '@/services/artist-service'
 import RecentArtists from './_components/RecentArtists'
 import PNav from '@/components/layout/PNav'
 import Link from 'next/link'
@@ -16,10 +16,10 @@ export const dynamic = 'force-dynamic'
  */
 export default async function DashboardPage(_: PageProps<'/dashboard'>) {
   // 并行获取所有数据
-  const [recentArtworks, recentArtists, recommendedArtworks] = await Promise.all([
-    getRecentArtworks({ page: 1, pageSize: 15 }), // 获取最新作品数据
-    getRecentArtists({ page: 1, pageSize: 12 }), // 获取热门艺术家数据
-    getRecommendedArtworks({ pageSize: 15 }) // 获取推荐作品数据
+  const [recentArtworks, dashboardArtists, recommendedArtworks] = await Promise.all([
+    getRecentArtworks({ page: 1, pageSize: 10 }), // 获取最新作品数据
+    getDashboardArtists({ pageSize: 12, previewArtworkSize: 3 }), // 获取随机艺术家卡片数据
+    getRecommendedArtworks({ pageSize: 20 }) // 获取推荐作品数据
   ])
 
   return (
@@ -65,7 +65,7 @@ export default async function DashboardPage(_: PageProps<'/dashboard'>) {
           <ArtworkGrid initialData={recentArtworks} />
         </div>
 
-        <RecentArtists data={recentArtists.data} />
+        <RecentArtists data={dashboardArtists} />
 
         <div className="mb-12">
           <div className="flex items-center justify-between mb-6">
