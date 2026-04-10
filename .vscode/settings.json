@@ -1,6 +1,7 @@
 {
   "typescript.preferences.includePackageJsonAutoImports": "on",
   "typescript.suggest.autoImports": true,
+  "debug.javascript.enableNetworkView": false,
   "search.exclude": {
     "**/dist": true,
     "**/.next": true,
