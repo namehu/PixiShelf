@@ -9,7 +9,8 @@ import ArtworkGrid from './_components/ArtworkGrid'
 import { Button } from '@/components/ui/button'
 import InfiniteArtworkGrid from './_components/InfiniteArtworkGrid'
 
-export const dynamic = 'force-dynamic'
+// export const dynamic = 'force-dynamic'
+export const revalidate = 300
 
 /**
  * 仪表板页面组件
