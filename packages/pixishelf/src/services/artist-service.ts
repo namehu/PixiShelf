@@ -4,7 +4,6 @@ import { ARTIST_SELECT } from '@/schemas/models/artists'
 import { ArtistCreateSchema, ArtistsGetSchema, ArtistUpdateSchema } from '@/schemas/artist.dto'
 import { ArtistResponseDto } from '@/schemas/artist.dto'
 import { PaginationResponseData } from '@/types'
-import { combinationApiResource } from '@/utils/combinationStatic'
 
 /**
  * 根据 ID 获取单个艺术家
@@ -330,7 +329,7 @@ export async function getDashboardArtists(
           artworks: artworks.map((artwork) => ({
             id: artwork.id,
             title: artwork.title,
-            coverUrl: combinationApiResource(artwork.images[0]?.path) || ''
+            coverUrl: artwork.images[0]?.path || ''
           }))
         }
       })
