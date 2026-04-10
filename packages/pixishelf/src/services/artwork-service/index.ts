@@ -302,13 +302,13 @@ function mapSortOptionToSQL(sortBy: string): string {
  * 逻辑：随机获取ID -> 查详情 -> 按随机顺序重排 -> 数据清洗
  */
 export const getRecommendedArtworks = async (
-  options: { pageSize?: number; cursor?: number } = {}
+  options: { pageSize?: number; cursor?: number; tagNames?: string[] } = {}
 ): Promise<EnhancedArtworksResponse & { nextCursor?: number }> => {
-  const { pageSize = 10, cursor } = options
+  const { pageSize = 10, cursor, tagNames } = options
   const currentPage = cursor || 1
 
   // 1. 获取随机作品 ID (调用内部数据访问函数)
-  const randomIds = await fetchRandomIds(pageSize)
+  const randomIds = await fetchRandomIds(pageSize, tagNames)
 
   if (randomIds.length === 0) {
     return { items: [], total: 0, page: currentPage, pageSize, nextCursor: undefined }

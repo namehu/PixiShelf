@@ -167,7 +167,8 @@ export const artworkRouter = router({
   queryRecommendPage: authProcedure.input(RecommendationsGetSchema).query(async ({ input }) => {
     return getRecommendedArtworks({
       pageSize: input.pageSize,
-      cursor: input.cursor ?? undefined
+      cursor: input.cursor ?? undefined,
+      tagNames: input.tagNames
     })
   }),
 

@@ -13,9 +13,10 @@ import { useArtworkDisplayMode } from '@/components/user-setting'
 
 interface InfiniteArtworkGridProps {
   initialData: EnhancedArtworksResponse & { nextCursor?: number }
+  selectedTags?: string[]
 }
 
-export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGridProps) {
+export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: InfiniteArtworkGridProps) {
   const trpc = useTRPC()
   const displayMode = useArtworkDisplayMode()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -26,16 +27,28 @@ export default function InfiniteArtworkGrid({ initialData }: InfiniteArtworkGrid
   const [isReady, setIsReady] = useState(false)
 
   const [offsetTop, setOffsetTop] = useState(0)
+  const recommendQueryInput = useMemo(
+    () => ({
+      pageSize: 24,
+      tagNames: selectedTags.length > 0 ? selectedTags : undefined
+    }),
+    [selectedTags]
+  )
+
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status } = useInfiniteQuery(
     trpc.artwork.queryRecommendPage.infiniteQueryOptions(
-      { pageSize: 24 },
+      recommendQueryInput,
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
         initialCursor: 1,
-        initialData: {
-          pages: [initialData],
-          pageParams: [1]
-        },
+        ...(selectedTags.length === 0
+          ? {
+              initialData: {
+                pages: [initialData],
+                pageParams: [1]
+              }
+            }
+          : {}),
         staleTime: 20 * 60 * 1000,
         gcTime: 25 * 60 * 1000
       }

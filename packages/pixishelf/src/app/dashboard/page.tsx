@@ -7,7 +7,7 @@ import { ROUTES } from '@/lib/constants'
 import { BookIcon, HashIcon, ImageIcon, ImageUpIcon, UsersIcon } from 'lucide-react'
 import ArtworkGrid from './_components/ArtworkGrid'
 import { Button } from '@/components/ui/button'
-import InfiniteArtworkGrid from './_components/InfiniteArtworkGrid'
+import RecommendedArtworkSection from './_components/RecommendedArtworkSection'
 
 // export const dynamic = 'force-dynamic'
 export const revalidate = 300
@@ -68,16 +68,7 @@ export default async function DashboardPage(_: PageProps<'/dashboard'>) {
 
         <RecentArtists data={dashboardArtists} />
 
-        <div className="mb-12">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">推荐作品</h3>
-              <p className="text-gray-600">为您精心挑选的优质作品</p>
-            </div>
-          </div>
-
-          <InfiniteArtworkGrid initialData={recommendedArtworks} />
-        </div>
+        <RecommendedArtworkSection initialData={recommendedArtworks} />
       </main>
     </div>
   )

@@ -86,7 +86,9 @@ export type ArtworksInfiniteQuerySchema = z.infer<typeof ArtworksInfiniteQuerySc
 export const RecommendationsGetSchema = z.object({
   /** 每页数量 */
   pageSize: z.coerce.number().int().positive().default(10),
-  cursor: z.number().nullish()
+  cursor: z.number().nullish(),
+  /** 偏好标签名列表（按 Tag.name 过滤） */
+  tagNames: z.array(z.string().min(1)).max(30).optional()
 })
 
 export type RecommendationsGetSchema = z.infer<typeof RecommendationsGetSchema>
