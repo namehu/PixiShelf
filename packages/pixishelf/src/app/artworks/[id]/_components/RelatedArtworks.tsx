@@ -168,7 +168,6 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
                   key={artwork.id}
                   href={`/artworks/${artwork.id}`}
                   ref={isCurrent ? currentRef : null}
-                  replace
                   className={cn(
                     'relative block h-32 w-32 shrink-0 overflow-hidden  transition-all',
                     !isCurrent && 'hover:opacity-90'
