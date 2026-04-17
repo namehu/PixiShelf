@@ -40,30 +40,26 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
   const { author } = image
 
   // 从store获取当前设置值
-  const { titleOpacity, setTitleOpacity, maxImageCount, setMaxImageCount, mediaType, setMediaType } = useViewerStore(
+  const { maxImageCount, setMaxImageCount, mediaType, setMediaType } = useViewerStore(
     useShallow((state) => ({
-      titleOpacity: state.titleOpacity,
       maxImageCount: state.maxImageCount,
       mediaType: state.mediaType,
-      setTitleOpacity: state.setTitleOpacity,
       setMaxImageCount: state.setMaxImageCount,
       setMediaType: state.setMediaType
     }))
   )
 
   // 临时状态管理 - 用于存储用户调整过程中的临时值
-  const [tempTitleOpacity, setTempTitleOpacity] = useState<string>(titleOpacity)
   const [tempMaxImageCount, setTempMaxImageCount] = useState<number>(maxImageCount)
   const [tempMediaType, setTempMediaType] = useState<EMediaType>(mediaType)
 
   // 当抽屉打开时，初始化临时状态为当前store值
   useEffect(() => {
     if (open) {
-      setTempTitleOpacity(titleOpacity)
       setTempMaxImageCount(maxImageCount)
       setTempMediaType(mediaType)
     }
-  }, [open, titleOpacity, maxImageCount, mediaType])
+  }, [open, maxImageCount, mediaType])
 
   // 处理查看详情
   const handleViewDetails = () => {
@@ -81,7 +77,6 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
 
   // 处理保存操作 - 将临时值提交到store并关闭抽屉
   const handleSave = () => {
-    setTitleOpacity(tempTitleOpacity)
     setMaxImageCount(tempMaxImageCount)
     setMediaType(tempMediaType)
     onOpenChange(false)
@@ -93,8 +88,7 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
   }
 
   // 检查是否有未保存的更改
-  const hasUnsavedChanges =
-    tempTitleOpacity !== titleOpacity || tempMaxImageCount !== maxImageCount || tempMediaType !== mediaType
+  const hasUnsavedChanges = tempMaxImageCount !== maxImageCount || tempMediaType !== mediaType
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -115,20 +109,6 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
 
         {/* 设置内容区域 */}
         <div className="p-4 space-y-4 flex-1">
-          {/* 标题透明度设置 */}
-          <div className="flex justify-between py-2">
-            <Label>标题透明度</Label>
-            <Tabs value={tempTitleOpacity} onValueChange={setTempTitleOpacity}>
-              <TabsList>
-                {['0', '25', '60', '100'].map((it) => (
-                  <TabsTrigger key={it} value={it}>
-                    {it}%
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          </div>
-
           {/* 最大图片数量设置 */}
           <div className="space-y-3">
             <div className="flex justify-between items-center">

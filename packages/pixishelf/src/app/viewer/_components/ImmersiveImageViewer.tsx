@@ -3,7 +3,9 @@
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Mousewheel, Keyboard } from 'swiper/modules'
 import ImageSlide from './ImageSlide'
-import { useCallback } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
+import { useCallback, useEffect } from 'react'
+import { toast } from 'sonner'
 import type { Swiper as SwiperType } from 'swiper'
 
 // 导入 Swiper 的核心和模块样式
@@ -33,10 +35,12 @@ export default function ImmersiveImageViewer({
   hasMore,
   isLoading
 }: ImmersiveImageViewerProps) {
-  const { setVerticalIndex, verticalIndex } = useViewerStore(
+  const { setVerticalIndex, verticalIndex, isChromeHidden, setChromeHidden } = useViewerStore(
     useShallow((state) => ({
       verticalIndex: state.verticalIndex,
-      setVerticalIndex: state.setVerticalIndex
+      setVerticalIndex: state.setVerticalIndex,
+      isChromeHidden: state.isChromeHidden,
+      setChromeHidden: state.setChromeHidden
     }))
   )
 
@@ -48,11 +52,46 @@ export default function ImmersiveImageViewer({
     [setVerticalIndex]
   )
 
+  const handleToggleChrome = useCallback(() => {
+    const nextHidden = !isChromeHidden
+    setChromeHidden(nextHidden)
+    if (nextHidden) {
+      toast.success('已清屏播放')
+    }
+  }, [isChromeHidden, setChromeHidden])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const tagName = target?.tagName
+
+      if (target?.isContentEditable || tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
+        return
+      }
+
+      if (event.key.toLowerCase() === 'c' || event.code === 'Space') {
+        event.preventDefault()
+        handleToggleChrome()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleToggleChrome])
+
   return (
     // PC端适配容器
     <div className="w-full h-full bg-black md:flex md:items-center md:justify-center">
       {/* 沉浸式查看器主容器 */}
       <div className="immersive-container h-full w-full md:max-w-[420px] md:h-[90vh] md:aspect-[9/16] md:rounded-lg relative bg-neutral-900">
+        <button
+          type="button"
+          className="absolute top-4 left-4 z-50 hidden h-10 w-10 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur-sm transition-colors hover:bg-black/50 md:flex"
+          onClick={handleToggleChrome}
+          aria-label={isChromeHidden ? '显示界面' : '清屏播放'}
+        >
+          {isChromeHidden ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+        </button>
         <Swiper
           initialSlide={verticalIndex}
           direction="vertical"

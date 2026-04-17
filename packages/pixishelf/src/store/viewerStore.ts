@@ -17,9 +17,7 @@ export interface ViewerState {
   // UI 状态
   verticalIndex: number
   horizontalIndexes: Record<string, number>
-
-  // 标题透明度
-  titleOpacity: string
+  isChromeHidden: boolean
 
   // 最大图片数量配置
   maxImageCount: number
@@ -30,7 +28,8 @@ export interface ViewerState {
   setVerticalIndex: (index: number) => void
   setHorizontalIndex: (imageKey: string, index: number) => void
   resetViewerState: () => void
-  setTitleOpacity: (titleOpacity: string) => void
+  setChromeHidden: (isChromeHidden: boolean) => void
+  toggleChromeHidden: () => void
   setMaxImageCount: (count: number) => void
   setMediaType: (mediaType: EMediaType) => void
   setHasHydrated: (value: boolean) => void
@@ -64,7 +63,7 @@ export const useViewerStore = create<ViewerState>()(
       hasHydrated: false,
       verticalIndex: 0,
       horizontalIndexes: {},
-      titleOpacity: '100',
+      isChromeHidden: false,
       maxImageCount: 8, // 默认最大图片数量
       mediaType: EMediaType.all,
       // 设置图片列表数据
@@ -80,9 +79,12 @@ export const useViewerStore = create<ViewerState>()(
         })
       },
 
-      // 设置标题透明度
-      setTitleOpacity: (titleOpacity: string) => {
-        set({ titleOpacity })
+      setChromeHidden: (isChromeHidden: boolean) => {
+        set({ isChromeHidden })
+      },
+
+      toggleChromeHidden: () => {
+        set((state) => ({ isChromeHidden: !state.isChromeHidden }))
       },
 
       // 设置最大图片数量
@@ -122,7 +124,8 @@ export const useViewerStore = create<ViewerState>()(
           images: [],
           hasFetchedOnce: false,
           verticalIndex: 0,
-          horizontalIndexes: {}
+          horizontalIndexes: {},
+          isChromeHidden: false
         })
       },
 
@@ -158,7 +161,6 @@ export const useViewerStore = create<ViewerState>()(
         }
       },
       partialize: (state) => ({
-        titleOpacity: state.titleOpacity,
         maxImageCount: state.maxImageCount,
         mediaType: state.mediaType
       })

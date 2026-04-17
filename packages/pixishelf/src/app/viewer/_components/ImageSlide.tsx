@@ -152,8 +152,8 @@ function SingleImage({
 export default function ImageSlide({ isActive, isPreloading, image, onError }: ImageSlideProps) {
   const [retryKey, setRetryKey] = useState(0)
 
-  const [horizontalIndexes, setHorizontalIndex] = useViewerStore(
-    useShallow((state) => [state.horizontalIndexes, state.setHorizontalIndex])
+  const [horizontalIndexes, setHorizontalIndex, isChromeHidden] = useViewerStore(
+    useShallow((state) => [state.horizontalIndexes, state.setHorizontalIndex, state.isChromeHidden])
   )
   const currentImageIndex = horizontalIndexes[image.key] ?? 0
 
@@ -265,7 +265,7 @@ export default function ImageSlide({ isActive, isPreloading, image, onError }: I
       <ImageOverlay isActive={isActive} image={image} />
 
       {/* 图片计数器 */}
-      {imagesToShow.length > 1 && (
+      {imagesToShow.length > 1 && !isChromeHidden && (
         <div className="absolute top-4 right-4 z-30 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
           {currentImageIndex + 1} / {imagesToShow.length}
         </div>

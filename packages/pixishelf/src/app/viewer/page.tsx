@@ -23,13 +23,14 @@ export default function ViewerPage() {
   const trpc = useTRPC()
 
   // 状态管理
-  const { images, setImages, maxImageCount, mediaType, hasHydrated } = useViewerStore(
+  const { images, setImages, maxImageCount, mediaType, hasHydrated, setChromeHidden } = useViewerStore(
     useShallow((state) => ({
       images: state.images,
       setImages: state.setImages,
       maxImageCount: state.maxImageCount,
       mediaType: state.mediaType,
-      hasHydrated: state.hasHydrated
+      hasHydrated: state.hasHydrated,
+      setChromeHidden: state.setChromeHidden
     }))
   )
 
@@ -62,6 +63,11 @@ export default function ViewerPage() {
     }
     setImages(imgs)
   }, [data])
+
+  useEffect(() => {
+    setChromeHidden(false)
+    return () => setChromeHidden(false)
+  }, [setChromeHidden])
 
   // 错误状态
   if (isError) {
