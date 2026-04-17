@@ -106,6 +106,47 @@ export const RandomArtworksGetSchema = z.object({
 export type RandomArtworksGetSchema = z.infer<typeof RandomArtworksGetSchema>
 
 /**
+ * Viewer 沉浸浏览 Feed 参数
+ */
+export const ViewerFeedQuerySchema = z.object({
+  cursor: z.number().min(1).nullish().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  source: z.enum(['all', 'artist', 'tag']).default('all'),
+  sourceId: z.coerce.number().int().positive().optional(),
+  mode: z.enum(['ordered', 'random']).default('random'),
+  sortBy: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (val === 'random') return 'random'
+      return getSafeSortOption(val || null)
+    }),
+  randomSeed: z.coerce.number().int().optional(),
+  search: z
+    .string()
+    .nullish()
+    .transform((val) => val?.trim() || ''),
+  mediaType: z
+    .string()
+    .optional()
+    .default('all')
+    .transform((val) => (val as MediaTypeFilter) || 'all'),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
+    .optional()
+    .nullish(),
+  endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
+    .optional()
+    .nullish(),
+  mediaCountMax: z.coerce.number().int().min(1).max(100).optional()
+})
+
+export type ViewerFeedQuerySchema = z.infer<typeof ViewerFeedQuerySchema>
+
+/**
  * 邻近作品查询参数
  */
 export const NeighboringArtworksGetSchema = z.object({

@@ -3,6 +3,7 @@
 import { FC, useState, useEffect } from 'react'
 import { RandomImageItem } from '@/types/images'
 import { useRouter } from 'next/navigation'
+import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs'
 import { CaptionsIcon, User } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -21,6 +22,15 @@ import { useViewerStore } from '@/store/viewerStore'
 import { useShallow } from 'zustand/shallow'
 import { EMediaType, OMediaType } from '@/enums/EMediaType'
 
+type ViewerBrowseMode = 'ordered' | 'random'
+
+const viewerQueryParsers = {
+  source: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
+  mode: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  randomSeed: parseAsInteger,
+  mediaType: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true })
+}
+
 export interface ActionDrawerProps {
   /** 是否显示抽屉 */
   open: boolean
@@ -37,6 +47,7 @@ export interface ActionDrawerProps {
  */
 export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image }) => {
   const router = useRouter()
+  const [viewerQuery, setViewerQuery] = useQueryStates(viewerQueryParsers)
   const { author } = image
 
   // 从store获取当前设置值
@@ -52,14 +63,30 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
   // 临时状态管理 - 用于存储用户调整过程中的临时值
   const [tempMaxImageCount, setTempMaxImageCount] = useState<number>(maxImageCount)
   const [tempMediaType, setTempMediaType] = useState<EMediaType>(mediaType)
+  const [tempBrowseMode, setTempBrowseMode] = useState<ViewerBrowseMode>('random')
+
+  const currentBrowseMode: ViewerBrowseMode = (() => {
+    const mode = viewerQuery.mode
+    if (mode === 'ordered' || mode === 'random') return mode
+    return viewerQuery.source === 'artist' || viewerQuery.source === 'tag' ? 'ordered' : 'random'
+  })()
+
+  const currentMediaType = (() => {
+    const queryMediaType = viewerQuery.mediaType
+    if (Object.values(EMediaType).includes(queryMediaType as EMediaType)) {
+      return queryMediaType as EMediaType
+    }
+    return mediaType
+  })()
 
   // 当抽屉打开时，初始化临时状态为当前store值
   useEffect(() => {
     if (open) {
       setTempMaxImageCount(maxImageCount)
-      setTempMediaType(mediaType)
+      setTempMediaType(currentMediaType)
+      setTempBrowseMode(currentBrowseMode)
     }
-  }, [open, maxImageCount, mediaType])
+  }, [open, maxImageCount, currentMediaType, currentBrowseMode])
 
   // 处理查看详情
   const handleViewDetails = () => {
@@ -79,6 +106,19 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
   const handleSave = () => {
     setMaxImageCount(tempMaxImageCount)
     setMediaType(tempMediaType)
+
+    const nextRandomSeed =
+      tempBrowseMode === 'random'
+        ? currentBrowseMode !== 'random' || !viewerQuery.randomSeed
+          ? Math.floor(Math.random() * 1000000)
+          : viewerQuery.randomSeed
+        : null
+
+    setViewerQuery({
+      mode: tempBrowseMode,
+      randomSeed: nextRandomSeed,
+      mediaType: tempMediaType === EMediaType.all ? null : tempMediaType
+    })
     onOpenChange(false)
   }
 
@@ -88,7 +128,8 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
   }
 
   // 检查是否有未保存的更改
-  const hasUnsavedChanges = tempMaxImageCount !== maxImageCount || tempMediaType !== mediaType
+  const hasUnsavedChanges =
+    tempMaxImageCount !== maxImageCount || tempMediaType !== currentMediaType || tempBrowseMode !== currentBrowseMode
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -109,6 +150,17 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
 
         {/* 设置内容区域 */}
         <div className="p-4 space-y-4 flex-1">
+          {/* 浏览模式设置 */}
+          <div className="flex justify-between py-2">
+            <Label>浏览模式</Label>
+            <Tabs value={tempBrowseMode} onValueChange={(value) => setTempBrowseMode(value as ViewerBrowseMode)}>
+              <TabsList>
+                <TabsTrigger value="ordered">顺序</TabsTrigger>
+                <TabsTrigger value="random">随机</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+
           {/* 最大图片数量设置 */}
           <div className="space-y-3">
             <div className="flex justify-between items-center">

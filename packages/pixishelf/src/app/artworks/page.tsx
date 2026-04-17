@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { SlidersHorizontal } from 'lucide-react'
+import Link from 'next/link'
+import { useMemo, useState } from 'react'
+import { ImageUpIcon, SlidersHorizontal } from 'lucide-react'
 import { SortOption, MediaTypeFilter } from '@/types'
 import { SearchBox } from './_components/search-box'
 import { FilterSheet } from '@/components/artwork/filter-sheet'
@@ -9,7 +10,7 @@ import PNav from '@/components/layout/PNav'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import InfiniteArtworkList from '@/components/artwork/Infinite-artwork-list'
-import { useQueryStates, parseAsString } from 'nuqs'
+import { createSerializer, useQueryStates, parseAsInteger, parseAsString } from 'nuqs'
 import dayjs from 'dayjs'
 
 const searchParamsParsers = {
@@ -21,6 +22,19 @@ const searchParamsParsers = {
   endDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true })
 }
 
+const viewerQueryParsers = {
+  source: parseAsString,
+  mode: parseAsString,
+  sortBy: parseAsString,
+  randomSeed: parseAsInteger,
+  search: parseAsString,
+  mediaType: parseAsString,
+  startDate: parseAsString,
+  endDate: parseAsString
+}
+
+const serializeViewerQuery = createSerializer(viewerQueryParsers)
+
 export default function GalleryPage() {
   const [queryStates, setQueryStates] = useQueryStates(searchParamsParsers)
   const { search: searchQuery, sortBy, randomSeed, mediaType, startDate, endDate } = queryStates
@@ -29,6 +43,21 @@ export default function GalleryPage() {
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   // 用于显示总数的本地状态
   const [total, setTotal] = useState(0)
+
+  const immersiveViewerHref = useMemo(() => {
+    const randomSeedValue = randomSeed ? Number(randomSeed) : null
+
+    return serializeViewerQuery('/viewer', {
+      source: 'all',
+      mode: sortBy === 'random' ? 'random' : 'ordered',
+      sortBy: sortBy === 'random' ? null : sortBy || 'source_date_desc',
+      randomSeed: sortBy === 'random' && Number.isFinite(randomSeedValue) ? randomSeedValue : null,
+      search: searchQuery || null,
+      mediaType: mediaType && mediaType !== 'all' ? mediaType : null,
+      startDate: startDate || null,
+      endDate: endDate || null
+    })
+  }, [endDate, mediaType, randomSeed, searchQuery, sortBy, startDate])
 
   const handleSearch = (query: string) => {
     setQueryStates({ search: query.trim() || null })
@@ -72,9 +101,17 @@ export default function GalleryPage() {
         border={false}
         showUserMenu={false}
         renderExtra={
-          <Button variant="outline" className=" " onClick={() => setIsFilterOpen(true)}>
-            <SlidersHorizontal className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" asChild>
+              <Link href={immersiveViewerHref}>
+                <ImageUpIcon className="w-4 h-4" />
+                <span className="hidden sm:inline">沉浸浏览</span>
+              </Link>
+            </Button>
+            <Button variant="outline" onClick={() => setIsFilterOpen(true)}>
+              <SlidersHorizontal className="w-4 h-4" />
+            </Button>
+          </div>
         }
       >
         <SearchBox value={searchQuery} onSearch={handleSearch} className="w-full shadow-sm" />

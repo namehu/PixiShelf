@@ -1,15 +1,18 @@
-import { Calendar, Image as ImageIcon, ExternalLink } from 'lucide-react'
+import Link from 'next/link'
+import { Calendar, Image as ImageIcon, ExternalLink, ImageUpIcon } from 'lucide-react'
 import { FC, memo } from 'react'
 import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
 import { ArtistResponseDto } from '@/schemas/artist.dto'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 
 interface IHeadInfoProps {
   artist: ArtistResponseDto
+  immersiveHref?: string
 }
 
 const Component: FC<IHeadInfoProps> = (props) => {
-  const { artist } = props
+  const { artist, immersiveHref } = props
 
   return (
     <div className="bg-background relative mb-8">
@@ -71,7 +74,15 @@ const Component: FC<IHeadInfoProps> = (props) => {
                 </div>
 
                 {/* 统计 Badge */}
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  {immersiveHref && (
+                    <Button asChild>
+                      <Link href={immersiveHref}>
+                        <ImageUpIcon className="w-4 h-4" />
+                        沉浸浏览
+                      </Link>
+                    </Button>
+                  )}
                   <Badge variant="secondary" className="px-3 py-1.5 text-sm font-normal gap-1.5">
                     <ImageIcon className="w-4 h-4 text-muted-foreground" />
                     <span className="font-semibold text-foreground">{artist.artworksCount}</span> 作品

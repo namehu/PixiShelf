@@ -1,10 +1,20 @@
 import { notFound } from 'next/navigation'
-import { TagIcon, WallpaperIcon } from 'lucide-react'
+import Link from 'next/link'
+import { createSerializer, parseAsInteger, parseAsString } from 'nuqs/server'
+import { ImageUpIcon, TagIcon, WallpaperIcon } from 'lucide-react'
 import { getById } from '@/services/tag-service'
 import { getTranslateName } from '@/utils/tags'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { ArtworkList } from './_components/ArtworkList'
 import { NavBack } from './_components/NavBack'
+import { Button } from '@/components/ui/button'
+
+const serializeViewerQuery = createSerializer({
+  source: parseAsString,
+  sourceId: parseAsInteger,
+  mode: parseAsString,
+  sortBy: parseAsString
+})
 
 /**
  * 标签详情页面 (Server Component)
@@ -66,6 +76,19 @@ export default async function TagDetailPage({ params }: PageProps<'/tags/[id]'>)
                 <WallpaperIcon className="w-4 h-4 text-slate-400" />
                 <span>{tag.artworkCount} 作品</span>
               </div>
+              <Button asChild>
+                <Link
+                  href={serializeViewerQuery('/viewer', {
+                    source: 'tag',
+                    sourceId: tagId,
+                    mode: 'ordered',
+                    sortBy: 'source_date_desc'
+                  })}
+                >
+                  <ImageUpIcon className="w-4 h-4" />
+                  沉浸浏览
+                </Link>
+              </Button>
             </div>
           </div>
         </div>

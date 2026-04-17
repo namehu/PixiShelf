@@ -1,9 +1,10 @@
 'use client'
 
 import ImmersiveImageViewer from './_components/ImmersiveImageViewer'
-import { useEffect } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { ChevronLeftIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs'
 import PageNoData from './_components/PageNoData'
 import PageLoading from './_components/PageLoading'
 import PageError from './_components/PageError'
@@ -13,6 +14,21 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { useTRPC } from '@/lib/trpc'
 import { EMediaType } from '@/enums/EMediaType'
 
+type ViewerSource = 'all' | 'artist' | 'tag'
+type ViewerMode = 'ordered' | 'random'
+
+const viewerQueryParsers = {
+  source: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
+  sourceId: parseAsInteger,
+  mode: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  sortBy: parseAsString.withDefault('source_date_desc').withOptions({ history: 'replace', clearOnDefault: true }),
+  randomSeed: parseAsInteger,
+  search: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  mediaType: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  startDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  endDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true })
+}
+
 /**
  * 沉浸式图片浏览页面
  * 提供类似抖音/TikTok的全屏图片浏览体验
@@ -20,27 +36,63 @@ import { EMediaType } from '@/enums/EMediaType'
  */
 export default function ViewerPage() {
   const router = useRouter()
+  const [viewerQuery] = useQueryStates(viewerQueryParsers)
   const trpc = useTRPC()
+  const defaultRandomSeedRef = useRef(Math.floor(Math.random() * 1000000))
 
   // 状态管理
-  const { images, setImages, maxImageCount, mediaType, hasHydrated, setChromeHidden } = useViewerStore(
-    useShallow((state) => ({
-      images: state.images,
-      setImages: state.setImages,
-      maxImageCount: state.maxImageCount,
-      mediaType: state.mediaType,
-      hasHydrated: state.hasHydrated,
-      setChromeHidden: state.setChromeHidden
-    }))
-  )
+  const { images, setImages, resetViewerState, maxImageCount, mediaType, hasHydrated, setChromeHidden } =
+    useViewerStore(
+      useShallow((state) => ({
+        images: state.images,
+        setImages: state.setImages,
+        resetViewerState: state.resetViewerState,
+        maxImageCount: state.maxImageCount,
+        mediaType: state.mediaType,
+        hasHydrated: state.hasHydrated,
+        setChromeHidden: state.setChromeHidden
+      }))
+    )
+
+  const feedInput = useMemo(() => {
+    const rawSource = viewerQuery.source
+    const sourceId = viewerQuery.sourceId ?? undefined
+    const hasValidSourceId = typeof sourceId === 'number' && Number.isFinite(sourceId) && sourceId > 0
+    const source: ViewerSource =
+      rawSource === 'artist' || rawSource === 'tag' ? (hasValidSourceId ? rawSource : 'all') : 'all'
+    const requestedMode = viewerQuery.mode
+    const mode: ViewerMode =
+      requestedMode === 'ordered' || requestedMode === 'random'
+        ? requestedMode
+        : source === 'all'
+          ? 'random'
+          : 'ordered'
+    const randomSeed = viewerQuery.randomSeed ?? defaultRandomSeedRef.current
+    const requestedMediaType = viewerQuery.mediaType
+    const effectiveMediaType = Object.values(EMediaType).includes(requestedMediaType as EMediaType)
+      ? (requestedMediaType as EMediaType)
+      : mediaType
+
+    return {
+      source,
+      sourceId: source === 'all' ? undefined : sourceId,
+      mode,
+      sortBy: viewerQuery.sortBy || 'source_date_desc',
+      randomSeed: mode === 'random' && Number.isFinite(randomSeed) ? randomSeed : undefined,
+      search: viewerQuery.search || undefined,
+      mediaType: effectiveMediaType,
+      startDate: viewerQuery.startDate || undefined,
+      endDate: viewerQuery.endDate || undefined,
+      mediaCountMax: maxImageCount,
+      pageSize: 20
+    }
+  }, [maxImageCount, mediaType, viewerQuery])
+
+  const feedKey = useMemo(() => JSON.stringify(feedInput), [feedInput])
 
   const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteQuery(
-    trpc.artwork.random.infiniteQueryOptions(
-      {
-        count: maxImageCount,
-        mediaType: mediaType as EMediaType,
-        pageSize: 20
-      },
+    trpc.artwork.viewerFeed.infiniteQueryOptions(
+      feedInput,
       {
         getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
         initialCursor: 1, // 初始页码
@@ -56,13 +108,14 @@ export default function ViewerPage() {
   )
 
   useEffect(() => {
+    resetViewerState()
+  }, [feedKey, resetViewerState])
+
+  useEffect(() => {
     // 将分页数据扁平化为一个数组
     const imgs = data?.pages.flatMap((page) => page.items) ?? []
-    if (!imgs.length) {
-      return
-    }
     setImages(imgs)
-  }, [data])
+  }, [data, setImages])
 
   useEffect(() => {
     setChromeHidden(false)

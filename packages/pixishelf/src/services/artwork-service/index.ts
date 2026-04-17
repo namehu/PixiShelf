@@ -2,7 +2,7 @@ import 'server-only'
 
 import { EnhancedArtworksResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
-import { RandomArtworksGetSchema, ArtworkResponseDto } from '@/schemas/artwork.dto'
+import { RandomArtworksGetSchema, ArtworkResponseDto, ViewerFeedQuerySchema } from '@/schemas/artwork.dto'
 import { isVideoFile } from '../../../lib/media'
 import type { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 import { VIDEO_EXTENSIONS, IMAGE_EXTENSIONS } from '../../../lib/constant'
@@ -463,47 +463,9 @@ export async function getRandomArtworks(
   }
 
   // 7. 转换数据 (使用 transformSingleArtwork 统一逻辑)
-  const items: RandomImageItem[] = sortedArtworks.map((raw) => {
-    // 先经过标准转换 (处理 APNG/Video 合并等)
-    const transformed = transformSingleArtwork(raw)
-    const images = transformed.images.map((img: any) => {
-      // 逻辑复刻：如果是视频，加上前缀；如果是图片，保持原样(只是文件名)
-      // 注意：ArtworkImageResponseDto 中的 mediaType 已经是 'video' | 'image'
-      const url = img.mediaType === 'video' ? combinationApiResource(img.path) : img.path
-
-      return { key: guid(), url }
-    })
-
-    const imageUrl = images[0]?.url ?? ''
-    const isLike = likeStatusMap[transformed.id] ?? false
-
-    // 检查封面图是否是视频
-    // 这里需要小心：imageUrl 可能是 "xxx.jpg" 或 "/api/v1/images/xxx.mp4"
-    // isVideoFile check path extension.
-    const isCoverVideo = isVideoFile(imageUrl)
-
-    return {
-      id: transformed.id,
-      key: guid(),
-      title: transformed.title,
-      description: transformed.description || '',
-      imageUrl,
-      mediaType: isCoverVideo ? MediaType.VIDEO : MediaType.IMAGE,
-      images,
-      author: transformed.artist
-        ? {
-            id: transformed.artist.id,
-            userId: transformed.artist.userId || '',
-            name: transformed.artist.name,
-            avatar: combinationStaticAvatar(transformed.artist.userId, transformed.artist.avatar),
-            username: transformed.artist.username || ''
-          }
-        : null,
-      createdAt: transformed.createdAt, // string
-      tags: raw.artworkTags.map((tg) => RandomTagDto.parse(tg.tag)), // 现在是对象数组了
-      isLike
-    }
-  })
+  const items: RandomImageItem[] = sortedArtworks.map((raw) =>
+    toViewerImageItem(transformSingleArtwork(raw), likeStatusMap)
+  )
 
   const nextPage = skip + pageSize < total ? page + 1 : null
 
@@ -513,6 +475,101 @@ export async function getRandomArtworks(
     page,
     pageSize,
     nextPage
+  }
+}
+
+/**
+ * 获取沉浸浏览 Feed
+ * 支持从全站、艺术家、标签等上下文进入，并在顺序/稳定随机之间切换。
+ */
+export async function getViewerFeed(
+  input: ViewerFeedQuerySchema & { userId: string }
+): Promise<RandomImagesResponse> {
+  const {
+    cursor,
+    pageSize,
+    source,
+    sourceId,
+    mode,
+    sortBy,
+    randomSeed,
+    search,
+    mediaType,
+    startDate,
+    endDate,
+    mediaCountMax,
+    userId
+  } = input
+
+  const page = cursor ?? 1
+
+  const result = await getArtworksList({
+    cursor: page,
+    pageSize,
+    artistId: source === 'artist' ? sourceId : undefined,
+    tagId: source === 'tag' ? sourceId : undefined,
+    search,
+    mediaType,
+    startDate,
+    endDate,
+    mediaCountMax,
+    sortBy: mode === 'random' ? 'random' : sortBy || 'source_date_desc',
+    randomSeed: mode === 'random' ? randomSeed : undefined
+  } as ArtworksInfiniteQuerySchema)
+
+  const artworkIds = result.items.map((item) => item.id)
+  let likeStatusMap: Record<number, boolean> = {}
+  try {
+    if (userId && artworkIds.length > 0) {
+      likeStatusMap = await getUserArtworkLikeStatus(userId, artworkIds)
+    }
+  } catch (_error) {
+    logger.error('批量获取点赞状态失败:', _error)
+  }
+
+  const items = result.items.map((item) => toViewerImageItem(item, likeStatusMap))
+  const nextPage = page * pageSize < result.total ? page + 1 : null
+
+  return {
+    items,
+    total: result.total,
+    page,
+    pageSize,
+    nextPage
+  }
+}
+
+function toViewerImageItem(artwork: any, likeStatusMap: Record<number, boolean>): RandomImageItem {
+  const images = (artwork.images || []).map((img: any) => {
+    const url = img.mediaType === 'video' ? combinationApiResource(img.path) : img.path
+    return { key: guid(), url }
+  })
+
+  const imageUrl = images[0]?.url ?? ''
+  const isCoverVideo = isVideoFile(imageUrl)
+  const artist = artwork.artist
+
+  return {
+    id: artwork.id,
+    key: guid(),
+    title: artwork.title,
+    description: artwork.description || '',
+    imageUrl,
+    mediaType: isCoverVideo ? MediaType.VIDEO : MediaType.IMAGE,
+    images,
+    author: artist
+      ? {
+          id: artist.id,
+          userId: artist.userId || '',
+          name: artist.name,
+          avatar: combinationStaticAvatar(artist.userId, artist.avatar),
+          username: artist.username || ''
+        }
+      : null,
+    createdAt:
+      typeof artwork.createdAt === 'string' ? artwork.createdAt : (artwork.createdAt?.toISOString?.() ?? ''),
+    tags: (artwork.tags || []).map((tag: any) => RandomTagDto.parse(tag)),
+    isLike: likeStatusMap[artwork.id] ?? false
   }
 }
 

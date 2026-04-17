@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { useQueryStates, parseAsString } from 'nuqs'
+import { createSerializer, useQueryStates, parseAsInteger, parseAsString } from 'nuqs'
 import { useRouter } from 'next/navigation'
 import { SortOption, MediaTypeFilter } from '@/types'
 import { SlidersHorizontal, ChevronLeft } from 'lucide-react'
@@ -14,6 +14,20 @@ import { SearchBox } from '@/app/artworks/_components/search-box'
 import { cn } from '@/lib/utils'
 import InfiniteArtworkList from '@/components/artwork/Infinite-artwork-list'
 import dayjs from 'dayjs'
+
+const viewerQueryParsers = {
+  source: parseAsString,
+  sourceId: parseAsInteger,
+  mode: parseAsString,
+  sortBy: parseAsString,
+  randomSeed: parseAsInteger,
+  search: parseAsString,
+  mediaType: parseAsString,
+  startDate: parseAsString,
+  endDate: parseAsString
+}
+
+const serializeViewerQuery = createSerializer(viewerQueryParsers)
 
 export default function ArtistDetailPage({ artist, id }: { artist: ArtistResponseDto; id: string }) {
   const router = useRouter()
@@ -73,6 +87,22 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
     })
   }, [setQuery])
 
+  const immersiveViewerHref = useMemo(() => {
+    const randomSeedValue = randomSeed ? Number(randomSeed) : null
+
+    return serializeViewerQuery('/viewer', {
+      source: 'artist',
+      sourceId: Number(id),
+      mode: sortBy === 'random' ? 'random' : 'ordered',
+      sortBy: sortBy === 'random' ? null : sortBy || 'source_date_desc',
+      randomSeed: sortBy === 'random' && Number.isFinite(randomSeedValue) ? randomSeedValue : null,
+      search: search || null,
+      mediaType: mediaType && mediaType !== 'all' ? mediaType : null,
+      startDate: startDate || null,
+      endDate: endDate || null
+    })
+  }, [endDate, id, mediaType, randomSeed, search, sortBy, startDate])
+
   return (
     <div className="relative">
       {/* 顶部悬浮导航栏 */}
@@ -128,7 +158,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
         onApply={handleApplyFilters}
       />
 
-      <HeadInfo artist={artist} />
+      <HeadInfo artist={artist} immersiveHref={immersiveViewerHref} />
       {/* 作品列表部分 */}
       <div className="space-y-6 px-4 my-4">
         {/* 作品列表标题和排序 */}

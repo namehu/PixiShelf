@@ -6,13 +6,15 @@ import {
   ArtworksInfiniteQuerySchema,
   NeighboringArtworksGetSchema,
   RandomArtworksGetSchema,
-  RecommendationsGetSchema
+  RecommendationsGetSchema,
+  ViewerFeedQuerySchema
 } from '@/schemas/artwork.dto'
 import {
   getArtworksList,
   getNeighboringArtworks,
   getRecommendedArtworks,
   getRandomArtworks,
+  getViewerFeed,
   deleteArtwork,
   updateArtwork,
   getArtworkById,
@@ -186,6 +188,25 @@ export const artworkRouter = router({
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
         message: '获取随机图片失败',
+        cause: error
+      })
+    }
+  }),
+
+  /**
+   * 获取沉浸浏览 Feed
+   */
+  viewerFeed: authProcedure.input(ViewerFeedQuerySchema).query(async ({ input, ctx }) => {
+    try {
+      return getViewerFeed({
+        ...input,
+        userId: ctx.userId
+      })
+    } catch (error) {
+      logger.error('获取沉浸浏览 Feed 失败:', error)
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: '获取沉浸浏览 Feed 失败',
         cause: error
       })
     }
