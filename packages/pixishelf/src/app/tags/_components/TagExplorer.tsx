@@ -10,8 +10,42 @@ import { cn } from '@/lib/utils'
 import { Tabs, TabsList, TabsTrigger } from '.'
 import { useRouter } from 'next/navigation'
 import { useTRPC } from '@/lib/trpc'
+import { getTranslateName } from '@/utils/tags'
+import type { Tag } from '@/types'
 
 export type ViewMode = 'universe' | 'grid'
+
+interface SearchResultRowProps {
+  tag: Tag
+  onClick: (tag: Tag) => void
+}
+
+const SearchResultRow: React.FC<SearchResultRowProps> = ({ tag, onClick }) => {
+  const translatedName = getTranslateName(tag)
+
+  return (
+    <motion.button
+      type="button"
+      onClick={() => onClick(tag)}
+      whileHover={{ y: -1 }}
+      whileTap={{ scale: 0.99 }}
+      className="w-full text-left rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/40"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="break-all text-sm font-bold text-slate-900">{tag.name}</span>
+            {translatedName && <span className="break-all text-xs text-slate-500">{translatedName}</span>}
+          </div>
+          {tag.description && <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{tag.description}</p>}
+        </div>
+        <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+          {tag.artworkCount} 作品
+        </span>
+      </div>
+    </motion.button>
+  )
+}
 
 // --- 组件实现 ---
 
@@ -21,6 +55,8 @@ const TagExplorer: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('universe')
   const [currentTab, setCurrentTab] = useState<'popular' | 'random'>('popular')
   const [searchQuery, setSearchQuery] = useState('')
+  const normalizedSearchQuery = searchQuery.trim()
+  const isSearching = normalizedSearchQuery.length > 0
 
   // 控制无限滚动激活状态
   const [enableInfiniteScroll, setEnableInfiniteScroll] = useState(false)
@@ -39,11 +75,15 @@ const TagExplorer: React.FC = () => {
   // React Query
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isRefetching } = useInfiniteQuery(
     trpc.tag.list.infiniteQueryOptions(
-      {
-        pageSize: 100,
-        mode: currentTab,
-        query: searchQuery || undefined
-      },
+      isSearching
+        ? {
+            pageSize: 100,
+            query: normalizedSearchQuery
+          }
+        : {
+            pageSize: 100,
+            mode: currentTab
+          },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
         initialCursor: 1,
@@ -60,7 +100,7 @@ const TagExplorer: React.FC = () => {
   // 🔥 修复核心 1: 监听所有可能导致列表重置的状态（视图、Tab、搜索）
   // 之前的代码漏掉了 currentTab 和 searchQuery，导致切换 Tab 时“锁”没关上
   useEffect(() => {
-    if (viewMode === 'grid') {
+    if (isSearching || viewMode === 'grid') {
       // 1. 立即锁定滚动加载，防止旧的 inView 状态触发请求
       setEnableInfiniteScroll(false)
 
@@ -77,7 +117,7 @@ const TagExplorer: React.FC = () => {
       return () => clearTimeout(timer)
     }
     setEnableInfiniteScroll(false)
-  }, [viewMode, currentTab, searchQuery]) // ✅ 必须包含这些依赖
+  }, [viewMode, currentTab, normalizedSearchQuery, isSearching]) // ✅ 必须包含这些依赖
 
   // 触发逻辑增加 1000ms 节流阀
   useEffect(() => {
@@ -86,7 +126,7 @@ const TagExplorer: React.FC = () => {
       hasNextPage &&
       !isFetchingNextPage &&
       !isLoading && // ✅ 增加 isLoading 检查，防止初始加载时触发
-      viewMode === 'grid' &&
+      (isSearching || viewMode === 'grid') &&
       enableInfiniteScroll &&
       allTags.length > 0
     ) {
@@ -103,6 +143,7 @@ const TagExplorer: React.FC = () => {
     hasNextPage,
     isFetchingNextPage,
     isLoading,
+    isSearching,
     viewMode,
     fetchNextPage,
     enableInfiniteScroll,
@@ -112,13 +153,6 @@ const TagExplorer: React.FC = () => {
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: trpc.tag.list.queryKey() })
   }
-
-  // 监听 Tab 切换，自动重置搜索框
-  useEffect(() => {
-    if (currentTab) {
-      setSearchQuery('')
-    }
-  }, [currentTab])
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 selection:bg-blue-100 flex flex-col">
@@ -143,13 +177,15 @@ const TagExplorer: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => setViewMode(viewMode === 'universe' ? 'grid' : 'universe')}
-              className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
-              title={viewMode === 'universe' ? '切换到网格' : '切换到宇宙'}
-            >
-              {viewMode === 'universe' ? <Grid className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
-            </button>
+            {!isSearching && (
+              <button
+                onClick={() => setViewMode(viewMode === 'universe' ? 'grid' : 'universe')}
+                className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+                title={viewMode === 'universe' ? '切换到网格' : '切换到宇宙'}
+              >
+                {viewMode === 'universe' ? <Grid className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
+              </button>
+            )}
             <button
               onClick={handleRefresh}
               className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
@@ -162,24 +198,68 @@ const TagExplorer: React.FC = () => {
       </header>
 
       <main className="flex-1 flex flex-col relative z-10">
-        <div className="max-w-screen-xl mx-auto w-full px-4 pt-6 flex flex-col items-center">
-          <Tabs value={currentTab} onValueChange={(v: any) => setCurrentTab(v)}>
-            <TabsList className="bg-slate-200/50 p-1 rounded-xl">
-              <TabsTrigger value="popular" className="flex items-center gap-1.5 px-6 py-2">
-                <TrendingUp className="w-3.5 h-3.5" />
-                热门
-              </TabsTrigger>
-              <TabsTrigger value="random" className="flex items-center gap-1.5 px-6 py-2">
-                <Shuffle className="w-3.5 h-3.5" />
-                随机
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
+        {!isSearching && (
+          <div className="max-w-screen-xl mx-auto w-full px-4 pt-6 flex flex-col items-center">
+            <Tabs value={currentTab} onValueChange={(v: any) => setCurrentTab(v)}>
+              <TabsList className="bg-slate-200/50 p-1 rounded-xl">
+                <TabsTrigger value="popular" className="flex items-center gap-1.5 px-6 py-2">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  热门
+                </TabsTrigger>
+                <TabsTrigger value="random" className="flex items-center gap-1.5 px-6 py-2">
+                  <Shuffle className="w-3.5 h-3.5" />
+                  随机
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        )}
 
         <div className="flex-1 flex flex-col min-h-[500px]">
           <AnimatePresence mode="wait">
-            {viewMode === 'universe' ? (
+            {isSearching ? (
+              <motion.div
+                key="search"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="max-w-screen-md mx-auto w-full px-4 py-8"
+              >
+                <div className="mb-4 flex items-end justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase text-slate-400">搜索结果</p>
+                    <h1 className="mt-1 break-all text-2xl font-black text-slate-900">{normalizedSearchQuery}</h1>
+                  </div>
+                  <span className="shrink-0 text-xs text-slate-400">已加载 {allTags.length} 个标签</span>
+                </div>
+
+                {allTags.length > 0 ? (
+                  <div className="flex flex-col gap-2">
+                    {allTags.map((tag) => (
+                      <SearchResultRow key={tag.id} tag={tag} onClick={() => router.push(`/tags/${tag.id}`)} />
+                    ))}
+                  </div>
+                ) : !isLoading ? (
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-white px-6 py-16 text-center">
+                    <p className="text-sm font-bold text-slate-700">没有找到匹配标签</p>
+                    <p className="mt-2 text-xs text-slate-400">换个关键词试试看</p>
+                  </div>
+                ) : null}
+
+                <div ref={loadMoreRef} className="py-10 flex justify-center items-center gap-2 text-slate-400">
+                  {isFetchingNextPage ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                      <span className="text-sm">正在加载更多...</span>
+                    </>
+                  ) : hasNextPage ? (
+                    <span className="text-xs uppercase tracking-widest opacity-30">向上滑动查看更多结果</span>
+                  ) : allTags.length > 0 ? (
+                    <span className="text-xs uppercase tracking-widest opacity-30">没有更多结果了</span>
+                  ) : null}
+                </div>
+              </motion.div>
+            ) : viewMode === 'universe' ? (
               <motion.div
                 key="universe"
                 initial={{ opacity: 0 }}
