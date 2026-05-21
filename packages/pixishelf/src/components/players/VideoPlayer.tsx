@@ -39,6 +39,7 @@ export function VideoPlayer({
   const onErrorRef = useRef(onError)
   const mediaSrc = useMemo(() => combinationApiResource(src), [src])
   const progress = duration > 0 && Number.isFinite(duration) ? (currentTime / duration) * 100 : 0
+  const remainingTime = duration > 0 && Number.isFinite(duration) ? Math.max(duration - currentTime, 0) : null
 
   const clearLoading = () => {
     if (loadingTimeoutRef.current) {
@@ -56,6 +57,19 @@ export function VideoPlayer({
     setError(message)
     setLoading(false)
     onErrorRef.current?.(message)
+  }
+
+  const formatMediaTime = (seconds: number) => {
+    const totalSeconds = Math.max(Math.ceil(seconds), 0)
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const remainingSeconds = totalSeconds % 60
+
+    if (hours > 0) {
+      return [hours, minutes, remainingSeconds].map((part) => part.toString().padStart(2, '0')).join(':')
+    }
+
+    return [minutes, remainingSeconds].map((part) => part.toString().padStart(2, '0')).join(':')
   }
 
   // 处理播放/暂停
@@ -246,6 +260,12 @@ export function VideoPlayer({
           <div className="bg-white/90 rounded-full p-4">
             <Loader2Icon className="w-8 h-8 text-neutral-600 animate-spin" />
           </div>
+        </div>
+      )}
+
+      {remainingTime !== null && (
+        <div className="absolute bottom-2 left-2 rounded bg-black/35 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white/85">
+          {formatMediaTime(remainingTime)}
         </div>
       )}
 
