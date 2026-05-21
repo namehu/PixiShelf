@@ -1,7 +1,8 @@
 'use client'
 
-import { InfoIcon } from 'lucide-react'
-import React, { useState, useRef, useEffect } from 'react'
+import { InfoIcon, Loader2Icon, PlayIcon } from 'lucide-react'
+import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { cn } from '@/lib/utils'
 import { combinationApiResource } from '@/utils/combinationStatic'
 
 export interface VideoPlayerProps {
@@ -30,21 +31,67 @@ export function VideoPlayer({
   const [duration, setDuration] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showPlayButton, setShowPlayButton] = useState(true)
   const hasStartedPlayingRef = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const playButtonTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const onPlayRef = useRef(onPlay)
+  const onPauseRef = useRef(onPause)
+  const onErrorRef = useRef(onError)
+  const mediaSrc = useMemo(() => combinationApiResource(src), [src])
+  const progress = duration > 0 && Number.isFinite(duration) ? (currentTime / duration) * 100 : 0
+
+  const clearLoading = () => {
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current)
+      loadingTimeoutRef.current = null
+    }
+    setLoading(false)
+  }
+
+  const shouldShowBuffering = (video: HTMLVideoElement) => {
+    return !video.ended && !video.paused && video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
+  }
+
+  const showVideoError = (message = '视频加载失败') => {
+    setError(message)
+    setLoading(false)
+    onErrorRef.current?.(message)
+  }
 
   // 处理播放/暂停
   const handlePlayPause = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause()
-      } else {
-        videoRef.current.play()
-      }
+    const video = videoRef.current
+    if (!video) return
+
+    if (isPlaying) {
+      video.pause()
+      return
     }
+
+    video.play().catch(() => {
+      showVideoError('视频播放失败')
+    })
   }
+
+  useEffect(() => {
+    onPlayRef.current = onPlay
+    onPauseRef.current = onPause
+    onErrorRef.current = onError
+  }, [onPlay, onPause, onError])
+
+  useEffect(() => {
+    const video = videoRef.current
+    hasStartedPlayingRef.current = false
+    setIsPlaying(false)
+    setCurrentTime(0)
+    setDuration(0)
+    setError(null)
+    setLoading(true)
+
+    if (video) {
+      video.load()
+    }
+  }, [mediaSrc])
 
   // 视频事件处理
   useEffect(() => {
@@ -55,35 +102,33 @@ export function VideoPlayer({
       setDuration(video.duration)
     }
 
+    const handleCanRenderFrame = () => {
+      clearLoading()
+    }
+
     const handleTimeUpdate = () => {
       setCurrentTime(video.currentTime)
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || video.ended) {
+        clearLoading()
+      }
     }
 
     const handlePlay = () => {
       setIsPlaying(true)
       hasStartedPlayingRef.current = true
-      onPlay?.()
+      onPlayRef.current?.()
     }
 
     const handlePause = () => {
       setIsPlaying(false)
-      onPause?.()
-      setShowPlayButton(true)
-
-      // 暂停后1秒隐藏播放按钮
-      if (playButtonTimeoutRef.current) {
-        clearTimeout(playButtonTimeoutRef.current)
+      onPauseRef.current?.()
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || video.ended) {
+        clearLoading()
       }
-      playButtonTimeoutRef.current = setTimeout(() => {
-        setShowPlayButton(false)
-      }, 1000)
     }
 
     const handleError = () => {
-      const errorMessage = '视频加载失败'
-      setError(errorMessage)
-      setLoading(false)
-      onError?.(errorMessage)
+      showVideoError()
     }
 
     const handleLoadStart = () => {
@@ -91,56 +136,86 @@ export function VideoPlayer({
     }
 
     const handleCanPlay = () => {
-      setLoading(false)
+      clearLoading()
       hasStartedPlayingRef.current = true
     }
 
     const handleWaiting = () => {
-      if (hasStartedPlayingRef.current) {
+      if (hasStartedPlayingRef.current && shouldShowBuffering(video)) {
         setLoading(true)
       }
     }
 
     const handlePlaying = () => {
-      setLoading(false)
+      clearLoading()
       hasStartedPlayingRef.current = true
     }
 
+    const handleEnded = () => {
+      clearLoading()
+      setIsPlaying(false)
+    }
+
     video.addEventListener('loadedmetadata', handleLoadedMetadata)
+    video.addEventListener('loadeddata', handleCanRenderFrame)
     video.addEventListener('timeupdate', handleTimeUpdate)
     video.addEventListener('play', handlePlay)
     video.addEventListener('pause', handlePause)
     video.addEventListener('error', handleError)
     video.addEventListener('loadstart', handleLoadStart)
     video.addEventListener('canplay', handleCanPlay)
+    video.addEventListener('canplaythrough', handleCanRenderFrame)
     video.addEventListener('waiting', handleWaiting)
     video.addEventListener('playing', handlePlaying)
+    video.addEventListener('ended', handleEnded)
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      video.removeEventListener('loadeddata', handleCanRenderFrame)
       video.removeEventListener('timeupdate', handleTimeUpdate)
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('pause', handlePause)
       video.removeEventListener('error', handleError)
       video.removeEventListener('loadstart', handleLoadStart)
       video.removeEventListener('canplay', handleCanPlay)
+      video.removeEventListener('canplaythrough', handleCanRenderFrame)
       video.removeEventListener('waiting', handleWaiting)
       video.removeEventListener('playing', handlePlaying)
+      video.removeEventListener('ended', handleEnded)
     }
-  }, [onPlay, onPause, onError])
+  }, [])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!loading || !video) return
+
+    loadingTimeoutRef.current = setTimeout(() => {
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || video.ended || video.paused) {
+        setLoading(false)
+      }
+      loadingTimeoutRef.current = null
+    }, 8000)
+
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current)
+        loadingTimeoutRef.current = null
+      }
+    }
+  }, [loading])
 
   // 清理定时器
   useEffect(() => {
     return () => {
-      if (playButtonTimeoutRef.current) {
-        clearTimeout(playButtonTimeoutRef.current)
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current)
       }
     }
   }, [])
 
   if (error) {
     return (
-      <div className={`flex flex-col items-center justify-center bg-neutral-100 text-neutral-600 ${className}`}>
+      <div className={cn('flex flex-col items-center justify-center bg-neutral-100 text-neutral-600', className)}>
         <InfoIcon className="text-neutral-400 w-16 h-16 mb-4" />
         <p className="text-sm">{error}</p>
         <p className="text-xs text-neutral-500 mt-1">请检查视频文件是否存在或格式是否支持</p>
@@ -149,7 +224,7 @@ export function VideoPlayer({
   }
 
   return (
-    <div className={`video-player relative bg-black ${className}`}>
+    <div className={cn('video-player relative bg-black', className)}>
       <video
         ref={videoRef}
         className="w-full h-auto"
@@ -161,7 +236,7 @@ export function VideoPlayer({
         controls={false}
         onClick={handlePlayPause}
       >
-        <source src={combinationApiResource(src)} />
+        <source src={mediaSrc} />
         您的浏览器不支持视频播放。
       </video>
 
@@ -169,28 +244,21 @@ export function VideoPlayer({
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
           <div className="bg-white/90 rounded-full p-4">
-            <svg className="w-8 h-8 text-neutral-600 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
+            <Loader2Icon className="w-8 h-8 text-neutral-600 animate-spin" />
           </div>
         </div>
       )}
 
       {/* 播放/暂停按钮覆盖层 */}
-      {!loading && !isPlaying && showPlayButton && (
+      {!loading && !isPlaying && (
         <div className="absolute inset-0 flex items-center justify-center">
           <button
+            type="button"
+            aria-label="播放视频"
             onClick={handlePlayPause}
             className="bg-white/60 hover:bg-white/80 rounded-full p-4 transition-all duration-300 shadow-lg"
           >
-            <svg className="w-12 h-12 text-neutral-600" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M8 5v14l11-7z" />
-            </svg>
+            <PlayIcon className="w-12 h-12 text-neutral-600 fill-current" />
           </button>
         </div>
       )}
@@ -200,36 +268,10 @@ export function VideoPlayer({
         <div className="absolute bottom-0 left-0 right-0 h-1 sm:h-1.5 bg-white/30">
           <div
             className="h-full bg-blue-500 transition-all duration-150 ease-out"
-            style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+            style={{ width: `${progress}%` }}
           />
         </div>
       )}
-
-      {/* 自定义滑块样式通过CSS类实现 */}
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-          .video-player .slider::-webkit-slider-thumb {
-            appearance: none;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: white;
-            cursor: pointer;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-          }
-          .video-player .slider::-moz-range-thumb {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: white;
-            cursor: pointer;
-            border: none;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-          }
-        `
-        }}
-      />
     </div>
   )
 }
