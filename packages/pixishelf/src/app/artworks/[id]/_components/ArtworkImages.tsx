@@ -10,7 +10,7 @@ import { useRouter } from 'next/navigation'
 import { useArtworkStore } from '@/store/useArtworkStore'
 
 interface ArtworkImagesProps {
-  images: { id: number; path: string }[]
+  images: { id: number; path: string; width?: number | null; height?: number | null; size?: number | null }[]
   artworkId: number
 }
 
@@ -91,7 +91,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
         <div className="w-full px-2" data-testid="artwork-images-container">
           {images.map((img, index) => (
             <ImageWrapper key={img.id} index={index} onOpenMenu={handleOpenMenu}>
-              <LazyMedia src={img.path} index={index} />
+              <LazyMedia src={img.path} index={index} width={img.width} height={img.height} size={img.size} />
             </ImageWrapper>
           ))}
         </div>
@@ -111,7 +111,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
           return (
             <div key={img.id} className="relative group">
               <ImageWrapper index={index} onOpenMenu={handleOpenMenu}>
-                <LazyMedia src={img.path} index={index} />
+                <LazyMedia src={img.path} index={index} width={img.width} height={img.height} size={img.size} />
               </ImageWrapper>
 
               {/* 渐变遮罩和按钮 - 仅在第MAX_PREVIEW_IMAGES张且未展开时显示 */}
@@ -142,7 +142,13 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
             >
               {remainingImages.map((img, index) => (
                 <ImageWrapper key={img.id} index={index + MAX_PREVIEW_IMAGES} onOpenMenu={handleOpenMenu}>
-                  <LazyMedia src={img.path} index={index + MAX_PREVIEW_IMAGES} />
+                  <LazyMedia
+                    src={img.path}
+                    index={index + MAX_PREVIEW_IMAGES}
+                    width={img.width}
+                    height={img.height}
+                    size={img.size}
+                  />
                 </ImageWrapper>
               ))}
             </motion.div>

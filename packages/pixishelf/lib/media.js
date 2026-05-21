@@ -59,3 +59,10 @@ export function isImageFile(filename) {
  * @returns
  */
 export const isApngFile = (src) => /\.apng$/i.test(src || '')
+
+/**
+ * 判断文件是否为 webp 格式
+ * @param {*} src
+ * @returns
+ */
+export const isWebpFile = (src) => /\.webp$/i.test(src || '')
