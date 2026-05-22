@@ -235,114 +235,101 @@ export interface DashboardArtistItem extends ArtistResponseDto {
 /**
  * 获取仪表板艺术家卡片数据
  * 策略：
- * 1. 先取一个较大的候选池，避免总是固定头部艺术家
- * 2. 对候选池进行随机扰动排序，保证每次刷新都有变化
+ * 1. 取出所有"至少有一件作品"的艺术家 id，在内存里纯随机抽取 pageSize 个
+ * 2. 一次 findMany 把这些艺术家完整取回
  * 3. 为每个艺术家补充最近作品预览，增强信息密度
  */
 export async function getDashboardArtists(
   options: {
     pageSize?: number
-    candidateMultiplier?: number
     previewArtworkSize?: number
   } = {}
 ): Promise<DashboardArtistItem[]> {
   try {
-    const { pageSize = 12, candidateMultiplier = 8, previewArtworkSize = 3 } = options
-    const candidatePoolSize = Math.min(240, Math.max(pageSize * candidateMultiplier, pageSize))
+    const { pageSize = 12, previewArtworkSize = 3 } = options
 
-    const candidates = await prisma.artist.findMany({
+    const candidateIds = await prisma.artist.findMany({
       where: {
         artworks: {
           some: {}
         }
       },
-      select: {
-        ...ARTIST_SELECT,
-        _count: {
-          select: {
-            artworks: true
-          }
-        }
-      },
-      orderBy: {
-        artworks: {
-          _count: 'desc'
-        }
-      },
-      take: candidatePoolSize
+      select: { id: true }
     })
 
-    if (!candidates.length) {
+    if (!candidateIds.length) {
       return []
     }
 
-    const randomizedCandidates = candidates
-      .map((artist, index) => {
-        const artworksCount = artist._count?.artworks ?? 0
-        const rankPenalty = index * 0.03
-        const popularityScore = Math.log2(artworksCount + 1) * 0.7
-        const randomBoost = Math.random() * 2.2
+    // Fisher–Yates 抽样前 pageSize 个，避免对全数组排序
+    const ids = candidateIds.map((c) => c.id)
+    const take = Math.min(pageSize, ids.length)
+    for (let i = 0; i < take; i++) {
+      const j = i + Math.floor(Math.random() * (ids.length - i))
+      const tmp = ids[i]!
+      ids[i] = ids[j]!
+      ids[j] = tmp
+    }
+    const selectedIds = ids.slice(0, take)
 
-        return {
-          artist,
-          score: popularityScore + randomBoost - rankPenalty
-        }
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, pageSize)
-
-    const selectedArtists = randomizedCandidates.map((item) => item.artist)
-    const selectedArtistIds = selectedArtists.map((artist) => artist.id)
-
-    const recentArtworksByArtist = await Promise.all(
-      selectedArtistIds.map(async (artistId) => {
-        const artworks = await prisma.artwork.findMany({
-          where: {
-            artistId
-          },
-          select: {
-            id: true,
-            title: true,
-            images: {
-              select: {
-                path: true
-              },
-              orderBy: {
-                sortOrder: 'asc'
-              },
-              take: 1
+    const [selectedArtists, recentArtworks] = await Promise.all([
+      prisma.artist.findMany({
+        where: { id: { in: selectedIds } },
+        select: {
+          ...ARTIST_SELECT,
+          _count: {
+            select: {
+              artworks: true
             }
-          },
-          orderBy: [
-            {
-              sourceDate: 'desc'
+          }
+        }
+      }),
+      prisma.artwork.findMany({
+        where: { artistId: { in: selectedIds } },
+        select: {
+          id: true,
+          title: true,
+          artistId: true,
+          sourceDate: true,
+          images: {
+            select: {
+              path: true
             },
-            {
-              id: 'desc'
-            }
-          ],
-          take: previewArtworkSize
-        })
-
-        return {
-          artistId,
-          artworks: artworks.map((artwork) => ({
-            id: artwork.id,
-            title: artwork.title,
-            coverUrl: artwork.images[0]?.path || ''
-          }))
-        }
+            orderBy: {
+              sortOrder: 'asc'
+            },
+            take: 1
+          }
+        },
+        orderBy: [{ sourceDate: 'desc' }, { id: 'desc' }]
       })
-    )
+    ])
 
-    const artworkMap = new Map<number, DashboardArtistArtworkPreview[]>(
-      recentArtworksByArtist.map((item) => [item.artistId, item.artworks])
-    )
+    const artworkMap = new Map<number, DashboardArtistArtworkPreview[]>()
+    for (const artwork of recentArtworks) {
+      if (artwork.artistId == null) continue
+      const bucket = artworkMap.get(artwork.artistId)
+      const preview: DashboardArtistArtworkPreview = {
+        id: artwork.id,
+        title: artwork.title,
+        coverUrl: artwork.images[0]?.path || ''
+      }
+      if (!bucket) {
+        artworkMap.set(artwork.artistId, [preview])
+      } else if (bucket.length < previewArtworkSize) {
+        bucket.push(preview)
+      }
+    }
 
-    return selectedArtists.map((artist) => ({
-      ...ArtistResponseDto.parse(artist),
-      recentArtworks: artworkMap.get(artist.id) ?? []
-    }))
+    // 保持随机顺序：按 selectedIds 的顺序输出
+    const artistById = new Map(selectedArtists.map((artist) => [artist.id, artist]))
+    return selectedIds
+      .map((id) => artistById.get(id))
+      .filter((artist): artist is NonNullable<typeof artist> => artist !== undefined)
+      .map((artist) => ({
+        ...ArtistResponseDto.parse(artist),
+        recentArtworks: artworkMap.get(artist.id) ?? []
+      }))
   } catch (error) {
     logger.error('Error fetching dashboard artists:', error)
     return []
