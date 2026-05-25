@@ -27,19 +27,19 @@
     ],
     "paths": {
       "@/*": [
-        "./src/*"
+        "./*"
       ],
       "@/components/*": [
-        "./src/components/*"
+        "./components/*"
       ],
       "@/lib/*": [
-        "./src/lib/*"
+        "./lib/*"
       ],
       "@/types/*": [
-        "./src/types/*"
+        "./types/*"
       ],
       "@/contexts/*": [
-        "./src/contexts/*"
+        "./contexts/*"
       ]
     }
   },

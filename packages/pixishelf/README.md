@@ -4,7 +4,7 @@ PixiShelf 是一个自托管的 Pixiv 本地图片管理与浏览系统。它允
 
 ## 🛠 技术栈
 
-- **前端**: [Next.js 15](https://nextjs.org/) (App Router), [React 19](https://react.dev/), [Tailwind CSS 4](https://tailwindcss.com/), [Shadcn UI](https://ui.shadcn.com/)
+- **前端**: [Next.js 16](https://nextjs.org/) (App Router), [React 19](https://react.dev/), [Tailwind CSS 4](https://tailwindcss.com/), [Shadcn UI](https://ui.shadcn.com/)
 - **状态管理**: [Zustand](https://github.com/pmndrs/zustand), [TanStack Query](https://tanstack.com/query)
 - **后端**: Next.js Server Actions / API Routes
 - **数据库**: [Prisma](https://www.prisma.io/) (PostgreSQL)
@@ -13,27 +13,18 @@ PixiShelf 是一个自托管的 Pixiv 本地图片管理与浏览系统。它允
 ## 📂 项目结构
 
 ```plain
-src/
-├── app/
-│   ├── api/
-│   │   └── auth/
-│   │       └── route.ts      <-- 只负责解析 Request，调用 server/services
-│   └── dashboard/
-│       └── page.tsx          <-- 页面
-├── server/                   <-- 【新增】专门存放后端逻辑
-│   ├── services/             <-- 业务逻辑 (UserService.ts)
-│   └── db.ts                 <-- (可选) 数据库访问层封装
-├── services/                 <-- 【前端】API 请求封装 (ApiClient)
-│   └── auth-client.ts        <-- 前端 fetch('/api/auth')
-├── lib/
-│   ├── prisma.ts             <-- Prisma 单例
-│   └── redis.ts              <-- Redis 配置
-├── utils/
-│   ├── formatting.ts         <-- 纯函数
-│   └── validators.ts         <-- Zod Schemas (前后端公用)
-├── types/
-│   └── api-responses.ts      <-- 前后端公用的 API 返回类型定义
-└── components/
+app/
+├── api/
+│   └── auth/
+│       └── route.ts          <-- 只负责解析 Request，调用 server/services
+└── dashboard/
+    └── page.tsx              <-- 页面
+server/                       <-- 专门存放后端路由与上下文
+services/                     <-- 业务服务
+lib/                          <-- Prisma、鉴权、日志、工具函数
+schemas/                      <-- Zod Schemas
+types/                        <-- 前后端公用类型
+components/                   <-- 通用组件
 ```
 
 ## 🚀 快速开始
