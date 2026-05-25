@@ -6,7 +6,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import logger from '@/lib/logger'
 import { generateLocalExternalId } from './artwork-service/utils'
-import { syncWebpTagsForArtworks } from './webp-tag-service'
+import { syncMediaDerivedTagsForArtworks } from './media-derived-tag-service'
 
 /**
  * 批量创建作品
@@ -123,7 +123,7 @@ export async function batchRegisterImagesService(data: BatchRegisterImageSchema)
         artworkIdsToSync.add(artworkId)
       }
 
-      await syncWebpTagsForArtworks(tx, Array.from(artworkIdsToSync))
+      await syncMediaDerivedTagsForArtworks(tx, Array.from(artworkIdsToSync))
     })
   } catch (error) {
     logger.error(`Failed to register images: ${error}`)

@@ -8,7 +8,6 @@ import { toast } from 'sonner'
 import { useTRPC } from '@/lib/trpc'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ProDialog } from '@/components/shared/pro-dialog'
-import { Loader2 } from 'lucide-react'
 
 interface TagDialogProps {
   open: boolean
@@ -16,6 +15,7 @@ interface TagDialogProps {
   tag?: {
     id: number
     name: string
+    isSystem?: boolean
     name_zh?: string | null
     name_en?: string | null
     description?: string | null
@@ -95,7 +95,6 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
     }
 
     const payload = {
-      name: formData.name.trim(),
       name_zh: formData.name_zh.trim() || undefined,
       name_en: formData.name_en.trim() || undefined,
       description: formData.description.trim() || undefined
@@ -104,10 +103,10 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
     if (isEdit && tag) {
       updateMutation.mutate({
         id: tag.id,
-        data: payload
+        data: tag.isSystem ? payload : { ...payload, name: formData.name.trim() }
       })
     } else {
-      createMutation.mutate(payload)
+      createMutation.mutate({ ...payload, name: formData.name.trim() })
     }
   }
 
@@ -132,8 +131,10 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             placeholder="请输入标签名称"
+            disabled={Boolean(tag?.isSystem)}
             autoFocus
           />
+          {tag?.isSystem && <p className="text-xs text-neutral-500">系统标签名称由程序维护，不允许修改。</p>}
         </div>
 
         {/* Chinese Name */}

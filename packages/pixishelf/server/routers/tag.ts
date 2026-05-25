@@ -128,6 +128,8 @@ export const tagRouter = router({
           select: {
             id: true,
             name: true,
+            isSystem: true,
+            systemKey: true,
             name_zh: true,
             name_en: true,
             description: true,

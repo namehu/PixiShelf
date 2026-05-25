@@ -122,24 +122,24 @@ export async function createRefillMetaSourceJob() {
 }
 
 /**
- * 尝试创建一个 WebP 标签同步任务
+ * 尝试创建一个媒体派生标签同步任务
  */
-export async function createWebpTagSyncJob() {
+export async function createMediaDerivedTagSyncJob() {
   return await prisma.$transaction(async (tx) => {
     const activeJob = await tx.systemJob.findFirst({
       where: {
-        type: 'WEBP_TAG_SYNC',
+        type: 'MEDIA_DERIVED_TAG_SYNC',
         status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
       }
     })
 
     if (activeJob) {
-      throw new Error('WebP tag sync job already in progress')
+      throw new Error('Media derived tag sync job already in progress')
     }
 
     return await tx.systemJob.create({
       data: {
-        type: 'WEBP_TAG_SYNC',
+        type: 'MEDIA_DERIVED_TAG_SYNC',
         status: JobStatus.RUNNING,
         message: '初始化...',
         progress: 0
@@ -162,12 +162,12 @@ export async function getActiveRefillMetaSourceJob() {
 }
 
 /**
- * 获取最近一次 WebP 标签同步任务
+ * 获取最近一次媒体派生标签同步任务
  */
-export async function getLatestWebpTagSyncJob() {
+export async function getLatestMediaDerivedTagSyncJob() {
   return await prisma.systemJob.findFirst({
     where: {
-      type: 'WEBP_TAG_SYNC'
+      type: 'MEDIA_DERIVED_TAG_SYNC'
     },
     orderBy: { createdAt: 'desc' }
   })

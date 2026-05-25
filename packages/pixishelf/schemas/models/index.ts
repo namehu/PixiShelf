@@ -91,6 +91,8 @@ export const SeriesArtworkModel = z.object({
 export const TagModel = z.object({
   id: z.number().int(),
   name: z.string(), // [cite: 16]
+  isSystem: z.boolean().default(false),
+  systemKey: z.string().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
   artworkCount: z.number().int().default(0),

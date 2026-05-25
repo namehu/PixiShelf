@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client'
 export const TAG_SELECT = {
   id: true,
   name: true,
+  isSystem: true,
+  systemKey: true,
   name_zh: true,
   name_en: true,
   description: true,

@@ -236,6 +236,18 @@ export async function updateTag(
   id: number,
   data: { name?: string; name_zh?: string | null; name_en?: string | null; description?: string | null }
 ) {
+  const tag = await prisma.tag.findUnique({
+    where: { id },
+    select: { isSystem: true, name: true }
+  })
+  if (!tag) {
+    throw new Error('Tag not found')
+  }
+
+  if (tag.isSystem && data.name && data.name !== tag.name) {
+    throw new Error('System tag name cannot be changed')
+  }
+
   // If name is updated, check for duplicate
   if (data.name) {
     const existing = await prisma.tag.findFirst({
@@ -255,5 +267,13 @@ export async function updateTag(
  * 删除标签
  */
 export async function deleteTag(id: number) {
+  const tag = await prisma.tag.findUnique({
+    where: { id },
+    select: { isSystem: true }
+  })
+  if (tag?.isSystem) {
+    throw new Error('System tags cannot be deleted')
+  }
+
   return prisma.tag.delete({ where: { id } })
 }

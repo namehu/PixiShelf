@@ -4,7 +4,7 @@ import { refillMetaSource } from '@/services/scan-service/refill-meta-source'
 import { getScanPath } from '@/services/setting.service'
 import { TRPCError } from '@trpc/server'
 import logger from '@/lib/logger'
-import { syncAllWebpTags } from '@/services/webp-tag-service'
+import { syncAllMediaDerivedTags } from '@/services/media-derived-tag-service'
 
 export const jobRouter = router({
   startRefillMetaSource: authProcedure.mutation(async () => {
@@ -77,27 +77,27 @@ export const jobRouter = router({
     return { success: false, message: 'No active job' }
   }),
 
-  startWebpTagSync: authProcedure.mutation(async () => {
-    const activeJob = await JobService.getLatestWebpTagSyncJob()
+  startMediaDerivedTagSync: authProcedure.mutation(async () => {
+    const activeJob = await JobService.getLatestMediaDerivedTagSyncJob()
     if (activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)) {
       throw new TRPCError({
         code: 'CONFLICT',
-        message: 'WebP tag sync job is already running'
+        message: 'Media derived tag sync job is already running'
       })
     }
 
-    const job = await JobService.createWebpTagSyncJob()
+    const job = await JobService.createMediaDerivedTagSyncJob()
 
     ;(async () => {
       try {
-        const result = await syncAllWebpTags({
+        const result = await syncAllMediaDerivedTags({
           onProgress: async (progress) => {
             await JobService.updateProgress(job.id, progress.percentage, progress.message)
           }
         })
         await JobService.completeJob(job.id, result)
       } catch (error) {
-        logger.error('WebP tag sync job failed', { error })
+        logger.error('Media derived tag sync job failed', { error })
         await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
       }
     })()
@@ -105,7 +105,7 @@ export const jobRouter = router({
     return { jobId: job.id }
   }),
 
-  getWebpTagSyncStatus: authProcedure.query(async () => {
-    return await JobService.getLatestWebpTagSyncJob()
+  getMediaDerivedTagSyncStatus: authProcedure.query(async () => {
+    return await JobService.getLatestMediaDerivedTagSyncJob()
   })
 })

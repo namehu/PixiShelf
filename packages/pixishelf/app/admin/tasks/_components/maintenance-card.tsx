@@ -9,21 +9,27 @@ import { Progress } from '@/components/ui/progress'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-interface WebpTagSyncResult {
-  expectedWebpArtworks?: number
+interface MediaDerivedTagSyncStats {
+  expectedArtworks?: number
   addedRelations?: number
   removedStaleRelations?: number
-  finalWebpTagRelations?: number
+  finalRelations?: number
 }
 
-function toWebpTagSyncResult(result: unknown): WebpTagSyncResult | null {
-  return result && typeof result === 'object' ? (result as WebpTagSyncResult) : null
+interface MediaDerivedTagSyncResult {
+  webp?: MediaDerivedTagSyncStats
+  video?: MediaDerivedTagSyncStats
+  image?: MediaDerivedTagSyncStats
+}
+
+function toMediaDerivedTagSyncResult(result: unknown): MediaDerivedTagSyncResult | null {
+  return result && typeof result === 'object' ? (result as MediaDerivedTagSyncResult) : null
 }
 
 export function MaintenanceCard() {
   const trpc = useTRPC()
   const [pollInterval, setPollInterval] = useState<number | false>(false)
-  const [webpPollInterval, setWebpPollInterval] = useState<number | false>(false)
+  const [mediaTagPollInterval, setMediaTagPollInterval] = useState<number | false>(false)
 
   // 查询当前任务状态
   const { data: activeJob, refetch } = useQuery(
@@ -32,13 +38,13 @@ export function MaintenanceCard() {
     })
   )
 
-  const webpJobQuery = useQuery(
-    trpc.job.getWebpTagSyncStatus.queryOptions(undefined, {
-      refetchInterval: webpPollInterval
+  const mediaTagJobQuery = useQuery(
+    trpc.job.getMediaDerivedTagSyncStatus.queryOptions(undefined, {
+      refetchInterval: mediaTagPollInterval
     })
   )
-  const webpJob = webpJobQuery.data as any
-  const refetchWebpJob = webpJobQuery.refetch
+  const mediaTagJob = mediaTagJobQuery.data as any
+  const refetchMediaTagJob = mediaTagJobQuery.refetch
 
   // 监听任务状态以调整轮询
   useEffect(() => {
@@ -50,12 +56,12 @@ export function MaintenanceCard() {
   }, [activeJob?.status])
 
   useEffect(() => {
-    if (webpJob && ['PENDING', 'RUNNING'].includes(webpJob.status)) {
-      setWebpPollInterval(1000)
+    if (mediaTagJob && ['PENDING', 'RUNNING'].includes(mediaTagJob.status)) {
+      setMediaTagPollInterval(1000)
     } else {
-      setWebpPollInterval(false)
+      setMediaTagPollInterval(false)
     }
-  }, [webpJob?.status])
+  }, [mediaTagJob?.status])
 
   // 开始任务 Mutation
   const startMutation = useMutation(
@@ -80,11 +86,11 @@ export function MaintenanceCard() {
     })
   )
 
-  const startWebpMutation = useMutation(
-    trpc.job.startWebpTagSync.mutationOptions({
+  const startMediaTagMutation = useMutation(
+    trpc.job.startMediaDerivedTagSync.mutationOptions({
       onSuccess: () => {
-        toast.success('WebP 标签同步任务已启动')
-        refetchWebpJob()
+        toast.success('媒体标签同步任务已启动')
+        refetchMediaTagJob()
       },
       onError: (error) => {
         toast.error(`启动失败: ${error.message}`)
@@ -94,8 +100,8 @@ export function MaintenanceCard() {
 
   const isRunning = activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)
   const isCancelling = activeJob?.status === 'CANCELLING'
-  const isWebpRunning = webpJob && ['PENDING', 'RUNNING'].includes(webpJob.status)
-  const webpResult = toWebpTagSyncResult(webpJob?.result)
+  const isMediaTagRunning = mediaTagJob && ['PENDING', 'RUNNING'].includes(mediaTagJob.status)
+  const mediaTagResult = toMediaDerivedTagSyncResult(mediaTagJob?.result)
 
   return (
     <Card>
@@ -153,33 +159,44 @@ export function MaintenanceCard() {
 
         <div className="flex items-center justify-between p-4 border rounded-lg">
           <div className="space-y-1">
-            <h4 className="font-medium">同步 WebP 标签</h4>
+            <h4 className="font-medium">同步媒体标签</h4>
             <p className="text-sm text-neutral-500">
-              根据作品媒体文件后缀，为包含 .webp 图片的作品补齐 webp 标签，并移除过期关联。
+              根据作品媒体文件后缀，同步 image、video、webp 系统标签，并移除过期关联。
             </p>
           </div>
-          <Button onClick={() => startWebpMutation.mutate()} disabled={Boolean(isWebpRunning) || startWebpMutation.isPending}>
-            {startWebpMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isWebpRunning ? '同步中...' : '开始同步'}
+          <Button
+            onClick={() => startMediaTagMutation.mutate()}
+            disabled={Boolean(isMediaTagRunning) || startMediaTagMutation.isPending}
+          >
+            {startMediaTagMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isMediaTagRunning ? '同步中...' : '开始同步'}
           </Button>
         </div>
 
-        {webpJob && (isWebpRunning || webpJob.status === 'COMPLETED' || webpJob.status === 'FAILED') && (
+        {mediaTagJob && (isMediaTagRunning || mediaTagJob.status === 'COMPLETED' || mediaTagJob.status === 'FAILED') && (
           <div className="space-y-2 p-4 bg-neutral-50 rounded-lg">
             <div className="flex justify-between text-sm">
               <span className="font-medium">
-                状态: {webpJob.status}
-                {webpJob.message && ` - ${webpJob.message}`}
+                状态: {mediaTagJob.status}
+                {mediaTagJob.message && ` - ${mediaTagJob.message}`}
               </span>
-              <span>{webpJob.progress}%</span>
+              <span>{mediaTagJob.progress}%</span>
             </div>
-            <Progress value={webpJob.progress} className="h-2" />
-            {webpJob.error && <p className="text-sm text-red-500 mt-2">错误: {webpJob.error}</p>}
-            {webpJob.status === 'COMPLETED' && (
+            <Progress value={mediaTagJob.progress} className="h-2" />
+            {mediaTagJob.error && <p className="text-sm text-red-500 mt-2">错误: {mediaTagJob.error}</p>}
+            {mediaTagJob.status === 'COMPLETED' && (
               <p className="text-sm text-green-600 mt-2">
-                任务完成：命中 {webpResult?.expectedWebpArtworks ?? 0} 个 WebP 作品，新增{' '}
-                {webpResult?.addedRelations ?? 0} 个关联，移除 {webpResult?.removedStaleRelations ?? 0} 个过期关联，
-                当前 webp 标签关联 {webpResult?.finalWebpTagRelations ?? 0} 个。
+                任务完成：image {mediaTagResult?.image?.finalRelations ?? 0} 个，video{' '}
+                {mediaTagResult?.video?.finalRelations ?? 0} 个，webp {mediaTagResult?.webp?.finalRelations ?? 0} 个；
+                本次新增{' '}
+                {(mediaTagResult?.image?.addedRelations ?? 0) +
+                  (mediaTagResult?.video?.addedRelations ?? 0) +
+                  (mediaTagResult?.webp?.addedRelations ?? 0)}{' '}
+                个关联，移除{' '}
+                {(mediaTagResult?.image?.removedStaleRelations ?? 0) +
+                  (mediaTagResult?.video?.removedStaleRelations ?? 0) +
+                  (mediaTagResult?.webp?.removedStaleRelations ?? 0)}{' '}
+                个过期关联。
               </p>
             )}
           </div>

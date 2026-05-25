@@ -15,6 +15,7 @@ import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
 import { SortingState } from '@tanstack/react-table'
 import { useMutation } from '@tanstack/react-query'
 import { confirm } from '@/components/shared/global-confirm'
+import { Badge } from '@/components/ui/badge'
 
 // 导入子组件
 import { TagStatsCards } from './tag-stats-cards'
@@ -24,6 +25,8 @@ import { TagDialog } from './tag-dialog'
 interface TagListItem {
   id: number
   name: string
+  isSystem: boolean
+  systemKey: string | null
   name_zh: string | null
   name_en: string | null
   description: string | null
@@ -196,7 +199,16 @@ export default function TagManagement() {
     {
       header: '标签名称',
       accessorKey: 'name',
-      cell: ({ row }) => <div className="font-medium">{row.original.name}</div>
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{row.original.name}</span>
+          {row.original.isSystem && (
+            <Badge variant="secondary" className="text-xs font-normal">
+              系统
+            </Badge>
+          )}
+        </div>
+      )
     },
     {
       header: '中文翻译',
@@ -253,15 +265,17 @@ export default function TagManagement() {
                 <Languages className="w-4 h-4" />
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-red-500 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
-              onClick={() => handleDelete(record.id, record.artworkCount)}
-              title="删除"
-            >
-              <Trash className="w-4 h-4" />
-            </Button>
+            {!record.isSystem && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-red-500 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
+                onClick={() => handleDelete(record.id, record.artworkCount)}
+                title="删除"
+              >
+                <Trash className="w-4 h-4" />
+              </Button>
+            )}
           </div>
         )
       }

@@ -7,7 +7,7 @@ import { sleep } from '@/utils/sleep'
 import { ScanProgress, ScanResult } from '@/types'
 import { parseMetadataFile, MetadataInfo, extractArtworkIdFromFilename } from './metadata-parser'
 import { collectMediaFiles, MediaFileInfo } from './media-collector'
-import { syncWebpTagsForArtworks } from '@/services/webp-tag-service'
+import { syncMediaDerivedTagsForArtworks } from '@/services/media-derived-tag-service'
 
 /**
  * 扫描选项接口
@@ -590,7 +590,7 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
           })
         }
 
-        await syncWebpTagsForArtworks(
+        await syncMediaDerivedTagsForArtworks(
           tx,
           imagesToCreate.map((image) => image.artworkId)
         )
@@ -965,7 +965,7 @@ async function processRescanBatch(batch: ArtworkData[], context: ScanContext): P
           context.scanResult.newImages += imagesToCreate.length
         }
 
-        await syncWebpTagsForArtworks(tx, [existingArtwork.id])
+        await syncMediaDerivedTagsForArtworks(tx, [existingArtwork.id])
 
         context.scanResult.newArtworks += 1 // 借用这个字段表示处理成功数
       }
