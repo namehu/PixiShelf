@@ -27,6 +27,8 @@ export interface SSheetProps {
   side?: 'top' | 'bottom' | 'left' | 'right'
   /** 内容区域的类名，用于覆盖宽度、圆角等 */
   className?: string
+  /** 打开时是否阻止 Radix 自动聚焦第一个可聚焦元素 */
+  preventOpenAutoFocus?: boolean
   /** 具体的业务内容 */
   children?: React.ReactNode
 }
@@ -41,6 +43,7 @@ export function SSheet(props: SSheetProps) {
     footer,
     side = 'right', // 默认为右侧
     className,
+    preventOpenAutoFocus = false,
     children
   } = props
 
@@ -49,7 +52,11 @@ export function SSheet(props: SSheetProps) {
       {/* 只有传入 trigger 时才渲染 Trigger 组件 */}
       {trigger && <SheetTrigger asChild>{trigger}</SheetTrigger>}
 
-      <SheetContent side={side} className={cn('flex flex-col h-full', className)}>
+      <SheetContent
+        side={side}
+        className={cn('flex flex-col h-full', className)}
+        onOpenAutoFocus={preventOpenAutoFocus ? (event) => event.preventDefault() : undefined}
+      >
         {(title || description) && (
           <SheetHeader className="text-left">
             {title && <SheetTitle>{title}</SheetTitle>}

@@ -109,6 +109,7 @@ export function FilterSheet(props: FilterSheetProps) {
       onOpenChange={onOpenChange}
       side="bottom"
       className="rounded-t-[20px] sm:max-w-md sm:rounded-none sm:side-right max-h-[85vh] h-auto sm:h-full sm:max-h-screen"
+      preventOpenAutoFocus
       title="筛选"
       footer={
         <div className="flex w-full gap-2 ">
@@ -133,7 +134,6 @@ export function FilterSheet(props: FilterSheetProps) {
               onChange={setLocalArtist}
               onSearch={onSearchArtist}
               maxSelected={1}
-              triggerSearchOnFocus
               placeholder="搜索艺术家"
               emptyIndicator="没有找到艺术家"
               className="min-h-10"
@@ -150,7 +150,6 @@ export function FilterSheet(props: FilterSheetProps) {
               defaultOptions={localTags}
               onChange={setLocalTags}
               onSearch={onSearchTag}
-              triggerSearchOnFocus
               placeholder="搜索并添加标签"
               emptyIndicator="没有找到标签"
               className="min-h-10"
