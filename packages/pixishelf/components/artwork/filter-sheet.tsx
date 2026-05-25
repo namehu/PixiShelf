@@ -7,19 +7,26 @@ import { SSheet } from '@/components/shared/s-sheet'
 import { SortControl } from '@/components/ui/SortControl'
 import { MediaTypeFilter as MediaTypeFilterComponent } from '@/components/ui/MediaTypeFilter'
 import { DatePickerRange } from '@/components/shared/date-range-picker'
+import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import dayjs from 'dayjs'
 
 interface FilterSheetProps {
   open: boolean
   currentMediaType: MediaTypeFilter
   currentSortBy: SortOption
+  currentArtist?: Option[]
+  currentTags?: Option[]
   randomSeed?: number
   startDate?: string
   endDate?: string
   onOpenChange: (open: boolean) => void
+  onSearchArtist?: (value: string) => Promise<Option[]>
+  onSearchTag?: (value: string) => Promise<Option[]>
   onApply: (filters: {
     mediaType: MediaTypeFilter
     sortBy: SortOption
+    artist?: Option[]
+    tags?: Option[]
     randomSeed?: number
     startTime?: string
     endTime?: string
@@ -27,10 +34,25 @@ interface FilterSheetProps {
 }
 
 export function FilterSheet(props: FilterSheetProps) {
-  const { open, onOpenChange, currentMediaType, currentSortBy, randomSeed, startDate, endDate, onApply } = props
+  const {
+    open,
+    onOpenChange,
+    currentMediaType,
+    currentSortBy,
+    currentArtist = [],
+    currentTags = [],
+    randomSeed,
+    startDate,
+    endDate,
+    onSearchArtist,
+    onSearchTag,
+    onApply
+  } = props
 
   const [localMediaType, setLocalMediaType] = useState<MediaTypeFilter>('all')
   const [localSortBy, setLocalSortBy] = useState<SortOption>('source_date_desc')
+  const [localArtist, setLocalArtist] = useState<Option[]>([])
+  const [localTags, setLocalTags] = useState<Option[]>([])
   const [localRandomSeed, setLocalRandomSeed] = useState<number | undefined>(undefined)
   const [localDateRange, setLocalDateRange] = useState<[Date | undefined, Date | undefined]>([undefined, undefined])
 
@@ -39,6 +61,8 @@ export function FilterSheet(props: FilterSheetProps) {
     if (open) {
       setLocalMediaType(currentMediaType)
       setLocalSortBy(currentSortBy)
+      setLocalArtist(currentArtist)
+      setLocalTags(currentTags)
       setLocalRandomSeed(randomSeed)
       setLocalDateRange([
         startDate ? dayjs(startDate).toDate() : undefined,
@@ -47,7 +71,7 @@ export function FilterSheet(props: FilterSheetProps) {
     } else {
       handleReset()
     }
-  }, [open, currentMediaType, currentSortBy, randomSeed, startDate, endDate])
+  }, [open, currentMediaType, currentSortBy, currentArtist, currentTags, randomSeed, startDate, endDate])
 
   // 处理应用更改
   const handleApply = () => {
@@ -61,6 +85,8 @@ export function FilterSheet(props: FilterSheetProps) {
     onApply({
       mediaType: localMediaType,
       sortBy: localSortBy,
+      artist: localArtist,
+      tags: localTags,
       randomSeed: seed,
       startTime: start ? dayjs(start).toISOString() : undefined,
       endTime: end ? dayjs(end).toISOString() : undefined
@@ -71,6 +97,8 @@ export function FilterSheet(props: FilterSheetProps) {
   function handleReset() {
     setLocalMediaType('all')
     setLocalSortBy('source_date_desc')
+    setLocalArtist([])
+    setLocalTags([])
     setLocalRandomSeed(undefined)
     setLocalDateRange([undefined, undefined])
   }
@@ -95,6 +123,41 @@ export function FilterSheet(props: FilterSheetProps) {
     >
       {/* 5. 中间主要内容区域 (会自动处理滚动) */}
       <div className="space-y-8">
+        {/* 艺术家 */}
+        {onSearchArtist && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">艺术家</h3>
+            <MultipleSelector
+              value={localArtist}
+              defaultOptions={localArtist}
+              onChange={setLocalArtist}
+              onSearch={onSearchArtist}
+              maxSelected={1}
+              triggerSearchOnFocus
+              placeholder="搜索艺术家"
+              emptyIndicator="没有找到艺术家"
+              className="min-h-10"
+            />
+          </div>
+        )}
+
+        {/* 标签 */}
+        {onSearchTag && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">标签</h3>
+            <MultipleSelector
+              value={localTags}
+              defaultOptions={localTags}
+              onChange={setLocalTags}
+              onSearch={onSearchTag}
+              triggerSearchOnFocus
+              placeholder="搜索并添加标签"
+              emptyIndicator="没有找到标签"
+              className="min-h-10"
+            />
+          </div>
+        )}
+
         {/* 时间范围 */}
         <div className="space-y-3">
           <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">时间范围</h3>

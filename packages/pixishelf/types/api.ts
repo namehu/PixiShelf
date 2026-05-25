@@ -78,19 +78,7 @@ export interface ArtistsQuery extends PaginationQuery {
   sortBy?: 'name_asc' | 'name_desc' | 'artworks_desc' | 'artworks_asc' // 排序选项
 }
 
-/**
- * 搜索建议项
- */
-export interface SearchSuggestion {
-  type: 'artwork' | 'artist' | 'tag'
-  value: string
-  label: string
-  metadata?: {
-    artistName?: string
-    imageCount?: number
-    artworkCount?: number
-  }
-}
+export type { SearchSuggestion } from '@/schemas/search.dto'
 
 /**
  * 增强的作品响应（包含媒体类型信息）

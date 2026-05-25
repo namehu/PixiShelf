@@ -1,15 +1,12 @@
 'use server'
 
 import { prisma } from '@/lib/prisma'
-import { SearchSuggestionsSchema } from '@/schemas/search.dto'
-import { SearchSuggestion } from '@/types'
+import { SearchSuggestion, SearchSuggestionsResponse, SearchSuggestionsSchema } from '@/schemas/search.dto'
 
 /**
  * 获取搜索建议
  */
-export async function getSearchSuggestions(
-  options: SearchSuggestionsSchema
-): Promise<{ suggestions: SearchSuggestion[] }> {
+export async function getSearchSuggestions(options: SearchSuggestionsSchema): Promise<SearchSuggestionsResponse> {
   const { q: query, mode = 'normal', limit = 8 } = options
 
   if (!query || query.length < 2) {
@@ -28,6 +25,7 @@ export async function getSearchSuggestions(
         }
       },
       select: {
+        id: true,
         name: true,
         _count: {
           select: {
@@ -55,6 +53,7 @@ export async function getSearchSuggestions(
         value: tag.name,
         label: `#${tag.name}`,
         metadata: {
+          id: tag.id,
           artworkCount: tag._count.artworkTags
         }
       })
@@ -69,6 +68,7 @@ export async function getSearchSuggestions(
 
   const artistsQuery = `
     SELECT
+      a.id,
       a.name,
       a.username,
       COUNT(aw.id) as artwork_count
@@ -83,6 +83,7 @@ export async function getSearchSuggestions(
   const rawArtists = (await prisma.$queryRawUnsafe(artistsQuery, searchPattern, searchPattern, artistLimit)) as any[]
 
   const artists = rawArtists.map((artist) => ({
+    id: Number(artist.id),
     name: artist.name,
     username: artist.username,
     _count: {
@@ -97,6 +98,7 @@ export async function getSearchSuggestions(
       value: artist.name,
       label: artist.name,
       metadata: {
+        id: artist.id,
         imageCount: artist._count.artworks
       }
     })

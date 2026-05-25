@@ -13,6 +13,7 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     artistId,
     artistName,
     tagId,
+    tagIds,
     mediaType,
     startDate,
     endDate,
@@ -79,6 +80,17 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
       WHERE at_ex."artworkId" = a.id AND t_ex.name = ANY($${paramIndex})
     )`
     sqlParams.push(excludeTags)
+    paramIndex++
+  }
+
+  // 1.2.8 多标签 ID 精确收窄：作品必须同时包含所选的全部标签
+  if (tagIds && tagIds.length > 0) {
+    whereSQL += ` AND (
+      SELECT COUNT(DISTINCT at_ids."tagId")
+      FROM "ArtworkTag" at_ids
+      WHERE at_ids."artworkId" = a.id AND at_ids."tagId" = ANY($${paramIndex}::int[])
+    ) = cardinality($${paramIndex}::int[])`
+    sqlParams.push(tagIds)
     paramIndex++
   }
 

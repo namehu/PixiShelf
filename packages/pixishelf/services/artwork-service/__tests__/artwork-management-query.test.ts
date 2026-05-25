@@ -36,6 +36,47 @@ describe('buildArtworkWhereClause', () => {
     expect(sqlParams[0]).toEqual(['bad1', 'bad2'])
   })
 
+  it('should build query with included tag ids requiring all selected tags', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({
+      tagIds: '1,2'
+    })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('COUNT(DISTINCT at_ids."tagId")')
+    expect(whereSQL).toContain('at_ids."tagId" = ANY($1::int[])')
+    expect(whereSQL).toContain('cardinality($1::int[])')
+    expect(sqlParams[0]).toEqual([1, 2])
+  })
+
+  it('should build query with artist, tag ids, search, and media type in stable param order', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({
+      artistId: 9,
+      tagIds: [1, 2],
+      search: 'miku',
+      mediaType: 'video'
+    })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('a."artistId" = $1')
+    expect(whereSQL).toContain('at_ids."tagId" = ANY($2::int[])')
+    expect(whereSQL).toContain('cardinality($2::int[])')
+    expect(whereSQL).toContain('a.title ILIKE $3')
+    expect(whereSQL).toContain('LOWER(i.path) LIKE $4')
+    expect(sqlParams[0]).toBe(9)
+    expect(sqlParams[1]).toEqual([1, 2])
+    expect(sqlParams[2]).toBe('%miku%')
+  })
+
+  it('should ignore empty tag ids', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({
+      tagIds: ''
+    })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toBe('WHERE 1=1')
+    expect(sqlParams).toHaveLength(0)
+  })
+
   it('should build query with both included and excluded tags', () => {
     const params = ArtworksInfiniteQuerySchema.parse({
       tags: 'good1',

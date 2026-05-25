@@ -34,6 +34,8 @@ interface InfiniteArtworkListProps {
   mediaType?: MediaTypeFilter
   /** 标签 ID 筛选 */
   tagId?: number
+  /** 多标签 ID 筛选，作品必须同时包含全部标签 */
+  tagIds?: number[]
   /** 艺术家 ID 筛选 */
   artistId?: number | string
   /** 开始日期 (格式: YYYY-MM-DD) */
@@ -56,6 +58,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     sortBy = 'source_date_desc',
     mediaType = 'all',
     tagId,
+    tagIds,
     artistId,
     startDate,
     endDate,
@@ -85,6 +88,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
         randomSeed: sortBy === 'random' ? randomSeed : undefined,
         mediaType,
         tagId,
+        tagIds,
         artistId: artistId ? Number(artistId) : undefined,
         startDate: startDate || undefined,
         endDate: endDate || undefined
@@ -153,7 +157,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   })
 
   // 生成唯一的存储 key，基于当前的筛选条件
-  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}-${tagId}-${artistId}-${startDate}-${endDate}-${sortBy === 'random' ? randomSeed : ''}`
+  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${startDate}-${endDate}-${sortBy === 'random' ? randomSeed : ''}`
 
   // 1. 处理滚动恢复
   useLayoutEffect(() => {

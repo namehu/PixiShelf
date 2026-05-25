@@ -60,6 +60,10 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
 
   const suggestions = data?.suggestions || []
 
+  useEffect(() => {
+    setInputValue(value)
+  }, [value])
+
   // 控制建议显示
   useEffect(() => {
     if (suggestions.length > 0 && isFocused) {
@@ -115,11 +119,9 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   // 处理搜索
   const handleSearch = () => {
     const query = inputValue.trim()
-    if (query) {
-      onSearch?.(query)
-      setShowSuggestions(false)
-      setSelectedIndex(-1)
-    }
+    onSearch?.(query)
+    setShowSuggestions(false)
+    setSelectedIndex(-1)
   }
 
   // 处理建议点击
