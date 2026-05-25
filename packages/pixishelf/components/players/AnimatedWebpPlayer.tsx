@@ -74,7 +74,7 @@ export default function AnimatedWebpPlayer({
         />
       )}
 
-      <div className="absolute right-2 top-2 flex items-center gap-1 rounded bg-black/45 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white/90">
+      <div className="absolute right-2 top-2 flex h-5 items-center gap-1 rounded-sm bg-[#ff2f4d] px-2 text-[10px] font-semibold leading-none tabular-nums text-white shadow-sm">
         <span>WEBP</span>
         {!isPlaying && fileSize && <span>{fileSize}</span>}
       </div>
