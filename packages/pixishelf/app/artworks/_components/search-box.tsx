@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { SearchSuggestion } from '@/types'
+import type { SearchSuggestion } from '@/schemas/search.dto'
 import { useDebounce } from '@/hooks/useDebounce'
 import { cn } from '@/lib/utils'
 import { ImageIcon, SearchIcon, TagIcon, UserIcon } from 'lucide-react'
