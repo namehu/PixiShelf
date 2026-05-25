@@ -10,6 +10,7 @@ import { useWindowVirtualizer } from '@tanstack/react-virtual'
 vi.mock('react-intersection-observer')
 vi.mock('@/lib/trpc')
 vi.mock('@/components/user-setting', () => ({
+  useArtworkDisplayMode: vi.fn(() => 'card'),
   useUserSettings: () => ({
     settings: {}
   })

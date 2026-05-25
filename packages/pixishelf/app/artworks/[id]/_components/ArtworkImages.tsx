@@ -15,6 +15,7 @@ interface ArtworkImagesProps {
 }
 
 const MAX_PREVIEW_IMAGES = 20
+const PRELOAD_REMAINING_IMAGES = 2
 
 // Wrapper component to handle long press
 const ImageWrapper = ({
@@ -100,6 +101,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
 
     const initialImages = images.slice(0, MAX_PREVIEW_IMAGES)
     const remainingImages = images.slice(MAX_PREVIEW_IMAGES)
+    const preloadImages = remainingImages.slice(0, PRELOAD_REMAINING_IMAGES)
 
     return (
       <div className="w-full px-2" data-testid="artwork-images-container">
@@ -129,6 +131,21 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
             </div>
           )
         })}
+
+        {!isExpanded && preloadImages.length > 0 && (
+          <div aria-hidden="true" className="sr-only" data-testid="preloaded-images">
+            {preloadImages.map((img, index) => (
+              <LazyMedia
+                key={`preload-${img.id}`}
+                src={img.path}
+                index={index + MAX_PREVIEW_IMAGES}
+                width={img.width}
+                height={img.height}
+                size={img.size}
+              />
+            ))}
+          </div>
+        )}
 
         {/* 剩余图片展开动画 */}
         <AnimatePresence>
