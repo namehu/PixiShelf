@@ -17,6 +17,8 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     mediaType,
     startDate,
     endDate,
+    createdStartDate,
+    createdEndDate,
     externalId,
     exactMatch,
     mediaCountMin,
@@ -156,6 +158,19 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
   if (endDate) {
     whereSQL += ` AND a."sourceDate" < ($${paramIndex}::date + 1)`
     sqlParams.push(endDate)
+    paramIndex++
+  }
+
+  // 1.6.5 数据库创建时间范围筛选
+  if (createdStartDate) {
+    whereSQL += ` AND a."createdAt" >= $${paramIndex}::date`
+    sqlParams.push(createdStartDate)
+    paramIndex++
+  }
+
+  if (createdEndDate) {
+    whereSQL += ` AND a."createdAt" < ($${paramIndex}::date + 1)`
+    sqlParams.push(createdEndDate)
     paramIndex++
   }
 

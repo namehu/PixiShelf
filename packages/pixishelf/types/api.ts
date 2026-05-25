@@ -58,8 +58,10 @@ export type SortOption =
   | 'artist_desc' // 按艺术家名称降序
   | 'images_desc' // 按图片数量降序
   | 'images_asc' // 按图片数量升序
-  | 'source_date_desc' // 按作品创建时间降序（默认）
-  | 'source_date_asc' // 按作品创建时间升序
+  | 'source_date_desc' // 按作品原始时间降序（默认）
+  | 'source_date_asc' // 按作品原始时间升序
+  | 'created_at_desc' // 按数据库创建时间降序
+  | 'created_at_asc' // 按数据库创建时间升序
   | 'random' // 随机排序
 
 /**

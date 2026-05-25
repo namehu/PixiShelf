@@ -20,7 +20,9 @@ function getSafeSortOption(sortBy: string | null): SortOption {
     'images_desc',
     'images_asc',
     'source_date_desc',
-    'source_date_asc'
+    'source_date_asc',
+    'created_at_desc',
+    'created_at_asc'
   ]
   return validOptions.includes(sortBy as SortOption) ? (sortBy as SortOption) : 'source_date_desc'
 }
@@ -79,6 +81,16 @@ export const ArtworksInfiniteQuerySchema = z.object({
     .optional()
     .nullish(),
   endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
+    .optional()
+    .nullish(),
+  createdStartDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
+    .optional()
+    .nullish(),
+  createdEndDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
     .optional()

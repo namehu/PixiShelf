@@ -291,6 +291,10 @@ function mapSortOptionToSQL(sortBy: string): string {
       return 'ORDER BY a."imageCount" ASC'
     case 'source_date_asc':
       return 'ORDER BY a."sourceDate" ASC'
+    case 'created_at_desc':
+      return 'ORDER BY a."createdAt" DESC'
+    case 'created_at_asc':
+      return 'ORDER BY a."createdAt" ASC'
     case 'source_date_desc':
     default:
       return 'ORDER BY a."sourceDate" DESC'

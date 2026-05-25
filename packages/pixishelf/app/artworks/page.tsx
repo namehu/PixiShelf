@@ -23,6 +23,8 @@ const searchParamsParsers = {
   mediaType: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
   startDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   endDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  createdStartDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  createdEndDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   artistId: parseAsInteger.withOptions({ history: 'replace', clearOnDefault: true }),
   artistLabel: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   tags: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
@@ -50,8 +52,10 @@ const MEDIA_TYPE_LABELS: Record<MediaTypeFilter, string> = {
 }
 
 const SORT_LABELS: Record<SortOption, string> = {
-  source_date_desc: '创建时间 ↓',
-  source_date_asc: '创建时间 ↑',
+  source_date_desc: '原始时间 ↓',
+  source_date_asc: '原始时间 ↑',
+  created_at_desc: '入库时间 ↓',
+  created_at_asc: '入库时间 ↑',
   title_asc: '标题 A-Z',
   title_desc: '标题 Z-A',
   artist_asc: '艺术家 A-Z',
@@ -98,6 +102,8 @@ export default function GalleryPage() {
     mediaType,
     startDate,
     endDate,
+    createdStartDate,
+    createdEndDate,
     artistId,
     artistLabel,
     tags,
@@ -122,6 +128,8 @@ export default function GalleryPage() {
     mediaType !== 'all' ||
     !!startDate ||
     !!endDate ||
+    !!createdStartDate ||
+    !!createdEndDate ||
     sortBy !== 'source_date_desc'
 
   const immersiveViewerHref = useMemo(() => {
@@ -226,6 +234,8 @@ export default function GalleryPage() {
     randomSeed?: number
     startTime?: string
     endTime?: string
+    createdStartTime?: string
+    createdEndTime?: string
   }) => {
     if (!filters) {
       return clearAllFilters()
@@ -240,7 +250,9 @@ export default function GalleryPage() {
       tagLabels: filters.tags ? encodeLabels(filters.tags) || null : null,
       randomSeed: filters.randomSeed ? filters.randomSeed.toString() : null,
       startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : null,
-      endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null
+      endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null,
+      createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : null,
+      createdEndDate: filters.createdEndTime ? dayjs(filters.createdEndTime).format('YYYY-MM-DD') : null
     })
   }
 
@@ -252,6 +264,8 @@ export default function GalleryPage() {
       mediaType: null,
       startDate: null,
       endDate: null,
+      createdStartDate: null,
+      createdEndDate: null,
       artistId: null,
       artistLabel: null,
       tags: null,
@@ -331,8 +345,14 @@ export default function GalleryPage() {
             )}
             {(startDate || endDate) && (
               <FilterChip
-                label={`时间：${startDate || '不限'} - ${endDate || '不限'}`}
+                label={`原始时间：${startDate || '不限'} - ${endDate || '不限'}`}
                 onRemove={() => setQueryStates({ startDate: null, endDate: null })}
+              />
+            )}
+            {(createdStartDate || createdEndDate) && (
+              <FilterChip
+                label={`入库时间：${createdStartDate || '不限'} - ${createdEndDate || '不限'}`}
+                onRemove={() => setQueryStates({ createdStartDate: null, createdEndDate: null })}
               />
             )}
             {sortBy !== 'source_date_desc' && (
@@ -357,6 +377,8 @@ export default function GalleryPage() {
           randomSeed={randomSeed ? Number(randomSeed) : undefined}
           startDate={startDate}
           endDate={endDate}
+          createdStartDate={createdStartDate}
+          createdEndDate={createdEndDate}
           onSearchArtist={handleSearchArtist}
           onSearchTag={handleSearchTag}
           onApply={handleApplyFilters}
@@ -374,6 +396,8 @@ export default function GalleryPage() {
           randomSeed={randomSeed ? Number(randomSeed) : undefined}
           startDate={startDate || undefined}
           endDate={endDate || undefined}
+          createdStartDate={createdStartDate || undefined}
+          createdEndDate={createdEndDate || undefined}
           onTotalChange={setTotal}
           onClearFilters={clearAllFilters}
         />

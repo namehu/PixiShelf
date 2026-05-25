@@ -19,6 +19,8 @@ interface FilterSheetProps {
   randomSeed?: number
   startDate?: string
   endDate?: string
+  createdStartDate?: string
+  createdEndDate?: string
   onOpenChange: (open: boolean) => void
   onSearchArtist?: (value: string) => Promise<Option[]>
   onSearchTag?: (value: string) => Promise<Option[]>
@@ -30,6 +32,8 @@ interface FilterSheetProps {
     randomSeed?: number
     startTime?: string
     endTime?: string
+    createdStartTime?: string
+    createdEndTime?: string
   }) => void
 }
 
@@ -44,6 +48,8 @@ export function FilterSheet(props: FilterSheetProps) {
     randomSeed,
     startDate,
     endDate,
+    createdStartDate,
+    createdEndDate,
     onSearchArtist,
     onSearchTag,
     onApply
@@ -55,6 +61,10 @@ export function FilterSheet(props: FilterSheetProps) {
   const [localTags, setLocalTags] = useState<Option[]>([])
   const [localRandomSeed, setLocalRandomSeed] = useState<number | undefined>(undefined)
   const [localDateRange, setLocalDateRange] = useState<[Date | undefined, Date | undefined]>([undefined, undefined])
+  const [localCreatedDateRange, setLocalCreatedDateRange] = useState<[Date | undefined, Date | undefined]>([
+    undefined,
+    undefined
+  ])
 
   // 当 Sheet 打开时，同步外部状态到本地
   useEffect(() => {
@@ -68,14 +78,30 @@ export function FilterSheet(props: FilterSheetProps) {
         startDate ? dayjs(startDate).toDate() : undefined,
         endDate ? dayjs(endDate).toDate() : undefined
       ])
+      setLocalCreatedDateRange([
+        createdStartDate ? dayjs(createdStartDate).toDate() : undefined,
+        createdEndDate ? dayjs(createdEndDate).toDate() : undefined
+      ])
     } else {
       handleReset()
     }
-  }, [open, currentMediaType, currentSortBy, currentArtist, currentTags, randomSeed, startDate, endDate])
+  }, [
+    open,
+    currentMediaType,
+    currentSortBy,
+    currentArtist,
+    currentTags,
+    randomSeed,
+    startDate,
+    endDate,
+    createdStartDate,
+    createdEndDate
+  ])
 
   // 处理应用更改
   const handleApply = () => {
     const [start, end] = localDateRange
+    const [createdStart, createdEnd] = localCreatedDateRange
     // 如果是随机排序，且没有种子或用户切换到了随机排序，则生成新种子
     let seed = localRandomSeed
     if (localSortBy === 'random' && !seed) {
@@ -89,7 +115,9 @@ export function FilterSheet(props: FilterSheetProps) {
       tags: localTags,
       randomSeed: seed,
       startTime: start ? dayjs(start).toISOString() : undefined,
-      endTime: end ? dayjs(end).toISOString() : undefined
+      endTime: end ? dayjs(end).toISOString() : undefined,
+      createdStartTime: createdStart ? dayjs(createdStart).toISOString() : undefined,
+      createdEndTime: createdEnd ? dayjs(createdEnd).toISOString() : undefined
     })
     onOpenChange(false)
   }
@@ -101,6 +129,7 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalTags([])
     setLocalRandomSeed(undefined)
     setLocalDateRange([undefined, undefined])
+    setLocalCreatedDateRange([undefined, undefined])
   }
 
   return (
@@ -157,14 +186,25 @@ export function FilterSheet(props: FilterSheetProps) {
           </div>
         )}
 
-        {/* 时间范围 */}
+        {/* 作品原始时间范围 */}
         <div className="space-y-3">
-          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">时间范围</h3>
+          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">作品原始时间</h3>
           <DatePickerRange
             value={localDateRange}
             onChange={setLocalDateRange}
             className="w-full sm:w-[240px]"
-            placeholder="选择时间范围"
+            placeholder="选择原始时间范围"
+          />
+        </div>
+
+        {/* 数据库创建时间范围 */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">入库创建时间</h3>
+          <DatePickerRange
+            value={localCreatedDateRange}
+            onChange={setLocalCreatedDateRange}
+            className="w-full sm:w-[240px]"
+            placeholder="选择入库时间范围"
           />
         </div>
 

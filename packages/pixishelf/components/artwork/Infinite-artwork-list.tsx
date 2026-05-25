@@ -42,6 +42,10 @@ interface InfiniteArtworkListProps {
   startDate?: string
   /** 结束日期 (格式: YYYY-MM-DD) */
   endDate?: string
+  /** 数据库创建开始日期 (格式: YYYY-MM-DD) */
+  createdStartDate?: string
+  /** 数据库创建结束日期 (格式: YYYY-MM-DD) */
+  createdEndDate?: string
   /** 总数变化回调，用于通知父组件更新统计信息 */
   onTotalChange?: (total: number) => void
   /** 清除筛选回调，当用户点击空状态下的"清除筛选"按钮时触发 */
@@ -62,6 +66,8 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     artistId,
     startDate,
     endDate,
+    createdStartDate,
+    createdEndDate,
     onTotalChange,
     onClearFilters,
     emptyMessage,
@@ -91,7 +97,9 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
         tagIds,
         artistId: artistId ? Number(artistId) : undefined,
         startDate: startDate || undefined,
-        endDate: endDate || undefined
+        endDate: endDate || undefined,
+        createdStartDate: createdStartDate || undefined,
+        createdEndDate: createdEndDate || undefined
       },
       {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -157,7 +165,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   })
 
   // 生成唯一的存储 key，基于当前的筛选条件
-  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${startDate}-${endDate}-${sortBy === 'random' ? randomSeed : ''}`
+  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}`
 
   // 1. 处理滚动恢复
   useLayoutEffect(() => {

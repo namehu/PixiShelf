@@ -26,8 +26,10 @@ export interface SortControlProps {
  * 排序选项配置
  */
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
-  { value: 'source_date_desc', label: '创建时间 ↓' },
-  { value: 'source_date_asc', label: '创建时间 ↑' },
+  { value: 'source_date_desc', label: '原始时间 ↓' },
+  { value: 'source_date_asc', label: '原始时间 ↑' },
+  { value: 'created_at_desc', label: '入库时间 ↓' },
+  { value: 'created_at_asc', label: '入库时间 ↑' },
   { value: 'title_asc', label: '标题 A-Z' },
   { value: 'title_desc', label: '标题 Z-A' },
   { value: 'artist_asc', label: '艺术家 A-Z' },
