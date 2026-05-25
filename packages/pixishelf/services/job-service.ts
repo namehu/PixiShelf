@@ -122,6 +122,33 @@ export async function createRefillMetaSourceJob() {
 }
 
 /**
+ * 尝试创建一个 WebP 标签同步任务
+ */
+export async function createWebpTagSyncJob() {
+  return await prisma.$transaction(async (tx) => {
+    const activeJob = await tx.systemJob.findFirst({
+      where: {
+        type: 'WEBP_TAG_SYNC',
+        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+      }
+    })
+
+    if (activeJob) {
+      throw new Error('WebP tag sync job already in progress')
+    }
+
+    return await tx.systemJob.create({
+      data: {
+        type: 'WEBP_TAG_SYNC',
+        status: JobStatus.RUNNING,
+        message: '初始化...',
+        progress: 0
+      }
+    })
+  })
+}
+
+/**
  * 获取当前活跃的元数据源补全任务
  */
 export async function getActiveRefillMetaSourceJob() {
@@ -129,6 +156,18 @@ export async function getActiveRefillMetaSourceJob() {
     where: {
       type: 'REFILL_META_SOURCE',
       status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+    },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+/**
+ * 获取最近一次 WebP 标签同步任务
+ */
+export async function getLatestWebpTagSyncJob() {
+  return await prisma.systemJob.findFirst({
+    where: {
+      type: 'WEBP_TAG_SYNC'
     },
     orderBy: { createdAt: 'desc' }
   })

@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import fs from 'fs/promises'
 import path from 'path'
 import { getScanPath } from '@/services/setting.service'
+import { syncWebpTagForArtwork } from '@/services/webp-tag-service'
 
 /**
  * 图片元数据接口
@@ -47,6 +48,8 @@ export async function updateArtworkImagesTransaction(artworkId: number, files: I
         data: newImages
       })
     }
+
+    await syncWebpTagForArtwork(tx, artworkId)
   })
 }
 
@@ -86,9 +89,15 @@ export async function deleteImage(imageId: number, deleteFile: boolean) {
     }
   }
 
-  // 3. 删除数据库记录
-  await prisma.image.delete({
-    where: { id: imageId }
+  // 3. 删除数据库记录并同步 WebP 标签
+  await prisma.$transaction(async (tx) => {
+    await tx.image.delete({
+      where: { id: imageId }
+    })
+
+    if (image.artworkId) {
+      await syncWebpTagForArtwork(tx, image.artworkId!)
+    }
   })
 
   return true
@@ -100,14 +109,20 @@ export async function deleteImage(imageId: number, deleteFile: boolean) {
  * @param file 图片元数据
  */
 export async function addImage(artworkId: number, file: ImageMeta) {
-  return await prisma.image.create({
-    data: {
-      artworkId,
-      path: file.path,
-      sortOrder: file.order,
-      width: file.width,
-      height: file.height,
-      size: file.size
-    }
+  return await prisma.$transaction(async (tx) => {
+    const image = await tx.image.create({
+      data: {
+        artworkId,
+        path: file.path,
+        sortOrder: file.order,
+        width: file.width,
+        height: file.height,
+        size: file.size
+      }
+    })
+
+    await syncWebpTagForArtwork(tx, artworkId)
+
+    return image
   })
 }

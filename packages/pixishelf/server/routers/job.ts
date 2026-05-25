@@ -4,6 +4,7 @@ import { refillMetaSource } from '@/services/scan-service/refill-meta-source'
 import { getScanPath } from '@/services/setting.service'
 import { TRPCError } from '@trpc/server'
 import logger from '@/lib/logger'
+import { syncAllWebpTags } from '@/services/webp-tag-service'
 
 export const jobRouter = router({
   startRefillMetaSource: authProcedure.mutation(async () => {
@@ -74,5 +75,37 @@ export const jobRouter = router({
         return { success: true }
     }
     return { success: false, message: 'No active job' }
+  }),
+
+  startWebpTagSync: authProcedure.mutation(async () => {
+    const activeJob = await JobService.getLatestWebpTagSyncJob()
+    if (activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)) {
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'WebP tag sync job is already running'
+      })
+    }
+
+    const job = await JobService.createWebpTagSyncJob()
+
+    ;(async () => {
+      try {
+        const result = await syncAllWebpTags({
+          onProgress: async (progress) => {
+            await JobService.updateProgress(job.id, progress.percentage, progress.message)
+          }
+        })
+        await JobService.completeJob(job.id, result)
+      } catch (error) {
+        logger.error('WebP tag sync job failed', { error })
+        await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
+      }
+    })()
+
+    return { jobId: job.id }
+  }),
+
+  getWebpTagSyncStatus: authProcedure.query(async () => {
+    return await JobService.getLatestWebpTagSyncJob()
   })
 })

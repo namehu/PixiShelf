@@ -53,13 +53,13 @@ describe('getDashboardArtists', () => {
       {
         id: 11,
         title: 'cover',
+        artistId: 1,
         images: [{ path: '1000/11_p0.jpg' }]
       }
     ])
 
     const result = await getDashboardArtists({
       pageSize: 1,
-      candidateMultiplier: 1,
       previewArtworkSize: 1
     })
 

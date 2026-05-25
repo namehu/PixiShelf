@@ -6,6 +6,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import logger from '@/lib/logger'
 import { generateLocalExternalId } from './artwork-service/utils'
+import { syncWebpTagsForArtworks } from './webp-tag-service'
 
 /**
  * 批量创建作品
@@ -94,6 +95,8 @@ export async function batchRegisterImagesService(data: BatchRegisterImageSchema)
 
   try {
     await prisma.$transaction(async (tx) => {
+      const artworkIdsToSync = new Set<number>()
+
       for (const item of items) {
         const { artworkId, images } = item
         // 获取作品信息以确定路径
@@ -116,7 +119,11 @@ export async function batchRegisterImagesService(data: BatchRegisterImageSchema)
             }
           })
         })
+
+        artworkIdsToSync.add(artworkId)
       }
+
+      await syncWebpTagsForArtworks(tx, Array.from(artworkIdsToSync))
     })
   } catch (error) {
     logger.error(`Failed to register images: ${error}`)
