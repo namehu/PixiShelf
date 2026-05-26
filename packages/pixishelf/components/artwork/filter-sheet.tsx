@@ -37,14 +37,16 @@ interface FilterSheetProps {
   }) => void
 }
 
+const EMPTY_OPTIONS: Option[] = []
+
 export function FilterSheet(props: FilterSheetProps) {
   const {
     open,
     onOpenChange,
     currentMediaType,
     currentSortBy,
-    currentArtist = [],
-    currentTags = [],
+    currentArtist = EMPTY_OPTIONS,
+    currentTags = EMPTY_OPTIONS,
     randomSeed,
     startDate,
     endDate,
@@ -68,23 +70,23 @@ export function FilterSheet(props: FilterSheetProps) {
 
   // 当 Sheet 打开时，同步外部状态到本地
   useEffect(() => {
-    if (open) {
-      setLocalMediaType(currentMediaType)
-      setLocalSortBy(currentSortBy)
-      setLocalArtist(currentArtist)
-      setLocalTags(currentTags)
-      setLocalRandomSeed(randomSeed)
-      setLocalDateRange([
-        startDate ? dayjs(startDate).toDate() : undefined,
-        endDate ? dayjs(endDate).toDate() : undefined
-      ])
-      setLocalCreatedDateRange([
-        createdStartDate ? dayjs(createdStartDate).toDate() : undefined,
-        createdEndDate ? dayjs(createdEndDate).toDate() : undefined
-      ])
-    } else {
-      handleReset()
+    if (!open) {
+      return
     }
+
+    setLocalMediaType(currentMediaType)
+    setLocalSortBy(currentSortBy)
+    setLocalArtist(currentArtist)
+    setLocalTags(currentTags)
+    setLocalRandomSeed(randomSeed)
+    setLocalDateRange([
+      startDate ? dayjs(startDate).toDate() : undefined,
+      endDate ? dayjs(endDate).toDate() : undefined
+    ])
+    setLocalCreatedDateRange([
+      createdStartDate ? dayjs(createdStartDate).toDate() : undefined,
+      createdEndDate ? dayjs(createdEndDate).toDate() : undefined
+    ])
   }, [
     open,
     currentMediaType,
