@@ -4,6 +4,7 @@ import path from 'path'
 import { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { TImageModel } from '@/schemas/models'
 import { isApngFile, isVideoFile } from '@/lib/media'
+import { combinationApiResource } from '@/utils/combinationStatic'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 
@@ -55,12 +56,17 @@ export function transformSingleArtwork(artwork: any) {
  */
 export function transformImages(images: TImageModel[], dbImageCount?: number) {
   // 1. 直接转 DTO，保留数据库排序
-  const allItems = images.map((image) =>
-    ArtworkImageResponseDto.parse({
+  const allItems = images.map((image) => {
+    const mediaType = isVideoFile(image.path) ? 'video' : 'image'
+    const hasChapters = mediaType === 'video' && Boolean(image.chaptersPath)
+
+    return ArtworkImageResponseDto.parse({
       ...image,
-      mediaType: isVideoFile(image.path) ? 'video' : 'image'
+      mediaType,
+      hasChapters,
+      chaptersUrl: hasChapters ? combinationApiResource(image.chaptersPath) : null
     })
-  )
+  })
 
   // 2. 核心逻辑：过滤并挂载
   const finalItems = allItems.filter((item) => {

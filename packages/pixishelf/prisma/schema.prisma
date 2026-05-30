@@ -118,9 +118,15 @@ model Image {
   artworkId Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  chaptersPath      String?
+  chaptersCount     Int      @default(0)
+  chaptersDuration  Float?
+  chaptersUpdatedAt DateTime?
+  chaptersHash      String?
   artwork   Artwork? @relation(fields: [artworkId], references: [id])
 
   @@unique([artworkId, path], name: "unique_artwork_path")
+  @@index([chaptersPath])
 }
 
 model UserBA {

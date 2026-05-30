@@ -127,7 +127,12 @@ export const ImageModel = z.object({
   sortOrder: z.number().int().default(0), // [cite: 23]
   artworkId: z.number().int().nullable(), // [cite: 25]
   createdAt: z.date(), // [cite: 24]
-  updatedAt: z.date()
+  updatedAt: z.date(),
+  chaptersPath: z.string().nullable(),
+  chaptersCount: z.number().int().default(0),
+  chaptersDuration: z.number().nullable(),
+  chaptersUpdatedAt: z.date().nullable(),
+  chaptersHash: z.string().nullable()
 })
 
 export interface TImageModel extends z.infer<typeof ImageModel> {}

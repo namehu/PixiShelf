@@ -189,8 +189,11 @@ export type NeighboringArtworksGetSchema = z.infer<typeof NeighboringArtworksGet
 export const ArtworkImageResponseDto = ImageModel.extend({
   createdAt: dateToString,
   updatedAt: dateToString,
+  chaptersUpdatedAt: nullableDateToString,
   // 前端辅助字段，数据库没有，需要 Service 层计算填充
-  mediaType: z.enum(['image', 'video']).default('image')
+  mediaType: z.enum(['image', 'video']).default('image'),
+  chaptersUrl: z.string().nullable().optional(),
+  hasChapters: z.boolean().default(false)
 })
 
 export type ArtworkImageResponseDto = z.infer<typeof ArtworkImageResponseDto>
