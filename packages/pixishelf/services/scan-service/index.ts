@@ -8,6 +8,8 @@ import { ScanProgress, ScanResult } from '@/types'
 import { parseMetadataFile, MetadataInfo, extractArtworkIdFromFilename } from './metadata-parser'
 import { collectMediaFiles, MediaFileInfo } from './media-collector'
 import { syncMediaDerivedTagsForArtworks } from '@/services/media-derived-tag-service'
+import { buildScannedImageCreateData } from './scan-image-builder'
+import { getMetaSource } from './path-utils'
 
 /**
  * 扫描选项接口
@@ -548,12 +550,11 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
 
           // 准备图片数据
           if (artworkData.mediaFiles.length > 0) {
-            const artworkImages = artworkData.mediaFiles.map((mediaFile) => ({
-              path: getRelativePath(mediaFile.path, context.options.scanPath),
-              size: mediaFile.size,
-              sortOrder: mediaFile.sortOrder,
-              artworkId: artwork.id
-            }))
+            const artworkImages = await buildScannedImageCreateData({
+              mediaFiles: artworkData.mediaFiles,
+              artworkId: artwork.id,
+              scanPath: context.options.scanPath
+            })
             imagesToCreate.push(...artworkImages)
           }
 
@@ -951,12 +952,11 @@ async function processRescanBatch(batch: ArtworkData[], context: ScanContext): P
 
         // 插入新图片
         if (artworkData.mediaFiles.length > 0) {
-          const imagesToCreate = artworkData.mediaFiles.map((mediaFile) => ({
-            path: getRelativePath(mediaFile.path, context.options.scanPath),
-            size: mediaFile.size,
-            sortOrder: mediaFile.sortOrder,
-            artworkId: existingArtwork.id
-          }))
+          const imagesToCreate = await buildScannedImageCreateData({
+            mediaFiles: artworkData.mediaFiles,
+            artworkId: existingArtwork.id,
+            scanPath: context.options.scanPath
+          })
 
           logger.debug('imagesToCreate:', imagesToCreate)
           await tx.image.createMany({
@@ -997,32 +997,4 @@ async function clearDatabase(): Promise<void> {
     logger.error('Failed to clear database with TRUNCATE:', { error })
     throw new Error(`Database cleanup failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
-}
-
-/**
- * 获取相对路径
- * @param fullPath 完整路径
- * @param scanPath 扫描路径
- * @returns 相对路径
- */
-function getRelativePath(fullPath: string, scanPath: string): string {
-  // 1. 【清洗】强制把所有反斜杠 (\) 替换为正斜杠 (/)
-  // 这样无论输入是 Windows 风格还是混合风格，都统一变成 POSIX 风格
-  const normFull = fullPath.replace(/\\/g, '/')
-  const normScan = scanPath.replace(/\\/g, '/')
-
-  // 2. 【计算】强制使用 path.posix.relative
-  // 因为此时 inputs 已经确认为 / 分隔，使用 posix 算法是最安全、准确的
-  // const relative = path.posix.relative(normScan, normFull)
-  return normFull.replace(normScan, '') // WARNNING: 历史原因 需要保留 / 开头...
-}
-
-/**
- * 获取元数据文件的相对路径
- * @param fullPath 完整路径
- * @param scanPath 扫描路径
- * @returns 相对路径
- */
-function getMetaSource(fullPath: string, scanPath: string): string {
-  return getRelativePath(fullPath, scanPath).replace(/^\//, '') // 移除开头的 /
 }

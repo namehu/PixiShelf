@@ -23,6 +23,7 @@ import path from 'path'
 import { getScanPath } from '@/services/setting.service'
 
 export * from './related'
+export * from './video-chapters'
 
 /**
  * 获取作品列表 (重构版)
