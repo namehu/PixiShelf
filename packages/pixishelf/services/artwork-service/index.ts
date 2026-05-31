@@ -21,6 +21,7 @@ import { buildArtworkWhereClause } from './query-builder'
 import fs from 'fs/promises'
 import path from 'path'
 import { getScanPath } from '@/services/setting.service'
+import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 
 export * from './related'
 export * from './video-chapters'
@@ -149,16 +150,27 @@ export async function deleteArtwork(id: number) {
   if (scanRoot && images.length > 0) {
     await Promise.all(
       images.map(async (img) => {
-        if (!img.path) return
-        // 去除开头的 /，防止 path.join 认为是绝对路径
-        const relativePath = img.path.startsWith('/') ? img.path.slice(1) : img.path
-        const absolutePath = path.join(scanRoot, relativePath)
-        try {
-          await fs.unlink(absolutePath)
-        } catch (e: any) {
-          // 忽略文件不存在等错误
-          logger.warn(`[DeleteArtwork] Failed to delete file: ${absolutePath}, error: ${e.message}`)
+        const pathsToDelete: string[] = []
+
+        if (img.path) {
+          pathsToDelete.push(img.path)
         }
+
+        if (img.chaptersPath && isChapterManifestFileName(path.basename(img.chaptersPath))) {
+          pathsToDelete.push(img.chaptersPath)
+        }
+
+        await Promise.all(
+          pathsToDelete.map(async (relativePath) => {
+            const absolutePath = resolvePathWithinScanRoot(scanRoot, relativePath)
+            try {
+              await fs.unlink(absolutePath)
+            } catch (e: any) {
+              // 忽略文件不存在等错误
+              logger.warn(`[DeleteArtwork] Failed to delete file: ${absolutePath}, error: ${e.message}`)
+            }
+          })
+        )
       })
     )
     // TODO: 删除关联文件夹
@@ -173,6 +185,18 @@ export async function deleteArtwork(id: number) {
   return prisma.artwork.delete({
     where: { id }
   })
+}
+
+function resolvePathWithinScanRoot(scanRoot: string, relativePath: string): string {
+  const normalizedRoot = path.resolve(scanRoot)
+  const resolvedPath = path.resolve(normalizedRoot, relativePath.replace(/^\/+/, ''))
+  const rootWithSeparator = normalizedRoot.endsWith(path.sep) ? normalizedRoot : `${normalizedRoot}${path.sep}`
+
+  if (resolvedPath !== normalizedRoot && !resolvedPath.toLowerCase().startsWith(rootWithSeparator.toLowerCase())) {
+    throw new Error(`Path escapes scan root: ${relativePath}`)
+  }
+
+  return resolvedPath
 }
 
 /**
@@ -487,9 +511,7 @@ export async function getRandomArtworks(
  * 获取沉浸浏览 Feed
  * 支持从全站、艺术家、标签等上下文进入，并在顺序/稳定随机之间切换。
  */
-export async function getViewerFeed(
-  input: ViewerFeedQuerySchema & { userId: string }
-): Promise<RandomImagesResponse> {
+export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: string }): Promise<RandomImagesResponse> {
   const {
     cursor,
     pageSize,
@@ -571,8 +593,7 @@ function toViewerImageItem(artwork: any, likeStatusMap: Record<number, boolean>)
           username: artist.username || ''
         }
       : null,
-    createdAt:
-      typeof artwork.createdAt === 'string' ? artwork.createdAt : (artwork.createdAt?.toISOString?.() ?? ''),
+    createdAt: typeof artwork.createdAt === 'string' ? artwork.createdAt : (artwork.createdAt?.toISOString?.() ?? ''),
     tags: (artwork.tags || []).map((tag: any) => RandomTagDto.parse(tag)),
     isLike: likeStatusMap[artwork.id] ?? false
   }

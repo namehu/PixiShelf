@@ -46,7 +46,7 @@ describe('chapter-status', () => {
         chaptersDuration: null
       })
     ).toEqual({
-      text: '章节数据异常',
+      text: '校验失败',
       tone: 'warning'
     })
   })

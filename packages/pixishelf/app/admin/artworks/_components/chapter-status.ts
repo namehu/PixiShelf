@@ -49,7 +49,7 @@ export function getChapterStatusSummary(image: ImageListItem): ChapterStatusSumm
 
   if (image.chaptersPath || (image.chaptersCount || 0) > 0) {
     return {
-      text: '章节数据异常',
+      text: '校验失败',
       tone: 'warning'
     }
   }
