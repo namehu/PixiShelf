@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import ArtworkImages from './ArtworkImages'
 import React from 'react'
-import { useRouter } from 'next/navigation'
+import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(() => ({
@@ -12,8 +12,8 @@ vi.mock('next/navigation', () => ({
 
 // Mock LazyMedia 组件
 vi.mock('./LazyMedia', () => ({
-  default: ({ src, index }: { src: string; index: number }) => (
-    <div data-testid="lazy-media" data-src={src} data-index={index}>
+  default: ({ media, index }: { media: { path: string }; index: number }) => (
+    <div data-testid="lazy-media" data-src={media.path} data-index={index}>
       Image {index + 1}
     </div>
   )
@@ -31,10 +31,25 @@ describe('ArtworkImages', () => {
     cleanup()
   })
 
-  const generateImages = (count: number) =>
+  const generateImages = (count: number): ArtworkImageResponseDto[] =>
     Array.from({ length: count }, (_, i) => ({
       id: i + 1,
-      path: `/path/to/image-${i + 1}.jpg`
+      path: `/path/to/image-${i + 1}.jpg`,
+      width: null,
+      height: null,
+      size: null,
+      sortOrder: i,
+      artworkId: 1,
+      createdAt: '2026-01-01 00:00:00',
+      updatedAt: '2026-01-01 00:00:00',
+      chaptersPath: null,
+      chaptersCount: 0,
+      chaptersDuration: null,
+      chaptersUpdatedAt: null,
+      chaptersHash: null,
+      mediaType: 'image',
+      hasChapters: false,
+      chaptersUrl: null
     }))
 
   it('renders all images when count is <= 20', () => {

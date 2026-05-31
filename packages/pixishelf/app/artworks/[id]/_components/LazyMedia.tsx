@@ -3,6 +3,7 @@
 import VideoPlayer from '@/components/players/VideoPlayer'
 import ApngPlayer from '@/components/players/ApngPlayer'
 import AnimatedWebpPlayer from '@/components/players/AnimatedWebpPlayer'
+import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkStore } from '@/store/useArtworkStore'
 import Image from 'next/image'
 import { memo } from 'react'
@@ -10,18 +11,16 @@ import { useOnInView } from 'react-intersection-observer'
 import { isApngFile, isVideoFile, isWebpFile } from '@/lib/media'
 
 interface LazyMediaProps {
-  src: string
+  media: ArtworkImageResponseDto
   index: number
-  width?: number | null
-  height?: number | null
-  size?: number | null
 }
 
 /**
  * 懒加载媒体组件
  */
-const LazyMedia = memo(({ src, index, size }: LazyMediaProps) => {
+const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
+  const src = media.path
 
   const trackingRef = useOnInView(
     (inView) => {
@@ -33,7 +32,7 @@ const LazyMedia = memo(({ src, index, size }: LazyMediaProps) => {
   // 主渲染逻辑
   const renderContent = () => {
     if (isVideoFile(src)) {
-      return <VideoPlayer src={src} className="w-full h-auto" preload="metadata" />
+      return <VideoPlayer src={src} chaptersUrl={media.chaptersUrl} className="w-full h-auto" preload="metadata" />
     }
 
     if (isApngFile(src)) {
@@ -41,7 +40,7 @@ const LazyMedia = memo(({ src, index, size }: LazyMediaProps) => {
     }
 
     if (isWebpFile(src)) {
-      return <AnimatedWebpPlayer src={src} alt={`Artwork animation ${index + 1}`} size={size} />
+      return <AnimatedWebpPlayer src={src} alt={`Artwork animation ${index + 1}`} size={media.size} />
     }
 
     // 普通图片

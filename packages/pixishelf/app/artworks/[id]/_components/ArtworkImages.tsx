@@ -8,9 +8,10 @@ import { useLongPress } from '@/hooks/useLongPress'
 import { Popover, PopoverContent, PopoverAnchor } from '@/components/ui/popover'
 import { useRouter } from 'next/navigation'
 import { useArtworkStore } from '@/store/useArtworkStore'
+import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 
 interface ArtworkImagesProps {
-  images: { id: number; path: string; width?: number | null; height?: number | null; size?: number | null }[]
+  images: ArtworkImageResponseDto[]
   artworkId: number
 }
 
@@ -92,7 +93,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
         <div className="w-full px-2" data-testid="artwork-images-container">
           {images.map((img, index) => (
             <ImageWrapper key={img.id} index={index} onOpenMenu={handleOpenMenu}>
-              <LazyMedia src={img.path} index={index} width={img.width} height={img.height} size={img.size} />
+              <LazyMedia media={img} index={index} />
             </ImageWrapper>
           ))}
         </div>
@@ -113,7 +114,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
           return (
             <div key={img.id} className="relative group">
               <ImageWrapper index={index} onOpenMenu={handleOpenMenu}>
-                <LazyMedia src={img.path} index={index} width={img.width} height={img.height} size={img.size} />
+                <LazyMedia media={img} index={index} />
               </ImageWrapper>
 
               {/* 渐变遮罩和按钮 - 仅在第MAX_PREVIEW_IMAGES张且未展开时显示 */}
@@ -135,14 +136,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
         {!isExpanded && preloadImages.length > 0 && (
           <div aria-hidden="true" className="sr-only" data-testid="preloaded-images">
             {preloadImages.map((img, index) => (
-              <LazyMedia
-                key={`preload-${img.id}`}
-                src={img.path}
-                index={index + MAX_PREVIEW_IMAGES}
-                width={img.width}
-                height={img.height}
-                size={img.size}
-              />
+              <LazyMedia key={`preload-${img.id}`} media={img} index={index + MAX_PREVIEW_IMAGES} />
             ))}
           </div>
         )}
@@ -159,13 +153,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
             >
               {remainingImages.map((img, index) => (
                 <ImageWrapper key={img.id} index={index + MAX_PREVIEW_IMAGES} onOpenMenu={handleOpenMenu}>
-                  <LazyMedia
-                    src={img.path}
-                    index={index + MAX_PREVIEW_IMAGES}
-                    width={img.width}
-                    height={img.height}
-                    size={img.size}
-                  />
+                  <LazyMedia media={img} index={index + MAX_PREVIEW_IMAGES} />
                 </ImageWrapper>
               ))}
             </motion.div>

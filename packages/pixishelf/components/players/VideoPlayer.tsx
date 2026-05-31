@@ -1,14 +1,29 @@
 'use client'
 
-import { InfoIcon, Loader2Icon, PlayIcon } from 'lucide-react'
+import { InfoIcon, Loader2Icon } from 'lucide-react'
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import type ArtplayerType from 'artplayer'
+import ChapterDrawer from '@/components/players/ChapterDrawer'
+import ChapterSidebar from '@/components/players/ChapterSidebar'
+import TimelineMarkers from '@/components/players/TimelineMarkers'
+import { useCurrentChapter } from '@/components/players/use-current-chapter'
+import { useVideoChapters } from '@/components/players/use-video-chapters'
+import {
+  createChapterTimelineMarkers,
+  formatChapterTime,
+  type NormalizedChapter
+} from '@/components/players/video-chapters'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
 import { combinationApiResource } from '@/utils/combinationStatic'
 
 export interface VideoPlayerProps {
   src: string
+  chaptersUrl?: string | null
   autoPlay?: boolean
   loop?: boolean
+  muted?: boolean
   preload?: 'none' | 'metadata' | 'auto'
   className?: string
   onPlay?: () => void
@@ -18,28 +33,47 @@ export interface VideoPlayerProps {
 
 export function VideoPlayer({
   src,
+  chaptersUrl,
   autoPlay = true,
   loop = true,
+  muted = true,
   preload = 'metadata',
   className = '',
   onPlay,
   onPause,
   onError
 }: VideoPlayerProps) {
+  const mobileChapterControlName = 'chapter-entry'
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [aspectRatio, setAspectRatio] = useState('16 / 9')
+  const [chapterDrawerOpen, setChapterDrawerOpen] = useState(false)
+  const [artInstance, setArtInstance] = useState<ArtplayerType | null>(null)
+  const [progressPortalTarget, setProgressPortalTarget] = useState<HTMLDivElement | null>(null)
   const hasStartedPlayingRef = useRef(false)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const playerContainerRef = useRef<HTMLDivElement>(null)
+  const artRef = useRef<ArtplayerType | null>(null)
   const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onPlayRef = useRef(onPlay)
   const onPauseRef = useRef(onPause)
   const onErrorRef = useRef(onError)
   const mediaSrc = useMemo(() => combinationApiResource(src), [src])
+  const isDesktop = useMediaQuery('(min-width: 1024px)')
+  const {
+    chapters,
+    duration: chaptersDuration,
+    loading: chaptersLoading,
+    error: chaptersError
+  } = useVideoChapters(chaptersUrl)
+  const currentChapter = useCurrentChapter(chapters, currentTime)
+  const chapterMarkers = useMemo(() => createChapterTimelineMarkers(chapters), [chapters])
+  const showDesktopChapterPanel = isDesktop && (chapters.length > 0 || chaptersLoading || !!chaptersError)
+  const showCompactChapterRow = !isDesktop && (chaptersLoading || !!chaptersError || chapters.length > 0)
+  const chapterUiDuration = duration > 0 ? duration : chaptersDuration
   const progress = duration > 0 && Number.isFinite(duration) ? (currentTime / duration) * 100 : 0
-  const remainingTime = duration > 0 && Number.isFinite(duration) ? Math.max(duration - currentTime, 0) : null
 
   const clearLoading = () => {
     if (loadingTimeoutRef.current) {
@@ -49,7 +83,11 @@ export function VideoPlayer({
     setLoading(false)
   }
 
-  const shouldShowBuffering = (video: HTMLVideoElement) => {
+  const shouldShowBuffering = (video?: HTMLVideoElement | null) => {
+    if (!video) {
+      return false
+    }
+
     return !video.ended && !video.paused && video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
   }
 
@@ -59,32 +97,35 @@ export function VideoPlayer({
     onErrorRef.current?.(message)
   }
 
-  const formatMediaTime = (seconds: number) => {
-    const totalSeconds = Math.max(Math.ceil(seconds), 0)
-    const hours = Math.floor(totalSeconds / 3600)
-    const minutes = Math.floor((totalSeconds % 3600) / 60)
-    const remainingSeconds = totalSeconds % 60
-
-    if (hours > 0) {
-      return [hours, minutes, remainingSeconds].map((part) => part.toString().padStart(2, '0')).join(':')
-    }
-
-    return [minutes, remainingSeconds].map((part) => part.toString().padStart(2, '0')).join(':')
+  const getArtVideo = (art: ArtplayerType | null) => {
+    const currentArt = art as
+      | (ArtplayerType & { video?: HTMLVideoElement; template?: { $video?: HTMLVideoElement } })
+      | null
+    return currentArt?.video ?? currentArt?.template?.$video ?? null
   }
 
-  // 处理播放/暂停
-  const handlePlayPause = () => {
-    const video = videoRef.current
-    if (!video) return
+  const getArtProgress = (art: ArtplayerType | null) => {
+    const currentArt = art as (ArtplayerType & { template?: { $progress?: HTMLDivElement } }) | null
+    return currentArt?.template?.$progress ?? null
+  }
 
-    if (isPlaying) {
-      video.pause()
-      return
-    }
+  const seekTo = (seconds: number) => {
+    const art = artRef.current
+    if (!art) return
 
-    video.play().catch(() => {
-      showVideoError('视频播放失败')
-    })
+    const artDuration = Number.isFinite(art.duration) && art.duration > 0 ? art.duration : duration
+
+    const nextTime =
+      Number.isFinite(artDuration) && artDuration > 0
+        ? Math.min(Math.max(seconds, 0), artDuration)
+        : Math.max(seconds, 0)
+
+    art.currentTime = nextTime
+    setCurrentTime(nextTime)
+  }
+
+  const seekToChapter = (chapter: NormalizedChapter) => {
+    seekTo(chapter.start)
   }
 
   useEffect(() => {
@@ -94,113 +135,155 @@ export function VideoPlayer({
   }, [onPlay, onPause, onError])
 
   useEffect(() => {
-    const video = videoRef.current
     hasStartedPlayingRef.current = false
     setIsPlaying(false)
     setCurrentTime(0)
     setDuration(0)
     setError(null)
     setLoading(true)
-
-    if (video) {
-      video.load()
-    }
+    setAspectRatio('16 / 9')
+    setChapterDrawerOpen(false)
+    setArtInstance(null)
+    setProgressPortalTarget(null)
   }, [mediaSrc])
 
-  // 视频事件处理
   useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
+    let active = true
+    let instance: ArtplayerType | null = null
 
-    const handleLoadedMetadata = () => {
-      setDuration(video.duration)
-    }
-
-    const handleCanRenderFrame = () => {
-      clearLoading()
-    }
-
-    const handleTimeUpdate = () => {
-      setCurrentTime(video.currentTime)
-      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || video.ended) {
-        clearLoading()
+    async function initPlayer() {
+      if (!playerContainerRef.current) {
+        return
       }
-    }
 
-    const handlePlay = () => {
-      setIsPlaying(true)
-      hasStartedPlayingRef.current = true
-      onPlayRef.current?.()
-    }
-
-    const handlePause = () => {
-      setIsPlaying(false)
-      onPauseRef.current?.()
-      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA || video.ended) {
-        clearLoading()
+      const { default: Artplayer } = await import('artplayer')
+      if (!active || !playerContainerRef.current) {
+        return
       }
-    }
 
-    const handleError = () => {
-      showVideoError()
-    }
+      instance = new Artplayer({
+        container: playerContainerRef.current,
+        url: mediaSrc,
+        autoplay: autoPlay,
+        autoSize: false,
+        loop,
+        muted,
+        setting: true,
+        playbackRate: true,
+        fullscreen: true,
+        fullscreenWeb: true,
+        pip: true,
+        mutex: true,
+        theme: '#3b82f6',
+        moreVideoAttr: {
+          preload,
+          playsInline: true
+        }
+      })
 
-    const handleLoadStart = () => {
-      setLoading(true)
-    }
+      const art = instance
+      artRef.current = art
+      setArtInstance(art)
+      setProgressPortalTarget(getArtProgress(art))
 
-    const handleCanPlay = () => {
-      clearLoading()
-      hasStartedPlayingRef.current = true
-    }
+      const syncMetadata = () => {
+        const video = getArtVideo(art)
+        const nextDuration = Number.isFinite(art.duration) ? art.duration : (video?.duration ?? 0)
 
-    const handleWaiting = () => {
-      if (hasStartedPlayingRef.current && shouldShowBuffering(video)) {
+        setDuration(nextDuration > 0 ? nextDuration : 0)
+
+        if (video?.videoWidth && video.videoHeight) {
+          setAspectRatio(`${video.videoWidth} / ${video.videoHeight}`)
+        }
+      }
+
+      const hideControls = () => {
+        art.controls.show = false
+      }
+
+      art.on('ready', () => {
+        syncMetadata()
+        clearLoading()
+        hideControls()
+      })
+
+      art.on('play', () => {
+        setIsPlaying(true)
+        hasStartedPlayingRef.current = true
+        onPlayRef.current?.()
+        hideControls()
+      })
+
+      art.on('pause', () => {
+        const video = getArtVideo(art)
+        setIsPlaying(false)
+        onPauseRef.current?.()
+        art.controls.show = true
+        if (video?.readyState && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          clearLoading()
+        }
+      })
+
+      art.on('ended', () => {
+        clearLoading()
+        setIsPlaying(false)
+      })
+
+      art.on('video:loadedmetadata', syncMetadata)
+      art.on('video:loadeddata', clearLoading)
+      art.on('video:canplay', clearLoading)
+      art.on('video:canplaythrough', clearLoading)
+      art.on('video:timeupdate', () => {
+        const nextTime = Number.isFinite(art.currentTime) ? art.currentTime : 0
+        setCurrentTime(nextTime)
+
+        const video = getArtVideo(art)
+        if (video?.readyState && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          clearLoading()
+        }
+      })
+      art.on('video:loadstart', () => {
         setLoading(true)
+      })
+      art.on('video:waiting', () => {
+        if (hasStartedPlayingRef.current && shouldShowBuffering(getArtVideo(art))) {
+          setLoading(true)
+        }
+      })
+      art.on('video:playing', () => {
+        clearLoading()
+        hasStartedPlayingRef.current = true
+        hideControls()
+      })
+      art.on('error', () => {
+        showVideoError()
+      })
+      art.on('video:error', () => {
+        showVideoError()
+      })
+    }
+
+    initPlayer().catch(() => {
+      if (active) {
+        showVideoError('播放器初始化失败')
       }
-    }
-
-    const handlePlaying = () => {
-      clearLoading()
-      hasStartedPlayingRef.current = true
-    }
-
-    const handleEnded = () => {
-      clearLoading()
-      setIsPlaying(false)
-    }
-
-    video.addEventListener('loadedmetadata', handleLoadedMetadata)
-    video.addEventListener('loadeddata', handleCanRenderFrame)
-    video.addEventListener('timeupdate', handleTimeUpdate)
-    video.addEventListener('play', handlePlay)
-    video.addEventListener('pause', handlePause)
-    video.addEventListener('error', handleError)
-    video.addEventListener('loadstart', handleLoadStart)
-    video.addEventListener('canplay', handleCanPlay)
-    video.addEventListener('canplaythrough', handleCanRenderFrame)
-    video.addEventListener('waiting', handleWaiting)
-    video.addEventListener('playing', handlePlaying)
-    video.addEventListener('ended', handleEnded)
+    })
 
     return () => {
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
-      video.removeEventListener('loadeddata', handleCanRenderFrame)
-      video.removeEventListener('timeupdate', handleTimeUpdate)
-      video.removeEventListener('play', handlePlay)
-      video.removeEventListener('pause', handlePause)
-      video.removeEventListener('error', handleError)
-      video.removeEventListener('loadstart', handleLoadStart)
-      video.removeEventListener('canplay', handleCanPlay)
-      video.removeEventListener('canplaythrough', handleCanRenderFrame)
-      video.removeEventListener('waiting', handleWaiting)
-      video.removeEventListener('playing', handlePlaying)
-      video.removeEventListener('ended', handleEnded)
+      active = false
+      setArtInstance(null)
+      setProgressPortalTarget(null)
+      if (instance) {
+        instance.destroy(false)
+      }
+      if (artRef.current === instance) {
+        artRef.current = null
+      }
     }
-  }, [])
+  }, [autoPlay, loop, mediaSrc, muted, preload])
 
   useEffect(() => {
-    const video = videoRef.current
+    const video = getArtVideo(artRef.current)
     if (!loading || !video) return
 
     loadingTimeoutRef.current = setTimeout(() => {
@@ -217,6 +300,60 @@ export function VideoPlayer({
       }
     }
   }, [loading])
+
+  useEffect(() => {
+    if (!progressPortalTarget) {
+      return
+    }
+
+    const previousPosition = progressPortalTarget.style.position
+    if (!previousPosition) {
+      progressPortalTarget.style.position = 'relative'
+    }
+
+    return () => {
+      progressPortalTarget.style.position = previousPosition
+    }
+  }, [progressPortalTarget])
+
+  useEffect(() => {
+    if (!artInstance) {
+      return
+    }
+
+    if (artInstance.controls[mobileChapterControlName]) {
+      artInstance.controls.remove(mobileChapterControlName)
+    }
+
+    if (isDesktop || chapters.length === 0) {
+      return
+    }
+
+    artInstance.controls.add({
+      name: mobileChapterControlName,
+      position: 'right',
+      index: 20,
+      html: '章节',
+      tooltip: '章节',
+      style: {
+        padding: '0 10px',
+        fontSize: '13px',
+        color: 'var(--art-theme)'
+      },
+      mounted(element) {
+        element.classList.add('art-control-chapter-entry')
+      },
+      click() {
+        setChapterDrawerOpen(true)
+      }
+    })
+
+    return () => {
+      if (artInstance.controls[mobileChapterControlName]) {
+        artInstance.controls.remove(mobileChapterControlName)
+      }
+    }
+  }, [artInstance, chapters.length, isDesktop, mobileChapterControlName])
 
   // 清理定时器
   useEffect(() => {
@@ -238,59 +375,104 @@ export function VideoPlayer({
   }
 
   return (
-    <div className={cn('video-player relative bg-black', className)}>
-      <video
-        ref={videoRef}
-        className="w-full h-auto"
-        autoPlay={autoPlay}
-        muted
-        loop={loop}
-        preload={preload}
-        playsInline
-        controls={false}
-        onClick={handlePlayPause}
-      >
-        <source src={mediaSrc} />
-        您的浏览器不支持视频播放。
-      </video>
+    <div className={cn('video-player', className)}>
+      <div className={cn('flex flex-col', showDesktopChapterPanel && 'lg:flex-row lg:items-stretch lg:gap-3')}>
+        <div className="min-w-0 flex-1">
+          <div className="relative overflow-hidden bg-black" style={{ aspectRatio }}>
+            <div ref={playerContainerRef} className="h-full w-full" />
 
-      {/* 加载指示器 */}
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <div className="bg-white/90 rounded-full p-4">
-            <Loader2Icon className="w-8 h-8 text-neutral-600 animate-spin" />
+            {/* 加载指示器 */}
+            {loading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/35">
+                <div className="rounded-full bg-white/90 p-4">
+                  <Loader2Icon className="h-8 w-8 animate-spin text-neutral-600" />
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
 
-      {remainingTime !== null && (
-        <div className="absolute bottom-2 left-2 rounded bg-black/35 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white/85">
-          {formatMediaTime(remainingTime)}
-        </div>
-      )}
+          {showCompactChapterRow && (
+            <div className="mt-2 min-w-0 text-xs text-neutral-500">
+              <div className="min-w-0">
+                {chaptersLoading
+                  ? '章节加载中...'
+                  : chaptersError
+                    ? '章节加载失败'
+                    : chapters.length > 0
+                      ? `${chapters.length} 段章节`
+                      : ''}
+              </div>
+            </div>
+          )}
 
-      {/* 播放/暂停按钮覆盖层 */}
-      {!loading && !isPlaying && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <button
-            type="button"
-            aria-label="播放视频"
-            onClick={handlePlayPause}
-            className="bg-white/60 hover:bg-white/80 rounded-full p-4 transition-all duration-300 shadow-lg"
-          >
-            <PlayIcon className="w-12 h-12 text-neutral-600 fill-current" />
-          </button>
+          {duration > 0 && (
+            <div className="mt-2 text-right text-[11px] tabular-nums text-neutral-500">
+              {isPlaying ? '播放中' : '已暂停'}
+              {chapterMarkers.length > 0 ? ` · ${Math.round(progress)}%` : ''}
+              {' · '}
+              {formatChapterTime(currentTime)} / {formatChapterTime(duration)}
+            </div>
+          )}
         </div>
-      )}
 
-      {/* 底部进度条 */}
-      {!loading && (
-        <div className="absolute bottom-0 left-0 right-0 h-1 sm:h-1.5 bg-white/30">
-          <div
-            className="h-full bg-blue-500 transition-all duration-150 ease-out"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
+        {showDesktopChapterPanel && (
+          <div className="mt-3 lg:mt-0 lg:w-72 lg:shrink-0">
+            {chaptersLoading ? (
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-4 text-sm text-neutral-500">
+                章节加载中...
+              </div>
+            ) : chaptersError ? (
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-4 text-sm text-neutral-500">
+                章节加载失败
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  'rounded-lg border border-neutral-200 bg-white p-2',
+                  currentChapter?.id ? 'shadow-sm shadow-neutral-200/70' : ''
+                )}
+              >
+                <ChapterSidebar
+                  chapters={chapters}
+                  currentChapterId={currentChapter?.id}
+                  onChapterClick={seekToChapter}
+                  tone="light"
+                  className="border-none bg-transparent"
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {!loading &&
+        progressPortalTarget &&
+        chapterMarkers.length > 0 &&
+        chapterUiDuration > 0 &&
+        createPortal(
+          <div className="pointer-events-none absolute inset-0 z-20">
+            <TimelineMarkers
+              markers={chapterMarkers}
+              duration={chapterUiDuration}
+              onMarkerClick={(marker) => seekTo(marker.time)}
+              className="inset-0"
+              markerClassName="h-3"
+              lineClassName="h-1.5 bg-white/80"
+              tooltipSide="top"
+            />
+          </div>,
+          progressPortalTarget
+        )}
+
+      {!isDesktop && chapters.length > 0 && (
+        <ChapterDrawer
+          chapters={chapters}
+          currentChapterId={currentChapter?.id}
+          onChapterClick={seekToChapter}
+          open={chapterDrawerOpen}
+          onOpenChange={setChapterDrawerOpen}
+          showTrigger={false}
+        />
       )}
     </div>
   )

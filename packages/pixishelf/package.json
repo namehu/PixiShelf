@@ -45,6 +45,7 @@
     "ahooks": "^3.9.6",
     "ansi-to-react": "^6.2.6",
     "apng-js": "^1.1.5",
+    "artplayer": "^5.4.0",
     "bcryptjs": "^2.4.3",
     "better-auth": "^1.4.19",
     "busboy": "^1.6.0",
