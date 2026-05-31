@@ -45,6 +45,6 @@ describe('transformImages', () => {
     expect(images[0]?.hasChapters).toBe(false)
     expect(images[0]?.chaptersUrl).toBeNull()
     expect(images[1]?.hasChapters).toBe(true)
-    expect(images[1]?.chaptersUrl).toBeTruthy()
+    expect(images[1]?.chaptersUrl).toBe('/api/v1/media/2/chapters')
   })
 })

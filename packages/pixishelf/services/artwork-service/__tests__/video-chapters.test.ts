@@ -6,14 +6,25 @@ import path from 'path'
 const { getScanPathMock } = vi.hoisted(() => ({
   getScanPathMock: vi.fn()
 }))
+const { findUniqueMock } = vi.hoisted(() => ({
+  findUniqueMock: vi.fn()
+}))
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/services/setting.service', () => ({
   getScanPath: getScanPathMock
 }))
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    image: {
+      findUnique: findUniqueMock
+    }
+  }
+}))
 
 import {
   discoverChaptersForVideo,
+  getVideoChapterManifestByImageId,
   getChapterPathCandidates,
   resolveCanonicalChapterPath,
   validateChapterManifest
@@ -91,6 +102,7 @@ describe('discoverChaptersForVideo', () => {
 
   afterEach(async () => {
     getScanPathMock.mockReset()
+    findUniqueMock.mockReset()
     await fs.rm(tempDir, { recursive: true, force: true })
   })
 
@@ -126,6 +138,44 @@ describe('discoverChaptersForVideo', () => {
     expect(meta?.chaptersPath).toBe('/artist/artwork/video..chapters.json')
     expect(meta?.chaptersCount).toBe(1)
     expect(meta?.chaptersDuration).toBe(12.5)
+  })
+
+  it('should read chapter manifest by image id', async () => {
+    await writeManifestFile(tempDir, '/artist/artwork/video.chapters.json', {
+      version: 1,
+      duration: 20,
+      chapters: [
+        { index: 1, title: 'Opening', start: 0, end: 8, duration: 8 },
+        { index: 2, title: 'Ending', start: 8, end: 20, duration: 12 }
+      ]
+    })
+    findUniqueMock.mockResolvedValue({
+      id: 1,
+      path: '/artist/artwork/video.mp4',
+      chaptersPath: '/artist/artwork/video.chapters.json'
+    })
+
+    const manifest = await getVideoChapterManifestByImageId(1)
+
+    expect(manifest).toEqual({
+      source: 'chapters-file',
+      version: 1,
+      duration: 20,
+      chapters: [
+        { index: 1, title: 'Opening', start: 0, end: 8, duration: 8 },
+        { index: 2, title: 'Ending', start: 8, end: 20, duration: 12 }
+      ]
+    })
+  })
+
+  it('should return null when image has no chapters path', async () => {
+    findUniqueMock.mockResolvedValue({
+      id: 2,
+      path: '/artist/artwork/video.mp4',
+      chaptersPath: null
+    })
+
+    await expect(getVideoChapterManifestByImageId(2)).resolves.toBeNull()
   })
 })
 

@@ -6,6 +6,7 @@ import { createHash } from 'crypto'
 import { z } from 'zod'
 import { getScanPath } from '@/services/setting.service'
 import { isVideoFile } from '@/lib/media'
+import { prisma } from '@/lib/prisma'
 
 const MAX_CHAPTER_MANIFEST_SIZE = 5 * 1024 * 1024
 
@@ -29,6 +30,10 @@ export interface ChapterMeta {
   chaptersCount: number
   chaptersDuration: number
   chaptersHash: string
+}
+
+export interface VideoChapterManifestResponse extends VideoChapterManifest {
+  source: 'chapters-file'
 }
 
 const chapterItemSchema = z.object({
@@ -173,6 +178,64 @@ export async function discoverChaptersForVideoInScanRoot(
   }
 
   return null
+}
+
+/**
+ * 按图片 ID 读取章节清单
+ * @param imageId 图片 ID
+ * @returns 标准章节响应；无章节时返回 null
+ */
+export async function getVideoChapterManifestByImageId(imageId: number): Promise<VideoChapterManifestResponse | null> {
+  const image = await prisma.image.findUnique({
+    where: { id: imageId },
+    select: {
+      id: true,
+      path: true,
+      chaptersPath: true
+    }
+  })
+
+  if (!image) {
+    throw new Error('Image not found')
+  }
+
+  if (!isVideoFile(image.path)) {
+    throw new Error('Image is not a video')
+  }
+
+  if (!image.chaptersPath) {
+    return null
+  }
+
+  const manifest = await readChapterManifestByStoredPath(image.chaptersPath)
+  if (!manifest) {
+    return null
+  }
+
+  return {
+    source: 'chapters-file',
+    ...manifest
+  }
+}
+
+/**
+ * 按数据库存储路径读取章节清单
+ * @param chaptersPath 数据库存储的章节相对路径
+ * @returns 标准章节清单；文件不存在时返回 null
+ */
+export async function readChapterManifestByStoredPath(chaptersPath: string): Promise<VideoChapterManifest | null> {
+  const scanPath = await getScanPath()
+  if (!scanPath) {
+    return null
+  }
+
+  const absolutePath = resolvePathWithinScanRoot(scanPath, chaptersPath)
+  const fileInfo = await readChapterManifestFile(absolutePath)
+  if (!fileInfo) {
+    return null
+  }
+
+  return validateChapterManifest(fileInfo.json)
 }
 
 /**

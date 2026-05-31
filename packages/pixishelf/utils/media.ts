@@ -51,5 +51,9 @@ export function getMediaMimeType(filename: string): string | null {
     '.ogg': 'video/ogg'
   }
 
-  return imageMimeTypes[ext] || videoMimeTypes[ext] || null
+  const documentMimeTypes: Record<string, string> = {
+    '.json': 'application/json; charset=utf-8'
+  }
+
+  return imageMimeTypes[ext] || videoMimeTypes[ext] || documentMimeTypes[ext] || null
 }

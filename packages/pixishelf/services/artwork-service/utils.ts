@@ -4,7 +4,6 @@ import path from 'path'
 import { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { TImageModel } from '@/schemas/models'
 import { isApngFile, isVideoFile } from '@/lib/media'
-import { combinationApiResource } from '@/utils/combinationStatic'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 
@@ -64,7 +63,7 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
       ...image,
       mediaType,
       hasChapters,
-      chaptersUrl: hasChapters ? combinationApiResource(image.chaptersPath) : null
+      chaptersUrl: hasChapters ? `/api/v1/media/${image.id}/chapters` : null
     })
   })
 
