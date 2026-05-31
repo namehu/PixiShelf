@@ -22,7 +22,7 @@ import {
 } from '@/services/artwork-service'
 import logger from '@/lib/logger'
 import { TRPCError } from '@trpc/server'
-import { deleteImage, addImage } from '@/services/artwork-service/image-manager'
+import { deleteImage, addImageWithChapters } from '@/services/artwork-service/image-manager'
 import { getScanPath } from '@/services/setting.service'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
 
@@ -124,11 +124,19 @@ export const artworkRouter = router({
           height: z.number(),
           size: z.number(),
           path: z.string()
-        })
+        }),
+        chaptersMeta: z
+          .object({
+            chaptersPath: z.string(),
+            chaptersCount: z.number().int().min(0),
+            chaptersDuration: z.number().positive(),
+            chaptersHash: z.string()
+          })
+          .optional()
       })
     )
     .mutation(async ({ input }) => {
-      return addImage(input.artworkId, input.file)
+      return addImageWithChapters(input.artworkId, input.file, input.chaptersMeta)
     }),
 
   /**

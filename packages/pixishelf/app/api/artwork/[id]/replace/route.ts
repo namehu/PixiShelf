@@ -4,10 +4,11 @@ import path from 'path'
 import fs from 'fs'
 import fsPromises from 'fs/promises'
 import { getScanPath } from '@/services/setting.service'
-import { updateArtworkImagesTransaction, ImageMeta } from '@/services/artwork-service/image-manager'
+import { updateArtworkImagesTransaction, ImageMeta, ReplaceChapterMetaInput } from '@/services/artwork-service/image-manager'
 import { MEDIA_EXTENSIONS } from '@/lib/constant'
 import { getArtworkById } from '@/services/artwork-service'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
+import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 
 // 定义 API 支持的操作类型
 type ActionType = 'init' | 'commit' | 'rollback'
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             if (f === '.bak_session') continue
 
             const ext = path.extname(f).toLowerCase()
-            if (MEDIA_EXTENSIONS.includes(ext)) {
+            if (MEDIA_EXTENSIONS.includes(ext) || isChapterManifestFileName(f)) {
               await fsPromises.rename(path.join(targetDir, f), path.join(backupDir, f))
             }
           }
@@ -75,6 +76,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (action === 'commit') {
       const body = await req.json()
       const allFilesMeta: ImageMeta[] = body.filesMeta
+      const chaptersMeta: ReplaceChapterMetaInput[] = Array.isArray(body.chaptersMeta) ? body.chaptersMeta : []
 
       if (!allFilesMeta || !Array.isArray(allFilesMeta)) {
         return NextResponse.json({ error: 'Invalid data format' }, { status: 400 })
@@ -108,8 +110,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // 重新排序
       allFilesMeta.sort((a, b) => a.order - b.order)
 
+      const videoFileNameSet = new Set(allFilesMeta.map((file) => file.fileName))
+      const unmatchedChapterFiles = chaptersMeta
+        .filter((item) => !videoFileNameSet.has(item.videoFileName))
+        .map((item) => item.chaptersFileName)
+
+      if (unmatchedChapterFiles.length > 0) {
+        return NextResponse.json(
+          {
+            error: 'Unmatched chapter files detected',
+            details: unmatchedChapterFiles
+          },
+          { status: 400 }
+        )
+      }
+
       // 执行数据库事务
-      await updateArtworkImagesTransaction(artworkId, allFilesMeta)
+      await updateArtworkImagesTransaction(artworkId, allFilesMeta, chaptersMeta)
 
       // 删除备份
       await fsPromises.rm(backupDir, { recursive: true, force: true }).catch(console.error)

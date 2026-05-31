@@ -7,11 +7,13 @@ import { Input } from '@/components/ui/input'
 import { Loader2, FileIcon, X } from 'lucide-react'
 import { formatFileSize } from '@/utils/media'
 import { Button } from '@/components/ui/button'
+import { VIDEO_EXTENSIONS } from '@/lib/constant'
+import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 
 interface AddImageDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (file: File, order: number) => Promise<void>
+  onSubmit: (file: File, order: number, chapterFile?: File | null) => Promise<void>
   isSubmitting: boolean
   progress: number
   defaultOrder: number
@@ -28,19 +30,28 @@ export function AddImageDialog({
   initialFile
 }: AddImageDialogProps) {
   const [file, setFile] = useState<File | null>(null)
+  const [chapterFile, setChapterFile] = useState<File | null>(null)
   const [order, setOrder] = useState(defaultOrder)
+  const isVideoFile = !!file && VIDEO_EXTENSIONS.includes(`.${file.name.split('.').pop()?.toLowerCase() || ''}`)
 
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
       setOrder(defaultOrder)
       setFile(initialFile || null)
+      setChapterFile(null)
     }
   }, [open, defaultOrder, initialFile])
 
+  useEffect(() => {
+    if (!isVideoFile) {
+      setChapterFile(null)
+    }
+  }, [isVideoFile])
+
   const handleSubmit = async () => {
     if (file) {
-      await onSubmit(file, order)
+      await onSubmit(file, order, chapterFile)
     }
   }
 
@@ -89,6 +100,49 @@ export function AddImageDialog({
             />
           )}
         </div>
+        {isVideoFile && (
+          <div className="grid w-full max-w-sm items-center gap-1.5">
+            <Label htmlFor="chapter-file">章节文件（可选）</Label>
+            {chapterFile ? (
+              <div className="flex items-center justify-between p-2 border rounded-md bg-muted/50">
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <div className="h-10 w-10 shrink-0 bg-background rounded border flex items-center justify-center">
+                    <FileIcon className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-sm font-medium truncate">{chapterFile.name}</span>
+                    <span className="text-xs text-muted-foreground">{formatFileSize(chapterFile.size)}</span>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 h-8 w-8 hover:text-destructive"
+                  onClick={() => setChapterFile(null)}
+                  disabled={isSubmitting}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            ) : (
+              <Input
+                id="chapter-file"
+                type="file"
+                accept=".json,application/json"
+                onChange={(e) => {
+                  const nextFile = e.target.files?.[0] || null
+                  if (nextFile && !isChapterManifestFileName(nextFile.name)) {
+                    alert('请选择以 .chapters.json 或 ..chapters.json 结尾的章节文件')
+                    e.target.value = ''
+                    return
+                  }
+                  setChapterFile(nextFile)
+                }}
+                disabled={isSubmitting}
+              />
+            )}
+          </div>
+        )}
         <div className="grid w-full max-w-sm items-center gap-1.5">
           <Label htmlFor="order">排序 (Order)</Label>
           <Input

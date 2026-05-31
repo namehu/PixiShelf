@@ -64,7 +64,32 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   const { uploadSingleFile } = useChunkUpload()
   const [addInitialFile, setAddInitialFile] = useState<File | null>(null)
 
-  const handleAddSubmit = async (file: File, order: number) => {
+  const uploadChapterFile = async (input: {
+    artworkId: number
+    imageId: number
+    videoPath: string
+    file: File
+  }) => {
+    const formData = new FormData()
+    formData.set('artworkId', String(input.artworkId))
+    formData.set('imageId', String(input.imageId))
+    formData.set('videoPath', input.videoPath)
+    formData.set('file', input.file)
+
+    const response = await fetch('/api/artwork/media-chapters/upload', {
+      method: 'POST',
+      body: formData
+    })
+
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.error || '章节上传失败')
+    }
+
+    return data.meta
+  }
+
+  const handleAddSubmit = async (file: File, order: number, chapterFile?: File | null) => {
     if (!artworkId) return
 
     try {
@@ -83,7 +108,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         throw new Error('Upload failed: No metadata returned')
       }
 
-      await trpcClient.artwork.addImage.mutate({
+      const createdImage = await trpcClient.artwork.addImage.mutate({
         artworkId,
         file: {
           fileName: meta.fileName,
@@ -95,7 +120,21 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         }
       })
 
-      toast.success('图片添加成功')
+      let chapterWarning = ''
+      if (chapterFile) {
+        try {
+          await uploadChapterFile({
+            artworkId,
+            imageId: createdImage.id,
+            videoPath: meta.path,
+            file: chapterFile
+          })
+        } catch (error: any) {
+          chapterWarning = error.message || '章节上传失败'
+        }
+      }
+
+      toast.success(chapterWarning ? `媒体已添加，章节关联失败：${chapterWarning}` : '图片添加成功')
       setShowAddDialog(false)
       setRefreshKey((k) => k + 1)
       onSuccess?.()

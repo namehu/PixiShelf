@@ -16,6 +16,18 @@ export interface ImageMeta {
   path: string // 存储在数据库中的相对路径
 }
 
+export interface ChapterMetaInput {
+  chaptersPath: string
+  chaptersCount: number
+  chaptersDuration: number
+  chaptersHash: string
+}
+
+export interface ReplaceChapterMetaInput extends ChapterMetaInput {
+  videoFileName: string
+  chaptersFileName: string
+}
+
 /**
  * 全量替换作品图片事务
  * 执行逻辑：
@@ -25,15 +37,30 @@ export interface ImageMeta {
  * @param artworkId 作品ID
  * @param files 图片元数据列表
  */
-export async function updateArtworkImagesTransaction(artworkId: number, files: ImageMeta[]) {
+export async function updateArtworkImagesTransaction(
+  artworkId: number,
+  files: ImageMeta[],
+  chaptersMeta: ReplaceChapterMetaInput[] = []
+) {
   return await prisma.$transaction(async (tx) => {
     // 1. 删除旧图片记录
     await tx.image.deleteMany({
       where: { artworkId }
     })
 
+    const chaptersMetaMap = new Map(chaptersMeta.map((item) => [item.videoFileName, item]))
+
     // 2. 准备新图片数据
     const newImages = files.map((file) => ({
+      ...(chaptersMetaMap.get(file.fileName)
+        ? {
+            chaptersPath: chaptersMetaMap.get(file.fileName)!.chaptersPath,
+            chaptersCount: chaptersMetaMap.get(file.fileName)!.chaptersCount,
+            chaptersDuration: chaptersMetaMap.get(file.fileName)!.chaptersDuration,
+            chaptersUpdatedAt: new Date(),
+            chaptersHash: chaptersMetaMap.get(file.fileName)!.chaptersHash
+          }
+        : {}),
       artworkId,
       path: file.path,
       sortOrder: file.order,
@@ -124,5 +151,56 @@ export async function addImage(artworkId: number, file: ImageMeta) {
     await syncMediaDerivedTagForArtwork(tx, artworkId)
 
     return image
+  })
+}
+
+/**
+ * 新增单张图片并可附带章节元信息
+ * @param artworkId 作品ID
+ * @param file 图片元数据
+ * @param chaptersMeta 章节元信息
+ */
+export async function addImageWithChapters(artworkId: number, file: ImageMeta, chaptersMeta?: ChapterMetaInput) {
+  return await prisma.$transaction(async (tx) => {
+    const image = await tx.image.create({
+      data: {
+        artworkId,
+        path: file.path,
+        sortOrder: file.order,
+        width: file.width,
+        height: file.height,
+        size: file.size,
+        ...(chaptersMeta
+          ? {
+              chaptersPath: chaptersMeta.chaptersPath,
+              chaptersCount: chaptersMeta.chaptersCount,
+              chaptersDuration: chaptersMeta.chaptersDuration,
+              chaptersUpdatedAt: new Date(),
+              chaptersHash: chaptersMeta.chaptersHash
+            }
+          : {})
+      }
+    })
+
+    await syncMediaDerivedTagForArtwork(tx, artworkId)
+
+    return image
+  })
+}
+
+/**
+ * 为图片关联章节元信息
+ * @param input 关联入参
+ */
+export async function associateChaptersToImage(input: { imageId: number } & ChapterMetaInput) {
+  return prisma.image.update({
+    where: { id: input.imageId },
+    data: {
+      chaptersPath: input.chaptersPath,
+      chaptersCount: input.chaptersCount,
+      chaptersDuration: input.chaptersDuration,
+      chaptersUpdatedAt: new Date(),
+      chaptersHash: input.chaptersHash
+    }
   })
 }

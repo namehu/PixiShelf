@@ -34,6 +34,8 @@ import { useDragDropStore } from '../_store/drag-drop-store'
 import { useDragImages } from '../_hooks/use-drag-images'
 import { useChunkUpload } from '../_hooks/use-chunk-upload'
 import { type ArtworkResponseDto } from '@/schemas/artwork.dto'
+import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
+import { buildReplaceChapterUploadPlan } from './video-chapter-utils'
 
 interface ImageReplaceDialogProps {
   open: boolean
@@ -66,27 +68,63 @@ interface PreviewItem {
   previewUrl?: string
 }
 
+interface ChapterPreviewItem {
+  id: string
+  file: File
+  originalName: string
+  status: 'pending' | 'uploading' | 'success' | 'error'
+  progress: number
+  error?: string
+}
+
 export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onSuccess }: ImageReplaceDialogProps) {
   const [globalStatus, setGlobalStatus] = useState<GlobalUploadStatus>('idle')
   const [files, setFiles] = useState<File[]>([])
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
+  const [chapterItems, setChapterItems] = useState<ChapterPreviewItem[]>([])
   const [uploadConfig, setUploadConfig] = useState<{ uploadTargetDir: string; targetRelDir: string } | null>(null)
   // Use ref to store uploaded meta to avoid closure staleness issues in async flows
   const uploadedMetaRef = useRef<Record<string, any>>({})
+  const uploadedChapterMetaRef = useRef<Record<string, any>>({})
+  const previewItemsRef = useRef<PreviewItem[]>([])
+  const chapterItemsRef = useRef<ChapterPreviewItem[]>([])
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isCommittingRef = useRef(false)
   const lastScrolledIdRef = useRef<string | null>(null)
   const prevFileCountRef = useRef(0)
   const { uploadSingleFile } = useChunkUpload()
 
+  const updatePreviewItems = (updater: React.SetStateAction<PreviewItem[]>) => {
+    setPreviewItems((prev) => {
+      const next = typeof updater === 'function' ? (updater as (value: PreviewItem[]) => PreviewItem[])(prev) : updater
+      previewItemsRef.current = next
+      return next
+    })
+  }
+
+  const updateChapterItems = (updater: React.SetStateAction<ChapterPreviewItem[]>) => {
+    setChapterItems((prev) => {
+      const next =
+        typeof updater === 'function'
+          ? (updater as (value: ChapterPreviewItem[]) => ChapterPreviewItem[])(prev)
+          : updater
+      chapterItemsRef.current = next
+      return next
+    })
+  }
+
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
       setGlobalStatus('idle')
       setFiles([])
-      setPreviewItems([])
+      updatePreviewItems([])
+      updateChapterItems([])
       setUploadConfig(null)
       uploadedMetaRef.current = {}
+      uploadedChapterMetaRef.current = {}
+      previewItemsRef.current = []
+      chapterItemsRef.current = []
       isCommittingRef.current = false
       lastScrolledIdRef.current = null
       prevFileCountRef.current = 0
@@ -99,6 +137,20 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     const item = previewItems.find((i) => i.status === 'uploading')
     return item ? item.id : null
   }, [previewItems, globalStatus])
+
+  const chapterUploadPlan = useMemo(() => {
+    return buildReplaceChapterUploadPlan(
+      previewItems.map((item) => ({
+        id: item.id,
+        originalName: item.originalName,
+        newName: item.newName
+      })),
+      chapterItems.map((item) => ({
+        id: item.id,
+        originalName: item.originalName
+      }))
+    )
+  }, [previewItems, chapterItems])
 
   // 2. Scroll control logic
   const { run: runThrottledScroll } = useThrottleFn(
@@ -165,17 +217,19 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   })
 
   const addFiles = (newFiles: File[]) => {
-    const validFiles = newFiles.filter((f) =>
+    const mediaFiles = newFiles.filter((f) =>
       MEDIA_EXTENSIONS.includes('.' + (f.name.split('.').pop() || '').toLowerCase())
     )
-    if (validFiles.length === 0) {
-      toast.warning('未找到符合格式的媒体文件')
+    const chapterFiles = newFiles.filter((f) => isChapterManifestFileName(f.name))
+
+    if (mediaFiles.length === 0 && chapterFiles.length === 0) {
+      toast.warning('未找到符合格式的媒体或章节文件')
       return
     }
 
-    setFiles((prev) => [...prev, ...validFiles])
+    setFiles((prev) => [...prev, ...mediaFiles])
 
-    const newItems = validFiles.map((file) => {
+    const newItems = mediaFiles.map((file) => {
       const order = extractOrderFromName(file.name)
       const ext = file.name.split('.').pop()
       const newName = `${artwork.externalId}_p${order}.${ext}`
@@ -193,10 +247,21 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       }
     })
 
-    setPreviewItems((prev) => {
+    updatePreviewItems((prev) => {
       const combined = [...prev, ...newItems]
       return validateItems(combined)
     })
+
+    if (chapterFiles.length > 0) {
+      const newChapterItems = chapterFiles.map((file) => ({
+        id: guid(),
+        file,
+        originalName: file.name,
+        status: 'pending' as const,
+        progress: 0
+      }))
+      updateChapterItems((prev) => [...prev, ...newChapterItems])
+    }
   }
 
   // --- Consume Store Files ---
@@ -235,18 +300,23 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     const ext = item.file.name.split('.').pop()
     item.newName = `${artwork.externalId}_p${newOrder}.${ext}`
 
-    setPreviewItems(validateItems(newItems))
+    updatePreviewItems(validateItems(newItems))
   }
 
   const handleRemoveItem = (index: number) => {
     if (!confirm('确定要删除该文件吗？')) return
 
-    setPreviewItems((prev) => {
+    updatePreviewItems((prev) => {
       const newItems = [...prev]
       const removed = newItems.splice(index, 1)[0]
       if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl)
       return validateItems(newItems)
     })
+  }
+
+  const removeChapterItem = (id: string) => {
+    if (!confirm('确定要删除该章节文件吗？')) return
+    updateChapterItems((prev) => prev.filter((item) => item.id !== id))
   }
 
   // ROLLBACK-TODO: 客户端回滚执行函数
@@ -264,9 +334,13 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     // 重置本地状态
     previewItems.forEach((item) => item.previewUrl && URL.revokeObjectURL(item.previewUrl))
     setFiles([])
-    setPreviewItems([])
+    updatePreviewItems([])
+    updateChapterItems([])
     setUploadConfig(null)
     uploadedMetaRef.current = {}
+    uploadedChapterMetaRef.current = {}
+    previewItemsRef.current = []
+    chapterItemsRef.current = []
     return true
   }
 
@@ -274,6 +348,14 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     if (!artworkId || previewItems.length === 0) return
     if (previewItems.some((i) => i.error)) {
       toast.error('存在序号冲突，请先修正')
+      return
+    }
+    if (chapterUploadPlan.unmatched.length > 0) {
+      toast.error(`存在 ${chapterUploadPlan.unmatched.length} 个未匹配章节文件，请先处理`)
+      return
+    }
+    if (chapterUploadPlan.conflicting.length > 0) {
+      toast.error(`存在 ${chapterUploadPlan.conflicting.length} 个视频对应多个章节文件，请先处理`)
       return
     }
 
@@ -302,68 +384,146 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     }
   }
 
+  const uploadChapterFile = async (input: { artworkId: number; videoPath: string; file: File }) => {
+    const formData = new FormData()
+    formData.set('artworkId', String(input.artworkId))
+    formData.set('videoPath', input.videoPath)
+    formData.set('file', input.file)
+
+    const response = await fetch('/api/artwork/media-chapters/upload', {
+      method: 'POST',
+      body: formData
+    })
+
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.error || '章节上传失败')
+    }
+
+    return data.meta
+  }
+
   const processQueue = async (config: { uploadTargetDir: string; targetRelDir: string }) => {
-    // Filter items that need processing
-    const itemsToProcess = previewItems.filter(
+    const latestPreviewItems = previewItemsRef.current
+    const latestChapterItems = chapterItemsRef.current
+    const itemsToProcess = latestPreviewItems.filter(
       (item) => (item.status === 'pending' || item.status === 'error') && !uploadedMetaRef.current[item.id]
     )
 
-    if (itemsToProcess.length === 0) {
-      checkFinalStatus()
+    if (itemsToProcess.length > 0) {
+      const uploadItems = itemsToProcess.map((item) => ({
+        id: item.id,
+        file: item.file,
+        newName: item.newName
+      }))
+
+      await uploadLargeFile(uploadItems, config.uploadTargetDir, config.targetRelDir, 3, {
+        onStart: (id) => {
+          updatePreviewItems((prev) =>
+            prev.map((item) =>
+              item.id === id ? { ...item, status: 'uploading', progress: 0, error: undefined } : item
+            )
+          )
+        },
+        onProgress: (id, percent) => {
+          updatePreviewItems((prev) => prev.map((item) => (item.id === id ? { ...item, progress: percent } : item)))
+        },
+        onSuccess: (id, meta) => {
+          uploadedMetaRef.current[id] = meta
+          updatePreviewItems((prev) =>
+            prev.map((item) => (item.id === id ? { ...item, status: 'success', progress: 100 } : item))
+          )
+        },
+        onError: (id, err) => {
+          updatePreviewItems((prev) =>
+            prev.map((item) => (item.id === id ? { ...item, status: 'error', error: err.message } : item))
+          )
+        }
+      })
+    }
+
+    const chapterPlansToProcess = chapterUploadPlan.matched.filter((plan) => {
+      const chapterItem = latestChapterItems.find((item) => item.id === plan.chapterId)
+      return (
+        chapterItem &&
+        (chapterItem.status === 'pending' || chapterItem.status === 'error') &&
+        uploadedMetaRef.current[plan.videoId] &&
+        !uploadedChapterMetaRef.current[plan.chapterId]
+      )
+    })
+
+    if (artworkId && chapterPlansToProcess.length > 0) {
+      await runConcurrentTasks(chapterPlansToProcess, 3, async (plan) => {
+        const chapterItem = chapterItemsRef.current.find((item) => item.id === plan.chapterId)
+        const uploadedVideo = uploadedMetaRef.current[plan.videoId]
+        if (!chapterItem || !uploadedVideo?.path) {
+          updateChapterItems((prev) =>
+            prev.map((item) =>
+              item.id === plan.chapterId ? { ...item, status: 'error', error: '章节上传上下文不完整' } : item
+            )
+          )
+          return
+        }
+
+        updateChapterItems((prev) =>
+          prev.map((item) =>
+            item.id === plan.chapterId ? { ...item, status: 'uploading', progress: 0, error: undefined } : item
+          )
+        )
+
+        try {
+          const meta = await uploadChapterFile({
+            artworkId,
+            videoPath: uploadedVideo.path,
+            file: chapterItem.file
+          })
+          uploadedChapterMetaRef.current[plan.chapterId] = meta
+          updateChapterItems((prev) =>
+            prev.map((item) => (item.id === plan.chapterId ? { ...item, status: 'success', progress: 100 } : item))
+          )
+        } catch (error: any) {
+          updateChapterItems((prev) =>
+            prev.map((item) => (item.id === plan.chapterId ? { ...item, status: 'error', error: error.message } : item))
+          )
+        }
+      })
+    }
+
+    checkFinalStatus({
+      latestPreviewItems: previewItemsRef.current,
+      latestChapterItems: chapterItemsRef.current,
+      matchedChapterPlans: chapterUploadPlan.matched
+    })
+  }
+
+  const checkFinalStatus = (input?: {
+    latestPreviewItems?: PreviewItem[]
+    latestChapterItems?: ChapterPreviewItem[]
+    matchedChapterPlans?: typeof chapterUploadPlan.matched
+  }) => {
+    const latestPreviewItems = input?.latestPreviewItems || previewItemsRef.current
+    const latestChapterItems = input?.latestChapterItems || chapterItemsRef.current
+    const matchedChapterPlans = input?.matchedChapterPlans || chapterUploadPlan.matched
+
+    const anyMediaError = latestPreviewItems.some((item) => item.status === 'error')
+    const anyChapterError = latestChapterItems.some((item) => item.status === 'error')
+    const anyMediaPending = latestPreviewItems.some((item) => item.status === 'pending' || item.status === 'uploading')
+    const anyChapterPending = matchedChapterPlans.some((plan) => !uploadedChapterMetaRef.current[plan.chapterId])
+
+    if (anyMediaError || anyChapterError) {
+      setGlobalStatus('partial-error')
       return
     }
 
-    const uploadItems = itemsToProcess.map((item) => ({
-      id: item.id,
-      file: item.file,
-      newName: item.newName
-    }))
+    if (!anyMediaPending && !anyChapterPending) {
+      toast.success('所有文件上传完成，准备提交...')
+      setTimeout(() => {
+        commitReplace(latestPreviewItems, false)
+      }, 250)
+      return
+    }
 
-    await uploadLargeFile(uploadItems, config.uploadTargetDir, config.targetRelDir, 3, {
-      onStart: (id) => {
-        setPreviewItems((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, status: 'uploading', progress: 0, error: undefined } : item))
-        )
-      },
-      onProgress: (id, percent) => {
-        setPreviewItems((prev) => prev.map((item) => (item.id === id ? { ...item, progress: percent } : item)))
-      },
-      onSuccess: (id, meta) => {
-        uploadedMetaRef.current[id] = meta
-        setPreviewItems((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, status: 'success', progress: 100 } : item))
-        )
-      },
-      onError: (id, err) => {
-        setPreviewItems((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, status: 'error', error: err.message } : item))
-        )
-      }
-    })
-
-    checkFinalStatus()
-  }
-
-  const checkFinalStatus = () => {
-    setPreviewItems((currentItems) => {
-      const anyError = currentItems.some((i) => i.status === 'error')
-      const anyPending = currentItems.some((i) => i.status === 'pending')
-
-      if (anyError) {
-        setGlobalStatus('partial-error')
-      } else if (!anyPending) {
-        // All done, trigger commit automatically
-        // Use setTimeout to move side effect out of updater function
-        toast.success('所有文件上传完成，准备提交...')
-        setTimeout(() => {
-          commitReplace(currentItems)
-        }, 250)
-      } else {
-        // Should be idle if interrupted
-        setGlobalStatus('idle')
-      }
-      return currentItems
-    })
+    setGlobalStatus('idle')
   }
 
   const commitReplace = async (items: PreviewItem[], ignoreErrors = false) => {
@@ -377,11 +537,15 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         .filter((item) => (ignoreErrors ? item.status === 'success' : true))
         .map((item) => uploadedMetaRef.current[item.id])
         .filter(Boolean)
+      const chaptersMeta = chapterItemsRef.current
+        .filter((item) => (ignoreErrors ? item.status === 'success' : true))
+        .map((item) => uploadedChapterMetaRef.current[item.id])
+        .filter(Boolean)
 
       const commitRes = await fetch(`/api/artwork/${artworkId}/replace?action=commit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filesMeta: metas })
+        body: JSON.stringify({ filesMeta: metas, chaptersMeta })
       })
 
       if (!commitRes.ok) {
@@ -420,7 +584,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
 
   const handleRetrySingle = (index: number) => {
     if (!uploadConfig) return
-    setPreviewItems((prev) => {
+    updatePreviewItems((prev) => {
       const newItems = [...prev]
       const currentItem = newItems[index]
       if (currentItem) {
@@ -439,10 +603,20 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   }
 
   const exportErrorReport = () => {
-    const failedItems = previewItems.filter((i) => i.status === 'error')
-    const content = failedItems
+    const failedItems = previewItems
+      .filter((i) => i.status === 'error')
       .map((i) => `File: ${i.originalName}\nError: ${i.error}\nOrder: ${i.order}\n---`)
-      .join('\n')
+    const failedChapters = chapterItems
+      .filter((i) => i.status === 'error')
+      .map((i) => `Chapter: ${i.originalName}\nError: ${i.error}\n---`)
+    const unmatchedChapters = chapterUploadPlan.unmatched.map(
+      (i) => `Chapter: ${i.originalName}\nError: 未找到对应视频文件\n---`
+    )
+    const conflictingChapters = chapterUploadPlan.conflicting.map(
+      (i) =>
+        `Video: ${i.videoOriginalName}\nError: 同一视频匹配多个章节文件 (${i.chapterOriginalNames.join(', ')})\n---`
+    )
+    const content = [...failedItems, ...failedChapters, ...unmatchedChapters, ...conflictingChapters]
     const blob = new Blob([content], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -450,6 +624,23 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     a.download = `upload-errors-${artwork.externalId}.txt`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const runConcurrentTasks = async <T,>(items: T[], concurrency: number, task: (item: T) => Promise<void>) => {
+    const executing = new Set<Promise<void>>()
+
+    for (const item of items) {
+      const promise = task(item).finally(() => {
+        executing.delete(promise)
+      })
+      executing.add(promise)
+
+      if (executing.size >= concurrency) {
+        await Promise.race(executing)
+      }
+    }
+
+    await Promise.all(executing)
   }
 
   /**
@@ -735,11 +926,82 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
               </div>
             </div>
           )}
+
+          {chapterItems.length > 0 && (
+            <div className="border rounded-md p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">章节文件</div>
+                  <div className="text-xs text-neutral-500">
+                    已匹配 {chapterUploadPlan.matched.length} 个，未匹配 {chapterUploadPlan.unmatched.length} 个，冲突{' '}
+                    {chapterUploadPlan.conflicting.length} 个
+                  </div>
+                </div>
+                {(chapterUploadPlan.unmatched.length > 0 || chapterUploadPlan.conflicting.length > 0) && (
+                  <span className="text-xs text-red-500">存在未匹配或冲突章节文件，当前不可提交</span>
+                )}
+              </div>
+
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {chapterItems.map((item) => {
+                  const matchedPlan = chapterUploadPlan.matched.find((plan) => plan.chapterId === item.id)
+                  const isUnmatched = !matchedPlan
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={cn(
+                        'flex items-center justify-between gap-3 rounded border px-3 py-2',
+                        isUnmatched && 'border-red-200 bg-red-50/60',
+                        item.status === 'error' && 'border-amber-200 bg-amber-50/60'
+                      )}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-mono truncate">{item.originalName}</div>
+                        <div className="text-xs text-neutral-500 truncate">
+                          {matchedPlan
+                            ? `匹配视频: ${matchedPlan.videoOriginalName} -> ${matchedPlan.chapterNewName}`
+                            : '未找到对应视频文件'}
+                        </div>
+                        {item.error && <div className="text-xs text-red-500 truncate">{item.error}</div>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {item.status === 'uploading' && <Loader2 className="w-3 h-3 animate-spin text-blue-500" />}
+                        {item.status === 'success' && <CheckCircle className="w-3 h-3 text-green-500" />}
+                        {item.status === 'error' && <XCircle className="w-3 h-3 text-red-500" />}
+                        {globalStatus === 'idle' && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-neutral-400 hover:text-red-500"
+                            onClick={() => removeChapterItem(item.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {chapterUploadPlan.conflicting.length > 0 && (
+                <div className="rounded border border-red-200 bg-red-50/60 p-3 space-y-1">
+                  {chapterUploadPlan.conflicting.map((conflict) => (
+                    <div key={conflict.videoId} className="text-xs text-red-600">
+                      {conflict.videoOriginalName}: {conflict.chapterOriginalNames.join(', ')}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:justify-between">
           <div className="text-xs text-neutral-500 flex gap-4 items-center">
-            <span>待上传: {previewItems.length} 个文件</span>
+            <span>媒体: {previewItems.length} 个</span>
+            <span>章节: {chapterItems.length} 个</span>
             <span className="text-neutral-400">
               总大小: {formatFileSize(previewItems.reduce((acc, cur) => acc + cur.size, 0))}
             </span>
@@ -789,7 +1051,9 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                     globalStatus === 'uploading' ||
                     globalStatus === 'syncing' ||
                     globalStatus === 'rolling-back' ||
-                    previewItems.some((i) => i.error)
+                    previewItems.some((i) => i.error) ||
+                    chapterUploadPlan.unmatched.length > 0 ||
+                    chapterUploadPlan.conflicting.length > 0
                   }
                 >
                   {globalStatus === 'uploading' ? '上传中...' : '确认全量替换'}
