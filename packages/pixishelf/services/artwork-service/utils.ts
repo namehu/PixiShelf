@@ -58,7 +58,7 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
   // 1. 直接转 DTO，保留数据库排序
   const allItems = images.map((image) => {
     const mediaType = isVideoFile(image.path) ? 'video' : 'image'
-    const hasChapters = mediaType === 'video' && Boolean(image.chaptersPath)
+    const hasChapters = mediaType === 'video' && Boolean(image.chaptersPath && image.chaptersCount > 0)
 
     return ArtworkImageResponseDto.parse({
       ...image,

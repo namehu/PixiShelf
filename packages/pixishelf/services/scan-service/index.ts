@@ -8,8 +8,8 @@ import { ScanProgress, ScanResult } from '@/types'
 import { parseMetadataFile, MetadataInfo, extractArtworkIdFromFilename } from './metadata-parser'
 import { collectMediaFiles, MediaFileInfo } from './media-collector'
 import { syncMediaDerivedTagsForArtworks } from '@/services/media-derived-tag-service'
-import { buildScannedImageCreateData } from './scan-image-builder'
-import { getMetaSource } from './path-utils'
+import { buildScannedImageSeedData, type ScannedImageSeedData } from './scan-image-builder'
+import { getMetaSource, getPathBasename } from './path-utils'
 
 /**
  * 扫描选项接口
@@ -472,6 +472,8 @@ async function parseAndCollect(metadataFile: GlobMetadataFile): Promise<ArtworkD
  * @param context 扫描上下文
  */
 async function processBatch(batch: ArtworkData[], context: ScanContext): Promise<void> {
+  const imageSeedMap = await precomputeBatchImageSeeds(batch, context)
+
   await prisma.$transaction(
     async (tx) => {
       // 准备批量数据
@@ -550,11 +552,10 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
 
           // 准备图片数据
           if (artworkData.mediaFiles.length > 0) {
-            const artworkImages = await buildScannedImageCreateData({
-              mediaFiles: artworkData.mediaFiles,
-              artworkId: artwork.id,
-              scanPath: context.options.scanPath
-            })
+            const artworkImages = (imageSeedMap.get(artworkData.metadata.id) || []).map((imageSeed) => ({
+              ...imageSeed,
+              artworkId: artwork.id
+            }))
             imagesToCreate.push(...artworkImages)
           }
 
@@ -887,6 +888,8 @@ export async function rescanArtwork(
  * @param context 扫描上下文
  */
 async function processRescanBatch(batch: ArtworkData[], context: ScanContext): Promise<void> {
+  const imageSeedMap = await precomputeBatchImageSeeds(batch, context)
+
   await prisma.$transaction(
     async (tx) => {
       for (const artworkData of batch) {
@@ -952,11 +955,10 @@ async function processRescanBatch(batch: ArtworkData[], context: ScanContext): P
 
         // 插入新图片
         if (artworkData.mediaFiles.length > 0) {
-          const imagesToCreate = await buildScannedImageCreateData({
-            mediaFiles: artworkData.mediaFiles,
-            artworkId: existingArtwork.id,
-            scanPath: context.options.scanPath
-          })
+          const imagesToCreate = (imageSeedMap.get(artworkData.metadata.id) || []).map((imageSeed) => ({
+            ...imageSeed,
+            artworkId: existingArtwork.id
+          }))
 
           logger.debug('imagesToCreate:', imagesToCreate)
           await tx.image.createMany({
@@ -975,6 +977,38 @@ async function processRescanBatch(batch: ArtworkData[], context: ScanContext): P
       maxWait: 5000
     }
   )
+}
+
+/**
+ * 在事务外预计算图片与章节摘要，避免事务持有期间做文件系统 I/O。
+ * @param batch 当前批次作品
+ * @param context 扫描上下文
+ * @returns externalId -> 图片种子数据
+ */
+async function precomputeBatchImageSeeds(
+  batch: ArtworkData[],
+  context: ScanContext
+): Promise<Map<string, ScannedImageSeedData[]>> {
+  const imageSeedEntries = await Promise.all(
+    batch.map(async (artworkData) => {
+      const imageSeeds = await buildScannedImageSeedData({
+        mediaFiles: artworkData.mediaFiles,
+        scanPath: context.options.scanPath,
+        onChapterWarning: ({ mediaPath, message }) => {
+          const warningMessage = `Chapter scan warning for artwork ${artworkData.metadata.id}, media ${getPathBasename(mediaPath)}: ${message}`
+          logger.warn(warningMessage, {
+            artworkId: artworkData.metadata.id,
+            mediaPath
+          })
+          context.scanResult.errors.push(warningMessage)
+        }
+      })
+
+      return [artworkData.metadata.id, imageSeeds] as const
+    })
+  )
+
+  return new Map(imageSeedEntries)
 }
 
 /**

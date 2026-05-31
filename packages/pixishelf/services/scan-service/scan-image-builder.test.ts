@@ -9,7 +9,7 @@ vi.mock('@/services/setting.service', () => ({
   getScanPath: vi.fn()
 }))
 
-import { buildScannedImageCreateData } from './scan-image-builder'
+import { buildScannedImageCreateData, buildScannedImageSeedData } from './scan-image-builder'
 
 describe('buildScannedImageCreateData', () => {
   let scanPath: string
@@ -94,6 +94,36 @@ describe('buildScannedImageCreateData', () => {
       }
     ])
   })
+
+  it('should downgrade invalid chapter manifest to warning without blocking media record building', async () => {
+    const warningSpy = vi.fn()
+    const mediaFiles = [await createMediaFile(scanPath, '/artist/artwork/100_p0.mp4')]
+
+    await writeRawFile(scanPath, '/artist/artwork/100_p0.chapters.json', '{"version":1,"duration":10,"chapters":[]}')
+
+    const records = await buildScannedImageSeedData({
+      mediaFiles,
+      scanPath,
+      onChapterWarning: warningSpy
+    })
+
+    expect(records).toEqual([
+      {
+        path: '/artist/artwork/100_p0.mp4',
+        size: 3,
+        sortOrder: 0,
+        chaptersPath: null,
+        chaptersCount: 0,
+        chaptersDuration: null,
+        chaptersUpdatedAt: null,
+        chaptersHash: null
+      }
+    ])
+    expect(warningSpy).toHaveBeenCalledTimes(1)
+    expect(warningSpy.mock.calls[0]?.[0]).toMatchObject({
+      mediaPath: '/artist/artwork/100_p0.mp4'
+    })
+  })
 })
 
 async function createMediaFile(scanPath: string, relativePath: string): Promise<MediaFileInfo> {
@@ -113,7 +143,11 @@ async function createMediaFile(scanPath: string, relativePath: string): Promise<
 }
 
 async function writeChapterManifest(scanPath: string, relativePath: string, manifest: unknown) {
+  await writeRawFile(scanPath, relativePath, JSON.stringify(manifest))
+}
+
+async function writeRawFile(scanPath: string, relativePath: string, content: string) {
   const absolutePath = path.join(scanPath, relativePath.replace(/^\/+/, ''))
   await fs.mkdir(path.dirname(absolutePath), { recursive: true })
-  await fs.writeFile(absolutePath, JSON.stringify(manifest), 'utf8')
+  await fs.writeFile(absolutePath, content, 'utf8')
 }
