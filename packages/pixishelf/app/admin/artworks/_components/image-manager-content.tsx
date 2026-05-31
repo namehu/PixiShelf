@@ -3,7 +3,18 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { useTRPCClient } from '@/lib/trpc'
-import { RefreshCw, LayoutGrid, List as ListIcon, ZoomIn, FileUp, Trash2, Plus, Download } from 'lucide-react'
+import {
+  RefreshCw,
+  LayoutGrid,
+  List as ListIcon,
+  ZoomIn,
+  FileUp,
+  Trash2,
+  Plus,
+  Download,
+  MoreHorizontal,
+  Upload
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { formatFileSize } from '@/utils/media'
@@ -25,6 +36,11 @@ import { ImageListItem } from './types'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { useRecentTags } from '@/store/admin/useRecentTags'
 import { RecentTagsList } from './recent-tags-list'
+import { VIDEO_EXTENSIONS } from '@/lib/constant'
+import { Badge } from '@/components/ui/badge'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { ImageChapterDialog } from './image-chapter-dialog'
+import { getChapterStatusSummary } from './chapter-status'
 
 interface ImageManagerContentProps {
   data: any
@@ -51,6 +67,20 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     setSelectedTagOptions(nextOptions)
   }, [artwork.id, artwork.tags])
 
+  const refreshMediaList = useCallback(() => {
+    setRefreshKey((k) => k + 1)
+    onSuccess?.()
+  }, [onSuccess])
+
+  const isVideoMedia = useCallback((image: ImageListItem) => {
+    if (image.mediaType) {
+      return image.mediaType === 'video'
+    }
+
+    const ext = `.${image.path.split('.').pop()?.toLowerCase() || ''}`
+    return VIDEO_EXTENSIONS.includes(ext)
+  }, [])
+
   // View State
   const [showThumbnails, setShowThumbnails] = useState(false)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
@@ -63,13 +93,13 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   const [addProgress, setAddProgress] = useState(0)
   const { uploadSingleFile } = useChunkUpload()
   const [addInitialFile, setAddInitialFile] = useState<File | null>(null)
+  const [chapterDialogTarget, setChapterDialogTarget] = useState<ImageListItem | null>(null)
+  const [chapterDialogMode, setChapterDialogMode] = useState<'upload' | 'replace'>('upload')
+  const [isSubmittingChapter, setIsSubmittingChapter] = useState(false)
+  const [deleteChapterTarget, setDeleteChapterTarget] = useState<ImageListItem | null>(null)
+  const [deleteChapterPhysical, setDeleteChapterPhysical] = useState(false)
 
-  const uploadChapterFile = async (input: {
-    artworkId: number
-    imageId: number
-    videoPath: string
-    file: File
-  }) => {
+  const uploadChapterFile = async (input: { artworkId: number; imageId: number; videoPath: string; file: File }) => {
     const formData = new FormData()
     formData.set('artworkId', String(input.artworkId))
     formData.set('imageId', String(input.imageId))
@@ -134,10 +164,9 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         }
       }
 
-      toast.success(chapterWarning ? `媒体已添加，章节关联失败：${chapterWarning}` : '图片添加成功')
+      toast.success(chapterWarning ? `媒体已添加，章节关联失败：${chapterWarning}` : '媒体添加成功')
       setShowAddDialog(false)
-      setRefreshKey((k) => k + 1)
-      onSuccess?.()
+      refreshMediaList()
     } catch (error: any) {
       console.error('Add image failed:', error)
       toast.error(`添加失败: ${error.message}`)
@@ -160,8 +189,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
       toast.success('删除成功')
       setDeleteTarget(null)
       setDeletePhysical(false)
-      setRefreshKey((k) => k + 1)
-      onSuccess?.()
+      refreshMediaList()
     } catch (error) {
       toast.error('删除失败')
       console.error(error)
@@ -187,35 +215,230 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     setHoverImage(null)
   }, [])
 
-  // --- Download Image Logic ---
-  const handleDownload = useCallback(async (path: string) => {
-    try {
-      const url = combinationApiResource(path)
-      if (!url) throw new Error('无效的图片路径')
-
-      const fileName = path.split('/').pop() || 'image'
-
-      const response = await fetch(url)
-      if (!response.ok) throw new Error('网络请求失败')
-
-      const blob = await response.blob()
-      const blobUrl = window.URL.createObjectURL(blob)
-
-      const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = fileName
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-
-      setTimeout(() => {
-        window.URL.revokeObjectURL(blobUrl)
-      }, 1000)
-    } catch (error: any) {
-      console.error('Download failed:', error)
-      toast.error(`下载失败: ${error.message}`)
+  const downloadBlobByUrl = useCallback(async (url: string, fileName: string) => {
+    const response = await fetch(url)
+    if (!response.ok) {
+      throw new Error('网络请求失败')
     }
+
+    const blob = await response.blob()
+    const blobUrl = window.URL.createObjectURL(blob)
+
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+
+    setTimeout(() => {
+      window.URL.revokeObjectURL(blobUrl)
+    }, 1000)
   }, [])
+
+  // --- Download Media Logic ---
+  const handleDownload = useCallback(
+    async (path: string) => {
+      try {
+        const url = combinationApiResource(path)
+        if (!url) throw new Error('无效的媒体路径')
+
+        const fileName = path.split('/').pop() || 'media'
+        await downloadBlobByUrl(url, fileName)
+      } catch (error: any) {
+        console.error('Download failed:', error)
+        toast.error(`下载失败: ${error.message}`)
+      }
+    },
+    [downloadBlobByUrl]
+  )
+
+  const handleDownloadChapters = useCallback(
+    async (image: ImageListItem) => {
+      try {
+        if (!image.chaptersUrl) {
+          throw new Error('当前媒体没有可下载的章节文件')
+        }
+
+        const fileName =
+          image.chaptersPath?.split('/').pop() || `${image.path.split('/').pop() || 'video'}.chapters.json`
+        await downloadBlobByUrl(image.chaptersUrl, fileName)
+      } catch (error: any) {
+        console.error('Download chapters failed:', error)
+        toast.error(`章节下载失败: ${error.message}`)
+      }
+    },
+    [downloadBlobByUrl]
+  )
+
+  const handleChapterSubmit = async (file: File) => {
+    if (!artworkId || !chapterDialogTarget) return
+
+    try {
+      setIsSubmittingChapter(true)
+      await uploadChapterFile({
+        artworkId,
+        imageId: chapterDialogTarget.id,
+        videoPath: chapterDialogTarget.path,
+        file
+      })
+
+      toast.success(chapterDialogMode === 'replace' ? '章节替换成功' : '章节上传成功')
+      setChapterDialogTarget(null)
+      refreshMediaList()
+    } catch (error: any) {
+      console.error('Submit chapter failed:', error)
+      toast.error(`${chapterDialogMode === 'replace' ? '章节替换' : '章节上传'}失败: ${error.message}`)
+    } finally {
+      setIsSubmittingChapter(false)
+    }
+  }
+
+  const handleDeleteChapter = async () => {
+    if (!deleteChapterTarget) return
+
+    try {
+      const response = await fetch(`/api/artwork/media-chapters/${deleteChapterTarget.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          deleteFile: deleteChapterPhysical
+        })
+      })
+
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || '删除章节失败')
+      }
+
+      toast.success('章节删除成功')
+      setDeleteChapterTarget(null)
+      setDeleteChapterPhysical(false)
+      refreshMediaList()
+    } catch (error: any) {
+      console.error('Delete chapter failed:', error)
+      toast.error(`章节删除失败: ${error.message}`)
+    }
+  }
+
+  const openChapterDialog = (image: ImageListItem, mode: 'upload' | 'replace') => {
+    setChapterDialogMode(mode)
+    setChapterDialogTarget(image)
+  }
+
+  const getChapterActionLabel = (image: ImageListItem) => {
+    return image.hasChapters ? '替换章节' : '上传章节'
+  }
+
+  const getChapterToneClassName = (image: ImageListItem) => {
+    const summary = getChapterStatusSummary(image)
+    if (summary.tone === 'success') return 'text-emerald-600'
+    if (summary.tone === 'warning') return 'text-amber-600'
+    return 'text-neutral-500'
+  }
+
+  const renderChapterStatus = (image: ImageListItem) => {
+    const summary = getChapterStatusSummary(image)
+
+    if (!isVideoMedia(image)) {
+      return <span className="text-xs text-neutral-400">-</span>
+    }
+
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span className={cn('text-xs font-medium', getChapterToneClassName(image))}>{summary.text}</span>
+        {image.chaptersPath && (
+          <span className="truncate text-[10px] text-neutral-400" title={image.chaptersPath}>
+            {image.chaptersPath.split('/').pop()}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  const renderMediaActions = (image: ImageListItem, buttonVariant: 'ghost' | 'secondary' = 'ghost') => {
+    const video = isVideoMedia(image)
+
+    return (
+      <div className="flex items-center gap-1">
+        <Button
+          variant={buttonVariant}
+          size="icon"
+          className="h-6 w-6 text-muted-foreground hover:text-primary"
+          title="下载媒体"
+          onClick={(e) => {
+            e.stopPropagation()
+            void handleDownload(image.path)
+          }}
+        >
+          <Download className="w-3.5 h-3.5" />
+        </Button>
+
+        {video && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={buttonVariant}
+                size="icon"
+                className="h-6 w-6 text-muted-foreground hover:text-primary"
+                title="章节操作"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal className="w-3.5 h-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={(event) => {
+                  event.stopPropagation()
+                  openChapterDialog(image, image.hasChapters ? 'replace' : 'upload')
+                }}
+              >
+                <Upload className="w-4 h-4" />
+                {getChapterActionLabel(image)}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!image.hasChapters || !image.chaptersUrl}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void handleDownloadChapters(image)
+                }}
+              >
+                <Download className="w-4 h-4" />
+                下载章节
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={!image.hasChapters}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setDeleteChapterTarget(image)
+                }}
+              >
+                <Trash2 className="w-4 h-4" />
+                删除章节
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        <Button
+          variant={buttonVariant}
+          size="icon"
+          className="h-6 w-6 text-muted-foreground hover:text-destructive"
+          title="删除媒体"
+          onClick={(e) => {
+            e.stopPropagation()
+            setDeleteTarget(image.id)
+          }}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+    )
+  }
 
   const handleSearchTag = async (value: string): Promise<Option[]> => {
     const res = await trpcClient.tag.list.query({
@@ -299,6 +522,22 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
       }
     },
     {
+      header: '类型',
+      accessorKey: 'mediaType',
+      size: 88,
+      cell: ({ row }) => (
+        <Badge variant={isVideoMedia(row.original) ? 'secondary' : 'outline'}>
+          {isVideoMedia(row.original) ? '视频' : '图片'}
+        </Badge>
+      )
+    },
+    {
+      header: '章节',
+      id: 'chapters',
+      size: 160,
+      cell: ({ row }) => renderChapterStatus(row.original)
+    },
+    {
       header: '尺寸',
       accessorKey: 'width',
       size: 100,
@@ -319,35 +558,8 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     {
       header: '操作',
       id: 'actions',
-      size: 40,
-      cell: ({ row }) => (
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-muted-foreground hover:text-primary"
-            title="下载原图"
-            onClick={(e) => {
-              e.stopPropagation()
-              handleDownload(row.original.path)
-            }}
-          >
-            <Download className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-muted-foreground hover:text-destructive"
-            title="删除"
-            onClick={(e) => {
-              e.stopPropagation()
-              setDeleteTarget(row.original.id)
-            }}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-      )
+      size: 80,
+      cell: ({ row }) => renderMediaActions(row.original)
     }
   ]
 
@@ -493,8 +705,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
             variant="ghost"
             size="sm"
             onClick={() => {
-              setRefreshKey((k) => k + 1)
-              onSuccess?.()
+              refreshMediaList()
             }}
             className="h-8"
           >
@@ -513,7 +724,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
             className="h-8"
           >
             <Plus className="w-3.5 h-3.5 mr-2" />
-            新增图片
+            新增媒体
           </Button>
 
           <Button variant="danger" size="sm" onClick={() => setShowReplaceDialog(true)}>
@@ -525,7 +736,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
             <span className="font-mono" title={firstImagePath || ''}>
               {firstImagePath ? `...${firstImagePath.slice(-20)}` : ''}
             </span>
-            <span>{imageList.length} 张</span>
+            <span>{imageList.length} 个媒体</span>
             <span>•</span>
             <span>共: {formatFileSize(imageList.reduce((acc, cur) => acc + (cur.size || 0), 0))}</span>
           </div>
@@ -554,7 +765,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
                 )}
               >
                 <Plus className="w-16 h-16 text-blue-500" strokeWidth={1.5} />
-                <div className="mt-4 text-lg font-medium text-blue-500">新增图片</div>
+                <div className="mt-4 text-lg font-medium text-blue-500">新增媒体</div>
               </div>
             </div>
 
@@ -585,7 +796,11 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
                   <div
                     key={img.id}
                     className="group relative overflow-hidden rounded-lg border bg-card shadow-sm transition-colors hover:border-primary/40"
-                    onClick={() => setPreviewIndex(index)}
+                    onClick={() => {
+                      if (!isVideoMedia(img)) {
+                        setPreviewIndex(index)
+                      }
+                    }}
                   >
                     <div className="flex items-center justify-between gap-3 border-b bg-background/90 px-3 py-2">
                       <div className="min-w-0">
@@ -594,38 +809,19 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
                           <span className="truncate text-sm font-medium text-foreground" title={fileName}>
                             {fileName}
                           </span>
+                          <Badge variant={isVideoMedia(img) ? 'secondary' : 'outline'}>
+                            {isVideoMedia(img) ? '视频' : '图片'}
+                          </Badge>
                         </div>
                         <div className="mt-1 text-[11px] text-muted-foreground">
                           {img.width && img.height ? `${img.width} × ${img.height}` : '未知尺寸'}
                           {' · '}
                           {formatFileSize(img.size || 0)}
                         </div>
+                        <div className="mt-1">{renderChapterStatus(img)}</div>
                       </div>
                       <div className="flex shrink-0 gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                        <Button
-                          variant="secondary"
-                          size="icon"
-                          className="h-7 w-7 shadow-sm"
-                          title="下载原图"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDownload(img.path)
-                          }}
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="icon"
-                          className="h-7 w-7 shadow-sm"
-                          title="删除"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setDeleteTarget(img.id)
-                          }}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        {renderMediaActions(img, 'secondary')}
                       </div>
                     </div>
 
@@ -633,16 +829,27 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
                       className="relative mx-auto w-full max-w-2xl bg-neutral-100/50 dark:bg-neutral-800/50"
                       style={{ aspectRatio: getImageAspectRatio(img) }}
                     >
-                      <LazyImage
-                        src={appendCacheKey(img.path, refreshKey)}
-                        alt={img.path}
-                        fill
-                        className="object-contain p-3"
-                        sizes="(max-width: 768px) 100vw, 720px"
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                        <ZoomIn className="text-primary/50 w-8 h-8 drop-shadow-sm" />
-                      </div>
+                      {isVideoMedia(img) ? (
+                        <video
+                          src={appendCacheKey(combinationApiResource(img.path), refreshKey)}
+                          className="h-full w-full object-contain p-3"
+                          controls
+                          preload="metadata"
+                        />
+                      ) : (
+                        <>
+                          <LazyImage
+                            src={appendCacheKey(img.path, refreshKey)}
+                            alt={img.path}
+                            fill
+                            className="object-contain p-3"
+                            sizes="(max-width: 768px) 100vw, 720px"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            <ZoomIn className="text-primary/50 w-8 h-8 drop-shadow-sm" />
+                          </div>
+                        </>
+                      )}
                     </div>
                     <div className="border-t bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
                       <span className="block truncate" title={img.path}>
@@ -688,22 +895,34 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         initialFile={addInitialFile}
       />
 
+      <ImageChapterDialog
+        open={!!chapterDialogTarget}
+        mode={chapterDialogMode}
+        image={chapterDialogTarget}
+        isSubmitting={isSubmittingChapter}
+        onOpenChange={(open) => {
+          if (!open) {
+            setChapterDialogTarget(null)
+          }
+        }}
+        onSubmit={handleChapterSubmit}
+      />
+
       <ImageReplaceDialog
         open={showReplaceDialog}
         onOpenChange={setShowReplaceDialog}
         artworkId={artworkId}
         artwork={artwork}
         onSuccess={() => {
-          onSuccess?.()
-          setRefreshKey((k) => k + 1)
+          refreshMediaList()
         }}
       />
 
       <ProDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="删除图片"
-        description="确定要删除这张图片吗？"
+        title="删除媒体"
+        description="确定要删除这个媒体文件吗？"
         onOk={handleDelete}
         okText="确定删除"
         okButtonProps={{ variant: 'destructive' }}
@@ -725,6 +944,45 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
             </Label>
             <p className="text-xs text-muted-foreground">
               物理删除不可撤销（能否恢复取决于系统回收站），请确保拥有文件删除权限。
+            </p>
+          </div>
+        </div>
+      </ProDialog>
+
+      <ProDialog
+        open={!!deleteChapterTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteChapterTarget(null)
+            setDeleteChapterPhysical(false)
+          }
+        }}
+        title="删除章节"
+        description="确定要删除这个视频关联的章节吗？"
+        onOk={handleDeleteChapter}
+        okText="确定删除"
+        okButtonProps={{ variant: 'destructive' }}
+        onCancel={() => {
+          setDeleteChapterTarget(null)
+          setDeleteChapterPhysical(false)
+        }}
+      >
+        <div className="flex flex-row items-start space-x-3 space-y-0 py-4">
+          <Checkbox
+            id="delete-chapter-physical"
+            checked={deleteChapterPhysical}
+            onCheckedChange={(checked) => setDeleteChapterPhysical(checked as boolean)}
+            className="mt-1"
+          />
+          <div className="space-y-1 leading-none">
+            <Label
+              htmlFor="delete-chapter-physical"
+              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+            >
+              同时删除物理章节文件
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              不勾选时仅清空数据库关联；勾选后会尝试删除源库中的 `.chapters.json` 文件。
             </p>
           </div>
         </div>

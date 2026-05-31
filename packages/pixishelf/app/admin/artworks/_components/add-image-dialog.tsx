@@ -59,7 +59,7 @@ export function AddImageDialog({
     <ProDialog
       open={open}
       onOpenChange={(v) => !isSubmitting && onOpenChange(v)}
-      title="新增图片"
+      title="新增媒体"
       onOk={handleSubmit}
       confirmLoading={isSubmitting}
       okButtonProps={{ disabled: !file || isSubmitting }}

@@ -47,4 +47,28 @@ describe('transformImages', () => {
     expect(images[1]?.hasChapters).toBe(true)
     expect(images[1]?.chaptersUrl).toBe('/api/v1/media/2/chapters')
   })
+
+  it('should allow transformed chapter timestamps to be parsed again', () => {
+    const now = new Date()
+    const { images } = transformImages([
+      {
+        id: 1,
+        path: '/artist/artwork/video.mp4',
+        width: null,
+        height: null,
+        size: 100,
+        sortOrder: 0,
+        artworkId: 1,
+        createdAt: now,
+        updatedAt: now,
+        chaptersPath: '/artist/artwork/video.chapters.json',
+        chaptersCount: 1,
+        chaptersDuration: 10,
+        chaptersUpdatedAt: now,
+        chaptersHash: 'hash'
+      }
+    ])
+
+    expect(() => transformImages(images as any)).not.toThrow()
+  })
 })

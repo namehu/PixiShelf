@@ -3,6 +3,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { getScanPath } from '@/services/setting.service'
 import { syncMediaDerivedTagForArtwork } from '@/services/media-derived-tag-service'
+import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 
 /**
  * 图片元数据接口
@@ -203,4 +204,64 @@ export async function associateChaptersToImage(input: { imageId: number } & Chap
       chaptersHash: input.chaptersHash
     }
   })
+}
+
+/**
+ * 清空图片章节信息
+ * @param input 清空入参
+ */
+export async function clearChaptersForImage(input: { imageId: number; deleteFile?: boolean }) {
+  const image = await prisma.image.findUnique({
+    where: { id: input.imageId },
+    select: {
+      id: true,
+      chaptersPath: true
+    }
+  })
+
+  if (!image) {
+    throw new Error('Image not found')
+  }
+
+  if (input.deleteFile && image.chaptersPath) {
+    if (!isChapterManifestFileName(path.basename(image.chaptersPath))) {
+      throw new Error('Invalid chapter file path')
+    }
+
+    const scanPath = await getScanPath()
+    if (scanPath) {
+      const fullPath = resolvePathWithinScanRoot(scanPath, image.chaptersPath)
+
+      try {
+        await fs.unlink(fullPath)
+      } catch (error: any) {
+        if (error.code !== 'ENOENT') {
+          throw new Error(`Failed to delete chapter file: ${error.message}`)
+        }
+      }
+    }
+  }
+
+  return prisma.image.update({
+    where: { id: input.imageId },
+    data: {
+      chaptersPath: null,
+      chaptersCount: 0,
+      chaptersDuration: null,
+      chaptersUpdatedAt: null,
+      chaptersHash: null
+    }
+  })
+}
+
+function resolvePathWithinScanRoot(scanRoot: string, relativePath: string): string {
+  const normalizedRoot = path.resolve(scanRoot)
+  const resolvedPath = path.resolve(normalizedRoot, relativePath.replace(/^\/+/, ''))
+  const rootWithSeparator = normalizedRoot.endsWith(path.sep) ? normalizedRoot : `${normalizedRoot}${path.sep}`
+
+  if (resolvedPath !== normalizedRoot && !resolvedPath.toLowerCase().startsWith(rootWithSeparator.toLowerCase())) {
+    throw new Error(`Path escapes scan root: ${relativePath}`)
+  }
+
+  return resolvedPath
 }

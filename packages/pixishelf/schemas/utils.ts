@@ -15,3 +15,4 @@ export const nullableDateToString = z
   .date()
   .transform((d) => (d ? dayjs(d).format('YYYY-MM-DD HH:mm:ss') : null))
   .nullable()
+  .or(z.string().nullable())
