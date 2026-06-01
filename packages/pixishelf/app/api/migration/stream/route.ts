@@ -25,6 +25,7 @@ const MigrationSchema = z.object({
     .optional()
     .nullish(),
   externalId: z.string().nullish().optional(),
+  mediaTypes: z.string().nullish().optional(),
   exactMatch: z.boolean().optional(),
   transferMode: z.enum(['move', 'copy']).optional(),
   verifyAfterCopy: z.boolean().optional(),
@@ -115,6 +116,7 @@ export const POST = apiHandler(MigrationSchema, async (req, data) => {
               startDate: data.startDate ?? null,
               endDate: data.endDate ?? null,
               externalId: data.externalId ?? null,
+              mediaTypes: data.mediaTypes ?? null,
               exactMatch: data.exactMatch ?? false
             },
             safety: {

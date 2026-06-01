@@ -4,6 +4,24 @@ import { ArtworkModel, ImageModel, TagModel } from './models'
 import { dateToString, nullableDateToString } from './utils'
 import { ArtistResponseDto } from './artist.dto'
 import { EMediaType } from '@/enums/EMediaType'
+import { MEDIA_EXTENSIONS } from '@/lib/constant'
+
+const SUPPORTED_MEDIA_EXTENSION_SET = new Set(MEDIA_EXTENSIONS)
+
+function normalizeMediaTypes(val: string | string[] | null | undefined) {
+  if (!val) return []
+
+  const items = Array.isArray(val) ? val : val.split(',')
+  return Array.from(
+    new Set(
+      items
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean)
+        .map((item) => (item.startsWith('.') ? item : `.${item}`))
+        .filter((item) => SUPPORTED_MEDIA_EXTENSION_SET.has(item))
+    )
+  )
+}
 
 /** 作品详情查询参数 */
 export const ArtworkGetSchema = z.object({
@@ -75,6 +93,10 @@ export const ArtworksInfiniteQuerySchema = z.object({
     .optional()
     .default('all')
     .transform((val) => (val as MediaTypeFilter) || 'all'),
+  mediaTypes: z
+    .union([z.string(), z.array(z.string())])
+    .nullish()
+    .transform((val) => normalizeMediaTypes(val)),
   startDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')

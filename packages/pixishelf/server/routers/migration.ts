@@ -20,6 +20,7 @@ const MigrationPrecheckSchema = z.object({
     .optional()
     .nullish(),
   externalId: z.string().nullish().optional(),
+  mediaTypes: z.string().nullish().optional(),
   exactMatch: z.boolean().optional()
 })
 
@@ -43,6 +44,7 @@ export const migrationRouter = router({
         startDate: input.startDate ?? null,
         endDate: input.endDate ?? null,
         externalId: input.externalId ?? null,
+        mediaTypes: input.mediaTypes ?? null,
         exactMatch: input.exactMatch ?? false
       }
     })

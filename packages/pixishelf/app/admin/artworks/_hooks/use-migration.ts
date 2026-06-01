@@ -31,6 +31,7 @@ export interface MigrationFilters {
   startDate?: string | null
   endDate?: string | null
   externalId?: string | null
+  mediaTypes?: string | null
   exactMatch?: boolean
 }
 
@@ -248,6 +249,7 @@ export function useMigration(): {
         startDate: options?.filters?.startDate ?? null,
         endDate: options?.filters?.endDate ?? null,
         externalId: options?.filters?.externalId ?? null,
+        mediaTypes: options?.filters?.mediaTypes ?? null,
         exactMatch: options?.filters?.exactMatch ?? false,
         transferMode: options?.safety?.transferMode ?? 'move',
         verifyAfterCopy: options?.safety?.verifyAfterCopy ?? true,

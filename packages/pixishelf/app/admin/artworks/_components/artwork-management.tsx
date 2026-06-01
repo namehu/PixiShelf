@@ -42,6 +42,34 @@ import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import { usePreferredTags } from '@/components/user-setting'
 import { getPreferredTagName } from '@/components/artwork/preferred-tag'
+import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '@/lib/constant'
+
+const MEDIA_TYPE_OPTIONS: Option[] = [
+  ...IMAGE_EXTENSIONS.map((ext) => ({
+    label: ext.replace('.', '').toUpperCase(),
+    value: ext,
+    category: '图片'
+  })),
+  ...VIDEO_EXTENSIONS.map((ext) => ({
+    label: ext.replace('.', '').toUpperCase(),
+    value: ext,
+    category: '视频'
+  }))
+]
+
+function restoreMediaTypeOptions(value?: string | null): Option[] {
+  if (!value) return []
+
+  const selected = new Set(
+    value
+      .split(',')
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean)
+      .map((item) => (item.startsWith('.') ? item : `.${item}`))
+  )
+
+  return MEDIA_TYPE_OPTIONS.filter((option) => selected.has(option.value))
+}
 
 function PreferredTagCell({ artwork }: { artwork: ArtworkResponseDto }) {
   const preferredTags = usePreferredTags()
@@ -86,6 +114,7 @@ export default function ArtworkManagement() {
     exactMatch: parseAsBoolean.withDefault(false),
     tags: parseAsString,
     excludeTags: parseAsString,
+    mediaTypes: parseAsString,
     mediaCountMin: parseAsInteger,
     mediaCountMax: parseAsInteger,
     page: parseAsInteger.withDefault(1),
@@ -113,6 +142,7 @@ export default function ArtworkManagement() {
       .split(',')
       .filter(Boolean)
       .map((tag) => ({ label: tag, value: tag })) as Option[],
+    selectedMediaTypes: restoreMediaTypeOptions(searchState.mediaTypes),
     mediaCountMin: searchState.mediaCountMin ?? '',
     mediaCountMax: searchState.mediaCountMax ?? ''
   })
@@ -123,6 +153,8 @@ export default function ArtworkManagement() {
 
     // 处理标签参数：将选中项转换为逗号分隔字符串，空数组转为 null 以清除 URL 参数
     const tagsStr = localSearch.selectedTags.length > 0 ? localSearch.selectedTags.map((t) => t.value).join(',') : null
+    const mediaTypesStr =
+      localSearch.selectedMediaTypes.length > 0 ? localSearch.selectedMediaTypes.map((item) => item.value).join(',') : null
 
     setSearchState({
       id: artworkId,
@@ -135,6 +167,7 @@ export default function ArtworkManagement() {
       // 根据当前模式设置对应的参数，同时清除另一种模式的参数，确保互斥
       tags: localSearch.tagMode === 'include' ? tagsStr : null,
       excludeTags: localSearch.tagMode === 'exclude' ? tagsStr : null,
+      mediaTypes: mediaTypesStr,
       mediaCountMin: localSearch.mediaCountMin === '' ? null : Number(localSearch.mediaCountMin),
       mediaCountMax: localSearch.mediaCountMax === '' ? null : Number(localSearch.mediaCountMax),
       page: 1 // 重置到第一页
@@ -152,6 +185,7 @@ export default function ArtworkManagement() {
       exactMatch: false,
       tagMode: 'include',
       selectedTags: [],
+      selectedMediaTypes: [],
       mediaCountMin: '',
       mediaCountMax: ''
     })
@@ -165,6 +199,7 @@ export default function ArtworkManagement() {
       exactMatch: null,
       tags: null,
       excludeTags: null,
+      mediaTypes: null,
       mediaCountMin: null,
       mediaCountMax: null,
       page: 1,
@@ -251,6 +286,7 @@ export default function ArtworkManagement() {
       startDate: searchState.startDate || null,
       endDate: searchState.endDate || null,
       externalId: searchState.externalId || null,
+      mediaTypes: searchState.mediaTypes || null,
       exactMatch: searchState.exactMatch || false
     }
   }
@@ -262,7 +298,15 @@ export default function ArtworkManagement() {
     const filters = buildMigrationFilters()
     const hasFilters =
       !isBatch &&
-      !!(filters.id || filters.search || filters.artistName || filters.startDate || filters.endDate || filters.externalId)
+      !!(
+        filters.id ||
+        filters.search ||
+        filters.artistName ||
+        filters.startDate ||
+        filters.endDate ||
+        filters.externalId ||
+        filters.mediaTypes
+      )
 
     try {
       setIsPrechecking(true)
@@ -276,6 +320,7 @@ export default function ArtworkManagement() {
         precheckPayload.startDate = filters.startDate
         precheckPayload.endDate = filters.endDate
         precheckPayload.externalId = filters.externalId
+        precheckPayload.mediaTypes = filters.mediaTypes
         precheckPayload.exactMatch = filters.exactMatch
       }
 
@@ -484,6 +529,7 @@ export default function ArtworkManagement() {
         exactMatch: searchState.exactMatch,
         tags: searchState.tags,
         excludeTags: searchState.excludeTags,
+        mediaTypes: searchState.mediaTypes,
         mediaCountMin: searchState.mediaCountMin,
         mediaCountMax: searchState.mediaCountMax
       })
@@ -709,7 +755,7 @@ export default function ArtworkManagement() {
                   <Label className="text-xs font-medium text-neutral-500">作者</Label>
                 </div>
                 <Input
-                  placeholder="搜索作者..."
+                  placeholder="作者名称 / Pixiv ID..."
                   value={localSearch.artistName}
                   onChange={(e) => setLocalSearch((prev) => ({ ...prev, artistName: e.target.value }))}
                   className="h-9 w-full"
@@ -823,8 +869,26 @@ export default function ArtworkManagement() {
                   </div>
                 </div>
 
+                {/* 媒体类型 */}
+                <div className="col-span-1 lg:col-span-3 space-y-1">
+                  <div className="h-6 flex items-center">
+                    <Label className="text-xs font-medium text-neutral-500">媒体类型</Label>
+                  </div>
+                  <MultipleSelector
+                    value={localSearch.selectedMediaTypes}
+                    options={MEDIA_TYPE_OPTIONS}
+                    groupBy="category"
+                    onChange={(options) => setLocalSearch((prev) => ({ ...prev, selectedMediaTypes: options }))}
+                    placeholder="选择格式..."
+                    emptyIndicator={<p className="text-center text-sm text-gray-500 py-2">未找到相关格式</p>}
+                    className="bg-white min-h-[36px]"
+                    badgeClassName="bg-blue-50 text-blue-600 hover:bg-blue-100 border-transparent"
+                    selectFirstItem={false}
+                  />
+                </div>
+
                 {/* 标签筛选 */}
-                <div className="col-span-1 lg:col-span-9 space-y-1">
+                <div className="col-span-1 lg:col-span-6 space-y-1">
                   <div className="h-6 flex items-center justify-between">
                     <Label className="text-xs font-medium text-neutral-500">标签筛选</Label>
                     <div className="flex bg-neutral-100 rounded-md p-0.5">

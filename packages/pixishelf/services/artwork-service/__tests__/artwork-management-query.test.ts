@@ -79,6 +79,27 @@ describe('buildArtworkWhereClause', () => {
     expect(sqlParams[2]).toBe('%miku%')
   })
 
+  it('should match artist name or pixiv user id from the artist filter', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({
+      artistName: '123456'
+    })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('(artist.name ILIKE $1 OR artist."userId" ILIKE $1)')
+    expect(sqlParams).toEqual(['%123456%'])
+  })
+
+  it('should build query with selected media extensions', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({
+      mediaTypes: '.webp,.mp4'
+    })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('EXISTS')
+    expect(whereSQL).toContain('LOWER(i.path) LIKE $1 OR LOWER(i.path) LIKE $2')
+    expect(sqlParams).toEqual(['%.webp', '%.mp4'])
+  })
+
   it('should ignore empty tag ids', () => {
     const params = ArtworksInfiniteQuerySchema.parse({
       tagIds: ''

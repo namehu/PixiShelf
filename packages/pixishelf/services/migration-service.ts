@@ -56,6 +56,7 @@ export interface MigrationFilters {
   startDate?: string | null
   endDate?: string | null
   externalId?: string | null
+  mediaTypes?: string | null
   exactMatch?: boolean
 }
 
@@ -98,7 +99,10 @@ const buildMigrationWhere = (filters?: MigrationFilters) => {
     where.artist = {
       isNot: null,
       is: {
-        name: filters.exactMatch ? filters.artistName : { contains: filters.artistName, mode: 'insensitive' }
+        OR: [
+          { name: filters.exactMatch ? filters.artistName : { contains: filters.artistName, mode: 'insensitive' } },
+          { userId: filters.exactMatch ? filters.artistName : { contains: filters.artistName, mode: 'insensitive' } }
+        ]
       }
     }
   }
@@ -110,8 +114,20 @@ const buildMigrationWhere = (filters?: MigrationFilters) => {
       where.OR = [
         { title: { contains: filters.search, mode: 'insensitive' } },
         { description: { contains: filters.search, mode: 'insensitive' } },
-        { artist: { is: { name: { contains: filters.search, mode: 'insensitive' } } } }
+        { artist: { is: { name: { contains: filters.search, mode: 'insensitive' } } } },
+        { artist: { is: { userId: { contains: filters.search, mode: 'insensitive' } } } }
       ]
+    }
+  }
+
+  const mediaTypes = ArtworksInfiniteQuerySchema.shape.mediaTypes.parse(filters?.mediaTypes)
+  if (mediaTypes.length > 0) {
+    where.images = {
+      some: {
+        OR: mediaTypes.map((ext) => ({
+          path: { endsWith: ext, mode: 'insensitive' }
+        }))
+      }
     }
   }
 
@@ -143,6 +159,7 @@ export async function precheckMigration(input: MigrationPrecheckInput): Promise<
     startDate: input.filters?.startDate ?? undefined,
     endDate: input.filters?.endDate ?? undefined,
     externalId: input.filters?.externalId ?? undefined,
+    mediaTypes: input.filters?.mediaTypes ?? undefined,
     exactMatch: input.filters?.exactMatch ?? undefined
   })
 

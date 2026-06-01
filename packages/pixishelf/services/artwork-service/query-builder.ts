@@ -15,6 +15,7 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     tagId,
     tagIds,
     mediaType,
+    mediaTypes,
     startDate,
     endDate,
     createdStartDate,
@@ -53,11 +54,11 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
   // 1.1.2 艺术家名称筛选
   if (artistName) {
     if (exactMatch) {
-      whereSQL += ` AND artist.name = $${paramIndex}`
+      whereSQL += ` AND (artist.name = $${paramIndex} OR artist."userId" = $${paramIndex})`
       sqlParams.push(artistName)
       paramIndex++
     } else {
-      whereSQL += ` AND artist.name ILIKE $${paramIndex}`
+      whereSQL += ` AND (artist.name ILIKE $${paramIndex} OR artist."userId" ILIKE $${paramIndex})`
       sqlParams.push(`%${artistName}%`)
       paramIndex++
     }
@@ -117,14 +118,26 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
       whereSQL += ` AND (
         a.title ILIKE $${paramIndex} OR
         a.description ILIKE $${paramIndex} OR
-        artist.name ILIKE $${paramIndex}
+        artist.name ILIKE $${paramIndex} OR
+        artist."userId" ILIKE $${paramIndex}
       )`
       sqlParams.push(searchCondition)
       paramIndex++
     }
   }
 
-  // 1.5 媒体类型筛选
+  // 1.5 精确媒体格式筛选：作品至少包含任一选中的扩展名
+  if (mediaTypes && mediaTypes.length > 0) {
+    const likeConditions = mediaTypes.map((_, i) => `LOWER(i.path) LIKE $${paramIndex + i}`).join(' OR ')
+    whereSQL += ` AND EXISTS (
+      SELECT 1 FROM "Image" i
+      WHERE i."artworkId" = a.id AND (${likeConditions})
+    )`
+    sqlParams.push(...mediaTypes.map((ext) => `%${ext}`))
+    paramIndex += mediaTypes.length
+  }
+
+  // 1.5.5 粗粒度媒体类型筛选
   if (mediaType === 'video' || mediaType === 'image') {
     const extParams = VIDEO_EXTENSIONS.map((ext) => `%${ext}`)
 
