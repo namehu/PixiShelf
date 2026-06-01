@@ -128,6 +128,7 @@ export const ImageModel = z.object({
   artworkId: z.number().int().nullable(), // [cite: 25]
   createdAt: z.date(), // [cite: 24]
   updatedAt: z.date(),
+  webpAnimationStatus: z.number().int().nullable(),
   chaptersPath: z.string().nullable(),
   chaptersCount: z.number().int().default(0),
   chaptersDuration: z.number().nullable(),

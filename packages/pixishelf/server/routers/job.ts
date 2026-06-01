@@ -5,6 +5,7 @@ import { getScanPath } from '@/services/setting.service'
 import { TRPCError } from '@trpc/server'
 import logger from '@/lib/logger'
 import { syncAllMediaDerivedTags } from '@/services/media-derived-tag-service'
+import { runWebpAnimationScanJob } from '@/services/webp-animation-scan-service'
 
 export const jobRouter = router({
   startRefillMetaSource: authProcedure.mutation(async () => {
@@ -107,5 +108,56 @@ export const jobRouter = router({
 
   getMediaDerivedTagSyncStatus: authProcedure.query(async () => {
     return await JobService.getLatestMediaDerivedTagSyncJob()
+  }),
+
+  startWebpAnimationScan: authProcedure.mutation(async () => {
+    const activeJob = await JobService.getLatestWebpAnimationScanJob()
+    if (activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)) {
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'WebP animation scan job is already running'
+      })
+    }
+
+    const scanPath = await getScanPath()
+    if (!scanPath) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Scan path is not configured'
+      })
+    }
+
+    const job = await JobService.createWebpAnimationScanJob()
+
+    ;(async () => {
+      try {
+        const result = await runWebpAnimationScanJob({
+          scanPath,
+          checkCancelled: async () => {
+            const current = await JobService.getJob(job.id)
+            return current?.status === 'CANCELLING'
+          },
+          onProgress: async (progress) => {
+            await JobService.updateProgress(job.id, progress.percentage, progress.message)
+          }
+        })
+        await JobService.completeJob(job.id, result)
+      } catch (error) {
+        logger.error('WebP animation scan job failed', { error })
+
+        const current = await JobService.getJob(job.id)
+        if (current?.status === 'CANCELLING' || (error instanceof Error && error.message === 'Task cancelled')) {
+          await JobService.markAsCancelled(job.id)
+        } else {
+          await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
+        }
+      }
+    })()
+
+    return { jobId: job.id }
+  }),
+
+  getWebpAnimationScanStatus: authProcedure.query(async () => {
+    return await JobService.getLatestWebpAnimationScanJob()
   })
 })

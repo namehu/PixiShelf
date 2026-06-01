@@ -149,6 +149,33 @@ export async function createMediaDerivedTagSyncJob() {
 }
 
 /**
+ * 尝试创建一个 WebP 动静态识别任务
+ */
+export async function createWebpAnimationScanJob() {
+  return await prisma.$transaction(async (tx) => {
+    const activeJob = await tx.systemJob.findFirst({
+      where: {
+        type: 'WEBP_ANIMATION_SCAN',
+        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+      }
+    })
+
+    if (activeJob) {
+      throw new Error('WebP animation scan job already in progress')
+    }
+
+    return await tx.systemJob.create({
+      data: {
+        type: 'WEBP_ANIMATION_SCAN',
+        status: JobStatus.RUNNING,
+        message: '初始化...',
+        progress: 0
+      }
+    })
+  })
+}
+
+/**
  * 获取当前活跃的元数据源补全任务
  */
 export async function getActiveRefillMetaSourceJob() {
@@ -168,6 +195,18 @@ export async function getLatestMediaDerivedTagSyncJob() {
   return await prisma.systemJob.findFirst({
     where: {
       type: 'MEDIA_DERIVED_TAG_SYNC'
+    },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+/**
+ * 获取最近一次 WebP 动静态识别任务
+ */
+export async function getLatestWebpAnimationScanJob() {
+  return await prisma.systemJob.findFirst({
+    where: {
+      type: 'WEBP_ANIMATION_SCAN'
     },
     orderBy: { createdAt: 'desc' }
   })

@@ -118,6 +118,7 @@ model Image {
   artworkId Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  webpAnimationStatus Int?     @db.SmallInt
   chaptersPath      String?
   chaptersCount     Int      @default(0)
   chaptersDuration  Float?
@@ -126,6 +127,7 @@ model Image {
   artwork   Artwork? @relation(fields: [artworkId], references: [id])
 
   @@unique([artworkId, path], name: "unique_artwork_path")
+  @@index([webpAnimationStatus])
   @@index([chaptersPath])
 }
 

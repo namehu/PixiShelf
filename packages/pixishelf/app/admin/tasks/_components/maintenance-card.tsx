@@ -22,14 +22,35 @@ interface MediaDerivedTagSyncResult {
   image?: MediaDerivedTagSyncStats
 }
 
+interface WebpAnimationScanFailedSample {
+  id: number
+  path: string
+  error: string
+}
+
+interface WebpAnimationScanResult {
+  initialized?: number
+  processed?: number
+  animated?: number
+  static?: number
+  failed?: number
+  remainingPending?: number
+  failedSamples?: WebpAnimationScanFailedSample[]
+}
+
 function toMediaDerivedTagSyncResult(result: unknown): MediaDerivedTagSyncResult | null {
   return result && typeof result === 'object' ? (result as MediaDerivedTagSyncResult) : null
+}
+
+function toWebpAnimationScanResult(result: unknown): WebpAnimationScanResult | null {
+  return result && typeof result === 'object' ? (result as WebpAnimationScanResult) : null
 }
 
 export function MaintenanceCard() {
   const trpc = useTRPC()
   const [pollInterval, setPollInterval] = useState<number | false>(false)
   const [mediaTagPollInterval, setMediaTagPollInterval] = useState<number | false>(false)
+  const [webpScanPollInterval, setWebpScanPollInterval] = useState<number | false>(false)
 
   // 查询当前任务状态
   const { data: activeJob, refetch } = useQuery(
@@ -45,6 +66,14 @@ export function MaintenanceCard() {
   )
   const mediaTagJob = mediaTagJobQuery.data as any
   const refetchMediaTagJob = mediaTagJobQuery.refetch
+
+  const webpScanJobQuery = useQuery(
+    trpc.job.getWebpAnimationScanStatus.queryOptions(undefined, {
+      refetchInterval: webpScanPollInterval
+    })
+  )
+  const webpScanJob = webpScanJobQuery.data as any
+  const refetchWebpScanJob = webpScanJobQuery.refetch
 
   // 监听任务状态以调整轮询
   useEffect(() => {
@@ -62,6 +91,14 @@ export function MaintenanceCard() {
       setMediaTagPollInterval(false)
     }
   }, [mediaTagJob?.status])
+
+  useEffect(() => {
+    if (webpScanJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(webpScanJob.status)) {
+      setWebpScanPollInterval(1000)
+    } else {
+      setWebpScanPollInterval(false)
+    }
+  }, [webpScanJob?.status])
 
   // 开始任务 Mutation
   const startMutation = useMutation(
@@ -98,10 +135,24 @@ export function MaintenanceCard() {
     })
   )
 
+  const startWebpScanMutation = useMutation(
+    trpc.job.startWebpAnimationScan.mutationOptions({
+      onSuccess: () => {
+        toast.success('WebP 动图识别任务已启动')
+        refetchWebpScanJob()
+      },
+      onError: (error) => {
+        toast.error(`启动失败: ${error.message}`)
+      }
+    })
+  )
+
   const isRunning = activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)
   const isCancelling = activeJob?.status === 'CANCELLING'
   const isMediaTagRunning = mediaTagJob && ['PENDING', 'RUNNING'].includes(mediaTagJob.status)
+  const isWebpScanRunning = webpScanJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(webpScanJob.status)
   const mediaTagResult = toMediaDerivedTagSyncResult(mediaTagJob?.result)
+  const webpScanResult = toWebpAnimationScanResult(webpScanJob?.result)
 
   return (
     <Card>
@@ -201,6 +252,59 @@ export function MaintenanceCard() {
             )}
           </div>
         )}
+
+        <div className="flex items-center justify-between p-4 border rounded-lg">
+          <div className="space-y-1">
+            <h4 className="font-medium">识别 WebP 动图</h4>
+            <p className="text-sm text-neutral-500">
+              初始化未处理的 WebP 图片，并按每批 20 个识别静态图或动图。
+            </p>
+          </div>
+          <Button
+            onClick={() => startWebpScanMutation.mutate()}
+            disabled={Boolean(isWebpScanRunning) || startWebpScanMutation.isPending}
+          >
+            {startWebpScanMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isWebpScanRunning ? '识别中...' : '处理待处理 WebP'}
+          </Button>
+        </div>
+
+        {webpScanJob &&
+          (isWebpScanRunning || webpScanJob.status === 'COMPLETED' || webpScanJob.status === 'FAILED') && (
+            <div className="space-y-2 p-4 bg-neutral-50 rounded-lg">
+              <div className="flex justify-between text-sm">
+                <span className="font-medium">
+                  状态: {webpScanJob.status}
+                  {webpScanJob.message && ` - ${webpScanJob.message}`}
+                </span>
+                <span>{webpScanJob.progress}%</span>
+              </div>
+              <Progress value={webpScanJob.progress} className="h-2" />
+              {webpScanJob.error && <p className="text-sm text-red-500 mt-2">错误: {webpScanJob.error}</p>}
+              {webpScanJob.status === 'COMPLETED' && (
+                <div className="space-y-2 text-sm text-green-600 mt-2">
+                  <p>
+                    任务完成：初始化 {webpScanResult?.initialized ?? 0} 个，已处理{' '}
+                    {webpScanResult?.processed ?? 0} 个；动图 {webpScanResult?.animated ?? 0} 个，静态{' '}
+                    {webpScanResult?.static ?? 0} 个，失败 {webpScanResult?.failed ?? 0} 个，剩余待处理{' '}
+                    {webpScanResult?.remainingPending ?? 0} 个。
+                  </p>
+                  {webpScanResult?.failedSamples && webpScanResult.failedSamples.length > 0 && (
+                    <div className="rounded border border-red-200 bg-red-50 p-2 text-red-700">
+                      <p className="font-medium">失败样例</p>
+                      <ul className="mt-1 space-y-1">
+                        {webpScanResult.failedSamples.slice(0, 5).map((sample) => (
+                          <li key={sample.id} className="break-all">
+                            #{sample.id} {sample.path}: {sample.error}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
       </CardContent>
     </Card>
   )

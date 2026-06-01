@@ -9,6 +9,7 @@ interface AnimatedWebpPlayerProps {
   src: string
   alt?: string
   size?: number | null
+  isAnimated?: boolean
   className?: string
 }
 
@@ -33,6 +34,7 @@ export default function AnimatedWebpPlayer({
   src,
   alt = src,
   size,
+  isAnimated = true,
   className
 }: AnimatedWebpPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
@@ -43,6 +45,8 @@ export default function AnimatedWebpPlayer({
   const fileSize = formatFileSize(size)
 
   const handlePlay = () => {
+    if (!isAnimated) return
+
     setAnimationFailed(false)
     setIsLoadingAnimation(true)
     setIsPlaying(true)
@@ -62,7 +66,7 @@ export default function AnimatedWebpPlayer({
     <div className={cn('relative w-full bg-neutral-100', className)}>
       <img src={posterSrc} alt={alt} loading="lazy" decoding="async" className="block w-full h-auto object-contain" />
 
-      {isPlaying && !animationFailed && (
+      {isAnimated && isPlaying && !animationFailed && (
         <img
           src={originalSrc}
           alt={alt}
@@ -79,7 +83,7 @@ export default function AnimatedWebpPlayer({
         {!isPlaying && fileSize && <span>{fileSize}</span>}
       </div>
 
-      {!isPlaying && (
+      {isAnimated && !isPlaying && (
         <button
           type="button"
           aria-label="播放 WebP 动图"
@@ -92,7 +96,7 @@ export default function AnimatedWebpPlayer({
         </button>
       )}
 
-      {isLoadingAnimation && (
+      {isAnimated && isLoadingAnimation && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/20">
           <div className="rounded-full bg-white/90 p-3">
             <Loader2Icon className="h-7 w-7 animate-spin text-neutral-700" />
@@ -100,7 +104,7 @@ export default function AnimatedWebpPlayer({
         </div>
       )}
 
-      {animationFailed && (
+      {isAnimated && animationFailed && (
         <div className="absolute inset-x-3 bottom-3 flex items-center gap-2 rounded bg-black/55 px-3 py-2 text-xs text-white">
           <InfoIcon className="h-4 w-4 shrink-0" />
           <span>动图加载失败，已保留静态预览</span>

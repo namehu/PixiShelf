@@ -9,6 +9,7 @@ import Image from 'next/image'
 import { memo } from 'react'
 import { useOnInView } from 'react-intersection-observer'
 import { isApngFile, isVideoFile, isWebpFile } from '@/lib/media'
+import { EWebpAnimationStatus } from '@/enums/EWebpAnimationStatus'
 
 interface LazyMediaProps {
   media: ArtworkImageResponseDto
@@ -40,7 +41,14 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
     }
 
     if (isWebpFile(src)) {
-      return <AnimatedWebpPlayer src={src} alt={`Artwork animation ${index + 1}`} size={media.size} />
+      return (
+        <AnimatedWebpPlayer
+          src={src}
+          alt={`Artwork WebP ${index + 1}`}
+          size={media.size}
+          isAnimated={media.webpAnimationStatus === EWebpAnimationStatus.animated}
+        />
+      )
     }
 
     // 普通图片
