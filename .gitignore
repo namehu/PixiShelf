@@ -3,8 +3,13 @@ node_modules/
 .pnpm-store/
 
 # Environment variables
-# .env
-# .env.*
+.env
+.env.local
+.env.*.local
+packages/**/.env
+packages/**/.env.local
+packages/**/.env.*.local
+!**/.env.example
 **/libquery_engine-darwin-arm64.dylib.node
 # Build outputs
 packages/**/build/
@@ -12,7 +17,6 @@ packages/**/public/artists
 packages/**/public/pixiv_data
 dist/
 !build/
-!build/.env.*
 *.tsbuildinfo
 
 packages/pixiv-automation/user_data/*
@@ -53,3 +57,7 @@ coverage/
 .env
 .trae/skills
 .opencode
+
+
+.next/
+next-env.d.ts

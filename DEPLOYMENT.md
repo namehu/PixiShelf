@@ -151,7 +151,8 @@ cd PixiShelf
 
 ```bash
 # 复制环境配置模板
-cp build/.env.example .env
+cd build
+cp .env.example .env
 
 # 编辑配置文件
 nano .env
@@ -165,17 +166,14 @@ nano .env
 ### 4. 部署应用
 
 ```bash
-# 进入构建目录
-cd build
-
 # 使用生产环境配置启动
-docker-compose -f docker-compose.yml up -d
+docker-compose -f docker-compose.deploy.yml up -d
 
 # 查看服务状态
-docker-compose -f docker-compose.yml ps
+docker-compose -f docker-compose.deploy.yml ps
 
 # 查看日志
-docker-compose -f docker-compose.yml logs -f
+docker-compose -f docker-compose.deploy.yml logs -f
 ```
 
 ## 🔧 开发环境
@@ -202,10 +200,11 @@ export default defineConfig({
 
 ```bash
 # 启动开发环境数据库
-docker-compose up -d postgres
+cd build
+docker-compose -f docker-compose.dev.yml up -d postgres imgproxy thumbor
 
-# 启动API服务
-cd packages/api
+# 启动 Next.js 服务
+cd ../packages/pixishelf
 pnpm dev
 
 # 启动Web服务
@@ -241,12 +240,13 @@ docker build --target api .
 
 ```
 PixiShelf/
-├── Dockerfile                 # 多阶段构建文件
-├── docker-compose.yml         # 开发环境配置
-├── docker-compose.prod.yml    # 生产环境配置
-├── .env.prod.example          # 生产环境变量模板
+├── build/
+│   ├── Dockerfile                 # 多阶段构建文件
+│   ├── docker-compose.dev.yml     # 开发环境配置
+│   ├── docker-compose.deploy.yml  # 生产环境配置
+│   └── .env.example               # Docker Compose 环境变量模板
 └── packages/
-    ├── pixishel/                   # Nextjjs
+    └── pixishelf/                  # Next.js 应用
 ```
 
 ## 🔒 安全建议
@@ -275,8 +275,11 @@ git pull
 # 进入构建目录
 cd build
 
-# 重新构建并启动
-docker-compose -f docker-compose.yml up -d --build
+# 开发环境默认只启动基础设施
+docker-compose -f docker-compose.dev.yml up -d
+
+# 如需调试容器化应用，再显式启用 container-app profile
+docker-compose -f docker-compose.dev.yml --profile container-app up -d --build app
 
 # 清理旧镜像
 docker image prune -f
@@ -287,11 +290,11 @@ docker image prune -f
 ### 查看日志
 ```bash
 # 查看所有服务日志
-docker-compose -f docker-compose.yml logs -f
+docker-compose -f docker-compose.deploy.yml logs -f
 
 # 查看特定服务日志
-docker-compose -f docker-compose.yml logs -f api
-docker-compose -f docker-compose.yml logs -f web
+docker-compose -f docker-compose.deploy.yml logs -f app
+docker-compose -f docker-compose.deploy.yml logs -f scheduler
 ```
 
 ### 健康检查
@@ -322,13 +325,13 @@ curl http://localhost/health
 ### 重置部署
 ```bash
 # 停止所有服务
-docker-compose -f docker-compose.yml down
+docker-compose -f docker-compose.deploy.yml down
 
 # 删除数据卷（注意：会丢失数据）
 docker volume rm build_postgres_data
 
 # 重新启动
-docker-compose -f docker-compose.yml up -d
+docker-compose -f docker-compose.deploy.yml up -d
 ```
 
 ## 📞 支持

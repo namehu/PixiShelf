@@ -111,19 +111,24 @@ pnpm install
 #### 3.1 创建环境变量文件
 
 ```bash
-# 复制环境变量模板
-cp build/.env.example packages/pixishelf/.env
+# Docker Compose 环境
+cd build
+cp .env.example .env
+
+# 本机 Next.js 开发环境
+cd ../packages/pixishelf
+cp .env.example .env.local
 ```
 
 #### 3.2 配置环境变量
 
-编辑 `packages/pixishelf/.env` 文件：
+Docker Compose 使用 `build/.env`，本机直接运行 Next.js 使用 `packages/pixishelf/.env.local`。
+二者不要强行共用：容器内数据库地址是 `postgres:5432`，本机开发数据库地址通常是 `127.0.0.1:5432`。
+
+编辑 `packages/pixishelf/.env.local` 文件：
 
 ```env
 # 数据库配置
-POSTGRES_USER=pixishelf
-POSTGRES_PASSWORD=your-secure-password-123
-POSTGRES_DB=pixishelf
 DATABASE_URL=postgresql://pixishelf:your-secure-password-123@localhost:5432/pixishelf?connection_limit=20&pool_timeout=20
 
 # JWT配置（生产环境必须修改）
@@ -141,8 +146,8 @@ INIT_ADMIN_PASSWORD=admin123
 NEXT_PUBLIC_IMGPROXY_URL=http://localhost:5431
 NEXT_PUBLIC_THUMBOR_VIDEO_URL=http://localhost:5433
 
-# 运行环境
-NODE_ENV=development
+# 图片扫描路径（本机路径）
+SCAN_PATH=D:\your\pixiv\data
 ```
 
 Webhook 触发扫描时，请在请求头中携带：
@@ -153,35 +158,34 @@ Authorization: Bearer <SCAN_WEBHOOK_TOKEN>
 
 #### 3.3 配置图片目录
 
-编辑 `build/docker-compose.yml`，修改图片目录挂载路径：
+编辑 `build/.env`，修改图片目录挂载路径：
 
-```yaml
-# 将以下路径修改为你的图片目录
-volumes:
-  # Windows示例
-  - 'C:/Users/YourName/Pictures/Collection:/app/data:cached'
-  # macOS/Linux示例
-  # - "/Users/yourname/Pictures/Collection:/app/data:cached"
+```env
+# Windows 示例
+PIXISHELF_DATA_PATH=C:\Users\YourName\Pictures\Collection
+
+# macOS/Linux 示例
+# PIXISHELF_DATA_PATH=/Users/yourname/Pictures/Collection
 ```
 
 ### 4. 启动服务
 
-#### 4.1 使用Docker启动（推荐）
+#### 4.1 启动开发依赖服务
 
 ```bash
 cd build
-docker-compose up -d
+docker-compose -f docker-compose.dev.yml up -d
 ```
 
-#### 4.2 开发环境启动
+#### 4.2 启动 Next.js 开发服务
 
 ```bash
-# 1. 启动数据库
+# 1. 启动数据库和媒体处理服务
 cd build
-docker-compose up -d postgres
+docker-compose -f docker-compose.dev.yml up -d postgres imgproxy thumbor
 
 # 2. 等待数据库就绪
-docker-compose logs -f postgres
+docker-compose -f docker-compose.dev.yml logs -f postgres
 
 # 3. 初始化数据库
 cd ../packages/pixishelf
@@ -228,7 +232,7 @@ PixiShelf/
 │   │   └── migrations/         # 数据库迁移
 │   └── public/                 # 静态资源
 ├── build/                      # Docker配置
-│   ├── docker-compose.yml     # 开发环境
+│   ├── docker-compose.dev.yml # 开发环境
 │   ├── docker-compose.deploy.yml # 生产环境
 │   ├── Dockerfile              # 应用镜像
 │   └── thumbor/                # Thumbor配置
@@ -351,13 +355,13 @@ pnpm dlx shadcn@canary add [COMPONENT]
 cd build
 
 # 启动所有服务
-docker-compose up -d
+docker-compose -f docker-compose.dev.yml up -d
 
 # 查看服务状态
-docker-compose ps
+docker-compose -f docker-compose.dev.yml ps
 
 # 查看日志
-docker-compose logs -f app
+docker-compose -f docker-compose.dev.yml logs -f postgres
 ```
 
 #### 生产环境
@@ -420,11 +424,11 @@ docker-compose -f docker-compose.deploy.yml ps
 
    ```bash
    # 检查数据库状态
-   docker-compose ps postgres
-   docker-compose logs postgres
+   docker-compose --env-file build/.env -f build/docker-compose.dev.yml ps postgres
+   docker-compose --env-file build/.env -f build/docker-compose.dev.yml logs postgres
 
    # 重启数据库
-   docker-compose restart postgres
+   docker-compose --env-file build/.env -f build/docker-compose.dev.yml restart postgres
    ```
 
 2. **端口冲突**
@@ -435,7 +439,7 @@ docker-compose -f docker-compose.deploy.yml ps
    netstat -ano | findstr :5430  # Windows
 
    # 修改端口配置
-   # 编辑 docker-compose.yml 或 package.json
+   # 编辑 build/.env 或 package.json
    ```
 
 3. **图片处理服务异常**
@@ -446,7 +450,7 @@ docker-compose -f docker-compose.deploy.yml ps
    curl http://localhost:5433/healthcheck
 
    # 重启服务
-   docker-compose restart imgproxy thumbor
+   docker-compose --env-file build/.env -f build/docker-compose.dev.yml restart imgproxy thumbor
    ```
 
 4. **依赖安装问题**
