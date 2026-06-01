@@ -35,6 +35,11 @@ vi.mock('@/services/media-derived-tag-service', () => ({
 
 import { deleteImage } from '../image-manager'
 
+const normalizePath = (value: string) => value.replace(/\\/g, '/')
+const expectUnlinkWithPathEnding = (pathEnding: string) => {
+  expect(unlinkMock.mock.calls.some(([filePath]) => normalizePath(String(filePath)).endsWith(pathEnding))).toBe(true)
+}
+
 describe('deleteImage', () => {
   beforeEach(() => {
     imageFindUniqueMock.mockReset()
@@ -67,8 +72,8 @@ describe('deleteImage', () => {
 
     await deleteImage(1, true)
 
-    expect(unlinkMock).toHaveBeenCalledWith('D:\\scan-root\\artist\\artwork\\video.mp4')
-    expect(unlinkMock).toHaveBeenCalledWith('D:\\scan-root\\artist\\artwork\\video.chapters.json')
+    expectUnlinkWithPathEnding('/artist/artwork/video.mp4')
+    expectUnlinkWithPathEnding('/artist/artwork/video.chapters.json')
     expect(imageDeleteMock).toHaveBeenCalledWith({ where: { id: 1 } })
     expect(syncMediaDerivedTagMock).toHaveBeenCalledWith(expect.anything(), 2)
   })
@@ -84,6 +89,6 @@ describe('deleteImage', () => {
     await deleteImage(1, true)
 
     expect(unlinkMock).toHaveBeenCalledTimes(1)
-    expect(unlinkMock).toHaveBeenCalledWith('D:\\scan-root\\artist\\artwork\\video.mp4')
+    expectUnlinkWithPathEnding('/artist/artwork/video.mp4')
   })
 })

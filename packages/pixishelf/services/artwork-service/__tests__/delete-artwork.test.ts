@@ -47,6 +47,11 @@ vi.mock('@/services/like-service', () => ({
 
 import { deleteArtwork } from '..'
 
+const normalizePath = (value: string) => value.replace(/\\/g, '/')
+const expectUnlinkWithPathEnding = (pathEnding: string) => {
+  expect(unlinkMock.mock.calls.some(([filePath]) => normalizePath(String(filePath)).endsWith(pathEnding))).toBe(true)
+}
+
 describe('deleteArtwork', () => {
   beforeEach(() => {
     imageFindManyMock.mockReset()
@@ -74,8 +79,8 @@ describe('deleteArtwork', () => {
 
     await deleteArtwork(1)
 
-    expect(unlinkMock).toHaveBeenCalledWith('D:\\scan-root\\artist\\artwork\\video.mp4')
-    expect(unlinkMock).toHaveBeenCalledWith('D:\\scan-root\\artist\\artwork\\video.chapters.json')
+    expectUnlinkWithPathEnding('/artist/artwork/video.mp4')
+    expectUnlinkWithPathEnding('/artist/artwork/video.chapters.json')
     expect(imageDeleteManyMock).toHaveBeenCalledWith({ where: { artworkId: 1 } })
     expect(artworkDeleteMock).toHaveBeenCalledWith({ where: { id: 1 } })
   })
@@ -93,6 +98,6 @@ describe('deleteArtwork', () => {
     await deleteArtwork(1)
 
     expect(unlinkMock).toHaveBeenCalledTimes(1)
-    expect(unlinkMock).toHaveBeenCalledWith('D:\\scan-root\\artist\\artwork\\video.mp4')
+    expectUnlinkWithPathEnding('/artist/artwork/video.mp4')
   })
 })
