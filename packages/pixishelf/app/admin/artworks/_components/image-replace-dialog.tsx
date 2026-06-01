@@ -95,22 +95,23 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   const { uploadSingleFile } = useChunkUpload()
 
   const updatePreviewItems = (updater: React.SetStateAction<PreviewItem[]>) => {
-    setPreviewItems((prev) => {
-      const next = typeof updater === 'function' ? (updater as (value: PreviewItem[]) => PreviewItem[])(prev) : updater
-      previewItemsRef.current = next
-      return next
-    })
+    const next =
+      typeof updater === 'function'
+        ? (updater as (value: PreviewItem[]) => PreviewItem[])(previewItemsRef.current)
+        : updater
+
+    previewItemsRef.current = next
+    setPreviewItems(next)
   }
 
   const updateChapterItems = (updater: React.SetStateAction<ChapterPreviewItem[]>) => {
-    setChapterItems((prev) => {
-      const next =
-        typeof updater === 'function'
-          ? (updater as (value: ChapterPreviewItem[]) => ChapterPreviewItem[])(prev)
-          : updater
-      chapterItemsRef.current = next
-      return next
-    })
+    const next =
+      typeof updater === 'function'
+        ? (updater as (value: ChapterPreviewItem[]) => ChapterPreviewItem[])(chapterItemsRef.current)
+        : updater
+
+    chapterItemsRef.current = next
+    setChapterItems(next)
   }
 
   // Reset state when dialog opens
@@ -376,7 +377,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       }
 
       setGlobalStatus('uploading')
-      processQueue(config)
+      await processQueue(config)
     } catch (error: any) {
       console.error(error)
       setGlobalStatus('error')
@@ -579,7 +580,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   const handleRetryAllFailed = () => {
     if (!uploadConfig) return
     setGlobalStatus('uploading')
-    processQueue(uploadConfig)
+    void processQueue(uploadConfig)
   }
 
   const handleRetrySingle = (index: number) => {
@@ -593,7 +594,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       return newItems
     })
     setGlobalStatus('uploading')
-    processQueue(uploadConfig)
+    void processQueue(uploadConfig)
   }
 
   const handleIgnoreAndCommit = () => {
