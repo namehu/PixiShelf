@@ -1,19 +1,15 @@
 'use client'
 
-import { InfoIcon, Loader2Icon } from 'lucide-react'
+import { InfoIcon, Loader2Icon, XIcon } from 'lucide-react'
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import type ArtplayerType from 'artplayer'
-import ChapterDrawer from '@/components/players/ChapterDrawer'
+import { motion, AnimatePresence } from 'framer-motion'
 import ChapterSidebar from '@/components/players/ChapterSidebar'
 import TimelineMarkers from '@/components/players/TimelineMarkers'
 import { useCurrentChapter } from '@/components/players/use-current-chapter'
 import { useVideoChapters } from '@/components/players/use-video-chapters'
-import {
-  createChapterTimelineMarkers,
-  formatChapterTime,
-  type NormalizedChapter
-} from '@/components/players/video-chapters'
+import { createChapterTimelineMarkers, type NormalizedChapter } from '@/components/players/video-chapters'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
 import { combinationApiResource } from '@/utils/combinationStatic'
@@ -26,6 +22,7 @@ export interface VideoPlayerProps {
   muted?: boolean
   preload?: 'none' | 'metadata' | 'auto'
   className?: string
+  fillParent?: boolean
   onPlay?: () => void
   onPause?: () => void
   onError?: (error: string) => void
@@ -39,20 +36,21 @@ export function VideoPlayer({
   muted = true,
   preload = 'metadata',
   className = '',
+  fillParent = false,
   onPlay,
   onPause,
   onError
 }: VideoPlayerProps) {
   const mobileChapterControlName = 'chapter-entry'
-  const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [aspectRatio, setAspectRatio] = useState('16 / 9')
-  const [chapterDrawerOpen, setChapterDrawerOpen] = useState(false)
+  const [showChapterOverlay, setShowChapterOverlay] = useState(false)
   const [artInstance, setArtInstance] = useState<ArtplayerType | null>(null)
   const [progressPortalTarget, setProgressPortalTarget] = useState<HTMLDivElement | null>(null)
+  const [chapterPortalTarget, setChapterPortalTarget] = useState<HTMLDivElement | null>(null)
   const hasStartedPlayingRef = useRef(false)
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const artRef = useRef<ArtplayerType | null>(null)
@@ -62,18 +60,10 @@ export function VideoPlayer({
   const onErrorRef = useRef(onError)
   const mediaSrc = useMemo(() => combinationApiResource(src), [src])
   const isDesktop = useMediaQuery('(min-width: 1024px)')
-  const {
-    chapters,
-    duration: chaptersDuration,
-    loading: chaptersLoading,
-    error: chaptersError
-  } = useVideoChapters(chaptersUrl)
+  const { chapters, duration: chaptersDuration } = useVideoChapters(chaptersUrl)
   const currentChapter = useCurrentChapter(chapters, currentTime)
   const chapterMarkers = useMemo(() => createChapterTimelineMarkers(chapters), [chapters])
-  const showDesktopChapterPanel = isDesktop && (chapters.length > 0 || chaptersLoading || !!chaptersError)
-  const showCompactChapterRow = !isDesktop && (chaptersLoading || !!chaptersError || chapters.length > 0)
   const chapterUiDuration = duration > 0 ? duration : chaptersDuration
-  const progress = duration > 0 && Number.isFinite(duration) ? (currentTime / duration) * 100 : 0
 
   const clearLoading = () => {
     if (loadingTimeoutRef.current) {
@@ -136,13 +126,12 @@ export function VideoPlayer({
 
   useEffect(() => {
     hasStartedPlayingRef.current = false
-    setIsPlaying(false)
     setCurrentTime(0)
     setDuration(0)
     setError(null)
     setLoading(true)
     setAspectRatio('16 / 9')
-    setChapterDrawerOpen(false)
+    setShowChapterOverlay(false)
     setArtInstance(null)
     setProgressPortalTarget(null)
   }, [mediaSrc])
@@ -186,6 +175,26 @@ export function VideoPlayer({
       setArtInstance(art)
       setProgressPortalTarget(getArtProgress(art))
 
+      // Use Artplayer's layers API for chapter overlay container
+      const chapterContainer = document.createElement('div')
+      chapterContainer.style.width = '100%'
+      chapterContainer.style.height = '100%'
+
+      art.layers.add({
+        name: 'chapterOverlay',
+        html: chapterContainer,
+        style: {
+          position: 'absolute',
+          top: '0',
+          left: '0',
+          right: '0',
+          bottom: '0',
+          zIndex: '50',
+          pointerEvents: 'none'
+        }
+      })
+      setChapterPortalTarget(chapterContainer)
+
       const syncMetadata = () => {
         const video = getArtVideo(art)
         const nextDuration = Number.isFinite(art.duration) ? art.duration : (video?.duration ?? 0)
@@ -208,7 +217,6 @@ export function VideoPlayer({
       })
 
       art.on('play', () => {
-        setIsPlaying(true)
         hasStartedPlayingRef.current = true
         onPlayRef.current?.()
         hideControls()
@@ -216,7 +224,6 @@ export function VideoPlayer({
 
       art.on('pause', () => {
         const video = getArtVideo(art)
-        setIsPlaying(false)
         onPauseRef.current?.()
         art.controls.show = true
         if (video?.readyState && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -226,7 +233,6 @@ export function VideoPlayer({
 
       art.on('ended', () => {
         clearLoading()
-        setIsPlaying(false)
       })
 
       art.on('video:loadedmetadata', syncMetadata)
@@ -273,6 +279,7 @@ export function VideoPlayer({
       active = false
       setArtInstance(null)
       setProgressPortalTarget(null)
+      setChapterPortalTarget(null)
       if (instance) {
         instance.destroy(false)
       }
@@ -325,7 +332,7 @@ export function VideoPlayer({
       artInstance.controls.remove(mobileChapterControlName)
     }
 
-    if (isDesktop || chapters.length === 0) {
+    if (chapters.length === 0) {
       return
     }
 
@@ -344,7 +351,7 @@ export function VideoPlayer({
         element.classList.add('art-control-chapter-entry')
       },
       click() {
-        setChapterDrawerOpen(true)
+        setShowChapterOverlay((prev) => !prev)
       }
     })
 
@@ -353,7 +360,7 @@ export function VideoPlayer({
         artInstance.controls.remove(mobileChapterControlName)
       }
     }
-  }, [artInstance, chapters.length, isDesktop, mobileChapterControlName])
+  }, [artInstance, chapters.length, mobileChapterControlName])
 
   // 清理定时器
   useEffect(() => {
@@ -375,75 +382,63 @@ export function VideoPlayer({
   }
 
   return (
-    <div className={cn('video-player', className)}>
-      <div className={cn('flex flex-col', showDesktopChapterPanel && 'lg:flex-row lg:items-stretch lg:gap-3')}>
-        <div className="min-w-0 flex-1">
-          <div className="relative overflow-hidden bg-black" style={{ aspectRatio }}>
-            <div ref={playerContainerRef} className="h-full w-full" />
+    <div
+      className={cn('video-player relative flex items-center justify-center bg-black', className)}
+      style={fillParent ? undefined : { aspectRatio, width: '100%', maxWidth: '100%', maxHeight: '100%' }}
+    >
+      <div ref={playerContainerRef} className="h-full w-full" />
 
-            {/* 加载指示器 */}
-            {loading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/35">
-                <div className="rounded-full bg-white/90 p-4">
-                  <Loader2Icon className="h-8 w-8 animate-spin text-neutral-600" />
-                </div>
-              </div>
-            )}
+      {/* 加载指示器 */}
+      {loading && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/35">
+          <div className="rounded-full bg-white/90 p-4">
+            <Loader2Icon className="h-8 w-8 animate-spin text-neutral-600" />
           </div>
-
-          {showCompactChapterRow && (
-            <div className="mt-2 min-w-0 text-xs text-neutral-500">
-              <div className="min-w-0">
-                {chaptersLoading
-                  ? '章节加载中...'
-                  : chaptersError
-                    ? '章节加载失败'
-                    : chapters.length > 0
-                      ? `${chapters.length} 段章节`
-                      : ''}
-              </div>
-            </div>
-          )}
-
-          {duration > 0 && (
-            <div className="mt-2 text-right text-[11px] tabular-nums text-neutral-500">
-              {isPlaying ? '播放中' : '已暂停'}
-              {chapterMarkers.length > 0 ? ` · ${Math.round(progress)}%` : ''}
-              {' · '}
-              {formatChapterTime(currentTime)} / {formatChapterTime(duration)}
-            </div>
-          )}
         </div>
+      )}
 
-        {showDesktopChapterPanel && (
-          <div className="mt-3 lg:mt-0 lg:w-72 lg:shrink-0">
-            {chaptersLoading ? (
-              <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-4 text-sm text-neutral-500">
-                章节加载中...
-              </div>
-            ) : chaptersError ? (
-              <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-4 text-sm text-neutral-500">
-                章节加载失败
-              </div>
-            ) : (
-              <div
-                className={cn(
-                  'rounded-lg border border-neutral-200 bg-white p-2',
-                  currentChapter?.id ? 'shadow-sm shadow-neutral-200/70' : ''
-                )}
+      {/* 章节图层 (渲染到 Artplayer 内部) */}
+      {chapterPortalTarget &&
+        createPortal(
+          <AnimatePresence>
+            {showChapterOverlay && (
+              <motion.div
+                initial={{ opacity: 0, x: '100%' }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="pointer-events-auto absolute bottom-0 right-0 top-0 flex w-64 max-w-full flex-col border-l border-white/10 bg-black/90 backdrop-blur-xl sm:w-80 shadow-2xl"
               >
-                <ChapterSidebar
-                  chapters={chapters}
-                  currentChapterId={currentChapter?.id}
-                  onChapterClick={seekToChapter}
-                  tone="light"
-                  className="border-none bg-transparent"
-                />
-              </div>
+                <div className="flex items-center justify-between border-b border-white/10 p-2">
+                  <div>
+                    <span className="font-medium text-white">章节</span>
+                    <span className="ml-2 text-xs text-white/60">{chapters.length} 段</span>
+                  </div>
+                  <button
+                    onClick={() => setShowChapterOverlay(false)}
+                    className="rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    <XIcon className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <ChapterSidebar
+                    chapters={chapters}
+                    currentChapterId={currentChapter?.id}
+                    onChapterClick={(c) => {
+                      seekToChapter(c)
+                      if (!isDesktop) setShowChapterOverlay(false)
+                    }}
+                    tone="dark"
+                    className="h-full rounded-none border-none bg-transparent"
+                    scrollAreaClassName="h-full"
+                  />
+                </div>
+              </motion.div>
             )}
-          </div>
+          </AnimatePresence>,
+          chapterPortalTarget
         )}
-      </div>
 
       {!loading &&
         progressPortalTarget &&
@@ -463,17 +458,6 @@ export function VideoPlayer({
           </div>,
           progressPortalTarget
         )}
-
-      {!isDesktop && chapters.length > 0 && (
-        <ChapterDrawer
-          chapters={chapters}
-          currentChapterId={currentChapter?.id}
-          onChapterClick={seekToChapter}
-          open={chapterDrawerOpen}
-          onOpenChange={setChapterDrawerOpen}
-          showTrigger={false}
-        />
-      )}
     </div>
   )
 }

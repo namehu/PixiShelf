@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { formatChapterTime, type NormalizedChapter } from './video-chapters'
@@ -10,6 +10,7 @@ interface ChapterSidebarProps {
   currentChapterId?: string
   onChapterClick: (chapter: NormalizedChapter) => void
   className?: string
+  scrollAreaClassName?: string
   tone?: 'dark' | 'light'
 }
 
@@ -18,6 +19,7 @@ export default function ChapterSidebar({
   currentChapterId,
   onChapterClick,
   className,
+  scrollAreaClassName,
   tone = 'dark'
 }: ChapterSidebarProps) {
   const itemRefs = useRef<Record<string, HTMLButtonElement | null>>({})
@@ -33,8 +35,6 @@ export default function ChapterSidebar({
     })
   }, [currentChapterId])
 
-  const totalText = useMemo(() => `${chapters.length} 段`, [chapters.length])
-
   if (chapters.length === 0) {
     return null
   }
@@ -49,12 +49,7 @@ export default function ChapterSidebar({
         className
       )}
     >
-      <div className={cn('px-3 py-2', isLight ? 'border-b border-neutral-200' : 'border-b border-white/10')}>
-        <div className="text-sm font-medium">章节</div>
-        <div className={cn('text-xs', isLight ? 'text-neutral-500' : 'text-white/60')}>{totalText}</div>
-      </div>
-
-      <ScrollArea className="max-h-72 sm:max-h-96">
+      <ScrollArea className={cn('flex-1', scrollAreaClassName || 'max-h-72 sm:max-h-96')}>
         <div className="space-y-1 p-2">
           {chapters.map((chapter) => {
             const isActive = currentChapterId === chapter.id
@@ -68,7 +63,7 @@ export default function ChapterSidebar({
                 type="button"
                 onClick={() => onChapterClick(chapter)}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-md border-l-2 px-3 py-2 text-left transition-colors',
+                  'flex w-full items-center gap-3 rounded-md border-l-2 px-3 py-1 text-left transition-colors',
                   isActive
                     ? isLight
                       ? 'border-blue-500 bg-blue-50 text-neutral-900'

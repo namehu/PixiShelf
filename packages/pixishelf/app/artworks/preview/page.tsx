@@ -101,7 +101,7 @@ export default function ArtworkPreviewPage() {
       return (
         <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
           <div className="flex h-full w-full items-center justify-center">
-            <VideoPlayer src={imgPath} chaptersUrl={image.chaptersUrl} className="max-h-full max-w-full" />
+            <VideoPlayer src={imgPath} chaptersUrl={image.chaptersUrl} className="h-full w-full" fillParent={true} />
           </div>
         </SwiperSlide>
       )
