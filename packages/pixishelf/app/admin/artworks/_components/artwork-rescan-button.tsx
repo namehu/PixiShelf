@@ -25,7 +25,10 @@ export function ArtworkRescanButton({ artwork, onComplete }: ArtworkRescanButton
     if (scanning) return
     confirm({
       title: '重新扫描确认',
-      description: `即将重新扫描 ${artwork.title} 目录，原有元数据将被增量更新，是否继续？`,
+      description:
+        artwork.source === 'LOCAL_CREATED'
+          ? `即将重新扫描 ${artwork.title} 的媒体文件和视频章节，手动维护的标题、作者、标签不会被覆盖，是否继续？`
+          : `即将重新扫描 ${artwork.title} 目录，原有元数据将被增量更新，是否继续？`,
       onConfirm: () => {
         startScan()
       }

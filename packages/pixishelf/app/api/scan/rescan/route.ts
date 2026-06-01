@@ -1,6 +1,6 @@
 import 'server-only'
 import { NextResponse } from 'next/server'
-import { rescanArtwork } from '@/services/scan-service'
+import { rescanArtwork, rescanLocalArtwork } from '@/services/scan-service'
 import { ScanProgress } from '@/types'
 import logger from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
@@ -90,24 +90,25 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
         let lastDbUpdate = 0
         const DB_UPDATE_INTERVAL = 1000
 
-        const result = await rescanArtwork(
-          {
-            scanPath,
-            forceUpdate: false,
-            onProgress: (progress: ScanProgress) => {
-              sendEvent('progress', progress)
-              const now = Date.now()
-              if (now - lastDbUpdate > DB_UPDATE_INTERVAL && currentJobId) {
-                JobService.updateProgress(currentJobId, progress.percentage || 0, progress.message || '').catch((err) =>
-                  logger.error('Failed to update job progress', err)
-                )
-                lastDbUpdate = now
-              }
+        const scanOptions = {
+          scanPath,
+          forceUpdate: false,
+          onProgress: (progress: ScanProgress) => {
+            sendEvent('progress', progress)
+            const now = Date.now()
+            if (now - lastDbUpdate > DB_UPDATE_INTERVAL && currentJobId) {
+              JobService.updateProgress(currentJobId, progress.percentage || 0, progress.message || '').catch((err) =>
+                logger.error('Failed to update job progress', err)
+              )
+              lastDbUpdate = now
             }
-          },
-          artwork.externalId!,
-          relativePath
-        )
+          }
+        }
+
+        const result =
+          artwork.source === 'LOCAL_CREATED'
+            ? await rescanLocalArtwork(scanOptions, artwork.id, relativePath)
+            : await rescanArtwork(scanOptions, artwork.externalId!, relativePath)
 
         if (currentJobId) {
           await JobService.completeJob(currentJobId, result)

@@ -10,6 +10,8 @@ import { collectMediaFiles, MediaFileInfo } from './media-collector'
 import { syncMediaDerivedTagsForArtworks } from '@/services/media-derived-tag-service'
 import { buildScannedImageSeedData, type ScannedImageSeedData } from './scan-image-builder'
 import { getMetaSource, getPathBasename } from './path-utils'
+import { scanLocalArtworkMediaDirectory } from '@/services/artwork-service/local-media-scanner'
+import { updateArtworkImagesTransaction } from '@/services/artwork-service/image-manager'
 
 /**
  * 扫描选项接口
@@ -880,6 +882,72 @@ export async function rescanArtwork(
 
   context.scanResult.processingTime = Date.now() - startTime
   return context.scanResult
+}
+
+/**
+ * 重新扫描本地创建作品的媒体目录。
+ * 不读取 Pixiv 元数据文件，也不覆盖用户维护的标题、作者、描述和标签。
+ */
+export async function rescanLocalArtwork(
+  options: ScanOptions,
+  artworkId: number,
+  targetDirectoryRelativePath: string
+): Promise<ScanResult> {
+  const startTime = Date.now()
+  const scanResult: ScanResult = {
+    totalArtworks: 1,
+    newArtists: 0,
+    newArtworks: 0,
+    newImages: 0,
+    newTags: 0,
+    skippedArtworks: 0,
+    errors: [],
+    processingTime: 0,
+    removedArtworks: 0
+  }
+
+  try {
+    logger.info('Starting local artwork rescan:', { artworkId, targetDirectoryRelativePath })
+
+    options.onProgress?.({
+      phase: 'scanning',
+      message: '正在扫描本地作品媒体文件...',
+      percentage: 20
+    })
+
+    const mediaScanResult = await scanLocalArtworkMediaDirectory({
+      scanPath: options.scanPath,
+      targetDirectoryRelativePath
+    })
+
+    scanResult.errors.push(...mediaScanResult.warnings)
+
+    if (mediaScanResult.filesMeta.length === 0) {
+      throw new Error(`在目录 "${targetDirectoryRelativePath}" 中未找到媒体文件`)
+    }
+
+    options.onProgress?.({
+      phase: 'counting',
+      message: '正在更新媒体与章节信息...',
+      percentage: 70
+    })
+
+    await updateArtworkImagesTransaction(artworkId, mediaScanResult.filesMeta, mediaScanResult.chaptersMeta)
+    scanResult.newImages = mediaScanResult.filesMeta.length
+    scanResult.newArtworks = 1
+
+    options.onProgress?.({
+      phase: 'complete',
+      message: '本地作品重新扫描完成',
+      percentage: 100
+    })
+  } catch (error) {
+    logger.error('Local artwork rescan failed:', { error, artworkId })
+    scanResult.errors.push(error instanceof Error ? error.message : 'Unknown error')
+  }
+
+  scanResult.processingTime = Date.now() - startTime
+  return scanResult
 }
 
 /**
