@@ -109,17 +109,19 @@ function parseMediaFilename(
   }
 
   // 匹配格式: {artworkID}_p{index}.{ext}
-  const match = filename.match(/^(\d+)_p(\d+)\./i)
+  const escapedArtworkId = escapeRegExp(expectedArtworkId)
+  const escapedExtension = escapeRegExp(extension)
+  const match = filename.match(new RegExp(`^${escapedArtworkId}_p(\\d+)${escapedExtension}$`, 'i'))
   if (!match) return null
 
-  const [, artworkId, pageIndexStr] = match
-
-  // 验证作品ID是否匹配
-  if (artworkId !== expectedArtworkId) return null
-
+  const [, pageIndexStr] = match
   if (!pageIndexStr) return null
   const pageIndex = parseInt(pageIndexStr, 10)
   if (Number.isNaN(pageIndex) || pageIndex < 0) return null
 
   return { pageIndex }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
