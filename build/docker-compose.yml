@@ -38,6 +38,7 @@ services:
       DATABASE_URL: postgresql://pixishelf:password@postgres:5432/pixishelf?connection_limit=20&pool_timeout=20
       JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
       API_TOKEN: your-api-token-change-this
+      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN:-change-this-in-production}
     volumes:
       # 挂载图片数据目录（根据实际需要调整路径）
       # - /path/to/your/images:/app/data:ro
@@ -53,6 +54,25 @@ services:
       options:
         max-size: "20m" # 单个日志文件最大 20MB
         max-file: "10"    # 最多保留 10 个日志文件
+
+  scheduler:
+    image: curlimages/curl:latest
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN:-change-this-in-production}
+      PIXISHELF_INTERNAL_URL: http://app:5430
+      SCHEDULER_TICK_SECONDS: ${SCHEDULER_TICK_SECONDS:-60}
+    command: >
+      sh -c 'while true; do
+        curl -fsS -X POST "$${PIXISHELF_INTERNAL_URL}/api/internal/scheduler/tick"
+        -H "Authorization: Bearer $${INTERNAL_JOB_TOKEN}" || true;
+        sleep "$${SCHEDULER_TICK_SECONDS}";
+      done'
+    networks:
+      - pixishelf-network
 
   # imgproxy 服务容器
   imgproxy:

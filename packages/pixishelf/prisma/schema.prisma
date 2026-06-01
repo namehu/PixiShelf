@@ -267,6 +267,33 @@ model SystemJob {
   @@map("system_jobs")
 }
 
+model ScheduledTask {
+  id                String       @id @default(cuid())
+  key               String       @unique @db.VarChar(80)
+  type              String       @db.VarChar(50)
+  enabled           Boolean      @default(false)
+  scheduleMode      ScheduleMode @default(DAILY)
+  time              String       @db.VarChar(5)
+  timezone          String       @default("Asia/Shanghai") @db.VarChar(50)
+  priority          Int          @default(100)
+  mutexKey          String?      @db.VarChar(80)
+  lastTriggeredAt   DateTime?
+  lastTriggeredDate String?      @db.VarChar(10)
+  lastJobId         String?
+  config            Json?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([enabled, priority])
+  @@index([type])
+  @@index([mutexKey])
+  @@map("scheduled_tasks")
+}
+
+enum ScheduleMode {
+  DAILY
+}
+
 enum JobStatus {
   PENDING
   RUNNING

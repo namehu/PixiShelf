@@ -55,6 +55,26 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  scheduler:
+    image: curlimages/curl:latest
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      PIXISHELF_INTERNAL_URL: http://app:5430
+      SCHEDULER_TICK_SECONDS: ${SCHEDULER_TICK_SECONDS:-60}
+    command: >
+      sh -c 'while true; do
+        curl -fsS -X POST "$${PIXISHELF_INTERNAL_URL}/api/internal/scheduler/tick"
+        -H "Authorization: Bearer $${INTERNAL_JOB_TOKEN}" || true;
+        sleep "$${SCHEDULER_TICK_SECONDS}";
+      done'
+    networks:
+      - pixishelf-network
+
   imgproxy:
     image: ghcr.io/imgproxy/imgproxy:latest
     ports:

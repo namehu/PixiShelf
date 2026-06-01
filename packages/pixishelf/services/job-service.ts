@@ -212,6 +212,28 @@ export async function getLatestWebpAnimationScanJob() {
   })
 }
 
+export async function getActiveJobByType(type: string) {
+  return await prisma.systemJob.findFirst({
+    where: {
+      type,
+      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED, JobStatus.CANCELLING] }
+    },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+export async function getActiveJobsByTypes(types: string[]) {
+  if (types.length === 0) return []
+
+  return await prisma.systemJob.findMany({
+    where: {
+      type: { in: types },
+      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED, JobStatus.CANCELLING] }
+    },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
 /**
  * 获取任务详情
  */

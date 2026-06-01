@@ -2,6 +2,8 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { useTRPC } from '@/lib/trpc'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -38,6 +40,23 @@ interface WebpAnimationScanResult {
   failedSamples?: WebpAnimationScanFailedSample[]
 }
 
+interface ScheduledTaskView {
+  key: string
+  type: string
+  name: string
+  description: string
+  enabled: boolean
+  time: string
+  timezone: string
+  priority: number
+  mutexKey: string | null
+  lastTriggeredAt: string | Date | null
+  lastTriggeredDate: string | null
+  lastJobId: string | null
+  lastJobStatus: string | null
+  nextRunAt: string | null
+}
+
 function toMediaDerivedTagSyncResult(result: unknown): MediaDerivedTagSyncResult | null {
   return result && typeof result === 'object' ? (result as MediaDerivedTagSyncResult) : null
 }
@@ -51,6 +70,7 @@ export function MaintenanceCard() {
   const [pollInterval, setPollInterval] = useState<number | false>(false)
   const [mediaTagPollInterval, setMediaTagPollInterval] = useState<number | false>(false)
   const [webpScanPollInterval, setWebpScanPollInterval] = useState<number | false>(false)
+  const [taskDrafts, setTaskDrafts] = useState<Record<string, { enabled: boolean; time: string; priority: string }>>({})
 
   // 查询当前任务状态
   const { data: activeJob, refetch } = useQuery(
@@ -74,6 +94,10 @@ export function MaintenanceCard() {
   )
   const webpScanJob = webpScanJobQuery.data as any
   const refetchWebpScanJob = webpScanJobQuery.refetch
+
+  const scheduledTasksQuery = useQuery(trpc.job.listScheduledTasks.queryOptions())
+  const scheduledTasks = (scheduledTasksQuery.data ?? []) as ScheduledTaskView[]
+  const refetchScheduledTasks = scheduledTasksQuery.refetch
 
   // 监听任务状态以调整轮询
   useEffect(() => {
@@ -99,6 +123,24 @@ export function MaintenanceCard() {
       setWebpScanPollInterval(false)
     }
   }, [webpScanJob?.status])
+
+  useEffect(() => {
+    if (scheduledTasks.length === 0) return
+
+    setTaskDrafts((prev) => {
+      const next = { ...prev }
+      for (const task of scheduledTasks) {
+        if (!next[task.key]) {
+          next[task.key] = {
+            enabled: task.enabled,
+            time: task.time,
+            priority: String(task.priority)
+          }
+        }
+      }
+      return next
+    })
+  }, [scheduledTasks])
 
   // 开始任务 Mutation
   const startMutation = useMutation(
@@ -147,12 +189,62 @@ export function MaintenanceCard() {
     })
   )
 
+  const updateScheduledTaskMutation = useMutation(
+    trpc.job.updateScheduledTask.mutationOptions({
+      onSuccess: () => {
+        toast.success('计划任务已保存')
+        refetchScheduledTasks()
+      },
+      onError: (error) => {
+        toast.error(`保存失败: ${error.message}`)
+      }
+    })
+  )
+
+  const triggerScheduledTaskMutation = useMutation(
+    trpc.job.triggerScheduledTaskNow.mutationOptions({
+      onSuccess: () => {
+        toast.success('计划任务已手动触发')
+        refetchScheduledTasks()
+        refetchWebpScanJob()
+      },
+      onError: (error) => {
+        toast.error(`触发失败: ${error.message}`)
+      }
+    })
+  )
+
   const isRunning = activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)
   const isCancelling = activeJob?.status === 'CANCELLING'
   const isMediaTagRunning = mediaTagJob && ['PENDING', 'RUNNING'].includes(mediaTagJob.status)
   const isWebpScanRunning = webpScanJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(webpScanJob.status)
   const mediaTagResult = toMediaDerivedTagSyncResult(mediaTagJob?.result)
   const webpScanResult = toWebpAnimationScanResult(webpScanJob?.result)
+
+  const updateTaskDraft = (key: string, patch: Partial<{ enabled: boolean; time: string; priority: string }>) => {
+    setTaskDrafts((prev) => ({
+      ...prev,
+      [key]: {
+        enabled: false,
+        time: '03:30',
+        priority: '100',
+        ...prev[key],
+        ...patch
+      }
+    }))
+  }
+
+  const handleSaveScheduledTask = (task: ScheduledTaskView) => {
+    const draft = taskDrafts[task.key]
+    if (!draft) return
+
+    updateScheduledTaskMutation.mutate({
+      key: task.key,
+      enabled: draft.enabled,
+      time: draft.time,
+      priority: Number(draft.priority)
+    })
+  }
 
   return (
     <Card>
@@ -305,6 +397,91 @@ export function MaintenanceCard() {
               )}
             </div>
           )}
+
+        <div className="space-y-3 rounded-lg border p-4">
+          <div>
+            <h4 className="font-medium">计划任务管理</h4>
+            <p className="text-sm text-neutral-500">
+              Docker scheduler 容器定期调用内部 tick 接口，应用根据这里的配置判断是否触发任务。
+            </p>
+          </div>
+
+          {scheduledTasks.length === 0 ? (
+            <div className="rounded bg-neutral-50 p-3 text-sm text-neutral-500">暂无计划任务</div>
+          ) : (
+            <div className="space-y-3">
+              {scheduledTasks.map((task) => {
+                const draft = taskDrafts[task.key] ?? {
+                  enabled: task.enabled,
+                  time: task.time,
+                  priority: String(task.priority)
+                }
+
+                return (
+                  <div key={task.key} className="rounded-md border bg-white p-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{task.name}</span>
+                          <span className="rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500">
+                            {task.type}
+                          </span>
+                        </div>
+                        <p className="text-sm text-neutral-500">{task.description}</p>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
+                          <span>互斥组：{task.mutexKey || '-'}</span>
+                          <span>时区：{task.timezone}</span>
+                          <span>最近任务：{task.lastJobStatus || '-'}</span>
+                          <span>上次自动日期：{task.lastTriggeredDate || '-'}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-[auto_120px_90px_auto_auto] sm:items-center">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={draft.enabled}
+                            onCheckedChange={(checked) => updateTaskDraft(task.key, { enabled: checked })}
+                          />
+                          <span className="text-sm">{draft.enabled ? '启用' : '停用'}</span>
+                        </div>
+                        <Input
+                          type="time"
+                          value={draft.time}
+                          onChange={(event) => updateTaskDraft(task.key, { time: event.target.value })}
+                          className="h-9"
+                        />
+                        <Input
+                          type="number"
+                          min={0}
+                          max={1000}
+                          value={draft.priority}
+                          onChange={(event) => updateTaskDraft(task.key, { priority: event.target.value })}
+                          className="h-9"
+                          title="优先级，数字越小越先执行"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleSaveScheduledTask(task)}
+                          disabled={updateScheduledTaskMutation.isPending}
+                        >
+                          保存
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => triggerScheduledTaskMutation.mutate({ key: task.key })}
+                          disabled={triggerScheduledTaskMutation.isPending}
+                        >
+                          立即执行
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   )

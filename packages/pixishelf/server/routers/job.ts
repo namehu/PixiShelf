@@ -5,7 +5,12 @@ import { getScanPath } from '@/services/setting.service'
 import { TRPCError } from '@trpc/server'
 import logger from '@/lib/logger'
 import { syncAllMediaDerivedTags } from '@/services/media-derived-tag-service'
-import { runWebpAnimationScanJob } from '@/services/webp-animation-scan-service'
+import {
+  listScheduledTasks,
+  triggerScheduledTaskNow,
+  updateScheduledTask
+} from '@/services/scheduled-task-service'
+import { z } from 'zod'
 
 export const jobRouter = router({
   startRefillMetaSource: authProcedure.mutation(async () => {
@@ -111,53 +116,52 @@ export const jobRouter = router({
   }),
 
   startWebpAnimationScan: authProcedure.mutation(async () => {
-    const activeJob = await JobService.getLatestWebpAnimationScanJob()
-    if (activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)) {
-      throw new TRPCError({
-        code: 'CONFLICT',
-        message: 'WebP animation scan job is already running'
-      })
-    }
-
-    const scanPath = await getScanPath()
-    if (!scanPath) {
-      throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
-        message: 'Scan path is not configured'
-      })
-    }
-
-    const job = await JobService.createWebpAnimationScanJob()
-
-    ;(async () => {
-      try {
-        const result = await runWebpAnimationScanJob({
-          scanPath,
-          checkCancelled: async () => {
-            const current = await JobService.getJob(job.id)
-            return current?.status === 'CANCELLING'
-          },
-          onProgress: async (progress) => {
-            await JobService.updateProgress(job.id, progress.percentage, progress.message)
-          }
-        })
-        await JobService.completeJob(job.id, result)
-      } catch (error) {
-        logger.error('WebP animation scan job failed', { error })
-
-        const current = await JobService.getJob(job.id)
-        if (current?.status === 'CANCELLING' || (error instanceof Error && error.message === 'Task cancelled')) {
-          await JobService.markAsCancelled(job.id)
-        } else {
-          await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
-        }
+    try {
+      return await triggerScheduledTaskNow('webp_animation_scan')
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('already running')) {
+        throw new TRPCError({ code: 'CONFLICT', message: error.message })
       }
-    })()
-
-    return { jobId: job.id }
+      if (error instanceof Error && error.message.includes('Scan path')) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
+      }
+      throw error
+    }
   }),
 
   getWebpAnimationScanStatus: authProcedure.query(async () => {
     return await JobService.getLatestWebpAnimationScanJob()
+  }),
+
+  listScheduledTasks: authProcedure.query(async () => {
+    return listScheduledTasks()
+  }),
+
+  updateScheduledTask: authProcedure
+    .input(
+      z.object({
+        key: z.string().min(1),
+        enabled: z.boolean().optional(),
+        time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+        priority: z.number().int().min(0).max(1000).optional()
+      })
+    )
+    .mutation(async ({ input }) => {
+      await updateScheduledTask(input)
+      return { success: true }
+    }),
+
+  triggerScheduledTaskNow: authProcedure.input(z.object({ key: z.string().min(1) })).mutation(async ({ input }) => {
+    try {
+      return await triggerScheduledTaskNow(input.key)
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('already running')) {
+        throw new TRPCError({ code: 'CONFLICT', message: error.message })
+      }
+      if (error instanceof Error && error.message.includes('Scan path')) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
+      }
+      throw error
+    }
   })
 })
