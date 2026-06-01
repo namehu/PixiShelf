@@ -50,7 +50,6 @@ export function VideoPlayer({
   const [showChapterOverlay, setShowChapterOverlay] = useState(false)
   const [artInstance, setArtInstance] = useState<ArtplayerType | null>(null)
   const [progressPortalTarget, setProgressPortalTarget] = useState<HTMLDivElement | null>(null)
-  const [chapterPortalTarget, setChapterPortalTarget] = useState<HTMLDivElement | null>(null)
   const hasStartedPlayingRef = useRef(false)
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const artRef = useRef<ArtplayerType | null>(null)
@@ -175,26 +174,6 @@ export function VideoPlayer({
       setArtInstance(art)
       setProgressPortalTarget(getArtProgress(art))
 
-      // Use Artplayer's layers API for chapter overlay container
-      const chapterContainer = document.createElement('div')
-      chapterContainer.style.width = '100%'
-      chapterContainer.style.height = '100%'
-
-      art.layers.add({
-        name: 'chapterOverlay',
-        html: chapterContainer,
-        style: {
-          position: 'absolute',
-          top: '0',
-          left: '0',
-          right: '0',
-          bottom: '0',
-          zIndex: '50',
-          pointerEvents: 'none'
-        }
-      })
-      setChapterPortalTarget(chapterContainer)
-
       const syncMetadata = () => {
         const video = getArtVideo(art)
         const nextDuration = Number.isFinite(art.duration) ? art.duration : (video?.duration ?? 0)
@@ -279,7 +258,6 @@ export function VideoPlayer({
       active = false
       setArtInstance(null)
       setProgressPortalTarget(null)
-      setChapterPortalTarget(null)
       if (instance) {
         instance.destroy(false)
       }
@@ -397,48 +375,58 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* 章节图层 (渲染到 Artplayer 内部) */}
-      {chapterPortalTarget &&
-        createPortal(
-          <AnimatePresence>
-            {showChapterOverlay && (
-              <motion.div
-                initial={{ opacity: 0, x: '100%' }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: '100%' }}
-                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                className="pointer-events-auto absolute bottom-0 right-0 top-0 flex w-64 max-w-full flex-col border-l border-white/10 bg-black/90 backdrop-blur-xl sm:w-80 shadow-2xl"
-              >
-                <div className="flex items-center justify-between border-b border-white/10 p-2">
-                  <div>
-                    <span className="font-medium text-white">章节</span>
-                    <span className="ml-2 text-xs text-white/60">{chapters.length} 段</span>
-                  </div>
-                  <button
-                    onClick={() => setShowChapterOverlay(false)}
-                    className="rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-                  >
-                    <XIcon className="h-4 w-4" />
-                  </button>
+      {/* 章节浮层放在播放器外层，避免被 Artplayer 控制条和居中播放按钮遮挡。 */}
+      <AnimatePresence>
+        {showChapterOverlay && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50"
+          >
+            <button
+              type="button"
+              aria-label="关闭章节列表"
+              className="absolute inset-0 cursor-default border-0 bg-black/20 p-0"
+              onClick={() => setShowChapterOverlay(false)}
+            />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="absolute bottom-0 right-0 top-0 flex w-64 max-w-full flex-col border-l border-white/10 bg-black/90 shadow-2xl backdrop-blur-xl sm:w-80"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 p-2">
+                <div>
+                  <span className="font-medium text-white">章节</span>
+                  <span className="ml-2 text-xs text-white/60">{chapters.length} 段</span>
                 </div>
-                <div className="flex-1 overflow-hidden">
-                  <ChapterSidebar
-                    chapters={chapters}
-                    currentChapterId={currentChapter?.id}
-                    onChapterClick={(c) => {
-                      seekToChapter(c)
-                      if (!isDesktop) setShowChapterOverlay(false)
-                    }}
-                    tone="dark"
-                    className="h-full rounded-none border-none bg-transparent"
-                    scrollAreaClassName="h-full"
-                  />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>,
-          chapterPortalTarget
+                <button
+                  type="button"
+                  onClick={() => setShowChapterOverlay(false)}
+                  className="rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <ChapterSidebar
+                  chapters={chapters}
+                  currentChapterId={currentChapter?.id}
+                  onChapterClick={(c) => {
+                    seekToChapter(c)
+                    if (!isDesktop) setShowChapterOverlay(false)
+                  }}
+                  tone="dark"
+                  className="h-full rounded-none border-none bg-transparent"
+                  scrollAreaClassName="h-full"
+                />
+              </div>
+            </motion.div>
+          </motion.div>
         )}
+      </AnimatePresence>
 
       {!loading &&
         progressPortalTarget &&
