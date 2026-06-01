@@ -100,18 +100,23 @@ export async function deleteImage(imageId: number, deleteFile: boolean) {
   if (deleteFile) {
     const scanPath = await getScanPath()
     if (scanPath) {
-      let fullPath = path.resolve(scanPath, `${image.path}`.replace(/^\//, ''))
+      const pathsToDelete = [image.path]
 
-      try {
-        // 检查文件是否存在
-        await fs.access(fullPath)
-        // 删除文件
-        await fs.unlink(fullPath)
-      } catch (error: any) {
-        // 如果是文件不存在，可以忽略错误继续删除数据库记录
-        if (error.code !== 'ENOENT') {
-          console.error(`Failed to delete file: ${fullPath}`, error)
-          throw new Error(`Failed to delete physical file: ${error.message}`)
+      if (image.chaptersPath && isChapterManifestFileName(path.basename(image.chaptersPath))) {
+        pathsToDelete.push(image.chaptersPath)
+      }
+
+      for (const relativePath of pathsToDelete) {
+        const fullPath = resolvePathWithinScanRoot(scanPath, relativePath)
+
+        try {
+          await fs.unlink(fullPath)
+        } catch (error: any) {
+          // 如果是文件不存在，可以忽略错误继续删除数据库记录
+          if (error.code !== 'ENOENT') {
+            console.error(`Failed to delete file: ${fullPath}`, error)
+            throw new Error(`Failed to delete physical file: ${error.message}`)
+          }
         }
       }
     }

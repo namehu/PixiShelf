@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 import fs from 'fs/promises'
 import { prisma } from '@/lib/prisma'
+import { isVideoFile } from '@/lib/media'
 import { getScanPath } from '@/services/setting.service'
 import {
   discoverChaptersForVideoInScanRoot,
@@ -14,6 +15,7 @@ import {
   buildCanonicalChapterFileName,
   isChapterManifestFileName
 } from '@/utils/artwork/video-chapter-files'
+import { determineArtworkRelDir } from '@/services/artwork-service/utils'
 
 export async function POST(_req: NextRequest) {
   try {
@@ -45,6 +47,25 @@ export async function POST(_req: NextRequest) {
       return NextResponse.json({ error: 'SCAN_PATH not set' }, { status: 500 })
     }
 
+    const artwork = await prisma.artwork.findUnique({
+      where: { id: artworkId },
+      include: {
+        artist: true,
+        images: {
+          orderBy: { sortOrder: 'asc' }
+        }
+      }
+    })
+
+    if (!artwork) {
+      return NextResponse.json({ error: 'Artwork not found' }, { status: 404 })
+    }
+
+    const targetRelDir = determineArtworkRelDir(artwork)
+    if (!targetRelDir) {
+      return NextResponse.json({ error: 'Cannot determine artwork media directory' }, { status: 400 })
+    }
+
     let videoPath = typeof videoPathValue === 'string' ? videoPathValue : ''
     if (imageId) {
       const image = await prisma.image.findUnique({
@@ -62,6 +83,17 @@ export async function POST(_req: NextRequest) {
     if (!videoPath) {
       return NextResponse.json({ error: 'Missing videoPath or imageId' }, { status: 400 })
     }
+
+    const normalizedVideoPath = toStoredPath(videoPath)
+    if (!isVideoFile(normalizedVideoPath)) {
+      return NextResponse.json({ error: 'Chapter manifest can only be attached to video media' }, { status: 400 })
+    }
+
+    if (!isStoredPathWithinDir(normalizedVideoPath, targetRelDir)) {
+      return NextResponse.json({ error: 'Video path does not belong to artwork media directory' }, { status: 400 })
+    }
+
+    videoPath = normalizedVideoPath
 
     const manifestText = await file.text()
     let manifestJson: unknown
@@ -124,4 +156,15 @@ function resolvePathWithinScanRoot(scanRoot: string, relativePath: string): stri
   }
 
   return resolvedPath
+}
+
+function toStoredPath(input: string): string {
+  const normalizedPath = input.replace(/\\/g, '/')
+  return normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`
+}
+
+function isStoredPathWithinDir(storedPath: string, storedDir: string): boolean {
+  const normalizedPath = toStoredPath(storedPath)
+  const normalizedDir = toStoredPath(storedDir).replace(/\/+$/, '')
+  return normalizedPath === normalizedDir || normalizedPath.startsWith(`${normalizedDir}/`)
 }

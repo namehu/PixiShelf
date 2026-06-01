@@ -617,7 +617,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         `Video: ${i.videoOriginalName}\nError: 同一视频匹配多个章节文件 (${i.chapterOriginalNames.join(', ')})\n---`
     )
     const content = [...failedItems, ...failedChapters, ...unmatchedChapters, ...conflictingChapters]
-    const blob = new Blob([content], { type: 'text/plain' })
+    const blob = new Blob([content.join('\n')], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
