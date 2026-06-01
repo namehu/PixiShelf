@@ -55,6 +55,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Permission denied: Invalid target directory' }, { status: 403 })
     }
 
+    await fs.mkdirSync(resolvedTargetDir, { recursive: true })
+
     const filePath = path.join(resolvedTargetDir, decodedFileName)
 
     // Ensure the body is present
