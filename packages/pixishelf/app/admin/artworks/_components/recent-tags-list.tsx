@@ -43,7 +43,7 @@ export function RecentTagsList({ selectedValues, onSelect, limit = 10 }: RecentT
             {tag.label}
             <div
               role="button"
-              className="ml-0 h-5 w-0 overflow-hidden rounded-full opacity-0 pointer-events-none translate-x-1 hover:bg-destructive/20 flex items-center justify-center group-hover:ml-1 group-hover:w-5 group-hover:opacity-100 group-hover:pointer-events-auto group-hover:translate-x-0 transition-all duration-300 ease-out delay-[600ms]"
+              className="ml-0 h-5 w-0 overflow-hidden rounded-full opacity-0 pointer-events-none translate-x-1 hover:bg-destructive/20 flex items-center justify-center group-hover:ml-1 group-hover:w-5 group-hover:opacity-100 group-hover:pointer-events-auto group-hover:translate-x-0 transition-all duration-300 ease-out delay-[1000ms]"
               onClick={(e) => {
                 e.stopPropagation()
                 removeTag(tag.value)

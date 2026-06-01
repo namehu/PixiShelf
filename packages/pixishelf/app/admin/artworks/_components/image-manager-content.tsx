@@ -710,7 +710,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
             className="h-8"
           >
             <RefreshCw className="w-3.5 h-3.5 mr-2" />
-            刷新
+            刷新缓存
           </Button>
 
           <Button
