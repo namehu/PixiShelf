@@ -118,8 +118,9 @@ export function getChapterPathCandidates(videoPath: string): string[] {
   }
 
   const basePath = joinPosixPath(parsedPath.dir, parsedPath.name)
+  const fullNamePath = joinPosixPath(parsedPath.dir, parsedPath.base)
 
-  return [`${basePath}.chapters.json`, `${basePath}..chapters.json`]
+  return [`${basePath}.chapters.json`, `${fullNamePath}.chapters.json`, `${basePath}..chapters.json`]
 }
 
 /**

@@ -821,19 +821,20 @@ export async function rescanArtwork(
     })
 
     // 2. 查找元数据文件
-    // 仅在指定目录下查找 ID-meta.txt
-    const files = await fg([`${artworkId}-meta.txt`], {
+    // 支持标准 ID-meta.txt 和 Pixiv 分页导出的 ID_p0-meta.txt。
+    const files = await fg([`${artworkId}*-meta.txt`], {
       cwd: targetDir,
       absolute: true,
       deep: 1, // 仅在当前目录查找，不递归
       onlyFiles: true
     })
+    const matchedFiles = files.filter((file) => extractArtworkIdFromFilename(path.basename(file)) === artworkId)
 
-    if (files.length <= 0) {
+    if (matchedFiles.length <= 0) {
       throw new Error(`在目录 "${cleanPath}" 中未找到作品 ${artworkId} 的元数据文件`)
     }
 
-    const _file = files[0]!
+    const _file = matchedFiles[0]!
     const metadataFile: GlobMetadataFile = {
       name: path.basename(_file),
       artworkId: artworkId,

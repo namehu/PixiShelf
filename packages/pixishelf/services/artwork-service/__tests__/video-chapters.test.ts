@@ -83,6 +83,7 @@ describe('chapter path helpers', () => {
   it('should build both single-dot and legacy double-dot candidates', () => {
     expect(getChapterPathCandidates('/artist/artwork/video.mp4')).toEqual([
       '/artist/artwork/video.chapters.json',
+      '/artist/artwork/video.mp4.chapters.json',
       '/artist/artwork/video..chapters.json'
     ])
   })
@@ -136,6 +137,20 @@ describe('discoverChaptersForVideo', () => {
     const meta = await discoverChaptersForVideo('/artist/artwork/video.mp4')
 
     expect(meta?.chaptersPath).toBe('/artist/artwork/video..chapters.json')
+    expect(meta?.chaptersCount).toBe(1)
+    expect(meta?.chaptersDuration).toBe(12.5)
+  })
+
+  it('should discover full video filename chapter file when canonical file is absent', async () => {
+    await writeManifestFile(tempDir, '/artist/artwork/video.mp4.chapters.json', {
+      version: 1,
+      duration: 12.5,
+      chapters: [{ index: 1, title: 'Full name', start: 0, end: 12.5, duration: 12.5 }]
+    })
+
+    const meta = await discoverChaptersForVideo('/artist/artwork/video.mp4')
+
+    expect(meta?.chaptersPath).toBe('/artist/artwork/video.mp4.chapters.json')
     expect(meta?.chaptersCount).toBe(1)
     expect(meta?.chaptersDuration).toBe(12.5)
   })
