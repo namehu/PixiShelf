@@ -92,7 +92,11 @@ export function ArtworkUnifiedEditor({
                 <TabsTrigger value="info" className="flex items-center gap-2 rounded-md text-sm">
                   <Info className="w-4 h-4" /> 基础信息
                 </TabsTrigger>
-                <TabsTrigger value="media" className="flex items-center gap-2 rounded-md text-sm" disabled={!currentArtworkId}>
+                <TabsTrigger
+                  value="media"
+                  className="flex items-center gap-2 rounded-md text-sm"
+                  disabled={!currentArtworkId}
+                >
                   <ImageIcon className="w-4 h-4" /> 媒体管理
                 </TabsTrigger>
               </TabsList>
@@ -100,43 +104,43 @@ export function ArtworkUnifiedEditor({
           </div>
         }
       >
-      {isLoading ? (
-        <div className="h-full flex items-center justify-center">
-          <Loader2 className="w-10 h-10 animate-spin text-neutral-300" />
-        </div>
-      ) : (
-        <div className="relative min-h-0 flex-1">
-          <TabsContent value="info" className="absolute inset-0 m-0 data-[state=inactive]:hidden pr-2">
-            <ArtworkInfoForm
-              data={artwork || null}
-              onSuccess={(savedArtwork) => {
-                onSuccess?.(savedArtwork)
-                if (savedArtwork?.id && !currentArtworkId) {
-                  setCurrentArtworkId(savedArtwork.id)
-                  setActiveTab('media')
-                  queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
-                  return
-                }
-                if (currentArtworkId) {
+        {isLoading ? (
+          <div className="h-full flex items-center justify-center">
+            <Loader2 className="w-10 h-10 animate-spin text-neutral-300" />
+          </div>
+        ) : (
+          <div className="relative min-h-0 flex-1">
+            <TabsContent value="info" className="absolute inset-0 m-0 data-[state=inactive]:hidden pr-2">
+              <ArtworkInfoForm
+                data={artwork || null}
+                onSuccess={(savedArtwork) => {
+                  onSuccess?.(savedArtwork)
+                  if (savedArtwork?.id && !currentArtworkId) {
+                    setCurrentArtworkId(savedArtwork.id)
+                    setActiveTab('media')
+                    queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
+                    return
+                  }
+                  if (currentArtworkId) {
+                    refetch()
+                    queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
+                  }
+                }}
+              />
+            </TabsContent>
+
+            <TabsContent value="media" className="absolute inset-0 m-0 data-[state=inactive]:hidden">
+              <ImageManagerContent
+                data={artwork}
+                onSuccess={() => {
+                  onSuccess?.(artwork || undefined)
                   refetch()
                   queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
-                }
-              }}
-            />
-          </TabsContent>
-
-          <TabsContent value="media" className="absolute inset-0 m-0 data-[state=inactive]:hidden">
-            <ImageManagerContent
-              data={artwork}
-              onSuccess={() => {
-                onSuccess?.(artwork || undefined)
-                refetch()
-                queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
-              }}
-            />
-          </TabsContent>
-        </div>
-      )}
+                }}
+              />
+            </TabsContent>
+          </div>
+        )}
       </ProDrawer>
     </Tabs>
   )

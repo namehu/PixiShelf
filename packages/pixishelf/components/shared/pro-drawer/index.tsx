@@ -70,9 +70,6 @@ export function ProDrawer({
   width = '45%',
   ...props
 }: ProDrawerProps) {
-  // 判断是否需要显示 Header
-  const showHeader = title || description
-
   // 计算样式：如果是左右方向，则应用宽度
   const isHorizontal = direction === 'left' || direction === 'right'
   const contentStyle = isHorizontal
@@ -87,13 +84,16 @@ export function ProDrawer({
       {/* 触发器逻辑 */}
       {trigger && <DrawerTrigger asChild>{trigger}</DrawerTrigger>}
 
-      <DrawerContent style={contentStyle} className={cn('flex flex-col', className)}>
+      <DrawerContent style={contentStyle} className={cn('flex flex-col', className)} data-vaul-no-drag>
         {/* 头部区域 */}
         <DrawerHeader className="shrink-0">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-start">
             <DrawerTitle>{title}</DrawerTitle>
             <DrawerClose asChild>
-              <button className="text-foreground/50 hover:text-foreground/80 transition-colors cursor-pointer">
+              <button
+                className="text-foreground/50 hover:text-foreground/80 transition-colors cursor-pointer"
+                onClick={() => props.onOpenChange?.(false)}
+              >
                 <XIcon className="h-6 w-6 cursor-pointer" />
               </button>
             </DrawerClose>
