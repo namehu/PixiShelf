@@ -1,5 +1,5 @@
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import ArtworkImages from './ArtworkImages'
 import React from 'react'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
@@ -8,6 +8,18 @@ vi.mock('next/navigation', () => ({
   useRouter: vi.fn(() => ({
     push: vi.fn()
   }))
+}))
+
+let popoverOpen = false
+
+vi.mock('@/components/ui/popover', () => ({
+  Popover: ({ children, open }: { children: React.ReactNode; open?: boolean }) => {
+    popoverOpen = !!open
+    return <div>{children}</div>
+  },
+  PopoverAnchor: (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
+  PopoverContent: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) =>
+    popoverOpen ? <div {...props}>{children}</div> : null
 }))
 
 // Mock LazyMedia 组件
@@ -27,8 +39,13 @@ global.ResizeObserver = vi.fn().mockImplementation(() => ({
 }))
 
 describe('ArtworkImages', () => {
+  beforeEach(() => {
+    vi.useRealTimers()
+  })
+
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
   })
 
   const generateImages = (count: number): ArtworkImageResponseDto[] =>
@@ -154,5 +171,31 @@ describe('ArtworkImages', () => {
       const mediaItems = screen.getAllByTestId('lazy-media')
       expect(mediaItems).toHaveLength(23)
     })
+  })
+
+  it('opens the full-size preview menu on image long press', () => {
+    vi.useFakeTimers()
+    const images = generateImages(1)
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    fireEvent.mouseDown(screen.getByTestId('lazy-media'))
+    act(() => vi.advanceTimersByTime(500))
+
+    expect(screen.getByText('预览完整尺寸')).toBeTruthy()
+  })
+
+  it('does not open the full-size preview menu on video long press', () => {
+    vi.useFakeTimers()
+    const images = generateImages(1).map((image) => ({
+      ...image,
+      path: '/path/to/video.mp4',
+      mediaType: 'video' as const
+    }))
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    fireEvent.mouseDown(screen.getByTestId('lazy-media'))
+    act(() => vi.advanceTimersByTime(500))
+
+    expect(screen.queryByText('预览完整尺寸')).toBeNull()
   })
 })

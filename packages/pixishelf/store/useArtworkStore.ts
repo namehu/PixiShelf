@@ -37,7 +37,7 @@ export const useArtworkStore = create<ArtworkStoreState>((set) => ({
   currentIndex: 0,
   images: [],
   setTotal: (total) => set({ total }),
-  setCurrentIndex: (index) => set({ currentIndex: index }),
+  setCurrentIndex: (index) => set((state) => (state.currentIndex === index ? state : { currentIndex: index })),
   setImages: (images) => set({ images }),
   clearImages: () => set({ images: [] })
 }))

@@ -23,6 +23,8 @@ export function useLongPress({ onLongPress, onClick, threshold = 500 }: UseLongP
       }
 
       timeout.current = setTimeout(() => {
+        event.preventDefault()
+        event.stopPropagation()
         onLongPress(event)
         timeout.current = null
       }, threshold)

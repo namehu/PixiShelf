@@ -14,6 +14,20 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
 import { combinationApiResource } from '@/utils/combinationStatic'
 
+const VIDEO_TIME_SYNC_THRESHOLD = 0.25
+
+export function shouldShowVideoBuffering(video?: HTMLVideoElement | null) {
+  if (!video) {
+    return false
+  }
+
+  return !video.ended && !video.paused && video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+}
+
+export function shouldSyncVideoTime(previousTime: number, nextTime: number) {
+  return Math.abs(nextTime - previousTime) >= VIDEO_TIME_SYNC_THRESHOLD
+}
+
 export interface VideoPlayerProps {
   src: string
   chaptersUrl?: string | null
@@ -70,14 +84,6 @@ export function VideoPlayer({
       loadingTimeoutRef.current = null
     }
     setLoading(false)
-  }
-
-  const shouldShowBuffering = (video?: HTMLVideoElement | null) => {
-    if (!video) {
-      return false
-    }
-
-    return !video.ended && !video.paused && video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
   }
 
   const showVideoError = (message = '视频加载失败') => {
@@ -220,7 +226,7 @@ export function VideoPlayer({
       art.on('video:canplaythrough', clearLoading)
       art.on('video:timeupdate', () => {
         const nextTime = Number.isFinite(art.currentTime) ? art.currentTime : 0
-        setCurrentTime(nextTime)
+        setCurrentTime((previousTime) => (shouldSyncVideoTime(previousTime, nextTime) ? nextTime : previousTime))
 
         const video = getArtVideo(art)
         if (video?.readyState && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -231,7 +237,7 @@ export function VideoPlayer({
         setLoading(true)
       })
       art.on('video:waiting', () => {
-        if (hasStartedPlayingRef.current && shouldShowBuffering(getArtVideo(art))) {
+        if (hasStartedPlayingRef.current && shouldShowVideoBuffering(getArtVideo(art))) {
           setLoading(true)
         }
       })

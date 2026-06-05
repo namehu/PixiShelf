@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverAnchor } from '@/components/ui/popover'
 import { useRouter } from 'next/navigation'
 import { useArtworkStore } from '@/store/useArtworkStore'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
+import { isVideoFile } from '@/lib/media'
 
 interface ArtworkImagesProps {
   images: ArtworkImageResponseDto[]
@@ -22,10 +23,12 @@ const PRELOAD_REMAINING_IMAGES = 2
 const ImageWrapper = ({
   children,
   index,
+  previewEnabled,
   onOpenMenu
 }: {
   children: React.ReactNode
   index: number
+  previewEnabled: boolean
   onOpenMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
 }) => {
   const { ...longPressProps } = useLongPress({
@@ -33,7 +36,21 @@ const ImageWrapper = ({
     threshold: 500
   })
 
-  return <div {...longPressProps}>{children}</div>
+  if (!previewEnabled) {
+    return <div>{children}</div>
+  }
+
+  return (
+    <div
+      {...longPressProps}
+      className="select-none"
+      draggable={false}
+      onDragStart={(event) => event.preventDefault()}
+      style={{ WebkitTouchCallout: 'none' }}
+    >
+      {children}
+    </div>
+  )
 }
 
 export default function ArtworkImages({ images }: ArtworkImagesProps) {
@@ -41,6 +58,9 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; index: number } | null>(null)
   const router = useRouter()
   const setStoreImages = useArtworkStore((state) => state.setImages)
+  const canPreviewFullSize = useCallback((media: ArtworkImageResponseDto) => {
+    return media.mediaType !== 'video' && !isVideoFile(media.path)
+  }, [])
 
   // Handle opening context menu
   const handleOpenMenu = useCallback((e: React.MouseEvent | React.TouchEvent, index: number) => {
@@ -92,7 +112,12 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
       return (
         <div className="w-full px-2" data-testid="artwork-images-container">
           {images.map((img, index) => (
-            <ImageWrapper key={img.id} index={index} onOpenMenu={handleOpenMenu}>
+            <ImageWrapper
+              key={img.id}
+              index={index}
+              previewEnabled={canPreviewFullSize(img)}
+              onOpenMenu={handleOpenMenu}
+            >
               <LazyMedia media={img} index={index} />
             </ImageWrapper>
           ))}
@@ -113,7 +138,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
 
           return (
             <div key={img.id} className="relative group">
-              <ImageWrapper index={index} onOpenMenu={handleOpenMenu}>
+              <ImageWrapper index={index} previewEnabled={canPreviewFullSize(img)} onOpenMenu={handleOpenMenu}>
                 <LazyMedia media={img} index={index} />
               </ImageWrapper>
 
@@ -152,7 +177,12 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
               data-testid="expanded-images"
             >
               {remainingImages.map((img, index) => (
-                <ImageWrapper key={img.id} index={index + MAX_PREVIEW_IMAGES} onOpenMenu={handleOpenMenu}>
+                <ImageWrapper
+                  key={img.id}
+                  index={index + MAX_PREVIEW_IMAGES}
+                  previewEnabled={canPreviewFullSize(img)}
+                  onOpenMenu={handleOpenMenu}
+                >
                   <LazyMedia media={img} index={index + MAX_PREVIEW_IMAGES} />
                 </ImageWrapper>
               ))}
