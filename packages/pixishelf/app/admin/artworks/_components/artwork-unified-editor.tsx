@@ -11,6 +11,7 @@ import Link from 'next/link'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 
 import { ArtworkInfoForm } from './artwork-info-form'
+import type { ArtworkInfoFormInitialData } from './artwork-info-form'
 import { ImageManagerContent } from './image-manager-content'
 
 interface ArtworkUnifiedEditorProps {
@@ -18,6 +19,7 @@ interface ArtworkUnifiedEditorProps {
   onOpenChange: (open: boolean) => void
   artworkId: number | null
   initialTab?: 'info' | 'media'
+  initialData?: ArtworkInfoFormInitialData | null
   onSuccess?: (data?: ArtworkResponseDto) => void
 }
 
@@ -26,6 +28,7 @@ export function ArtworkUnifiedEditor({
   onOpenChange,
   artworkId,
   initialTab = 'info',
+  initialData,
   onSuccess
 }: ArtworkUnifiedEditorProps) {
   const trpc = useTRPC()
@@ -113,6 +116,7 @@ export function ArtworkUnifiedEditor({
             <TabsContent value="info" className="absolute inset-0 m-0 data-[state=inactive]:hidden pr-2">
               <ArtworkInfoForm
                 data={artwork || null}
+                initialData={currentArtworkId ? null : initialData}
                 onSuccess={(savedArtwork) => {
                   onSuccess?.(savedArtwork)
                   if (savedArtwork?.id && !currentArtworkId) {

@@ -8,6 +8,7 @@ import { SDropdown } from '@/components/shared/s-dropdown'
 import {
   Edit,
   Trash,
+  Copy,
   ExternalLink,
   Download,
   FolderInput,
@@ -91,6 +92,13 @@ export default function ArtworkManagement() {
   const trpcClient = useTRPCClient()
   const [batchImportOpen, setBatchImportOpen] = useState(false)
   const [editorConfig, setEditorConfig] = useState<{ id: number | null; tab: 'info' | 'media' } | null>(null)
+  const [copyInitialData, setCopyInitialData] = useState<{
+    title: string
+    description: string
+    sourceDate: string | null
+    artist: { id: number; name: string } | null
+    tags: { id: number; name: string }[]
+  } | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isPrechecking, setIsPrechecking] = useState(false)
   const [migrationSafety, setMigrationSafety] = useState({
@@ -270,11 +278,24 @@ export default function ArtworkManagement() {
   }
 
   const handleEdit = (item: any) => {
+    setCopyInitialData(null)
     setEditorConfig({ id: item.id, tab: 'info' })
   }
 
   const handleOpenImageManager = (item: ArtworkResponseDto) => {
+    setCopyInitialData(null)
     setEditorConfig({ id: item.id, tab: 'media' })
+  }
+
+  const handleCopy = (item: ArtworkResponseDto) => {
+    setCopyInitialData({
+      title: item.title,
+      description: item.description || '',
+      sourceDate: item.sourceDate || null,
+      artist: item.artist ? { id: item.artist.id, name: item.artist.name } : null,
+      tags: item.tags?.map((tag) => ({ id: tag.id, name: tag.name })) || []
+    })
+    setEditorConfig({ id: null, tab: 'info' })
   }
 
   // --- Migration Handlers ---
@@ -494,6 +515,9 @@ export default function ArtworkManagement() {
           <Button variant="ghost" size="icon" onClick={() => handleEdit(row.original)} title="编辑">
             <Edit className="w-4 h-4" />
           </Button>
+          <Button variant="ghost" size="icon" onClick={() => handleCopy(row.original)} title="复制">
+            <Copy className="w-4 h-4" />
+          </Button>
           <ArtworkRescanButton artwork={row.original} onComplete={() => setRefreshKey((prev) => prev + 1)} />
           <Link href={`/artworks/${row.original.id}`} target="_blank">
             <Button variant="ghost" size="icon" title="新标签页打开">
@@ -629,6 +653,7 @@ export default function ArtworkManagement() {
             size="sm"
             className="gap-2"
             onClick={() => {
+              setCopyInitialData(null)
               setEditorConfig({ id: null, tab: 'info' })
             }}
           >
@@ -947,9 +972,15 @@ export default function ArtworkManagement() {
 
       <ArtworkUnifiedEditor
         open={!!editorConfig}
-        onOpenChange={(open) => !open && setEditorConfig(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditorConfig(null)
+            setCopyInitialData(null)
+          }
+        }}
         artworkId={editorConfig?.id ?? null}
         initialTab={editorConfig?.tab}
+        initialData={copyInitialData}
         onSuccess={() => {
           setRefreshKey((prev) => prev + 1)
         }}

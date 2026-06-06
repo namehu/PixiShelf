@@ -16,49 +16,84 @@ import { RecentTagsList } from './recent-tags-list'
 import { Save } from 'lucide-react'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 
-interface TagItem {
+export interface TagItem {
   id: number
   name: string
 }
 
 interface ArtworkInfoFormProps {
   data?: ArtworkResponseDto | null
+  initialData?: ArtworkInfoFormInitialData | null
   onSuccess: (data?: ArtworkResponseDto) => void
 }
 
-export function ArtworkInfoForm({ data, onSuccess }: ArtworkInfoFormProps) {
-  const { addTag } = useRecentTags()
-  const trpc = useTRPC()
-  const trpcClient = useTRPCClient()
-  const queryClient = useQueryClient()
+export interface ArtworkInfoFormInitialData {
+  title?: string | null
+  description?: string | null
+  sourceDate?: string | Date | null
+  artist?: { id: number; name: string } | null
+  tags?: TagItem[]
+}
 
-  const [formData, setFormData] = useState({
+function createEmptyFormData() {
+  return {
     title: '',
     description: '',
     sourceDate: new Date(),
     artist: null as { id: number; name: string } | null,
     tags: [] as TagItem[]
-  })
+  }
+}
+
+function parseSourceDate(value?: string | Date | null) {
+  if (!value) return new Date()
+  if (value instanceof Date) return value
+
+  const datePart = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (datePart) {
+    const [, year, month, day] = datePart
+    return new Date(Number(year), Number(month) - 1, Number(day))
+  }
+
+  return new Date(value)
+}
+
+function createFormDataFromInitialData(initialData?: ArtworkInfoFormInitialData | null) {
+  if (!initialData) {
+    return createEmptyFormData()
+  }
+
+  return {
+    title: initialData.title || '',
+    description: initialData.description || '',
+    sourceDate: parseSourceDate(initialData.sourceDate),
+    artist: initialData.artist ? { id: initialData.artist.id, name: initialData.artist.name } : null,
+    tags: initialData.tags?.map((t) => ({ id: t.id, name: t.name })) || []
+  }
+}
+
+export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFormProps) {
+  const { addTag } = useRecentTags()
+  const trpc = useTRPC()
+  const trpcClient = useTRPCClient()
+  const queryClient = useQueryClient()
+
+  const [formData, setFormData] = useState(() => createFormDataFromInitialData(initialData))
 
   useEffect(() => {
     if (data) {
       setFormData({
         title: data.title || '',
         description: data.description || '',
-        sourceDate: data.sourceDate ? new Date(data.sourceDate) : new Date(),
+        sourceDate: parseSourceDate(data.sourceDate),
         artist: data.artist ? { id: data.artist.id, name: data.artist.name } : null,
         tags: data.tags?.map((t: any) => ({ id: t.id, name: t.name })) || []
       })
-    } else {
-      setFormData({
-        title: '',
-        description: '',
-        sourceDate: new Date(),
-        artist: null,
-        tags: []
-      })
+      return
     }
-  }, [data])
+
+    setFormData(createFormDataFromInitialData(initialData))
+  }, [data, initialData])
 
   const updateMutation = useMutation(
     trpc.artwork.update.mutationOptions({
