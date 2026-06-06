@@ -1,4 +1,5 @@
 import { VIDEO_EXTENSIONS } from '@/lib/constant'
+import { MAX_MEDIA_UPLOAD_SIZE_BYTES, MAX_MEDIA_UPLOAD_SIZE_LABEL } from '@/lib/upload-limits'
 
 type UploadProgressCallback = (percent: number) => void
 
@@ -17,6 +18,10 @@ export function useChunkUpload() {
     const CHUNK_SIZE = 10 * 1024 * 1024 // 10MB 分片大小
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
     let lastMeta = null
+
+    if (file.size > MAX_MEDIA_UPLOAD_SIZE_BYTES) {
+      throw new Error(`文件大小超过限制（${MAX_MEDIA_UPLOAD_SIZE_LABEL}）`)
+    }
 
     // 1. 检查服务器上是否存在文件以支持断点续传（仅限视频）
     let resumeIndex = 0
@@ -55,7 +60,8 @@ export function useChunkUpload() {
         'x-target-rel-dir': encodeURIComponent(targetRelDir || ''),
         'x-chunk-index': chunkIndex.toString(),
         'x-total-chunks': totalChunks.toString(),
-        'x-offset': start.toString()
+        'x-offset': start.toString(),
+        'x-file-size': file.size.toString()
       }
 
       const res = await fetch('/api/artwork/upload-chunk', {

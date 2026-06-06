@@ -29,6 +29,7 @@ import { MEDIA_EXTENSIONS, VIDEO_EXTENSIONS } from '@/lib/constant'
 import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 import { formatFileSize } from '@/utils/media'
 import { guid } from '@/utils/guid'
+import { MAX_MEDIA_UPLOAD_SIZE_BYTES, MAX_MEDIA_UPLOAD_SIZE_LABEL } from '@/lib/upload-limits'
 import { useThrottleFn } from 'ahooks'
 import { useDragDropStore } from '../_store/drag-drop-store'
 import { useDragImages } from '../_hooks/use-drag-images'
@@ -79,7 +80,6 @@ interface ChapterPreviewItem {
 
 export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onSuccess }: ImageReplaceDialogProps) {
   const [globalStatus, setGlobalStatus] = useState<GlobalUploadStatus>('idle')
-  const [files, setFiles] = useState<File[]>([])
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
   const [chapterItems, setChapterItems] = useState<ChapterPreviewItem[]>([])
   const [uploadConfig, setUploadConfig] = useState<{ uploadTargetDir: string; targetRelDir: string } | null>(null)
@@ -118,7 +118,6 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   useEffect(() => {
     if (open) {
       setGlobalStatus('idle')
-      setFiles([])
       updatePreviewItems([])
       updateChapterItems([])
       setUploadConfig(null)
@@ -222,15 +221,24 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       MEDIA_EXTENSIONS.includes('.' + (f.name.split('.').pop() || '').toLowerCase())
     )
     const chapterFiles = newFiles.filter((f) => isChapterManifestFileName(f.name))
+    const oversizedMediaFiles = mediaFiles.filter((file) => file.size > MAX_MEDIA_UPLOAD_SIZE_BYTES)
+    const validMediaFiles = mediaFiles.filter((file) => file.size <= MAX_MEDIA_UPLOAD_SIZE_BYTES)
 
-    if (mediaFiles.length === 0 && chapterFiles.length === 0) {
+    if (oversizedMediaFiles.length > 0) {
+      toast.error(
+        `已拦截 ${oversizedMediaFiles.length} 个超过 ${MAX_MEDIA_UPLOAD_SIZE_LABEL} 的媒体文件：${oversizedMediaFiles
+          .slice(0, 3)
+          .map((file) => file.name)
+          .join('、')}${oversizedMediaFiles.length > 3 ? '...' : ''}`
+      )
+    }
+
+    if (validMediaFiles.length === 0 && chapterFiles.length === 0) {
       toast.warning('未找到符合格式的媒体或章节文件')
       return
     }
 
-    setFiles((prev) => [...prev, ...mediaFiles])
-
-    const newItems = mediaFiles.map((file) => {
+    const newItems = validMediaFiles.map((file) => {
       const order = extractOrderFromName(file.name)
       const ext = file.name.split('.').pop()
       const newName = `${artwork.externalId}_p${order}.${ext}`
@@ -334,7 +342,6 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
 
     // 重置本地状态
     previewItems.forEach((item) => item.previewUrl && URL.revokeObjectURL(item.previewUrl))
-    setFiles([])
     updatePreviewItems([])
     updateChapterItems([])
     setUploadConfig(null)

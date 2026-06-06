@@ -7,8 +7,7 @@ import { getScanPath } from '@/services/setting.service'
 import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 import { ImageMeta } from '@/services/artwork-service/image-manager'
 import { MEDIA_EXTENSIONS, VIDEO_EXTENSIONS } from '@/lib/constant'
-
-const MAX_FILE_SIZE = 1024 * 1024 * 1024 // 1GB
+import { MAX_MEDIA_UPLOAD_SIZE_BYTES, MAX_MEDIA_UPLOAD_SIZE_LABEL } from '@/lib/upload-limits'
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,6 +17,7 @@ export async function POST(req: NextRequest) {
     const chunkIndexStr = req.headers.get('x-chunk-index')
     const totalChunksStr = req.headers.get('x-total-chunks')
     const offsetStr = req.headers.get('x-offset')
+    const fileSizeStr = req.headers.get('x-file-size')
 
     if (!fileName || !targetDir) {
       return NextResponse.json({ error: 'Missing required headers' }, { status: 400 })
@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
     const chunkIndex = parseInt(chunkIndexStr || '0')
     const totalChunks = parseInt(totalChunksStr || '1')
     const offset = parseInt(offsetStr || '0')
+    const declaredFileSize = fileSizeStr ? Number(fileSizeStr) : null
 
     // Decode headers
     const decodedFileName = decodeURIComponent(fileName)
@@ -36,6 +37,10 @@ export async function POST(req: NextRequest) {
     const ext = path.extname(decodedFileName).toLowerCase()
     if (!MEDIA_EXTENSIONS.includes(ext)) {
       return NextResponse.json({ error: 'Unsupported file extension' }, { status: 400 })
+    }
+
+    if (declaredFileSize !== null && declaredFileSize > MAX_MEDIA_UPLOAD_SIZE_BYTES) {
+      return NextResponse.json({ error: `File size exceeds limit (${MAX_MEDIA_UPLOAD_SIZE_LABEL})` }, { status: 400 })
     }
 
     // 1. 安全校验：防止路径遍历
@@ -111,9 +116,12 @@ export async function POST(req: NextRequest) {
       try {
         // Check size limit
         const stats = fs.statSync(filePath)
-        if (stats.size > MAX_FILE_SIZE) {
+        if (stats.size > MAX_MEDIA_UPLOAD_SIZE_BYTES) {
           fs.unlinkSync(filePath)
-          return NextResponse.json({ error: 'File size exceeds limit (500MB)' }, { status: 400 })
+          return NextResponse.json(
+            { error: `File size exceeds limit (${MAX_MEDIA_UPLOAD_SIZE_LABEL})` },
+            { status: 400 }
+          )
         }
 
         let width = 0
