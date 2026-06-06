@@ -8,7 +8,7 @@ import * as JobService from '@/services/job-service'
 import { apiHandler } from '@/lib/api-handler'
 import { ScanRescanSchema } from '@/schemas/scan.dto'
 import { prisma } from '@/lib/prisma'
-import path from 'path'
+import { determineArtworkRelDir } from '@/services/artwork-service/utils'
 
 /**
  * Helper: Create SSE event sender
@@ -37,6 +37,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
   const artwork = await prisma.artwork.findUnique({
     where: { externalId },
     include: {
+      artist: true,
       images: {
         orderBy: { sortOrder: 'asc' },
         take: 1
@@ -48,13 +49,10 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
     return NextResponse.json({ error: 'Artwork not found' }, { status: 404 })
   }
 
-  if (!artwork.images || artwork.images.length === 0) {
-    return NextResponse.json({ error: 'Artwork has no images to determine path' }, { status: 400 })
+  const relativePath = determineArtworkRelDir(artwork)
+  if (!relativePath) {
+    return NextResponse.json({ error: 'Cannot determine artwork path' }, { status: 400 })
   }
-
-  // 计算 relativePath: dirname(firstImage.path)
-  const firstImagePath = artwork.images[0]!.path
-  const relativePath = path.dirname(firstImagePath)
 
   // 简单的安全检查：确保路径不包含 ..
   if (relativePath.includes('..')) {
@@ -75,7 +73,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
           try {
             const message = `event: ping\ndata: {}\n\n`
             controller.enqueue(encoder.encode(message))
-          } catch (e) {
+          } catch (_e) {
             if (pingInterval) clearInterval(pingInterval)
           }
         }, 15000)
@@ -126,7 +124,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
         if (pingInterval) clearInterval(pingInterval)
         try {
           controller.close()
-        } catch (e) {
+        } catch (_e) {
           // Ignore
         }
       }
