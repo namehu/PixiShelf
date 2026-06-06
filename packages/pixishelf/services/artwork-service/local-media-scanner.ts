@@ -16,6 +16,7 @@ export interface LocalArtworkMediaScanResult {
 
 const supportedMediaExtensions = new Set(MEDIA_EXTENSIONS)
 const supportedVideoExtensions = new Set(VIDEO_EXTENSIONS)
+const MEDIA_METADATA_CONCURRENCY = 8
 
 /**
  * 从本地作品目录构建媒体与章节入库元数据。
@@ -24,30 +25,30 @@ const supportedVideoExtensions = new Set(VIDEO_EXTENSIONS)
 export async function scanLocalArtworkMediaDirectory(input: {
   scanPath: string
   targetDirectoryRelativePath: string
+  onProgress?: (progress: { current: number; total: number; fileName: string }) => void
 }): Promise<LocalArtworkMediaScanResult> {
-  const { scanPath, targetDirectoryRelativePath } = input
+  const { scanPath, targetDirectoryRelativePath, onProgress } = input
   const targetDir = resolvePathWithinScanRoot(scanPath, targetDirectoryRelativePath)
   const targetRelDir = normalizeStoredDir(targetDirectoryRelativePath)
   const entries = await fs.readdir(targetDir)
-  const filesMeta: ImageMeta[] = []
-  const chaptersMeta: ReplaceChapterMetaInput[] = []
-  const warnings: string[] = []
-
-  for (const entry of entries) {
+  const mediaEntries = entries.filter((entry) => {
     const extension = path.extname(entry).toLowerCase()
-    if (!supportedMediaExtensions.has(extension)) {
-      continue
-    }
-
+    return supportedMediaExtensions.has(extension)
+  })
+  let completedCount = 0
+  const results = await runConcurrentMap(mediaEntries, MEDIA_METADATA_CONCURRENCY, async (entry) => {
+    const extension = path.extname(entry).toLowerCase()
     const absolutePath = path.join(targetDir, entry)
     const stats = await fs.stat(absolutePath)
     if (!stats.isFile()) {
-      continue
+      return null
     }
 
     let width = 0
     let height = 0
     const isVideo = supportedVideoExtensions.has(extension)
+    const warnings: string[] = []
+    const chaptersMeta: ReplaceChapterMetaInput[] = []
 
     if (!isVideo) {
       try {
@@ -60,14 +61,14 @@ export async function scanLocalArtworkMediaDirectory(input: {
     }
 
     const storedPath = joinStoredPath(targetRelDir, entry)
-    filesMeta.push({
+    const fileMeta: ImageMeta = {
       fileName: entry,
       order: extractOrderFromName(entry),
       width,
       height,
       size: stats.size,
       path: storedPath
-    })
+    }
 
     if (isVideo) {
       try {
@@ -85,6 +86,31 @@ export async function scanLocalArtworkMediaDirectory(input: {
         )
       }
     }
+    const result = {
+      fileMeta,
+      chaptersMeta,
+      warnings
+    }
+
+    completedCount += 1
+    onProgress?.({
+      current: completedCount,
+      total: mediaEntries.length,
+      fileName: entry
+    })
+
+    return result
+  })
+
+  const filesMeta: ImageMeta[] = []
+  const chaptersMeta: ReplaceChapterMetaInput[] = []
+  const warnings: string[] = []
+
+  for (const result of results) {
+    if (!result) continue
+    filesMeta.push(result.fileMeta)
+    chaptersMeta.push(...result.chaptersMeta)
+    warnings.push(...result.warnings)
   }
 
   filesMeta.sort((a, b) => a.order - b.order || a.fileName.localeCompare(b.fileName))
@@ -115,4 +141,26 @@ function resolvePathWithinScanRoot(scanRoot: string, relativePath: string): stri
   }
 
   return resolvedPath
+}
+
+async function runConcurrentMap<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = []
+  let nextIndex = 0
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++
+      const item = items[currentIndex]
+      if (item === undefined) continue
+      results[currentIndex] = await mapper(item)
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length)
+  await Promise.all(Array.from({ length: workerCount }, worker))
+  return results
 }

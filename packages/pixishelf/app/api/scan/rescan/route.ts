@@ -13,11 +13,26 @@ import { determineArtworkRelDir } from '@/services/artwork-service/utils'
 /**
  * Helper: Create SSE event sender
  */
-function createEventSender(controller: ReadableStreamDefaultController, encoder: TextEncoder) {
+function createEventSender(
+  controller: ReadableStreamDefaultController,
+  encoder: TextEncoder,
+  streamState: { closed: boolean }
+) {
   return (event: string, data: any) => {
+    if (streamState.closed) return false
     const safeData = data === undefined ? {} : data
     const message = `event: ${event}\ndata: ${JSON.stringify(safeData)}\n\n`
-    controller.enqueue(encoder.encode(message))
+    try {
+      controller.enqueue(encoder.encode(message))
+      return true
+    } catch (error) {
+      logger.warn('Failed to send rescan SSE event; client stream is likely closed', {
+        event,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      })
+      streamState.closed = true
+      return false
+    }
   }
 }
 
@@ -63,17 +78,15 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
 
   const stream = new ReadableStream({
     async start(controller) {
-      const sendEvent = createEventSender(controller, encoder)
       let currentJobId: string | null = null
       let pingInterval: NodeJS.Timeout | null = null
+      const streamState = { closed: false }
+      const sendEvent = createEventSender(controller, encoder, streamState)
 
       try {
         // Setup heartbeat (every 15s)
         pingInterval = setInterval(() => {
-          try {
-            const message = `event: ping\ndata: {}\n\n`
-            controller.enqueue(encoder.encode(message))
-          } catch (_e) {
+          if (!sendEvent('ping', {})) {
             if (pingInterval) clearInterval(pingInterval)
           }
         }, 15000)
@@ -122,10 +135,12 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
         sendEvent('error', { success: false, error: errorMsg })
       } finally {
         if (pingInterval) clearInterval(pingInterval)
-        try {
-          controller.close()
-        } catch (_e) {
-          // Ignore
+        if (!streamState.closed) {
+          try {
+            controller.close()
+          } catch (_e) {
+            // Ignore
+          }
         }
       }
     },

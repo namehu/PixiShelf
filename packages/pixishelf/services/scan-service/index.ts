@@ -918,7 +918,17 @@ export async function rescanLocalArtwork(
 
     const mediaScanResult = await scanLocalArtworkMediaDirectory({
       scanPath: options.scanPath,
-      targetDirectoryRelativePath
+      targetDirectoryRelativePath,
+      onProgress: ({ current, total, fileName }) => {
+        const percentage = total > 0 ? 20 + Math.round((current / total) * 50) : 20
+        options.onProgress?.({
+          phase: 'scanning',
+          message: `正在扫描本地媒体文件 ${current}/${total}: ${fileName}`,
+          current,
+          total,
+          percentage
+        })
+      }
     })
 
     scanResult.errors.push(...mediaScanResult.warnings)
