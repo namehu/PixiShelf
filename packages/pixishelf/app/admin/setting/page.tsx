@@ -1,5 +1,5 @@
-import ScanManagement from './_components/scan-management'
 import { Metadata } from 'next'
+import { SettingManagement } from './_components/setting-management'
 
 export const metadata: Metadata = {
   title: '设置管理 - PixiShelf Admin',
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 }
 
 export default function SettingPage() {
-  return <ScanManagement />
+  return <SettingManagement />
 }

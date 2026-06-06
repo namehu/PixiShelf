@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 import fs from 'fs'
 import fsPromises from 'fs/promises'
-import { getScanPath } from '@/services/setting.service'
+import { getScanPath, getSystemSettings } from '@/services/setting.service'
 import { updateArtworkImagesTransaction, ImageMeta, ReplaceChapterMetaInput } from '@/services/artwork-service/image-manager'
 import { MEDIA_EXTENSIONS } from '@/lib/constant'
 import { getArtworkById } from '@/services/artwork-service'
@@ -125,8 +125,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         )
       }
 
+      const systemSettings = await getSystemSettings()
+
       // 执行数据库事务
-      await updateArtworkImagesTransaction(artworkId, allFilesMeta, chaptersMeta)
+      await updateArtworkImagesTransaction(artworkId, allFilesMeta, chaptersMeta, {
+        appendTagIds: systemSettings.replace_default_tag_ids
+      })
 
       // 删除备份
       await fsPromises.rm(backupDir, { recursive: true, force: true }).catch(console.error)

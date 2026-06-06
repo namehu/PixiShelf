@@ -27,6 +27,21 @@ async function getTagManagementStats(): Promise<TagManagementStats> {
 }
 
 export const tagRouter = router({
+  getByIds: authProcedure
+    .input(
+      z.object({
+        ids: z.array(z.number().int().positive()).max(100)
+      })
+    )
+    .query(async ({ input }) => {
+      if (input.ids.length === 0) {
+        return { items: [] }
+      }
+
+      const tags = await tagService.getTagsByIds(input.ids)
+      return { items: tags }
+    }),
+
   /**
    * 标签列表/搜索/随机获取
    */

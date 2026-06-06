@@ -1,5 +1,6 @@
 import { authProcedure, router } from '@/server/trpc'
-import { getScanPath, setScanPath } from '@/services/setting.service'
+import { getScanPath, getSystemSettings, setScanPath, upsertSystemSettings } from '@/services/setting.service'
+import { systemSettingsResponseDTO, updateSystemSettingsSchema } from '@/schemas/system-setting.dto'
 import z from 'zod'
 
 export const settingRouter = router({
@@ -23,5 +24,15 @@ export const settingRouter = router({
    */
   setScanPath: authProcedure.input(z.object({ value: z.string() })).mutation(async ({ input }) => {
     await setScanPath(input.value)
+  }),
+
+  getSystemSettings: authProcedure.query(async () => {
+    const settings = await getSystemSettings()
+    return systemSettingsResponseDTO.parse({ settings })
+  }),
+
+  updateSystemSettings: authProcedure.input(updateSystemSettingsSchema).mutation(async ({ input }) => {
+    const settings = await upsertSystemSettings(input)
+    return systemSettingsResponseDTO.parse({ settings })
   })
 })

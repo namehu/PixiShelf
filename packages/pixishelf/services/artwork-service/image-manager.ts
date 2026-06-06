@@ -41,7 +41,8 @@ export interface ReplaceChapterMetaInput extends ChapterMetaInput {
 export async function updateArtworkImagesTransaction(
   artworkId: number,
   files: ImageMeta[],
-  chaptersMeta: ReplaceChapterMetaInput[] = []
+  chaptersMeta: ReplaceChapterMetaInput[] = [],
+  options: { appendTagIds?: number[] } = {}
 ) {
   return await prisma.$transaction(async (tx) => {
     // 1. 删除旧图片记录
@@ -78,6 +79,24 @@ export async function updateArtworkImagesTransaction(
     }
 
     await syncMediaDerivedTagForArtwork(tx, artworkId)
+
+    const appendTagIds = Array.from(new Set((options.appendTagIds ?? []).filter((id) => Number.isInteger(id) && id > 0)))
+    if (appendTagIds.length > 0) {
+      const existingTags = await tx.tag.findMany({
+        where: { id: { in: appendTagIds } },
+        select: { id: true }
+      })
+
+      if (existingTags.length > 0) {
+        await tx.artworkTag.createMany({
+          data: existingTags.map((tag) => ({
+            artworkId,
+            tagId: tag.id
+          })),
+          skipDuplicates: true
+        })
+      }
+    }
   })
 }
 

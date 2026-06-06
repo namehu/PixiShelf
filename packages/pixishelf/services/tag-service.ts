@@ -36,6 +36,19 @@ export async function getById(id: number): Promise<TTagResponseDto | null> {
   return !tag ? null : TagResponseDto.parse(tag)
 }
 
+export async function getTagsByIds(ids: number[]): Promise<TTagResponseDto[]> {
+  const uniqueIds = Array.from(new Set(ids.filter((id) => Number.isInteger(id) && id > 0)))
+  if (uniqueIds.length === 0) return []
+
+  const tags = await prisma.tag.findMany({
+    where: { id: { in: uniqueIds } },
+    select: TAG_SELECT
+  })
+  const tagMap = new Map(tags.map((tag) => [tag.id, TagResponseDto.parse(tag)]))
+
+  return uniqueIds.map((id) => tagMap.get(id)).filter((tag): tag is TTagResponseDto => Boolean(tag))
+}
+
 /**
  * 搜索模式 (有 query)
  */
