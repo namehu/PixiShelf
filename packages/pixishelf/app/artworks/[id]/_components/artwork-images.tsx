@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { motion, AnimatePresence } from 'framer-motion'
-import LazyMedia from './LazyMedia'
+import LazyMedia from './lazy-media'
 import { useLongPress } from '@/hooks/useLongPress'
 import { Popover, PopoverContent, PopoverAnchor } from '@/components/ui/popover'
 import { useRouter } from 'next/navigation'

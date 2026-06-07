@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import ArtworkImages from './ArtworkImages'
+import ArtworkImages from './artwork-images'
 import React from 'react'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 
@@ -23,7 +23,7 @@ vi.mock('@/components/ui/popover', () => ({
 }))
 
 // Mock LazyMedia 组件
-vi.mock('./LazyMedia', () => ({
+vi.mock('./lazy-media', () => ({
   default: ({ media, index }: { media: { path: string }; index: number }) => (
     <div data-testid="lazy-media" data-src={media.path} data-index={index}>
       Image {index + 1}

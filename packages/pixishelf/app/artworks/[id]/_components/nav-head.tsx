@@ -2,7 +2,7 @@
 
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { ChevronLeftIcon, FullscreenIcon } from 'lucide-react'
-import MediaCounter from './MediaCounter'
+import MediaCounter from './media-counter'
 import { useArtworkStore } from '@/store/useArtworkStore'
 import { useEffect, useMemo } from 'react'
 import { getMediaInfo } from '@/lib/media'
