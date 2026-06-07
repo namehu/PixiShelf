@@ -34,7 +34,7 @@ export interface WebpAnimationScanResult {
 }
 
 export async function detectAnimatedWebp(absolutePath: string): Promise<boolean> {
-  const metadata = await sharp(absolutePath, { animated: true }).metadata()
+  const metadata = await sharp(absolutePath, { animated: true, limitInputPixels: false }).metadata()
   return (metadata.pages ?? 1) > 1
 }
 
