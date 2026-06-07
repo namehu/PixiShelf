@@ -17,7 +17,7 @@ const cspHeader = `
 const nextConfig: NextConfig = {
   output: 'standalone',
   images: {
-    qualities: [75, 85, 95, 100],
+    qualities: [75, 80, 85, 95, 100],
     // // 允许生成的图片宽度
     // imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     // // 对应屏幕宽度的断点

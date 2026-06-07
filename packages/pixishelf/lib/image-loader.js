@@ -1,12 +1,32 @@
-import { isVideoFile } from './media'
+import { isGifFile, isVideoFile, isWebpFile } from './media'
 import { API_IMAGE_PREFIX } from './constant'
 
 // ImgProxy 的服务地址，因为在 Docker Compose 网络中，可以直接用服务名
 // 从浏览器访问时需要用宿主机的 IP 和端口
 const IMGPROXY_URL = process.env.NEXT_PUBLIC_IMGPROXY_URL || 'http://localhost:5431';
 const THUMBOR_VIDEO_URL = process.env.NEXT_PUBLIC_THUMBOR_VIDEO_URL || 'http://localhost:5433';
+const DEFAULT_IMAGE_OUTPUT_FORMAT = 'webp'
+const STATIC_ANIMATION_THUMBNAIL_FORMAT = 'jpg'
 
-export default function imgproxyLoader({ src, width, quality }) {
+/**
+ * @typedef {Object} ImgproxyImageOptions
+ * @property {string} src
+ * @property {number} width
+ * @property {number=} quality
+ * @property {string=} format
+ */
+
+/**
+ * @param {ImgproxyImageOptions} options
+ */
+export function buildImgproxyImageUrl({ src, width, quality, format = DEFAULT_IMAGE_OUTPUT_FORMAT }) {
+  return `${IMGPROXY_URL}/_/rs:fit:${width}:0/q:${quality || 90}/sm:1/plain/local://${encodeURIComponent(src)}@${format}`;
+}
+
+/**
+ * @param {ImgproxyImageOptions} options
+ */
+export default function imgproxyLoader({ src, width, quality, format }) {
   // pixiv_data 下面可用防止 artists / tags图片数据。根据public挂载
   if (src.startsWith(API_IMAGE_PREFIX) || src.startsWith('/pixiv_data')) {
     return src
@@ -24,12 +44,12 @@ export default function imgproxyLoader({ src, width, quality }) {
    * g:sm: 智能识别主体作为裁剪中心。
    * q:90: 图片质量为 90%。
    * sm:1: 去除所有元数据。
-   * @webp: 指定输出格式为 WebP。
+   * @webp/@jpg/@png: 指定输出格式。WebP/GIF 统一转静态 JPG，避免返回缩放后的动图。
    */
   // - /unsafe/: 签名部分，如果未配置密钥则使用 unsafe
   // - ...processingOptions: 上面定义好的处理选项
   // - /${encodedSrc}: 编码后的源图片 URL
-  // - .webp: 指定输出格式为高效的 WebP
-  return `${IMGPROXY_URL}/_/rs:fit:${width}:0/q:${quality || 90}/sm:1/plain/local://${encodeURIComponent(src)}@webp`;
-}
+  const outputFormat = format || (isWebpFile(src) || isGifFile(src) ? STATIC_ANIMATION_THUMBNAIL_FORMAT : DEFAULT_IMAGE_OUTPUT_FORMAT)
 
+  return buildImgproxyImageUrl({ src, width, quality, format: outputFormat });
+}

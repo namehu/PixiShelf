@@ -66,3 +66,10 @@ export const isApngFile = (src) => /\.apng$/i.test(src || '')
  * @returns
  */
 export const isWebpFile = (src) => /\.webp$/i.test(src || '')
+
+/**
+ * 判断文件是否为 gif 格式
+ * @param {*} src
+ * @returns
+ */
+export const isGifFile = (src) => /\.gif$/i.test(src || '')
