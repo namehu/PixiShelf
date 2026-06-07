@@ -70,7 +70,9 @@ describe('webp-animation-scan-service', () => {
 
     const result = await runWebpAnimationScanJob({ scanPath: 'D:/scan-root' })
 
-    expect(sharpMock).toHaveBeenCalledWith(expect.stringMatching(/[\\/]artist[\\/]artwork[\\/]1\.webp$/), {
+    const [firstSharpPath, firstSharpOptions] = sharpMock.mock.calls[0] ?? []
+    expect(String(firstSharpPath).replace(/\\/g, '/')).toMatch(/\/artist\/artwork\/1\.webp$/)
+    expect(firstSharpOptions).toEqual({
       animated: true,
       limitInputPixels: false
     })
