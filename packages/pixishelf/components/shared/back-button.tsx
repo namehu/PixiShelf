@@ -1,9 +1,9 @@
 'use client'
 
 import React from 'react'
-import { useRouter } from 'next/navigation'
 import { ChevronLeftIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useSafeBack } from '@/hooks/use-safe-back'
 
 interface BackButtonProps {
   className?: string
@@ -11,12 +11,12 @@ interface BackButtonProps {
 }
 
 export function BackButton({ className, children = '返回' }: BackButtonProps) {
-  const router = useRouter()
+  const safeBack = useSafeBack()
 
   return (
     <Button
       variant="outline"
-      onClick={() => router.back()}
+      onClick={safeBack}
       className={className}
     >
       <ChevronLeftIcon className="w-4 h-4 mr-2" />

@@ -7,9 +7,11 @@ import { useArtworkStore } from '@/store/useArtworkStore'
 import { useEffect, useMemo } from 'react'
 import { getMediaInfo } from '@/lib/media'
 import { useRouter } from 'next/navigation'
+import { useSafeBack } from '@/hooks/use-safe-back'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
+  const safeBack = useSafeBack()
   const setImages = useArtworkStore((state) => state.setImages)
   const setTotal = useArtworkStore((state) => state.setTotal)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
@@ -34,7 +36,7 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <button
-            onClick={() => router.back()}
+            onClick={safeBack}
             className="w-16 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ChevronLeftIcon size={24} />

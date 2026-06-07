@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Zoom, Navigation, Pagination, Mousewheel, Keyboard } from 'swiper/modules'
@@ -23,9 +22,10 @@ import './styles.css' // Create a local style file for custom overrides if neede
 import { useShallow } from 'zustand/shallow'
 import { getMediaInfo, isApngFile } from '@/lib/media'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
+import { useSafeBack } from '@/hooks/use-safe-back'
 
 export default function ArtworkPreviewPage() {
-  const router = useRouter()
+  const safeBack = useSafeBack()
   const { images, clearImages } = useArtworkStore(
     useShallow((state) => ({
       images: state.images,
@@ -74,7 +74,7 @@ export default function ArtworkPreviewPage() {
       <div className="flex h-screen w-screen items-center justify-center bg-black text-white">
         <div className="text-center">
           <p className="mb-4">没有可预览的图片</p>
-          <button onClick={() => router.back()} className="rounded bg-white/10 px-4 py-2 hover:bg-white/20">
+          <button onClick={safeBack} className="rounded bg-white/10 px-4 py-2 hover:bg-white/20">
             返回
           </button>
         </div>
@@ -164,7 +164,7 @@ export default function ArtworkPreviewPage() {
           </div>
         </div>
         <button
-          onClick={() => router.back()}
+          onClick={safeBack}
           className="flex h-10 w-10 items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-colors hover:bg-black/40"
         >
           <X size={24} />

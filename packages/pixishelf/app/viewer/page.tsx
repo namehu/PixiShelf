@@ -3,7 +3,6 @@
 import ImmersiveImageViewer from './_components/ImmersiveImageViewer'
 import { useEffect, useMemo, useRef } from 'react'
 import { ChevronLeftIcon } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs'
 import PageNoData from './_components/PageNoData'
 import PageLoading from './_components/PageLoading'
@@ -13,6 +12,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useTRPC } from '@/lib/trpc'
 import { EMediaType } from '@/enums/EMediaType'
+import { useSafeBack } from '@/hooks/use-safe-back'
 
 type ViewerSource = 'all' | 'artist' | 'tag'
 type ViewerMode = 'ordered' | 'random'
@@ -35,7 +35,7 @@ const viewerQueryParsers = {
  * 集成状态管理，支持浏览位置恢复
  */
 export default function ViewerPage() {
-  const router = useRouter()
+  const safeBack = useSafeBack()
   const [viewerQuery] = useQueryStates(viewerQueryParsers)
   const trpc = useTRPC()
   const defaultRandomSeedRef = useRef(Math.floor(Math.random() * 1000000))
@@ -142,7 +142,7 @@ export default function ViewerPage() {
       {/* 返回按钮 - 仅在PC端显示 */}
       <button
         className="absolute top-0 left-0 w-16 py-4 z-50 cursor-pointer bg-black/40 text-white rounded-full items-center justify-center hover:bg-black/60 transition-colors md:flex hidden"
-        onClick={() => router.back()}
+        onClick={safeBack}
       >
         <ChevronLeftIcon className="w-5 h-5" />
       </button>
@@ -150,7 +150,7 @@ export default function ViewerPage() {
       {/* 移动端返回按钮 - 手势区域 */}
       <div
         className="absolute top-0 left-0 w-16 py-4 z-50 md:hidden flex items-center justify-center"
-        onClick={() => router.back()}
+        onClick={safeBack}
       >
         <ChevronLeftIcon className="w-10 h-10 text-white" />
       </div>

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { createSerializer, useQueryStates, parseAsInteger, parseAsString } from 'nuqs'
-import { useRouter } from 'next/navigation'
 import { SortOption, MediaTypeFilter } from '@/types'
 import { SlidersHorizontal, ChevronLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -14,6 +13,7 @@ import { SearchBox } from '@/app/artworks/_components/search-box'
 import { cn } from '@/lib/utils'
 import InfiniteArtworkList from '@/components/artwork/Infinite-artwork-list'
 import dayjs from 'dayjs'
+import { useSafeBack } from '@/hooks/use-safe-back'
 
 const viewerQueryParsers = {
   source: parseAsString,
@@ -30,7 +30,7 @@ const viewerQueryParsers = {
 const serializeViewerQuery = createSerializer(viewerQueryParsers)
 
 export default function ArtistDetailPage({ artist, id }: { artist: ArtistResponseDto; id: string }) {
-  const router = useRouter()
+  const safeBack = useSafeBack()
   const [isScrolled, setIsScrolled] = useState(false)
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [total, setTotal] = useState(0)
@@ -121,7 +121,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
               'flex items-center cursor-pointer transition-colors hover:opacity-80',
               isScrolled ? 'text-gray-700' : 'text-white/90 drop-shadow-md'
             )}
-            onClick={() => router.back()}
+            onClick={safeBack}
           >
             <ChevronLeft className="w-5 h-5 mr-0.5" />
           </div>

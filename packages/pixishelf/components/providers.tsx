@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { Suspense } from 'react'
 import { AuthProvider } from '@/components/auth'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -10,6 +10,7 @@ import { TRPCProvider as TRPCClientProvider } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
 import { UserSettingProvider } from '@/components/user-setting'
 import type { UserSettings } from '@/schemas/user-setting.dto'
+import { NavigationHistoryTracker } from '@/components/navigation-history-tracker'
 
 function makeQueryClient() {
   return new QueryClient({
@@ -67,7 +68,12 @@ export function Providers({ children, initialUser, initialSettings }: ProvidersP
     <QueryClientProvider client={queryClient}>
       <TRPCClientProvider trpcClient={trpcClient} queryClient={queryClient}>
         <AuthProvider initialUser={initialUser}>
-          <UserSettingProvider initialSettings={initialSettings}>{children}</UserSettingProvider>
+          <UserSettingProvider initialSettings={initialSettings}>
+            <Suspense fallback={null}>
+              <NavigationHistoryTracker />
+            </Suspense>
+            {children}
+          </UserSettingProvider>
         </AuthProvider>
       </TRPCClientProvider>
     </QueryClientProvider>

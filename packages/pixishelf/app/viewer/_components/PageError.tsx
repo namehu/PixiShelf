@@ -1,6 +1,11 @@
+'use client'
+
 import { ConstructionIcon } from 'lucide-react'
+import { useSafeBack } from '@/hooks/use-safe-back'
 
 export default function PageError({ content }: { content?: string }) {
+  const safeBack = useSafeBack()
+
   return (
     <main className="h-screen w-screen bg-black flex items-center justify-center">
       <div className="text-center text-white">
@@ -17,7 +22,7 @@ export default function PageError({ content }: { content?: string }) {
             重试
           </button>
           <button
-            onClick={() => window.history.go(-1)}
+            onClick={safeBack}
             className="px-6 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
           >
             返回

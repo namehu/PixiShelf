@@ -1,7 +1,9 @@
-import { useRouter } from 'next/navigation'
+'use client'
+
+import { useSafeBack } from '@/hooks/use-safe-back'
 
 export default function PageNoData() {
-  const router = useRouter()
+  const safeBack = useSafeBack()
   return (
     <main className="h-screen w-screen bg-black flex items-center justify-center">
       <div className="text-center text-white">
@@ -18,7 +20,7 @@ export default function PageNoData() {
         <h2 className="text-xl font-semibold mb-2">暂无图片</h2>
         <p className="text-sm opacity-60 mb-4">当前没有可浏览的图片内容</p>
         <button
-          onClick={() => router.back()}
+          onClick={safeBack}
           className="px-6 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
         >
           返回
