@@ -3,12 +3,12 @@
 import { useState, useEffect } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ProDrawer } from '@/components/shared/pro-drawer'
-import { Badge } from '@/components/ui/badge'
-import { Loader2, Info, Image as ImageIcon, ExternalLink } from 'lucide-react'
+import { Loader2, Info, Image as ImageIcon, ExternalLink, Copy } from 'lucide-react'
 import { useTRPC } from '@/lib/trpc'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
+import { toast } from 'sonner'
 
 import { ArtworkInfoForm } from './artwork-info-form'
 import type { ArtworkInfoFormInitialData } from './artwork-info-form'
@@ -46,6 +46,7 @@ export function ArtworkUnifiedEditor({
       staleTime: 0
     })
   )
+  const artworkDirectory = getArtworkDirectory(artwork || null)
 
   useEffect(() => {
     if (!open) return
@@ -62,36 +63,9 @@ export function ArtworkUnifiedEditor({
         footer={null}
         bodyClassName="flex min-h-0 flex-col px-4 pt-3 pb-2"
         title={
-          <div className="flex min-w-0 flex-col gap-3 pr-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-lg font-bold text-neutral-900">
-                    {currentArtworkId ? artwork?.title || '加载中...' : '新增作品'}
-                  </span>
-                  {currentArtworkId && (
-                    <Link href={`/artworks/${currentArtworkId}`} target="_blank" className="shrink-0">
-                      <ExternalLink className="h-4 w-4 text-neutral-400 transition-colors hover:text-primary" />
-                    </Link>
-                  )}
-                </div>
-
-                {currentArtworkId ? (
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-                    <Badge variant="secondary" className="font-mono text-[11px]">
-                      外部ID: {artwork?.externalId || '-'}
-                    </Badge>
-                    <Badge variant="outline" className="font-mono text-[11px]">
-                      内部ID: {currentArtworkId}
-                    </Badge>
-                    <span className="truncate">艺术家: {artwork?.artist?.name || '未知'}</span>
-                  </div>
-                ) : (
-                  <div className="mt-1 text-xs text-neutral-500">先保存基础信息，再继续管理媒体。</div>
-                )}
-              </div>
-
-              <TabsList className="grid h-10 w-full max-w-[320px] grid-cols-2 rounded-lg bg-neutral-100 p-1">
+          <div className="flex min-w-0 flex-col gap-2.5 pr-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <TabsList className="grid h-10 w-full max-w-[320px] shrink-0 grid-cols-2 rounded-lg bg-neutral-100 p-1">
                 <TabsTrigger value="info" className="flex items-center gap-2 rounded-md text-sm">
                   <Info className="w-4 h-4" /> 基础信息
                 </TabsTrigger>
@@ -103,7 +77,29 @@ export function ArtworkUnifiedEditor({
                   <ImageIcon className="w-4 h-4" /> 媒体管理
                 </TabsTrigger>
               </TabsList>
+
+              {!currentArtworkId && <span className="truncate text-xs text-neutral-500">先保存基础信息，再继续管理媒体。</span>}
             </div>
+
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-lg font-bold text-neutral-900">
+                {currentArtworkId ? artwork?.title || '加载中...' : '新增作品'}
+              </span>
+              {currentArtworkId && (
+                <Link href={`/artworks/${currentArtworkId}`} target="_blank" className="shrink-0" title="打开作品页">
+                  <ExternalLink className="h-4 w-4 text-neutral-400 transition-colors hover:text-primary" />
+                </Link>
+              )}
+            </div>
+
+            {currentArtworkId && (
+              <div className="flex min-w-0 items-center gap-2 text-xs text-neutral-500">
+                <CopyMetaItem label="外部ID" value={artwork?.externalId || '-'} />
+                <CopyMetaItem label="内部ID" value={String(currentArtworkId)} />
+                <CopyMetaItem label="路径" value={artworkDirectory || '-'} className="min-w-0 flex-1" />
+                <span className="shrink-0 truncate">艺术家: {artwork?.artist?.name || '未知'}</span>
+              </div>
+            )}
           </div>
         }
       >
@@ -148,4 +144,54 @@ export function ArtworkUnifiedEditor({
       </ProDrawer>
     </Tabs>
   )
+}
+
+function CopyMetaItem({ label, value, className }: { label: string; value: string; className?: string }) {
+  const canCopy = value !== '-'
+
+  return (
+    <span
+      className={`inline-flex h-7 min-w-0 items-center gap-1 rounded-md border border-neutral-200 bg-white px-2 font-mono text-[11px] text-neutral-600 ${className || ''}`}
+      title={value}
+    >
+      <span className="shrink-0 text-neutral-400">{label}:</span>
+      <span className="min-w-0 truncate">{value}</span>
+      <button
+        type="button"
+        className="ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+        title={`复制${label}`}
+        disabled={!canCopy}
+        onClick={() => copyText(value, label)}
+      >
+        <Copy className="size-3.5" />
+      </button>
+    </span>
+  )
+}
+
+async function copyText(value: string, label: string) {
+  try {
+    await navigator.clipboard.writeText(value)
+    toast.success(`已复制${label}`)
+  } catch {
+    toast.error(`复制${label}失败`)
+  }
+}
+
+function getArtworkDirectory(artwork: ArtworkResponseDto | null): string {
+  const firstImagePath = artwork?.images?.[0]?.path
+  if (firstImagePath) {
+    const normalizedPath = firstImagePath.replace(/\\/g, '/')
+    const index = normalizedPath.lastIndexOf('/')
+
+    if (index > 0) {
+      return normalizedPath.slice(0, index)
+    }
+  }
+
+  if (artwork?.artist?.userId && artwork.externalId) {
+    return `/${artwork.artist.userId}/${artwork.externalId}`
+  }
+
+  return ''
 }
