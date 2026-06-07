@@ -17,12 +17,26 @@ export interface VideoChapter {
   end: number
   duration: number
   file?: string
+  source?: Record<string, unknown>
+  video?: Record<string, unknown>
+  audio?: Record<string, unknown>
+  processing?: Record<string, unknown>
+  [key: string]: unknown
 }
 
 export interface VideoChapterManifest {
-  version: 1
+  version: 1 | 2
   duration: number
   chapters: VideoChapter[]
+  generatedAt?: string
+  video?: string
+  outputPath?: string
+  inputCount?: number
+  hasAudio?: boolean
+  output?: Record<string, unknown>
+  canvas?: Record<string, unknown>
+  transition?: Record<string, unknown>
+  [key: string]: unknown
 }
 
 export interface ChapterMeta {
@@ -36,18 +50,30 @@ export interface VideoChapterManifestResponse extends VideoChapterManifest {
   source: 'chapters-file'
 }
 
-const chapterItemSchema = z.object({
+const chapterItemSchema = z.looseObject({
   index: z.number().int().positive(),
   title: z.string().optional().default(''),
   start: z.number(),
   end: z.number(),
   duration: z.number(),
-  file: z.string().optional()
+  file: z.string().optional(),
+  source: z.record(z.string(), z.unknown()).optional(),
+  video: z.record(z.string(), z.unknown()).optional(),
+  audio: z.record(z.string(), z.unknown()).optional(),
+  processing: z.record(z.string(), z.unknown()).optional()
 })
 
-const chapterManifestSchema = z.object({
-  version: z.literal(1),
+const chapterManifestSchema = z.looseObject({
+  version: z.union([z.literal(1), z.literal(2)]),
   duration: z.number(),
+  generatedAt: z.string().optional(),
+  video: z.string().optional(),
+  outputPath: z.string().optional(),
+  inputCount: z.number().int().nonnegative().optional(),
+  hasAudio: z.boolean().optional(),
+  output: z.record(z.string(), z.unknown()).optional(),
+  canvas: z.record(z.string(), z.unknown()).optional(),
+  transition: z.record(z.string(), z.unknown()).optional(),
   chapters: z.array(chapterItemSchema).min(1)
 })
 
@@ -98,8 +124,7 @@ export async function validateChapterManifest(input: unknown): Promise<VideoChap
   }
 
   return {
-    version: 1,
-    duration: parsed.duration,
+    ...parsed,
     chapters: normalizedChapters
   }
 }

@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import { formatTime } from '@/lib/utils'
 
-const VideoChapterSchema = z.object({
+const VideoChapterSchema = z.looseObject({
   index: z.number().int().positive(),
   title: z.string().trim().min(1),
   start: z.number().nonnegative(),
@@ -12,9 +12,9 @@ const VideoChapterSchema = z.object({
   file: z.string().optional()
 })
 
-const VideoChapterManifestSchema = z.object({
+const VideoChapterManifestSchema = z.looseObject({
   source: z.enum(['chapters-file', 'mp4-embedded', 'database']).optional(),
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   duration: z.number().nonnegative(),
   chapters: z.array(VideoChapterSchema)
 })

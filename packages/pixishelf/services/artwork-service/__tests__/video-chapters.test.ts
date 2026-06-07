@@ -45,10 +45,73 @@ describe('validateChapterManifest', () => {
     expect(manifest.chapters[1]?.title).toBe('Chapter 2')
   })
 
+  it('should accept v2 manifest and preserve metadata', async () => {
+    const manifest = await validateChapterManifest({
+      version: 2,
+      generatedAt: '2026-06-07T18:32:30.8446895+08:00',
+      video: 'output.mp4',
+      outputPath: 'D:\\Downloads\\output.mp4',
+      duration: 20,
+      inputCount: 1,
+      hasAudio: false,
+      output: {
+        fileName: 'output.mp4',
+        encoder: 'h264_nvenc'
+      },
+      canvas: {
+        width: 1080,
+        height: 1152
+      },
+      transition: {
+        mode: 'fadeblack',
+        seconds: 0.35
+      },
+      chapters: [
+        {
+          index: 1,
+          title: '  Opening  ',
+          file: 'clip.mp4',
+          start: 0,
+          end: 20,
+          duration: 20,
+          source: {
+            fileName: 'clip.mp4',
+            duration: 20
+          },
+          video: {
+            codec: 'h264',
+            width: 1920,
+            height: 2048
+          },
+          audio: {
+            hasAudio: false
+          },
+          processing: {
+            canvasWidth: 1080,
+            canvasHeight: 1152
+          }
+        }
+      ]
+    })
+
+    expect(manifest.version).toBe(2)
+    expect(manifest.generatedAt).toBe('2026-06-07T18:32:30.8446895+08:00')
+    expect(manifest.output).toEqual({
+      fileName: 'output.mp4',
+      encoder: 'h264_nvenc'
+    })
+    expect(manifest.chapters[0]?.title).toBe('Opening')
+    expect(manifest.chapters[0]?.video).toEqual({
+      codec: 'h264',
+      width: 1920,
+      height: 2048
+    })
+  })
+
   it('should reject unsupported version', async () => {
     await expect(
       validateChapterManifest({
-        version: 2,
+        version: 3,
         duration: 20,
         chapters: [{ index: 1, title: 'Opening', start: 0, end: 20, duration: 20 }]
       })
