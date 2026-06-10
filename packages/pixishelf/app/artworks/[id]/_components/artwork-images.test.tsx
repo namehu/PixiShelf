@@ -1,8 +1,34 @@
-import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import ArtworkImages from './artwork-images'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import React from 'react'
+import ArtworkImages, { buildMediaAnchorIndexes } from './artwork-images'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
+import { useUserSettingsStore } from '@/components/user-setting'
+
+const virtualizerMocks = vi.hoisted(() => ({
+  scrollToIndex: vi.fn(),
+  measureElement: vi.fn()
+}))
+
+vi.mock('@tanstack/react-virtual', () => ({
+  useWindowVirtualizer: ({ count }: { count: number }) => {
+    const indexes =
+      count <= 20 ? Array.from({ length: count }, (_, index) => index) : [0, 1, 2, 3, 4, Math.min(19, count - 1)]
+
+    return {
+      getTotalSize: () => count * 500,
+      getVirtualItems: () =>
+        indexes.map((index) => ({
+          index,
+          key: index,
+          start: index * 500,
+          size: 500
+        })),
+      measureElement: virtualizerMocks.measureElement,
+      scrollToIndex: virtualizerMocks.scrollToIndex
+    }
+  }
+}))
 
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(() => ({
@@ -22,7 +48,6 @@ vi.mock('@/components/ui/popover', () => ({
     popoverOpen ? <div {...props}>{children}</div> : null
 }))
 
-// Mock LazyMedia 组件
 vi.mock('./lazy-media', () => ({
   default: ({ media, index }: { media: { path: string }; index: number }) => (
     <div data-testid="lazy-media" data-src={media.path} data-index={index}>
@@ -31,16 +56,18 @@ vi.mock('./lazy-media', () => ({
   )
 }))
 
-// Mock ResizeObserver for framer-motion if needed
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn()
-}))
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as typeof ResizeObserver
 
 describe('ArtworkImages', () => {
   beforeEach(() => {
     vi.useRealTimers()
+    virtualizerMocks.scrollToIndex.mockClear()
+    virtualizerMocks.measureElement.mockClear()
+    useUserSettingsStore.getState().hydrateSettings({ artwork_media_anchor_interval: 50 })
   })
 
   afterEach(() => {
@@ -52,8 +79,8 @@ describe('ArtworkImages', () => {
     Array.from({ length: count }, (_, i) => ({
       id: i + 1,
       path: `/path/to/image-${i + 1}.jpg`,
-      width: null,
-      height: null,
+      width: 1000,
+      height: 1500,
       size: null,
       sortOrder: i,
       artworkId: 1,
@@ -70,113 +97,78 @@ describe('ArtworkImages', () => {
       chaptersUrl: null
     }))
 
-  it('renders all images when count is <= 20', () => {
-    const images = generateImages(19)
-    render(<ArtworkImages images={images} artworkId={1} />)
-
-    const mediaItems = screen.getAllByTestId('lazy-media')
-    expect(mediaItems).toHaveLength(19)
-
-    const button = screen.queryByRole('button', { name: /查看剩余/i })
-    expect(button).toBeNull()
+  it('builds anchors from the first item through the last item without duplicates', () => {
+    expect(buildMediaAnchorIndexes(120, 50)).toEqual([0, 49, 99, 119])
+    expect(buildMediaAnchorIndexes(100, 50)).toEqual([0, 49, 99])
   })
 
-  it('renders only first 20 images initially when count > 20', () => {
-    const images = generateImages(21)
-    render(<ArtworkImages images={images} artworkId={1} />)
-
-    // 20张可见 + 1张预加载（hidden，因为剩余只有1张）
-    const mediaItems = screen.getAllByTestId('lazy-media')
-    expect(mediaItems).toHaveLength(21)
-
-    const button = screen.getByRole('button', { name: /查看剩余\s*1\s*张图片/i })
-    expect(button).toBeTruthy()
+  it('hides anchors when disabled or below twice the configured interval', () => {
+    expect(buildMediaAnchorIndexes(500, 0)).toEqual([])
+    expect(buildMediaAnchorIndexes(99, 50)).toEqual([])
   })
 
-  it('expands to show all images when button is clicked', async () => {
-    const images = generateImages(21)
-    render(<ArtworkImages images={images} artworkId={1} />)
+  it('renders all media when count is below the preview limit', () => {
+    render(<ArtworkImages images={generateImages(19)} artworkId={1} />)
 
-    const button = screen.getByRole('button', { name: /查看剩余\s*1\s*张图片/i })
-    fireEvent.click(button)
-
-    // 展开后显示全部21张（预加载的2张变成可见）
-    await waitFor(() => {
-      const mediaItems = screen.getAllByTestId('lazy-media')
-      expect(mediaItems).toHaveLength(21)
-    })
-
-    // Button should be gone
-    const buttonAfterClick = screen.queryByRole('button', { name: /查看剩余/i })
-    expect(buttonAfterClick).toBeNull()
+    expect(screen.getAllByTestId('lazy-media')).toHaveLength(19)
+    expect(screen.queryByRole('button', { name: /查看剩余/i })).toBeNull()
   })
 
-  it('preloads only 2 images when remaining count > 2', () => {
-    const images = generateImages(25)
-    render(<ArtworkImages images={images} artworkId={1} />)
+  it('renders the first 20 media and the expand button initially', () => {
+    render(<ArtworkImages images={generateImages(25)} artworkId={1} />)
 
-    // 20张可见 + 2张预加载 = 22张
-    const mediaItems = screen.getAllByTestId('lazy-media')
-    expect(mediaItems).toHaveLength(22)
-
-    const button = screen.getByRole('button', { name: /查看剩余\s*5\s*张图片/i })
-    expect(button).toBeTruthy()
+    expect(screen.getAllByTestId('lazy-media')).toHaveLength(20)
+    expect(screen.getByRole('button', { name: /查看剩余\s*5\s*张图片/i })).toBeTruthy()
+    expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('false')
   })
 
-  it('preloads exactly 2 images when remaining is exactly 2', () => {
-    const images = generateImages(22)
-    render(<ArtworkImages images={images} artworkId={1} />)
+  it('expands the virtual list without mounting every remaining media item', async () => {
+    render(<ArtworkImages images={generateImages(600)} artworkId={1} />)
 
-    // 20张可见 + 2张预加载 = 22张
-    const mediaItems = screen.getAllByTestId('lazy-media')
-    expect(mediaItems).toHaveLength(22)
-
-    const button = screen.getByRole('button', { name: /查看剩余\s*2\s*张图片/i })
-    expect(button).toBeTruthy()
-  })
-
-  it('preloads only 2 images when remaining is 3', () => {
-    const images = generateImages(23)
-    render(<ArtworkImages images={images} artworkId={1} />)
-
-    // 20张可见 + 2张预加载 = 22张
-    const mediaItems = screen.getAllByTestId('lazy-media')
-    expect(mediaItems).toHaveLength(22)
-
-    const button = screen.getByRole('button', { name: /查看剩余\s*3\s*张图片/i })
-    expect(button).toBeTruthy()
-  })
-
-  it('expands correctly when remaining is exactly 2', async () => {
-    const images = generateImages(22)
-    render(<ArtworkImages images={images} artworkId={1} />)
-
-    const button = screen.getByRole('button', { name: /查看剩余\s*2\s*张图片/i })
-    fireEvent.click(button)
+    fireEvent.click(screen.getByRole('button', { name: /查看剩余\s*580\s*张图片/i }))
 
     await waitFor(() => {
-      const mediaItems = screen.getAllByTestId('lazy-media')
-      expect(mediaItems).toHaveLength(22)
+      expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('true')
+      expect(screen.getAllByTestId('lazy-media').length).toBeLessThanOrEqual(6)
     })
   })
 
-  it('expands correctly when remaining is 3', async () => {
-    const images = generateImages(23)
-    render(<ArtworkImages images={images} artworkId={1} />)
+  it('automatically expands and jumps when selecting an anchor after the preview range', async () => {
+    render(<ArtworkImages images={generateImages(120)} artworkId={1} />)
 
-    const button = screen.getByRole('button', { name: /查看剩余\s*3\s*张图片/i })
-    fireEvent.click(button)
+    fireEvent.click(screen.getByRole('button', { name: '跳转到第 50 张媒体' }))
 
     await waitFor(() => {
-      const mediaItems = screen.getAllByTestId('lazy-media')
-      expect(mediaItems).toHaveLength(23)
+      expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('true')
+      expect(virtualizerMocks.scrollToIndex).toHaveBeenCalledWith(49, {
+        align: 'start',
+        behavior: 'auto'
+      })
     })
+  })
+
+  it('opens and closes the mobile anchor panel explicitly', () => {
+    render(<ArtworkImages images={generateImages(120)} artworkId={1} />)
+
+    expect(screen.getAllByRole('navigation', { name: '作品媒体快捷导航' })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '打开媒体快捷导航' }))
+
+    const navigations = screen.getAllByRole('navigation', { name: '作品媒体快捷导航' })
+    expect(navigations).toHaveLength(2)
+    fireEvent.click(within(navigations[1]!).getByRole('button', { name: '跳转到第 50 张媒体' }))
+    expect(screen.queryByRole('button', { name: '关闭媒体快捷导航' })).toBeNull()
+  })
+
+  it('does not show navigation when the setting is disabled', () => {
+    useUserSettingsStore.getState().updateSettingLocally('artwork_media_anchor_interval', 0)
+    render(<ArtworkImages images={generateImages(600)} artworkId={1} />)
+
+    expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
   })
 
   it('opens the full-size preview menu on image long press', () => {
     vi.useFakeTimers()
-    const images = generateImages(1)
-    render(<ArtworkImages images={images} artworkId={1} />)
+    render(<ArtworkImages images={generateImages(1)} artworkId={1} />)
 
     fireEvent.mouseDown(screen.getByTestId('lazy-media'))
     act(() => vi.advanceTimersByTime(500))

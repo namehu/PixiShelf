@@ -8,21 +8,30 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { updateUserSettingAction } from '@/actions/user-setting-action'
 import { PreferenceItem } from '../_components/preference-item'
-import { useArtworkDisplayMode, usePreferredTags, useUserSettingsStore } from '@/components/user-setting'
+import {
+  useArtworkDisplayMode,
+  useArtworkMediaAnchorInterval,
+  usePreferredTags,
+  useUserSettingsStore
+} from '@/components/user-setting'
 import { useTRPC } from '@/lib/trpc'
-import type { ArtworkDisplayMode } from '@/schemas/user-setting.dto'
+import type { ArtworkDisplayMode, ArtworkMediaAnchorInterval } from '@/schemas/user-setting.dto'
 
 const DISPLAY_MODE_KEY = 'artwork_display_mode'
 const PREFERRED_TAGS_KEY = 'preferred_tags'
+const MEDIA_ANCHOR_INTERVAL_KEY = 'artwork_media_anchor_interval'
 
 export default function SettingsPreferencesPage() {
   const trpc = useTRPC()
   const displayModeSetting = useArtworkDisplayMode()
   const preferredTagsSetting = usePreferredTags()
+  const mediaAnchorIntervalSetting = useArtworkMediaAnchorInterval()
   const updateSettingLocally = useUserSettingsStore((state) => state.updateSettingLocally)
 
   const [displayMode, setDisplayMode] = useState<ArtworkDisplayMode>(displayModeSetting)
   const [preferredTags, setPreferredTags] = useState<string[]>(preferredTagsSetting)
+  const [mediaAnchorInterval, setMediaAnchorInterval] =
+    useState<ArtworkMediaAnchorInterval>(mediaAnchorIntervalSetting)
 
   useEffect(() => {
     setDisplayMode(displayModeSetting)
@@ -31,6 +40,10 @@ export default function SettingsPreferencesPage() {
   useEffect(() => {
     setPreferredTags(preferredTagsSetting)
   }, [preferredTagsSetting])
+
+  useEffect(() => {
+    setMediaAnchorInterval(mediaAnchorIntervalSetting)
+  }, [mediaAnchorIntervalSetting])
 
   const { data: tagsData } = useQuery(
     trpc.tag.list.queryOptions({
@@ -69,7 +82,11 @@ export default function SettingsPreferencesPage() {
     }
   })
 
-  const scheduleSave = (nextDisplayMode: ArtworkDisplayMode, nextPreferredTags: string[]) => {
+  const scheduleSave = (
+    nextDisplayMode: ArtworkDisplayMode,
+    nextPreferredTags: string[],
+    nextMediaAnchorInterval: ArtworkMediaAnchorInterval
+  ) => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current)
     }
@@ -77,7 +94,8 @@ export default function SettingsPreferencesPage() {
       execute({
         settings: [
           { key: DISPLAY_MODE_KEY, value: nextDisplayMode, type: 'string' },
-          { key: PREFERRED_TAGS_KEY, value: nextPreferredTags, type: 'json' }
+          { key: PREFERRED_TAGS_KEY, value: nextPreferredTags, type: 'json' },
+          { key: MEDIA_ANCHOR_INTERVAL_KEY, value: nextMediaAnchorInterval, type: 'number' }
         ]
       })
     }, 500)
@@ -86,7 +104,7 @@ export default function SettingsPreferencesPage() {
   const onDisplayModeChange = (value: ArtworkDisplayMode) => {
     setDisplayMode(value)
     updateSettingLocally(DISPLAY_MODE_KEY, value)
-    scheduleSave(value, preferredTags)
+    scheduleSave(value, preferredTags, mediaAnchorInterval)
   }
 
   const selectedTagOptions = useMemo<Option[]>(
@@ -102,7 +120,14 @@ export default function SettingsPreferencesPage() {
     const values = options.map((item) => item.value)
     setPreferredTags(values)
     updateSettingLocally(PREFERRED_TAGS_KEY, values)
-    scheduleSave(displayMode, values)
+    scheduleSave(displayMode, values, mediaAnchorInterval)
+  }
+
+  const onMediaAnchorIntervalChange = (value: string) => {
+    const nextValue = Number(value) as ArtworkMediaAnchorInterval
+    setMediaAnchorInterval(nextValue)
+    updateSettingLocally(MEDIA_ANCHOR_INTERVAL_KEY, nextValue)
+    scheduleSave(displayMode, preferredTags, nextValue)
   }
 
   return (
@@ -122,6 +147,29 @@ export default function SettingsPreferencesPage() {
           <SelectContent>
             <SelectItem value="card">包含间距的卡片模式</SelectItem>
             <SelectItem value="minimal">极简模式（2px 间距）</SelectItem>
+          </SelectContent>
+        </Select>
+      </PreferenceItem>
+
+      <PreferenceItem
+        title="作品媒体快捷导航"
+        description="大量图片作品在右侧显示快捷刻度；设置数字表示每隔多少张生成一个节点"
+      >
+        <Select
+          value={String(mediaAnchorInterval)}
+          onValueChange={onMediaAnchorIntervalChange}
+          disabled={isExecuting}
+        >
+          <SelectTrigger className="w-full sm:w-[420px]">
+            <SelectValue placeholder="选择节点间隔" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0">关闭</SelectItem>
+            {[10, 20, 30, 40, 50, 100].map((interval) => (
+              <SelectItem key={interval} value={String(interval)}>
+                每 {interval} 张
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </PreferenceItem>

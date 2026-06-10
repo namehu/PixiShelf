@@ -3,7 +3,12 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { userSettingsWithDefaultsSchema } from '@/schemas/user-setting.dto'
-import type { ArtworkDisplayMode, UserSettings, UserSettingsWithDefaults } from '@/schemas/user-setting.dto'
+import type {
+  ArtworkDisplayMode,
+  ArtworkMediaAnchorInterval,
+  UserSettings,
+  UserSettingsWithDefaults
+} from '@/schemas/user-setting.dto'
 
 interface UserSettingState {
   settings: UserSettingsWithDefaults
@@ -90,6 +95,10 @@ export function useArtworkDisplayMode(): ArtworkDisplayMode {
 
 export function usePreferredTags(): string[] {
   return useUserSettingValue('preferred_tags')
+}
+
+export function useArtworkMediaAnchorInterval(): ArtworkMediaAnchorInterval {
+  return useUserSettingValue('artwork_media_anchor_interval')
 }
 
 export { useUserSettingsStore }

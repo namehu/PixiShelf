@@ -4,5 +4,6 @@ export {
   useUserSettingValue,
   useUserSettingsStore,
   useArtworkDisplayMode,
-  usePreferredTags
+  usePreferredTags,
+  useArtworkMediaAnchorInterval
 } from './UserSettingProvider'

@@ -22,6 +22,8 @@ interface LazyMediaProps {
 const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const src = media.path
+  const hasDimensions = Boolean(media.width && media.height && media.width > 0 && media.height > 0)
+  const aspectRatio = hasDimensions ? `${media.width} / ${media.height}` : undefined
 
   const trackingRef = useOnInView(
     (inView) => {
@@ -61,13 +63,17 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
         width={0}
         height={0}
         sizes="100vw"
-        className="w-full h-auto min-h-[300px] sm:min-h-[500px]"
+        className={hasDimensions ? 'h-auto w-full' : 'h-auto min-h-[300px] w-full sm:min-h-[500px]'}
       />
     )
   }
 
   return (
-    <div ref={trackingRef} className="overflow-hidden bg-neutral-100 flex items-center justify-center relative">
+    <div
+      ref={trackingRef}
+      className="relative flex w-full items-center justify-center overflow-hidden bg-neutral-100"
+      style={{ aspectRatio }}
+    >
       {renderContent()}
     </div>
   )
