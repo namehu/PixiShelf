@@ -38,6 +38,20 @@ export interface TimelineMarker {
   time: number
 }
 
+export interface TimelineMarkerCluster {
+  id: string
+  marker: TimelineMarker
+  markers: TimelineMarker[]
+  count: number
+  time: number
+}
+
+interface ClusterTimelineMarkersOptions {
+  duration: number
+  width: number
+  minSpacingPx: number
+}
+
 /**
  * 统一标准化章节数据，避免播放器内部依赖后端原始结构。
  */
@@ -90,6 +104,63 @@ export function getMarkerPercent(time: number, duration: number): number {
   }
 
   return Math.min(Math.max((time / duration) * 100, 0), 100)
+}
+
+export function clusterTimelineMarkers(
+  markers: TimelineMarker[],
+  { duration, width, minSpacingPx }: ClusterTimelineMarkersOptions
+): TimelineMarkerCluster[] {
+  if (markers.length === 0 || !Number.isFinite(duration) || duration <= 0) {
+    return []
+  }
+
+  const sortedMarkers = [...markers].sort((left, right) => left.time - right.time)
+
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(minSpacingPx) || minSpacingPx <= 0) {
+    return sortedMarkers.map((marker) => ({
+      id: marker.id,
+      marker,
+      markers: [marker],
+      count: 1,
+      time: marker.time
+    }))
+  }
+
+  const clusters: TimelineMarkerCluster[] = []
+
+  for (const marker of sortedMarkers) {
+    const previousCluster = clusters.at(-1)
+
+    if (!previousCluster) {
+      clusters.push({
+        id: marker.id,
+        marker,
+        markers: [marker],
+        count: 1,
+        time: marker.time
+      })
+      continue
+    }
+
+    const clusterLeft = (previousCluster.time / duration) * width
+    const markerLeft = (marker.time / duration) * width
+
+    if (markerLeft - clusterLeft < minSpacingPx) {
+      previousCluster.markers.push(marker)
+      previousCluster.count = previousCluster.markers.length
+      previousCluster.id = `${previousCluster.marker.id}-cluster-${previousCluster.count}`
+    } else {
+      clusters.push({
+        id: marker.id,
+        marker,
+        markers: [marker],
+        count: 1,
+        time: marker.time
+      })
+    }
+  }
+
+  return clusters
 }
 
 export function formatChapterTime(seconds: number): string {

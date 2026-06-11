@@ -77,6 +77,7 @@ export function VideoPlayer({
   const currentChapter = useCurrentChapter(chapters, currentTime)
   const chapterMarkers = useMemo(() => createChapterTimelineMarkers(chapters), [chapters])
   const chapterUiDuration = duration > 0 ? duration : chaptersDuration
+  const chapterMarkerMinSpacingPx = isDesktop ? 18 : 28
 
   const clearLoading = () => {
     if (loadingTimeoutRef.current) {
@@ -444,6 +445,7 @@ export function VideoPlayer({
               markers={chapterMarkers}
               duration={chapterUiDuration}
               onMarkerClick={(marker) => seekTo(marker.time)}
+              minMarkerSpacingPx={chapterMarkerMinSpacingPx}
               className="inset-0"
               markerClassName="h-3"
               lineClassName="h-1.5 bg-white/80"
