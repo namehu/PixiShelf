@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { EnhancedArtworksResponse } from '@/types'
+import { ArtworkCardData, ArtworkCardListResponse, EnhancedArtworksResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { RandomArtworksGetSchema, ArtworkResponseDto, ViewerFeedQuerySchema } from '@/schemas/artwork.dto'
 import { isVideoFile } from '@/lib/media'
@@ -332,7 +332,7 @@ function mapSortOptionToSQL(sortBy: string): string {
  */
 export const getRecommendedArtworks = async (
   options: { pageSize?: number; cursor?: number; tagNames?: string[] } = {}
-): Promise<EnhancedArtworksResponse & { nextCursor?: number }> => {
+): Promise<ArtworkCardListResponse & { nextCursor?: number }> => {
   const { pageSize = 10, cursor, tagNames } = options
   const currentPage = cursor || 1
 
@@ -343,9 +343,9 @@ export const getRecommendedArtworks = async (
     return { items: [], total: 0, page: currentPage, pageSize, nextCursor: undefined }
   }
 
-  // 2. 查询完整的作品数据
+  // 2. 卡片只查询渲染所需字段，避免把描述和完整关联序列化进 RSC/TRPC。
   const artworks = await prisma.artwork.findMany({
-    include: defaultArtworkInclude,
+    select: artworkCardSelect,
     where: { id: { in: randomIds } }
   })
 
@@ -355,7 +355,7 @@ export const getRecommendedArtworks = async (
     .filter((a): a is NonNullable<typeof a> => Boolean(a))
 
   // 4. 转换数据格式
-  const items = orderedArtworks.map(transformSingleArtwork)
+  const items = orderedArtworks.map(transformArtworkCard)
 
   return {
     items,
@@ -372,14 +372,14 @@ export const getRecommendedArtworks = async (
  */
 export const getRecentArtworks = async (
   options: { page?: number; pageSize?: number } = {}
-): Promise<EnhancedArtworksResponse> => {
+): Promise<ArtworkCardListResponse> => {
   const { page = 1, pageSize = 10 } = options
   const skip = (page - 1) * pageSize
 
   // 1. 并行查询作品数据和总数
   const [artworks, total] = await Promise.all([
     prisma.artwork.findMany({
-      include: defaultArtworkInclude,
+      select: artworkCardSelect,
       orderBy: { sourceDate: 'desc' },
       skip: skip,
       take: pageSize
@@ -388,7 +388,7 @@ export const getRecentArtworks = async (
   ])
 
   // 2. 转换数据格式
-  const items = artworks.map(transformSingleArtwork)
+  const items = artworks.map(transformArtworkCard)
   return {
     items,
     total,
@@ -663,10 +663,54 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
 // Data Access Helpers (内部私有函数 - 相当于 Repository)
 // ==========================================
 
-// 定义通用的 Include 对象，减少重复代码
-const defaultArtworkInclude = {
-  images: { take: 2, orderBy: { sortOrder: 'asc' } }, // 列表页只取一张图
-  artist: true,
-  artworkTags: { include: { tag: true } },
-  _count: { select: { images: true } }
-} as const // as const 提供更好的类型推导
+const artworkCardSelect = {
+  id: true,
+  title: true,
+  imageCount: true,
+  images: {
+    take: 1,
+    orderBy: { sortOrder: 'asc' },
+    select: {
+      path: true,
+      size: true
+    }
+  },
+  artist: {
+    select: {
+      name: true
+    }
+  },
+  artworkTags: {
+    select: {
+      tag: {
+        select: {
+          name: true
+        }
+      }
+    }
+  }
+} as const
+
+function transformArtworkCard(artwork: {
+  id: number
+  title: string
+  imageCount: number
+  images: Array<{ path: string; size: number | null }>
+  artist: { name: string } | null
+  artworkTags: Array<{ tag: { name: string } }>
+}): ArtworkCardData {
+  const images = artwork.images.map((image) => ({
+    ...image,
+    mediaType: isVideoFile(image.path) ? ('video' as const) : ('image' as const)
+  }))
+
+  return {
+    id: artwork.id,
+    title: artwork.title,
+    imageCount: images.some((image) => image.mediaType === 'video') ? 0 : artwork.imageCount,
+    totalMediaSize: images.reduce((total, image) => total + (image.size ?? 0), 0),
+    images,
+    artist: artwork.artist,
+    tags: artwork.artworkTags.map(({ tag }) => tag)
+  }
+}

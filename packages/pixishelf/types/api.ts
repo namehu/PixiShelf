@@ -1,4 +1,4 @@
-import { Artwork, MediaFile } from './core'
+import { Artist, Artwork, MediaFile } from './core'
 
 // ============================================================================
 // API 请求/响应类型
@@ -89,6 +89,22 @@ export interface EnhancedArtwork extends Omit<Artwork, 'images'> {
 }
 
 /**
+ * 作品卡片所需的最小数据集。
+ * 列表页不要把完整作品描述、图片元数据和艺术家资料序列化到客户端。
+ */
+export interface ArtworkCardData {
+  id: number
+  title: string
+  imageCount: number
+  totalMediaSize?: number
+  images: Array<Pick<MediaFile, 'path' | 'size' | 'mediaType'>>
+  artist?: Pick<Artist, 'name'> | null
+  tags: Array<{ name: string }>
+}
+
+/**
  * 增强的作品列表响应
  */
 export type EnhancedArtworksResponse = UnSafe_PaginatedResponse<EnhancedArtwork>
+
+export type ArtworkCardListResponse = UnSafe_PaginatedResponse<ArtworkCardData>

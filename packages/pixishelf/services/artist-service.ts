@@ -272,7 +272,7 @@ export async function getDashboardArtists(
     }
     const selectedIds = ids.slice(0, take)
 
-    const [selectedArtists, recentArtworks] = await Promise.all([
+    const [selectedArtists, recentArtworkGroups] = await Promise.all([
       prisma.artist.findMany({
         where: { id: { in: selectedIds } },
         select: {
@@ -284,29 +284,33 @@ export async function getDashboardArtists(
           }
         }
       }),
-      prisma.artwork.findMany({
-        where: { artistId: { in: selectedIds } },
-        select: {
-          id: true,
-          title: true,
-          artistId: true,
-          sourceDate: true,
-          images: {
+      Promise.all(
+        selectedIds.map((artistId) =>
+          prisma.artwork.findMany({
+            where: { artistId },
             select: {
-              path: true
+              id: true,
+              title: true,
+              artistId: true,
+              images: {
+                select: {
+                  path: true
+                },
+                orderBy: {
+                  sortOrder: 'asc'
+                },
+                take: 1
+              }
             },
-            orderBy: {
-              sortOrder: 'asc'
-            },
-            take: 1
-          }
-        },
-        orderBy: [{ sourceDate: 'desc' }, { id: 'desc' }]
-      })
+            orderBy: [{ sourceDate: 'desc' }, { id: 'desc' }],
+            take: previewArtworkSize
+          })
+        )
+      )
     ])
 
     const artworkMap = new Map<number, DashboardArtistArtworkPreview[]>()
-    for (const artwork of recentArtworks) {
+    for (const artwork of recentArtworkGroups.flat()) {
       if (artwork.artistId == null) continue
       const bucket = artworkMap.get(artwork.artistId)
       const preview: DashboardArtistArtworkPreview = {
@@ -314,11 +318,8 @@ export async function getDashboardArtists(
         title: artwork.title,
         coverUrl: artwork.images[0]?.path || ''
       }
-      if (!bucket) {
-        artworkMap.set(artwork.artistId, [preview])
-      } else if (bucket.length < previewArtworkSize) {
-        bucket.push(preview)
-      }
+      if (!bucket) artworkMap.set(artwork.artistId, [preview])
+      else bucket.push(preview)
     }
 
     // 保持随机顺序：按 selectedIds 的顺序输出

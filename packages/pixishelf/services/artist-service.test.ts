@@ -63,6 +63,12 @@ describe('getDashboardArtists', () => {
       previewArtworkSize: 1
     })
 
+    expect(artworkFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { artistId: 1 },
+        take: 1
+      })
+    )
     expect(result[0]?.recentArtworks[0]?.coverUrl).toBe('1000/11_p0.jpg')
   })
 })

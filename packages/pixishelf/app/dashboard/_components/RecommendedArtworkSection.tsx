@@ -9,13 +9,13 @@ import { Drawer, DrawerContent, DrawerFooter, DrawerHeader, DrawerTitle } from '
 import { Checkbox } from '@/components/ui/checkbox'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import InfiniteArtworkGrid from './InfiniteArtworkGrid'
-import { EnhancedArtworksResponse } from '@/types'
+import { ArtworkCardListResponse } from '@/types'
 import { usePreferredTags } from '@/components/user-setting'
 import { ROUTES } from '@/lib/constants'
 import { useMediaQuery } from '@/hooks/use-media-query'
 
 interface RecommendedArtworkSectionProps {
-  initialData: EnhancedArtworksResponse & { nextCursor?: number }
+  initialData: ArtworkCardListResponse & { nextCursor?: number }
 }
 
 export default function RecommendedArtworkSection({ initialData }: RecommendedArtworkSectionProps) {

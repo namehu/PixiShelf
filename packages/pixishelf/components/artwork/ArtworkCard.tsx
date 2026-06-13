@@ -4,14 +4,14 @@ import Link from 'next/link'
 import { ImageIcon, VideoIcon } from 'lucide-react'
 import Image from 'next/image'
 import { formatFileSize } from '@/utils/media'
-import { ArtworkResponseDto } from '@/schemas/artwork.dto'
+import type { ArtworkCardData } from '@/types'
 import { cn } from '@/lib/utils'
 import { useMemo } from 'react'
 import { usePreferredTags } from '@/components/user-setting'
 import { getPreferredTagName } from './preferred-tag'
 
 interface ArtworkCardProps {
-  artwork: ArtworkResponseDto
+  artwork: ArtworkCardData
   priority?: boolean
   className?: string
   displayMode?: 'card' | 'minimal'

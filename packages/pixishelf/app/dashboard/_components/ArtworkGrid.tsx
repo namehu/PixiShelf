@@ -2,12 +2,12 @@
 
 import { Card, CardContent } from '@/components/ui/card'
 import { ImageIcon } from 'lucide-react'
-import { EnhancedArtworksResponse } from '@/types'
+import { ArtworkCardListResponse } from '@/types'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
 import { useArtworkDisplayMode } from '@/components/user-setting'
 
 interface ArtworkGridProps {
-  initialData: EnhancedArtworksResponse
+  initialData: ArtworkCardListResponse
 }
 
 /**
@@ -21,7 +21,7 @@ export default function ArtworkGrid({ initialData }: ArtworkGridProps) {
     return (
       <div className={`grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 ${displayMode === 'minimal' ? 'gap-[2px]' : 'gap-4'}`}>
         {initialData.items.map((artwork, index) => (
-          <ArtworkCard key={artwork.id} artwork={artwork as any} priority={index < 4} displayMode={displayMode} />
+          <ArtworkCard key={artwork.id} artwork={artwork} priority={index < 4} displayMode={displayMode} />
         ))}
       </div>
     )

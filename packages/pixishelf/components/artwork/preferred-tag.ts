@@ -1,8 +1,6 @@
-import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
-
 export function getPreferredTagName(
   preferredTags: string[],
-  tags: Pick<ArtworkResponseDto, 'tags'>['tags'] | undefined
+  tags: Array<{ name: string }> | undefined
 ): string {
   if (preferredTags.length === 0 || !tags || tags.length === 0) {
     return ''

@@ -6,13 +6,13 @@ import { Loader2 } from 'lucide-react'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useTRPC } from '@/lib/trpc'
-import { EnhancedArtworksResponse } from '@/types'
+import { ArtworkCardListResponse } from '@/types'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { useColumns } from '@/hooks/use-columns'
 import { useArtworkDisplayMode } from '@/components/user-setting'
 
 interface InfiniteArtworkGridProps {
-  initialData: EnhancedArtworksResponse & { nextCursor?: number }
+  initialData: ArtworkCardListResponse & { nextCursor?: number }
   selectedTags?: string[]
 }
 
@@ -184,7 +184,7 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
               {rowItems.map((artwork, index) => (
                 <ArtworkCard
                   key={`${artwork.id}-${startIndex + index}`}
-                  artwork={artwork as any}
+                  artwork={artwork}
                   priority={index < 10}
                   displayMode={displayMode}
                 />

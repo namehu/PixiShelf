@@ -63,6 +63,7 @@ model Artwork {
   @@index([directoryCreatedAt])
   @@index([imageCount])
   @@index([sourceDate])
+  @@index([artistId, sourceDate(sort: Desc), id(sort: Desc)], map: "Artwork_artistId_sourceDate_id_idx")
   @@index([externalId])
   @@index([likeCount])
   @@index([metaSource])
