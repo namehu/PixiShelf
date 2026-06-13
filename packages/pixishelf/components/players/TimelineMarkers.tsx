@@ -1,11 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import {
   clusterTimelineMarkers,
-  formatChapterTime,
   getMarkerPercent,
   type TimelineMarker,
   type TimelineMarkerCluster
@@ -20,7 +18,6 @@ interface TimelineMarkersProps {
   className?: string
   markerClassName?: string
   lineClassName?: string
-  tooltipSide?: 'top' | 'right' | 'bottom' | 'left'
 }
 
 export default function TimelineMarkers({
@@ -31,8 +28,7 @@ export default function TimelineMarkers({
   minMarkerSpacingPx = 18,
   className,
   markerClassName,
-  lineClassName,
-  tooltipSide = 'top'
+  lineClassName
 }: TimelineMarkersProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [measuredWidth, setMeasuredWidth] = useState(0)
@@ -78,22 +74,15 @@ export default function TimelineMarkers({
         const isCluster = cluster.count > 1
 
         return (
-          <Tooltip key={cluster.id}>
-            <TooltipTrigger asChild>
-              <MarkerButton
-                cluster={cluster}
-                isCluster={isCluster}
-                left={left}
-                markerClassName={markerClassName}
-                lineClassName={lineClassName}
-                onMarkerClick={onMarkerClick}
-              />
-            </TooltipTrigger>
-            <TooltipContent side={tooltipSide} sideOffset={6} className="bg-black/90 px-2 py-1 text-white">
-              <div className="font-medium">{isCluster ? `${cluster.count} 个章节` : cluster.marker.title}</div>
-              <div className="text-[11px] text-white/70">{formatChapterTime(cluster.time)}</div>
-            </TooltipContent>
-          </Tooltip>
+          <MarkerButton
+            key={cluster.id}
+            cluster={cluster}
+            isCluster={isCluster}
+            left={left}
+            markerClassName={markerClassName}
+            lineClassName={lineClassName}
+            onMarkerClick={onMarkerClick}
+          />
         )
       })}
     </div>
@@ -124,9 +113,8 @@ function MarkerButton({
         isCluster ? `跳转到聚合章节 ${cluster.count} 个，起点 ${cluster.marker.title}` : `跳转到章节 ${cluster.marker.title}`
       }
       className={cn(
-        'pointer-events-auto absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2',
-        isCluster ? 'h-6 min-w-7 rounded-full px-1.5 text-[10px] font-semibold leading-none' : 'h-0 w-0',
-        !isCluster && markerClassName
+        'pointer-events-auto absolute top-1/2 z-10 h-0 w-0 -translate-x-1/2 -translate-y-1/2',
+        markerClassName
       )}
       style={{ left: `${left}%` }}
       onClick={(event) => {
@@ -134,23 +122,14 @@ function MarkerButton({
         onMarkerClick(cluster.marker)
       }}
     >
-      {isCluster ? (
-        <span
-          className="flex h-5 min-w-7 items-center justify-center rounded-full border border-black/20 bg-white/95 px-1.5 text-[10px] font-semibold leading-none text-neutral-900 shadow-[0_1px_4px_rgba(0,0,0,0.35)]"
-        >
-          +{cluster.count}
-        </span>
-      ) : (
-        <>
-          <span className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2" />
-          <span
-            className={cn(
-              'absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/90 shadow-[0_0_0_1px_rgba(0,0,0,0.18)]',
-              lineClassName
-            )}
-          />
-        </>
-      )}
+      <span className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2" />
+      <span
+        className={cn(
+          'absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/90 shadow-[0_0_0_1px_rgba(0,0,0,0.18)]',
+          lineClassName,
+          isCluster && 'h-2 w-2 bg-blue-500 shadow-[0_0_0_1px_rgba(255,255,255,0.75)]'
+        )}
+      />
     </button>
   )
 }

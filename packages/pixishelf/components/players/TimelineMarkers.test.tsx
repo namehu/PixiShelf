@@ -25,14 +25,17 @@ describe('TimelineMarkers', () => {
     expect(onMarkerClick).toHaveBeenCalledWith(markers[0])
   })
 
-  it('renders dense nearby markers as a clickable aggregate marker', () => {
+  it('renders dense nearby markers as a colored dot without a count badge', () => {
     const onMarkerClick = vi.fn()
 
     render(<TimelineMarkers markers={markers} duration={120} width={120} minMarkerSpacingPx={28} onMarkerClick={onMarkerClick} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '跳转到聚合章节 3 个，起点 Chapter 1' }))
+    const aggregateButton = screen.getByRole('button', { name: '跳转到聚合章节 3 个，起点 Chapter 1' })
+    const aggregateDot = aggregateButton.querySelector('span:last-child')
 
-    expect(screen.getByText('+3')).toBeTruthy()
+    expect(aggregateDot?.className).toContain('bg-blue-500')
+    expect(screen.queryByText('+3')).toBeNull()
+    fireEvent.click(aggregateButton)
     expect(onMarkerClick).toHaveBeenCalledWith(markers[0])
   })
 })

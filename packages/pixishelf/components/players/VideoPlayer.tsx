@@ -102,7 +102,8 @@ export function VideoPlayer({
 
   const getArtProgress = (art: ArtplayerType | null) => {
     const currentArt = art as (ArtplayerType & { template?: { $progress?: HTMLDivElement } }) | null
-    return currentArt?.template?.$progress ?? null
+    const progress = currentArt?.template?.$progress
+    return progress?.querySelector<HTMLDivElement>('.art-control-progress') ?? progress ?? null
   }
 
   const seekTo = (seconds: number) => {
@@ -198,6 +199,7 @@ export function VideoPlayer({
 
       art.on('ready', () => {
         syncMetadata()
+        setProgressPortalTarget(getArtProgress(art))
         clearLoading()
         hideControls()
       })
@@ -449,7 +451,6 @@ export function VideoPlayer({
               className="inset-0"
               markerClassName="h-3"
               lineClassName="h-1.5 bg-white/80"
-              tooltipSide="top"
             />
           </div>,
           progressPortalTarget
