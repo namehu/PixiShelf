@@ -1,8 +1,9 @@
 'use client'
 
-import { InfoIcon, Loader2Icon, XIcon } from 'lucide-react'
+import { InfoIcon, ListVideoIcon, Loader2Icon, XIcon } from 'lucide-react'
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
+import { createRoot, type Root } from 'react-dom/client'
 import type ArtplayerType from 'artplayer'
 import { motion, AnimatePresence } from 'framer-motion'
 import ChapterSidebar from '@/components/players/ChapterSidebar'
@@ -168,7 +169,7 @@ export function VideoPlayer({
         playbackRate: true,
         fullscreen: true,
         fullscreenWeb: true,
-        pip: true,
+        pip: false,
         mutex: true,
         theme: '#3b82f6',
         moreVideoAttr: {
@@ -315,6 +316,8 @@ export function VideoPlayer({
       return
     }
 
+    let chapterControlRoot: Root | null = null
+
     if (artInstance.controls[mobileChapterControlName]) {
       artInstance.controls.remove(mobileChapterControlName)
     }
@@ -327,15 +330,20 @@ export function VideoPlayer({
       name: mobileChapterControlName,
       position: 'right',
       index: 20,
-      html: '章节',
+      html: '',
       tooltip: '章节',
       style: {
-        padding: '0 10px',
-        fontSize: '13px',
-        color: 'var(--art-theme)'
+        padding: '0 10px'
       },
       mounted(element) {
         element.classList.add('art-control-chapter-entry')
+        element.setAttribute('aria-label', '章节')
+        chapterControlRoot = createRoot(element)
+        chapterControlRoot.render(<ListVideoIcon aria-hidden="true" className="h-5 w-5" />)
+      },
+      beforeUnmount() {
+        chapterControlRoot?.unmount()
+        chapterControlRoot = null
       },
       click() {
         setShowChapterOverlay((prev) => !prev)
