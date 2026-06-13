@@ -63,7 +63,7 @@ export default function ChapterSidebar({
                 type="button"
                 onClick={() => onChapterClick(chapter)}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-md border-l-2 px-3 py-1 text-left transition-colors',
+                  'flex w-full items-center gap-2 rounded-md border-l-2 px-1 py-1 text-left transition-colors',
                   isActive
                     ? isLight
                       ? 'border-blue-500 bg-blue-50 text-neutral-900'
@@ -73,18 +73,18 @@ export default function ChapterSidebar({
                       : 'border-transparent text-white/75 hover:bg-white/8 hover:text-white'
                 )}
               >
-                <span
+                {/* <span
                   className={cn(
-                    'w-8 shrink-0 text-xs font-medium tabular-nums',
+                    'w-4 shrink-0 text-xs font-medium tabular-nums',
                     isLight ? 'text-neutral-400' : 'text-white/55'
                   )}
                 >
                   {String(chapter.index).padStart(2, '0')}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm">{chapter.title}</span>
+                </span> */}
                 <span className={cn('shrink-0 text-xs tabular-nums', isLight ? 'text-neutral-500' : 'text-white/60')}>
                   {formatChapterTime(chapter.start)}
                 </span>
+                <span className="min-w-0 flex-1 truncate text-sm">{chapter.title}</span>
               </button>
             )
           })}
