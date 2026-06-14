@@ -91,6 +91,7 @@ export interface LocalImportProgress {
 
 export interface RunLocalImportInput {
   scanPath: string
+  defaultTagIds?: number[]
   checkCancelled?: () => Promise<boolean>
   onProgress?: (progress: LocalImportProgress) => Promise<void> | void
 }

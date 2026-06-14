@@ -16,15 +16,15 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('@/components/shared/multiple-selector', () => ({
-  default: ({ value, onChange }: any) => (
+  default: ({ value, onChange, placeholder }: any) => (
     <div>
-      <div data-testid="selected-tags">
+      <div data-testid={`selected-tags-${placeholder}`}>
         {(value || []).map((item: any) => (
           <span key={item.value}>{item.label}</span>
         ))}
       </div>
       <button type="button" onClick={() => onChange([{ value: '3', label: 'tag-c' }])}>
-        choose tag
+        choose {placeholder}
       </button>
     </div>
   )
@@ -67,7 +67,8 @@ vi.mock('@tanstack/react-query', () => ({
       return {
         data: {
           settings: {
-            replace_default_tag_ids: [1, 2]
+            replace_default_tag_ids: [1, 2],
+            local_import_default_tag_ids: [4]
           }
         },
         isLoading: false
@@ -78,7 +79,8 @@ vi.mock('@tanstack/react-query', () => ({
       data: {
         items: [
           { id: 1, name: 'tag-a' },
-          { id: 2, name: 'tag-b' }
+          { id: 2, name: 'tag-b' },
+          { id: 4, name: 'tag-local' }
         ]
       },
       isLoading: false
@@ -112,15 +114,17 @@ describe('SystemSettingsPanel', () => {
 
     expect(screen.getByText('tag-a')).toBeTruthy()
     expect(screen.getByText('tag-b')).toBeTruthy()
+    expect(screen.getByText('tag-local')).toBeTruthy()
 
-    fireEvent.click(screen.getByText('choose tag'))
+    fireEvent.click(screen.getByText('choose 搜索并选择全量替换默认标签...'))
     act(() => {
       vi.advanceTimersByTime(500)
     })
 
     expect(testState.mutationCalls).toEqual([
       {
-        replace_default_tag_ids: [3]
+        replace_default_tag_ids: [3],
+        local_import_default_tag_ids: [4]
       }
     ])
   })

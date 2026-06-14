@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { authProcedure, router } from '@/server/trpc'
 import { saveLocalImportArtistMappingsSchema } from '@/schemas/local-import.dto'
-import { getScanPath } from '@/services/setting.service'
+import { getScanPath, getSystemSettings } from '@/services/setting.service'
 import {
   discoverLocalImports,
   runLocalImport,
@@ -30,6 +30,7 @@ export const localImportRouter = router({
 
   start: authProcedure.mutation(async () => {
     const scanPath = await requireScanPath()
+    const systemSettings = await getSystemSettings()
     let job
     try {
       job = await JobService.createLocalDirectoryImportJob()
@@ -44,6 +45,7 @@ export const localImportRouter = router({
       try {
         const result = await runLocalImport({
           scanPath,
+          defaultTagIds: systemSettings.local_import_default_tag_ids,
           checkCancelled: async () => {
             const current = await JobService.getJob(job.id)
             return current?.status === 'CANCELLING'

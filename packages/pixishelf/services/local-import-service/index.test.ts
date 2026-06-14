@@ -98,7 +98,10 @@ describe('local import service', () => {
   })
 
   it('scans outside a short transaction and imports artwork plus images', async () => {
-    const result = await runLocalImport({ scanPath: 'D:/scan' })
+    const result = await runLocalImport({
+      scanPath: 'D:/scan',
+      defaultTagIds: [4, 7]
+    })
 
     expect(mocks.scan).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -112,7 +115,7 @@ describe('local import service', () => {
       10,
       expect.any(Array),
       [],
-      {}
+      { appendTagIds: [4, 7] }
     )
     expect(result).toMatchObject({
       total: 1,

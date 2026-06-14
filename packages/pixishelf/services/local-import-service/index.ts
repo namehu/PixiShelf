@@ -126,7 +126,7 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
           artwork.id,
           media.filesMeta,
           media.chaptersMeta,
-          {}
+          { appendTagIds: input.defaultTagIds }
         )
       })
       result.imported += 1
