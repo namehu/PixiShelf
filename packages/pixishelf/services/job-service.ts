@@ -1,33 +1,45 @@
 import { prisma } from '@/lib/prisma'
 import { JobStatus, Prisma } from '@prisma/client'
 
-/**
- * 尝试创建一个扫描任务（分布式锁）
- * 确保同一时间只有一个活跃的扫描任务
- */
-export async function createScanJob() {
-  return await prisma.$transaction(async (tx) => {
-    // 检查是否有正在运行或正在取消的任务
+const MEDIA_SCAN_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT']
+const MEDIA_SCAN_ADVISORY_LOCK_ID = 728341
+
+async function createMediaScanJob(type: 'SCAN' | 'LOCAL_DIRECTORY_IMPORT', message: string) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', MEDIA_SCAN_ADVISORY_LOCK_ID)
+
     const activeJob = await tx.systemJob.findFirst({
       where: {
-        type: 'SCAN',
+        type: { in: MEDIA_SCAN_JOB_TYPES },
         status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
       }
     })
 
     if (activeJob) {
-      throw new Error('Scan already in progress')
+      throw new Error('Media scan job already in progress')
     }
 
-    return await tx.systemJob.create({
+    return tx.systemJob.create({
       data: {
-        type: 'SCAN',
+        type,
         status: JobStatus.RUNNING,
-        message: '初始化...',
+        message,
         progress: 0
       }
     })
   })
+}
+
+/**
+ * 尝试创建一个扫描任务（分布式锁）
+ * 确保同一时间只有一个活跃的扫描任务
+ */
+export async function createScanJob() {
+  return createMediaScanJob('SCAN', '初始化...')
+}
+
+export async function createLocalDirectoryImportJob() {
+  return createMediaScanJob('LOCAL_DIRECTORY_IMPORT', '正在准备本地目录导入...')
 }
 
 /**
@@ -91,6 +103,31 @@ export async function getActiveScanJob() {
     },
     orderBy: { createdAt: 'desc' }
   })
+}
+
+export async function getActiveLocalDirectoryImportJob() {
+  return prisma.systemJob.findFirst({
+    where: {
+      type: 'LOCAL_DIRECTORY_IMPORT',
+      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+    },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+export async function getLatestLocalDirectoryImportJob() {
+  return prisma.systemJob.findFirst({
+    where: { type: 'LOCAL_DIRECTORY_IMPORT' },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+export async function getMediaScanActivity() {
+  const jobs = await getActiveJobsByTypes(MEDIA_SCAN_JOB_TYPES)
+  return {
+    scan: jobs.find((job) => job.type === 'SCAN') ?? null,
+    localImport: jobs.find((job) => job.type === 'LOCAL_DIRECTORY_IMPORT') ?? null
+  }
 }
 
 /**

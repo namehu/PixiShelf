@@ -10,34 +10,46 @@ datasource db {
 }
 
 model Artist {
-  id            Int       @id @default(autoincrement())
-  name          String
-  username      String?
-  userId        String?  // pixiv 用户id
-  bio           String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  avatar        String?
-  backgroundImg String?
-  isStarred     Boolean   @default(false)
-  artworks      Artwork[]
+  id                  Int                        @id @default(autoincrement())
+  name                String
+  username            String?
+  userId              String? // pixiv 用户id
+  bio                 String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  avatar              String?
+  backgroundImg       String?
+  isStarred           Boolean                    @default(false)
+  artworks            Artwork[]
+  localImportMappings LocalImportArtistMapping[]
 
+  @@unique([username, userId], name: "unique_username_userid")
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([isStarred])
-  @@unique([username, userId], name: "unique_username_userid")
+}
+
+model LocalImportArtistMapping {
+  id              Int      @id @default(autoincrement())
+  artistDirectory String   @unique
+  artistId        Int
+  artist          Artist   @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([artistId])
 }
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Artwork {
-  id                 Int           @id @default(autoincrement())
+  id                 Int             @id @default(autoincrement())
   title              String
   description        String?
   artistId           Int?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-  descriptionLength  Int           @default(0)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  descriptionLength  Int             @default(0)
   directoryCreatedAt DateTime?
-  imageCount         Int           @default(0)
+  imageCount         Int             @default(0)
   bookmarkCount      Int?
   externalId         String?
   isAiGenerated      Boolean?
@@ -47,17 +59,19 @@ model Artwork {
   sourceUrl          String?
   thumbnailUrl       String?
   xRestrict          String?
-  likeCount          Int           @default(0)
-  metaSource           String?       @unique
-  artist             Artist?       @relation(fields: [artistId], references: [id])
+  likeCount          Int             @default(0)
+  metaSource         String?         @unique
+  storagePath        String?         @unique
+  artist             Artist?         @relation(fields: [artistId], references: [id])
   likes              ArtworkLike[]
   seriesId           Int?
-  series             Series?       @relation(fields: [seriesId], references: [id])
+  series             Series?         @relation(fields: [seriesId], references: [id])
   seriesArtworks     SeriesArtwork[]
   artworkTags        ArtworkTag[]
   images             Image[]
-  source             ArtworkSource @default(PIXIV_IMPORTED)
+  source             ArtworkSource   @default(PIXIV_IMPORTED)
 
+  @@unique([externalId])
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([directoryCreatedAt])
@@ -67,7 +81,6 @@ model Artwork {
   @@index([externalId])
   @@index([likeCount])
   @@index([metaSource])
-  @@unique([externalId])
 }
 
 model Tag {
@@ -92,7 +105,6 @@ model Tag {
   @@index([name_en]) //  增加索引，提高查询速度
   @@index([artworkCount], map: "Tag_artworkCount_idx")
   @@index([artworkCount(sort: Desc), name], map: "Tag_artworkCount_name_idx")
-
   // [新增] 告诉 Prisma 这个 GIN 索引是存在的
   // 注意：需要启用 previewFeatures = ["extendedIndexes"]
   @@index([search_vector], type: Gin)
@@ -110,22 +122,22 @@ model ArtworkTag {
 }
 
 model Image {
-  id        Int      @id @default(autoincrement())
-  path      String
-  width     Int?
-  height    Int?
-  size      Int?
-  sortOrder Int      @default(0)
-  artworkId Int?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  webpAnimationStatus Int?     @db.SmallInt
-  chaptersPath      String?
-  chaptersCount     Int      @default(0)
-  chaptersDuration  Float?
-  chaptersUpdatedAt DateTime?
-  chaptersHash      String?
-  artwork   Artwork? @relation(fields: [artworkId], references: [id])
+  id                  Int       @id @default(autoincrement())
+  path                String
+  width               Int?
+  height              Int?
+  size                Int?
+  sortOrder           Int       @default(0)
+  artworkId           Int?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  webpAnimationStatus Int?      @db.SmallInt
+  chaptersPath        String?
+  chaptersCount       Int       @default(0)
+  chaptersDuration    Float?
+  chaptersUpdatedAt   DateTime?
+  chaptersHash        String?
+  artwork             Artwork?  @relation(fields: [artworkId], references: [id])
 
   @@unique([artworkId, path], name: "unique_artwork_path")
   @@index([webpAnimationStatus])
@@ -133,37 +145,37 @@ model Image {
 }
 
 model UserBA {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   name          String?
-  email         String?   @unique
+  email         String?  @unique
   emailVerified Boolean?
   image         String?
   password      String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  accounts      Account[]
-  sessions      Session[]
-  likes         ArtworkLike[]
-  settings      UserSetting[]
+  accounts Account[]
+  sessions Session[]
+  likes    ArtworkLike[]
+  settings UserSetting[]
 }
 
 model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String?
-  providerId        String
-  accountId         String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String? @db.Text
-  session_state     String?
-  password          String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id            String   @id @default(cuid())
+  userId        String
+  type          String?
+  providerId    String
+  accountId     String
+  refresh_token String?  @db.Text
+  access_token  String?  @db.Text
+  expires_at    Int?
+  token_type    String?
+  scope         String?
+  id_token      String?  @db.Text
+  session_state String?
+  password      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   user UserBA @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -171,15 +183,15 @@ model Account {
 }
 
 model Session {
-  id           String   @id @default(cuid())
-  token        String   @unique
-  userId       String
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  ipAddress    String?
-  userAgent    String?
-  user         UserBA   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  user      UserBA   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {
@@ -246,10 +258,10 @@ model TriggerLog {
 }
 
 enum TranslateType {
-  NONE     // 0-无
-  PIXIV    // 1-pixiv
-  AI       // 2-AI
-  MANUAL   // 3-人工标注
+  NONE // 0-无
+  PIXIV // 1-pixiv
+  AI // 2-AI
+  MANUAL // 3-人工标注
 }
 
 model SystemJob {
@@ -306,15 +318,15 @@ enum JobStatus {
 }
 
 model Series {
-  id            Int             @id @default(autoincrement())
-  title         String
-  description   String?
-  coverImageUrl String?
-  source        String          @default("LOCAL")   // 用于区分数据来源，'LOCAL'是自己建的，'PIXIV'是导入的
-  externalId    String?                             // 用于存原来的Pixiv 系列 ID，比如 '123456'
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  artworks      Artwork[]
+  id             Int             @id @default(autoincrement())
+  title          String
+  description    String?
+  coverImageUrl  String?
+  source         String          @default("LOCAL") // 用于区分数据来源，'LOCAL'是自己建的，'PIXIV'是导入的
+  externalId     String? // 用于存原来的Pixiv 系列 ID，比如 '123456'
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  artworks       Artwork[]
   seriesArtworks SeriesArtwork[]
 
   // 这个索引让数据库知道：同一个来源下的同一个外部ID，只能有一条记录
@@ -323,13 +335,14 @@ model Series {
 
 // 定义枚举
 enum SeriesType {
-  LOCAL   // 本地创建
-  PIXIV   // Pixiv 导入
+  LOCAL // 本地创建
+  PIXIV // Pixiv 导入
 }
 
 enum ArtworkSource {
   LOCAL_CREATED
   PIXIV_IMPORTED
+  LOCAL_IMPORT
 }
 
 model SeriesArtwork {

@@ -919,6 +919,7 @@ export async function rescanLocalArtwork(
     const mediaScanResult = await scanLocalArtworkMediaDirectory({
       scanPath: options.scanPath,
       targetDirectoryRelativePath,
+      checkCancelled: options.checkCancelled,
       onProgress: ({ current, total, fileName }) => {
         const percentage = total > 0 ? 20 + Math.round((current / total) * 50) : 20
         options.onProgress?.({

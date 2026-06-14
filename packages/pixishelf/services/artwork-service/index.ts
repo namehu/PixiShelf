@@ -245,7 +245,7 @@ export async function createArtwork(data: {
   description?: string
   artistId?: number | null
   tags?: number[]
-  source?: 'LOCAL_CREATED' | 'PIXIV_IMPORTED'
+  source?: 'LOCAL_CREATED' | 'PIXIV_IMPORTED' | 'LOCAL_IMPORT'
   sourceDate?: Date | string | null
 }) {
   const { tags, artistId, source, sourceDate, ...rest } = data

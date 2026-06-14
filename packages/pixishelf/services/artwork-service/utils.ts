@@ -133,12 +133,15 @@ export const generateLocalExternalId = (artworkId: number) => {
  * 2. 如果没有图片，根据 Artist ID + Artwork External ID 拼接
  */
 export function determineArtworkRelDir(artwork: {
+  storagePath?: string | null
   images?: { path: string }[]
   artist?: { userId: string | null } | null
   externalId: string | null
 }): string | null {
   let targetRelDir = ''
-  if (artwork.images && artwork.images.length > 0 && artwork.images[0]?.path) {
+  if (artwork.storagePath) {
+    targetRelDir = artwork.storagePath
+  } else if (artwork.images && artwork.images.length > 0 && artwork.images[0]?.path) {
     targetRelDir = path.dirname(artwork.images[0].path)
   } else if (artwork.artist?.userId && artwork.externalId) {
     targetRelDir = `/${artwork.artist.userId}/${artwork.externalId}`

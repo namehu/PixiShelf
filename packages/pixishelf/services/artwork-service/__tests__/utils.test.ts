@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
-import { transformImages } from '../utils'
+import { determineArtworkRelDir, transformImages } from '../utils'
 
 describe('transformImages', () => {
   it('should require both chaptersPath and chaptersCount to mark video as hasChapters', () => {
@@ -73,5 +73,18 @@ describe('transformImages', () => {
     ])
 
     expect(() => transformImages(images as any)).not.toThrow()
+  })
+})
+
+describe('determineArtworkRelDir', () => {
+  it('prefers and normalizes storagePath when present', () => {
+    expect(
+      determineArtworkRelDir({
+        storagePath: '\\local\\imported-artwork',
+        images: [{ path: '/legacy/path/image.jpg' }],
+        artist: { userId: 'legacy-artist' },
+        externalId: 'legacy-artwork'
+      })
+    ).toBe('/local/imported-artwork')
   })
 })

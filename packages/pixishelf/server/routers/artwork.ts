@@ -61,7 +61,7 @@ export const artworkRouter = router({
         description: z.string().optional(),
         artistId: z.number('请选择艺术家'),
         tags: z.array(z.number()).optional(),
-        source: z.enum(['LOCAL_CREATED', 'PIXIV_IMPORTED']).optional(),
+        source: z.enum(['LOCAL_CREATED', 'PIXIV_IMPORTED', 'LOCAL_IMPORT']).optional(),
         sourceDate: z.date().or(z.string())
       })
     )
