@@ -15,6 +15,7 @@ import { useRecentTags } from '@/store/admin/useRecentTags'
 import { RecentTagsList } from './recent-tags-list'
 import { Save } from 'lucide-react'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
+import { ESource } from '@/enums/ESource'
 
 export interface TagItem {
   id: number
@@ -149,7 +150,7 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
 
     createMutation.mutate({
       ...payload,
-      source: 'LOCAL_CREATED'
+      source: ESource.LOCAL_CREATED
     })
   }
 

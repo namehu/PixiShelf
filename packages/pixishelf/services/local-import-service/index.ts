@@ -14,6 +14,7 @@ import {
   type SaveLocalImportArtistMappingsInput
 } from '@/schemas/local-import.dto'
 import { discoverLocalImports } from './discovery'
+import { ESource } from '@/enums/ESource'
 
 const MAX_ERRORS = 200
 
@@ -112,7 +113,7 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
           data: {
             title: candidate.work.title,
             artistId,
-            source: 'LOCAL_IMPORT',
+            source: ESource.LOCAL_IMPORT,
             sourceDate: media.earliestMediaMtime,
             storagePath: candidate.work.storagePath
           },

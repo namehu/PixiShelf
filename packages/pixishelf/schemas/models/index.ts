@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ESource } from '@/enums/ESource'
 
 // ==========================================
 // 0. Enums & Shared Types
@@ -10,7 +11,7 @@ export const TranslateTypeEnum = z.enum(['NONE', 'PIXIV', 'AI', 'MANUAL'])
 export type TranslateType = z.infer<typeof TranslateTypeEnum>
 
 // 对应 schema.prisma 中的 enum ArtworkSource
-export const ArtworkSourceEnum = z.enum(['LOCAL_CREATED', 'PIXIV_IMPORTED', 'LOCAL_IMPORT'])
+export const ArtworkSourceEnum = z.enum(ESource)
 
 export type ArtworkSource = z.infer<typeof ArtworkSourceEnum>
 
@@ -60,7 +61,7 @@ export const ArtworkModel = z.object({
   metaSource: z.string().nullable(),
   storagePath: z.string().nullable(),
   seriesId: z.number().int().nullable(),
-  source: ArtworkSourceEnum.default('PIXIV_IMPORTED')
+  source: ArtworkSourceEnum.default(ESource.PIXIV_IMPORTED)
 })
 
 /**
