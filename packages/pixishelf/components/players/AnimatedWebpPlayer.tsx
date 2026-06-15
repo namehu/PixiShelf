@@ -1,7 +1,7 @@
 'use client'
 
 import { InfoIcon, Loader2Icon, PlayIcon } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type KeyboardEvent } from 'react'
 import { cn } from '@/lib/utils'
 import { combinationApiResource } from '@/utils/combinationStatic'
 
@@ -43,13 +43,21 @@ export default function AnimatedWebpPlayer({
   const originalSrc = useMemo(() => combinationApiResource(src), [src])
   const posterSrc = useMemo(() => getStaticWebpPosterUrl(src), [src])
   const fileSize = formatFileSize(size)
+  const canStartPlayback = isAnimated && !isPlaying
 
   const handlePlay = () => {
-    if (!isAnimated) return
+    if (!canStartPlayback) return
 
     setAnimationFailed(false)
     setIsLoadingAnimation(true)
     setIsPlaying(true)
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+
+    event.preventDefault()
+    handlePlay()
   }
 
   const handleAnimationLoad = () => {
@@ -63,7 +71,14 @@ export default function AnimatedWebpPlayer({
   }
 
   return (
-    <div className={cn('relative w-full bg-neutral-100', className)}>
+    <div
+      className={cn('relative w-full bg-neutral-100', canStartPlayback && 'cursor-pointer', className)}
+      role={canStartPlayback ? 'button' : undefined}
+      tabIndex={canStartPlayback ? 0 : undefined}
+      aria-label={canStartPlayback ? '播放 WebP 动图' : undefined}
+      onClick={handlePlay}
+      onKeyDown={handleKeyDown}
+    >
       <img src={posterSrc} alt={alt} loading="lazy" decoding="async" className="block w-full h-auto object-contain" />
 
       {isAnimated && isPlaying && !animationFailed && (
@@ -79,22 +94,10 @@ export default function AnimatedWebpPlayer({
       )}
 
       <div className="absolute right-2 top-2 flex h-5 items-center gap-1 rounded-sm bg-[#ff2f4d] px-2 text-[10px] font-semibold leading-none tabular-nums text-white shadow-sm">
+        {canStartPlayback && <PlayIcon className="h-3 w-3 fill-current" />}
         <span>WEBP</span>
         {!isPlaying && fileSize && <span>{fileSize}</span>}
       </div>
-
-      {isAnimated && !isPlaying && (
-        <button
-          type="button"
-          aria-label="播放 WebP 动图"
-          onClick={handlePlay}
-          className="absolute inset-0 flex items-center justify-center bg-black/10 transition-colors hover:bg-black/15"
-        >
-          <span className="rounded-full bg-black/45 p-4 text-white shadow-lg backdrop-blur-sm transition-transform hover:scale-105">
-            <PlayIcon className="h-8 w-8 fill-current" />
-          </span>
-        </button>
-      )}
 
       {isAnimated && isLoadingAnimation && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/20">
