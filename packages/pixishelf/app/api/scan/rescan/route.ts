@@ -9,6 +9,7 @@ import { apiHandler } from '@/lib/api-handler'
 import { ScanRescanSchema } from '@/schemas/scan.dto'
 import { prisma } from '@/lib/prisma'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
+import { isLocalDirectoryArtworkSource } from '@/utils/artwork/artwork-source'
 
 /**
  * Helper: Create SSE event sender
@@ -117,7 +118,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
         }
 
         const result =
-          artwork.source === 'LOCAL_CREATED'
+          isLocalDirectoryArtworkSource(artwork.source)
             ? await rescanLocalArtwork(scanOptions, artwork.id, relativePath)
             : await rescanArtwork(scanOptions, artwork.externalId!, relativePath)
 

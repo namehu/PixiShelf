@@ -38,10 +38,17 @@ function ScanManagement() {
   const { data: health } = useQuery(trpc.setting.health.queryOptions())
 
   const scanPath = useScanPath()
+  const mediaActivity = useQuery(
+    trpc.localImport.status.queryOptions(undefined, {
+      refetchInterval: 3000
+    })
+  )
 
   // 统一的状态和动作 Hook
   const { state, actions } = useSseScan()
   const { streaming } = state
+  const localImportRunning = Boolean(mediaActivity.data?.activity.localImport)
+  const scanBusy = streaming || localImportRunning || Boolean(mediaActivity.data?.activity.scan)
 
   // // 启动客户端列表扫描 (POST)
   const handleClientScan = (metadataList: string[]) => {
@@ -82,14 +89,14 @@ function ScanManagement() {
         <ServerScanCard
           scanPathData={scanPath.query.data?.data || ''}
           isUpdatingPath={scanPath.update.isPending}
-          isScanning={streaming}
+          isScanning={scanBusy}
           healthStatus={health?.status}
           onUpdatePath={handleUpdatePath}
           onScanIncremental={() => startServerStream(false)}
           onScanForce={handleScan} // 你的强制扫描逻辑
         />
 
-        <ClientScanCard hasScanPath={!!scanPath.query.data?.data} isScanning={streaming} onScan={handleClientScan} />
+        <ClientScanCard hasScanPath={!!scanPath.query.data?.data} isScanning={scanBusy} onScan={handleClientScan} />
 
         {/*  统一的状态、结果和日志区域 (新) */}
         {/* 仅在有任何活动或结果时显示此卡片 */}

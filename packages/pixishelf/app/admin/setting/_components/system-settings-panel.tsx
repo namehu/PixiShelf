@@ -12,18 +12,26 @@ export function SystemSettingsPanel() {
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastAppliedPersistedTagIdsKeyRef = useRef<string | null>(null)
+  const lastAppliedPersistedSettingsKeyRef = useRef<string | null>(null)
   const [replaceDefaultTagIds, setReplaceDefaultTagIds] = useState<number[]>([])
+  const [localImportDefaultTagIds, setLocalImportDefaultTagIds] = useState<number[]>([])
 
   const systemSettingsQuery = useQuery(trpc.setting.getSystemSettings.queryOptions())
-  const persistedTagIds = systemSettingsQuery.data?.settings.replace_default_tag_ids
-  const persistedTagIdsKey = useMemo(() => (persistedTagIds ?? []).join(','), [persistedTagIds])
-  const tagIdsKey = useMemo(() => replaceDefaultTagIds.join(','), [replaceDefaultTagIds])
+  const persistedReplaceTagIds = systemSettingsQuery.data?.settings.replace_default_tag_ids
+  const persistedLocalImportTagIds = systemSettingsQuery.data?.settings.local_import_default_tag_ids
+  const persistedSettingsKey = useMemo(
+    () => `${(persistedReplaceTagIds ?? []).join(',')}|${(persistedLocalImportTagIds ?? []).join(',')}`,
+    [persistedLocalImportTagIds, persistedReplaceTagIds]
+  )
+  const selectedTagIds = useMemo(
+    () => Array.from(new Set([...replaceDefaultTagIds, ...localImportDefaultTagIds])),
+    [localImportDefaultTagIds, replaceDefaultTagIds]
+  )
   const selectedTagsQuery = useQuery(
     trpc.tag.getByIds.queryOptions(
-      { ids: replaceDefaultTagIds },
+      { ids: selectedTagIds },
       {
-        enabled: replaceDefaultTagIds.length > 0
+        enabled: selectedTagIds.length > 0
       }
     )
   )
@@ -41,14 +49,14 @@ export function SystemSettingsPanel() {
   )
 
   useEffect(() => {
-    if (lastAppliedPersistedTagIdsKeyRef.current === persistedTagIdsKey) {
+    if (lastAppliedPersistedSettingsKeyRef.current === persistedSettingsKey) {
       return
     }
 
-    lastAppliedPersistedTagIdsKeyRef.current = persistedTagIdsKey
-    const nextIds = persistedTagIds ?? []
-    setReplaceDefaultTagIds(nextIds)
-  }, [persistedTagIds, persistedTagIdsKey])
+    lastAppliedPersistedSettingsKeyRef.current = persistedSettingsKey
+    setReplaceDefaultTagIds(persistedReplaceTagIds ?? [])
+    setLocalImportDefaultTagIds(persistedLocalImportTagIds ?? [])
+  }, [persistedLocalImportTagIds, persistedReplaceTagIds, persistedSettingsKey])
 
   useEffect(() => {
     return () => {
@@ -58,19 +66,20 @@ export function SystemSettingsPanel() {
     }
   }, [])
 
-  const scheduleSave = (nextTagIds: number[]) => {
+  const scheduleSave = (nextReplaceTagIds: number[], nextLocalImportTagIds: number[]) => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current)
     }
 
     saveTimer.current = setTimeout(() => {
       updateMutation.mutate({
-        replace_default_tag_ids: nextTagIds
+        replace_default_tag_ids: nextReplaceTagIds,
+        local_import_default_tag_ids: nextLocalImportTagIds
       })
     }, 500)
   }
 
-  const selectedTagOptions = useMemo<Option[]>(() => {
+  const selectedTagOptionsById = useMemo(() => {
     const tagMap = new Map(
       (selectedTagsQuery.data?.items ?? []).map((tag) => [
         tag.id,
@@ -81,8 +90,9 @@ export function SystemSettingsPanel() {
       ])
     )
 
-    return replaceDefaultTagIds.map((id) => tagMap.get(id) || { value: id.toString(), label: `#${id}` })
-  }, [replaceDefaultTagIds, selectedTagsQuery.data?.items, tagIdsKey])
+    return (ids: number[]): Option[] =>
+      ids.map((id) => tagMap.get(id) || { value: id.toString(), label: `#${id}` })
+  }, [selectedTagsQuery.data?.items])
 
   const handleSearchTag = async (query: string): Promise<Option[]> => {
     const res = await trpcClient.tag.list.query({
@@ -104,7 +114,16 @@ export function SystemSettingsPanel() {
       .filter((id) => Number.isInteger(id) && id > 0)
 
     setReplaceDefaultTagIds(nextIds)
-    scheduleSave(nextIds)
+    scheduleSave(nextIds, localImportDefaultTagIds)
+  }
+
+  const handleLocalImportDefaultTagsChange = (options: Option[]) => {
+    const nextIds = options
+      .map((item) => Number(item.value))
+      .filter((id) => Number.isInteger(id) && id > 0)
+
+    setLocalImportDefaultTagIds(nextIds)
+    scheduleSave(replaceDefaultTagIds, nextIds)
   }
 
   return (
@@ -121,16 +140,36 @@ export function SystemSettingsPanel() {
         >
           <div className="w-full sm:max-w-xl">
             <MultipleSelector
-              value={selectedTagOptions}
+              value={selectedTagOptionsById(replaceDefaultTagIds)}
               onSearch={handleSearchTag}
               onChange={handleDefaultTagsChange}
               triggerSearchOnFocus
-              placeholder="搜索并选择默认标签..."
+              placeholder="搜索并选择全量替换默认标签..."
               disabled={systemSettingsQuery.isLoading || updateMutation.isPending}
               emptyIndicator={<p className="py-4 text-center text-sm text-slate-500">暂无可选标签</p>}
             />
             <div className="mt-2 text-xs text-neutral-500">
               {updateMutation.isPending ? '保存中...' : `当前已选择 ${replaceDefaultTagIds.length} 个默认标签`}
+            </div>
+          </div>
+        </PreferenceItem>
+
+        <PreferenceItem
+          title="本地目录导入默认标签"
+          description="选择默认追加的标签。新作品从本地目录导入成功后，会自动补上这些标签"
+        >
+          <div className="w-full sm:max-w-xl">
+            <MultipleSelector
+              value={selectedTagOptionsById(localImportDefaultTagIds)}
+              onSearch={handleSearchTag}
+              onChange={handleLocalImportDefaultTagsChange}
+              triggerSearchOnFocus
+              placeholder="搜索并选择本地导入默认标签..."
+              disabled={systemSettingsQuery.isLoading || updateMutation.isPending}
+              emptyIndicator={<p className="py-4 text-center text-sm text-slate-500">暂无可选标签</p>}
+            />
+            <div className="mt-2 text-xs text-neutral-500">
+              {updateMutation.isPending ? '保存中...' : `当前已选择 ${localImportDefaultTagIds.length} 个默认标签`}
             </div>
           </div>
         </PreferenceItem>

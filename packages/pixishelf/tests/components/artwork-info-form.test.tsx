@@ -2,6 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { ArtworkInfoForm } from '@/app/admin/artworks/_components/artwork-info-form'
+import { ESource } from '@/enums/ESource'
 
 const mutationCalls = vi.hoisted(() => ({
   create: [] as any[],
@@ -165,7 +166,7 @@ describe('ArtworkInfoForm', () => {
         artistId: 12,
         tags: [1, 2],
         sourceDate: '2026-06-05',
-        source: 'LOCAL_CREATED'
+        source: ESource.LOCAL_CREATED
       }
     ])
     expect(onSuccess).toHaveBeenCalledWith({ id: 99, title: '复制源作品' })

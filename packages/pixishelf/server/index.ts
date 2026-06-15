@@ -10,6 +10,7 @@ import { seriesRouter } from './routers/series'
 import { migrationRouter } from './routers/migration'
 import { jobRouter } from './routers/job'
 import { userSettingRouter } from './routers/user-setting'
+import { localImportRouter } from './routers/local-import'
 
 // 挂载子路由
 export const appRouter = router({
@@ -23,7 +24,8 @@ export const appRouter = router({
   series: seriesRouter,
   migration: migrationRouter,
   job: jobRouter,
-  userSetting: userSettingRouter
+  userSetting: userSettingRouter,
+  localImport: localImportRouter
 })
 
 // 导出类型供前端使用

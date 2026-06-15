@@ -7,6 +7,7 @@ import fs from 'fs/promises'
 import logger from '@/lib/logger'
 import { generateLocalExternalId } from './artwork-service/utils'
 import { syncMediaDerivedTagsForArtworks } from './media-derived-tag-service'
+import { ESource } from '@/enums/ESource'
 
 /**
  * 批量创建作品
@@ -29,7 +30,7 @@ export async function batchCreateArtworksService(data: BatchCreateArtworkSchema)
         const artwork = await tx.artwork.create({
           data: {
             title: item.title,
-            source: 'LOCAL_CREATED',
+            source: ESource.LOCAL_CREATED,
             sourceDate: item.sourceDate ? new Date(item.sourceDate) : new Date(),
             artistId: item.artistId
           }

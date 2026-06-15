@@ -22,6 +22,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { getScanPath } from '@/services/setting.service'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
+import { ESource, type ESource as ArtworkSource } from '@/enums/ESource'
 
 export * from './related'
 export * from './video-chapters'
@@ -245,7 +246,7 @@ export async function createArtwork(data: {
   description?: string
   artistId?: number | null
   tags?: number[]
-  source?: 'LOCAL_CREATED' | 'PIXIV_IMPORTED'
+  source?: ArtworkSource
   sourceDate?: Date | string | null
 }) {
   const { tags, artistId, source, sourceDate, ...rest } = data
@@ -254,7 +255,7 @@ export async function createArtwork(data: {
     data: {
       ...rest,
       sourceDate: typeof sourceDate === 'string' ? new Date(sourceDate) : sourceDate,
-      source: source as any,
+      source,
       artist: artistId ? { connect: { id: artistId } } : undefined,
       artworkTags:
         tags && tags.length > 0
@@ -265,7 +266,7 @@ export async function createArtwork(data: {
     }
   })
 
-  if (source === 'LOCAL_CREATED') {
+  if (source === ESource.LOCAL_CREATED) {
     const externalId = generateLocalExternalId(artwork.id)
     await prisma.artwork.update({
       where: { id: artwork.id },

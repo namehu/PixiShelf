@@ -5,6 +5,24 @@ import { getScanPath } from '@/services/setting.service'
 import { syncMediaDerivedTagForArtwork } from '@/services/media-derived-tag-service'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 
+export interface ArtworkImageTransactionClient {
+  image: {
+    deleteMany(args: any): Promise<any>
+    createMany(args: any): Promise<any>
+    findMany(args: any): Promise<any>
+  }
+  tag: {
+    findMany(args: any): Promise<any>
+    findFirst(args: any): Promise<any>
+    create(args: any): Promise<any>
+    update(args: any): Promise<any>
+  }
+  artworkTag: {
+    createMany(args: any): Promise<any>
+    deleteMany(args: any): Promise<any>
+  }
+}
+
 /**
  * 图片元数据接口
  */
@@ -44,60 +62,70 @@ export async function updateArtworkImagesTransaction(
   chaptersMeta: ReplaceChapterMetaInput[] = [],
   options: { appendTagIds?: number[] } = {}
 ) {
-  return await prisma.$transaction(async (tx) => {
-    // 1. 删除旧图片记录
-    await tx.image.deleteMany({
-      where: { artworkId }
+  return await prisma.$transaction((tx) =>
+    updateArtworkImagesWithTransactionClient(tx, artworkId, files, chaptersMeta, options)
+  )
+}
+
+export async function updateArtworkImagesWithTransactionClient(
+  tx: ArtworkImageTransactionClient,
+  artworkId: number,
+  files: ImageMeta[],
+  chaptersMeta: ReplaceChapterMetaInput[] = [],
+  options: { appendTagIds?: number[] } = {}
+) {
+  // 1. 删除旧图片记录
+  await tx.image.deleteMany({
+    where: { artworkId }
+  })
+
+  const chaptersMetaMap = new Map(chaptersMeta.map((item) => [item.videoFileName, item]))
+
+  // 2. 准备新图片数据
+  const newImages = files.map((file) => ({
+    ...(chaptersMetaMap.get(file.fileName)
+      ? {
+          chaptersPath: chaptersMetaMap.get(file.fileName)!.chaptersPath,
+          chaptersCount: chaptersMetaMap.get(file.fileName)!.chaptersCount,
+          chaptersDuration: chaptersMetaMap.get(file.fileName)!.chaptersDuration,
+          chaptersUpdatedAt: new Date(),
+          chaptersHash: chaptersMetaMap.get(file.fileName)!.chaptersHash
+        }
+      : {}),
+    artworkId,
+    path: file.path,
+    sortOrder: file.order,
+    width: file.width,
+    height: file.height,
+    size: file.size
+  }))
+
+  // 3. 批量创建新图片
+  if (newImages.length > 0) {
+    await tx.image.createMany({
+      data: newImages
+    })
+  }
+
+  await syncMediaDerivedTagForArtwork(tx, artworkId)
+
+  const appendTagIds = Array.from(new Set((options.appendTagIds ?? []).filter((id) => Number.isInteger(id) && id > 0)))
+  if (appendTagIds.length > 0) {
+    const existingTags = await tx.tag.findMany({
+      where: { id: { in: appendTagIds } },
+      select: { id: true }
     })
 
-    const chaptersMetaMap = new Map(chaptersMeta.map((item) => [item.videoFileName, item]))
-
-    // 2. 准备新图片数据
-    const newImages = files.map((file) => ({
-      ...(chaptersMetaMap.get(file.fileName)
-        ? {
-            chaptersPath: chaptersMetaMap.get(file.fileName)!.chaptersPath,
-            chaptersCount: chaptersMetaMap.get(file.fileName)!.chaptersCount,
-            chaptersDuration: chaptersMetaMap.get(file.fileName)!.chaptersDuration,
-            chaptersUpdatedAt: new Date(),
-            chaptersHash: chaptersMetaMap.get(file.fileName)!.chaptersHash
-          }
-        : {}),
-      artworkId,
-      path: file.path,
-      sortOrder: file.order,
-      width: file.width,
-      height: file.height,
-      size: file.size
-    }))
-
-    // 3. 批量创建新图片
-    if (newImages.length > 0) {
-      await tx.image.createMany({
-        data: newImages
+    if (existingTags.length > 0) {
+      await tx.artworkTag.createMany({
+        data: existingTags.map((tag: { id: number }) => ({
+          artworkId,
+          tagId: tag.id
+        })),
+        skipDuplicates: true
       })
     }
-
-    await syncMediaDerivedTagForArtwork(tx, artworkId)
-
-    const appendTagIds = Array.from(new Set((options.appendTagIds ?? []).filter((id) => Number.isInteger(id) && id > 0)))
-    if (appendTagIds.length > 0) {
-      const existingTags = await tx.tag.findMany({
-        where: { id: { in: appendTagIds } },
-        select: { id: true }
-      })
-
-      if (existingTags.length > 0) {
-        await tx.artworkTag.createMany({
-          data: existingTags.map((tag) => ({
-            artworkId,
-            tagId: tag.id
-          })),
-          skipDuplicates: true
-        })
-      }
-    }
-  })
+  }
 }
 
 /**

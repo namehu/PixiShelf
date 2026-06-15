@@ -30,7 +30,7 @@ vi.mock('@/services/setting.service', () => ({
   getScanPath: vi.fn()
 }))
 
-import { updateArtworkImagesTransaction } from '../image-manager'
+import { updateArtworkImagesTransaction, updateArtworkImagesWithTransactionClient } from '../image-manager'
 
 const tx = {
   image: {
@@ -104,6 +104,67 @@ describe('updateArtworkImagesTransaction', () => {
         { artworkId: 10, tagId: 2 },
         { artworkId: 10, tagId: 5 }
       ],
+      skipDuplicates: true
+    })
+  })
+})
+
+describe('updateArtworkImagesWithTransactionClient', () => {
+  beforeEach(() => {
+    imageDeleteManyMock.mockReset().mockResolvedValue({})
+    imageCreateManyMock.mockReset().mockResolvedValue({ count: 1 })
+    tagFindManyMock.mockReset().mockResolvedValue([{ id: 4 }])
+    artworkTagCreateManyMock.mockReset().mockResolvedValue({ count: 1 })
+    syncMediaDerivedTagMock.mockReset().mockResolvedValue(undefined)
+    transactionMock.mockReset()
+  })
+
+  it('replaces images, chapter metadata, derived tags, and append tags without opening a transaction', async () => {
+    await updateArtworkImagesWithTransactionClient(
+      tx as any,
+      10,
+      [
+        {
+          fileName: 'video.mp4',
+          order: 2,
+          width: 1920,
+          height: 1080,
+          size: 4096,
+          path: '/artist/artwork/video.mp4'
+        }
+      ],
+      [
+        {
+          videoFileName: 'video.mp4',
+          chaptersFileName: 'video.chapters.json',
+          chaptersPath: '/artist/artwork/video.chapters.json',
+          chaptersCount: 3,
+          chaptersDuration: 60,
+          chaptersHash: 'chapter-hash'
+        }
+      ],
+      { appendTagIds: [4] }
+    )
+
+    expect(transactionMock).not.toHaveBeenCalled()
+    expect(imageDeleteManyMock).toHaveBeenCalledWith({ where: { artworkId: 10 } })
+    expect(imageCreateManyMock).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          artworkId: 10,
+          path: '/artist/artwork/video.mp4',
+          sortOrder: 2,
+          chaptersPath: '/artist/artwork/video.chapters.json',
+          chaptersCount: 3,
+          chaptersDuration: 60,
+          chaptersUpdatedAt: expect.any(Date),
+          chaptersHash: 'chapter-hash'
+        })
+      ]
+    })
+    expect(syncMediaDerivedTagMock).toHaveBeenCalledWith(tx, 10)
+    expect(artworkTagCreateManyMock).toHaveBeenCalledWith({
+      data: [{ artworkId: 10, tagId: 4 }],
       skipDuplicates: true
     })
   })

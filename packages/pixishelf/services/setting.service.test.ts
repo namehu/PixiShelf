@@ -30,7 +30,8 @@ describe('system setting service', () => {
     settingFindManyMock.mockResolvedValue([])
 
     await expect(getSystemSettings()).resolves.toEqual({
-      replace_default_tag_ids: []
+      replace_default_tag_ids: [],
+      local_import_default_tag_ids: []
     })
   })
 
@@ -40,12 +41,18 @@ describe('system setting service', () => {
         key: 'replace_default_tag_ids',
         value: '[1,2,3]',
         type: 'json'
+      },
+      {
+        key: 'local_import_default_tag_ids',
+        value: '[4,5]',
+        type: 'json'
       }
     ])
     settingUpsertMock.mockResolvedValue({})
 
     const result = await upsertSystemSettings({
-      replace_default_tag_ids: [1, 2, 3]
+      replace_default_tag_ids: [1, 2, 3],
+      local_import_default_tag_ids: [4, 5]
     })
 
     expect(settingUpsertMock).toHaveBeenCalledWith({
@@ -60,8 +67,21 @@ describe('system setting service', () => {
         type: 'json'
       }
     })
+    expect(settingUpsertMock).toHaveBeenCalledWith({
+      where: { key: 'local_import_default_tag_ids' },
+      update: {
+        value: '[4,5]',
+        type: 'json'
+      },
+      create: {
+        key: 'local_import_default_tag_ids',
+        value: '[4,5]',
+        type: 'json'
+      }
+    })
     expect(result).toEqual({
-      replace_default_tag_ids: [1, 2, 3]
+      replace_default_tag_ids: [1, 2, 3],
+      local_import_default_tag_ids: [4, 5]
     })
   })
 })

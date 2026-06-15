@@ -12,6 +12,7 @@ export interface LocalArtworkMediaScanResult {
   filesMeta: ImageMeta[]
   chaptersMeta: ReplaceChapterMetaInput[]
   warnings: string[]
+  earliestMediaMtime: Date | null
 }
 
 const supportedMediaExtensions = new Set(MEDIA_EXTENSIONS)
@@ -26,8 +27,10 @@ export async function scanLocalArtworkMediaDirectory(input: {
   scanPath: string
   targetDirectoryRelativePath: string
   onProgress?: (progress: { current: number; total: number; fileName: string }) => void
+  checkCancelled?: () => Promise<boolean>
 }): Promise<LocalArtworkMediaScanResult> {
-  const { scanPath, targetDirectoryRelativePath, onProgress } = input
+  const { scanPath, targetDirectoryRelativePath, onProgress, checkCancelled } = input
+  await throwIfCancelled(checkCancelled)
   const targetDir = resolvePathWithinScanRoot(scanPath, targetDirectoryRelativePath)
   const targetRelDir = normalizeStoredDir(targetDirectoryRelativePath)
   const entries = await fs.readdir(targetDir)
@@ -36,7 +39,9 @@ export async function scanLocalArtworkMediaDirectory(input: {
     return supportedMediaExtensions.has(extension)
   })
   let completedCount = 0
+  let cancelled = false
   const results = await runConcurrentMap(mediaEntries, MEDIA_METADATA_CONCURRENCY, async (entry) => {
+    await throwIfCancelled(checkCancelled)
     const extension = path.extname(entry).toLowerCase()
     const absolutePath = path.join(targetDir, entry)
     const stats = await fs.stat(absolutePath)
@@ -89,9 +94,13 @@ export async function scanLocalArtworkMediaDirectory(input: {
     const result = {
       fileMeta,
       chaptersMeta,
-      warnings
+      warnings,
+      mediaMtime: stats.mtime
     }
 
+    if (cancelled) {
+      return result
+    }
     completedCount += 1
     onProgress?.({
       current: completedCount,
@@ -100,17 +109,32 @@ export async function scanLocalArtworkMediaDirectory(input: {
     })
 
     return result
+  }, {
+    shouldStop: () => cancelled,
+    onError: (error) => {
+      if (isCancellationError(error)) {
+        cancelled = true
+      }
+    }
   })
+
+  if (cancelled) {
+    throw new Error('Task cancelled')
+  }
 
   const filesMeta: ImageMeta[] = []
   const chaptersMeta: ReplaceChapterMetaInput[] = []
   const warnings: string[] = []
+  let earliestMediaMtime: Date | null = null
 
   for (const result of results) {
     if (!result) continue
     filesMeta.push(result.fileMeta)
     chaptersMeta.push(...result.chaptersMeta)
     warnings.push(...result.warnings)
+    if (!earliestMediaMtime || result.mediaMtime < earliestMediaMtime) {
+      earliestMediaMtime = result.mediaMtime
+    }
   }
 
   filesMeta.sort((a, b) => a.order - b.order || a.fileName.localeCompare(b.fileName))
@@ -118,7 +142,14 @@ export async function scanLocalArtworkMediaDirectory(input: {
   return {
     filesMeta,
     chaptersMeta,
-    warnings
+    warnings,
+    earliestMediaMtime
+  }
+}
+
+async function throwIfCancelled(checkCancelled?: () => Promise<boolean>) {
+  if (await checkCancelled?.()) {
+    throw new Error('Task cancelled')
   }
 }
 
@@ -146,21 +177,40 @@ function resolvePathWithinScanRoot(scanRoot: string, relativePath: string): stri
 async function runConcurrentMap<T, R>(
   items: T[],
   concurrency: number,
-  mapper: (item: T) => Promise<R>
+  mapper: (item: T) => Promise<R>,
+  options: {
+    shouldStop: () => boolean
+    onError: (error: unknown) => void
+  }
 ): Promise<R[]> {
   const results: R[] = []
   let nextIndex = 0
 
   async function worker() {
-    while (nextIndex < items.length) {
+    while (!options.shouldStop() && nextIndex < items.length) {
       const currentIndex = nextIndex++
       const item = items[currentIndex]
       if (item === undefined) continue
-      results[currentIndex] = await mapper(item)
+      try {
+        results[currentIndex] = await mapper(item)
+      } catch (error) {
+        options.onError(error)
+        if (!isCancellationError(error)) {
+          throw error
+        }
+      }
     }
   }
 
   const workerCount = Math.min(concurrency, items.length)
-  await Promise.all(Array.from({ length: workerCount }, worker))
+  const settledWorkers = await Promise.allSettled(Array.from({ length: workerCount }, worker))
+  const failedWorker = settledWorkers.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (failedWorker) {
+    throw failedWorker.reason
+  }
   return results
+}
+
+function isCancellationError(error: unknown) {
+  return error instanceof Error && error.message === 'Task cancelled'
 }

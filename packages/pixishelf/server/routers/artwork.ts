@@ -25,6 +25,7 @@ import { TRPCError } from '@trpc/server'
 import { deleteImage, addImageWithChapters } from '@/services/artwork-service/image-manager'
 import { getScanPath } from '@/services/setting.service'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
+import { ArtworkSourceEnum } from '@/schemas/models'
 
 /**
  * 作品路由
@@ -61,7 +62,7 @@ export const artworkRouter = router({
         description: z.string().optional(),
         artistId: z.number('请选择艺术家'),
         tags: z.array(z.number()).optional(),
-        source: z.enum(['LOCAL_CREATED', 'PIXIV_IMPORTED']).optional(),
+        source: ArtworkSourceEnum.optional(),
         sourceDate: z.date().or(z.string())
       })
     )
