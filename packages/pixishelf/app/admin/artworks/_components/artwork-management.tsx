@@ -444,7 +444,7 @@ export default function ArtworkManagement() {
       size: 240,
       ellipsis: true,
       cell: ({ row: { original } }) => {
-        const { title, metaSource = '-', id } = original
+        const { title, id } = original
         return (
           <div
             className="font-medium cursor-pointer hover:text-primary transition-colors"
@@ -453,9 +453,6 @@ export default function ArtworkManagement() {
             <div className="truncate" title={title}>
               {title}
             </div>
-            <span className="font-mono text-xs text-neutral-400 truncate max-w-[200px] block" title={metaSource!}>
-              {metaSource || '-'}
-            </span>
           </div>
         )
       }
@@ -471,16 +468,23 @@ export default function ArtworkManagement() {
         }
 
         return (
-          <Link
-            href={`/artists/${artist.id}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 hover:text-primary transition-colors"
-            title={`在新窗口打开 ${artist.name} 详情页`}
-          >
-            <span>{artist.name}</span>
-            <ExternalLink className="w-3 h-3" />
-          </Link>
+          <div className="min-w-0 select-text">
+            <div className="flex min-w-0 items-center gap-1">
+              <span className="min-w-0 truncate" title={artist.name}>
+                {artist.name}
+              </span>
+              <Link
+                href={`/artists/${artist.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex shrink-0 items-center text-neutral-400 transition-colors hover:text-primary"
+                title={`在新窗口打开 ${artist.name} 详情页`}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <ExternalLink className="w-3 h-3" />
+              </Link>
+            </div>
+          </div>
         )
       }
     },

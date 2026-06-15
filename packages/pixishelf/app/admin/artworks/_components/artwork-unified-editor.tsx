@@ -96,6 +96,8 @@ export function ArtworkUnifiedEditor({
               <div className="flex min-w-0 items-center gap-2 text-xs text-neutral-500">
                 <CopyMetaItem label="外部ID" value={artwork?.externalId || '-'} />
                 <CopyMetaItem label="内部ID" value={String(currentArtworkId)} />
+                <CopyMetaItem label="作者ID" value={artwork?.artist?.userId || '-'} />
+                <CopyMetaItem label="来源" value={artwork?.metaSource || '-'} className="min-w-0 flex-1" />
                 <CopyMetaItem label="路径" value={artworkDirectory || '-'} className="min-w-0 flex-1" />
                 <span className="shrink-0 truncate">艺术家: {artwork?.artist?.name || '未知'}</span>
               </div>
