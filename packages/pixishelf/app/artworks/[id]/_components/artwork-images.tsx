@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { ListTree, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,8 @@ interface ArtworkImagesProps {
 
 const MAX_PREVIEW_IMAGES = 20
 const NAV_HEIGHT = 64
+
+type PreviewMenuState = { x: number; y: number; index: number }
 
 export function buildMediaAnchorIndexes(total: number, interval: number) {
   if (interval <= 0 || total < interval * 2) return []
@@ -47,26 +49,151 @@ function getEstimatedMediaHeight(media: ArtworkImageResponseDto, containerWidth:
   return width >= 640 ? 500 : 300
 }
 
-// Wrapper component to handle long press
-const ImageWrapper = ({
+function canPreviewFullSize(media: ArtworkImageResponseDto) {
+  return media.mediaType !== 'video' && !isVideoFile(media.path)
+}
+
+function isVideoMedia(media: ArtworkImageResponseDto) {
+  return media.mediaType === 'video' || isVideoFile(media.path)
+}
+
+function isSingleVideoArtwork(images: ArtworkImageResponseDto[]) {
+  return images.length === 1 && isVideoMedia(images[0]!)
+}
+
+function getPointerPosition(event: React.MouseEvent | React.TouchEvent) {
+  if ('touches' in event) {
+    const touch = event.touches[0]
+    return touch ? { x: touch.clientX, y: touch.clientY } : null
+  }
+
+  return { x: event.clientX, y: event.clientY }
+}
+
+function useMeasuredMediaContainer() {
+  const [containerWidth, setContainerWidth] = useState(0)
+  const [scrollMargin, setScrollMargin] = useState(0)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const updateMeasurements = useCallback(() => {
+    if (!containerRef.current) return
+
+    const rect = containerRef.current.getBoundingClientRect()
+    const horizontalInset = window.innerWidth >= 640 ? 16 : 0
+    const nextWidth = Math.max(1, rect.width - horizontalInset)
+    const nextScrollMargin = rect.top + window.scrollY
+
+    setContainerWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
+    setScrollMargin((currentMargin) => (currentMargin === nextScrollMargin ? currentMargin : nextScrollMargin))
+  }, [])
+
+  useLayoutEffect(() => {
+    updateMeasurements()
+    if (!containerRef.current) return
+
+    const resizeObserver = new ResizeObserver(updateMeasurements)
+    resizeObserver.observe(containerRef.current)
+    window.addEventListener('resize', updateMeasurements)
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', updateMeasurements)
+    }
+  }, [updateMeasurements])
+
+  return { containerRef, containerWidth, scrollMargin }
+}
+
+function useArtworkMediaVirtualizer({
+  images,
+  isExpanded,
+  containerWidth,
+  scrollMargin
+}: {
+  images: ArtworkImageResponseDto[]
+  isExpanded: boolean
+  containerWidth: number
+  scrollMargin: number
+}) {
+  const visibleCount = isExpanded ? images.length : Math.min(images.length, MAX_PREVIEW_IMAGES)
+  const remainingCount = Math.max(0, images.length - MAX_PREVIEW_IMAGES)
+
+  const estimateSize = useCallback(
+    (index: number) => getEstimatedMediaHeight(images[index]!, containerWidth),
+    [containerWidth, images]
+  )
+  const getItemKey = useCallback((index: number) => images[index]?.id ?? index, [images])
+
+  const virtualizer = useWindowVirtualizer({
+    useFlushSync: false,
+    count: visibleCount,
+    estimateSize,
+    overscan: 2,
+    scrollMargin,
+    scrollPaddingStart: NAV_HEIGHT,
+    getItemKey,
+    enabled: containerWidth > 0
+  })
+
+  return { virtualizer, visibleCount, remainingCount }
+}
+
+function usePreviewContextMenu(images: ArtworkImageResponseDto[]) {
+  const [contextMenu, setContextMenu] = useState<PreviewMenuState | null>(null)
+  const router = useRouter()
+  const setStoreImages = useArtworkStore((state) => state.setImages)
+
+  const openContextMenu = useCallback((event: React.MouseEvent | React.TouchEvent, index: number) => {
+    const position = getPointerPosition(event)
+    if (!position) return
+
+    setContextMenu({ ...position, index })
+  }, [])
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
+
+  const previewSelectedMedia = useCallback(() => {
+    if (!contextMenu) return
+
+    setStoreImages(images)
+    setContextMenu(null)
+    router.push(`/artworks/preview?index=${contextMenu.index}`)
+  }, [contextMenu, images, router, setStoreImages])
+
+  useEffect(() => {
+    const handleClose = () => {
+      closeContextMenu()
+    }
+
+    window.addEventListener('scroll', handleClose, { capture: true })
+    window.addEventListener('resize', handleClose)
+
+    return () => {
+      window.removeEventListener('scroll', handleClose, { capture: true })
+      window.removeEventListener('resize', handleClose)
+    }
+  }, [closeContextMenu])
+
+  return { contextMenu, openContextMenu, closeContextMenu, previewSelectedMedia }
+}
+
+function PreviewableMedia({
   children,
   index,
-  previewEnabled,
+  enabled,
   onOpenMenu
 }: {
-  children: React.ReactNode
+  children: ReactNode
   index: number
-  previewEnabled: boolean
+  enabled: boolean
   onOpenMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
-}) => {
+}) {
   const { ...longPressProps } = useLongPress({
     onLongPress: (e) => onOpenMenu(e, index),
     threshold: 500
   })
 
-  if (!previewEnabled) {
-    return <div>{children}</div>
-  }
+  if (!enabled) return children
 
   return (
     <div
@@ -77,6 +204,46 @@ const ImageWrapper = ({
       style={{ WebkitTouchCallout: 'none' }}
     >
       {children}
+    </div>
+  )
+}
+
+function ArtworkMediaItem({
+  media,
+  index,
+  showExpandOverlay,
+  remainingCount,
+  onExpand,
+  onOpenPreviewMenu
+}: {
+  media: ArtworkImageResponseDto
+  index: number
+  showExpandOverlay: boolean
+  remainingCount: number
+  onExpand: () => void
+  onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
+}) {
+  return (
+    <div className="relative group">
+      <PreviewableMedia index={index} enabled={canPreviewFullSize(media)} onOpenMenu={onOpenPreviewMenu}>
+        <LazyMedia media={media} index={index} />
+      </PreviewableMedia>
+
+      {showExpandOverlay && <ExpandRemainingMediaButton remainingCount={remainingCount} onExpand={onExpand} />}
+    </div>
+  )
+}
+
+function ExpandRemainingMediaButton({ remainingCount, onExpand }: { remainingCount: number; onExpand: () => void }) {
+  return (
+    <div className="absolute bottom-0 left-0 right-0 z-10 flex h-64 items-end justify-center bg-gradient-to-t from-white via-white/90 to-transparent">
+      <Button
+        variant="secondary"
+        onClick={onExpand}
+        className="h-12 w-full min-w-[240px] rounded-full px-8 text-base font-medium shadow-sm transition-all hover:bg-gray-200 md:w-auto"
+      >
+        查看剩余 {remainingCount} 张图片
+      </Button>
     </div>
   )
 }
@@ -133,21 +300,112 @@ function MediaAnchorList({
   )
 }
 
-export default function ArtworkImages({ images }: ArtworkImagesProps) {
+function MediaAnchorNavigation({
+  indexes,
+  activeIndex,
+  isMobileOpen,
+  onMobileOpenChange,
+  onSelect
+}: {
+  indexes: number[]
+  activeIndex: number
+  isMobileOpen: boolean
+  onMobileOpenChange: (open: boolean) => void
+  onSelect: (index: number) => void
+}) {
+  if (indexes.length === 0) return null
+
+  return (
+    <>
+      <MediaAnchorList
+        indexes={indexes}
+        activeIndex={activeIndex}
+        onSelect={onSelect}
+        className="fixed right-4 top-1/2 z-40 hidden -translate-y-1/2 md:block"
+      />
+
+      <button
+        type="button"
+        aria-label={isMobileOpen ? '关闭媒体快捷导航' : '打开媒体快捷导航'}
+        aria-expanded={isMobileOpen}
+        onClick={() => onMobileOpenChange(!isMobileOpen)}
+        className="fixed bottom-20 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg md:hidden"
+      >
+        {isMobileOpen ? <X className="h-5 w-5" /> : <ListTree className="h-5 w-5" />}
+      </button>
+
+      {isMobileOpen && (
+        <MediaAnchorList
+          indexes={indexes}
+          activeIndex={activeIndex}
+          onSelect={onSelect}
+          className="fixed bottom-32 right-4 z-40 md:hidden"
+        />
+      )}
+    </>
+  )
+}
+
+function PreviewContextMenu({
+  contextMenu,
+  onOpenChange,
+  onPreview
+}: {
+  contextMenu: PreviewMenuState | null
+  onOpenChange: (open: boolean) => void
+  onPreview: () => void
+}) {
+  return (
+    <Popover open={!!contextMenu} onOpenChange={onOpenChange}>
+      {contextMenu && (
+        <PopoverAnchor
+          style={{
+            position: 'fixed',
+            top: contextMenu.y,
+            left: contextMenu.x,
+            width: 0,
+            height: 0
+          }}
+        />
+      )}
+      <PopoverContent
+        align="start"
+        className="w-auto rounded-[4px] border border-[#E5E5E5] bg-white p-1 shadow-[0_8px_16px_rgba(0,0,0,0.1)] duration-150 ease-out data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+      >
+        <div
+          onClick={onPreview}
+          className="cursor-pointer select-none rounded-[2px] px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100"
+        >
+          预览完整尺寸
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function SingleVideoArtworkMedia({ media }: { media: ArtworkImageResponseDto }) {
+  return (
+    <div className="w-full sm:px-2" data-testid="artwork-video-container">
+      <LazyMedia media={media} index={0} />
+    </div>
+  )
+}
+
+function VirtualizedArtworkMediaList({ images }: { images: ArtworkImageResponseDto[] }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isMobileNavigationOpen, setIsMobileNavigationOpen] = useState(false)
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; index: number } | null>(null)
-  const [containerWidth, setContainerWidth] = useState(0)
-  const [scrollMargin, setScrollMargin] = useState(0)
   const pendingScrollIndexRef = useRef<number | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const router = useRouter()
   const anchorInterval = useArtworkMediaAnchorInterval()
-  const setStoreImages = useArtworkStore((state) => state.setImages)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const currentIndex = useArtworkStore((state) => state.currentIndex)
-  const visibleCount = isExpanded ? images.length : Math.min(images.length, MAX_PREVIEW_IMAGES)
-  const remainingCount = Math.max(0, images.length - MAX_PREVIEW_IMAGES)
+  const { containerRef, containerWidth, scrollMargin } = useMeasuredMediaContainer()
+  const { virtualizer, visibleCount, remainingCount } = useArtworkMediaVirtualizer({
+    images,
+    isExpanded,
+    containerWidth,
+    scrollMargin
+  })
+  const { contextMenu, openContextMenu, closeContextMenu, previewSelectedMedia } = usePreviewContextMenu(images)
 
   const anchorIndexes = useMemo(
     () => buildMediaAnchorIndexes(images.length, anchorInterval),
@@ -161,47 +419,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
     )
   }, [anchorIndexes, currentIndex])
 
-  const estimateSize = useCallback(
-    (index: number) => getEstimatedMediaHeight(images[index]!, containerWidth),
-    [containerWidth, images]
-  )
-  const getItemKey = useCallback((index: number) => images[index]?.id ?? index, [images])
-
-  const virtualizer = useWindowVirtualizer({
-    useFlushSync: false,
-    count: visibleCount,
-    estimateSize,
-    overscan: 2,
-    scrollMargin,
-    scrollPaddingStart: NAV_HEIGHT,
-    getItemKey,
-    enabled: containerWidth > 0
-  })
   const scrollToIndex = virtualizer.scrollToIndex
-
-  const updateMeasurements = useCallback(() => {
-    if (!containerRef.current) return
-    const rect = containerRef.current.getBoundingClientRect()
-    const horizontalInset = window.innerWidth >= 640 ? 16 : 0
-    const nextWidth = Math.max(1, rect.width - horizontalInset)
-    const nextScrollMargin = rect.top + window.scrollY
-    setContainerWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
-    setScrollMargin((currentMargin) => (currentMargin === nextScrollMargin ? currentMargin : nextScrollMargin))
-  }, [])
-
-  useLayoutEffect(() => {
-    updateMeasurements()
-    if (!containerRef.current) return
-
-    const resizeObserver = new ResizeObserver(updateMeasurements)
-    resizeObserver.observe(containerRef.current)
-    window.addEventListener('resize', updateMeasurements)
-
-    return () => {
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', updateMeasurements)
-    }
-  }, [updateMeasurements])
 
   useEffect(() => {
     const targetIndex = pendingScrollIndexRef.current
@@ -214,31 +432,6 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
 
     return () => cancelAnimationFrame(frame)
   }, [isExpanded, scrollToIndex, visibleCount])
-
-  const canPreviewFullSize = useCallback((media: ArtworkImageResponseDto) => {
-    return media.mediaType !== 'video' && !isVideoFile(media.path)
-  }, [])
-
-  const handleOpenMenu = useCallback((e: React.MouseEvent | React.TouchEvent, index: number) => {
-    let clientX, clientY
-    if ('touches' in e) {
-      clientX = e.touches[0]!.clientX
-      clientY = e.touches[0]!.clientY
-    } else {
-      clientX = (e as React.MouseEvent).clientX
-      clientY = (e as React.MouseEvent).clientY
-    }
-
-    setContextMenu({ x: clientX, y: clientY, index })
-  }, [])
-
-  const handlePreview = useCallback(() => {
-    if (!contextMenu) return
-
-    setStoreImages(images)
-    setContextMenu(null)
-    router.push(`/artworks/preview?index=${contextMenu.index}`)
-  }, [contextMenu, images, router, setStoreImages])
 
   const handleAnchorSelect = useCallback(
     (index: number) => {
@@ -255,20 +448,6 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
     },
     [isExpanded, scrollToIndex, setCurrentIndex]
   )
-
-  useEffect(() => {
-    const handleClose = () => {
-      if (contextMenu) setContextMenu(null)
-    }
-
-    window.addEventListener('scroll', handleClose, { capture: true })
-    window.addEventListener('resize', handleClose)
-
-    return () => {
-      window.removeEventListener('scroll', handleClose, { capture: true })
-      window.removeEventListener('resize', handleClose)
-    }
-  }, [contextMenu])
 
   return (
     <>
@@ -294,82 +473,42 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
                 transform: `translateY(${virtualItem.start - scrollMargin}px)`
               }}
             >
-              <div className="relative group">
-                <ImageWrapper index={index} previewEnabled={canPreviewFullSize(media)} onOpenMenu={handleOpenMenu}>
-                  <LazyMedia media={media} index={index} />
-                </ImageWrapper>
-
-                {isLastPreview && (
-                  <div className="absolute bottom-0 left-0 right-0 z-10 flex h-64 items-end justify-center bg-gradient-to-t from-white via-white/90 to-transparent">
-                    <Button
-                      variant="secondary"
-                      onClick={() => setIsExpanded(true)}
-                      className="h-12 w-full min-w-[240px] rounded-full px-8 text-base font-medium shadow-sm transition-all hover:bg-gray-200 md:w-auto"
-                    >
-                      查看剩余 {remainingCount} 张图片
-                    </Button>
-                  </div>
-                )}
-              </div>
+              <ArtworkMediaItem
+                media={media}
+                index={index}
+                showExpandOverlay={isLastPreview}
+                remainingCount={remainingCount}
+                onExpand={() => setIsExpanded(true)}
+                onOpenPreviewMenu={openContextMenu}
+              />
             </div>
           )
         })}
       </div>
 
-      {anchorIndexes.length > 0 && (
-        <>
-          <MediaAnchorList
-            indexes={anchorIndexes}
-            activeIndex={activeAnchorIndex}
-            onSelect={handleAnchorSelect}
-            className="fixed right-4 top-1/2 z-40 hidden -translate-y-1/2 md:block"
-          />
+      <MediaAnchorNavigation
+        indexes={anchorIndexes}
+        activeIndex={activeAnchorIndex}
+        isMobileOpen={isMobileNavigationOpen}
+        onMobileOpenChange={setIsMobileNavigationOpen}
+        onSelect={handleAnchorSelect}
+      />
 
-          <button
-            type="button"
-            aria-label={isMobileNavigationOpen ? '关闭媒体快捷导航' : '打开媒体快捷导航'}
-            aria-expanded={isMobileNavigationOpen}
-            onClick={() => setIsMobileNavigationOpen((open) => !open)}
-            className="fixed bottom-20 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg md:hidden"
-          >
-            {isMobileNavigationOpen ? <X className="h-5 w-5" /> : <ListTree className="h-5 w-5" />}
-          </button>
-
-          {isMobileNavigationOpen && (
-            <MediaAnchorList
-              indexes={anchorIndexes}
-              activeIndex={activeAnchorIndex}
-              onSelect={handleAnchorSelect}
-              className="fixed bottom-32 right-4 z-40 md:hidden"
-            />
-          )}
-        </>
-      )}
-
-      <Popover open={!!contextMenu} onOpenChange={(open) => !open && setContextMenu(null)}>
-        {contextMenu && (
-          <PopoverAnchor
-            style={{
-              position: 'fixed',
-              top: contextMenu.y,
-              left: contextMenu.x,
-              width: 0,
-              height: 0
-            }}
-          />
-        )}
-        <PopoverContent
-          align="start"
-          className="w-auto rounded-[4px] border border-[#E5E5E5] bg-white p-1 shadow-[0_8px_16px_rgba(0,0,0,0.1)] duration-150 ease-out data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
-        >
-          <div
-            onClick={handlePreview}
-            className="cursor-pointer select-none rounded-[2px] px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100"
-          >
-            预览完整尺寸
-          </div>
-        </PopoverContent>
-      </Popover>
+      <PreviewContextMenu
+        contextMenu={contextMenu}
+        onOpenChange={(open) => {
+          if (!open) closeContextMenu()
+        }}
+        onPreview={previewSelectedMedia}
+      />
     </>
   )
+}
+
+export default function ArtworkImages({ images }: ArtworkImagesProps) {
+  if (isSingleVideoArtwork(images)) {
+    return <SingleVideoArtworkMedia media={images[0]!} />
+  }
+
+  return <VirtualizedArtworkMediaList images={images} />
 }

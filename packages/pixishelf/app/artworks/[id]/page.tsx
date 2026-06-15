@@ -72,9 +72,11 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
               </div>
             </div>
             {/* Tags */}
-            <div className="mb-3 px-6">
-              <TagArea tags={data.tags} />
-            </div>
+            {!!data.tags.length && (
+              <div className="mb-3 px-6">
+                <TagArea tags={data.tags} />
+              </div>
+            )}
 
             {/* Images */}
             <ArtworkImages images={data.images} artworkId={data.id} />

@@ -6,28 +6,13 @@ import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useUserSettingsStore } from '@/components/user-setting'
 
 const virtualizerMocks = vi.hoisted(() => ({
+  useWindowVirtualizer: vi.fn(),
   scrollToIndex: vi.fn(),
   measureElement: vi.fn()
 }))
 
 vi.mock('@tanstack/react-virtual', () => ({
-  useWindowVirtualizer: ({ count }: { count: number }) => {
-    const indexes =
-      count <= 20 ? Array.from({ length: count }, (_, index) => index) : [0, 1, 2, 3, 4, Math.min(19, count - 1)]
-
-    return {
-      getTotalSize: () => count * 500,
-      getVirtualItems: () =>
-        indexes.map((index) => ({
-          index,
-          key: index,
-          start: index * 500,
-          size: 500
-        })),
-      measureElement: virtualizerMocks.measureElement,
-      scrollToIndex: virtualizerMocks.scrollToIndex
-    }
-  }
+  useWindowVirtualizer: virtualizerMocks.useWindowVirtualizer
 }))
 
 vi.mock('next/navigation', () => ({
@@ -65,6 +50,24 @@ global.ResizeObserver = class ResizeObserver {
 describe('ArtworkImages', () => {
   beforeEach(() => {
     vi.useRealTimers()
+    virtualizerMocks.useWindowVirtualizer.mockImplementation(({ count }: { count: number }) => {
+      const indexes =
+        count <= 20 ? Array.from({ length: count }, (_, index) => index) : [0, 1, 2, 3, 4, Math.min(19, count - 1)]
+
+      return {
+        getTotalSize: () => count * 500,
+        getVirtualItems: () =>
+          indexes.map((index) => ({
+            index,
+            key: index,
+            start: index * 500,
+            size: 500
+          })),
+        measureElement: virtualizerMocks.measureElement,
+        scrollToIndex: virtualizerMocks.scrollToIndex
+      }
+    })
+    virtualizerMocks.useWindowVirtualizer.mockClear()
     virtualizerMocks.scrollToIndex.mockClear()
     virtualizerMocks.measureElement.mockClear()
     useUserSettingsStore.getState().hydrateSettings({ artwork_media_anchor_interval: 50 })
@@ -189,5 +192,20 @@ describe('ArtworkImages', () => {
     act(() => vi.advanceTimersByTime(500))
 
     expect(screen.queryByText('预览完整尺寸')).toBeNull()
+  })
+
+  it('renders a single video through the thin media path without virtual list setup', () => {
+    const images = generateImages(1).map((image) => ({
+      ...image,
+      path: '/path/to/video.mp4',
+      mediaType: 'video' as const
+    }))
+
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    expect(screen.getByTestId('artwork-video-container')).toBeTruthy()
+    expect(screen.getByTestId('lazy-media').getAttribute('data-src')).toBe('/path/to/video.mp4')
+    expect(screen.queryByTestId('artwork-images-container')).toBeNull()
+    expect(virtualizerMocks.useWindowVirtualizer).not.toHaveBeenCalled()
   })
 })
