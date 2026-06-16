@@ -34,7 +34,7 @@ vi.mock('@/components/ui/skeleton', () => ({
 
 // Mock ResizeObserver
 const mockResizeObserver = vi.fn(function (this: any, callback: any) {
-  this.observe = vi.fn((element) => {
+  this.observe = vi.fn(() => {
     // Immediately trigger with a width
     callback([{ contentRect: { width: 1000 } }])
   })

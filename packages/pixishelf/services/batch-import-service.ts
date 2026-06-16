@@ -64,7 +64,7 @@ export async function batchCreateArtworksService(data: BatchCreateArtworkSchema)
         logger.info(`Creating directory: ${uploadTargetDir}`)
         try {
           await fs.mkdir(uploadTargetDir, { recursive: true })
-        } catch (e) {
+        } catch (_e) {
           logger.warn(`Failed to create directory: ${uploadTargetDir}`)
         }
 

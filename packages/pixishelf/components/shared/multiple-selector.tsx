@@ -331,7 +331,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [debouncedSearchTerm, groupBy, open, triggerSearchOnFocus])
 
-    const CreatableItem = () => {
+    const creatableItem = () => {
       if (!creatable) return undefined
       if (
         isOptionsExist(options, [{ value: inputValue, label: inputValue }]) ||
@@ -380,7 +380,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
       return undefined
     }
 
-    const EmptyItem = React.useCallback(() => {
+    const emptyItem = React.useCallback(() => {
       if (!emptyIndicator) return undefined
 
       // For async search that showing emptyIndicator
@@ -547,11 +547,11 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
               }}
             >
               {isLoading ? (
-                <>{loadingIndicator}</>
+                loadingIndicator
               ) : (
                 <>
-                  {EmptyItem()}
-                  {CreatableItem()}
+                  {emptyItem()}
+                  {creatableItem()}
                   {!selectFirstItem && <CommandItem value="-" className="hidden" />}
                   {Object.entries(selectables).map(([key, dropdowns]) => (
                     <CommandGroup key={key} heading={key} className="h-full overflow-auto">

@@ -47,7 +47,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
           try {
             const message = `event: ping\ndata: {}\n\n`
             controller.enqueue(encoder.encode(message))
-          } catch (e) {
+          } catch (_e) {
             // Controller might be closed
             if (pingInterval) clearInterval(pingInterval)
           }
@@ -107,7 +107,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
         if (pingInterval) clearInterval(pingInterval)
         try {
           controller.close()
-        } catch (e) {
+        } catch (_e) {
           // Ignore close errors (e.g. client disconnected)
         }
       }

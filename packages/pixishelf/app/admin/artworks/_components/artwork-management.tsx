@@ -261,7 +261,7 @@ export default function ArtworkManagement() {
       URL.revokeObjectURL(url)
 
       toast.success(`成功导出 ${ids.length} 个作品ID`)
-    } catch (error) {
+    } catch (_error) {
       toast.error('导出失败')
     } finally {
       setIsExporting(false)

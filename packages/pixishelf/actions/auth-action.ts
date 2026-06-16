@@ -1,6 +1,6 @@
 'use server'
 
-import { actionClient, ActionError, authActionClient } from '@/lib/safe-action'
+import { actionClient, authActionClient } from '@/lib/safe-action'
 import { auth } from '@/lib/auth'
 import { authLoginSchema } from '@/schemas/auth.dto'
 import { changePasswordSchema } from '@/schemas/users.dto'
@@ -37,7 +37,7 @@ export const loginUserAction = actionClient
       }
 
       return { id: signInResult.user.id }
-    } catch (error) {
+    } catch (_error) {
       return returnValidationErrors(authLoginSchema, {
         _errors: ['用户名或密码错误']
       })

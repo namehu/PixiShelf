@@ -91,19 +91,6 @@ const pointPool = new PointPool()
  * 缓存计算结果的 Map
  */
 const calculationCache = new Map<string, Point>()
-const maxCacheSize = 100
-
-/**
- * 清理缓存
- */
-function clearCache(): void {
-  if (calculationCache.size > maxCacheSize) {
-    // 清理一半的缓存
-    const entries = Array.from(calculationCache.entries())
-    const toDelete = entries.slice(0, Math.floor(entries.length / 2))
-    toDelete.forEach(([key]) => calculationCache.delete(key))
-  }
-}
 
 // ============================================================================
 // 坐标计算函数 - 优化版本

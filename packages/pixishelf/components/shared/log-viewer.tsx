@@ -1,9 +1,8 @@
-import React, { useState, memo, useRef, useEffect } from 'react'
+import React, { useState, memo, useRef } from 'react'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
-import { LogEntry, LogModule } from '@/lib/db'
+import { LogEntry } from '@/lib/db'
 import { cn } from '@/lib/utils'
-import { Terminal, Eraser, Search, ArrowDown, Filter } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Terminal, Eraser, Search, ArrowDown } from 'lucide-react'
 
 interface LogViewerProps {
   logs: LogEntry[]
@@ -14,7 +13,7 @@ interface LogViewerProps {
 }
 
 // 日志项组件 - 使用 memo 优化渲染
-const LogItem = memo(({ index, log }: { index: number; log: LogEntry }) => {
+const LogItem = memo(({ log }: { index: number; log: LogEntry }) => {
   return (
     <div className="flex items-start gap-2 sm:gap-3 hover:bg-white/[0.03] px-2 py-1 rounded transition-colors group text-[11px] font-mono leading-relaxed">
       {/* 时间戳 */}
@@ -152,7 +151,7 @@ export function LogViewer({ logs, onClear, className, height = 400, loading }: L
                 setAutoScroll(false)
               }
             }}
-            followOutput={(isAtBottom) => {
+            followOutput={() => {
               // 如果开启了 autoScroll，强制滚动到底部
               return autoScroll ? 'smooth' : false
             }}

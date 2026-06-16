@@ -1,7 +1,7 @@
 // ============================================================================
 // 媒体类型定义
 // ============================================================================
-import { isVideoFile, isImageFile, getFileExtension } from '@/lib/media'
+import { isVideoFile, isImageFile } from '@/lib/media'
 
 export { isVideoFile, isImageFile }
 

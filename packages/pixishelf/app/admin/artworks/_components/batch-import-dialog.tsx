@@ -160,10 +160,6 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
     }
   }
 
-  const handleTitleChange = (id: string, newTitle: string) => {
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, title: newTitle } : i)))
-  }
-
   const handleDateChange = (id: string, date: Date | undefined) => {
     if (!date) return
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, parsedDate: date, dateSource: 'filename' as const } : i))) // Set source to something valid to remove error state if any

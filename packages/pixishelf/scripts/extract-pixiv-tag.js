@@ -275,7 +275,7 @@
       let sqlStatements = ['-- Pixiv 标签数据更新脚本', '-- 生成时间: ' + new Date().toISOString(), ''];
       let updateCount = 0;
 
-      for (const [originalTag, data] of uniqueTagData.entries()) {
+      for (const data of uniqueTagData.values()) {
         const setClauses = [];
         const name = escapeSql(data.originalTag);
         // 动态构建 SET 子句
@@ -340,7 +340,7 @@
       const rootFolder = zip.folder("tags");
       let successCount = 0;
 
-      for (const [index, { data }] of successfulItems.entries()) {
+      for (const { data } of successfulItems) {
         try {
           const response = await fetch(data.imageUrl);
           if (!response.ok) {

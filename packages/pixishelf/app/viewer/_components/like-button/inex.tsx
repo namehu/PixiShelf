@@ -36,8 +36,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, onTogg
   // 按钮禁用状态
 
   return (
-    <>
-      <Button
+    <Button
         className={cn(
           'relative transition-all duration-200 ease-in-out',
           'hover:scale-105 active:scale-95',
@@ -100,8 +99,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, onTogg
           whileTap={{ scale: 1.5, opacity: [0, 0.3, 0] }}
           transition={{ duration: 0.3 }}
         />
-      </Button>
-    </>
+    </Button>
   )
 }
 

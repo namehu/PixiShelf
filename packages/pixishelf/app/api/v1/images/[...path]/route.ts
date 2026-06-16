@@ -52,7 +52,7 @@ export async function GET(
       if (!stats.isFile()) {
         return NextResponse.json({ error: 'Not a file' }, { status: 404 })
       }
-    } catch (e) {
+    } catch (_e) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 })
     }
 

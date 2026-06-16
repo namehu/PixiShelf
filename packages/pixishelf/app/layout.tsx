@@ -48,7 +48,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         email: session.email,
         image: session.image
       }
-    } catch (e) {
+    } catch (_e) {
       // console.error('Failed to parse user session', e)
     }
   }

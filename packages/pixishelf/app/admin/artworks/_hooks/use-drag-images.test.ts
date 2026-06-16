@@ -3,7 +3,7 @@
  */
 import { renderHook, act } from '@testing-library/react'
 import { useDragImages } from './use-drag-images'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Mock DataTransfer and FileSystemEntry
 class MockDataTransferItem {

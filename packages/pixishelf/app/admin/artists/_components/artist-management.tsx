@@ -36,7 +36,7 @@ export function StarButton({
     setIsLoading(true)
     try {
       await onToggle(id, newValue)
-    } catch (error) {
+    } catch (_error) {
       setIsStarred(!newValue) // Rollback
       toast.error('操作失败')
     } finally {

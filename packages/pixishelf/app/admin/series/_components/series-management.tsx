@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 export default function SeriesManagement() {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
-  const [page, setPage] = useState(1)
+  const [page] = useState(1)
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebounce(query, 500)
   const [dialogOpen, setDialogOpen] = useState(false)

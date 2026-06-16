@@ -32,7 +32,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
 
   // --- Data Fetching for Edit Mode ---
   const { data: fullArtist, isLoading: isLoadingDetail } = useQuery(
-    trpc.artist.getById.queryOptions(artist?.id!, {
+    trpc.artist.getById.queryOptions(artist?.id ?? 0, {
       enabled: !!artist && open,
       staleTime: 0 // Always fetch fresh data for edit
     })

@@ -70,7 +70,7 @@ export function UserSettingProvider({
     useUserSettingsStore.getState().hydrateSettings(initialSettings)
   }, [initialSettings, serializedInitialSettings])
 
-  return <>{children}</>
+  return children
 }
 
 export function useUserSettings() {

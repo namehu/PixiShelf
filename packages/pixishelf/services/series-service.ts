@@ -178,7 +178,7 @@ export async function removeArtworkFromSeries(seriesId: number, artworkId: numbe
       await tx.seriesArtwork.delete({
         where: { seriesId_artworkId: { seriesId, artworkId } }
       })
-    } catch (e) {
+    } catch (_e) {
       // Ignore if not found
     }
     await tx.artwork.update({

@@ -67,7 +67,7 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
   // 3. Local State
   const [progress, setProgress] = React.useState<ScanProgress | null>(null)
   const [elapsed, setElapsed] = React.useState(0)
-  const [retryCount, setRetryCount] = React.useState(0)
+  const [retryCount] = React.useState(0)
 
   // 4. Refs
   const fetchControllerRef = React.useRef<AbortController | null>(null)

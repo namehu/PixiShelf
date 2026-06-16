@@ -11,7 +11,6 @@ import {
   DropdownMenuGroup,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { ChevronDown } from 'lucide-react'
 
 export type SDropdownMenuItemType = 'item' | 'divider' | 'group'
 

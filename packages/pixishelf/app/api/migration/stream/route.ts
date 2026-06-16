@@ -56,7 +56,7 @@ export const POST = apiHandler(MigrationSchema, async (req, data) => {
           try {
             const message = `event: ping\ndata: {}\n\n`
             controller.enqueue(encoder.encode(message))
-          } catch (e) {
+          } catch (_e) {
             if (pingInterval) clearInterval(pingInterval)
           }
         }, 15000)
@@ -150,7 +150,7 @@ export const POST = apiHandler(MigrationSchema, async (req, data) => {
         if (pingInterval) clearInterval(pingInterval)
         try {
           controller.close()
-        } catch (e) {}
+        } catch (_e) {}
       }
     },
     cancel() {

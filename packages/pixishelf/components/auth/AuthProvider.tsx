@@ -85,7 +85,7 @@ function AuthSync({ children, initialUser }: PropsWithChildren<{ initialUser?: A
     useAuthStore.getState().setUser(nextUser)
   }, [session, initialUser])
 
-  return <>{children}</>
+  return children
 }
 
 export function AuthProvider({

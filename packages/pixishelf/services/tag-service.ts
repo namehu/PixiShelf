@@ -197,11 +197,6 @@ export async function getRandomTags(params: { page: number; pageSize: number }):
   const randomTagsResults = await Promise.all(randomTagsPromises)
   const randomTags = randomTagsResults.flat()
 
-  // 随机模式下，hasNextPage 总是 true (除非 totalCount 为 0，上面已处理)，允许无限刷新
-  // 但为了配合 infinite query 的逻辑，我们可以简单地让 nextCursor 自增
-  // 或者如果这里是随机获取，其实 page 并不重要，只是作为 cursor 传递
-  const totalPages = Math.ceil(totalCount / pageSize) // 这里的 totalPages 意义不大，因为是随机取
-
   return {
     items: randomTags,
     nextCursor: page + 1

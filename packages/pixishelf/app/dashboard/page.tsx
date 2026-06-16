@@ -15,7 +15,7 @@ export const revalidate = 300
 /**
  * 仪表板页面组件
  */
-export default async function DashboardPage(_: PageProps<'/dashboard'>) {
+export default async function DashboardPage() {
   // 并行获取所有数据
   const [recentArtworks, dashboardArtists, recommendedArtworks] = await Promise.all([
     getRecentArtworks({ page: 1, pageSize: 10 }), // 获取最新作品数据
