@@ -20,7 +20,7 @@ vi.mock('@/services/artwork-service/image-manager', () => ({
   updateArtworkImagesTransaction: updateArtworkImagesTransactionMock
 }))
 
-import { rescanLocalArtwork } from './index'
+import { rescanLocalArtwork } from '../index'
 
 describe('rescanLocalArtwork', () => {
   beforeEach(() => {

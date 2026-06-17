@@ -1,6 +1,6 @@
 import path from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { prepareMetadataFilesFromList } from './index'
+import { prepareMetadataFilesFromList } from '../index'
 
 const { findManyMock, loggerWarnMock, extractArtworkIdFromFilenameMock } = vi.hoisted(() => ({
   findManyMock: vi.fn(),
@@ -24,8 +24,8 @@ vi.mock('@/lib/logger', () => ({
   }
 }))
 
-vi.mock('./metadata-parser', async () => {
-  const actual = await vi.importActual('./metadata-parser')
+vi.mock('../metadata-parser', async () => {
+  const actual = await vi.importActual('../metadata-parser')
   return {
     ...actual,
     extractArtworkIdFromFilename: extractArtworkIdFromFilenameMock

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractArtworkIdFromFilename, isMetadataFile } from './metadata-parser'
+import { extractArtworkIdFromFilename, isMetadataFile } from '../metadata-parser'
 
 describe('extractArtworkIdFromFilename', () => {
   it('should parse id from standard metadata filename', () => {

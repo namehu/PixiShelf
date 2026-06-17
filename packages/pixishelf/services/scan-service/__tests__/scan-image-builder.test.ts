@@ -2,14 +2,14 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { MediaFileInfo } from './media-collector'
+import type { MediaFileInfo } from '../media-collector'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/services/setting.service', () => ({
   getScanPath: vi.fn()
 }))
 
-import { buildScannedImageCreateData, buildScannedImageSeedData } from './scan-image-builder'
+import { buildScannedImageCreateData, buildScannedImageSeedData } from '../scan-image-builder'
 
 describe('buildScannedImageCreateData', () => {
   let scanPath: string

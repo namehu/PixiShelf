@@ -2,7 +2,7 @@ import { promises as fs } from 'fs'
 import os from 'os'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { collectMediaFiles } from './media-collector'
+import { collectMediaFiles } from '../media-collector'
 
 describe('collectMediaFiles', () => {
   let tempDir: string
