@@ -1,6 +1,7 @@
 // oxlint-disable max-lines
 import path from 'path'
 import fg from 'fast-glob'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
 import { sleep } from '@/utils/sleep'
@@ -12,6 +13,12 @@ import { buildScannedImageSeedData, type ScannedImageSeedData } from './scan-ima
 import { getMetaSource, getPathBasename } from './path-utils'
 import { scanLocalArtworkMediaDirectory } from '@/services/artwork-service/local-media-scanner'
 import { updateArtworkImagesTransaction } from '@/services/artwork-service/image-manager'
+import {
+  getMetadataFormatFromFilename,
+  selectPreferredMetadataFiles,
+  type MetadataCandidateFile,
+  type MetadataFormat
+} from './metadata-candidates'
 
 /**
  * 扫描选项接口
@@ -43,11 +50,12 @@ interface ArtworkData {
   directoryCreatedAt: Date
 }
 
-interface GlobMetadataFile {
+interface GlobMetadataFile extends MetadataCandidateFile {
   name: string
   artworkId: string
   path: string
   createdAt: Date
+  metadataFormat: MetadataFormat
 }
 
 /**
@@ -250,7 +258,7 @@ async function globMetadataFiles(
   })
 
   // 使用本地文件扫描
-  files = await fg(['**/*-meta.txt'], {
+  files = await fg(['**/*-meta.{txt,json}'], {
     cwd: path.resolve(directoryPath),
     deep: 4,
     absolute: true,
@@ -262,21 +270,28 @@ async function globMetadataFiles(
   const validFiles = files
     .map((file) => {
       const name = path.basename(file)
+      const metadataFormat = getMetadataFormatFromFilename(name)
       return {
         name,
         createdAt,
         artworkId: extractArtworkIdFromFilename(name)!,
-        path: file
+        path: file,
+        metadataFormat
       }
     })
-    .filter((file) => !!file.artworkId)
+    .filter((file): file is GlobMetadataFile => !!file.artworkId && !!file.metadataFormat)
 
-  context.scanResult.totalArtworks = validFiles.length // 发现总作品数
+  const preferredFiles = selectPreferredMetadataFiles(validFiles, (message) => {
+    context.scanResult.errors.push(message)
+    logger.warn('Duplicate artworkId found:', { message })
+  })
+
+  context.scanResult.totalArtworks = preferredFiles.length // 发现总作品数
 
   // 如果不是强制更新，需要过滤掉已存在的作品
-  let filesToProcess = validFiles
+  let filesToProcess = preferredFiles
   if (!forceUpdate) {
-    const artworkIds = validFiles.map(({ artworkId }) => artworkId) // 提取所有文件的 artworkId
+    const artworkIds = preferredFiles.map(({ artworkId }) => artworkId) // 提取所有作品的 artworkId
 
     if (artworkIds.length > 0) {
       // 查询数据库中已存在的 externalId
@@ -294,32 +309,17 @@ async function globMetadataFiles(
       const existingIds = new Set(existingArtworks.map((artwork) => artwork.externalId))
 
       // 过滤掉已存在的文件
-      filesToProcess = validFiles.filter((file) => !existingIds.has(file.artworkId))
+      filesToProcess = preferredFiles.filter((file) => !existingIds.has(file.artworkId))
 
-      context.scanResult.skippedArtworks = validFiles.length - filesToProcess.length // 已存在作品数
+      context.scanResult.skippedArtworks = preferredFiles.length - filesToProcess.length // 已存在作品数
 
       logger.info('Filtered metadata files based on existing artworks:', {
-        totalFiles: validFiles.length,
-        existingFiles: validFiles.length - filesToProcess.length,
+        totalFiles: preferredFiles.length,
+        existingFiles: preferredFiles.length - filesToProcess.length,
         filesToProcess: filesToProcess.length
       })
     }
   }
-
-  // filesToProcess 中如果artworkId 有重复的 则保留一个并发生成错误日志信息
-  const artworkIdSet: Record<string, GlobMetadataFile> = {}
-  filesToProcess = filesToProcess.filter((file: any) => {
-    const existingFile = artworkIdSet[file.artworkId]
-    if (existingFile) {
-      context.scanResult.errors.push(
-        `Duplicate artworkId found: ${file.artworkId}\n ${existingFile.path} \n ${file.path}`
-      )
-      logger.warn('Duplicate artworkId found:', { artworkId: file.artworkId })
-      return false
-    }
-    artworkIdSet[file.artworkId] = file
-    return true
-  })
 
   return filesToProcess
 }
@@ -362,24 +362,30 @@ export async function prepareMetadataFilesFromList(
       }
 
       const name = path.basename(absolutePath)
+      const metadataFormat = getMetadataFormatFromFilename(name)
       const artworkId = extractArtworkIdFromFilename(name) || ''
       return {
         name,
         artworkId,
         path: absolutePath,
-        createdAt
+        createdAt,
+        metadataFormat
       } as GlobMetadataFile
     })
     .filter((file): file is GlobMetadataFile => file !== null)
 
   // 过滤掉未能解析出作品ID的项
-  const validFiles = files.filter((file) => !!file.artworkId)
-  context.scanResult.totalArtworks = validFiles.length
+  const validFiles = files.filter((file) => !!file.artworkId && !!file.metadataFormat)
+  const preferredFiles = selectPreferredMetadataFiles(validFiles, (message) => {
+    context.scanResult.errors.push(message)
+    logger.warn('Duplicate artworkId found:', { message })
+  })
+  context.scanResult.totalArtworks = preferredFiles.length
 
   // 非强制更新时，过滤掉数据库中已存在的作品
-  let filesToProcess = validFiles
+  let filesToProcess = preferredFiles
   if (!forceUpdate) {
-    const artworkIds = validFiles.map(({ artworkId }) => artworkId)
+    const artworkIds = preferredFiles.map(({ artworkId }) => artworkId)
     if (artworkIds.length > 0) {
       const existingArtworks = await prisma.artwork.findMany({
         where: { externalId: { in: artworkIds } },
@@ -387,31 +393,16 @@ export async function prepareMetadataFilesFromList(
       })
 
       const existingIds = new Set(existingArtworks.map((a) => a.externalId))
-      filesToProcess = validFiles.filter((file) => !existingIds.has(file.artworkId))
-      context.scanResult.skippedArtworks = validFiles.length - filesToProcess.length
+      filesToProcess = preferredFiles.filter((file) => !existingIds.has(file.artworkId))
+      context.scanResult.skippedArtworks = preferredFiles.length - filesToProcess.length
 
       logger.info('Filtered client list based on existing artworks', {
-        totalFiles: validFiles.length,
-        existingFiles: validFiles.length - filesToProcess.length,
+        totalFiles: preferredFiles.length,
+        existingFiles: preferredFiles.length - filesToProcess.length,
         filesToProcess: filesToProcess.length
       })
     }
   }
-
-  // artworkId 去重，保留一个并记录错误
-  const artworkIdSet: Record<string, GlobMetadataFile> = {}
-  filesToProcess = filesToProcess.filter((file: any) => {
-    const existingFile = artworkIdSet[file.artworkId]
-    if (existingFile) {
-      context.scanResult.errors.push(
-        `Duplicate artworkId found: ${file.artworkId}\n ${existingFile.path} \n ${file.path}`
-      )
-      logger.warn('Duplicate artworkId found:', { artworkId: file.artworkId })
-      return false
-    }
-    artworkIdSet[file.artworkId] = file
-    return true
-  })
 
   return filesToProcess
 }
@@ -482,6 +473,7 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
       const artworksToCreate = []
       const imagesToCreate = []
       const artworkTagsToCreate = []
+      const rawMetadataToCreate = []
 
       for (const artworkData of batch) {
         const { metadata, directoryCreatedAt, metadataFilePath } = artworkData
@@ -512,7 +504,11 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
           size: metadata.size || null,
           bookmarkCount: metadata.bookmark || null,
           sourceDate: metadata.date || null,
-          directoryCreatedAt
+          directoryCreatedAt,
+          metadataFormat: metadata.metadataFormat || 'txt',
+          pixivAiType: metadata.pixivAiType ?? null,
+          pixivType: metadata.pixivType ?? null,
+          sanityLevel: metadata.sanityLevel ?? null
         }
 
         artworksToCreate.push(artworkToCreate)
@@ -561,6 +557,14 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
             imagesToCreate.push(...artworkImages)
           }
 
+          const rawMetadataJson = getRawMetadataJsonInput(artworkData.metadata)
+          if (rawMetadataJson !== undefined) {
+            rawMetadataToCreate.push({
+              artworkId: artwork.id,
+              rawMetadataJson
+            })
+          }
+
           // 准备标签关联数据
           if (artworkData.metadata.tags && artworkData.metadata.tags.length > 0) {
             for (const tagName of artworkData.metadata.tags) {
@@ -575,6 +579,7 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
               }
             }
           }
+
         }
 
         // 批量创建图片
@@ -590,6 +595,13 @@ async function processBatch(batch: ArtworkData[], context: ScanContext): Promise
         if (artworkTagsToCreate.length > 0) {
           await tx.artworkTag.createMany({
             data: artworkTagsToCreate,
+            skipDuplicates: true
+          })
+        }
+
+        if (rawMetadataToCreate.length > 0) {
+          await tx.artworkRawMetadata.createMany({
+            data: rawMetadataToCreate,
             skipDuplicates: true
           })
         }
@@ -690,6 +702,14 @@ async function batchProcessArtists(artworks: ArtworkData[], context: ScanContext
   }
 
   logger.info('Batch artist processing completed:', { totalArtistsInCache: context.artistCache.size })
+}
+
+function getRawMetadataJsonInput(metadata: MetadataInfo): Prisma.InputJsonValue | undefined {
+  if (metadata.metadataFormat !== 'json' || metadata.rawMetadataJson === undefined || metadata.rawMetadataJson === null) {
+    return undefined
+  }
+
+  return metadata.rawMetadataJson as Prisma.InputJsonValue
 }
 
 /**
@@ -821,25 +841,44 @@ export async function rescanArtwork(
     })
 
     // 2. 查找元数据文件
-    // 支持标准 ID-meta.txt 和 Pixiv 分页导出的 ID_p0-meta.txt。
-    const files = await fg([`${artworkId}*-meta.txt`], {
+    // 支持标准 ID-meta.{json,txt} 和 Pixiv 分页导出的 ID_p0-meta.{json,txt}。
+    const files = await fg([`${artworkId}*-meta.{json,txt}`], {
       cwd: targetDir,
       absolute: true,
       deep: 1, // 仅在当前目录查找，不递归
       onlyFiles: true
     })
-    const matchedFiles = files.filter((file) => extractArtworkIdFromFilename(path.basename(file)) === artworkId)
+    const matchedFiles = files
+      .map((file) => {
+        const name = path.basename(file)
+        const metadataFormat = getMetadataFormatFromFilename(name)
+        return {
+          name,
+          artworkId: extractArtworkIdFromFilename(name) || '',
+          path: file,
+          createdAt: new Date(),
+          metadataFormat
+        }
+      })
+      .filter(
+        (file): file is GlobMetadataFile =>
+          file.artworkId === artworkId && file.metadataFormat !== null && file.metadataFormat !== undefined
+      )
 
     if (matchedFiles.length <= 0) {
       throw new Error(`在目录 "${cleanPath}" 中未找到作品 ${artworkId} 的元数据文件`)
     }
 
-    const _file = matchedFiles[0]!
+    const _file = selectPreferredMetadataFiles(matchedFiles, (message) => {
+      context.scanResult.errors.push(message)
+      logger.warn('Duplicate artworkId found during rescan:', { message })
+    })[0]!
     const metadataFile: GlobMetadataFile = {
-      name: path.basename(_file),
+      name: path.basename(_file.path),
       artworkId: artworkId,
-      path: _file,
-      createdAt: new Date()
+      path: _file.path,
+      createdAt: new Date(),
+      metadataFormat: _file.metadataFormat
     }
 
     context.scanResult.totalArtworks = 1
@@ -1004,7 +1043,11 @@ async function processRescanBatch(batch: ArtworkData[], context: ScanContext): P
           size: metadata.size || null,
           bookmarkCount: metadata.bookmark || null,
           sourceDate: metadata.date || null,
-          directoryCreatedAt
+          directoryCreatedAt,
+          metadataFormat: metadata.metadataFormat || 'txt',
+          pixivAiType: metadata.pixivAiType ?? null,
+          pixivType: metadata.pixivType ?? null,
+          sanityLevel: metadata.sanityLevel ?? null
         })
 
         await tx.artwork.update({
@@ -1023,9 +1066,31 @@ async function processRescanBatch(batch: ArtworkData[], context: ScanContext): P
             bookmarkCount: metadata.bookmark || null,
             sourceDate: metadata.date || null,
             directoryCreatedAt,
-            metaSource: getMetaSource(metadataFilePath, context.options.scanPath)
+            metaSource: getMetaSource(metadataFilePath, context.options.scanPath),
+            metadataFormat: metadata.metadataFormat || 'txt',
+            pixivAiType: metadata.pixivAiType ?? null,
+            pixivType: metadata.pixivType ?? null,
+            sanityLevel: metadata.sanityLevel ?? null
           }
         })
+
+        const rawMetadataJson = getRawMetadataJsonInput(metadata)
+        if (rawMetadataJson !== undefined) {
+          await tx.artworkRawMetadata.upsert({
+            where: { artworkId: existingArtwork.id },
+            create: {
+              artworkId: existingArtwork.id,
+              rawMetadataJson
+            },
+            update: {
+              rawMetadataJson
+            }
+          })
+        } else {
+          await tx.artworkRawMetadata.deleteMany({
+            where: { artworkId: existingArtwork.id }
+          })
+        }
 
         // 2. 更新图片 (删除旧的，插入新的)
         // 删除旧图片

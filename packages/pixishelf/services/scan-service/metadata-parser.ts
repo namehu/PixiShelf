@@ -21,6 +21,11 @@ export interface MetadataInfo {
   size?: string // 作品尺寸
   bookmark?: number // 收藏数
   date?: Date // 发布日期
+  metadataFormat?: 'txt' | 'json'
+  rawMetadataJson?: unknown
+  pixivAiType?: number
+  pixivType?: number
+  sanityLevel?: number
 }
 
 /**
@@ -83,7 +88,7 @@ export async function parseMetadataFile(filePath: string): Promise<ParseResult> 
     const content = await fs.readFile(filePath, 'utf-8')
 
     // 解析内容
-    const metadata = parseContent(content)
+    const metadata = filePath.toLowerCase().endsWith('.json') ? parseJsonContent(content) : parseContent(content)
 
     // 验证必填字段
     const validation = validateMetadata(metadata)
@@ -159,6 +164,45 @@ function parseContent(content: string): MetadataInfo {
   // 处理最后一个字段
   if (currentKey && currentValue) {
     setMetadataField(metadata, currentKey, currentValue.trim())
+  }
+
+  metadata.metadataFormat = 'txt'
+
+  return metadata as MetadataInfo
+}
+
+function parseJsonContent(content: string): MetadataInfo {
+  let raw: any
+  try {
+    raw = JSON.parse(content)
+  } catch (error) {
+    throw new Error(`Invalid JSON metadata: ${error instanceof Error ? error.message : 'Unknown parse error'}`)
+  }
+
+  const id = normalizeArtworkId(raw.idNum ?? raw.id)
+  const metadata: Partial<MetadataInfo> = {
+    id,
+    user: toStringValue(raw.user),
+    userId: toStringValue(raw.userId),
+    title: toStringValue(raw.title),
+    description: toStringValue(raw.description) || '',
+    tags: Array.isArray(raw.tags) ? raw.tags.map(toStringValue).filter(Boolean) : [],
+    url: id ? `https://www.pixiv.net/i/${id}` : undefined,
+    original: toStringValue(raw.original),
+    thumbnail: toStringValue(raw.thumb ?? raw.thumbnail ?? raw.small ?? raw.regular),
+    xRestrict: raw.xRestrict === undefined || raw.xRestrict === null ? undefined : String(raw.xRestrict),
+    ai: normalizeAiFlag(raw.aiType),
+    size:
+      Number.isFinite(raw.fullWidth) && Number.isFinite(raw.fullHeight)
+        ? `${raw.fullWidth} x ${raw.fullHeight}`
+        : undefined,
+    bookmark: toOptionalInteger(raw.bmk),
+    date: parseDate(toStringValue(raw.date ?? raw.uploadDate)),
+    metadataFormat: 'json',
+    rawMetadataJson: raw,
+    pixivAiType: toOptionalInteger(raw.aiType),
+    pixivType: toOptionalInteger(raw.type),
+    sanityLevel: toOptionalInteger(raw.sl)
   }
 
   return metadata as MetadataInfo
@@ -262,6 +306,36 @@ function parseDate(dateString: string): Date | undefined {
   }
 }
 
+function normalizeArtworkId(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (typeof value !== 'string') return ''
+
+  const directMatch = value.match(/^(\d+)$/)
+  if (directMatch?.[1]) return directMatch[1]
+
+  const pagedMatch = value.match(/^(\d+)_p\d+$/i)
+  return pagedMatch?.[1] || ''
+}
+
+function normalizeAiFlag(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined
+  if (value === 0 || value === false) return 'No'
+  return 'Yes'
+}
+
+function toStringValue(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  return String(value)
+}
+
+function toOptionalInteger(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+
+  const numericValue = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(numericValue)) return undefined
+  return numericValue
+}
+
 /**
  * 验证元数据
  * @param metadata 元数据对象
@@ -306,7 +380,7 @@ function validateMetadata(metadata: Partial<MetadataInfo>): { success: boolean; 
  * @returns 作品ID或null
  */
 export function extractArtworkIdFromFilename(filename: string): string | null {
-  const match = filename.match(/^(\d+)(?:_p\d+)?-meta\.txt$/i)
+  const match = filename.match(/^(\d+)(?:_p\d+)?-meta\.(?:txt|json)$/i)
   return match && match[1] ? match[1] : null
 }
 

@@ -59,6 +59,10 @@ export const ArtworkModel = z.object({
   xRestrict: z.string().nullable(), // [cite: 13]
   likeCount: z.number().int().default(0), // [cite: 14]
   metaSource: z.string().nullable(),
+  metadataFormat: z.string().nullable(),
+  pixivAiType: z.number().int().nullable(),
+  pixivType: z.number().int().nullable(),
+  sanityLevel: z.number().int().nullable(),
   storagePath: z.string().nullable(),
   seriesId: z.number().int().nullable(),
   source: ArtworkSourceEnum.default(ESource.PIXIV_IMPORTED)

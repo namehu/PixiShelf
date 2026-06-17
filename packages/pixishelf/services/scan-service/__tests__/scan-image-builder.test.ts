@@ -124,6 +124,7 @@ describe('buildScannedImageCreateData', () => {
       mediaPath: '/artist/artwork/100_p0.mp4'
     })
   })
+
 })
 
 async function createMediaFile(scanPath: string, relativePath: string): Promise<MediaFileInfo> {
@@ -134,7 +135,7 @@ async function createMediaFile(scanPath: string, relativePath: string): Promise<
   return {
     path: absolutePath,
     filename: path.basename(absolutePath),
-    extension: '.mp4',
+    extension: path.extname(absolutePath),
     size: 3,
     artworkId: '100',
     pageIndex: 0,
