@@ -3,7 +3,7 @@ import {
   MEDIA_DERIVED_TAGS,
   syncMediaDerivedTagForArtwork,
   syncMediaDerivedTagsForArtworks
-} from './media-derived-tag-service'
+} from '../media-derived-tag-service'
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {}

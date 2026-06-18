@@ -69,7 +69,7 @@ import {
   reprobeVideoMediaByImageId,
   resolveVideoImageForReprobePath,
   runVideoMediaProbeJob
-} from './video-media-probe-service'
+} from '../video-media-probe-service'
 
 describe('video-media-probe-service', () => {
   beforeEach(() => {

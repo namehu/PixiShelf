@@ -16,7 +16,7 @@ vi.mock('@/lib/prisma', () => ({
   }
 }))
 
-import { discoverLocalImports } from './discovery'
+import { discoverLocalImports } from '../discovery'
 
 describe('local import discovery', () => {
   let scanPath: string

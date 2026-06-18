@@ -85,7 +85,7 @@ vi.mock('@/services/scheduled-task-registry', () => ({
       : null
 }))
 
-import { runSchedulerTick } from './scheduled-task-service'
+import { runSchedulerTick } from '../scheduled-task-service'
 
 function createTask(overrides: Record<string, unknown> = {}) {
   return {

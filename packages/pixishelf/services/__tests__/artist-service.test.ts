@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getDashboardArtists } from './artist-service'
+import { getDashboardArtists } from '../artist-service'
 
 const { artistFindManyMock, artworkFindManyMock } = vi.hoisted(() => ({
   artistFindManyMock: vi.fn(),

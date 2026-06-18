@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { deleteTag, updateTag } from './tag-service'
+import { deleteTag, updateTag } from '../tag-service'
 
 const mocks = vi.hoisted(() => ({
   tagFindUniqueMock: vi.fn(),

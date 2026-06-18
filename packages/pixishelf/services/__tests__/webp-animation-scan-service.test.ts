@@ -25,7 +25,7 @@ vi.mock('sharp', () => ({
 }))
 
 import { EWebpAnimationStatus } from '@/enums/EWebpAnimationStatus'
-import { runWebpAnimationScanJob } from './webp-animation-scan-service'
+import { runWebpAnimationScanJob } from '../webp-animation-scan-service'
 
 describe('webp-animation-scan-service', () => {
   beforeEach(() => {

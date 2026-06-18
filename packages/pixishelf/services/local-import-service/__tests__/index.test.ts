@@ -23,7 +23,7 @@ vi.mock('@/lib/prisma', () => ({
     $transaction: mocks.transaction
   }
 }))
-vi.mock('./discovery', () => ({ discoverLocalImports: mocks.discover }))
+vi.mock('../discovery', () => ({ discoverLocalImports: mocks.discover }))
 vi.mock('@/services/artwork-service/local-media-scanner', () => ({
   scanLocalArtworkMediaDirectory: mocks.scan
 }))
@@ -34,7 +34,7 @@ vi.mock('@/services/artwork-service/utils', () => ({
   generateLocalExternalId: mocks.generateExternalId
 }))
 
-import { runLocalImport, saveLocalImportArtistMapping } from './index'
+import { runLocalImport, saveLocalImportArtistMapping } from '../index'
 
 const discovery = {
   importRoot: 'D:/scan/local-imports',

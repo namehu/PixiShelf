@@ -13,7 +13,7 @@ vi.mock('@/lib/prisma', () => ({
   }
 }))
 
-import { createLocalDirectoryImportJob, createScanJob } from './job-service'
+import { createLocalDirectoryImportJob, createScanJob } from '../job-service'
 
 const tx = {
   $queryRawUnsafe: queryRawMock,

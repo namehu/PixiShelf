@@ -16,7 +16,7 @@ vi.mock('@/lib/prisma', () => ({
   }
 }))
 
-import { getSystemSettings, upsertSystemSettings } from './setting.service'
+import { getSystemSettings, upsertSystemSettings } from '../setting.service'
 
 describe('system setting service', () => {
   beforeEach(() => {
