@@ -10,6 +10,7 @@ import {
   triggerScheduledTaskNow,
   updateScheduledTask
 } from '@/services/scheduled-task-service'
+import { reprobeVideoMediaByImageId, resolveVideoImageForReprobePath } from '@/services/video-media-probe-service'
 import { z } from 'zod'
 
 export const jobRouter = router({
@@ -160,6 +161,33 @@ export const jobRouter = router({
     }
     return { success: false, message: 'No active job' }
   }),
+
+  reprobeVideoMediaByPath: authProcedure
+    .input(
+      z.object({
+        path: z.string().trim().min(1, '路径不能为空')
+      })
+    )
+    .mutation(async ({ input }) => {
+      const scanPath = await getScanPath()
+      if (!scanPath) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
+      }
+
+      try {
+        const image = await resolveVideoImageForReprobePath(input.path, scanPath)
+        return await reprobeVideoMediaByImageId(image.id, scanPath)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        if (message === 'Video image not found' || message === 'Image not found') {
+          throw new TRPCError({ code: 'NOT_FOUND', message })
+        }
+        if (message === 'Image is not a video' || message.startsWith('Path escapes scan root') || message === 'Path is required') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message })
+        }
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
+      }
+    }),
 
   listScheduledTasks: authProcedure.query(async () => {
     return listScheduledTasks()

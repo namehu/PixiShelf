@@ -16,7 +16,8 @@ import {
   Upload,
   Volume2,
   VolumeX,
-  Info
+  Info,
+  RotateCcw
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
@@ -102,6 +103,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   const [deleteChapterTarget, setDeleteChapterTarget] = useState<ImageListItem | null>(null)
   const [deleteChapterPhysical, setDeleteChapterPhysical] = useState(false)
   const [videoMetadataTarget, setVideoMetadataTarget] = useState<ImageListItem | null>(null)
+  const [reprobingImageId, setReprobingImageId] = useState<number | null>(null)
 
   const uploadChapterFile = async (input: { artworkId: number; imageId: number; videoPath: string; file: File }) => {
     const formData = new FormData()
@@ -332,6 +334,19 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     setChapterDialogTarget(image)
   }
 
+  const handleReprobeVideo = async (image: ImageListItem) => {
+    try {
+      setReprobingImageId(image.id)
+      const result = await trpcClient.artwork.reprobeVideoMedia.mutate({ imageId: image.id })
+      toast.success(`视频重新探测完成：${result.hasAudio ? '有音频' : '无音频'}`)
+      refreshMediaList()
+    } catch (error: any) {
+      toast.error(`重新探测失败: ${error.message}`)
+    } finally {
+      setReprobingImageId(null)
+    }
+  }
+
   const getChapterActionLabel = (image: ImageListItem) => {
     return image.hasChapters ? '替换章节' : '上传章节'
   }
@@ -455,6 +470,16 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
               >
                 <Trash2 className="w-4 h-4" />
                 删除章节
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={reprobingImageId === image.id}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void handleReprobeVideo(image)
+                }}
+              >
+                <RotateCcw className={cn('w-4 h-4', reprobingImageId === image.id && 'animate-spin')} />
+                {reprobingImageId === image.id ? '探测中...' : '重新探测视频'}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

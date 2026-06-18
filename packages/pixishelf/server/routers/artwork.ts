@@ -24,6 +24,7 @@ import logger from '@/lib/logger'
 import { TRPCError } from '@trpc/server'
 import { deleteImage, addImageWithChapters } from '@/services/artwork-service/image-manager'
 import { getScanPath } from '@/services/setting.service'
+import { reprobeVideoMediaByImageId } from '@/services/video-media-probe-service'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
 import { ArtworkSourceEnum } from '@/schemas/models'
 
@@ -139,6 +140,26 @@ export const artworkRouter = router({
     .mutation(async ({ input }) => {
       return addImageWithChapters(input.artworkId, input.file, input.chaptersMeta)
     }),
+
+  reprobeVideoMedia: authProcedure.input(z.object({ imageId: z.number().int().positive() })).mutation(async ({ input }) => {
+    const scanPath = await getScanPath()
+    if (!scanPath) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
+    }
+
+    try {
+      return await reprobeVideoMediaByImageId(input.imageId, scanPath)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      if (message === 'Image not found') {
+        throw new TRPCError({ code: 'NOT_FOUND', message })
+      }
+      if (message === 'Image is not a video' || message.startsWith('Path escapes scan root')) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message })
+      }
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
+    }
+  }),
 
   /**
    * 获取上传路径

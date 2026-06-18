@@ -94,6 +94,7 @@ export function MaintenanceCard() {
   const [webpScanPollInterval, setWebpScanPollInterval] = useState<number | false>(false)
   const [videoProbePollInterval, setVideoProbePollInterval] = useState<number | false>(false)
   const [taskDrafts, setTaskDrafts] = useState<Record<string, { enabled: boolean; time: string; priority: string }>>({})
+  const [videoReprobePath, setVideoReprobePath] = useState('')
 
   // 查询当前任务状态
   const { data: activeJob, refetch } = useQuery(
@@ -248,6 +249,19 @@ export function MaintenanceCard() {
       },
       onError: (error) => {
         toast.error(`取消失败: ${error.message}`)
+      }
+    })
+  )
+
+  const reprobeVideoByPathMutation = useMutation(
+    trpc.job.reprobeVideoMediaByPath.mutationOptions({
+      onSuccess: (result) => {
+        toast.success(`视频重新探测完成：${result.hasAudio ? '有音频' : '无音频'}，状态 ${result.probeStatus}`)
+        setVideoReprobePath('')
+        refetchVideoProbeJob()
+      },
+      onError: (error) => {
+        toast.error(`重新探测失败: ${error.message}`)
       }
     })
   )
@@ -486,6 +500,34 @@ export function MaintenanceCard() {
               开始探测
             </Button>
           )}
+        </div>
+
+        <div className="flex flex-col gap-2 rounded-lg border border-dashed p-4 sm:flex-row sm:items-center">
+          <div className="min-w-0 flex-1 space-y-1">
+            <h4 className="text-sm font-medium">按路径重试视频探测</h4>
+            <p className="text-xs text-neutral-500">输入数据库相对路径，或 SCAN_PATH 下的绝对路径。</p>
+          </div>
+          <Input
+            value={videoReprobePath}
+            onChange={(event) => setVideoReprobePath(event.target.value)}
+            placeholder="/artist/work/video.mp4"
+            className="h-9 sm:max-w-md"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && videoReprobePath.trim() && !reprobeVideoByPathMutation.isPending) {
+                reprobeVideoByPathMutation.mutate({ path: videoReprobePath })
+              }
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => reprobeVideoByPathMutation.mutate({ path: videoReprobePath })}
+            disabled={!videoReprobePath.trim() || reprobeVideoByPathMutation.isPending}
+            className="h-9 shrink-0"
+          >
+            {reprobeVideoByPathMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            重试探测
+          </Button>
         </div>
 
         {videoProbeJob &&
