@@ -76,7 +76,7 @@ RUN adduser --system --uid 1001 nextjs
 # 移除 build-base 等不必要的构建工具
 # 修复：安装 openssl 以解决 Prisma 引擎检测问题
 # 修复：修改全局 node_modules 权限，允许非 root 用户写入（解决 Can't write to ... @prisma/engines 错误）
-RUN apk add --no-cache curl openssl \
+RUN apk add --no-cache curl ffmpeg openssl \
     && npm install -g prisma@5.22.0 \
     && chown -R nextjs:nodejs /usr/local/lib/node_modules/prisma
 

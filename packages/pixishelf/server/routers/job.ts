@@ -133,6 +133,34 @@ export const jobRouter = router({
     return await JobService.getLatestWebpAnimationScanJob()
   }),
 
+  startVideoMediaProbe: authProcedure.mutation(async () => {
+    try {
+      return await triggerScheduledTaskNow('video_media_probe')
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('already running')) {
+        throw new TRPCError({ code: 'CONFLICT', message: error.message })
+      }
+      if (error instanceof Error && error.message.includes('Scan path')) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
+      }
+      throw error
+    }
+  }),
+
+  getVideoMediaProbeStatus: authProcedure.query(async () => {
+    return await JobService.getLatestVideoMediaProbeJob()
+  }),
+
+  cancelVideoMediaProbe: authProcedure.mutation(async () => {
+    const activeJob = await JobService.getActiveJobByType('VIDEO_MEDIA_PROBE')
+    if (activeJob) {
+      await JobService.cancelJob(activeJob.id)
+      await JobService.markAsCancelled(activeJob.id)
+      return { success: true }
+    }
+    return { success: false, message: 'No active job' }
+  }),
+
   listScheduledTasks: authProcedure.query(async () => {
     return listScheduledTasks()
   }),

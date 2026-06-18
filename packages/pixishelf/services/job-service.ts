@@ -213,6 +213,33 @@ export async function createWebpAnimationScanJob() {
 }
 
 /**
+ * 尝试创建一个视频媒体探测任务
+ */
+export async function createVideoMediaProbeJob() {
+  return await prisma.$transaction(async (tx) => {
+    const activeJob = await tx.systemJob.findFirst({
+      where: {
+        type: 'VIDEO_MEDIA_PROBE',
+        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+      }
+    })
+
+    if (activeJob) {
+      throw new Error('Video media probe job already in progress')
+    }
+
+    return await tx.systemJob.create({
+      data: {
+        type: 'VIDEO_MEDIA_PROBE',
+        status: JobStatus.RUNNING,
+        message: '初始化...',
+        progress: 0
+      }
+    })
+  })
+}
+
+/**
  * 获取当前活跃的元数据源补全任务
  */
 export async function getActiveRefillMetaSourceJob() {
@@ -244,6 +271,18 @@ export async function getLatestWebpAnimationScanJob() {
   return await prisma.systemJob.findFirst({
     where: {
       type: 'WEBP_ANIMATION_SCAN'
+    },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+/**
+ * 获取最近一次视频媒体探测任务
+ */
+export async function getLatestVideoMediaProbeJob() {
+  return await prisma.systemJob.findFirst({
+    where: {
+      type: 'VIDEO_MEDIA_PROBE'
     },
     orderBy: { createdAt: 'desc' }
   })

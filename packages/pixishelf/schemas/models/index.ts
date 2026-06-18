@@ -15,6 +15,9 @@ export const ArtworkSourceEnum = z.enum(ESource)
 
 export type ArtworkSource = z.infer<typeof ArtworkSourceEnum>
 
+export const MediaTypeEnum = z.enum(['IMAGE', 'VIDEO', 'ANIMATION', 'UNKNOWN'])
+export const MediaProbeStatusEnum = z.enum(['PENDING', 'PROBING', 'COMPLETED', 'FAILED', 'SKIPPED'])
+
 // ==========================================
 // 1. Base Models (1:1 Mirror of Prisma)
 // ==========================================
@@ -139,7 +142,25 @@ export const ImageModel = z.object({
   chaptersCount: z.number().int().default(0),
   chaptersDuration: z.number().nullable(),
   chaptersUpdatedAt: z.date().nullable(),
-  chaptersHash: z.string().nullable()
+  chaptersHash: z.string().nullable(),
+  mediaType: MediaTypeEnum.default('UNKNOWN'),
+  videoMetadata: z
+    .object({
+      imageId: z.number().int(),
+      probeStatus: MediaProbeStatusEnum.default('PENDING'),
+      probeUpdatedAt: z.date().or(z.string()).nullable(),
+      probeError: z.string().nullable(),
+      hasAudio: z.boolean().nullable(),
+      audioCodec: z.string().nullable(),
+      audioChannels: z.number().int().nullable(),
+      videoCodec: z.string().nullable(),
+      duration: z.number().nullable(),
+      fps: z.number().nullable(),
+      createdAt: z.date().or(z.string()),
+      updatedAt: z.date().or(z.string())
+    })
+    .nullable()
+    .optional()
 })
 
 export interface TImageModel extends z.infer<typeof ImageModel> {}

@@ -608,7 +608,7 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
   const artwork = await prisma.artwork.findUnique({
     where: { id },
     include: {
-      images: { orderBy: { sortOrder: 'asc' } },
+      images: { orderBy: { sortOrder: 'asc' }, include: { videoMetadata: true } },
       artist: true,
       artworkTags: { include: { tag: true } },
       series: {

@@ -56,14 +56,30 @@ export function transformSingleArtwork(artwork: any) {
 export function transformImages(images: TImageModel[], dbImageCount?: number) {
   // 1. 直接转 DTO，保留数据库排序
   const allItems = images.map((image) => {
-    const mediaType = isVideoFile(image.path) ? 'video' : 'image'
+    const storedMediaType = String((image as any).mediaType ?? '').toUpperCase()
+    const mediaType = storedMediaType === 'VIDEO' || storedMediaType === 'video' || isVideoFile(image.path) ? 'video' : 'image'
     const hasChapters = mediaType === 'video' && Boolean(image.chaptersPath && image.chaptersCount > 0)
+    const videoMetadata = image.videoMetadata
+    const metadataFields = videoMetadata
+      ? {
+          probeStatus: videoMetadata.probeStatus,
+          probeUpdatedAt: videoMetadata.probeUpdatedAt,
+          probeError: videoMetadata.probeError,
+          hasAudio: videoMetadata.hasAudio,
+          audioCodec: videoMetadata.audioCodec,
+          audioChannels: videoMetadata.audioChannels,
+          videoCodec: videoMetadata.videoCodec,
+          duration: videoMetadata.duration,
+          fps: videoMetadata.fps
+        }
+      : getFlatVideoMetadataFields(image as any)
 
     return ArtworkImageResponseDto.parse({
       ...image,
       mediaType,
       hasChapters,
-      chaptersUrl: hasChapters ? `/api/v1/media/${image.id}/chapters` : null
+      chaptersUrl: hasChapters ? `/api/v1/media/${image.id}/chapters` : null,
+      ...metadataFields
     })
   })
 
@@ -119,6 +135,26 @@ export const getStem = (p: string) => {
   const name = path.basename(p)
   const ext = path.extname(name)
   return name.slice(0, name.length - ext.length)
+}
+
+function getFlatVideoMetadataFields(image: Record<string, unknown>) {
+  const fields: Record<string, unknown> = {}
+  for (const key of [
+    'probeStatus',
+    'probeUpdatedAt',
+    'probeError',
+    'hasAudio',
+    'audioCodec',
+    'audioChannels',
+    'videoCodec',
+    'duration',
+    'fps'
+  ]) {
+    if (image[key] !== undefined) {
+      fields[key] = image[key]
+    }
+  }
+  return fields
 }
 
 export const generateLocalExternalId = (artworkId: number) => {

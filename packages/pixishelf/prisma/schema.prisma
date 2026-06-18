@@ -139,26 +139,48 @@ model ArtworkTag {
 }
 
 model Image {
-  id                  Int       @id @default(autoincrement())
+  id                  Int                 @id @default(autoincrement())
   path                String
   width               Int?
   height              Int?
   size                Int?
-  sortOrder           Int       @default(0)
+  sortOrder           Int                 @default(0)
   artworkId           Int?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-  webpAnimationStatus Int?      @db.SmallInt
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  webpAnimationStatus Int?                @db.SmallInt
   chaptersPath        String?
-  chaptersCount       Int       @default(0)
+  chaptersCount       Int                 @default(0)
   chaptersDuration    Float?
   chaptersUpdatedAt   DateTime?
   chaptersHash        String?
-  artwork             Artwork?  @relation(fields: [artworkId], references: [id])
+  mediaType           MediaType           @default(UNKNOWN)
+  artwork             Artwork?            @relation(fields: [artworkId], references: [id])
+  videoMetadata       MediaVideoMetadata?
 
   @@unique([artworkId, path], name: "unique_artwork_path")
   @@index([webpAnimationStatus])
   @@index([chaptersPath])
+  @@index([mediaType])
+}
+
+model MediaVideoMetadata {
+  imageId        Int              @id
+  image          Image            @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  probeStatus    MediaProbeStatus @default(PENDING)
+  probeUpdatedAt DateTime?
+  probeError     String?          @db.Text
+  hasAudio       Boolean?
+  audioCodec     String?
+  audioChannels  Int?
+  videoCodec     String?
+  duration       Float?
+  fps            Float?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([probeStatus])
+  @@index([hasAudio])
 }
 
 model UserBA {
@@ -332,6 +354,21 @@ enum JobStatus {
   FAILED
   CANCELLED
   CANCELLING
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  ANIMATION
+  UNKNOWN
+}
+
+enum MediaProbeStatus {
+  PENDING
+  PROBING
+  COMPLETED
+  FAILED
+  SKIPPED
 }
 
 model Series {

@@ -1,6 +1,6 @@
 import z from 'zod'
 import { MediaTypeFilter, SortOption } from '@/types'
-import { ArtworkModel, ImageModel, TagModel } from './models'
+import { ArtworkModel, ImageModel, MediaProbeStatusEnum, TagModel } from './models'
 import { dateToString, nullableDateToString } from './utils'
 import { ArtistResponseDto } from './artist.dto'
 import { EMediaType } from '@/enums/EMediaType'
@@ -215,7 +215,18 @@ export const ArtworkImageResponseDto = ImageModel.extend({
   // 前端辅助字段，数据库没有，需要 Service 层计算填充
   mediaType: z.enum(['image', 'video']).default('image'),
   chaptersUrl: z.string().nullable().optional(),
-  hasChapters: z.boolean().default(false)
+  hasChapters: z.boolean().default(false),
+  probeStatus: MediaProbeStatusEnum.nullable().optional(),
+  probeUpdatedAt: nullableDateToString.optional(),
+  probeError: z.string().nullable().optional(),
+  hasAudio: z.boolean().nullable().optional(),
+  audioCodec: z.string().nullable().optional(),
+  audioChannels: z.number().int().nullable().optional(),
+  videoCodec: z.string().nullable().optional(),
+  duration: z.number().nullable().optional(),
+  fps: z.number().nullable().optional()
+}).omit({
+  videoMetadata: true
 })
 
 export type ArtworkImageResponseDto = z.infer<typeof ArtworkImageResponseDto>

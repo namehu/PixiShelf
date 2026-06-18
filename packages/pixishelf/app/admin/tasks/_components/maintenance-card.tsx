@@ -40,6 +40,24 @@ interface WebpAnimationScanResult {
   failedSamples?: WebpAnimationScanFailedSample[]
 }
 
+interface VideoMediaProbeFailedSample {
+  imageId: number
+  path: string
+  error: string
+}
+
+interface VideoMediaProbeResult {
+  classifiedVideos?: number
+  classifiedImages?: number
+  classifiedAnimations?: number
+  unknown?: number
+  metadataRowsCreated?: number
+  processed?: number
+  failed?: number
+  remainingPending?: number
+  failedSamples?: VideoMediaProbeFailedSample[]
+}
+
 interface ScheduledTaskView {
   key: string
   type: string
@@ -65,11 +83,16 @@ function toWebpAnimationScanResult(result: unknown): WebpAnimationScanResult | n
   return result && typeof result === 'object' ? (result as WebpAnimationScanResult) : null
 }
 
+function toVideoMediaProbeResult(result: unknown): VideoMediaProbeResult | null {
+  return result && typeof result === 'object' ? (result as VideoMediaProbeResult) : null
+}
+
 export function MaintenanceCard() {
   const trpc = useTRPC()
   const [pollInterval, setPollInterval] = useState<number | false>(false)
   const [mediaTagPollInterval, setMediaTagPollInterval] = useState<number | false>(false)
   const [webpScanPollInterval, setWebpScanPollInterval] = useState<number | false>(false)
+  const [videoProbePollInterval, setVideoProbePollInterval] = useState<number | false>(false)
   const [taskDrafts, setTaskDrafts] = useState<Record<string, { enabled: boolean; time: string; priority: string }>>({})
 
   // 查询当前任务状态
@@ -94,6 +117,14 @@ export function MaintenanceCard() {
   )
   const webpScanJob = webpScanJobQuery.data as any
   const refetchWebpScanJob = webpScanJobQuery.refetch
+
+  const videoProbeJobQuery = useQuery(
+    trpc.job.getVideoMediaProbeStatus.queryOptions(undefined, {
+      refetchInterval: videoProbePollInterval
+    })
+  )
+  const videoProbeJob = videoProbeJobQuery.data as any
+  const refetchVideoProbeJob = videoProbeJobQuery.refetch
 
   const scheduledTasksQuery = useQuery(trpc.job.listScheduledTasks.queryOptions())
   const scheduledTasks = (scheduledTasksQuery.data ?? []) as ScheduledTaskView[]
@@ -123,6 +154,14 @@ export function MaintenanceCard() {
       setWebpScanPollInterval(false)
     }
   }, [webpScanJob?.status])
+
+  useEffect(() => {
+    if (videoProbeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(videoProbeJob.status)) {
+      setVideoProbePollInterval(1000)
+    } else {
+      setVideoProbePollInterval(false)
+    }
+  }, [videoProbeJob?.status])
 
   useEffect(() => {
     if (scheduledTasks.length === 0) return
@@ -189,6 +228,30 @@ export function MaintenanceCard() {
     })
   )
 
+  const startVideoProbeMutation = useMutation(
+    trpc.job.startVideoMediaProbe.mutationOptions({
+      onSuccess: () => {
+        toast.success('视频媒体探测任务已启动')
+        refetchVideoProbeJob()
+      },
+      onError: (error) => {
+        toast.error(`启动失败: ${error.message}`)
+      }
+    })
+  )
+
+  const cancelVideoProbeMutation = useMutation(
+    trpc.job.cancelVideoMediaProbe.mutationOptions({
+      onSuccess: () => {
+        toast.info('正在取消视频媒体探测任务...')
+        refetchVideoProbeJob()
+      },
+      onError: (error) => {
+        toast.error(`取消失败: ${error.message}`)
+      }
+    })
+  )
+
   const updateScheduledTaskMutation = useMutation(
     trpc.job.updateScheduledTask.mutationOptions({
       onSuccess: () => {
@@ -207,6 +270,7 @@ export function MaintenanceCard() {
         toast.success('计划任务已手动触发')
         refetchScheduledTasks()
         refetchWebpScanJob()
+        refetchVideoProbeJob()
       },
       onError: (error) => {
         toast.error(`触发失败: ${error.message}`)
@@ -218,8 +282,11 @@ export function MaintenanceCard() {
   const isCancelling = activeJob?.status === 'CANCELLING'
   const isMediaTagRunning = mediaTagJob && ['PENDING', 'RUNNING'].includes(mediaTagJob.status)
   const isWebpScanRunning = webpScanJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(webpScanJob.status)
+  const isVideoProbeRunning = videoProbeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(videoProbeJob.status)
+  const isVideoProbeCancelling = videoProbeJob?.status === 'CANCELLING'
   const mediaTagResult = toMediaDerivedTagSyncResult(mediaTagJob?.result)
   const webpScanResult = toWebpAnimationScanResult(webpScanJob?.result)
+  const videoProbeResult = toVideoMediaProbeResult(videoProbeJob?.result)
 
   const updateTaskDraft = (key: string, patch: Partial<{ enabled: boolean; time: string; priority: string }>) => {
     setTaskDrafts((prev) => ({
@@ -388,6 +455,68 @@ export function MaintenanceCard() {
                         {webpScanResult.failedSamples.slice(0, 5).map((sample) => (
                           <li key={sample.id} className="break-all">
                             #{sample.id} {sample.path}: {sample.error}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+        <div className="flex items-center justify-between p-4 border rounded-lg">
+          <div className="space-y-1">
+            <h4 className="font-medium">视频媒体探测</h4>
+            <p className="text-sm text-neutral-500">
+              分类未识别媒体，并使用 ffprobe 探测视频音频、编码、时长和帧率。
+            </p>
+          </div>
+          {isVideoProbeRunning ? (
+            <Button
+              variant="destructive"
+              onClick={() => cancelVideoProbeMutation.mutate()}
+              disabled={isVideoProbeCancelling || cancelVideoProbeMutation.isPending}
+            >
+              {isVideoProbeCancelling ? '正在取消...' : '取消任务'}
+            </Button>
+          ) : (
+            <Button onClick={() => startVideoProbeMutation.mutate()} disabled={startVideoProbeMutation.isPending}>
+              {startVideoProbeMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              开始探测
+            </Button>
+          )}
+        </div>
+
+        {videoProbeJob &&
+          (isVideoProbeRunning || videoProbeJob.status === 'COMPLETED' || videoProbeJob.status === 'FAILED') && (
+            <div className="space-y-2 p-4 bg-neutral-50 rounded-lg">
+              <div className="flex justify-between text-sm">
+                <span className="font-medium">
+                  状态: {videoProbeJob.status}
+                  {videoProbeJob.message && ` - ${videoProbeJob.message}`}
+                </span>
+                <span>{videoProbeJob.progress}%</span>
+              </div>
+              <Progress value={videoProbeJob.progress} className="h-2" />
+              {videoProbeJob.error && <p className="text-sm text-red-500 mt-2">错误: {videoProbeJob.error}</p>}
+              {videoProbeJob.status === 'COMPLETED' && (
+                <div className="space-y-2 text-sm text-green-600 mt-2">
+                  <p>
+                    任务完成：本次新分类 UNKNOWN 媒体：视频 {videoProbeResult?.classifiedVideos ?? 0} 个，图片{' '}
+                    {videoProbeResult?.classifiedImages ?? 0} 个，动图{' '}
+                    {videoProbeResult?.classifiedAnimations ?? 0} 个，仍未知 {videoProbeResult?.unknown ?? 0} 个；本次新建视频
+                    metadata {videoProbeResult?.metadataRowsCreated ?? 0} 行；本次探测/重试视频：成功{' '}
+                    {videoProbeResult?.processed ?? 0} 个，失败 {videoProbeResult?.failed ?? 0} 个；当前剩余待探测{' '}
+                    {videoProbeResult?.remainingPending ?? 0} 个。
+                  </p>
+                  {videoProbeResult?.failedSamples && videoProbeResult.failedSamples.length > 0 && (
+                    <div className="rounded border border-red-200 bg-red-50 p-2 text-red-700">
+                      <p className="font-medium">失败样例</p>
+                      <ul className="mt-1 space-y-1">
+                        {videoProbeResult.failedSamples.slice(0, 5).map((sample) => (
+                          <li key={sample.imageId} className="break-all">
+                            #{sample.imageId} {sample.path}: {sample.error}
                           </li>
                         ))}
                       </ul>
