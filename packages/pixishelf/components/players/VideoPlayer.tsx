@@ -179,6 +179,7 @@ export function VideoPlayer({
         fullscreenWeb: true,
         pip: false,
         mutex: true,
+        gesture: false,
         theme: '#3b82f6',
         moreVideoAttr: {
           preload,
@@ -255,7 +256,9 @@ export function VideoPlayer({
         }
       })
       art.on('video:loadstart', () => {
-        setLoading(true)
+        if (shouldShowVideoBuffering(getArtVideo(art))) {
+          setLoading(true)
+        }
       })
       art.on('video:waiting', () => {
         if (hasStartedPlayingRef.current && shouldShowVideoBuffering(getArtVideo(art))) {
