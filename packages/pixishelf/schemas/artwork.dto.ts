@@ -97,6 +97,7 @@ export const ArtworksInfiniteQuerySchema = z.object({
     .union([z.string(), z.array(z.string())])
     .nullish()
     .transform((val) => normalizeMediaTypes(val)),
+  hasAudio: z.enum(['all', 'yes', 'no', 'unknown']).optional().default('all'),
   startDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')

@@ -35,7 +35,15 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
   // 主渲染逻辑
   const renderContent = () => {
     if (isVideoFile(src)) {
-      return <VideoPlayer src={src} chaptersUrl={media.chaptersUrl} className="w-full h-auto" preload="metadata" />
+      return (
+        <VideoPlayer
+          src={src}
+          chaptersUrl={media.chaptersUrl}
+          hasAudio={media.hasAudio}
+          className="w-full h-auto"
+          preload="metadata"
+        />
+      )
     }
 
     if (isApngFile(src)) {

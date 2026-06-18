@@ -16,6 +16,7 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     tagIds,
     mediaType,
     mediaTypes,
+    hasAudio,
     startDate,
     endDate,
     createdStartDate,
@@ -135,6 +136,28 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     )`
     sqlParams.push(...mediaTypes.map((ext) => `%${ext}`))
     paramIndex += mediaTypes.length
+  }
+
+  // 1.5.2 视频音频筛选：作品至少包含一个满足条件的视频媒体
+  if (hasAudio === 'yes' || hasAudio === 'no') {
+    whereSQL += ` AND EXISTS (
+      SELECT 1 FROM "Image" i_audio
+      JOIN "MediaVideoMetadata" mvm_audio ON mvm_audio."imageId" = i_audio.id
+      WHERE i_audio."artworkId" = a.id AND mvm_audio."hasAudio" = ${hasAudio === 'yes' ? 'true' : 'false'}
+    )`
+  }
+
+  if (hasAudio === 'unknown') {
+    const videoLikeConditions = VIDEO_EXTENSIONS.map((_, i) => `LOWER(i_audio.path) LIKE $${paramIndex + i}`).join(' OR ')
+    whereSQL += ` AND EXISTS (
+      SELECT 1 FROM "Image" i_audio
+      LEFT JOIN "MediaVideoMetadata" mvm_audio ON mvm_audio."imageId" = i_audio.id
+      WHERE i_audio."artworkId" = a.id
+        AND (i_audio."mediaType" = 'VIDEO' OR ${videoLikeConditions})
+        AND (mvm_audio."imageId" IS NULL OR mvm_audio."hasAudio" IS NULL)
+    )`
+    sqlParams.push(...VIDEO_EXTENSIONS.map((ext) => `%${ext}`))
+    paramIndex += VIDEO_EXTENSIONS.length
   }
 
   // 1.5.5 粗粒度媒体类型筛选

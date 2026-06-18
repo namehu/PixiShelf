@@ -13,7 +13,10 @@ import {
   Plus,
   Download,
   MoreHorizontal,
-  Upload
+  Upload,
+  Volume2,
+  VolumeX,
+  Info
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
@@ -40,7 +43,7 @@ import { VIDEO_EXTENSIONS } from '@/lib/constant'
 import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ImageChapterDialog } from './image-chapter-dialog'
-import { getChapterStatusSummary } from './chapter-status'
+import { MediaVideoMetadataDialog } from './media-video-metadata-dialog'
 
 interface ImageManagerContentProps {
   data: any
@@ -98,6 +101,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   const [isSubmittingChapter, setIsSubmittingChapter] = useState(false)
   const [deleteChapterTarget, setDeleteChapterTarget] = useState<ImageListItem | null>(null)
   const [deleteChapterPhysical, setDeleteChapterPhysical] = useState(false)
+  const [videoMetadataTarget, setVideoMetadataTarget] = useState<ImageListItem | null>(null)
 
   const uploadChapterFile = async (input: { artworkId: number; imageId: number; videoPath: string; file: File }) => {
     const formData = new FormData()
@@ -332,29 +336,61 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     return image.hasChapters ? '替换章节' : '上传章节'
   }
 
-  const getChapterToneClassName = (image: ImageListItem) => {
-    const summary = getChapterStatusSummary(image)
-    if (summary.tone === 'success') return 'text-emerald-600'
-    if (summary.tone === 'warning') return 'text-amber-600'
-    return 'text-neutral-500'
+  const getVideoMetadataSummary = (image: ImageListItem) => {
+    if (image.probeStatus === 'FAILED') {
+      return {
+        label: '失败',
+        icon: Info,
+        className: 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
+      }
+    }
+
+    if (image.hasAudio === true) {
+      return {
+        label: '有音频',
+        icon: Volume2,
+        className: 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+      }
+    }
+
+    if (image.hasAudio === false) {
+      return {
+        label: '无音频',
+        icon: VolumeX,
+        className: 'border-neutral-200 bg-neutral-50 text-neutral-600 hover:bg-neutral-100'
+      }
+    }
+
+    return {
+      label: '未探测',
+      icon: Info,
+      className: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+    }
   }
 
-  const renderChapterStatus = (image: ImageListItem) => {
-    const summary = getChapterStatusSummary(image)
-
+  const renderVideoMetadataEntry = (image: ImageListItem) => {
     if (!isVideoMedia(image)) {
       return <span className="text-xs text-neutral-400">-</span>
     }
 
+    const summary = getVideoMetadataSummary(image)
+    const Icon = summary.icon
+
     return (
-      <div className="flex flex-col gap-0.5">
-        <span className={cn('text-xs font-medium', getChapterToneClassName(image))}>{summary.text}</span>
-        {image.chaptersPath && (
-          <span className="truncate text-[10px] text-neutral-400" title={image.chaptersPath}>
-            {image.chaptersPath.split('/').pop()}
-          </span>
-        )}
-      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={cn('h-7 gap-1.5 rounded-sm px-2 text-xs font-medium', summary.className)}
+        title="查看视频媒体详情"
+        onClick={(event) => {
+          event.stopPropagation()
+          setVideoMetadataTarget(image)
+        }}
+      >
+        <Icon className="h-3.5 w-3.5" />
+        {summary.label}
+      </Button>
     )
   }
 
@@ -532,10 +568,10 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
       )
     },
     {
-      header: '章节',
-      id: 'chapters',
-      size: 160,
-      cell: ({ row }) => renderChapterStatus(row.original)
+      header: '视频详情',
+      id: 'videoMetadata',
+      size: 120,
+      cell: ({ row }) => renderVideoMetadataEntry(row.original)
     },
     {
       header: '尺寸',
@@ -818,7 +854,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
                           {' · '}
                           {formatFileSize(img.size || 0)}
                         </div>
-                        <div className="mt-1">{renderChapterStatus(img)}</div>
+                        <div className="mt-2">{renderVideoMetadataEntry(img)}</div>
                       </div>
                       <div className="flex shrink-0 gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                         {renderMediaActions(img, 'secondary')}
@@ -906,6 +942,16 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
           }
         }}
         onSubmit={handleChapterSubmit}
+      />
+
+      <MediaVideoMetadataDialog
+        open={!!videoMetadataTarget}
+        image={videoMetadataTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setVideoMetadataTarget(null)
+          }
+        }}
       />
 
       <ImageReplaceDialog

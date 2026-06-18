@@ -58,6 +58,12 @@ const MEDIA_TYPE_OPTIONS: Option[] = [
   }))
 ]
 
+type AudioFilter = 'all' | 'yes' | 'no' | 'unknown'
+
+function normalizeAudioFilter(value?: string | null): AudioFilter {
+  return value === 'yes' || value === 'no' || value === 'unknown' ? value : 'all'
+}
+
 function restoreMediaTypeOptions(value?: string | null): Option[] {
   if (!value) return []
 
@@ -123,6 +129,7 @@ export default function ArtworkManagement() {
     tags: parseAsString,
     excludeTags: parseAsString,
     mediaTypes: parseAsString,
+    hasAudio: parseAsString.withDefault('all'),
     mediaCountMin: parseAsInteger,
     mediaCountMax: parseAsInteger,
     page: parseAsInteger.withDefault(1),
@@ -151,6 +158,7 @@ export default function ArtworkManagement() {
       .filter(Boolean)
       .map((tag) => ({ label: tag, value: tag })) as Option[],
     selectedMediaTypes: restoreMediaTypeOptions(searchState.mediaTypes),
+    hasAudio: normalizeAudioFilter(searchState.hasAudio),
     mediaCountMin: searchState.mediaCountMin ?? '',
     mediaCountMax: searchState.mediaCountMax ?? ''
   })
@@ -176,6 +184,7 @@ export default function ArtworkManagement() {
       tags: localSearch.tagMode === 'include' ? tagsStr : null,
       excludeTags: localSearch.tagMode === 'exclude' ? tagsStr : null,
       mediaTypes: mediaTypesStr,
+      hasAudio: localSearch.hasAudio === 'all' ? null : localSearch.hasAudio,
       mediaCountMin: localSearch.mediaCountMin === '' ? null : Number(localSearch.mediaCountMin),
       mediaCountMax: localSearch.mediaCountMax === '' ? null : Number(localSearch.mediaCountMax),
       page: 1 // 重置到第一页
@@ -194,6 +203,7 @@ export default function ArtworkManagement() {
       tagMode: 'include',
       selectedTags: [],
       selectedMediaTypes: [],
+      hasAudio: 'all',
       mediaCountMin: '',
       mediaCountMax: ''
     })
@@ -208,6 +218,7 @@ export default function ArtworkManagement() {
       tags: null,
       excludeTags: null,
       mediaTypes: null,
+      hasAudio: null,
       mediaCountMin: null,
       mediaCountMax: null,
       page: 1,
@@ -545,6 +556,7 @@ export default function ArtworkManagement() {
   // ProTable 请求函数
   const request = useCallback(
     async (params: { pageSize: number; current: number }) => {
+      const hasAudioFilter = normalizeAudioFilter(searchState.hasAudio)
       const res = await trpcClient.artwork.list.query({
         cursor: params.current,
         pageSize: params.pageSize,
@@ -558,6 +570,7 @@ export default function ArtworkManagement() {
         tags: searchState.tags,
         excludeTags: searchState.excludeTags,
         mediaTypes: searchState.mediaTypes,
+        hasAudio: hasAudioFilter === 'all' ? undefined : hasAudioFilter,
         mediaCountMin: searchState.mediaCountMin,
         mediaCountMax: searchState.mediaCountMax
       })
@@ -916,8 +929,31 @@ export default function ArtworkManagement() {
                   />
                 </div>
 
+                {/* 视频音频 */}
+                <div className="col-span-1 lg:col-span-2 space-y-1">
+                  <div className="h-6 flex items-center">
+                    <Label className="text-xs font-medium text-neutral-500">视频音频</Label>
+                  </div>
+                  <Select
+                    value={localSearch.hasAudio}
+                    onValueChange={(value) =>
+                      setLocalSearch((prev) => ({ ...prev, hasAudio: normalizeAudioFilter(value) }))
+                    }
+                  >
+                    <SelectTrigger className="h-9 bg-white">
+                      <SelectValue placeholder="全部" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部</SelectItem>
+                      <SelectItem value="yes">有音频</SelectItem>
+                      <SelectItem value="no">无音频</SelectItem>
+                      <SelectItem value="unknown">未探测</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 {/* 标签筛选 */}
-                <div className="col-span-1 lg:col-span-6 space-y-1">
+                <div className="col-span-1 lg:col-span-4 space-y-1">
                   <div className="h-6 flex items-center justify-between">
                     <Label className="text-xs font-medium text-neutral-500">标签筛选</Label>
                     <div className="flex bg-neutral-100 rounded-md p-0.5">

@@ -14,6 +14,7 @@ import { createChapterTimelineMarkers, type NormalizedChapter } from '@/componen
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
 import { combinationApiResource } from '@/utils/combinationStatic'
+import './VideoPlayer.css'
 
 const VIDEO_TIME_SYNC_THRESHOLD = 0.25
 
@@ -29,9 +30,14 @@ export function shouldSyncVideoTime(previousTime: number, nextTime: number) {
   return Math.abs(nextTime - previousTime) >= VIDEO_TIME_SYNC_THRESHOLD
 }
 
+export function shouldShowAudioControls(hasAudio?: boolean | null) {
+  return hasAudio === true
+}
+
 export interface VideoPlayerProps {
   src: string
   chaptersUrl?: string | null
+  hasAudio?: boolean | null
   autoPlay?: boolean
   loop?: boolean
   muted?: boolean
@@ -46,6 +52,7 @@ export interface VideoPlayerProps {
 export function VideoPlayer({
   src,
   chaptersUrl,
+  hasAudio,
   autoPlay = true,
   loop = true,
   muted = true,
@@ -79,6 +86,7 @@ export function VideoPlayer({
   const chapterMarkers = useMemo(() => createChapterTimelineMarkers(chapters), [chapters])
   const chapterUiDuration = duration > 0 ? duration : chaptersDuration
   const chapterMarkerMinSpacingPx = isDesktop ? 18 : 28
+  const showAudioControls = shouldShowAudioControls(hasAudio)
 
   const clearLoading = () => {
     if (loadingTimeoutRef.current) {
@@ -164,7 +172,7 @@ export function VideoPlayer({
         autoplay: autoPlay,
         autoSize: false,
         loop,
-        muted,
+        muted: showAudioControls ? muted : true,
         setting: true,
         playbackRate: true,
         fullscreen: true,
@@ -182,6 +190,15 @@ export function VideoPlayer({
       artRef.current = art
       setArtInstance(art)
       setProgressPortalTarget(getArtProgress(art))
+
+      if (!showAudioControls) {
+        const player = (art as ArtplayerType & { template?: { $player?: HTMLDivElement } }).template?.$player
+        player?.classList.add('art-audio-controls-hidden')
+        const controls = art.controls as ArtplayerType['controls'] & { volume?: unknown }
+        if (controls.volume) {
+          controls.remove('volume')
+        }
+      }
 
       const syncMetadata = () => {
         const video = getArtVideo(art)
@@ -275,7 +292,7 @@ export function VideoPlayer({
         artRef.current = null
       }
     }
-  }, [autoPlay, loop, mediaSrc, muted, preload])
+  }, [autoPlay, loop, mediaSrc, muted, preload, showAudioControls])
 
   useEffect(() => {
     const video = getArtVideo(artRef.current)
@@ -463,6 +480,7 @@ export function VideoPlayer({
           </div>,
           progressPortalTarget
         )}
+
     </div>
   )
 }

@@ -100,6 +100,44 @@ describe('buildArtworkWhereClause', () => {
     expect(sqlParams).toEqual(['%.webp', '%.mp4'])
   })
 
+  it('should build query for artworks with audible videos', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({
+      hasAudio: 'yes'
+    })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('FROM "Image" i_audio')
+    expect(whereSQL).toContain('JOIN "MediaVideoMetadata" mvm_audio')
+    expect(whereSQL).toContain('mvm_audio."hasAudio" = true')
+    expect(sqlParams).toHaveLength(0)
+  })
+
+  it('should build query for artworks with silent videos', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({
+      hasAudio: 'no'
+    })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('FROM "Image" i_audio')
+    expect(whereSQL).toContain('JOIN "MediaVideoMetadata" mvm_audio')
+    expect(whereSQL).toContain('mvm_audio."hasAudio" = false')
+    expect(sqlParams).toHaveLength(0)
+  })
+
+  it('should build query for videos with unknown audio metadata', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({
+      hasAudio: 'unknown'
+    })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('FROM "Image" i_audio')
+    expect(whereSQL).toContain('LEFT JOIN "MediaVideoMetadata" mvm_audio')
+    expect(whereSQL).toContain('i_audio."mediaType" = \'VIDEO\'')
+    expect(whereSQL).toContain('LOWER(i_audio.path) LIKE $1')
+    expect(whereSQL).toContain('(mvm_audio."imageId" IS NULL OR mvm_audio."hasAudio" IS NULL)')
+    expect(sqlParams).toContain('%.mp4')
+  })
+
   it('should ignore empty tag ids', () => {
     const params = ArtworksInfiniteQuerySchema.parse({
       tagIds: ''

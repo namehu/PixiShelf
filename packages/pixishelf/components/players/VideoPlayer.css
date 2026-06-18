@@ -1,0 +1,5 @@
+.art-audio-controls-hidden .art-control-volume,
+.art-audio-controls-hidden .art-volume,
+.art-audio-controls-hidden [class*='volume'] {
+  display: none !important;
+}
