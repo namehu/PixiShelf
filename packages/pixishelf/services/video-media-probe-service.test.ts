@@ -179,6 +179,39 @@ describe('video-media-probe-service', () => {
     })
   })
 
+  it('reports classification progress and video probe totals', async () => {
+    countMock.mockResolvedValueOnce(2)
+    mediaVideoMetadataCreateManyMock.mockResolvedValueOnce({ count: 1 })
+    findManyMock
+      .mockResolvedValueOnce([
+        { id: 1, path: '/artist/work/video.mp4' },
+        { id: 2, path: '/artist/work/page.webp' }
+      ])
+      .mockResolvedValueOnce([])
+    mediaVideoMetadataCountMock.mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+    mediaVideoMetadataFindManyMock.mockResolvedValueOnce([{ imageId: 1, image: { path: '/artist/work/video.mp4' } }])
+    execFileMock.mockImplementationOnce((file, args, options, callback) => {
+      callback(null, {
+        stdout: JSON.stringify({
+          streams: [{ codec_type: 'video', codec_name: 'h264', avg_frame_rate: '30/1' }],
+          format: { duration: '10' }
+        }),
+        stderr: ''
+      })
+    })
+    const progress: Array<{ percentage: number; message: string }> = []
+
+    await runVideoMediaProbeJob({
+      scanPath: '/scan-root',
+      onProgress: (item) => {
+        progress.push(item)
+      }
+    })
+
+    expect(progress.some((item) => item.message.includes('分类媒体 2/2'))).toBe(true)
+    expect(progress.some((item) => item.message.includes('已探测 1/1'))).toBe(true)
+  })
+
   it('does not reselect failures produced during the same run', async () => {
     mediaVideoMetadataUpdateManyMock.mockResolvedValueOnce({ count: 1 })
     mediaVideoMetadataCountMock.mockResolvedValueOnce(1).mockResolvedValueOnce(0)

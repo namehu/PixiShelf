@@ -44,6 +44,10 @@ export interface VideoMediaProbeResult extends VideoMediaClassificationResult {
   failedSamples: VideoMediaProbeFailedSample[]
 }
 
+interface ClassifyUnknownMediaImagesOptions {
+  onProgress?: (progress: { processed: number; total: number; result: VideoMediaClassificationResult }) => Promise<void> | void
+}
+
 interface FfprobeStream {
   codec_type?: string
   codec_name?: string
@@ -60,7 +64,9 @@ interface FfprobeOutput {
   }
 }
 
-export async function classifyUnknownMediaImages(): Promise<VideoMediaClassificationResult> {
+export async function classifyUnknownMediaImages(
+  options: ClassifyUnknownMediaImagesOptions = {}
+): Promise<VideoMediaClassificationResult> {
   const result: VideoMediaClassificationResult = {
     classifiedVideos: 0,
     classifiedImages: 0,
@@ -69,7 +75,13 @@ export async function classifyUnknownMediaImages(): Promise<VideoMediaClassifica
     metadataRowsCreated: 0
   }
 
+  const total = options.onProgress
+    ? await prisma.image.count({
+        where: { mediaType: 'UNKNOWN' }
+      })
+    : 0
   let lastSeenId = 0
+  let processed = 0
 
   while (true) {
     const batch = await prisma.image.findMany({
@@ -85,6 +97,7 @@ export async function classifyUnknownMediaImages(): Promise<VideoMediaClassifica
     if (batch.length === 0) break
 
     lastSeenId = batch[batch.length - 1]!.id
+    processed += batch.length
 
     const videoIds: number[] = []
     const imageIds: number[] = []
@@ -130,6 +143,12 @@ export async function classifyUnknownMediaImages(): Promise<VideoMediaClassifica
       })
       result.classifiedAnimations += animationIds.length
     }
+
+    await options.onProgress?.({ processed, total, result: { ...result } })
+  }
+
+  if (total === 0) {
+    await options.onProgress?.({ processed: 0, total: 0, result: { ...result } })
   }
 
   return result
@@ -182,8 +201,18 @@ export async function runVideoMediaProbeJob(options: {
     }
   }
 
-  await reportProgress(1, '正在分类媒体类型...')
-  const classification = await classifyUnknownMediaImages()
+  await reportProgress(1, '正在统计待分类媒体...')
+  const classification = await classifyUnknownMediaImages({
+    onProgress: async ({ processed, total, result }) => {
+      const percentage = total > 0 ? Math.min(29, 1 + Math.floor((processed / total) * 28)) : 2
+      await reportProgress(
+        percentage,
+        total > 0
+          ? `正在分类媒体 ${processed}/${total}：视频 ${result.classifiedVideos} 个，图片 ${result.classifiedImages} 个，动图 ${result.classifiedAnimations} 个，未知 ${result.unknown} 个`
+          : '没有待分类媒体'
+      )
+    }
+  })
 
   await prisma.mediaVideoMetadata.updateMany({
     where: { probeStatus: 'FAILED' },
@@ -208,7 +237,7 @@ export async function runVideoMediaProbeJob(options: {
     return result
   }
 
-  await reportProgress(5, `待探测视频 ${totalPending} 个，每批 ${PROBE_BATCH_SIZE} 个`)
+  await reportProgress(30, `待探测视频 ${totalPending} 个，每批 ${PROBE_BATCH_SIZE} 个`)
 
   while (true) {
     await ensureNotCancelled()
@@ -276,8 +305,8 @@ export async function runVideoMediaProbeJob(options: {
     }
 
     const attempts = result.processed + result.failed
-    const percentage = Math.min(99, 5 + Math.floor((attempts / totalPending) * 94))
-    await reportProgress(percentage, `已探测 ${result.processed} 个，失败 ${result.failed} 个`)
+    const percentage = Math.min(99, 30 + Math.floor((attempts / totalPending) * 69))
+    await reportProgress(percentage, `已探测 ${attempts}/${totalPending} 个：成功 ${result.processed} 个，失败 ${result.failed} 个`)
   }
 
   result.remainingPending = await prisma.mediaVideoMetadata.count({
