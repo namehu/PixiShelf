@@ -96,6 +96,14 @@ pnpm dev
 - Use lucide-react icons for icon buttons when an appropriate icon exists.
 - Avoid broad refactors when fixing a local bug.
 
+## Test Organization
+
+- Do not place new test files beside implementation files.
+- Put unit and component tests in a dedicated `__tests__` directory near the code under test.
+- For package-level or cross-module tests, use the package's existing `tests` directory when that is the established local pattern.
+- When moving existing same-level `*.test.ts` or `*.test.tsx` files into `__tests__`, update relative imports and mocks from `./module` to the correct parent path such as `../module`.
+- After moving tests, run the narrowest relevant `pnpm test` or `pnpm vitest run ...` command for the moved files.
+
 ## Verification
 
 - For main app changes, run the narrowest useful check first:
