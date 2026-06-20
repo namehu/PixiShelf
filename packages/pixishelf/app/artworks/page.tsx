@@ -15,6 +15,8 @@ import { createSerializer, useQueryStates, parseAsInteger, parseAsString } from 
 import dayjs from 'dayjs'
 import type { Option } from '@/components/shared/multiple-selector'
 import { useTRPCClient } from '@/lib/trpc'
+import { MSource, OSource } from '@/enums/ESource'
+import type { ArtworkSource } from '@/schemas/models'
 
 const searchParamsParsers = {
   search: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
@@ -28,7 +30,8 @@ const searchParamsParsers = {
   artistId: parseAsInteger.withOptions({ history: 'replace', clearOnDefault: true }),
   artistLabel: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   tags: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  tagLabels: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true })
+  tagLabels: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  sources: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true })
 }
 
 const viewerQueryParsers = {
@@ -83,6 +86,11 @@ function encodeLabels(options: Option[]) {
   return options.map((item) => encodeURIComponent(item.label)).join(',')
 }
 
+function parseSources(value: string): ArtworkSource[] {
+  const allowedSources = new Set<ArtworkSource>(OSource.map((option) => option.value))
+  return splitCsv(value).filter((source): source is ArtworkSource => allowedSources.has(source as ArtworkSource))
+}
+
 function toTagOptions(tags: string, tagLabels: string): Option[] {
   const ids = splitCsv(tags)
   const labels = decodeLabels(tagLabels)
@@ -107,7 +115,8 @@ export default function GalleryPage() {
     artistId,
     artistLabel,
     tags,
-    tagLabels
+    tagLabels,
+    sources
   } = queryStates
 
   // 控制筛选抽屉的开关
@@ -120,11 +129,13 @@ export default function GalleryPage() {
     [artistId, artistLabel]
   )
   const selectedTags = useMemo<Option[]>(() => toTagOptions(tags, tagLabels), [tags, tagLabels])
+  const selectedSources = useMemo(() => parseSources(sources), [sources])
   const tagIds = useMemo(() => selectedTags.map((tag) => Number(tag.value)).filter(Number.isFinite), [selectedTags])
   const hasActiveFilters =
     !!searchQuery ||
     !!artistId ||
     selectedTags.length > 0 ||
+    selectedSources.length > 0 ||
     mediaType !== 'all' ||
     !!startDate ||
     !!endDate ||
@@ -236,6 +247,7 @@ export default function GalleryPage() {
     endTime?: string
     createdStartTime?: string
     createdEndTime?: string
+    sources: ArtworkSource[]
   }) => {
     if (!filters) {
       return clearAllFilters()
@@ -252,7 +264,8 @@ export default function GalleryPage() {
       startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : null,
       endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null,
       createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : null,
-      createdEndDate: filters.createdEndTime ? dayjs(filters.createdEndTime).format('YYYY-MM-DD') : null
+      createdEndDate: filters.createdEndTime ? dayjs(filters.createdEndTime).format('YYYY-MM-DD') : null,
+      sources: filters.sources.join(',') || null
     })
   }
 
@@ -269,7 +282,8 @@ export default function GalleryPage() {
       artistId: null,
       artistLabel: null,
       tags: null,
-      tagLabels: null
+      tagLabels: null,
+      sources: null
     })
   }
 
@@ -337,6 +351,15 @@ export default function GalleryPage() {
             {selectedTags.map((tag) => (
               <FilterChip key={tag.value} label={`标签：${tag.label}`} onRemove={() => removeTag(tag.value)} />
             ))}
+            {selectedSources.map((source) => (
+              <FilterChip
+                key={source}
+                label={`创建类型：${MSource[source]}`}
+                onRemove={() =>
+                  setQueryStates({ sources: selectedSources.filter((item) => item !== source).join(',') || null })
+                }
+              />
+            ))}
             {mediaType !== 'all' && (
               <FilterChip
                 label={MEDIA_TYPE_LABELS[mediaType as MediaTypeFilter]}
@@ -374,6 +397,7 @@ export default function GalleryPage() {
           currentSortBy={sortBy as SortOption}
           currentArtist={selectedArtist}
           currentTags={selectedTags}
+          currentSources={selectedSources}
           randomSeed={randomSeed ? Number(randomSeed) : undefined}
           startDate={startDate}
           endDate={endDate}
@@ -393,6 +417,7 @@ export default function GalleryPage() {
           mediaType={mediaType as MediaTypeFilter}
           tagIds={tagIds}
           artistId={artistId || undefined}
+          sources={selectedSources}
           randomSeed={randomSeed ? Number(randomSeed) : undefined}
           startDate={startDate || undefined}
           endDate={endDate || undefined}

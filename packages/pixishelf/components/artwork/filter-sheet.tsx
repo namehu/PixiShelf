@@ -9,6 +9,8 @@ import { MediaTypeFilter as MediaTypeFilterComponent } from '@/components/ui/Med
 import { DatePickerRange } from '@/components/shared/date-range-picker'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import dayjs from 'dayjs'
+import { OSource } from '@/enums/ESource'
+import type { ArtworkSource } from '@/schemas/models'
 
 interface FilterSheetProps {
   open: boolean
@@ -16,6 +18,7 @@ interface FilterSheetProps {
   currentSortBy: SortOption
   currentArtist?: Option[]
   currentTags?: Option[]
+  currentSources?: ArtworkSource[]
   randomSeed?: number
   startDate?: string
   endDate?: string
@@ -29,6 +32,7 @@ interface FilterSheetProps {
     sortBy: SortOption
     artist?: Option[]
     tags?: Option[]
+    sources: ArtworkSource[]
     randomSeed?: number
     startTime?: string
     endTime?: string
@@ -38,6 +42,7 @@ interface FilterSheetProps {
 }
 
 const EMPTY_OPTIONS: Option[] = []
+const EMPTY_SOURCES: ArtworkSource[] = []
 
 export function FilterSheet(props: FilterSheetProps) {
   const {
@@ -47,6 +52,7 @@ export function FilterSheet(props: FilterSheetProps) {
     currentSortBy,
     currentArtist = EMPTY_OPTIONS,
     currentTags = EMPTY_OPTIONS,
+    currentSources = EMPTY_SOURCES,
     randomSeed,
     startDate,
     endDate,
@@ -61,6 +67,7 @@ export function FilterSheet(props: FilterSheetProps) {
   const [localSortBy, setLocalSortBy] = useState<SortOption>('source_date_desc')
   const [localArtist, setLocalArtist] = useState<Option[]>([])
   const [localTags, setLocalTags] = useState<Option[]>([])
+  const [localSources, setLocalSources] = useState<Option[]>([])
   const [localRandomSeed, setLocalRandomSeed] = useState<number | undefined>(undefined)
   const [localDateRange, setLocalDateRange] = useState<[Date | undefined, Date | undefined]>([undefined, undefined])
   const [localCreatedDateRange, setLocalCreatedDateRange] = useState<[Date | undefined, Date | undefined]>([
@@ -78,6 +85,7 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalSortBy(currentSortBy)
     setLocalArtist(currentArtist)
     setLocalTags(currentTags)
+    setLocalSources(OSource.filter((option) => currentSources.includes(option.value)))
     setLocalRandomSeed(randomSeed)
     setLocalDateRange([
       startDate ? dayjs(startDate).toDate() : undefined,
@@ -93,6 +101,7 @@ export function FilterSheet(props: FilterSheetProps) {
     currentSortBy,
     currentArtist,
     currentTags,
+    currentSources,
     randomSeed,
     startDate,
     endDate,
@@ -115,6 +124,7 @@ export function FilterSheet(props: FilterSheetProps) {
       sortBy: localSortBy,
       artist: localArtist,
       tags: localTags,
+      sources: localSources.map((option) => option.value as ArtworkSource),
       randomSeed: seed,
       startTime: start ? dayjs(start).toISOString() : undefined,
       endTime: end ? dayjs(end).toISOString() : undefined,
@@ -129,6 +139,7 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalSortBy('source_date_desc')
     setLocalArtist([])
     setLocalTags([])
+    setLocalSources([])
     setLocalRandomSeed(undefined)
     setLocalDateRange([undefined, undefined])
     setLocalCreatedDateRange([undefined, undefined])
@@ -187,6 +198,20 @@ export function FilterSheet(props: FilterSheetProps) {
             />
           </div>
         )}
+
+        {/* 创建类型 */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">创建类型</h3>
+          <MultipleSelector
+            value={localSources}
+            options={OSource}
+            onChange={setLocalSources}
+            placeholder="选择创建类型..."
+            emptyIndicator="没有可用的创建类型"
+            className="min-h-10"
+            selectFirstItem={false}
+          />
+        </div>
 
         {/* 作品原始时间范围 */}
         <div className="space-y-3">

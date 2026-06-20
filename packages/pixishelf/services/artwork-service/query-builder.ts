@@ -12,6 +12,7 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     search,
     artistId,
     artistName,
+    sources,
     tagId,
     tagIds,
     mediaType,
@@ -63,6 +64,13 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
       sqlParams.push(`%${artistName}%`)
       paramIndex++
     }
+  }
+
+  // 1.1.5 创建类型筛选
+  if (sources && sources.length > 0) {
+    whereSQL += ` AND a.source = ANY($${paramIndex}::"ArtworkSource"[])`
+    sqlParams.push(sources)
+    paramIndex++
   }
 
   // 1.2 标签名筛选

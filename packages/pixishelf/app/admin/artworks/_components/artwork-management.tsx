@@ -44,6 +44,7 @@ import { cn } from '@/lib/utils'
 import { usePreferredTags } from '@/components/user-setting'
 import { getPreferredTagName } from '@/components/artwork/preferred-tag'
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '@/lib/constant'
+import { OSource } from '@/enums/ESource'
 
 const MEDIA_TYPE_OPTIONS: Option[] = [
   ...IMAGE_EXTENSIONS.map((ext) => ({
@@ -76,6 +77,17 @@ function restoreMediaTypeOptions(value?: string | null): Option[] {
   )
 
   return MEDIA_TYPE_OPTIONS.filter((option) => selected.has(option.value))
+}
+
+function restoreSourceOptions(value?: string | null): Option[] {
+  if (!value) return []
+  const selected = new Set(
+    value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  )
+  return OSource.filter((option) => selected.has(option.value))
 }
 
 function PreferredTagCell({ artwork }: { artwork: ArtworkResponseDto }) {
@@ -129,6 +141,7 @@ export default function ArtworkManagement() {
     tags: parseAsString,
     excludeTags: parseAsString,
     mediaTypes: parseAsString,
+    sources: parseAsString,
     hasAudio: parseAsString.withDefault('all'),
     mediaCountMin: parseAsInteger,
     mediaCountMax: parseAsInteger,
@@ -158,6 +171,7 @@ export default function ArtworkManagement() {
       .filter(Boolean)
       .map((tag) => ({ label: tag, value: tag })) as Option[],
     selectedMediaTypes: restoreMediaTypeOptions(searchState.mediaTypes),
+    selectedSources: restoreSourceOptions(searchState.sources),
     hasAudio: normalizeAudioFilter(searchState.hasAudio),
     mediaCountMin: searchState.mediaCountMin ?? '',
     mediaCountMax: searchState.mediaCountMax ?? ''
@@ -170,7 +184,11 @@ export default function ArtworkManagement() {
     // 处理标签参数：将选中项转换为逗号分隔字符串，空数组转为 null 以清除 URL 参数
     const tagsStr = localSearch.selectedTags.length > 0 ? localSearch.selectedTags.map((t) => t.value).join(',') : null
     const mediaTypesStr =
-      localSearch.selectedMediaTypes.length > 0 ? localSearch.selectedMediaTypes.map((item) => item.value).join(',') : null
+      localSearch.selectedMediaTypes.length > 0
+        ? localSearch.selectedMediaTypes.map((item) => item.value).join(',')
+        : null
+    const sourcesStr =
+      localSearch.selectedSources.length > 0 ? localSearch.selectedSources.map((item) => item.value).join(',') : null
 
     setSearchState({
       id: artworkId,
@@ -184,6 +202,7 @@ export default function ArtworkManagement() {
       tags: localSearch.tagMode === 'include' ? tagsStr : null,
       excludeTags: localSearch.tagMode === 'exclude' ? tagsStr : null,
       mediaTypes: mediaTypesStr,
+      sources: sourcesStr,
       hasAudio: localSearch.hasAudio === 'all' ? null : localSearch.hasAudio,
       mediaCountMin: localSearch.mediaCountMin === '' ? null : Number(localSearch.mediaCountMin),
       mediaCountMax: localSearch.mediaCountMax === '' ? null : Number(localSearch.mediaCountMax),
@@ -203,6 +222,7 @@ export default function ArtworkManagement() {
       tagMode: 'include',
       selectedTags: [],
       selectedMediaTypes: [],
+      selectedSources: [],
       hasAudio: 'all',
       mediaCountMin: '',
       mediaCountMax: ''
@@ -218,6 +238,7 @@ export default function ArtworkManagement() {
       tags: null,
       excludeTags: null,
       mediaTypes: null,
+      sources: null,
       hasAudio: null,
       mediaCountMin: null,
       mediaCountMax: null,
@@ -570,6 +591,7 @@ export default function ArtworkManagement() {
         tags: searchState.tags,
         excludeTags: searchState.excludeTags,
         mediaTypes: searchState.mediaTypes,
+        sources: searchState.sources,
         hasAudio: hasAudioFilter === 'all' ? undefined : hasAudioFilter,
         mediaCountMin: searchState.mediaCountMin,
         mediaCountMax: searchState.mediaCountMax
@@ -950,6 +972,22 @@ export default function ArtworkManagement() {
                       <SelectItem value="unknown">未探测</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                {/* 创建类型 */}
+                <div className="col-span-1 lg:col-span-2 space-y-1">
+                  <div className="h-6 flex items-center">
+                    <Label className="text-xs font-medium text-neutral-500">创建类型</Label>
+                  </div>
+                  <MultipleSelector
+                    value={localSearch.selectedSources}
+                    options={OSource}
+                    onChange={(options) => setLocalSearch((prev) => ({ ...prev, selectedSources: options }))}
+                    placeholder="选择创建类型..."
+                    emptyIndicator={<p className="text-center text-sm text-gray-500 py-2">未找到创建类型</p>}
+                    className="bg-white min-h-[36px]"
+                    selectFirstItem={false}
+                  />
                 </div>
 
                 {/* 标签筛选 */}

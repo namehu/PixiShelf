@@ -1,6 +1,6 @@
 import z from 'zod'
 import { MediaTypeFilter, SortOption } from '@/types'
-import { ArtworkModel, ImageModel, MediaProbeStatusEnum, TagModel } from './models'
+import { ArtworkModel, ArtworkSourceEnum, ImageModel, MediaProbeStatusEnum, TagModel } from './models'
 import { dateToString, nullableDateToString } from './utils'
 import { ArtistResponseDto } from './artist.dto'
 import { EMediaType } from '@/enums/EMediaType'
@@ -79,6 +79,15 @@ export const ArtworksInfiniteQuerySchema = z.object({
     .transform((val) => val?.trim() || ''),
   artistId: z.coerce.number().int().optional(),
   artistName: z.string().nullish(),
+  sources: z
+    .union([z.string(), z.array(z.string())])
+    .nullish()
+    .transform((val) => {
+      if (!val) return []
+      const items = Array.isArray(val) ? val : val.split(',')
+      return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)))
+    })
+    .pipe(z.array(ArtworkSourceEnum)),
   tagId: z.coerce.number().int().optional(),
   sortBy: z
     .string()

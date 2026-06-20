@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { getArtworksList } from '..'
 import { buildArtworkWhereClause } from '../query-builder'
 import { ArtworksInfiniteQuerySchema } from '../../../schemas/artwork.dto'
+import { ESource } from '@/enums/ESource'
 
 // Mock server-only to avoid errors in test environment
 vi.mock('server-only', () => ({}))
@@ -24,6 +25,46 @@ describe('buildArtworkWhereClause', () => {
 
     expect(whereSQL).toBe('WHERE 1=1')
     expect(sqlParams).toHaveLength(0)
+  })
+
+  it('should build a query for one artwork source', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({ sources: ESource.LOCAL_CREATED })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('a.source = ANY($1::"ArtworkSource"[])')
+    expect(sqlParams).toEqual([[ESource.LOCAL_CREATED]])
+  })
+
+  it('should build a query for multiple artwork sources', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({
+      sources: [ESource.PIXIV_IMPORTED, ESource.LOCAL_IMPORT]
+    })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('a.source = ANY($1::"ArtworkSource"[])')
+    expect(sqlParams).toEqual([[ESource.PIXIV_IMPORTED, ESource.LOCAL_IMPORT]])
+  })
+
+  it('should ignore an empty artwork source selection', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({ sources: '' })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toBe('WHERE 1=1')
+    expect(sqlParams).toEqual([])
+  })
+
+  it('should keep artwork sources in stable parameter order with other filters', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({
+      artistId: 9,
+      sources: [ESource.LOCAL_CREATED, ESource.LOCAL_IMPORT],
+      search: 'miku'
+    })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('a."artistId" = $1')
+    expect(whereSQL).toContain('a.source = ANY($2::"ArtworkSource"[])')
+    expect(whereSQL).toContain('a.title ILIKE $3')
+    expect(sqlParams).toEqual([9, [ESource.LOCAL_CREATED, ESource.LOCAL_IMPORT], '%miku%'])
   })
 
   it('should build query with included tags', () => {
@@ -233,9 +274,9 @@ describe('getArtworksList sort mapping', () => {
       })
     )
 
-    const listQuery = vi.mocked(prisma.$queryRawUnsafe).mock.calls.find(([query]) =>
-      String(query).includes('FROM "Artwork" a') && String(query).includes('LIMIT')
-    )?.[0]
+    const listQuery = vi
+      .mocked(prisma.$queryRawUnsafe)
+      .mock.calls.find(([query]) => String(query).includes('FROM "Artwork" a') && String(query).includes('LIMIT'))?.[0]
 
     expect(String(listQuery)).toContain('ORDER BY a."createdAt" DESC')
   })

@@ -12,6 +12,7 @@ import { SortOption, MediaTypeFilter } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useArtworkDisplayMode } from '@/components/user-setting'
+import type { ArtworkSource } from '@/schemas/models'
 
 /**
  * 无限滚动作品列表组件 (InfiniteArtworkList)
@@ -38,6 +39,8 @@ interface InfiniteArtworkListProps {
   tagIds?: number[]
   /** 艺术家 ID 筛选 */
   artistId?: number | string
+  /** 创建类型筛选 */
+  sources?: ArtworkSource[]
   /** 开始日期 (格式: YYYY-MM-DD) */
   startDate?: string
   /** 结束日期 (格式: YYYY-MM-DD) */
@@ -64,6 +67,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     tagId,
     tagIds,
     artistId,
+    sources,
     startDate,
     endDate,
     createdStartDate,
@@ -96,6 +100,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
         tagId,
         tagIds,
         artistId: artistId ? Number(artistId) : undefined,
+        sources,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         createdStartDate: createdStartDate || undefined,
@@ -165,7 +170,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   })
 
   // 生成唯一的存储 key，基于当前的筛选条件
-  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}`
+  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${sources?.join(',') || ''}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}`
 
   // 1. 处理滚动恢复
   useLayoutEffect(() => {
