@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FilterSheet } from '../filter-sheet'
 import { ESource, OSource } from '@/enums/ESource'
 import type { ReactNode } from 'react'
@@ -37,6 +37,23 @@ vi.mock('@/components/ui/MediaTypeFilter', () => ({
   MediaTypeFilter: () => <div />
 }))
 
+vi.mock('@/components/ui/select', () => ({
+  Select: ({ children, onValueChange }: { children: ReactNode; onValueChange: (value: string) => void }) => (
+    <div>
+      <button type="button" data-testid="audio-filter" onClick={() => onValueChange('yes')}>
+        选择有音频
+      </button>
+      {children}
+    </div>
+  ),
+  SelectTrigger: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectValue: () => <div />,
+  SelectContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectItem: ({ children }: { children: ReactNode }) => <div>{children}</div>
+}))
+
+afterEach(cleanup)
+
 describe('FilterSheet artwork sources', () => {
   it('submits multiple selected artwork sources', async () => {
     const onApply = vi.fn()
@@ -61,5 +78,25 @@ describe('FilterSheet artwork sources', () => {
         sources: [ESource.PIXIV_IMPORTED, ESource.LOCAL_IMPORT]
       })
     )
+  })
+
+  it('submits the selected audio filter', () => {
+    const onApply = vi.fn()
+
+    render(
+      <FilterSheet
+        open
+        onOpenChange={vi.fn()}
+        currentMediaType="all"
+        currentSortBy="source_date_desc"
+        currentHasAudio="all"
+        onApply={onApply}
+      />
+    )
+
+    fireEvent.click(screen.getByTestId('audio-filter'))
+    fireEvent.click(screen.getByRole('button', { name: '确定' }))
+
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ hasAudio: 'yes' }))
   })
 })

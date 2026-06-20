@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { ImageUpIcon, SlidersHorizontal, X } from 'lucide-react'
-import { SortOption, MediaTypeFilter } from '@/types'
+import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
 import type { SearchSuggestion } from '@/schemas/search.dto'
 import { SearchBox } from './_components/search-box'
 import { FilterSheet } from '@/components/artwork/filter-sheet'
@@ -31,7 +31,8 @@ const searchParamsParsers = {
   artistLabel: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   tags: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   tagLabels: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  sources: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true })
+  sources: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  hasAudio: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true })
 }
 
 const viewerQueryParsers = {
@@ -68,6 +69,11 @@ const SORT_LABELS: Record<SortOption, string> = {
   random: '随机排序'
 }
 
+const AUDIO_FILTER_LABELS: Record<Exclude<AudioFilter, 'all'>, string> = {
+  yes: '有音频',
+  no: '无音频'
+}
+
 function splitCsv(value: string) {
   return value.split(',').filter(Boolean)
 }
@@ -89,6 +95,10 @@ function encodeLabels(options: Option[]) {
 function parseSources(value: string): ArtworkSource[] {
   const allowedSources = new Set<ArtworkSource>(OSource.map((option) => option.value))
   return splitCsv(value).filter((source): source is ArtworkSource => allowedSources.has(source as ArtworkSource))
+}
+
+function normalizeAudioFilter(value?: string | null): AudioFilter {
+  return value === 'yes' || value === 'no' ? value : 'all'
 }
 
 function toTagOptions(tags: string, tagLabels: string): Option[] {
@@ -116,8 +126,10 @@ export default function GalleryPage() {
     artistLabel,
     tags,
     tagLabels,
-    sources
+    sources,
+    hasAudio: hasAudioParam
   } = queryStates
+  const hasAudio = normalizeAudioFilter(hasAudioParam)
 
   // 控制筛选抽屉的开关
   const [isFilterOpen, setIsFilterOpen] = useState(false)
@@ -136,6 +148,7 @@ export default function GalleryPage() {
     !!artistId ||
     selectedTags.length > 0 ||
     selectedSources.length > 0 ||
+    hasAudio !== 'all' ||
     mediaType !== 'all' ||
     !!startDate ||
     !!endDate ||
@@ -248,6 +261,7 @@ export default function GalleryPage() {
     createdStartTime?: string
     createdEndTime?: string
     sources: ArtworkSource[]
+    hasAudio: AudioFilter
   }) => {
     if (!filters) {
       return clearAllFilters()
@@ -265,7 +279,8 @@ export default function GalleryPage() {
       endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null,
       createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : null,
       createdEndDate: filters.createdEndTime ? dayjs(filters.createdEndTime).format('YYYY-MM-DD') : null,
-      sources: filters.sources.join(',') || null
+      sources: filters.sources.join(',') || null,
+      hasAudio: filters.hasAudio === 'all' ? null : filters.hasAudio
     })
   }
 
@@ -283,7 +298,8 @@ export default function GalleryPage() {
       artistLabel: null,
       tags: null,
       tagLabels: null,
-      sources: null
+      sources: null,
+      hasAudio: null
     })
   }
 
@@ -360,6 +376,12 @@ export default function GalleryPage() {
                 }
               />
             ))}
+            {hasAudio !== 'all' && (
+              <FilterChip
+                label={`视频音频：${AUDIO_FILTER_LABELS[hasAudio]}`}
+                onRemove={() => setQueryStates({ hasAudio: null })}
+              />
+            )}
             {mediaType !== 'all' && (
               <FilterChip
                 label={MEDIA_TYPE_LABELS[mediaType as MediaTypeFilter]}
@@ -398,6 +420,7 @@ export default function GalleryPage() {
           currentArtist={selectedArtist}
           currentTags={selectedTags}
           currentSources={selectedSources}
+          currentHasAudio={hasAudio}
           randomSeed={randomSeed ? Number(randomSeed) : undefined}
           startDate={startDate}
           endDate={endDate}
@@ -418,6 +441,7 @@ export default function GalleryPage() {
           tagIds={tagIds}
           artistId={artistId || undefined}
           sources={selectedSources}
+          hasAudio={hasAudio === 'all' ? undefined : hasAudio}
           randomSeed={randomSeed ? Number(randomSeed) : undefined}
           startDate={startDate || undefined}
           endDate={endDate || undefined}

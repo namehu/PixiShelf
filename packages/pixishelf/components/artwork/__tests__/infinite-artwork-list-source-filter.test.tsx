@@ -49,4 +49,10 @@ describe('InfiniteArtworkList artwork sources', () => {
 
     expect(infiniteQueryOptions).toHaveBeenCalledWith(expect.objectContaining({ sources }), expect.any(Object))
   })
+
+  it('passes the selected audio filter to the list query', () => {
+    render(<InfiniteArtworkList hasAudio="no" />)
+
+    expect(infiniteQueryOptions).toHaveBeenCalledWith(expect.objectContaining({ hasAudio: 'no' }), expect.any(Object))
+  })
 })

@@ -72,6 +72,8 @@ export type MediaTypeFilter =
   | 'image' // 仅图片
   | 'video' // 仅视频
 
+export type AudioFilter = 'all' | 'yes' | 'no'
+
 /**
  * 艺术家列表查询参数
  */

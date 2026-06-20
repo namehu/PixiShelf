@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { SortOption, MediaTypeFilter } from '@/types'
+import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
 import { Button } from '@/components/ui/button'
 import { SSheet } from '@/components/shared/s-sheet'
 import { SortControl } from '@/components/ui/SortControl'
@@ -11,6 +11,7 @@ import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import dayjs from 'dayjs'
 import { OSource } from '@/enums/ESource'
 import type { ArtworkSource } from '@/schemas/models'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface FilterSheetProps {
   open: boolean
@@ -19,6 +20,7 @@ interface FilterSheetProps {
   currentArtist?: Option[]
   currentTags?: Option[]
   currentSources?: ArtworkSource[]
+  currentHasAudio?: AudioFilter
   randomSeed?: number
   startDate?: string
   endDate?: string
@@ -33,6 +35,7 @@ interface FilterSheetProps {
     artist?: Option[]
     tags?: Option[]
     sources: ArtworkSource[]
+    hasAudio: AudioFilter
     randomSeed?: number
     startTime?: string
     endTime?: string
@@ -53,6 +56,7 @@ export function FilterSheet(props: FilterSheetProps) {
     currentArtist = EMPTY_OPTIONS,
     currentTags = EMPTY_OPTIONS,
     currentSources = EMPTY_SOURCES,
+    currentHasAudio = 'all',
     randomSeed,
     startDate,
     endDate,
@@ -68,6 +72,7 @@ export function FilterSheet(props: FilterSheetProps) {
   const [localArtist, setLocalArtist] = useState<Option[]>([])
   const [localTags, setLocalTags] = useState<Option[]>([])
   const [localSources, setLocalSources] = useState<Option[]>([])
+  const [localHasAudio, setLocalHasAudio] = useState<AudioFilter>('all')
   const [localRandomSeed, setLocalRandomSeed] = useState<number | undefined>(undefined)
   const [localDateRange, setLocalDateRange] = useState<[Date | undefined, Date | undefined]>([undefined, undefined])
   const [localCreatedDateRange, setLocalCreatedDateRange] = useState<[Date | undefined, Date | undefined]>([
@@ -86,6 +91,7 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalArtist(currentArtist)
     setLocalTags(currentTags)
     setLocalSources(OSource.filter((option) => currentSources.includes(option.value)))
+    setLocalHasAudio(currentHasAudio)
     setLocalRandomSeed(randomSeed)
     setLocalDateRange([
       startDate ? dayjs(startDate).toDate() : undefined,
@@ -102,6 +108,7 @@ export function FilterSheet(props: FilterSheetProps) {
     currentArtist,
     currentTags,
     currentSources,
+    currentHasAudio,
     randomSeed,
     startDate,
     endDate,
@@ -125,6 +132,7 @@ export function FilterSheet(props: FilterSheetProps) {
       artist: localArtist,
       tags: localTags,
       sources: localSources.map((option) => option.value as ArtworkSource),
+      hasAudio: localHasAudio,
       randomSeed: seed,
       startTime: start ? dayjs(start).toISOString() : undefined,
       endTime: end ? dayjs(end).toISOString() : undefined,
@@ -140,6 +148,7 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalArtist([])
     setLocalTags([])
     setLocalSources([])
+    setLocalHasAudio('all')
     setLocalRandomSeed(undefined)
     setLocalDateRange([undefined, undefined])
     setLocalCreatedDateRange([undefined, undefined])
@@ -249,6 +258,21 @@ export function FilterSheet(props: FilterSheetProps) {
             onChange={setLocalMediaType}
             className="w-full justify-start"
           />
+        </div>
+
+        {/* 视频音频 */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">视频音频</h3>
+          <Select value={localHasAudio} onValueChange={(value) => setLocalHasAudio(value as AudioFilter)}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="全部" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部</SelectItem>
+              <SelectItem value="yes">有音频</SelectItem>
+              <SelectItem value="no">无音频</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
     </SSheet>
