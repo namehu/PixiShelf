@@ -4,6 +4,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { prisma } from '@/lib/prisma'
 import { MEDIA_EXTENSIONS } from '@/lib/constant'
+import { compareFileNamesNaturally } from '@/utils/artwork/natural-file-name-order'
 import {
   canonicalizeLocalImportStoragePath,
   LOCAL_IMPORT_DIRECTORY,
@@ -72,7 +73,7 @@ export async function discoverLocalImports(input: LocalImportDiscoveryInput): Pr
               entry.isFile() && !entry.name.startsWith('.') && supportedMediaExtensions.has(path.extname(entry.name).toLowerCase())
           )
           .map((entry) => entry.name)
-          .sort((a, b) => a.localeCompare(b))
+          .sort(compareFileNamesNaturally)
         works.push({
           workDirectory,
           title: workDirectory,

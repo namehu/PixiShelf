@@ -41,7 +41,7 @@ describe('scanLocalArtworkMediaDirectory', () => {
     expect(result.filesMeta).toEqual([
       {
         fileName: 'e_75_9050506_1.mp4',
-        order: 1,
+        order: 0,
         width: 0,
         height: 0,
         size: 5,
@@ -90,6 +90,23 @@ describe('scanLocalArtworkMediaDirectory', () => {
     })
 
     expect(result.earliestMediaMtime).toEqual(earliestDirectMediaMtime)
+  })
+
+  it('assigns dense order values after sorting filenames naturally', async () => {
+    const fileNames = ['10.mp4', '2.mp4', '00261-2153324271.jpg', '00260-9.jpg']
+    await Promise.all(fileNames.map((fileName) => fs.writeFile(path.join(scanPath, fileName), 'media')))
+
+    const result = await scanLocalArtworkMediaDirectory({
+      scanPath,
+      targetDirectoryRelativePath: '/'
+    })
+
+    expect(result.filesMeta.map(({ fileName, order }) => ({ fileName, order }))).toEqual([
+      { fileName: '2.mp4', order: 0 },
+      { fileName: '10.mp4', order: 1 },
+      { fileName: '00260-9.jpg', order: 2 },
+      { fileName: '00261-2153324271.jpg', order: 3 }
+    ])
   })
 
   it('cancels before scanning the directory', async () => {

@@ -47,6 +47,9 @@ describe('local import discovery', () => {
     await fs.mkdir(existingWork, { recursive: true })
     await fs.mkdir(path.join(root, '.hidden', 'ignored'), { recursive: true })
     await fs.writeFile(path.join(newWork, 'Cover.JPG'), 'image')
+    await fs.writeFile(path.join(newWork, '10.jpg'), 'image')
+    await fs.writeFile(path.join(newWork, '2.jpg'), 'image')
+    await fs.writeFile(path.join(newWork, '00261-2153324271.jpg'), 'image')
     await fs.writeFile(path.join(newWork, 'notes.txt'), 'text')
     await fs.writeFile(path.join(newWork, 'nested', 'nested.png'), 'image')
     await fs.writeFile(path.join(existingWork, 'existing.png'), 'image')
@@ -70,7 +73,7 @@ describe('local import discovery', () => {
       new: 1,
       existing: 1,
       invalid: 0,
-      media: 1
+      media: 4
     })
     expect(result.artists[0]).toMatchObject({
       artistDirectory: 'ArtistCase',
@@ -86,8 +89,8 @@ describe('local import discovery', () => {
           workDirectory: 'NewWork',
           storagePath: 'local-imports/ArtistCase/NewWork',
           status: 'new',
-          mediaFiles: ['Cover.JPG'],
-          mediaCount: 1
+          mediaFiles: ['2.jpg', '10.jpg', '00261-2153324271.jpg', 'Cover.JPG'],
+          mediaCount: 4
         }
       ]
     })

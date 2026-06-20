@@ -4,7 +4,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import sharp from 'sharp'
 import { MEDIA_EXTENSIONS, VIDEO_EXTENSIONS } from '@/lib/constant'
-import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
+import { compareFileNamesNaturally } from '@/utils/artwork/natural-file-name-order'
 import { discoverChaptersForVideoInScanRoot } from '@/services/artwork-service/video-chapters'
 import { ImageMeta, ReplaceChapterMetaInput } from './image-manager'
 
@@ -37,7 +37,7 @@ export async function scanLocalArtworkMediaDirectory(input: {
   const mediaEntries = entries.filter((entry) => {
     const extension = path.extname(entry).toLowerCase()
     return supportedMediaExtensions.has(extension)
-  })
+  }).sort(compareFileNamesNaturally)
   let completedCount = 0
   let cancelled = false
   const results = await runConcurrentMap(mediaEntries, MEDIA_METADATA_CONCURRENCY, async (entry) => {
@@ -68,7 +68,7 @@ export async function scanLocalArtworkMediaDirectory(input: {
     const storedPath = joinStoredPath(targetRelDir, entry)
     const fileMeta: ImageMeta = {
       fileName: entry,
-      order: extractOrderFromName(entry),
+      order: 0,
       width,
       height,
       size: stats.size,
@@ -129,6 +129,7 @@ export async function scanLocalArtworkMediaDirectory(input: {
 
   for (const result of results) {
     if (!result) continue
+    result.fileMeta.order = filesMeta.length
     filesMeta.push(result.fileMeta)
     chaptersMeta.push(...result.chaptersMeta)
     warnings.push(...result.warnings)
@@ -136,8 +137,6 @@ export async function scanLocalArtworkMediaDirectory(input: {
       earliestMediaMtime = result.mediaMtime
     }
   }
-
-  filesMeta.sort((a, b) => a.order - b.order || a.fileName.localeCompare(b.fileName))
 
   return {
     filesMeta,
