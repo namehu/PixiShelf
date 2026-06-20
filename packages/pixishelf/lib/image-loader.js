@@ -34,7 +34,7 @@ export default function imgproxyLoader({ src, width, quality, format }) {
 
   // 视频截帧用 自定义的Thumbor 组件
   if (isVideoFile(src)) {
-    const finalUrl = `${THUMBOR_VIDEO_URL}/unsafe/${width || 800}x0/filters:still(0.1)${src}`;
+    const finalUrl = `${THUMBOR_VIDEO_URL}/unsafe/${width || 800}x0/filters:still(1)${src}`;
     return finalUrl;
   }
 
