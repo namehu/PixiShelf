@@ -29,9 +29,13 @@ describe('clusterTimelineMarkers', () => {
     expect(clustered.some((cluster) => cluster.count > 1)).toBe(true)
 
     const firstCluster = clustered[0]
+    const firstMarker = markers[0]
+    expect(firstCluster).toBeDefined()
+    expect(firstMarker).toBeDefined()
+    if (!firstCluster || !firstMarker) throw new Error('Expected first cluster and marker')
     expect(firstCluster.count).toBeGreaterThan(1)
-    expect(firstCluster.time).toBe(markers[0].time)
-    expect(firstCluster.marker).toBe(markers[0])
+    expect(firstCluster.time).toBe(firstMarker.time)
+    expect(firstCluster.marker).toBe(firstMarker)
   })
 
   it('returns no clusters for empty markers or invalid duration', () => {

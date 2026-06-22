@@ -12,6 +12,7 @@
     "build": "next build",
     "start": "next start -p 5430",
     "lint": "oxlint",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude tests/integration"
   },
   "dependencies": {

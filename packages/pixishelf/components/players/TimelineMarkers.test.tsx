@@ -16,19 +16,30 @@ describe('TimelineMarkers', () => {
 
   it('renders sparse markers as normal chapter jump buttons', () => {
     const onMarkerClick = vi.fn()
+    const firstMarker = markers[0]
+    expect(firstMarker).toBeDefined()
+    if (!firstMarker) throw new Error('Expected first marker')
 
-    render(<TimelineMarkers markers={[markers[0]]} duration={120} width={360} onMarkerClick={onMarkerClick} />)
+    render(<TimelineMarkers markers={[firstMarker]} duration={120} width={360} onMarkerClick={onMarkerClick} />)
 
     fireEvent.click(screen.getByRole('button', { name: '跳转到章节 Chapter 1' }))
 
     expect(screen.queryByText('+1')).toBeNull()
-    expect(onMarkerClick).toHaveBeenCalledWith(markers[0])
+    expect(onMarkerClick).toHaveBeenCalledWith(firstMarker)
   })
 
   it('renders dense nearby markers as a colored dot without a count badge', () => {
     const onMarkerClick = vi.fn()
 
-    render(<TimelineMarkers markers={markers} duration={120} width={120} minMarkerSpacingPx={28} onMarkerClick={onMarkerClick} />)
+    render(
+      <TimelineMarkers
+        markers={markers}
+        duration={120}
+        width={120}
+        minMarkerSpacingPx={28}
+        onMarkerClick={onMarkerClick}
+      />
+    )
 
     const aggregateButton = screen.getByRole('button', { name: '跳转到聚合章节 3 个，起点 Chapter 1' })
     const aggregateDot = aggregateButton.querySelector('span:last-child')

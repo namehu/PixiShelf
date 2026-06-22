@@ -8,6 +8,7 @@ import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 import { ImageMeta } from '@/services/artwork-service/image-manager'
 import { MEDIA_EXTENSIONS, VIDEO_EXTENSIONS } from '@/lib/constant'
 import { MAX_MEDIA_UPLOAD_SIZE_BYTES, MAX_MEDIA_UPLOAD_SIZE_LABEL } from '@/lib/upload-limits'
+import { assertSafeFileName, resolveCreatablePathWithinRoot, UnsafePathError } from '@/lib/safe-path'
 
 export async function POST(req: NextRequest) {
   try {
@@ -33,6 +34,15 @@ export async function POST(req: NextRequest) {
     const decodedTargetDir = decodeURIComponent(targetDir)
     const decodedTargetRelDir = targetRelDir ? decodeURIComponent(targetRelDir) : ''
 
+    try {
+      assertSafeFileName(decodedFileName)
+    } catch (error) {
+      if (error instanceof UnsafePathError) {
+        return NextResponse.json({ error: 'Invalid file name' }, { status: 400 })
+      }
+      throw error
+    }
+
     // 0. Validate file extension
     const ext = path.extname(decodedFileName).toLowerCase()
     if (!MEDIA_EXTENSIONS.includes(ext)) {
@@ -49,20 +59,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Server configuration error: SCAN_ROOT not set' }, { status: 500 })
     }
 
-    // 使用 path.resolve 规范化路径，处理相对路径符 (..)
-    const resolvedTargetDir = path.resolve(decodedTargetDir)
-    const resolvedRoot = path.resolve(scanRoot)
-
-    // 检查目标路径是否在 SCAN_ROOT 之下
-    // 注意：Windows 下不区分大小写，但 path.resolve 已经处理了分隔符
-    if (!resolvedTargetDir.startsWith(resolvedRoot)) {
-      console.error(`Security blocked: Attempt to upload to ${resolvedTargetDir} which is outside ${resolvedRoot}`)
-      return NextResponse.json({ error: 'Permission denied: Invalid target directory' }, { status: 403 })
+    let resolvedTargetDir: string
+    let filePath: string
+    try {
+      resolvedTargetDir = await resolveCreatablePathWithinRoot(scanRoot, decodedTargetDir)
+      filePath = await resolveCreatablePathWithinRoot(scanRoot, path.join(resolvedTargetDir, decodedFileName))
+    } catch (error) {
+      if (error instanceof UnsafePathError) {
+        return NextResponse.json({ error: 'Permission denied: Invalid target path' }, { status: 403 })
+      }
+      throw error
     }
 
-    await fs.mkdirSync(resolvedTargetDir, { recursive: true })
-
-    const filePath = path.join(resolvedTargetDir, decodedFileName)
+    fs.mkdirSync(resolvedTargetDir, { recursive: true })
 
     // Ensure the body is present
     if (!req.body) {
@@ -170,18 +179,29 @@ export async function GET(req: NextRequest) {
     const decodedFileName = decodeURIComponent(fileName)
     const decodedTargetDir = decodeURIComponent(targetDir)
 
+    try {
+      assertSafeFileName(decodedFileName)
+    } catch (error) {
+      if (error instanceof UnsafePathError) {
+        return NextResponse.json({ error: 'Invalid file name' }, { status: 400 })
+      }
+      throw error
+    }
+
     // Security check
     const scanRoot = await getScanPath()
     if (!scanRoot) return NextResponse.json({ error: 'Config error' }, { status: 500 })
 
-    const resolvedTargetDir = path.resolve(decodedTargetDir)
-    const resolvedRoot = path.resolve(scanRoot)
-
-    if (!resolvedTargetDir.startsWith(resolvedRoot)) {
-      return NextResponse.json({ error: 'Denied' }, { status: 403 })
+    let filePath: string
+    try {
+      const resolvedTargetDir = await resolveCreatablePathWithinRoot(scanRoot, decodedTargetDir)
+      filePath = await resolveCreatablePathWithinRoot(scanRoot, path.join(resolvedTargetDir, decodedFileName))
+    } catch (error) {
+      if (error instanceof UnsafePathError) {
+        return NextResponse.json({ error: 'Denied' }, { status: 403 })
+      }
+      throw error
     }
-
-    const filePath = path.join(resolvedTargetDir, decodedFileName)
 
     if (fs.existsSync(filePath)) {
       const stats = fs.statSync(filePath)

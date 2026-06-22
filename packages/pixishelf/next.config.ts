@@ -25,9 +25,6 @@ const nextConfig: NextConfig = {
     loader: 'custom',
     loaderFile: './lib/image-loader.js'
   },
-  typescript: {
-    ignoreBuildErrors: true // 忽略类型检查错误
-  },
   async headers() {
     return [
       {
@@ -35,24 +32,24 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            value: cspHeader.replace(/\n/g, ''),
+            value: cspHeader.replace(/\n/g, '')
           },
           {
             key: 'X-Content-Type-Options',
-            value: 'nosniff',
+            value: 'nosniff'
           },
           {
             key: 'X-Frame-Options',
-            value: 'DENY',
+            value: 'DENY'
           },
           {
             key: 'Referrer-Policy',
-            value: 'strict-origin-when-cross-origin',
-          },
-        ],
-      },
+            value: 'strict-origin-when-cross-origin'
+          }
+        ]
+      }
     ]
-  },
+  }
 }
 
 export default nextConfig

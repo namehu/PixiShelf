@@ -4,6 +4,7 @@ import * as path from 'path'
 import logger from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
 import { getMediaMimeType } from '@/utils/media'
+import { resolveExistingPathWithinRoot, UnsafePathError } from '@/lib/safe-path'
 
 /**
  * 图片/媒体文件服务接口
@@ -37,12 +38,17 @@ export async function GET(
     })
 
     const relativePath = path.join(...decodedSegments)
-    // 核心安全：确保解析后的绝对路径一定在 scanPath 目录下
-    const resolvedScanPath = path.resolve(scanPath)
-    const fullFilePath = path.resolve(resolvedScanPath, relativePath)
-
-    if (!fullFilePath.startsWith(resolvedScanPath)) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    let fullFilePath: string
+    try {
+      fullFilePath = await resolveExistingPathWithinRoot(scanPath, relativePath)
+    } catch (error) {
+      if (error instanceof UnsafePathError) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+      }
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return NextResponse.json({ error: 'File not found' }, { status: 404 })
+      }
+      throw error
     }
 
     // 3. 检查文件状态 (使用 stat 而不是 readFile)
