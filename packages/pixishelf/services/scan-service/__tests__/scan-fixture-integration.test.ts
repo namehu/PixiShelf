@@ -466,4 +466,58 @@ describe('scan fixture integration', () => {
     expect(database.artworks.map((artwork) => artwork.externalId)).toEqual(['1201'])
     expect(database.images.map((image) => image.path)).toEqual(['/duplicate/1201.png'])
   })
+
+  it('records cancellation before processing a discovered batch and leaves the database unchanged', async () => {
+    const scanPath = await createFixtureRoot()
+    const pixivDirectory = path.join(scanPath, 'cancelled')
+    await mkdir(pixivDirectory, { recursive: true })
+    await writeTextMetadata(pixivDirectory, '1301', {
+      Title: 'Cancelled artwork'
+    })
+    await writeFile(path.join(pixivDirectory, '1301.jpg'), 'cancelled-image')
+
+    const checkCancelled = vi.fn(async () => true)
+    const result = await scan({
+      scanPath,
+      forceUpdate: false,
+      checkCancelled
+    })
+
+    expect(checkCancelled).toHaveBeenCalledTimes(1)
+    expect(result.totalArtworks).toBe(1)
+    expect(result.errors).toContain('Scan cancelled')
+    expect(result.newArtists).toBe(0)
+    expect(result.newArtworks).toBe(0)
+    expect(result.newImages).toBe(0)
+    expect(result.newTags).toBe(0)
+    expect(database.artists).toHaveLength(0)
+    expect(database.artworks).toHaveLength(0)
+    expect(database.images).toHaveLength(0)
+    expect(database.tags).toHaveLength(0)
+  })
+
+  it('records batch database failures without reporting artwork or image writes as successful', async () => {
+    const scanPath = await createFixtureRoot()
+    const pixivDirectory = path.join(scanPath, 'db-error')
+    await mkdir(pixivDirectory, { recursive: true })
+    await writeTextMetadata(pixivDirectory, '1401', {
+      Title: 'Database failure artwork'
+    })
+    await writeFile(path.join(pixivDirectory, '1401.png'), 'db-error-image')
+    prismaStub.$transaction.mockRejectedValueOnce(new Error('database unavailable'))
+
+    const result = await scan({
+      scanPath,
+      forceUpdate: false
+    })
+
+    expect(result.totalArtworks).toBe(1)
+    expect(result.errors).toContain('Failed to process batch 1: database unavailable')
+    expect(result.newArtists).toBe(1)
+    expect(result.newTags).toBe(2)
+    expect(result.newArtworks).toBe(0)
+    expect(result.newImages).toBe(0)
+    expect(database.artworks).toHaveLength(0)
+    expect(database.images).toHaveLength(0)
+  })
 })

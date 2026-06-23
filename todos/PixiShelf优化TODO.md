@@ -30,7 +30,7 @@
     - 测试能明确区分 Pixiv rescan 和 local rescan；
     - 数据库断言覆盖 artwork、image、tag、raw metadata。
 
-- [ ] 扫描取消与异常路径测试
+- [x] 扫描取消与异常路径测试
   - 目标：保证长扫描取消、异常 metadata、数据库错误时状态可预期。
   - 覆盖场景：
     - 扫描中途取消；
