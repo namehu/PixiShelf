@@ -1,109 +1,32 @@
 'use client'
+
 import { useState, useCallback } from 'react'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
-import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { SDropdown } from '@/components/shared/s-dropdown'
-import {
-  Edit,
-  Trash,
-  Copy,
-  ExternalLink,
-  Download,
-  FolderInput,
-  BarChart3,
-  Plus,
-  FileText,
-  ChevronDown,
-  ChevronUp,
-  Sliders
-} from 'lucide-react'
-import { ArtworkUnifiedEditor } from './artwork-unified-editor'
 import { toast } from 'sonner'
-import Link from 'next/link'
 import { exportNoSeriesArtworksAction } from '@/actions/artwork-action'
 import { useMigration } from '../_hooks/use-migration'
 import { MigrationDialog } from './migration-dialog'
 import { confirm } from '@/components/shared/global-confirm'
 import { useQueryStates, parseAsString, parseAsInteger, parseAsBoolean } from 'nuqs'
-import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
+import { ProTable } from '@/components/shared/pro-table'
 import { useMutation } from '@tanstack/react-query'
 import { RowSelectionState } from '@tanstack/react-table'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
-import { Search, RotateCcw } from 'lucide-react'
-import { ProDatePicker, ProDatePickerPresets } from '@/components/shared/pro-date-picker'
-import { format } from 'date-fns'
 import { BatchImportDialog } from './batch-import-dialog'
-import { ArtworkRescanButton } from './artwork-rescan-button'
+import { ArtworkUnifiedEditor } from './artwork-unified-editor'
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
-import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
-import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/utils'
-import { usePreferredTags } from '@/components/user-setting'
-import { getPreferredTagName } from '@/components/artwork/preferred-tag'
-import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '@/lib/constant'
 import { OSource } from '@/enums/ESource'
-
-const MEDIA_TYPE_OPTIONS: Option[] = [
-  ...IMAGE_EXTENSIONS.map((ext) => ({
-    label: ext.replace('.', '').toUpperCase(),
-    value: ext,
-    category: '图片'
-  })),
-  ...VIDEO_EXTENSIONS.map((ext) => ({
-    label: ext.replace('.', '').toUpperCase(),
-    value: ext,
-    category: '视频'
-  }))
-]
-
-type AudioFilter = 'all' | 'yes' | 'no' | 'unknown'
-
-function normalizeAudioFilter(value?: string | null): AudioFilter {
-  return value === 'yes' || value === 'no' || value === 'unknown' ? value : 'all'
-}
-
-function restoreMediaTypeOptions(value?: string | null): Option[] {
-  if (!value) return []
-
-  const selected = new Set(
-    value
-      .split(',')
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean)
-      .map((item) => (item.startsWith('.') ? item : `.${item}`))
-  )
-
-  return MEDIA_TYPE_OPTIONS.filter((option) => selected.has(option.value))
-}
-
-function restoreSourceOptions(value?: string | null): Option[] {
-  if (!value) return []
-  const selected = new Set(
-    value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-  )
-  return OSource.filter((option) => selected.has(option.value))
-}
-
-function PreferredTagCell({ artwork }: { artwork: ArtworkResponseDto }) {
-  const preferredTags = usePreferredTags()
-  const preferredTag = getPreferredTagName(preferredTags, artwork.tags)
-
-  if (!preferredTag) {
-    return <span className="text-neutral-400">-</span>
-  }
-
-  return (
-    <span className="inline-flex max-w-full rounded-sm bg-[#ff2f4d]/10 px-2 py-0.5 text-xs font-medium text-[#c81e3a]">
-      <span className="truncate">{preferredTag}</span>
-    </span>
-  )
-}
+import { ArtworkManagementToolbar } from './artwork-management-toolbar'
+import { ArtworkSearchPanel } from './artwork-search-panel'
+import { createArtworkManagementColumns } from './artwork-management-columns'
+import type { MigrationSafety } from './artwork-management-types'
+import {
+  buildArtworkSearchPayload,
+  buildEmptyLocalSearch,
+  buildInitialLocalSearch,
+  buildMigrationFilters,
+  MEDIA_TYPE_OPTIONS,
+  normalizeAudioFilter
+} from './artwork-management-utils'
 
 export default function ArtworkManagement() {
   const trpc = useTRPC()
@@ -119,17 +42,16 @@ export default function ArtworkManagement() {
   } | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isPrechecking, setIsPrechecking] = useState(false)
-  const [migrationSafety, setMigrationSafety] = useState({
-    transferMode: 'move' as 'move' | 'copy',
+  const [migrationSafety, setMigrationSafety] = useState<MigrationSafety>({
+    transferMode: 'move',
     verifyAfterCopy: true,
     cleanupSource: true
   })
-
-  // Row Selection State
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [refreshKey, setRefreshKey] = useState(0)
+
   const selectedRowKeys = Object.keys(rowSelection)
 
-  // URL Search Params Sync
   const [searchState, setSearchState] = useQueryStates({
     id: parseAsInteger,
     title: parseAsString,
@@ -153,80 +75,20 @@ export default function ArtworkManagement() {
     advancedSearch: parseAsBoolean.withDefault(false)
   })
 
-  // Local state for search inputs
-  const [localSearch, setLocalSearch] = useState({
-    id: searchState.id?.toString() || '',
-    title: searchState.title || '',
-    artistName: searchState.artistName || '',
-    startDate: searchState.startDate || '',
-    endDate: searchState.endDate || '',
-    externalId: searchState.externalId || '',
-    exactMatch: searchState.exactMatch || false,
-    // 初始化标签模式：如果 excludeTags 有值则默认为排除模式，否则为包含模式
-    // 注意：URL 可能同时包含 tags 和 excludeTags（手动修改时），此处优先展示 excludeTags
-    tagMode: searchState.excludeTags ? 'exclude' : ('include' as 'include' | 'exclude'),
-    // 初始化选中标签：根据模式从对应的 URL 参数中恢复
-    selectedTags: (searchState.excludeTags || searchState.tags || '')
-      .split(',')
-      .filter(Boolean)
-      .map((tag) => ({ label: tag, value: tag })) as Option[],
-    selectedMediaTypes: restoreMediaTypeOptions(searchState.mediaTypes),
-    selectedSources: restoreSourceOptions(searchState.sources),
-    hasAudio: normalizeAudioFilter(searchState.hasAudio),
-    mediaCountMin: searchState.mediaCountMin ?? '',
-    mediaCountMax: searchState.mediaCountMax ?? ''
-  })
+  const [localSearch, setLocalSearch] = useState(() => buildInitialLocalSearch(searchState))
+  const { state: migrationState, actions: migrationActions, logger: migrationLogger } = useMigration()
+  const [logOpen, setLogOpen] = useState(false)
+
+  const refreshTable = useCallback(() => {
+    setRefreshKey((prev) => prev + 1)
+  }, [])
 
   const handleSearch = () => {
-    const parsedArtworkId = Number(localSearch.id)
-    const artworkId = Number.isInteger(parsedArtworkId) && parsedArtworkId > 0 ? parsedArtworkId : null
-
-    // 处理标签参数：将选中项转换为逗号分隔字符串，空数组转为 null 以清除 URL 参数
-    const tagsStr = localSearch.selectedTags.length > 0 ? localSearch.selectedTags.map((t) => t.value).join(',') : null
-    const mediaTypesStr =
-      localSearch.selectedMediaTypes.length > 0
-        ? localSearch.selectedMediaTypes.map((item) => item.value).join(',')
-        : null
-    const sourcesStr =
-      localSearch.selectedSources.length > 0 ? localSearch.selectedSources.map((item) => item.value).join(',') : null
-
-    setSearchState({
-      id: artworkId,
-      title: localSearch.title || null,
-      artistName: localSearch.artistName || null,
-      startDate: localSearch.startDate || null,
-      endDate: localSearch.endDate || null,
-      externalId: localSearch.externalId || null,
-      exactMatch: localSearch.exactMatch || null,
-      // 根据当前模式设置对应的参数，同时清除另一种模式的参数，确保互斥
-      tags: localSearch.tagMode === 'include' ? tagsStr : null,
-      excludeTags: localSearch.tagMode === 'exclude' ? tagsStr : null,
-      mediaTypes: mediaTypesStr,
-      sources: sourcesStr,
-      hasAudio: localSearch.hasAudio === 'all' ? null : localSearch.hasAudio,
-      mediaCountMin: localSearch.mediaCountMin === '' ? null : Number(localSearch.mediaCountMin),
-      mediaCountMax: localSearch.mediaCountMax === '' ? null : Number(localSearch.mediaCountMax),
-      page: 1 // 重置到第一页
-    })
+    setSearchState(buildArtworkSearchPayload(localSearch))
   }
 
   const handleReset = () => {
-    setLocalSearch({
-      id: '',
-      title: '',
-      artistName: '',
-      startDate: '',
-      endDate: '',
-      externalId: '',
-      exactMatch: false,
-      tagMode: 'include',
-      selectedTags: [],
-      selectedMediaTypes: [],
-      selectedSources: [],
-      hasAudio: 'all',
-      mediaCountMin: '',
-      mediaCountMax: ''
-    })
+    setLocalSearch(buildEmptyLocalSearch())
     setSearchState({
       id: null,
       title: null,
@@ -247,22 +109,15 @@ export default function ArtworkManagement() {
     })
   }
 
-  // Migration Hook
-  const { state: migrationState, actions: migrationActions, logger: migrationLogger } = useMigration()
-  const [logOpen, setLogOpen] = useState(false)
-
-  // 批量删除 Mutation
   const deleteMutation = useMutation(
     trpc.artwork.delete.mutationOptions({
       onSuccess: () => {
         toast.success('删除成功')
-        setRefreshKey((prev) => prev + 1)
+        refreshTable()
         setRowSelection({})
       }
     })
   )
-
-  const [refreshKey, setRefreshKey] = useState(0)
 
   const handleExportNoSeries = async () => {
     try {
@@ -309,8 +164,12 @@ export default function ArtworkManagement() {
     })
   }
 
-  const handleEdit = (item: any) => {
+  const handleEdit = (item: ArtworkResponseDto) => {
     setCopyInitialData(null)
+    setEditorConfig({ id: item.id, tab: 'info' })
+  }
+
+  const handleOpenInfo = (item: ArtworkResponseDto) => {
     setEditorConfig({ id: item.id, tab: 'info' })
   }
 
@@ -330,25 +189,11 @@ export default function ArtworkManagement() {
     setEditorConfig({ id: null, tab: 'info' })
   }
 
-  // --- Migration Handlers ---
-  const buildMigrationFilters = () => {
-    return {
-      id: searchState.id || null,
-      search: searchState.title || null,
-      artistName: searchState.artistName || null,
-      startDate: searchState.startDate || null,
-      endDate: searchState.endDate || null,
-      externalId: searchState.externalId || null,
-      mediaTypes: searchState.mediaTypes || null,
-      exactMatch: searchState.exactMatch || false
-    }
-  }
-
   const handleMigrationClick = async () => {
     if (isPrechecking) return
     const isBatch = selectedRowKeys.length > 0
     const count = selectedRowKeys.length
-    const filters = buildMigrationFilters()
+    const filters = buildMigrationFilters(searchState)
     const hasFilters =
       !isBatch &&
       !!(
@@ -401,7 +246,7 @@ export default function ArtworkManagement() {
         onConfirm: () => {
           setLogOpen(true)
           const onComplete = () => {
-            setRefreshKey((prev) => prev + 1)
+            refreshTable()
             setRowSelection({})
           }
 
@@ -427,154 +272,15 @@ export default function ArtworkManagement() {
     }
   }
 
-  // ProTable 列定义
-  const columns: ProColumnDef<ArtworkResponseDto>[] = [
-    {
-      id: 'select',
-      header: ({ table }) => (
-        <Checkbox
-          checked={table.getIsAllPageRowsSelected()}
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all"
-          className="translate-y-[2px]"
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label="Select row"
-          className="translate-y-[2px]"
-        />
-      ),
-      enableSorting: false,
-      enableHiding: false
-    },
-    {
-      header: '内部ID',
-      accessorKey: 'id',
-      size: 100,
-      copyable: true,
-      cell: ({ row }) => <span className="font-mono">{row.original.id}</span>
-    },
-    {
-      header: '作品id',
-      accessorKey: 'externalId',
-      size: 180,
-      copyable: true,
-      cell: ({ row }) => (row.original as any).externalId || '-'
-    },
-    {
-      header: '偏好',
-      id: 'preferredTag',
-      size: 120,
-      cell: ({ row }) => <PreferredTagCell artwork={row.original} />
-    },
-    {
-      header: '标题',
-      accessorKey: 'title',
-      size: 240,
-      ellipsis: true,
-      cell: ({ row: { original } }) => {
-        const { title, id } = original
-        return (
-          <div
-            className="font-medium cursor-pointer hover:text-primary transition-colors"
-            onClick={() => setEditorConfig({ id, tab: 'info' })}
-          >
-            <div className="truncate" title={title}>
-              {title}
-            </div>
-          </div>
-        )
-      }
-    },
-    {
-      header: '作者',
-      accessorKey: 'artist',
-      cell: ({ row }) => {
-        const artist = row.original.artist
+  const columns = createArtworkManagementColumns({
+    onOpenInfo: handleOpenInfo,
+    onEdit: handleEdit,
+    onCopy: handleCopy,
+    onOpenImageManager: handleOpenImageManager,
+    onDelete: handleDelete,
+    onRefresh: refreshTable
+  })
 
-        if (!artist?.id) {
-          return '未知'
-        }
-
-        return (
-          <div className="min-w-0 select-text">
-            <div className="flex min-w-0 items-center gap-1">
-              <span className="min-w-0 truncate" title={artist.name}>
-                {artist.name}
-              </span>
-              <Link
-                href={`/artists/${artist.id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex shrink-0 items-center text-neutral-400 transition-colors hover:text-primary"
-                title={`在新窗口打开 ${artist.name} 详情页`}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <ExternalLink className="w-3 h-3" />
-              </Link>
-            </div>
-          </div>
-        )
-      }
-    },
-    {
-      header: '媒体数',
-      accessorKey: 'mediaCount',
-      size: 100,
-      cell: ({ row }) => (
-        <Button
-          variant="link"
-          className="h-auto font-mono hover:underline cursor-pointer"
-          onClick={() => handleOpenImageManager(row.original)}
-          title="管理媒体"
-        >
-          {row.original.mediaCount}
-        </Button>
-      )
-    },
-    {
-      header: '发布日期',
-      accessorKey: 'sourceDate'
-    },
-
-    {
-      id: 'actions',
-      header: '操作',
-      size: 160,
-      headerClassName: 'sticky right-0 z-20 bg-background shadow-[-1px_0_0_0_hsl(var(--border))]',
-      cellClassName: 'sticky right-0 z-10 bg-background shadow-[-1px_0_0_0_hsl(var(--border))]',
-      cell: ({ row }) => (
-        <div className="flex gap-1">
-          <Button variant="ghost" size="icon" onClick={() => handleEdit(row.original)} title="编辑">
-            <Edit className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => handleCopy(row.original)} title="复制">
-            <Copy className="w-4 h-4" />
-          </Button>
-          <ArtworkRescanButton artwork={row.original} onComplete={() => setRefreshKey((prev) => prev + 1)} />
-          <Link href={`/artworks/${row.original.id}`} target="_blank">
-            <Button variant="ghost" size="icon" title="新标签页打开">
-              <ExternalLink className="w-4 h-4" />
-            </Button>
-          </Link>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-red-500"
-            onClick={() => handleDelete(row.original.id)}
-            title="删除"
-          >
-            <Trash className="w-4 h-4" />
-          </Button>
-        </div>
-      )
-    }
-  ]
-
-  // ProTable 请求函数
   const request = useCallback(
     async (params: { pageSize: number; current: number }) => {
       const hasAudioFilter = normalizeAudioFilter(searchState.hasAudio)
@@ -604,7 +310,6 @@ export default function ArtworkManagement() {
   )
 
   const handlePaginationChange = (updaterOrValue: any) => {
-    // 处理 React Table 的 updater 模式
     const newPagination =
       typeof updaterOrValue === 'function'
         ? updaterOrValue({
@@ -621,138 +326,22 @@ export default function ArtworkManagement() {
 
   return (
     <div className="space-y-4 p-4">
-      {/* 页面标题 */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-neutral-200 pb-4">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-neutral-900 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 md:w-6 md:h-6" />
-            作品管理
-          </h1>
-          <p className="text-sm md:text-base text-neutral-600 mt-1">管理作品，支持搜索、筛选和批量操作</p>
-        </div>
-        <div className="flex gap-2 w-full md:w-auto">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="flex items-center gap-2">
-                <Sliders className="w-4 h-4" />
-                迁移策略
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-64" align="end">
-              <div className="space-y-3">
-                <div className="text-sm font-medium text-neutral-800">传输方式</div>
-                <Select
-                  value={migrationSafety.transferMode}
-                  onValueChange={(value) =>
-                    setMigrationSafety((prev) => ({
-                      ...prev,
-                      transferMode: value as 'move' | 'copy'
-                    }))
-                  }
-                >
-                  <SelectTrigger className="h-8">
-                    <SelectValue placeholder="选择方式" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="move">移动</SelectItem>
-                    <SelectItem value="copy">复制</SelectItem>
-                  </SelectContent>
-                </Select>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    checked={migrationSafety.verifyAfterCopy}
-                    onCheckedChange={(value) =>
-                      setMigrationSafety((prev) => ({
-                        ...prev,
-                        verifyAfterCopy: !!value
-                      }))
-                    }
-                    disabled={migrationSafety.transferMode !== 'copy'}
-                  />
-                  <span className="text-sm text-neutral-700">复制后校验</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    checked={migrationSafety.cleanupSource}
-                    onCheckedChange={(value) =>
-                      setMigrationSafety((prev) => ({
-                        ...prev,
-                        cleanupSource: !!value
-                      }))
-                    }
-                  />
-                  <span className="text-sm text-neutral-700">清理源文件</span>
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
-          <Button
-            key="create"
-            variant="default"
-            size="sm"
-            className="gap-2"
-            onClick={() => {
-              setCopyInitialData(null)
-              setEditorConfig({ id: null, tab: 'info' })
-            }}
-          >
-            <Plus className="w-4 h-4" />
-            新增作品
-          </Button>
-
-          <SDropdown
-            menu={{
-              items: [
-                {
-                  key: 'batchImport',
-                  icon: <Plus className="w-4 h-4" />,
-                  label: '批量导入',
-                  onClick: () => setBatchImportOpen(true)
-                },
-                {
-                  key: 'export',
-                  icon: <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />,
-                  label: isExporting ? '导出中...' : '导出无系列ID',
-                  disabled: isExporting,
-                  onClick: handleExportNoSeries
-                },
-                {
-                  key: 'migrate',
-                  icon: migrationState.migrating ? (
-                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  ) : (
-                    <FolderInput className="w-4 h-4" />
-                  ),
-                  label: migrationState.migrating
-                    ? '迁移中...'
-                    : selectedRowKeys.length > 0
-                      ? `批量迁移 (${selectedRowKeys.length})`
-                      : '目录迁移',
-                  disabled: migrationState.migrating,
-                  onClick: handleMigrationClick
-                },
-                {
-                  key: 'log-separator',
-                  type: 'divider',
-                  hidden: !(migrationState.migrating || migrationLogger.logs.length > 0)
-                },
-                {
-                  key: 'logs',
-                  icon: <FileText className="w-4 h-4" />,
-                  label: '查看日志',
-                  hidden: !(migrationState.migrating || migrationLogger.logs.length > 0),
-                  onClick: () => setLogOpen(true)
-                }
-              ]
-            }}
-          >
-            <Button variant="outline" size="sm" className="flex items-center gap-2">
-              更多操作
-              <ChevronDown className="w-4 h-4" />
-            </Button>
-          </SDropdown>
-        </div>
-      </div>
+      <ArtworkManagementToolbar
+        migrationSafety={migrationSafety}
+        setMigrationSafety={setMigrationSafety}
+        isExporting={isExporting}
+        selectedCount={selectedRowKeys.length}
+        migrationState={migrationState}
+        hasMigrationLogs={migrationLogger.logs.length > 0}
+        onCreate={() => {
+          setCopyInitialData(null)
+          setEditorConfig({ id: null, tab: 'info' })
+        }}
+        onBatchImport={() => setBatchImportOpen(true)}
+        onExportNoSeries={handleExportNoSeries}
+        onMigrationClick={handleMigrationClick}
+        onOpenLogs={() => setLogOpen(true)}
+      />
 
       <ProTable
         key={refreshKey}
@@ -767,284 +356,23 @@ export default function ArtworkManagement() {
         rowSelection={rowSelection}
         onRowSelectionChange={setRowSelection}
         searchRender={() => (
-          <div className="flex flex-col gap-4 w-full bg-white p-4 rounded-lg border border-neutral-200 shadow-sm">
-            {/* Grid Layout for Search Filters */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-              {/* Title Search */}
-              <div className="col-span-12 md:col-span-3 space-y-1">
-                <div className="h-6 flex items-center">
-                  <Label className="text-xs font-medium text-neutral-500">内部ID</Label>
-                </div>
-                <Input
-                  placeholder="作品内部ID..."
-                  type="number"
-                  min={1}
-                  value={localSearch.id}
-                  onChange={(e) => setLocalSearch((prev) => ({ ...prev, id: e.target.value }))}
-                  className="h-9 w-full"
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                />
-              </div>
-
-              <div className="col-span-12 md:col-span-3 space-y-1">
-                <div className="h-6 flex items-center">
-                  <Label className="text-xs font-medium text-neutral-500">标题</Label>
-                </div>
-                <Input
-                  placeholder="搜索作品标题..."
-                  value={localSearch.title}
-                  onChange={(e) => setLocalSearch((prev) => ({ ...prev, title: e.target.value }))}
-                  className="h-9 w-full"
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                />
-              </div>
-
-              {/* External ID */}
-              <div className="col-span-6 md:col-span-3 space-y-1">
-                <div className="h-6 flex items-center">
-                  <Label className="text-xs font-medium text-neutral-500">外部ID</Label>
-                </div>
-                <Input
-                  placeholder="外部ID..."
-                  value={localSearch.externalId}
-                  onChange={(e) => setLocalSearch((prev) => ({ ...prev, externalId: e.target.value }))}
-                  className="h-9 w-full"
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                />
-              </div>
-
-              {/* Artist Search */}
-              <div className="col-span-6 md:col-span-3 space-y-1">
-                <div className="h-6 flex items-center">
-                  <Label className="text-xs font-medium text-neutral-500">作者</Label>
-                </div>
-                <Input
-                  placeholder="作者名称 / Pixiv ID..."
-                  value={localSearch.artistName}
-                  onChange={(e) => setLocalSearch((prev) => ({ ...prev, artistName: e.target.value }))}
-                  className="h-9 w-full"
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                />
-              </div>
-
-              {/* Date Range & Buttons Group - Combined Row */}
-              <div className="col-span-12 flex flex-col md:flex-row gap-4 md:items-end justify-between">
-                <div className="w-full md:w-1/3 space-y-1">
-                  <div className="h-6 flex items-center">
-                    <Label className="text-xs font-medium text-neutral-500">发布日期</Label>
-                  </div>
-                  <ProDatePicker
-                    mode="range"
-                    placeholder="选择日期范围"
-                    value={[
-                      localSearch.startDate ? new Date(localSearch.startDate) : undefined,
-                      localSearch.endDate ? new Date(localSearch.endDate) : undefined
-                    ]}
-                    onChange={(value = []) => {
-                      const [from, to] = value
-                      setLocalSearch((prev) => ({
-                        ...prev,
-                        startDate: from ? format(from, 'yyyy-MM-dd') : '',
-                        endDate: to ? format(to, 'yyyy-MM-dd') : ''
-                      }))
-                    }}
-                    presets={ProDatePickerPresets.range}
-                    className="w-full"
-                  />
-                </div>
-
-                <div className="flex items-center gap-4 h-9 w-full md:w-auto justify-between md:justify-end">
-                  <div className="flex items-center space-x-2 bg-neutral-100 px-3 py-2 rounded-md h-full shrink-0">
-                    <Checkbox
-                      id="exactMatch"
-                      checked={localSearch.exactMatch}
-                      onCheckedChange={(checked) => setLocalSearch((prev) => ({ ...prev, exactMatch: !!checked }))}
-                    />
-                    <label
-                      htmlFor="exactMatch"
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 whitespace-nowrap cursor-pointer"
-                    >
-                      精确
-                    </label>
-                  </div>
-
-                  <div className="flex gap-1">
-                    <Button variant="default" size="sm" onClick={handleSearch} className="h-9 px-3 shrink-0">
-                      <Search className="w-3 h-3 mr-1" />
-                      搜索
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={handleReset} className="h-9 px-3 shrink-0">
-                      <RotateCcw className="w-3 h-3 mr-1" />
-                      重置
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setIsAdvancedSearchOpen({ advancedSearch: !isAdvancedSearchOpen.advancedSearch })}
-                      className={cn(
-                        'h-9 px-2 shrink-0',
-                        isAdvancedSearchOpen.advancedSearch && 'bg-neutral-100 text-neutral-900'
-                      )}
-                      title={isAdvancedSearchOpen.advancedSearch ? '收起高级搜索' : '展开高级搜索'}
-                    >
-                      {isAdvancedSearchOpen.advancedSearch ? (
-                        <ChevronUp className="w-4 h-4" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 第二行：高级搜索区域 */}
-            {isAdvancedSearchOpen.advancedSearch && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4 pt-4 border-t border-neutral-100 animate-in fade-in slide-in-from-top-2 duration-200">
-                {/* 媒体数量 */}
-                <div className="col-span-1 lg:col-span-3 space-y-1">
-                  <div className="h-6 flex items-center">
-                    <Label className="text-xs font-medium text-neutral-500">媒体数量</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <Input
-                        placeholder="最小"
-                        type="number"
-                        min={0}
-                        value={localSearch.mediaCountMin}
-                        onChange={(e) => setLocalSearch((prev) => ({ ...prev, mediaCountMin: e.target.value }))}
-                        className="h-9"
-                      />
-                      <span className="absolute right-3 top-2.5 text-xs text-neutral-400">个</span>
-                    </div>
-                    <span className="text-neutral-400">-</span>
-                    <div className="relative flex-1">
-                      <Input
-                        placeholder="最大"
-                        type="number"
-                        min={0}
-                        value={localSearch.mediaCountMax}
-                        onChange={(e) => setLocalSearch((prev) => ({ ...prev, mediaCountMax: e.target.value }))}
-                        className="h-9"
-                      />
-                      <span className="absolute right-3 top-2.5 text-xs text-neutral-400">个</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 媒体类型 */}
-                <div className="col-span-1 lg:col-span-3 space-y-1">
-                  <div className="h-6 flex items-center">
-                    <Label className="text-xs font-medium text-neutral-500">媒体类型</Label>
-                  </div>
-                  <MultipleSelector
-                    value={localSearch.selectedMediaTypes}
-                    options={MEDIA_TYPE_OPTIONS}
-                    groupBy="category"
-                    onChange={(options) => setLocalSearch((prev) => ({ ...prev, selectedMediaTypes: options }))}
-                    placeholder="选择格式..."
-                    emptyIndicator={<p className="text-center text-sm text-gray-500 py-2">未找到相关格式</p>}
-                    className="bg-white min-h-[36px]"
-                    badgeClassName="bg-blue-50 text-blue-600 hover:bg-blue-100 border-transparent"
-                    selectFirstItem={false}
-                  />
-                </div>
-
-                {/* 视频音频 */}
-                <div className="col-span-1 lg:col-span-2 space-y-1">
-                  <div className="h-6 flex items-center">
-                    <Label className="text-xs font-medium text-neutral-500">视频音频</Label>
-                  </div>
-                  <Select
-                    value={localSearch.hasAudio}
-                    onValueChange={(value) =>
-                      setLocalSearch((prev) => ({ ...prev, hasAudio: normalizeAudioFilter(value) }))
-                    }
-                  >
-                    <SelectTrigger className="h-9 bg-white">
-                      <SelectValue placeholder="全部" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">全部</SelectItem>
-                      <SelectItem value="yes">有音频</SelectItem>
-                      <SelectItem value="no">无音频</SelectItem>
-                      <SelectItem value="unknown">未探测</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* 创建类型 */}
-                <div className="col-span-1 lg:col-span-2 space-y-1">
-                  <div className="h-6 flex items-center">
-                    <Label className="text-xs font-medium text-neutral-500">创建类型</Label>
-                  </div>
-                  <MultipleSelector
-                    value={localSearch.selectedSources}
-                    options={OSource}
-                    onChange={(options) => setLocalSearch((prev) => ({ ...prev, selectedSources: options }))}
-                    placeholder="选择创建类型..."
-                    emptyIndicator={<p className="text-center text-sm text-gray-500 py-2">未找到创建类型</p>}
-                    className="bg-white min-h-[36px]"
-                    selectFirstItem={false}
-                  />
-                </div>
-
-                {/* 标签筛选 */}
-                <div className="col-span-1 lg:col-span-4 space-y-1">
-                  <div className="h-6 flex items-center justify-between">
-                    <Label className="text-xs font-medium text-neutral-500">标签筛选</Label>
-                    <div className="flex bg-neutral-100 rounded-md p-0.5">
-                      <button
-                        type="button"
-                        className={cn(
-                          'text-[10px] px-2 py-0.5 rounded-sm transition-all',
-                          localSearch.tagMode === 'include'
-                            ? 'bg-white shadow-sm text-neutral-900 font-medium'
-                            : 'text-neutral-500 hover:text-neutral-700'
-                        )}
-                        onClick={() => setLocalSearch((prev) => ({ ...prev, tagMode: 'include' }))}
-                      >
-                        包含
-                      </button>
-                      <button
-                        type="button"
-                        className={cn(
-                          'text-[10px] px-2 py-0.5 rounded-sm transition-all',
-                          localSearch.tagMode === 'exclude'
-                            ? 'bg-white shadow-sm text-red-600 font-medium'
-                            : 'text-neutral-500 hover:text-neutral-700'
-                        )}
-                        onClick={() => setLocalSearch((prev) => ({ ...prev, tagMode: 'exclude' }))}
-                      >
-                        排除
-                      </button>
-                    </div>
-                  </div>
-                  <MultipleSelector
-                    value={localSearch.selectedTags}
-                    onChange={(options) => setLocalSearch((prev) => ({ ...prev, selectedTags: options }))}
-                    onSearch={async (query) => {
-                      const res = await trpcClient.tag.list.query({ query, pageSize: 20 })
-                      return (res as any).items.map((tag: any) => ({
-                        label: tag.name_zh ? `${tag.name} (${tag.name_zh})` : tag.name,
-                        value: tag.name
-                      }))
-                    }}
-                    triggerSearchOnFocus
-                    placeholder={localSearch.tagMode === 'include' ? '搜索并选择标签...' : '搜索并排除标签...'}
-                    emptyIndicator={<p className="text-center text-sm text-gray-500 py-2">未找到相关标签</p>}
-                    className="bg-white min-h-[36px]"
-                    badgeClassName={
-                      localSearch.tagMode === 'include'
-                        ? 'bg-primary/10 text-primary hover:bg-primary/20 border-transparent'
-                        : 'bg-red-50 text-red-600 hover:bg-red-100 border-transparent'
-                    }
-                  />
-                </div>
-              </div>
-            )}
-          </div>
+          <ArtworkSearchPanel
+            localSearch={localSearch}
+            setLocalSearch={setLocalSearch}
+            advancedSearchOpen={isAdvancedSearchOpen.advancedSearch}
+            onAdvancedSearchOpenChange={(advancedSearch) => setIsAdvancedSearchOpen({ advancedSearch })}
+            mediaTypeOptions={MEDIA_TYPE_OPTIONS}
+            sourceOptions={OSource}
+            onSearchTags={async (query) => {
+              const res = await trpcClient.tag.list.query({ query, pageSize: 20 })
+              return (res as any).items.map((tag: any) => ({
+                label: tag.name_zh ? `${tag.name} (${tag.name_zh})` : tag.name,
+                value: tag.name
+              }))
+            }}
+            onSearch={handleSearch}
+            onReset={handleReset}
+          />
         )}
       />
 
@@ -1059,9 +387,7 @@ export default function ArtworkManagement() {
         artworkId={editorConfig?.id ?? null}
         initialTab={editorConfig?.tab}
         initialData={copyInitialData}
-        onSuccess={() => {
-          setRefreshKey((prev) => prev + 1)
-        }}
+        onSuccess={refreshTable}
       />
 
       <MigrationDialog
@@ -1071,13 +397,7 @@ export default function ArtworkManagement() {
         migrationActions={migrationActions}
         migrationLogger={migrationLogger}
       />
-      <BatchImportDialog
-        open={batchImportOpen}
-        onOpenChange={setBatchImportOpen}
-        onSuccess={() => {
-          setRefreshKey((prev) => prev + 1)
-        }}
-      />
+      <BatchImportDialog open={batchImportOpen} onOpenChange={setBatchImportOpen} onSuccess={refreshTable} />
     </div>
   )
 }

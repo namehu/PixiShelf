@@ -85,7 +85,7 @@
     - 扫描按钮、取消按钮、进度展示、错误提示都保留；
     - 新组件有清晰命名和单一职责。
 
-- [ ] 整理 artwork 管理页复杂组件
+- [x] 整理 artwork 管理页复杂组件
   - 目标：降低作品列表、筛选、批量操作、rescan 按钮之间的耦合。
   - 候选目录：
     - `packages/pixishelf/app/admin/artworks/_components`
