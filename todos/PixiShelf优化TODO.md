@@ -94,7 +94,7 @@
     - rescan 入口仍然可用；
     - 列表筛选、分页、选择状态不回退。
 
-- [ ] 梳理 API route 中的服务边界
+- [x] 梳理 API route 中的服务边界
   - 目标：让 API route 更薄，业务逻辑尽量进入 service 层。
   - 候选：
     - scan stream route；
@@ -106,7 +106,7 @@
   - 进展：
     - [x] `app/api/artwork/upload-chunk/route.ts` 上传分片逻辑已抽到 `services/artwork-service/media-upload.ts`，并补充 service 单测。
     - [x] `app/api/artwork/media-chapters/upload/route.ts` 章节 manifest 上传逻辑已抽到 `services/artwork-service/media-chapter-upload.ts`，并补充 service 单测。
-    - [ ] `app/api/artwork/[id]/replace/route.ts` 图片替换 init/commit/rollback 会话逻辑待抽 service。
+    - [x] `app/api/artwork/[id]/replace/route.ts` 图片替换 init/commit/rollback 会话逻辑已抽到 `services/artwork-service/image-replace-session.ts`，并补充 service 单测。
 
 ## P2：类型与质量门禁
 
