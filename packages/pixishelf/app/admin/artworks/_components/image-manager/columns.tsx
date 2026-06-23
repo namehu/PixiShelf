@@ -7,8 +7,8 @@ import { ProColumnDef } from '@/components/shared/pro-table'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { formatFileSize } from '@/utils/media'
-import type { ImageListItem } from './types'
-import { getChapterActionLabel, getVideoMetadataSummary, isVideoImageListItem } from './image-manager-utils'
+import type { ImageListItem } from '../types'
+import { getChapterActionLabel, getVideoMetadataSummary, isVideoImageListItem } from './utils'
 
 interface ImageVideoMetadataEntryProps {
   image: ImageListItem

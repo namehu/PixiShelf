@@ -3,7 +3,7 @@
 import { RefreshCw } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
-import { RecentTagsList } from './recent-tags-list'
+import { RecentTagsList } from '../recent-tags-list'
 
 interface ImageManagerTagPanelProps {
   isSavingTags: boolean

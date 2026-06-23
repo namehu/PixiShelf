@@ -4,11 +4,11 @@ import { ZoomIn } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { formatFileSize } from '@/utils/media'
 import { combinationApiResource } from '@/utils/combinationStatic'
-import { appendCacheKey } from './utils'
-import { LazyImage } from './lazy-image'
-import type { ImageListItem } from './types'
-import { getImageAspectRatio, isVideoImageListItem } from './image-manager-utils'
-import { ImageMediaActions, ImageVideoMetadataEntry } from './image-manager-columns'
+import { appendCacheKey } from '../utils'
+import { LazyImage } from '../lazy-image'
+import type { ImageListItem } from '../types'
+import { getImageAspectRatio, isVideoImageListItem } from './utils'
+import { ImageMediaActions, ImageVideoMetadataEntry } from './columns'
 
 interface ImageManagerThumbnailListProps {
   imageList: ImageListItem[]

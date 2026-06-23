@@ -7,8 +7,8 @@ import {
   getNextImageSortOrder,
   getVideoMetadataSummary,
   isVideoImageListItem
-} from '../image-manager-utils'
-import type { ImageListItem } from '../types'
+} from '../utils'
+import type { ImageListItem } from '../../types'
 
 function image(overrides: Partial<ImageListItem>): ImageListItem {
   return {

@@ -1,6 +1,6 @@
 import { Info, Volume2, VolumeX } from 'lucide-react'
 import { VIDEO_EXTENSIONS } from '@/lib/constant'
-import type { ImageListItem } from './types'
+import type { ImageListItem } from '../types'
 
 export function isVideoImageListItem(image: ImageListItem): boolean {
   if (image.mediaType) {

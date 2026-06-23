@@ -12,7 +12,7 @@ import { toast } from 'sonner'
 
 import { ArtworkInfoForm } from './artwork-info-form'
 import type { ArtworkInfoFormInitialData } from './artwork-info-form'
-import { ImageManagerContent } from './image-manager-content'
+import { ImageManagerContent } from './image-manager/content'
 
 interface ArtworkUnifiedEditorProps {
   open: boolean
@@ -78,7 +78,9 @@ export function ArtworkUnifiedEditor({
                 </TabsTrigger>
               </TabsList>
 
-              {!currentArtworkId && <span className="truncate text-xs text-neutral-500">先保存基础信息，再继续管理媒体。</span>}
+              {!currentArtworkId && (
+                <span className="truncate text-xs text-neutral-500">先保存基础信息，再继续管理媒体。</span>
+              )}
             </div>
 
             <div className="flex min-w-0 items-center gap-2">
