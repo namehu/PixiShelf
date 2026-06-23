@@ -46,8 +46,9 @@ const discovery = {
       works: [
         {
           workDirectory: 'Work',
+          relativeDirectory: '2024/Manga/Work',
           title: 'Work',
-          storagePath: 'local-imports/Artist/Work',
+          storagePath: 'local-imports/Artist/2024/Manga/Work',
           status: 'new',
           mediaFiles: ['1.jpg'],
           mediaCount: 1
@@ -106,7 +107,7 @@ describe('local import service', () => {
     expect(mocks.scan).toHaveBeenCalledWith(
       expect.objectContaining({
         scanPath: 'D:/scan',
-        targetDirectoryRelativePath: 'local-imports/Artist/Work'
+        targetDirectoryRelativePath: 'local-imports/Artist/2024/Manga/Work'
       })
     )
     expect(mocks.transaction.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.scan.mock.invocationCallOrder[0]!)
@@ -125,6 +126,24 @@ describe('local import service', () => {
       failed: 0,
       newImages: 1,
       errors: []
+    })
+  })
+
+  it('reports progress with the full relative artwork path', async () => {
+    const onProgress = vi.fn()
+
+    await runLocalImport({
+      scanPath: 'D:/scan',
+      onProgress
+    })
+
+    expect(onProgress).toHaveBeenCalledWith({
+      current: 1,
+      total: 1,
+      artistDirectory: 'Artist',
+      workDirectory: 'Work',
+      relativeDirectory: '2024/Manga/Work',
+      status: 'imported'
     })
   })
 

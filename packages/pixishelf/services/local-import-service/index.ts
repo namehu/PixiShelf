@@ -82,7 +82,7 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
     const artistId = mappingByDirectory.get(candidate.artistDirectory)
     if (!artistId) {
       result.failed += 1
-      addError(result.errors, `${candidate.artistDirectory}/${candidate.work.workDirectory}: Artist is not mapped`)
+      addError(result.errors, `${getCandidateDisplayPath(candidate)}: Artist is not mapped`)
       await reportProgress({ input, candidate, index, total: candidates.length, status: 'failed', message: 'Artist is not mapped' })
       continue
     }
@@ -141,7 +141,7 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
       }
       result.failed += 1
       const message = error instanceof Error ? error.message : 'Unknown error'
-      addError(result.errors, `${candidate.artistDirectory}/${candidate.work.workDirectory}: ${message}`)
+      addError(result.errors, `${getCandidateDisplayPath(candidate)}: ${message}`)
       await reportProgress({ input, candidate, index, total: candidates.length, status: 'failed', message })
     }
   }
@@ -152,7 +152,7 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
 
 async function reportProgress(options: {
   input: RunLocalImportInput
-  candidate: { artistDirectory: string; work: { workDirectory: string } }
+  candidate: { artistDirectory: string; work: { workDirectory: string; relativeDirectory?: string } }
   index: number
   total: number
   status: 'imported' | 'skipped' | 'failed'
@@ -164,9 +164,17 @@ async function reportProgress(options: {
     total,
     artistDirectory: candidate.artistDirectory,
     workDirectory: candidate.work.workDirectory,
+    relativeDirectory: candidate.work.relativeDirectory ?? candidate.work.workDirectory,
     status,
     ...(message ? { message } : {})
   })
+}
+
+function getCandidateDisplayPath(candidate: {
+  artistDirectory: string
+  work: { workDirectory: string; relativeDirectory?: string }
+}) {
+  return `${candidate.artistDirectory}/${candidate.work.relativeDirectory ?? candidate.work.workDirectory}`
 }
 
 async function throwIfCancelled(checkCancelled?: () => Promise<boolean>) {

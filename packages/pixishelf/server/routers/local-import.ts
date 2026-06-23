@@ -50,12 +50,12 @@ export const localImportRouter = router({
             const current = await JobService.getJob(job.id)
             return current?.status === 'CANCELLING'
           },
-          onProgress: async ({ current, total, artistDirectory, workDirectory, status }) => {
+          onProgress: async ({ current, total, artistDirectory, relativeDirectory, status }) => {
             const percentage = total > 0 ? Math.round(5 + (current / total) * 90) : 95
             await JobService.updateProgress(
               job.id,
               percentage,
-              `${artistDirectory}/${workDirectory}: ${status}`
+              `${artistDirectory}/${relativeDirectory}: ${status}`
             )
           }
         })

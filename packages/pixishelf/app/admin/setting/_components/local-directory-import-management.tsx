@@ -136,14 +136,14 @@ export default function LocalDirectoryImportManagement() {
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">本地目录导入</h1>
           <p className="mt-2 text-neutral-600">
-            扫描 <code className="rounded bg-neutral-100 px-1.5 py-0.5">scanPath/local-imports/艺术家/作品</code>
+            扫描 <code className="rounded bg-neutral-100 px-1.5 py-0.5">scanPath/local-imports/艺术家/[分类...]/作品</code>
             ，已有作品将直接跳过。
           </p>
         </div>
 
         <SCard
           title="目录预览"
-          description="只读取两层目录和直属媒体文件名，不解析图片尺寸。"
+          description="递归发现包含直属媒体文件的作品目录，不解析图片尺寸。"
           extra={
             <Button onClick={() => previewQuery.refetch()} disabled={previewQuery.isFetching || isRunning}>
               {previewQuery.isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderSearch className="mr-2 h-4 w-4" />}

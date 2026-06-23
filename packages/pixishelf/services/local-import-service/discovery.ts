@@ -52,49 +52,11 @@ export async function discoverLocalImports(input: LocalImportDiscoveryInput): Pr
   for (const artistEntry of artistEntries) {
     const artistDirectory = artistEntry.name
     const artistPath = path.join(importRoot, artistDirectory)
-    const workEntries = await readDirectories(artistPath)
-    const works: LocalImportWorkItem[] = []
-
-    for (const workEntry of workEntries) {
-      const workDirectory = workEntry.name
-      const storagePath = canonicalizeLocalImportStoragePath(
-        path.posix.join(LOCAL_IMPORT_DIRECTORY, artistDirectory, workDirectory)
-      )
-      if (existingPaths.has(storagePath)) {
-        works.push({ workDirectory, title: workDirectory, storagePath, status: 'existing', mediaFiles: [], mediaCount: 0 })
-        continue
-      }
-
-      try {
-        const entries = await fs.readdir(path.join(artistPath, workDirectory), { withFileTypes: true })
-        const mediaFiles = entries
-          .filter(
-            (entry) =>
-              entry.isFile() && !entry.name.startsWith('.') && supportedMediaExtensions.has(path.extname(entry.name).toLowerCase())
-          )
-          .map((entry) => entry.name)
-          .sort(compareFileNamesNaturally)
-        works.push({
-          workDirectory,
-          title: workDirectory,
-          storagePath,
-          status: mediaFiles.length > 0 ? 'new' : 'invalid',
-          mediaFiles,
-          mediaCount: mediaFiles.length,
-          ...(mediaFiles.length === 0 ? { error: 'No supported direct media files' } : {})
-        })
-      } catch (error) {
-        works.push({
-          workDirectory,
-          title: workDirectory,
-          storagePath,
-          status: 'invalid',
-          mediaFiles: [],
-          mediaCount: 0,
-          error: errorMessage(error)
-        })
-      }
-    }
+    const works = await discoverArtistWorks({
+      artistDirectory,
+      artistPath,
+      existingPaths
+    })
 
     artists.push({
       artistDirectory,
@@ -119,9 +81,97 @@ export async function discoverLocalImports(input: LocalImportDiscoveryInput): Pr
   }
 }
 
+async function discoverArtistWorks(input: {
+  artistDirectory: string
+  artistPath: string
+  existingPaths: Set<string>
+}): Promise<LocalImportWorkItem[]> {
+  const works: LocalImportWorkItem[] = []
+  await visitWorkDirectory({
+    ...input,
+    relativeDirectorySegments: [],
+    works
+  })
+  return works.sort((a, b) => a.relativeDirectory.localeCompare(b.relativeDirectory))
+}
+
+async function visitWorkDirectory(input: {
+  artistDirectory: string
+  artistPath: string
+  relativeDirectorySegments: string[]
+  existingPaths: Set<string>
+  works: LocalImportWorkItem[]
+}) {
+  const { artistDirectory, artistPath, relativeDirectorySegments, existingPaths, works } = input
+  const currentPath = path.join(artistPath, ...relativeDirectorySegments)
+  let currentWork:
+    | {
+        workDirectory: string
+        relativeDirectory: string
+        storagePath: string
+      }
+    | null = null
+
+  if (relativeDirectorySegments.length > 0) {
+    const relativeDirectory = relativeDirectorySegments.join('/')
+    const workDirectory = relativeDirectorySegments[relativeDirectorySegments.length - 1]!
+    const storagePath = canonicalizeLocalImportStoragePath(
+      path.posix.join(LOCAL_IMPORT_DIRECTORY, artistDirectory, relativeDirectory)
+    )
+
+    currentWork = { workDirectory, relativeDirectory, storagePath }
+    if (existingPaths.has(storagePath)) {
+      works.push({
+        workDirectory,
+        relativeDirectory,
+        title: workDirectory,
+        storagePath,
+        status: 'existing',
+        mediaFiles: [],
+        mediaCount: 0
+      })
+      return
+    }
+  }
+
+  const entries = await readVisibleEntries(currentPath)
+  const childDirectories = entries
+    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  if (currentWork) {
+    const mediaFiles = entries
+      .filter((entry) => entry.isFile() && supportedMediaExtensions.has(path.extname(entry.name).toLowerCase()))
+      .map((entry) => entry.name)
+      .sort(compareFileNamesNaturally)
+
+    if (mediaFiles.length > 0) {
+      works.push({
+        workDirectory: currentWork.workDirectory,
+        relativeDirectory: currentWork.relativeDirectory,
+        title: currentWork.workDirectory,
+        storagePath: currentWork.storagePath,
+        status: 'new',
+        mediaFiles,
+        mediaCount: mediaFiles.length
+      })
+    }
+  }
+
+  for (const childDirectory of childDirectories) {
+    await visitWorkDirectory({
+      artistDirectory,
+      artistPath,
+      relativeDirectorySegments: [...relativeDirectorySegments, childDirectory.name],
+      existingPaths,
+      works
+    })
+  }
+}
+
 async function readDirectories(directory: string) {
   try {
-    const entries = await fs.readdir(directory, { withFileTypes: true })
+    const entries = await readVisibleEntries(directory)
     return entries
       .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith('.'))
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -131,6 +181,7 @@ async function readDirectories(directory: string) {
   }
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Unknown error'
+async function readVisibleEntries(directory: string) {
+  const entries = await fs.readdir(directory, { withFileTypes: true })
+  return entries.filter((entry) => !entry.name.startsWith('.'))
 }

@@ -52,6 +52,7 @@ export type LocalImportWorkStatus = 'new' | 'existing' | 'invalid'
 
 export interface LocalImportWorkItem {
   workDirectory: string
+  relativeDirectory: string
   title: string
   storagePath: string
   status: LocalImportWorkStatus
@@ -85,6 +86,7 @@ export interface LocalImportProgress {
   total: number
   artistDirectory: string
   workDirectory: string
+  relativeDirectory: string
   status: 'imported' | 'skipped' | 'failed'
   message?: string
 }
