@@ -13,7 +13,8 @@
     "start": "next start -p 5430",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude tests/integration"
+    "test": "vitest run --exclude tests/integration",
+    "bench:scan-fixture": "node scripts/scan-benchmark-fixture.js"
   },
   "dependencies": {
     "@microsoft/fetch-event-source": "^2.0.1",
