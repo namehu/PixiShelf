@@ -105,7 +105,7 @@
     - 服务层可单测。
   - 进展：
     - [x] `app/api/artwork/upload-chunk/route.ts` 上传分片逻辑已抽到 `services/artwork-service/media-upload.ts`，并补充 service 单测。
-    - [ ] `app/api/artwork/media-chapters/upload/route.ts` 章节 manifest 上传逻辑待抽 service。
+    - [x] `app/api/artwork/media-chapters/upload/route.ts` 章节 manifest 上传逻辑已抽到 `services/artwork-service/media-chapter-upload.ts`，并补充 service 单测。
     - [ ] `app/api/artwork/[id]/replace/route.ts` 图片替换 init/commit/rollback 会话逻辑待抽 service。
 
 ## P2：类型与质量门禁
