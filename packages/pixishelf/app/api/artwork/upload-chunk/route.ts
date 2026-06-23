@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import fs from 'fs'
-import path from 'path'
-import sharp from 'sharp'
 import { Readable } from 'stream'
 import { getScanPath } from '@/services/setting.service'
-import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
-import { ImageMeta } from '@/services/artwork-service/image-manager'
-import { MEDIA_EXTENSIONS, VIDEO_EXTENSIONS } from '@/lib/constant'
-import { MAX_MEDIA_UPLOAD_SIZE_BYTES, MAX_MEDIA_UPLOAD_SIZE_LABEL } from '@/lib/upload-limits'
-import { assertSafeFileName, resolveCreatablePathWithinRoot, UnsafePathError } from '@/lib/safe-path'
+import {
+  getMediaUploadStatus,
+  handleMediaUploadChunk,
+  MediaUploadError,
+  validateMediaUploadChunkMetadata,
+  validateMediaUploadStatusMetadata
+} from '@/services/artwork-service/media-upload'
 
 export async function POST(req: NextRequest) {
   try {
@@ -34,24 +33,10 @@ export async function POST(req: NextRequest) {
     const decodedTargetDir = decodeURIComponent(targetDir)
     const decodedTargetRelDir = targetRelDir ? decodeURIComponent(targetRelDir) : ''
 
-    try {
-      assertSafeFileName(decodedFileName)
-    } catch (error) {
-      if (error instanceof UnsafePathError) {
-        return NextResponse.json({ error: 'Invalid file name' }, { status: 400 })
-      }
-      throw error
-    }
-
-    // 0. Validate file extension
-    const ext = path.extname(decodedFileName).toLowerCase()
-    if (!MEDIA_EXTENSIONS.includes(ext)) {
-      return NextResponse.json({ error: 'Unsupported file extension' }, { status: 400 })
-    }
-
-    if (declaredFileSize !== null && declaredFileSize > MAX_MEDIA_UPLOAD_SIZE_BYTES) {
-      return NextResponse.json({ error: `File size exceeds limit (${MAX_MEDIA_UPLOAD_SIZE_LABEL})` }, { status: 400 })
-    }
+    validateMediaUploadChunkMetadata({
+      fileName: decodedFileName,
+      declaredFileSize
+    })
 
     // 1. 安全校验：防止路径遍历
     const scanRoot = await getScanPath()
@@ -59,108 +44,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Server configuration error: SCAN_ROOT not set' }, { status: 500 })
     }
 
-    let resolvedTargetDir: string
-    let filePath: string
-    try {
-      resolvedTargetDir = await resolveCreatablePathWithinRoot(scanRoot, decodedTargetDir)
-      filePath = await resolveCreatablePathWithinRoot(scanRoot, path.join(resolvedTargetDir, decodedFileName))
-    } catch (error) {
-      if (error instanceof UnsafePathError) {
-        return NextResponse.json({ error: 'Permission denied: Invalid target path' }, { status: 403 })
-      }
-      throw error
-    }
-
-    fs.mkdirSync(resolvedTargetDir, { recursive: true })
-
-    // Ensure the body is present
-    if (!req.body) {
-      return NextResponse.json({ error: 'No body provided' }, { status: 400 })
-    }
-
-    // 2. 修复追加写入的 Bug：第一片使用覆盖('w')，后续使用随机写入('r+')支持断点续传
-    const flags = chunkIndex === 0 ? 'w' : 'r+'
-    const writeOptions: { flags: string; start?: number } = { flags }
-
-    if (chunkIndex > 0) {
-      // 确保 offset 有效
-      writeOptions.start = offset
-
-      // 如果文件不存在但尝试续传，降级为 'w' (或者报错，这里选择报错更安全)
-      if (!fs.existsSync(filePath)) {
-        return NextResponse.json({ error: 'File not found for resume' }, { status: 409 })
-      }
-    }
-
-    // 如果是第一片，尝试删除可能存在的旧文件，避免旧数据残留
-    if (chunkIndex === 0 && fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath)
-      } catch (e) {
-        // 'w' 模式也会清空文件，这里忽略删除错误（如文件锁定）
-        console.warn('Warning: Could not delete existing file before upload', e)
-      }
-    }
-
     // Convert Web Stream to Node Stream
     // @ts-ignore: Readable.fromWeb is available in Node 18+ which Next.js 16 uses
-    const nodeStream = Readable.fromWeb(req.body)
-    const writeStream = fs.createWriteStream(filePath, writeOptions)
+    const nodeStream = req.body ? Readable.fromWeb(req.body) : null
 
-    await new Promise<void>((resolve, reject) => {
-      nodeStream.pipe(writeStream)
-
-      nodeStream.on('error', (err: any) => {
-        writeStream.close()
-        reject(err)
-      })
-
-      writeStream.on('error', (err: any) => reject(err))
-
-      writeStream.on('finish', () => resolve())
+    const result = await handleMediaUploadChunk({
+      scanRoot,
+      fileName: decodedFileName,
+      targetDir: decodedTargetDir,
+      targetRelDir: decodedTargetRelDir,
+      chunkIndex,
+      totalChunks,
+      offset,
+      declaredFileSize,
+      body: nodeStream
     })
 
-    // If this is the last chunk, process the file
-    if (chunkIndex === totalChunks - 1) {
-      try {
-        // Check size limit
-        const stats = fs.statSync(filePath)
-        if (stats.size > MAX_MEDIA_UPLOAD_SIZE_BYTES) {
-          fs.unlinkSync(filePath)
-          return NextResponse.json(
-            { error: `File size exceeds limit (${MAX_MEDIA_UPLOAD_SIZE_LABEL})` },
-            { status: 400 }
-          )
-        }
-
-        let width = 0
-        let height = 0
-        const isVideo = VIDEO_EXTENSIONS.includes(ext)
-
-        if (!isVideo) {
-          const metadata = await sharp(filePath).metadata()
-          width = metadata.width || 0
-          height = metadata.height || 0
-        }
-
-        const meta: ImageMeta = {
-          fileName: decodedFileName,
-          order: extractOrderFromName(decodedFileName),
-          width,
-          height,
-          size: stats.size,
-          path: path.join(decodedTargetRelDir, decodedFileName).replace(/\\/g, '/')
-        }
-
-        return NextResponse.json({ success: true, meta: [meta] })
-      } catch (err) {
-        console.error('Error processing image metadata:', err)
-        throw err
-      }
+    if (result.type === 'final') {
+      return NextResponse.json({ success: true, meta: result.meta })
     }
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
+    if (error instanceof MediaUploadError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
+
     console.error('Upload chunk error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
@@ -179,37 +88,24 @@ export async function GET(req: NextRequest) {
     const decodedFileName = decodeURIComponent(fileName)
     const decodedTargetDir = decodeURIComponent(targetDir)
 
-    try {
-      assertSafeFileName(decodedFileName)
-    } catch (error) {
-      if (error instanceof UnsafePathError) {
-        return NextResponse.json({ error: 'Invalid file name' }, { status: 400 })
-      }
-      throw error
-    }
+    validateMediaUploadStatusMetadata(decodedFileName)
 
     // Security check
     const scanRoot = await getScanPath()
     if (!scanRoot) return NextResponse.json({ error: 'Config error' }, { status: 500 })
 
-    let filePath: string
-    try {
-      const resolvedTargetDir = await resolveCreatablePathWithinRoot(scanRoot, decodedTargetDir)
-      filePath = await resolveCreatablePathWithinRoot(scanRoot, path.join(resolvedTargetDir, decodedFileName))
-    } catch (error) {
-      if (error instanceof UnsafePathError) {
-        return NextResponse.json({ error: 'Denied' }, { status: 403 })
-      }
-      throw error
-    }
+    const status = await getMediaUploadStatus({
+      scanRoot,
+      fileName: decodedFileName,
+      targetDir: decodedTargetDir
+    })
 
-    if (fs.existsSync(filePath)) {
-      const stats = fs.statSync(filePath)
-      return NextResponse.json({ exists: true, size: stats.size })
-    }
-
-    return NextResponse.json({ exists: false, size: 0 })
+    return NextResponse.json(status)
   } catch (e: any) {
+    if (e instanceof MediaUploadError) {
+      return NextResponse.json({ error: e.message }, { status: e.status })
+    }
+
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }
