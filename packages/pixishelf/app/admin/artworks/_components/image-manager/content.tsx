@@ -27,6 +27,7 @@ import { ImageManagerTagPanel } from './tag-panel'
 import { ImageManagerToolbar } from './toolbar'
 import { ImageManagerDragOverlay } from './drag-overlay'
 import { ImageManagerThumbnailList } from './thumbnail-list'
+import type { ArtworkMediaApiErrorResponse, MediaChapterUploadResponse } from '@/types/artwork-media-api'
 
 interface ImageManagerContentProps {
   data: any
@@ -90,7 +91,9 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
       body: formData
     })
 
-    const data = await response.json().catch(() => ({}))
+    const data = (await response.json().catch(() => ({}))) as Partial<
+      MediaChapterUploadResponse & ArtworkMediaApiErrorResponse
+    >
     if (!response.ok) {
       throw new Error(data.error || '章节上传失败')
     }

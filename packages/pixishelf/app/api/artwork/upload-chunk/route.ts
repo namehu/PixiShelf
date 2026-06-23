@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { Readable } from 'stream'
+import { apiError, apiJson, apiSuccess } from '@/lib/api-response'
 import { getScanPath } from '@/services/setting.service'
 import {
   getMediaUploadStatus,
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
     const fileSizeStr = req.headers.get('x-file-size')
 
     if (!fileName || !targetDir) {
-      return NextResponse.json({ error: 'Missing required headers' }, { status: 400 })
+      return apiError('Missing required headers', { status: 400 })
     }
 
     const chunkIndex = parseInt(chunkIndexStr || '0')
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     // 1. 安全校验：防止路径遍历
     const scanRoot = await getScanPath()
     if (!scanRoot) {
-      return NextResponse.json({ error: 'Server configuration error: SCAN_ROOT not set' }, { status: 500 })
+      return apiError('Server configuration error: SCAN_ROOT not set')
     }
 
     // Convert Web Stream to Node Stream
@@ -61,17 +62,17 @@ export async function POST(req: NextRequest) {
     })
 
     if (result.type === 'final') {
-      return NextResponse.json({ success: true, meta: result.meta })
+      return apiSuccess({ meta: result.meta })
     }
 
-    return NextResponse.json({ success: true })
+    return apiSuccess()
   } catch (error: any) {
     if (error instanceof MediaUploadError) {
-      return NextResponse.json({ error: error.message }, { status: error.status })
+      return apiError(error.message, { status: error.status })
     }
 
     console.error('Upload chunk error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return apiError(error.message)
   }
 }
 
@@ -82,7 +83,7 @@ export async function GET(req: NextRequest) {
     const targetDir = url.searchParams.get('targetDir')
 
     if (!fileName || !targetDir) {
-      return NextResponse.json({ error: 'Missing params' }, { status: 400 })
+      return apiError('Missing params', { status: 400 })
     }
 
     const decodedFileName = decodeURIComponent(fileName)
@@ -92,7 +93,7 @@ export async function GET(req: NextRequest) {
 
     // Security check
     const scanRoot = await getScanPath()
-    if (!scanRoot) return NextResponse.json({ error: 'Config error' }, { status: 500 })
+    if (!scanRoot) return apiError('Config error')
 
     const status = await getMediaUploadStatus({
       scanRoot,
@@ -100,12 +101,12 @@ export async function GET(req: NextRequest) {
       targetDir: decodedTargetDir
     })
 
-    return NextResponse.json(status)
+    return apiJson(status)
   } catch (e: any) {
     if (e instanceof MediaUploadError) {
-      return NextResponse.json({ error: e.message }, { status: e.status })
+      return apiError(e.message, { status: e.status })
     }
 
-    return NextResponse.json({ error: e.message }, { status: 500 })
+    return apiError(e.message)
   }
 }

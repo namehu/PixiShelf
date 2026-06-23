@@ -37,6 +37,11 @@ import { useChunkUpload } from '../_hooks/use-chunk-upload'
 import { type ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { buildReplaceChapterUploadPlan } from './video-chapter-utils'
+import type {
+  ArtworkMediaApiErrorResponse,
+  ImageReplaceInitResponse,
+  MediaChapterUploadResponse
+} from '@/types/artwork-media-api'
 
 interface ImageReplaceDialogProps {
   open: boolean
@@ -333,7 +338,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     setGlobalStatus('rolling-back')
     const res = await fetch(`/api/artwork/${artworkId}/replace?action=rollback`, { method: 'POST' })
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
+      const data = (await res.json().catch(() => ({}))) as Partial<ArtworkMediaApiErrorResponse>
       // 忽略 "No active backup" 错误，视为回滚成功
       if (!(res.status === 400 && data.error?.includes('No active backup'))) {
         throw new Error(data.error || '回滚请求失败')
@@ -373,8 +378,13 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       let config = uploadConfig
       if (!config) {
         const initRes = await fetch(`/api/artwork/${artworkId}/replace?action=init`, { method: 'POST' })
-        const initData = await initRes.json()
-        if (!initRes.ok) throw new Error(initData.error || '初始化备份失败')
+        const initData = (await initRes.json()) as ImageReplaceInitResponse | ArtworkMediaApiErrorResponse
+        if (!initRes.ok) {
+          throw new Error('error' in initData ? initData.error : '初始化备份失败')
+        }
+        if (!('uploadTargetDir' in initData) || !initData.uploadTargetDir || !initData.targetRelDir) {
+          throw new Error('初始化备份失败')
+        }
 
         config = {
           uploadTargetDir: initData.uploadTargetDir,
@@ -403,7 +413,9 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       body: formData
     })
 
-    const data = await response.json().catch(() => ({}))
+    const data = (await response.json().catch(() => ({}))) as Partial<
+      MediaChapterUploadResponse & ArtworkMediaApiErrorResponse
+    >
     if (!response.ok) {
       throw new Error(data.error || '章节上传失败')
     }
@@ -558,7 +570,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
 
       if (!commitRes.ok) {
         // [新增] 如果后端返回 400 重复错误，可以在这里处理
-        const errorData = await commitRes.json()
+        const errorData = (await commitRes.json()) as ArtworkMediaApiErrorResponse
         throw new Error(errorData.error || '数据库同步失败')
       }
 

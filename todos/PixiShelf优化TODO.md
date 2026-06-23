@@ -119,6 +119,10 @@
     - 前端调用能拿到明确类型；
     - 错误 response 包含稳定的 `message`；
     - 不引入大范围 API 行为变化。
+  - 进展：
+    - [x] 新增 `lib/api-response.ts`，统一 typed success/error/json helper，保持现有 JSON shape 不变。
+    - [x] 为 artwork media 三组接口补充前后端 response 类型：upload chunk、media chapter upload、image replace session。
+    - [ ] scan/rescan 接口和更广泛 API 的 `{ message }` 迁移待单独设计，避免破坏现有前端对 `{ error }` 的依赖。
 
 - [ ] 逐步减少扫描链路中的宽松类型
   - 目标：降低 metadata、Prisma include/select、tag 处理中的类型漂移风险。

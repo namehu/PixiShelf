@@ -1,5 +1,10 @@
 import { VIDEO_EXTENSIONS } from '@/lib/constant'
 import { MAX_MEDIA_UPLOAD_SIZE_BYTES, MAX_MEDIA_UPLOAD_SIZE_LABEL } from '@/lib/upload-limits'
+import type {
+  ArtworkMediaApiErrorResponse,
+  MediaUploadChunkResponse,
+  MediaUploadStatusResponse
+} from '@/types/artwork-media-api'
 
 type UploadProgressCallback = (percent: number) => void
 
@@ -34,7 +39,7 @@ export function useChunkUpload() {
         )}&targetDir=${encodeURIComponent(targetDir)}`
         const checkRes = await fetch(checkUrl)
         if (checkRes.ok) {
-          const checkData = await checkRes.json()
+          const checkData = (await checkRes.json()) as MediaUploadStatusResponse
           if (checkData.exists && checkData.size > 0) {
             // 如果文件存在，从最后一个完整分片开始续传
             resumeIndex = Math.floor(checkData.size / CHUNK_SIZE)
@@ -71,13 +76,13 @@ export function useChunkUpload() {
       })
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
+        const err = (await res.json().catch(() => ({}))) as Partial<ArtworkMediaApiErrorResponse>
         throw new Error(err.error || `Chunk ${chunkIndex} failed`)
       }
 
       // 如果是最后一个分片，获取文件元数据
       if (chunkIndex === totalChunks - 1) {
-        const json = await res.json()
+        const json = (await res.json()) as MediaUploadChunkResponse
         if (json.meta) {
           lastMeta = json.meta[0]
         }

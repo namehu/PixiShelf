@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { apiError, apiJson } from '@/lib/api-response'
 import { getScanPath } from '@/services/setting.service'
 import { getArtworkById } from '@/services/artwork-service'
 import {
@@ -17,13 +18,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // 1. 基础校验
   if (!artworkId || isNaN(artworkId)) {
-    return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
+    return apiError('Invalid ID', { status: 400 })
   }
   const scanRoot = await getScanPath()
-  if (!scanRoot) return NextResponse.json({ error: 'No SCAN_ROOT' }, { status: 500 })
+  if (!scanRoot) return apiError('No SCAN_ROOT')
 
   const artwork = await getArtworkById(artworkId)
-  if (!artwork) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!artwork) return apiError('Not found', { status: 404 })
 
   try {
     const result = await handleImageReplaceSession({
@@ -34,15 +35,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       readBody: () => req.json()
     })
 
-    return NextResponse.json(result)
+    return apiJson(result)
   } catch (error: any) {
     if (error instanceof ImageReplaceSessionError) {
-      const payload =
-        error.details === undefined ? { error: error.message } : { error: error.message, details: error.details }
-      return NextResponse.json(payload, { status: error.status })
+      return apiError(error.message, { status: error.status, details: error.details })
     }
 
     console.error('API Error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return apiError(error.message)
   }
 }

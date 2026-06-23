@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { apiError, apiSuccess } from '@/lib/api-response'
 import { getScanPath } from '@/services/setting.service'
 import {
   MediaChapterUploadError,
@@ -16,11 +17,11 @@ export async function POST(_req: NextRequest) {
     const file = formData.get('file')
 
     if (!artworkId || Number.isNaN(artworkId)) {
-      return NextResponse.json({ error: 'Invalid artworkId' }, { status: 400 })
+      return apiError('Invalid artworkId', { status: 400 })
     }
 
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: 'Missing file' }, { status: 400 })
+      return apiError('Missing file', { status: 400 })
     }
 
     validateMediaChapterUploadRequest({
@@ -31,7 +32,7 @@ export async function POST(_req: NextRequest) {
 
     const scanRoot = await getScanPath()
     if (!scanRoot) {
-      return NextResponse.json({ error: 'SCAN_PATH not set' }, { status: 500 })
+      return apiError('SCAN_PATH not set')
     }
 
     const meta = await uploadMediaChapterManifest({
@@ -42,15 +43,12 @@ export async function POST(_req: NextRequest) {
       manifestText: () => file.text()
     })
 
-    return NextResponse.json({
-      success: true,
-      meta
-    })
+    return apiSuccess({ meta })
   } catch (error: any) {
     if (error instanceof MediaChapterUploadError) {
-      return NextResponse.json({ error: error.message }, { status: error.status })
+      return apiError(error.message, { status: error.status })
     }
 
-    return NextResponse.json({ error: error.message || 'Unknown error' }, { status: 500 })
+    return apiError(error.message || 'Unknown error')
   }
 }
