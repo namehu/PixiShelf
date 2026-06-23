@@ -19,7 +19,7 @@
     - 测试不依赖开发机真实图库；
     - 不访问用户真实文件目录。
 
-- [ ] Rescan 行为集成测试
+- [x] Rescan 行为集成测试
   - 目标：保护 `rescanArtwork` 和 `rescanLocalArtwork` 在后续重构中不被改坏。
   - 覆盖场景：
     - Pixiv metadata 更新后重新扫描；
