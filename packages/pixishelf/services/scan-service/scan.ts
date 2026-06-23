@@ -77,6 +77,20 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
     context.scanResult.errors.push(error instanceof Error ? error.message : 'Unknown error')
     context.scanResult.processingTime = Date.now() - startTime
     return context.scanResult
+  } finally {
+    logger.info('Scan performance checkpoint:', {
+      phase: 'scan_total',
+      durationMs: Date.now() - startTime,
+      totalArtworks: context.scanResult.totalArtworks,
+      skippedArtworks: context.scanResult.skippedArtworks,
+      newArtists: context.scanResult.newArtists,
+      newArtworks: context.scanResult.newArtworks,
+      newImages: context.scanResult.newImages,
+      newTags: context.scanResult.newTags,
+      errors: context.scanResult.errors.length,
+      forceUpdate: !!options.forceUpdate,
+      metadataSource: options.metadataRelativePaths?.length ? 'client_list' : 'glob'
+    })
   }
 }
 
@@ -99,11 +113,21 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
   })
   await sleep(500)
   // 根据是否提供客户端元数据列表选择来源
+  const discoveryStartTime = Date.now()
   const metadataFiles = !options.metadataRelativePaths?.length
     ? await globMetadataFiles(options.scanPath, context, options.forceUpdate)
     : await prepareMetadataFilesFromList(options.scanPath, options.metadataRelativePaths, context, options.forceUpdate)
   const totalFiles = metadataFiles.length
   const totalBatches = Math.ceil(totalFiles / BATCH_SIZE)
+  logger.info('Scan performance checkpoint:', {
+    phase: 'metadata_discovery',
+    durationMs: Date.now() - discoveryStartTime,
+    totalFiles: context.scanResult.totalArtworks,
+    filesToProcess: totalFiles,
+    skippedFiles: context.scanResult.skippedArtworks,
+    source: options.metadataRelativePaths?.length ? 'client_list' : 'glob',
+    forceUpdate: !!options.forceUpdate
+  })
 
   if (totalFiles === 0) {
     options.onProgress?.({
@@ -124,6 +148,9 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
   })
 
   await sleep(100)
+  const parseCollectStartTime = Date.now()
+  let parsedArtworks = 0
+  let skippedFiles = 0
   // 2. 遍历文件列表，边发现边处理
   for (let i = 0; i < totalFiles; i++) {
     const metadataFile = metadataFiles[i]
@@ -134,6 +161,9 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
 
     if (artworkData) {
       artworkBatch.push(artworkData)
+      parsedArtworks++
+    } else {
+      skippedFiles++
     }
 
     // 3. 当批次满员，或者已经是最后一个文件时，触发处理
@@ -145,6 +175,7 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
 
       batchNumber++
       logger.info(`Processing batch ${batchNumber} of ${totalBatches} (size: ${artworkBatch.length})...`)
+      const batchStartTime = Date.now()
 
       try {
         // 调用批量处理逻辑（针对当前批次的数据）
@@ -159,6 +190,16 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
           `Failed to process batch ${batchNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`
         )
       }
+      logger.info('Scan performance checkpoint:', {
+        phase: 'batch_processing',
+        durationMs: Date.now() - batchStartTime,
+        batchNumber,
+        batchSize: artworkBatch.length,
+        totalBatches,
+        processedFiles: i + 1,
+        totalFiles,
+        errors: context.scanResult.errors.length
+      })
 
       // 清空批次，为下一批做准备
       artworkBatch = []
@@ -175,6 +216,14 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
       await sleep(100)
     }
   }
+
+  logger.info('Scan performance checkpoint:', {
+    phase: 'metadata_parse_collect',
+    durationMs: Date.now() - parseCollectStartTime,
+    totalFiles,
+    parsedArtworks,
+    skippedFiles
+  })
 }
 
 /**

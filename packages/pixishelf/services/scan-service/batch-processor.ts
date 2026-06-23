@@ -14,7 +14,21 @@ import type { ArtworkData, ScanContext } from './types'
  * @param context 扫描上下文
  */
 export async function processBatch(batch: ArtworkData[], context: ScanContext): Promise<void> {
+  const imageSeedStartTime = Date.now()
   const imageSeedMap = await precomputeBatchImageSeeds(batch, context)
+  const imageSeeds = Array.from(imageSeedMap.values()).reduce((total, seeds) => total + seeds.length, 0)
+  logger.info('Scan performance checkpoint:', {
+    phase: 'image_seed_precompute',
+    durationMs: Date.now() - imageSeedStartTime,
+    batchSize: batch.length,
+    imageSeeds
+  })
+
+  const transactionStartTime = Date.now()
+  let artworksToCreateCount = 0
+  let imagesToCreateCount = 0
+  let artworkTagsToCreateCount = 0
+  let rawMetadataToCreateCount = 0
 
   await prisma.$transaction(
     async (tx) => {
@@ -129,6 +143,10 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
             }
           }
         }
+        artworksToCreateCount = artworksToCreate.length
+        imagesToCreateCount = imagesToCreate.length
+        artworkTagsToCreateCount = artworkTagsToCreate.length
+        rawMetadataToCreateCount = rawMetadataToCreate.length
 
         // 批量创建图片
         if (imagesToCreate.length > 0) {
@@ -165,6 +183,16 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
       maxWait: 5000 // 最大等待时间 5 秒
     }
   )
+
+  logger.info('Scan performance checkpoint:', {
+    phase: 'transaction_write',
+    durationMs: Date.now() - transactionStartTime,
+    batchSize: batch.length,
+    artworksToCreate: artworksToCreateCount,
+    imagesToCreate: imagesToCreateCount,
+    artworkTagsToCreate: artworkTagsToCreateCount,
+    rawMetadataToCreate: rawMetadataToCreateCount
+  })
 }
 
 /**
@@ -173,6 +201,7 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
  * @param context 扫描上下文
  */
 export async function batchProcessArtists(artworks: ArtworkData[], context: ScanContext): Promise<void> {
+  const startTime = Date.now()
   // 1. 收集当前批次中缓存中不存在的艺术家用户ID
   const uncachedUserIds = new Set<string>()
   for (const artwork of artworks) {
@@ -183,6 +212,14 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
 
   if (uncachedUserIds.size === 0) {
     logger.info('All artists in current batch are already cached, skipping artist processing')
+    logger.info('Scan performance checkpoint:', {
+      phase: 'artist_processing',
+      durationMs: Date.now() - startTime,
+      batchSize: artworks.length,
+      uncachedArtists: 0,
+      createdArtists: 0,
+      totalArtistsInCache: context.artistCache.size
+    })
     return
   }
 
@@ -250,6 +287,14 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
   }
 
   logger.info('Batch artist processing completed:', { totalArtistsInCache: context.artistCache.size })
+  logger.info('Scan performance checkpoint:', {
+    phase: 'artist_processing',
+    durationMs: Date.now() - startTime,
+    batchSize: artworks.length,
+    uncachedArtists: uncachedUserIds.size,
+    createdArtists: artistsToCreate.length,
+    totalArtistsInCache: context.artistCache.size
+  })
 }
 
 function getRawMetadataJsonInput(metadata: MetadataInfo): Prisma.InputJsonValue | undefined {
@@ -270,6 +315,7 @@ function getRawMetadataJsonInput(metadata: MetadataInfo): Prisma.InputJsonValue 
  * @param context 扫描上下文
  */
 export async function batchProcessTags(artworks: ArtworkData[], context: ScanContext): Promise<void> {
+  const startTime = Date.now()
   // 1. 收集当前批次中缓存中不存在的标签名称
   const uncachedTagNames = new Set<string>()
   for (const artwork of artworks) {
@@ -284,6 +330,14 @@ export async function batchProcessTags(artworks: ArtworkData[], context: ScanCon
 
   if (uncachedTagNames.size === 0) {
     logger.info('All tags in current batch are already cached, skipping tag processing')
+    logger.info('Scan performance checkpoint:', {
+      phase: 'tag_processing',
+      durationMs: Date.now() - startTime,
+      batchSize: artworks.length,
+      uncachedTags: 0,
+      createdTags: 0,
+      totalTagsInCache: context.tagCache.size
+    })
     return
   }
 
@@ -344,6 +398,14 @@ export async function batchProcessTags(artworks: ArtworkData[], context: ScanCon
   }
 
   logger.info('Batch tag processing completed:', { totalTagsInCache: context.tagCache.size })
+  logger.info('Scan performance checkpoint:', {
+    phase: 'tag_processing',
+    durationMs: Date.now() - startTime,
+    batchSize: artworks.length,
+    uncachedTags: uncachedTagNames.size,
+    createdTags: tagsToCreate.length,
+    totalTagsInCache: context.tagCache.size
+  })
 }
 
 /**

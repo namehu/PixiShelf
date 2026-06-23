@@ -4,6 +4,10 @@ import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { scan } from '../index'
 
+const { loggerInfoMock } = vi.hoisted(() => ({
+  loggerInfoMock: vi.fn()
+}))
+
 type ArtistRecord = {
   id: number
   name: string
@@ -279,7 +283,7 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/lib/logger', () => ({
   default: {
     debug: vi.fn(),
-    info: vi.fn(),
+    info: loggerInfoMock,
     warn: vi.fn(),
     error: vi.fn()
   }
@@ -519,5 +523,86 @@ describe('scan fixture integration', () => {
     expect(result.newImages).toBe(0)
     expect(database.artworks).toHaveLength(0)
     expect(database.images).toHaveLength(0)
+  })
+
+  it('logs scan performance checkpoints for discovery, parsing, batch processing, and total time', async () => {
+    const scanPath = await createFixtureRoot()
+    const pixivDirectory = path.join(scanPath, 'performance')
+    await mkdir(pixivDirectory, { recursive: true })
+    await writeTextMetadata(pixivDirectory, '1501', {
+      Title: 'Performance checkpoint artwork'
+    })
+    await writeFile(path.join(pixivDirectory, '1501.jpg'), 'performance-image')
+
+    await scan({
+      scanPath,
+      forceUpdate: false
+    })
+
+    const performanceLogs = loggerInfoMock.mock.calls
+      .filter(([message]) => message === 'Scan performance checkpoint:')
+      .map(([, payload]) => payload)
+
+    expect(performanceLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          phase: 'metadata_discovery',
+          durationMs: expect.any(Number),
+          totalFiles: 1,
+          filesToProcess: 1
+        }),
+        expect.objectContaining({
+          phase: 'metadata_parse_collect',
+          durationMs: expect.any(Number),
+          totalFiles: 1,
+          parsedArtworks: 1,
+          skippedFiles: 0
+        }),
+        expect.objectContaining({
+          phase: 'tag_processing',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          uncachedTags: 2,
+          createdTags: 2
+        }),
+        expect.objectContaining({
+          phase: 'artist_processing',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          uncachedArtists: 1,
+          createdArtists: 1
+        }),
+        expect.objectContaining({
+          phase: 'image_seed_precompute',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          imageSeeds: 1
+        }),
+        expect.objectContaining({
+          phase: 'transaction_write',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          artworksToCreate: 1,
+          imagesToCreate: 1,
+          artworkTagsToCreate: 2,
+          rawMetadataToCreate: 0
+        }),
+        expect.objectContaining({
+          phase: 'batch_processing',
+          durationMs: expect.any(Number),
+          batchNumber: 1,
+          batchSize: 1,
+          totalBatches: 1
+        }),
+        expect.objectContaining({
+          phase: 'scan_total',
+          durationMs: expect.any(Number),
+          totalArtworks: 1,
+          newArtworks: 1,
+          newImages: 1,
+          errors: 0
+        })
+      ])
+    )
   })
 })
