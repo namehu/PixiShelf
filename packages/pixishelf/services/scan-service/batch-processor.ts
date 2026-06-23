@@ -80,15 +80,23 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
       // 批量创建作品
       if (artworksToCreate.length > 0) {
         // 使用 createMany 而不是 createManyAndReturn 来提高性能
+        const artworkCreateStartTime = Date.now()
         await tx.artwork.createMany({
           data: artworksToCreate,
           skipDuplicates: true
+        })
+        logger.info('Scan performance checkpoint:', {
+          phase: 'transaction_write_artwork_create',
+          durationMs: Date.now() - artworkCreateStartTime,
+          batchSize: batch.length,
+          artworksToCreate: artworksToCreate.length
         })
 
         context.scanResult.newArtworks += artworksToCreate.length
 
         // 查询刚创建的作品以获取 ID（通过 externalId 匹配）
         const externalIds = artworksToCreate.map((a) => a.externalId)
+        const artworkLookupStartTime = Date.now()
         const createdArtworks = await tx.artwork.findMany({
           where: {
             externalId: {
@@ -98,6 +106,12 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
           orderBy: {
             id: 'asc'
           }
+        })
+        logger.info('Scan performance checkpoint:', {
+          phase: 'transaction_write_artwork_lookup',
+          durationMs: Date.now() - artworkLookupStartTime,
+          batchSize: batch.length,
+          externalIds: externalIds.length
         })
 
         // 创建 externalId 到 artwork 的映射
@@ -149,6 +163,7 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
         rawMetadataToCreateCount = rawMetadataToCreate.length
 
         // 批量创建图片
+        const imageCreateStartTime = Date.now()
         if (imagesToCreate.length > 0) {
           await tx.image.createMany({
             data: imagesToCreate,
@@ -156,26 +171,51 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
           })
           context.scanResult.newImages += imagesToCreate.length
         }
+        logger.info('Scan performance checkpoint:', {
+          phase: 'transaction_write_image_create',
+          durationMs: Date.now() - imageCreateStartTime,
+          batchSize: batch.length,
+          imagesToCreate: imagesToCreate.length
+        })
 
         // 批量创建作品-标签关联
+        const artworkTagCreateStartTime = Date.now()
         if (artworkTagsToCreate.length > 0) {
           await tx.artworkTag.createMany({
             data: artworkTagsToCreate,
             skipDuplicates: true
           })
         }
+        logger.info('Scan performance checkpoint:', {
+          phase: 'transaction_write_artwork_tag_create',
+          durationMs: Date.now() - artworkTagCreateStartTime,
+          batchSize: batch.length,
+          artworkTagsToCreate: artworkTagsToCreate.length
+        })
 
+        const rawMetadataCreateStartTime = Date.now()
         if (rawMetadataToCreate.length > 0) {
           await tx.artworkRawMetadata.createMany({
             data: rawMetadataToCreate,
             skipDuplicates: true
           })
         }
+        logger.info('Scan performance checkpoint:', {
+          phase: 'transaction_write_raw_metadata_create',
+          durationMs: Date.now() - rawMetadataCreateStartTime,
+          batchSize: batch.length,
+          rawMetadataToCreate: rawMetadataToCreate.length
+        })
 
-        await syncMediaDerivedTagsForArtworks(
-          tx,
-          imagesToCreate.map((image) => image.artworkId)
-        )
+        const mediaDerivedTagSyncStartTime = Date.now()
+        const imageArtworkIds = imagesToCreate.map((image) => image.artworkId)
+        await syncMediaDerivedTagsForArtworks(tx, imageArtworkIds)
+        logger.info('Scan performance checkpoint:', {
+          phase: 'transaction_write_media_derived_tag_sync',
+          durationMs: Date.now() - mediaDerivedTagSyncStartTime,
+          batchSize: batch.length,
+          artworkIds: new Set(imageArtworkIds).size
+        })
       }
     },
     {
@@ -226,12 +266,20 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
   logger.info('Processing uncached artists in current batch:', { uncachedArtists: uncachedUserIds.size })
 
   // 2. 批量查询数据库中已存在的艺术家
+  const existingArtistLookupStartTime = Date.now()
   const existingArtists = await prisma.artist.findMany({
     where: {
       userId: {
         in: Array.from(uncachedUserIds)
       }
     }
+  })
+  logger.info('Scan performance checkpoint:', {
+    phase: 'artist_processing_existing_lookup',
+    durationMs: Date.now() - existingArtistLookupStartTime,
+    batchSize: artworks.length,
+    uncachedArtists: uncachedUserIds.size,
+    existingArtists: existingArtists.length
   })
 
   // 构建已存在艺术家的映射
@@ -262,20 +310,35 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
   if (artistsToCreate.length > 0) {
     logger.info('Creating new artists in batch:', { artistsToCreateCount: artistsToCreate.length })
 
+    const artistCreateStartTime = Date.now()
     await prisma.artist.createMany({
       data: artistsToCreate,
       skipDuplicates: true
+    })
+    logger.info('Scan performance checkpoint:', {
+      phase: 'artist_processing_create',
+      durationMs: Date.now() - artistCreateStartTime,
+      batchSize: artworks.length,
+      artistsToCreate: artistsToCreate.length
     })
 
     context.scanResult.newArtists += artistsToCreate.length
 
     // 再次查询新创建的艺术家获取完整信息
+    const createdArtistLookupStartTime = Date.now()
     const newlyCreatedArtists = await prisma.artist.findMany({
       where: {
         userId: {
           in: artistsToCreate.map((a) => a.userId)
         }
       }
+    })
+    logger.info('Scan performance checkpoint:', {
+      phase: 'artist_processing_created_lookup',
+      durationMs: Date.now() - createdArtistLookupStartTime,
+      batchSize: artworks.length,
+      artistsToCreate: artistsToCreate.length,
+      createdArtistsFound: newlyCreatedArtists.length
     })
 
     // 增量更新缓存
@@ -344,6 +407,7 @@ export async function batchProcessTags(artworks: ArtworkData[], context: ScanCon
   logger.info('Processing uncached tags in current batch:', { uncachedTags: uncachedTagNames.size })
 
   // 2. 批量查询数据库中已存在的标签
+  const existingTagLookupStartTime = Date.now()
   const existingTags = await prisma.tag.findMany({
     where: {
       name: {
@@ -354,6 +418,13 @@ export async function batchProcessTags(artworks: ArtworkData[], context: ScanCon
       id: true,
       name: true
     }
+  })
+  logger.info('Scan performance checkpoint:', {
+    phase: 'tag_processing_existing_lookup',
+    durationMs: Date.now() - existingTagLookupStartTime,
+    batchSize: artworks.length,
+    uncachedTags: uncachedTagNames.size,
+    existingTags: existingTags.length
   })
 
   // 构建已存在标签的映射并增量更新缓存
@@ -371,14 +442,22 @@ export async function batchProcessTags(artworks: ArtworkData[], context: ScanCon
   if (tagsToCreate.length > 0) {
     logger.info('Creating new tags in batch:', { tagsToCreateCount: tagsToCreate.length })
 
+    const tagCreateStartTime = Date.now()
     await prisma.tag.createMany({
       data: tagsToCreate.map((name) => ({ name })),
       skipDuplicates: true // 防止并发创建重复标签
+    })
+    logger.info('Scan performance checkpoint:', {
+      phase: 'tag_processing_create',
+      durationMs: Date.now() - tagCreateStartTime,
+      batchSize: artworks.length,
+      tagsToCreate: tagsToCreate.length
     })
 
     context.scanResult.newTags += tagsToCreate.length
 
     // 再次查询新创建的标签获取其ID
+    const createdTagLookupStartTime = Date.now()
     const newlyCreatedTags = await prisma.tag.findMany({
       where: {
         name: {
@@ -389,6 +468,13 @@ export async function batchProcessTags(artworks: ArtworkData[], context: ScanCon
         id: true,
         name: true
       }
+    })
+    logger.info('Scan performance checkpoint:', {
+      phase: 'tag_processing_created_lookup',
+      durationMs: Date.now() - createdTagLookupStartTime,
+      batchSize: artworks.length,
+      tagsToCreate: tagsToCreate.length,
+      createdTagsFound: newlyCreatedTags.length
     })
 
     // 增量更新缓存

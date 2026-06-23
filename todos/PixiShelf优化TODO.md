@@ -68,11 +68,16 @@
     - 运行后自动清理临时目录；
     - 结果可复制到 issue/PR 说明。
 
-- [ ] 数据库写入热点排查
+- [x] 数据库写入热点排查
   - 目标：确认批处理里的 artist、tag、image、raw metadata 写入是否有明显瓶颈。
   - 验收：
     - 有一份简短结论：瓶颈在哪、是否值得改；
     - 如果不值得改，记录原因，避免反复讨论。
+  - 结论：
+    - 当前代码层面未发现必须立刻改写的单一数据库热点；artist/tag 已经是批量查询 + `createMany` + 回查缓存，主扫描写入也已经集中在单个事务内批量写入。
+    - 原先最大的排查盲区是 `transaction_write` 过粗，无法区分慢在 artwork 创建、artwork 回查、image 创建、artworkTag 创建、raw metadata 创建，还是媒体派生 tag 同步。
+    - 已补充更细的 `Scan performance checkpoint:`：`artist_processing_existing_lookup`、`artist_processing_create`、`artist_processing_created_lookup`、`tag_processing_existing_lookup`、`tag_processing_create`、`tag_processing_created_lookup`、`transaction_write_artwork_create`、`transaction_write_artwork_lookup`、`transaction_write_image_create`、`transaction_write_artwork_tag_create`、`transaction_write_raw_metadata_create`、`transaction_write_media_derived_tag_sync`。
+    - 暂不值得直接改查询或事务边界；后续应先用大目录 fixture 或真实扫描日志确认哪个 checkpoint 稳定偏高，再针对性优化。
 
 ## P1：模块结构与可维护性
 

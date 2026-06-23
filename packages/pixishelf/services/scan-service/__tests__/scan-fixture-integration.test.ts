@@ -566,11 +566,47 @@ describe('scan fixture integration', () => {
           createdTags: 2
         }),
         expect.objectContaining({
+          phase: 'tag_processing_existing_lookup',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          uncachedTags: 2
+        }),
+        expect.objectContaining({
+          phase: 'tag_processing_create',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          tagsToCreate: 2
+        }),
+        expect.objectContaining({
+          phase: 'tag_processing_created_lookup',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          tagsToCreate: 2
+        }),
+        expect.objectContaining({
           phase: 'artist_processing',
           durationMs: expect.any(Number),
           batchSize: 1,
           uncachedArtists: 1,
           createdArtists: 1
+        }),
+        expect.objectContaining({
+          phase: 'artist_processing_existing_lookup',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          uncachedArtists: 1
+        }),
+        expect.objectContaining({
+          phase: 'artist_processing_create',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          artistsToCreate: 1
+        }),
+        expect.objectContaining({
+          phase: 'artist_processing_created_lookup',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          artistsToCreate: 1
         }),
         expect.objectContaining({
           phase: 'image_seed_precompute',
@@ -586,6 +622,42 @@ describe('scan fixture integration', () => {
           imagesToCreate: 1,
           artworkTagsToCreate: 2,
           rawMetadataToCreate: 0
+        }),
+        expect.objectContaining({
+          phase: 'transaction_write_artwork_create',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          artworksToCreate: 1
+        }),
+        expect.objectContaining({
+          phase: 'transaction_write_artwork_lookup',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          externalIds: 1
+        }),
+        expect.objectContaining({
+          phase: 'transaction_write_image_create',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          imagesToCreate: 1
+        }),
+        expect.objectContaining({
+          phase: 'transaction_write_artwork_tag_create',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          artworkTagsToCreate: 2
+        }),
+        expect.objectContaining({
+          phase: 'transaction_write_raw_metadata_create',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          rawMetadataToCreate: 0
+        }),
+        expect.objectContaining({
+          phase: 'transaction_write_media_derived_tag_sync',
+          durationMs: expect.any(Number),
+          batchSize: 1,
+          artworkIds: 1
         }),
         expect.objectContaining({
           phase: 'batch_processing',
