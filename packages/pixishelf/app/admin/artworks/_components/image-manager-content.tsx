@@ -1,27 +1,9 @@
 'use client'
 
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
 import { useTRPCClient } from '@/lib/trpc'
-import {
-  RefreshCw,
-  LayoutGrid,
-  List as ListIcon,
-  ZoomIn,
-  FileUp,
-  Trash2,
-  Plus,
-  Download,
-  MoreHorizontal,
-  Upload,
-  Volume2,
-  VolumeX,
-  Info,
-  RotateCcw
-} from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
-import { formatFileSize } from '@/utils/media'
+import { ProTable } from '@/components/shared/pro-table'
 import { combinationApiResource } from '@/utils/combinationStatic'
 import { ProDialog } from '@/components/shared/pro-dialog'
 import { ImageReplaceDialog } from './image-replace-dialog'
@@ -31,20 +13,20 @@ import { useChunkUpload } from '../_hooks/use-chunk-upload'
 import { toast } from 'sonner'
 import { useDragDropStore } from '../_store/drag-drop-store'
 import { useDragImages } from '../_hooks/use-drag-images'
-import { LazyImage } from './lazy-image'
 import { HoverPreview } from './hover-preview'
 import { ImagePreviewDialog } from './image-preview-dialog'
 import { AddImageDialog } from './add-image-dialog'
-import { appendCacheKey } from './utils'
 import { ImageListItem } from './types'
-import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
+import type { Option } from '@/components/shared/multiple-selector'
 import { useRecentTags } from '@/store/admin/useRecentTags'
-import { RecentTagsList } from './recent-tags-list'
-import { VIDEO_EXTENSIONS } from '@/lib/constant'
-import { Badge } from '@/components/ui/badge'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ImageChapterDialog } from './image-chapter-dialog'
 import { MediaVideoMetadataDialog } from './media-video-metadata-dialog'
+import { getFirstImageDirectory, getImageManagerStats, getNextImageSortOrder } from './image-manager-utils'
+import { createImageManagerColumns } from './image-manager-columns'
+import { ImageManagerTagPanel } from './image-manager-tag-panel'
+import { ImageManagerToolbar } from './image-manager-toolbar'
+import { ImageManagerDragOverlay } from './image-manager-drag-overlay'
+import { ImageManagerThumbnailList } from './image-manager-thumbnail-list'
 
 interface ImageManagerContentProps {
   data: any
@@ -75,15 +57,6 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     setRefreshKey((k) => k + 1)
     onSuccess?.()
   }, [onSuccess])
-
-  const isVideoMedia = useCallback((image: ImageListItem) => {
-    if (image.mediaType) {
-      return image.mediaType === 'video'
-    }
-
-    const ext = `.${image.path.split('.').pop()?.toLowerCase() || ''}`
-    return VIDEO_EXTENSIONS.includes(ext)
-  }, [])
 
   // View State
   const [showThumbnails, setShowThumbnails] = useState(false)
@@ -347,160 +320,6 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     }
   }
 
-  const getChapterActionLabel = (image: ImageListItem) => {
-    return image.hasChapters ? '替换章节' : '上传章节'
-  }
-
-  const getVideoMetadataSummary = (image: ImageListItem) => {
-    if (image.probeStatus === 'FAILED') {
-      return {
-        label: '失败',
-        icon: Info,
-        className: 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
-      }
-    }
-
-    if (image.hasAudio === true) {
-      return {
-        label: '有音频',
-        icon: Volume2,
-        className: 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-      }
-    }
-
-    if (image.hasAudio === false) {
-      return {
-        label: '无音频',
-        icon: VolumeX,
-        className: 'border-neutral-200 bg-neutral-50 text-neutral-600 hover:bg-neutral-100'
-      }
-    }
-
-    return {
-      label: '未探测',
-      icon: Info,
-      className: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
-    }
-  }
-
-  const renderVideoMetadataEntry = (image: ImageListItem) => {
-    if (!isVideoMedia(image)) {
-      return <span className="text-xs text-neutral-400">-</span>
-    }
-
-    const summary = getVideoMetadataSummary(image)
-    const Icon = summary.icon
-
-    return (
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className={cn('h-7 gap-1.5 rounded-sm px-2 text-xs font-medium', summary.className)}
-        title="查看视频媒体详情"
-        onClick={(event) => {
-          event.stopPropagation()
-          setVideoMetadataTarget(image)
-        }}
-      >
-        <Icon className="h-3.5 w-3.5" />
-        {summary.label}
-      </Button>
-    )
-  }
-
-  const renderMediaActions = (image: ImageListItem, buttonVariant: 'ghost' | 'secondary' = 'ghost') => {
-    const video = isVideoMedia(image)
-
-    return (
-      <div className="flex items-center gap-1">
-        <Button
-          variant={buttonVariant}
-          size="icon"
-          className="h-6 w-6 text-muted-foreground hover:text-primary"
-          title="下载媒体"
-          onClick={(e) => {
-            e.stopPropagation()
-            void handleDownload(image.path)
-          }}
-        >
-          <Download className="w-3.5 h-3.5" />
-        </Button>
-
-        {video && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant={buttonVariant}
-                size="icon"
-                className="h-6 w-6 text-muted-foreground hover:text-primary"
-                title="章节操作"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="w-3.5 h-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={(event) => {
-                  event.stopPropagation()
-                  openChapterDialog(image, image.hasChapters ? 'replace' : 'upload')
-                }}
-              >
-                <Upload className="w-4 h-4" />
-                {getChapterActionLabel(image)}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!image.hasChapters || !image.chaptersUrl}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  void handleDownloadChapters(image)
-                }}
-              >
-                <Download className="w-4 h-4" />
-                下载章节
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={!image.hasChapters}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  setDeleteChapterTarget(image)
-                }}
-              >
-                <Trash2 className="w-4 h-4" />
-                删除章节
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={reprobingImageId === image.id}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  void handleReprobeVideo(image)
-                }}
-              >
-                <RotateCcw className={cn('w-4 h-4', reprobingImageId === image.id && 'animate-spin')} />
-                {reprobingImageId === image.id ? '探测中...' : '重新探测视频'}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-
-        <Button
-          variant={buttonVariant}
-          size="icon"
-          className="h-6 w-6 text-muted-foreground hover:text-destructive"
-          title="删除媒体"
-          onClick={(e) => {
-            e.stopPropagation()
-            setDeleteTarget(image.id)
-          }}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
-      </div>
-    )
-  }
-
   const handleSearchTag = async (value: string): Promise<Option[]> => {
     const res = await trpcClient.tag.list.query({
       cursor: 1,
@@ -552,77 +371,25 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     })
   }
 
-  const columns: ProColumnDef<ImageListItem>[] = [
-    {
-      header: 'Order',
-      accessorKey: 'sortOrder',
-      size: 60,
-      cell: ({ row }) => <span className="font-mono text-xs">{row.original.sortOrder}</span>
+  const columns = createImageManagerColumns({
+    reprobingImageId,
+    onClearHover: () => setHoverImage(null),
+    onMouseEnter: handleMouseEnter,
+    onMouseLeave: handleMouseLeave,
+    onOpenVideoMetadata: setVideoMetadataTarget,
+    onDownload: (path) => {
+      void handleDownload(path)
     },
-    {
-      header: '文件名 / 路径',
-      accessorKey: 'path',
-      cell: ({ getValue }) => {
-        const val = getValue<string>()
-        return (
-          <div className="flex flex-col gap-0.5" onClick={() => setHoverImage(null)}>
-            <span>
-              <span
-                className="font-medium text-sm cursor-help"
-                onMouseEnter={(e) => handleMouseEnter(val, e)}
-                onMouseLeave={handleMouseLeave}
-              >
-                {val.split('/').pop()}
-              </span>
-            </span>
-            <span className="text-[10px] text-neutral-400 truncate max-w-[300px]" title={val}>
-              {val}
-            </span>
-          </div>
-        )
-      }
+    onOpenChapterDialog: openChapterDialog,
+    onDownloadChapters: (image) => {
+      void handleDownloadChapters(image)
     },
-    {
-      header: '类型',
-      accessorKey: 'mediaType',
-      size: 88,
-      cell: ({ row }) => (
-        <Badge variant={isVideoMedia(row.original) ? 'secondary' : 'outline'}>
-          {isVideoMedia(row.original) ? '视频' : '图片'}
-        </Badge>
-      )
+    onDeleteChapter: setDeleteChapterTarget,
+    onReprobeVideo: (image) => {
+      void handleReprobeVideo(image)
     },
-    {
-      header: '视频详情',
-      id: 'videoMetadata',
-      size: 120,
-      cell: ({ row }) => renderVideoMetadataEntry(row.original)
-    },
-    {
-      header: '尺寸',
-      accessorKey: 'width',
-      size: 100,
-      cell: ({ row }) => (
-        <span className="text-xs font-mono text-neutral-500">
-          {row.original.width && row.original.height ? `${row.original.width} x ${row.original.height}` : '-'}
-        </span>
-      )
-    },
-    {
-      header: '大小',
-      accessorKey: 'size',
-      size: 80,
-      cell: ({ getValue }) => (
-        <span className="text-xs text-neutral-500">{formatFileSize(getValue<number>() || 0)}</span>
-      )
-    },
-    {
-      header: '操作',
-      id: 'actions',
-      size: 80,
-      cell: ({ row }) => renderMediaActions(row.original)
-    }
-  ]
+    onDelete: setDeleteTarget
+  })
 
   const isDragging = useDragDropStore((state) => state.isDragging)
   const setDragging = useDragDropStore((state) => state.setDragging)
@@ -643,8 +410,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
       if (currentZone === 'add') {
         if (files.length > 0) {
           setAddInitialFile(files[0]!)
-          const maxOrder = imageList.length > 0 ? Math.max(...imageList.map((i) => i.sortOrder)) : 0
-          setDefaultAddOrder(maxOrder + 1)
+          setDefaultAddOrder(getNextImageSortOrder(imageList))
           setShowAddDialog(true)
         }
       } else {
@@ -696,113 +462,34 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     onDrop: handleDrop
   }
 
-  const firstImagePath = useMemo(() => {
-    const [image] = artwork.images || []
-    return image?.path ? image.path.split('/').slice(0, -1).join('/') : null
-  }, [artwork])
-
-  const getImageAspectRatio = useCallback((img: ImageListItem) => {
-    if (!img.width || !img.height || img.width <= 0 || img.height <= 0) {
-      return '3 / 4'
-    }
-    return `${img.width} / ${img.height}`
-  }, [])
+  const firstImagePath = useMemo(() => getFirstImageDirectory(artwork), [artwork])
+  const mediaStats = useMemo(() => getImageManagerStats(imageList), [imageList])
 
   return (
     <div className="flex flex-col h-full gap-4">
-      <div className="space-y-2 px-1 shrink-0 pt-2">
-        <div className="flex items-center justify-between">
-          <Label>快捷标签</Label>
-          {isSavingTags && (
-            <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-              <RefreshCw className="w-3 h-3 animate-spin" />
-              保存中
-            </span>
-          )}
-        </div>
-        <MultipleSelector
-          placeholder="搜索并添加标签..."
-          defaultOptions={selectedTagOptions}
-          value={selectedTagOptions}
-          onSearch={handleSearchTag}
-          onChange={(options) => {
-            void handleTagsChange(options)
-          }}
-          triggerSearchOnFocus
-        />
-        <RecentTagsList
-          selectedValues={selectedTagOptions.map((t) => t.value)}
-          onSelect={(tag) => {
-            const exists = selectedTagOptions.some((t) => t.value === tag.value)
-            if (exists) return
-            void handleTagsChange([...selectedTagOptions, { value: tag.value, label: tag.label }])
-          }}
-        />
-      </div>
+      <ImageManagerTagPanel
+        isSavingTags={isSavingTags}
+        selectedTagOptions={selectedTagOptions}
+        onSearchTag={handleSearchTag}
+        onTagsChange={(options) => {
+          void handleTagsChange(options)
+        }}
+      />
 
-      <div className="flex justify-between items-center px-1 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center bg-muted p-1 rounded-md">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn('h-7 w-7', !showThumbnails && 'bg-background shadow-sm')}
-              onClick={() => setShowThumbnails(false)}
-              title="列表视图"
-            >
-              <ListIcon className="w-4 h-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn('h-7 w-7', showThumbnails && 'bg-background shadow-sm')}
-              onClick={() => setShowThumbnails(true)}
-              title="缩略图视图"
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </Button>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              refreshMediaList()
-            }}
-            className="h-8"
-          >
-            <RefreshCw className="w-3.5 h-3.5 mr-2" />
-            刷新缓存
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setAddInitialFile(null)
-              setDefaultAddOrder(imageList.length > 0 ? Math.max(...imageList.map((i) => i.sortOrder)) + 1 : 1)
-              setShowAddDialog(true)
-            }}
-            className="h-8"
-          >
-            <Plus className="w-3.5 h-3.5 mr-2" />
-            新增媒体
-          </Button>
-
-          <Button variant="danger" size="sm" onClick={() => setShowReplaceDialog(true)}>
-            全量替换
-          </Button>
-        </div>
-        {imageList.length > 0 && (
-          <div className="text-xs text-muted-foreground flex items-center gap-3">
-            <span className="font-mono" title={firstImagePath || ''}>
-              {firstImagePath ? `...${firstImagePath.slice(-20)}` : ''}
-            </span>
-            <span>{imageList.length} 个媒体</span>
-            <span>•</span>
-            <span>共: {formatFileSize(imageList.reduce((acc, cur) => acc + (cur.size || 0), 0))}</span>
-          </div>
-        )}
-      </div>
+      <ImageManagerToolbar
+        showThumbnails={showThumbnails}
+        onShowThumbnailsChange={setShowThumbnails}
+        onRefresh={refreshMediaList}
+        onAdd={() => {
+          setAddInitialFile(null)
+          setDefaultAddOrder(getNextImageSortOrder(imageList))
+          setShowAddDialog(true)
+        }}
+        onReplace={() => setShowReplaceDialog(true)}
+        firstImagePath={firstImagePath}
+        mediaCount={mediaStats.count}
+        totalSize={mediaStats.totalSize}
+      />
 
       <div
         className={cn(
@@ -811,117 +498,27 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         )}
         {...finalDragHandlers}
       >
-        {isDragging && (
-          <div className="absolute inset-0 z-50 flex pointer-events-none bg-background/50 backdrop-blur-[1px] animate-in fade-in duration-200">
-            <div
-              className={cn(
-                'flex-1 flex flex-col items-center justify-center h-full border-r-2 border-dashed transition-colors duration-200',
-                dragZone === 'add' ? 'bg-blue-500/10 border-blue-500/30' : 'bg-transparent border-muted-foreground/10'
-              )}
-            >
-              <div
-                className={cn(
-                  'flex flex-col items-center transition-all duration-200',
-                  dragZone === 'add' ? 'scale-110 opacity-100' : 'opacity-40 scale-90'
-                )}
-              >
-                <Plus className="w-16 h-16 text-blue-500" strokeWidth={1.5} />
-                <div className="mt-4 text-lg font-medium text-blue-500">新增媒体</div>
-              </div>
-            </div>
-
-            <div
-              className={cn(
-                'flex-1 flex flex-col items-center justify-center h-full transition-colors duration-200',
-                dragZone === 'replace' ? 'bg-red-500/10' : 'bg-transparent'
-              )}
-            >
-              <div
-                className={cn(
-                  'flex flex-col items-center transition-all duration-200',
-                  dragZone === 'replace' ? 'scale-110 opacity-100' : 'opacity-40 scale-90'
-                )}
-              >
-                <FileUp className="w-16 h-16 text-red-500" strokeWidth={1.5} />
-                <div className="mt-4 text-lg font-medium text-red-500">全量替换</div>
-              </div>
-            </div>
-          </div>
-        )}
+        {isDragging && <ImageManagerDragOverlay dragZone={dragZone} />}
         {showThumbnails ? (
-          <div className="flex-1 overflow-y-auto px-2 pb-2">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-              {imageList.map((img, index) => {
-                const fileName = img.path.split('/').pop() || ''
-                return (
-                  <div
-                    key={img.id}
-                    className="group relative overflow-hidden rounded-lg border bg-card shadow-sm transition-colors hover:border-primary/40"
-                    onClick={() => {
-                      if (!isVideoMedia(img)) {
-                        setPreviewIndex(index)
-                      }
-                    }}
-                  >
-                    <div className="flex items-center justify-between gap-3 border-b bg-background/90 px-3 py-2">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="shrink-0 font-mono text-xs text-muted-foreground">#{img.sortOrder}</span>
-                          <span className="truncate text-sm font-medium text-foreground" title={fileName}>
-                            {fileName}
-                          </span>
-                          <Badge variant={isVideoMedia(img) ? 'secondary' : 'outline'}>
-                            {isVideoMedia(img) ? '视频' : '图片'}
-                          </Badge>
-                        </div>
-                        <div className="mt-1 text-[11px] text-muted-foreground">
-                          {img.width && img.height ? `${img.width} × ${img.height}` : '未知尺寸'}
-                          {' · '}
-                          {formatFileSize(img.size || 0)}
-                        </div>
-                        <div className="mt-2">{renderVideoMetadataEntry(img)}</div>
-                      </div>
-                      <div className="flex shrink-0 gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                        {renderMediaActions(img, 'secondary')}
-                      </div>
-                    </div>
-
-                    <div
-                      className="relative mx-auto w-full max-w-2xl bg-neutral-100/50 dark:bg-neutral-800/50"
-                      style={{ aspectRatio: getImageAspectRatio(img) }}
-                    >
-                      {isVideoMedia(img) ? (
-                        <video
-                          src={appendCacheKey(combinationApiResource(img.path), refreshKey)}
-                          className="h-full w-full object-contain p-3"
-                          controls
-                          preload="metadata"
-                        />
-                      ) : (
-                        <>
-                          <LazyImage
-                            src={appendCacheKey(img.path, refreshKey)}
-                            alt={img.path}
-                            fill
-                            className="object-contain p-3"
-                            sizes="(max-width: 768px) 100vw, 720px"
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                            <ZoomIn className="text-primary/50 w-8 h-8 drop-shadow-sm" />
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    <div className="border-t bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                      <span className="block truncate" title={img.path}>
-                        {img.path}
-                      </span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+          <ImageManagerThumbnailList
+            imageList={imageList}
+            refreshKey={refreshKey}
+            reprobingImageId={reprobingImageId}
+            onPreviewIndexChange={setPreviewIndex}
+            onOpenVideoMetadata={setVideoMetadataTarget}
+            onDownload={(path) => {
+              void handleDownload(path)
+            }}
+            onOpenChapterDialog={openChapterDialog}
+            onDownloadChapters={(image) => {
+              void handleDownloadChapters(image)
+            }}
+            onDeleteChapter={setDeleteChapterTarget}
+            onReprobeVideo={(image) => {
+              void handleReprobeVideo(image)
+            }}
+            onDelete={setDeleteTarget}
+          />
         ) : (
           <div className="flex-1 overflow-auto h-full">
             <ProTable
