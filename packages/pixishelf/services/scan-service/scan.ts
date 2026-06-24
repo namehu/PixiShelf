@@ -4,6 +4,7 @@ import { sleep } from '@/utils/sleep'
 import type { ScanResult } from '@/types'
 import { batchProcessArtists, batchProcessTags, processBatch } from './batch-processor'
 import { globMetadataFiles, parseAndCollect, prepareMetadataFilesFromList } from './metadata-files'
+import { formatScanUserError, getRawErrorMessage } from './scan-errors'
 import type { ArtworkData, ScanContext, ScanOptions } from './types'
 
 /**
@@ -74,7 +75,7 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
     return context.scanResult
   } catch (error) {
     logger.error('Scan failed:', { error, options })
-    context.scanResult.errors.push(error instanceof Error ? error.message : 'Unknown error')
+    context.scanResult.errors.push(formatScanUserError(error))
     context.scanResult.processingTime = Date.now() - startTime
     return context.scanResult
   } finally {
@@ -186,9 +187,8 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
         logger.info(`Successfully processed batch ${batchNumber} of ${totalBatches}`)
       } catch (error) {
         logger.error('Failed to process batch:', { error, batchNumber, batchSize: artworkBatch.length })
-        context.scanResult.errors.push(
-          `Failed to process batch ${batchNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`
-        )
+        const rawErrorMessage = `Failed to process batch ${batchNumber}: ${getRawErrorMessage(error)}`
+        context.scanResult.errors.push(formatScanUserError(rawErrorMessage))
       }
       logger.info('Scan performance checkpoint:', {
         phase: 'batch_processing',

@@ -4,6 +4,7 @@ import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { ScanResult, ScanProgress } from '@/types'
 import { useScanStore } from '@/store/scanStore'
 import { useLogger } from '@/hooks/use-logger'
+import { formatScanHttpErrorText } from '@/services/scan-service/scan-errors'
 
 /**
  * Fatal Error that should not be retried
@@ -192,7 +193,7 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
               return
             } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
               const errorText = await response.text()
-              throw new FatalError(errorText)
+              throw new FatalError(formatScanHttpErrorText(errorText))
             }
           },
 

@@ -489,7 +489,7 @@ describe('scan fixture integration', () => {
 
     expect(checkCancelled).toHaveBeenCalledTimes(1)
     expect(result.totalArtworks).toBe(1)
-    expect(result.errors).toContain('Scan cancelled')
+    expect(result.errors).toContain('扫描已取消')
     expect(result.newArtists).toBe(0)
     expect(result.newArtworks).toBe(0)
     expect(result.newImages).toBe(0)
@@ -516,7 +516,7 @@ describe('scan fixture integration', () => {
     })
 
     expect(result.totalArtworks).toBe(1)
-    expect(result.errors).toContain('Failed to process batch 1: database unavailable')
+    expect(result.errors).toContain('部分作品处理失败，请查看扫描日志')
     expect(result.newArtists).toBe(1)
     expect(result.newTags).toBe(2)
     expect(result.newArtworks).toBe(0)

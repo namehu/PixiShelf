@@ -8,6 +8,7 @@ import { JobStatus } from '@prisma/client'
 import { apiHandler } from '@/lib/api-handler'
 import { ScanStreamSchema } from '@/schemas/scan.dto'
 import logger from '@/lib/logger'
+import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from '@/services/scan-service/scan-errors'
 
 function validateWebhookAuth(req: Request) {
   const authHeader = req.headers.get('Authorization')
@@ -59,7 +60,10 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
 
   const scanPath = await getScanPath()
   if (!scanPath) {
-    return NextResponse.json({ success: false, error: 'SCAN_PATH is not configured' }, { status: 400 })
+    return NextResponse.json(
+      { success: false, error: formatScanUserError('SCAN_PATH is not configured') },
+      { status: 400 }
+    )
   }
 
   let job: Awaited<ReturnType<typeof JobService.createScanJob>>
@@ -112,7 +116,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
       }
     })
 
-    const isCancelled = result.errors.includes('Scan cancelled')
+    const isCancelled = result.errors.some(isScanCancelledError)
     if (isCancelled) {
       await flushProgressWrites()
       await JobService.markAsCancelled(job.id)
@@ -120,7 +124,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
         {
           success: false,
           jobId: job.id,
-          error: 'Scan cancelled'
+          error: formatScanUserError('Scan cancelled')
         },
         { status: 409 }
       )
@@ -136,16 +140,16 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
     })
   } catch (error: any) {
     logger.error('Webhook scan error:', error)
-    const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+    const errorMsg = getRawErrorMessage(error)
 
-    if (errorMsg === 'Scan cancelled') {
+    if (isScanCancelledError(error)) {
       await flushProgressWrites()
       await JobService.markAsCancelled(job.id)
       return NextResponse.json(
         {
           success: false,
           jobId: job.id,
-          error: 'Scan cancelled'
+          error: formatScanUserError(error)
         },
         { status: 409 }
       )
@@ -158,7 +162,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
       {
         success: false,
         jobId: job.id,
-        error: errorMsg
+        error: formatScanUserError(error)
       },
       { status: 500 }
     )

@@ -9,6 +9,7 @@ import * as JobService from '@/services/job-service'
 import { JobStatus } from '@prisma/client'
 import { apiHandler } from '@/lib/api-handler'
 import { ScanStreamSchema } from '@/schemas/scan.dto'
+import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from '@/services/scan-service/scan-errors'
 
 /**
  * Helper: Create SSE event sender
@@ -30,7 +31,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
 
   const scanPath = await getScanPath()
   if (!scanPath) {
-    return NextResponse.json({ error: 'SCAN_PATH is not configured' }, { status: 400 })
+    return NextResponse.json({ error: formatScanUserError('SCAN_PATH is not configured') }, { status: 400 })
   }
 
   const encoder = new TextEncoder()
@@ -84,24 +85,33 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
           }
         })
 
+        if (result.errors.some(isScanCancelledError)) {
+          if (currentJobId) {
+            await JobService.markAsCancelled(currentJobId)
+          }
+          sendEvent('cancelled', { success: false, error: formatScanUserError('Scan cancelled') })
+          return
+        }
+
         if (currentJobId) {
           await JobService.completeJob(currentJobId, result)
         }
         sendEvent('complete', { success: true, result })
       } catch (error: any) {
         logger.error('Scan stream error:', error)
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+        const errorMsg = getRawErrorMessage(error)
+        const userErrorMsg = formatScanUserError(error)
 
-        if (errorMsg === 'Scan cancelled') {
+        if (isScanCancelledError(error)) {
           if (currentJobId) {
             await JobService.markAsCancelled(currentJobId)
           }
-          sendEvent('cancelled', { success: false, error: 'Scan cancelled' })
+          sendEvent('cancelled', { success: false, error: userErrorMsg })
         } else {
           if (currentJobId) {
             await JobService.failJob(currentJobId, errorMsg)
           }
-          sendEvent('error', { success: false, error: errorMsg })
+          sendEvent('error', { success: false, error: userErrorMsg })
         }
       } finally {
         if (pingInterval) clearInterval(pingInterval)

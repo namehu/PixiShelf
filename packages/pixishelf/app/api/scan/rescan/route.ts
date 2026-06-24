@@ -10,6 +10,7 @@ import { ScanRescanSchema } from '@/schemas/scan.dto'
 import { prisma } from '@/lib/prisma'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
 import { isLocalDirectoryArtworkSource } from '@/utils/artwork/artwork-source'
+import { formatScanUserError, getRawErrorMessage } from '@/services/scan-service/scan-errors'
 
 /**
  * Helper: Create SSE event sender
@@ -46,7 +47,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
 
   const scanPath = await getScanPath()
   if (!scanPath) {
-    return NextResponse.json({ error: 'SCAN_PATH is not configured' }, { status: 400 })
+    return NextResponse.json({ error: formatScanUserError('SCAN_PATH is not configured') }, { status: 400 })
   }
 
   // 服务端查询获取相对路径，防止路径穿透
@@ -117,10 +118,9 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
           }
         }
 
-        const result =
-          isLocalDirectoryArtworkSource(artwork.source)
-            ? await rescanLocalArtwork(scanOptions, artwork.id, relativePath)
-            : await rescanArtwork(scanOptions, artwork.externalId!, relativePath)
+        const result = isLocalDirectoryArtworkSource(artwork.source)
+          ? await rescanLocalArtwork(scanOptions, artwork.id, relativePath)
+          : await rescanArtwork(scanOptions, artwork.externalId!, relativePath)
 
         if (currentJobId) {
           await JobService.completeJob(currentJobId, result)
@@ -128,12 +128,13 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
         sendEvent('complete', { success: true, result })
       } catch (error: any) {
         logger.error('Rescan stream error:', error)
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+        const errorMsg = getRawErrorMessage(error)
+        const userErrorMsg = formatScanUserError(error)
 
         if (currentJobId) {
           await JobService.failJob(currentJobId, errorMsg)
         }
-        sendEvent('error', { success: false, error: errorMsg })
+        sendEvent('error', { success: false, error: userErrorMsg })
       } finally {
         if (pingInterval) clearInterval(pingInterval)
         if (!streamState.closed) {

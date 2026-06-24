@@ -8,6 +8,7 @@ import { extractArtworkIdFromFilename } from './metadata-parser'
 import { getMetadataFormatFromFilename, selectPreferredMetadataFiles } from './metadata-candidates'
 import { batchProcessArtists, processRescanBatch } from './batch-processor'
 import { parseAndCollect } from './metadata-files'
+import { formatScanUserError } from './scan-errors'
 import type { GlobMetadataFile, ScanContext, ScanOptions } from './types'
 
 /**
@@ -131,7 +132,7 @@ export async function rescanArtwork(
     })
   } catch (error) {
     logger.error('Rescan failed:', { error, artworkId })
-    context.scanResult.errors.push(error instanceof Error ? error.message : 'Unknown error')
+    context.scanResult.errors.push(formatScanUserError(error))
     // 重新抛出以便上层处理（虽然 scan 方法通常吞掉错误返回 result，但这里是单次操作，抛出可能更合适？
     // 为了保持一致性，我们还是返回 result，但 result 里有 errors）
   }
@@ -210,7 +211,7 @@ export async function rescanLocalArtwork(
     })
   } catch (error) {
     logger.error('Local artwork rescan failed:', { error, artworkId })
-    scanResult.errors.push(error instanceof Error ? error.message : 'Unknown error')
+    scanResult.errors.push(formatScanUserError(error))
   }
 
   scanResult.processingTime = Date.now() - startTime

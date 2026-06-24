@@ -65,7 +65,7 @@ describe('prepareMetadataFilesFromList', () => {
 
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe(path.resolve(scanPath, 'safe/123-meta.txt'))
-    expect(context.scanResult.errors).toContain('Invalid metadata path out of scan root: ../evil/999-meta.txt')
+    expect(context.scanResult.errors).toContain('发现越界的元数据路径，已跳过: ../evil/999-meta.txt')
   })
 
   it('should filter existing artworks when forceUpdate is false', async () => {

@@ -5,6 +5,7 @@ import logger from '@/lib/logger'
 import { parseMetadataFile, extractArtworkIdFromFilename } from './metadata-parser'
 import { collectMediaFiles } from './media-collector'
 import { getMetadataFormatFromFilename, selectPreferredMetadataFiles } from './metadata-candidates'
+import { formatInvalidMetadataPathError } from './scan-errors'
 import type { ArtworkData, GlobMetadataFile, ScanContext } from './types'
 
 /**
@@ -120,7 +121,7 @@ export async function prepareMetadataFilesFromList(
       const isInsideScanPath = absolutePath === scanRootPath || absolutePath.startsWith(scanRootPrefix)
 
       if (!isInsideScanPath) {
-        context.scanResult.errors.push(`Invalid metadata path out of scan root: ${relativePath}`)
+        context.scanResult.errors.push(formatInvalidMetadataPathError(relativePath))
         logger.warn('Invalid metadata path out of scan root', {
           scanRootPath,
           relativePath,

@@ -60,4 +60,24 @@ describe('rescanLocalArtwork', () => {
       })
     )
   })
+
+  it('returns a stable user-visible error when no local media files are found', async () => {
+    scanLocalArtworkMediaDirectoryMock.mockResolvedValueOnce({
+      filesMeta: [],
+      chaptersMeta: [],
+      warnings: [],
+      earliestMediaMtime: null
+    })
+
+    const result = await rescanLocalArtwork(
+      {
+        scanPath: 'D:/scan'
+      },
+      10,
+      '/empty-local'
+    )
+
+    expect(result.errors).toContain('未找到该作品的媒体文件')
+    expect(updateArtworkImagesTransactionMock).not.toHaveBeenCalled()
+  })
 })
