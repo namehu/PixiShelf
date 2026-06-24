@@ -1,4 +1,5 @@
 import type { ScanProgress, ScanResult } from '@/types'
+import type { Artist } from '@prisma/client'
 import type { MetadataInfo } from './metadata-parser'
 import type { MediaFileInfo } from './media-collector'
 import type { MetadataCandidateFile, MetadataFormat } from './metadata-candidates'
@@ -41,12 +42,14 @@ export interface GlobMetadataFile extends MetadataCandidateFile {
   metadataFormat: MetadataFormat
 }
 
+export type ArtistCacheEntry = Pick<Artist, 'id' | 'name' | 'username' | 'userId' | 'bio'>
+
 /**
  * 扫描上下文接口
  */
 export interface ScanContext {
   tagCache: Map<string, number>
-  artistCache: Map<string, any>
+  artistCache: Map<string, ArtistCacheEntry>
   scanResult: ScanResult
   options: ScanOptions
 }

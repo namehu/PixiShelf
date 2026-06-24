@@ -6,7 +6,12 @@ import { syncMediaDerivedTagsForArtworks } from '@/services/media-derived-tag-se
 import { buildScannedImageSeedData, type ScannedImageSeedData } from './scan-image-builder'
 import { getMetaSource, getPathBasename } from './path-utils'
 import type { MetadataInfo } from './metadata-parser'
-import type { ArtworkData, ScanContext } from './types'
+import type { ArtistCacheEntry, ArtworkData, ScanContext } from './types'
+
+type CreatedArtworkLookup = {
+  id: number
+  externalId: string | null
+}
 
 /**
  * 批量处理一个批次的作品（使用事务）
@@ -33,10 +38,10 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
   await prisma.$transaction(
     async (tx) => {
       // 准备批量数据
-      const artworksToCreate = []
-      const imagesToCreate = []
-      const artworkTagsToCreate = []
-      const rawMetadataToCreate = []
+      const artworksToCreate: Prisma.ArtworkCreateManyInput[] = []
+      const imagesToCreate: Prisma.ImageCreateManyInput[] = []
+      const artworkTagsToCreate: Prisma.ArtworkTagCreateManyInput[] = []
+      const rawMetadataToCreate: Prisma.ArtworkRawMetadataCreateManyInput[] = []
 
       for (const artworkData of batch) {
         const { metadata, directoryCreatedAt, metadataFilePath } = artworkData
@@ -88,7 +93,9 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
         context.scanResult.newArtworks += artworksToCreate.length
 
         // 查询刚创建的作品以获取 ID（通过 externalId 匹配）
-        const externalIds = artworksToCreate.map((a) => a.externalId)
+        const externalIds = artworksToCreate
+          .map((artwork) => artwork.externalId)
+          .filter((externalId): externalId is string => typeof externalId === 'string')
         const createdArtworks = await tx.artwork.findMany({
           where: {
             externalId: {
@@ -101,9 +108,11 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
         })
 
         // 创建 externalId 到 artwork 的映射
-        const artworkMap = new Map()
+        const artworkMap = new Map<string, CreatedArtworkLookup>()
         for (const artwork of createdArtworks) {
-          artworkMap.set(artwork.externalId, artwork)
+          if (artwork.externalId) {
+            artworkMap.set(artwork.externalId, artwork)
+          }
         }
 
         // 为每个作品准备图片和标签数据
@@ -172,10 +181,10 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
           })
         }
 
-        await syncMediaDerivedTagsForArtworks(
-          tx,
-          imagesToCreate.map((image) => image.artworkId)
-        )
+        const imageArtworkIds = imagesToCreate
+          .map((image) => image.artworkId)
+          .filter((artworkId): artworkId is number => typeof artworkId === 'number')
+        await syncMediaDerivedTagsForArtworks(tx, imageArtworkIds)
       }
     },
     {
@@ -235,7 +244,7 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
   })
 
   // 构建已存在艺术家的映射
-  const existingArtistMap = new Map<string, any>()
+  const existingArtistMap = new Map<string, ArtistCacheEntry>()
   for (const artist of existingArtists) {
     if (artist.userId) {
       existingArtistMap.set(artist.userId, artist)
@@ -245,7 +254,7 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
   }
 
   // 3. 筛选出需要新建的艺术家
-  const artistsToCreate = []
+  const artistsToCreate: Prisma.ArtistCreateManyInput[] = []
   for (const artwork of artworks) {
     const userId = artwork.metadata.userId
     if (userId && uncachedUserIds.has(userId) && !existingArtistMap.has(userId)) {
@@ -273,7 +282,9 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
     const newlyCreatedArtists = await prisma.artist.findMany({
       where: {
         userId: {
-          in: artistsToCreate.map((a) => a.userId)
+          in: artistsToCreate
+            .map((artist) => artist.userId)
+            .filter((userId): userId is string => typeof userId === 'string')
         }
       }
     })

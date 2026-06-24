@@ -130,6 +130,10 @@
     - 每次只收紧一个局部；
     - 保持现有测试通过；
     - 不借类型优化改业务逻辑。
+  - 进展：
+    - [x] 收紧 `ScanContext.artistCache`，新增 `ArtistCacheEntry`，替换 batch processor 中的 `Map<string, any>`。
+    - [x] 为 batch processor 的 artwork/image/artworkTag/rawMetadata/artist createMany 数据和 artwork lookup map 补明确类型。
+    - [ ] metadata parser 的原始 JSON 解析类型、fixture Prisma stub 的测试宽松类型后续分批处理。
 
 - [ ] CI/本地脚本分层固化
   - 目标：让质量检查路径更清晰。
