@@ -68,6 +68,25 @@ type RawMetadataRecord = {
   rawMetadataJson: unknown
 }
 
+type ArtistCreateInput = Omit<ArtistRecord, 'id'>
+type ArtworkCreateInput = Omit<ArtworkRecord, 'id'>
+type TagCreateInput = Omit<TagRecord, 'id'>
+type ImageCreateInput = Omit<ImageRecord, 'id'>
+type ArtworkTagCreateInput = ArtworkTagRecord
+type RawMetadataCreateInput = RawMetadataRecord
+type PrismaFindArgs = { where?: Record<string, unknown>; select?: Record<string, boolean> }
+type PrismaCreateArgs<TData> = { data: TData; select?: Record<string, boolean> }
+type PrismaCreateManyArgs<TData> = { data: TData[]; skipDuplicates?: boolean }
+type PrismaUpdateArgs<TData> = {
+  where: Record<string, unknown>
+  data: Partial<TData>
+  select?: Record<string, boolean>
+}
+type PrismaDeleteManyArgs = { where?: Record<string, unknown> }
+type PrismaUpsertArgs<TData> = { where: Record<string, unknown>; create: TData; update: Partial<TData> }
+type TagFindCondition = { systemKey?: string; name?: string }
+type PrismaTransactionCallback = (tx: unknown) => Promise<unknown>
+
 const { database, prismaStub } = vi.hoisted(() => {
   const database = {
     artists: [] as ArtistRecord[],
@@ -82,27 +101,34 @@ const { database, prismaStub } = vi.hoisted(() => {
     nextImageId: 1
   }
 
-  function valuesIn<T>(args: { where?: Record<string, any> }, field: string): T[] | undefined {
-    return args.where?.[field]?.in
+  function valuesIn<T>(args: { where?: Record<string, unknown> }, field: string): T[] | undefined {
+    const condition = args.where?.[field]
+    if (!isRecord(condition) || !Array.isArray(condition.in)) return undefined
+    return condition.in as T[]
   }
 
-  function selectFields<T extends Record<string, any>>(record: T, select?: Record<string, boolean>): Partial<T> {
+  function selectFields<T extends object>(record: T, select?: Record<string, boolean>): Partial<T> {
     if (!select) return record
 
+    const recordEntries = record as Record<string, unknown>
     return Object.fromEntries(
       Object.entries(select)
         .filter(([, enabled]) => enabled)
-        .map(([key]) => [key, record[key]])
+        .map(([key]) => [key, recordEntries[key]])
     ) as Partial<T>
+  }
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null
   }
 
   const prismaStub = {
     artist: {
-      findMany: vi.fn(async (args: any = {}) => {
+      findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
         const userIds = valuesIn<string>(args, 'userId')
         return database.artists.filter((artist) => !userIds || (artist.userId && userIds.includes(artist.userId)))
       }),
-      createMany: vi.fn(async (args: any) => {
+      createMany: vi.fn(async (args: PrismaCreateManyArgs<ArtistCreateInput>) => {
         let count = 0
         for (const artist of args.data) {
           if (args.skipDuplicates && database.artists.some((item) => item.userId === artist.userId)) continue
@@ -119,22 +145,23 @@ const { database, prismaStub } = vi.hoisted(() => {
       })
     },
     artwork: {
-      findMany: vi.fn(async (args: any = {}) => {
+      findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
         const externalIds = valuesIn<string>(args, 'externalId')
         return database.artworks
           .filter((artwork) => !externalIds || (artwork.externalId && externalIds.includes(artwork.externalId)))
           .map((artwork) => selectFields(artwork, args.select))
       }),
-      findUnique: vi.fn(async (args: any) => {
-        if (args.where.externalId !== undefined) {
-          return database.artworks.find((artwork) => artwork.externalId === args.where.externalId) || null
+      findUnique: vi.fn(async (args: PrismaFindArgs) => {
+        const where = args.where ?? {}
+        if (where.externalId !== undefined) {
+          return database.artworks.find((artwork) => artwork.externalId === where.externalId) || null
         }
-        if (args.where.id !== undefined) {
-          return database.artworks.find((artwork) => artwork.id === args.where.id) || null
+        if (where.id !== undefined) {
+          return database.artworks.find((artwork) => artwork.id === where.id) || null
         }
         return null
       }),
-      createMany: vi.fn(async (args: any) => {
+      createMany: vi.fn(async (args: PrismaCreateManyArgs<ArtworkCreateInput>) => {
         let count = 0
         for (const artwork of args.data) {
           if (
@@ -152,7 +179,7 @@ const { database, prismaStub } = vi.hoisted(() => {
         }
         return { count }
       }),
-      update: vi.fn(async (args: any) => {
+      update: vi.fn(async (args: PrismaUpdateArgs<ArtworkRecord>) => {
         const artwork = database.artworks.find((item) => item.id === args.where.id)
         if (!artwork) throw new Error(`Artwork not found: ${args.where.id}`)
         Object.assign(artwork, args.data)
@@ -160,25 +187,25 @@ const { database, prismaStub } = vi.hoisted(() => {
       })
     },
     tag: {
-      findMany: vi.fn(async (args: any = {}) => {
+      findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
         const names = valuesIn<string>(args, 'name')
         const ids = valuesIn<number>(args, 'id')
         return database.tags
           .filter((tag) => (!names || names.includes(tag.name)) && (!ids || ids.includes(tag.id)))
           .map((tag) => selectFields(tag, args.select))
       }),
-      findFirst: vi.fn(async (args: any = {}) => {
-        const or = args.where?.OR || []
+      findFirst: vi.fn(async (args: PrismaFindArgs = {}) => {
+        const or = Array.isArray(args.where?.OR) ? (args.where.OR as TagFindCondition[]) : []
         const found = database.tags.find((tag) =>
           or.some(
-            (condition: any) =>
+            (condition) =>
               (condition.systemKey !== undefined && condition.systemKey === tag.systemKey) ||
               (condition.name !== undefined && condition.name === tag.name)
           )
         )
         return found ? selectFields(found, args.select) : null
       }),
-      create: vi.fn(async (args: any) => {
+      create: vi.fn(async (args: PrismaCreateArgs<TagCreateInput>) => {
         const tag = {
           id: database.nextTagId++,
           name: args.data.name,
@@ -188,13 +215,13 @@ const { database, prismaStub } = vi.hoisted(() => {
         database.tags.push(tag)
         return selectFields(tag, args.select)
       }),
-      update: vi.fn(async (args: any) => {
+      update: vi.fn(async (args: PrismaUpdateArgs<TagRecord>) => {
         const tag = database.tags.find((item) => item.id === args.where.id)
         if (!tag) throw new Error(`Tag not found: ${args.where.id}`)
         Object.assign(tag, args.data)
         return selectFields(tag, args.select)
       }),
-      createMany: vi.fn(async (args: any) => {
+      createMany: vi.fn(async (args: PrismaCreateManyArgs<TagCreateInput>) => {
         let count = 0
         for (const tag of args.data) {
           if (args.skipDuplicates && database.tags.some((item) => item.name === tag.name)) continue
@@ -210,7 +237,7 @@ const { database, prismaStub } = vi.hoisted(() => {
       })
     },
     image: {
-      findMany: vi.fn(async (args: any = {}) => {
+      findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
         const artworkIds = valuesIn<number>(args, 'artworkId')
         const directArtworkId = args.where?.artworkId
         return database.images
@@ -221,13 +248,13 @@ const { database, prismaStub } = vi.hoisted(() => {
           })
           .map((image) => selectFields(image, args.select))
       }),
-      deleteMany: vi.fn(async (args: any = {}) => {
+      deleteMany: vi.fn(async (args: PrismaDeleteManyArgs = {}) => {
         const artworkId = args.where?.artworkId
         const before = database.images.length
         database.images = database.images.filter((image) => image.artworkId !== artworkId)
         return { count: before - database.images.length }
       }),
-      createMany: vi.fn(async (args: any) => {
+      createMany: vi.fn(async (args: PrismaCreateManyArgs<ImageCreateInput>) => {
         let count = 0
         for (const image of args.data) {
           if (
@@ -236,14 +263,22 @@ const { database, prismaStub } = vi.hoisted(() => {
           ) {
             continue
           }
+          const {
+            chaptersPath = null,
+            chaptersCount = 0,
+            chaptersDuration = null,
+            chaptersUpdatedAt = null,
+            chaptersHash = null,
+            ...imageFields
+          } = image
           database.images.push({
             id: database.nextImageId++,
-            chaptersPath: null,
-            chaptersCount: 0,
-            chaptersDuration: null,
-            chaptersUpdatedAt: null,
-            chaptersHash: null,
-            ...image
+            ...imageFields,
+            chaptersPath,
+            chaptersCount,
+            chaptersDuration,
+            chaptersUpdatedAt,
+            chaptersHash
           })
           count++
         }
@@ -251,7 +286,7 @@ const { database, prismaStub } = vi.hoisted(() => {
       })
     },
     artworkTag: {
-      createMany: vi.fn(async (args: any) => {
+      createMany: vi.fn(async (args: PrismaCreateManyArgs<ArtworkTagCreateInput>) => {
         let count = 0
         for (const relation of args.data) {
           if (
@@ -265,9 +300,9 @@ const { database, prismaStub } = vi.hoisted(() => {
         }
         return { count }
       }),
-      deleteMany: vi.fn(async (args: any = {}) => {
+      deleteMany: vi.fn(async (args: PrismaDeleteManyArgs = {}) => {
         const tagId = args.where?.tagId
-        const artworkIds = args.where?.artworkId?.in as number[] | undefined
+        const artworkIds = valuesIn<number>(args, 'artworkId')
         const before = database.artworkTags.length
         database.artworkTags = database.artworkTags.filter((relation) => {
           if (tagId !== undefined && relation.tagId !== tagId) return true
@@ -278,7 +313,7 @@ const { database, prismaStub } = vi.hoisted(() => {
       })
     },
     artworkRawMetadata: {
-      createMany: vi.fn(async (args: any) => {
+      createMany: vi.fn(async (args: PrismaCreateManyArgs<RawMetadataCreateInput>) => {
         let count = 0
         for (const rawMetadata of args.data) {
           if (args.skipDuplicates && database.rawMetadata.some((item) => item.artworkId === rawMetadata.artworkId)) {
@@ -289,7 +324,7 @@ const { database, prismaStub } = vi.hoisted(() => {
         }
         return { count }
       }),
-      upsert: vi.fn(async (args: any) => {
+      upsert: vi.fn(async (args: PrismaUpsertArgs<RawMetadataCreateInput>) => {
         const existing = database.rawMetadata.find((item) => item.artworkId === args.where.artworkId)
         if (existing) {
           Object.assign(existing, args.update)
@@ -298,14 +333,14 @@ const { database, prismaStub } = vi.hoisted(() => {
         database.rawMetadata.push(args.create)
         return args.create
       }),
-      deleteMany: vi.fn(async (args: any = {}) => {
+      deleteMany: vi.fn(async (args: PrismaDeleteManyArgs = {}) => {
         const artworkId = args.where?.artworkId
         const before = database.rawMetadata.length
         database.rawMetadata = database.rawMetadata.filter((item) => item.artworkId !== artworkId)
         return { count: before - database.rawMetadata.length }
       })
     },
-    $transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prismaStub)),
+    $transaction: vi.fn(async (callback: PrismaTransactionCallback) => callback(prismaStub)),
     $executeRawUnsafe: vi.fn()
   }
 

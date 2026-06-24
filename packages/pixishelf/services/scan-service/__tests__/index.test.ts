@@ -1,6 +1,7 @@
 import path from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { prepareMetadataFilesFromList } from '../index'
+import type { ScanContext } from '../types'
 
 const { findManyMock, loggerWarnMock, extractArtworkIdFromFilenameMock } = vi.hoisted(() => ({
   findManyMock: vi.fn(),
@@ -32,6 +33,27 @@ vi.mock('../metadata-parser', async () => {
   }
 })
 
+function createScanContext(): ScanContext {
+  return {
+    tagCache: new Map(),
+    artistCache: new Map(),
+    scanResult: {
+      totalArtworks: 0,
+      newArtists: 0,
+      newArtworks: 0,
+      newImages: 0,
+      newTags: 0,
+      skippedArtworks: 0,
+      errors: [],
+      processingTime: 0,
+      removedArtworks: 0
+    },
+    options: {
+      scanPath: '/tmp/pixishelf-scan'
+    }
+  }
+}
+
 describe('prepareMetadataFilesFromList', () => {
   beforeEach(() => {
     findManyMock.mockReset()
@@ -41,19 +63,7 @@ describe('prepareMetadataFilesFromList', () => {
 
   it('should reject path traversal entries outside scan root', async () => {
     findManyMock.mockResolvedValue([])
-    const context: any = {
-      scanResult: {
-        totalArtworks: 0,
-        newArtists: 0,
-        newArtworks: 0,
-        newImages: 0,
-        newTags: 0,
-        skippedArtworks: 0,
-        errors: [],
-        processingTime: 0,
-        removedArtworks: 0
-      }
-    }
+    const context = createScanContext()
 
     const scanPath = '/tmp/pixishelf-scan'
     const results = await prepareMetadataFilesFromList(
@@ -70,19 +80,7 @@ describe('prepareMetadataFilesFromList', () => {
 
   it('should filter existing artworks when forceUpdate is false', async () => {
     findManyMock.mockResolvedValue([{ externalId: '123' }])
-    const context: any = {
-      scanResult: {
-        totalArtworks: 0,
-        newArtists: 0,
-        newArtworks: 0,
-        newImages: 0,
-        newTags: 0,
-        skippedArtworks: 0,
-        errors: [],
-        processingTime: 0,
-        removedArtworks: 0
-      }
-    }
+    const context = createScanContext()
 
     const scanPath = '/tmp/pixishelf-scan'
     const results = await prepareMetadataFilesFromList(
@@ -101,19 +99,7 @@ describe('prepareMetadataFilesFromList', () => {
 
   it('should keep one entry and record duplicate artworkId', async () => {
     findManyMock.mockResolvedValue([])
-    const context: any = {
-      scanResult: {
-        totalArtworks: 0,
-        newArtists: 0,
-        newArtworks: 0,
-        newImages: 0,
-        newTags: 0,
-        skippedArtworks: 0,
-        errors: [],
-        processingTime: 0,
-        removedArtworks: 0
-      }
-    }
+    const context = createScanContext()
 
     const results = await prepareMetadataFilesFromList(
       '/tmp/pixishelf-scan',

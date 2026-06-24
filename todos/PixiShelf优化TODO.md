@@ -124,7 +124,7 @@
     - [x] 为 artwork media 三组接口补充前后端 response 类型：upload chunk、media chapter upload、image replace session。
     - [ ] scan/rescan 接口和更广泛 API 的 `{ message }` 迁移待单独设计，避免破坏现有前端对 `{ error }` 的依赖。
 
-- [ ] 逐步减少扫描链路中的宽松类型
+- [x] 逐步减少扫描链路中的宽松类型
   - 目标：降低 metadata、Prisma include/select、tag 处理中的类型漂移风险。
   - 验收：
     - 每次只收紧一个局部；
@@ -133,7 +133,8 @@
   - 进展：
     - [x] 收紧 `ScanContext.artistCache`，新增 `ArtistCacheEntry`，替换 batch processor 中的 `Map<string, any>`。
     - [x] 为 batch processor 的 artwork/image/artworkTag/rawMetadata/artist createMany 数据和 artwork lookup map 补明确类型。
-    - [ ] metadata parser 的原始 JSON 解析类型、fixture Prisma stub 的测试宽松类型后续分批处理。
+    - [x] `metadata-parser` 改为 `unknown` JSON root + `Record<string, unknown>` 安全读取，去掉 `catch(error: any)` 和 `let raw: any`。
+    - [x] scan/rescan fixture Prisma stub 移除裸 `args: any`、`condition: any`、`tx: any`，改用轻量测试参数类型和安全 helper。
 
 - [ ] CI/本地脚本分层固化
   - 目标：让质量检查路径更清晰。

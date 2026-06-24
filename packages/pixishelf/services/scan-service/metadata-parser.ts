@@ -1,5 +1,8 @@
 import { promises as fs } from 'fs'
 
+type JsonObject = Record<string, unknown>
+type NodeErrorWithCode = Error & { code?: string }
+
 /**
  * 元数据信息接口
  */
@@ -100,9 +103,9 @@ export async function parseMetadataFile(filePath: string): Promise<ParseResult> 
     }
 
     return { success: true, metadata }
-  } catch (error: any) {
+  } catch (error: unknown) {
     // 针对文件不存在的情况进行特殊处理，不打印错误日志，交由调用方处理
-    if (error.code === 'ENOENT') {
+    if (isNodeErrorWithCode(error) && error.code === 'ENOENT') {
       return {
         success: false,
         error: `File not found: ${filePath}`
@@ -172,12 +175,13 @@ function parseContent(content: string): MetadataInfo {
 }
 
 function parseJsonContent(content: string): MetadataInfo {
-  let raw: any
+  let rawValue: unknown
   try {
-    raw = JSON.parse(content)
+    rawValue = JSON.parse(content)
   } catch (error) {
     throw new Error(`Invalid JSON metadata: ${error instanceof Error ? error.message : 'Unknown parse error'}`)
   }
+  const raw = isJsonObject(rawValue) ? rawValue : {}
 
   const id = normalizeArtworkId(raw.idNum ?? raw.id)
   const metadata: Partial<MetadataInfo> = {
@@ -199,13 +203,21 @@ function parseJsonContent(content: string): MetadataInfo {
     bookmark: toOptionalInteger(raw.bmk),
     date: parseDate(toStringValue(raw.date ?? raw.uploadDate)),
     metadataFormat: 'json',
-    rawMetadataJson: raw,
+    rawMetadataJson: rawValue,
     pixivAiType: toOptionalInteger(raw.aiType),
     pixivType: toOptionalInteger(raw.type),
     sanityLevel: toOptionalInteger(raw.sl)
   }
 
   return metadata as MetadataInfo
+}
+
+function isNodeErrorWithCode(error: unknown): error is NodeErrorWithCode {
+  return error instanceof Error && 'code' in error
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**
