@@ -243,6 +243,10 @@ pnpm db:push
 - 第一版历史详情只有作品级，不含媒体级明细。
 - 文件日志 `logRef` 只是预留字段，当前 UI 不读取文件日志。
 - 历史保留策略尚未实现，表会持续增长。
+- **Pixiv 增量扫描的"已存在跳过"只计入汇总，不写作品级明细（有意设计）。** 增量扫描在发现阶段就用 `existingIds` 把已存在作品过滤掉，不进入 `parseAndCollect`，因此不会生成 `SKIP_EXISTING` 明细。这是为了避免在 10w 级作品库下，每次增量扫描都插入约 10w 条"已存在"脏明细。代价是：增量扫描的汇总 `skippedArtworks` 有数字，但在详情里按"跳过"筛选看不到对应作品行（`completeScanRunSummary` 用 `Math.max(summary.skippedArtworks, counts.skippedArtworks)` 保证汇总数不被明细数拉低）。本地目录导入因作品量级小，仍逐条记录 `SKIP_EXISTING`，两者行为不同属预期。
+- **批量导入在"创建作品"阶段结束即标记 `ScanRun` 为 COMPLETED。** 若用户在创建后、上传/注册图片前关闭对话框或刷新页面，会留下一条 `COMPLETED` 但 `newImages = 0`、各 item `mediaCount = 0` 的记录。该记录处于终态、不会触发前端永久轮询，但看起来是"成功却没有图片"的运行。属可接受的边缘场景。
+- **`parseAndCollect` 的 `context` 参数可选，不传时审计静默跳过。** 该参数设为可选是为兼容旧调用方；若将来新增调用方忘记传入 `context`，对应的 SKIPPED / FAILED 作品级明细会被静默丢弃而非报错。当前两处调用方（`scan.ts`、`rescan.ts`）均已正确传入。
+- **本地创建作品的审计写入成本。** 每条 `LOCAL_CREATED` 作品创建会触发约 4 次数据库往返（`startScanRun` + `appendScanRunItems` + `completeScanRunSummary` 内部的 `groupBy` 与 `aggregate`）。这些记录已通过 `mode != LOCAL_CREATE` 的过滤从历史列表中隐藏，不污染展示，但写入开销仍存在；作品量大时可考虑后续聚合优化。
 
 ## 后续 TODO
 
