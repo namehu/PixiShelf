@@ -136,7 +136,7 @@
     - [x] `metadata-parser` 改为 `unknown` JSON root + `Record<string, unknown>` 安全读取，去掉 `catch(error: any)` 和 `let raw: any`。
     - [x] scan/rescan fixture Prisma stub 移除裸 `args: any`、`condition: any`、`tx: any`，改用轻量测试参数类型和安全 helper。
 
-- [ ] CI/本地脚本分层固化
+- [x] CI/本地脚本分层固化
   - 目标：让质量检查路径更清晰。
   - 建议命令层级：
     - 快速：lint + typecheck；

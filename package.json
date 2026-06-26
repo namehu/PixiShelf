@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "pnpm -r --parallel dev",
     "build": "pnpm --r build",
+    "check:quick": "pnpm --filter @pixishelf/next check:quick",
+    "check:full": "pnpm --filter @pixishelf/next check:full",
     "format": "prettier --write ."
   },
   "keywords": [

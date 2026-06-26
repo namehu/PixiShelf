@@ -56,7 +56,7 @@
 ### 开发工具
 
 - **pnpm** - 快速、节省磁盘空间的包管理器
-- **ESLint 9** - 代码质量检查
+- **oxlint** - 快速代码质量检查
 - **Prettier** - 代码格式化
 - **Husky** - Git hooks管理
 - **Docker** - 容器化部署
@@ -282,6 +282,12 @@ pnpm dev
 # 构建项目
 pnpm build
 
+# 快速质量检查（主应用 lint + typecheck）
+pnpm check:quick
+
+# 完整质量检查（主应用快速检查 + 单元测试 + build）
+pnpm check:full
+
 # 代码格式化
 pnpm format
 ```
@@ -302,7 +308,12 @@ pnpm db:studio      # 启动数据库管理界面
 pnpm dev           # 开发模式（端口5430）
 pnpm build         # 构建生产版本
 pnpm start         # 启动生产版本
-pnpm lint          # 代码检查
+pnpm lint          # oxlint 代码检查
+pnpm typecheck     # TypeScript 类型检查
+pnpm check:quick   # 快速检查：lint + typecheck
+pnpm test:unit     # 单元测试：排除集成、e2e 和 fixture 集成测试
+pnpm test:integration # 关键集成测试
+pnpm check:full    # 完整检查：快速检查 + 单元测试 + build，适合提交前或 CI
 
 # 添加新组件
 # https://ui.shadcn.com/docs/monorepo
@@ -321,10 +332,13 @@ pnpm dlx shadcn@canary add [COMPONENT]
    pnpm dev          # 启动开发服务器
    pnpm db:studio    # 查看数据库
 
-   # 提交前检查
-   pnpm lint         # 代码检查
+   # 日常快速检查
+   pnpm check:quick  # lint + typecheck
+   pnpm test:unit    # 需要验证逻辑时运行单元测试
    pnpm format       # 格式化代码
    ```
+
+   `pnpm check:full` 会额外执行生产构建，更适合提交前或 CI；普通开发不需要每次都运行最重检查。
 
 2. **数据库变更**
 
@@ -490,7 +504,7 @@ docker-compose -f docker-compose.deploy.yml ps
 
 ### 代码规范
 
-- 遵循ESLint和Prettier配置
+- 遵循 oxlint 和 Prettier 配置
 - 编写清晰的提交信息
 - 添加必要的测试用例
 - 更新相关文档
