@@ -115,6 +115,7 @@ pnpm test
 pnpm build
 ```
 
+- `pnpm build` for `packages/pixishelf` runs Next.js/Turbopack and may hang indefinitely under the filesystem/process sandbox. When verifying the main app build, run it with escalated permissions up front instead of waiting on a sandboxed build.
 - For extension changes:
 
 ```bash

@@ -99,9 +99,11 @@ describe('local import service', () => {
   })
 
   it('scans outside a short transaction and imports artwork plus images', async () => {
+    const recordItems = vi.fn()
     const result = await runLocalImport({
       scanPath: 'D:/scan',
-      defaultTagIds: [4, 7]
+      defaultTagIds: [4, 7],
+      audit: { recordItems }
     })
 
     expect(mocks.scan).toHaveBeenCalledWith(
@@ -127,6 +129,17 @@ describe('local import service', () => {
       newImages: 1,
       errors: []
     })
+    expect(recordItems).toHaveBeenCalledWith([
+      expect.objectContaining({
+        externalId: 'e_10_1234567',
+        title: 'Work',
+        relativeDirectory: 'local-imports/Artist/2024/Manga/Work',
+        status: 'SUCCESS',
+        action: 'CREATE',
+        mediaCount: 1,
+        newImageCount: 1
+      })
+    ])
   })
 
   it('reports progress with the full relative artwork path', async () => {
@@ -149,15 +162,49 @@ describe('local import service', () => {
 
   it('throws cancellation and treats a storagePath unique race as skipped', async () => {
     const checkCancelled = vi.fn().mockResolvedValue(false)
+    const recordItems = vi.fn()
     mocks.transaction.mockRejectedValueOnce({ code: 'P2002', meta: { target: ['storagePath'] } })
 
-    await expect(runLocalImport({ scanPath: 'D:/scan', checkCancelled })).resolves.toMatchObject({
+    await expect(runLocalImport({ scanPath: 'D:/scan', checkCancelled, audit: { recordItems } })).resolves.toMatchObject({
       imported: 0,
       skipped: 1,
       failed: 0
     })
+    expect(recordItems).not.toHaveBeenCalled()
 
     checkCancelled.mockResolvedValue(true)
     await expect(runLocalImport({ scanPath: 'D:/scan', checkCancelled })).rejects.toThrow('Task cancelled')
+  })
+
+  it('does not record existing local import works as audit items', async () => {
+    const recordItems = vi.fn()
+    mocks.discover.mockResolvedValueOnce({
+      ...discovery,
+      artists: [
+        {
+          artistDirectory: 'Artist',
+          mapping: { artistId: 3, artistName: 'Artist Name' },
+          works: [
+            {
+              workDirectory: 'Work',
+              relativeDirectory: '2024/Manga/Work',
+              title: 'Work',
+              storagePath: 'local-imports/Artist/2024/Manga/Work',
+              status: 'existing',
+              mediaFiles: ['1.jpg'],
+              mediaCount: 1
+            }
+          ]
+        }
+      ],
+      counts: { artists: 1, works: 1, new: 0, existing: 1, invalid: 0, media: 1 }
+    })
+
+    await expect(runLocalImport({ scanPath: 'D:/scan', audit: { recordItems } })).resolves.toMatchObject({
+      imported: 0,
+      skipped: 1,
+      failed: 0
+    })
+    expect(recordItems).not.toHaveBeenCalled()
   })
 })

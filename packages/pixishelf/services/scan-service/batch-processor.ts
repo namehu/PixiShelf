@@ -1,4 +1,5 @@
 // oxlint-disable max-lines
+import path from 'path'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
@@ -6,7 +7,7 @@ import { syncMediaDerivedTagsForArtworks } from '@/services/media-derived-tag-se
 import { buildScannedImageSeedData, type ScannedImageSeedData } from './scan-image-builder'
 import { getMetaSource, getPathBasename } from './path-utils'
 import type { MetadataInfo } from './metadata-parser'
-import type { ArtistCacheEntry, ArtworkData, ScanContext } from './types'
+import type { ArtistCacheEntry, ArtworkData, ScanAuditItemInput, ScanContext } from './types'
 
 type CreatedArtworkLookup = {
   id: number
@@ -34,6 +35,7 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
   let imagesToCreateCount = 0
   let artworkTagsToCreateCount = 0
   let rawMetadataToCreateCount = 0
+  const successAuditItems: ScanAuditItemInput[] = []
 
   await prisma.$transaction(
     async (tx) => {
@@ -120,9 +122,11 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
           const artwork = artworkMap.get(artworkData.metadata.id)
           if (!artwork) continue
 
+          const imageSeedsForArtwork = imageSeedMap.get(artworkData.metadata.id) || []
+
           // 准备图片数据
           if (artworkData.mediaFiles.length > 0) {
-            const artworkImages = (imageSeedMap.get(artworkData.metadata.id) || []).map((imageSeed) => ({
+            const artworkImages = imageSeedsForArtwork.map((imageSeed) => ({
               ...imageSeed,
               artworkId: artwork.id
             }))
@@ -151,6 +155,19 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
               }
             }
           }
+
+          successAuditItems.push({
+            externalId: artworkData.metadata.id,
+            title: artworkData.metadata.title,
+            artistName: artworkData.metadata.user,
+            relativeDirectory: toRelativeScanPath(context.options.scanPath, artworkData.directoryPath),
+            metadataRelativePath: toRelativeScanPath(context.options.scanPath, artworkData.metadataFilePath),
+            status: 'SUCCESS',
+            action: 'CREATE',
+            mediaCount: artworkData.mediaFiles.length,
+            newImageCount: imageSeedsForArtwork.length,
+            finishedAt: new Date()
+          })
         }
         artworksToCreateCount = artworksToCreate.length
         imagesToCreateCount = imagesToCreate.length
@@ -202,6 +219,8 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
     artworkTagsToCreate: artworkTagsToCreateCount,
     rawMetadataToCreate: rawMetadataToCreateCount
   })
+
+  await context.options.audit?.recordItems?.(successAuditItems)
 }
 
 /**
@@ -426,6 +445,7 @@ export async function batchProcessTags(artworks: ArtworkData[], context: ScanCon
  */
 export async function processRescanBatch(batch: ArtworkData[], context: ScanContext): Promise<void> {
   const imageSeedMap = await precomputeBatchImageSeeds(batch, context)
+  const successAuditItems: ScanAuditItemInput[] = []
 
   await prisma.$transaction(
     async (tx) => {
@@ -517,6 +537,7 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
         })
 
         // 插入新图片
+        let newImageCount = 0
         if (artworkData.mediaFiles.length > 0) {
           const imagesToCreate = (imageSeedMap.get(artworkData.metadata.id) || []).map((imageSeed) => ({
             ...imageSeed,
@@ -527,12 +548,25 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
           await tx.image.createMany({
             data: imagesToCreate
           })
+          newImageCount = imagesToCreate.length
           context.scanResult.newImages += imagesToCreate.length
         }
 
         await syncMediaDerivedTagsForArtworks(tx, [existingArtwork.id])
 
         context.scanResult.newArtworks += 1 // 借用这个字段表示处理成功数
+        successAuditItems.push({
+          externalId: metadata.id,
+          title: metadata.title,
+          artistName: metadata.user,
+          relativeDirectory: toRelativeScanPath(context.options.scanPath, artworkData.directoryPath),
+          metadataRelativePath: toRelativeScanPath(context.options.scanPath, artworkData.metadataFilePath),
+          status: 'SUCCESS',
+          action: 'UPDATE',
+          mediaCount: artworkData.mediaFiles.length,
+          newImageCount,
+          finishedAt: new Date()
+        })
       }
     },
     {
@@ -540,6 +574,12 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
       maxWait: 5000
     }
   )
+
+  await context.options.audit?.recordItems?.(successAuditItems)
+}
+
+function toRelativeScanPath(scanPath: string, targetPath: string): string {
+  return path.relative(scanPath, targetPath).replace(/\\/g, '/')
 }
 
 /**

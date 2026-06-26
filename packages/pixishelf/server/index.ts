@@ -11,6 +11,7 @@ import { migrationRouter } from './routers/migration'
 import { jobRouter } from './routers/job'
 import { userSettingRouter } from './routers/user-setting'
 import { localImportRouter } from './routers/local-import'
+import { scanRunRouter } from './routers/scan-run'
 
 // 挂载子路由
 export const appRouter = router({
@@ -25,7 +26,8 @@ export const appRouter = router({
   migration: migrationRouter,
   job: jobRouter,
   userSetting: userSettingRouter,
-  localImport: localImportRouter
+  localImport: localImportRouter,
+  scanRun: scanRunRouter
 })
 
 // 导出类型供前端使用

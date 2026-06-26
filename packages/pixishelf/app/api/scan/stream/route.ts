@@ -6,7 +6,14 @@ import { ScanProgress } from '@/types'
 import logger from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
 import * as JobService from '@/services/job-service'
-import { JobStatus } from '@prisma/client'
+import { JobStatus, ScanRunMode, ScanRunType } from '@prisma/client'
+import {
+  cancelScanRun,
+  completeScanRun,
+  createScanRunItemBuffer,
+  failScanRun,
+  startScanRun
+} from '@/services/scan-run-service'
 import { apiHandler } from '@/lib/api-handler'
 import { ScanStreamSchema } from '@/schemas/scan.dto'
 import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from '@/services/scan-service/scan-errors'
@@ -40,6 +47,8 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
     async start(controller) {
       const sendEvent = createEventSender(controller, encoder)
       let currentJobId: string | null = null
+      let currentScanRunId: string | null = null
+      let auditBuffer: ReturnType<typeof createScanRunItemBuffer> | null = null
       let pingInterval: NodeJS.Timeout | null = null
 
       try {
@@ -57,6 +66,13 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
         // Create job lock
         const job = await JobService.createScanJob()
         currentJobId = job.id
+        const scanRun = await startScanRun({
+          systemJobId: job.id,
+          type: ScanRunType.PIXIV,
+          mode: type === 'list' ? ScanRunMode.CLIENT_LIST : force ? ScanRunMode.FULL : ScanRunMode.INCREMENTAL
+        })
+        currentScanRunId = scanRun.id
+        auditBuffer = createScanRunItemBuffer(scanRun.id)
         logger.info(`Scan job created: ${job.id}`)
 
         sendEvent('connection', { success: true, result: '连接成功，开始扫描' })
@@ -68,6 +84,9 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
           scanPath,
           forceUpdate: force,
           metadataRelativePaths: type === 'list' ? metadataList : undefined,
+          audit: {
+            recordItems: auditBuffer.recordItems
+          },
           checkCancelled: async () => {
             if (!currentJobId) return false
             const job = await JobService.getJob(currentJobId)
@@ -86,15 +105,23 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
         })
 
         if (result.errors.some(isScanCancelledError)) {
+          await auditBuffer.flush()
           if (currentJobId) {
             await JobService.markAsCancelled(currentJobId)
+          }
+          if (currentScanRunId) {
+            await cancelScanRun(currentScanRunId, result)
           }
           sendEvent('cancelled', { success: false, error: formatScanUserError('Scan cancelled') })
           return
         }
 
+        await auditBuffer.flush()
         if (currentJobId) {
           await JobService.completeJob(currentJobId, result)
+        }
+        if (currentScanRunId) {
+          await completeScanRun(currentScanRunId, result)
         }
         sendEvent('complete', { success: true, result })
       } catch (error: any) {
@@ -103,13 +130,21 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
         const userErrorMsg = formatScanUserError(error)
 
         if (isScanCancelledError(error)) {
+          await auditBuffer?.flush()
           if (currentJobId) {
             await JobService.markAsCancelled(currentJobId)
           }
+          if (currentScanRunId) {
+            await cancelScanRun(currentScanRunId)
+          }
           sendEvent('cancelled', { success: false, error: userErrorMsg })
         } else {
+          await auditBuffer?.flush()
           if (currentJobId) {
             await JobService.failJob(currentJobId, errorMsg)
+          }
+          if (currentScanRunId) {
+            await failScanRun(currentScanRunId, errorMsg)
           }
           sendEvent('error', { success: false, error: userErrorMsg })
         }

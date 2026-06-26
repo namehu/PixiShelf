@@ -364,6 +364,7 @@ export type BatchImportArtworkSchema = z.infer<typeof BatchImportArtworkSchema>
  * 批量注册图片参数 Schema
  */
 export const BatchRegisterImageSchema = z.object({
+  scanRunId: z.string().optional(),
   items: z.array(
     z.object({
       artworkId: z.number().int(),

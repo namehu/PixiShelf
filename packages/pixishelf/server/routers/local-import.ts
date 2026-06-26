@@ -9,6 +9,14 @@ import {
 } from '@/services/local-import-service'
 import * as JobService from '@/services/job-service'
 import logger from '@/lib/logger'
+import { ScanRunMode, ScanRunType } from '@prisma/client'
+import {
+  cancelScanRun,
+  completeScanRunSummary,
+  createScanRunItemBuffer,
+  failScanRun,
+  startScanRun
+} from '@/services/scan-run-service'
 
 async function requireScanPath() {
   const scanPath = await getScanPath()
@@ -40,12 +48,21 @@ export const localImportRouter = router({
       }
       throw error
     }
+    const scanRun = await startScanRun({
+      systemJobId: job.id,
+      type: ScanRunType.LOCAL_IMPORT,
+      mode: ScanRunMode.LOCAL_DIRECTORY_IMPORT
+    })
+    const auditBuffer = createScanRunItemBuffer(scanRun.id)
 
     void (async () => {
       try {
         const result = await runLocalImport({
           scanPath,
           defaultTagIds: systemSettings.local_import_default_tag_ids,
+          audit: {
+            recordItems: auditBuffer.recordItems
+          },
           checkCancelled: async () => {
             const current = await JobService.getJob(job.id)
             return current?.status === 'CANCELLING'
@@ -59,14 +76,26 @@ export const localImportRouter = router({
             )
           }
         })
+        await auditBuffer.flush()
         await JobService.completeJob(job.id, result)
+        await completeScanRunSummary(scanRun.id, {
+          totalArtworks: result.total,
+          skippedArtworks: result.skipped,
+          newImages: result.newImages,
+          durationMs: result.processingTime,
+          errorMessage: result.errors.length > 0 ? result.errors.slice(0, 5).join('\n') : null
+        })
       } catch (error) {
         logger.error('Local directory import failed', { error, jobId: job.id })
         const current = await JobService.getJob(job.id)
+        await auditBuffer.flush()
         if (current?.status === 'CANCELLING' || (error instanceof Error && error.message === 'Task cancelled')) {
           await JobService.markAsCancelled(job.id)
+          await cancelScanRun(scanRun.id)
         } else {
-          await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
+          const message = error instanceof Error ? error.message : 'Unknown error'
+          await JobService.failJob(job.id, message)
+          await failScanRun(scanRun.id, message)
         }
       }
     })()

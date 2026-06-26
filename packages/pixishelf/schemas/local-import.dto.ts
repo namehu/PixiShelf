@@ -1,4 +1,5 @@
 import z from 'zod'
+import type { ScanAuditHooks } from '@/services/scan-service/types'
 
 export const LOCAL_IMPORT_DIRECTORY = 'local-imports'
 export const LOCAL_IMPORT_ROOT_DISPLAY = 'scanPath/local-imports'
@@ -96,6 +97,7 @@ export interface RunLocalImportInput {
   defaultTagIds?: number[]
   checkCancelled?: () => Promise<boolean>
   onProgress?: (progress: LocalImportProgress) => Promise<void> | void
+  audit?: ScanAuditHooks
 }
 
 export interface LocalImportRunResult {

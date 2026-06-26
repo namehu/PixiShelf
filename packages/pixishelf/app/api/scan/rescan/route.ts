@@ -11,6 +11,14 @@ import { prisma } from '@/lib/prisma'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
 import { isLocalDirectoryArtworkSource } from '@/utils/artwork/artwork-source'
 import { formatScanUserError, getRawErrorMessage } from '@/services/scan-service/scan-errors'
+import { ScanRunMode } from '@prisma/client'
+import {
+  completeScanRun,
+  createScanRunItemBuffer,
+  failScanRun,
+  getScanRunTypeForArtworkSource,
+  startScanRun
+} from '@/services/scan-run-service'
 
 /**
  * Helper: Create SSE event sender
@@ -81,6 +89,8 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
   const stream = new ReadableStream({
     async start(controller) {
       let currentJobId: string | null = null
+      let currentScanRunId: string | null = null
+      let auditBuffer: ReturnType<typeof createScanRunItemBuffer> | null = null
       let pingInterval: NodeJS.Timeout | null = null
       const streamState = { closed: false }
       const sendEvent = createEventSender(controller, encoder, streamState)
@@ -96,6 +106,13 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
         // Create job lock
         const job = await JobService.createScanJob()
         currentJobId = job.id
+        const scanRun = await startScanRun({
+          systemJobId: job.id,
+          type: getScanRunTypeForArtworkSource(artwork.source),
+          mode: isLocalDirectoryArtworkSource(artwork.source) ? ScanRunMode.LOCAL_RESCAN : ScanRunMode.RESCAN
+        })
+        currentScanRunId = scanRun.id
+        auditBuffer = createScanRunItemBuffer(scanRun.id)
         logger.info(`Rescan job created: ${job.id} for artwork ${artwork.id} ${artwork.title} ${relativePath}`)
 
         sendEvent('connection', { success: true, result: '连接成功，开始重新扫描' })
@@ -106,6 +123,9 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
         const scanOptions = {
           scanPath,
           forceUpdate: false,
+          audit: {
+            recordItems: auditBuffer.recordItems
+          },
           onProgress: (progress: ScanProgress) => {
             sendEvent('progress', progress)
             const now = Date.now()
@@ -122,8 +142,12 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
           ? await rescanLocalArtwork(scanOptions, artwork.id, relativePath)
           : await rescanArtwork(scanOptions, artwork.externalId!, relativePath)
 
+        await auditBuffer.flush()
         if (currentJobId) {
           await JobService.completeJob(currentJobId, result)
+        }
+        if (currentScanRunId) {
+          await completeScanRun(currentScanRunId, result)
         }
         sendEvent('complete', { success: true, result })
       } catch (error: any) {
@@ -131,8 +155,12 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
         const errorMsg = getRawErrorMessage(error)
         const userErrorMsg = formatScanUserError(error)
 
+        await auditBuffer?.flush()
         if (currentJobId) {
           await JobService.failJob(currentJobId, errorMsg)
+        }
+        if (currentScanRunId) {
+          await failScanRun(currentScanRunId, errorMsg)
         }
         sendEvent('error', { success: false, error: userErrorMsg })
       } finally {

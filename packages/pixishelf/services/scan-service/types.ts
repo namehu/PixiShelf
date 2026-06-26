@@ -4,6 +4,38 @@ import type { MetadataInfo } from './metadata-parser'
 import type { MediaFileInfo } from './media-collector'
 import type { MetadataCandidateFile, MetadataFormat } from './metadata-candidates'
 
+export type ScanAuditItemStatus = 'SUCCESS' | 'SKIPPED' | 'FAILED'
+
+export type ScanAuditItemAction =
+  | 'CREATE'
+  | 'UPDATE'
+  | 'SKIP_EXISTING'
+  | 'SKIP_INVALID_METADATA'
+  | 'SKIP_NO_MEDIA'
+  | 'FAILED_PARSE'
+  | 'FAILED_COLLECT'
+  | 'FAILED_WRITE'
+
+export interface ScanAuditItemInput {
+  externalId?: string | null
+  title?: string | null
+  artistName?: string | null
+  relativeDirectory?: string | null
+  metadataRelativePath?: string | null
+  status: ScanAuditItemStatus
+  action: ScanAuditItemAction
+  mediaCount?: number
+  newImageCount?: number
+  errorMessage?: string | null
+  startedAt?: Date
+  finishedAt?: Date
+  durationMs?: number
+}
+
+export interface ScanAuditHooks {
+  recordItems?: (items: ScanAuditItemInput[]) => Promise<void> | void
+}
+
 /**
  * 扫描选项接口
  */
@@ -21,6 +53,7 @@ export interface ScanOptions {
    * 如果提供，则不进行本地/远程文件扫描，而是直接基于该列表构建元数据文件集合
    */
   metadataRelativePaths?: string[]
+  audit?: ScanAuditHooks
 }
 
 /**

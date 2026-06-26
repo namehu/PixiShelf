@@ -1,3 +1,4 @@
+import path from 'path'
 import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
 import { sleep } from '@/utils/sleep'
@@ -5,7 +6,7 @@ import type { ScanResult } from '@/types'
 import { batchProcessArtists, batchProcessTags, processBatch } from './batch-processor'
 import { globMetadataFiles, parseAndCollect, prepareMetadataFilesFromList } from './metadata-files'
 import { formatScanUserError, getRawErrorMessage } from './scan-errors'
-import type { ArtworkData, ScanContext, ScanOptions } from './types'
+import type { ArtworkData, ScanAuditItemInput, ScanContext, ScanOptions } from './types'
 
 /**
  * 扫描方法
@@ -158,7 +159,7 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
     if (!metadataFile) continue
 
     // 解析单个文件并收集数据
-    const artworkData = await parseAndCollect(metadataFile)
+    const artworkData = await parseAndCollect(metadataFile, context)
 
     if (artworkData) {
       artworkBatch.push(artworkData)
@@ -189,6 +190,7 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
         logger.error('Failed to process batch:', { error, batchNumber, batchSize: artworkBatch.length })
         const rawErrorMessage = `Failed to process batch ${batchNumber}: ${getRawErrorMessage(error)}`
         context.scanResult.errors.push(formatScanUserError(rawErrorMessage))
+        await context.options.audit?.recordItems?.(buildFailedWriteAuditItems(artworkBatch, context.options.scanPath, rawErrorMessage))
       }
       logger.info('Scan performance checkpoint:', {
         phase: 'batch_processing',
@@ -224,6 +226,26 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
     parsedArtworks,
     skippedFiles
   })
+}
+
+function buildFailedWriteAuditItems(batch: ArtworkData[], scanPath: string, errorMessage: string): ScanAuditItemInput[] {
+  const finishedAt = new Date()
+  return batch.map((artworkData) => ({
+    externalId: artworkData.metadata.id,
+    title: artworkData.metadata.title,
+    artistName: artworkData.metadata.user,
+    relativeDirectory: toRelativeScanPath(scanPath, artworkData.directoryPath),
+    metadataRelativePath: toRelativeScanPath(scanPath, artworkData.metadataFilePath),
+    status: 'FAILED',
+    action: 'FAILED_WRITE',
+    mediaCount: artworkData.mediaFiles.length,
+    errorMessage,
+    finishedAt
+  }))
+}
+
+function toRelativeScanPath(scanPath: string, targetPath: string): string {
+  return path.relative(scanPath, targetPath).replace(/\\/g, '/')
 }
 
 /**

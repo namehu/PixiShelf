@@ -313,10 +313,111 @@ model SystemJob {
   error     String?   @db.Text
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  scanRuns  ScanRun[]
 
   @@index([type, status])
   @@index([createdAt])
   @@map("system_jobs")
+}
+
+model ScanRun {
+  id                String        @id @default(cuid())
+  systemJobId       String?
+  systemJob         SystemJob?    @relation(fields: [systemJobId], references: [id], onDelete: SetNull)
+  type              ScanRunType
+  mode              ScanRunMode
+  status            ScanRunStatus @default(RUNNING)
+  startedAt         DateTime      @default(now())
+  finishedAt        DateTime?
+  durationMs        Int?
+  totalArtworks     Int           @default(0)
+  processedArtworks Int           @default(0)
+  succeededArtworks Int           @default(0)
+  skippedArtworks   Int           @default(0)
+  failedArtworks    Int           @default(0)
+  newArtists        Int           @default(0)
+  newTags           Int           @default(0)
+  newImages         Int           @default(0)
+  errorMessage      String?       @db.Text
+  logRef            String?       @db.Text
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  items             ScanRunItem[]
+
+  @@index([startedAt])
+  @@index([status, startedAt])
+  @@index([type, mode, startedAt])
+  @@index([systemJobId])
+  @@map("scan_runs")
+}
+
+model ScanRunItem {
+  id                   String            @id @default(cuid())
+  scanRunId            String
+  scanRun              ScanRun           @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+  externalId           String?
+  title                String?
+  artistName           String?
+  relativeDirectory    String?           @db.Text
+  metadataRelativePath String?           @db.Text
+  status               ScanRunItemStatus
+  action               ScanRunItemAction
+  mediaCount           Int               @default(0)
+  newImageCount        Int               @default(0)
+  errorMessage         String?           @db.Text
+  startedAt            DateTime          @default(now())
+  finishedAt           DateTime?
+  durationMs           Int?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@index([scanRunId, status])
+  @@index([scanRunId, action])
+  @@index([externalId])
+  @@map("scan_run_items")
+}
+
+enum ScanRunType {
+  PIXIV
+  LOCAL_IMPORT
+  LOCAL_CREATE
+  BATCH_IMPORT
+}
+
+enum ScanRunMode {
+  FULL
+  INCREMENTAL
+  CLIENT_LIST
+  RESCAN
+  LOCAL_RESCAN
+  LOCAL_DIRECTORY_IMPORT
+  LOCAL_CREATE
+  BATCH_CREATE
+  BATCH_REGISTER_IMAGES
+}
+
+enum ScanRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ScanRunItemStatus {
+  SUCCESS
+  SKIPPED
+  FAILED
+}
+
+enum ScanRunItemAction {
+  CREATE
+  UPDATE
+  SKIP_EXISTING
+  SKIP_INVALID_METADATA
+  SKIP_NO_MEDIA
+  FAILED_PARSE
+  FAILED_COLLECT
+  FAILED_WRITE
 }
 
 model ScheduledTask {

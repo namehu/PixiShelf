@@ -81,6 +81,8 @@ describe('prepareMetadataFilesFromList', () => {
   it('should filter existing artworks when forceUpdate is false', async () => {
     findManyMock.mockResolvedValue([{ externalId: '123' }])
     const context = createScanContext()
+    const recordItems = vi.fn()
+    context.options.audit = { recordItems }
 
     const scanPath = '/tmp/pixishelf-scan'
     const results = await prepareMetadataFilesFromList(
@@ -95,6 +97,7 @@ describe('prepareMetadataFilesFromList', () => {
     expect(results[0]?.artworkId).toBe('456')
     expect(context.scanResult.totalArtworks).toBe(2)
     expect(context.scanResult.skippedArtworks).toBe(1)
+    expect(recordItems).not.toHaveBeenCalled()
   })
 
   it('should keep one entry and record duplicate artworkId', async () => {

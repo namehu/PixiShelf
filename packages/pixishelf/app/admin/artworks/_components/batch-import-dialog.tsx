@@ -228,7 +228,8 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
         throw new Error('创建作品失败')
       }
 
-      const createdMap = new Map(createRes.data.map((r) => [r.tempId, r]))
+      const createdMap = new Map(createRes.data.artworks.map((r) => [r.tempId, r]))
+      const scanRunId = createRes.data.scanRunId
       const itemsToProcess = items.map(
         (item) =>
           ({
@@ -312,7 +313,10 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
       // 3. Register
       if (registrationItems.length > 0) {
         setStatus('registering')
-        await batchRegisterImagesAction({ items: registrationItems })
+        const registerRes = await batchRegisterImagesAction({ scanRunId, items: registrationItems })
+        if (registerRes?.serverError || !registerRes?.data?.success) {
+          throw new Error(registerRes?.serverError ?? '注册图片失败')
+        }
       }
 
       const hasErrors = itemsToProcess.some((i) => i.status === 'error')

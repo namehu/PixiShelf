@@ -16,13 +16,14 @@ import { EMediaType } from '@/enums/EMediaType'
 import { generateLocalExternalId, shuffleArray, transformImages, transformSingleArtwork } from './utils'
 import { fetchRandomIds } from './dao'
 import { RandomTagDto } from '@/schemas/tag.dto'
-import { Prisma } from '@prisma/client'
+import { Prisma, ScanRunMode, ScanRunType } from '@prisma/client'
 import { buildArtworkWhereClause } from './query-builder'
 import fs from 'fs/promises'
 import path from 'path'
 import { getScanPath } from '@/services/setting.service'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { ESource, type ESource as ArtworkSource } from '@/enums/ESource'
+import { appendScanRunItems, completeScanRunSummary, startScanRun } from '@/services/scan-run-service'
 
 export * from './related'
 export * from './video-chapters'
@@ -272,10 +273,42 @@ export async function createArtwork(data: {
       where: { id: artwork.id },
       data: { externalId }
     })
+    await recordLocalCreateAudit({
+      artworkId: artwork.id,
+      title: artwork.title,
+      externalId
+    })
   }
 
   const result = await getArtworkById(artwork.id)
   return result!
+}
+
+async function recordLocalCreateAudit(input: { artworkId: number; title: string; externalId: string }) {
+  try {
+    const scanRun = await startScanRun({
+      type: ScanRunType.LOCAL_CREATE,
+      mode: ScanRunMode.LOCAL_CREATE
+    })
+    await appendScanRunItems([
+      {
+        scanRunId: scanRun.id,
+        externalId: input.externalId,
+        title: input.title,
+        status: 'SUCCESS',
+        action: 'CREATE',
+        mediaCount: 0,
+        newImageCount: 0,
+        finishedAt: new Date()
+      }
+    ])
+    await completeScanRunSummary(scanRun.id, {
+      totalArtworks: 1,
+      newImages: 0
+    })
+  } catch (error) {
+    logger.error('Failed to record local artwork creation audit', { error, artworkId: input.artworkId })
+  }
 }
 
 /**

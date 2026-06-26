@@ -9,7 +9,7 @@ import { getMetadataFormatFromFilename, selectPreferredMetadataFiles } from './m
 import { batchProcessArtists, processRescanBatch } from './batch-processor'
 import { parseAndCollect } from './metadata-files'
 import { formatScanUserError } from './scan-errors'
-import type { GlobMetadataFile, ScanContext, ScanOptions } from './types'
+import type { GlobMetadataFile, ScanAuditItemInput, ScanContext, ScanOptions } from './types'
 
 /**
  * 重新扫描单个作品
@@ -39,6 +39,8 @@ export async function rescanArtwork(
     },
     options
   }
+
+  let artworkDataForFailure: Awaited<ReturnType<typeof parseAndCollect>> = null
 
   try {
     logger.info('Starting rescan for artwork:', { artworkId, targetDirectoryRelativePath })
@@ -107,10 +109,11 @@ export async function rescanArtwork(
     })
 
     // 3. 解析元数据
-    const artworkData = await parseAndCollect(metadataFile)
+    const artworkData = await parseAndCollect(metadataFile, context)
     if (!artworkData) {
       throw new Error('元数据文件解析失败或媒体文件缺失')
     }
+    artworkDataForFailure = artworkData
 
     options.onProgress?.({
       phase: 'counting',
@@ -133,6 +136,9 @@ export async function rescanArtwork(
   } catch (error) {
     logger.error('Rescan failed:', { error, artworkId })
     context.scanResult.errors.push(formatScanUserError(error))
+    if (artworkDataForFailure) {
+      await options.audit?.recordItems?.([buildRescanFailedWriteItem(artworkDataForFailure, options.scanPath, error)])
+    }
     // 重新抛出以便上层处理（虽然 scan 方法通常吞掉错误返回 result，但这里是单次操作，抛出可能更合适？
     // 为了保持一致性，我们还是返回 result，但 result 里有 errors）
   }
@@ -203,6 +209,17 @@ export async function rescanLocalArtwork(
     await updateArtworkImagesTransaction(artworkId, mediaScanResult.filesMeta, mediaScanResult.chaptersMeta)
     scanResult.newImages = mediaScanResult.filesMeta.length
     scanResult.newArtworks = 1
+    await options.audit?.recordItems?.([
+      {
+        externalId: String(artworkId),
+        relativeDirectory: targetDirectoryRelativePath.replace(/\\/g, '/'),
+        status: 'SUCCESS',
+        action: 'UPDATE',
+        mediaCount: mediaScanResult.filesMeta.length,
+        newImageCount: mediaScanResult.filesMeta.length,
+        finishedAt: new Date()
+      }
+    ])
 
     options.onProgress?.({
       phase: 'complete',
@@ -212,8 +229,37 @@ export async function rescanLocalArtwork(
   } catch (error) {
     logger.error('Local artwork rescan failed:', { error, artworkId })
     scanResult.errors.push(formatScanUserError(error))
+    await options.audit?.recordItems?.([
+      {
+        externalId: String(artworkId),
+        relativeDirectory: targetDirectoryRelativePath.replace(/\\/g, '/'),
+        status: 'FAILED',
+        action: 'FAILED_WRITE',
+        errorMessage: error instanceof Error ? error.message : '本地作品重新扫描失败',
+        finishedAt: new Date()
+      }
+    ])
   }
 
   scanResult.processingTime = Date.now() - startTime
   return scanResult
+}
+
+function buildRescanFailedWriteItem(
+  artworkData: NonNullable<Awaited<ReturnType<typeof parseAndCollect>>>,
+  scanPath: string,
+  error: unknown
+): ScanAuditItemInput {
+  return {
+    externalId: artworkData.metadata.id,
+    title: artworkData.metadata.title,
+    artistName: artworkData.metadata.user,
+    relativeDirectory: path.relative(scanPath, artworkData.directoryPath).replace(/\\/g, '/'),
+    metadataRelativePath: path.relative(scanPath, artworkData.metadataFilePath).replace(/\\/g, '/'),
+    status: 'FAILED',
+    action: 'FAILED_WRITE',
+    mediaCount: artworkData.mediaFiles.length,
+    errorMessage: error instanceof Error ? error.message : '重新扫描写入失败',
+    finishedAt: new Date()
+  }
 }

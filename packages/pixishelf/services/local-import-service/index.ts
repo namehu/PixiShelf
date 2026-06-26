@@ -60,6 +60,14 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
       mapping.artistId
     ])
   )
+  const artistNameByDirectory = new Map(
+    (
+      mappings as Array<{
+        artistDirectory: string
+        artist?: { name?: string | null } | null
+      }>
+    ).map((mapping) => [mapping.artistDirectory, mapping.artist?.name ?? mapping.artistDirectory])
+  )
   const candidates = discovery.artists.flatMap((artist) =>
     artist.works
       .filter((work) => work.status === 'new')
@@ -76,6 +84,24 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
     processingTime: 0
   }
 
+  const invalidAuditItems = discovery.artists.flatMap((artist) =>
+    artist.works
+      .filter((work) => work.status === 'invalid')
+      .map((work) => ({
+        title: work.title,
+        artistName: artist.mapping?.artistName ?? artist.artistDirectory,
+        relativeDirectory: work.storagePath,
+        status: 'SKIPPED' as const,
+        action: 'SKIP_INVALID_METADATA' as const,
+        mediaCount: work.mediaCount,
+        errorMessage: work.error ?? '目录结构无效',
+        finishedAt: new Date()
+      }))
+  )
+  if (invalidAuditItems.length > 0) {
+    await input.audit?.recordItems?.(invalidAuditItems)
+  }
+
   for (let index = 0; index < candidates.length; index += 1) {
     await throwIfCancelled(input.checkCancelled)
     const candidate = candidates[index]!
@@ -83,6 +109,14 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
     if (!artistId) {
       result.failed += 1
       addError(result.errors, `${getCandidateDisplayPath(candidate)}: Artist is not mapped`)
+      await input.audit?.recordItems?.([
+        buildLocalImportAuditItem(candidate, {
+          artistName: candidate.artistDirectory,
+          status: 'FAILED',
+          action: 'FAILED_WRITE',
+          errorMessage: 'Artist is not mapped'
+        })
+      ])
       await reportProgress({ input, candidate, index, total: candidates.length, status: 'failed', message: 'Artist is not mapped' })
       continue
     }
@@ -108,6 +142,7 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
         throw new Error('No valid media files found')
       }
 
+      let createdExternalId: string | null = null
       await db.$transaction(async (tx: any) => {
         const artwork = await tx.artwork.create({
           data: {
@@ -120,6 +155,7 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
           select: { id: true }
         })
         const externalId = generateLocalExternalId(artwork.id)
+        createdExternalId = externalId
         await tx.artwork.update({ where: { id: artwork.id }, data: { externalId } })
         await updateArtworkImagesWithTransactionClient(
           tx,
@@ -131,6 +167,16 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
       })
       result.imported += 1
       result.newImages += media.filesMeta.length
+      await input.audit?.recordItems?.([
+        buildLocalImportAuditItem(candidate, {
+          externalId: createdExternalId,
+          artistName: artistNameByDirectory.get(candidate.artistDirectory),
+          status: 'SUCCESS',
+          action: 'CREATE',
+          mediaCount: media.filesMeta.length,
+          newImageCount: media.filesMeta.length
+        })
+      ])
       await reportProgress({ input, candidate, index, total: candidates.length, status: 'imported' })
     } catch (error) {
       if (isCancellationError(error)) throw new Error('Task cancelled')
@@ -142,12 +188,46 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
       result.failed += 1
       const message = error instanceof Error ? error.message : 'Unknown error'
       addError(result.errors, `${getCandidateDisplayPath(candidate)}: ${message}`)
+      await input.audit?.recordItems?.([
+        buildLocalImportAuditItem(candidate, {
+          artistName: artistNameByDirectory.get(candidate.artistDirectory),
+          status: 'FAILED',
+          action: message === 'No valid media files found' ? 'FAILED_COLLECT' : 'FAILED_WRITE',
+          errorMessage: message
+        })
+      ])
       await reportProgress({ input, candidate, index, total: candidates.length, status: 'failed', message })
     }
   }
 
   result.processingTime = Date.now() - startTime
   return result
+}
+
+function buildLocalImportAuditItem(
+  candidate: { artistDirectory: string; work: { title: string; storagePath: string; mediaCount?: number } },
+  input: {
+    externalId?: string | null
+    artistName?: string | null
+    status: 'SUCCESS' | 'SKIPPED' | 'FAILED'
+    action: 'CREATE' | 'SKIP_EXISTING' | 'SKIP_INVALID_METADATA' | 'FAILED_COLLECT' | 'FAILED_WRITE'
+    mediaCount?: number
+    newImageCount?: number
+    errorMessage?: string | null
+  }
+) {
+  return {
+    externalId: input.externalId ?? null,
+    title: candidate.work.title,
+    artistName: input.artistName ?? candidate.artistDirectory,
+    relativeDirectory: candidate.work.storagePath,
+    status: input.status,
+    action: input.action,
+    mediaCount: input.mediaCount ?? candidate.work.mediaCount ?? 0,
+    newImageCount: input.newImageCount ?? 0,
+    errorMessage: input.errorMessage ?? null,
+    finishedAt: new Date()
+  }
 }
 
 async function reportProgress(options: {

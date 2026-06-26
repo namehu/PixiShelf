@@ -6,7 +6,7 @@ import { parseMetadataFile, extractArtworkIdFromFilename } from './metadata-pars
 import { collectMediaFiles } from './media-collector'
 import { getMetadataFormatFromFilename, selectPreferredMetadataFiles } from './metadata-candidates'
 import { formatInvalidMetadataPathError } from './scan-errors'
-import type { ArtworkData, GlobMetadataFile, ScanContext } from './types'
+import type { ArtworkData, GlobMetadataFile, ScanAuditItemInput, ScanContext } from './types'
 
 /**
  * 递归查找元数据文件
@@ -181,11 +181,21 @@ export async function prepareMetadataFilesFromList(
  * @param metadataFile 元数据文件信息
  * @returns 作品数据或null
  */
-export async function parseAndCollect(metadataFile: GlobMetadataFile): Promise<ArtworkData | null> {
+export async function parseAndCollect(metadataFile: GlobMetadataFile, context?: ScanContext): Promise<ArtworkData | null> {
   const { artworkId, path: metadataPath, name: metadataFilename, createdAt } = metadataFile
+  const startedAt = new Date()
 
   if (!artworkId) {
     logger.warn('Invalid metadata filename:', { metadataFilename })
+    await recordAuditItem(context, {
+      externalId: null,
+      metadataRelativePath: metadataFilename,
+      status: 'SKIPPED',
+      action: 'SKIP_INVALID_METADATA',
+      errorMessage: '无法从 metadata 文件名解析作品 ID',
+      startedAt,
+      finishedAt: new Date()
+    })
     return null
   }
 
@@ -200,6 +210,16 @@ export async function parseAndCollect(metadataFile: GlobMetadataFile): Promise<A
       } else {
         logger.warn('Failed to parse metadata:', { metadataPath, error: parseResult.error })
       }
+      await recordAuditItem(context, {
+        externalId: artworkId,
+        metadataRelativePath: toRelativeScanPath(context?.options.scanPath, metadataPath),
+        relativeDirectory: toRelativeScanPath(context?.options.scanPath, path.dirname(metadataPath)),
+        status: 'FAILED',
+        action: 'FAILED_PARSE',
+        errorMessage: parseResult.error ?? '解析 metadata 失败',
+        startedAt,
+        finishedAt: new Date()
+      })
       return null
     }
 
@@ -207,11 +227,35 @@ export async function parseAndCollect(metadataFile: GlobMetadataFile): Promise<A
     const collectionResult = await collectMediaFiles(path.dirname(metadataPath), artworkId)
     if (!collectionResult.success) {
       logger.warn('Failed to collect media files:', { metadataPath, artworkId, error: collectionResult.error })
+      await recordAuditItem(context, {
+        externalId: artworkId,
+        title: parseResult.metadata.title,
+        artistName: parseResult.metadata.user,
+        metadataRelativePath: toRelativeScanPath(context?.options.scanPath, metadataPath),
+        relativeDirectory: toRelativeScanPath(context?.options.scanPath, path.dirname(metadataPath)),
+        status: 'FAILED',
+        action: 'FAILED_COLLECT',
+        errorMessage: collectionResult.error ?? '收集媒体文件失败',
+        startedAt,
+        finishedAt: new Date()
+      })
       return null
     }
 
     if (collectionResult.mediaFiles.length === 0) {
       logger.warn('No media files found for artwork:', { metadataPath, artworkId })
+      await recordAuditItem(context, {
+        externalId: artworkId,
+        title: parseResult.metadata.title,
+        artistName: parseResult.metadata.user,
+        metadataRelativePath: toRelativeScanPath(context?.options.scanPath, metadataPath),
+        relativeDirectory: toRelativeScanPath(context?.options.scanPath, path.dirname(metadataPath)),
+        status: 'SKIPPED',
+        action: 'SKIP_NO_MEDIA',
+        errorMessage: '未发现可导入的媒体文件',
+        startedAt,
+        finishedAt: new Date()
+      })
       return null
     }
 
@@ -224,6 +268,25 @@ export async function parseAndCollect(metadataFile: GlobMetadataFile): Promise<A
     }
   } catch (error) {
     logger.error('Error processing metadata file:', { error, metadataPath })
+    await recordAuditItem(context, {
+      externalId: artworkId,
+      metadataRelativePath: toRelativeScanPath(context?.options.scanPath, metadataPath),
+      relativeDirectory: toRelativeScanPath(context?.options.scanPath, path.dirname(metadataPath)),
+      status: 'FAILED',
+      action: 'FAILED_PARSE',
+      errorMessage: error instanceof Error ? error.message : '处理 metadata 文件失败',
+      startedAt,
+      finishedAt: new Date()
+    })
     return null
   }
+}
+
+function toRelativeScanPath(scanPath: string | undefined, targetPath: string): string {
+  if (!scanPath) return targetPath.replace(/\\/g, '/')
+  return path.relative(scanPath, targetPath).replace(/\\/g, '/')
+}
+
+async function recordAuditItem(context: ScanContext | undefined, item: ScanAuditItemInput) {
+  await context?.options.audit?.recordItems?.([item])
 }
