@@ -41,6 +41,17 @@ vi.mock('@/services/job-service', () => ({
 vi.mock('@/services/scheduled-task-registry', () => ({
   SCHEDULED_TASK_DEFINITIONS: [
     {
+      key: 'scan_run_retention_cleanup',
+      type: 'SCAN_RUN_RETENTION_CLEANUP',
+      name: '清理扫描历史',
+      description: 'cleanup task',
+      defaultTime: '00:10',
+      defaultTimezone: 'UTC',
+      defaultPriority: 20,
+      defaultEnabled: false,
+      mutexKey: 'audit-maintenance'
+    },
+    {
       key: 'webp_animation_scan',
       type: 'WEBP_ANIMATION_SCAN',
       name: '识别 WebP 动图',
@@ -48,11 +59,24 @@ vi.mock('@/services/scheduled-task-registry', () => ({
       defaultTime: '00:30',
       defaultTimezone: 'UTC',
       defaultPriority: 30,
+      defaultEnabled: false,
       mutexKey: 'media-maintenance'
     }
   ],
   getScheduledTaskDefinition: (key: string) =>
-    key === 'webp_animation_scan'
+    key === 'scan_run_retention_cleanup'
+      ? {
+          key,
+          type: 'SCAN_RUN_RETENTION_CLEANUP',
+          name: '清理扫描历史',
+          description: 'cleanup task',
+          defaultTime: '00:10',
+          defaultTimezone: 'UTC',
+          defaultPriority: 20,
+          defaultEnabled: false,
+          mutexKey: 'audit-maintenance'
+        }
+      : key === 'webp_animation_scan'
       ? {
           key,
           type: 'WEBP_ANIMATION_SCAN',
@@ -61,6 +85,7 @@ vi.mock('@/services/scheduled-task-registry', () => ({
           defaultTime: '00:30',
           defaultTimezone: 'UTC',
           defaultPriority: 30,
+          defaultEnabled: false,
           mutexKey: 'media-maintenance'
       }
       : null,
@@ -74,18 +99,19 @@ vi.mock('@/services/scheduled-task-registry', () => ({
           defaultTime: '00:30',
           defaultTimezone: 'UTC',
           defaultPriority: 20,
+          defaultEnabled: false,
           mutexKey: 'media-maintenance'
         }
       : null,
   getScheduledTaskHandler: (type: string) =>
-    type === 'WEBP_ANIMATION_SCAN'
+    type === 'WEBP_ANIMATION_SCAN' || type === 'SCAN_RUN_RETENTION_CLEANUP'
       ? {
           start: handlerStartMock
         }
       : null
 }))
 
-import { runSchedulerTick } from '../scheduled-task-service'
+import { ensureDefaultScheduledTasks, runSchedulerTick, triggerScheduledTaskNow } from '../scheduled-task-service'
 
 function createTask(overrides: Record<string, unknown> = {}) {
   return {
@@ -108,6 +134,18 @@ function createTask(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function createCleanupTask(overrides: Record<string, unknown> = {}) {
+  return createTask({
+    id: 'task-cleanup',
+    key: 'scan_run_retention_cleanup',
+    type: 'SCAN_RUN_RETENTION_CLEANUP',
+    time: '00:10',
+    priority: 20,
+    mutexKey: 'audit-maintenance',
+    ...overrides
+  })
+}
+
 describe('scheduled-task-service', () => {
   beforeEach(() => {
     scheduledTaskUpsertMock.mockReset().mockResolvedValue({})
@@ -116,6 +154,29 @@ describe('scheduled-task-service', () => {
     systemJobFindManyMock.mockReset().mockResolvedValue([])
     getActiveJobsByTypesMock.mockReset().mockResolvedValue([])
     handlerStartMock.mockReset().mockResolvedValue({ jobId: 'job-1' })
+  })
+
+  it('creates default scheduled tasks with per-definition enabled defaults', async () => {
+    await ensureDefaultScheduledTasks()
+
+    expect(scheduledTaskUpsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { key: 'scan_run_retention_cleanup' },
+        create: expect.objectContaining({
+          key: 'scan_run_retention_cleanup',
+          enabled: false
+        })
+      })
+    )
+    expect(scheduledTaskUpsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { key: 'webp_animation_scan' },
+        create: expect.objectContaining({
+          key: 'webp_animation_scan',
+          enabled: false
+        })
+      })
+    )
   })
 
   it('does not trigger before the configured daily time', async () => {
@@ -167,6 +228,29 @@ describe('scheduled-task-service', () => {
     })
   })
 
+  it('triggers due scan run retention cleanup tasks', async () => {
+    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([createCleanupTask()])
+
+    const now = new Date('2026-06-01T00:10:00.000Z')
+    const result = await runSchedulerTick(now)
+
+    expect(handlerStartMock).toHaveBeenCalledWith({ trigger: 'schedule' })
+    expect(scheduledTaskUpdateMock).toHaveBeenCalledWith({
+      where: { key: 'scan_run_retention_cleanup' },
+      data: {
+        lastTriggeredAt: now,
+        lastTriggeredDate: '2026-06-01',
+        lastJobId: 'job-1'
+      }
+    })
+    expect(result.decisions[0]).toMatchObject({
+      key: 'scan_run_retention_cleanup',
+      type: 'SCAN_RUN_RETENTION_CLEANUP',
+      action: 'triggered',
+      jobId: 'job-1'
+    })
+  })
+
   it('skips due tasks when a mutex task is already running', async () => {
     scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([createTask()])
     getActiveJobsByTypesMock.mockResolvedValueOnce([{ id: 'job-active', type: 'OTHER_MEDIA_TASK' }])
@@ -178,5 +262,33 @@ describe('scheduled-task-service', () => {
       action: 'skipped',
       reason: 'mutex_busy'
     })
+  })
+
+  it('skips due tasks when the same task type is already running', async () => {
+    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([createCleanupTask()])
+    getActiveJobsByTypesMock.mockResolvedValueOnce([{ id: 'job-active', type: 'SCAN_RUN_RETENTION_CLEANUP' }])
+
+    const result = await runSchedulerTick(new Date('2026-06-01T00:10:00.000Z'))
+
+    expect(handlerStartMock).not.toHaveBeenCalled()
+    expect(result.decisions[0]).toMatchObject({
+      action: 'skipped',
+      reason: 'already_running'
+    })
+  })
+
+  it('triggers scheduled tasks manually and records the job id', async () => {
+    scheduledTaskFindUniqueMock.mockResolvedValueOnce(createCleanupTask())
+
+    const result = await triggerScheduledTaskNow('scan_run_retention_cleanup')
+
+    expect(handlerStartMock).toHaveBeenCalledWith({ trigger: 'manual' })
+    expect(scheduledTaskUpdateMock).toHaveBeenCalledWith({
+      where: { key: 'scan_run_retention_cleanup' },
+      data: {
+        lastJobId: 'job-1'
+      }
+    })
+    expect(result).toEqual({ jobId: 'job-1' })
   })
 })

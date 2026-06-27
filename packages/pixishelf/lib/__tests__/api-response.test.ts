@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { apiError, apiJson, apiSuccess } from '../api-response'
+import { apiError, apiFailure, apiJson, apiSuccess } from '../api-response'
 
 describe('api-response helpers', () => {
   it('keeps legacy success response shape while preserving typed payload fields', async () => {
@@ -20,6 +20,17 @@ describe('api-response helpers', () => {
       details: ['/a.jpg']
     })
     expect(response.status).toBe(400)
+  })
+
+  it('keeps legacy success-false error response shape with optional details', async () => {
+    const response = apiFailure('Unauthorized', { status: 401, details: { source: 'scheduler' } })
+
+    await expect(response.json()).resolves.toEqual({
+      success: false,
+      error: 'Unauthorized',
+      details: { source: 'scheduler' }
+    })
+    expect(response.status).toBe(401)
   })
 
   it('returns arbitrary typed JSON without adding success fields', async () => {

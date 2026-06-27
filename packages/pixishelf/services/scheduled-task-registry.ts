@@ -3,12 +3,14 @@ import 'server-only'
 import logger from '@/lib/logger'
 import * as JobService from '@/services/job-service'
 import { getScanPath } from '@/services/setting.service'
+import { cleanupScanRunHistory } from '@/services/scan-run-service'
 import { runVideoMediaProbeJob } from '@/services/video-media-probe-service'
 import { runWebpAnimationScanJob } from '@/services/webp-animation-scan-service'
 
 export const SCHEDULED_TASK_TYPES = {
   WEBP_ANIMATION_SCAN: 'WEBP_ANIMATION_SCAN',
-  VIDEO_MEDIA_PROBE: 'VIDEO_MEDIA_PROBE'
+  VIDEO_MEDIA_PROBE: 'VIDEO_MEDIA_PROBE',
+  SCAN_RUN_RETENTION_CLEANUP: 'SCAN_RUN_RETENTION_CLEANUP'
 } as const
 
 export type ScheduledTaskType = (typeof SCHEDULED_TASK_TYPES)[keyof typeof SCHEDULED_TASK_TYPES]
@@ -21,10 +23,22 @@ export interface ScheduledTaskDefinition {
   defaultTime: string
   defaultTimezone: string
   defaultPriority: number
+  defaultEnabled: boolean
   mutexKey: string | null
 }
 
 export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
+  {
+    key: 'scan_run_retention_cleanup',
+    type: SCHEDULED_TASK_TYPES.SCAN_RUN_RETENTION_CLEANUP,
+    name: '清理扫描历史',
+    description: '删除超过保留策略的扫描审计历史：终态记录保留 180 天，并按类型保留最近 100 条。',
+    defaultTime: '02:30',
+    defaultTimezone: 'Asia/Shanghai',
+    defaultPriority: 20,
+    defaultEnabled: false,
+    mutexKey: 'audit-maintenance'
+  },
   {
     key: 'webp_animation_scan',
     type: SCHEDULED_TASK_TYPES.WEBP_ANIMATION_SCAN,
@@ -33,6 +47,7 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
     defaultTime: '03:30',
     defaultTimezone: 'Asia/Shanghai',
     defaultPriority: 30,
+    defaultEnabled: false,
     mutexKey: 'media-maintenance'
   },
   {
@@ -43,6 +58,7 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
     defaultTime: '04:00',
     defaultTimezone: 'Asia/Shanghai',
     defaultPriority: 40,
+    defaultEnabled: false,
     mutexKey: 'media-maintenance'
   }
 ]
@@ -60,6 +76,9 @@ type ScheduledTaskHandler = {
 }
 
 export const SCHEDULED_TASK_HANDLERS: Record<ScheduledTaskType, ScheduledTaskHandler> = {
+  [SCHEDULED_TASK_TYPES.SCAN_RUN_RETENTION_CLEANUP]: {
+    start: startScanRunRetentionCleanupTask
+  },
   [SCHEDULED_TASK_TYPES.WEBP_ANIMATION_SCAN]: {
     start: startWebpAnimationScanTask
   },
@@ -78,6 +97,29 @@ export function getScheduledTaskDefinitionByType(type: string) {
 
 export function getScheduledTaskHandler(type: string) {
   return SCHEDULED_TASK_HANDLERS[type as ScheduledTaskType] ?? null
+}
+
+async function startScanRunRetentionCleanupTask(options: StartScheduledTaskOptions): Promise<StartScheduledTaskResult> {
+  const activeJob = await JobService.getActiveJobByType(SCHEDULED_TASK_TYPES.SCAN_RUN_RETENTION_CLEANUP)
+  if (activeJob) {
+    throw new Error('Scan run retention cleanup job is already running')
+  }
+
+  const job = await JobService.createScanRunRetentionCleanupJob()
+
+  ;(async () => {
+    try {
+      await JobService.updateProgress(job.id, 10, '正在计算需要清理的扫描历史...')
+      const result = await cleanupScanRunHistory()
+      await JobService.updateProgress(job.id, 100, '扫描历史清理完成')
+      await JobService.completeJob(job.id, { ...result, trigger: options.trigger })
+    } catch (error) {
+      logger.error('Scan run retention cleanup job failed', { error, trigger: options.trigger })
+      await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
+    }
+  })()
+
+  return { jobId: job.id }
 }
 
 async function startWebpAnimationScanTask(options: StartScheduledTaskOptions): Promise<StartScheduledTaskResult> {

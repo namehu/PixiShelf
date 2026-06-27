@@ -122,6 +122,7 @@
   - 进展：
     - [x] 新增 `lib/api-response.ts`，统一 typed success/error/json helper，保持现有 JSON shape 不变。
     - [x] 为 artwork media 三组接口补充前后端 response 类型：upload chunk、media chapter upload、image replace session。
+    - [x] 新增 `apiFailure` typed helper，迁移 internal scheduler tick 接口，保持 `{ success: false, error }` shape 不变。
     - [ ] scan/rescan 接口和更广泛 API 的 `{ message }` 迁移待单独设计，避免破坏现有前端对 `{ error }` 的依赖。
 
 - [x] 逐步减少扫描链路中的宽松类型
@@ -172,8 +173,9 @@
     - [x] 本地目录导入、后台批量导入、本地创建作品接入同一套扫描审计历史；批量导入通过 `scanRunId` 串联创建和图片注册阶段。
     - [x] 作品级明细按批量写入，记录成功、跳过、失败及相对路径，不保存绝对路径或 raw metadata。
     - [x] 设置页新增扫描历史卡片，支持最近一次摘要、历史列表和按状态筛选详情。
+    - [x] 新增 scheduler 扫描历史清理任务，默认关闭，可在任务计划页面开启或立即执行；终态历史保留 180 天，并按 `ScanRunType` 各保留最近 100 条。
 
-- [ ] 后台任务化扫描设计
+- [x] 后台任务化扫描设计
   - 目标：让扫描不依赖页面连接长期保持。
   - 建议先写设计，不直接实现。
   - 设计要回答：
@@ -186,6 +188,9 @@
     - 形成设计文档；
     - 明确是否分阶段迁移；
     - 不在设计阶段改生产代码。
+  - 进展：
+    - [x] 新增 `docs/design/background-scan-jobs.md`，明确 `SystemJob` 负责运行态、`ScanRun` 负责审计历史。
+    - [x] 设计 start/status/cancel 任务接口、页面恢复、取消传播、`/api/scan/stream` 兼容迁移和分阶段落地顺序。
 
 ## 建议执行顺序
 

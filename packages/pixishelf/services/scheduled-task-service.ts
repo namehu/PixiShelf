@@ -55,7 +55,7 @@ export async function ensureDefaultScheduledTasks() {
       create: {
         key: definition.key,
         type: definition.type,
-        enabled: false,
+        enabled: definition.defaultEnabled,
         scheduleMode: ScheduleMode.DAILY,
         time: definition.defaultTime,
         timezone: definition.defaultTimezone,

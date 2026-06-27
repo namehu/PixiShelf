@@ -242,7 +242,7 @@ pnpm db:push
 - 批量导入上传 chunk 不记录逐 chunk 明细，只记录最终作品和图片注册结果。
 - 第一版历史详情只有作品级，不含媒体级明细。
 - 文件日志 `logRef` 只是预留字段，当前 UI 不读取文件日志。
-- 历史保留策略尚未实现，表会持续增长。
+- 历史保留策略已通过 scheduler 维护任务实现：`ScanRun` 终态审计记录保留 180 天，并按 `ScanRunType` 各保留最近 100 条。该任务默认关闭，可在任务计划页面开启或立即执行；策略也会清理默认历史列表隐藏的 `LOCAL_CREATE` 记录，避免隐藏审计数据持续增长。
 - **Pixiv 增量扫描的"已存在跳过"只计入汇总，不写作品级明细（有意设计）。** 增量扫描在发现阶段就用 `existingIds` 把已存在作品过滤掉，不进入 `parseAndCollect`，因此不会生成 `SKIP_EXISTING` 明细。这是为了避免在 10w 级作品库下，每次增量扫描都插入约 10w 条"已存在"脏明细。代价是：增量扫描的汇总 `skippedArtworks` 有数字，但在详情里按"跳过"筛选看不到对应作品行（`completeScanRunSummary` 用 `Math.max(summary.skippedArtworks, counts.skippedArtworks)` 保证汇总数不被明细数拉低）。本地目录导入因作品量级小，仍逐条记录 `SKIP_EXISTING`，两者行为不同属预期。
 - **批量导入在"创建作品"阶段结束即标记 `ScanRun` 为 COMPLETED。** 若用户在创建后、上传/注册图片前关闭对话框或刷新页面，会留下一条 `COMPLETED` 但 `newImages = 0`、各 item `mediaCount = 0` 的记录。该记录处于终态、不会触发前端永久轮询，但看起来是"成功却没有图片"的运行。属可接受的边缘场景。
 - **`parseAndCollect` 的 `context` 参数可选，不传时审计静默跳过。** 该参数设为可选是为兼容旧调用方；若将来新增调用方忘记传入 `context`，对应的 SKIPPED / FAILED 作品级明细会被静默丢弃而非报错。当前两处调用方（`scan.ts`、`rescan.ts`）均已正确传入。
@@ -250,11 +250,12 @@ pnpm db:push
 
 ## 后续 TODO
 
-- 增加扫描/导入历史保留策略：
-  - 最近 N 次；
-  - 最近 90 天；
-  - 或按类型分别配置。
-- 增加后台任务化扫描设计：
+- `ScanRun` 审计历史保留策略已实现：
+  - Docker scheduler 容器定期调用内部 tick；
+  - `SCAN_RUN_RETENTION_CLEANUP` 默认关闭，可在任务计划页面开启或立即执行；
+  - 终态历史保留 180 天，并按类型各保留最近 100 条；
+  - 包含默认历史列表隐藏的 `LOCAL_CREATE` 记录。
+- 增加后台任务化扫描设计（已形成设计文档：`docs/design/background-scan-jobs.md`）：
   - job 存储；
   - progress 订阅；
   - 页面关闭后恢复；

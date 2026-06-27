@@ -9,6 +9,12 @@ export type ApiErrorResponse<TDetails = unknown> = {
   details?: TDetails
 }
 
+export type ApiFailureResponse<TDetails = unknown> = {
+  success: false
+  error: string
+  details?: TDetails
+}
+
 export function apiSuccess<TBody extends Record<string, unknown> = Record<string, never>>(
   body?: TBody,
   init?: ResponseInit
@@ -32,6 +38,19 @@ export function apiError<TDetails = unknown>(message: string, options: { status?
         }
 
   return NextResponse.json<ApiErrorResponse<TDetails>>(body, { status: options.status ?? 500 })
+}
+
+export function apiFailure<TDetails = unknown>(message: string, options: { status?: number; details?: TDetails } = {}) {
+  const body: ApiFailureResponse<TDetails> =
+    options.details === undefined
+      ? { success: false, error: message }
+      : {
+          success: false,
+          error: message,
+          details: options.details
+        }
+
+  return NextResponse.json<ApiFailureResponse<TDetails>>(body, { status: options.status ?? 500 })
 }
 
 export function apiJson<TBody>(body: TBody, init?: ResponseInit) {
