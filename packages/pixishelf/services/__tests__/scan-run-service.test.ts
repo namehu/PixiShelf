@@ -4,6 +4,7 @@ import { ScanRunItemStatus, ScanRunMode, ScanRunStatus, ScanRunType } from '@pri
 const {
   scanRunCreateMock,
   scanRunUpdateMock,
+  scanRunDeleteManyMock,
   scanRunFindManyMock,
   scanRunFindFirstMock,
   scanRunItemCreateManyMock,
@@ -13,6 +14,7 @@ const {
 } = vi.hoisted(() => ({
   scanRunCreateMock: vi.fn(),
   scanRunUpdateMock: vi.fn(),
+  scanRunDeleteManyMock: vi.fn(),
   scanRunFindManyMock: vi.fn(),
   scanRunFindFirstMock: vi.fn(),
   scanRunItemCreateManyMock: vi.fn(),
@@ -26,6 +28,7 @@ vi.mock('@/lib/prisma', () => ({
     scanRun: {
       create: scanRunCreateMock,
       update: scanRunUpdateMock,
+      deleteMany: scanRunDeleteManyMock,
       findMany: scanRunFindManyMock,
       findFirst: scanRunFindFirstMock
     },
@@ -40,6 +43,7 @@ vi.mock('@/lib/prisma', () => ({
 
 import {
   appendScanRunItems,
+  cleanupScanRunHistory,
   completeScanRun,
   completeScanRunSummary,
   getLatestScanRun,
@@ -54,6 +58,7 @@ describe('scan-run-service', () => {
   beforeEach(() => {
     scanRunCreateMock.mockReset().mockImplementation(({ data }) => Promise.resolve({ id: 'scan-run-1', ...data }))
     scanRunUpdateMock.mockReset().mockImplementation(({ data }) => Promise.resolve({ id: 'scan-run-1', ...data }))
+    scanRunDeleteManyMock.mockReset().mockResolvedValue({ count: 0 })
     scanRunFindManyMock.mockReset().mockResolvedValue([])
     scanRunFindFirstMock.mockReset().mockResolvedValue(null)
     scanRunItemCreateManyMock.mockReset().mockResolvedValue({ count: 2 })
@@ -203,6 +208,92 @@ describe('scan-run-service', () => {
         }
       }
     })
+  })
+
+  it('cleans up terminal scan runs older than the retention cutoff', async () => {
+    scanRunFindManyMock
+      .mockResolvedValueOnce([{ id: 'old-completed' }, { id: 'old-failed' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+    scanRunDeleteManyMock.mockResolvedValueOnce({ count: 2 })
+
+    const result = await cleanupScanRunHistory({
+      now: new Date('2026-06-26T00:00:00.000Z'),
+      maxAgeDays: 180,
+      maxRunsPerType: 100
+    })
+
+    expect(scanRunFindManyMock).toHaveBeenNthCalledWith(1, {
+      where: {
+        status: { in: [ScanRunStatus.COMPLETED, ScanRunStatus.FAILED, ScanRunStatus.CANCELLED] },
+        finishedAt: { lt: new Date('2025-12-28T00:00:00.000Z') }
+      },
+      select: { id: true }
+    })
+    expect(scanRunDeleteManyMock).toHaveBeenCalledWith({
+      where: {
+        id: { in: ['old-completed', 'old-failed'] }
+      }
+    })
+    expect(result).toEqual({ deletedRuns: 2 })
+  })
+
+  it('keeps only the latest configured number of terminal runs per type', async () => {
+    scanRunFindManyMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'pixiv-overflow' }])
+      .mockResolvedValueOnce([{ id: 'local-import-overflow' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'batch-overflow' }])
+    scanRunDeleteManyMock.mockResolvedValueOnce({ count: 3 })
+
+    await cleanupScanRunHistory({
+      now: new Date('2026-06-26T00:00:00.000Z'),
+      maxAgeDays: 180,
+      maxRunsPerType: 100
+    })
+
+    expect(scanRunFindManyMock).toHaveBeenNthCalledWith(2, {
+      where: {
+        type: ScanRunType.PIXIV,
+        status: { in: [ScanRunStatus.COMPLETED, ScanRunStatus.FAILED, ScanRunStatus.CANCELLED] }
+      },
+      orderBy: [{ finishedAt: 'desc' }, { startedAt: 'desc' }],
+      skip: 100,
+      select: { id: true }
+    })
+    expect(scanRunDeleteManyMock).toHaveBeenCalledWith({
+      where: {
+        id: { in: ['pixiv-overflow', 'local-import-overflow', 'batch-overflow'] }
+      }
+    })
+  })
+
+  it('does not delete running scan runs during retention cleanup', async () => {
+    scanRunFindManyMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    const result = await cleanupScanRunHistory({
+      now: new Date('2026-06-26T00:00:00.000Z'),
+      maxAgeDays: 180,
+      maxRunsPerType: 100
+    })
+
+    expect(scanRunFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: { in: [ScanRunStatus.COMPLETED, ScanRunStatus.FAILED, ScanRunStatus.CANCELLED] }
+        })
+      })
+    )
+    expect(scanRunDeleteManyMock).not.toHaveBeenCalled()
+    expect(result).toEqual({ deletedRuns: 0 })
   })
 
   it('excludes manual local-create audit runs from latest history lookup', async () => {

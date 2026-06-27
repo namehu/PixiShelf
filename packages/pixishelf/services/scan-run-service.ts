@@ -9,6 +9,9 @@ import type { ArtworkSource } from '@/schemas/models'
 const DEFAULT_ITEM_BATCH_SIZE = 200
 const MAX_HISTORY_LIMIT = 50
 const MAX_DETAIL_LIMIT = 500
+const DEFAULT_RETENTION_MAX_AGE_DAYS = 180
+const DEFAULT_RETENTION_MAX_RUNS_PER_TYPE = 100
+const TERMINAL_SCAN_RUN_STATUSES = [ScanRunStatus.COMPLETED, ScanRunStatus.FAILED, ScanRunStatus.CANCELLED]
 const DEFAULT_HISTORY_RUN_WHERE: Prisma.ScanRunWhereInput = {
   mode: {
     not: ScanRunMode.LOCAL_CREATE
@@ -53,6 +56,16 @@ export interface UpdateScanRunItemMediaInput {
   mediaCount: number
   newImageCount: number
   errorMessage?: string | null
+}
+
+export interface CleanupScanRunHistoryInput {
+  now?: Date
+  maxAgeDays?: number
+  maxRunsPerType?: number
+}
+
+export interface CleanupScanRunHistoryResult {
+  deletedRuns: number
 }
 
 export function getScanRunTypeForArtworkSource(source: ArtworkSource) {
@@ -257,6 +270,51 @@ export async function getScanRunDetail(input: GetScanRunDetailInput) {
     items: pageItems,
     nextCursor: hasMore ? (pageItems[pageItems.length - 1]?.id ?? null) : null
   }
+}
+
+/** 清理 ScanRun 审计历史：只删除终态记录，包含默认历史列表隐藏的 LOCAL_CREATE，明细依赖数据库级联删除 */
+export async function cleanupScanRunHistory(input: CleanupScanRunHistoryInput = {}): Promise<CleanupScanRunHistoryResult> {
+  const now = input.now ?? new Date()
+  const maxAgeDays = input.maxAgeDays ?? DEFAULT_RETENTION_MAX_AGE_DAYS
+  const maxRunsPerType = input.maxRunsPerType ?? DEFAULT_RETENTION_MAX_RUNS_PER_TYPE
+  const cutoff = new Date(now.getTime() - maxAgeDays * 24 * 60 * 60 * 1000)
+  const idsToDelete = new Set<string>()
+
+  const expiredRuns = await prisma.scanRun.findMany({
+    where: {
+      status: { in: TERMINAL_SCAN_RUN_STATUSES },
+      finishedAt: { lt: cutoff }
+    },
+    select: { id: true }
+  })
+
+  expiredRuns.forEach((run) => idsToDelete.add(run.id))
+
+  for (const type of Object.values(ScanRunType)) {
+    const overflowRuns = await prisma.scanRun.findMany({
+      where: {
+        type,
+        status: { in: TERMINAL_SCAN_RUN_STATUSES }
+      },
+      orderBy: [{ finishedAt: 'desc' }, { startedAt: 'desc' }],
+      skip: maxRunsPerType,
+      select: { id: true }
+    })
+
+    overflowRuns.forEach((run) => idsToDelete.add(run.id))
+  }
+
+  if (idsToDelete.size === 0) {
+    return { deletedRuns: 0 }
+  }
+
+  const result = await prisma.scanRun.deleteMany({
+    where: {
+      id: { in: Array.from(idsToDelete) }
+    }
+  })
+
+  return { deletedRuns: result.count }
 }
 
 /** 按状态分组统计扫描运行条目数量 */

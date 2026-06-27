@@ -3,6 +3,7 @@ import { JobStatus, Prisma } from '@prisma/client'
 
 const MEDIA_SCAN_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT']
 const MEDIA_SCAN_ADVISORY_LOCK_ID = 728341
+const SCAN_RUN_RETENTION_CLEANUP_JOB_TYPE = 'SCAN_RUN_RETENTION_CLEANUP'
 
 async function createMediaScanJob(type: 'SCAN' | 'LOCAL_DIRECTORY_IMPORT', message: string) {
   return prisma.$transaction(async (tx) => {
@@ -233,6 +234,33 @@ export async function createVideoMediaProbeJob() {
         type: 'VIDEO_MEDIA_PROBE',
         status: JobStatus.RUNNING,
         message: '初始化...',
+        progress: 0
+      }
+    })
+  })
+}
+
+/**
+ * 尝试创建一个扫描历史保留策略清理任务
+ */
+export async function createScanRunRetentionCleanupJob() {
+  return await prisma.$transaction(async (tx) => {
+    const activeJob = await tx.systemJob.findFirst({
+      where: {
+        type: SCAN_RUN_RETENTION_CLEANUP_JOB_TYPE,
+        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+      }
+    })
+
+    if (activeJob) {
+      throw new Error('Scan run retention cleanup job is already running')
+    }
+
+    return await tx.systemJob.create({
+      data: {
+        type: SCAN_RUN_RETENTION_CLEANUP_JOB_TYPE,
+        status: JobStatus.RUNNING,
+        message: '正在清理扫描历史...',
         progress: 0
       }
     })
