@@ -6,7 +6,7 @@ import { confirm } from '@/components/shared/global-confirm'
 import { ClientScanCard } from './client-scan-card'
 import { ServerScanCard } from './server-scan-card'
 import { ScanResultCard } from './scan-result-card'
-import { ScanHistoryCard } from './scan-history-card'
+import { ScanHistorySummaryCard } from './scan-history-summary-card'
 import { useSseScan } from '../_hooks/use-sse-scan'
 
 function useScanPath() {
@@ -103,7 +103,7 @@ function ScanManagement() {
         {/* 仅在有任何活动或结果时显示此卡片 */}
         <ScanResultCard onCancel={actions.cancelScan} elapsed={state.elapsed} />
 
-        <ScanHistoryCard />
+        <ScanHistorySummaryCard />
       </div>
     </div>
   )
