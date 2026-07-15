@@ -5,6 +5,7 @@ import * as JobService from '@/services/job-service'
 import { getScanPath } from '@/services/setting.service'
 import { cleanupScanRunHistory } from '@/services/scan-run-service'
 import { runVideoMediaProbeJob } from '@/services/video-media-probe-service'
+import { runVideoPosterGenerationJob } from '@/services/video-poster-service'
 import { runWebpAnimationScanJob } from '@/services/webp-animation-scan-service'
 
 export const SCHEDULED_TASK_TYPES = {
@@ -84,7 +85,7 @@ export const SCHEDULED_TASK_HANDLERS: Record<ScheduledTaskType, ScheduledTaskHan
   },
   [SCHEDULED_TASK_TYPES.VIDEO_MEDIA_PROBE]: {
     start: startVideoMediaProbeTask
-  }
+  },
 }
 
 export function getScheduledTaskDefinition(key: string) {
@@ -185,7 +186,18 @@ async function startVideoMediaProbeTask(options: StartScheduledTaskOptions): Pro
           return current?.status === 'CANCELLING' || current?.status === 'CANCELLED'
         },
         onProgress: async (progress) => {
-          await JobService.updateProgress(job.id, progress.percentage, progress.message)
+          await JobService.updateProgress(job.id, Math.min(50, Math.round(progress.percentage / 2)), `媒体探测：${progress.message}`)
+        }
+      })
+      await JobService.updateProgress(job.id, 50, '媒体探测完成，正在生成视频封面...')
+      const posterResult = await runVideoPosterGenerationJob({
+        scanPath,
+        checkCancelled: async () => {
+          const current = await JobService.getJob(job.id)
+          return current?.status === 'CANCELLING' || current?.status === 'CANCELLED'
+        },
+        onProgress: async (progress) => {
+          await JobService.updateProgress(job.id, 50 + Math.round(progress.percentage / 2), `生成封面：${progress.message}`)
         }
       })
       const current = await JobService.getJob(job.id)
@@ -193,7 +205,7 @@ async function startVideoMediaProbeTask(options: StartScheduledTaskOptions): Pro
         await JobService.markAsCancelled(job.id)
         return
       }
-      await JobService.completeJob(job.id, { ...result, trigger: options.trigger })
+      await JobService.completeJob(job.id, { ...result, poster: posterResult, trigger: options.trigger })
     } catch (error) {
       logger.error('Video media probe job failed', { error, trigger: options.trigger })
 

@@ -40,6 +40,7 @@ services:
     volumes:
       # 挂载图片目录 - 根据实际需要调整路径
       - "${PIXISHELF_DATA_PATH:-./data}:/app/data:ro"  # 只读挂载图片目录
+      - video_posters:/app/video-posters
     networks:
       - pixishelf-network
     depends_on:
@@ -129,6 +130,7 @@ services:
       - FILTERS=['thumbor_video_engine.filters.format','thumbor_video_engine.filters.still']
 volumes:
   postgres_data:
+  video_posters:
 
 networks:
   pixishelf-network:

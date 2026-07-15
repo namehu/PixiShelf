@@ -234,7 +234,11 @@ export const ArtworkImageResponseDto = ImageModel.extend({
   audioChannels: z.number().int().nullable().optional(),
   videoCodec: z.string().nullable().optional(),
   duration: z.number().nullable().optional(),
-  fps: z.number().nullable().optional()
+  fps: z.number().nullable().optional(),
+  posterStatus: z.enum(['PENDING', 'GENERATING', 'COMPLETED', 'FAILED']).nullable().optional(),
+  posterUpdatedAt: nullableDateToString.optional(),
+  posterError: z.string().nullable().optional(),
+  posterUrl: z.string().nullable().optional()
 }).omit({
   videoMetadata: true
 })

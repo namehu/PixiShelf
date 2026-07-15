@@ -618,7 +618,7 @@ function parseFps(value: string | undefined): number | null {
   return numerator / denominator
 }
 
-function resolvePathWithinScanRoot(scanRoot: string, relativePath: string): string {
+export function resolvePathWithinScanRoot(scanRoot: string, relativePath: string): string {
   const normalizedRoot = path.resolve(scanRoot)
   const resolvedPath = path.resolve(normalizedRoot, relativePath.replace(/^[/\\]+/, ''))
   const rootWithSeparator = normalizedRoot.endsWith(path.sep) ? normalizedRoot : `${normalizedRoot}${path.sep}`

@@ -99,7 +99,7 @@ export interface ArtworkCardData {
   title: string
   imageCount: number
   totalMediaSize?: number
-  images: Array<Pick<MediaFile, 'path' | 'size' | 'mediaType'>>
+  images: Array<Pick<MediaFile, 'path' | 'size' | 'mediaType'> & { posterUrl?: string | null }>
   artist?: Pick<Artist, 'name'> | null
   tags: Array<{ name: string }>
 }

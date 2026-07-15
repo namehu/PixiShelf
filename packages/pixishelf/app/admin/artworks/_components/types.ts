@@ -20,4 +20,8 @@ export interface ImageListItem {
   videoCodec?: string | null
   duration?: number | null
   fps?: number | null
+  posterStatus?: 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED' | null
+  posterUpdatedAt?: string | null
+  posterError?: string | null
+  posterUrl?: string | null
 }

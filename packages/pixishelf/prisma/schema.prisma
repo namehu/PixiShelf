@@ -176,10 +176,15 @@ model MediaVideoMetadata {
   videoCodec     String?
   duration       Float?
   fps            Float?
+  posterStatus   VideoPosterStatus @default(PENDING)
+  posterPath     String?
+  posterUpdatedAt DateTime?
+  posterError    String?          @db.Text
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
   @@index([probeStatus])
+  @@index([posterStatus])
   @@index([hasAudio])
 }
 
@@ -470,6 +475,13 @@ enum MediaProbeStatus {
   COMPLETED
   FAILED
   SKIPPED
+}
+
+enum VideoPosterStatus {
+  PENDING
+  GENERATING
+  COMPLETED
+  FAILED
 }
 
 model Series {

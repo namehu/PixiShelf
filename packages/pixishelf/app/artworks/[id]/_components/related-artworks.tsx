@@ -175,7 +175,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
                   title={artwork.title}
                 >
                   <Image
-                    src={cover.path}
+                    src={cover.posterUrl || cover.path}
                     alt={artwork.title}
                     fill
                     className={cn('object-cover', isCurrent && 'bg-white opacity-20')}

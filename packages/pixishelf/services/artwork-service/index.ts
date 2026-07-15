@@ -505,7 +505,8 @@ export async function getRandomArtworks(
     include: {
       images: {
         take: maxImageCount,
-        orderBy: { sortOrder: 'asc' }
+        orderBy: { sortOrder: 'asc' },
+        include: { videoMetadata: true }
       },
       artist: true,
       artworkTags: { include: { tag: true } }
@@ -602,12 +603,13 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
 
 function toViewerImageItem(artwork: any, likeStatusMap: Record<number, boolean>): RandomImageItem {
   const images = (artwork.images || []).map((img: any) => {
+    // 沉浸浏览需要真实视频地址供播放器播放，封面仅用于列表卡片。
     const url = img.mediaType === 'video' ? combinationApiResource(img.path) : img.path
     return { key: guid(), url }
   })
 
   const imageUrl = images[0]?.url ?? ''
-  const isCoverVideo = isVideoFile(imageUrl)
+  const isCoverVideo = artwork.images?.[0]?.mediaType === 'video' || isVideoFile(artwork.images?.[0]?.path ?? '')
   const artist = artwork.artist
 
   return {
@@ -705,8 +707,11 @@ const artworkCardSelect = {
     take: 1,
     orderBy: { sortOrder: 'asc' },
     select: {
+      id: true,
       path: true,
-      size: true
+      size: true,
+      mediaType: true,
+      videoMetadata: { select: { posterStatus: true, posterPath: true, posterUpdatedAt: true } }
     }
   },
   artist: {
@@ -729,13 +734,23 @@ function transformArtworkCard(artwork: {
   id: number
   title: string
   imageCount: number
-  images: Array<{ path: string; size: number | null }>
+  images: Array<{
+    id: number
+    path: string
+    size: number | null
+    mediaType: string
+    videoMetadata: { posterStatus: string; posterPath: string | null; posterUpdatedAt: Date | null } | null
+  }>
   artist: { name: string } | null
   artworkTags: Array<{ tag: { name: string } }>
 }): ArtworkCardData {
   const images = artwork.images.map((image) => ({
     ...image,
-    mediaType: isVideoFile(image.path) ? ('video' as const) : ('image' as const)
+    mediaType: image.mediaType === 'VIDEO' || isVideoFile(image.path) ? ('video' as const) : ('image' as const),
+    posterUrl:
+      image.videoMetadata?.posterStatus === 'COMPLETED' && image.videoMetadata.posterPath
+        ? `/api/v1/video-posters/${image.id}?v=${image.videoMetadata.posterUpdatedAt?.getTime() ?? ''}`
+        : null
   }))
 
   return {

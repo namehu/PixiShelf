@@ -48,6 +48,7 @@ services:
       NEXT_PUBLIC_THUMBOR_VIDEO_URL: http://127.0.0.1:${THUMBOR_HOST_PORT:-5433}
     volumes:
       - "${PIXISHELF_DATA_PATH}:/app/data:cached"
+      - video_posters:/app/video-posters
     networks:
       - pixishelf-network
     depends_on:
@@ -137,6 +138,7 @@ services:
       - FILTERS=['thumbor_video_engine.filters.format','thumbor_video_engine.filters.still']
 volumes:
   postgres_data:
+  video_posters:
 
 networks:
   pixishelf-network:

@@ -240,6 +240,7 @@ export async function createVideoMediaProbeJob() {
   })
 }
 
+
 /**
  * 尝试创建一个扫描历史保留策略清理任务
  */
@@ -315,6 +316,7 @@ export async function getLatestVideoMediaProbeJob() {
     orderBy: { createdAt: 'desc' }
   })
 }
+
 
 export async function getActiveJobByType(type: string) {
   return await prisma.systemJob.findFirst({

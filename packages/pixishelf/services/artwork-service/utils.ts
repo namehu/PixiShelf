@@ -70,7 +70,14 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
           audioChannels: videoMetadata.audioChannels,
           videoCodec: videoMetadata.videoCodec,
           duration: videoMetadata.duration,
-          fps: videoMetadata.fps
+          fps: videoMetadata.fps,
+          posterStatus: videoMetadata.posterStatus,
+          posterUpdatedAt: videoMetadata.posterUpdatedAt,
+          posterError: videoMetadata.posterError,
+          posterUrl:
+            videoMetadata.posterStatus === 'COMPLETED' && videoMetadata.posterPath
+              ? `/api/v1/video-posters/${image.id}?v=${new Date(videoMetadata.posterUpdatedAt ?? 0).getTime()}`
+              : null
         }
       : getFlatVideoMetadataFields(image as any)
 

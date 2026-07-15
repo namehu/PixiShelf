@@ -156,6 +156,10 @@ export const ImageModel = z.object({
       videoCodec: z.string().nullable(),
       duration: z.number().nullable(),
       fps: z.number().nullable(),
+      posterStatus: z.enum(['PENDING', 'GENERATING', 'COMPLETED', 'FAILED']).default('PENDING'),
+      posterPath: z.string().nullable().default(null),
+      posterUpdatedAt: z.date().or(z.string()).nullable().default(null),
+      posterError: z.string().nullable().default(null),
       createdAt: z.date().or(z.string()),
       updatedAt: z.date().or(z.string())
     })

@@ -38,6 +38,10 @@ vi.mock('@/services/video-media-probe-service', () => ({
   runVideoMediaProbeJob: vi.fn()
 }))
 
+vi.mock('@/services/video-poster-service', () => ({
+  runVideoPosterGenerationJob: vi.fn()
+}))
+
 vi.mock('@/services/webp-animation-scan-service', () => ({
   runWebpAnimationScanJob: vi.fn()
 }))

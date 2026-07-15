@@ -24,7 +24,8 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
   const preferredTags = usePreferredTags()
   const { id, title, imageCount, totalMediaSize = 0, images = [], artist, tags = [] } = artwork
 
-  const { path: src = '', mediaType } = images[0] ?? {}
+  const { path = '', posterUrl, mediaType } = images[0] ?? {}
+  const src = posterUrl || path
   const { name } = artist ?? {}
   const preferredTag = useMemo(() => getPreferredTagName(preferredTags, tags), [preferredTags, tags])
 

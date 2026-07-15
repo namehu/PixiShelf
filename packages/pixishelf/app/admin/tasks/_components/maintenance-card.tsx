@@ -56,6 +56,7 @@ interface VideoMediaProbeResult {
   failed?: number
   remainingPending?: number
   failedSamples?: VideoMediaProbeFailedSample[]
+  poster?: { processed?: number; generated?: number; failed?: number; orphanedFilesDeleted?: number }
 }
 
 interface ScheduledTaskView {
@@ -86,6 +87,7 @@ function toWebpAnimationScanResult(result: unknown): WebpAnimationScanResult | n
 function toVideoMediaProbeResult(result: unknown): VideoMediaProbeResult | null {
   return result && typeof result === 'object' ? (result as VideoMediaProbeResult) : null
 }
+
 
 export function MaintenanceCard() {
   const trpc = useTRPC()
@@ -126,6 +128,7 @@ export function MaintenanceCard() {
   )
   const videoProbeJob = videoProbeJobQuery.data as any
   const refetchVideoProbeJob = videoProbeJobQuery.refetch
+
 
   const scheduledTasksQuery = useQuery(trpc.job.listScheduledTasks.queryOptions())
   const scheduledTasks = (scheduledTasksQuery.data ?? []) as ScheduledTaskView[]
@@ -551,6 +554,11 @@ export function MaintenanceCard() {
                     metadata {videoProbeResult?.metadataRowsCreated ?? 0} 行；本次探测/重试视频：成功{' '}
                     {videoProbeResult?.processed ?? 0} 个，失败 {videoProbeResult?.failed ?? 0} 个；当前剩余待探测{' '}
                     {videoProbeResult?.remainingPending ?? 0} 个。
+                  </p>
+                  <p>
+                    视频封面：处理 {videoProbeResult?.poster?.processed ?? 0} 个，生成{' '}
+                    {videoProbeResult?.poster?.generated ?? 0} 个，失败 {videoProbeResult?.poster?.failed ?? 0} 个，清理孤儿封面{' '}
+                    {videoProbeResult?.poster?.orphanedFilesDeleted ?? 0} 个。
                   </p>
                   {videoProbeResult?.failedSamples && videoProbeResult.failedSamples.length > 0 && (
                     <div className="rounded border border-red-200 bg-red-50 p-2 text-red-700">

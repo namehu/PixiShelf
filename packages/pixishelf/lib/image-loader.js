@@ -7,6 +7,7 @@ const IMGPROXY_URL = process.env.NEXT_PUBLIC_IMGPROXY_URL || 'http://localhost:5
 const THUMBOR_VIDEO_URL = process.env.NEXT_PUBLIC_THUMBOR_VIDEO_URL || 'http://localhost:5433';
 const DEFAULT_IMAGE_OUTPUT_FORMAT = 'webp'
 const STATIC_ANIMATION_THUMBNAIL_FORMAT = 'jpg'
+const VIDEO_POSTER_API_PREFIX = '/api/v1/video-posters/'
 
 /**
  * @typedef {Object} ImgproxyImageOptions
@@ -28,7 +29,7 @@ export function buildImgproxyImageUrl({ src, width, quality, format = DEFAULT_IM
  */
 export default function imgproxyLoader({ src, width, quality, format }) {
   // pixiv_data 下面可用防止 artists / tags图片数据。根据public挂载
-  if (src.startsWith(API_IMAGE_PREFIX) || src.startsWith('/pixiv_data')) {
+  if (src.startsWith(API_IMAGE_PREFIX) || src.startsWith(VIDEO_POSTER_API_PREFIX) || src.startsWith('/pixiv_data')) {
     return src
   }
 
