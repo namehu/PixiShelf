@@ -12,6 +12,7 @@ import { useCurrentChapter } from '@/components/players/use-current-chapter'
 import { useVideoChapters } from '@/components/players/use-video-chapters'
 import { createChapterTimelineMarkers, type NormalizedChapter } from '@/components/players/video-chapters'
 import { useMediaQuery } from '@/hooks/use-media-query'
+import { createArtplayerCleanup } from '@/lib/artplayer-lifecycle'
 import { cn } from '@/lib/utils'
 import { combinationApiResource } from '@/utils/combinationStatic'
 import './VideoPlayer.css'
@@ -155,6 +156,7 @@ export function VideoPlayer({
   useEffect(() => {
     let active = true
     let instance: ArtplayerType | null = null
+    let cleanupPlayer: (() => void) | null = null
 
     async function initPlayer() {
       if (!playerContainerRef.current) {
@@ -189,6 +191,7 @@ export function VideoPlayer({
 
       const art = instance
       artRef.current = art
+      cleanupPlayer = createArtplayerCleanup(art, playerContainerRef.current)
       setArtInstance(art)
       setProgressPortalTarget(getArtProgress(art))
 
@@ -288,9 +291,7 @@ export function VideoPlayer({
       active = false
       setArtInstance(null)
       setProgressPortalTarget(null)
-      if (instance) {
-        instance.destroy(false)
-      }
+      cleanupPlayer?.()
       if (artRef.current === instance) {
         artRef.current = null
       }

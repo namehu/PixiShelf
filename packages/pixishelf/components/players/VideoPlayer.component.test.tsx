@@ -40,6 +40,8 @@ describe('VideoPlayer component behavior', () => {
       ...videoOverrides
     } as HTMLVideoElement
 
+    let fullscreenWeb = true
+    const cleanupEvents: string[] = []
     const art = {
       currentTime: 0,
       duration: 60,
@@ -60,10 +62,22 @@ describe('VideoPlayer component behavior', () => {
         artplayerMock.handlers.set(event, handlers)
       }),
       emit: vi.fn(),
-      destroy: vi.fn()
+      destroy: vi.fn(() => cleanupEvents.push('destroy')),
+      cleanupEvents,
+      get fullscreenWeb() {
+        return fullscreenWeb
+      },
+      set fullscreenWeb(value: boolean) {
+        cleanupEvents.push('exit-web-fullscreen')
+        fullscreenWeb = value
+      }
     }
 
-    artplayerMock.constructor.mockImplementation(function ArtplayerMock() {
+    artplayerMock.constructor.mockImplementation(function ArtplayerMock(options: { container: HTMLElement }) {
+      const playerElement = document.createElement('div')
+      playerElement.className = 'art-video-player'
+      options.container.append(playerElement)
+      art.template.$player = playerElement
       return art
     })
     return art
@@ -99,5 +113,65 @@ describe('VideoPlayer component behavior', () => {
     act(() => emitArtplayerEvent('video:loadstart'))
 
     expect(container.querySelector('.animate-spin')).toBeNull()
+  })
+
+  it('exits web fullscreen, destroys the player HTML, and removes its pagehide listener on unmount', async () => {
+    const art = setupArtplayerMock()
+    const addEventListener = vi.spyOn(window, 'addEventListener')
+    const removeEventListener = vi.spyOn(window, 'removeEventListener')
+    const { container, unmount } = render(<VideoPlayer src="/video.mp4" />)
+
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    const playerElement = container.querySelector<HTMLElement>('.art-video-player')
+    expect(playerElement).not.toBeNull()
+
+    unmount()
+
+    expect(art.fullscreenWeb).toBe(false)
+    expect(art.cleanupEvents).toEqual(['exit-web-fullscreen', 'destroy'])
+    expect(art.destroy).toHaveBeenCalledWith(true)
+    expect(container.querySelector('.art-video-player')).toBeNull()
+    expect(addEventListener).toHaveBeenCalledWith('pagehide', expect.any(Function))
+    expect(removeEventListener).toHaveBeenCalledWith('pagehide', expect.any(Function))
+
+    addEventListener.mockRestore()
+    removeEventListener.mockRestore()
+  })
+
+  it('cleans a web-fullscreen player moved to body and does not destroy it twice', async () => {
+    const art = setupArtplayerMock()
+    const { container, unmount } = render(<VideoPlayer src="/video.mp4" />)
+
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    const playerElement = container.querySelector<HTMLElement>('.art-video-player')
+    expect(playerElement).not.toBeNull()
+    document.body.append(playerElement!)
+
+    act(() => window.dispatchEvent(new Event('pagehide')))
+    act(() => window.dispatchEvent(new Event('pagehide')))
+    unmount()
+
+    expect(art.fullscreenWeb).toBe(false)
+    expect(art.destroy).toHaveBeenCalledTimes(1)
+    expect(art.destroy).toHaveBeenCalledWith(true)
+    expect(document.body.contains(playerElement!)).toBe(false)
+  })
+
+  it('removes a moved player root even if ArtPlayer destruction throws', async () => {
+    const art = setupArtplayerMock()
+    art.destroy.mockImplementation(() => {
+      throw new Error('destroy failed')
+    })
+    const { container, unmount } = render(<VideoPlayer src="/video.mp4" />)
+
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    const playerElement = container.querySelector<HTMLElement>('.art-video-player')
+    expect(playerElement).not.toBeNull()
+    document.body.append(playerElement!)
+
+    unmount()
+
+    expect(art.destroy).toHaveBeenCalledWith(true)
+    expect(document.body.contains(playerElement!)).toBe(false)
   })
 })
