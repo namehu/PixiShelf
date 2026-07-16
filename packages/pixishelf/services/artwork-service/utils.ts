@@ -76,7 +76,7 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
           posterError: videoMetadata.posterError,
           posterUrl:
             videoMetadata.posterStatus === 'COMPLETED' && videoMetadata.posterPath
-              ? `/api/v1/video-posters/${image.id}?v=${new Date(videoMetadata.posterUpdatedAt ?? 0).getTime()}`
+              ? `/_video-posters/${encodeURIComponent(videoMetadata.posterPath)}?v=${new Date(videoMetadata.posterUpdatedAt ?? 0).getTime()}`
               : null
         }
       : getFlatVideoMetadataFields(image as any)

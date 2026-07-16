@@ -749,7 +749,7 @@ function transformArtworkCard(artwork: {
     mediaType: image.mediaType === 'VIDEO' || isVideoFile(image.path) ? ('video' as const) : ('image' as const),
     posterUrl:
       image.videoMetadata?.posterStatus === 'COMPLETED' && image.videoMetadata.posterPath
-        ? `/api/v1/video-posters/${image.id}?v=${image.videoMetadata.posterUpdatedAt?.getTime() ?? ''}`
+        ? `/_video-posters/${encodeURIComponent(image.videoMetadata.posterPath)}?v=${image.videoMetadata.posterUpdatedAt?.getTime() ?? ''}`
         : null
   }))
 

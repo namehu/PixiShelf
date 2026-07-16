@@ -8,7 +8,7 @@ import { prisma } from '@/lib/prisma'
 import { VIDEO_EXTENSIONS } from '@/lib/constant'
 import { resolvePathWithinScanRoot } from '@/services/video-media-probe-service'
 
-const POSTER_ROOT = process.env.VIDEO_POSTER_STORAGE_PATH || '/app/video-posters'
+const POSTER_ROOT = process.env.VIDEO_POSTER_STORAGE_PATH || path.join(process.cwd(), '.local-data', 'video-posters')
 const FAILED_SAMPLE_LIMIT = 20
 
 export interface VideoPosterGenerationResult {
@@ -96,14 +96,6 @@ export async function runVideoPosterGenerationJob(options: {
   }
   await report(100, `视频封面生成完成：成功 ${result.generated}，失败 ${result.failed}，清理孤儿 ${orphanedFilesDeleted}`)
   return result
-}
-
-export async function getVideoPosterPath(imageId: number) {
-  const metadata = await prisma.mediaVideoMetadata.findUnique({
-    where: { imageId },
-    select: { posterStatus: true, posterPath: true }
-  })
-  return metadata?.posterStatus === 'COMPLETED' && metadata.posterPath ? metadata.posterPath : null
 }
 
 function getPosterRelativePath(imageId: number, sourcePath: string) {

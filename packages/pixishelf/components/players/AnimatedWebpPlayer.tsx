@@ -17,7 +17,7 @@ const IMGPROXY_URL = process.env.NEXT_PUBLIC_IMGPROXY_URL || 'http://localhost:5
 
 function getStaticWebpPosterUrl(src: string, width = 1200) {
   const normalizedSrc = src.startsWith('/') ? src : `/${src}`
-  return `${IMGPROXY_URL}/_/rs:fit:${width}:0/q:90/sm:1/plain/local://${encodeURIComponent(normalizedSrc)}@jpg`
+  return `${IMGPROXY_URL}/_/rs:fit:${width}:0/q:90/sm:1/plain/local://${encodeURIComponent(`/media${normalizedSrc}`)}@jpg`
 }
 
 function formatFileSize(size?: number | null) {
