@@ -745,7 +745,8 @@ function transformArtworkCard(artwork: {
   artworkTags: Array<{ tag: { name: string } }>
 }): ArtworkCardData {
   const images = artwork.images.map((image) => ({
-    ...image,
+    path: image.path,
+    size: image.size,
     mediaType: image.mediaType === 'VIDEO' || isVideoFile(image.path) ? ('video' as const) : ('image' as const),
     posterUrl:
       image.videoMetadata?.posterStatus === 'COMPLETED' && image.videoMetadata.posterPath

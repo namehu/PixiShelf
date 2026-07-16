@@ -28,7 +28,15 @@ describe('dashboard artwork card query', () => {
         id: 1,
         title: 'card',
         imageCount: 8,
-        images: [{ path: '/artist/card_p0.jpg', size: 1024 }],
+        images: [
+          {
+            id: 10,
+            path: '/artist/card_p0.jpg',
+            size: 1024,
+            mediaType: 'IMAGE',
+            videoMetadata: null
+          }
+        ],
         artist: { name: 'artist' },
         artworkTags: [{ tag: { name: 'preferred' } }]
       }
@@ -55,7 +63,7 @@ describe('dashboard artwork card query', () => {
           title: 'card',
           imageCount: 8,
           totalMediaSize: 1024,
-          images: [{ path: '/artist/card_p0.jpg', size: 1024, mediaType: 'image' }],
+          images: [{ path: '/artist/card_p0.jpg', size: 1024, mediaType: 'image', posterUrl: null }],
           artist: { name: 'artist' },
           tags: [{ name: 'preferred' }]
         }
