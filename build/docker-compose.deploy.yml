@@ -79,14 +79,14 @@ services:
       - '${IMGPROXY_HOST_PORT:-5431}:5431' # 将 ImgProxy 的 8080 端口映射到宿主机
     volumes:
       # 关键：将存储原图的文件夹挂载到 ImgProxy 容器中
-      - "${PIXISHELF_DATA_PATH:-./data}:/data/media:ro"
-      - "${VIDEO_POSTER_HOST_PATH:-./video-posters}:/data/video-posters:ro"
+      - "${PIXISHELF_DATA_PATH:-./data}:/mnt/pixishelf/media:ro"
+      - "${VIDEO_POSTER_HOST_PATH:-./video-posters}:/mnt/pixishelf/video-posters:ro"
     environment:
       - IMGPROXY_BIND=:5431
       # 允许 ImgProxy 处理来自本地文件系统的图片
       - IMGPROXY_USE_FILESYSTEM=true
-      # 两个独立的只读挂载：原图在 /data/media，生成封面在 /data/video-posters。
-      - IMGPROXY_LOCAL_FILESYSTEM_ROOT=/data
+      # 不使用镜像内置的 /data 挂载点，避免在只读卷下创建子挂载。
+      - IMGPROXY_LOCAL_FILESYSTEM_ROOT=/mnt/pixishelf
       - IMGPROXY_ALLOWED_SOURCES=local:///media/,local:///video-posters/
       - IMGPROXY_MAX_SRC_FILE_SIZE=0
       - IMGPROXY_MAX_SRC_RESOLUTION=1000
