@@ -1,4 +1,5 @@
 import type Artplayer from 'artplayer'
+import { bindFullscreenWebHistory } from '@/lib/artplayer-fullscreen-history'
 
 /**
  * Creates an idempotent cleanup function for an ArtPlayer instance.
@@ -8,6 +9,7 @@ import type Artplayer from 'artplayer'
  */
 export function createArtplayerCleanup(player: Artplayer, container: HTMLElement): () => void {
   const playerElement = container.querySelector<HTMLElement>('.art-video-player')
+  const unbindFullscreenWebHistory = bindFullscreenWebHistory(player)
   let destroyed = false
 
   const exitWebFullscreen = () => {
@@ -25,6 +27,7 @@ export function createArtplayerCleanup(player: Artplayer, container: HTMLElement
   }
 
   const handlePageHide = () => {
+    unbindFullscreenWebHistory()
     exitWebFullscreen()
   }
 
@@ -32,6 +35,7 @@ export function createArtplayerCleanup(player: Artplayer, container: HTMLElement
 
   return () => {
     window.removeEventListener('pagehide', handlePageHide)
+    unbindFullscreenWebHistory()
 
     if (destroyed) {
       return

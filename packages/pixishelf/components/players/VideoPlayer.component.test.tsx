@@ -16,6 +16,7 @@ describe('VideoPlayer component behavior', () => {
   afterEach(() => {
     artplayerMock.constructor.mockReset()
     artplayerMock.handlers.clear()
+    history.replaceState(null, '', window.location.href)
   })
 
   beforeEach(() => {
@@ -61,6 +62,13 @@ describe('VideoPlayer component behavior', () => {
         handlers.push(handler)
         artplayerMock.handlers.set(event, handlers)
       }),
+      off: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        const handlers = artplayerMock.handlers.get(event) ?? []
+        artplayerMock.handlers.set(
+          event,
+          handlers.filter((registeredHandler) => registeredHandler !== handler)
+        )
+      }),
       emit: vi.fn(),
       destroy: vi.fn(() => cleanupEvents.push('destroy')),
       cleanupEvents,
@@ -68,8 +76,11 @@ describe('VideoPlayer component behavior', () => {
         return fullscreenWeb
       },
       set fullscreenWeb(value: boolean) {
-        cleanupEvents.push('exit-web-fullscreen')
+        cleanupEvents.push(value ? 'enter-web-fullscreen' : 'exit-web-fullscreen')
         fullscreenWeb = value
+        for (const handler of artplayerMock.handlers.get('fullscreenWeb') ?? []) {
+          handler(value)
+        }
       }
     }
 
@@ -155,6 +166,24 @@ describe('VideoPlayer component behavior', () => {
     expect(art.destroy).toHaveBeenCalledTimes(1)
     expect(art.destroy).toHaveBeenCalledWith(true)
     expect(document.body.contains(playerElement!)).toBe(false)
+  })
+
+  it('uses a fullscreen history entry so the first browser back exits web fullscreen', async () => {
+    const art = setupArtplayerMock()
+    const { unmount } = render(<VideoPlayer src="/video.mp4" />)
+
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    const normalPageState = history.state
+
+    act(() => emitArtplayerEvent('fullscreenWeb', true))
+
+    expect(history.state).toMatchObject({ __artplayer_fullscreen_web__: expect.any(String) })
+
+    act(() => window.dispatchEvent(new PopStateEvent('popstate', { state: normalPageState })))
+
+    expect(art.fullscreenWeb).toBe(false)
+    expect(art.cleanupEvents).toContain('exit-web-fullscreen')
+    unmount()
   })
 
   it('removes a moved player root even if ArtPlayer destruction throws', async () => {
