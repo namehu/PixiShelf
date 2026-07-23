@@ -8,8 +8,16 @@ const artplayerMock = vi.hoisted(() => ({
   handlers: new Map<string, Array<(...args: unknown[]) => void>>()
 }))
 
+const videoChaptersMock = vi.hoisted(() => ({
+  useVideoChapters: vi.fn()
+}))
+
 vi.mock('artplayer', () => ({
   default: artplayerMock.constructor
+}))
+
+vi.mock('./use-video-chapters', () => ({
+  useVideoChapters: videoChaptersMock.useVideoChapters
 }))
 
 describe('VideoPlayer component behavior', () => {
@@ -20,6 +28,13 @@ describe('VideoPlayer component behavior', () => {
   })
 
   beforeEach(() => {
+    videoChaptersMock.useVideoChapters.mockReturnValue({
+      chapters: [],
+      duration: 0,
+      loading: false,
+      error: null,
+      reload: vi.fn()
+    })
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
       value: vi.fn(() => ({
@@ -107,6 +122,51 @@ describe('VideoPlayer component behavior', () => {
 
     await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
     expect(artplayerMock.constructor.mock.calls[0]?.[0]).toMatchObject({ gesture: false })
+  })
+
+  it('shows only available chapter navigation controls and seeks to their chapter starts', async () => {
+    videoChaptersMock.useVideoChapters.mockReturnValue({
+      chapters: [
+        { id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10 },
+        { id: 'chapter-2', index: 2, title: 'Middle', start: 20, end: 30, duration: 10 },
+        { id: 'chapter-3', index: 3, title: 'Finale', start: 40, end: 50, duration: 10 }
+      ],
+      duration: 50,
+      loading: false,
+      error: null,
+      reload: vi.fn()
+    })
+    const art = setupArtplayerMock()
+
+    render(<VideoPlayer src="/video.mp4" />)
+
+    await waitFor(() => {
+      expect(art.controls.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'chapter-next' }))
+    })
+
+    const initialControls = art.controls.add.mock.calls.map(([control]) => control)
+    expect(initialControls).not.toContainEqual(expect.objectContaining({ name: 'chapter-previous' }))
+    const nextControl = initialControls.find((control) => control.name === 'chapter-next')
+    expect(nextControl).toMatchObject({ tooltip: '下一章：Middle', index: 19 })
+
+    act(() => nextControl.click())
+    expect(art.currentTime).toBe(20)
+
+    art.currentTime = 25
+    act(() => emitArtplayerEvent('video:timeupdate'))
+
+    await waitFor(() => {
+      expect(art.controls.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'chapter-previous' }))
+    })
+
+    const previousControl = art.controls.add.mock.calls
+      .map(([control]) => control)
+      .reverse()
+      .find((control) => control.name === 'chapter-previous')
+    expect(previousControl).toMatchObject({ tooltip: '上一章：Opening', index: 18 })
+
+    act(() => previousControl.click())
+    expect(art.currentTime).toBe(0)
   })
 
   it('does not reopen the overlay on loadstart while the current video frame is still renderable', async () => {

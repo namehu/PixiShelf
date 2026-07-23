@@ -1,6 +1,6 @@
 'use client'
 
-import { InfoIcon, ListVideoIcon, Loader2Icon, XIcon } from 'lucide-react'
+import { InfoIcon, ListVideoIcon, Loader2Icon, SkipBackIcon, SkipForwardIcon, XIcon } from 'lucide-react'
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
@@ -10,7 +10,11 @@ import ChapterSidebar from '@/components/players/ChapterSidebar'
 import TimelineMarkers from '@/components/players/TimelineMarkers'
 import { useCurrentChapter } from '@/components/players/use-current-chapter'
 import { useVideoChapters } from '@/components/players/use-video-chapters'
-import { createChapterTimelineMarkers, type NormalizedChapter } from '@/components/players/video-chapters'
+import {
+  createChapterTimelineMarkers,
+  getAdjacentChapters,
+  type NormalizedChapter
+} from '@/components/players/video-chapters'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { createArtplayerCleanup } from '@/lib/artplayer-lifecycle'
 import { cn } from '@/lib/utils'
@@ -64,7 +68,9 @@ export function VideoPlayer({
   onPause,
   onError
 }: VideoPlayerProps) {
-  const mobileChapterControlName = 'chapter-entry'
+  const previousChapterControlName = 'chapter-previous'
+  const nextChapterControlName = 'chapter-next'
+  const chapterControlName = 'chapter-entry'
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -84,6 +90,10 @@ export function VideoPlayer({
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const { chapters, duration: chaptersDuration } = useVideoChapters(chaptersUrl)
   const currentChapter = useCurrentChapter(chapters, currentTime)
+  const { previous: previousChapter, next: nextChapter } = useMemo(
+    () => getAdjacentChapters(chapters, currentTime),
+    [chapters, currentTime]
+  )
   const chapterMarkers = useMemo(() => createChapterTimelineMarkers(chapters), [chapters])
   const chapterUiDuration = duration > 0 ? duration : chaptersDuration
   const chapterMarkerMinSpacingPx = isDesktop ? 18 : 28
@@ -337,18 +347,80 @@ export function VideoPlayer({
       return
     }
 
-    let chapterControlRoot: Root | null = null
+    const controlNames = [previousChapterControlName, nextChapterControlName, chapterControlName]
+    const controlRoots = new Map<string, Root>()
 
-    if (artInstance.controls[mobileChapterControlName]) {
-      artInstance.controls.remove(mobileChapterControlName)
-    }
+    controlNames.forEach((name) => {
+      if (artInstance.controls[name]) {
+        artInstance.controls.remove(name)
+      }
+    })
 
     if (chapters.length === 0) {
       return
     }
 
+    const addChapterNavigationControl = ({
+      name,
+      chapter,
+      label,
+      icon,
+      index
+    }: {
+      name: string
+      chapter: NormalizedChapter
+      label: string
+      icon: React.ReactNode
+      index: number
+    }) => {
+      artInstance.controls.add({
+        name,
+        position: 'right',
+        index,
+        html: '',
+        tooltip: label,
+        style: {
+          padding: '0 10px'
+        },
+        mounted(element) {
+          element.classList.add('art-control-chapter-navigation')
+          element.setAttribute('aria-label', label)
+          const root = createRoot(element)
+          controlRoots.set(name, root)
+          root.render(icon)
+        },
+        beforeUnmount() {
+          controlRoots.get(name)?.unmount()
+          controlRoots.delete(name)
+        },
+        click() {
+          seekToChapter(chapter)
+        }
+      })
+    }
+
+    if (previousChapter) {
+      addChapterNavigationControl({
+        name: previousChapterControlName,
+        chapter: previousChapter,
+        label: `上一章：${previousChapter.title}`,
+        icon: <SkipBackIcon aria-hidden="true" className="h-5 w-5" />,
+        index: 18
+      })
+    }
+
+    if (nextChapter) {
+      addChapterNavigationControl({
+        name: nextChapterControlName,
+        chapter: nextChapter,
+        label: `下一章：${nextChapter.title}`,
+        icon: <SkipForwardIcon aria-hidden="true" className="h-5 w-5" />,
+        index: 19
+      })
+    }
+
     artInstance.controls.add({
-      name: mobileChapterControlName,
+      name: chapterControlName,
       position: 'right',
       index: 20,
       html: '',
@@ -359,12 +431,13 @@ export function VideoPlayer({
       mounted(element) {
         element.classList.add('art-control-chapter-entry')
         element.setAttribute('aria-label', '章节')
-        chapterControlRoot = createRoot(element)
-        chapterControlRoot.render(<ListVideoIcon aria-hidden="true" className="h-5 w-5" />)
+        const root = createRoot(element)
+        controlRoots.set(chapterControlName, root)
+        root.render(<ListVideoIcon aria-hidden="true" className="h-5 w-5" />)
       },
       beforeUnmount() {
-        chapterControlRoot?.unmount()
-        chapterControlRoot = null
+        controlRoots.get(chapterControlName)?.unmount()
+        controlRoots.delete(chapterControlName)
       },
       click() {
         setShowChapterOverlay((prev) => !prev)
@@ -372,11 +445,21 @@ export function VideoPlayer({
     })
 
     return () => {
-      if (artInstance.controls[mobileChapterControlName]) {
-        artInstance.controls.remove(mobileChapterControlName)
-      }
+      controlNames.forEach((name) => {
+        if (artInstance.controls[name]) {
+          artInstance.controls.remove(name)
+        }
+      })
     }
-  }, [artInstance, chapters.length, mobileChapterControlName])
+  }, [
+    artInstance,
+    chapterControlName,
+    chapters.length,
+    nextChapter,
+    nextChapterControlName,
+    previousChapter,
+    previousChapterControlName
+  ])
 
   // 清理定时器
   useEffect(() => {
