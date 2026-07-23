@@ -1,6 +1,6 @@
 'use client'
 
-import { InfoIcon, ListVideoIcon, Loader2Icon, SkipBackIcon, SkipForwardIcon, XIcon } from 'lucide-react'
+import { InfoIcon, ListVideoIcon, Loader2Icon, SkipBackIcon, SkipForwardIcon, Volume2Icon, XIcon } from 'lucide-react'
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
@@ -19,6 +19,7 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { createArtplayerCleanup } from '@/lib/artplayer-lifecycle'
 import { cn } from '@/lib/utils'
 import { combinationApiResource } from '@/utils/combinationStatic'
+import { formatFileSize } from '@/utils/media'
 import './VideoPlayer.css'
 
 const VIDEO_TIME_SYNC_THRESHOLD = 0.25
@@ -58,6 +59,7 @@ export interface VideoPlayerProps {
   src: string
   chaptersUrl?: string | null
   hasAudio?: boolean | null
+  size?: number | null
   autoPlay?: boolean
   loop?: boolean
   muted?: boolean
@@ -73,6 +75,7 @@ export function VideoPlayer({
   src,
   chaptersUrl,
   hasAudio,
+  size,
   autoPlay = false,
   loop = true,
   muted = false,
@@ -92,6 +95,7 @@ export function VideoPlayer({
   const [error, setError] = useState<string | null>(null)
   const [aspectRatio, setAspectRatio] = useState('16 / 9')
   const [showChapterOverlay, setShowChapterOverlay] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
   const [artInstance, setArtInstance] = useState<ArtplayerType | null>(null)
   const [progressPortalTarget, setProgressPortalTarget] = useState<HTMLDivElement | null>(null)
   const hasStartedPlayingRef = useRef(false)
@@ -114,6 +118,7 @@ export function VideoPlayer({
   const chapterUiDuration = duration > 0 ? duration : chaptersDuration
   const chapterMarkerMinSpacingPx = isDesktop ? 18 : 28
   const showAudioControls = shouldShowAudioControls(hasAudio)
+  const showVideoMetadataTag = (size ?? 0) > 0 || showAudioControls
 
   const clearLoading = () => {
     if (loadingTimeoutRef.current) {
@@ -175,6 +180,7 @@ export function VideoPlayer({
     setLoading(true)
     setAspectRatio('16 / 9')
     setShowChapterOverlay(false)
+    setIsPlaying(false)
     setArtInstance(null)
     setProgressPortalTarget(null)
     keepControlsVisibleUntilRef.current = 0
@@ -276,12 +282,14 @@ export function VideoPlayer({
         }
 
         hasStartedPlayingRef.current = true
+        setIsPlaying(true)
         onPlayRef.current?.()
         hideControls()
       })
 
       art.on('pause', () => {
         const video = getArtVideo(art)
+        setIsPlaying(false)
         onPauseRef.current?.()
         art.controls.show = true
         if (video?.readyState && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -290,6 +298,7 @@ export function VideoPlayer({
       })
 
       art.on('ended', () => {
+        setIsPlaying(false)
         clearLoading()
       })
 
@@ -553,6 +562,15 @@ export function VideoPlayer({
       style={fillParent ? undefined : { aspectRatio, width: '100%', maxWidth: '100%', maxHeight: '100%' }}
     >
       <div ref={playerContainerRef} className="h-full w-full" />
+
+      {showVideoMetadataTag && !isPlaying && (
+        <div className="pointer-events-none absolute right-2 top-2 z-20 flex items-center gap-1 rounded bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+          {(size ?? 0) > 0 && (
+            <span>{formatFileSize(size ?? 0)}</span>
+          )}
+          {showAudioControls && <Volume2Icon aria-label="含音频" size={10} />}
+        </div>
+      )}
 
       {/* 加载指示器 */}
       {loading && (
