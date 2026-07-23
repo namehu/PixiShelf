@@ -59,9 +59,9 @@ export function VideoPlayer({
   src,
   chaptersUrl,
   hasAudio,
-  autoPlay = true,
+  autoPlay = false,
   loop = true,
-  muted = true,
+  muted = false,
   preload = 'metadata',
   className = '',
   fillParent = false,
@@ -245,6 +245,12 @@ export function VideoPlayer({
       })
 
       art.on('play', () => {
+        // Default playback is initiated by the user, so audio tracks should not
+        // remain muted because of an earlier autoplay-oriented configuration.
+        if (showAudioControls && !autoPlay) {
+          art.muted = false
+        }
+
         hasStartedPlayingRef.current = true
         onPlayRef.current?.()
         hideControls()

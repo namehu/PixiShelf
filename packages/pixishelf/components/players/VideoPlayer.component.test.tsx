@@ -124,7 +124,20 @@ describe('VideoPlayer component behavior', () => {
     expect(artplayerMock.constructor.mock.calls[0]?.[0]).toMatchObject({ gesture: false })
   })
 
-  it('shows only available chapter navigation controls and seeks to their chapter starts', async () => {
+  it('does not autoplay and unmutes videos with an audio track when playback starts', async () => {
+    const art = setupArtplayerMock()
+
+    render(<VideoPlayer src="/video.mp4" hasAudio muted />)
+
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    expect(artplayerMock.constructor.mock.calls[0]?.[0]).toMatchObject({ autoplay: false, muted: true })
+
+    act(() => emitArtplayerEvent('play'))
+
+    expect(art).toMatchObject({ muted: false })
+  })
+
+  it('always shows chapter navigation controls and disables unavailable directions', async () => {
     videoChaptersMock.useVideoChapters.mockReturnValue({
       chapters: [
         { id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10 },
@@ -145,11 +158,12 @@ describe('VideoPlayer component behavior', () => {
     })
 
     const initialControls = art.controls.add.mock.calls.map(([control]) => control)
-    expect(initialControls).not.toContainEqual(expect.objectContaining({ name: 'chapter-previous' }))
+    const initialPreviousControl = initialControls.find((control) => control.name === 'chapter-previous')
+    expect(initialPreviousControl).toMatchObject({ tooltip: '已经是第一章', index: 18 })
     const nextControl = initialControls.find((control) => control.name === 'chapter-next')
     expect(nextControl).toMatchObject({ tooltip: '下一章：Middle', index: 19 })
 
-    act(() => nextControl.click())
+    act(() => nextControl.click(null, new Event('click')))
     expect(art.currentTime).toBe(20)
 
     art.currentTime = 25
@@ -165,7 +179,7 @@ describe('VideoPlayer component behavior', () => {
       .find((control) => control.name === 'chapter-previous')
     expect(previousControl).toMatchObject({ tooltip: '上一章：Opening', index: 18 })
 
-    act(() => previousControl.click())
+    act(() => previousControl.click(null, new Event('click')))
     expect(art.currentTime).toBe(0)
   })
 
