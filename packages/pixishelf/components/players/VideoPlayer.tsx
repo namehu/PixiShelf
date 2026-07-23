@@ -40,6 +40,20 @@ export function shouldShowAudioControls(hasAudio?: boolean | null) {
   return hasAudio === true
 }
 
+export function formatVideoRemainingTime(duration: number, currentTime: number) {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return '--:--'
+  }
+
+  const totalSeconds = Math.max(0, Math.ceil(duration - Math.max(currentTime, 0)))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const paddedSeconds = String(seconds).padStart(2, '0')
+
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${paddedSeconds}` : `${minutes}:${paddedSeconds}`
+}
+
 export interface VideoPlayerProps {
   src: string
   chaptersUrl?: string | null
@@ -228,6 +242,15 @@ export function VideoPlayer({
         }
       }
 
+      const updateRemainingTime = () => {
+        const player = (art as ArtplayerType & { template?: { $player?: HTMLDivElement } }).template?.$player
+        const timeControl = player?.querySelector<HTMLElement>('.art-control-time')
+
+        if (timeControl) {
+          timeControl.textContent = formatVideoRemainingTime(art.duration, art.currentTime)
+        }
+      }
+
       const hideControls = () => {
         if (Date.now() < keepControlsVisibleUntilRef.current) {
           art.controls.show = true
@@ -239,6 +262,7 @@ export function VideoPlayer({
 
       art.on('ready', () => {
         syncMetadata()
+        updateRemainingTime()
         setProgressPortalTarget(getArtProgress(art))
         clearLoading()
         hideControls()
@@ -269,13 +293,18 @@ export function VideoPlayer({
         clearLoading()
       })
 
-      art.on('video:loadedmetadata', syncMetadata)
+      art.on('video:loadedmetadata', () => {
+        syncMetadata()
+        updateRemainingTime()
+      })
+      art.on('video:progress', updateRemainingTime)
       art.on('video:loadeddata', clearLoading)
       art.on('video:canplay', clearLoading)
       art.on('video:canplaythrough', clearLoading)
       art.on('video:timeupdate', () => {
         const nextTime = Number.isFinite(art.currentTime) ? art.currentTime : 0
         setCurrentTime((previousTime) => (shouldSyncVideoTime(previousTime, nextTime) ? nextTime : previousTime))
+        updateRemainingTime()
 
         const video = getArtVideo(art)
         if (video?.readyState && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {

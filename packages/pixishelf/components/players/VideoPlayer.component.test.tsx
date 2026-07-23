@@ -1,7 +1,7 @@
 import { act, render, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import VideoPlayer from './VideoPlayer'
+import VideoPlayer, { formatVideoRemainingTime } from './VideoPlayer'
 
 const artplayerMock = vi.hoisted(() => ({
   constructor: vi.fn(),
@@ -25,6 +25,29 @@ describe('VideoPlayer component behavior', () => {
     artplayerMock.constructor.mockReset()
     artplayerMock.handlers.clear()
     history.replaceState(null, '', window.location.href)
+  })
+
+  it('formats the control-bar time as a decreasing remaining duration', () => {
+    expect(formatVideoRemainingTime(90, 0)).toBe('1:30')
+    expect(formatVideoRemainingTime(90, 29.2)).toBe('1:01')
+    expect(formatVideoRemainingTime(3661, 1)).toBe('1:01:00')
+    expect(formatVideoRemainingTime(0, 0)).toBe('--:--')
+  })
+
+  it('restores the remaining time after Artplayer emits a buffer-progress event', async () => {
+    const art = setupArtplayerMock()
+
+    render(<VideoPlayer src="/video.mp4" />)
+
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    const timeControl = document.createElement('div')
+    timeControl.className = 'art-control-time'
+    art.template.$player.append(timeControl)
+    art.currentTime = 10
+
+    act(() => emitArtplayerEvent('video:progress'))
+
+    expect(timeControl.textContent).toBe('0:50')
   })
 
   beforeEach(() => {
