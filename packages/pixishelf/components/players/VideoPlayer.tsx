@@ -22,6 +22,7 @@ import { combinationApiResource } from '@/utils/combinationStatic'
 import './VideoPlayer.css'
 
 const VIDEO_TIME_SYNC_THRESHOLD = 0.25
+const CHAPTER_CONTROL_VISIBILITY_DURATION = 1200
 
 export function shouldShowVideoBuffering(video?: HTMLVideoElement | null) {
   if (!video) {
@@ -83,6 +84,7 @@ export function VideoPlayer({
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const artRef = useRef<ArtplayerType | null>(null)
   const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const keepControlsVisibleUntilRef = useRef(0)
   const onPlayRef = useRef(onPlay)
   const onPauseRef = useRef(onPause)
   const onErrorRef = useRef(onError)
@@ -161,6 +163,7 @@ export function VideoPlayer({
     setShowChapterOverlay(false)
     setArtInstance(null)
     setProgressPortalTarget(null)
+    keepControlsVisibleUntilRef.current = 0
   }, [mediaSrc])
 
   useEffect(() => {
@@ -226,6 +229,11 @@ export function VideoPlayer({
       }
 
       const hideControls = () => {
+        if (Date.now() < keepControlsVisibleUntilRef.current) {
+          art.controls.show = true
+          return
+        }
+
         art.controls.show = false
       }
 
@@ -350,6 +358,18 @@ export function VideoPlayer({
     const controlNames = [previousChapterControlName, nextChapterControlName, chapterControlName]
     const controlRoots = new Map<string, Root>()
 
+    const unmountControlRoot = (name: string) => {
+      const root = controlRoots.get(name)
+      controlRoots.delete(name)
+
+      // Artplayer may remove controls while React is committing this component's
+      // cleanup. Deferring the nested root avoids synchronously unmounting a root
+      // during an active React render.
+      if (root) {
+        window.setTimeout(() => root.unmount(), 0)
+      }
+    }
+
     controlNames.forEach((name) => {
       if (artInstance.controls[name]) {
         artInstance.controls.remove(name)
@@ -365,13 +385,15 @@ export function VideoPlayer({
       chapter,
       label,
       icon,
-      index
+      index,
+      disabled
     }: {
       name: string
-      chapter: NormalizedChapter
+      chapter?: NormalizedChapter
       label: string
       icon: React.ReactNode
       index: number
+      disabled: boolean
     }) => {
       artInstance.controls.add({
         name,
@@ -380,44 +402,52 @@ export function VideoPlayer({
         html: '',
         tooltip: label,
         style: {
-          padding: '0 10px'
+          padding: '0 10px',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? '0.35' : '1'
         },
         mounted(element) {
           element.classList.add('art-control-chapter-navigation')
+          element.classList.toggle('art-control-chapter-navigation-disabled', disabled)
           element.setAttribute('aria-label', label)
+          element.setAttribute('aria-disabled', String(disabled))
           const root = createRoot(element)
           controlRoots.set(name, root)
           root.render(icon)
         },
         beforeUnmount() {
-          controlRoots.get(name)?.unmount()
-          controlRoots.delete(name)
+          unmountControlRoot(name)
         },
-        click() {
+        click(_, event) {
+          event.stopPropagation()
+          if (!chapter) {
+            return
+          }
+
+          keepControlsVisibleUntilRef.current = Date.now() + CHAPTER_CONTROL_VISIBILITY_DURATION
+          artInstance.controls.show = true
           seekToChapter(chapter)
         }
       })
     }
 
-    if (previousChapter) {
-      addChapterNavigationControl({
-        name: previousChapterControlName,
-        chapter: previousChapter,
-        label: `上一章：${previousChapter.title}`,
-        icon: <SkipBackIcon aria-hidden="true" className="h-5 w-5" />,
-        index: 18
-      })
-    }
+    addChapterNavigationControl({
+      name: previousChapterControlName,
+      chapter: previousChapter,
+      label: previousChapter ? `上一章：${previousChapter.title}` : '已经是第一章',
+      icon: <SkipBackIcon aria-hidden="true" className="h-5 w-5" />,
+      index: 18,
+      disabled: !previousChapter
+    })
 
-    if (nextChapter) {
-      addChapterNavigationControl({
-        name: nextChapterControlName,
-        chapter: nextChapter,
-        label: `下一章：${nextChapter.title}`,
-        icon: <SkipForwardIcon aria-hidden="true" className="h-5 w-5" />,
-        index: 19
-      })
-    }
+    addChapterNavigationControl({
+      name: nextChapterControlName,
+      chapter: nextChapter,
+      label: nextChapter ? `下一章：${nextChapter.title}` : '已经是最后一章',
+      icon: <SkipForwardIcon aria-hidden="true" className="h-5 w-5" />,
+      index: 19,
+      disabled: !nextChapter
+    })
 
     artInstance.controls.add({
       name: chapterControlName,
@@ -436,10 +466,12 @@ export function VideoPlayer({
         root.render(<ListVideoIcon aria-hidden="true" className="h-5 w-5" />)
       },
       beforeUnmount() {
-        controlRoots.get(chapterControlName)?.unmount()
-        controlRoots.delete(chapterControlName)
+        unmountControlRoot(chapterControlName)
       },
-      click() {
+      click(_, event) {
+        event.stopPropagation()
+        keepControlsVisibleUntilRef.current = Date.now() + CHAPTER_CONTROL_VISIBILITY_DURATION
+        artInstance.controls.show = true
         setShowChapterOverlay((prev) => !prev)
       }
     })
