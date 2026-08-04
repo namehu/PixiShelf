@@ -1,6 +1,6 @@
 'use client'
 
-import { InfoIcon, ListVideoIcon, Loader2Icon, XIcon } from 'lucide-react'
+import { InfoIcon, ListVideoIcon, Loader2Icon, SkipBackIcon, SkipForwardIcon, Volume2Icon, XIcon } from 'lucide-react'
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
@@ -10,14 +10,20 @@ import ChapterSidebar from '@/components/players/ChapterSidebar'
 import TimelineMarkers from '@/components/players/TimelineMarkers'
 import { useCurrentChapter } from '@/components/players/use-current-chapter'
 import { useVideoChapters } from '@/components/players/use-video-chapters'
-import { createChapterTimelineMarkers, type NormalizedChapter } from '@/components/players/video-chapters'
+import {
+  createChapterTimelineMarkers,
+  getAdjacentChapters,
+  type NormalizedChapter
+} from '@/components/players/video-chapters'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { createArtplayerCleanup } from '@/lib/artplayer-lifecycle'
 import { cn } from '@/lib/utils'
 import { combinationApiResource } from '@/utils/combinationStatic'
+import { formatFileSize } from '@/utils/media'
 import './VideoPlayer.css'
 
 const VIDEO_TIME_SYNC_THRESHOLD = 0.25
+const CHAPTER_CONTROL_VISIBILITY_DURATION = 1200
 
 export function shouldShowVideoBuffering(video?: HTMLVideoElement | null) {
   if (!video) {
@@ -35,10 +41,25 @@ export function shouldShowAudioControls(hasAudio?: boolean | null) {
   return hasAudio === true
 }
 
+export function formatVideoRemainingTime(duration: number, currentTime: number) {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return '--:--'
+  }
+
+  const totalSeconds = Math.max(0, Math.ceil(duration - Math.max(currentTime, 0)))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const paddedSeconds = String(seconds).padStart(2, '0')
+
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${paddedSeconds}` : `${minutes}:${paddedSeconds}`
+}
+
 export interface VideoPlayerProps {
   src: string
   chaptersUrl?: string | null
   hasAudio?: boolean | null
+  size?: number | null
   autoPlay?: boolean
   loop?: boolean
   muted?: boolean
@@ -54,9 +75,10 @@ export function VideoPlayer({
   src,
   chaptersUrl,
   hasAudio,
-  autoPlay = true,
+  size,
+  autoPlay = false,
   loop = true,
-  muted = true,
+  muted = false,
   preload = 'metadata',
   className = '',
   fillParent = false,
@@ -64,19 +86,23 @@ export function VideoPlayer({
   onPause,
   onError
 }: VideoPlayerProps) {
-  const mobileChapterControlName = 'chapter-entry'
+  const previousChapterControlName = 'chapter-previous'
+  const nextChapterControlName = 'chapter-next'
+  const chapterControlName = 'chapter-entry'
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [aspectRatio, setAspectRatio] = useState('16 / 9')
   const [showChapterOverlay, setShowChapterOverlay] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
   const [artInstance, setArtInstance] = useState<ArtplayerType | null>(null)
   const [progressPortalTarget, setProgressPortalTarget] = useState<HTMLDivElement | null>(null)
   const hasStartedPlayingRef = useRef(false)
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const artRef = useRef<ArtplayerType | null>(null)
   const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const keepControlsVisibleUntilRef = useRef(0)
   const onPlayRef = useRef(onPlay)
   const onPauseRef = useRef(onPause)
   const onErrorRef = useRef(onError)
@@ -84,10 +110,15 @@ export function VideoPlayer({
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const { chapters, duration: chaptersDuration } = useVideoChapters(chaptersUrl)
   const currentChapter = useCurrentChapter(chapters, currentTime)
+  const { previous: previousChapter, next: nextChapter } = useMemo(
+    () => getAdjacentChapters(chapters, currentTime),
+    [chapters, currentTime]
+  )
   const chapterMarkers = useMemo(() => createChapterTimelineMarkers(chapters), [chapters])
   const chapterUiDuration = duration > 0 ? duration : chaptersDuration
   const chapterMarkerMinSpacingPx = isDesktop ? 18 : 28
   const showAudioControls = shouldShowAudioControls(hasAudio)
+  const showVideoMetadataTag = (size ?? 0) > 0 || showAudioControls
 
   const clearLoading = () => {
     if (loadingTimeoutRef.current) {
@@ -149,8 +180,10 @@ export function VideoPlayer({
     setLoading(true)
     setAspectRatio('16 / 9')
     setShowChapterOverlay(false)
+    setIsPlaying(false)
     setArtInstance(null)
     setProgressPortalTarget(null)
+    keepControlsVisibleUntilRef.current = 0
   }, [mediaSrc])
 
   useEffect(() => {
@@ -215,25 +248,48 @@ export function VideoPlayer({
         }
       }
 
+      const updateRemainingTime = () => {
+        const player = (art as ArtplayerType & { template?: { $player?: HTMLDivElement } }).template?.$player
+        const timeControl = player?.querySelector<HTMLElement>('.art-control-time')
+
+        if (timeControl) {
+          timeControl.textContent = formatVideoRemainingTime(art.duration, art.currentTime)
+        }
+      }
+
       const hideControls = () => {
+        if (Date.now() < keepControlsVisibleUntilRef.current) {
+          art.controls.show = true
+          return
+        }
+
         art.controls.show = false
       }
 
       art.on('ready', () => {
         syncMetadata()
+        updateRemainingTime()
         setProgressPortalTarget(getArtProgress(art))
         clearLoading()
         hideControls()
       })
 
       art.on('play', () => {
+        // Default playback is initiated by the user, so audio tracks should not
+        // remain muted because of an earlier autoplay-oriented configuration.
+        if (showAudioControls && !autoPlay) {
+          art.muted = false
+        }
+
         hasStartedPlayingRef.current = true
+        setIsPlaying(true)
         onPlayRef.current?.()
         hideControls()
       })
 
       art.on('pause', () => {
         const video = getArtVideo(art)
+        setIsPlaying(false)
         onPauseRef.current?.()
         art.controls.show = true
         if (video?.readyState && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -242,16 +298,22 @@ export function VideoPlayer({
       })
 
       art.on('ended', () => {
+        setIsPlaying(false)
         clearLoading()
       })
 
-      art.on('video:loadedmetadata', syncMetadata)
+      art.on('video:loadedmetadata', () => {
+        syncMetadata()
+        updateRemainingTime()
+      })
+      art.on('video:progress', updateRemainingTime)
       art.on('video:loadeddata', clearLoading)
       art.on('video:canplay', clearLoading)
       art.on('video:canplaythrough', clearLoading)
       art.on('video:timeupdate', () => {
         const nextTime = Number.isFinite(art.currentTime) ? art.currentTime : 0
         setCurrentTime((previousTime) => (shouldSyncVideoTime(previousTime, nextTime) ? nextTime : previousTime))
+        updateRemainingTime()
 
         const video = getArtVideo(art)
         if (video?.readyState && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -337,18 +399,102 @@ export function VideoPlayer({
       return
     }
 
-    let chapterControlRoot: Root | null = null
+    const controlNames = [previousChapterControlName, nextChapterControlName, chapterControlName]
+    const controlRoots = new Map<string, Root>()
 
-    if (artInstance.controls[mobileChapterControlName]) {
-      artInstance.controls.remove(mobileChapterControlName)
+    const unmountControlRoot = (name: string) => {
+      const root = controlRoots.get(name)
+      controlRoots.delete(name)
+
+      // Artplayer may remove controls while React is committing this component's
+      // cleanup. Deferring the nested root avoids synchronously unmounting a root
+      // during an active React render.
+      if (root) {
+        window.setTimeout(() => root.unmount(), 0)
+      }
     }
+
+    controlNames.forEach((name) => {
+      if (artInstance.controls[name]) {
+        artInstance.controls.remove(name)
+      }
+    })
 
     if (chapters.length === 0) {
       return
     }
 
+    const addChapterNavigationControl = ({
+      name,
+      chapter,
+      label,
+      icon,
+      index,
+      disabled
+    }: {
+      name: string
+      chapter?: NormalizedChapter
+      label: string
+      icon: React.ReactNode
+      index: number
+      disabled: boolean
+    }) => {
+      artInstance.controls.add({
+        name,
+        position: 'right',
+        index,
+        html: '',
+        tooltip: label,
+        style: {
+          padding: '0 10px',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? '0.35' : '1'
+        },
+        mounted(element) {
+          element.classList.add('art-control-chapter-navigation')
+          element.classList.toggle('art-control-chapter-navigation-disabled', disabled)
+          element.setAttribute('aria-label', label)
+          element.setAttribute('aria-disabled', String(disabled))
+          const root = createRoot(element)
+          controlRoots.set(name, root)
+          root.render(icon)
+        },
+        beforeUnmount() {
+          unmountControlRoot(name)
+        },
+        click(_, event) {
+          event.stopPropagation()
+          if (!chapter) {
+            return
+          }
+
+          keepControlsVisibleUntilRef.current = Date.now() + CHAPTER_CONTROL_VISIBILITY_DURATION
+          artInstance.controls.show = true
+          seekToChapter(chapter)
+        }
+      })
+    }
+
+    addChapterNavigationControl({
+      name: previousChapterControlName,
+      chapter: previousChapter,
+      label: previousChapter ? `上一章：${previousChapter.title}` : '已经是第一章',
+      icon: <SkipBackIcon aria-hidden="true" className="h-5 w-5" />,
+      index: 18,
+      disabled: !previousChapter
+    })
+
+    addChapterNavigationControl({
+      name: nextChapterControlName,
+      chapter: nextChapter,
+      label: nextChapter ? `下一章：${nextChapter.title}` : '已经是最后一章',
+      icon: <SkipForwardIcon aria-hidden="true" className="h-5 w-5" />,
+      index: 19,
+      disabled: !nextChapter
+    })
+
     artInstance.controls.add({
-      name: mobileChapterControlName,
+      name: chapterControlName,
       position: 'right',
       index: 20,
       html: '',
@@ -359,24 +505,37 @@ export function VideoPlayer({
       mounted(element) {
         element.classList.add('art-control-chapter-entry')
         element.setAttribute('aria-label', '章节')
-        chapterControlRoot = createRoot(element)
-        chapterControlRoot.render(<ListVideoIcon aria-hidden="true" className="h-5 w-5" />)
+        const root = createRoot(element)
+        controlRoots.set(chapterControlName, root)
+        root.render(<ListVideoIcon aria-hidden="true" className="h-5 w-5" />)
       },
       beforeUnmount() {
-        chapterControlRoot?.unmount()
-        chapterControlRoot = null
+        unmountControlRoot(chapterControlName)
       },
-      click() {
+      click(_, event) {
+        event.stopPropagation()
+        keepControlsVisibleUntilRef.current = Date.now() + CHAPTER_CONTROL_VISIBILITY_DURATION
+        artInstance.controls.show = true
         setShowChapterOverlay((prev) => !prev)
       }
     })
 
     return () => {
-      if (artInstance.controls[mobileChapterControlName]) {
-        artInstance.controls.remove(mobileChapterControlName)
-      }
+      controlNames.forEach((name) => {
+        if (artInstance.controls[name]) {
+          artInstance.controls.remove(name)
+        }
+      })
     }
-  }, [artInstance, chapters.length, mobileChapterControlName])
+  }, [
+    artInstance,
+    chapterControlName,
+    chapters.length,
+    nextChapter,
+    nextChapterControlName,
+    previousChapter,
+    previousChapterControlName
+  ])
 
   // 清理定时器
   useEffect(() => {
@@ -403,6 +562,15 @@ export function VideoPlayer({
       style={fillParent ? undefined : { aspectRatio, width: '100%', maxWidth: '100%', maxHeight: '100%' }}
     >
       <div ref={playerContainerRef} className="h-full w-full" />
+
+      {showVideoMetadataTag && !isPlaying && (
+        <div className="pointer-events-none absolute right-2 top-2 z-20 flex items-center gap-1 rounded bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+          {(size ?? 0) > 0 && (
+            <span>{formatFileSize(size ?? 0)}</span>
+          )}
+          {showAudioControls && <Volume2Icon aria-label="含音频" size={10} />}
+        </div>
+      )}
 
       {/* 加载指示器 */}
       {loading && (

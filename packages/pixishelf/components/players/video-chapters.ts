@@ -89,6 +89,43 @@ export function getCurrentChapter(chapters: NormalizedChapter[], currentTime: nu
   return chapters.find((chapter) => currentTime >= chapter.start && currentTime < chapter.end)
 }
 
+/**
+ * 返回当前播放位置可跳转到的相邻章节。
+ *
+ * 章节内按当前章节的前后项跳转；章节间隙则按时间寻找最近的前一项和后一项。
+ */
+export function getAdjacentChapters(
+  chapters: NormalizedChapter[],
+  currentTime: number
+): { previous?: NormalizedChapter; next?: NormalizedChapter } {
+  const currentChapter = getCurrentChapter(chapters, currentTime)
+  const currentIndex = currentChapter ? chapters.findIndex((chapter) => chapter.id === currentChapter.id) : -1
+
+  if (currentIndex >= 0) {
+    return {
+      previous: chapters[currentIndex - 1],
+      next: chapters[currentIndex + 1]
+    }
+  }
+
+  let previous: NormalizedChapter | undefined
+  let next: NormalizedChapter | undefined
+
+  for (const chapter of chapters) {
+    if (chapter.start < currentTime) {
+      previous = chapter
+      continue
+    }
+
+    if (chapter.start > currentTime) {
+      next = chapter
+      break
+    }
+  }
+
+  return { previous, next }
+}
+
 export function createChapterTimelineMarkers(chapters: NormalizedChapter[]): TimelineMarker[] {
   return chapters.map((chapter) => ({
     id: chapter.id,

@@ -40,6 +40,7 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
           src={src}
           chaptersUrl={media.chaptersUrl}
           hasAudio={media.hasAudio}
+          size={media.size}
           className="w-full h-auto"
           preload="metadata"
         />

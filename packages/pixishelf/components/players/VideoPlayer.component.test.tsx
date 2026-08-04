@@ -1,15 +1,23 @@
 import { act, render, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import VideoPlayer from './VideoPlayer'
+import VideoPlayer, { formatVideoRemainingTime } from './VideoPlayer'
 
 const artplayerMock = vi.hoisted(() => ({
   constructor: vi.fn(),
   handlers: new Map<string, Array<(...args: unknown[]) => void>>()
 }))
 
+const videoChaptersMock = vi.hoisted(() => ({
+  useVideoChapters: vi.fn()
+}))
+
 vi.mock('artplayer', () => ({
   default: artplayerMock.constructor
+}))
+
+vi.mock('./use-video-chapters', () => ({
+  useVideoChapters: videoChaptersMock.useVideoChapters
 }))
 
 describe('VideoPlayer component behavior', () => {
@@ -19,7 +27,37 @@ describe('VideoPlayer component behavior', () => {
     history.replaceState(null, '', window.location.href)
   })
 
+  it('formats the control-bar time as a decreasing remaining duration', () => {
+    expect(formatVideoRemainingTime(90, 0)).toBe('1:30')
+    expect(formatVideoRemainingTime(90, 29.2)).toBe('1:01')
+    expect(formatVideoRemainingTime(3661, 1)).toBe('1:01:00')
+    expect(formatVideoRemainingTime(0, 0)).toBe('--:--')
+  })
+
+  it('restores the remaining time after Artplayer emits a buffer-progress event', async () => {
+    const art = setupArtplayerMock()
+
+    render(<VideoPlayer src="/video.mp4" />)
+
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    const timeControl = document.createElement('div')
+    timeControl.className = 'art-control-time'
+    art.template.$player.append(timeControl)
+    art.currentTime = 10
+
+    act(() => emitArtplayerEvent('video:progress'))
+
+    expect(timeControl.textContent).toBe('0:50')
+  })
+
   beforeEach(() => {
+    videoChaptersMock.useVideoChapters.mockReturnValue({
+      chapters: [],
+      duration: 0,
+      loading: false,
+      error: null,
+      reload: vi.fn()
+    })
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
       value: vi.fn(() => ({
@@ -107,6 +145,65 @@ describe('VideoPlayer component behavior', () => {
 
     await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
     expect(artplayerMock.constructor.mock.calls[0]?.[0]).toMatchObject({ gesture: false })
+  })
+
+  it('does not autoplay and unmutes videos with an audio track when playback starts', async () => {
+    const art = setupArtplayerMock()
+
+    render(<VideoPlayer src="/video.mp4" hasAudio muted />)
+
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    expect(artplayerMock.constructor.mock.calls[0]?.[0]).toMatchObject({ autoplay: false, muted: true })
+
+    act(() => emitArtplayerEvent('play'))
+
+    expect(art).toMatchObject({ muted: false })
+  })
+
+  it('always shows chapter navigation controls and disables unavailable directions', async () => {
+    videoChaptersMock.useVideoChapters.mockReturnValue({
+      chapters: [
+        { id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10 },
+        { id: 'chapter-2', index: 2, title: 'Middle', start: 20, end: 30, duration: 10 },
+        { id: 'chapter-3', index: 3, title: 'Finale', start: 40, end: 50, duration: 10 }
+      ],
+      duration: 50,
+      loading: false,
+      error: null,
+      reload: vi.fn()
+    })
+    const art = setupArtplayerMock()
+
+    render(<VideoPlayer src="/video.mp4" />)
+
+    await waitFor(() => {
+      expect(art.controls.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'chapter-next' }))
+    })
+
+    const initialControls = art.controls.add.mock.calls.map(([control]) => control)
+    const initialPreviousControl = initialControls.find((control) => control.name === 'chapter-previous')
+    expect(initialPreviousControl).toMatchObject({ tooltip: '已经是第一章', index: 18 })
+    const nextControl = initialControls.find((control) => control.name === 'chapter-next')
+    expect(nextControl).toMatchObject({ tooltip: '下一章：Middle', index: 19 })
+
+    act(() => nextControl.click(null, new Event('click')))
+    expect(art.currentTime).toBe(20)
+
+    art.currentTime = 25
+    act(() => emitArtplayerEvent('video:timeupdate'))
+
+    await waitFor(() => {
+      expect(art.controls.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'chapter-previous' }))
+    })
+
+    const previousControl = art.controls.add.mock.calls
+      .map(([control]) => control)
+      .reverse()
+      .find((control) => control.name === 'chapter-previous')
+    expect(previousControl).toMatchObject({ tooltip: '上一章：Opening', index: 18 })
+
+    act(() => previousControl.click(null, new Event('click')))
+    expect(art.currentTime).toBe(0)
   })
 
   it('does not reopen the overlay on loadstart while the current video frame is still renderable', async () => {

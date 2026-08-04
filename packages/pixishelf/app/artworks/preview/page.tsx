@@ -105,6 +105,7 @@ export default function ArtworkPreviewPage() {
               src={imgPath}
               chaptersUrl={image.chaptersUrl}
               hasAudio={image.hasAudio}
+              size={image.size}
               className="h-full w-full"
               fillParent={true}
             />
