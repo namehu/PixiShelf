@@ -8,7 +8,7 @@ import { useTRPC } from '@/lib/trpc'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Progress } from '@/components/ui/progress'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Clock, CheckCircle2, XCircle, Activity, PlayCircle } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 
 interface MediaDerivedTagSyncStats {
@@ -138,15 +138,15 @@ function TaskSection({
   children?: ReactNode
 }) {
   return (
-    <div className="space-y-3 rounded-lg border p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 flex-1 space-y-1">
-          <h4 className="font-medium">{title}</h4>
-          <p className="text-sm text-neutral-500">{description}</p>
+    <div className="flex flex-col gap-5 px-6 py-6 transition-colors hover:bg-muted/5 first:pt-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1.5">
+          <h4 className="font-semibold text-foreground tracking-tight">{title}</h4>
+          <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">{action}</div>
       </div>
-      {children}
+      {children && <div className="flex flex-col gap-4">{children}</div>}
     </div>
   )
 }
@@ -163,18 +163,39 @@ function JobStatus({
   if (!isJobVisible(job, isRunning)) return null
 
   return (
-    <div className="space-y-2 rounded-lg bg-neutral-50 p-4">
-      <div className="flex justify-between gap-3 text-sm">
-        <span className="font-medium">
-          状态: {job?.status}
-          {job?.message && ` - ${job.message}`}
-        </span>
-        <span>{job?.progress ?? 0}%</span>
+    <div className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
+      <div className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <div className="flex items-center gap-2 font-medium">
+            {isRunning ? (
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            ) : job?.status === 'COMPLETED' ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            ) : job?.status === 'FAILED' ? (
+              <XCircle className="h-4 w-4 text-destructive" />
+            ) : (
+              <Activity className="h-4 w-4 text-muted-foreground" />
+            )}
+            <span>状态: {job?.status}</span>
+            {job?.message && (
+              <span className="text-muted-foreground font-normal hidden sm:inline"> - {job.message}</span>
+            )}
+          </div>
+          <span className="font-medium text-muted-foreground">{job?.progress ?? 0}%</span>
+        </div>
+        {job?.message && <p className="text-muted-foreground text-sm sm:hidden">{job.message}</p>}
+        <Progress value={job?.progress ?? 0} className="h-2" />
+        {job?.error && <p className="text-sm text-destructive font-medium mt-2">错误: {job.error}</p>}
       </div>
-      <Progress value={job?.progress ?? 0} className="h-2" />
-      {job?.error && <p className="mt-2 text-sm text-red-500">错误: {job.error}</p>}
-      {job?.status === 'COMPLETED' && (completeContent ?? <p className="mt-2 text-sm text-green-600">任务完成</p>)}
-      {job?.status === 'CANCELLED' && <p className="mt-2 text-sm text-neutral-500">任务已取消</p>}
+      {job?.status === 'COMPLETED' && completeContent && (
+        <div className="border-t bg-muted/20 px-4 py-3 text-sm">{completeContent}</div>
+      )}
+      {job?.status === 'COMPLETED' && !completeContent && (
+        <div className="border-t bg-muted/20 px-4 py-3 text-sm text-emerald-600 font-medium">任务完成</div>
+      )}
+      {job?.status === 'CANCELLED' && (
+        <div className="border-t bg-muted/20 px-4 py-3 text-sm text-muted-foreground">任务已取消</div>
+      )}
     </div>
   )
 }
@@ -197,47 +218,81 @@ function ScheduleSettings({
   const changed = draft.enabled !== task.enabled || draft.time !== task.time || priority !== task.priority
 
   return (
-    <div className="space-y-3 rounded-lg border border-dashed p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 flex-1 space-y-1">
-          <h5 className="text-sm font-medium">定时计划</h5>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
-            <span>模式：{task.scheduleMode === 'DAILY' ? '每日' : task.scheduleMode}</span>
-            <span>时区：{task.timezone}</span>
-            <span>互斥组：{task.mutexKey || '-'}</span>
-            <span>下次计划：{task.nextRunAt || '-'}</span>
-            <span>上次自动日期：{task.lastTriggeredDate || '-'}</span>
-            <span>上次触发：{formatDateTime(task.lastTriggeredAt)}</span>
-            <span>最近任务：{task.lastJobStatus || '-'}</span>
+    <div className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
+      <div className="bg-muted/30 px-4 py-3 border-b flex items-center gap-2">
+        <Clock className="h-4 w-4 text-muted-foreground" />
+        <h5 className="text-sm font-medium">定时计划配置</h5>
+      </div>
+      <div className="p-4 space-y-5">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 text-sm">
+          <div className="space-y-1">
+            <span className="text-muted-foreground text-xs">执行模式</span>
+            <p className="font-medium text-foreground">{task.scheduleMode === 'DAILY' ? '每日' : task.scheduleMode}</p>
+          </div>
+          <div className="space-y-1">
+            <span className="text-muted-foreground text-xs">时区</span>
+            <p className="font-medium text-foreground">{task.timezone}</p>
+          </div>
+          <div className="space-y-1">
+            <span className="text-muted-foreground text-xs">下次计划执行</span>
+            <p className="font-medium text-foreground">{task.nextRunAt || '-'}</p>
+          </div>
+          <div className="space-y-1">
+            <span className="text-muted-foreground text-xs">上次触发时间</span>
+            <p className="font-medium text-foreground">{formatDateTime(task.lastTriggeredAt)}</p>
+          </div>
+          {task.mutexKey && (
+            <div className="space-y-1">
+              <span className="text-muted-foreground text-xs">互斥组</span>
+              <p className="font-medium text-foreground">{task.mutexKey}</p>
+            </div>
+          )}
+          <div className="space-y-1">
+            <span className="text-muted-foreground text-xs">上次自动日期</span>
+            <p className="font-medium text-foreground">{task.lastTriggeredDate || '-'}</p>
+          </div>
+          <div className="space-y-1">
+            <span className="text-muted-foreground text-xs">最近任务状态</span>
+            <p className="font-medium text-foreground">{task.lastJobStatus || '-'}</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-[auto_120px_90px_auto] sm:items-center">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-4 border-t border-dashed">
+          <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-1.5 shrink-0">
             <Switch checked={draft.enabled} onCheckedChange={(checked) => onDraftChange({ enabled: checked })} />
-            <span className="text-sm">{draft.enabled ? '启用' : '停用'}</span>
+            <span className="text-sm font-medium min-w-[3rem]">{draft.enabled ? '已启用' : '已停用'}</span>
           </div>
-          <Input
-            type="time"
-            value={draft.time}
-            onChange={(event) => onDraftChange({ time: event.target.value })}
-            className="h-9"
-          />
-          <Input
-            type="number"
-            min={0}
-            max={1000}
-            value={draft.priority}
-            onChange={(event) => onDraftChange({ priority: event.target.value })}
-            className="h-9"
-            title="优先级，数字越小越先执行"
-          />
+          <div className="flex flex-1 flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground whitespace-nowrap">时间</span>
+              <Input
+                type="time"
+                value={draft.time}
+                onChange={(event) => onDraftChange({ time: event.target.value })}
+                className="h-9 w-[120px]"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground whitespace-nowrap">优先级</span>
+              <Input
+                type="number"
+                min={0}
+                max={1000}
+                value={draft.priority}
+                onChange={(event) => onDraftChange({ priority: event.target.value })}
+                className="h-9 w-[90px]"
+                title="优先级，数字越小越先执行"
+              />
+            </div>
+          </div>
           <Button
-            variant="outline"
+            variant={changed ? 'default' : 'outline'}
             size="sm"
             onClick={onSave}
             disabled={isSaving || !changed || priorityInvalid}
+            className="shrink-0 h-9"
           >
+            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             保存计划
           </Button>
         </div>
@@ -492,12 +547,12 @@ export function MaintenanceCard() {
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="shadow-sm">
+      <CardHeader className="border-b bg-muted/10 px-6 py-5">
         <CardTitle>数据修正</CardTitle>
         <CardDescription>按任务集中管理手动执行、执行进度和定时计划</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="divide-y divide-border p-0">
         <TaskSection
           title="补全元数据源 (MetaSource)"
           description="递归扫描目录，根据文件名补全数据库中缺失的 metaSource 字段。"
@@ -512,7 +567,11 @@ export function MaintenanceCard() {
               </Button>
             ) : (
               <Button onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
-                {startMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {startMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <PlayCircle className="mr-2 h-4 w-4" />
+                )}
                 开始补全
               </Button>
             )
@@ -529,7 +588,11 @@ export function MaintenanceCard() {
               onClick={() => startMediaTagMutation.mutate()}
               disabled={Boolean(isMediaTagRunning) || startMediaTagMutation.isPending}
             >
-              {startMediaTagMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {startMediaTagMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <PlayCircle className="mr-2 h-4 w-4" />
+              )}
               {isMediaTagRunning ? '同步中...' : '开始同步'}
             </Button>
           }
@@ -538,19 +601,29 @@ export function MaintenanceCard() {
             job={mediaTagJob}
             isRunning={Boolean(isMediaTagRunning)}
             completeContent={
-              <p className="mt-2 text-sm text-green-600">
-                任务完成：image {mediaTagResult?.image?.finalRelations ?? 0} 个，video{' '}
-                {mediaTagResult?.video?.finalRelations ?? 0} 个，webp {mediaTagResult?.webp?.finalRelations ?? 0}{' '}
-                个；本次新增{' '}
-                {(mediaTagResult?.image?.addedRelations ?? 0) +
-                  (mediaTagResult?.video?.addedRelations ?? 0) +
-                  (mediaTagResult?.webp?.addedRelations ?? 0)}{' '}
-                个关联，移除{' '}
-                {(mediaTagResult?.image?.removedStaleRelations ?? 0) +
-                  (mediaTagResult?.video?.removedStaleRelations ?? 0) +
-                  (mediaTagResult?.webp?.removedStaleRelations ?? 0)}{' '}
-                个过期关联。
-              </p>
+              <div className="text-muted-foreground space-y-1">
+                <p>
+                  <span className="font-medium text-foreground">任务完成：</span>
+                  image <strong className="text-foreground">{mediaTagResult?.image?.finalRelations ?? 0}</strong> 个，
+                  video <strong className="text-foreground">{mediaTagResult?.video?.finalRelations ?? 0}</strong> 个，
+                  webp <strong className="text-foreground">{mediaTagResult?.webp?.finalRelations ?? 0}</strong> 个。
+                </p>
+                <p>
+                  本次新增{' '}
+                  <strong className="text-foreground">
+                    {(mediaTagResult?.image?.addedRelations ?? 0) +
+                      (mediaTagResult?.video?.addedRelations ?? 0) +
+                      (mediaTagResult?.webp?.addedRelations ?? 0)}
+                  </strong>{' '}
+                  个关联， 移除{' '}
+                  <strong className="text-foreground">
+                    {(mediaTagResult?.image?.removedStaleRelations ?? 0) +
+                      (mediaTagResult?.video?.removedStaleRelations ?? 0) +
+                      (mediaTagResult?.webp?.removedStaleRelations ?? 0)}
+                  </strong>{' '}
+                  个过期关联。
+                </p>
+              </div>
             }
           />
         </TaskSection>
@@ -563,7 +636,11 @@ export function MaintenanceCard() {
               onClick={() => webpScheduledTask && handleTriggerScheduledTask(webpScheduledTask)}
               disabled={!webpScheduledTask || Boolean(isWebpScanRunning) || triggerScheduledTaskMutation.isPending}
             >
-              {triggeringTaskKey === webpScheduledTask?.key && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {triggeringTaskKey === webpScheduledTask?.key ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <PlayCircle className="mr-2 h-4 w-4" />
+              )}
               {isWebpScanRunning ? '识别中...' : '立即执行'}
             </Button>
           }
@@ -572,19 +649,38 @@ export function MaintenanceCard() {
             job={webpScanJob}
             isRunning={Boolean(isWebpScanRunning)}
             completeContent={
-              <div className="mt-2 space-y-2 text-sm text-green-600">
-                <p>
-                  任务完成：初始化 {webpScanResult?.initialized ?? 0} 个，已处理 {webpScanResult?.processed ?? 0}{' '}
-                  个；动图 {webpScanResult?.animated ?? 0} 个，静态 {webpScanResult?.static ?? 0} 个，失败{' '}
-                  {webpScanResult?.failed ?? 0} 个，剩余待处理 {webpScanResult?.remainingPending ?? 0} 个。
-                </p>
+              <div className="space-y-3 text-muted-foreground">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                  <span>
+                    初始化: <strong className="text-foreground font-medium">{webpScanResult?.initialized ?? 0}</strong>
+                  </span>
+                  <span>
+                    已处理: <strong className="text-foreground font-medium">{webpScanResult?.processed ?? 0}</strong>
+                  </span>
+                  <span>
+                    动图: <strong className="text-foreground font-medium">{webpScanResult?.animated ?? 0}</strong>
+                  </span>
+                  <span>
+                    静态: <strong className="text-foreground font-medium">{webpScanResult?.static ?? 0}</strong>
+                  </span>
+                  <span>
+                    失败: <strong className="text-destructive font-medium">{webpScanResult?.failed ?? 0}</strong>
+                  </span>
+                  <span>
+                    剩余待处理:{' '}
+                    <strong className="text-foreground font-medium">{webpScanResult?.remainingPending ?? 0}</strong>
+                  </span>
+                </div>
                 {webpScanResult?.failedSamples && webpScanResult.failedSamples.length > 0 && (
-                  <div className="rounded border border-red-200 bg-red-50 p-2 text-red-700">
-                    <p className="font-medium">失败样例</p>
-                    <ul className="mt-1 space-y-1">
+                  <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive">
+                    <p className="font-medium mb-2 text-sm">失败样例</p>
+                    <ul className="space-y-1 text-xs font-mono">
                       {webpScanResult.failedSamples.slice(0, 5).map((sample) => (
                         <li key={sample.id} className="break-all">
-                          #{sample.id} {sample.path}: {sample.error}
+                          <span className="opacity-70">
+                            #{sample.id} {sample.path}:
+                          </span>{' '}
+                          {sample.error}
                         </li>
                       ))}
                     </ul>
@@ -598,7 +694,9 @@ export function MaintenanceCard() {
 
         <TaskSection
           title={videoScheduledTask?.name ?? '视频媒体探测'}
-          description={videoScheduledTask?.description ?? '分类未识别媒体，并使用 ffprobe 探测视频音频、编码、时长和帧率。'}
+          description={
+            videoScheduledTask?.description ?? '分类未识别媒体，并使用 ffprobe 探测视频音频、编码、时长和帧率。'
+          }
           action={
             isVideoProbeRunning ? (
               <Button
@@ -613,65 +711,131 @@ export function MaintenanceCard() {
                 onClick={() => videoScheduledTask && handleTriggerScheduledTask(videoScheduledTask)}
                 disabled={!videoScheduledTask || triggerScheduledTaskMutation.isPending}
               >
-                {triggeringTaskKey === videoScheduledTask?.key && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {triggeringTaskKey === videoScheduledTask?.key ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <PlayCircle className="mr-2 h-4 w-4" />
+                )}
                 立即执行
               </Button>
             )
           }
         >
-          <div className="flex flex-col gap-2 rounded-lg border border-dashed p-4 sm:flex-row sm:items-center">
-            <div className="min-w-0 flex-1 space-y-1">
-              <h5 className="text-sm font-medium">按路径重试视频探测</h5>
-              <p className="text-xs text-neutral-500">输入数据库相对路径，或 SCAN_PATH 下的绝对路径。</p>
+          <div className="rounded-lg border border-border bg-muted/10 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1 space-y-1.5">
+                <label className="text-sm font-medium text-foreground">按路径重试视频探测</label>
+                <p className="text-xs text-muted-foreground">输入数据库相对路径，或 SCAN_PATH 下的绝对路径。</p>
+                <Input
+                  value={videoReprobePath}
+                  onChange={(event) => setVideoReprobePath(event.target.value)}
+                  placeholder="/artist/work/video.mp4"
+                  className="h-9 bg-background mt-2"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && videoReprobePath.trim() && !reprobeVideoByPathMutation.isPending) {
+                      reprobeVideoByPathMutation.mutate({ path: videoReprobePath })
+                    }
+                  }}
+                />
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => reprobeVideoByPathMutation.mutate({ path: videoReprobePath })}
+                disabled={!videoReprobePath.trim() || reprobeVideoByPathMutation.isPending}
+                className="h-9 shrink-0 w-full sm:w-auto"
+              >
+                {reprobeVideoByPathMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                重试探测
+              </Button>
             </div>
-            <Input
-              value={videoReprobePath}
-              onChange={(event) => setVideoReprobePath(event.target.value)}
-              placeholder="/artist/work/video.mp4"
-              className="h-9 sm:max-w-md"
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && videoReprobePath.trim() && !reprobeVideoByPathMutation.isPending) {
-                  reprobeVideoByPathMutation.mutate({ path: videoReprobePath })
-                }
-              }}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => reprobeVideoByPathMutation.mutate({ path: videoReprobePath })}
-              disabled={!videoReprobePath.trim() || reprobeVideoByPathMutation.isPending}
-              className="h-9 shrink-0"
-            >
-              {reprobeVideoByPathMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              重试探测
-            </Button>
           </div>
 
           <JobStatus
             job={videoProbeJob}
             isRunning={Boolean(isVideoProbeRunning)}
             completeContent={
-              <div className="mt-2 space-y-2 text-sm text-green-600">
-                <p>
-                  任务完成：本次新分类 UNKNOWN 媒体：视频 {videoProbeResult?.classifiedVideos ?? 0} 个，图片{' '}
-                  {videoProbeResult?.classifiedImages ?? 0} 个，动图 {videoProbeResult?.classifiedAnimations ?? 0}{' '}
-                  个，仍未知 {videoProbeResult?.unknown ?? 0} 个；本次新建视频 metadata{' '}
-                  {videoProbeResult?.metadataRowsCreated ?? 0} 行；本次探测/重试视频：成功{' '}
-                  {videoProbeResult?.processed ?? 0} 个，失败 {videoProbeResult?.failed ?? 0} 个；当前剩余待探测{' '}
-                  {videoProbeResult?.remainingPending ?? 0} 个。
-                </p>
-                <p>
-                  视频封面：处理 {videoProbeResult?.poster?.processed ?? 0} 个，生成{' '}
-                  {videoProbeResult?.poster?.generated ?? 0} 个，失败 {videoProbeResult?.poster?.failed ?? 0}{' '}
-                  个，清理孤儿封面 {videoProbeResult?.poster?.orphanedFilesDeleted ?? 0} 个。
-                </p>
+              <div className="space-y-3 text-muted-foreground">
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium text-foreground">本次新分类 UNKNOWN 媒体：</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                    <span>
+                      视频:{' '}
+                      <strong className="text-foreground font-medium">{videoProbeResult?.classifiedVideos ?? 0}</strong>
+                    </span>
+                    <span>
+                      图片:{' '}
+                      <strong className="text-foreground font-medium">{videoProbeResult?.classifiedImages ?? 0}</strong>
+                    </span>
+                    <span>
+                      动图:{' '}
+                      <strong className="text-foreground font-medium">
+                        {videoProbeResult?.classifiedAnimations ?? 0}
+                      </strong>
+                    </span>
+                    <span>
+                      仍未知: <strong className="text-foreground font-medium">{videoProbeResult?.unknown ?? 0}</strong>
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-1.5 border-t border-border/50 pt-2">
+                  <p className="text-sm font-medium text-foreground">探测与处理进度：</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                    <span>
+                      新建 metadata:{' '}
+                      <strong className="text-foreground font-medium">
+                        {videoProbeResult?.metadataRowsCreated ?? 0}
+                      </strong>{' '}
+                      行
+                    </span>
+                    <span>
+                      成功: <strong className="text-foreground font-medium">{videoProbeResult?.processed ?? 0}</strong>
+                    </span>
+                    <span>
+                      失败: <strong className="text-destructive font-medium">{videoProbeResult?.failed ?? 0}</strong>
+                    </span>
+                    <span>
+                      剩余待探测:{' '}
+                      <strong className="text-foreground font-medium">{videoProbeResult?.remainingPending ?? 0}</strong>
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-1.5 border-t border-border/50 pt-2">
+                  <p className="text-sm font-medium text-foreground">视频封面处理：</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                    <span>
+                      处理:{' '}
+                      <strong className="text-foreground font-medium">
+                        {videoProbeResult?.poster?.processed ?? 0}
+                      </strong>
+                    </span>
+                    <span>
+                      生成:{' '}
+                      <strong className="text-foreground font-medium">
+                        {videoProbeResult?.poster?.generated ?? 0}
+                      </strong>
+                    </span>
+                    <span>
+                      失败:{' '}
+                      <strong className="text-destructive font-medium">{videoProbeResult?.poster?.failed ?? 0}</strong>
+                    </span>
+                    <span>
+                      清理孤儿文件:{' '}
+                      <strong className="text-foreground font-medium">
+                        {videoProbeResult?.poster?.orphanedFilesDeleted ?? 0}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
                 {videoProbeResult?.failedSamples && videoProbeResult.failedSamples.length > 0 && (
-                  <div className="rounded border border-red-200 bg-red-50 p-2 text-red-700">
-                    <p className="font-medium">失败样例</p>
-                    <ul className="mt-1 space-y-1">
+                  <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive mt-2">
+                    <p className="font-medium mb-2 text-sm">失败样例</p>
+                    <ul className="space-y-1 text-xs font-mono">
                       {videoProbeResult.failedSamples.slice(0, 5).map((sample) => (
                         <li key={sample.imageId} className="break-all">
-                          #{sample.imageId} {sample.path}: {sample.error}
+                          <span className="opacity-70">
+                            #{sample.imageId} {sample.path}:
+                          </span>{' '}
+                          {sample.error}
                         </li>
                       ))}
                     </ul>
@@ -693,15 +857,15 @@ export function MaintenanceCard() {
                 onClick={() => handleTriggerScheduledTask(task)}
                 disabled={triggerScheduledTaskMutation.isPending}
               >
-                {triggeringTaskKey === task.key && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {triggeringTaskKey === task.key ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <PlayCircle className="mr-2 h-4 w-4" />
+                )}
                 立即执行
               </Button>
             }
           >
-            <div className="rounded-lg bg-neutral-50 p-4 text-sm text-neutral-600">
-              最近任务：{task.lastJobStatus || '-'}
-              {task.lastJobId && <span className="ml-3 break-all">任务 ID：{task.lastJobId}</span>}
-            </div>
             {renderScheduleSettings(task)}
           </TaskSection>
         ))}
