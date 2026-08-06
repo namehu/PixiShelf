@@ -4,6 +4,7 @@ import path from 'path'
 import { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { TImageModel } from '@/schemas/models'
 import { isApngFile, isVideoFile } from '@/lib/media'
+import { normalizeImageSizeField } from '@/utils/image-size'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 
@@ -56,10 +57,15 @@ export function transformSingleArtwork(artwork: any) {
 export function transformImages(images: TImageModel[], dbImageCount?: number) {
   // 1. 直接转 DTO，保留数据库排序
   const allItems = images.map((image) => {
+    const normalizedImage = normalizeImageSizeField(image)
     const storedMediaType = String((image as any).mediaType ?? '').toUpperCase()
-    const mediaType = storedMediaType === 'VIDEO' || storedMediaType === 'video' || isVideoFile(image.path) ? 'video' : 'image'
-    const hasChapters = mediaType === 'video' && Boolean(image.chaptersPath && image.chaptersCount > 0)
-    const videoMetadata = image.videoMetadata
+    const mediaType =
+      storedMediaType === 'VIDEO' || storedMediaType === 'video' || isVideoFile(normalizedImage.path)
+        ? 'video'
+        : 'image'
+    const hasChapters =
+      mediaType === 'video' && Boolean(normalizedImage.chaptersPath && (normalizedImage.chaptersCount ?? 0) > 0)
+    const videoMetadata = normalizedImage.videoMetadata
     const metadataFields = videoMetadata
       ? {
           probeStatus: videoMetadata.probeStatus,
@@ -82,10 +88,10 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
       : getFlatVideoMetadataFields(image as any)
 
     return ArtworkImageResponseDto.parse({
-      ...image,
+      ...normalizedImage,
       mediaType,
       hasChapters,
-      chaptersUrl: hasChapters ? `/api/v1/media/${image.id}/chapters` : null,
+      chaptersUrl: hasChapters ? `/api/v1/media/${normalizedImage.id}/chapters` : null,
       ...metadataFields
     })
   })

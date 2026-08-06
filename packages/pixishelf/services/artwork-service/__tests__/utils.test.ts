@@ -128,6 +128,52 @@ describe('transformImages', () => {
     expect(images[0]?.probeUpdatedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
     expect('videoMetadata' in images[0]!).toBe(false)
   })
+
+  it('normalizes bigint image sizes and includes them in total media size', () => {
+    const now = new Date()
+    const { images, totalMediaSize } = transformImages([
+      {
+        id: 1,
+        path: '/artist/artwork/video.mp4',
+        width: null,
+        height: null,
+        size: BigInt(3048403909),
+        sortOrder: 0,
+        artworkId: 1,
+        createdAt: now,
+        updatedAt: now,
+        webpAnimationStatus: null,
+        chaptersPath: null,
+        chaptersCount: 0,
+        chaptersDuration: null,
+        chaptersUpdatedAt: null,
+        chaptersHash: null,
+        mediaType: 'VIDEO'
+      },
+      {
+        id: 2,
+        path: '/artist/artwork/cover.jpg',
+        width: null,
+        height: null,
+        size: BigInt(200),
+        sortOrder: 1,
+        artworkId: 1,
+        createdAt: now,
+        updatedAt: now,
+        webpAnimationStatus: null,
+        chaptersPath: null,
+        chaptersCount: 0,
+        chaptersDuration: null,
+        chaptersUpdatedAt: null,
+        chaptersHash: null,
+        mediaType: 'IMAGE'
+      }
+    ])
+
+    expect(images[0]?.size).toBe(3048403909)
+    expect(typeof images[0]?.size).toBe('number')
+    expect(totalMediaSize).toBe(3048404109)
+  })
 })
 
 describe('determineArtworkRelDir', () => {

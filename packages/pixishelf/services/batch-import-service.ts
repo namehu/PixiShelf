@@ -16,6 +16,7 @@ import {
   startScanRun,
   updateScanRunItemMedia
 } from './scan-run-service'
+import { toDatabaseImageSize } from '@/utils/image-size'
 
 /**
  * 批量创建作品
@@ -151,7 +152,7 @@ export async function batchRegisterImagesService(data: BatchRegisterImageSchema)
             return {
               artworkId,
               path: img.path,
-              size: img.size,
+              size: toDatabaseImageSize(img.size),
               width: img.width || 0,
               height: img.height || 0,
               sortOrder: index

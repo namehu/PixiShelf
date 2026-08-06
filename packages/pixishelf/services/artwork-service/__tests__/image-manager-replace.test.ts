@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   imageDeleteManyMock,
   imageCreateManyMock,
+  imageCreateMock,
   tagFindManyMock,
   artworkTagCreateManyMock,
   transactionMock,
@@ -10,6 +11,7 @@ const {
 } = vi.hoisted(() => ({
   imageDeleteManyMock: vi.fn(),
   imageCreateManyMock: vi.fn(),
+  imageCreateMock: vi.fn(),
   tagFindManyMock: vi.fn(),
   artworkTagCreateManyMock: vi.fn(),
   transactionMock: vi.fn(),
@@ -35,7 +37,8 @@ import { updateArtworkImagesTransaction, updateArtworkImagesWithTransactionClien
 const tx = {
   image: {
     deleteMany: imageDeleteManyMock,
-    createMany: imageCreateManyMock
+    createMany: imageCreateManyMock,
+    create: imageCreateMock
   },
   tag: {
     findMany: tagFindManyMock
@@ -49,6 +52,7 @@ describe('updateArtworkImagesTransaction', () => {
   beforeEach(() => {
     imageDeleteManyMock.mockReset().mockResolvedValue({})
     imageCreateManyMock.mockReset().mockResolvedValue({ count: 1 })
+    imageCreateMock.mockReset()
     tagFindManyMock.mockReset()
     artworkTagCreateManyMock.mockReset().mockResolvedValue({ count: 1 })
     syncMediaDerivedTagMock.mockReset().mockResolvedValue(undefined)
@@ -154,6 +158,7 @@ describe('updateArtworkImagesWithTransactionClient', () => {
           artworkId: 10,
           path: '/artist/artwork/video.mp4',
           sortOrder: 2,
+          size: BigInt(4096),
           chaptersPath: '/artist/artwork/video.chapters.json',
           chaptersCount: 3,
           chaptersDuration: 60,
@@ -167,5 +172,38 @@ describe('updateArtworkImagesWithTransactionClient', () => {
       data: [{ artworkId: 10, tagId: 4 }],
       skipDuplicates: true
     })
+  })
+
+  it('writes large media sizes as bigint and normalizes returned image size to number', async () => {
+    transactionMock.mockImplementation(async (callback) => callback(tx))
+    imageCreateMock.mockResolvedValue({
+      id: 20,
+      artworkId: 10,
+      path: '/artist/artwork/video.mp4',
+      sortOrder: 2,
+      width: 0,
+      height: 0,
+      size: BigInt(3048403909),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+
+    const { addImageWithChapters } = await import('../image-manager')
+    const image = await addImageWithChapters(10, {
+      fileName: 'video.mp4',
+      order: 2,
+      width: 0,
+      height: 0,
+      size: 3048403909,
+      path: '/artist/artwork/video.mp4'
+    })
+
+    expect(imageCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        size: BigInt(3048403909)
+      })
+    })
+    expect(image.size).toBe(3048403909)
+    expect(typeof image.size).toBe('number')
   })
 })

@@ -111,13 +111,14 @@ describe('batch-import-service audit integration', () => {
   })
 
   it('updates batch import items with registered image counts and completes the run', async () => {
+    const imageCreateMany = vi.fn().mockResolvedValue({ count: 2 })
     mocks.transaction.mockImplementation(async (callback) =>
       callback({
         artwork: {
           findUnique: vi.fn().mockResolvedValue({ id: 10 })
         },
         image: {
-          createMany: vi.fn().mockResolvedValue({ count: 2 })
+          createMany: imageCreateMany
         }
       })
     )
@@ -130,7 +131,7 @@ describe('batch-import-service audit integration', () => {
           {
             artworkId: 10,
             images: [
-              { path: 'artist/local_10/local_10_p0.jpg', size: 100 },
+              { path: 'artist/local_10/local_10_p0.mp4', size: 3048403909 },
               { path: 'artist/local_10/local_10_p1.jpg', size: 200 }
             ]
           }
@@ -138,6 +139,18 @@ describe('batch-import-service audit integration', () => {
       })
     ).resolves.toEqual({ success: true })
 
+    expect(imageCreateMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          path: 'artist/local_10/local_10_p0.mp4',
+          size: BigInt(3048403909)
+        }),
+        expect.objectContaining({
+          path: 'artist/local_10/local_10_p1.jpg',
+          size: BigInt(200)
+        })
+      ]
+    })
     expect(mocks.updateScanRunItemMedia).toHaveBeenCalledWith({
       scanRunId: 'run-1',
       externalId: 'local_10',

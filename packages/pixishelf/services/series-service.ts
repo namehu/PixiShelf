@@ -43,6 +43,7 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
   const enhancedItems = items.map((item) => {
     let derivedCover = null
     const firstSeriesArtwork = item.seriesArtworks[0]
+    const seriesFields = stripSeriesListRelations(item)
 
     if (firstSeriesArtwork?.artwork) {
       const transformed = transformSingleArtwork({
@@ -57,7 +58,7 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
     }
 
     return {
-      ...item,
+      ...seriesFields,
       coverImageUrl: item.coverImageUrl || derivedCover || null,
       artworkCount: item._count.seriesArtworks
     }
@@ -87,9 +88,10 @@ export async function getSeriesDetail(id: number) {
     }
   })
   if (!series) return null
+  const { seriesArtworks, ...seriesFields } = series
 
   // Transform to flat artworks list with order
-  const artworks = series.seriesArtworks.map((sa) => {
+  const artworks = seriesArtworks.map((sa) => {
     const transformed = transformSingleArtwork({
       ...sa.artwork,
       _count: { images: sa.artwork.images.length }
@@ -112,7 +114,16 @@ export async function getSeriesDetail(id: number) {
     }
   }
 
-  return { ...series, artworks, coverImageUrl }
+  return { ...seriesFields, artworks, coverImageUrl }
+}
+
+function stripSeriesListRelations<T extends { _count: unknown; seriesArtworks: unknown }>(
+  item: T
+): Omit<T, '_count' | 'seriesArtworks'> {
+  const copy = { ...item }
+  delete copy._count
+  delete copy.seriesArtworks
+  return copy
 }
 
 export async function createSeries(data: { title: string; description?: string; coverImageUrl?: string }) {

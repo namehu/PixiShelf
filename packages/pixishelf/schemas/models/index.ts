@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ESource } from '@/enums/ESource'
+import { toApiImageSize } from '@/utils/image-size'
 
 // ==========================================
 // 0. Enums & Shared Types
@@ -17,6 +18,10 @@ export type ArtworkSource = z.infer<typeof ArtworkSourceEnum>
 
 export const MediaTypeEnum = z.enum(['IMAGE', 'VIDEO', 'ANIMATION', 'UNKNOWN'])
 export const MediaProbeStatusEnum = z.enum(['PENDING', 'PROBING', 'COMPLETED', 'FAILED', 'SKIPPED'])
+const ImageSizeModel = z
+  .union([z.number().int(), z.bigint()])
+  .nullable()
+  .transform((size) => toApiImageSize(size))
 
 // ==========================================
 // 1. Base Models (1:1 Mirror of Prisma)
@@ -132,7 +137,7 @@ export const ImageModel = z.object({
   path: z.string(),
   width: z.number().int().nullable(),
   height: z.number().int().nullable(), // [cite: 22]
-  size: z.number().int().nullable(),
+  size: ImageSizeModel,
   sortOrder: z.number().int().default(0), // [cite: 23]
   artworkId: z.number().int().nullable(), // [cite: 25]
   createdAt: z.date(), // [cite: 24]
@@ -167,7 +172,7 @@ export const ImageModel = z.object({
     .optional()
 })
 
-export interface TImageModel extends z.infer<typeof ImageModel> {}
+export type TImageModel = z.input<typeof ImageModel>
 
 /**
  * Model User

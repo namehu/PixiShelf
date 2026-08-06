@@ -24,6 +24,7 @@ import { getScanPath } from '@/services/setting.service'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { ESource, type ESource as ArtworkSource } from '@/enums/ESource'
 import { appendScanRunItems, completeScanRunSummary, startScanRun } from '@/services/scan-run-service'
+import { toApiImageSize } from '@/utils/image-size'
 
 export * from './related'
 export * from './video-chapters'
@@ -737,7 +738,7 @@ function transformArtworkCard(artwork: {
   images: Array<{
     id: number
     path: string
-    size: number | null
+    size: number | bigint | null
     mediaType: string
     videoMetadata: { posterStatus: string; posterPath: string | null; posterUpdatedAt: Date | null } | null
   }>
@@ -746,7 +747,7 @@ function transformArtworkCard(artwork: {
 }): ArtworkCardData {
   const images = artwork.images.map((image) => ({
     path: image.path,
-    size: image.size,
+    size: toApiImageSize(image.size),
     mediaType: image.mediaType === 'VIDEO' || isVideoFile(image.path) ? ('video' as const) : ('image' as const),
     posterUrl:
       image.videoMetadata?.posterStatus === 'COMPLETED' && image.videoMetadata.posterPath

@@ -8,6 +8,7 @@ import { buildScannedImageSeedData, type ScannedImageSeedData } from './scan-ima
 import { getMetaSource, getPathBasename } from './path-utils'
 import type { MetadataInfo } from './metadata-parser'
 import type { ArtistCacheEntry, ArtworkData, ScanAuditItemInput, ScanContext } from './types'
+import { toDatabaseImageSize } from '@/utils/image-size'
 
 type CreatedArtworkLookup = {
   id: number
@@ -126,10 +127,7 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
 
           // 准备图片数据
           if (artworkData.mediaFiles.length > 0) {
-            const artworkImages = imageSeedsForArtwork.map((imageSeed) => ({
-              ...imageSeed,
-              artworkId: artwork.id
-            }))
+            const artworkImages = imageSeedsForArtwork.map((imageSeed) => buildImageCreateManyInput(imageSeed, artwork.id))
             imagesToCreate.push(...artworkImages)
           }
 
@@ -539,10 +537,9 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
         // 插入新图片
         let newImageCount = 0
         if (artworkData.mediaFiles.length > 0) {
-          const imagesToCreate = (imageSeedMap.get(artworkData.metadata.id) || []).map((imageSeed) => ({
-            ...imageSeed,
-            artworkId: existingArtwork.id
-          }))
+          const imagesToCreate = (imageSeedMap.get(artworkData.metadata.id) || []).map((imageSeed) =>
+            buildImageCreateManyInput(imageSeed, existingArtwork.id)
+          )
 
           logger.debug('imagesToCreate:', imagesToCreate)
           await tx.image.createMany({
@@ -612,4 +609,12 @@ async function precomputeBatchImageSeeds(
   )
 
   return new Map(imageSeedEntries)
+}
+
+function buildImageCreateManyInput(imageSeed: ScannedImageSeedData, artworkId: number): Prisma.ImageCreateManyInput {
+  return {
+    ...imageSeed,
+    size: toDatabaseImageSize(imageSeed.size),
+    artworkId
+  }
 }

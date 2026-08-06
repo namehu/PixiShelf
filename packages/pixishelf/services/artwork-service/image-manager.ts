@@ -4,6 +4,7 @@ import path from 'path'
 import { getScanPath } from '@/services/setting.service'
 import { syncMediaDerivedTagForArtwork } from '@/services/media-derived-tag-service'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
+import { normalizeImageSizeField, toDatabaseImageSize } from '@/utils/image-size'
 
 export interface ArtworkImageTransactionClient {
   image: {
@@ -97,7 +98,7 @@ export async function updateArtworkImagesWithTransactionClient(
     sortOrder: file.order,
     width: file.width,
     height: file.height,
-    size: file.size
+    size: toDatabaseImageSize(file.size)
   }))
 
   // 3. 批量创建新图片
@@ -197,13 +198,13 @@ export async function addImage(artworkId: number, file: ImageMeta) {
         sortOrder: file.order,
         width: file.width,
         height: file.height,
-        size: file.size
+        size: toDatabaseImageSize(file.size)
       }
     })
 
     await syncMediaDerivedTagForArtwork(tx, artworkId)
 
-    return image
+    return normalizeImageSizeField(image)
   })
 }
 
@@ -222,7 +223,7 @@ export async function addImageWithChapters(artworkId: number, file: ImageMeta, c
         sortOrder: file.order,
         width: file.width,
         height: file.height,
-        size: file.size,
+        size: toDatabaseImageSize(file.size),
         ...(chaptersMeta
           ? {
               chaptersPath: chaptersMeta.chaptersPath,
@@ -237,7 +238,7 @@ export async function addImageWithChapters(artworkId: number, file: ImageMeta, c
 
     await syncMediaDerivedTagForArtwork(tx, artworkId)
 
-    return image
+    return normalizeImageSizeField(image)
   })
 }
 
@@ -246,7 +247,7 @@ export async function addImageWithChapters(artworkId: number, file: ImageMeta, c
  * @param input 关联入参
  */
 export async function associateChaptersToImage(input: { imageId: number } & ChapterMetaInput) {
-  return prisma.image.update({
+  const image = await prisma.image.update({
     where: { id: input.imageId },
     data: {
       chaptersPath: input.chaptersPath,
@@ -256,6 +257,8 @@ export async function associateChaptersToImage(input: { imageId: number } & Chap
       chaptersHash: input.chaptersHash
     }
   })
+
+  return normalizeImageSizeField(image)
 }
 
 /**
@@ -294,7 +297,7 @@ export async function clearChaptersForImage(input: { imageId: number; deleteFile
     }
   }
 
-  return prisma.image.update({
+  const updatedImage = await prisma.image.update({
     where: { id: input.imageId },
     data: {
       chaptersPath: null,
@@ -304,6 +307,8 @@ export async function clearChaptersForImage(input: { imageId: number; deleteFile
       chaptersHash: null
     }
   })
+
+  return normalizeImageSizeField(updatedImage)
 }
 
 function resolvePathWithinScanRoot(scanRoot: string, relativePath: string): string {

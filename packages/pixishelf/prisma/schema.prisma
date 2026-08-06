@@ -143,7 +143,7 @@ model Image {
   path                String
   width               Int?
   height              Int?
-  size                Int?
+  size                BigInt?
   sortOrder           Int                 @default(0)
   artworkId           Int?
   createdAt           DateTime            @default(now())
