@@ -1,5 +1,15 @@
 import * as React from 'react'
-import { format, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth, isValid, type Locale } from 'date-fns'
+import {
+  format,
+  subDays,
+  startOfDay,
+  endOfDay,
+  startOfMonth,
+  endOfMonth,
+  isSameDay,
+  isValid,
+  type Locale
+} from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { Calendar as CalendarIcon, X } from 'lucide-react'
 import { DateRange, Matcher, SelectRangeEventHandler, SelectSingleEventHandler } from 'react-day-picker'
@@ -199,23 +209,44 @@ export function ProDatePicker({
    * 处理 Range 模式选择
    * 核心修复：对接 AntD 数组逻辑，修复跨天选择 bug
    */
-  const handleRangeSelect: SelectRangeEventHandler = (range: DateRange | undefined) => {
+  const handleRangeSelect: SelectRangeEventHandler = (range: DateRange | undefined, triggerDate?: Date) => {
+    const [selectedFrom, selectedTo] = Array.isArray(date) ? date : []
+    const hadRangeBeforeSelect = !!selectedFrom || !!selectedTo
+    const hadCompleteRangeBeforeSelect = !!selectedFrom && !!selectedTo
+
     // 1. 如果是取消选择 (undefined)
     if (!range) {
+      if (hadCompleteRangeBeforeSelect && triggerDate) {
+        const partialState: RangeValue = [startOfDay(triggerDate), undefined]
+        if (!isControlled) setInternalDate(partialState)
+        onChange?.(partialState)
+        return
+      }
+
       if (!isControlled) setInternalDate(undefined)
       onChange?.(undefined)
       return
     }
 
     const { from, to } = range
+    const isInitialSameDayRange = !!from && !!to && isSameDay(from, to) && !hadRangeBeforeSelect
+
+    if (hadCompleteRangeBeforeSelect && triggerDate) {
+      const partialState: RangeValue = [startOfDay(triggerDate), undefined]
+      if (!isControlled) setInternalDate(partialState)
+      onChange?.(partialState)
+      return
+    }
 
     // 2. 只有 from (正在选择中)
-    // 注意：react-day-picker 在点击第二次时，如果选了同一天，可能会返回 { from, to: from }
-    if (from && !to) {
+    // react-day-picker 默认允许 0 天范围，第一次点击会返回 { from, to: from }。
+    // 这里把初始的同日范围视为半选状态，避免开始日期刚点下去 Popover 就关闭。
+    if (from && (!to || isInitialSameDayRange)) {
       const partialState: RangeValue = [startOfDay(from), undefined]
       if (!isControlled) setInternalDate(partialState)
       onChange?.(partialState)
       // 此时不关闭弹窗，等待选择结束
+      return
     }
 
     // 3. 完整的 range (from 和 to 都有)
