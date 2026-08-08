@@ -1,5 +1,6 @@
 import { isVideoFile } from '@/lib/media'
-import { inferMediaTypeFromPath } from '@/lib/media-type'
+import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
+import { EMediaAnimationStatus } from '@/enums/EMediaAnimationStatus'
 import type { MediaType } from '@prisma/client'
 import { discoverChaptersForVideoInScanRoot } from '@/services/artwork-service/video-chapters'
 import { MediaFileInfo } from './media-collector'
@@ -15,6 +16,7 @@ export interface ScannedImageSeedData {
   chaptersUpdatedAt: Date | null
   chaptersHash: string | null
   mediaType: MediaType
+  webpAnimationStatus: number | null
 }
 
 /**
@@ -41,7 +43,8 @@ export async function buildScannedImageSeedData(input: {
         chaptersDuration: null,
         chaptersUpdatedAt: null,
         chaptersHash: null,
-        mediaType: inferMediaTypeFromPath(relativePath)
+        mediaType: inferMediaTypeFromPath(relativePath),
+        webpAnimationStatus: needsAnimationContentScan(relativePath) ? EMediaAnimationStatus.pending : null
       }
 
       if (!isVideoFile(relativePath)) {

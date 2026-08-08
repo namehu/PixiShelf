@@ -28,12 +28,12 @@
   - 已完成：手动标签统计改为单条集合 SQL；触发器成功操作不再写日志，30 天日志清理任务已按每天 02:00 注册并默认启用。
 
 - [ ] 媒体筛选切换到 `Image.mediaType`，再验证图片复合索引
-  - 视频/图片筛选不再依赖 `LOWER(path) LIKE '%扩展名'`。
-  - 用生产 `EXPLAIN (ANALYZE, BUFFERS)` 验证是否需要 `(artworkId, mediaType)` 和 `(artworkId, sortOrder, id)`。
-  - 验收：筛选结果兼容旧数据；必要索引有执行计划依据。
-  - 已完成代码：粗粒度图片/视频及未知音频筛选改读 `Image.mediaType`；精确格式筛选仍按扩展名工作。
-  - 已完成代码：扫描、批量导入和图片管理的新媒体会在入库时写入 `mediaType`，APNG/GIF 为 `ANIMATION`，WebM/MP4 等为 `VIDEO`。
-  - 待生产验收：先运行视频媒体探测清空历史 `UNKNOWN`，再执行 `prisma/diagnostics/media-filter.sql`；根据计划决定是否添加两个候选复合索引。
+  - [x] 粗粒度图片/视频及未知音频筛选改读 `Image.mediaType`，不再依赖 `LOWER(path) LIKE '%扩展名'`；精确格式筛选仍按扩展名工作。
+  - [x] 扫描、批量导入和图片管理的新媒体在入库时写入初始 `mediaType`，APNG/GIF 为 `ANIMATION`，WebM/MP4 等为 `VIDEO`。
+  - [x] 补齐容易误判的内容探测与类型纠正：动态 WebP、以 `.png` 保存的 APNG、单帧 GIF；复用现有图片动画识别任务，不新增调度器。
+  - [ ] 在生产运行视频媒体探测并确认历史 `UNKNOWN` 已清空；执行 `prisma/diagnostics/media-filter.sql` 保存检查结果。
+  - [ ] 用生产 `EXPLAIN (ANALYZE, BUFFERS)` 判断是否需要 `(artworkId, mediaType)` 和 `(artworkId, sortOrder, id)`，只为有执行计划依据的索引创建迁移。
+  - 验收：新旧数据筛选结果一致，易错动画格式分类正确，必要索引有生产执行计划依据。
 
 - [ ] 将作品列表从 OFFSET 页码分页改成 keyset pagination
   - 默认时间排序使用稳定的 `(sourceDate, id)` 游标。
@@ -45,6 +45,10 @@
   - 汇总 Top SQL，并对候选慢查询执行 `EXPLAIN (ANALYZE, BUFFERS)`。
   - 仅当 SQL 优化后仍存在高频重复读取、数据库负载或多实例共享缓存需求时引入 Redis。
   - 验收：形成一周数据报告和明确的 Redis 引入/暂缓结论。
+
+## 可选媒体格式扩展
+
+- [ ] 评估 AVIF、HEIC、HEIF、JXL 的完整处理链路；当前上传、替换和扫描入口继续拒绝这些格式，后续仅在 Sharp、ImgProxy、MIME 和前端展示全部验证通过后逐项开放。
 
 ## 移除 Thumbor 视频截帧服务
 

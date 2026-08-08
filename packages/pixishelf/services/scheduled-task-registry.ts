@@ -56,8 +56,8 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
   {
     key: 'webp_animation_scan',
     type: SCHEDULED_TASK_TYPES.WEBP_ANIMATION_SCAN,
-    name: '识别 WebP 动图',
-    description: '初始化未处理的 WebP 图片，并识别静态图或动图。',
+    name: '识别图片动画',
+    description: '按内容识别 WebP、GIF、PNG/APNG 的静态或动画类型，并纠正 mediaType。',
     defaultTime: '03:30',
     defaultTimezone: 'Asia/Shanghai',
     defaultPriority: 30,
@@ -165,7 +165,7 @@ async function startScanRunRetentionCleanupTask(options: StartScheduledTaskOptio
 async function startWebpAnimationScanTask(options: StartScheduledTaskOptions): Promise<StartScheduledTaskResult> {
   const activeJob = await JobService.getActiveJobByType(SCHEDULED_TASK_TYPES.WEBP_ANIMATION_SCAN)
   if (activeJob) {
-    throw new Error('WebP animation scan job is already running')
+    throw new Error('Image animation scan job is already running')
   }
 
   const scanPath = await getScanPath()
@@ -189,7 +189,7 @@ async function startWebpAnimationScanTask(options: StartScheduledTaskOptions): P
       })
       await JobService.completeJob(job.id, { ...result, trigger: options.trigger })
     } catch (error) {
-      logger.error('WebP animation scan job failed', { error, trigger: options.trigger })
+      logger.error('Image animation scan job failed', { error, trigger: options.trigger })
 
       const current = await JobService.getJob(job.id)
       if (current?.status === 'CANCELLING' || (error instanceof Error && error.message === 'Task cancelled')) {

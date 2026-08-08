@@ -8,8 +8,7 @@ import { useArtworkStore } from '@/store/useArtworkStore'
 import Image from 'next/image'
 import { memo } from 'react'
 import { useOnInView } from 'react-intersection-observer'
-import { isApngFile, isVideoFile, isWebpFile } from '@/lib/media'
-import { EWebpAnimationStatus } from '@/enums/EWebpAnimationStatus'
+import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
 
 interface LazyMediaProps {
   media: ArtworkImageResponseDto
@@ -47,17 +46,19 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
       )
     }
 
-    if (isApngFile(src)) {
+    if ((isApngFile(src) || /\.png$/i.test(src)) && media.isAnimated) {
       return <ApngPlayer src={src} alt={`Artwork animation ${index + 1}`} />
     }
 
-    if (isWebpFile(src)) {
+    if (isWebpFile(src) || (isGifFile(src) && media.isAnimated)) {
+      const formatLabel = isGifFile(src) ? 'GIF' : 'WEBP'
       return (
         <AnimatedWebpPlayer
           src={src}
-          alt={`Artwork WebP ${index + 1}`}
+          alt={`Artwork ${formatLabel} ${index + 1}`}
           size={media.size}
-          isAnimated={media.webpAnimationStatus === EWebpAnimationStatus.animated}
+          isAnimated={Boolean(media.isAnimated)}
+          formatLabel={formatLabel}
         />
       )
     }

@@ -224,6 +224,7 @@ export const ArtworkImageResponseDto = ImageModel.extend({
   chaptersUpdatedAt: nullableDateToString,
   // 前端辅助字段，数据库没有，需要 Service 层计算填充
   mediaType: z.enum(['image', 'video']).default('image'),
+  isAnimated: z.boolean().optional(),
   chaptersUrl: z.string().nullable().optional(),
   hasChapters: z.boolean().default(false),
   probeStatus: MediaProbeStatusEnum.nullable().optional(),

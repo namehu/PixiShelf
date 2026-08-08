@@ -152,6 +152,22 @@ describe('media-upload service', () => {
     ).rejects.toMatchObject({ status: 400, message: 'Unsupported file extension' })
   })
 
+  it.each(['avif', 'heic', 'heif', 'jxl'])('continues to reject optional .%s image formats', async (extension) => {
+    await expect(
+      handleMediaUploadChunk({
+        scanRoot,
+        fileName: `future-format.${extension}`,
+        targetDir: 'Artist/Work',
+        targetRelDir: '/Artist/Work',
+        chunkIndex: 0,
+        totalChunks: 1,
+        offset: 0,
+        declaredFileSize: 10,
+        body: Readable.from(Buffer.from('chunk'))
+      })
+    ).rejects.toMatchObject({ status: 400, message: 'Unsupported file extension' })
+  })
+
   it('returns existing upload status for partial files', async () => {
     // 状态查询用于断点续传：服务需要准确报告部分文件是否存在以及已有字节数。
     // 这里先手动制造一个部分文件，再验证 getMediaUploadStatus 读取到真实文件大小。

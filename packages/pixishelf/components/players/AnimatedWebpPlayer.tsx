@@ -10,6 +10,7 @@ interface AnimatedWebpPlayerProps {
   alt?: string
   size?: number | null
   isAnimated?: boolean
+  formatLabel?: string
   className?: string
 }
 
@@ -35,6 +36,7 @@ export default function AnimatedWebpPlayer({
   alt = src,
   size,
   isAnimated = true,
+  formatLabel = 'WEBP',
   className
 }: AnimatedWebpPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
@@ -75,7 +77,7 @@ export default function AnimatedWebpPlayer({
       className={cn('relative w-full bg-neutral-100', canStartPlayback && 'cursor-pointer', className)}
       role={canStartPlayback ? 'button' : undefined}
       tabIndex={canStartPlayback ? 0 : undefined}
-      aria-label={canStartPlayback ? '播放 WebP 动图' : undefined}
+      aria-label={canStartPlayback ? `播放 ${formatLabel} 动图` : undefined}
       onClick={handlePlay}
       onKeyDown={handleKeyDown}
     >
@@ -95,7 +97,7 @@ export default function AnimatedWebpPlayer({
 
       <div className="absolute right-2 top-2 flex h-5 items-center gap-1 rounded-sm bg-[#ff2f4d] px-2 text-[10px] font-semibold leading-none tabular-nums text-white shadow-sm">
         {canStartPlayback && <PlayIcon className="h-3 w-3 fill-current" />}
-        <span>WEBP</span>
+        <span>{formatLabel}</span>
         {!isPlaying && fileSize && <span>{fileSize}</span>}
       </div>
 

@@ -17,7 +17,8 @@ import {
   updateScanRunItemMedia
 } from './scan-run-service'
 import { toDatabaseImageSize } from '@/utils/image-size'
-import { inferMediaTypeFromPath } from '@/lib/media-type'
+import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
+import { EMediaAnimationStatus } from '@/enums/EMediaAnimationStatus'
 
 /**
  * 批量创建作品
@@ -157,7 +158,8 @@ export async function batchRegisterImagesService(data: BatchRegisterImageSchema)
               width: img.width || 0,
               height: img.height || 0,
               sortOrder: index,
-              mediaType: inferMediaTypeFromPath(img.path)
+              mediaType: inferMediaTypeFromPath(img.path),
+              webpAnimationStatus: needsAnimationContentScan(img.path) ? EMediaAnimationStatus.pending : null
             }
           })
         })

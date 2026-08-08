@@ -51,7 +51,8 @@ describe('buildScannedImageCreateData', () => {
         chaptersDuration: 20,
         chaptersUpdatedAt: expect.any(Date),
         chaptersHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-        mediaType: 'VIDEO'
+        mediaType: 'VIDEO',
+        webpAnimationStatus: null
       }
     ])
   })
@@ -92,7 +93,8 @@ describe('buildScannedImageCreateData', () => {
         chaptersDuration: null,
         chaptersUpdatedAt: null,
         chaptersHash: null,
-        mediaType: 'VIDEO'
+        mediaType: 'VIDEO',
+        webpAnimationStatus: null
       }
     ])
   })
@@ -119,7 +121,8 @@ describe('buildScannedImageCreateData', () => {
         chaptersDuration: null,
         chaptersUpdatedAt: null,
         chaptersHash: null,
-        mediaType: 'VIDEO'
+        mediaType: 'VIDEO',
+        webpAnimationStatus: null
       }
     ])
     expect(warningSpy).toHaveBeenCalledTimes(1)
@@ -127,6 +130,22 @@ describe('buildScannedImageCreateData', () => {
       mediaPath: '/artist/artwork/100_p0.mp4'
     })
   })
+
+  it.each(['png', 'apng', 'gif', 'webp'])(
+    'should queue %s files for animation content detection when building scan records',
+    async (extension) => {
+      const mediaFiles = [await createMediaFile(scanPath, `/artist/artwork/100_p0.${extension}`)]
+
+      const records = await buildScannedImageSeedData({ mediaFiles, scanPath })
+
+      expect(records).toEqual([
+        expect.objectContaining({
+          path: `/artist/artwork/100_p0.${extension}`,
+          webpAnimationStatus: 0
+        })
+      ])
+    }
+  )
 
 })
 

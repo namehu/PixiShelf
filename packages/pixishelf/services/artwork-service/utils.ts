@@ -8,6 +8,7 @@ import { normalizeImageSizeField } from '@/utils/image-size'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import { buildVideoPosterUrl } from '@/lib/media-cover'
+import { EMediaAnimationStatus } from '@/enums/EMediaAnimationStatus'
 
 dayjs.extend(utc)
 
@@ -64,6 +65,9 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
       storedMediaType === 'VIDEO' || storedMediaType === 'video' || isVideoFile(normalizedImage.path)
         ? 'video'
         : 'image'
+    const isAnimated =
+      storedMediaType === 'ANIMATION' ||
+      normalizedImage.webpAnimationStatus === EMediaAnimationStatus.animated
     const hasChapters =
       mediaType === 'video' && Boolean(normalizedImage.chaptersPath && (normalizedImage.chaptersCount ?? 0) > 0)
     const videoMetadata = normalizedImage.videoMetadata
@@ -88,6 +92,7 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
     return ArtworkImageResponseDto.parse({
       ...normalizedImage,
       mediaType,
+      isAnimated,
       hasChapters,
       chaptersUrl: hasChapters ? `/api/v1/media/${normalizedImage.id}/chapters` : null,
       ...metadataFields

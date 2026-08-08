@@ -29,7 +29,49 @@ describe('transformImages', () => {
     ])
 
     expect(images).toHaveLength(1)
-    expect(images[0]).toMatchObject({ path: '/artist/artwork/animation.apng', mediaType: 'image' })
+    expect(images[0]).toMatchObject({
+      path: '/artist/artwork/animation.apng',
+      mediaType: 'image',
+      isAnimated: true
+    })
+  })
+
+  it('exposes corrected animation detection to the rendering layer', () => {
+    const now = new Date()
+    const base = {
+      width: 800,
+      height: 600,
+      size: 100,
+      artworkId: 1,
+      createdAt: now,
+      updatedAt: now,
+      chaptersPath: null,
+      chaptersCount: 0,
+      chaptersDuration: null,
+      chaptersUpdatedAt: null,
+      chaptersHash: null
+    }
+    const { images } = transformImages([
+      {
+        ...base,
+        id: 1,
+        path: '/artist/artwork/animated.png',
+        sortOrder: 0,
+        webpAnimationStatus: 2,
+        mediaType: 'ANIMATION'
+      },
+      {
+        ...base,
+        id: 2,
+        path: '/artist/artwork/static.gif',
+        sortOrder: 1,
+        webpAnimationStatus: 1,
+        mediaType: 'IMAGE'
+      }
+    ])
+
+    expect(images[0]?.isAnimated).toBe(true)
+    expect(images[1]?.isAnimated).toBe(false)
   })
 
   it('should require both chaptersPath and chaptersCount to mark video as hasChapters', () => {

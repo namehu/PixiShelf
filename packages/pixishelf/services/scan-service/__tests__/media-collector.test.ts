@@ -29,4 +29,15 @@ describe('collectMediaFiles', () => {
       sortOrder: 4
     })
   })
+
+  it('ignores optional image formats that are not supported yet', async () => {
+    for (const extension of ['avif', 'heic', 'heif', 'jxl']) {
+      await fs.writeFile(path.join(tempDir, `e_12418_8609575_p0.${extension}`), 'unsupported')
+    }
+
+    const result = await collectMediaFiles(tempDir, 'e_12418_8609575')
+
+    expect(result.success).toBe(true)
+    expect(result.mediaFiles).toHaveLength(0)
+  })
 })

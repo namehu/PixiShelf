@@ -629,8 +629,11 @@ export function MaintenanceCard() {
         </TaskSection>
 
         <TaskSection
-          title={webpScheduledTask?.name ?? '识别 WebP 动图'}
-          description={webpScheduledTask?.description ?? '初始化未处理的 WebP 图片，并按每批 20 个识别静态图或动图。'}
+          title={webpScheduledTask?.name ?? '识别图片动画'}
+          description={
+            webpScheduledTask?.description ??
+            '按内容识别 WebP、GIF、PNG/APNG 的静态或动画类型，并纠正 mediaType。'
+          }
           action={
             <Button
               onClick={() => webpScheduledTask && handleTriggerScheduledTask(webpScheduledTask)}

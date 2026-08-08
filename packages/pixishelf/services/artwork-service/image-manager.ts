@@ -5,7 +5,8 @@ import { getScanPath } from '@/services/setting.service'
 import { syncMediaDerivedTagForArtwork } from '@/services/media-derived-tag-service'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { normalizeImageSizeField, toDatabaseImageSize } from '@/utils/image-size'
-import { inferMediaTypeFromPath } from '@/lib/media-type'
+import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
+import { EMediaAnimationStatus } from '@/enums/EMediaAnimationStatus'
 
 export interface ArtworkImageTransactionClient {
   image: {
@@ -100,7 +101,8 @@ export async function updateArtworkImagesWithTransactionClient(
     width: file.width,
     height: file.height,
     size: toDatabaseImageSize(file.size),
-    mediaType: inferMediaTypeFromPath(file.path)
+    mediaType: inferMediaTypeFromPath(file.path),
+    webpAnimationStatus: needsAnimationContentScan(file.path) ? EMediaAnimationStatus.pending : null
   }))
 
   // 3. 批量创建新图片
@@ -201,7 +203,8 @@ export async function addImage(artworkId: number, file: ImageMeta) {
         width: file.width,
         height: file.height,
         size: toDatabaseImageSize(file.size),
-        mediaType: inferMediaTypeFromPath(file.path)
+        mediaType: inferMediaTypeFromPath(file.path),
+        webpAnimationStatus: needsAnimationContentScan(file.path) ? EMediaAnimationStatus.pending : null
       }
     })
 
@@ -228,6 +231,7 @@ export async function addImageWithChapters(artworkId: number, file: ImageMeta, c
         height: file.height,
         size: toDatabaseImageSize(file.size),
         mediaType: inferMediaTypeFromPath(file.path),
+        webpAnimationStatus: needsAnimationContentScan(file.path) ? EMediaAnimationStatus.pending : null,
         ...(chaptersMeta
           ? {
               chaptersPath: chaptersMeta.chaptersPath,
