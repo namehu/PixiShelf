@@ -4,6 +4,7 @@ import { JobStatus, Prisma } from '@prisma/client'
 const MEDIA_SCAN_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT']
 const MEDIA_SCAN_ADVISORY_LOCK_ID = 728341
 const SCAN_RUN_RETENTION_CLEANUP_JOB_TYPE = 'SCAN_RUN_RETENTION_CLEANUP'
+const TRIGGER_LOG_RETENTION_CLEANUP_JOB_TYPE = 'TRIGGER_LOG_RETENTION_CLEANUP'
 
 async function createMediaScanJob(type: 'SCAN' | 'LOCAL_DIRECTORY_IMPORT', message: string) {
   return prisma.$transaction(async (tx) => {
@@ -262,6 +263,33 @@ export async function createScanRunRetentionCleanupJob() {
         type: SCAN_RUN_RETENTION_CLEANUP_JOB_TYPE,
         status: JobStatus.RUNNING,
         message: '正在清理扫描历史...',
+        progress: 0
+      }
+    })
+  })
+}
+
+/**
+ * 尝试创建一个触发器日志保留策略清理任务
+ */
+export async function createTriggerLogRetentionCleanupJob() {
+  return await prisma.$transaction(async (tx) => {
+    const activeJob = await tx.systemJob.findFirst({
+      where: {
+        type: TRIGGER_LOG_RETENTION_CLEANUP_JOB_TYPE,
+        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+      }
+    })
+
+    if (activeJob) {
+      throw new Error('Trigger log retention cleanup job is already running')
+    }
+
+    return await tx.systemJob.create({
+      data: {
+        type: TRIGGER_LOG_RETENTION_CLEANUP_JOB_TYPE,
+        status: JobStatus.RUNNING,
+        message: '正在清理触发器日志...',
         progress: 0
       }
     })

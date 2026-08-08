@@ -19,10 +19,10 @@
   - `artwork_tag_after_insert_trigger`: 关联增加时，计数 +1。
   - `artwork_tag_after_delete_trigger`: 关联移除时，计数 -1。
   - `artwork_tag_after_update_trigger`: 标签变更时，旧标签 -1，新标签 +1。
-- **安全函数 (`update_tag_count_safe`)**:
-  - 使用 `FOR UPDATE` 行锁防止并发写入冲突。
-  - 包含负数保护逻辑（计数不会低于 0）。
-  - 所有操作均记录在 `TriggerLog` 表中以便审计。
+- **语句级函数 (`update_tag_artwork_count`)**:
+  - 使用 transition table 对单条 SQL 影响的标签先聚合，再执行集合式增量更新。
+  - 采用原子 `UPDATE` 保证并发正确性，并包含负数保护。
+  - 正常成功操作不写 `TriggerLog`；触发器异常会中止关联写入，交由 PostgreSQL 和应用日志记录。
 
 ### 2.2 作品点赞计数 (`Artwork.likeCount`)
 **机制**: 当 `ArtworkLike` 表发生变化时，自动更新 `Artwork` 的 `likeCount`。
@@ -72,11 +72,17 @@
 - **定义**: `GIN (name gin_trgm_ops)`
 - **用途**: 加速艺术家名字的模糊匹配查询。
 
+### 3.3 标签反查作品
+- **索引名**: `ArtworkTag_tagId_artworkId_idx`
+- **定义**: B-tree (`tagId`, `artworkId`)
+- **用途**: 加速按标签反查作品、标签计数和删除标签关联；与现有 (`artworkId`, `tagId`) 唯一索引互补。
+
 ## 4. 审计与维护 (Audit & Maintenance)
 
 ### 4.1 触发器日志 (`TriggerLog`)
-- **用途**: 记录所有触发器的操作日志，用于调试自动计数逻辑是否正确，以及追踪数据变更来源。
+- **用途**: 记录人工一致性修复等维护摘要；不再记录每条成功的 `ArtworkTag` 变更。
 - **表结构**: 包含 `operation` (INSERT/UPDATE/DELETE), `table_name`, `old_value`, `new_value`, `error_message` 等字段。
+- **保留策略**: 默认保留 30 天，由 `trigger_log_retention_cleanup` 每日计划任务清理；该任务首次创建时默认启用。
 
 ### 4.2 维护函数
 数据库内置了以下维护函数，可在必要时（如直接操作数据库导致计数偏差后）手动调用：
@@ -84,7 +90,7 @@
 | 函数名 | 描述 |
 | :--- | :--- |
 | `check_tag_count_consistency()` | 检查所有标签的 `artworkCount` 与实际 `ArtworkTag` 数量是否一致。返回不一致的 Tag 列表及预期值。 |
-| `fix_tag_count_inconsistencies()` | 自动修复所有计数不一致的标签，并将修复操作记录到 `TriggerLog`。 |
+| `fix_tag_count_inconsistencies()` | 一次聚合并集合式修复所有不一致的标签计数，只写一条维护摘要日志。 |
 | `cleanup_trigger_logs()` | 清理 30 天前的触发器日志，防止日志表无限膨胀。 |
 
 ## 5. Migration 文件对照参考
@@ -98,3 +104,4 @@
 | `20251003034237` | 添加作品点赞计数触发器 (`ArtworkLike`) |
 | `20260203000000` | 添加作品图片计数触发器 (`Artwork.imageCount`, 语句级优化) |
 | `20260227003621` | 重构认证系统 (BetterAuth)，User -> UserBA，并清理无效 ArtworkLike 数据 |
+| `20260808000000` | 添加 `ArtworkTag(tagId, artworkId)` 索引，将标签计数改为语句级集合更新，并清理重复日志索引 |

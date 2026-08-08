@@ -1,8 +1,8 @@
 'use server'
 
 import logger from '@/lib/logger'
-import { initializeTagArtworkCount } from '@/scripts/init-tag-artwork-count'
 import { getUntranslatedTagNames } from '@/services/tag-service'
+import { rebuildTagArtworkCounts } from '@/services/tag-count-service'
 
 /**
  * 手动更新标签作品数量统计
@@ -13,11 +13,12 @@ export async function updateTagStatsAction() {
     logger.info('🚀 手动触发标签统计更新...')
 
     // 执行标签统计更新
-    await initializeTagArtworkCount()
+    const result = await rebuildTagArtworkCounts()
 
     return {
       success: true,
-      message: '标签统计更新完成',
+      message: `标签统计更新完成，共修正 ${result.updatedTags} 个标签`,
+      updatedTags: result.updatedTags,
       timestamp: new Date().toISOString()
     }
   } catch (error) {

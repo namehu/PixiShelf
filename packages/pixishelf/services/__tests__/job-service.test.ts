@@ -13,7 +13,7 @@ vi.mock('@/lib/prisma', () => ({
   }
 }))
 
-import { createLocalDirectoryImportJob, createScanJob } from '../job-service'
+import { createLocalDirectoryImportJob, createScanJob, createTriggerLogRetentionCleanupJob } from '../job-service'
 
 const tx = {
   $queryRawUnsafe: queryRawMock,
@@ -45,5 +45,24 @@ describe('media scan job locking', () => {
 
     await expect(createLocalDirectoryImportJob()).rejects.toThrow('Media scan job already in progress')
     expect(createMock).not.toHaveBeenCalled()
+  })
+
+  it('creates an exclusive trigger log retention cleanup job', async () => {
+    await createTriggerLogRetentionCleanupJob()
+
+    expect(findFirstMock).toHaveBeenCalledWith({
+      where: {
+        type: 'TRIGGER_LOG_RETENTION_CLEANUP',
+        status: { in: ['PENDING', 'RUNNING', 'CANCELLING'] }
+      }
+    })
+    expect(createMock).toHaveBeenCalledWith({
+      data: {
+        type: 'TRIGGER_LOG_RETENTION_CLEANUP',
+        status: 'RUNNING',
+        message: '正在清理触发器日志...',
+        progress: 0
+      }
+    })
   })
 })

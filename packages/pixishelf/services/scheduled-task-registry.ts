@@ -4,6 +4,7 @@ import logger from '@/lib/logger'
 import * as JobService from '@/services/job-service'
 import { getScanPath } from '@/services/setting.service'
 import { cleanupScanRunHistory } from '@/services/scan-run-service'
+import { cleanupTriggerLogs, TRIGGER_LOG_RETENTION_DAYS } from '@/services/trigger-log-service'
 import { runVideoMediaProbeJob } from '@/services/video-media-probe-service'
 import { runVideoPosterGenerationJob } from '@/services/video-poster-service'
 import { runWebpAnimationScanJob } from '@/services/webp-animation-scan-service'
@@ -11,7 +12,8 @@ import { runWebpAnimationScanJob } from '@/services/webp-animation-scan-service'
 export const SCHEDULED_TASK_TYPES = {
   WEBP_ANIMATION_SCAN: 'WEBP_ANIMATION_SCAN',
   VIDEO_MEDIA_PROBE: 'VIDEO_MEDIA_PROBE',
-  SCAN_RUN_RETENTION_CLEANUP: 'SCAN_RUN_RETENTION_CLEANUP'
+  SCAN_RUN_RETENTION_CLEANUP: 'SCAN_RUN_RETENTION_CLEANUP',
+  TRIGGER_LOG_RETENTION_CLEANUP: 'TRIGGER_LOG_RETENTION_CLEANUP'
 } as const
 
 export type ScheduledTaskType = (typeof SCHEDULED_TASK_TYPES)[keyof typeof SCHEDULED_TASK_TYPES]
@@ -29,6 +31,17 @@ export interface ScheduledTaskDefinition {
 }
 
 export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
+  {
+    key: 'trigger_log_retention_cleanup',
+    type: SCHEDULED_TASK_TYPES.TRIGGER_LOG_RETENTION_CLEANUP,
+    name: '清理触发器日志',
+    description: `删除超过 ${TRIGGER_LOG_RETENTION_DAYS} 天的触发器维护日志。`,
+    defaultTime: '02:00',
+    defaultTimezone: 'Asia/Shanghai',
+    defaultPriority: 10,
+    defaultEnabled: true,
+    mutexKey: 'audit-maintenance'
+  },
   {
     key: 'scan_run_retention_cleanup',
     type: SCHEDULED_TASK_TYPES.SCAN_RUN_RETENTION_CLEANUP,
@@ -77,6 +90,9 @@ type ScheduledTaskHandler = {
 }
 
 export const SCHEDULED_TASK_HANDLERS: Record<ScheduledTaskType, ScheduledTaskHandler> = {
+  [SCHEDULED_TASK_TYPES.TRIGGER_LOG_RETENTION_CLEANUP]: {
+    start: startTriggerLogRetentionCleanupTask
+  },
   [SCHEDULED_TASK_TYPES.SCAN_RUN_RETENTION_CLEANUP]: {
     start: startScanRunRetentionCleanupTask
   },
@@ -86,6 +102,29 @@ export const SCHEDULED_TASK_HANDLERS: Record<ScheduledTaskType, ScheduledTaskHan
   [SCHEDULED_TASK_TYPES.VIDEO_MEDIA_PROBE]: {
     start: startVideoMediaProbeTask
   },
+}
+
+async function startTriggerLogRetentionCleanupTask(options: StartScheduledTaskOptions): Promise<StartScheduledTaskResult> {
+  const activeJob = await JobService.getActiveJobByType(SCHEDULED_TASK_TYPES.TRIGGER_LOG_RETENTION_CLEANUP)
+  if (activeJob) {
+    throw new Error('Trigger log retention cleanup job is already running')
+  }
+
+  const job = await JobService.createTriggerLogRetentionCleanupJob()
+
+  ;(async () => {
+    try {
+      await JobService.updateProgress(job.id, 10, '正在清理过期触发器日志...')
+      const result = await cleanupTriggerLogs()
+      await JobService.updateProgress(job.id, 100, '触发器日志清理完成')
+      await JobService.completeJob(job.id, { ...result, trigger: options.trigger })
+    } catch (error) {
+      logger.error('Trigger log retention cleanup job failed', { error, trigger: options.trigger })
+      await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
+    }
+  })()
+
+  return { jobId: job.id }
 }
 
 export function getScheduledTaskDefinition(key: string) {

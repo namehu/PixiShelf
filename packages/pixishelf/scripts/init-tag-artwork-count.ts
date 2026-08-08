@@ -1,65 +1,19 @@
 #!/usr/bin/env tsx
 
-import { PrismaClient } from '@prisma/client'
+import { disconnectDatabase, prisma } from '@/lib/prisma'
+import { rebuildTagArtworkCounts } from '@/services/tag-count-service'
 
 /**
  * 标签作品数量初始化脚本
  * 计算并更新所有现有标签的artworkCount字段
  */
 
-const prisma = new PrismaClient()
-
 async function initializeTagArtworkCount() {
   console.log('🚀 开始初始化标签作品数量...')
 
   try {
-    // 获取所有标签
-    const tags = await prisma.tag.findMany({
-      select: {
-        id: true,
-        name: true
-      }
-    })
-
-    console.log(`📊 找到 ${tags.length} 个标签需要更新`)
-
-    let updatedCount = 0
-    const batchSize = 100 // 批量处理，避免内存问题
-
-    // 分批处理标签
-    for (let i = 0; i < tags.length; i += batchSize) {
-      const batch = tags.slice(i, i + batchSize)
-
-      // 使用事务批量更新
-      await prisma.$transaction(async (tx) => {
-        for (const tag of batch) {
-          // 计算该标签的作品数量
-          const artworkCount = await tx.artworkTag.count({
-            where: {
-              tagId: tag.id
-            }
-          })
-
-          // 更新标签的artworkCount字段
-          await tx.tag.update({
-            where: {
-              id: tag.id
-            },
-            data: {
-              artworkCount
-            }
-          })
-
-          updatedCount++
-
-          if (updatedCount % 50 === 0) {
-            console.log(`✅ 已更新 ${updatedCount}/${tags.length} 个标签`)
-          }
-        }
-      })
-    }
-
-    console.log(`🎉 成功更新了 ${updatedCount} 个标签的作品数量`)
+    const result = await rebuildTagArtworkCounts()
+    console.log(`🎉 集合式校准完成，共修正 ${result.updatedTags} 个标签`)
 
     // 显示统计信息
     const stats = await prisma.tag.aggregate({
@@ -107,8 +61,6 @@ async function initializeTagArtworkCount() {
   } catch (error) {
     console.error('❌ 初始化失败:', error)
     throw error
-  } finally {
-    await prisma.$disconnect()
   }
 }
 
@@ -117,12 +69,12 @@ if (require.main === module) {
   initializeTagArtworkCount()
     .then(() => {
       console.log('✨ 初始化完成')
-      process.exit(0)
     })
     .catch((error) => {
       console.error('💥 初始化失败:', error)
-      process.exit(1)
+      process.exitCode = 1
     })
+    .finally(disconnectDatabase)
 }
 
 export { initializeTagArtworkCount }

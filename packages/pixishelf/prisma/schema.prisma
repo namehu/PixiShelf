@@ -136,6 +136,7 @@ model ArtworkTag {
   tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@unique([artworkId, tagId])
+  @@index([tagId, artworkId], map: "ArtworkTag_tagId_artworkId_idx")
 }
 
 model Image {
@@ -293,9 +294,6 @@ model TriggerLog {
   error_message String?  @db.Text
   created_at    DateTime @default(now()) @db.Timestamp()
 
-  @@index([created_at])
-  @@index([operation])
-  @@index([table_name, record_id])
   @@index([created_at], map: "idx_trigger_log_created_at")
   @@index([operation], map: "idx_trigger_log_operation")
   @@index([table_name, record_id], map: "idx_trigger_log_table_record")
