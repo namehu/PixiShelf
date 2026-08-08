@@ -179,15 +179,15 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   }
 
   // --- Hover Preview Logic ---
-  const [hoverImage, setHoverImage] = useState<string | null>(null)
+  const [hoverImage, setHoverImage] = useState<ImageListItem | null>(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
   const hoverTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  const handleMouseEnter = useCallback((path: string, e: React.MouseEvent) => {
+  const handleMouseEnter = useCallback((image: ImageListItem, e: React.MouseEvent) => {
     const { clientX, clientY } = e
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
     hoverTimerRef.current = setTimeout(() => {
-      setHoverImage(path)
+      setHoverImage(image)
       setHoverPos({ x: clientX, y: clientY })
     }, 150)
   }, [])
@@ -535,7 +535,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         )}
       </div>
 
-      <HoverPreview src={hoverImage} x={hoverPos.x} y={hoverPos.y} visible={!!hoverImage} cacheKey={refreshKey} />
+      <HoverPreview media={hoverImage} x={hoverPos.x} y={hoverPos.y} visible={!!hoverImage} cacheKey={refreshKey} />
 
       <ImagePreviewDialog
         open={previewIndex !== null}

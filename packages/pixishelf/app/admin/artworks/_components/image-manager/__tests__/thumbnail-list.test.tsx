@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { ImageManagerThumbnailList } from '../thumbnail-list'
 import type { ImageListItem } from '../../types'
@@ -10,6 +10,12 @@ vi.mock('../columns', () => ({
 
 vi.mock('../../lazy-image', () => ({
   LazyImage: ({ alt, className }: any) => <div data-testid="lazy-image" aria-label={alt} className={className} />
+}))
+
+vi.mock('next/image', () => ({
+  default: ({ fill, priority, ...props }: any) => (
+    <img {...props} data-fill={fill ? 'true' : undefined} data-priority={priority ? 'true' : undefined} />
+  )
 }))
 
 function image(overrides: Partial<ImageListItem>): ImageListItem {
@@ -46,5 +52,38 @@ describe('ImageManagerThumbnailList', () => {
     expect(screen.getByTestId('image-manager-thumbnail-grid').className).toContain('gap-5')
     expect(screen.getAllByTestId('image-manager-thumbnail-card')).toHaveLength(2)
     expect(screen.getAllByTestId('image-manager-thumbnail-media')[0]!.className).toContain('aspect-square')
+  })
+
+  test('renders a static video poster first and only mounts the player after clicking play', () => {
+    const { container } = render(
+      <ImageManagerThumbnailList
+        imageList={[
+          image({
+            id: 10,
+            path: '/artist/work/video.mp4',
+            mediaType: 'video',
+            posterUrl: '/_video-posters/10-cover.webp?v=1'
+          })
+        ]}
+        refreshKey={2}
+        reprobingImageId={null}
+        onPreviewIndexChange={vi.fn()}
+        onOpenVideoMetadata={vi.fn()}
+        onDownload={vi.fn()}
+        onOpenChapterDialog={vi.fn()}
+        onDownloadChapters={vi.fn()}
+        onDeleteChapter={vi.fn()}
+        onReprobeVideo={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    )
+
+    expect(container.querySelector('video')).toBeNull()
+    expect(container.querySelector('img')?.getAttribute('src')).toContain('/_video-posters/10-cover.webp')
+
+    fireEvent.click(screen.getByTestId('video-thumbnail-play'))
+
+    expect(container.querySelector('video')).not.toBeNull()
+    expect(screen.queryByTestId('video-thumbnail-play')).toBeNull()
   })
 })

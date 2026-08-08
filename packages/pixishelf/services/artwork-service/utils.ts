@@ -7,6 +7,7 @@ import { isApngFile, isVideoFile } from '@/lib/media'
 import { normalizeImageSizeField } from '@/utils/image-size'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
+import { buildVideoPosterUrl } from '@/lib/media-cover'
 
 dayjs.extend(utc)
 
@@ -80,10 +81,7 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
           posterStatus: videoMetadata.posterStatus,
           posterUpdatedAt: videoMetadata.posterUpdatedAt,
           posterError: videoMetadata.posterError,
-          posterUrl:
-            videoMetadata.posterStatus === 'COMPLETED' && videoMetadata.posterPath
-              ? `/_video-posters/${encodeURIComponent(videoMetadata.posterPath)}?v=${new Date(videoMetadata.posterUpdatedAt ?? 0).getTime()}`
-              : null
+          posterUrl: buildVideoPosterUrl(videoMetadata)
         }
       : getFlatVideoMetadataFields(image as any)
 
@@ -161,7 +159,11 @@ function getFlatVideoMetadataFields(image: Record<string, unknown>) {
     'audioChannels',
     'videoCodec',
     'duration',
-    'fps'
+    'fps',
+    'posterStatus',
+    'posterUpdatedAt',
+    'posterError',
+    'posterUrl'
   ]) {
     if (image[key] !== undefined) {
       fields[key] = image[key]

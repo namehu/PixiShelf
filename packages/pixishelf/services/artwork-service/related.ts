@@ -2,6 +2,7 @@ import 'server-only'
 import { prisma } from '@/lib/prisma'
 import { NeighboringArtworksGetSchema } from '@/schemas/artwork.dto'
 import { transformSingleArtwork } from './utils'
+import { VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
 
 /**
  * 获取邻近作品（前后作品）
@@ -25,7 +26,11 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
 
   // 公共 include
   const commonInclude = {
-    images: { take: 2, orderBy: { sortOrder: 'asc' } as const },
+    images: {
+      take: 2,
+      orderBy: { sortOrder: 'asc' } as const,
+      include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
+    },
     artist: true,
     artworkTags: { include: { tag: true } }
   }
@@ -99,7 +104,10 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
   const currentFull = await prisma.artwork.findUnique({
     where: { id: artworkId },
     include: {
-      images: { orderBy: { sortOrder: 'asc' } },
+      images: {
+        orderBy: { sortOrder: 'asc' },
+        include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
+      },
       artist: true,
       artworkTags: { include: { tag: true } }
     }

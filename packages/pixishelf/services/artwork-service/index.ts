@@ -25,6 +25,7 @@ import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { ESource, type ESource as ArtworkSource } from '@/enums/ESource'
 import { appendScanRunItems, completeScanRunSummary, startScanRun } from '@/services/scan-run-service'
 import { toApiImageSize } from '@/utils/image-size'
+import { buildVideoPosterUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
 
 export * from './related'
 export * from './video-chapters'
@@ -95,7 +96,8 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
   const [allImages, allTags] = await Promise.all([
     prisma.image.findMany({
       where: { artworkId: { in: artworkIds } },
-      orderBy: { sortOrder: 'asc' }
+      orderBy: { sortOrder: 'asc' },
+      include: { videoMetadata: true }
     }),
     prisma.artworkTag.findMany({
       where: { artworkId: { in: artworkIds } },
@@ -712,7 +714,7 @@ const artworkCardSelect = {
       path: true,
       size: true,
       mediaType: true,
-      videoMetadata: { select: { posterStatus: true, posterPath: true, posterUpdatedAt: true } }
+      videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT }
     }
   },
   artist: {
@@ -749,10 +751,7 @@ function transformArtworkCard(artwork: {
     path: image.path,
     size: toApiImageSize(image.size),
     mediaType: image.mediaType === 'VIDEO' || isVideoFile(image.path) ? ('video' as const) : ('image' as const),
-    posterUrl:
-      image.videoMetadata?.posterStatus === 'COMPLETED' && image.videoMetadata.posterPath
-        ? `/_video-posters/${encodeURIComponent(image.videoMetadata.posterPath)}?v=${image.videoMetadata.posterUpdatedAt?.getTime() ?? ''}`
-        : null
+    posterUrl: buildVideoPosterUrl(image.videoMetadata)
   }))
 
   return {

@@ -4,7 +4,7 @@ import imgproxyLoader from '@/lib/image-loader'
 describe('imgproxyLoader', () => {
   it('routes generated video posters through ImgProxy', () => {
     expect(imgproxyLoader({ src: '/_video-posters/1-abc.webp?v=1784117706648', width: 640, quality: 80 })).toBe(
-      'http://localhost:5431/_/rs:fit:640:0/q:80/sm:1/plain/local://%2Fvideo-posters%2F1-abc.webp@webp'
+      'http://localhost:5431/_/rs:fit:640:0/q:80/sm:1/plain/local://%2Fvideo-posters%2F1-abc.webp@webp?v=1784117706648'
     )
   })
 

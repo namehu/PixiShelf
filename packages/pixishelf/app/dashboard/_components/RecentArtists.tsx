@@ -2,7 +2,6 @@
 
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import Image from 'next/image'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ROUTES } from '@/lib/constants'
@@ -11,11 +10,13 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
+import MediaThumbnail from '@/components/media/MediaThumbnail'
 
 interface RecentArtworkPreview {
   id: number
   title: string
-  coverUrl: string
+  coverUrl: string | null
+  coverMediaType: 'image' | 'video' | null
 }
 
 interface DashboardArtistItem extends ArtistResponseDto {
@@ -52,17 +53,17 @@ function CompactArtistCard({ artist, onClick }: { artist: DashboardArtistItem; o
               className="relative aspect-square overflow-hidden rounded-md bg-muted"
               title={artwork.title}
             >
-              {artwork.coverUrl ? (
-                <Image
-                  src={artwork.coverUrl}
-                  alt={artwork.title}
-                  fill
-                  sizes="120px"
-                  className="object-cover transition-transform duration-300 group-hover:scale-105"
-                />
-              ) : (
-                <div className="size-full bg-gray-100" />
-              )}
+              <MediaThumbnail
+                media={
+                  artwork.coverUrl
+                    ? { path: artwork.coverUrl, mediaType: 'image' }
+                    : { path: null, mediaType: artwork.coverMediaType }
+                }
+                alt={artwork.title}
+                fill
+                sizes="120px"
+                className="object-cover transition-transform duration-300 group-hover:scale-105"
+              />
             </Link>
           ))
         ) : (

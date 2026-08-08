@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { ImageIcon, VideoIcon } from 'lucide-react'
-import Image from 'next/image'
 import { formatFileSize } from '@/utils/media'
 import type { ArtworkCardData } from '@/types'
 import { cn } from '@/lib/utils'
 import { useMemo } from 'react'
 import { usePreferredTags } from '@/components/user-setting'
 import { getPreferredTagName } from './preferred-tag'
+import MediaThumbnail from '@/components/media/MediaThumbnail'
 
 interface ArtworkCardProps {
   artwork: ArtworkCardData
@@ -24,8 +24,8 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
   const preferredTags = usePreferredTags()
   const { id, title, imageCount, totalMediaSize = 0, images = [], artist, tags = [] } = artwork
 
-  const { path = '', posterUrl, mediaType } = images[0] ?? {}
-  const src = posterUrl || path
+  const cover = images[0]
+  const { mediaType } = cover ?? {}
   const { name } = artist ?? {}
   const preferredTag = useMemo(() => getPreferredTagName(preferredTags, tags), [preferredTags, tags])
 
@@ -38,8 +38,8 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
           displayMode === 'minimal' ? 'rounded-none mb-0.5' : 'rounded-lg mb-2'
         )}
       >
-        <Image
-          src={src}
+        <MediaThumbnail
+          media={cover}
           alt={title}
           width={400}
           height={533}

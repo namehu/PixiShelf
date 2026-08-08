@@ -4,6 +4,12 @@ import { ARTIST_SELECT } from '@/schemas/models/artists'
 import { ArtistCreateSchema, ArtistsGetSchema, ArtistUpdateSchema } from '@/schemas/artist.dto'
 import { ArtistResponseDto } from '@/schemas/artist.dto'
 import { PaginationResponseData } from '@/types'
+import {
+  buildVideoPosterUrl,
+  isVideoCoverSource,
+  resolveMediaCoverUrl,
+  VIDEO_POSTER_METADATA_SELECT
+} from '@/lib/media-cover'
 
 /**
  * 根据 ID 获取单个艺术家
@@ -225,7 +231,8 @@ export async function getRecentArtists(
 export interface DashboardArtistArtworkPreview {
   id: number
   title: string
-  coverUrl: string
+  coverUrl: string | null
+  coverMediaType: 'image' | 'video' | null
 }
 
 export interface DashboardArtistItem extends ArtistResponseDto {
@@ -294,7 +301,9 @@ export async function getDashboardArtists(
               artistId: true,
               images: {
                 select: {
-                  path: true
+                  path: true,
+                  mediaType: true,
+                  videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT }
                 },
                 orderBy: {
                   sortOrder: 'asc'
@@ -316,7 +325,18 @@ export async function getDashboardArtists(
       const preview: DashboardArtistArtworkPreview = {
         id: artwork.id,
         title: artwork.title,
-        coverUrl: artwork.images[0]?.path || ''
+        coverUrl: artwork.images[0]
+          ? resolveMediaCoverUrl({
+              path: artwork.images[0].path,
+              mediaType: artwork.images[0].mediaType,
+              posterUrl: buildVideoPosterUrl(artwork.images[0].videoMetadata)
+            })
+          : null,
+        coverMediaType: artwork.images[0]
+          ? isVideoCoverSource({ path: artwork.images[0].path, mediaType: artwork.images[0].mediaType })
+            ? 'video'
+            : 'image'
+          : null
       }
       if (!bucket) artworkMap.set(artwork.artistId, [preview])
       else bucket.push(preview)

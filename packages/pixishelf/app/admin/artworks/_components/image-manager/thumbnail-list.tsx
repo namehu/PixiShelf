@@ -1,6 +1,7 @@
 'use client'
 
-import { ZoomIn } from 'lucide-react'
+import { useState } from 'react'
+import { Play, ZoomIn } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { formatFileSize } from '@/utils/media'
 import { combinationApiResource } from '@/utils/combinationStatic'
@@ -9,6 +10,7 @@ import { LazyImage } from '../lazy-image'
 import type { ImageListItem } from '../types'
 import { isVideoImageListItem } from './utils'
 import { ImageMediaActions, ImageVideoMetadataEntry } from './columns'
+import MediaThumbnail from '@/components/media/MediaThumbnail'
 
 interface ImageManagerThumbnailListProps {
   imageList: ImageListItem[]
@@ -37,6 +39,8 @@ export function ImageManagerThumbnailList({
   onReprobeVideo,
   onDelete
 }: ImageManagerThumbnailListProps) {
+  const [playingVideoId, setPlayingVideoId] = useState<number | null>(null)
+
   return (
     <div className="flex-1 overflow-y-auto px-2 pb-2">
       <div
@@ -45,13 +49,24 @@ export function ImageManagerThumbnailList({
       >
         {imageList.map((img, index) => {
           const fileName = img.path.split('/').pop() || ''
+          const isVideo = isVideoImageListItem(img)
+          const isPlaying = isVideo && playingVideoId === img.id
+          const thumbnailMedia = isVideo
+            ? {
+                ...img,
+                posterUrl: img.posterUrl || null
+              }
+            : {
+                ...img,
+                path: appendCacheKey(img.path, refreshKey)
+              }
           return (
             <div
               key={img.id}
               data-testid="image-manager-thumbnail-card"
               className="group relative aspect-square overflow-hidden rounded-lg border bg-card shadow-sm transition-colors hover:border-primary/40"
               onClick={() => {
-                if (!isVideoImageListItem(img)) {
+                if (!isVideo) {
                   onPreviewIndexChange(index)
                 }
               }}
@@ -60,26 +75,54 @@ export function ImageManagerThumbnailList({
                 data-testid="image-manager-thumbnail-media"
                 className="relative aspect-square h-full w-full bg-neutral-100/50 dark:bg-neutral-800/50"
               >
-                {isVideoImageListItem(img) ? (
+                {isPlaying ? (
                   <video
                     src={appendCacheKey(combinationApiResource(img.path), refreshKey)}
                     className="h-full w-full object-contain p-3"
                     controls
+                    autoPlay
                     preload="metadata"
                   />
                 ) : (
-                  <>
-                    <LazyImage
-                      src={appendCacheKey(img.path, refreshKey)}
-                      alt={img.path}
-                      fill
-                      className="object-contain p-3"
-                      sizes="(max-width: 768px) 100vw, 720px"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                      <ZoomIn className="text-primary/50 w-8 h-8 drop-shadow-sm" />
-                    </div>
-                  </>
+                  <div className="relative h-full w-full">
+                    {isVideo ? (
+                      <MediaThumbnail
+                        media={thumbnailMedia}
+                        alt={img.path}
+                        fill
+                        className="object-contain p-3"
+                        sizes="(max-width: 768px) 100vw, 720px"
+                      />
+                    ) : (
+                      <LazyImage
+                        src={thumbnailMedia.path}
+                        alt={img.path}
+                        fill
+                        className="object-contain p-3"
+                        sizes="(max-width: 768px) 100vw, 720px"
+                      />
+                    )}
+                    {isVideo ? (
+                      <button
+                        type="button"
+                        data-testid="video-thumbnail-play"
+                        className="absolute inset-0 z-10 flex items-center justify-center bg-black/0 transition-colors hover:bg-black/15"
+                        aria-label={`播放 ${fileName}`}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setPlayingVideoId(img.id)
+                        }}
+                      >
+                        <span className="flex size-11 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-sm">
+                          <Play className="size-5 fill-current" />
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                        <ZoomIn className="text-primary/50 w-8 h-8 drop-shadow-sm" />
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -88,8 +131,8 @@ export function ImageManagerThumbnailList({
                   <span className="rounded bg-black/45 px-1.5 py-0.5 font-mono text-[10px] text-white/90">
                     #{img.sortOrder}
                   </span>
-                  <Badge variant={isVideoImageListItem(img) ? 'secondary' : 'outline'} className="bg-background/85">
-                    {isVideoImageListItem(img) ? '视频' : '图片'}
+                  <Badge variant={isVideo ? 'secondary' : 'outline'} className="bg-background/85">
+                    {isVideo ? '视频' : '图片'}
                   </Badge>
                 </div>
               </div>

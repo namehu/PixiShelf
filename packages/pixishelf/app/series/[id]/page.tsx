@@ -1,7 +1,7 @@
 import { getSeriesDetail } from '@/services/series-service'
 import { notFound } from 'next/navigation'
 import ArtworkCard from '@/components/artwork/ArtworkCard'
-import Image from 'next/image'
+import MediaThumbnail from '@/components/media/MediaThumbnail'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -21,18 +21,14 @@ export default async function SeriesDetailPage({ params }: PageProps) {
     <div className="container mx-auto p-4 space-y-6 pt-16">
       <div className="flex flex-col md:flex-row gap-6 mb-8 bg-white p-6 rounded-lg shadow-sm">
         <div className="w-full md:w-48 aspect-[3/4] bg-muted rounded-lg overflow-hidden shrink-0">
-          {series.coverImageUrl ? (
-            <Image
-              src={series.coverImageUrl}
-              alt={series.title}
-              width={0}
-              height={0}
-              sizes="100vw"
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">No Cover</div>
-          )}
+          <MediaThumbnail
+            media={series.coverImageUrl ? { path: series.coverImageUrl, mediaType: 'image' } : null}
+            alt={series.title}
+            width={0}
+            height={0}
+            sizes="100vw"
+            className="w-full h-full object-cover"
+          />
         </div>
         <div className="flex-1 space-y-4">
           <h1 className="text-3xl font-bold">{series.title}</h1>

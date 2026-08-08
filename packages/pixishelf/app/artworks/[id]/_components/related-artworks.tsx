@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area'
 import { ScrollBar } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import Image from 'next/image'
+import MediaThumbnail from '@/components/media/MediaThumbnail'
 import { VideoIcon, Loader2 } from 'lucide-react'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { toast } from 'sonner'
@@ -174,8 +174,8 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
                   )}
                   title={artwork.title}
                 >
-                  <Image
-                    src={cover.posterUrl || cover.path}
+                  <MediaThumbnail
+                    media={cover}
                     alt={artwork.title}
                     fill
                     className={cn('object-cover', isCurrent && 'bg-white opacity-20')}

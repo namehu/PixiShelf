@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { transformSingleArtwork } from '@/services/artwork-service/utils'
-import { combinationApiResource } from '@/utils/combinationStatic'
+import { resolveMediaCoverUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
 
 export async function getSeriesList(params: { page: number; pageSize: number; query?: string }) {
   const { page, pageSize, query } = params
@@ -27,7 +27,10 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
           include: {
             artwork: {
               include: {
-                images: { orderBy: { sortOrder: 'asc' } },
+                images: {
+                  orderBy: { sortOrder: 'asc' },
+                  include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
+                },
                 artworkTags: { include: { tag: true } }
               }
             }
@@ -53,13 +56,13 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
 
       if (transformed.images.length > 0) {
         const firstImg = transformed.images[0]
-        derivedCover = firstImg.mediaType === 'video' ? combinationApiResource(firstImg.path) : firstImg.path
+        derivedCover = resolveMediaCoverUrl(firstImg)
       }
     }
 
     return {
       ...seriesFields,
-      coverImageUrl: item.coverImageUrl || derivedCover || null,
+      coverImageUrl: resolveMediaCoverUrl(item.coverImageUrl ? { path: item.coverImageUrl } : null) || derivedCover,
       artworkCount: item._count.seriesArtworks
     }
   })
@@ -76,7 +79,10 @@ export async function getSeriesDetail(id: number) {
           artwork: {
             include: {
               artist: true,
-              images: { orderBy: { sortOrder: 'asc' } },
+              images: {
+                orderBy: { sortOrder: 'asc' },
+                include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
+              },
               artworkTags: { include: { tag: true } }
             }
           }
@@ -104,13 +110,12 @@ export async function getSeriesDetail(id: number) {
   })
 
   // Handle Cover Fallback
-  let coverImageUrl = series.coverImageUrl
+  let coverImageUrl = resolveMediaCoverUrl(series.coverImageUrl ? { path: series.coverImageUrl } : null)
   if (!coverImageUrl && artworks.length > 0) {
     const firstArtwork = artworks[0]
     if (firstArtwork.images && firstArtwork.images.length > 0) {
       const firstImg = firstArtwork.images[0]
-      // @ts-ignore - transformSingleArtwork result type might not be fully inferred here
-      coverImageUrl = firstImg.mediaType === 'video' ? combinationApiResource(firstImg.path) : firstImg.path
+      coverImageUrl = resolveMediaCoverUrl(firstImg)
     }
   }
 

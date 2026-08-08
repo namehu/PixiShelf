@@ -158,7 +158,7 @@ export function ImageMediaActions({
 interface CreateImageManagerColumnsInput {
   reprobingImageId: number | null
   onClearHover: () => void
-  onMouseEnter: (path: string, event: React.MouseEvent) => void
+  onMouseEnter: (image: ImageListItem, event: React.MouseEvent) => void
   onMouseLeave: () => void
   onOpenVideoMetadata: (image: ImageListItem) => void
   onDownload: (path: string) => void
@@ -192,14 +192,14 @@ export function createImageManagerColumns({
     {
       header: '文件名 / 路径',
       accessorKey: 'path',
-      cell: ({ getValue }) => {
+      cell: ({ getValue, row }) => {
         const val = getValue<string>()
         return (
           <div className="flex flex-col gap-0.5" onClick={onClearHover}>
             <span>
               <span
                 className="font-medium text-sm cursor-help"
-                onMouseEnter={(e) => onMouseEnter(val, e)}
+                onMouseEnter={(e) => onMouseEnter(row.original, e)}
                 onMouseLeave={onMouseLeave}
               >
                 {val.split('/').pop()}

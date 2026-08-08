@@ -4,9 +4,10 @@ import { useCallback, useEffect } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
-import Image from 'next/image'
 import { appendCacheKey } from './utils'
 import { ImageListItem } from './types'
+import MediaThumbnail from '@/components/media/MediaThumbnail'
+import { isVideoCoverSource } from '@/lib/media-cover'
 
 interface ImagePreviewDialogProps {
   open: boolean
@@ -51,6 +52,11 @@ export function ImagePreviewDialog({
   // Early return if no valid image to show, but only if open
   // We render ProDialog anyway so it handles the "open" state animation correctly
   const currentImage = currentIndex !== null ? images[currentIndex] : null
+  const previewMedia = currentImage
+    ? isVideoCoverSource(currentImage)
+      ? currentImage
+      : { ...currentImage, path: appendCacheKey(currentImage.path, cacheKey) }
+    : null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -74,8 +80,8 @@ export function ImagePreviewDialog({
 
             <div className="flex-1 relative flex items-center justify-center w-full h-full overflow-hidden">
               <div className="relative w-full h-full">
-                <Image
-                  src={appendCacheKey(currentImage.path, cacheKey)}
+                <MediaThumbnail
+                  media={previewMedia}
                   alt="Preview"
                   fill
                   className="object-contain"

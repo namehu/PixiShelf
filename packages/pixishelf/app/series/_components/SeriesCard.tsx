@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { Layers } from 'lucide-react'
-import Image from 'next/image'
 import { cn } from '@/lib/utils'
+import MediaThumbnail from '@/components/media/MediaThumbnail'
 
 export interface SeriesCardItem {
   id: number
@@ -28,22 +28,16 @@ export default function SeriesCard({ series, priority = false, className }: Seri
     <Link href={`/series/${id}`} className={cn('group block', className)}>
       {/* 封面区域 */}
       <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-gray-100 mb-2">
-        {coverImageUrl ? (
-          <Image
-            src={coverImageUrl}
-            alt={title}
-            width={400}
-            height={533}
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-            loading={priority ? 'eager' : 'lazy'}
-            priority={priority}
-            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 20vw"
-          />
-        ) : (
-          <div className="flex items-center justify-center h-full text-muted-foreground bg-gray-100 text-xs">
-            No Cover
-          </div>
-        )}
+        <MediaThumbnail
+          media={coverImageUrl ? { path: coverImageUrl, mediaType: 'image' } : null}
+          alt={title}
+          width={400}
+          height={533}
+          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+          loading={priority ? 'eager' : 'lazy'}
+          priority={priority}
+          sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 20vw"
+        />
 
         {/* 遮罩层 - 悬停时微微变暗增加层次感 */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300" />

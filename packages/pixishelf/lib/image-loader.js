@@ -35,9 +35,12 @@ export default function imgproxyLoader({ src, width, quality, format }) {
 
   // 视频封面由 app 写入独立目录，并由 ImgProxy 从 /video-posters 只读处理。
   if (src.startsWith(VIDEO_POSTER_PREFIX)) {
-    const posterPath = decodeURIComponent(src.slice(VIDEO_POSTER_PREFIX.length).split('?')[0])
+    const [encodedPosterPath, query = ''] = src.slice(VIDEO_POSTER_PREFIX.length).split('?')
+    const posterPath = decodeURIComponent(encodedPosterPath)
     if (!posterPath || posterPath.includes('/') || posterPath.includes('\\')) return src
-    return buildImgproxyImageUrl({ src: `/video-posters/${posterPath}`, width, quality, format: 'webp' })
+    const posterUrl = buildImgproxyImageUrl({ src: `/video-posters/${posterPath}`, width, quality, format: 'webp' })
+    const version = new URLSearchParams(query).get('v')
+    return version ? `${posterUrl}?v=${encodeURIComponent(version)}` : posterUrl
   }
 
   // 视频截帧用 自定义的Thumbor 组件

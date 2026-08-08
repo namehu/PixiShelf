@@ -56,6 +56,11 @@ describe('dashboard artwork card query', () => {
         })
       })
     )
+    expect(query.select.images.select.videoMetadata.select).toEqual({
+      posterStatus: true,
+      posterPath: true,
+      posterUpdatedAt: true
+    })
     expect(result).toEqual({
       items: [
         {
@@ -71,6 +76,40 @@ describe('dashboard artwork card query', () => {
       total: 15000,
       page: 1,
       pageSize: 10
+    })
+  })
+
+  it('returns a generated poster for a video card without exposing a video fallback cover', async () => {
+    artworkCountMock.mockResolvedValue(1)
+    artworkFindManyMock.mockResolvedValue([
+      {
+        id: 2,
+        title: 'video card',
+        imageCount: 1,
+        images: [
+          {
+            id: 20,
+            path: '/artist/video.mp4',
+            size: 2048,
+            mediaType: 'VIDEO',
+            videoMetadata: {
+              posterStatus: 'COMPLETED',
+              posterPath: '20-cover.webp',
+              posterUpdatedAt: new Date('2026-08-08T01:02:03.000Z')
+            }
+          }
+        ],
+        artist: { name: 'artist' },
+        artworkTags: []
+      }
+    ])
+
+    const result = await getRecentArtworks({ page: 1, pageSize: 10 })
+
+    expect(result.items[0]?.images[0]).toMatchObject({
+      path: '/artist/video.mp4',
+      mediaType: 'video',
+      posterUrl: '/_video-posters/20-cover.webp?v=1786150923000'
     })
   })
 })

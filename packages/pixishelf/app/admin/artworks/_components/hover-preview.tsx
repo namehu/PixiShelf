@@ -1,23 +1,30 @@
 'use client'
 
 import { createPortal } from 'react-dom'
-import Image from 'next/image'
 import { appendCacheKey } from './utils'
+import type { ImageListItem } from './types'
+import MediaThumbnail from '@/components/media/MediaThumbnail'
+import { isVideoCoverSource } from '@/lib/media-cover'
 
 export const HoverPreview = ({
-  src,
+  media,
   x,
   y,
   visible,
   cacheKey
 }: {
-  src: string | null
+  media: ImageListItem | null
   x: number
   y: number
   visible: boolean
   cacheKey: number
 }) => {
-  if (!visible || !src) return null
+  if (!visible || !media) return null
+
+  const thumbnailMedia =
+    isVideoCoverSource(media)
+      ? { ...media, posterUrl: media.posterUrl || null }
+      : { ...media, path: appendCacheKey(media.path, cacheKey) }
 
   // Create portal to body to ensure it's on top of everything
   if (typeof document === 'undefined') return null
@@ -36,15 +43,17 @@ export const HoverPreview = ({
       style={{ left: finalX, top: finalY, width: 320, maxWidth: '90vw' }}
     >
       <div className="relative aspect-square w-full bg-black/5 rounded-md overflow-hidden">
-        <Image
-          src={appendCacheKey(src, cacheKey)}
+        <MediaThumbnail
+          media={thumbnailMedia}
           alt="Preview"
           sizes="(max-width: 320px) 100vw, 320px"
           fill
           className="object-contain"
         />
       </div>
-      <div className="mt-2 text-xs text-muted-foreground text-center break-all font-mono">{src.split('/').pop()}</div>
+      <div className="mt-2 text-xs text-muted-foreground text-center break-all font-mono">
+        {media.path.split('/').pop()}
+      </div>
     </div>,
     document.body
   )
