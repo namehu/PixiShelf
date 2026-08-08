@@ -31,6 +31,9 @@
   - 视频/图片筛选不再依赖 `LOWER(path) LIKE '%扩展名'`。
   - 用生产 `EXPLAIN (ANALYZE, BUFFERS)` 验证是否需要 `(artworkId, mediaType)` 和 `(artworkId, sortOrder, id)`。
   - 验收：筛选结果兼容旧数据；必要索引有执行计划依据。
+  - 已完成代码：粗粒度图片/视频及未知音频筛选改读 `Image.mediaType`；精确格式筛选仍按扩展名工作。
+  - 已完成代码：扫描、批量导入和图片管理的新媒体会在入库时写入 `mediaType`，APNG/GIF 为 `ANIMATION`，WebM/MP4 等为 `VIDEO`。
+  - 待生产验收：先运行视频媒体探测清空历史 `UNKNOWN`，再执行 `prisma/diagnostics/media-filter.sql`；根据计划决定是否添加两个候选复合索引。
 
 - [ ] 将作品列表从 OFFSET 页码分页改成 keyset pagination
   - 默认时间排序使用稳定的 `(sourceDate, id)` 游标。

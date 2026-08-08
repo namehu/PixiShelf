@@ -157,6 +157,7 @@ describe('updateArtworkImagesWithTransactionClient', () => {
         expect.objectContaining({
           artworkId: 10,
           path: '/artist/artwork/video.mp4',
+          mediaType: 'VIDEO',
           sortOrder: 2,
           size: BigInt(4096),
           chaptersPath: '/artist/artwork/video.chapters.json',
@@ -200,7 +201,8 @@ describe('updateArtworkImagesWithTransactionClient', () => {
 
     expect(imageCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        size: BigInt(3048403909)
+        size: BigInt(3048403909),
+        mediaType: 'VIDEO'
       })
     })
     expect(image.size).toBe(3048403909)

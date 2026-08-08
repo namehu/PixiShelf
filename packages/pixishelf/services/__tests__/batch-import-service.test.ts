@@ -143,11 +143,13 @@ describe('batch-import-service audit integration', () => {
       data: [
         expect.objectContaining({
           path: 'artist/local_10/local_10_p0.mp4',
-          size: BigInt(3048403909)
+          size: BigInt(3048403909),
+          mediaType: 'VIDEO'
         }),
         expect.objectContaining({
           path: 'artist/local_10/local_10_p1.jpg',
-          size: BigInt(200)
+          size: BigInt(200),
+          mediaType: 'IMAGE'
         })
       ]
     })

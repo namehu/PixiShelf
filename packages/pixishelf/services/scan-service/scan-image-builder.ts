@@ -1,4 +1,6 @@
 import { isVideoFile } from '@/lib/media'
+import { inferMediaTypeFromPath } from '@/lib/media-type'
+import type { MediaType } from '@prisma/client'
 import { discoverChaptersForVideoInScanRoot } from '@/services/artwork-service/video-chapters'
 import { MediaFileInfo } from './media-collector'
 import { getRelativePath } from './path-utils'
@@ -12,6 +14,7 @@ export interface ScannedImageSeedData {
   chaptersDuration: number | null
   chaptersUpdatedAt: Date | null
   chaptersHash: string | null
+  mediaType: MediaType
 }
 
 /**
@@ -37,7 +40,8 @@ export async function buildScannedImageSeedData(input: {
         chaptersCount: 0,
         chaptersDuration: null,
         chaptersUpdatedAt: null,
-        chaptersHash: null
+        chaptersHash: null,
+        mediaType: inferMediaTypeFromPath(relativePath)
       }
 
       if (!isVideoFile(relativePath)) {

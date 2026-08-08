@@ -114,10 +114,12 @@ describe('buildArtworkWhereClause', () => {
     expect(whereSQL).toContain('at_ids."tagId" = ANY($2::int[])')
     expect(whereSQL).toContain('cardinality($2::int[])')
     expect(whereSQL).toContain('a.title ILIKE $3')
-    expect(whereSQL).toContain('LOWER(i.path) LIKE $4')
+    expect(whereSQL).toContain('i."mediaType" = \'VIDEO\'')
+    expect(whereSQL).not.toContain('LOWER(i.path)')
     expect(sqlParams[0]).toBe(9)
     expect(sqlParams[1]).toEqual([1, 2])
     expect(sqlParams[2]).toBe('%miku%')
+    expect(sqlParams).toHaveLength(3)
   })
 
   it('should match artist name or pixiv user id from the artist filter', () => {
@@ -174,9 +176,19 @@ describe('buildArtworkWhereClause', () => {
     expect(whereSQL).toContain('FROM "Image" i_audio')
     expect(whereSQL).toContain('LEFT JOIN "MediaVideoMetadata" mvm_audio')
     expect(whereSQL).toContain('i_audio."mediaType" = \'VIDEO\'')
-    expect(whereSQL).toContain('LOWER(i_audio.path) LIKE $1')
+    expect(whereSQL).not.toContain('LOWER(i_audio.path)')
     expect(whereSQL).toContain('(mvm_audio."imageId" IS NULL OR mvm_audio."hasAudio" IS NULL)')
-    expect(sqlParams).toContain('%.mp4')
+    expect(sqlParams).toHaveLength(0)
+  })
+
+  it('uses the absence of VIDEO rows for the coarse image filter', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({ mediaType: 'image' })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('AND NOT')
+    expect(whereSQL).toContain('i."mediaType" = \'VIDEO\'')
+    expect(whereSQL).not.toContain('LOWER(i.path)')
+    expect(sqlParams).toHaveLength(0)
   })
 
   it('should ignore empty tag ids', () => {

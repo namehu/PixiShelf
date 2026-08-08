@@ -444,6 +444,24 @@ describe('video-media-probe-service', () => {
     expect(progress.some((item) => item.message.includes('已探测 1/1'))).toBe(true)
   })
 
+  it('queues videos that were classified when they were inserted', async () => {
+    findManyMock.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 9 }])
+
+    await runVideoMediaProbeJob({ scanPath: '/scan-root' })
+
+    expect(findManyMock).toHaveBeenNthCalledWith(2, {
+      where: {
+        mediaType: 'VIDEO',
+        videoMetadata: null
+      },
+      select: { id: true }
+    })
+    expect(mediaVideoMetadataCreateManyMock).toHaveBeenCalledWith({
+      data: [{ imageId: 9, probeStatus: 'PENDING' }],
+      skipDuplicates: true
+    })
+  })
+
   it('does not reselect failures produced during the same run', async () => {
     mediaVideoMetadataUpdateManyMock.mockResolvedValueOnce({ count: 1 })
     mediaVideoMetadataCountMock.mockResolvedValueOnce(1).mockResolvedValueOnce(0)

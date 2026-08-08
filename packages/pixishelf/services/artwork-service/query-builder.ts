@@ -1,6 +1,5 @@
 import 'server-only'
 import type { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
-import { VIDEO_EXTENSIONS } from '@/lib/constant'
 
 /**
  * 构建作品查询的 WHERE 子句
@@ -156,29 +155,21 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
   }
 
   if (hasAudio === 'unknown') {
-    const videoLikeConditions = VIDEO_EXTENSIONS.map((_, i) => `LOWER(i_audio.path) LIKE $${paramIndex + i}`).join(' OR ')
     whereSQL += ` AND EXISTS (
       SELECT 1 FROM "Image" i_audio
       LEFT JOIN "MediaVideoMetadata" mvm_audio ON mvm_audio."imageId" = i_audio.id
       WHERE i_audio."artworkId" = a.id
-        AND (i_audio."mediaType" = 'VIDEO' OR ${videoLikeConditions})
+        AND i_audio."mediaType" = 'VIDEO'
         AND (mvm_audio."imageId" IS NULL OR mvm_audio."hasAudio" IS NULL)
     )`
-    sqlParams.push(...VIDEO_EXTENSIONS.map((ext) => `%${ext}`))
-    paramIndex += VIDEO_EXTENSIONS.length
   }
 
   // 1.5.5 粗粒度媒体类型筛选
   if (mediaType === 'video' || mediaType === 'image') {
-    const extParams = VIDEO_EXTENSIONS.map((ext) => `%${ext}`)
-
-    // 构建类似 LOWER(i.path) LIKE $5 OR LOWER(i.path) LIKE $6 ...
-    const likeConditions = VIDEO_EXTENSIONS.map((_, i) => `LOWER(i.path) LIKE $${paramIndex + i}`).join(' OR ')
-
     const videoCheckSQL = `
       EXISTS (
         SELECT 1 FROM "Image" i
-        WHERE i."artworkId" = a.id AND (${likeConditions})
+        WHERE i."artworkId" = a.id AND i."mediaType" = 'VIDEO'
       )
     `
 
@@ -187,9 +178,6 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     } else {
       whereSQL += ` AND NOT ${videoCheckSQL}`
     }
-
-    sqlParams.push(...extParams)
-    paramIndex += VIDEO_EXTENSIONS.length
   }
 
   // 1.6 时间范围筛选

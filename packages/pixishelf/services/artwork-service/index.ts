@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { RandomArtworksGetSchema, ArtworkResponseDto, ViewerFeedQuerySchema } from '@/schemas/artwork.dto'
 import { isApngFile, isVideoFile } from '@/lib/media'
 import type { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
-import { VIDEO_EXTENSIONS, IMAGE_EXTENSIONS } from '@/lib/constant'
+import { VIDEO_EXTENSIONS } from '@/lib/constant'
 import { RandomImageItem, RandomImagesResponse } from '@/types/images'
 import { guid } from '@/utils/guid'
 import { MediaType } from '@/types'
@@ -526,17 +526,16 @@ export async function getRandomArtworks(
   const page = cursor ?? 1
   const skip = (page - 1) * pageSize
 
-  // 构建 Prisma 过滤条件：基于文件扩展名进行过滤
+  // 粗粒度图片/视频筛选只读取持久化的媒体类型。
   const buildMediaFilter = (type: EMediaType) => {
     if (type === EMediaType.all) {
       return {}
     }
-    const exts = type === EMediaType.video ? VIDEO_EXTENSIONS : IMAGE_EXTENSIONS
     return {
       images: {
-        some: {
-          OR: exts.map((ext) => ({ path: { endsWith: ext, mode: 'insensitive' as const } }))
-        }
+        ...(type === EMediaType.video
+          ? { some: { mediaType: 'VIDEO' as const } }
+          : { none: { mediaType: 'VIDEO' as const } })
       }
     }
   }

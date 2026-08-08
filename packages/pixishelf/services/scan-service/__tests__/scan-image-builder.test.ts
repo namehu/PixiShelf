@@ -50,7 +50,8 @@ describe('buildScannedImageCreateData', () => {
         chaptersCount: 2,
         chaptersDuration: 20,
         chaptersUpdatedAt: expect.any(Date),
-        chaptersHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+        chaptersHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        mediaType: 'VIDEO'
       }
     ])
   })
@@ -90,7 +91,8 @@ describe('buildScannedImageCreateData', () => {
         chaptersCount: 0,
         chaptersDuration: null,
         chaptersUpdatedAt: null,
-        chaptersHash: null
+        chaptersHash: null,
+        mediaType: 'VIDEO'
       }
     ])
   })
@@ -116,7 +118,8 @@ describe('buildScannedImageCreateData', () => {
         chaptersCount: 0,
         chaptersDuration: null,
         chaptersUpdatedAt: null,
-        chaptersHash: null
+        chaptersHash: null,
+        mediaType: 'VIDEO'
       }
     ])
     expect(warningSpy).toHaveBeenCalledTimes(1)

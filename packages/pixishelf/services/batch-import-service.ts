@@ -17,6 +17,7 @@ import {
   updateScanRunItemMedia
 } from './scan-run-service'
 import { toDatabaseImageSize } from '@/utils/image-size'
+import { inferMediaTypeFromPath } from '@/lib/media-type'
 
 /**
  * 批量创建作品
@@ -155,7 +156,8 @@ export async function batchRegisterImagesService(data: BatchRegisterImageSchema)
               size: toDatabaseImageSize(img.size),
               width: img.width || 0,
               height: img.height || 0,
-              sortOrder: index
+              sortOrder: index,
+              mediaType: inferMediaTypeFromPath(img.path)
             }
           })
         })

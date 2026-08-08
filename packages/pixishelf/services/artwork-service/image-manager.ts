@@ -5,6 +5,7 @@ import { getScanPath } from '@/services/setting.service'
 import { syncMediaDerivedTagForArtwork } from '@/services/media-derived-tag-service'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { normalizeImageSizeField, toDatabaseImageSize } from '@/utils/image-size'
+import { inferMediaTypeFromPath } from '@/lib/media-type'
 
 export interface ArtworkImageTransactionClient {
   image: {
@@ -98,7 +99,8 @@ export async function updateArtworkImagesWithTransactionClient(
     sortOrder: file.order,
     width: file.width,
     height: file.height,
-    size: toDatabaseImageSize(file.size)
+    size: toDatabaseImageSize(file.size),
+    mediaType: inferMediaTypeFromPath(file.path)
   }))
 
   // 3. 批量创建新图片
@@ -198,7 +200,8 @@ export async function addImage(artworkId: number, file: ImageMeta) {
         sortOrder: file.order,
         width: file.width,
         height: file.height,
-        size: toDatabaseImageSize(file.size)
+        size: toDatabaseImageSize(file.size),
+        mediaType: inferMediaTypeFromPath(file.path)
       }
     })
 
@@ -224,6 +227,7 @@ export async function addImageWithChapters(artworkId: number, file: ImageMeta, c
         width: file.width,
         height: file.height,
         size: toDatabaseImageSize(file.size),
+        mediaType: inferMediaTypeFromPath(file.path),
         ...(chaptersMeta
           ? {
               chaptersPath: chaptersMeta.chaptersPath,

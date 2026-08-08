@@ -4,7 +4,8 @@ import path from 'path'
 import * as childProcess from 'node:child_process'
 import * as fs from 'node:fs/promises'
 import { prisma } from '@/lib/prisma'
-import { isApngFile, isGifFile, isImageFile, isVideoFile } from '@/lib/media'
+import { isVideoFile } from '@/lib/media'
+import { inferMediaTypeFromPath } from '@/lib/media-type'
 
 const CLASSIFY_BATCH_SIZE = 500
 const PROBE_BATCH_SIZE = 20
@@ -121,14 +122,18 @@ export async function classifyUnknownMediaImages(
     const animationIds: number[] = []
 
     for (const image of batch) {
-      if (isVideoFile(image.path)) {
-        videoIds.push(image.id)
-      } else if (isApngFile(image.path) || isGifFile(image.path)) {
-        animationIds.push(image.id)
-      } else if (isImageFile(image.path)) {
-        imageIds.push(image.id)
-      } else {
-        result.unknown += 1
+      switch (inferMediaTypeFromPath(image.path)) {
+        case 'VIDEO':
+          videoIds.push(image.id)
+          break
+        case 'ANIMATION':
+          animationIds.push(image.id)
+          break
+        case 'IMAGE':
+          imageIds.push(image.id)
+          break
+        default:
+          result.unknown += 1
       }
     }
 
@@ -333,6 +338,21 @@ export async function runVideoMediaProbeJob(options: {
       )
     }
   })
+
+  // 新入库媒体已经直接写入 mediaType；为这些视频补齐探测队列，避免依赖 UNKNOWN 分类流程。
+  const videosWithoutMetadata = await prisma.image.findMany({
+    where: {
+      mediaType: 'VIDEO',
+      videoMetadata: null
+    },
+    select: { id: true }
+  })
+  if (videosWithoutMetadata.length > 0) {
+    await prisma.mediaVideoMetadata.createMany({
+      data: videosWithoutMetadata.map(({ id }) => ({ imageId: id, probeStatus: 'PENDING' })),
+      skipDuplicates: true
+    })
+  }
 
   await prisma.mediaVideoMetadata.updateMany({
     where: { probeStatus: 'FAILED' },
