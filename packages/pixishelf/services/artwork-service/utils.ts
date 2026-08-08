@@ -111,6 +111,8 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
       Object.assign(videoOwner, { raw: item })
       return false // 从最终列表中移除这个 APNG
     }
+
+    return true
   })
 
   // 3. 统计逻辑（基于合并后的 finalItems）

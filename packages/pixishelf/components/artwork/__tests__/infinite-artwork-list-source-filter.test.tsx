@@ -19,7 +19,7 @@ vi.mock('@tanstack/react-query', () => ({
   })
 }))
 vi.mock('@/lib/trpc', () => ({
-  useTRPC: () => ({ artwork: { list: { infiniteQueryOptions } } })
+  useTRPC: () => ({ artwork: { cardList: { infiniteQueryOptions } } })
 }))
 vi.mock('@/components/user-setting', () => ({ useArtworkDisplayMode: () => 'card' }))
 vi.mock('@/hooks/use-columns', () => ({ useColumns: () => 4 }))

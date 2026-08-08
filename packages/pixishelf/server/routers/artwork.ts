@@ -10,6 +10,7 @@ import {
   ViewerFeedQuerySchema
 } from '@/schemas/artwork.dto'
 import {
+  getArtworkCardsPage,
   getArtworksList,
   getNeighboringArtworks,
   getRecommendedArtworks,
@@ -49,6 +50,19 @@ export const artworkRouter = router({
     return {
       items: result.items,
       nextCursor: page < totalPages ? page + 1 : undefined,
+      total: result.total
+    }
+  }),
+
+  /**
+   * 获取作品卡片列表；仅第一页返回精确总数，后续页通过多取一条判断是否还有下一页。
+   */
+  cardList: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input }) => {
+    const page = input.cursor ?? 1
+    const result = await getArtworkCardsPage(input)
+    return {
+      items: result.items,
+      nextCursor: result.hasNextPage ? page + 1 : undefined,
       total: result.total
     }
   }),

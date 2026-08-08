@@ -9,7 +9,7 @@ import { MigrationDialog } from './migration-dialog'
 import { confirm } from '@/components/shared/global-confirm'
 import { useQueryStates, parseAsString, parseAsInteger, parseAsBoolean } from 'nuqs'
 import { ProTable } from '@/components/shared/pro-table'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { RowSelectionState } from '@tanstack/react-table'
 import { BatchImportDialog } from './batch-import-dialog'
 import { ArtworkUnifiedEditor } from './artwork-unified-editor'
@@ -31,6 +31,7 @@ import {
 export default function ArtworkManagement() {
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
+  const queryClient = useQueryClient()
   const [batchImportOpen, setBatchImportOpen] = useState(false)
   const [editorConfig, setEditorConfig] = useState<{ id: number | null; tab: 'info' | 'media' } | null>(null)
   const [copyInitialData, setCopyInitialData] = useState<{
@@ -114,6 +115,7 @@ export default function ArtworkManagement() {
       onSuccess: () => {
         toast.success('删除成功')
         refreshTable()
+        queryClient.invalidateQueries({ queryKey: trpc.artwork.cardList.queryKey() })
         setRowSelection({})
       }
     })

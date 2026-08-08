@@ -83,6 +83,9 @@ vi.mock('@/lib/trpc', () => ({
       },
       list: {
         queryKey: () => ['artwork', 'list']
+      },
+      cardList: {
+        queryKey: () => ['artwork', 'cardList']
       }
     }
   }),

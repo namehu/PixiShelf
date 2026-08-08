@@ -5,6 +5,33 @@ vi.mock('server-only', () => ({}))
 import { determineArtworkRelDir, transformImages } from '../utils'
 
 describe('transformImages', () => {
+  it('keeps a standalone APNG when no same-name video exists', () => {
+    const now = new Date()
+    const { images } = transformImages([
+      {
+        id: 1,
+        path: '/artist/artwork/animation.apng',
+        width: 800,
+        height: 600,
+        size: 100,
+        sortOrder: 0,
+        artworkId: 1,
+        createdAt: now,
+        updatedAt: now,
+        webpAnimationStatus: null,
+        chaptersPath: null,
+        chaptersCount: 0,
+        chaptersDuration: null,
+        chaptersUpdatedAt: null,
+        chaptersHash: null,
+        mediaType: 'ANIMATION'
+      }
+    ])
+
+    expect(images).toHaveLength(1)
+    expect(images[0]).toMatchObject({ path: '/artist/artwork/animation.apng', mediaType: 'image' })
+  })
+
   it('should require both chaptersPath and chaptersCount to mark video as hasChapters', () => {
     const now = new Date()
     const { images } = transformImages([

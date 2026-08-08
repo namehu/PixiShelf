@@ -94,7 +94,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   const prevInView = useRef(false)
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError } = useInfiniteQuery(
-    trpc.artwork.list.infiniteQueryOptions(
+    trpc.artwork.cardList.infiniteQueryOptions(
       {
         search: searchQuery || undefined,
         sortBy,

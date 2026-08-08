@@ -3,6 +3,19 @@
 import { prisma } from '@/lib/prisma'
 import { SearchSuggestion, SearchSuggestionsResponse, SearchSuggestionsSchema } from '@/schemas/search.dto'
 
+interface RawArtistSuggestion {
+  id: number
+  name: string
+  username: string | null
+  artwork_count: number | bigint | string
+}
+
+interface RawArtworkSuggestion {
+  title: string
+  artist_name: string | null
+  image_count: number
+}
+
 /**
  * 获取搜索建议
  */
@@ -27,18 +40,10 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
       select: {
         id: true,
         name: true,
-        _count: {
-          select: {
-            artworkTags: true
-          }
-        }
+        artworkCount: true
       },
       orderBy: [
-        {
-          artworkTags: {
-            _count: 'desc'
-          }
-        },
+        { artworkCount: 'desc' },
         {
           name: 'asc'
         }
@@ -54,7 +59,7 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
         label: `#${tag.name}`,
         metadata: {
           id: tag.id,
-          artworkCount: tag._count.artworkTags
+          artworkCount: tag.artworkCount
         }
       })
     })
@@ -80,15 +85,18 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
     LIMIT $3
   `
 
-  const rawArtists = (await prisma.$queryRawUnsafe(artistsQuery, searchPattern, searchPattern, artistLimit)) as any[]
+  const rawArtists = await prisma.$queryRawUnsafe<RawArtistSuggestion[]>(
+    artistsQuery,
+    searchPattern,
+    searchPattern,
+    artistLimit
+  )
 
   const artists = rawArtists.map((artist) => ({
     id: Number(artist.id),
     name: artist.name,
     username: artist.username,
-    _count: {
-      artworks: parseInt(artist.artwork_count, 10) || 0
-    }
+    artworkCount: Number(artist.artwork_count) || 0
   }))
 
   // 添加艺术家建议
@@ -99,7 +107,7 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
       label: artist.name,
       metadata: {
         id: artist.id,
-        imageCount: artist._count.artworks
+        imageCount: artist.artworkCount
       }
     })
   })
@@ -111,24 +119,24 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
       SELECT
         aw.title,
         a.name as artist_name,
-        COUNT(i.id) as image_count
+        aw."imageCount" as image_count
       FROM "Artwork" aw
       LEFT JOIN "Artist" a ON aw."artistId" = a.id
-      LEFT JOIN "Image" i ON aw.id = i."artworkId"
-      WHERE (aw.title || ' ' || COALESCE(aw.description, '')) ILIKE $1
-      GROUP BY aw.id, aw.title, aw."createdAt", a.name
-      ORDER BY image_count DESC, aw."createdAt" DESC
+      WHERE (aw.title ILIKE $1 OR aw.description ILIKE $1)
+      ORDER BY aw."imageCount" DESC, aw."createdAt" DESC
       LIMIT $2
     `
 
-    const rawArtworks = (await prisma.$queryRawUnsafe(artworksQuery, searchPattern, remainingLimit)) as any[]
+    const rawArtworks = await prisma.$queryRawUnsafe<RawArtworkSuggestion[]>(
+      artworksQuery,
+      searchPattern,
+      remainingLimit
+    )
 
     const artworks = rawArtworks.map((artwork) => ({
       title: artwork.title,
       artist: artwork.artist_name ? { name: artwork.artist_name } : null,
-      _count: {
-        images: parseInt(artwork.image_count, 10) || 0
-      }
+      imageCount: Number(artwork.image_count) || 0
     }))
 
     // 添加作品建议
@@ -139,7 +147,7 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
         label: artwork.title,
         metadata: {
           artistName: artwork.artist?.name,
-          imageCount: artwork._count.images
+          imageCount: artwork.imageCount
         }
       })
     })

@@ -71,7 +71,7 @@ describe('InfiniteArtworkList', () => {
     })
     ;(useTRPC as any).mockReturnValue({
       artwork: {
-        list: {
+        cardList: {
           infiniteQueryOptions: infiniteQueryOptionsMock
         }
       }

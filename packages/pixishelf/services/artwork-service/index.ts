@@ -3,7 +3,7 @@ import 'server-only'
 import { ArtworkCardData, ArtworkCardListResponse, EnhancedArtworksResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
 import { RandomArtworksGetSchema, ArtworkResponseDto, ViewerFeedQuerySchema } from '@/schemas/artwork.dto'
-import { isVideoFile } from '@/lib/media'
+import { isApngFile, isVideoFile } from '@/lib/media'
 import type { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 import { VIDEO_EXTENSIONS, IMAGE_EXTENSIONS } from '@/lib/constant'
 import { RandomImageItem, RandomImagesResponse } from '@/types/images'
@@ -135,6 +135,86 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
   })
 
   return { items, total, page, pageSize }
+}
+
+export interface ArtworkCardsPageResponse {
+  items: ArtworkCardData[]
+  total?: number
+  page: number
+  pageSize: number
+  hasNextPage: boolean
+}
+
+/**
+ * 获取普通作品列表卡片。
+ *
+ * 这里只返回 ArtworkCard 所需字段，并把每个作品的媒体关系限制为封面一条。
+ * 第一页保留精确总数；后续页多取一条记录判断是否还有下一页，避免重复 COUNT。
+ */
+export async function getArtworkCardsPage(
+  params: ArtworksInfiniteQuerySchema
+): Promise<ArtworkCardsPageResponse> {
+  const { cursor, sortBy } = params
+  const page = cursor ?? 1
+  const pageSize = params.pageSize
+  const skip = (page - 1) * pageSize
+
+  let { whereSQL, sqlParams, paramIndex } = buildArtworkWhereClause(params)
+  const countParams = [...sqlParams]
+  const countQuery = `
+    SELECT COUNT(*) as count
+    FROM "Artwork" a
+    LEFT JOIN "Artist" artist ON a."artistId" = artist.id
+    ${whereSQL}
+  `
+
+  let orderBySQL: string
+  if (sortBy === 'random' && params.randomSeed !== undefined) {
+    orderBySQL = `ORDER BY md5(a.id::text || $${paramIndex}) ASC`
+    sqlParams.push(params.randomSeed.toString())
+    paramIndex++
+  } else {
+    orderBySQL = mapSortOptionToSQL(sortBy || 'source_date_desc')
+  }
+
+  const idQuery = `
+    SELECT a.id
+    FROM "Artwork" a
+    LEFT JOIN "Artist" artist ON a."artistId" = artist.id
+    ${whereSQL}
+    ${orderBySQL}
+    LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+  `
+  sqlParams.push(pageSize + 1, skip)
+
+  const [countResult, rawIdRows] = await Promise.all([
+    page === 1 ? prisma.$queryRawUnsafe<{ count: bigint }[]>(countQuery, ...countParams) : Promise.resolve(undefined),
+    prisma.$queryRawUnsafe<Array<{ id: number }>>(idQuery, ...sqlParams)
+  ])
+
+  const visibleIdRows = rawIdRows.slice(0, pageSize)
+  const artworkIds = visibleIdRows.map(({ id }) => id)
+  const artworks =
+    artworkIds.length > 0
+      ? await prisma.artwork.findMany({
+          where: { id: { in: artworkIds } },
+          select: artworkCardSelect
+        })
+      : []
+  const resolvedArtworks = await resolveArtworkCardCovers(artworks)
+  const artworkById = new Map(resolvedArtworks.map((artwork) => [artwork.id, artwork]))
+  const items = artworkIds
+    .map((id) => artworkById.get(id))
+    .filter((artwork): artwork is NonNullable<typeof artwork> => artwork !== undefined)
+    .map(transformArtworkCard)
+
+  return {
+    items,
+    total: countResult ? Number(countResult[0]?.count || 0) : undefined,
+    page,
+    pageSize,
+    hasNextPage: rawIdRows.length > pageSize
+  }
 }
 
 /**
@@ -385,10 +465,11 @@ export const getRecommendedArtworks = async (
     select: artworkCardSelect,
     where: { id: { in: randomIds } }
   })
+  const resolvedArtworks = await resolveArtworkCardCovers(artworks)
 
   // 3. 按随机 ID 的顺序重新排序 (因为 SQL WHERE IN 不保证顺序)
   const orderedArtworks = randomIds
-    .map((id) => artworks.find((a) => a.id === id))
+    .map((id) => resolvedArtworks.find((a) => a.id === id))
     .filter((a): a is NonNullable<typeof a> => Boolean(a))
 
   // 4. 转换数据格式
@@ -425,7 +506,8 @@ export const getRecentArtworks = async (
   ])
 
   // 2. 转换数据格式
-  const items = artworks.map(transformArtworkCard)
+  const resolvedArtworks = await resolveArtworkCardCovers(artworks)
+  const items = resolvedArtworks.map(transformArtworkCard)
   return {
     items,
     total,
@@ -711,6 +793,7 @@ const artworkCardSelect = {
     orderBy: { sortOrder: 'asc' },
     select: {
       id: true,
+      artworkId: true,
       path: true,
       size: true,
       mediaType: true,
@@ -733,12 +816,71 @@ const artworkCardSelect = {
   }
 } as const
 
+type ArtworkCardQueryRow = Prisma.ArtworkGetPayload<{ select: typeof artworkCardSelect }>
+type ArtworkCardMediaRow = ArtworkCardQueryRow['images'][number]
+
+/**
+ * APNG 和同名 WebM/MP4 是一个逻辑媒体的两种表示。
+ * 常规卡片只读取一条封面；仅当该封面是 APNG 时，才为当前批次补查视频伙伴。
+ */
+async function resolveArtworkCardCovers(artworks: ArtworkCardQueryRow[]): Promise<ArtworkCardQueryRow[]> {
+  const apngCovers = artworks
+    .map((artwork) => artwork.images[0])
+    .filter((image): image is ArtworkCardMediaRow => Boolean(image && isApngFile(image.path)))
+
+  if (apngCovers.length === 0) {
+    return artworks
+  }
+
+  const artworkIds = artworks
+    .filter((artwork) => artwork.images[0] && isApngFile(artwork.images[0].path))
+    .map((artwork) => artwork.id)
+  const videoCandidates = await prisma.image.findMany({
+    where: {
+      artworkId: { in: artworkIds },
+      OR: [
+        { mediaType: 'VIDEO' },
+        ...VIDEO_EXTENSIONS.map((extension) => ({
+          path: { endsWith: extension, mode: 'insensitive' as const }
+        }))
+      ]
+    },
+    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+    select: artworkCardSelect.images.select
+  })
+
+  const videoByLogicalPath = new Map<string, ArtworkCardMediaRow>()
+  for (const video of videoCandidates) {
+    if (video.artworkId === null) continue
+    const key = getLogicalMediaKey(video.artworkId, video.path)
+    if (!videoByLogicalPath.has(key) && (video.mediaType === 'VIDEO' || isVideoFile(video.path))) {
+      videoByLogicalPath.set(key, video)
+    }
+  }
+
+  return artworks.map((artwork) => {
+    const cover = artwork.images[0]
+    if (!cover || !isApngFile(cover.path)) {
+      return artwork
+    }
+
+    const videoCover = videoByLogicalPath.get(getLogicalMediaKey(artwork.id, cover.path))
+    return videoCover ? { ...artwork, images: [videoCover] } : artwork
+  })
+}
+
+function getLogicalMediaKey(artworkId: number, mediaPath: string): string {
+  const normalizedPath = mediaPath.replace(/\\/g, '/').replace(/\.[^/.]+$/, '').toLowerCase()
+  return `${artworkId}:${normalizedPath}`
+}
+
 function transformArtworkCard(artwork: {
   id: number
   title: string
   imageCount: number
   images: Array<{
     id: number
+    artworkId: number | null
     path: string
     size: number | bigint | null
     mediaType: string

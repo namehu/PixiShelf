@@ -102,6 +102,7 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
         toast.success('更新成功')
         onSuccess()
         queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
+        queryClient.invalidateQueries({ queryKey: trpc.artwork.cardList.queryKey() })
       },
       onError: (err) => {
         toast.error(`更新失败: ${err.message}`)
@@ -115,6 +116,7 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
         toast.success('创建成功')
         onSuccess(createdArtwork)
         queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
+        queryClient.invalidateQueries({ queryKey: trpc.artwork.cardList.queryKey() })
       },
       onError: (err) => {
         toast.error(`创建失败: ${err.message}`)

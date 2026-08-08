@@ -69,9 +69,9 @@ describe('InfiniteArtworkList e2e', () => {
 
     ;(useTRPC as any).mockReturnValue({
       artwork: {
-        list: {
+        cardList: {
           infiniteQueryOptions: (_input: any, options: any) => ({
-            queryKey: ['artwork.list', _input],
+            queryKey: ['artwork.cardList', _input],
             queryFn: ({ pageParam = options.initialCursor }) => fetcher({ pageParam }),
             getNextPageParam: options.getNextPageParam,
             initialPageParam: options.initialCursor

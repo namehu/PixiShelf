@@ -123,11 +123,13 @@ export function ArtworkUnifiedEditor({
                     setCurrentArtworkId(savedArtwork.id)
                     setActiveTab('media')
                     queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
+                    queryClient.invalidateQueries({ queryKey: trpc.artwork.cardList.queryKey() })
                     return
                   }
                   if (currentArtworkId) {
                     refetch()
                     queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
+                    queryClient.invalidateQueries({ queryKey: trpc.artwork.cardList.queryKey() })
                   }
                 }}
               />
@@ -140,6 +142,7 @@ export function ArtworkUnifiedEditor({
                   onSuccess?.(artwork || undefined)
                   refetch()
                   queryClient.invalidateQueries({ queryKey: trpc.artwork.list.queryKey() })
+                  queryClient.invalidateQueries({ queryKey: trpc.artwork.cardList.queryKey() })
                 }}
               />
             </TabsContent>
