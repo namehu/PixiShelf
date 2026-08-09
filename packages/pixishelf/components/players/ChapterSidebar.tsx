@@ -1,5 +1,7 @@
 'use client'
 
+import Image from 'next/image'
+import { ImageOffIcon, Loader2Icon, VideoIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
@@ -29,7 +31,7 @@ export default function ChapterSidebar({
       return
     }
 
-    itemRefs.current[currentChapterId]?.scrollIntoView({
+    itemRefs.current[currentChapterId]?.scrollIntoView?.({
       block: 'nearest',
       behavior: 'smooth'
     })
@@ -50,7 +52,7 @@ export default function ChapterSidebar({
       )}
     >
       <ScrollArea className={cn('flex-1', scrollAreaClassName || 'max-h-72 sm:max-h-96')}>
-        <div className="space-y-1 p-2">
+        <div className="grid grid-cols-2 gap-2 p-2">
           {chapters.map((chapter) => {
             const isActive = currentChapterId === chapter.id
 
@@ -62,29 +64,57 @@ export default function ChapterSidebar({
                 }}
                 type="button"
                 onClick={() => onChapterClick(chapter)}
+                aria-current={isActive ? 'true' : undefined}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded-md border-l-2 px-1 py-1 text-left transition-colors',
+                  'group min-w-0 overflow-hidden rounded-lg border text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400',
                   isActive
                     ? isLight
-                      ? 'border-blue-500 bg-blue-50 text-neutral-900'
-                      : 'border-blue-400 bg-white/12 text-white'
+                      ? 'border-blue-500 bg-blue-50 text-neutral-900 ring-1 ring-blue-500'
+                      : 'border-blue-400 bg-white/12 text-white ring-1 ring-blue-400'
                     : isLight
-                      ? 'border-transparent text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
-                      : 'border-transparent text-white/75 hover:bg-white/8 hover:text-white'
+                      ? 'border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'
+                      : 'border-white/10 bg-white/5 text-white/80 hover:border-white/25 hover:bg-white/10 hover:text-white'
                 )}
               >
-                {/* <span
-                  className={cn(
-                    'w-4 shrink-0 text-xs font-medium tabular-nums',
-                    isLight ? 'text-neutral-400' : 'text-white/55'
+                <span className={cn('relative block aspect-video overflow-hidden', isLight ? 'bg-neutral-100' : 'bg-black/50')}>
+                  {chapter.previewUrl ? (
+                    <Image
+                      src={chapter.previewUrl}
+                      alt={`${chapter.title} 章节截图`}
+                      fill
+                      sizes="(min-width: 1024px) 220px, 50vw"
+                      className="object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                    />
+                  ) : (
+                    <span
+                      className={cn(
+                        'flex h-full w-full flex-col items-center justify-center gap-1 text-[11px]',
+                        isLight ? 'text-neutral-400' : 'text-white/45'
+                      )}
+                    >
+                      {chapter.previewStatus === 'GENERATING' ? (
+                        <Loader2Icon className="h-5 w-5 animate-spin" aria-hidden="true" />
+                      ) : chapter.previewStatus === 'FAILED' ? (
+                        <ImageOffIcon className="h-5 w-5" aria-hidden="true" />
+                      ) : (
+                        <VideoIcon className="h-5 w-5" aria-hidden="true" />
+                      )}
+                      <span>
+                        {chapter.previewStatus === 'GENERATING'
+                          ? '生成中'
+                          : chapter.previewStatus === 'FAILED'
+                            ? '生成失败'
+                            : '待生成'}
+                      </span>
+                    </span>
                   )}
-                >
-                  {String(chapter.index).padStart(2, '0')}
-                </span> */}
-                <span className={cn('shrink-0 text-xs tabular-nums', isLight ? 'text-neutral-500' : 'text-white/60')}>
-                  {formatChapterTime(chapter.start)}
+                  <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] tabular-nums text-white">
+                    {formatChapterTime(chapter.start)}
+                  </span>
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm">{chapter.title}</span>
+                <span className="block min-h-12 px-2 py-1.5 text-xs font-medium leading-4">
+                  <span className="line-clamp-2">{chapter.title}</span>
+                </span>
               </button>
             )
           })}

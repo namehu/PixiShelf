@@ -8,6 +8,7 @@ const THUMBOR_VIDEO_URL = process.env.NEXT_PUBLIC_THUMBOR_VIDEO_URL || 'http://l
 const DEFAULT_IMAGE_OUTPUT_FORMAT = 'webp'
 const STATIC_ANIMATION_THUMBNAIL_FORMAT = 'jpg'
 const VIDEO_POSTER_PREFIX = '/_video-posters/'
+const VIDEO_CHAPTER_PREVIEW_PREFIX = '/_video-chapter-previews/'
 
 /**
  * @typedef {Object} ImgproxyImageOptions
@@ -41,6 +42,21 @@ export default function imgproxyLoader({ src, width, quality, format }) {
     const posterUrl = buildImgproxyImageUrl({ src: `/video-posters/${posterPath}`, width, quality, format: 'webp' })
     const version = new URLSearchParams(query).get('v')
     return version ? `${posterUrl}?v=${encodeURIComponent(version)}` : posterUrl
+  }
+
+  // 视频章节截图与封面分目录存储，避免两类派生资源的清理任务互相删除文件。
+  if (src.startsWith(VIDEO_CHAPTER_PREVIEW_PREFIX)) {
+    const [encodedPreviewPath, query = ''] = src.slice(VIDEO_CHAPTER_PREVIEW_PREFIX.length).split('?')
+    const previewPath = decodeURIComponent(encodedPreviewPath)
+    if (!previewPath || previewPath.includes('/') || previewPath.includes('\\')) return src
+    const previewUrl = buildImgproxyImageUrl({
+      src: `/video-chapter-previews/${previewPath}`,
+      width,
+      quality,
+      format: 'webp'
+    })
+    const version = new URLSearchParams(query).get('v')
+    return version ? `${previewUrl}?v=${encodeURIComponent(version)}` : previewUrl
   }
 
   // 视频截帧用 自定义的Thumbor 组件

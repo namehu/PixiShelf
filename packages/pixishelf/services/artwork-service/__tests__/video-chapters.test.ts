@@ -23,6 +23,7 @@ vi.mock('@/lib/prisma', () => ({
 }))
 
 import {
+  createChapterManifestHash,
   discoverChaptersForVideo,
   getVideoChapterManifestByImageId,
   getChapterPathCandidates,
@@ -230,7 +231,8 @@ describe('discoverChaptersForVideo', () => {
     findUniqueMock.mockResolvedValue({
       id: 1,
       path: '/artist/artwork/video.mp4',
-      chaptersPath: '/artist/artwork/video.chapters.json'
+      chaptersPath: '/artist/artwork/video.chapters.json',
+      chapterPreviews: []
     })
 
     const manifest = await getVideoChapterManifestByImageId(1)
@@ -240,9 +242,81 @@ describe('discoverChaptersForVideo', () => {
       version: 1,
       duration: 20,
       chapters: [
+        {
+          index: 1,
+          title: 'Opening',
+          start: 0,
+          end: 8,
+          duration: 8,
+          previewStatus: 'PENDING',
+          previewUrl: null,
+          previewCaptureTime: null,
+          previewUpdatedAt: null
+        },
+        {
+          index: 2,
+          title: 'Ending',
+          start: 8,
+          end: 20,
+          duration: 12,
+          previewStatus: 'PENDING',
+          previewUrl: null,
+          previewCaptureTime: null,
+          previewUpdatedAt: null
+        }
+      ]
+    })
+  })
+
+  it('only exposes completed previews that match the current chapter manifest hash', async () => {
+    const rawManifest = {
+      version: 1 as const,
+      duration: 20,
+      chapters: [
         { index: 1, title: 'Opening', start: 0, end: 8, duration: 8 },
         { index: 2, title: 'Ending', start: 8, end: 20, duration: 12 }
       ]
+    }
+    await writeManifestFile(tempDir, '/artist/artwork/video.chapters.json', rawManifest)
+    const manifestHash = createChapterManifestHash(await validateChapterManifest(rawManifest))
+    const updatedAt = new Date('2026-08-09T01:02:03.000Z')
+    findUniqueMock.mockResolvedValue({
+      id: 1,
+      path: '/artist/artwork/video.mp4',
+      chaptersPath: '/artist/artwork/video.chapters.json',
+      chapterPreviews: [
+        {
+          chapterOrder: 0,
+          chaptersHash: manifestHash,
+          status: 'COMPLETED',
+          previewPath: '1-hash-0.webp',
+          captureTime: 1,
+          previewUpdatedAt: updatedAt
+        },
+        {
+          chapterOrder: 1,
+          chaptersHash: 'stale-hash',
+          status: 'COMPLETED',
+          previewPath: '1-stale-1.webp',
+          captureTime: 9,
+          previewUpdatedAt: updatedAt
+        }
+      ]
+    })
+
+    const manifest = await getVideoChapterManifestByImageId(1)
+
+    expect(manifest?.chapters[0]).toMatchObject({
+      previewStatus: 'COMPLETED',
+      previewUrl: `/_video-chapter-previews/1-hash-0.webp?v=${updatedAt.getTime()}`,
+      previewCaptureTime: 1,
+      previewUpdatedAt: updatedAt.toISOString()
+    })
+    expect(manifest?.chapters[1]).toMatchObject({
+      previewStatus: 'PENDING',
+      previewUrl: null,
+      previewCaptureTime: null,
+      previewUpdatedAt: null
     })
   })
 

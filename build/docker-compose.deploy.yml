@@ -38,10 +38,12 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
       VIDEO_POSTER_STORAGE_PATH: /app/video-posters
+      VIDEO_CHAPTER_PREVIEW_STORAGE_PATH: /app/video-chapter-previews
     volumes:
       # 挂载图片目录 - 根据实际需要调整路径
       - "${PIXISHELF_DATA_PATH:-./data}:/app/data:ro"  # 只读挂载图片目录
       - "${VIDEO_POSTER_HOST_PATH:-./video-posters}:/app/video-posters"
+      - "${VIDEO_CHAPTER_PREVIEW_HOST_PATH:-./video-chapter-previews}:/app/video-chapter-previews"
     networks:
       - pixishelf-network
     depends_on:
@@ -81,13 +83,14 @@ services:
       # 关键：将存储原图的文件夹挂载到 ImgProxy 容器中
       - "${PIXISHELF_DATA_PATH:-./data}:/mnt/pixishelf/media:ro"
       - "${VIDEO_POSTER_HOST_PATH:-./video-posters}:/mnt/pixishelf/video-posters:ro"
+      - "${VIDEO_CHAPTER_PREVIEW_HOST_PATH:-./video-chapter-previews}:/mnt/pixishelf/video-chapter-previews:ro"
     environment:
       - IMGPROXY_BIND=:5431
       # 允许 ImgProxy 处理来自本地文件系统的图片
       - IMGPROXY_USE_FILESYSTEM=true
       # 不使用镜像内置的 /data 挂载点，避免在只读卷下创建子挂载。
       - IMGPROXY_LOCAL_FILESYSTEM_ROOT=/mnt/pixishelf
-      - IMGPROXY_ALLOWED_SOURCES=local:///media/,local:///video-posters/
+      - IMGPROXY_ALLOWED_SOURCES=local:///media/,local:///video-posters/,local:///video-chapter-previews/
       - IMGPROXY_MAX_SRC_FILE_SIZE=0
       - IMGPROXY_MAX_SRC_RESOLUTION=1000
       # 开启并限制动图支持，防止 OOM (默认是 1 会变成静态图)

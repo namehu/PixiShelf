@@ -84,7 +84,11 @@ describe('useVideoChapters', () => {
         title: 'Opening',
         start: 0,
         end: 60,
-        duration: 60
+        duration: 60,
+        previewStatus: 'PENDING',
+        previewUrl: null,
+        previewCaptureTime: null,
+        previewUpdatedAt: null
       },
       {
         id: 'chapter-2-60',
@@ -92,7 +96,11 @@ describe('useVideoChapters', () => {
         title: 'Second',
         start: 60,
         end: 120,
-        duration: 60
+        duration: 60,
+        previewStatus: 'PENDING',
+        previewUrl: null,
+        previewCaptureTime: null,
+        previewUpdatedAt: null
       }
     ])
   })
@@ -146,7 +154,11 @@ describe('useVideoChapters', () => {
         title: 'Opening',
         start: 0,
         end: 20,
-        duration: 20
+        duration: 20,
+        previewStatus: 'PENDING',
+        previewUrl: null,
+        previewCaptureTime: null,
+        previewUpdatedAt: null
       }
     ])
   })

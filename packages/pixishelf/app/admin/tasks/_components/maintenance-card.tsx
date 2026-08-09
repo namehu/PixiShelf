@@ -59,6 +59,17 @@ interface VideoMediaProbeResult {
   poster?: { processed?: number; generated?: number; failed?: number; orphanedFilesDeleted?: number }
 }
 
+interface VideoChapterPreviewResult {
+  mode?: 'FULL' | 'INCREMENTAL'
+  pending?: number
+  processed?: number
+  reused?: number
+  generated?: number
+  failed?: number
+  orphanedFilesDeleted?: number
+  failedSamples?: Array<{ imageId: number; path: string; chapterOrder: number | null; error: string }>
+}
+
 interface ScheduledTaskView {
   key: string
   type: string
@@ -101,6 +112,10 @@ function toWebpAnimationScanResult(result: unknown): WebpAnimationScanResult | n
 
 function toVideoMediaProbeResult(result: unknown): VideoMediaProbeResult | null {
   return result && typeof result === 'object' ? (result as VideoMediaProbeResult) : null
+}
+
+function toVideoChapterPreviewResult(result: unknown): VideoChapterPreviewResult | null {
+  return result && typeof result === 'object' ? (result as VideoChapterPreviewResult) : null
 }
 
 function isJobVisible(job: JobView | null | undefined, isRunning: boolean) {
@@ -307,6 +322,7 @@ export function MaintenanceCard() {
   const [mediaTagPollInterval, setMediaTagPollInterval] = useState<number | false>(false)
   const [webpScanPollInterval, setWebpScanPollInterval] = useState<number | false>(false)
   const [videoProbePollInterval, setVideoProbePollInterval] = useState<number | false>(false)
+  const [chapterPreviewPollInterval, setChapterPreviewPollInterval] = useState<number | false>(false)
   const [taskDrafts, setTaskDrafts] = useState<Record<string, TaskDraft>>({})
   const [triggeringTaskKey, setTriggeringTaskKey] = useState<string | null>(null)
   const [videoReprobePath, setVideoReprobePath] = useState('')
@@ -341,6 +357,14 @@ export function MaintenanceCard() {
   const videoProbeJob = videoProbeJobQuery.data as JobView | null | undefined
   const refetchVideoProbeJob = videoProbeJobQuery.refetch
 
+  const chapterPreviewJobQuery = useQuery(
+    trpc.job.getVideoChapterPreviewGenerationStatus.queryOptions(undefined, {
+      refetchInterval: chapterPreviewPollInterval
+    })
+  )
+  const chapterPreviewJob = chapterPreviewJobQuery.data as JobView | null | undefined
+  const refetchChapterPreviewJob = chapterPreviewJobQuery.refetch
+
   const scheduledTasksQuery = useQuery(trpc.job.listScheduledTasks.queryOptions())
   const scheduledTasks = (scheduledTasksQuery.data ?? []) as ScheduledTaskView[]
   const refetchScheduledTasks = scheduledTasksQuery.refetch
@@ -351,8 +375,9 @@ export function MaintenanceCard() {
 
   const webpScheduledTask = scheduledTasksByKey.get('webp_animation_scan')
   const videoScheduledTask = scheduledTasksByKey.get('video_media_probe')
+  const chapterPreviewScheduledTask = scheduledTasksByKey.get('video_chapter_preview_generation')
   const standaloneScheduledTasks = scheduledTasks.filter(
-    (task) => !['webp_animation_scan', 'video_media_probe'].includes(task.key)
+    (task) => !['webp_animation_scan', 'video_media_probe', 'video_chapter_preview_generation'].includes(task.key)
   )
 
   useEffect(() => {
@@ -386,6 +411,14 @@ export function MaintenanceCard() {
       setVideoProbePollInterval(false)
     }
   }, [videoProbeJob?.status])
+
+  useEffect(() => {
+    if (chapterPreviewJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(chapterPreviewJob.status)) {
+      setChapterPreviewPollInterval(1000)
+    } else {
+      setChapterPreviewPollInterval(false)
+    }
+  }, [chapterPreviewJob?.status])
 
   useEffect(() => {
     if (scheduledTasks.length === 0) return
@@ -450,6 +483,18 @@ export function MaintenanceCard() {
     })
   )
 
+  const cancelChapterPreviewMutation = useMutation(
+    trpc.job.cancelVideoChapterPreviewGeneration.mutationOptions({
+      onSuccess: () => {
+        toast.info('正在取消章节截图任务...')
+        refetchChapterPreviewJob()
+      },
+      onError: (error) => {
+        toast.error(`取消失败: ${error.message}`)
+      }
+    })
+  )
+
   const reprobeVideoByPathMutation = useMutation(
     trpc.job.reprobeVideoMediaByPath.mutationOptions({
       onSuccess: (result) => {
@@ -477,11 +522,18 @@ export function MaintenanceCard() {
 
   const triggerScheduledTaskMutation = useMutation(
     trpc.job.triggerScheduledTaskNow.mutationOptions({
-      onSuccess: () => {
-        toast.success('计划任务已手动触发')
+      onSuccess: (_data, variables) => {
+        toast.success(
+          variables.chapterPreviewMode === 'INCREMENTAL'
+            ? '章节截图增量任务已启动'
+            : variables.chapterPreviewMode === 'FULL'
+              ? '章节截图全量任务已启动'
+              : '计划任务已手动触发'
+        )
         refetchScheduledTasks()
         refetchWebpScanJob()
         refetchVideoProbeJob()
+        refetchChapterPreviewJob()
       },
       onError: (error) => {
         toast.error(`触发失败: ${error.message}`)
@@ -498,9 +550,13 @@ export function MaintenanceCard() {
   const isWebpScanRunning = webpScanJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(webpScanJob.status)
   const isVideoProbeRunning = videoProbeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(videoProbeJob.status)
   const isVideoProbeCancelling = videoProbeJob?.status === 'CANCELLING'
+  const isChapterPreviewRunning =
+    chapterPreviewJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(chapterPreviewJob.status)
+  const isChapterPreviewCancelling = chapterPreviewJob?.status === 'CANCELLING'
   const mediaTagResult = toMediaDerivedTagSyncResult(mediaTagJob?.result)
   const webpScanResult = toWebpAnimationScanResult(webpScanJob?.result)
   const videoProbeResult = toVideoMediaProbeResult(videoProbeJob?.result)
+  const chapterPreviewResult = toVideoChapterPreviewResult(chapterPreviewJob?.result)
 
   const updateTaskDraft = (key: string, patch: Partial<TaskDraft>) => {
     setTaskDrafts((prev) => ({
@@ -527,9 +583,9 @@ export function MaintenanceCard() {
     })
   }
 
-  const handleTriggerScheduledTask = (task: ScheduledTaskView) => {
-    setTriggeringTaskKey(task.key)
-    triggerScheduledTaskMutation.mutate({ key: task.key })
+  const handleTriggerScheduledTask = (task: ScheduledTaskView, chapterPreviewMode?: 'FULL' | 'INCREMENTAL') => {
+    setTriggeringTaskKey(chapterPreviewMode ? `${task.key}:${chapterPreviewMode}` : task.key)
+    triggerScheduledTaskMutation.mutate({ key: task.key, chapterPreviewMode })
   }
 
   const renderScheduleSettings = (task: ScheduledTaskView) => {
@@ -631,8 +687,7 @@ export function MaintenanceCard() {
         <TaskSection
           title={webpScheduledTask?.name ?? '识别图片动画'}
           description={
-            webpScheduledTask?.description ??
-            '按内容识别 WebP、GIF、PNG/APNG 的静态或动画类型，并纠正 mediaType。'
+            webpScheduledTask?.description ?? '按内容识别 WebP、GIF、PNG/APNG 的静态或动画类型，并纠正 mediaType。'
           }
           action={
             <Button
@@ -848,6 +903,118 @@ export function MaintenanceCard() {
             }
           />
           {videoScheduledTask && renderScheduleSettings(videoScheduledTask)}
+        </TaskSection>
+
+        <TaskSection
+          title={chapterPreviewScheduledTask?.name ?? '生成视频章节截图'}
+          description={
+            chapterPreviewScheduledTask?.description ?? '每日增量补齐缺失章节截图，也可手动执行全量校验与重新生成。'
+          }
+          action={
+            isChapterPreviewRunning ? (
+              <Button
+                variant="destructive"
+                onClick={() => cancelChapterPreviewMutation.mutate()}
+                disabled={isChapterPreviewCancelling || cancelChapterPreviewMutation.isPending}
+              >
+                {isChapterPreviewCancelling ? '正在取消...' : '取消任务'}
+              </Button>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    chapterPreviewScheduledTask &&
+                    handleTriggerScheduledTask(chapterPreviewScheduledTask, 'INCREMENTAL')
+                  }
+                  disabled={!chapterPreviewScheduledTask || triggerScheduledTaskMutation.isPending}
+                >
+                  {triggeringTaskKey === `${chapterPreviewScheduledTask?.key}:INCREMENTAL` ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <PlayCircle className="mr-2 h-4 w-4" />
+                  )}
+                  增量执行
+                </Button>
+                <Button
+                  onClick={() =>
+                    chapterPreviewScheduledTask && handleTriggerScheduledTask(chapterPreviewScheduledTask, 'FULL')
+                  }
+                  disabled={!chapterPreviewScheduledTask || triggerScheduledTaskMutation.isPending}
+                >
+                  {triggeringTaskKey === `${chapterPreviewScheduledTask?.key}:FULL` ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <PlayCircle className="mr-2 h-4 w-4" />
+                  )}
+                  全量执行
+                </Button>
+              </div>
+            )
+          }
+        >
+          <JobStatus
+            job={chapterPreviewJob}
+            isRunning={Boolean(isChapterPreviewRunning)}
+            completeContent={
+              <div className="space-y-3 text-muted-foreground">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                  <span>
+                    模式:{' '}
+                    <strong className="font-medium text-foreground">
+                      {chapterPreviewResult?.mode === 'INCREMENTAL' ? '增量' : '全量'}
+                    </strong>
+                  </span>
+                  <span>
+                    待生成:{' '}
+                    <strong className="font-medium text-foreground">{chapterPreviewResult?.pending ?? 0}</strong>
+                  </span>
+                  <span>
+                    已处理:{' '}
+                    <strong className="font-medium text-foreground">{chapterPreviewResult?.processed ?? 0}</strong>
+                  </span>
+                  <span>
+                    复用: <strong className="font-medium text-foreground">{chapterPreviewResult?.reused ?? 0}</strong>
+                  </span>
+                  <span>
+                    生成:{' '}
+                    <strong className="font-medium text-foreground">{chapterPreviewResult?.generated ?? 0}</strong>
+                  </span>
+                  <span>
+                    失败: <strong className="font-medium text-destructive">{chapterPreviewResult?.failed ?? 0}</strong>
+                  </span>
+                  {chapterPreviewResult?.mode !== 'INCREMENTAL' && (
+                    <span>
+                      清理孤儿:{' '}
+                      <strong className="font-medium text-foreground">
+                        {chapterPreviewResult?.orphanedFilesDeleted ?? 0}
+                      </strong>
+                    </span>
+                  )}
+                </div>
+                {chapterPreviewResult?.failedSamples && chapterPreviewResult.failedSamples.length > 0 && (
+                  <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive">
+                    <p className="mb-2 text-sm font-medium">失败样例</p>
+                    <ul className="space-y-1 text-xs font-mono">
+                      {chapterPreviewResult.failedSamples.slice(0, 5).map((sample, index) => (
+                        <li
+                          key={`${sample.imageId}-${sample.chapterOrder ?? 'manifest'}-${index}`}
+                          className="break-all"
+                        >
+                          <span className="opacity-70">
+                            #{sample.imageId}
+                            {sample.chapterOrder === null ? '' : ` 章节 ${sample.chapterOrder + 1}`} {sample.path}:
+                          </span>{' '}
+                          {sample.error}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            }
+          />
+          {chapterPreviewScheduledTask && renderScheduleSettings(chapterPreviewScheduledTask)}
         </TaskSection>
 
         {standaloneScheduledTasks.map((task) => (

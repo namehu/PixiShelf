@@ -6,8 +6,13 @@ const {
   completeJobMock,
   createScanRunRetentionCleanupJobMock,
   createTriggerLogRetentionCleanupJobMock,
+  createVideoChapterPreviewGenerationJobMock,
   failJobMock,
   getActiveJobByTypeMock,
+  getJobMock,
+  getScanPathMock,
+  markAsCancelledMock,
+  runVideoChapterPreviewGenerationJobMock,
   updateProgressMock
 } = vi.hoisted(() => ({
   cleanupScanRunHistoryMock: vi.fn(),
@@ -15,8 +20,13 @@ const {
   completeJobMock: vi.fn(),
   createScanRunRetentionCleanupJobMock: vi.fn(),
   createTriggerLogRetentionCleanupJobMock: vi.fn(),
+  createVideoChapterPreviewGenerationJobMock: vi.fn(),
   failJobMock: vi.fn(),
   getActiveJobByTypeMock: vi.fn(),
+  getJobMock: vi.fn(),
+  getScanPathMock: vi.fn(),
+  markAsCancelledMock: vi.fn(),
+  runVideoChapterPreviewGenerationJobMock: vi.fn(),
   updateProgressMock: vi.fn()
 }))
 
@@ -26,8 +36,11 @@ vi.mock('@/services/job-service', () => ({
   completeJob: completeJobMock,
   createScanRunRetentionCleanupJob: createScanRunRetentionCleanupJobMock,
   createTriggerLogRetentionCleanupJob: createTriggerLogRetentionCleanupJobMock,
+  createVideoChapterPreviewGenerationJob: createVideoChapterPreviewGenerationJobMock,
   failJob: failJobMock,
   getActiveJobByType: getActiveJobByTypeMock,
+  getJob: getJobMock,
+  markAsCancelled: markAsCancelledMock,
   updateProgress: updateProgressMock
 }))
 
@@ -41,11 +54,15 @@ vi.mock('@/services/trigger-log-service', () => ({
 }))
 
 vi.mock('@/services/setting.service', () => ({
-  getScanPath: vi.fn()
+  getScanPath: getScanPathMock
 }))
 
 vi.mock('@/services/video-media-probe-service', () => ({
   runVideoMediaProbeJob: vi.fn()
+}))
+
+vi.mock('@/services/video-chapter-preview-service', () => ({
+  runVideoChapterPreviewGenerationJob: runVideoChapterPreviewGenerationJobMock
 }))
 
 vi.mock('@/services/video-poster-service', () => ({
@@ -69,8 +86,22 @@ describe('scheduled-task-registry', () => {
     completeJobMock.mockReset().mockResolvedValue(undefined)
     createScanRunRetentionCleanupJobMock.mockReset().mockResolvedValue({ id: 'job-cleanup' })
     createTriggerLogRetentionCleanupJobMock.mockReset().mockResolvedValue({ id: 'job-trigger-cleanup' })
+    createVideoChapterPreviewGenerationJobMock.mockReset().mockResolvedValue({ id: 'job-chapter-preview' })
     failJobMock.mockReset().mockResolvedValue(undefined)
     getActiveJobByTypeMock.mockReset().mockResolvedValue(null)
+    getJobMock.mockReset().mockResolvedValue({ id: 'job-chapter-preview', status: 'RUNNING' })
+    getScanPathMock.mockReset().mockResolvedValue('C:/scan')
+    markAsCancelledMock.mockReset().mockResolvedValue(undefined)
+    runVideoChapterPreviewGenerationJobMock.mockReset().mockResolvedValue({
+      mode: 'INCREMENTAL',
+      pending: 0,
+      processed: 0,
+      reused: 0,
+      generated: 0,
+      failed: 0,
+      orphanedFilesDeleted: 0,
+      failedSamples: []
+    })
     updateProgressMock.mockReset().mockResolvedValue(undefined)
   })
 
@@ -95,6 +126,21 @@ describe('scheduled-task-registry', () => {
           type: SCHEDULED_TASK_TYPES.TRIGGER_LOG_RETENTION_CLEANUP,
           defaultEnabled: true,
           mutexKey: 'audit-maintenance'
+        })
+      ])
+    )
+  })
+
+  it('registers chapter preview generation after video probing and disabled by default', () => {
+    expect(SCHEDULED_TASK_DEFINITIONS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'video_chapter_preview_generation',
+          type: SCHEDULED_TASK_TYPES.VIDEO_CHAPTER_PREVIEW_GENERATION,
+          defaultTime: '04:30',
+          defaultPriority: 50,
+          defaultEnabled: false,
+          mutexKey: 'media-maintenance'
         })
       ])
     )
@@ -146,6 +192,46 @@ describe('scheduled-task-registry', () => {
     await vi.waitFor(() => {
       expect(failJobMock).toHaveBeenCalledWith('job-cleanup', 'cleanup failed')
       expect(completeJobMock).not.toHaveBeenCalled()
+    })
+  })
+
+  it('runs the daily chapter preview task in incremental mode', async () => {
+    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.VIDEO_CHAPTER_PREVIEW_GENERATION)
+
+    const result = await handler?.start({ trigger: 'schedule' })
+
+    expect(result).toEqual({ jobId: 'job-chapter-preview' })
+    await vi.waitFor(() => {
+      expect(runVideoChapterPreviewGenerationJobMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scanPath: 'C:/scan',
+          mode: 'INCREMENTAL'
+        })
+      )
+      expect(completeJobMock).toHaveBeenCalledWith(
+        'job-chapter-preview',
+        expect.objectContaining({ mode: 'INCREMENTAL', trigger: 'schedule' })
+      )
+    })
+  })
+
+  it('keeps manual chapter preview execution full by default', async () => {
+    runVideoChapterPreviewGenerationJobMock.mockResolvedValueOnce({
+      mode: 'FULL',
+      pending: 0,
+      processed: 0,
+      reused: 0,
+      generated: 0,
+      failed: 0,
+      orphanedFilesDeleted: 0,
+      failedSamples: []
+    })
+    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.VIDEO_CHAPTER_PREVIEW_GENERATION)
+
+    await handler?.start({ trigger: 'manual' })
+
+    await vi.waitFor(() => {
+      expect(runVideoChapterPreviewGenerationJobMock).toHaveBeenCalledWith(expect.objectContaining({ mode: 'FULL' }))
     })
   })
 })

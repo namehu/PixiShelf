@@ -77,18 +77,18 @@ vi.mock('@/services/scheduled-task-registry', () => ({
           mutexKey: 'audit-maintenance'
         }
       : key === 'webp_animation_scan'
-      ? {
-          key,
-          type: 'WEBP_ANIMATION_SCAN',
-          name: '识别 WebP 动图',
-          description: 'test task',
-          defaultTime: '00:30',
-          defaultTimezone: 'UTC',
-          defaultPriority: 30,
-          defaultEnabled: false,
-          mutexKey: 'media-maintenance'
-      }
-      : null,
+        ? {
+            key,
+            type: 'WEBP_ANIMATION_SCAN',
+            name: '识别 WebP 动图',
+            description: 'test task',
+            defaultTime: '00:30',
+            defaultTimezone: 'UTC',
+            defaultPriority: 30,
+            defaultEnabled: false,
+            mutexKey: 'media-maintenance'
+          }
+        : null,
   getScheduledTaskDefinitionByType: (type: string) =>
     type === 'OTHER_MEDIA_TASK'
       ? {
@@ -290,5 +290,26 @@ describe('scheduled-task-service', () => {
       }
     })
     expect(result).toEqual({ jobId: 'job-1' })
+  })
+
+  it('forwards an explicit incremental chapter preview mode for manual execution', async () => {
+    scheduledTaskFindUniqueMock.mockResolvedValueOnce(createTask())
+
+    await triggerScheduledTaskNow('webp_animation_scan', { chapterPreviewMode: 'INCREMENTAL' })
+
+    expect(handlerStartMock).toHaveBeenCalledWith({
+      trigger: 'manual',
+      chapterPreviewMode: 'INCREMENTAL'
+    })
+  })
+
+  it('blocks manual execution when another task holds the same mutex', async () => {
+    scheduledTaskFindUniqueMock.mockResolvedValueOnce(createTask())
+    getActiveJobsByTypesMock.mockResolvedValueOnce([{ id: 'job-active', type: 'OTHER_MEDIA_TASK' }])
+
+    await expect(triggerScheduledTaskNow('webp_animation_scan')).rejects.toThrow(
+      'Scheduled task mutex is busy: media-maintenance'
+    )
+    expect(handlerStartMock).not.toHaveBeenCalled()
   })
 })

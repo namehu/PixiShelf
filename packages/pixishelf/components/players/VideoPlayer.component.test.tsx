@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import VideoPlayer, { formatVideoRemainingTime } from './VideoPlayer'
@@ -62,6 +62,8 @@ describe('VideoPlayer component behavior', () => {
       configurable: true,
       value: vi.fn(() => ({
         matches: false,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
         addEventListener: vi.fn(),
         removeEventListener: vi.fn()
       }))
@@ -204,6 +206,47 @@ describe('VideoPlayer component behavior', () => {
 
     act(() => previousControl.click(null, new Event('click')))
     expect(art.currentTime).toBe(0)
+  })
+
+  it('opens a full-screen mobile chapter grid, pauses, seeks, closes, and resumes playback', async () => {
+    videoChaptersMock.useVideoChapters.mockReturnValue({
+      chapters: [
+        {
+          id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10,
+          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+        },
+        {
+          id: 'chapter-2', index: 2, title: 'Middle', start: 20, end: 30, duration: 10,
+          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+        }
+      ],
+      duration: 30,
+      loading: false,
+      error: null,
+      reload: vi.fn()
+    })
+    const pause = vi.fn()
+    const play = vi.fn().mockResolvedValue(undefined)
+    const art = setupArtplayerMock({ paused: false, pause, play })
+
+    const { unmount } = render(<VideoPlayer src="/video.mp4" />)
+    await waitFor(() => {
+      expect(art.controls.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'chapter-entry' }))
+    })
+    const chapterControl = art.controls.add.mock.calls
+      .map(([control]) => control)
+      .find((control) => control.name === 'chapter-entry')
+
+    act(() => chapterControl.click(null, new Event('click')))
+    await waitFor(() => expect(screen.getByRole('dialog', { name: '视频章节' })).toBeDefined())
+    expect(pause).toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: /Middle/ }))
+
+    expect(art.currentTime).toBe(20)
+    expect(play).toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '视频章节' })).toBeNull())
+    unmount()
   })
 
   it('does not reopen the overlay on loadstart while the current video frame is still renderable', async () => {

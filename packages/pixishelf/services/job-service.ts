@@ -3,8 +3,45 @@ import { JobStatus, Prisma } from '@prisma/client'
 
 const MEDIA_SCAN_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT']
 const MEDIA_SCAN_ADVISORY_LOCK_ID = 728341
+const MEDIA_MAINTENANCE_JOB_TYPES = ['WEBP_ANIMATION_SCAN', 'VIDEO_MEDIA_PROBE', 'VIDEO_CHAPTER_PREVIEW_GENERATION']
+const MEDIA_MAINTENANCE_ADVISORY_LOCK_ID = 728342
+const AUDIT_MAINTENANCE_JOB_TYPES = ['SCAN_RUN_RETENTION_CLEANUP', 'TRIGGER_LOG_RETENTION_CLEANUP']
+const AUDIT_MAINTENANCE_ADVISORY_LOCK_ID = 728343
 const SCAN_RUN_RETENTION_CLEANUP_JOB_TYPE = 'SCAN_RUN_RETENTION_CLEANUP'
 const TRIGGER_LOG_RETENTION_CLEANUP_JOB_TYPE = 'TRIGGER_LOG_RETENTION_CLEANUP'
+const VIDEO_CHAPTER_PREVIEW_GENERATION_JOB_TYPE = 'VIDEO_CHAPTER_PREVIEW_GENERATION'
+
+async function createMutexJob(input: {
+  type: string
+  mutexJobTypes: string[]
+  advisoryLockId: number
+  message: string
+  conflictMessage: string
+}) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', input.advisoryLockId)
+
+    const activeJob = await tx.systemJob.findFirst({
+      where: {
+        type: { in: input.mutexJobTypes },
+        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+      }
+    })
+
+    if (activeJob) {
+      throw new Error(input.conflictMessage)
+    }
+
+    return tx.systemJob.create({
+      data: {
+        type: input.type,
+        status: JobStatus.RUNNING,
+        message: input.message,
+        progress: 0
+      }
+    })
+  })
+}
 
 async function createMediaScanJob(type: 'SCAN' | 'LOCAL_DIRECTORY_IMPORT', message: string) {
   return prisma.$transaction(async (tx) => {
@@ -191,26 +228,12 @@ export async function createMediaDerivedTagSyncJob() {
  * 尝试创建一个 WebP 动静态识别任务
  */
 export async function createWebpAnimationScanJob() {
-  return await prisma.$transaction(async (tx) => {
-    const activeJob = await tx.systemJob.findFirst({
-      where: {
-        type: 'WEBP_ANIMATION_SCAN',
-        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
-      }
-    })
-
-    if (activeJob) {
-      throw new Error('WebP animation scan job already in progress')
-    }
-
-    return await tx.systemJob.create({
-      data: {
-        type: 'WEBP_ANIMATION_SCAN',
-        status: JobStatus.RUNNING,
-        message: '初始化...',
-        progress: 0
-      }
-    })
+  return createMutexJob({
+    type: 'WEBP_ANIMATION_SCAN',
+    mutexJobTypes: MEDIA_MAINTENANCE_JOB_TYPES,
+    advisoryLockId: MEDIA_MAINTENANCE_ADVISORY_LOCK_ID,
+    message: '初始化...',
+    conflictMessage: 'Media maintenance job already in progress'
   })
 }
 
@@ -218,54 +241,38 @@ export async function createWebpAnimationScanJob() {
  * 尝试创建一个视频媒体探测任务
  */
 export async function createVideoMediaProbeJob() {
-  return await prisma.$transaction(async (tx) => {
-    const activeJob = await tx.systemJob.findFirst({
-      where: {
-        type: 'VIDEO_MEDIA_PROBE',
-        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
-      }
-    })
-
-    if (activeJob) {
-      throw new Error('Video media probe job already in progress')
-    }
-
-    return await tx.systemJob.create({
-      data: {
-        type: 'VIDEO_MEDIA_PROBE',
-        status: JobStatus.RUNNING,
-        message: '初始化...',
-        progress: 0
-      }
-    })
+  return createMutexJob({
+    type: 'VIDEO_MEDIA_PROBE',
+    mutexJobTypes: MEDIA_MAINTENANCE_JOB_TYPES,
+    advisoryLockId: MEDIA_MAINTENANCE_ADVISORY_LOCK_ID,
+    message: '初始化...',
+    conflictMessage: 'Media maintenance job already in progress'
   })
 }
 
+/**
+ * 尝试创建一个视频章节截图生成任务
+ */
+export async function createVideoChapterPreviewGenerationJob() {
+  return createMutexJob({
+    type: VIDEO_CHAPTER_PREVIEW_GENERATION_JOB_TYPE,
+    mutexJobTypes: MEDIA_MAINTENANCE_JOB_TYPES,
+    advisoryLockId: MEDIA_MAINTENANCE_ADVISORY_LOCK_ID,
+    message: '正在准备章节截图...',
+    conflictMessage: 'Media maintenance job already in progress'
+  })
+}
 
 /**
  * 尝试创建一个扫描历史保留策略清理任务
  */
 export async function createScanRunRetentionCleanupJob() {
-  return await prisma.$transaction(async (tx) => {
-    const activeJob = await tx.systemJob.findFirst({
-      where: {
-        type: SCAN_RUN_RETENTION_CLEANUP_JOB_TYPE,
-        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
-      }
-    })
-
-    if (activeJob) {
-      throw new Error('Scan run retention cleanup job is already running')
-    }
-
-    return await tx.systemJob.create({
-      data: {
-        type: SCAN_RUN_RETENTION_CLEANUP_JOB_TYPE,
-        status: JobStatus.RUNNING,
-        message: '正在清理扫描历史...',
-        progress: 0
-      }
-    })
+  return createMutexJob({
+    type: SCAN_RUN_RETENTION_CLEANUP_JOB_TYPE,
+    mutexJobTypes: AUDIT_MAINTENANCE_JOB_TYPES,
+    advisoryLockId: AUDIT_MAINTENANCE_ADVISORY_LOCK_ID,
+    message: '正在清理扫描历史...',
+    conflictMessage: 'Audit maintenance job already in progress'
   })
 }
 
@@ -273,26 +280,12 @@ export async function createScanRunRetentionCleanupJob() {
  * 尝试创建一个触发器日志保留策略清理任务
  */
 export async function createTriggerLogRetentionCleanupJob() {
-  return await prisma.$transaction(async (tx) => {
-    const activeJob = await tx.systemJob.findFirst({
-      where: {
-        type: TRIGGER_LOG_RETENTION_CLEANUP_JOB_TYPE,
-        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
-      }
-    })
-
-    if (activeJob) {
-      throw new Error('Trigger log retention cleanup job is already running')
-    }
-
-    return await tx.systemJob.create({
-      data: {
-        type: TRIGGER_LOG_RETENTION_CLEANUP_JOB_TYPE,
-        status: JobStatus.RUNNING,
-        message: '正在清理触发器日志...',
-        progress: 0
-      }
-    })
+  return createMutexJob({
+    type: TRIGGER_LOG_RETENTION_CLEANUP_JOB_TYPE,
+    mutexJobTypes: AUDIT_MAINTENANCE_JOB_TYPES,
+    advisoryLockId: AUDIT_MAINTENANCE_ADVISORY_LOCK_ID,
+    message: '正在清理触发器日志...',
+    conflictMessage: 'Audit maintenance job already in progress'
   })
 }
 
@@ -345,6 +338,12 @@ export async function getLatestVideoMediaProbeJob() {
   })
 }
 
+export async function getLatestVideoChapterPreviewGenerationJob() {
+  return await prisma.systemJob.findFirst({
+    where: { type: VIDEO_CHAPTER_PREVIEW_GENERATION_JOB_TYPE },
+    orderBy: { createdAt: 'desc' }
+  })
+}
 
 export async function getActiveJobByType(type: string) {
   return await prisma.systemJob.findFirst({

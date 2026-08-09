@@ -6,12 +6,17 @@ import { getScanPath } from '@/services/setting.service'
 import { cleanupScanRunHistory } from '@/services/scan-run-service'
 import { cleanupTriggerLogs, TRIGGER_LOG_RETENTION_DAYS } from '@/services/trigger-log-service'
 import { runVideoMediaProbeJob } from '@/services/video-media-probe-service'
+import {
+  runVideoChapterPreviewGenerationJob,
+  type VideoChapterPreviewGenerationMode
+} from '@/services/video-chapter-preview-service'
 import { runVideoPosterGenerationJob } from '@/services/video-poster-service'
 import { runWebpAnimationScanJob } from '@/services/webp-animation-scan-service'
 
 export const SCHEDULED_TASK_TYPES = {
   WEBP_ANIMATION_SCAN: 'WEBP_ANIMATION_SCAN',
   VIDEO_MEDIA_PROBE: 'VIDEO_MEDIA_PROBE',
+  VIDEO_CHAPTER_PREVIEW_GENERATION: 'VIDEO_CHAPTER_PREVIEW_GENERATION',
   SCAN_RUN_RETENTION_CLEANUP: 'SCAN_RUN_RETENTION_CLEANUP',
   TRIGGER_LOG_RETENTION_CLEANUP: 'TRIGGER_LOG_RETENTION_CLEANUP'
 } as const
@@ -74,11 +79,23 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
     defaultPriority: 40,
     defaultEnabled: false,
     mutexKey: 'media-maintenance'
+  },
+  {
+    key: 'video_chapter_preview_generation',
+    type: SCHEDULED_TASK_TYPES.VIDEO_CHAPTER_PREVIEW_GENERATION,
+    name: '生成视频章节截图',
+    description: '每日增量补齐缺失章节截图，也可手动执行全量校验与重新生成。',
+    defaultTime: '04:30',
+    defaultTimezone: 'Asia/Shanghai',
+    defaultPriority: 50,
+    defaultEnabled: false,
+    mutexKey: 'media-maintenance'
   }
 ]
 
 export interface StartScheduledTaskOptions {
   trigger: 'manual' | 'schedule'
+  chapterPreviewMode?: VideoChapterPreviewGenerationMode
 }
 
 export interface StartScheduledTaskResult {
@@ -102,9 +119,14 @@ export const SCHEDULED_TASK_HANDLERS: Record<ScheduledTaskType, ScheduledTaskHan
   [SCHEDULED_TASK_TYPES.VIDEO_MEDIA_PROBE]: {
     start: startVideoMediaProbeTask
   },
+  [SCHEDULED_TASK_TYPES.VIDEO_CHAPTER_PREVIEW_GENERATION]: {
+    start: startVideoChapterPreviewGenerationTask
+  }
 }
 
-async function startTriggerLogRetentionCleanupTask(options: StartScheduledTaskOptions): Promise<StartScheduledTaskResult> {
+async function startTriggerLogRetentionCleanupTask(
+  options: StartScheduledTaskOptions
+): Promise<StartScheduledTaskResult> {
   const activeJob = await JobService.getActiveJobByType(SCHEDULED_TASK_TYPES.TRIGGER_LOG_RETENTION_CLEANUP)
   if (activeJob) {
     throw new Error('Trigger log retention cleanup job is already running')
@@ -225,7 +247,11 @@ async function startVideoMediaProbeTask(options: StartScheduledTaskOptions): Pro
           return current?.status === 'CANCELLING' || current?.status === 'CANCELLED'
         },
         onProgress: async (progress) => {
-          await JobService.updateProgress(job.id, Math.min(50, Math.round(progress.percentage / 2)), `媒体探测：${progress.message}`)
+          await JobService.updateProgress(
+            job.id,
+            Math.min(50, Math.round(progress.percentage / 2)),
+            `媒体探测：${progress.message}`
+          )
         }
       })
       await JobService.updateProgress(job.id, 50, '媒体探测完成，正在生成视频封面...')
@@ -236,7 +262,11 @@ async function startVideoMediaProbeTask(options: StartScheduledTaskOptions): Pro
           return current?.status === 'CANCELLING' || current?.status === 'CANCELLED'
         },
         onProgress: async (progress) => {
-          await JobService.updateProgress(job.id, 50 + Math.round(progress.percentage / 2), `生成封面：${progress.message}`)
+          await JobService.updateProgress(
+            job.id,
+            50 + Math.round(progress.percentage / 2),
+            `生成封面：${progress.message}`
+          )
         }
       })
       const current = await JobService.getJob(job.id)
@@ -248,6 +278,59 @@ async function startVideoMediaProbeTask(options: StartScheduledTaskOptions): Pro
     } catch (error) {
       logger.error('Video media probe job failed', { error, trigger: options.trigger })
 
+      const current = await JobService.getJob(job.id)
+      if (
+        current?.status === 'CANCELLING' ||
+        current?.status === 'CANCELLED' ||
+        (error instanceof Error && error.message === 'Task cancelled')
+      ) {
+        await JobService.markAsCancelled(job.id)
+      } else {
+        await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
+      }
+    }
+  })()
+
+  return { jobId: job.id }
+}
+
+async function startVideoChapterPreviewGenerationTask(
+  options: StartScheduledTaskOptions
+): Promise<StartScheduledTaskResult> {
+  const mode = options.chapterPreviewMode ?? (options.trigger === 'schedule' ? 'INCREMENTAL' : 'FULL')
+  const activeJob = await JobService.getActiveJobByType(SCHEDULED_TASK_TYPES.VIDEO_CHAPTER_PREVIEW_GENERATION)
+  if (activeJob) {
+    throw new Error('Video chapter preview generation job is already running')
+  }
+
+  const scanPath = await getScanPath()
+  if (!scanPath) {
+    throw new Error('Scan path is not configured')
+  }
+
+  const job = await JobService.createVideoChapterPreviewGenerationJob()
+
+  ;(async () => {
+    try {
+      const result = await runVideoChapterPreviewGenerationJob({
+        scanPath,
+        mode,
+        checkCancelled: async () => {
+          const current = await JobService.getJob(job.id)
+          return current?.status === 'CANCELLING' || current?.status === 'CANCELLED'
+        },
+        onProgress: async (progress) => {
+          await JobService.updateProgress(job.id, progress.percentage, progress.message)
+        }
+      })
+      const current = await JobService.getJob(job.id)
+      if (current?.status === 'CANCELLING' || current?.status === 'CANCELLED') {
+        await JobService.markAsCancelled(job.id)
+        return
+      }
+      await JobService.completeJob(job.id, { ...result, trigger: options.trigger })
+    } catch (error) {
+      logger.error('Video chapter preview generation job failed', { error, trigger: options.trigger, mode })
       const current = await JobService.getJob(job.id)
       if (
         current?.status === 'CANCELLING' ||

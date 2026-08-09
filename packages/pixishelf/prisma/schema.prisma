@@ -158,6 +158,7 @@ model Image {
   mediaType           MediaType           @default(UNKNOWN)
   artwork             Artwork?            @relation(fields: [artworkId], references: [id])
   videoMetadata       MediaVideoMetadata?
+  chapterPreviews     MediaChapterPreview[]
 
   @@unique([artworkId, path], name: "unique_artwork_path")
   @@index([webpAnimationStatus])
@@ -187,6 +188,27 @@ model MediaVideoMetadata {
   @@index([probeStatus])
   @@index([posterStatus])
   @@index([hasAudio])
+}
+
+model MediaChapterPreview {
+  id               String               @id @default(cuid())
+  imageId          Int
+  image            Image                @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  chapterOrder     Int
+  chapterIndex     Int
+  chaptersHash     String
+  chapterStart     Float
+  captureTime      Float
+  status           ChapterPreviewStatus @default(PENDING)
+  previewPath      String?
+  previewUpdatedAt DateTime?
+  error            String?              @db.Text
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@unique([imageId, chapterOrder])
+  @@index([status])
+  @@index([imageId, chaptersHash])
 }
 
 model UserBA {
@@ -476,6 +498,13 @@ enum MediaProbeStatus {
 }
 
 enum VideoPosterStatus {
+  PENDING
+  GENERATING
+  COMPLETED
+  FAILED
+}
+
+enum ChapterPreviewStatus {
   PENDING
   GENERATING
   COMPLETED

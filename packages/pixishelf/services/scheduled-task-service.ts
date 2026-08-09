@@ -8,6 +8,7 @@ import {
   getScheduledTaskHandler,
   SCHEDULED_TASK_DEFINITIONS
 } from '@/services/scheduled-task-registry'
+import type { VideoChapterPreviewGenerationMode } from '@/services/video-chapter-preview-service'
 import { ScheduleMode } from '@prisma/client'
 
 export interface ScheduledTaskView {
@@ -104,12 +105,7 @@ export async function listScheduledTasks(): Promise<ScheduledTaskView[]> {
   })
 }
 
-export async function updateScheduledTask(input: {
-  key: string
-  enabled?: boolean
-  time?: string
-  priority?: number
-}) {
+export async function updateScheduledTask(input: { key: string; enabled?: boolean; time?: string; priority?: number }) {
   await ensureDefaultScheduledTasks()
   const definition = getScheduledTaskDefinition(input.key)
   if (!definition) {
@@ -127,7 +123,10 @@ export async function updateScheduledTask(input: {
   })
 }
 
-export async function triggerScheduledTaskNow(key: string) {
+export async function triggerScheduledTaskNow(
+  key: string,
+  options: { chapterPreviewMode?: VideoChapterPreviewGenerationMode } = {}
+) {
   await ensureDefaultScheduledTasks()
   const task = await prisma.scheduledTask.findUnique({ where: { key } })
   if (!task) {
@@ -139,7 +138,23 @@ export async function triggerScheduledTaskNow(key: string) {
     throw new Error(`No handler registered for scheduled task type: ${task.type}`)
   }
 
-  const result = await handler.start({ trigger: 'manual' })
+  const definition = getScheduledTaskDefinition(task.key)
+  if (definition?.mutexKey) {
+    const activeJobs = await JobService.getActiveJobsByTypes(
+      Array.from(new Set(SCHEDULED_TASK_DEFINITIONS.map((item) => item.type)))
+    )
+    const mutexBusy = activeJobs.some(
+      (job) => getScheduledTaskDefinitionByType(job.type)?.mutexKey === definition.mutexKey
+    )
+    if (mutexBusy) {
+      throw new Error(`Scheduled task mutex is busy: ${definition.mutexKey}`)
+    }
+  }
+
+  const result = await handler.start({
+    trigger: 'manual',
+    ...(options.chapterPreviewMode ? { chapterPreviewMode: options.chapterPreviewMode } : {})
+  })
   await prisma.scheduledTask.update({
     where: { key },
     data: {
@@ -160,7 +175,10 @@ export async function runSchedulerTick(now = new Date()): Promise<SchedulerTickR
   const decisions: SchedulerDecision[] = []
   const activeMutexKeys = new Set<string>()
 
-  const activeJobs = await JobService.getActiveJobsByTypes(Array.from(new Set(tasks.map((task) => task.type))))
+  // 互斥应覆盖所有已注册维护任务，包括“计划已停用但被管理员立即执行”的任务。
+  const activeJobs = await JobService.getActiveJobsByTypes(
+    Array.from(new Set(SCHEDULED_TASK_DEFINITIONS.map((definition) => definition.type)))
+  )
   const activeTypes = new Set(activeJobs.map((job) => job.type))
   activeJobs.forEach((job) => {
     const definition = getScheduledTaskDefinitionByType(job.type)

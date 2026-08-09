@@ -10,7 +10,11 @@ const chapters: NormalizedChapter[] = [
     title: 'Opening',
     start: 0,
     end: 12,
-    duration: 12
+    duration: 12,
+    previewStatus: 'PENDING',
+    previewUrl: null,
+    previewCaptureTime: null,
+    previewUpdatedAt: null
   },
   {
     id: 'chapter-2-20',
@@ -18,7 +22,11 @@ const chapters: NormalizedChapter[] = [
     title: 'Main',
     start: 20,
     end: 50,
-    duration: 30
+    duration: 30,
+    previewStatus: 'PENDING',
+    previewUrl: null,
+    previewCaptureTime: null,
+    previewUpdatedAt: null
   }
 ]
 

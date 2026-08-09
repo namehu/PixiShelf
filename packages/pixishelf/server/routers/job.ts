@@ -5,11 +5,7 @@ import { getScanPath } from '@/services/setting.service'
 import { TRPCError } from '@trpc/server'
 import logger from '@/lib/logger'
 import { syncAllMediaDerivedTags } from '@/services/media-derived-tag-service'
-import {
-  listScheduledTasks,
-  triggerScheduledTaskNow,
-  updateScheduledTask
-} from '@/services/scheduled-task-service'
+import { listScheduledTasks, triggerScheduledTaskNow, updateScheduledTask } from '@/services/scheduled-task-service'
 import { reprobeVideoMediaByImageId, resolveVideoImageForReprobePath } from '@/services/video-media-probe-service'
 import { z } from 'zod'
 
@@ -27,10 +23,10 @@ export const jobRouter = router({
     // 2. 获取扫描路径
     const scanPath = await getScanPath()
     if (!scanPath) {
-        throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 'Scan path is not configured'
-        })
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Scan path is not configured'
+      })
     }
 
     // 3. 创建任务记录
@@ -41,29 +37,29 @@ export const jobRouter = router({
     ;(async () => {
       try {
         await refillMetaSource({
-            scanPath,
-            checkCancelled: async () => {
-                const current = await JobService.getJob(job.id)
-                // 检查是否为 CANCELLING 状态
-                return current?.status === 'CANCELLING'
-            },
-            onProgress: async (progress) => {
-                // 更新数据库进度
-                await JobService.updateProgress(job.id, progress.percentage, progress.message)
-            }
+          scanPath,
+          checkCancelled: async () => {
+            const current = await JobService.getJob(job.id)
+            // 检查是否为 CANCELLING 状态
+            return current?.status === 'CANCELLING'
+          },
+          onProgress: async (progress) => {
+            // 更新数据库进度
+            await JobService.updateProgress(job.id, progress.percentage, progress.message)
+          }
         })
         // 任务成功完成
         await JobService.completeJob(job.id, { success: true })
       } catch (error) {
         logger.error('Refill meta source job failed', { error })
-        
+
         // 检查当前状态，如果是 CANCELLING，则标记为 CANCELLED
         // 或者如果错误消息明确是 Task cancelled
         const current = await JobService.getJob(job.id)
         if (current?.status === 'CANCELLING' || (error instanceof Error && error.message === 'Task cancelled')) {
-            await JobService.markAsCancelled(job.id)
+          await JobService.markAsCancelled(job.id)
         } else {
-            await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
+          await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
         }
       }
     })()
@@ -74,12 +70,12 @@ export const jobRouter = router({
   getRefillMetaSourceStatus: authProcedure.query(async () => {
     return await JobService.getActiveRefillMetaSourceJob()
   }),
-  
+
   cancelRefillMetaSource: authProcedure.mutation(async () => {
     const activeJob = await JobService.getActiveRefillMetaSourceJob()
     if (activeJob) {
-        await JobService.cancelJob(activeJob.id)
-        return { success: true }
+      await JobService.cancelJob(activeJob.id)
+      return { success: true }
     }
     return { success: false, message: 'No active job' }
   }),
@@ -152,11 +148,24 @@ export const jobRouter = router({
     return await JobService.getLatestVideoMediaProbeJob()
   }),
 
+  getVideoChapterPreviewGenerationStatus: authProcedure.query(async () => {
+    return await JobService.getLatestVideoChapterPreviewGenerationJob()
+  }),
+
   cancelVideoMediaProbe: authProcedure.mutation(async () => {
     const activeJob = await JobService.getActiveJobByType('VIDEO_MEDIA_PROBE')
     if (activeJob) {
       await JobService.cancelJob(activeJob.id)
       await JobService.markAsCancelled(activeJob.id)
+      return { success: true }
+    }
+    return { success: false, message: 'No active job' }
+  }),
+
+  cancelVideoChapterPreviewGeneration: authProcedure.mutation(async () => {
+    const activeJob = await JobService.getActiveJobByType('VIDEO_CHAPTER_PREVIEW_GENERATION')
+    if (activeJob) {
+      await JobService.cancelJob(activeJob.id)
       return { success: true }
     }
     return { success: false, message: 'No active job' }
@@ -182,7 +191,11 @@ export const jobRouter = router({
         if (message === 'Video image not found' || message === 'Image not found') {
           throw new TRPCError({ code: 'NOT_FOUND', message })
         }
-        if (message === 'Image is not a video' || message.startsWith('Path escapes scan root') || message === 'Path is required') {
+        if (
+          message === 'Image is not a video' ||
+          message.startsWith('Path escapes scan root') ||
+          message === 'Path is required'
+        ) {
           throw new TRPCError({ code: 'BAD_REQUEST', message })
         }
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
@@ -198,7 +211,10 @@ export const jobRouter = router({
       z.object({
         key: z.string().min(1),
         enabled: z.boolean().optional(),
-        time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+        time: z
+          .string()
+          .regex(/^\d{2}:\d{2}$/)
+          .optional(),
         priority: z.number().int().min(0).max(1000).optional()
       })
     )
@@ -207,17 +223,24 @@ export const jobRouter = router({
       return { success: true }
     }),
 
-  triggerScheduledTaskNow: authProcedure.input(z.object({ key: z.string().min(1) })).mutation(async ({ input }) => {
-    try {
-      return await triggerScheduledTaskNow(input.key)
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('already running')) {
-        throw new TRPCError({ code: 'CONFLICT', message: error.message })
+  triggerScheduledTaskNow: authProcedure
+    .input(
+      z.object({
+        key: z.string().min(1),
+        chapterPreviewMode: z.enum(['FULL', 'INCREMENTAL']).optional()
+      })
+    )
+    .mutation(async ({ input }) => {
+      try {
+        return await triggerScheduledTaskNow(input.key, { chapterPreviewMode: input.chapterPreviewMode })
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('already running')) {
+          throw new TRPCError({ code: 'CONFLICT', message: error.message })
+        }
+        if (error instanceof Error && error.message.includes('Scan path')) {
+          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
+        }
+        throw error
       }
-      if (error instanceof Error && error.message.includes('Scan path')) {
-        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
-      }
-      throw error
-    }
-  })
+    })
 })

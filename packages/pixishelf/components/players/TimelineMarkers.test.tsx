@@ -49,4 +49,26 @@ describe('TimelineMarkers', () => {
     fireEvent.click(aggregateButton)
     expect(onMarkerClick).toHaveBeenCalledWith(markers[0])
   })
+
+  it('reports marker hover and keyboard focus for desktop chapter preview', () => {
+    const onMarkerPreviewChange = vi.fn()
+    const firstMarker = markers[0]!
+    render(
+      <TimelineMarkers
+        markers={[firstMarker]}
+        duration={120}
+        width={360}
+        onMarkerClick={vi.fn()}
+        onMarkerPreviewChange={onMarkerPreviewChange}
+      />
+    )
+
+    const button = screen.getByRole('button', { name: '跳转到章节 Chapter 1' })
+    fireEvent.pointerEnter(button)
+    fireEvent.pointerLeave(button)
+    fireEvent.focus(button)
+    fireEvent.blur(button)
+
+    expect(onMarkerPreviewChange.mock.calls).toEqual([[firstMarker], [null], [firstMarker], [null]])
+  })
 })

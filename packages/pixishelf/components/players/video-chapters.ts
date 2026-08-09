@@ -9,7 +9,11 @@ const VideoChapterSchema = z.looseObject({
   start: z.number().nonnegative(),
   end: z.number().nonnegative(),
   duration: z.number().nonnegative(),
-  file: z.string().optional()
+  file: z.string().optional(),
+  previewStatus: z.enum(['PENDING', 'GENERATING', 'COMPLETED', 'FAILED']).optional().default('PENDING'),
+  previewUrl: z.string().nullable().optional().default(null),
+  previewCaptureTime: z.number().nonnegative().nullable().optional().default(null),
+  previewUpdatedAt: z.string().nullable().optional().default(null)
 })
 
 const VideoChapterManifestSchema = z.looseObject({
@@ -29,6 +33,10 @@ export interface NormalizedChapter {
   start: number
   end: number
   duration: number
+  previewStatus: 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED'
+  previewUrl: string | null
+  previewCaptureTime: number | null
+  previewUpdatedAt: string | null
 }
 
 export interface TimelineMarker {
@@ -70,7 +78,11 @@ export function normalizeVideoChapterManifest(input: unknown): {
         title: chapter.title,
         start: chapter.start,
         end: chapter.end,
-        duration: chapter.duration
+        duration: chapter.duration,
+        previewStatus: chapter.previewStatus,
+        previewUrl: chapter.previewUrl,
+        previewCaptureTime: chapter.previewCaptureTime,
+        previewUpdatedAt: chapter.previewUpdatedAt
       }))
       .sort((left, right) => left.start - right.start)
   }

@@ -18,6 +18,7 @@ interface TimelineMarkersProps {
   className?: string
   markerClassName?: string
   lineClassName?: string
+  onMarkerPreviewChange?: (marker: TimelineMarker | null) => void
 }
 
 export default function TimelineMarkers({
@@ -28,7 +29,8 @@ export default function TimelineMarkers({
   minMarkerSpacingPx = 18,
   className,
   markerClassName,
-  lineClassName
+  lineClassName,
+  onMarkerPreviewChange
 }: TimelineMarkersProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [measuredWidth, setMeasuredWidth] = useState(0)
@@ -82,6 +84,7 @@ export default function TimelineMarkers({
             markerClassName={markerClassName}
             lineClassName={lineClassName}
             onMarkerClick={onMarkerClick}
+            onMarkerPreviewChange={onMarkerPreviewChange}
           />
         )
       })}
@@ -96,6 +99,7 @@ interface MarkerButtonProps {
   markerClassName?: string
   lineClassName?: string
   onMarkerClick: (marker: TimelineMarker) => void
+  onMarkerPreviewChange?: (marker: TimelineMarker | null) => void
 }
 
 function MarkerButton({
@@ -104,7 +108,8 @@ function MarkerButton({
   left,
   markerClassName,
   lineClassName,
-  onMarkerClick
+  onMarkerClick,
+  onMarkerPreviewChange
 }: MarkerButtonProps) {
   return (
     <button
@@ -117,6 +122,10 @@ function MarkerButton({
         markerClassName
       )}
       style={{ left: `${left}%` }}
+      onPointerEnter={() => onMarkerPreviewChange?.(cluster.marker)}
+      onPointerLeave={() => onMarkerPreviewChange?.(null)}
+      onFocus={() => onMarkerPreviewChange?.(cluster.marker)}
+      onBlur={() => onMarkerPreviewChange?.(null)}
       onClick={(event) => {
         event.stopPropagation()
         onMarkerClick(cluster.marker)

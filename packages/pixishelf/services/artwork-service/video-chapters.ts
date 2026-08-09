@@ -21,6 +21,10 @@ export interface VideoChapter {
   video?: Record<string, unknown>
   audio?: Record<string, unknown>
   processing?: Record<string, unknown>
+  previewStatus?: 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED'
+  previewUrl?: string | null
+  previewCaptureTime?: number | null
+  previewUpdatedAt?: string | null
   [key: string]: unknown
 }
 
@@ -217,7 +221,18 @@ export async function getVideoChapterManifestByImageId(imageId: number): Promise
     select: {
       id: true,
       path: true,
-      chaptersPath: true
+      chaptersPath: true,
+      chapterPreviews: {
+        orderBy: { chapterOrder: 'asc' },
+        select: {
+          chapterOrder: true,
+          chaptersHash: true,
+          status: true,
+          previewPath: true,
+          captureTime: true,
+          previewUpdatedAt: true
+        }
+      }
     }
   })
 
@@ -238,10 +253,35 @@ export async function getVideoChapterManifestByImageId(imageId: number): Promise
     return null
   }
 
+  const chaptersHash = createChapterManifestHash(manifest)
+  const previewsByOrder = new Map((image.chapterPreviews ?? []).map((preview) => [preview.chapterOrder, preview]))
+  const chapters = manifest.chapters.map((chapter, chapterOrder) => {
+    const preview = previewsByOrder.get(chapterOrder)
+    const isCurrent = preview?.chaptersHash === chaptersHash
+    const isReady = isCurrent && preview.status === 'COMPLETED' && Boolean(preview.previewPath)
+    const previewUpdatedAt = isReady ? preview.previewUpdatedAt : null
+
+    return {
+      ...chapter,
+      previewStatus: isCurrent ? preview.status : 'PENDING',
+      previewUrl: isReady
+        ? buildChapterPreviewUrl(preview.previewPath!, previewUpdatedAt)
+        : null,
+      previewCaptureTime: isCurrent ? preview.captureTime : null,
+      previewUpdatedAt: previewUpdatedAt?.toISOString() ?? null
+    }
+  })
+
   return {
     source: 'chapters-file',
-    ...manifest
+    ...manifest,
+    chapters
   }
+}
+
+function buildChapterPreviewUrl(previewPath: string, updatedAt: Date | null) {
+  const baseUrl = `/_video-chapter-previews/${encodeURIComponent(previewPath)}`
+  return updatedAt ? `${baseUrl}?v=${updatedAt.getTime()}` : baseUrl
 }
 
 /**
@@ -302,7 +342,7 @@ async function readChapterManifestFile(absolutePath: string): Promise<{ json: un
  * @param manifest 章节清单
  * @returns 稳定哈希值
  */
-function createChapterManifestHash(manifest: VideoChapterManifest): string {
+export function createChapterManifestHash(manifest: VideoChapterManifest): string {
   return createHash('sha256').update(JSON.stringify(manifest)).digest('hex')
 }
 

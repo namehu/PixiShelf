@@ -47,9 +47,18 @@ describe('clusterTimelineMarkers', () => {
 
 describe('getAdjacentChapters', () => {
   const chapters: NormalizedChapter[] = [
-    { id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10 },
-    { id: 'chapter-2', index: 2, title: 'Middle', start: 20, end: 30, duration: 10 },
-    { id: 'chapter-3', index: 3, title: 'Finale', start: 40, end: 50, duration: 10 }
+    {
+      id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10,
+      previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+    },
+    {
+      id: 'chapter-2', index: 2, title: 'Middle', start: 20, end: 30, duration: 10,
+      previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+    },
+    {
+      id: 'chapter-3', index: 3, title: 'Finale', start: 40, end: 50, duration: 10,
+      previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+    }
   ]
 
   it('returns only the next chapter while playing the first chapter', () => {
