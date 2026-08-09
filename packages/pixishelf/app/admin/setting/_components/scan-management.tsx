@@ -65,9 +65,9 @@ function ScanManagement() {
     confirm({
       title: '确认强制扫描？',
       description:
-        '强制全量扫描将会清空数据库中的所有艺术品、艺术家、图片和标签数据（用户和设置数据不受影响），然后重新扫描所有文件。此操作不可撤销，确定要继续吗？',
+        '强制全量扫描只会删除并重建 Pixiv 导入作品；自建作品、本地目录导入、作者映射和共享标签库会保留。Pixiv 作品上的点赞、手工标签及系列关联会随重建而重置。此操作不可撤销，确定要继续吗？',
       variant: 'destructive',
-      confirmText: '确认清空并扫描',
+      confirmText: '确认重建 Pixiv 数据',
       onConfirm: () => {
         startServerStream(true)
       }

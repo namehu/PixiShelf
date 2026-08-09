@@ -1,12 +1,12 @@
 import path from 'path'
-import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
 import { sleep } from '@/utils/sleep'
 import type { ScanResult } from '@/types'
 import { batchProcessArtists, batchProcessTags, processBatch } from './batch-processor'
 import { globMetadataFiles, parseAndCollect, prepareMetadataFilesFromList } from './metadata-files'
-import { formatScanUserError, getRawErrorMessage } from './scan-errors'
-import type { ArtworkData, ScanAuditItemInput, ScanContext, ScanOptions } from './types'
+import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from './scan-errors'
+import { clearPixivImportedData } from './force-reset'
+import type { ArtworkData, GlobMetadataFile, ScanAuditItemInput, ScanContext, ScanOptions } from './types'
 
 /**
  * 扫描方法
@@ -37,27 +37,34 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
   try {
     logger.info('Starting scan:', { scanPath: options.scanPath })
 
-    // 如果是强制更新，先清空数据库（10%权重）
-    if (options.forceUpdate) {
+    // 强扫必须先验证扫描源，避免空目录、错误路径或临时挂载故障导致旧数据先被删除。
+    const metadataFiles = await discoverMetadataFiles(context)
+
+    if (shouldResetPixivImportedData(options)) {
+      if (metadataFiles.length === 0) {
+        throw new Error('Force scan aborted: no metadata files found')
+      }
+
       options.onProgress?.({
         phase: 'counting',
-        message: '正在清空数据库...',
-        percentage: 0
+        message: '正在清理 Pixiv 扫描数据（保留自建和本地导入作品）...',
+        percentage: 5
       })
 
-      await clearDatabase()
+      context.scanResult.removedArtworks = await clearPixivImportedData()
 
-      logger.info('Database cleared for force update')
+      logger.info('Pixiv imported data cleared for force update', {
+        removedArtworks: context.scanResult.removedArtworks
+      })
 
       options.onProgress?.({
         phase: 'counting',
-        message: '数据库清空完成，开始发现作品...',
+        message: 'Pixiv 扫描数据清理完成，开始重建作品...',
         percentage: 10
       })
     }
 
-    // 直接调用流式处理方法，取代原来的发现+处理模式
-    await streamProcessArtworks(context)
+    await streamProcessArtworks(context, metadataFiles)
 
     // 最终完成
     options.onProgress?.({
@@ -76,9 +83,17 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
     return context.scanResult
   } catch (error) {
     logger.error('Scan failed:', { error, options })
-    context.scanResult.errors.push(formatScanUserError(error))
+    const userError = formatScanUserError(error)
+    if (!context.scanResult.errors.includes(userError)) {
+      context.scanResult.errors.push(userError)
+    }
     context.scanResult.processingTime = Date.now() - startTime
-    return context.scanResult
+
+    if (isScanCancelledError(error)) {
+      return context.scanResult
+    }
+
+    throw error
   } finally {
     logger.info('Scan performance checkpoint:', {
       phase: 'scan_total',
@@ -91,9 +106,43 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
       newTags: context.scanResult.newTags,
       errors: context.scanResult.errors.length,
       forceUpdate: !!options.forceUpdate,
-      metadataSource: options.metadataRelativePaths?.length ? 'client_list' : 'glob'
+      metadataSource: isMetadataListScan(options) ? 'client_list' : 'glob'
     })
   }
+}
+
+async function discoverMetadataFiles(context: ScanContext): Promise<GlobMetadataFile[]> {
+  const { options } = context
+  const source = isMetadataListScan(options) ? 'client_list' : 'glob'
+
+  options.onProgress?.({
+    phase: 'counting',
+    message: '正在发现作品...',
+    percentage: 0
+  })
+  await sleep(500)
+
+  const discoveryStartTime = Date.now()
+  const metadataFiles = isMetadataListScan(options)
+    ? await prepareMetadataFilesFromList(
+        options.scanPath,
+        options.metadataRelativePaths!,
+        context,
+        options.forceUpdate
+      )
+    : await globMetadataFiles(options.scanPath, context, options.forceUpdate)
+
+  logger.info('Scan performance checkpoint:', {
+    phase: 'metadata_discovery',
+    durationMs: Date.now() - discoveryStartTime,
+    totalFiles: context.scanResult.totalArtworks,
+    filesToProcess: metadataFiles.length,
+    skippedFiles: context.scanResult.skippedArtworks,
+    source,
+    forceUpdate: !!options.forceUpdate
+  })
+
+  return metadataFiles
 }
 
 /**
@@ -101,35 +150,14 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
  * 边发现边处理，降低内存峰值
  * @param context 扫描上下文
  */
-async function streamProcessArtworks(context: ScanContext): Promise<void> {
+async function streamProcessArtworks(context: ScanContext, metadataFiles: GlobMetadataFile[]): Promise<void> {
   const { options } = context
   const BATCH_SIZE = process.env.NODE_ENV === 'development' ? 5 : 100 // 定义处理批次的大小
   let artworkBatch: ArtworkData[] = []
   let batchNumber = 0
-  let basePercentage = options.forceUpdate ? 10 : 0
-
-  options.onProgress?.({
-    phase: 'counting',
-    message: '正在发现作品...',
-    percentage: basePercentage
-  })
-  await sleep(500)
-  // 根据是否提供客户端元数据列表选择来源
-  const discoveryStartTime = Date.now()
-  const metadataFiles = !options.metadataRelativePaths?.length
-    ? await globMetadataFiles(options.scanPath, context, options.forceUpdate)
-    : await prepareMetadataFilesFromList(options.scanPath, options.metadataRelativePaths, context, options.forceUpdate)
+  let basePercentage = shouldResetPixivImportedData(options) ? 10 : 0
   const totalFiles = metadataFiles.length
   const totalBatches = Math.ceil(totalFiles / BATCH_SIZE)
-  logger.info('Scan performance checkpoint:', {
-    phase: 'metadata_discovery',
-    durationMs: Date.now() - discoveryStartTime,
-    totalFiles: context.scanResult.totalArtworks,
-    filesToProcess: totalFiles,
-    skippedFiles: context.scanResult.skippedArtworks,
-    source: options.metadataRelativePaths?.length ? 'client_list' : 'glob',
-    forceUpdate: !!options.forceUpdate
-  })
 
   if (totalFiles === 0) {
     options.onProgress?.({
@@ -178,6 +206,7 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
       batchNumber++
       logger.info(`Processing batch ${batchNumber} of ${totalBatches} (size: ${artworkBatch.length})...`)
       const batchStartTime = Date.now()
+      let fatalBatchError: Error | null = null
 
       try {
         // 调用批量处理逻辑（针对当前批次的数据）
@@ -191,6 +220,9 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
         const rawErrorMessage = `Failed to process batch ${batchNumber}: ${getRawErrorMessage(error)}`
         context.scanResult.errors.push(formatScanUserError(rawErrorMessage))
         await context.options.audit?.recordItems?.(buildFailedWriteAuditItems(artworkBatch, context.options.scanPath, rawErrorMessage))
+        if (shouldResetPixivImportedData(options)) {
+          fatalBatchError = new Error(rawErrorMessage)
+        }
       }
       logger.info('Scan performance checkpoint:', {
         phase: 'batch_processing',
@@ -202,6 +234,10 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
         totalFiles,
         errors: context.scanResult.errors.length
       })
+
+      if (fatalBatchError) {
+        throw fatalBatchError
+      }
 
       // 清空批次，为下一批做准备
       artworkBatch = []
@@ -226,6 +262,10 @@ async function streamProcessArtworks(context: ScanContext): Promise<void> {
     parsedArtworks,
     skippedFiles
   })
+
+  if (shouldResetPixivImportedData(options) && skippedFiles > 0) {
+    throw new Error(`Force scan failed to rebuild ${skippedFiles} of ${totalFiles} discovered artworks`)
+  }
 }
 
 function buildFailedWriteAuditItems(batch: ArtworkData[], scanPath: string, errorMessage: string): ScanAuditItemInput[] {
@@ -248,24 +288,10 @@ function toRelativeScanPath(scanPath: string, targetPath: string): string {
   return path.relative(scanPath, targetPath).replace(/\\/g, '/')
 }
 
-/**
- * 清空数据库（保留 user 和 setting 表）
- * 用于强制全量扫描时清空所有艺术相关数据
- * 使用 TRUNCATE 提供更高的性能
- */
-async function clearDatabase(): Promise<void> {
-  try {
-    logger.info('Starting database cleanup with TRUNCATE for force update')
+function shouldResetPixivImportedData(options: ScanOptions): boolean {
+  return options.forceUpdate === true && !isMetadataListScan(options)
+}
 
-    // 使用 TRUNCATE 一次性清空所有艺术相关表
-    // RESTART IDENTITY 会重置自增ID，CASCADE 会处理外键依赖
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE TABLE "ArtworkTag", "Image", "Artwork", "Artist", "Tag" RESTART IDENTITY CASCADE;'
-    )
-
-    logger.info('Database cleanup with TRUNCATE completed successfully')
-  } catch (error) {
-    logger.error('Failed to clear database with TRUNCATE:', { error })
-    throw new Error(`Database cleanup failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-  }
+function isMetadataListScan(options: ScanOptions): boolean {
+  return options.metadataRelativePaths !== undefined
 }

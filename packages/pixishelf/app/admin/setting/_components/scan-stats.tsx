@@ -1,5 +1,5 @@
 import { ScanResult } from '@/types'
-import { Image, Layers, Trash2, FilePlus } from 'lucide-react'
+import { Image, Layers, RefreshCcw, FilePlus } from 'lucide-react'
 import { StatCard } from '@/components/shared/stat-card'
 
 export function ScanStats({ result }: { result: ScanResult }) {
@@ -39,12 +39,12 @@ export function ScanStats({ result }: { result: ScanResult }) {
         className="bg-purple-50/50 border-purple-100 hover:border-purple-200 transition-colors"
       />
 
-      {/* 4. 删除作品 - 橙色/红色主题 */}
+      {/* 4. 强扫重建作品 */}
       <StatCard
-        title="清理作品"
+        title="重建 Pixiv 作品"
         value={result.removedArtworks || 0}
-        icon={<Trash2 className="w-4 h-4 text-orange-500" />}
-        description={result.removedArtworks ? '已清理无效文件夹' : '无无效数据'}
+        icon={<RefreshCcw className="w-4 h-4 text-orange-500" />}
+        description={result.removedArtworks ? '强扫时删除并重新扫描' : '本次未重建已有作品'}
         className="bg-orange-50/50 border-orange-100 hover:border-orange-200 transition-colors"
       />
     </div>
