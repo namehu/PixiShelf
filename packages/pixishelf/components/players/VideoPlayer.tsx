@@ -1,14 +1,18 @@
 'use client'
 
-import { InfoIcon, ListVideoIcon, Loader2Icon, SkipBackIcon, SkipForwardIcon, Volume2Icon, XIcon } from 'lucide-react'
+import { InfoIcon, ListVideoIcon, Loader2Icon, SkipBackIcon, SkipForwardIcon, Volume2Icon } from 'lucide-react'
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import type ArtplayerType from 'artplayer'
-import { motion, AnimatePresence } from 'framer-motion'
-import ChapterSidebar from '@/components/players/ChapterSidebar'
 import ChapterTimelinePreview from '@/components/players/ChapterTimelinePreview'
 import TimelineMarkers from '@/components/players/TimelineMarkers'
+import {
+  createChapterOverlayPlugin,
+  getChapterOverlayPlugin,
+  type ChapterOverlayPortal,
+  type ChapterOverlayPluginApi
+} from '@/components/players/artplayer-chapter-overlay-plugin'
 import { useCurrentChapter } from '@/components/players/use-current-chapter'
 import { useVideoChapters } from '@/components/players/use-video-chapters'
 import {
@@ -95,17 +99,17 @@ export function VideoPlayer({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [aspectRatio, setAspectRatio] = useState('16 / 9')
-  const [showChapterOverlay, setShowChapterOverlay] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [artInstance, setArtInstance] = useState<ArtplayerType | null>(null)
   const [progressPortalTarget, setProgressPortalTarget] = useState<HTMLDivElement | null>(null)
+  const [chapterOverlayPortal, setChapterOverlayPortal] = useState<ChapterOverlayPortal | null>(null)
   const [timelinePreviewChapterId, setTimelinePreviewChapterId] = useState<string | null>(null)
   const hasStartedPlayingRef = useRef(false)
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const artRef = useRef<ArtplayerType | null>(null)
+  const chapterOverlayPluginRef = useRef<ChapterOverlayPluginApi | null>(null)
   const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keepControlsVisibleUntilRef = useRef(0)
-  const mobileChapterWasPlayingRef = useRef(false)
   const onPlayRef = useRef(onPlay)
   const onPauseRef = useRef(onPause)
   const onErrorRef = useRef(onError)
@@ -169,23 +173,6 @@ export function VideoPlayer({
     seekTo(chapter.start)
   }
 
-  const openChapterOverlay = () => {
-    if (!isDesktop) {
-      const video = getArtVideo(artRef.current)
-      mobileChapterWasPlayingRef.current = Boolean(video && !video.paused && !video.ended)
-      if (mobileChapterWasPlayingRef.current) video?.pause()
-    }
-    setShowChapterOverlay(true)
-  }
-
-  const closeChapterOverlay = () => {
-    setShowChapterOverlay(false)
-    if (!isDesktop && mobileChapterWasPlayingRef.current) {
-      mobileChapterWasPlayingRef.current = false
-      getArtVideo(artRef.current)?.play().catch(() => undefined)
-    }
-  }
-
   useEffect(() => {
     onPlayRef.current = onPlay
     onPauseRef.current = onPause
@@ -199,23 +186,13 @@ export function VideoPlayer({
     setError(null)
     setLoading(true)
     setAspectRatio('16 / 9')
-    setShowChapterOverlay(false)
     setIsPlaying(false)
     setArtInstance(null)
     setProgressPortalTarget(null)
+    setChapterOverlayPortal(null)
     setTimelinePreviewChapterId(null)
     keepControlsVisibleUntilRef.current = 0
-    mobileChapterWasPlayingRef.current = false
   }, [mediaSrc])
-
-  useEffect(() => {
-    if (!showChapterOverlay || isDesktop) return
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = previousOverflow
-    }
-  }, [isDesktop, showChapterOverlay])
 
   useEffect(() => {
     let active = true
@@ -247,6 +224,7 @@ export function VideoPlayer({
         mutex: true,
         gesture: false,
         theme: '#3b82f6',
+        plugins: [createChapterOverlayPlugin(setChapterOverlayPortal)],
         moreVideoAttr: {
           preload,
           playsInline: true
@@ -256,6 +234,7 @@ export function VideoPlayer({
       const art = instance
       artRef.current = art
       cleanupPlayer = createArtplayerCleanup(art, playerContainerRef.current)
+      chapterOverlayPluginRef.current = getChapterOverlayPlugin(art)
       setArtInstance(art)
       setProgressPortalTarget(getArtProgress(art))
 
@@ -384,6 +363,9 @@ export function VideoPlayer({
       active = false
       setArtInstance(null)
       setProgressPortalTarget(null)
+      const chapterOverlayPlugin = chapterOverlayPluginRef.current
+      chapterOverlayPluginRef.current = null
+      chapterOverlayPlugin?.destroy()
       cleanupPlayer?.()
       if (artRef.current === instance) {
         artRef.current = null
@@ -424,6 +406,16 @@ export function VideoPlayer({
       progressPortalTarget.style.position = previousPosition
     }
   }, [progressPortalTarget])
+
+  useEffect(() => {
+    if (!artInstance) return
+
+    chapterOverlayPluginRef.current?.update({
+      chapters,
+      currentChapterId: currentChapter?.id,
+      mode: isDesktop ? 'desktop' : 'mobile'
+    })
+  }, [artInstance, chapters, currentChapter?.id, isDesktop])
 
   useEffect(() => {
     if (!artInstance) {
@@ -547,8 +539,7 @@ export function VideoPlayer({
         event.stopPropagation()
         keepControlsVisibleUntilRef.current = Date.now() + CHAPTER_CONTROL_VISIBILITY_DURATION
         artInstance.controls.show = true
-        if (showChapterOverlay) closeChapterOverlay()
-        else openChapterOverlay()
+        chapterOverlayPluginRef.current?.toggle()
       }
     })
 
@@ -566,9 +557,7 @@ export function VideoPlayer({
     nextChapter,
     nextChapterControlName,
     previousChapter,
-    previousChapterControlName,
-    isDesktop,
-    showChapterOverlay
+    previousChapterControlName
   ])
 
   // 清理定时器
@@ -615,112 +604,7 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* PC 保持播放器内侧栏；手机通过 Portal 使用视口级全屏章节网格。 */}
-      {isDesktop && (
-        <AnimatePresence>
-          {showChapterOverlay && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 z-50"
-            >
-              <button
-                type="button"
-                aria-label="关闭章节列表"
-                className="absolute inset-0 cursor-default border-0 bg-black/25 p-0"
-                onClick={closeChapterOverlay}
-              />
-              <motion.div
-                initial={{ x: '100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '100%' }}
-                transition={{ duration: 0.18, ease: 'easeOut' }}
-                className="absolute bottom-0 right-0 top-0 flex max-w-full flex-col border-l border-white/10 bg-black/92 shadow-2xl backdrop-blur-xl"
-                style={{ width: 'min(480px, 42vw)' }}
-                role="dialog"
-                aria-modal="true"
-                aria-label="视频章节"
-              >
-                <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-                  <div>
-                    <span className="font-medium text-white">章节</span>
-                    <span className="ml-2 text-xs text-white/60">{chapters.length} 段</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={closeChapterOverlay}
-                    aria-label="关闭章节列表"
-                    className="rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-                  >
-                    <XIcon className="h-4 w-4" />
-                  </button>
-                </div>
-                <div className="min-h-0 flex-1 overflow-hidden">
-                  <ChapterSidebar
-                    chapters={chapters}
-                    currentChapterId={currentChapter?.id}
-                    onChapterClick={seekToChapter}
-                    tone="dark"
-                    className="h-full rounded-none border-none bg-transparent"
-                    scrollAreaClassName="h-full"
-                  />
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      )}
-
-      {!isDesktop &&
-        typeof document !== 'undefined' &&
-        createPortal(
-          <AnimatePresence>
-            {showChapterOverlay && (
-              <motion.div
-                key="mobile-chapter-grid"
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 16 }}
-                transition={{ duration: 0.18, ease: 'easeOut' }}
-                className="fixed inset-0 z-[200] flex flex-col bg-black text-white"
-                style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
-                role="dialog"
-                aria-modal="true"
-                aria-label="视频章节"
-              >
-                <div className="flex min-h-14 shrink-0 items-center justify-between border-b border-white/10 px-4">
-                  <div>
-                    <span className="font-medium">章节</span>
-                    <span className="ml-2 text-xs text-white/60">{chapters.length} 段</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={closeChapterOverlay}
-                    aria-label="关闭章节列表"
-                    className="rounded-full bg-white/10 p-2 text-white/75 active:bg-white/20"
-                  >
-                    <XIcon className="h-5 w-5" />
-                  </button>
-                </div>
-                <div className="min-h-0 flex-1 overflow-hidden">
-                  <ChapterSidebar
-                    chapters={chapters}
-                    currentChapterId={currentChapter?.id}
-                    onChapterClick={(chapter) => {
-                      seekToChapter(chapter)
-                      closeChapterOverlay()
-                    }}
-                    tone="dark"
-                    className="h-full rounded-none border-none bg-transparent"
-                    scrollAreaClassName="h-full"
-                  />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>,
-          document.body
-        )}
+      {chapterOverlayPortal && createPortal(chapterOverlayPortal.content, chapterOverlayPortal.target)}
 
       {!loading &&
         progressPortalTarget &&

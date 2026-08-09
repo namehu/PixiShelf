@@ -3,3 +3,8 @@
 .art-audio-controls-hidden [class*='volume'] {
   display: none !important;
 }
+
+/* ArtPlayer's layer stack normally sits below controls, settings, and context menus. */
+.art-video-player.pixishelf-chapter-overlay-open .art-layers {
+  z-index: 130;
+}

@@ -83,6 +83,15 @@ describe('VideoPlayer component behavior', () => {
 
     let fullscreenWeb = true
     const cleanupEvents: string[] = []
+    const layerCache = new Map<
+      string,
+      {
+        element: HTMLElement
+        option: {
+          beforeUnmount?: (element: HTMLElement) => void
+        }
+      }
+    >()
     const art = {
       currentTime: 0,
       duration: 60,
@@ -90,13 +99,42 @@ describe('VideoPlayer component behavior', () => {
       template: {
         $video: video,
         $progress: document.createElement('div'),
-        $player: document.createElement('div')
+        $player: document.createElement('div'),
+        $layer: document.createElement('div')
       },
       controls: {
         show: true,
         add: vi.fn(),
         remove: vi.fn()
       },
+      layers: {
+        add: vi.fn(
+          (option: {
+            name: string
+            style?: Partial<CSSStyleDeclaration>
+            mounted?: (element: HTMLElement) => void
+            beforeUnmount?: (element: HTMLElement) => void
+          }) => {
+            const element = document.createElement('div')
+            element.className = `art-layer art-layer-${option.name}`
+            Object.assign(element.style, option.style)
+            art.template.$layer.append(element)
+            layerCache.set(option.name, { element, option })
+            Object.assign(art.layers, { [option.name]: element })
+            option.mounted?.(element)
+            return element
+          }
+        ),
+        remove: vi.fn((name: string) => {
+          const item = layerCache.get(name)
+          if (!item) return
+          item.option.beforeUnmount?.(item.element)
+          item.element.remove()
+          layerCache.delete(name)
+          delete (art.layers as Record<string, unknown>)[name]
+        })
+      },
+      plugins: {} as Record<string, unknown>,
       on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
         const handlers = artplayerMock.handlers.get(event) ?? []
         handlers.push(handler)
@@ -124,11 +162,24 @@ describe('VideoPlayer component behavior', () => {
       }
     }
 
-    artplayerMock.constructor.mockImplementation(function ArtplayerMock(options: { container: HTMLElement }) {
+    artplayerMock.constructor.mockImplementation(function ArtplayerMock(options: {
+      container: HTMLElement
+      plugins?: Array<(art: unknown) => { name?: string }>
+    }) {
       const playerElement = document.createElement('div')
       playerElement.className = 'art-video-player'
+      const layerElement = document.createElement('div')
+      layerElement.className = 'art-layers'
+      playerElement.append(layerElement)
       options.container.append(playerElement)
       art.template.$player = playerElement
+      art.template.$layer = layerElement
+
+      for (const plugin of options.plugins ?? []) {
+        const pluginApi = plugin(art)
+        if (pluginApi?.name) art.plugins[pluginApi.name] = pluginApi
+      }
+
       return art
     })
     return art
@@ -228,8 +279,13 @@ describe('VideoPlayer component behavior', () => {
     const pause = vi.fn()
     const play = vi.fn().mockResolvedValue(undefined)
     const art = setupArtplayerMock({ paused: false, pause, play })
+    const outerClick = vi.fn()
 
-    const { unmount } = render(<VideoPlayer src="/video.mp4" />)
+    const { unmount } = render(
+      <div onClick={outerClick}>
+        <VideoPlayer src="/video.mp4" />
+      </div>
+    )
     await waitFor(() => {
       expect(art.controls.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'chapter-entry' }))
     })
@@ -238,14 +294,67 @@ describe('VideoPlayer component behavior', () => {
       .find((control) => control.name === 'chapter-entry')
 
     act(() => chapterControl.click(null, new Event('click')))
-    await waitFor(() => expect(screen.getByRole('dialog', { name: '视频章节' })).toBeDefined())
+    const dialog = await screen.findByRole('dialog', { name: '视频章节' })
+    expect(dialog.closest('.art-video-player')).toBe(art.template.$player)
+    expect(document.body.querySelector(':scope > [role="dialog"][aria-label="视频章节"]')).toBeNull()
     expect(pause).toHaveBeenCalled()
+
+    document.body.append(art.template.$player)
+    expect(screen.getByRole('dialog', { name: '视频章节' })).toBe(dialog)
 
     fireEvent.click(screen.getByRole('button', { name: /Middle/ }))
 
     expect(art.currentTime).toBe(20)
     expect(play).toHaveBeenCalled()
+    expect(outerClick).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '视频章节' })).toBeNull())
+    unmount()
+  })
+
+  it('keeps the desktop chapter layer open after seeking', async () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: true,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      }))
+    })
+    videoChaptersMock.useVideoChapters.mockReturnValue({
+      chapters: [
+        {
+          id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10,
+          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+        },
+        {
+          id: 'chapter-2', index: 2, title: 'Middle', start: 20, end: 30, duration: 10,
+          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+        }
+      ],
+      duration: 30,
+      loading: false,
+      error: null,
+      reload: vi.fn()
+    })
+    const art = setupArtplayerMock()
+
+    const { unmount } = render(<VideoPlayer src="/video.mp4" />)
+    await waitFor(() => {
+      expect(art.controls.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'chapter-entry' }))
+    })
+    const chapterControl = art.controls.add.mock.calls
+      .map(([control]) => control)
+      .reverse()
+      .find((control) => control.name === 'chapter-entry')
+
+    act(() => chapterControl.click(null, new Event('click')))
+    await screen.findByRole('dialog', { name: '视频章节' })
+    fireEvent.click(screen.getByRole('button', { name: /Middle/ }))
+
+    expect(art.currentTime).toBe(20)
+    expect(screen.getByRole('dialog', { name: '视频章节' })).toBeDefined()
     unmount()
   })
 
