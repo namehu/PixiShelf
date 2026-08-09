@@ -7,7 +7,7 @@ import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
 import type { SearchSuggestion } from '@/schemas/search.dto'
 import { SearchBox } from './_components/search-box'
 import { FilterSheet } from '@/components/artwork/filter-sheet'
-import PNav from '@/components/layout/PNav'
+import PageToolbar from '@/components/layout/page-toolbar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import InfiniteArtworkList from '@/components/artwork/Infinite-artwork-list'
@@ -309,11 +309,9 @@ export default function GalleryPage() {
 
   return (
     <div className="min-h-screen bg-gray-50/50">
-      {/* 1. 顶部导航栏集成搜索框 */}
-      <PNav
-        border={false}
-        showUserMenu={false}
-        renderExtra={
+      {/* 1. 页面搜索与操作工具栏 */}
+      <PageToolbar
+        actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" asChild>
               <Link href={immersiveViewerHref}>
@@ -334,10 +332,10 @@ export default function GalleryPage() {
           onSuggestionClick={handleSuggestionClick}
           className="w-full shadow-sm"
         />
-      </PNav>
+      </PageToolbar>
 
-      {/* 2. 顶部工具栏 (Sticky) */}
-      <div className="px-4 sticky top-[64px] z-30 py-3 transition-all backdrop-blur-xl bg-white/85 border-b border-gray-100/80">
+      {/* 2. 筛选状态摘要 */}
+      <div className="border-b border-gray-100/80 bg-white/85 px-4 py-3 backdrop-blur-xl transition-all">
         <div className="flex items-center gap-3">
           <div className="flex flex-col gap-1">
             <h1 className="text-xl font-bold text-neutral-900 flex items-center gap-2">

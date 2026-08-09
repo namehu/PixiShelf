@@ -89,7 +89,7 @@ export default function ChangePasswordPage() {
   // 成功页面
   if (success) {
     return (
-      <div className="min-h-screen w-full flex bg-background">
+      <div className="min-h-[calc(100vh-4rem)] w-full flex bg-background">
         {/* 左侧：静态插画区域 */}
         <div className="hidden lg:flex lg:w-1/2 xl:w-[60%] relative overflow-hidden bg-slate-900">
           <div className="absolute inset-0 w-full h-full">
@@ -148,7 +148,7 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <div className="min-h-screen w-full flex bg-background">
+    <div className="min-h-[calc(100vh-4rem)] w-full flex bg-background">
       {/* 左侧：静态插画区域 */}
       <div className="hidden lg:flex lg:w-1/2 xl:w-[60%] relative overflow-hidden bg-slate-900">
         <div className="absolute inset-0 w-full h-full">
@@ -184,14 +184,6 @@ export default function ChangePasswordPage() {
 
       {/* 右侧：交互区域 */}
       <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 lg:p-12 relative">
-        {/* 移动端 Logo */}
-        <div className="lg:hidden absolute top-8 left-8 flex items-center gap-2">
-          <div className="p-1.5 bg-primary/10 rounded-md">
-            <PLogo className="w-5 h-5 text-primary" />
-          </div>
-          <span className="font-bold text-lg">PixiShelf</span>
-        </div>
-
         <div className="w-full max-w-[400px] space-y-8">
           <div className="space-y-2 text-center lg:text-left">
             <h2 className="text-3xl font-bold tracking-tight text-foreground">修改密码</h2>

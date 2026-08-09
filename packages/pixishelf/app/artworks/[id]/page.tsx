@@ -24,10 +24,9 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <main className="max-w-7xl mx-auto pt-16 lg:px-8">
+      <NavHead data={data} id={id} />
+      <main className="max-w-7xl mx-auto lg:px-8">
         <div className="bg-white max-w-2xl mx-auto">
-          {/* 导航栏 */}
-          <NavHead data={data} id={id} />
           {/* 主内容 */}
           <div className="max-w-full overflow-hidden">
             {/* Header */}

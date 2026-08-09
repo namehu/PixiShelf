@@ -11,6 +11,7 @@ import type { AppRouter } from '@/server'
 import { UserSettingProvider } from '@/components/user-setting'
 import type { UserSettings } from '@/schemas/user-setting.dto'
 import { NavigationHistoryTracker } from '@/components/navigation-history-tracker'
+import AppShell from '@/components/layout/app-shell'
 
 function makeQueryClient() {
   return new QueryClient({
@@ -72,7 +73,7 @@ export function Providers({ children, initialUser, initialSettings }: ProvidersP
             <Suspense fallback={null}>
               <NavigationHistoryTracker />
             </Suspense>
-            {children}
+            <AppShell>{children}</AppShell>
           </UserSettingProvider>
         </AuthProvider>
       </TRPCClientProvider>

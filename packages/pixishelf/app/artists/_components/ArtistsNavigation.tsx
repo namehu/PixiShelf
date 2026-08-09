@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ArtistsQuery } from '@/types'
 import { useCallback, useMemo, useState, useEffect } from 'react'
-import PNav from '@/components/layout/PNav'
+import PageToolbar from '@/components/layout/page-toolbar'
 import { Search, ArrowUpDown, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useQueryStates, parseAsString } from 'nuqs'
@@ -75,8 +75,8 @@ const ArtistsNavigation = () => {
   )
 
   return (
-    <PNav showUserMenu={false}>
-      <div className="flex items-center gap-2 md:gap-3 w-full pr-2 md:pr-4">
+    <PageToolbar>
+      <div className="flex w-full items-center gap-2 md:gap-3">
         {/* 搜索框区域 */}
         <div
           className={cn(
@@ -144,7 +144,7 @@ const ArtistsNavigation = () => {
           </Select>
         </div>
       </div>
-    </PNav>
+    </PageToolbar>
   )
 }
 

@@ -8,6 +8,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { ArtworkList } from './_components/ArtworkList'
 import { NavBack } from './_components/NavBack'
 import { Button } from '@/components/ui/button'
+import PageToolbar from '@/components/layout/page-toolbar'
 
 const serializeViewerQuery = createSerializer({
   source: parseAsString,
@@ -35,18 +36,10 @@ export default async function TagDetailPage({ params }: PageProps<'/tags/[id]'>)
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 selection:bg-blue-100 flex flex-col">
-      {/* 顶部导航 */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl border-b border-slate-200/50 bg-white/80 px-4 h-16">
-        <div className="max-w-screen-xl h-full mx-auto flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <NavBack />
-
-            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-500">
-              <span className="font-bold text-lg tracking-tight text-slate-800 line-clamp-1">{tag.name}</span>
-            </div>
-          </div>
-        </div>
-      </header>
+      <PageToolbar
+        leading={<NavBack />}
+        title={<span className="line-clamp-1 text-lg font-bold tracking-tight text-slate-800">{tag.name}</span>}
+      />
 
       <main className="flex-1 w-full max-w-screen-xl mx-auto px-4 py-8">
         {/* 标签信息 Hero 区域 */}

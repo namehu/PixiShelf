@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import { createSerializer, useQueryStates, parseAsInteger, parseAsString } from 'nuqs'
 import { SortOption, MediaTypeFilter } from '@/types'
 import { SlidersHorizontal, ChevronLeft } from 'lucide-react'
@@ -8,9 +8,8 @@ import { Button } from '@/components/ui/button'
 import { FilterSheet } from '@/components/artwork/filter-sheet'
 import HeadInfo from './HeadInfo'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
-import PNav from '@/components/layout/PNav'
+import PageToolbar from '@/components/layout/page-toolbar'
 import { SearchBox } from '@/app/artworks/_components/search-box'
-import { cn } from '@/lib/utils'
 import InfiniteArtworkList from '@/components/artwork/Infinite-artwork-list'
 import dayjs from 'dayjs'
 import { useSafeBack } from '@/hooks/use-safe-back'
@@ -30,19 +29,9 @@ const viewerQueryParsers = {
 const serializeViewerQuery = createSerializer(viewerQueryParsers)
 
 export default function ArtistDetailPage({ artist, id }: { artist: ArtistResponseDto; id: string }) {
-  const safeBack = useSafeBack()
-  const [isScrolled, setIsScrolled] = useState(false)
+  const safeBack = useSafeBack('/artists')
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [total, setTotal] = useState(0)
-
-  // 监听滚动以切换导航栏样式
-  useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 50)
-    }
-    window.addEventListener('scroll', handleScroll)
-    return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
 
   const [{ sortBy, startDate, endDate, search, mediaType, randomSeed }, setQuery] = useQueryStates(
     {
@@ -105,34 +94,14 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
 
   return (
     <div className="relative">
-      {/* 顶部悬浮导航栏 */}
-      <PNav
-        border={false}
-        showLogo={false}
-        showUserMenu={false}
-        placeholder={false}
-        className={cn(
-          'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
-          isScrolled ? 'bg-white/80 backdrop-blur-md shadow-sm' : 'bg-transparent'
-        )}
-        renderLeft={
-          <div
-            className={cn(
-              'flex items-center cursor-pointer transition-colors hover:opacity-80',
-              isScrolled ? 'text-gray-700' : 'text-white/90 drop-shadow-md'
-            )}
-            onClick={safeBack}
-          >
+      <PageToolbar
+        leading={
+          <Button variant="ghost" size="icon" onClick={safeBack} aria-label="返回艺术家列表">
             <ChevronLeft className="w-5 h-5 mr-0.5" />
-          </div>
+          </Button>
         }
-        renderExtra={
-          <Button
-            variant="outline"
-            size="icon"
-            className={cn('ml-2', !isScrolled && 'bg-white/90 backdrop-blur-sm border-transparent')}
-            onClick={() => setIsFilterOpen(true)}
-          >
+        actions={
+          <Button variant="outline" size="icon" onClick={() => setIsFilterOpen(true)} aria-label="筛选作品">
             <SlidersHorizontal className="w-4 h-4" />
           </Button>
         }
@@ -142,10 +111,10 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
             value={search || ''}
             placeholder="搜索艺术家的作品"
             onSearch={(val) => setQuery({ search: val })}
-            className={cn('w-full shadow-sm', !isScrolled && 'bg-white/90 backdrop-blur-sm border-transparent')}
+            className="w-full shadow-sm"
           />
         </div>
-      </PNav>
+      </PageToolbar>
 
       <FilterSheet
         open={isFilterOpen}

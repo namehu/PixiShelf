@@ -4,7 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { useSafeBack } from '@/hooks/use-safe-back'
 
 export function NavBack() {
-  const safeBack = useSafeBack()
+  const safeBack = useSafeBack('/tags')
 
   return (
     <button

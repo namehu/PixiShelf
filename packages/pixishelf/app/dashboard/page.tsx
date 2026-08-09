@@ -1,10 +1,8 @@
 import { getRecommendedArtworks, getRecentArtworks } from '@/services/artwork-service'
 import { getDashboardArtists } from '@/services/artist-service'
 import RecentArtists from './_components/RecentArtists'
-import PNav from '@/components/layout/PNav'
 import Link from 'next/link'
 import { ROUTES } from '@/lib/constants'
-import { BookIcon, HashIcon, ImageIcon, ImageUpIcon, UsersIcon } from 'lucide-react'
 import ArtworkGrid from './_components/ArtworkGrid'
 import { Button } from '@/components/ui/button'
 import RecommendedArtworkSection from './_components/RecommendedArtworkSection'
@@ -25,30 +23,6 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <PNav>
-        <div className="flex gap-4">
-          <Link href={ROUTES.ARTWORKS} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
-            <ImageIcon className="h-5 w-5" />
-            <span className="hidden sm:inline">作品</span>
-          </Link>
-          <Link href={ROUTES.ARTISTS} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
-            <UsersIcon className="h-5 w-5" />
-            <span className="hidden sm:inline">艺术家</span>
-          </Link>
-          <Link href={ROUTES.TAGS} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
-            <HashIcon className="h-5 w-5" />
-            <span className="hidden sm:inline">标签</span>
-          </Link>
-          <Link href={ROUTES.SERIES} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
-            <BookIcon className="h-5 w-5" />
-            <span className="hidden sm:inline">系列</span>
-          </Link>
-          <Link href={ROUTES.VIEWER} className="flex flex-row items-center gap-2 p-2 hover:bg-gray-100 rounded">
-            <ImageUpIcon className="h-5 w-5" />
-            <span className="hidden sm:inline">刷图</span>
-          </Link>
-        </div>
-      </PNav>
       <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         <div className="mb-12">
           <div className="flex items-center justify-between mb-6">

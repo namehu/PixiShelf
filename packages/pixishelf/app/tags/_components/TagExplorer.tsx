@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation'
 import { useTRPC } from '@/lib/trpc'
 import { getTranslateName } from '@/utils/tags'
 import type { Tag } from '@/types'
+import PageToolbar from '@/components/layout/page-toolbar'
 
 export type ViewMode = 'universe' | 'grid'
 
@@ -156,46 +157,49 @@ const TagExplorer: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 selection:bg-blue-100 flex flex-col">
-      <header className="sticky top-0 z-50 backdrop-blur-xl border-b border-slate-200/50 bg-white/80 px-4 h-16">
-        <div className="max-w-screen-xl h-full mx-auto flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 shrink-0" onClick={() => router.push('/dashboard')}>
-            <div className="w-8 h-8 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/10">
-              <Sparkles className="w-5 h-5 text-white" />
+      <PageToolbar
+        title={
+          <div className="hidden items-center gap-2 sm:flex">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/10">
+              <Sparkles className="h-5 w-5 text-white" />
             </div>
-            <span className="font-black text-lg tracking-tight hidden xs:block">标签宇宙</span>
+            <span className="text-lg font-black tracking-tight">标签宇宙</span>
           </div>
-
-          <div className="relative flex-1 max-w-md group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-            <input
-              type="text"
-              placeholder="搜索灵感..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-100/80 border-none rounded-xl py-2 pl-9 pr-3 text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 transition-all outline-none"
-            />
-          </div>
-
-          <div className="flex items-center gap-1">
+        }
+        actions={
+          <>
             {!isSearching && (
               <button
                 onClick={() => setViewMode(viewMode === 'universe' ? 'grid' : 'universe')}
-                className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+                className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100"
                 title={viewMode === 'universe' ? '切换到网格' : '切换到宇宙'}
+                aria-label={viewMode === 'universe' ? '切换到网格' : '切换到宇宙'}
               >
-                {viewMode === 'universe' ? <Grid className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
+                {viewMode === 'universe' ? <Grid className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
               </button>
             )}
             <button
               onClick={handleRefresh}
-              className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+              className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100"
               title="刷新"
+              aria-label="刷新标签"
             >
-              <RefreshCw className={cn('w-5 h-5', (isLoading || isRefetching) && 'animate-spin')} />
+              <RefreshCw className={cn('h-5 w-5', (isLoading || isRefetching) && 'animate-spin')} />
             </button>
-          </div>
+          </>
+        }
+      >
+        <div className="group relative mx-auto max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-500" />
+          <input
+            type="text"
+            placeholder="搜索灵感..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded-xl border-none bg-slate-100/80 py-2 pl-9 pr-3 text-sm outline-none transition-all focus:bg-white focus:ring-2 focus:ring-blue-500/20"
+          />
         </div>
-      </header>
+      </PageToolbar>
 
       <main className="flex-1 flex flex-col relative z-10">
         {!isSearching && (
