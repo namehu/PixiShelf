@@ -153,4 +153,39 @@ describe('getArtworkCardsPage', () => {
     expect(() => ArtworksInfiniteQuerySchema.parse({ pageSize: 101 })).toThrow()
     expect(ArtworksInfiniteQuerySchema.parse({ pageSize: 100 }).pageSize).toBe(100)
   })
+
+  it.each([
+    ['title_asc', 'ORDER BY a.title ASC, a.id ASC'],
+    ['title_desc', 'ORDER BY a.title DESC, a.id DESC'],
+    ['artist_asc', 'ORDER BY artist.name ASC, a.id ASC'],
+    ['artist_desc', 'ORDER BY artist.name DESC, a.id DESC'],
+    ['images_asc', 'ORDER BY a."imageCount" ASC, a.id ASC'],
+    ['images_desc', 'ORDER BY a."imageCount" DESC, a.id DESC'],
+    ['source_date_asc', 'ORDER BY a."sourceDate" ASC, a.id ASC'],
+    ['source_date_desc', 'ORDER BY a."sourceDate" DESC, a.id DESC'],
+    ['created_at_asc', 'ORDER BY a."createdAt" ASC, a.id ASC'],
+    ['created_at_desc', 'ORDER BY a."createdAt" DESC, a.id DESC']
+  ] as const)('adds an id tie-breaker to %s ordering', async (sortBy, expectedOrder) => {
+    queryRawMock.mockImplementation((query: string) => {
+      if (query.includes('COUNT(*)')) return Promise.resolve([{ count: BigInt(0) }])
+      return Promise.resolve([])
+    })
+
+    await getArtworkCardsPage(ArtworksInfiniteQuerySchema.parse({ sortBy }))
+
+    const idQueryCall = queryRawMock.mock.calls.find(([query]) => String(query).includes('SELECT a.id'))
+    expect(String(idQueryCall?.[0])).toContain(expectedOrder)
+  })
+
+  it('adds an id tie-breaker to seeded random ordering', async () => {
+    queryRawMock.mockImplementation((query: string) => {
+      if (query.includes('COUNT(*)')) return Promise.resolve([{ count: BigInt(0) }])
+      return Promise.resolve([])
+    })
+
+    await getArtworkCardsPage(ArtworksInfiniteQuerySchema.parse({ sortBy: 'random', randomSeed: 42 }))
+
+    const idQueryCall = queryRawMock.mock.calls.find(([query]) => String(query).includes('SELECT a.id'))
+    expect(String(idQueryCall?.[0])).toMatch(/ORDER BY md5\(a\.id::text \|\| \$\d+\) ASC, a\.id ASC/)
+  })
 })

@@ -56,7 +56,7 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
   // --- 3. 获取列表 ---
   let orderBySQL: string
   if (sortBy === 'random' && params.randomSeed !== undefined) {
-    orderBySQL = `ORDER BY md5(a.id::text || $${paramIndex}) ASC`
+    orderBySQL = `ORDER BY md5(a.id::text || $${paramIndex}) ASC, a.id ASC`
     sqlParams.push(params.randomSeed.toString())
     paramIndex++
   } else {
@@ -170,7 +170,7 @@ export async function getArtworkCardsPage(
 
   let orderBySQL: string
   if (sortBy === 'random' && params.randomSeed !== undefined) {
-    orderBySQL = `ORDER BY md5(a.id::text || $${paramIndex}) ASC`
+    orderBySQL = `ORDER BY md5(a.id::text || $${paramIndex}) ASC, a.id ASC`
     sqlParams.push(params.randomSeed.toString())
     paramIndex++
   } else {
@@ -420,26 +420,26 @@ export async function getNoSeriesArtworkExternalIds(): Promise<string[]> {
 function mapSortOptionToSQL(sortBy: string): string {
   switch (sortBy) {
     case 'title_asc':
-      return 'ORDER BY a.title ASC'
+      return 'ORDER BY a.title ASC, a.id ASC'
     case 'title_desc':
-      return 'ORDER BY a.title DESC'
+      return 'ORDER BY a.title DESC, a.id DESC'
     case 'artist_asc':
-      return 'ORDER BY artist.name ASC'
+      return 'ORDER BY artist.name ASC, a.id ASC'
     case 'artist_desc':
-      return 'ORDER BY artist.name DESC'
+      return 'ORDER BY artist.name DESC, a.id DESC'
     case 'images_desc':
-      return 'ORDER BY a."imageCount" DESC'
+      return 'ORDER BY a."imageCount" DESC, a.id DESC'
     case 'images_asc':
-      return 'ORDER BY a."imageCount" ASC'
+      return 'ORDER BY a."imageCount" ASC, a.id ASC'
     case 'source_date_asc':
-      return 'ORDER BY a."sourceDate" ASC'
+      return 'ORDER BY a."sourceDate" ASC, a.id ASC'
     case 'created_at_desc':
-      return 'ORDER BY a."createdAt" DESC'
+      return 'ORDER BY a."createdAt" DESC, a.id DESC'
     case 'created_at_asc':
-      return 'ORDER BY a."createdAt" ASC'
+      return 'ORDER BY a."createdAt" ASC, a.id ASC'
     case 'source_date_desc':
     default:
-      return 'ORDER BY a."sourceDate" DESC'
+      return 'ORDER BY a."sourceDate" DESC, a.id DESC'
   }
 }
 
