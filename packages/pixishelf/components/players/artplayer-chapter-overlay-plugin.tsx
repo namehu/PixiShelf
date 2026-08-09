@@ -1,9 +1,10 @@
 'use client'
 
 import { XIcon } from 'lucide-react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ReactNode, SyntheticEvent } from 'react'
 import type Artplayer from 'artplayer'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import ChapterSidebar from './chapter-sidebar'
 import type { NormalizedChapter } from './video-chapters'
 
@@ -11,9 +12,11 @@ export const CHAPTER_OVERLAY_PLUGIN_NAME = 'pixishelfChapterOverlay' as const
 
 const CHAPTER_OVERLAY_LAYER_NAME = 'pixishelf-chapter-overlay'
 const CHAPTER_OVERLAY_OPEN_CLASS = 'pixishelf-chapter-overlay-open'
-const CLOSE_ANIMATION_DURATION_MS = 180
+const CHAPTER_RAIL_OPEN_CLASS = 'pixishelf-chapter-rail-open'
+const CHAPTER_OVERLAY_HISTORY_KEY = '__pixishelf_chapter_overlay__'
+const CLOSE_ANIMATION_DURATION_MS = 220
 
-export type ChapterOverlayMode = 'desktop' | 'mobile'
+export type ChapterOverlayMode = 'desktop' | 'mobile-fullweb' | 'mobile-sheet'
 
 export interface ChapterOverlaySnapshot {
   chapters: NormalizedChapter[]
@@ -54,6 +57,8 @@ function ChapterOverlayView({
   onClose,
   onChapterClick
 }: ChapterOverlayViewProps) {
+  const prefersReducedMotion = useReducedMotion()
+
   if (mode === 'desktop') {
     return (
       <AnimatePresence>
@@ -119,41 +124,27 @@ function ChapterOverlayView({
     )
   }
 
-  return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          key="mobile-chapter-overlay"
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 16 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-          className="pointer-events-auto fixed inset-0 flex flex-col bg-black text-white"
-          style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
-          role="dialog"
-          aria-modal="true"
+  if (mode === 'mobile-sheet') {
+    return (
+      <Sheet open={visible} onOpenChange={(open) => !open && onClose()}>
+        <SheetContent
+          side="bottom"
           aria-label="视频章节"
+          aria-describedby={undefined}
+          closeLabel="关闭章节列表"
+          overlayClassName="z-[200] bg-black/60"
+          className="pixishelf-chapter-sheet z-[200] overflow-hidden rounded-t-2xl border-white/10 bg-neutral-950 px-0 pb-[env(safe-area-inset-bottom)] text-white shadow-2xl [&>button]:right-4 [&>button]:top-4 [&>button]:text-white/75"
           onClick={stopOverlayEvent}
           onDoubleClick={stopOverlayEvent}
           onPointerDown={stopOverlayEvent}
           onPointerMove={stopOverlayEvent}
           onContextMenu={stopOverlayEvent}
         >
-          <div className="flex min-h-14 shrink-0 items-center justify-between border-b border-white/10 px-4">
-            <div>
-              <span className="font-medium">章节</span>
-              <span className="ml-2 text-xs text-white/60">{chapters.length} 段</span>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="关闭章节列表"
-              data-chapter-overlay-close
-              className="rounded-full bg-white/10 p-2 text-white/75 active:bg-white/20"
-            >
-              <XIcon className="h-5 w-5" />
-            </button>
-          </div>
+          <SheetHeader className="min-h-14 shrink-0 justify-center border-b border-white/10 px-4 py-2 text-left">
+            <SheetTitle className="pr-10 text-base text-white">
+              章节 <span className="ml-1 text-xs font-normal text-white/60">{chapters.length} 段</span>
+            </SheetTitle>
+          </SheetHeader>
           <div className="min-h-0 flex-1 overflow-hidden">
             <ChapterSidebar
               chapters={chapters}
@@ -164,19 +155,93 @@ function ChapterOverlayView({
               scrollAreaClassName="h-full"
             />
           </div>
+        </SheetContent>
+      </Sheet>
+    )
+  }
+
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          key="mobile-fullweb-chapter-overlay"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+          className="pointer-events-none absolute inset-0 text-white"
+          role="dialog"
+          aria-modal="false"
+          aria-label="视频章节"
+          onClick={stopOverlayEvent}
+          onDoubleClick={stopOverlayEvent}
+          onPointerDown={stopOverlayEvent}
+          onPointerMove={stopOverlayEvent}
+          onContextMenu={stopOverlayEvent}
+        >
+          <button
+            type="button"
+            aria-label="关闭章节列表并返回视频"
+            className="pointer-events-auto absolute inset-x-0 top-0 border-0 bg-transparent p-0"
+            style={{ bottom: 'var(--pixishelf-chapter-rail-height)' }}
+            onClick={onClose}
+          />
+          <motion.section
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+            className="pointer-events-auto absolute inset-x-0 bottom-0 flex flex-col border-t border-white/10 bg-black/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-18px_48px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+            style={{ height: 'var(--pixishelf-chapter-rail-height)' }}
+          >
+            <div className="flex min-h-11 shrink-0 items-center justify-between px-3">
+              <div>
+                <span className="text-sm font-medium">章节</span>
+                <span className="ml-2 text-xs text-white/60">{chapters.length} 段</span>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="关闭章节列表"
+                data-chapter-overlay-close
+                className="rounded-full bg-white/10 p-2 text-white/75 active:bg-white/20"
+              >
+                <XIcon className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="relative min-h-0 flex-1 overflow-hidden">
+              <ChapterSidebar
+                chapters={chapters}
+                currentChapterId={currentChapterId}
+                onChapterClick={onChapterClick}
+                tone="dark"
+                layout="horizontal"
+                className="h-full rounded-none border-none bg-transparent"
+              />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-black/95 to-transparent"
+              />
+            </div>
+          </motion.section>
         </motion.div>
       )}
     </AnimatePresence>
   )
 }
 
-function getArtVideo(art: Artplayer): HTMLVideoElement | null {
-  const currentArt = art as Artplayer & { video?: HTMLVideoElement; template?: { $video?: HTMLVideoElement } }
-  return currentArt.video ?? currentArt.template?.$video ?? null
-}
-
 function hasLayer(art: Artplayer): boolean {
   return Boolean((art.layers as Artplayer['layers'] & Record<string, unknown>)[CHAPTER_OVERLAY_LAYER_NAME])
+}
+
+function isMobileMode(mode: ChapterOverlayMode | null): mode is Exclude<ChapterOverlayMode, 'desktop'> {
+  return mode === 'mobile-fullweb' || mode === 'mobile-sheet'
+}
+
+function asHistoryRecord(state: unknown): Record<string, unknown> {
+  return typeof state === 'object' && state !== null && !Array.isArray(state)
+    ? (state as Record<string, unknown>)
+    : {}
 }
 
 export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlayPortal) => void) {
@@ -190,13 +255,14 @@ export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlay
     let visible = false
     let destroyed = false
     let activeMode: ChapterOverlayMode | null = null
-    let mobileWasPlaying = false
-    let previousBodyOverflow: string | null = null
     let previousFocusedElement: HTMLElement | null = null
     let closeTimer: ReturnType<typeof setTimeout> | null = null
     let focusTimer: ReturnType<typeof setTimeout> | null = null
+    let historyClosePending = false
 
     const playerElement = art.template.$player
+    const historyToken =
+      typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
     const blockedEvents = ['pointerdown', 'pointermove', 'pointerup', 'click', 'dblclick', 'contextmenu'] as const
     const stopPlayerEvent = (event: Event) => event.stopPropagation()
 
@@ -214,42 +280,53 @@ export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlay
       }
     }
 
-    const restoreBodyOverflow = () => {
-      if (previousBodyOverflow === null) return
-      document.body.style.overflow = previousBodyOverflow
-      previousBodyOverflow = null
+    const isCurrentHistoryEntry = (state: unknown = history.state) =>
+      asHistoryRecord(state)[CHAPTER_OVERLAY_HISTORY_KEY] === historyToken
+
+    const pushHistoryEntry = () => {
+      if (historyClosePending || isCurrentHistoryEntry()) return
+
+      history.pushState(
+        { ...asHistoryRecord(history.state), [CHAPTER_OVERLAY_HISTORY_KEY]: historyToken },
+        '',
+        window.location.href
+      )
+    }
+
+    const consumeHistoryEntry = () => {
+      if (!isCurrentHistoryEntry()) return
+      historyClosePending = true
+      history.back()
     }
 
     const acquireModeEffects = (mode: ChapterOverlayMode) => {
       activeMode = mode
-      if (mode !== 'mobile') return
-
-      const video = getArtVideo(art)
-      mobileWasPlaying = Boolean(video && !video.paused && !video.ended)
-      if (mobileWasPlaying) video?.pause()
-
-      previousBodyOverflow = document.body.style.overflow
-      document.body.style.overflow = 'hidden'
+      playerElement.classList.toggle(CHAPTER_RAIL_OPEN_CLASS, mode === 'mobile-fullweb')
+      if (isMobileMode(mode)) pushHistoryEntry()
     }
 
-    const releaseModeEffects = (restorePlayback: boolean) => {
-      restoreBodyOverflow()
+    const releaseModeEffects = (syncHistory: boolean) => {
+      playerElement.classList.remove(CHAPTER_RAIL_OPEN_CLASS)
+      if (syncHistory && isMobileMode(activeMode)) consumeHistoryEntry()
+      activeMode = null
+    }
 
-      if (activeMode === 'mobile' && mobileWasPlaying && restorePlayback) {
-        getArtVideo(art)?.play().catch(() => undefined)
+    const updateModeEffects = (nextMode: ChapterOverlayMode) => {
+      const previousMode = activeMode
+      playerElement.classList.toggle(CHAPTER_RAIL_OPEN_CLASS, nextMode === 'mobile-fullweb')
+
+      if (!isMobileMode(previousMode) && isMobileMode(nextMode)) {
+        pushHistoryEntry()
+      } else if (isMobileMode(previousMode) && !isMobileMode(nextMode)) {
+        consumeHistoryEntry()
       }
 
-      mobileWasPlaying = false
-      activeMode = null
+      activeMode = nextMode
     }
 
     const seekToChapter = (chapter: NormalizedChapter) => {
       const artDuration = Number.isFinite(art.duration) && art.duration > 0 ? art.duration : null
       art.currentTime = artDuration ? Math.min(Math.max(chapter.start, 0), artDuration) : Math.max(chapter.start, 0)
-
-      if (snapshot.mode === 'mobile') {
-        api.hide()
-      }
     }
 
     const render = () => {
@@ -297,6 +374,18 @@ export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlay
       }
     }
 
+    const handlePopState = (event: PopStateEvent) => {
+      if (historyClosePending) {
+        historyClosePending = false
+        if (visible && isMobileMode(activeMode)) pushHistoryEntry()
+        return
+      }
+
+      if (visible && isMobileMode(activeMode) && !isCurrentHistoryEntry(event.state)) {
+        api.hide()
+      }
+    }
+
     const api: ChapterOverlayPluginApi = {
       name: CHAPTER_OVERLAY_PLUGIN_NAME,
       update(nextSnapshot) {
@@ -312,8 +401,7 @@ export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlay
         }
 
         if (visible && previousMode !== snapshot.mode) {
-          releaseModeEffects(true)
-          acquireModeEffects(snapshot.mode)
+          updateModeEffects(snapshot.mode)
         }
 
         render()
@@ -353,10 +441,12 @@ export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlay
         visible = false
         clearCloseTimer()
         clearFocusTimer()
-        releaseModeEffects(false)
+        releaseModeEffects(true)
         previousFocusedElement = null
         playerElement.classList.remove(CHAPTER_OVERLAY_OPEN_CLASS)
+        playerElement.classList.remove(CHAPTER_RAIL_OPEN_CLASS)
         document.removeEventListener('keydown', handleKeyDown, true)
+        window.removeEventListener('popstate', handlePopState)
         blockedEvents.forEach((eventName) => layerElement?.removeEventListener(eventName, stopPlayerEvent))
 
         if (hasLayer(art)) {
@@ -389,6 +479,7 @@ export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlay
     })
 
     document.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('popstate', handlePopState)
     return api
   }
 }

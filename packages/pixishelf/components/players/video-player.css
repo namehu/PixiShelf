@@ -8,3 +8,85 @@
 .art-video-player.pixishelf-chapter-overlay-open .art-layers {
   z-index: 130;
 }
+
+.art-video-player.pixishelf-chapter-overlay-open .art-video,
+.art-video-player.pixishelf-chapter-overlay-open .art-poster,
+.art-video-player.pixishelf-chapter-overlay-open .art-danmuku {
+  transition: height 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.art-video-player.pixishelf-chapter-overlay-open .art-subtitle {
+  transition: bottom 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.art-video-player.pixishelf-chapter-overlay-open .art-bottom {
+  transition: opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.art-video-player.pixishelf-chapter-rail-open {
+  --pixishelf-chapter-rail-height: calc(clamp(188px, 31dvh, 228px) + env(safe-area-inset-bottom));
+}
+
+.art-video-player.pixishelf-chapter-rail-open .art-video,
+.art-video-player.pixishelf-chapter-rail-open .art-poster,
+.art-video-player.pixishelf-chapter-rail-open .art-danmuku {
+  height: calc(100% - var(--pixishelf-chapter-rail-height));
+}
+
+.art-video-player.pixishelf-chapter-rail-open .art-subtitle {
+  bottom: var(--pixishelf-chapter-rail-height);
+}
+
+.art-video-player.pixishelf-chapter-rail-open .art-bottom {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pixishelf-chapter-card-horizontal {
+  flex-basis: calc((100% - 0.75rem) / 2);
+}
+
+.pixishelf-chapter-sheet {
+  height: min(65dvh, 560px);
+}
+
+@media (orientation: landscape) and (max-width: 1023px) {
+  .art-video-player.pixishelf-chapter-rail-open {
+    --pixishelf-chapter-rail-height: calc(clamp(132px, 38dvh, 156px) + env(safe-area-inset-bottom));
+  }
+
+  .pixishelf-chapter-card-horizontal {
+    flex-basis: clamp(132px, 22vw, 176px);
+  }
+
+  .pixishelf-chapter-card-horizontal [data-chapter-preview] {
+    height: 100%;
+    aspect-ratio: auto;
+  }
+
+  .pixishelf-chapter-card-horizontal [data-chapter-title] {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    min-height: 0;
+    padding: 1.5rem 0.5rem 0.375rem;
+    color: white;
+    background: linear-gradient(to top, rgb(0 0 0 / 88%), transparent);
+  }
+
+  .pixishelf-chapter-card-horizontal [data-chapter-time] {
+    top: 0.25rem;
+    bottom: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .art-video-player.pixishelf-chapter-overlay-open .art-video,
+  .art-video-player.pixishelf-chapter-overlay-open .art-poster,
+  .art-video-player.pixishelf-chapter-overlay-open .art-danmuku,
+  .art-video-player.pixishelf-chapter-overlay-open .art-subtitle,
+  .art-video-player.pixishelf-chapter-overlay-open .art-bottom {
+    transition: none;
+  }
+}

@@ -98,6 +98,7 @@ describe('ArtPlayer chapter overlay plugin', () => {
     vi.useRealTimers()
     document.body.style.overflow = ''
     document.body.replaceChildren()
+    history.replaceState(null, '', window.location.href)
   })
 
   it('keeps its layer inside the player when web fullscreen moves the player to body', () => {
@@ -124,7 +125,7 @@ describe('ArtPlayer chapter overlay plugin', () => {
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     expect(api.visible).toBe(false)
-    vi.advanceTimersByTime(180)
+    vi.advanceTimersByTime(220)
     expect(player.classList.contains('pixishelf-chapter-overlay-open')).toBe(false)
 
     api.destroy()
@@ -133,25 +134,45 @@ describe('ArtPlayer chapter overlay plugin', () => {
     expect(player.contains(portal!.target)).toBe(false)
   })
 
-  it('pauses and restores mobile playback but does not resume while destroying', () => {
+  it('keeps mobile fullweb playback running and reserves the chapter rail area', () => {
     const renderPortal = vi.fn<(portal: ChapterOverlayPortal) => void>()
-    const { art, video } = createArtplayerStub()
+    const { art, player, video } = createArtplayerStub()
     const api = createChapterOverlayPlugin(renderPortal)(art)
     document.body.style.overflow = 'clip'
 
-    api.update({ chapters, currentChapterId: 'chapter-1', mode: 'mobile' })
+    api.update({ chapters, currentChapterId: 'chapter-1', mode: 'mobile-fullweb' })
     api.show()
-    expect(video.pause).toHaveBeenCalledTimes(1)
-    expect(document.body.style.overflow).toBe('hidden')
+    expect(video.pause).not.toHaveBeenCalled()
+    expect(player.classList.contains('pixishelf-chapter-rail-open')).toBe(true)
+    expect(document.body.style.overflow).toBe('clip')
 
     api.hide()
-    expect(video.play).toHaveBeenCalledTimes(1)
+    expect(video.play).not.toHaveBeenCalled()
+    expect(player.classList.contains('pixishelf-chapter-rail-open')).toBe(false)
     expect(document.body.style.overflow).toBe('clip')
-
-    api.show()
     api.destroy()
-    expect(video.play).toHaveBeenCalledTimes(1)
-    expect(document.body.style.overflow).toBe('clip')
+  })
+
+  it('uses a nested mobile history entry so browser back closes chapters first', () => {
+    const renderPortal = vi.fn<(portal: ChapterOverlayPortal) => void>()
+    const { art, player } = createArtplayerStub()
+    const api = createChapterOverlayPlugin(renderPortal)(art)
+    const fullscreenState = { __artplayer_fullscreen_web__: 'fullscreen-token' }
+    history.replaceState(fullscreenState, '', window.location.href)
+
+    api.update({ chapters, currentChapterId: 'chapter-1', mode: 'mobile-fullweb' })
+    api.show()
+
+    expect(history.state).toMatchObject(fullscreenState)
+    expect(history.state).toHaveProperty('__pixishelf_chapter_overlay__')
+
+    history.replaceState(fullscreenState, '', window.location.href)
+    window.dispatchEvent(new PopStateEvent('popstate', { state: fullscreenState }))
+
+    expect(api.visible).toBe(false)
+    expect(player.classList.contains('pixishelf-chapter-rail-open')).toBe(false)
+    expect(history.state).toEqual(fullscreenState)
+    api.destroy()
   })
 
   it('refuses to open without chapters and closes when chapters are cleared', () => {

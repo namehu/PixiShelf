@@ -52,4 +52,24 @@ describe('ChapterSidebar', () => {
 
     expect(onChapterClick).toHaveBeenCalledWith(chapters[1])
   })
+
+  it('renders a horizontally snapping rail while preserving chapter behavior', () => {
+    const onChapterClick = vi.fn()
+    const { container } = render(
+      <ChapterSidebar
+        chapters={chapters}
+        currentChapterId="chapter-2"
+        onChapterClick={onChapterClick}
+        tone="dark"
+        layout="horizontal"
+      />
+    )
+
+    expect(container.querySelector('[data-chapter-layout="horizontal"]')).not.toBeNull()
+    expect(container.querySelector('.snap-x')).not.toBeNull()
+    expect(container.querySelectorAll('.pixishelf-chapter-card-horizontal')).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('button', { name: /Opening/ }))
+    expect(onChapterClick).toHaveBeenCalledWith(chapters[0])
+  })
 })

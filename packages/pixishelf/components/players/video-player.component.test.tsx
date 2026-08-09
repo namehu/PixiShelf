@@ -70,7 +70,7 @@ describe('VideoPlayer component behavior', () => {
     })
   })
 
-  function setupArtplayerMock(videoOverrides: Partial<HTMLVideoElement> = {}) {
+  function setupArtplayerMock(videoOverrides: Partial<HTMLVideoElement> = {}, initialFullscreenWeb = true) {
     const video = {
       ended: false,
       paused: false,
@@ -81,7 +81,7 @@ describe('VideoPlayer component behavior', () => {
       ...videoOverrides
     } as HTMLVideoElement
 
-    let fullscreenWeb = true
+    let fullscreenWeb = initialFullscreenWeb
     const cleanupEvents: string[] = []
     const layerCache = new Map<
       string,
@@ -259,7 +259,7 @@ describe('VideoPlayer component behavior', () => {
     expect(art.currentTime).toBe(0)
   })
 
-  it('opens a full-screen mobile chapter grid, pauses, seeks, closes, and resumes playback', async () => {
+  it('opens a mobile fullweb chapter rail, keeps playback running, and stays open after seeking', async () => {
     videoChaptersMock.useVideoChapters.mockReturnValue({
       chapters: [
         {
@@ -297,7 +297,8 @@ describe('VideoPlayer component behavior', () => {
     const dialog = await screen.findByRole('dialog', { name: '视频章节' })
     expect(dialog.closest('.art-video-player')).toBe(art.template.$player)
     expect(document.body.querySelector(':scope > [role="dialog"][aria-label="视频章节"]')).toBeNull()
-    expect(pause).toHaveBeenCalled()
+    expect(pause).not.toHaveBeenCalled()
+    expect(art.template.$player.classList.contains('pixishelf-chapter-rail-open')).toBe(true)
 
     document.body.append(art.template.$player)
     expect(screen.getByRole('dialog', { name: '视频章节' })).toBe(dialog)
@@ -305,9 +306,58 @@ describe('VideoPlayer component behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: /Middle/ }))
 
     expect(art.currentTime).toBe(20)
-    expect(play).toHaveBeenCalled()
+    expect(play).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: '视频章节' })).toBeDefined()
     expect(outerClick).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭章节列表并返回视频' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '视频章节' })).toBeNull())
+    expect(art.template.$player.classList.contains('pixishelf-chapter-rail-open')).toBe(false)
+    unmount()
+  })
+
+  it('opens a page-level mobile sheet outside fullweb and keeps it open after seeking', async () => {
+    videoChaptersMock.useVideoChapters.mockReturnValue({
+      chapters: [
+        {
+          id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10,
+          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+        },
+        {
+          id: 'chapter-2', index: 2, title: 'Middle', start: 20, end: 30, duration: 10,
+          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+        }
+      ],
+      duration: 30,
+      loading: false,
+      error: null,
+      reload: vi.fn()
+    })
+    const pause = vi.fn()
+    const art = setupArtplayerMock({ paused: false, pause }, false)
+    const { unmount } = render(<VideoPlayer src="/video.mp4" />)
+
+    await waitFor(() => {
+      expect(art.controls.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'chapter-entry' }))
+    })
+    const chapterControl = art.controls.add.mock.calls
+      .map(([control]) => control)
+      .find((control) => control.name === 'chapter-entry')
+
+    act(() => chapterControl.click(null, new Event('click')))
+    const dialog = await screen.findByRole('dialog', { name: /章节/ })
+
+    expect(dialog.closest('.art-video-player')).toBeNull()
+    expect(dialog.classList.contains('pixishelf-chapter-sheet')).toBe(true)
+    expect(pause).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: /Middle/ }))
+
+    expect(art.currentTime).toBe(20)
+    expect(screen.getByRole('dialog', { name: /章节/ })).toBe(dialog)
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭章节列表' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /章节/ })).toBeNull())
     unmount()
   })
 

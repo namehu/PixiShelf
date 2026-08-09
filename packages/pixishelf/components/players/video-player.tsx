@@ -100,6 +100,7 @@ export function VideoPlayer({
   const [error, setError] = useState<string | null>(null)
   const [aspectRatio, setAspectRatio] = useState('16 / 9')
   const [isPlaying, setIsPlaying] = useState(false)
+  const [isFullscreenWeb, setIsFullscreenWeb] = useState(false)
   const [artInstance, setArtInstance] = useState<ArtplayerType | null>(null)
   const [progressPortalTarget, setProgressPortalTarget] = useState<HTMLDivElement | null>(null)
   const [chapterOverlayPortal, setChapterOverlayPortal] = useState<ChapterOverlayPortal | null>(null)
@@ -187,6 +188,7 @@ export function VideoPlayer({
     setLoading(true)
     setAspectRatio('16 / 9')
     setIsPlaying(false)
+    setIsFullscreenWeb(false)
     setArtInstance(null)
     setProgressPortalTarget(null)
     setChapterOverlayPortal(null)
@@ -198,6 +200,7 @@ export function VideoPlayer({
     let active = true
     let instance: ArtplayerType | null = null
     let cleanupPlayer: (() => void) | null = null
+    let handleFullscreenWeb: ((enabled: boolean) => void) | null = null
 
     async function initPlayer() {
       if (!playerContainerRef.current) {
@@ -236,7 +239,13 @@ export function VideoPlayer({
       cleanupPlayer = createArtplayerCleanup(art, playerContainerRef.current)
       chapterOverlayPluginRef.current = getChapterOverlayPlugin(art)
       setArtInstance(art)
+      setIsFullscreenWeb(Boolean(art.fullscreenWeb))
       setProgressPortalTarget(getArtProgress(art))
+
+      handleFullscreenWeb = (enabled: boolean) => {
+        if (active) setIsFullscreenWeb(Boolean(enabled))
+      }
+      art.on('fullscreenWeb', handleFullscreenWeb)
 
       if (!showAudioControls) {
         const player = (art as ArtplayerType & { template?: { $player?: HTMLDivElement } }).template?.$player
@@ -362,7 +371,11 @@ export function VideoPlayer({
     return () => {
       active = false
       setArtInstance(null)
+      setIsFullscreenWeb(false)
       setProgressPortalTarget(null)
+      if (instance && handleFullscreenWeb) {
+        instance.off('fullscreenWeb', handleFullscreenWeb)
+      }
       const chapterOverlayPlugin = chapterOverlayPluginRef.current
       chapterOverlayPluginRef.current = null
       chapterOverlayPlugin?.destroy()
@@ -413,9 +426,9 @@ export function VideoPlayer({
     chapterOverlayPluginRef.current?.update({
       chapters,
       currentChapterId: currentChapter?.id,
-      mode: isDesktop ? 'desktop' : 'mobile'
+      mode: isDesktop ? 'desktop' : isFullscreenWeb ? 'mobile-fullweb' : 'mobile-sheet'
     })
-  }, [artInstance, chapters, currentChapter?.id, isDesktop])
+  }, [artInstance, chapters, currentChapter?.id, isDesktop, isFullscreenWeb])
 
   useEffect(() => {
     if (!artInstance) {
