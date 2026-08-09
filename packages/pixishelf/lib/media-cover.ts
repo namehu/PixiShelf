@@ -1,4 +1,5 @@
 import { isVideoFile } from '@/lib/media'
+import { buildDerivedMediaPublicUrl } from '@/lib/derived-media'
 
 export const VIDEO_POSTER_METADATA_SELECT = {
   posterStatus: true,
@@ -23,13 +24,7 @@ export function buildVideoPosterUrl(metadata?: VideoPosterMetadataLike | null): 
     return null
   }
 
-  const baseUrl = `/_video-posters/${encodeURIComponent(metadata.posterPath)}`
-  if (metadata.posterUpdatedAt == null) {
-    return baseUrl
-  }
-
-  const updatedAt = new Date(metadata.posterUpdatedAt).getTime()
-  return Number.isFinite(updatedAt) ? `${baseUrl}?v=${updatedAt}` : baseUrl
+  return buildDerivedMediaPublicUrl('VIDEO_POSTER', metadata.posterPath, metadata.posterUpdatedAt)
 }
 
 export function isVideoCoverSource(media?: MediaCoverSource | null): boolean {

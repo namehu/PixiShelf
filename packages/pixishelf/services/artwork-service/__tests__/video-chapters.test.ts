@@ -289,7 +289,7 @@ describe('discoverChaptersForVideo', () => {
           chapterOrder: 0,
           chaptersHash: manifestHash,
           status: 'COMPLETED',
-          previewPath: '1-hash-0.webp',
+          previewPath: '1/hash/0.webp',
           captureTime: 1,
           previewUpdatedAt: updatedAt
         },
@@ -308,7 +308,7 @@ describe('discoverChaptersForVideo', () => {
 
     expect(manifest?.chapters[0]).toMatchObject({
       previewStatus: 'COMPLETED',
-      previewUrl: `/_video-chapter-previews/1-hash-0.webp?v=${updatedAt.getTime()}`,
+      previewUrl: `/_video-chapter-previews/1/hash/0.webp?v=${updatedAt.getTime()}`,
       previewCaptureTime: 1,
       previewUpdatedAt: updatedAt.toISOString()
     })

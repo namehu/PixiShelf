@@ -6,9 +6,13 @@ import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import { prisma } from '@/lib/prisma'
 import { VIDEO_EXTENSIONS } from '@/lib/constant'
+import {
+  resolveDerivedMediaStoragePath,
+  VIDEO_POSTER_STORAGE_ROOT
+} from '@/services/derived-media-storage'
 import { resolvePathWithinScanRoot } from '@/services/video-media-probe-service'
 
-const POSTER_ROOT = process.env.VIDEO_POSTER_STORAGE_PATH || path.join(process.cwd(), '.local-data', 'video-posters')
+const POSTER_ROOT = VIDEO_POSTER_STORAGE_ROOT
 const FAILED_SAMPLE_LIMIT = 20
 
 export interface VideoPosterGenerationResult {
@@ -69,7 +73,7 @@ export async function runVideoPosterGenerationJob(options: {
       result.processed += 1
       try {
         const relativePosterPath = getPosterRelativePath(item.imageId, item.image.path)
-        const outputPath = path.join(POSTER_ROOT, relativePosterPath)
+        const outputPath = resolveDerivedMediaStoragePath(POSTER_ROOT, relativePosterPath)
         await prisma.mediaVideoMetadata.update({
           where: { imageId: item.imageId },
           data: { posterStatus: 'GENERATING', posterError: null }
@@ -116,7 +120,7 @@ async function cleanupOrphanedPosters() {
   const entries = await fs.readdir(POSTER_ROOT, { withFileTypes: true }).catch(() => [])
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.webp') || referenced.has(entry.name)) continue
-    await fs.unlink(path.join(POSTER_ROOT, entry.name))
+    await fs.unlink(resolveDerivedMediaStoragePath(POSTER_ROOT, entry.name))
     deleted += 1
   }
   return deleted
@@ -152,7 +156,15 @@ async function markMissingPostersPending() {
   })
   for (const metadata of completed) {
     const posterPath = metadata.posterPath
-    if (!posterPath || (await fs.stat(path.join(POSTER_ROOT, posterPath)).then((stat) => stat.isFile()).catch(() => false))) continue
+    if (
+      !posterPath ||
+      (await fs
+        .stat(resolveDerivedMediaStoragePath(POSTER_ROOT, posterPath))
+        .then((stat) => stat.isFile())
+        .catch(() => false))
+    ) {
+      continue
+    }
     await prisma.mediaVideoMetadata.update({
       where: { imageId: metadata.imageId },
       data: { posterStatus: 'PENDING', posterPath: null, posterUpdatedAt: null, posterError: 'Poster file is missing' }

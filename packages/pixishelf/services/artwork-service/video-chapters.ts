@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { getScanPath } from '@/services/setting.service'
 import { isVideoFile } from '@/lib/media'
 import { prisma } from '@/lib/prisma'
+import { buildDerivedMediaPublicUrl } from '@/lib/derived-media'
 
 const MAX_CHAPTER_MANIFEST_SIZE = 5 * 1024 * 1024
 
@@ -280,8 +281,7 @@ export async function getVideoChapterManifestByImageId(imageId: number): Promise
 }
 
 function buildChapterPreviewUrl(previewPath: string, updatedAt: Date | null) {
-  const baseUrl = `/_video-chapter-previews/${encodeURIComponent(previewPath)}`
-  return updatedAt ? `${baseUrl}?v=${updatedAt.getTime()}` : baseUrl
+  return buildDerivedMediaPublicUrl('VIDEO_CHAPTER_PREVIEW', previewPath, updatedAt)
 }
 
 /**

@@ -11,10 +11,13 @@ import {
   type VideoChapter,
   type VideoChapterManifest
 } from '@/services/artwork-service/video-chapters'
+import {
+  resolveDerivedMediaStoragePath,
+  VIDEO_CHAPTER_PREVIEW_STORAGE_ROOT
+} from '@/services/derived-media-storage'
 import { resolvePathWithinScanRoot } from '@/services/video-media-probe-service'
 
-const PREVIEW_ROOT =
-  process.env.VIDEO_CHAPTER_PREVIEW_STORAGE_PATH || path.join(process.cwd(), '.local-data', 'video-chapter-previews')
+const PREVIEW_ROOT = VIDEO_CHAPTER_PREVIEW_STORAGE_ROOT
 const FAILED_SAMPLE_LIMIT = 20
 const BLACK_FRAME_LUMA_THRESHOLD = 16
 const CAPTURE_EPSILON_SECONDS = 0.05
@@ -111,7 +114,7 @@ export async function runVideoChapterPreviewGenerationJob(options: {
             current.status === 'COMPLETED' &&
             current.chaptersHash === chaptersHash &&
             current.previewPath === expectedPath &&
-            (await isFile(path.join(PREVIEW_ROOT, expectedPath)))
+            (await isFile(resolveDerivedMediaStoragePath(PREVIEW_ROOT, expectedPath)))
         )
 
         workItems.push({
@@ -180,7 +183,7 @@ export async function runVideoChapterPreviewGenerationJob(options: {
     })
 
     try {
-      const outputPath = path.join(PREVIEW_ROOT, item.expectedPath)
+      const outputPath = resolveDerivedMediaStoragePath(PREVIEW_ROOT, item.expectedPath)
       const sourcePath = resolvePathWithinScanRoot(options.scanPath, item.videoPath)
       const capture = await generateRepresentativePreview(sourcePath, outputPath, item.captureTimes, {
         checkCancelled: options.checkCancelled,
@@ -317,7 +320,7 @@ export function calculateFrameLuma(channels: Array<{ mean: number }>): number {
 }
 
 function buildPreviewRelativePath(imageId: number, chaptersHash: string, chapterOrder: number) {
-  return `${imageId}-${chaptersHash.slice(0, 16)}-${chapterOrder}.webp`
+  return `${imageId}/${chaptersHash}/${chapterOrder}.webp`
 }
 
 async function syncImageChapterSummary(
@@ -423,13 +426,13 @@ async function cleanupOrphanedPreviews() {
     select: { previewPath: true }
   })
   const referenced = new Set(rows.flatMap((row) => (row.previewPath ? [row.previewPath] : [])))
-  const entries = await fs.readdir(PREVIEW_ROOT, { withFileTypes: true }).catch(() => [])
+  const { files, directories } = await collectPreviewStorageEntries()
   let deleted = 0
 
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.webp') || referenced.has(entry.name)) continue
+  for (const relativePath of files) {
+    if (!relativePath.endsWith('.webp') || referenced.has(relativePath)) continue
     try {
-      await removeFileWithRetry(path.join(PREVIEW_ROOT, entry.name))
+      await removeFileWithRetry(resolveDerivedMediaStoragePath(PREVIEW_ROOT, relativePath))
       deleted += 1
     } catch (error) {
       // A recently released FFmpeg/Sharp handle can remain busy briefly on Windows. Leave the
@@ -437,7 +440,44 @@ async function cleanupOrphanedPreviews() {
       if (!isRetryableFileLockError(error)) throw error
     }
   }
+
+  for (const relativePath of directories) {
+    try {
+      await retryFileOperation(() => fs.rmdir(resolveDerivedMediaStoragePath(PREVIEW_ROOT, relativePath)))
+    } catch (error) {
+      if (!isIgnorableDirectoryCleanupError(error)) throw error
+    }
+  }
+
   return deleted
+}
+
+async function collectPreviewStorageEntries() {
+  const files: string[] = []
+  const directories: string[] = []
+
+  const visit = async (relativeDirectory = ''): Promise<void> => {
+    const directoryPath = relativeDirectory
+      ? resolveDerivedMediaStoragePath(PREVIEW_ROOT, relativeDirectory)
+      : PREVIEW_ROOT
+    const entries = await fs.readdir(directoryPath, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return []
+      throw error
+    })
+
+    for (const entry of entries) {
+      const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        await visit(relativePath)
+        directories.push(relativePath)
+      } else if (entry.isFile()) {
+        files.push(relativePath)
+      }
+    }
+  }
+
+  await visit()
+  return { files, directories }
 }
 
 async function removeFileWithRetry(filePath: string) {
@@ -463,6 +503,11 @@ async function retryFileOperation<T>(operation: () => Promise<T>): Promise<T> {
 function isRetryableFileLockError(error: unknown) {
   const code = (error as NodeJS.ErrnoException | undefined)?.code
   return code === 'EBUSY' || code === 'EPERM' || code === 'EACCES'
+}
+
+function isIgnorableDirectoryCleanupError(error: unknown) {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code
+  return code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST' || isRetryableFileLockError(error)
 }
 
 function wait(milliseconds: number) {

@@ -12,7 +12,7 @@ const chapters: NormalizedChapter[] = [
     end: 10,
     duration: 10,
     previewStatus: 'COMPLETED',
-    previewUrl: '/_video-chapter-previews/1-hash-0.webp?v=1',
+    previewUrl: '/_video-chapter-previews/1/hash/0.webp?v=1',
     previewCaptureTime: 1,
     previewUpdatedAt: '2026-08-09T00:00:00.000Z'
   },

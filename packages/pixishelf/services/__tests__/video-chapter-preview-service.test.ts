@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
@@ -15,6 +16,7 @@ const {
   readChapterManifestMock,
   readdirMock,
   renameMock,
+  rmdirMock,
   rmMock,
   sharpMock,
   sharpStatsMock,
@@ -34,6 +36,7 @@ const {
   readChapterManifestMock: vi.fn(),
   readdirMock: vi.fn(),
   renameMock: vi.fn(),
+  rmdirMock: vi.fn(),
   rmMock: vi.fn(),
   sharpStatsMock: vi.fn(),
   sharpMock: vi.fn(),
@@ -47,6 +50,7 @@ vi.mock('node:fs/promises', () => ({
   readFile: readFileMock,
   readdir: readdirMock,
   rename: renameMock,
+  rmdir: rmdirMock,
   rm: rmMock,
   stat: statMock
 }))
@@ -113,6 +117,7 @@ describe('video chapter preview service', () => {
     readChapterManifestMock.mockReset().mockResolvedValue(manifest)
     readdirMock.mockReset().mockResolvedValue([])
     renameMock.mockReset().mockResolvedValue(undefined)
+    rmdirMock.mockReset().mockResolvedValue(undefined)
     rmMock.mockReset().mockResolvedValue(undefined)
     statMock.mockReset().mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }))
     sharpStatsMock.mockReset()
@@ -139,13 +144,13 @@ describe('video chapter preview service', () => {
             chapterOrder: 0,
             chaptersHash: '0123456789abcdef-full-hash',
             status: 'COMPLETED',
-            previewPath: '7-0123456789abcdef-0.webp'
+            previewPath: '7/0123456789abcdef-full-hash/0.webp'
           }
         ]
       })
     ])
     statMock.mockResolvedValue({ isFile: () => true })
-    previewFindManyMock.mockResolvedValue([{ previewPath: '7-0123456789abcdef-0.webp' }])
+    previewFindManyMock.mockResolvedValue([{ previewPath: '7/0123456789abcdef-full-hash/0.webp' }])
 
     const result = await runVideoChapterPreviewGenerationJob({ scanPath: 'C:/scan' })
 
@@ -185,7 +190,7 @@ describe('video chapter preview service', () => {
     sharpStatsMock
       .mockResolvedValueOnce({ channels: [{ mean: 0 }, { mean: 0 }, { mean: 0 }] })
       .mockResolvedValueOnce({ channels: [{ mean: 60 }, { mean: 60 }, { mean: 60 }] })
-    previewFindManyMock.mockResolvedValue([{ previewPath: '7-0123456789abcdef-0.webp' }])
+    previewFindManyMock.mockResolvedValue([{ previewPath: '7/0123456789abcdef-full-hash/0.webp' }])
 
     const result = await runVideoChapterPreviewGenerationJob({ scanPath: 'C:/scan' })
 
@@ -197,14 +202,14 @@ describe('video chapter preview service', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'COMPLETED',
-          previewPath: '7-0123456789abcdef-0.webp',
+          previewPath: '7/0123456789abcdef-full-hash/0.webp',
           captureTime: 3
         })
       })
     )
     expect(renameMock).toHaveBeenCalledWith(
       expect.stringContaining('.tmp.webp'),
-      expect.stringContaining('7-0123456789abcdef-0.webp')
+      expect.stringContaining(path.join('7', '0123456789abcdef-full-hash', '0.webp'))
     )
   })
 
@@ -262,7 +267,7 @@ describe('video chapter preview service', () => {
   it('retries a Windows file lock before promoting the temporary frame', async () => {
     imageFindManyMock.mockResolvedValue([video()])
     sharpStatsMock.mockResolvedValue({ channels: [{ mean: 60 }, { mean: 60 }, { mean: 60 }] })
-    previewFindManyMock.mockResolvedValue([{ previewPath: '7-0123456789abcdef-0.webp' }])
+    previewFindManyMock.mockResolvedValue([{ previewPath: '7/0123456789abcdef-full-hash/0.webp' }])
     renameMock
       .mockRejectedValueOnce(Object.assign(new Error('busy'), { code: 'EBUSY' }))
       .mockResolvedValueOnce(undefined)
@@ -282,19 +287,77 @@ describe('video chapter preview service', () => {
             chapterOrder: 0,
             chaptersHash: '0123456789abcdef-full-hash',
             status: 'COMPLETED',
-            previewPath: '7-0123456789abcdef-0.webp'
+            previewPath: '7/0123456789abcdef-full-hash/0.webp'
           }
         ]
       })
     ])
     statMock.mockResolvedValue({ isFile: () => true })
-    previewFindManyMock.mockResolvedValue([{ previewPath: '7-0123456789abcdef-0.webp' }])
-    readdirMock.mockResolvedValue([{ name: 'stale.tmp.webp', isFile: () => true }])
+    previewFindManyMock.mockResolvedValue([{ previewPath: '7/0123456789abcdef-full-hash/0.webp' }])
+    readdirMock.mockResolvedValue([{ name: 'stale.tmp.webp', isDirectory: () => false, isFile: () => true }])
     rmMock.mockRejectedValue(Object.assign(new Error('busy'), { code: 'EBUSY' }))
 
     const result = await runVideoChapterPreviewGenerationJob({ scanPath: 'C:/scan' })
 
     expect(result).toMatchObject({ reused: 1, generated: 0, failed: 0, orphanedFilesDeleted: 0 })
     expect(rmMock).toHaveBeenCalledTimes(6)
+  })
+
+  it('recursively removes unreferenced chapter files and empty hash directories in full mode', async () => {
+    const currentHash = '0123456789abcdef-full-hash'
+    const staleHash = 'stale-full-hash'
+    imageFindManyMock.mockResolvedValue([
+      video({
+        chapterPreviews: [
+          {
+            id: 'preview-1',
+            chapterOrder: 0,
+            chaptersHash: currentHash,
+            status: 'COMPLETED',
+            previewPath: `7/${currentHash}/0.webp`
+          }
+        ]
+      })
+    ])
+    statMock.mockResolvedValue({ isFile: () => true })
+    previewFindManyMock.mockResolvedValue([{ previewPath: `7/${currentHash}/0.webp` }])
+    readdirMock.mockImplementation(async (directoryPath: string) => {
+      const value = String(directoryPath)
+      if (value.endsWith(path.join('chapters', '7', currentHash))) {
+        return [{ name: '0.webp', isDirectory: () => false, isFile: () => true }]
+      }
+      if (value.endsWith(path.join('chapters', '7', staleHash))) {
+        return [{ name: '1.webp', isDirectory: () => false, isFile: () => true }]
+      }
+      if (value.endsWith(path.join('chapters', '7'))) {
+        return [
+          { name: currentHash, isDirectory: () => true, isFile: () => false },
+          { name: staleHash, isDirectory: () => true, isFile: () => false }
+        ]
+      }
+      if (value.endsWith('chapters')) {
+        return [{ name: '7', isDirectory: () => true, isFile: () => false }]
+      }
+      return []
+    })
+    rmdirMock.mockImplementation(async (directoryPath: string) => {
+      const value = String(directoryPath)
+      if (value.endsWith(path.join('7', currentHash)) || value.endsWith(`${path.sep}7`)) {
+        throw Object.assign(new Error('not empty'), { code: 'ENOTEMPTY' })
+      }
+    })
+
+    const result = await runVideoChapterPreviewGenerationJob({ scanPath: 'C:/scan' })
+
+    expect(result).toMatchObject({ reused: 1, generated: 0, orphanedFilesDeleted: 1 })
+    expect(rmMock).toHaveBeenCalledWith(
+      expect.stringContaining(path.join('7', staleHash, '1.webp')),
+      { force: true }
+    )
+    expect(rmMock).not.toHaveBeenCalledWith(
+      expect.stringContaining(path.join('7', currentHash, '0.webp')),
+      expect.anything()
+    )
+    expect(rmdirMock).toHaveBeenCalledWith(expect.stringContaining(path.join('7', staleHash)))
   })
 })

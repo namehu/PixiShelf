@@ -4,16 +4,24 @@ import imgproxyLoader from '@/lib/image-loader'
 describe('imgproxyLoader', () => {
   it('routes generated video posters through ImgProxy', () => {
     expect(imgproxyLoader({ src: '/_video-posters/1-abc.webp?v=1784117706648', width: 640, quality: 80 })).toBe(
-      'http://localhost:5431/_/rs:fit:640:0/q:80/sm:1/plain/local://%2Fvideo-posters%2F1-abc.webp@webp?v=1784117706648'
+      'http://localhost:5431/_/rs:fit:640:0/q:80/sm:1/plain/local://%2Fderived-media%2Fvideo%2Fposters%2F1-abc.webp@webp?v=1784117706648'
     )
   })
 
   it('routes generated video chapter previews through ImgProxy', () => {
     expect(
-      imgproxyLoader({ src: '/_video-chapter-previews/1-hash-0.webp?v=1784117706648', width: 320, quality: 80 })
+      imgproxyLoader({ src: '/_video-chapter-previews/1/hash/0.webp?v=1784117706648', width: 320, quality: 80 })
     ).toBe(
-      'http://localhost:5431/_/rs:fit:320:0/q:80/sm:1/plain/local://%2Fvideo-chapter-previews%2F1-hash-0.webp@webp?v=1784117706648'
+      'http://localhost:5431/_/rs:fit:320:0/q:80/sm:1/plain/local://%2Fderived-media%2Fvideo%2Fchapters%2F1%2Fhash%2F0.webp@webp?v=1784117706648'
     )
+  })
+
+  it('rejects encoded traversal and encoded path separators in derived media URLs', () => {
+    const traversal = '/_video-chapter-previews/1/%2e%2e/secret.webp'
+    const encodedSeparator = '/_video-chapter-previews/1%2Fsecret.webp'
+
+    expect(imgproxyLoader({ src: traversal, width: 320, quality: 80 })).toBe(traversal)
+    expect(imgproxyLoader({ src: encodedSeparator, width: 320, quality: 80 })).toBe(encodedSeparator)
   })
 
   it('outputs jpg for webp and gif sources', () => {

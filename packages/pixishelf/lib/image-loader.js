@@ -1,5 +1,6 @@
 import { isGifFile, isVideoFile, isWebpFile } from './media'
 import { API_IMAGE_PREFIX } from './constant'
+import { isDerivedMediaPublicUrl, resolveDerivedMediaSource } from './derived-media'
 
 // ImgProxy 的服务地址，因为在 Docker Compose 网络中，可以直接用服务名
 // 从浏览器访问时需要用宿主机的 IP 和端口
@@ -7,8 +8,6 @@ const IMGPROXY_URL = process.env.NEXT_PUBLIC_IMGPROXY_URL || 'http://localhost:5
 const THUMBOR_VIDEO_URL = process.env.NEXT_PUBLIC_THUMBOR_VIDEO_URL || 'http://localhost:5433';
 const DEFAULT_IMAGE_OUTPUT_FORMAT = 'webp'
 const STATIC_ANIMATION_THUMBNAIL_FORMAT = 'jpg'
-const VIDEO_POSTER_PREFIX = '/_video-posters/'
-const VIDEO_CHAPTER_PREVIEW_PREFIX = '/_video-chapter-previews/'
 
 /**
  * @typedef {Object} ImgproxyImageOptions
@@ -34,30 +33,20 @@ export default function imgproxyLoader({ src, width, quality, format }) {
     return src
   }
 
-  // 视频封面由 app 写入独立目录，并由 ImgProxy 从 /video-posters 只读处理。
-  if (src.startsWith(VIDEO_POSTER_PREFIX)) {
-    const [encodedPosterPath, query = ''] = src.slice(VIDEO_POSTER_PREFIX.length).split('?')
-    const posterPath = decodeURIComponent(encodedPosterPath)
-    if (!posterPath || posterPath.includes('/') || posterPath.includes('\\')) return src
-    const posterUrl = buildImgproxyImageUrl({ src: `/video-posters/${posterPath}`, width, quality, format: 'webp' })
-    const version = new URLSearchParams(query).get('v')
-    return version ? `${posterUrl}?v=${encodeURIComponent(version)}` : posterUrl
-  }
-
-  // 视频章节截图与封面分目录存储，避免两类派生资源的清理任务互相删除文件。
-  if (src.startsWith(VIDEO_CHAPTER_PREVIEW_PREFIX)) {
-    const [encodedPreviewPath, query = ''] = src.slice(VIDEO_CHAPTER_PREVIEW_PREFIX.length).split('?')
-    const previewPath = decodeURIComponent(encodedPreviewPath)
-    if (!previewPath || previewPath.includes('/') || previewPath.includes('\\')) return src
-    const previewUrl = buildImgproxyImageUrl({
-      src: `/video-chapter-previews/${previewPath}`,
+  // 所有派生图片共用一个 ImgProxy 根挂载；虚拟 URL 前缀保持稳定。
+  const derivedMedia = resolveDerivedMediaSource(src)
+  if (derivedMedia) {
+    const derivedMediaUrl = buildImgproxyImageUrl({
+      src: derivedMedia.imgproxySourcePath,
       width,
       quality,
       format: 'webp'
     })
-    const version = new URLSearchParams(query).get('v')
-    return version ? `${previewUrl}?v=${encodeURIComponent(version)}` : previewUrl
+    return derivedMedia.version
+      ? `${derivedMediaUrl}?v=${encodeURIComponent(derivedMedia.version)}`
+      : derivedMediaUrl
   }
+  if (isDerivedMediaPublicUrl(src)) return src
 
   // 视频截帧用 自定义的Thumbor 组件
   if (isVideoFile(src)) {
