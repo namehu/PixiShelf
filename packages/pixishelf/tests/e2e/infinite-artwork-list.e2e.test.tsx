@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import InfiniteArtworkList from '@/components/artwork/Infinite-artwork-list'
+import InfiniteArtworkList from '@/components/artwork/infinite-artwork-list'
 import { useInView } from 'react-intersection-observer'
 import { useTRPC } from '@/lib/trpc'
 import { useColumns } from '@/hooks/use-columns'
@@ -21,7 +21,7 @@ vi.mock('@/hooks/use-columns', () => ({
 vi.mock('@tanstack/react-virtual', () => ({
   useWindowVirtualizer: vi.fn()
 }))
-vi.mock('@/components/artwork/ArtworkCard', () => ({
+vi.mock('@/components/artwork/artwork-card', () => ({
   default: () => <div data-testid="artwork-card">Card</div>
 }))
 vi.mock('@/components/ui/button', () => ({

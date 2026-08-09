@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ArtistModel } from './models'
 import { dateToString } from './utils'
-import { combinationStaticAvatar, combinationStaticArtistBg } from '@/utils/combinationStatic'
+import { combinationStaticAvatar, combinationStaticArtistBg } from '@/utils/combination-static'
 
 /**
  * Artists Get Schema

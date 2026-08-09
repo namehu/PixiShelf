@@ -52,7 +52,7 @@ import {
   startScanRun,
   updateScanRunItemMedia
 } from '../scan-run-service'
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 
 describe('scan-run-service', () => {
   beforeEach(() => {

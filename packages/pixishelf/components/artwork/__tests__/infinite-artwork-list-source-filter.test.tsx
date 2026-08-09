@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import InfiniteArtworkList from '../Infinite-artwork-list'
-import { ESource } from '@/enums/ESource'
+import InfiniteArtworkList from '../infinite-artwork-list'
+import { ESource } from '@/enums/e-source'
 
 const infiniteQueryOptions = vi.fn(() => ({}))
 

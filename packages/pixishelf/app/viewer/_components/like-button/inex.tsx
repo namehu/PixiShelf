@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Heart } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { useSuperLock } from '@/hooks/useSuperLock'
+import { useSuperLock } from '@/hooks/use-super-lock'
 
 export interface LikeButtonProps {
   liked: boolean

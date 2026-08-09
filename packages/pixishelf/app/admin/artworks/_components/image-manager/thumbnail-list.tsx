@@ -4,13 +4,13 @@ import { useState } from 'react'
 import { Play, ZoomIn } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { formatFileSize } from '@/utils/media'
-import { combinationApiResource } from '@/utils/combinationStatic'
+import { combinationApiResource } from '@/utils/combination-static'
 import { appendCacheKey } from '../utils'
 import { LazyImage } from '../lazy-image'
 import type { ImageListItem } from '../types'
 import { isVideoImageListItem } from './utils'
 import { ImageMediaActions, ImageVideoMetadataEntry } from './columns'
-import MediaThumbnail from '@/components/media/MediaThumbnail'
+import MediaThumbnail from '@/components/media/media-thumbnail'
 
 interface ImageManagerThumbnailListProps {
   imageList: ImageListItem[]

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 
 const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),

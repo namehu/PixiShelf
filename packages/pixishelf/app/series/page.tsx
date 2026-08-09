@@ -1,5 +1,5 @@
 import { getSeriesList } from '@/services/series-service'
-import SeriesCard from './_components/SeriesCard'
+import SeriesCard from './_components/series-card'
 
 export const metadata = {
   title: '系列列表 - PixiShelf'

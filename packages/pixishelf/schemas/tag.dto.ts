@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { TagModel } from './models'
 import { dateToString } from './utils'
-import { combinationStaticTagImage } from '@/utils/combinationStatic'
+import { combinationStaticTagImage } from '@/utils/combination-static'
 import { TAG_SELECT } from './models/tags'
 
 /**

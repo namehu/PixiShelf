@@ -485,7 +485,7 @@ import { z } from 'zod';
 // 3. 内部模块 (按层级顺序)
 import { artworkService } from '@/services/artworkService';
 import { artworkRepository } from '@/lib/repositories/artworkRepository';
-import { ArtworkCard } from '@/components/artwork/ArtworkCard';
+import { ArtworkCard } from '@/components/artwork/artwork-card';
 import { Button } from '@/components/ui/button';
 
 // 4. 类型导入 (单独分组)

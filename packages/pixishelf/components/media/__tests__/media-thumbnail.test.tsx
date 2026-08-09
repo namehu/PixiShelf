@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import MediaThumbnail from '@/components/media/MediaThumbnail'
+import MediaThumbnail from '@/components/media/media-thumbnail'
 
 vi.mock('next/image', () => ({
   default: ({ fill, priority, ...props }: any) => (

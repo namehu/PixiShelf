@@ -1,4 +1,4 @@
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
 

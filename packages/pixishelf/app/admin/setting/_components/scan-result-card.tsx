@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { useScanStore } from '@/store/scanStore'
+import { useScanStore } from '@/store/scan-store'
 import { SCard } from '@/components/shared/s-card'
 import { Button } from '@/components/ui/button'
 import { Bug, CheckCircle2, XCircle } from 'lucide-react'

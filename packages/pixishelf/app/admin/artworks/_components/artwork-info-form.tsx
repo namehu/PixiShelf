@@ -11,11 +11,11 @@ import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ProDatePicker } from '@/components/shared/pro-date-picker'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
-import { useRecentTags } from '@/store/admin/useRecentTags'
+import { useRecentTags } from '@/store/admin/use-recent-tags'
 import { RecentTagsList } from './recent-tags-list'
 import { Save } from 'lucide-react'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 
 export interface TagItem {
   id: number

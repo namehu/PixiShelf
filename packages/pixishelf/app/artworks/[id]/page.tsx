@@ -1,4 +1,4 @@
-import { ArtistAvatar } from '@/components/artwork/ArtistAvatar'
+import { ArtistAvatar } from '@/components/artwork/artist-avatar'
 import TagArea from './_components/tag-area'
 import ArtworkImages from './_components/artwork-images'
 import ArtworkDes from './_components/artwork-des'

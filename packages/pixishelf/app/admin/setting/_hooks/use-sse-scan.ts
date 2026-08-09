@@ -2,7 +2,7 @@ import React from 'react'
 import { toast } from 'sonner'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { ScanResult, ScanProgress } from '@/types'
-import { useScanStore } from '@/store/scanStore'
+import { useScanStore } from '@/store/scan-store'
 import { useLogger } from '@/hooks/use-logger'
 import { formatScanHttpErrorText } from '@/services/scan-service/scan-errors'
 

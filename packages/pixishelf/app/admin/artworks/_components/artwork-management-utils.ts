@@ -1,5 +1,5 @@
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '@/lib/constant'
-import { OSource } from '@/enums/ESource'
+import { OSource } from '@/enums/e-source'
 import type {
   ArtworkManagementSearchState,
   ArtworkSearchPayload,

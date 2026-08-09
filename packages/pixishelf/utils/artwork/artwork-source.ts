@@ -1,4 +1,4 @@
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
 
 export function isLocalDirectoryArtworkSource(source: ArtworkSource) {

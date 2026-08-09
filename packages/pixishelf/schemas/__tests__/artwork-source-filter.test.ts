@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ArtworksInfiniteQuerySchema } from '../artwork.dto'
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 
 describe('ArtworksInfiniteQuerySchema sources', () => {
   it('parses comma-separated artwork sources', () => {

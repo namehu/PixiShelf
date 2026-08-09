@@ -3,7 +3,7 @@ import { MediaTypeFilter, SortOption } from '@/types'
 import { ArtworkModel, ArtworkSourceEnum, ImageModel, MediaProbeStatusEnum, TagModel } from './models'
 import { dateToString, nullableDateToString } from './utils'
 import { ArtistResponseDto } from './artist.dto'
-import { EMediaType } from '@/enums/EMediaType'
+import { EMediaType } from '@/enums/e-media-type'
 import { MEDIA_EXTENSIONS } from '@/lib/constant'
 
 const SUPPORTED_MEDIA_EXTENSION_SET = new Set(MEDIA_EXTENSIONS)

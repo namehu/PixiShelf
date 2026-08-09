@@ -3,7 +3,7 @@ import logger from '@/lib/logger'
 import type { ScanResult } from '@/types'
 import { Prisma, ScanRunItemAction, ScanRunItemStatus, ScanRunMode, ScanRunStatus, ScanRunType } from '@prisma/client'
 import type { ScanAuditItemInput } from './scan-service/types'
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
 
 const DEFAULT_ITEM_BATCH_SIZE = 200

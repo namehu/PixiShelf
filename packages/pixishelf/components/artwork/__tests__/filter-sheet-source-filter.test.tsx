@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FilterSheet } from '../filter-sheet'
-import { ESource, OSource } from '@/enums/ESource'
+import { ESource, OSource } from '@/enums/e-source'
 import type { ReactNode } from 'react'
 
 vi.mock('@/components/shared/s-sheet', () => ({
@@ -29,11 +29,11 @@ vi.mock('@/components/shared/date-range-picker', () => ({
   DatePickerRange: () => <div />
 }))
 
-vi.mock('@/components/ui/SortControl', () => ({
+vi.mock('@/components/ui/sort-control', () => ({
   SortControl: () => <div />
 }))
 
-vi.mock('@/components/ui/MediaTypeFilter', () => ({
+vi.mock('@/components/ui/media-type-filter', () => ({
   MediaTypeFilter: () => <div />
 }))
 

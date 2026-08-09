@@ -7,7 +7,7 @@ import fs from 'fs/promises'
 import logger from '@/lib/logger'
 import { generateLocalExternalId } from './artwork-service/utils'
 import { syncMediaDerivedTagsForArtworks } from './media-derived-tag-service'
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 import { ScanRunMode, ScanRunType } from '@prisma/client'
 import {
   appendScanRunItems,
@@ -18,7 +18,7 @@ import {
 } from './scan-run-service'
 import { toDatabaseImageSize } from '@/utils/image-size'
 import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
-import { EMediaAnimationStatus } from '@/enums/EMediaAnimationStatus'
+import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 
 /**
  * 批量创建作品

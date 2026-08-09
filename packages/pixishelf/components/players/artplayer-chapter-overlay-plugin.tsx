@@ -4,7 +4,7 @@ import { XIcon } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import type { ReactNode, SyntheticEvent } from 'react'
 import type Artplayer from 'artplayer'
-import ChapterSidebar from './ChapterSidebar'
+import ChapterSidebar from './chapter-sidebar'
 import type { NormalizedChapter } from './video-chapters'
 
 export const CHAPTER_OVERLAY_PLUGIN_NAME = 'pixishelfChapterOverlay' as const

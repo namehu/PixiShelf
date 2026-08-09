@@ -3,7 +3,7 @@
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { ChevronLeftIcon, FullscreenIcon } from 'lucide-react'
 import MediaCounter from './media-counter'
-import { useArtworkStore } from '@/store/useArtworkStore'
+import { useArtworkStore } from '@/store/use-artwork-store'
 import { useEffect, useMemo } from 'react'
 import { getMediaInfo } from '@/lib/media'
 import { useRouter } from 'next/navigation'

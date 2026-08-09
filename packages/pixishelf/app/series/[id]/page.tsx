@@ -1,7 +1,7 @@
 import { getSeriesDetail } from '@/services/series-service'
 import { notFound } from 'next/navigation'
-import ArtworkCard from '@/components/artwork/ArtworkCard'
-import MediaThumbnail from '@/components/media/MediaThumbnail'
+import ArtworkCard from '@/components/artwork/artwork-card'
+import MediaThumbnail from '@/components/media/media-thumbnail'
 import PageToolbar from '@/components/layout/page-toolbar'
 import PageBackButton from '@/components/layout/page-back-button'
 

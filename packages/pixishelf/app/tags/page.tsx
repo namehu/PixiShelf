@@ -1,6 +1,6 @@
 import React from 'react'
 import { Metadata } from 'next'
-import TagExplorer from './_components/TagExplorer'
+import TagExplorer from './_components/tag-explorer'
 
 export const metadata: Metadata = {
   title: '标签广场 - PixiShelf',

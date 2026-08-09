@@ -1,11 +1,11 @@
 import { getRecommendedArtworks, getRecentArtworks } from '@/services/artwork-service'
 import { getDashboardArtists } from '@/services/artist-service'
-import RecentArtists from './_components/RecentArtists'
+import RecentArtists from './_components/recent-artists'
 import Link from 'next/link'
 import { ROUTES } from '@/lib/constants'
-import ArtworkGrid from './_components/ArtworkGrid'
+import ArtworkGrid from './_components/artwork-grid'
 import { Button } from '@/components/ui/button'
-import RecommendedArtworkSection from './_components/RecommendedArtworkSection'
+import RecommendedArtworkSection from './_components/recommended-artwork-section'
 
 // export const dynamic = 'force-dynamic'
 export const revalidate = 300

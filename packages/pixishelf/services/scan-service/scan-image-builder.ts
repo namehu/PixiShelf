@@ -1,6 +1,6 @@
 import { isVideoFile } from '@/lib/media'
 import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
-import { EMediaAnimationStatus } from '@/enums/EMediaAnimationStatus'
+import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 import type { MediaType } from '@prisma/client'
 import { discoverChaptersForVideoInScanRoot } from '@/services/artwork-service/video-chapters'
 import { MediaFileInfo } from './media-collector'

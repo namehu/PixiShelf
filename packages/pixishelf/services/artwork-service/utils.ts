@@ -8,7 +8,7 @@ import { normalizeImageSizeField } from '@/utils/image-size'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import { buildVideoPosterUrl } from '@/lib/media-cover'
-import { EMediaAnimationStatus } from '@/enums/EMediaAnimationStatus'
+import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 
 dayjs.extend(utc)
 

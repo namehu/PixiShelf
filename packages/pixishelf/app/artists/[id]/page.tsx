@@ -1,4 +1,4 @@
-import ArtistDetailPage from './_components/Detail'
+import ArtistDetailPage from './_components/detail'
 import { getArtistById } from '@/services/artist-service'
 import { notFound } from 'next/navigation'
 

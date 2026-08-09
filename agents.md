@@ -89,6 +89,8 @@ pnpm dev
 ## Coding Notes
 
 - The main app uses Next.js App Router, React, TypeScript, Prisma, Tailwind CSS, Radix UI, TanStack Query, Zustand, Zod, and lucide-react.
+- Every ordinary file and directory name under `packages/pixishelf` must use lowercase kebab-case. Do not introduce uppercase letters, PascalCase, camelCase, or snake_case in paths; this also applies to component files, hooks, stores, tests, documentation, and Next.js dynamic route segment names. Framework or tooling syntax such as `_components`, `__tests__`, `[id]`, and filename suffixes like `.test.ts` remains allowed, but its words must stay lowercase.
+- Keep in-code identifiers in their normal TypeScript conventions (for example, PascalCase React components and camelCase hooks); the kebab-case rule applies to filesystem paths. Before finishing a change, run `rg --files packages/pixishelf | rg '[A-Z]'` and resolve every result.
 - Prefer existing components and patterns under `packages/pixishelf/src` before adding new abstractions.
 - Use Prisma and typed data access instead of ad hoc SQL/string parsing where possible.
 - Use Zod or existing validation helpers for runtime input validation.

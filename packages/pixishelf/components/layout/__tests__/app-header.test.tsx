@@ -15,7 +15,7 @@ vi.mock('@/components/auth', () => ({
   useAuth: () => ({ logout: vi.fn() })
 }))
 
-vi.mock('../UserMenu', () => ({
+vi.mock('../user-menu', () => ({
   default: () => <div data-testid="user-menu">账户菜单</div>
 }))
 

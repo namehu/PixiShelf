@@ -14,7 +14,7 @@ import {
   type SaveLocalImportArtistMappingsInput
 } from '@/schemas/local-import.dto'
 import { discoverLocalImports } from './discovery'
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 
 const MAX_ERRORS = 200
 

@@ -3,7 +3,7 @@
 import React from 'react'
 import { Badge } from '@/components/ui/badge'
 import { X } from 'lucide-react'
-import { useRecentTags, TagOption } from '@/store/admin/useRecentTags'
+import { useRecentTags, TagOption } from '@/store/admin/use-recent-tags'
 
 interface RecentTagsListProps {
   /** 当前已选中的标签值列表，用于去重判断 */

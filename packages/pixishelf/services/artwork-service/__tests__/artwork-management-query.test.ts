@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { getArtworksList } from '..'
 import { buildArtworkWhereClause } from '../query-builder'
 import { ArtworksInfiniteQuerySchema } from '../../../schemas/artwork.dto'
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 
 // Mock server-only to avoid errors in test environment
 vi.mock('server-only', () => ({}))

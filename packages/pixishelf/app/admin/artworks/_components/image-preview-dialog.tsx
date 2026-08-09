@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { appendCacheKey } from './utils'
 import { ImageListItem } from './types'
-import MediaThumbnail from '@/components/media/MediaThumbnail'
+import MediaThumbnail from '@/components/media/media-thumbnail'
 import { isVideoCoverSource } from '@/lib/media-cover'
 
 interface ImagePreviewDialogProps {

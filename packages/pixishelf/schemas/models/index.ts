@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 import { toApiImageSize } from '@/utils/image-size'
 
 // ==========================================

@@ -6,7 +6,7 @@ import { syncMediaDerivedTagForArtwork } from '@/services/media-derived-tag-serv
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { normalizeImageSizeField, toDatabaseImageSize } from '@/utils/image-size'
 import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
-import { EMediaAnimationStatus } from '@/enums/EMediaAnimationStatus'
+import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 
 export interface ArtworkImageTransactionClient {
   image: {

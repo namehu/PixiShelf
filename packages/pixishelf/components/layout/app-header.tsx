@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { ROUTES } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import PLogo from './p-logo'
-import UserMenu from './UserMenu'
+import UserMenu from './user-menu'
 import MobileNavigationMenu from './mobile-navigation-menu'
 import {
   ADMIN_NAVIGATION_ITEM,

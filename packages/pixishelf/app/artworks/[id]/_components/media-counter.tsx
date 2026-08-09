@@ -1,7 +1,7 @@
 'use client'
 
 import { ImageIcon, VideoIcon } from 'lucide-react'
-import { useArtworkStore } from '@/store/useArtworkStore'
+import { useArtworkStore } from '@/store/use-artwork-store'
 import { useShallow } from 'zustand/react/shallow'
 
 interface MediaCounterProps {

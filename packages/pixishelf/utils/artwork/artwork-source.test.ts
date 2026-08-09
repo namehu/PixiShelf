@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ESource } from '@/enums/ESource'
+import { ESource } from '@/enums/e-source'
 import { isLocalDirectoryArtworkSource } from './artwork-source'
 
 describe('isLocalDirectoryArtworkSource', () => {

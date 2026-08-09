@@ -6,4 +6,4 @@ export {
   useArtworkDisplayMode,
   usePreferredTags,
   useArtworkMediaAnchorInterval
-} from './UserSettingProvider'
+} from './user-setting-provider'

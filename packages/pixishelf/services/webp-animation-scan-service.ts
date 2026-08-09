@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises'
 import path from 'path'
 import sharp from 'sharp'
 import { prisma } from '@/lib/prisma'
-import { EMediaAnimationStatus } from '@/enums/EMediaAnimationStatus'
+import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 import { getFileExtension } from '@/lib/media'
 
 const ANIMATION_SCAN_BATCH_SIZE = 20

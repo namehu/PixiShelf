@@ -26,7 +26,7 @@ vi.mock('sharp', () => ({
   default: sharpMock
 }))
 
-import { EMediaAnimationStatus } from '@/enums/EMediaAnimationStatus'
+import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 import { detectAnimatedImage, runWebpAnimationScanJob } from '../webp-animation-scan-service'
 
 const animationPathFilters = ['.webp', '.gif', '.png', '.apng'].map((extension) => ({

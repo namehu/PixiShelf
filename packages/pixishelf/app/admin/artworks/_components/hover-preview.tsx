@@ -3,7 +3,7 @@
 import { createPortal } from 'react-dom'
 import { appendCacheKey } from './utils'
 import type { ImageListItem } from './types'
-import MediaThumbnail from '@/components/media/MediaThumbnail'
+import MediaThumbnail from '@/components/media/media-thumbnail'
 import { isVideoCoverSource } from '@/lib/media-cover'
 
 export const HoverPreview = ({
