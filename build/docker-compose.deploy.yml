@@ -36,6 +36,8 @@ services:
     environment:
       # 覆盖生产环境特定配置
       NODE_ENV: production
+      # 固定应用在容器内的派生媒体写入目录，避免受 Next.js 运行时工作目录影响
+      DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
     volumes:
       # 挂载图片目录 - 根据实际需要调整路径
