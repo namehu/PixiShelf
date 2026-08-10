@@ -3,7 +3,7 @@
 import { RandomImageItem } from '@/types/images'
 import { Eye, MoreHorizontal } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback, type ReactNode } from 'react'
 import { animate, motion, useMotionValue, useTransform, type PanInfo } from 'framer-motion'
 import { toast } from 'sonner'
 import TagsPanel from './tags-panel'
@@ -20,6 +20,7 @@ import { toggleLikeAction } from '@/actions/like-action'
 interface ImageOverlayProps {
   isActive: boolean
   image: RandomImageItem
+  mediaControls?: ReactNode
 }
 
 const CLEAR_DRAG_DISTANCE = 160
@@ -30,7 +31,7 @@ const CLEAR_TRIGGER_VELOCITY = 450
  * 图片覆盖层组件
  * 显示图片元信息和操作按钮，集成抖音风格侧边栏
  */
-export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
+export default function ImageOverlay({ isActive, image, mediaControls }: ImageOverlayProps) {
   const { id, author, createdAt, title, description, tags = [] } = image
   const router = useRouter()
 
@@ -271,6 +272,7 @@ export default function ImageOverlay({ isActive, image }: ImageOverlayProps) {
             isChromeHidden ? 'pointer-events-none' : 'pointer-events-auto'
           }`}
         >
+          {mediaControls}
           <div className="text-white">
             {/* 图片标题 */}
             <h3

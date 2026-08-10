@@ -9,6 +9,15 @@ export interface RandomImagesResponse {
   nextPage: number | null
 }
 
+export interface ViewerMediaItem {
+  key: string
+  url: string
+  mediaType: MediaType
+  chaptersUrl?: string | null
+  hasAudio?: boolean | null
+  duration?: number | null
+}
+
 /**
  * 随机图片类型
  */
@@ -20,10 +29,7 @@ export interface RandomImageItem {
   description?: string
   imageUrl: string
   mediaType: MediaType
-  images: {
-    key: string
-    url: string
-  }[]
+  images: ViewerMediaItem[]
   author: {
     id: number
     userId: string

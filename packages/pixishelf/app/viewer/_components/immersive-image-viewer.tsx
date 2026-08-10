@@ -4,7 +4,7 @@ import { Swiper, SwiperSlide } from 'swiper/react'
 import { Mousewheel, Keyboard } from 'swiper/modules'
 import ImageSlide from './image-slide'
 import { Eye, EyeOff } from 'lucide-react'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Swiper as SwiperType } from 'swiper'
 
@@ -16,6 +16,85 @@ import { RandomImageItem } from '@/types/images'
 import { useViewerStore } from '@/store/viewer-store'
 import { Placeholder } from './placeholder'
 import { useShallow } from 'zustand/react/shallow'
+import type { ViewerAudioPreference } from './viewer-video-controls'
+
+const VIEWER_CHAPTER_HISTORY_KEY = '__pixishelf_viewer_chapters__'
+
+function asHistoryRecord(state: unknown): Record<string, unknown> {
+  return typeof state === 'object' && state !== null && !Array.isArray(state)
+    ? (state as Record<string, unknown>)
+    : {}
+}
+
+function useChapterPanelHistory() {
+  const [open, setOpenState] = useState(false)
+  const openRef = useRef(false)
+  const tokenRef = useRef<string | null>(null)
+  const historyClosePendingRef = useRef(false)
+
+  const getToken = useCallback(() => {
+    if (!tokenRef.current) {
+      tokenRef.current =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`
+    }
+    return tokenRef.current
+  }, [])
+
+  const isCurrentEntry = useCallback(
+    (state: unknown = history.state) => asHistoryRecord(state)[VIEWER_CHAPTER_HISTORY_KEY] === getToken(),
+    [getToken]
+  )
+
+  const pushEntry = useCallback(() => {
+    if (typeof window === 'undefined' || historyClosePendingRef.current || isCurrentEntry()) return
+
+    history.pushState(
+      { ...asHistoryRecord(history.state), [VIEWER_CHAPTER_HISTORY_KEY]: getToken() },
+      '',
+      window.location.href
+    )
+  }, [getToken, isCurrentEntry])
+
+  const setOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (openRef.current === nextOpen) return
+
+      openRef.current = nextOpen
+      setOpenState(nextOpen)
+
+      if (typeof window === 'undefined') return
+      if (nextOpen) {
+        pushEntry()
+      } else if (isCurrentEntry()) {
+        historyClosePendingRef.current = true
+        history.back()
+      }
+    },
+    [isCurrentEntry, pushEntry]
+  )
+
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      if (historyClosePendingRef.current) {
+        historyClosePendingRef.current = false
+        if (openRef.current) pushEntry()
+        return
+      }
+
+      if (openRef.current && !isCurrentEntry(event.state)) {
+        openRef.current = false
+        setOpenState(false)
+      }
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [isCurrentEntry, pushEntry])
+
+  return [open, setOpen] as const
+}
 
 interface ImmersiveImageViewerProps {
   initialImages: RandomImageItem[]
@@ -35,6 +114,8 @@ export default function ImmersiveImageViewer({
   hasMore,
   isLoading
 }: ImmersiveImageViewerProps) {
+  const [audioPreference, setAudioPreference] = useState<ViewerAudioPreference>({ muted: true, volume: 1 })
+  const [chapterPanelOpen, setChapterPanelOpen] = useChapterPanelHistory()
   const { setVerticalIndex, verticalIndex, isChromeHidden, setChromeHidden } = useViewerStore(
     useShallow((state) => ({
       verticalIndex: state.verticalIndex,
@@ -47,9 +128,10 @@ export default function ImmersiveImageViewer({
   // 处理slide变化
   const handleSlideChange = useCallback(
     (swiper: SwiperType) => {
+      setChapterPanelOpen(false)
       setVerticalIndex(swiper.activeIndex)
     },
-    [setVerticalIndex]
+    [setChapterPanelOpen, setVerticalIndex]
   )
 
   const handleToggleChrome = useCallback(() => {
@@ -63,9 +145,11 @@ export default function ImmersiveImageViewer({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
-      const tagName = target?.tagName
+      const isInteractiveTarget = target?.closest(
+        'button, input, select, textarea, [role="slider"], [role="dialog"], [data-viewer-control]'
+      )
 
-      if (target?.isContentEditable || tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
+      if (chapterPanelOpen || target?.isContentEditable || isInteractiveTarget) {
         return
       }
 
@@ -77,7 +161,7 @@ export default function ImmersiveImageViewer({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleToggleChrome])
+  }, [chapterPanelOpen, handleToggleChrome])
 
   return (
     // PC端适配容器
@@ -96,9 +180,10 @@ export default function ImmersiveImageViewer({
           initialSlide={verticalIndex}
           direction="vertical"
           className="h-full w-full"
+          allowTouchMove={!chapterPanelOpen}
           // PC配置
           mousewheel={true}
-          keyboard={{ enabled: true }}
+          keyboard={{ enabled: !chapterPanelOpen }}
           modules={[Mousewheel, Keyboard]}
           // 初始索引配置
           slidesPerView={1}
@@ -128,7 +213,15 @@ export default function ImmersiveImageViewer({
               <SwiperSlide key={image.key} className=" flex w-full h-ful items-center justify-center overflow-hidden">
                 <div className="relative w-full h-full bg-black">
                   {shouldRender ? (
-                    <ImageSlide isActive={isActive} isPreloading={isPreloading} image={image} />
+                    <ImageSlide
+                      isActive={isActive}
+                      isPreloading={isPreloading}
+                      image={image}
+                      audioPreference={audioPreference}
+                      onAudioPreferenceChange={setAudioPreference}
+                      chapterPanelOpen={chapterPanelOpen}
+                      onChapterPanelOpenChange={setChapterPanelOpen}
+                    />
                   ) : (
                     <Placeholder />
                   )}

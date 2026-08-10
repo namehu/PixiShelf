@@ -685,15 +685,24 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
   }
 }
 
-function toViewerImageItem(artwork: any, likeStatusMap: Record<number, boolean>): RandomImageItem {
+export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, boolean>): RandomImageItem {
   const images = (artwork.images || []).map((img: any) => {
     // 沉浸浏览需要真实视频地址供播放器播放，封面仅用于列表卡片。
-    const url = img.mediaType === 'video' ? combinationApiResource(img.path) : img.path
-    return { key: guid(), url }
+    const mediaType = img.mediaType === 'video' || isVideoFile(img.path ?? '') ? MediaType.VIDEO : MediaType.IMAGE
+    const url = mediaType === MediaType.VIDEO ? combinationApiResource(img.path) : img.path
+
+    return {
+      key: guid(),
+      url,
+      mediaType,
+      chaptersUrl: mediaType === MediaType.VIDEO ? (img.chaptersUrl ?? null) : null,
+      hasAudio: mediaType === MediaType.VIDEO ? (img.hasAudio ?? null) : null,
+      duration: mediaType === MediaType.VIDEO ? (img.duration ?? null) : null
+    }
   })
 
   const imageUrl = images[0]?.url ?? ''
-  const isCoverVideo = artwork.images?.[0]?.mediaType === 'video' || isVideoFile(artwork.images?.[0]?.path ?? '')
+  const isCoverVideo = images[0]?.mediaType === MediaType.VIDEO
   const artist = artwork.artist
 
   return {
