@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useEffect } from 'react'
 
 interface UseLongPressOptions {
   onLongPress: (event: React.MouseEvent | React.TouchEvent) => void
@@ -62,12 +62,19 @@ export function useLongPress({ onLongPress, onClick, threshold = 500 }: UseLongP
     }
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (timeout.current) clearTimeout(timeout.current)
+    }
+  }, [])
+
   return {
     onMouseDown: start,
     onTouchStart: start,
     onMouseUp: clear,
     onMouseLeave: (e: React.MouseEvent) => clear(e, false),
     onTouchEnd: clear,
+    onTouchCancel: (e: React.TouchEvent) => clear(e, false),
     onTouchMove: onTouchMove,
     onContextMenu: (e: React.MouseEvent) => {
       e.preventDefault()

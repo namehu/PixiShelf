@@ -41,6 +41,25 @@ vi.mock('./lazy-media', () => ({
   )
 }))
 
+vi.mock('./adaptive-media-preview', () => ({
+  default: ({
+    initialIndex,
+    onClose
+  }: {
+    initialIndex: number
+    onClose: (finalIndex: number) => void
+  }) => (
+    <div data-testid="adaptive-media-preview" data-initial-index={initialIndex}>
+      <button type="button" onClick={() => onClose(initialIndex)}>
+        关闭适配预览
+      </button>
+      <button type="button" onClick={() => onClose(24)}>
+        关闭并返回第 25 张
+      </button>
+    </div>
+  )
+}))
+
 global.ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}
@@ -169,17 +188,18 @@ describe('ArtworkImages', () => {
     expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
   })
 
-  it('opens the full-size preview menu on image long press', () => {
+  it('opens adaptive and original preview actions on image long press', () => {
     vi.useFakeTimers()
     render(<ArtworkImages images={generateImages(1)} artworkId={1} />)
 
     fireEvent.mouseDown(screen.getByTestId('lazy-media'))
     act(() => vi.advanceTimersByTime(500))
 
-    expect(screen.getByText('预览完整尺寸')).toBeTruthy()
+    expect(screen.getByText('适配尺寸预览')).toBeTruthy()
+    expect(screen.getByText('查看原始文件')).toBeTruthy()
   })
 
-  it('does not open the full-size preview menu on video long press', () => {
+  it('offers adaptive preview without an original-file action on video long press', () => {
     vi.useFakeTimers()
     const images = generateImages(1).map((image) => ({
       ...image,
@@ -191,7 +211,66 @@ describe('ArtworkImages', () => {
     fireEvent.mouseDown(screen.getByTestId('lazy-media'))
     act(() => vi.advanceTimersByTime(500))
 
-    expect(screen.queryByText('预览完整尺寸')).toBeNull()
+    expect(screen.getByText('适配尺寸预览')).toBeTruthy()
+    expect(screen.queryByText('查看原始文件')).toBeNull()
+  })
+
+  it('opens adaptive preview on a regular image click without opening the long-press menu', () => {
+    render(<ArtworkImages images={generateImages(2)} artworkId={1} />)
+
+    const firstMedia = screen.getAllByTestId('lazy-media')[0]!
+    fireEvent.mouseDown(firstMedia)
+    fireEvent.mouseUp(firstMedia)
+
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('0')
+    expect(screen.queryByText('查看原始文件')).toBeNull()
+  })
+
+  it('leaves WebP clicks to the animation player even when animation metadata is pending', () => {
+    const images = generateImages(1).map((image) => ({
+      ...image,
+      path: '/path/to/animation.webp',
+      isAnimated: undefined
+    }))
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    const webpMedia = screen.getByTestId('lazy-media')
+    fireEvent.mouseDown(webpMedia)
+    fireEvent.mouseUp(webpMedia)
+    fireEvent.click(webpMedia)
+
+    expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
+  })
+
+  it('cancels both click preview and long press when the finger scrolls', () => {
+    vi.useFakeTimers()
+    render(<ArtworkImages images={generateImages(2)} artworkId={1} />)
+
+    const firstMedia = screen.getAllByTestId('lazy-media')[0]!
+    fireEvent.touchStart(firstMedia, { touches: [{ clientX: 10, clientY: 10 }] })
+    fireEvent.touchMove(firstMedia, { touches: [{ clientX: 10, clientY: 30 }] })
+    act(() => vi.advanceTimersByTime(600))
+    fireEvent.touchEnd(firstMedia)
+
+    expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
+    expect(screen.queryByText('适配尺寸预览')).toBeNull()
+  })
+
+  it('expands and restores the virtual list to the final previewed media', async () => {
+    render(<ArtworkImages images={generateImages(25)} artworkId={1} />)
+
+    const firstMedia = screen.getAllByTestId('lazy-media')[0]!
+    fireEvent.mouseDown(firstMedia)
+    fireEvent.mouseUp(firstMedia)
+    fireEvent.click(screen.getByRole('button', { name: '关闭并返回第 25 张' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('true')
+      expect(virtualizerMocks.scrollToIndex).toHaveBeenCalledWith(24, {
+        align: 'start',
+        behavior: 'auto'
+      })
+    })
   })
 
   it('renders a single video through the thin media path without virtual list setup', () => {

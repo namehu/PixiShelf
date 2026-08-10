@@ -11,8 +11,9 @@ import { useRouter } from 'next/navigation'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import { useArtworkMediaAnchorInterval } from '@/components/user-setting'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
-import { isVideoFile } from '@/lib/media'
+import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
 import { cn } from '@/lib/utils'
+import AdaptiveMediaPreview from './adaptive-media-preview'
 
 interface ArtworkImagesProps {
   images: ArtworkImageResponseDto[]
@@ -55,6 +56,13 @@ function canPreviewFullSize(media: ArtworkImageResponseDto) {
 
 function isVideoMedia(media: ArtworkImageResponseDto) {
   return media.mediaType === 'video' || isVideoFile(media.path)
+}
+
+function usesInteractiveMediaPlayer(media: ArtworkImageResponseDto) {
+  if (isVideoMedia(media) || isWebpFile(media.path)) return true
+  if (!media.isAnimated) return false
+
+  return isApngFile(media.path) || isGifFile(media.path) || /\.png$/i.test(media.path)
 }
 
 function isSingleVideoArtwork(images: ArtworkImageResponseDto[]) {
@@ -138,7 +146,10 @@ function useArtworkMediaVirtualizer({
   return { virtualizer, visibleCount, remainingCount }
 }
 
-function usePreviewContextMenu(images: ArtworkImageResponseDto[]) {
+function usePreviewContextMenu(
+  images: ArtworkImageResponseDto[],
+  onOpenAdaptivePreview: (index: number) => void
+) {
   const [contextMenu, setContextMenu] = useState<PreviewMenuState | null>(null)
   const router = useRouter()
   const setStoreImages = useArtworkStore((state) => state.setImages)
@@ -153,6 +164,13 @@ function usePreviewContextMenu(images: ArtworkImageResponseDto[]) {
   const closeContextMenu = useCallback(() => setContextMenu(null), [])
 
   const previewSelectedMedia = useCallback(() => {
+    if (!contextMenu) return
+
+    onOpenAdaptivePreview(contextMenu.index)
+    setContextMenu(null)
+  }, [contextMenu, onOpenAdaptivePreview])
+
+  const viewOriginalSelectedMedia = useCallback(() => {
     if (!contextMenu) return
 
     setStoreImages(images)
@@ -174,22 +192,33 @@ function usePreviewContextMenu(images: ArtworkImageResponseDto[]) {
     }
   }, [closeContextMenu])
 
-  return { contextMenu, openContextMenu, closeContextMenu, previewSelectedMedia }
+  return {
+    contextMenu,
+    openContextMenu,
+    closeContextMenu,
+    previewSelectedMedia,
+    viewOriginalSelectedMedia
+  }
 }
 
 function PreviewableMedia({
   children,
   index,
   enabled,
-  onOpenMenu
+  tapPreviewEnabled,
+  onOpenMenu,
+  onPreview
 }: {
   children: ReactNode
   index: number
   enabled: boolean
+  tapPreviewEnabled: boolean
   onOpenMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
+  onPreview: (index: number) => void
 }) {
   const { ...longPressProps } = useLongPress({
     onLongPress: (e) => onOpenMenu(e, index),
+    onClick: tapPreviewEnabled ? () => onPreview(index) : undefined,
     threshold: 500
   })
 
@@ -214,7 +243,9 @@ function ArtworkMediaItem({
   showExpandOverlay,
   remainingCount,
   onExpand,
-  onOpenPreviewMenu
+  onOpenPreviewMenu,
+  onOpenAdaptivePreview,
+  highlighted
 }: {
   media: ArtworkImageResponseDto
   index: number
@@ -222,10 +253,24 @@ function ArtworkMediaItem({
   remainingCount: number
   onExpand: () => void
   onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
+  onOpenAdaptivePreview: (index: number) => void
+  highlighted: boolean
 }) {
   return (
-    <div className="relative group">
-      <PreviewableMedia index={index} enabled={canPreviewFullSize(media)} onOpenMenu={onOpenPreviewMenu}>
+    <div
+      className={cn(
+        'relative group transition-[box-shadow] duration-300',
+        highlighted && 'z-[1] ring-4 ring-blue-500/75 ring-offset-2 ring-offset-white'
+      )}
+      data-preview-highlighted={highlighted ? 'true' : undefined}
+    >
+      <PreviewableMedia
+        index={index}
+        enabled
+        tapPreviewEnabled={canPreviewFullSize(media) && !usesInteractiveMediaPlayer(media)}
+        onOpenMenu={onOpenPreviewMenu}
+        onPreview={onOpenAdaptivePreview}
+      >
         <LazyMedia media={media} index={index} />
       </PreviewableMedia>
 
@@ -348,13 +393,19 @@ function MediaAnchorNavigation({
 
 function PreviewContextMenu({
   contextMenu,
+  images,
   onOpenChange,
-  onPreview
+  onPreview,
+  onViewOriginal
 }: {
   contextMenu: PreviewMenuState | null
+  images: ArtworkImageResponseDto[]
   onOpenChange: (open: boolean) => void
   onPreview: () => void
+  onViewOriginal: () => void
 }) {
+  const selectedMedia = contextMenu ? images[contextMenu.index] : null
+
   return (
     <Popover open={!!contextMenu} onOpenChange={onOpenChange}>
       {contextMenu && (
@@ -372,28 +423,67 @@ function PreviewContextMenu({
         align="start"
         className="w-auto rounded-[4px] border border-[#E5E5E5] bg-white p-1 shadow-[0_8px_16px_rgba(0,0,0,0.1)] duration-150 ease-out data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
       >
-        <div
+        <button
+          type="button"
           onClick={onPreview}
-          className="cursor-pointer select-none rounded-[2px] px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100"
+          className="block w-full cursor-pointer select-none rounded-[2px] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
         >
-          预览完整尺寸
-        </div>
+          适配尺寸预览
+        </button>
+        {selectedMedia && canPreviewFullSize(selectedMedia) && (
+          <button
+            type="button"
+            onClick={onViewOriginal}
+            className="block w-full cursor-pointer select-none rounded-[2px] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+          >
+            查看原始文件
+          </button>
+        )}
       </PopoverContent>
     </Popover>
   )
 }
 
-function SingleVideoArtworkMedia({ media }: { media: ArtworkImageResponseDto }) {
+function SingleVideoArtworkMedia({
+  media,
+  onOpenPreviewMenu,
+  onOpenAdaptivePreview
+}: {
+  media: ArtworkImageResponseDto
+  onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
+  onOpenAdaptivePreview: (index: number) => void
+}) {
   return (
     <div className="w-full sm:px-2" data-testid="artwork-video-container">
-      <LazyMedia media={media} index={0} />
+      <PreviewableMedia
+        index={0}
+        enabled
+        tapPreviewEnabled={false}
+        onOpenMenu={onOpenPreviewMenu}
+        onPreview={onOpenAdaptivePreview}
+      >
+        <LazyMedia media={media} index={0} />
+      </PreviewableMedia>
     </div>
   )
 }
 
-function VirtualizedArtworkMediaList({ images }: { images: ArtworkImageResponseDto[] }) {
+function VirtualizedArtworkMediaList({
+  images,
+  returnIndex,
+  onReturnHandled,
+  onOpenPreviewMenu,
+  onOpenAdaptivePreview
+}: {
+  images: ArtworkImageResponseDto[]
+  returnIndex: number | null
+  onReturnHandled: () => void
+  onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
+  onOpenAdaptivePreview: (index: number) => void
+}) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isMobileNavigationOpen, setIsMobileNavigationOpen] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
   const pendingScrollIndexRef = useRef<number | null>(null)
   const anchorInterval = useArtworkMediaAnchorInterval()
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
@@ -405,7 +495,6 @@ function VirtualizedArtworkMediaList({ images }: { images: ArtworkImageResponseD
     containerWidth,
     scrollMargin
   })
-  const { contextMenu, openContextMenu, closeContextMenu, previewSelectedMedia } = usePreviewContextMenu(images)
 
   const anchorIndexes = useMemo(
     () => buildMediaAnchorIndexes(images.length, anchorInterval),
@@ -420,6 +509,33 @@ function VirtualizedArtworkMediaList({ images }: { images: ArtworkImageResponseD
   }, [anchorIndexes, currentIndex])
 
   const scrollToIndex = virtualizer.scrollToIndex
+
+  useEffect(() => {
+    if (returnIndex === null) return
+
+    setCurrentIndex(returnIndex)
+    setIsMobileNavigationOpen(false)
+
+    if (!isExpanded && returnIndex >= MAX_PREVIEW_IMAGES) {
+      setIsExpanded(true)
+      return
+    }
+
+    const frame = requestAnimationFrame(() => {
+      scrollToIndex(returnIndex, { align: 'start', behavior: 'auto' })
+      setHighlightedIndex(returnIndex)
+      onReturnHandled()
+    })
+
+    return () => cancelAnimationFrame(frame)
+  }, [isExpanded, onReturnHandled, returnIndex, scrollToIndex, setCurrentIndex])
+
+  useEffect(() => {
+    if (highlightedIndex === null) return
+
+    const timeout = window.setTimeout(() => setHighlightedIndex(null), 1200)
+    return () => window.clearTimeout(timeout)
+  }, [highlightedIndex])
 
   useEffect(() => {
     const targetIndex = pendingScrollIndexRef.current
@@ -479,7 +595,9 @@ function VirtualizedArtworkMediaList({ images }: { images: ArtworkImageResponseD
                 showExpandOverlay={isLastPreview}
                 remainingCount={remainingCount}
                 onExpand={() => setIsExpanded(true)}
-                onOpenPreviewMenu={openContextMenu}
+                onOpenPreviewMenu={onOpenPreviewMenu}
+                onOpenAdaptivePreview={onOpenAdaptivePreview}
+                highlighted={highlightedIndex === index}
               />
             </div>
           )
@@ -493,22 +611,69 @@ function VirtualizedArtworkMediaList({ images }: { images: ArtworkImageResponseD
         onMobileOpenChange={setIsMobileNavigationOpen}
         onSelect={handleAnchorSelect}
       />
-
-      <PreviewContextMenu
-        contextMenu={contextMenu}
-        onOpenChange={(open) => {
-          if (!open) closeContextMenu()
-        }}
-        onPreview={previewSelectedMedia}
-      />
     </>
   )
 }
 
 export default function ArtworkImages({ images }: ArtworkImagesProps) {
-  if (isSingleVideoArtwork(images)) {
-    return <SingleVideoArtworkMedia media={images[0]!} />
-  }
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null)
+  const [returnIndex, setReturnIndex] = useState<number | null>(null)
+  const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
+  const {
+    contextMenu,
+    openContextMenu,
+    closeContextMenu,
+    previewSelectedMedia,
+    viewOriginalSelectedMedia
+  } = usePreviewContextMenu(images, setPreviewIndex)
 
-  return <VirtualizedArtworkMediaList images={images} />
+  const handlePreviewClose = useCallback(
+    (finalIndex: number) => {
+      setPreviewIndex(null)
+      setCurrentIndex(finalIndex)
+      setReturnIndex(finalIndex)
+    },
+    [setCurrentIndex]
+  )
+
+  const handleReturnHandled = useCallback(() => setReturnIndex(null), [])
+
+  const mediaContent = isSingleVideoArtwork(images) ? (
+    <SingleVideoArtworkMedia
+      media={images[0]!}
+      onOpenPreviewMenu={openContextMenu}
+      onOpenAdaptivePreview={setPreviewIndex}
+    />
+  ) : (
+    <VirtualizedArtworkMediaList
+      images={images}
+      returnIndex={returnIndex}
+      onReturnHandled={handleReturnHandled}
+      onOpenPreviewMenu={openContextMenu}
+      onOpenAdaptivePreview={setPreviewIndex}
+    />
+  )
+
+  return (
+    <>
+      {mediaContent}
+      <PreviewContextMenu
+        contextMenu={contextMenu}
+        images={images}
+        onOpenChange={(open) => {
+          if (!open) closeContextMenu()
+        }}
+        onPreview={previewSelectedMedia}
+        onViewOriginal={viewOriginalSelectedMedia}
+      />
+      {previewIndex !== null && (
+        <AdaptiveMediaPreview
+          images={images}
+          initialIndex={previewIndex}
+          open
+          onClose={handlePreviewClose}
+        />
+      )}
+    </>
+  )
 }
