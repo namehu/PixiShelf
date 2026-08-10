@@ -96,7 +96,7 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
     count: rowCount,
     estimateSize,
     scrollMargin: offsetTop,
-    overscan: 5,
+    overscan: 2,
     enabled: !!containerWidth
   })
 
@@ -185,7 +185,6 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
                 <ArtworkCard
                   key={`${artwork.id}-${startIndex + index}`}
                   artwork={artwork}
-                  priority={index < 10}
                   displayMode={displayMode}
                 />
               ))}

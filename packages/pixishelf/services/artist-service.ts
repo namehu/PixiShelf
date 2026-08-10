@@ -10,6 +10,7 @@ import {
   resolveMediaCoverUrl,
   VIDEO_POSTER_METADATA_SELECT
 } from '@/lib/media-cover'
+import { Prisma } from '@prisma/client'
 
 /**
  * 根据 ID 获取单个艺术家
@@ -242,9 +243,9 @@ export interface DashboardArtistItem extends ArtistResponseDto {
 /**
  * 获取仪表板艺术家卡片数据
  * 策略：
- * 1. 取出所有"至少有一件作品"的艺术家 id，在内存里纯随机抽取 pageSize 个
- * 2. 一次 findMany 把这些艺术家完整取回
- * 3. 为每个艺术家补充最近作品预览，增强信息密度
+ * 1. 从随机主键位置开始读取固定数量的艺术家，避免把全部候选 ID 拉进 Node
+ * 2. 用 LATERAL 子查询一次获取每位艺术家的最近作品 ID
+ * 3. 一次查询取回全部预览详情，避免按艺术家执行 N+1 查询
  */
 export async function getDashboardArtists(
   options: {
@@ -253,48 +254,77 @@ export async function getDashboardArtists(
   } = {}
 ): Promise<DashboardArtistItem[]> {
   try {
-    const { pageSize = 12, previewArtworkSize = 3 } = options
+    const pageSize = Math.max(0, Math.floor(options.pageSize ?? 12))
+    const previewArtworkSize = Math.max(0, Math.floor(options.previewArtworkSize ?? 3))
+    if (pageSize === 0) return []
 
-    const candidateIds = await prisma.artist.findMany({
-      where: {
-        artworks: {
-          some: {}
-        }
-      },
-      select: { id: true }
+    const bounds = await prisma.artist.aggregate({
+      _min: { id: true },
+      _max: { id: true }
     })
+    const minId = bounds._min.id
+    const maxId = bounds._max.id
+    if (minId == null || maxId == null) return []
 
-    if (!candidateIds.length) {
-      return []
-    }
-
-    // Fisher–Yates 抽样前 pageSize 个，避免对全数组排序
-    const ids = candidateIds.map((c) => c.id)
-    const take = Math.min(pageSize, ids.length)
-    for (let i = 0; i < take; i++) {
-      const j = i + Math.floor(Math.random() * (ids.length - i))
-      const tmp = ids[i]!
-      ids[i] = ids[j]!
-      ids[j] = tmp
-    }
-    const selectedIds = ids.slice(0, take)
-
-    const [selectedArtists, recentArtworkGroups] = await Promise.all([
-      prisma.artist.findMany({
-        where: { id: { in: selectedIds } },
+    const artistSelect = {
+      ...ARTIST_SELECT,
+      _count: {
         select: {
-          ...ARTIST_SELECT,
-          _count: {
-            select: {
-              artworks: true
-            }
-          }
+          artworks: true
         }
-      }),
-      Promise.all(
-        selectedIds.map((artistId) =>
-          prisma.artwork.findMany({
-            where: { artistId },
+      }
+    } as const
+    const pivot = minId + Math.floor(Math.random() * (maxId - minId + 1))
+    const firstArtists = await prisma.artist.findMany({
+      where: {
+        id: { gte: pivot },
+        artworks: { some: {} }
+      },
+      select: artistSelect,
+      orderBy: { id: 'asc' },
+      take: pageSize
+    })
+    const wrappedArtists =
+      firstArtists.length < pageSize
+        ? await prisma.artist.findMany({
+            where: {
+              id: { lt: pivot },
+              artworks: { some: {} }
+            },
+            select: artistSelect,
+            orderBy: { id: 'asc' },
+            take: pageSize - firstArtists.length
+          })
+        : []
+    const selectedArtists = [...firstArtists, ...wrappedArtists]
+    const selectedIds = selectedArtists.map(({ id }) => id)
+    if (selectedIds.length === 0) return []
+
+    const recentArtworkRows =
+      previewArtworkSize > 0
+        ? await prisma.$queryRaw<Array<{ id: number; artistId: number }>>(
+            Prisma.sql`
+              WITH selected("artistId", position) AS (
+                VALUES ${Prisma.join(selectedIds.map((artistId, position) => Prisma.sql`(${artistId}, ${position})`))}
+              )
+              SELECT preview.id, preview."artistId"
+              FROM selected
+              CROSS JOIN LATERAL (
+                SELECT a.id, a."artistId", a."sourceDate"
+                FROM "Artwork" a
+                WHERE a."artistId" = selected."artistId"
+                ORDER BY a."sourceDate" DESC, a.id DESC
+                LIMIT ${previewArtworkSize}
+              ) preview
+              ORDER BY selected.position, preview."sourceDate" DESC, preview.id DESC
+            `
+          )
+        : []
+    const recentArtworkIds = recentArtworkRows.map(({ id }) => id)
+    const recentArtworks =
+      recentArtworkIds.length > 0
+        ? await prisma.artwork.findMany({
+            where: { id: { in: recentArtworkIds } },
             select: {
               id: true,
               title: true,
@@ -310,16 +340,15 @@ export async function getDashboardArtists(
                 },
                 take: 1
               }
-            },
-            orderBy: [{ sourceDate: 'desc' }, { id: 'desc' }],
-            take: previewArtworkSize
+            }
           })
-        )
-      )
-    ])
+        : []
+    const recentArtworkById = new Map(recentArtworks.map((artwork) => [artwork.id, artwork]))
 
     const artworkMap = new Map<number, DashboardArtistArtworkPreview[]>()
-    for (const artwork of recentArtworkGroups.flat()) {
+    for (const { id } of recentArtworkRows) {
+      const artwork = recentArtworkById.get(id)
+      if (!artwork) continue
       if (artwork.artistId == null) continue
       const bucket = artworkMap.get(artwork.artistId)
       const preview: DashboardArtistArtworkPreview = {
@@ -343,14 +372,10 @@ export async function getDashboardArtists(
     }
 
     // 保持随机顺序：按 selectedIds 的顺序输出
-    const artistById = new Map(selectedArtists.map((artist) => [artist.id, artist]))
-    return selectedIds
-      .map((id) => artistById.get(id))
-      .filter((artist): artist is NonNullable<typeof artist> => artist !== undefined)
-      .map((artist) => ({
-        ...ArtistResponseDto.parse(artist),
-        recentArtworks: artworkMap.get(artist.id) ?? []
-      }))
+    return selectedArtists.map((artist) => ({
+      ...ArtistResponseDto.parse(artist),
+      recentArtworks: artworkMap.get(artist.id) ?? []
+    }))
   } catch (error) {
     logger.error('Error fetching dashboard artists:', error)
     return []

@@ -517,6 +517,30 @@ export const getRecentArtworks = async (
 }
 
 /**
+ * 获取首页最新作品。
+ * 首页不展示总数，因此省略 PostgreSQL 需要扫描可见行的精确 COUNT。
+ */
+export const getDashboardRecentArtworks = async (
+  options: { pageSize?: number } = {}
+): Promise<ArtworkCardListResponse> => {
+  const { pageSize = 10 } = options
+  const artworks = await prisma.artwork.findMany({
+    select: artworkCardSelect,
+    orderBy: [{ sourceDate: 'desc' }, { id: 'desc' }],
+    take: pageSize
+  })
+  const resolvedArtworks = await resolveArtworkCardCovers(artworks)
+  const items = resolvedArtworks.map(transformArtworkCard)
+
+  return {
+    items,
+    total: items.length,
+    page: 1,
+    pageSize
+  }
+}
+
+/**
  * 随机获取单张图片作品的业务逻辑
  */
 export async function getRandomArtworks(

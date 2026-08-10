@@ -1,4 +1,5 @@
-import { getRecommendedArtworks, getRecentArtworks } from '@/services/artwork-service'
+import { Suspense } from 'react'
+import { getDashboardRecentArtworks, getRecommendedArtworks } from '@/services/artwork-service'
 import { getDashboardArtists } from '@/services/artist-service'
 import RecentArtists from './_components/recent-artists'
 import Link from 'next/link'
@@ -13,14 +14,30 @@ export const revalidate = 300
 /**
  * 仪表板页面组件
  */
-export default async function DashboardPage() {
-  // 并行获取所有数据
-  const [recentArtworks, dashboardArtists, recommendedArtworks] = await Promise.all([
-    getRecentArtworks({ page: 1, pageSize: 10 }), // 获取最新作品数据
-    getDashboardArtists({ pageSize: 12, previewArtworkSize: 3 }), // 获取随机艺术家卡片数据
-    getRecommendedArtworks({ pageSize: 20 }) // 获取推荐作品数据
-  ])
+async function RecentArtworkGrid() {
+  const recentArtworks = await getDashboardRecentArtworks({ pageSize: 10 })
+  return <ArtworkGrid initialData={recentArtworks} />
+}
 
+async function DashboardArtists() {
+  const dashboardArtists = await getDashboardArtists({ pageSize: 12, previewArtworkSize: 3 })
+  return <RecentArtists data={dashboardArtists} />
+}
+
+async function RecommendedArtworks() {
+  const recommendedArtworks = await getRecommendedArtworks({ pageSize: 20 })
+  return <RecommendedArtworkSection initialData={recommendedArtworks} />
+}
+
+function SectionFallback({ label }: { label: string }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-4 py-12 text-center text-sm text-gray-500">
+      {label}
+    </div>
+  )
+}
+
+export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
@@ -37,12 +54,18 @@ export default async function DashboardPage() {
             </Link>
           </div>
 
-          <ArtworkGrid initialData={recentArtworks} />
+          <Suspense fallback={<SectionFallback label="正在加载最新作品…" />}>
+            <RecentArtworkGrid />
+          </Suspense>
         </div>
 
-        <RecentArtists data={dashboardArtists} />
+        <Suspense fallback={<SectionFallback label="正在加载艺术家…" />}>
+          <DashboardArtists />
+        </Suspense>
 
-        <RecommendedArtworkSection initialData={recommendedArtworks} />
+        <Suspense fallback={<SectionFallback label="正在加载推荐作品…" />}>
+          <RecommendedArtworks />
+        </Suspense>
       </main>
     </div>
   )

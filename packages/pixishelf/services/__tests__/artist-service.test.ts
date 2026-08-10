@@ -1,19 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDashboardArtists } from '../artist-service'
 
-const { artistFindManyMock, artworkFindManyMock } = vi.hoisted(() => ({
+const { artistAggregateMock, artistFindManyMock, artworkFindManyMock, queryRawMock } = vi.hoisted(() => ({
+  artistAggregateMock: vi.fn(),
   artistFindManyMock: vi.fn(),
-  artworkFindManyMock: vi.fn()
+  artworkFindManyMock: vi.fn(),
+  queryRawMock: vi.fn()
 }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     artist: {
+      aggregate: artistAggregateMock,
       findMany: artistFindManyMock
     },
     artwork: {
       findMany: artworkFindManyMock
-    }
+    },
+    $queryRaw: queryRawMock
   }
 }))
 
@@ -27,8 +31,10 @@ vi.mock('@/lib/logger', () => ({
 
 describe('getDashboardArtists', () => {
   beforeEach(() => {
+    artistAggregateMock.mockReset().mockResolvedValue({ _min: { id: 1 }, _max: { id: 1 } })
     artistFindManyMock.mockReset()
     artworkFindManyMock.mockReset()
+    queryRawMock.mockReset()
   })
 
   it('should keep dashboard coverUrl as original relative media path', async () => {
@@ -49,6 +55,7 @@ describe('getDashboardArtists', () => {
         }
       }
     ])
+    queryRawMock.mockResolvedValue([{ id: 11, artistId: 1 }])
     artworkFindManyMock.mockResolvedValue([
       {
         id: 11,
@@ -63,12 +70,15 @@ describe('getDashboardArtists', () => {
       previewArtworkSize: 1
     })
 
-    expect(artworkFindManyMock).toHaveBeenCalledWith(
+    expect(artistFindManyMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { artistId: 1 },
+        where: { id: { gte: 1 }, artworks: { some: {} } },
         take: 1
       })
     )
+    expect(queryRawMock).toHaveBeenCalledTimes(1)
+    expect(artworkFindManyMock).toHaveBeenCalledTimes(1)
+    expect(artworkFindManyMock).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: [11] } } }))
     expect(result[0]?.recentArtworks[0]?.coverUrl).toBe('1000/11_p0.jpg')
     expect(result[0]?.recentArtworks[0]?.coverMediaType).toBe('image')
   })
@@ -88,6 +98,10 @@ describe('getDashboardArtists', () => {
         isStarred: false,
         _count: { artworks: 2 }
       }
+    ])
+    queryRawMock.mockResolvedValue([
+      { id: 11, artistId: 1 },
+      { id: 12, artistId: 1 }
     ])
     artworkFindManyMock.mockResolvedValue([
       {
@@ -124,5 +138,6 @@ describe('getDashboardArtists', () => {
       }),
       expect.objectContaining({ id: 12, coverUrl: null, coverMediaType: 'video' })
     ])
+    expect(artworkFindManyMock).toHaveBeenCalledTimes(1)
   })
 })

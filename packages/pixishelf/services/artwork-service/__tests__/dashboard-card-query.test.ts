@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getRecentArtworks } from '../index'
+import { getDashboardRecentArtworks, getRecentArtworks } from '../index'
 
 const { artworkCountMock, artworkFindManyMock } = vi.hoisted(() => ({
   artworkCountMock: vi.fn(),
@@ -111,5 +111,20 @@ describe('dashboard artwork card query', () => {
       mediaType: 'video',
       posterUrl: '/_video-posters/20-cover.webp?v=1786150923000'
     })
+  })
+
+  it('does not count the full artwork table for the dashboard preview', async () => {
+    artworkFindManyMock.mockResolvedValue([])
+
+    const result = await getDashboardRecentArtworks({ pageSize: 10 })
+
+    expect(artworkCountMock).not.toHaveBeenCalled()
+    expect(artworkFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 10,
+        orderBy: [{ sourceDate: 'desc' }, { id: 'desc' }]
+      })
+    )
+    expect(result).toEqual({ items: [], total: 0, page: 1, pageSize: 10 })
   })
 })

@@ -61,6 +61,7 @@ function CompactArtistCard({ artist, onClick }: { artist: DashboardArtistItem; o
                 }
                 alt={artwork.title}
                 fill
+                loading="lazy"
                 sizes="120px"
                 className="object-cover transition-transform duration-300 group-hover:scale-105"
               />
@@ -75,7 +76,7 @@ function CompactArtistCard({ artist, onClick }: { artist: DashboardArtistItem; o
 
       <div className="p-3 flex items-start gap-3">
         <Avatar className="size-12 shrink-0 group-hover:scale-105 transition-transform duration-200">
-          <AvatarImage src={artist.avatar} alt={artist.name} />
+          <AvatarImage src={artist.avatar} alt={artist.name} loading="lazy" />
           <AvatarFallback className="text-sm bg-primary/10 text-primary font-medium">
             {getInitials(artist.name)}
           </AvatarFallback>
