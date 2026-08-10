@@ -14,12 +14,14 @@ export const artworkMediaAnchorIntervalSchema = z.union([
 export const userSettingsSchema = z.object({
   artwork_display_mode: artworkDisplayModeSchema.optional(),
   preferred_tags: z.array(z.string()).optional(),
-  artwork_media_anchor_interval: artworkMediaAnchorIntervalSchema.optional()
+  artwork_media_anchor_interval: artworkMediaAnchorIntervalSchema.optional(),
+  media_privacy_mode: z.boolean().optional()
 })
 export const userSettingsWithDefaultsSchema = userSettingsSchema.default({}).transform((settings) => ({
   artwork_display_mode: settings.artwork_display_mode ?? 'card',
   preferred_tags: settings.preferred_tags ?? [],
-  artwork_media_anchor_interval: settings.artwork_media_anchor_interval ?? 50
+  artwork_media_anchor_interval: settings.artwork_media_anchor_interval ?? 50,
+  media_privacy_mode: settings.media_privacy_mode ?? false
 }))
 
 export const updateProfileSchema = z.object({

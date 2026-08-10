@@ -7,7 +7,7 @@ import { GlobalConfirmDialog } from '@/components/shared/global-confirm' // å¼•å
 import { headers } from 'next/headers'
 import './globals.css'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
-import type { UserSettings } from '@/schemas/user-setting.dto'
+import { userSettingsWithDefaultsSchema, type UserSettings } from '@/schemas/user-setting.dto'
 import { getUserSettings } from '@/services/user-setting-service'
 
 export const metadata: Metadata = {
@@ -57,8 +57,10 @@ export default async function RootLayout({ children }: RootLayoutProps) {
     initialSettings = await getUserSettings(String(initialUser.id))
   }
 
+  const mediaPrivacyMode = userSettingsWithDefaultsSchema.parse(initialSettings).media_privacy_mode
+
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" data-media-privacy={mediaPrivacyMode ? 'on' : 'off'}>
       <body suppressHydrationWarning={true}>
         <NuqsAdapter>
           <Providers initialUser={initialUser} initialSettings={initialSettings}>

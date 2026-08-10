@@ -5,12 +5,14 @@ import { useAction } from 'next-safe-action/hooks'
 import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { updateUserSettingAction } from '@/actions/user-setting-action'
 import { PreferenceItem } from '../_components/preference-item'
 import {
   useArtworkDisplayMode,
   useArtworkMediaAnchorInterval,
+  useMediaPrivacyMode,
   usePreferredTags,
   useUserSettingsStore
 } from '@/components/user-setting'
@@ -20,18 +22,21 @@ import type { ArtworkDisplayMode, ArtworkMediaAnchorInterval } from '@/schemas/u
 const DISPLAY_MODE_KEY = 'artwork_display_mode'
 const PREFERRED_TAGS_KEY = 'preferred_tags'
 const MEDIA_ANCHOR_INTERVAL_KEY = 'artwork_media_anchor_interval'
+const MEDIA_PRIVACY_MODE_KEY = 'media_privacy_mode'
 
 export default function SettingsPreferencesPage() {
   const trpc = useTRPC()
   const displayModeSetting = useArtworkDisplayMode()
   const preferredTagsSetting = usePreferredTags()
   const mediaAnchorIntervalSetting = useArtworkMediaAnchorInterval()
+  const mediaPrivacyModeSetting = useMediaPrivacyMode()
   const updateSettingLocally = useUserSettingsStore((state) => state.updateSettingLocally)
 
   const [displayMode, setDisplayMode] = useState<ArtworkDisplayMode>(displayModeSetting)
   const [preferredTags, setPreferredTags] = useState<string[]>(preferredTagsSetting)
   const [mediaAnchorInterval, setMediaAnchorInterval] =
     useState<ArtworkMediaAnchorInterval>(mediaAnchorIntervalSetting)
+  const [mediaPrivacyMode, setMediaPrivacyMode] = useState(mediaPrivacyModeSetting)
 
   useEffect(() => {
     setDisplayMode(displayModeSetting)
@@ -44,6 +49,10 @@ export default function SettingsPreferencesPage() {
   useEffect(() => {
     setMediaAnchorInterval(mediaAnchorIntervalSetting)
   }, [mediaAnchorIntervalSetting])
+
+  useEffect(() => {
+    setMediaPrivacyMode(mediaPrivacyModeSetting)
+  }, [mediaPrivacyModeSetting])
 
   const { data: tagsData } = useQuery(
     trpc.tag.list.queryOptions({
@@ -85,7 +94,8 @@ export default function SettingsPreferencesPage() {
   const scheduleSave = (
     nextDisplayMode: ArtworkDisplayMode,
     nextPreferredTags: string[],
-    nextMediaAnchorInterval: ArtworkMediaAnchorInterval
+    nextMediaAnchorInterval: ArtworkMediaAnchorInterval,
+    nextMediaPrivacyMode: boolean
   ) => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current)
@@ -95,7 +105,8 @@ export default function SettingsPreferencesPage() {
         settings: [
           { key: DISPLAY_MODE_KEY, value: nextDisplayMode, type: 'string' },
           { key: PREFERRED_TAGS_KEY, value: nextPreferredTags, type: 'json' },
-          { key: MEDIA_ANCHOR_INTERVAL_KEY, value: nextMediaAnchorInterval, type: 'number' }
+          { key: MEDIA_ANCHOR_INTERVAL_KEY, value: nextMediaAnchorInterval, type: 'number' },
+          { key: MEDIA_PRIVACY_MODE_KEY, value: nextMediaPrivacyMode, type: 'boolean' }
         ]
       })
     }, 500)
@@ -104,7 +115,7 @@ export default function SettingsPreferencesPage() {
   const onDisplayModeChange = (value: ArtworkDisplayMode) => {
     setDisplayMode(value)
     updateSettingLocally(DISPLAY_MODE_KEY, value)
-    scheduleSave(value, preferredTags, mediaAnchorInterval)
+    scheduleSave(value, preferredTags, mediaAnchorInterval, mediaPrivacyMode)
   }
 
   const selectedTagOptions = useMemo<Option[]>(
@@ -120,18 +131,39 @@ export default function SettingsPreferencesPage() {
     const values = options.map((item) => item.value)
     setPreferredTags(values)
     updateSettingLocally(PREFERRED_TAGS_KEY, values)
-    scheduleSave(displayMode, values, mediaAnchorInterval)
+    scheduleSave(displayMode, values, mediaAnchorInterval, mediaPrivacyMode)
   }
 
   const onMediaAnchorIntervalChange = (value: string) => {
     const nextValue = Number(value) as ArtworkMediaAnchorInterval
     setMediaAnchorInterval(nextValue)
     updateSettingLocally(MEDIA_ANCHOR_INTERVAL_KEY, nextValue)
-    scheduleSave(displayMode, preferredTags, nextValue)
+    scheduleSave(displayMode, preferredTags, nextValue, mediaPrivacyMode)
+  }
+
+  const onMediaPrivacyModeChange = (checked: boolean) => {
+    setMediaPrivacyMode(checked)
+    updateSettingLocally(MEDIA_PRIVACY_MODE_KEY, checked)
+    scheduleSave(displayMode, preferredTags, mediaAnchorInterval, checked)
   }
 
   return (
     <div className="space-y-4">
+      <PreferenceItem
+        title="媒体隐私模式"
+        description="对全站图片、视频和动画画布进行强模糊、灰度及低可见度处理；仅改变显示，不阻止媒体加载或访问"
+      >
+        <div className="flex items-center gap-3">
+          <Switch
+            checked={mediaPrivacyMode}
+            onCheckedChange={onMediaPrivacyModeChange}
+            disabled={isExecuting}
+            aria-label="媒体隐私模式"
+          />
+          <span className="text-sm text-slate-600">{mediaPrivacyMode ? '已开启' : '已关闭'}</span>
+        </div>
+      </PreferenceItem>
+
       <PreferenceItem
         title="作品列表显示模式"
         description="卡片模式显示标题和作者；极简模式使用 2px 间距并隐藏文字信息"

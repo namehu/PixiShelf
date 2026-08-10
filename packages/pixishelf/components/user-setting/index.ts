@@ -5,5 +5,6 @@ export {
   useUserSettingsStore,
   useArtworkDisplayMode,
   usePreferredTags,
-  useArtworkMediaAnchorInterval
+  useArtworkMediaAnchorInterval,
+  useMediaPrivacyMode
 } from './user-setting-provider'

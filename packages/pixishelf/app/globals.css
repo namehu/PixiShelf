@@ -121,6 +121,10 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  html[data-media-privacy='on'] :where(img, video, canvas) {
+    filter: blur(24px) grayscale(1) brightness(0.25) opacity(0.12) !important;
+  }
 }
 
 @layer utilities {

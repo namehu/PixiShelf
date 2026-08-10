@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { userSettingsWithDefaultsSchema } from '@/schemas/user-setting.dto'
 import type {
@@ -20,6 +20,16 @@ interface UserSettingState {
 const defaultSettings = userSettingsWithDefaultsSchema.parse({})
 
 const normalizeSettings = (settings?: UserSettings): UserSettingsWithDefaults => userSettingsWithDefaultsSchema.parse(settings ?? {})
+
+function MediaPrivacyRootSync() {
+  const enabled = useUserSettingsStore((state) => state.settings.media_privacy_mode)
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.mediaPrivacy = enabled ? 'on' : 'off'
+  }, [enabled])
+
+  return null
+}
 
 const useUserSettingsStore = create<UserSettingState>((set) => ({
   settings: defaultSettings,
@@ -70,7 +80,12 @@ export function UserSettingProvider({
     useUserSettingsStore.getState().hydrateSettings(initialSettings)
   }, [initialSettings, serializedInitialSettings])
 
-  return children
+  return (
+    <>
+      <MediaPrivacyRootSync />
+      {children}
+    </>
+  )
 }
 
 export function useUserSettings() {
@@ -99,6 +114,10 @@ export function usePreferredTags(): string[] {
 
 export function useArtworkMediaAnchorInterval(): ArtworkMediaAnchorInterval {
   return useUserSettingValue('artwork_media_anchor_interval')
+}
+
+export function useMediaPrivacyMode(): boolean {
+  return useUserSettingValue('media_privacy_mode')
 }
 
 export { useUserSettingsStore }

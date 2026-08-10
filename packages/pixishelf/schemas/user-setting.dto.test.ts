@@ -21,3 +21,16 @@ describe('artwork media anchor interval settings', () => {
     expect(() => artworkMediaAnchorIntervalSchema.parse(25)).toThrow()
   })
 })
+
+describe('media privacy settings', () => {
+  it('defaults media privacy mode to disabled', () => {
+    expect(userSettingsWithDefaultsSchema.parse({}).media_privacy_mode).toBe(false)
+  })
+
+  it('accepts persisted media privacy mode values', () => {
+    expect(userSettingsSchema.parse({ media_privacy_mode: true })).toEqual({
+      media_privacy_mode: true
+    })
+    expect(userSettingsWithDefaultsSchema.parse({ media_privacy_mode: true }).media_privacy_mode).toBe(true)
+  })
+})
