@@ -1,6 +1,6 @@
 'use client'
 
-import { Download, MoreHorizontal, RotateCcw, Trash2, Upload } from 'lucide-react'
+import { Download, MoreHorizontal, RotateCcw, Trash2, Upload, WandSparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ProColumnDef } from '@/components/shared/pro-table'
@@ -9,6 +9,12 @@ import { cn } from '@/lib/utils'
 import { formatFileSize } from '@/utils/media'
 import type { ImageListItem } from '../types'
 import { getChapterActionLabel, getVideoMetadataSummary, isVideoImageListItem } from './utils'
+import {
+  ImageVideoOptimizationEntry,
+  isActiveVideoOptimization,
+  isMp4OptimizationTarget,
+  type VideoOptimizationJob
+} from './video-optimization'
 
 interface ImageVideoMetadataEntryProps {
   image: ImageListItem
@@ -50,6 +56,9 @@ interface ImageMediaActionsProps {
   onDownloadChapters: (image: ImageListItem) => void
   onDeleteChapter: (image: ImageListItem) => void
   onReprobeVideo: (image: ImageListItem) => void
+  videoOptimizationJob?: VideoOptimizationJob | null
+  isStartingVideoOptimization?: boolean
+  onStartVideoOptimization: (image: ImageListItem) => void
   onDelete: (imageId: number) => void
 }
 
@@ -62,9 +71,13 @@ export function ImageMediaActions({
   onDownloadChapters,
   onDeleteChapter,
   onReprobeVideo,
+  videoOptimizationJob,
+  isStartingVideoOptimization = false,
+  onStartVideoOptimization,
   onDelete
 }: ImageMediaActionsProps) {
   const video = isVideoImageListItem(image)
+  const optimizationActive = isActiveVideoOptimization(videoOptimizationJob)
 
   return (
     <div className="flex items-center gap-1">
@@ -126,6 +139,20 @@ export function ImageMediaActions({
               删除章节
             </DropdownMenuItem>
             <DropdownMenuItem
+              disabled={!isMp4OptimizationTarget(image) || optimizationActive || isStartingVideoOptimization}
+              onClick={(event) => {
+                event.stopPropagation()
+                onStartVideoOptimization(image)
+              }}
+            >
+              <WandSparkles className="w-4 h-4" />
+              {!isMp4OptimizationTarget(image)
+                ? '该格式需要转码'
+                : optimizationActive
+                  ? '无损优化进行中'
+                  : 'MP4 无损播放优化'}
+            </DropdownMenuItem>
+            <DropdownMenuItem
               disabled={reprobingImageId === image.id}
               onClick={(event) => {
                 event.stopPropagation()
@@ -166,6 +193,10 @@ interface CreateImageManagerColumnsInput {
   onDownloadChapters: (image: ImageListItem) => void
   onDeleteChapter: (image: ImageListItem) => void
   onReprobeVideo: (image: ImageListItem) => void
+  videoOptimizationJobsByImageId: Record<number, VideoOptimizationJob | undefined>
+  startingVideoOptimizationImageId: number | null
+  onStartVideoOptimization: (image: ImageListItem) => void
+  onCancelVideoOptimization: (job: VideoOptimizationJob) => void
   onDelete: (imageId: number) => void
 }
 
@@ -180,6 +211,10 @@ export function createImageManagerColumns({
   onDownloadChapters,
   onDeleteChapter,
   onReprobeVideo,
+  videoOptimizationJobsByImageId,
+  startingVideoOptimizationImageId,
+  onStartVideoOptimization,
+  onCancelVideoOptimization,
   onDelete
 }: CreateImageManagerColumnsInput): ProColumnDef<ImageListItem>[] {
   return [
@@ -229,6 +264,20 @@ export function createImageManagerColumns({
       cell: ({ row }) => <ImageVideoMetadataEntry image={row.original} onOpenVideoMetadata={onOpenVideoMetadata} />
     },
     {
+      header: '播放优化',
+      id: 'videoOptimization',
+      size: 190,
+      cell: ({ row }) => (
+        <ImageVideoOptimizationEntry
+          image={row.original}
+          job={videoOptimizationJobsByImageId[row.original.id]}
+          isStarting={startingVideoOptimizationImageId === row.original.id}
+          onStart={onStartVideoOptimization}
+          onCancel={onCancelVideoOptimization}
+        />
+      )
+    },
+    {
       header: '尺寸',
       accessorKey: 'width',
       size: 100,
@@ -259,6 +308,9 @@ export function createImageManagerColumns({
           onDownloadChapters={onDownloadChapters}
           onDeleteChapter={onDeleteChapter}
           onReprobeVideo={onReprobeVideo}
+          videoOptimizationJob={videoOptimizationJobsByImageId[row.original.id]}
+          isStartingVideoOptimization={startingVideoOptimizationImageId === row.original.id}
+          onStartVideoOptimization={onStartVideoOptimization}
           onDelete={onDelete}
         />
       )

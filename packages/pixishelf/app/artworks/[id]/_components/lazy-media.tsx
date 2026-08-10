@@ -9,6 +9,7 @@ import Image from 'next/image'
 import { memo } from 'react'
 import { useOnInView } from 'react-intersection-observer'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
+import { combinationApiResource } from '@/utils/combination-static'
 
 interface LazyMediaProps {
   media: ArtworkImageResponseDto
@@ -34,9 +35,10 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
   // 主渲染逻辑
   const renderContent = () => {
     if (isVideoFile(src)) {
+      const mediaSrc = appendMediaVersion(combinationApiResource(src), media.updatedAt)
       return (
         <VideoPlayer
-          src={src}
+          src={mediaSrc}
           chaptersUrl={media.chaptersUrl}
           hasAudio={media.hasAudio}
           size={media.size}
@@ -88,5 +90,10 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
     </div>
   )
 })
+
+function appendMediaVersion(src: string, updatedAt: string) {
+  const separator = src.includes('?') ? '&' : '?'
+  return `${src}${separator}v=${encodeURIComponent(updatedAt)}`
+}
 
 export default LazyMedia

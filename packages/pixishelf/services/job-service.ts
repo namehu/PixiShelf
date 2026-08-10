@@ -3,13 +3,20 @@ import { JobStatus, Prisma } from '@prisma/client'
 
 const MEDIA_SCAN_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT']
 const MEDIA_SCAN_ADVISORY_LOCK_ID = 728341
-const MEDIA_MAINTENANCE_JOB_TYPES = ['WEBP_ANIMATION_SCAN', 'VIDEO_MEDIA_PROBE', 'VIDEO_CHAPTER_PREVIEW_GENERATION']
+const MEDIA_MAINTENANCE_JOB_TYPES = [
+  'WEBP_ANIMATION_SCAN',
+  'VIDEO_MEDIA_PROBE',
+  'VIDEO_CHAPTER_PREVIEW_GENERATION'
+]
 const MEDIA_MAINTENANCE_ADVISORY_LOCK_ID = 728342
+const VIDEO_PROCESSING_JOB_TYPES = ['VIDEO_STREAMING_OPTIMIZATION']
+const VIDEO_PROCESSING_ADVISORY_LOCK_ID = 728344
 const AUDIT_MAINTENANCE_JOB_TYPES = ['SCAN_RUN_RETENTION_CLEANUP', 'TRIGGER_LOG_RETENTION_CLEANUP']
 const AUDIT_MAINTENANCE_ADVISORY_LOCK_ID = 728343
 const SCAN_RUN_RETENTION_CLEANUP_JOB_TYPE = 'SCAN_RUN_RETENTION_CLEANUP'
 const TRIGGER_LOG_RETENTION_CLEANUP_JOB_TYPE = 'TRIGGER_LOG_RETENTION_CLEANUP'
 const VIDEO_CHAPTER_PREVIEW_GENERATION_JOB_TYPE = 'VIDEO_CHAPTER_PREVIEW_GENERATION'
+const VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE = 'VIDEO_STREAMING_OPTIMIZATION'
 
 async function createMutexJob(input: {
   type: string
@@ -17,6 +24,9 @@ async function createMutexJob(input: {
   advisoryLockId: number
   message: string
   conflictMessage: string
+  targetImageId?: number
+  targetPath?: string
+  mode?: string
 }) {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', input.advisoryLockId)
@@ -37,7 +47,10 @@ async function createMutexJob(input: {
         type: input.type,
         status: JobStatus.RUNNING,
         message: input.message,
-        progress: 0
+        progress: 0,
+        ...(input.targetImageId !== undefined ? { targetImageId: input.targetImageId } : {}),
+        ...(input.targetPath !== undefined ? { targetPath: input.targetPath } : {}),
+        ...(input.mode !== undefined ? { mode: input.mode } : {})
       }
     })
   })
@@ -264,6 +277,22 @@ export async function createVideoChapterPreviewGenerationJob() {
 }
 
 /**
+ * 尝试创建一个单视频无损重新封装任务
+ */
+export async function createVideoStreamingOptimizationJob(input: { imageId: number; path: string }) {
+  return createMutexJob({
+    type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
+    mutexJobTypes: VIDEO_PROCESSING_JOB_TYPES,
+    advisoryLockId: VIDEO_PROCESSING_ADVISORY_LOCK_ID,
+    message: '正在准备 MP4 无损播放优化...',
+    conflictMessage: 'Another MP4 lossless optimization job is already in progress',
+    targetImageId: input.imageId,
+    targetPath: input.path,
+    mode: 'REMUX_FASTSTART'
+  })
+}
+
+/**
  * 尝试创建一个扫描历史保留策略清理任务
  */
 export async function createScanRunRetentionCleanupJob() {
@@ -343,6 +372,34 @@ export async function getLatestVideoChapterPreviewGenerationJob() {
     where: { type: VIDEO_CHAPTER_PREVIEW_GENERATION_JOB_TYPE },
     orderBy: { createdAt: 'desc' }
   })
+}
+
+export async function getLatestVideoStreamingOptimizationJob() {
+  return await prisma.systemJob.findFirst({
+    where: { type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+export async function getLatestVideoStreamingOptimizationJobsByImageIds(imageIds: number[]) {
+  if (imageIds.length === 0) return []
+
+  const jobs = await prisma.systemJob.findMany({
+    where: {
+      type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
+      targetImageId: { in: imageIds }
+    },
+    orderBy: { createdAt: 'desc' }
+  })
+  const latestByImageId = new Map<number, (typeof jobs)[number]>()
+
+  for (const job of jobs) {
+    if (job.targetImageId !== null && !latestByImageId.has(job.targetImageId)) {
+      latestByImageId.set(job.targetImageId, job)
+    }
+  }
+
+  return [...latestByImageId.values()]
 }
 
 export async function getActiveJobByType(type: string) {

@@ -1,7 +1,7 @@
 'use client'
 
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
-import { ChevronLeftIcon, FullscreenIcon, ListOrdered } from 'lucide-react'
+import { ChevronLeftIcon, FullscreenIcon, ListOrdered, Settings2 } from 'lucide-react'
 import MediaCounter from './media-counter'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import { useEffect, useMemo, useState } from 'react'
@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { useSafeBack } from '@/hooks/use-safe-back'
 import PageToolbar from '@/components/layout/page-toolbar'
 import MediaOrderReviewDialog from './media-order-review-dialog'
+import Link from 'next/link'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
@@ -37,18 +38,34 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   return (
     <>
       <PageToolbar
-      leading={
-        <button
-          onClick={safeBack}
-          className="flex w-16 items-center gap-2 text-gray-600 transition-colors hover:text-gray-900"
-          aria-label="返回作品列表"
-        >
-          <ChevronLeftIcon size={24} />
-          <span className="hidden sm:inline">返回</span>
-        </button>
-      }
+        leading={
+          <button
+            onClick={safeBack}
+            className="flex w-16 items-center gap-2 text-gray-600 transition-colors hover:text-gray-900"
+            aria-label="返回作品列表"
+          >
+            <ChevronLeftIcon size={24} />
+            <span className="hidden sm:inline">返回</span>
+          </button>
+        }
         actions={
           <div className="flex items-center">
+            <Link
+              href={{
+                pathname: '/admin/artworks',
+                query: {
+                  id: data.id,
+                  edit: data.id,
+                  tab: 'media',
+                  returnTo: `/artworks/${data.id}`
+                }
+              }}
+              className="flex size-11 items-center justify-center text-gray-600 transition-colors hover:text-gray-900 sm:size-12"
+              aria-label="管理当前作品"
+              title="管理当前作品"
+            >
+              <Settings2 size={22} />
+            </Link>
             {data.images.length > 1 && (
               <button
                 type="button"

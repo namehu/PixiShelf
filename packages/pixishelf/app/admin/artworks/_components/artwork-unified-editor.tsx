@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ProDrawer } from '@/components/shared/pro-drawer'
-import { Loader2, Info, Image as ImageIcon, ExternalLink, Copy } from 'lucide-react'
+import { ArrowLeft, Loader2, Info, Image as ImageIcon, ExternalLink, Copy } from 'lucide-react'
 import { useTRPC } from '@/lib/trpc'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
@@ -21,6 +21,7 @@ interface ArtworkUnifiedEditorProps {
   initialTab?: 'info' | 'media'
   initialData?: ArtworkInfoFormInitialData | null
   onSuccess?: (data?: ArtworkResponseDto) => void
+  returnTo?: string | null
 }
 
 export function ArtworkUnifiedEditor({
@@ -29,7 +30,8 @@ export function ArtworkUnifiedEditor({
   artworkId,
   initialTab = 'info',
   initialData,
-  onSuccess
+  onSuccess,
+  returnTo
 }: ArtworkUnifiedEditorProps) {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
@@ -47,6 +49,7 @@ export function ArtworkUnifiedEditor({
     })
   )
   const artworkDirectory = getArtworkDirectory(artwork || null)
+  const safeReturnTo = currentArtworkId && returnTo === `/artworks/${currentArtworkId}` ? returnTo : null
 
   useEffect(() => {
     if (!open) return
@@ -84,6 +87,17 @@ export function ArtworkUnifiedEditor({
             </div>
 
             <div className="flex min-w-0 items-center gap-2">
+              {safeReturnTo && (
+                <button
+                  type="button"
+                  onClick={() => window.location.assign(`${safeReturnTo}?mediaRefresh=${Date.now()}`)}
+                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-neutral-200 bg-white px-2 text-xs font-medium text-neutral-600 transition-colors hover:border-neutral-300 hover:text-neutral-900"
+                  title="重新加载作品详情页查看效果"
+                >
+                  <ArrowLeft className="size-3.5" />
+                  返回并刷新
+                </button>
+              )}
               <span className="min-w-0 flex-1 truncate text-lg font-bold text-neutral-900">
                 {currentArtworkId ? artwork?.title || '加载中...' : '新增作品'}
               </span>

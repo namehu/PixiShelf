@@ -74,7 +74,6 @@ export function MediaVideoMetadataDialog({ open, image, onOpenChange }: MediaVid
       onOpenChange={onOpenChange}
       title="视频媒体详情"
       description={image?.path || '视频媒体详情'}
-      footer={null}
       width={560}
     >
       {image ? (

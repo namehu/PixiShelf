@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { queryRawMock, findFirstMock, createMock, transactionMock } = vi.hoisted(() => ({
+const { queryRawMock, findFirstMock, findManyMock, createMock, transactionMock } = vi.hoisted(() => ({
   queryRawMock: vi.fn(),
   findFirstMock: vi.fn(),
+  findManyMock: vi.fn(),
   createMock: vi.fn(),
   transactionMock: vi.fn()
 }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    $transaction: transactionMock
+    $transaction: transactionMock,
+    systemJob: { findMany: findManyMock }
   }
 }))
 
@@ -20,6 +22,8 @@ import {
   createTriggerLogRetentionCleanupJob,
   createVideoChapterPreviewGenerationJob,
   createVideoMediaProbeJob,
+  createVideoStreamingOptimizationJob,
+  getLatestVideoStreamingOptimizationJobsByImageIds,
   createWebpAnimationScanJob
 } from '../job-service'
 
@@ -35,6 +39,7 @@ describe('media scan job locking', () => {
   beforeEach(() => {
     queryRawMock.mockReset().mockResolvedValue([{ pg_advisory_xact_lock: '' }])
     findFirstMock.mockReset().mockResolvedValue(null)
+    findManyMock.mockReset().mockResolvedValue([])
     createMock.mockReset().mockImplementation(({ data }) => Promise.resolve({ id: 'job-1', ...data }))
     transactionMock.mockReset().mockImplementation((callback) => callback(tx))
   })
@@ -75,18 +80,37 @@ describe('media scan job locking', () => {
     })
   })
 
-  it('serializes all media maintenance jobs with the same advisory lock before checking active jobs', async () => {
+  it('keeps MP4 optimization independent from media metadata maintenance jobs', async () => {
     await createWebpAnimationScanJob()
     await createVideoMediaProbeJob()
     await createVideoChapterPreviewGenerationJob()
+    await createVideoStreamingOptimizationJob({ imageId: 9, path: '/artist/video.mp4' })
 
-    expect(queryRawMock).toHaveBeenCalledTimes(3)
+    expect(queryRawMock).toHaveBeenCalledTimes(4)
     expect(queryRawMock.mock.calls[0]?.[1]).toBe(queryRawMock.mock.calls[1]?.[1])
     expect(queryRawMock.mock.calls[1]?.[1]).toBe(queryRawMock.mock.calls[2]?.[1])
+    expect(queryRawMock.mock.calls[2]?.[1]).not.toBe(queryRawMock.mock.calls[3]?.[1])
     expect(findFirstMock).toHaveBeenNthCalledWith(3, {
       where: {
         type: { in: ['WEBP_ANIMATION_SCAN', 'VIDEO_MEDIA_PROBE', 'VIDEO_CHAPTER_PREVIEW_GENERATION'] },
         status: { in: ['PENDING', 'RUNNING', 'CANCELLING'] }
+      }
+    })
+    expect(findFirstMock).toHaveBeenNthCalledWith(4, {
+      where: {
+        type: { in: ['VIDEO_STREAMING_OPTIMIZATION'] },
+        status: { in: ['PENDING', 'RUNNING', 'CANCELLING'] }
+      }
+    })
+    expect(createMock).toHaveBeenLastCalledWith({
+      data: {
+        type: 'VIDEO_STREAMING_OPTIMIZATION',
+        status: 'RUNNING',
+        message: '正在准备 MP4 无损播放优化...',
+        progress: 0,
+        targetImageId: 9,
+        targetPath: '/artist/video.mp4',
+        mode: 'REMUX_FASTSTART'
       }
     })
     expect(queryRawMock.mock.invocationCallOrder[0]).toBeLessThan(findFirstMock.mock.invocationCallOrder[0]!)
@@ -109,5 +133,25 @@ describe('media scan job locking', () => {
     queryRawMock.mockClear()
     await createVideoChapterPreviewGenerationJob()
     expect(queryRawMock.mock.calls[0]?.[1]).not.toBe(auditLockId)
+  })
+
+  it('returns only the newest optimization job for each requested media row', async () => {
+    findManyMock.mockResolvedValue([
+      { id: 'new-9', targetImageId: 9 },
+      { id: 'new-10', targetImageId: 10 },
+      { id: 'old-9', targetImageId: 9 }
+    ])
+
+    await expect(getLatestVideoStreamingOptimizationJobsByImageIds([9, 10])).resolves.toEqual([
+      { id: 'new-9', targetImageId: 9 },
+      { id: 'new-10', targetImageId: 10 }
+    ])
+    expect(findManyMock).toHaveBeenCalledWith({
+      where: {
+        type: 'VIDEO_STREAMING_OPTIMIZATION',
+        targetImageId: { in: [9, 10] }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
   })
 })

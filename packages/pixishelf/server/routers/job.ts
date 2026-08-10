@@ -7,6 +7,10 @@ import logger from '@/lib/logger'
 import { syncAllMediaDerivedTags } from '@/services/media-derived-tag-service'
 import { listScheduledTasks, triggerScheduledTaskNow, updateScheduledTask } from '@/services/scheduled-task-service'
 import { reprobeVideoMediaByImageId, resolveVideoImageForReprobePath } from '@/services/video-media-probe-service'
+import {
+  optimizeVideoForStreaming,
+  resolveVideoStreamingOptimizationTarget
+} from '@/services/video-streaming-optimization-service'
 import { z } from 'zod'
 
 export const jobRouter = router({
@@ -200,6 +204,99 @@ export const jobRouter = router({
         }
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
       }
+    }),
+
+  startVideoStreamingOptimization: authProcedure
+    .input(
+      z.object({
+        imageId: z.number().int().positive()
+      })
+    )
+    .mutation(async ({ input }) => {
+      const scanPath = await getScanPath()
+      if (!scanPath) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
+      }
+
+      try {
+        const image = await resolveVideoStreamingOptimizationTarget(input.imageId, scanPath)
+        const job = await JobService.createVideoStreamingOptimizationJob({ imageId: image.id, path: image.path })
+
+        ;(async () => {
+          try {
+            const result = await optimizeVideoForStreaming({
+              imageId: image.id,
+              scanPath,
+              checkCancelled: async () => {
+                const current = await JobService.getJob(job.id)
+                return current?.status === 'CANCELLING'
+              },
+              onProgress: async (progress) => {
+                await JobService.updateProgress(job.id, progress.percentage, progress.message)
+              }
+            })
+            await JobService.completeJob(job.id, result)
+          } catch (error) {
+            logger.error('Video streaming optimization job failed', { error, imageId: image.id, path: image.path })
+            const current = await JobService.getJob(job.id)
+            if (current?.status === 'CANCELLING' || (error instanceof Error && error.message === 'Task cancelled')) {
+              await JobService.markAsCancelled(job.id)
+            } else {
+              await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
+            }
+          }
+        })()
+
+        return { jobId: job.id, imageId: image.id, path: image.path }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        if (message.includes('already in progress')) {
+          throw new TRPCError({ code: 'CONFLICT', message })
+        }
+        if (message === 'Image not found') {
+          throw new TRPCError({ code: 'NOT_FOUND', message })
+        }
+        if (
+          message === 'Image is not a video' ||
+          message === 'Only MP4 videos can be optimized' ||
+          message === 'Video path is not a file' ||
+          message.startsWith('Video directory is read-only') ||
+          message.startsWith('Path escapes scan root') ||
+          message === 'Path is required'
+        ) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message })
+        }
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
+      }
+    }),
+
+  getVideoStreamingOptimizationStatus: authProcedure.query(async () => {
+    return await JobService.getLatestVideoStreamingOptimizationJob()
+  }),
+
+  getVideoStreamingOptimizationStatuses: authProcedure
+    .input(
+      z.object({
+        imageIds: z.array(z.number().int().positive()).max(1000)
+      })
+    )
+    .query(async ({ input }) => {
+      return await JobService.getLatestVideoStreamingOptimizationJobsByImageIds([...new Set(input.imageIds)])
+    }),
+
+  cancelVideoStreamingOptimization: authProcedure
+    .input(z.object({ jobId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const job = await JobService.getJob(input.jobId)
+      if (!job || job.type !== 'VIDEO_STREAMING_OPTIMIZATION') {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Video optimization job not found' })
+      }
+      if (!['PENDING', 'RUNNING', 'CANCELLING'].includes(job.status)) {
+        return { success: false, message: 'Job is not active' }
+      }
+
+      await JobService.cancelJob(job.id)
+      return { success: true }
     }),
 
   listScheduledTasks: authProcedure.query(async () => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { toast } from 'sonner'
 import { exportNoSeriesArtworksAction } from '@/actions/artwork-action'
@@ -72,6 +72,12 @@ export default function ArtworkManagement() {
     pageSize: parseAsInteger.withDefault(20)
   })
 
+  const [editorRoute, setEditorRoute] = useQueryStates({
+    edit: parseAsInteger,
+    tab: parseAsString,
+    returnTo: parseAsString
+  })
+
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useQueryStates({
     advancedSearch: parseAsBoolean.withDefault(false)
   })
@@ -79,6 +85,16 @@ export default function ArtworkManagement() {
   const [localSearch, setLocalSearch] = useState(() => buildInitialLocalSearch(searchState))
   const { state: migrationState, actions: migrationActions, logger: migrationLogger } = useMigration()
   const [logOpen, setLogOpen] = useState(false)
+
+  useEffect(() => {
+    if (!editorRoute.edit) return
+
+    setCopyInitialData(null)
+    setEditorConfig({
+      id: editorRoute.edit,
+      tab: editorRoute.tab === 'media' ? 'media' : 'info'
+    })
+  }, [editorRoute.edit, editorRoute.tab])
 
   const refreshTable = useCallback(() => {
     setRefreshKey((prev) => prev + 1)
@@ -384,12 +400,14 @@ export default function ArtworkManagement() {
           if (!open) {
             setEditorConfig(null)
             setCopyInitialData(null)
+            void setEditorRoute({ edit: null, tab: null, returnTo: null })
           }
         }}
         artworkId={editorConfig?.id ?? null}
         initialTab={editorConfig?.tab}
         initialData={copyInitialData}
         onSuccess={refreshTable}
+        returnTo={editorConfig?.id === editorRoute.edit ? editorRoute.returnTo : null}
       />
 
       <MigrationDialog

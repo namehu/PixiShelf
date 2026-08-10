@@ -10,12 +10,15 @@ import { LazyImage } from '../lazy-image'
 import type { ImageListItem } from '../types'
 import { isVideoImageListItem } from './utils'
 import { ImageMediaActions, ImageVideoMetadataEntry } from './columns'
+import { ImageVideoOptimizationEntry, type VideoOptimizationJob } from './video-optimization'
 import MediaThumbnail from '@/components/media/media-thumbnail'
 
 interface ImageManagerThumbnailListProps {
   imageList: ImageListItem[]
   refreshKey: number
   reprobingImageId: number | null
+  videoOptimizationJobsByImageId: Record<number, VideoOptimizationJob | undefined>
+  startingVideoOptimizationImageId: number | null
   onPreviewIndexChange: (index: number) => void
   onOpenVideoMetadata: (image: ImageListItem) => void
   onDownload: (path: string) => void
@@ -23,6 +26,8 @@ interface ImageManagerThumbnailListProps {
   onDownloadChapters: (image: ImageListItem) => void
   onDeleteChapter: (image: ImageListItem) => void
   onReprobeVideo: (image: ImageListItem) => void
+  onStartVideoOptimization: (image: ImageListItem) => void
+  onCancelVideoOptimization: (job: VideoOptimizationJob) => void
   onDelete: (imageId: number) => void
 }
 
@@ -30,6 +35,8 @@ export function ImageManagerThumbnailList({
   imageList,
   refreshKey,
   reprobingImageId,
+  videoOptimizationJobsByImageId,
+  startingVideoOptimizationImageId,
   onPreviewIndexChange,
   onOpenVideoMetadata,
   onDownload,
@@ -37,6 +44,8 @@ export function ImageManagerThumbnailList({
   onDownloadChapters,
   onDeleteChapter,
   onReprobeVideo,
+  onStartVideoOptimization,
+  onCancelVideoOptimization,
   onDelete
 }: ImageManagerThumbnailListProps) {
   const [playingVideoId, setPlayingVideoId] = useState<number | null>(null)
@@ -147,6 +156,9 @@ export function ImageManagerThumbnailList({
                   onDownloadChapters={onDownloadChapters}
                   onDeleteChapter={onDeleteChapter}
                   onReprobeVideo={onReprobeVideo}
+                  videoOptimizationJob={videoOptimizationJobsByImageId[img.id]}
+                  isStartingVideoOptimization={startingVideoOptimizationImageId === img.id}
+                  onStartVideoOptimization={onStartVideoOptimization}
                   onDelete={onDelete}
                 />
               </div>
@@ -162,6 +174,16 @@ export function ImageManagerThumbnailList({
                 </div>
                 <div className="pointer-events-auto mt-1">
                   <ImageVideoMetadataEntry image={img} onOpenVideoMetadata={onOpenVideoMetadata} />
+                </div>
+                <div className="pointer-events-auto mt-1">
+                  <ImageVideoOptimizationEntry
+                    image={img}
+                    job={videoOptimizationJobsByImageId[img.id]}
+                    isStarting={startingVideoOptimizationImageId === img.id}
+                    compact
+                    onStart={onStartVideoOptimization}
+                    onCancel={onCancelVideoOptimization}
+                  />
                 </div>
                 <span className="sr-only" title={img.path}>
                   {img.path}

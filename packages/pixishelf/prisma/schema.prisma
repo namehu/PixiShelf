@@ -329,18 +329,22 @@ enum TranslateType {
 }
 
 model SystemJob {
-  id        String    @id @default(cuid())
-  type      String    @db.VarChar(50)
-  status    JobStatus @default(PENDING)
-  progress  Int       @default(0)
-  message   String?   @db.Text
-  result    Json?
-  error     String?   @db.Text
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  scanRuns  ScanRun[]
+  id            String    @id @default(cuid())
+  type          String    @db.VarChar(50)
+  status        JobStatus @default(PENDING)
+  progress      Int       @default(0)
+  message       String?   @db.Text
+  result        Json?
+  error         String?   @db.Text
+  targetImageId Int?
+  targetPath    String?   @db.Text
+  mode          String?   @db.VarChar(50)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  scanRuns      ScanRun[]
 
   @@index([type, status])
+  @@index([type, targetImageId, createdAt])
   @@index([createdAt])
   @@map("system_jobs")
 }

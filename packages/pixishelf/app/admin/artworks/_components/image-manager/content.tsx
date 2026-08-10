@@ -1,11 +1,13 @@
 'use client'
 
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
-import { useTRPCClient } from '@/lib/trpc'
+import { useTRPC, useTRPCClient } from '@/lib/trpc'
+import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
 import { ProTable } from '@/components/shared/pro-table'
 import { combinationApiResource } from '@/utils/combination-static'
 import { ProDialog } from '@/components/shared/pro-dialog'
+import { confirm } from '@/components/shared/global-confirm'
 import { ImageReplaceDialog } from '../image-replace-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
@@ -21,12 +23,13 @@ import type { Option } from '@/components/shared/multiple-selector'
 import { useRecentTags } from '@/store/admin/use-recent-tags'
 import { ImageChapterDialog } from '../image-chapter-dialog'
 import { MediaVideoMetadataDialog } from '../media-video-metadata-dialog'
-import { getFirstImageDirectory, getImageManagerStats, getNextImageSortOrder } from './utils'
+import { getFirstImageDirectory, getImageManagerStats, getNextImageSortOrder, isVideoImageListItem } from './utils'
 import { createImageManagerColumns } from './columns'
 import { ImageManagerTagPanel } from './tag-panel'
 import { ImageManagerToolbar } from './toolbar'
 import { ImageManagerDragOverlay } from './drag-overlay'
 import { ImageManagerThumbnailList } from './thumbnail-list'
+import { isActiveVideoOptimization, type VideoOptimizationJob } from './video-optimization'
 import type { ArtworkMediaApiErrorResponse, MediaChapterUploadResponse } from '@/types/artwork-media-api'
 
 interface ImageManagerContentProps {
@@ -40,6 +43,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   const imageList = (artwork.images || []) as unknown as ImageListItem[]
 
   const trpcClient = useTRPCClient()
+  const trpc = useTRPC()
   const { addTag } = useRecentTags()
   const [refreshKey, setRefreshKey] = useState(0)
   const [isSavingTags, setIsSavingTags] = useState(false)
@@ -58,6 +62,50 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     setRefreshKey((k) => k + 1)
     onSuccess?.()
   }, [onSuccess])
+
+  const videoImageIds = useMemo(
+    () => imageList.filter(isVideoImageListItem).map((image) => image.id),
+    [artwork.images]
+  )
+  const [optimizationPollInterval, setOptimizationPollInterval] = useState<number | false>(false)
+  const [startingVideoOptimizationImageId, setStartingVideoOptimizationImageId] = useState<number | null>(null)
+  const startedOptimizationJobIdsRef = useRef(new Set<string>())
+  const optimizationStatusQuery = useQuery(
+    trpc.job.getVideoStreamingOptimizationStatuses.queryOptions(
+      { imageIds: videoImageIds },
+      {
+        enabled: videoImageIds.length > 0,
+        refetchInterval: optimizationPollInterval
+      }
+    )
+  )
+  const videoOptimizationJobs = (optimizationStatusQuery.data || []) as VideoOptimizationJob[]
+  const videoOptimizationJobsByImageId = useMemo(
+    () =>
+      Object.fromEntries(
+        videoOptimizationJobs
+          .filter((job) => job.targetImageId !== null && job.targetImageId !== undefined)
+          .map((job) => [job.targetImageId!, job])
+      ) as Record<number, VideoOptimizationJob | undefined>,
+    [videoOptimizationJobs]
+  )
+
+  useEffect(() => {
+    setOptimizationPollInterval(videoOptimizationJobs.some(isActiveVideoOptimization) ? 1000 : false)
+  }, [videoOptimizationJobs])
+
+  useEffect(() => {
+    let shouldRefresh = false
+    for (const job of videoOptimizationJobs) {
+      if (!startedOptimizationJobIdsRef.current.has(job.id) || isActiveVideoOptimization(job)) continue
+      startedOptimizationJobIdsRef.current.delete(job.id)
+      shouldRefresh = true
+      if (job.status === 'COMPLETED') toast.success('MP4 无损播放优化完成')
+      if (job.status === 'FAILED') toast.error(`MP4 无损播放优化失败: ${job.error || '未知错误'}`)
+      if (job.status === 'CANCELLED') toast.info('MP4 无损播放优化已取消，原视频未替换')
+    }
+    if (shouldRefresh) refreshMediaList()
+  }, [refreshMediaList, videoOptimizationJobs])
 
   // View State
   const [showThumbnails, setShowThumbnails] = useState(false)
@@ -323,6 +371,55 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     }
   }
 
+  const handleStartVideoOptimization = (image: ImageListItem) => {
+    if (!image.path.toLowerCase().endsWith('.mp4')) {
+      toast.info('第一阶段仅支持 MP4 无损重新封装；其他格式需要使用后续的视频转码功能')
+      return
+    }
+
+    confirm({
+      title: '确认执行 MP4 无损播放优化？',
+      description: (
+        <div className="mt-2 space-y-2 text-sm">
+          <p className="break-all font-mono text-xs">{image.path}</p>
+          <p>将使用 FFmpeg stream copy + faststart 移动 moov 并重建容器索引，视频和音频不会重新编码。</p>
+          <p>此操作不会增加关键帧；如果视频本身关键帧稀疏，仍需使用后续的兼容转码功能。</p>
+          <p className="text-amber-600">成功后会原位替换文件。执行期间请勿从外部修改或移动该视频。</p>
+        </div>
+      ),
+      confirmText: '开始无损优化',
+      onConfirm: async () => {
+        setStartingVideoOptimizationImageId(image.id)
+        try {
+          const result = await trpcClient.job.startVideoStreamingOptimization.mutate({ imageId: image.id })
+          startedOptimizationJobIdsRef.current.add(result.jobId)
+          setOptimizationPollInterval(1000)
+          await optimizationStatusQuery.refetch()
+          toast.success('任务已启动，进度会直接显示在当前媒体行')
+        } catch (error) {
+          toast.error(`启动优化失败: ${error instanceof Error ? error.message : '未知错误'}`)
+        } finally {
+          setStartingVideoOptimizationImageId(null)
+        }
+      }
+    })
+  }
+
+  const handleCancelVideoOptimization = async (job: VideoOptimizationJob) => {
+    try {
+      const result = await trpcClient.job.cancelVideoStreamingOptimization.mutate({ jobId: job.id })
+      if (result.success) {
+        toast.info('正在取消 MP4 无损播放优化...')
+        setOptimizationPollInterval(1000)
+        await optimizationStatusQuery.refetch()
+      } else {
+        toast.info('该任务已经结束')
+      }
+    } catch (error) {
+      toast.error(`取消优化失败: ${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }
+
   const handleSearchTag = async (value: string): Promise<Option[]> => {
     const res = await trpcClient.tag.list.query({
       cursor: 1,
@@ -390,6 +487,12 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     onDeleteChapter: setDeleteChapterTarget,
     onReprobeVideo: (image) => {
       void handleReprobeVideo(image)
+    },
+    videoOptimizationJobsByImageId,
+    startingVideoOptimizationImageId,
+    onStartVideoOptimization: handleStartVideoOptimization,
+    onCancelVideoOptimization: (job) => {
+      void handleCancelVideoOptimization(job)
     },
     onDelete: setDeleteTarget
   })
@@ -507,6 +610,8 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
             imageList={imageList}
             refreshKey={refreshKey}
             reprobingImageId={reprobingImageId}
+            videoOptimizationJobsByImageId={videoOptimizationJobsByImageId}
+            startingVideoOptimizationImageId={startingVideoOptimizationImageId}
             onPreviewIndexChange={setPreviewIndex}
             onOpenVideoMetadata={setVideoMetadataTarget}
             onDownload={(path) => {
@@ -519,6 +624,10 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
             onDeleteChapter={setDeleteChapterTarget}
             onReprobeVideo={(image) => {
               void handleReprobeVideo(image)
+            }}
+            onStartVideoOptimization={handleStartVideoOptimization}
+            onCancelVideoOptimization={(job) => {
+              void handleCancelVideoOptimization(job)
             }}
             onDelete={setDeleteTarget}
           />

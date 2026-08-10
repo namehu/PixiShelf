@@ -37,6 +37,8 @@ describe('ImageManagerThumbnailList', () => {
         imageList={[image({ id: 1 }), image({ id: 2, path: '/artist/work/1_p1.jpg', sortOrder: 1 })]}
         refreshKey={1}
         reprobingImageId={null}
+        videoOptimizationJobsByImageId={{}}
+        startingVideoOptimizationImageId={null}
         onPreviewIndexChange={vi.fn()}
         onOpenVideoMetadata={vi.fn()}
         onDownload={vi.fn()}
@@ -44,6 +46,8 @@ describe('ImageManagerThumbnailList', () => {
         onDownloadChapters={vi.fn()}
         onDeleteChapter={vi.fn()}
         onReprobeVideo={vi.fn()}
+        onStartVideoOptimization={vi.fn()}
+        onCancelVideoOptimization={vi.fn()}
         onDelete={vi.fn()}
       />
     )
@@ -67,6 +71,8 @@ describe('ImageManagerThumbnailList', () => {
         ]}
         refreshKey={2}
         reprobingImageId={null}
+        videoOptimizationJobsByImageId={{}}
+        startingVideoOptimizationImageId={null}
         onPreviewIndexChange={vi.fn()}
         onOpenVideoMetadata={vi.fn()}
         onDownload={vi.fn()}
@@ -74,6 +80,8 @@ describe('ImageManagerThumbnailList', () => {
         onDownloadChapters={vi.fn()}
         onDeleteChapter={vi.fn()}
         onReprobeVideo={vi.fn()}
+        onStartVideoOptimization={vi.fn()}
+        onCancelVideoOptimization={vi.fn()}
         onDelete={vi.fn()}
       />
     )

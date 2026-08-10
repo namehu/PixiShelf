@@ -41,7 +41,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
     volumes:
       # 挂载图片目录 - 根据实际需要调整路径
-      - "${PIXISHELF_DATA_PATH:-./data}:/app/data:ro"  # 只读挂载图片目录
+      - "${PIXISHELF_DATA_PATH:-./data}:/app/data:${PIXISHELF_APP_DATA_MOUNT_MODE:-ro}"
       - "${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/app/.local-data/derived-media"
     networks:
       - pixishelf-network

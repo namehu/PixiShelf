@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import { Progress } from '@/components/ui/progress'
 import { Loader2, Clock, CheckCircle2, XCircle, Activity, PlayCircle } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { VideoStreamingOptimizationSection } from './video-streaming-optimization-section'
 
 interface MediaDerivedTagSyncStats {
   expectedArtworks?: number
@@ -904,6 +905,8 @@ export function MaintenanceCard() {
           />
           {videoScheduledTask && renderScheduleSettings(videoScheduledTask)}
         </TaskSection>
+
+        <VideoStreamingOptimizationSection />
 
         <TaskSection
           title={chapterPreviewScheduledTask?.name ?? '生成视频章节截图'}
