@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
 import { syncMediaDerivedTagsForArtworks } from '@/services/media-derived-tag-service'
+import { preserveExistingMediaPathOrder } from '@/services/artwork-service/image-manager'
 import { buildScannedImageSeedData, type ScannedImageSeedData } from './scan-image-builder'
 import { getMetaSource, getPathBasename } from './path-utils'
 import type { MetadataInfo } from './metadata-parser'
@@ -528,8 +529,17 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
           })
         }
 
-        // 2. 更新图片 (删除旧的，插入新的)
-        // 删除旧图片
+        // 2. 更新图片：保留仍存在媒体的人工顺序，新媒体按扫描顺序追加。
+        const existingImages = await tx.image.findMany({
+          where: { artworkId: existingArtwork.id },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          select: { path: true }
+        })
+        const orderedImageSeeds = preserveExistingMediaPathOrder(
+          imageSeedMap.get(artworkData.metadata.id) || [],
+          existingImages
+        ).map((imageSeed, sortOrder) => ({ ...imageSeed, sortOrder }))
+
         await tx.image.deleteMany({
           where: { artworkId: existingArtwork.id }
         })
@@ -537,7 +547,7 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
         // 插入新图片
         let newImageCount = 0
         if (artworkData.mediaFiles.length > 0) {
-          const imagesToCreate = (imageSeedMap.get(artworkData.metadata.id) || []).map((imageSeed) =>
+          const imagesToCreate = orderedImageSeeds.map((imageSeed) =>
             buildImageCreateManyInput(imageSeed, existingArtwork.id)
           )
 

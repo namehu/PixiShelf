@@ -1,4 +1,5 @@
 import 'server-only'
+import { revalidatePath } from 'next/cache'
 import { authProcedure, router } from '@/server/trpc'
 import path from 'path'
 import { z } from 'zod'
@@ -23,7 +24,12 @@ import {
 } from '@/services/artwork-service'
 import logger from '@/lib/logger'
 import { TRPCError } from '@trpc/server'
-import { deleteImage, addImageWithChapters } from '@/services/artwork-service/image-manager'
+import {
+  ArtworkImageOrderError,
+  addImageWithChapters,
+  deleteImage,
+  reorderArtworkImages
+} from '@/services/artwork-service/image-manager'
 import { getScanPath } from '@/services/setting.service'
 import { reprobeVideoMediaByImageId } from '@/services/video-media-probe-service'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
@@ -153,6 +159,35 @@ export const artworkRouter = router({
     )
     .mutation(async ({ input }) => {
       return addImageWithChapters(input.artworkId, input.file, input.chaptersMeta)
+    }),
+
+  reorderImages: authProcedure
+    .input(
+      z.object({
+        artworkId: z.number().int().positive(),
+        imageIds: z.array(z.number().int().positive()).min(2).max(10000),
+        expectedImageIds: z.array(z.number().int().positive()).min(2).max(10000)
+      })
+    )
+    .mutation(async ({ input }) => {
+      try {
+        const result = await reorderArtworkImages(input)
+        revalidatePath(`/artworks/${input.artworkId}`)
+        revalidatePath('/artworks')
+        revalidatePath('/dashboard')
+        return result
+      } catch (error) {
+        if (error instanceof ArtworkImageOrderError) {
+          if (error.code === 'NOT_FOUND') {
+            throw new TRPCError({ code: 'NOT_FOUND', message: error.message })
+          }
+          if (error.code === 'CONFLICT') {
+            throw new TRPCError({ code: 'CONFLICT', message: error.message })
+          }
+          throw new TRPCError({ code: 'BAD_REQUEST', message: error.message })
+        }
+        throw error
+      }
     }),
 
   reprobeVideoMedia: authProcedure.input(z.object({ imageId: z.number().int().positive() })).mutation(async ({ input }) => {

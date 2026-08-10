@@ -1,14 +1,15 @@
 'use client'
 
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
-import { ChevronLeftIcon, FullscreenIcon } from 'lucide-react'
+import { ChevronLeftIcon, FullscreenIcon, ListOrdered } from 'lucide-react'
 import MediaCounter from './media-counter'
 import { useArtworkStore } from '@/store/use-artwork-store'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getMediaInfo } from '@/lib/media'
 import { useRouter } from 'next/navigation'
 import { useSafeBack } from '@/hooks/use-safe-back'
 import PageToolbar from '@/components/layout/page-toolbar'
+import MediaOrderReviewDialog from './media-order-review-dialog'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
@@ -16,6 +17,7 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   const setImages = useArtworkStore((state) => state.setImages)
   const setTotal = useArtworkStore((state) => state.setTotal)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
+  const [orderReviewOpen, setOrderReviewOpen] = useState(false)
 
   // 2. 确保页面滚动顶部
   useEffect(() => {
@@ -33,7 +35,8 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   const { ext, isVideo } = useMemo(() => getMediaInfo(data?.images?.[0]?.path || ''), [data])
 
   return (
-    <PageToolbar
+    <>
+      <PageToolbar
       leading={
         <button
           onClick={safeBack}
@@ -44,22 +47,46 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
           <span className="hidden sm:inline">返回</span>
         </button>
       }
-      actions={
-        <button
-          onClick={() => {
-            setImages(data.images)
-            router.push('/artworks/preview')
-          }}
-          className="flex w-16 items-center justify-center text-gray-600 transition-colors hover:text-gray-900"
-          aria-label="全屏预览"
-        >
-          <FullscreenIcon size={24} className="text-gray-600" />
-        </button>
-      }
-    >
-      <div className="flex justify-center">
-        <MediaCounter hasVideo={isVideo} ext={ext} />
-      </div>
-    </PageToolbar>
+        actions={
+          <div className="flex items-center">
+            {data.images.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setOrderReviewOpen(true)}
+                className="flex size-11 items-center justify-center text-gray-600 transition-colors hover:text-gray-900 sm:size-12"
+                aria-label="顺序校对"
+                title="顺序校对"
+              >
+                <ListOrdered size={22} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setImages(data.images)
+                router.push('/artworks/preview')
+              }}
+              className="flex size-11 items-center justify-center text-gray-600 transition-colors hover:text-gray-900 sm:size-12"
+              aria-label="全屏预览"
+            >
+              <FullscreenIcon size={22} className="text-gray-600" />
+            </button>
+          </div>
+        }
+      >
+        <div className="flex justify-center">
+          <MediaCounter hasVideo={isVideo} ext={ext} />
+        </div>
+      </PageToolbar>
+
+      {orderReviewOpen && (
+        <MediaOrderReviewDialog
+          artworkId={data.id}
+          images={data.images}
+          onClose={() => setOrderReviewOpen(false)}
+          onSaved={setImages}
+        />
+      )}
+    </>
   )
 }

@@ -246,6 +246,7 @@ const { database, prismaStub } = vi.hoisted(() => {
             if (typeof directArtworkId === 'number') return image.artworkId === directArtworkId
             return true
           })
+          .sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id)
           .map((image) => selectFields(image, args.select))
       }),
       deleteMany: vi.fn(async (args: PrismaDeleteManyArgs = {}) => {
@@ -480,7 +481,9 @@ describe('rescan fixture integration', () => {
     const manualTag = seedTag({ name: 'manual-tag' })
     database.artworkTags.push({ artworkId: artwork.id, tagId: manualTag.id })
     database.rawMetadata.push({ artworkId: artwork.id, rawMetadataJson: { title: 'old raw title' } })
-    seedImage({ artworkId: artwork.id, path: '/pixiv/old.jpg', size: 3 })
+    seedImage({ artworkId: artwork.id, path: '/pixiv/2001_p1.jpg', size: 3, sortOrder: 0 })
+    seedImage({ artworkId: artwork.id, path: '/pixiv/old.jpg', size: 3, sortOrder: 1 })
+    seedImage({ artworkId: artwork.id, path: '/pixiv/2001_p0.png', size: 3, sortOrder: 2 })
 
     await writeFile(
       path.join(pixivDirectory, '2001-meta.json'),
@@ -504,6 +507,7 @@ describe('rescan fixture integration', () => {
     )
     await writeFile(path.join(pixivDirectory, '2001_p0.png'), 'updated-image-0')
     await writeFile(path.join(pixivDirectory, '2001_p1.jpg'), 'updated-image-1')
+    await writeFile(path.join(pixivDirectory, '2001_p2.jpg'), 'updated-image-2')
 
     const progressEvents: Array<{ phase: string; percentage?: number; message: string }> = []
     const result = await rescanArtwork(
@@ -519,7 +523,7 @@ describe('rescan fixture integration', () => {
     expect(result.totalArtworks).toBe(1)
     expect(result.newArtists).toBe(1)
     expect(result.newArtworks).toBe(1)
-    expect(result.newImages).toBe(2)
+    expect(result.newImages).toBe(3)
     expect(artwork).toMatchObject({
       title: 'Updated Pixiv title',
       description: 'Updated Pixiv description',
@@ -530,7 +534,12 @@ describe('rescan fixture integration', () => {
       sanityLevel: 4,
       bookmarkCount: 99
     })
-    expect(database.images.map((image) => image.path).sort()).toEqual(['/pixiv/2001_p0.png', '/pixiv/2001_p1.jpg'])
+    expect(database.images.map((image) => image.path)).toEqual([
+      '/pixiv/2001_p1.jpg',
+      '/pixiv/2001_p0.png',
+      '/pixiv/2001_p2.jpg'
+    ])
+    expect(database.images.map((image) => image.sortOrder)).toEqual([0, 1, 2])
     expect(database.rawMetadata).toHaveLength(1)
     expect(database.rawMetadata[0]?.rawMetadataJson).toMatchObject({
       id: 2001,
@@ -560,9 +569,12 @@ describe('rescan fixture integration', () => {
     })
     const manualTag = seedTag({ name: 'manual-local-tag' })
     database.artworkTags.push({ artworkId: artwork.id, tagId: manualTag.id })
-    seedImage({ artworkId: artwork.id, path: '/local/old.png', size: 3 })
+    seedImage({ artworkId: artwork.id, path: '/local/new-b.png', size: 3, sortOrder: 0 })
+    seedImage({ artworkId: artwork.id, path: '/local/old.png', size: 3, sortOrder: 1 })
+    seedImage({ artworkId: artwork.id, path: '/local/new-a.jpg', size: 3, sortOrder: 2 })
     await writeFile(path.join(localDirectory, 'new-b.png'), 'new-b')
     await writeFile(path.join(localDirectory, 'new-a.jpg'), 'new-a')
+    await writeFile(path.join(localDirectory, 'new-c.jpg'), 'new-c')
 
     const progressEvents: Array<{ phase: string; percentage?: number; message: string }> = []
     const result = await rescanLocalArtwork(
@@ -577,7 +589,7 @@ describe('rescan fixture integration', () => {
     expect(result.errors).toEqual([])
     expect(result.totalArtworks).toBe(1)
     expect(result.newArtworks).toBe(1)
-    expect(result.newImages).toBe(2)
+    expect(result.newImages).toBe(3)
     expect(artwork).toMatchObject({
       title: 'Manual local title',
       description: 'Manual local description',
@@ -585,8 +597,13 @@ describe('rescan fixture integration', () => {
       externalId: null,
       metadataFormat: null
     })
-    expect(database.images.map((image) => image.path)).toEqual(['/local/new-a.jpg', '/local/new-b.png'])
-    expect(database.images.map((image) => image.width)).toEqual([320, 320])
+    expect(database.images.map((image) => image.path)).toEqual([
+      '/local/new-b.png',
+      '/local/new-a.jpg',
+      '/local/new-c.jpg'
+    ])
+    expect(database.images.map((image) => image.sortOrder)).toEqual([0, 1, 2])
+    expect(database.images.map((image) => image.width)).toEqual([320, 320, 320])
     expect(database.artworkTags).toEqual(expect.arrayContaining([{ artworkId: artwork.id, tagId: manualTag.id }]))
     expect(progressEvents.at(-1)).toMatchObject({
       phase: 'complete',

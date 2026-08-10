@@ -50,6 +50,52 @@ export interface ReplaceChapterMetaInput extends ChapterMetaInput {
   chaptersFileName: string
 }
 
+export type ArtworkImageOrderErrorCode = 'NOT_FOUND' | 'INVALID_ORDER' | 'CONFLICT'
+
+export class ArtworkImageOrderError extends Error {
+  constructor(
+    public readonly code: ArtworkImageOrderErrorCode,
+    message: string
+  ) {
+    super(message)
+    this.name = 'ArtworkImageOrderError'
+  }
+}
+
+function normalizeMediaPath(mediaPath: string) {
+  return mediaPath.replace(/\\/g, '/').replace(/\/+/g, '/').toLowerCase()
+}
+
+/**
+ * Keeps media that still exists in its database order and appends newly discovered media
+ * in the order supplied by the scanner.
+ */
+export function preserveExistingMediaPathOrder<T extends { path: string }>(
+  incoming: T[],
+  existing: Array<{ path: string }>
+): T[] {
+  const incomingByPath = new Map(incoming.map((item) => [normalizeMediaPath(item.path), item]))
+  const usedPaths = new Set<string>()
+  const ordered: T[] = []
+
+  for (const item of existing) {
+    const normalizedPath = normalizeMediaPath(item.path)
+    const incomingItem = incomingByPath.get(normalizedPath)
+    if (!incomingItem || usedPaths.has(normalizedPath)) continue
+    ordered.push(incomingItem)
+    usedPaths.add(normalizedPath)
+  }
+
+  for (const item of incoming) {
+    const normalizedPath = normalizeMediaPath(item.path)
+    if (usedPaths.has(normalizedPath)) continue
+    ordered.push(item)
+    usedPaths.add(normalizedPath)
+  }
+
+  return ordered
+}
+
 /**
  * 全量替换作品图片事务
  * 执行逻辑：
@@ -63,7 +109,7 @@ export async function updateArtworkImagesTransaction(
   artworkId: number,
   files: ImageMeta[],
   chaptersMeta: ReplaceChapterMetaInput[] = [],
-  options: { appendTagIds?: number[] } = {}
+  options: { appendTagIds?: number[]; preserveExistingOrder?: boolean } = {}
 ) {
   return await prisma.$transaction((tx) =>
     updateArtworkImagesWithTransactionClient(tx, artworkId, files, chaptersMeta, options)
@@ -75,8 +121,19 @@ export async function updateArtworkImagesWithTransactionClient(
   artworkId: number,
   files: ImageMeta[],
   chaptersMeta: ReplaceChapterMetaInput[] = [],
-  options: { appendTagIds?: number[] } = {}
+  options: { appendTagIds?: number[]; preserveExistingOrder?: boolean } = {}
 ) {
+  const orderedFiles = options.preserveExistingOrder
+    ? preserveExistingMediaPathOrder(
+        files,
+        await tx.image.findMany({
+          where: { artworkId },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          select: { path: true }
+        })
+      ).map((file, index) => ({ ...file, order: index }))
+    : files
+
   // 1. 删除旧图片记录
   await tx.image.deleteMany({
     where: { artworkId }
@@ -85,7 +142,7 @@ export async function updateArtworkImagesWithTransactionClient(
   const chaptersMetaMap = new Map(chaptersMeta.map((item) => [item.videoFileName, item]))
 
   // 2. 准备新图片数据
-  const newImages = files.map((file) => ({
+  const newImages = orderedFiles.map((file) => ({
     ...(chaptersMetaMap.get(file.fileName)
       ? {
           chaptersPath: chaptersMetaMap.get(file.fileName)!.chaptersPath,
@@ -131,6 +188,61 @@ export async function updateArtworkImagesWithTransactionClient(
       })
     }
   }
+}
+
+/**
+ * Reorders every media item in an artwork atomically. The expected order prevents
+ * a stale editor from overwriting changes made in another tab.
+ */
+export async function reorderArtworkImages(input: {
+  artworkId: number
+  imageIds: number[]
+  expectedImageIds: number[]
+}) {
+  const { artworkId, imageIds, expectedImageIds } = input
+
+  return prisma.$transaction(async (tx) => {
+    const artwork = await tx.artwork.findUnique({
+      where: { id: artworkId },
+      select: { id: true }
+    })
+    if (!artwork) {
+      throw new ArtworkImageOrderError('NOT_FOUND', 'Artwork not found')
+    }
+
+    const currentImages = await tx.image.findMany({
+      where: { artworkId },
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      select: { id: true }
+    })
+    const currentIds = currentImages.map((image) => image.id)
+
+    if (
+      currentIds.length !== expectedImageIds.length ||
+      currentIds.some((id, index) => id !== expectedImageIds[index])
+    ) {
+      throw new ArtworkImageOrderError('CONFLICT', 'Media order has changed; refresh and try again')
+    }
+
+    const uniqueIds = new Set(imageIds)
+    const currentIdSet = new Set(currentIds)
+    if (
+      imageIds.length !== currentIds.length ||
+      uniqueIds.size !== imageIds.length ||
+      imageIds.some((id) => !currentIdSet.has(id))
+    ) {
+      throw new ArtworkImageOrderError('INVALID_ORDER', 'Media order must contain every artwork media item exactly once')
+    }
+
+    for (let sortOrder = 0; sortOrder < imageIds.length; sortOrder += 1) {
+      await tx.image.update({
+        where: { id: imageIds[sortOrder]! },
+        data: { sortOrder }
+      })
+    }
+
+    return { success: true as const, imageIds }
+  })
 }
 
 /**

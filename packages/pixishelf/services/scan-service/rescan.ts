@@ -206,7 +206,9 @@ export async function rescanLocalArtwork(
       percentage: 70
     })
 
-    await updateArtworkImagesTransaction(artworkId, mediaScanResult.filesMeta, mediaScanResult.chaptersMeta)
+    await updateArtworkImagesTransaction(artworkId, mediaScanResult.filesMeta, mediaScanResult.chaptersMeta, {
+      preserveExistingOrder: true
+    })
     scanResult.newImages = mediaScanResult.filesMeta.length
     scanResult.newArtworks = 1
     await options.audit?.recordItems?.([

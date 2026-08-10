@@ -59,6 +59,12 @@ describe('rescanLocalArtwork', () => {
         checkCancelled
       })
     )
+    expect(updateArtworkImagesTransactionMock).toHaveBeenCalledWith(
+      10,
+      expect.any(Array),
+      [],
+      { preserveExistingOrder: true }
+    )
   })
 
   it('returns a stable user-visible error when no local media files are found', async () => {
