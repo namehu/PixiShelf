@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
-import AdaptiveMediaPreview from '../adaptive-media-preview'
+import AdaptiveMediaPreview, { canPreloadAdaptiveNeighbor } from '../adaptive-media-preview'
 
 const swiperMocks = vi.hoisted(() => {
   const instance = {
@@ -16,9 +16,35 @@ const swiperMocks = vi.hoisted(() => {
 })
 
 vi.mock('next/image', () => ({
-  default: ({ src, alt, className }: { src: string; alt: string; className?: string }) => {
+  default: ({
+    src,
+    alt,
+    className,
+    loading,
+    quality,
+    priority,
+    onLoad
+  }: {
+    src: string
+    alt: string
+    className?: string
+    loading?: 'eager' | 'lazy'
+    quality?: number
+    priority?: boolean
+    onLoad?: React.ReactEventHandler<HTMLImageElement>
+  }) => {
     // oxlint-disable-next-line nextjs/no-img-element
-    return <img src={src} alt={alt} className={className} />
+    return (
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        loading={loading}
+        data-quality={quality}
+        data-priority={priority ? 'true' : undefined}
+        onLoad={onLoad}
+      />
+    )
   }
 }))
 
@@ -79,7 +105,7 @@ function createMedia(index: number, path = `/media-${index + 1}.jpg`): ArtworkIm
     path,
     width: 1200,
     height: 1800,
-    size: null,
+    size: 1024 * 1024,
     sortOrder: index,
     artworkId: 1,
     createdAt: '2026-01-01 00:00:00',
@@ -123,8 +149,63 @@ describe('AdaptiveMediaPreview', () => {
 
     expect(screen.getByText('2 / 3')).toBeTruthy()
     const images = screen.getAllByRole('img')
-    expect(images[1]!.getAttribute('src')).toBe('/media-2.jpg')
+    expect(images[1]!.getAttribute('src')).toBe('/media-2.jpg?v=2026-01-01%2000%3A00%3A00')
     expect(images[1]!.getAttribute('src')).not.toContain('/api/image')
+    expect(images[1]!.getAttribute('data-quality')).toBe('90')
+    expect(images[1]!.getAttribute('data-priority')).toBe('true')
+  })
+
+  it('moves the eager neighbor window after the active image has loaded', () => {
+    render(
+      <AdaptiveMediaPreview
+        images={[createMedia(0), createMedia(1), createMedia(2), createMedia(3)]}
+        initialIndex={1}
+        open
+        onClose={vi.fn()}
+      />
+    )
+
+    const images = screen.getAllByRole('img')
+    expect(images.map((image) => image.getAttribute('loading'))).toEqual(['lazy', null, 'lazy', 'lazy'])
+
+    fireEvent.load(images[1]!)
+    expect(images.map((image) => image.getAttribute('loading'))).toEqual(['eager', null, 'eager', 'lazy'])
+
+    fireEvent.load(images[2]!)
+    fireEvent.click(screen.getByRole('button', { name: '模拟切换' }))
+    expect(images.map((image) => image.getAttribute('loading'))).toEqual(['lazy', null, 'eager', 'eager'])
+  })
+
+  it('never combines priority with lazy loading after moving away from the initial slide', () => {
+    render(
+      <AdaptiveMediaPreview
+        images={[createMedia(0), createMedia(1), createMedia(2), createMedia(3)]}
+        initialIndex={0}
+        open
+        onClose={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '模拟切换' }))
+
+    const initialImage = screen.getAllByRole('img')[0]!
+    expect(initialImage.getAttribute('data-priority')).toBe('true')
+    expect(initialImage.getAttribute('loading')).not.toBe('lazy')
+  })
+
+  it('blocks neighbor preloading for oversized, animated, or data-saving media', () => {
+    const media = createMedia(0)
+    expect(canPreloadAdaptiveNeighbor(media, { isMobile: true, saveData: false })).toBe(true)
+    expect(canPreloadAdaptiveNeighbor({ ...media, size: 7 * 1024 * 1024 }, { isMobile: true, saveData: false })).toBe(
+      false
+    )
+    expect(
+      canPreloadAdaptiveNeighbor(
+        { ...media, path: '/animated.gif', isAnimated: true },
+        { isMobile: false, saveData: false }
+      )
+    ).toBe(false)
+    expect(canPreloadAdaptiveNeighbor(media, { isMobile: false, saveData: true })).toBe(false)
   })
 
   it('keeps slide navigation disabled while zoomed and restores the final index on close', () => {

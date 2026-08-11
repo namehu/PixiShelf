@@ -12,8 +12,10 @@ vi.mock('next/image', () => ({
 }))
 
 const videoMedia: ViewerMediaItem = {
+  id: 1,
   key: 'video-1',
   url: '/video.mp4',
+  updatedAt: '2026-08-11T00:00:00.000Z',
   mediaType: MediaType.VIDEO,
   chaptersUrl: null,
   hasAudio: true,
@@ -39,6 +41,9 @@ function renderControls(overrides: Partial<React.ComponentProps<typeof ViewerVid
     audioPreference: { muted: true, volume: 0.75 },
     onTogglePlayback: vi.fn(),
     onSeek: vi.fn(),
+    onSeekPreviewStart: vi.fn(),
+    onSeekCommit: vi.fn(),
+    onSeekPreviewCancel: vi.fn(),
     onToggleMuted: vi.fn(),
     onVolumeChange: vi.fn(),
     chapterPanelOpen: false,
@@ -72,6 +77,18 @@ describe('ViewerVideoControls', () => {
 
     expect(props.onTogglePlayback).toHaveBeenCalledOnce()
     expect(props.onToggleMuted).toHaveBeenCalledOnce()
+  })
+
+  it('previews slider changes without committing a seek until the interaction completes', () => {
+    const { props } = renderControls()
+    const progress = screen.getByRole('slider', { name: '视频进度' })
+
+    fireEvent.keyDown(progress, { key: 'ArrowRight' })
+    expect(props.onSeek).not.toHaveBeenCalled()
+    expect(props.onSeekPreviewStart).toHaveBeenCalledOnce()
+
+    fireEvent.keyUp(progress, { key: 'ArrowRight' })
+    expect(props.onSeekCommit).toHaveBeenCalledOnce()
   })
 
   it('keeps the chapter sheet open after seeking to a chapter', async () => {

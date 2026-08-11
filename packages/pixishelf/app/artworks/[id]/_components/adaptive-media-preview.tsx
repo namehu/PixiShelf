@@ -9,12 +9,15 @@ import type { Swiper as SwiperType } from 'swiper'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
+import { withMediaVersion } from '@/lib/media-url'
+import { canPreloadAdaptedImage, readMediaPreloadEnvironment, type MediaPreloadEnvironment } from '@/lib/media-preload'
 
 import 'swiper/css'
 import 'swiper/css/zoom'
 import 'swiper/css/virtual'
 
 const ADAPTIVE_PREVIEW_HISTORY_KEY = '__pixishelf_adaptive_media_preview__'
+export type AdaptivePreloadEnvironment = MediaPreloadEnvironment
 
 interface AdaptiveMediaPreviewProps {
   images: ArtworkImageResponseDto[]
@@ -34,7 +37,11 @@ function createHistoryToken() {
 }
 
 function isAnimatedMedia(media: ArtworkImageResponseDto) {
-  return Boolean(media.isAnimated) && (isApngFile(media.path) || isGifFile(media.path) || isWebpFile(media.path))
+  return Boolean(media.isAnimated) || isApngFile(media.path) || isGifFile(media.path) || isWebpFile(media.path)
+}
+
+export function canPreloadAdaptiveNeighbor(media: ArtworkImageResponseDto, environment: AdaptivePreloadEnvironment) {
+  return canPreloadAdaptedImage({ ...media, isAnimated: isAnimatedMedia(media) }, environment)
 }
 
 function clampIndex(index: number, length: number) {
@@ -45,6 +52,11 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
   const safeInitialIndex = clampIndex(initialIndex, images.length)
   const [currentIndex, setCurrentIndex] = useState(safeInitialIndex)
   const [zoomScale, setZoomScale] = useState(1)
+  const [loadedIndexes, setLoadedIndexes] = useState<Set<number>>(() => new Set())
+  const [preloadEnvironment, setPreloadEnvironment] = useState<AdaptivePreloadEnvironment>({
+    isMobile: true,
+    saveData: false
+  })
   const swiperRef = useRef<SwiperType | null>(null)
   const currentIndexRef = useRef(safeInitialIndex)
   const openRef = useRef(open)
@@ -88,6 +100,8 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
     currentIndexRef.current = nextIndex
     setCurrentIndex(nextIndex)
     setZoomScale(1)
+    setLoadedIndexes(new Set())
+    setPreloadEnvironment(readMediaPreloadEnvironment())
     openRef.current = true
     historyClosePendingRef.current = false
     historyTokenRef.current = createHistoryToken()
@@ -120,6 +134,25 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
 
   const activeMedia = images[currentIndex]
   const activeAnimated = useMemo(() => (activeMedia ? isAnimatedMedia(activeMedia) : false), [activeMedia])
+  const eagerNeighborIndexes = useMemo(() => {
+    const indexes = new Set<number>()
+    if (!loadedIndexes.has(currentIndex)) return indexes
+
+    for (const index of [currentIndex - 1, currentIndex + 1]) {
+      const media = images[index]
+      if (media && canPreloadAdaptiveNeighbor(media, preloadEnvironment)) indexes.add(index)
+    }
+    return indexes
+  }, [currentIndex, images, loadedIndexes, preloadEnvironment])
+
+  const handleImageLoad = useCallback((index: number) => {
+    setLoadedIndexes((current) => {
+      if (current.has(index)) return current
+      const next = new Set(current)
+      next.add(index)
+      return next
+    })
+  }, [])
 
   const handleSlideChange = useCallback(
     (swiper: SwiperType) => {
@@ -191,6 +224,8 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
         >
           {images.map((media, index) => {
             const animated = isAnimatedMedia(media)
+            const eager = index === currentIndex || eagerNeighborIndexes.has(index)
+            const priority = index === safeInitialIndex
 
             return (
               <SwiperSlide
@@ -200,15 +235,16 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
               >
                 <div className="swiper-zoom-container relative h-full w-full px-0 py-16 sm:px-12 sm:py-20">
                   <Image
-                    src={media.path}
+                    src={withMediaVersion(media.path, media.updatedAt)}
                     alt={`作品媒体 ${index + 1}`}
                     fill
                     sizes="100vw"
-                    quality={95}
-                    priority={Math.abs(index - safeInitialIndex) <= 1}
-                    loading={Math.abs(index - safeInitialIndex) <= 1 ? 'eager' : 'lazy'}
+                    quality={90}
+                    priority={priority}
+                    loading={priority ? undefined : eager ? 'eager' : 'lazy'}
                     draggable={false}
                     className="select-none object-contain"
+                    onLoad={() => handleImageLoad(index)}
                   />
                   {animated && (
                     <span className="pointer-events-none absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-xs text-white/85 backdrop-blur-md">

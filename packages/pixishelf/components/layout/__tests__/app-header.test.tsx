@@ -29,6 +29,7 @@ describe('isNavigationItemActive', () => {
     expect(isNavigationItemActive('/artworks/42', '/artworks')).toBe(true)
     expect(isNavigationItemActive('/artists/42', '/artists')).toBe(true)
     expect(isNavigationItemActive('/admin/statistics', '/admin')).toBe(true)
+    expect(isNavigationItemActive('/viewer', '/viewer')).toBe(true)
   })
 
   it('does not match sibling routes or dashboard subpaths', () => {
@@ -58,6 +59,7 @@ describe('AppHeader', () => {
 
     expect(screen.getByRole('link', { name: '返回首页' }).getAttribute('href')).toBe('/dashboard')
     expect(screen.getByRole('link', { name: '作品' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: '刷图' }).getAttribute('href')).toBe('/viewer')
     expect(screen.getByRole('link', { name: '管理' }).getAttribute('href')).toBe('/admin')
     expect(screen.getByTestId('user-menu')).toBeTruthy()
     expect(screen.getByRole('banner').className).toContain('hidden lg:block')
@@ -72,6 +74,7 @@ describe('AppHeader', () => {
     const mobileNavigation = screen.getByRole('navigation', { name: '移动端主导航' })
     expect(within(mobileNavigation).getByRole('link', { name: '首页' }).getAttribute('href')).toBe('/dashboard')
     expect(within(mobileNavigation).getByRole('link', { name: '作品' }).getAttribute('href')).toBe('/artworks')
+    expect(within(mobileNavigation).getByRole('link', { name: '刷图' }).getAttribute('href')).toBe('/viewer')
     expect(within(mobileNavigation).getByRole('link', { name: '艺术家' }).getAttribute('href')).toBe('/artists')
     expect(within(mobileNavigation).getByRole('link', { name: '标签' }).getAttribute('href')).toBe('/tags')
     expect(within(mobileNavigation).getByRole('link', { name: '系列' }).getAttribute('href')).toBe('/series')

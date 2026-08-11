@@ -1,18 +1,12 @@
 'use client'
 
-import type { SyntheticEvent } from 'react'
+import { useRef, useState, type SyntheticEvent } from 'react'
 import { ListVideoIcon, Loader2Icon, PauseIcon, PlayIcon, Volume2Icon, VolumeXIcon } from 'lucide-react'
 import ChapterSidebar from '@/components/players/chapter-sidebar'
 import { useCurrentChapter } from '@/components/players/use-current-chapter'
 import { useVideoChapters } from '@/components/players/use-video-chapters'
 import type { NormalizedChapter } from '@/components/players/video-chapters'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle
-} from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
 import type { ViewerMediaItem } from '@/types/images'
@@ -35,6 +29,9 @@ interface ViewerVideoControlsProps {
   audioPreference: ViewerAudioPreference
   onTogglePlayback: () => void
   onSeek: (seconds: number) => void
+  onSeekPreviewStart: () => void
+  onSeekCommit: (seconds: number) => void
+  onSeekPreviewCancel: () => void
   onToggleMuted: () => void
   onVolumeChange: (volume: number) => void
   chapterPanelOpen: boolean
@@ -70,20 +67,52 @@ export default function ViewerVideoControls({
   audioPreference,
   onTogglePlayback,
   onSeek,
+  onSeekPreviewStart,
+  onSeekCommit,
+  onSeekPreviewCancel,
   onToggleMuted,
   onVolumeChange,
   chapterPanelOpen,
   onChapterPanelOpenChange
 }: ViewerVideoControlsProps) {
+  const [previewTime, setPreviewTime] = useState<number | null>(null)
+  const previewingRef = useRef(false)
   const { chapters, duration: chaptersDuration, loading, error, reload } = useVideoChapters(media.chaptersUrl)
   const duration = validDuration(state.duration) || validDuration(media.duration) || validDuration(chaptersDuration)
-  const currentTime = duration > 0 ? Math.min(Math.max(state.currentTime, 0), duration) : Math.max(state.currentTime, 0)
+  const playbackTime =
+    duration > 0 ? Math.min(Math.max(state.currentTime, 0), duration) : Math.max(state.currentTime, 0)
+  const currentTime = previewTime ?? playbackTime
   const currentChapter = useCurrentChapter(chapters, currentTime)
   const hasAudio = media.hasAudio !== false
   const hasChapters = Boolean(media.chaptersUrl)
 
   const handleChapterClick = (chapter: NormalizedChapter) => {
     onSeek(chapter.start)
+  }
+
+  const beginSeekPreview = () => {
+    if (previewingRef.current) return
+    previewingRef.current = true
+    onSeekPreviewStart()
+  }
+
+  const handleSeekValueChange = (values: number[]) => {
+    beginSeekPreview()
+    setPreviewTime(values[0] ?? 0)
+  }
+
+  const handleSeekCommit = (values: number[]) => {
+    const nextTime = values[0] ?? 0
+    previewingRef.current = false
+    setPreviewTime(null)
+    onSeekCommit(nextTime)
+  }
+
+  const cancelSeekPreview = () => {
+    if (!previewingRef.current) return
+    previewingRef.current = false
+    setPreviewTime(null)
+    onSeekPreviewCancel()
   }
 
   return (
@@ -117,7 +146,9 @@ export default function ViewerVideoControls({
             step={0.1}
             value={[duration > 0 ? currentTime : 0]}
             disabled={duration <= 0}
-            onValueChange={(values) => onSeek(values[0] ?? 0)}
+            onValueChange={handleSeekValueChange}
+            onValueCommit={handleSeekCommit}
+            onPointerCancel={cancelSeekPreview}
             className="z-20 h-6 cursor-pointer [&_[data-slot=slider-range]]:bg-white [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:shadow-none [&_[data-slot=slider-track]]:h-0.5 [&_[data-slot=slider-track]]:bg-white/35 hover:[&_[data-slot=slider-thumb]]:opacity-100 focus-within:[&_[data-slot=slider-thumb]]:opacity-100"
           />
         </div>
@@ -182,7 +213,11 @@ export default function ViewerVideoControls({
               aria-label={currentChapter ? `章节：${currentChapter.title}` : '打开视频章节'}
               aria-expanded={chapterPanelOpen}
             >
-              {loading ? <Loader2Icon className="size-4 shrink-0 animate-spin" /> : <ListVideoIcon className="size-4 shrink-0" />}
+              {loading ? (
+                <Loader2Icon className="size-4 shrink-0 animate-spin" />
+              ) : (
+                <ListVideoIcon className="size-4 shrink-0" />
+              )}
               <span className="max-w-24 truncate max-[360px]:hidden">{currentChapter?.title || '章节'}</span>
             </button>
           )}

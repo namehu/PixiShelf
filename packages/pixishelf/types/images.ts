@@ -10,9 +10,15 @@ export interface RandomImagesResponse {
 }
 
 export interface ViewerMediaItem {
+  id: number
   key: string
   url: string
   mediaType: MediaType
+  updatedAt: string
+  size?: number | null
+  width?: number | null
+  height?: number | null
+  isAnimated?: boolean
   chaptersUrl?: string | null
   hasAudio?: boolean | null
   duration?: number | null

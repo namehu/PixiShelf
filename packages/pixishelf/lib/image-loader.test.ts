@@ -38,4 +38,10 @@ describe('imgproxyLoader', () => {
       'http://localhost:5431/_/rs:fit:640:0/q:80/sm:1/plain/local://%2Fmedia%2F1000%2Fimage.jpg@webp'
     )
   })
+
+  it('keeps cache versions out of the ImgProxy source path', () => {
+    expect(imgproxyLoader({ src: '/1000/image.jpg?v=2026-08-11', width: 640, quality: 90 })).toBe(
+      'http://localhost:5431/_/rs:fit:640:0/q:90/sm:1/plain/local://%2Fmedia%2F1000%2Fimage.jpg@webp?v=2026-08-11'
+    )
+  })
 })

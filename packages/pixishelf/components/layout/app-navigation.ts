@@ -1,4 +1,4 @@
-import { BookOpenIcon, HashIcon, HomeIcon, ImageIcon, SettingsIcon, UsersIcon } from 'lucide-react'
+import { BookOpenIcon, HashIcon, HomeIcon, ImageIcon, ImagesIcon, SettingsIcon, UsersIcon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { ROUTES } from '@/lib/constants'
 
@@ -11,6 +11,7 @@ export interface AppNavigationItem {
 export const PRIMARY_NAVIGATION_ITEMS: AppNavigationItem[] = [
   { href: ROUTES.DASHBOARD, label: '首页', icon: HomeIcon },
   { href: ROUTES.ARTWORKS, label: '作品', icon: ImageIcon },
+  { href: ROUTES.VIEWER, label: '刷图', icon: ImagesIcon },
   { href: ROUTES.ARTISTS, label: '艺术家', icon: UsersIcon },
   { href: ROUTES.TAGS, label: '标签', icon: HashIcon },
   { href: ROUTES.SERIES, label: '系列', icon: BookOpenIcon }

@@ -41,18 +41,27 @@ export default function ViewerPage() {
   const defaultRandomSeedRef = useRef(Math.floor(Math.random() * 1000000))
 
   // 状态管理
-  const { images, setImages, resetViewerState, maxImageCount, mediaType, hasHydrated, setChromeHidden } =
-    useViewerStore(
-      useShallow((state) => ({
-        images: state.images,
-        setImages: state.setImages,
-        resetViewerState: state.resetViewerState,
-        maxImageCount: state.maxImageCount,
-        mediaType: state.mediaType,
-        hasHydrated: state.hasHydrated,
-        setChromeHidden: state.setChromeHidden
-      }))
-    )
+  const {
+    images,
+    setImages,
+    resetViewerState,
+    maxImageCount,
+    mediaType,
+    hasHydrated,
+    isChromeHidden,
+    setChromeHidden
+  } = useViewerStore(
+    useShallow((state) => ({
+      images: state.images,
+      setImages: state.setImages,
+      resetViewerState: state.resetViewerState,
+      maxImageCount: state.maxImageCount,
+      mediaType: state.mediaType,
+      hasHydrated: state.hasHydrated,
+      isChromeHidden: state.isChromeHidden,
+      setChromeHidden: state.setChromeHidden
+    }))
+  )
 
   const feedInput = useMemo(() => {
     const rawSource = viewerQuery.source
@@ -140,20 +149,24 @@ export default function ViewerPage() {
   return (
     <main className="h-screen w-screen overflow-hidden bg-black relative">
       {/* 返回按钮 - 仅在PC端显示 */}
-      <button
-        className="absolute top-0 left-0 w-16 py-4 z-50 cursor-pointer bg-black/40 text-white rounded-full items-center justify-center hover:bg-black/60 transition-colors md:flex hidden"
-        onClick={safeBack}
-      >
-        <ChevronLeftIcon className="w-5 h-5" />
-      </button>
+      {!isChromeHidden && (
+        <>
+          <button
+            className="absolute top-0 left-0 w-16 py-4 z-50 cursor-pointer bg-black/40 text-white rounded-full items-center justify-center hover:bg-black/60 transition-colors md:flex hidden"
+            onClick={safeBack}
+          >
+            <ChevronLeftIcon className="w-5 h-5" />
+          </button>
 
-      {/* 移动端返回按钮 - 手势区域 */}
-      <div
-        className="absolute top-0 left-0 w-16 py-4 z-50 md:hidden flex items-center justify-center"
-        onClick={safeBack}
-      >
-        <ChevronLeftIcon className="w-10 h-10 text-white" />
-      </div>
+          {/* 移动端返回按钮 - 手势区域 */}
+          <div
+            className="absolute top-0 left-0 w-16 py-4 z-50 md:hidden flex items-center justify-center"
+            onClick={safeBack}
+          >
+            <ChevronLeftIcon className="w-10 h-10 text-white" />
+          </div>
+        </>
+      )}
 
       {/* 沉浸式图片浏览器 */}
       <ImmersiveImageViewer

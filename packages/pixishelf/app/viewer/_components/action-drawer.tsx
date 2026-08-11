@@ -4,7 +4,7 @@ import { FC, useState, useEffect } from 'react'
 import { RandomImageItem } from '@/types/images'
 import { useRouter } from 'next/navigation'
 import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs'
-import { CaptionsIcon, User } from 'lucide-react'
+import { CaptionsIcon, EyeOffIcon, User } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Drawer,
@@ -38,6 +38,7 @@ export interface ActionDrawerProps {
   onOpenChange: (open: boolean) => void
   /** 图片数据 */
   image: RandomImageItem
+  onEnterClearMode: () => void
 }
 
 /**
@@ -45,7 +46,7 @@ export interface ActionDrawerProps {
  * 使用Drawer组件实现的操作菜单，支持查看详情、查看作者等功能
  * 现在包含确认保存机制，所有设置变更需要用户确认后才会生效
  */
-export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image }) => {
+export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image, onEnterClearMode }) => {
   const router = useRouter()
   const [viewerQuery, setViewerQuery] = useQueryStates(viewerQueryParsers)
   const { author } = image
@@ -150,6 +151,11 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image 
 
         {/* 设置内容区域 */}
         <div className="p-4 space-y-4 flex-1">
+          <Button type="button" variant="outline" className="w-full justify-start" onClick={onEnterClearMode}>
+            <EyeOffIcon className="mr-2 size-4" />
+            清屏播放
+          </Button>
+
           {/* 浏览模式设置 */}
           <div className="flex justify-between py-2">
             <Label>浏览模式</Label>

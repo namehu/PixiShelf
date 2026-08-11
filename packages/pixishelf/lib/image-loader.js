@@ -4,10 +4,23 @@ import { isDerivedMediaPublicUrl, resolveDerivedMediaSource } from './derived-me
 
 // ImgProxy 的服务地址，因为在 Docker Compose 网络中，可以直接用服务名
 // 从浏览器访问时需要用宿主机的 IP 和端口
-const IMGPROXY_URL = process.env.NEXT_PUBLIC_IMGPROXY_URL || 'http://localhost:5431';
-const THUMBOR_VIDEO_URL = process.env.NEXT_PUBLIC_THUMBOR_VIDEO_URL || 'http://localhost:5433';
+const IMGPROXY_URL = process.env.NEXT_PUBLIC_IMGPROXY_URL || 'http://localhost:5431'
+const THUMBOR_VIDEO_URL = process.env.NEXT_PUBLIC_THUMBOR_VIDEO_URL || 'http://localhost:5433'
 const DEFAULT_IMAGE_OUTPUT_FORMAT = 'webp'
 const STATIC_ANIMATION_THUMBNAIL_FORMAT = 'jpg'
+
+function splitSourceVersion(src) {
+  const queryIndex = src.indexOf('?')
+  if (queryIndex < 0) return { source: src, version: null }
+
+  const source = src.slice(0, queryIndex)
+  const params = new URLSearchParams(src.slice(queryIndex + 1))
+  return { source, version: params.get('v') }
+}
+
+function appendVersion(url, version) {
+  return version ? `${url}?v=${encodeURIComponent(version)}` : url
+}
 
 /**
  * @typedef {Object} ImgproxyImageOptions
@@ -21,7 +34,7 @@ const STATIC_ANIMATION_THUMBNAIL_FORMAT = 'jpg'
  * @param {ImgproxyImageOptions} options
  */
 export function buildImgproxyImageUrl({ src, width, quality, format = DEFAULT_IMAGE_OUTPUT_FORMAT }) {
-  return `${IMGPROXY_URL}/_/rs:fit:${width}:0/q:${quality || 90}/sm:1/plain/local://${encodeURIComponent(src)}@${format}`;
+  return `${IMGPROXY_URL}/_/rs:fit:${width}:0/q:${quality || 90}/sm:1/plain/local://${encodeURIComponent(src)}@${format}`
 }
 
 /**
@@ -42,16 +55,16 @@ export default function imgproxyLoader({ src, width, quality, format }) {
       quality,
       format: 'webp'
     })
-    return derivedMedia.version
-      ? `${derivedMediaUrl}?v=${encodeURIComponent(derivedMedia.version)}`
-      : derivedMediaUrl
+    return derivedMedia.version ? `${derivedMediaUrl}?v=${encodeURIComponent(derivedMedia.version)}` : derivedMediaUrl
   }
   if (isDerivedMediaPublicUrl(src)) return src
 
+  const { source, version } = splitSourceVersion(src)
+
   // 视频截帧用 自定义的Thumbor 组件
-  if (isVideoFile(src)) {
-    const finalUrl = `${THUMBOR_VIDEO_URL}/unsafe/${width || 800}x0/filters:still(1)${src}`;
-    return finalUrl;
+  if (isVideoFile(source)) {
+    const finalUrl = `${THUMBOR_VIDEO_URL}/unsafe/${width || 800}x0/filters:still(1)${source}`
+    return appendVersion(finalUrl, version)
   }
 
   // 图片处理 https://docs.imgproxy.net/usage/processing
@@ -65,8 +78,10 @@ export default function imgproxyLoader({ src, width, quality, format }) {
   // - /unsafe/: 签名部分，如果未配置密钥则使用 unsafe
   // - ...processingOptions: 上面定义好的处理选项
   // - /${encodedSrc}: 编码后的源图片 URL
-  const outputFormat = format || (isWebpFile(src) || isGifFile(src) ? STATIC_ANIMATION_THUMBNAIL_FORMAT : DEFAULT_IMAGE_OUTPUT_FORMAT)
+  const outputFormat =
+    format ||
+    (isWebpFile(source) || isGifFile(source) ? STATIC_ANIMATION_THUMBNAIL_FORMAT : DEFAULT_IMAGE_OUTPUT_FORMAT)
 
-  const mediaPath = src.startsWith('/') ? `/media${src}` : `/media/${src}`
-  return buildImgproxyImageUrl({ src: mediaPath, width, quality, format: outputFormat });
+  const mediaPath = source.startsWith('/') ? `/media${source}` : `/media/${source}`
+  return appendVersion(buildImgproxyImageUrl({ src: mediaPath, width, quality, format: outputFormat }), version)
 }

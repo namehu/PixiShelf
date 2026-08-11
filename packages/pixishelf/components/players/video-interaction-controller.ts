@@ -2,22 +2,27 @@
 
 import type Artplayer from 'artplayer'
 import type { NormalizedChapter } from './video-chapters'
+import {
+  VIDEO_FEEDBACK_DURATION_MS,
+  VIDEO_LONG_PRESS_DELAY_MS,
+  VIDEO_MOVE_THRESHOLD_PX,
+  VIDEO_TAP_DELAY_MS,
+  formatInteractionTime,
+  getDoubleTapAction,
+  getGestureSeekTarget,
+  type VideoInteractionFeedback
+} from './video-interaction-core'
 
-const TAP_DELAY_MS = 300
-const LONG_PRESS_DELAY_MS = 1000
-const MOVE_THRESHOLD_PX = 12
 const HORIZONTAL_DIRECTION_RATIO = 1.25
-const FEEDBACK_DURATION_MS = 750
 const PROGRESS_DRAG_THRESHOLD_PX = 4
 
-export type VideoInteractionFeedbackKind = 'seek' | 'playback' | 'rate' | 'scrub'
-
-export interface VideoInteractionFeedback {
-  kind: VideoInteractionFeedbackKind
-  title: string
-  detail?: string
-  persistent?: boolean
-}
+export {
+  formatInteractionTime,
+  getDoubleTapAction,
+  getGestureSeekTarget,
+  getGestureSeekWindow
+} from './video-interaction-core'
+export type { VideoInteractionFeedback, VideoInteractionFeedbackKind } from './video-interaction-core'
 
 export interface VideoInteractionControllerOptions {
   longPressRate: 2 | 3
@@ -52,46 +57,6 @@ interface ProgressDragState {
   targetTime: number
   wasPlaying: boolean
   dragging: boolean
-}
-
-export function getGestureSeekWindow(duration: number): number {
-  if (!Number.isFinite(duration) || duration <= 0) return 0
-  return Math.min(Math.max(duration * 0.1, 30), 300)
-}
-
-export function getGestureSeekTarget({
-  startTime,
-  duration,
-  deltaX,
-  width
-}: {
-  startTime: number
-  duration: number
-  deltaX: number
-  width: number
-}): number {
-  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(width) || width <= 0) {
-    return Math.max(startTime, 0)
-  }
-
-  const delta = (deltaX / width) * getGestureSeekWindow(duration)
-  return Math.min(Math.max(startTime + delta, 0), duration)
-}
-
-export function getDoubleTapAction(clientX: number, rect: Pick<DOMRect, 'left' | 'width'>) {
-  const ratio = rect.width > 0 ? (clientX - rect.left) / rect.width : 0.5
-  if (ratio <= 0.2) return 'backward' as const
-  if (ratio >= 0.8) return 'forward' as const
-  return 'toggle-playback' as const
-}
-
-export function formatInteractionTime(seconds: number) {
-  const safeSeconds = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0))
-  const hours = Math.floor(safeSeconds / 3600)
-  const minutes = Math.floor((safeSeconds % 3600) / 60)
-  const remainingSeconds = safeSeconds % 60
-  const clock = `${String(minutes).padStart(hours > 0 ? 2 : 1, '0')}:${String(remainingSeconds).padStart(2, '0')}`
-  return hours > 0 ? `${hours}:${clock}` : clock
 }
 
 function stopNativeEvent(event: Event) {
@@ -151,7 +116,7 @@ export function createVideoInteractionPlugin(options: VideoInteractionController
       feedbackTimer = null
     }
 
-    const showFeedback = (feedback: VideoInteractionFeedback, duration = FEEDBACK_DURATION_MS) => {
+    const showFeedback = (feedback: VideoInteractionFeedback, duration = VIDEO_FEEDBACK_DURATION_MS) => {
       clearFeedbackTimer()
       options.onFeedback(feedback)
       if (feedback.persistent) return
@@ -248,7 +213,7 @@ export function createVideoInteractionPlugin(options: VideoInteractionController
       singleTapTimer = setTimeout(() => {
         singleTapTimer = null
         options.setControlsVisible(!options.getControlsVisible())
-      }, TAP_DELAY_MS)
+      }, VIDEO_TAP_DELAY_MS)
     }
 
     const onPointerDown = (event: PointerEvent) => {
@@ -284,7 +249,7 @@ export function createVideoInteractionPlugin(options: VideoInteractionController
           pointer.mode = 'long-press'
           setPlaybackRate(options.longPressRate)
           showFeedback({ kind: 'rate', title: `${options.longPressRate}× 快进中`, persistent: true })
-        }, LONG_PRESS_DELAY_MS)
+        }, VIDEO_LONG_PRESS_DELAY_MS)
       }
     }
 
@@ -298,7 +263,7 @@ export function createVideoInteractionPlugin(options: VideoInteractionController
       const absY = Math.abs(deltaY)
 
       if (pointer.mode === 'long-press') {
-        if (Math.max(absX, absY) >= MOVE_THRESHOLD_PX) {
+        if (Math.max(absX, absY) >= VIDEO_MOVE_THRESHOLD_PX) {
           setPlaybackRate(pointer.startPlaybackRate)
           pointer.mode = 'vertical'
           clearFeedback()
@@ -306,7 +271,7 @@ export function createVideoInteractionPlugin(options: VideoInteractionController
         return
       }
 
-      if (pointer.mode === 'pending' && Math.max(absX, absY) >= MOVE_THRESHOLD_PX) {
+      if (pointer.mode === 'pending' && Math.max(absX, absY) >= VIDEO_MOVE_THRESHOLD_PX) {
         clearLongPressTimer()
         if (pointer.pointerType === 'touch' && absX > absY * HORIZONTAL_DIRECTION_RATIO) {
           pointer.mode = 'scrubbing'

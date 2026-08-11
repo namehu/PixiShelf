@@ -21,8 +21,10 @@ describe('viewer video lifecycle', () => {
   it('plays only while active and pauses when the media becomes inactive', () => {
     const commonProps = {
       media: {
+        id: 1,
         key: 'video-1',
         url: '/video.mp4',
+        updatedAt: '2026-08-11T00:00:00.000Z',
         mediaType: MediaType.VIDEO,
         hasAudio: true
       },
@@ -41,13 +43,42 @@ describe('viewer video lifecycle', () => {
     expect(pause).toHaveBeenCalled()
   })
 
+  it('does not restart an active video when its saved position bookkeeping changes', () => {
+    const commonProps = {
+      media: {
+        id: 4,
+        key: 'video-4',
+        url: '/video-4.mp4',
+        updatedAt: '2026-08-11T00:00:00.000Z',
+        mediaType: MediaType.VIDEO,
+        hasAudio: true
+      },
+      retryKey: 0,
+      onRetry: vi.fn(),
+      audioPreference: { muted: true, volume: 1 },
+      isActiveMedia: true
+    }
+    const view = render(<SingleImage {...commonProps} savedPlaybackPosition={10} />)
+    expect(play).toHaveBeenCalledTimes(1)
+
+    view.rerender(<SingleImage {...commonProps} savedPlaybackPosition={11} />)
+    expect(play).toHaveBeenCalledTimes(1)
+  })
+
   it('falls back to muted playback when unmuted autoplay is rejected', async () => {
     play.mockRejectedValueOnce(new DOMException('blocked', 'NotAllowedError')).mockResolvedValue(undefined)
     const onFallback = vi.fn()
 
     const view = render(
       <SingleImage
-        media={{ key: 'video-2', url: '/video-2.mp4', mediaType: MediaType.VIDEO, hasAudio: true }}
+        media={{
+          id: 2,
+          key: 'video-2',
+          url: '/video-2.mp4',
+          updatedAt: '2026-08-11T00:00:00.000Z',
+          mediaType: MediaType.VIDEO,
+          hasAudio: true
+        }}
         retryKey={0}
         onRetry={vi.fn()}
         audioPreference={{ muted: false, volume: 1 }}
@@ -59,5 +90,26 @@ describe('viewer video lifecycle', () => {
     await vi.waitFor(() => expect(onFallback).toHaveBeenCalledOnce())
     expect(view.container.querySelector('video')?.muted).toBe(true)
     expect(play).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses metadata-only preloading for an inactive neighboring video', () => {
+    const view = render(
+      <SingleImage
+        media={{
+          id: 3,
+          key: 'video-3',
+          url: '/video-3.mp4',
+          updatedAt: '2026-08-11T00:00:00.000Z',
+          mediaType: MediaType.VIDEO
+        }}
+        retryKey={0}
+        onRetry={vi.fn()}
+        audioPreference={{ muted: true, volume: 1 }}
+        preloadMode="metadata"
+      />
+    )
+
+    expect(view.container.querySelector('video')?.preload).toBe('metadata')
+    expect(play).not.toHaveBeenCalled()
   })
 })

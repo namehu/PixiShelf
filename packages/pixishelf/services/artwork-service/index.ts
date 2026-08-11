@@ -716,9 +716,20 @@ export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, bo
     const url = mediaType === MediaType.VIDEO ? combinationApiResource(img.path) : img.path
 
     return {
-      key: guid(),
+      id: img.id,
+      key: String(img.id),
       url,
       mediaType,
+      updatedAt:
+        img.updatedAt instanceof Date
+          ? img.updatedAt.toISOString()
+          : typeof img.updatedAt === 'string'
+            ? img.updatedAt
+            : '',
+      size: typeof img.size === 'number' ? img.size : null,
+      width: typeof img.width === 'number' ? img.width : null,
+      height: typeof img.height === 'number' ? img.height : null,
+      isAnimated: img.isAnimated === true,
       chaptersUrl: mediaType === MediaType.VIDEO ? (img.chaptersUrl ?? null) : null,
       hasAudio: mediaType === MediaType.VIDEO ? (img.hasAudio ?? null) : null,
       duration: mediaType === MediaType.VIDEO ? (img.duration ?? null) : null

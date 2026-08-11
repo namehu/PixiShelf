@@ -24,12 +24,22 @@ describe('toViewerImageItem', () => {
         tags: [],
         images: [
           {
+            id: 71,
             path: '/artist/cover.jpg',
-            mediaType: 'image'
+            mediaType: 'image',
+            updatedAt: '2026-08-10T01:00:00.000Z',
+            size: 1024,
+            width: 1200,
+            height: 800
           },
           {
+            id: 72,
             path: '/artist/movie.mp4',
             mediaType: 'video',
+            updatedAt: new Date('2026-08-10T02:00:00.000Z'),
+            size: 2048,
+            width: 1920,
+            height: 1080,
             chaptersUrl: '/api/v1/media/72/chapters',
             hasAudio: true,
             duration: 125.5
@@ -43,15 +53,24 @@ describe('toViewerImageItem', () => {
     expect(item.isLike).toBe(true)
     expect(item.images).toEqual([
       expect.objectContaining({
+        id: 71,
+        key: '71',
         url: '/artist/cover.jpg',
         mediaType: MediaType.IMAGE,
+        updatedAt: '2026-08-10T01:00:00.000Z',
+        size: 1024,
+        width: 1200,
+        height: 800,
         chaptersUrl: null,
         hasAudio: null,
         duration: null
       }),
       expect.objectContaining({
+        id: 72,
+        key: '72',
         url: '/api/v1/images/artist%2Fmovie.mp4',
         mediaType: MediaType.VIDEO,
+        updatedAt: '2026-08-10T02:00:00.000Z',
         chaptersUrl: '/api/v1/media/72/chapters',
         hasAudio: true,
         duration: 125.5
@@ -67,7 +86,16 @@ describe('toViewerImageItem', () => {
         createdAt: new Date('2026-08-10T00:00:00.000Z'),
         artist: null,
         tags: [],
-        images: [{ path: '/artist/movie.webm', mediaType: 'video', hasAudio: false, duration: 20 }]
+        images: [
+          {
+            id: 81,
+            path: '/artist/movie.webm',
+            mediaType: 'video',
+            updatedAt: '2026-08-10T00:00:00.000Z',
+            hasAudio: false,
+            duration: 20
+          }
+        ]
       },
       {}
     )
