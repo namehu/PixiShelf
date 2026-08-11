@@ -37,68 +37,68 @@ export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, onTogg
 
   return (
     <Button
-        className={cn(
-          'relative transition-all duration-200 ease-in-out',
-          'hover:scale-105 active:scale-95',
-          'focus-visible:ring-2 focus-visible:ring-red-500/50',
-          liked && 'text-red-500',
-          likeLoading && 'opacity-50 cursor-not-allowed',
-          'w-12 h-12 bg-black/20 hover:bg-black/30 backdrop-blur-sm',
-          'rounded-full flex items-center justify-center',
-          'transition-all duration-200 hover:scale-105 active:scale-95',
-          'shadow-lg',
-          className
-        )}
-        onClick={handleLikeClick}
-        disabled={likeLoading}
-      >
-        {/* 加载状态指示器 */}
-        <AnimatePresence mode="wait">
-          {likeLoading ? (
-            <motion.div
-              key="loading"
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              transition={{ duration: 0.15 }}
-              className="flex items-center justify-center"
-            >
-              <div
-                className="animate-spin rounded-full border-2 border-current border-t-transparent"
-                style={{ width: 24, height: 24 }}
+      aria-label={liked ? '取消喜欢作品' : '喜欢作品'}
+      className={cn(
+        'relative transition-all duration-200 ease-in-out',
+        'hover:scale-105 active:scale-95',
+        'focus-visible:ring-2 focus-visible:ring-red-500/50',
+        liked && 'text-red-500',
+        likeLoading && 'opacity-50 cursor-not-allowed',
+        'w-12 h-12 bg-black/20 hover:bg-black/30 backdrop-blur-sm',
+        'rounded-full flex items-center justify-center',
+        'shadow-lg',
+        className
+      )}
+      onClick={handleLikeClick}
+      disabled={likeLoading}
+    >
+      {/* 加载状态指示器 */}
+      <AnimatePresence mode="wait">
+        {likeLoading ? (
+          <motion.div
+            key="loading"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.15 }}
+            className="flex items-center justify-center"
+          >
+            <div
+              className="animate-spin rounded-full border-2 border-current border-t-transparent"
+              style={{ width: 24, height: 24 }}
+            />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="heart"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.15 }}
+            className="flex items-center"
+          >
+            {/* 爱心图标 */}
+            <motion.div animate={liked ? { scale: [1, 1.2, 1] } : {}} transition={{ duration: 0.3, ease: 'easeOut' }}>
+              <Heart
+                size={24}
+                className={cn(
+                  'size-6 transition-all duration-200',
+                  liked ? 'fill-current text-red-500' : 'text-white hover:text-red-400'
+                )}
               />
             </motion.div>
-          ) : (
-            <motion.div
-              key="heart"
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              transition={{ duration: 0.15 }}
-              className="flex items-center"
-            >
-              {/* 爱心图标 */}
-              <motion.div animate={liked ? { scale: [1, 1.2, 1] } : {}} transition={{ duration: 0.3, ease: 'easeOut' }}>
-                <Heart
-                  size={24}
-                  className={cn(
-                    'size-6 transition-all duration-200',
-                    liked ? 'fill-current text-red-500' : 'text-white hover:text-red-400'
-                  )}
-                />
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* 点击波纹效果 */}
-        <motion.div
-          className="absolute inset-0 rounded-md bg-red-500/20"
-          initial={{ scale: 0, opacity: 0 }}
-          animate={{ scale: 0, opacity: 0 }}
-          whileTap={{ scale: 1.5, opacity: [0, 0.3, 0] }}
-          transition={{ duration: 0.3 }}
-        />
+      {/* 点击波纹效果 */}
+      <motion.div
+        className="absolute inset-0 rounded-md bg-red-500/20"
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: 0, opacity: 0 }}
+        whileTap={{ scale: 1.5, opacity: [0, 0.3, 0] }}
+        transition={{ duration: 0.3 }}
+      />
     </Button>
   )
 }

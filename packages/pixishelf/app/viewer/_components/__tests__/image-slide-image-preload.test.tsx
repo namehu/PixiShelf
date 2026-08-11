@@ -3,12 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MediaType } from '@/types'
 import type { RandomImageItem, ViewerMediaItem } from '@/types/images'
 import { useViewerStore } from '@/store/viewer-store'
-import ImageSlide from '../image-slide'
+import ImageSlide, { SingleImage } from '../image-slide'
 
 vi.mock('next/image', () => ({
   default: ({ src, alt, loading, onLoad }: React.ImgHTMLAttributes<HTMLImageElement>) => {
     // oxlint-disable-next-line nextjs/no-img-element
-    return <img src={src} alt={alt} loading={loading} onLoad={onLoad} />
+    return <img src={typeof src === 'string' ? src : undefined} alt={alt} loading={loading} onLoad={onLoad} />
   }
 }))
 
@@ -131,5 +131,30 @@ describe('viewer staged image preloading', () => {
 
     await waitFor(() => expect(onActiveMediaSettled).toHaveBeenCalledWith('ready'))
     expect(screen.getByAltText('image-5').getAttribute('loading')).toBe('eager')
+  })
+
+  it('offers identified animated WebP media as playable instead of flattening it to a static image', () => {
+    const onMediaReady = vi.fn()
+    render(
+      <SingleImage
+        media={{ ...createMedia(6), url: '/animated.webp', isAnimated: true }}
+        retryKey={0}
+        onRetry={vi.fn()}
+        audioPreference={{ muted: true, volume: 1 }}
+        isActiveMedia
+        onMediaReady={onMediaReady}
+      />
+    )
+
+    fireEvent.load(screen.getByAltText('image-6'))
+    expect(onMediaReady).toHaveBeenCalledOnce()
+
+    fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
+
+    expect(
+      screen
+        .getAllByAltText('image-6')
+        .some((image) => image.getAttribute('src')?.startsWith('/api/v1/images/animated.webp?v='))
+    ).toBe(true)
   })
 })

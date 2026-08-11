@@ -119,14 +119,14 @@ export default function ViewerVideoControls({
     <>
       <div
         data-viewer-control
-        className="mb-3 text-white"
+        className="mb-2.5 text-white"
         onClick={stopControlEvent}
         onDoubleClick={stopControlEvent}
         onPointerDown={stopControlEvent}
         onPointerMove={stopControlEvent}
         onKeyDown={stopControlEvent}
       >
-        <div className="relative flex h-6 items-center">
+        <div className="relative flex h-5 items-center">
           {duration > 0 &&
             chapters.slice(1).map((chapter) => {
               const left = Math.min(Math.max((chapter.start / duration) * 100, 0), 100)
@@ -134,7 +134,7 @@ export default function ViewerVideoControls({
                 <span
                   key={chapter.id}
                   aria-hidden="true"
-                  className="pointer-events-none absolute z-10 h-2.5 w-px -translate-x-1/2 bg-white/70"
+                  className="pointer-events-none absolute z-10 h-2 w-px -translate-x-1/2 bg-white/65"
                   style={{ left: `${left}%` }}
                 />
               )
@@ -149,46 +149,46 @@ export default function ViewerVideoControls({
             onValueChange={handleSeekValueChange}
             onValueCommit={handleSeekCommit}
             onPointerCancel={cancelSeekPreview}
-            className="z-20 h-6 cursor-pointer [&_[data-slot=slider-range]]:bg-white [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:shadow-none [&_[data-slot=slider-track]]:h-0.5 [&_[data-slot=slider-track]]:bg-white/35 hover:[&_[data-slot=slider-thumb]]:opacity-100 focus-within:[&_[data-slot=slider-thumb]]:opacity-100"
+            className="z-20 h-5 cursor-pointer [&_[data-slot=slider-range]]:bg-white/90 [&_[data-slot=slider-thumb]]:size-2.5 [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:shadow-none [&_[data-slot=slider-track]]:h-px [&_[data-slot=slider-track]]:bg-white/30 hover:[&_[data-slot=slider-thumb]]:opacity-100 focus-within:[&_[data-slot=slider-thumb]]:opacity-100"
           />
         </div>
 
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1">
           <button
             type="button"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full text-white/95 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
             onClick={onTogglePlayback}
             aria-label={state.isWaiting ? '视频正在缓冲' : state.isPlaying ? '暂停视频' : '播放视频'}
           >
             {state.isWaiting ? (
-              <Loader2Icon className="size-5 animate-spin" />
+              <Loader2Icon className="size-4 animate-spin" />
             ) : state.isPlaying ? (
-              <PauseIcon className="size-5 fill-current" />
+              <PauseIcon className="size-4 fill-current" />
             ) : (
-              <PlayIcon className="size-5 fill-current" />
+              <PlayIcon className="size-4 fill-current" />
             )}
           </button>
 
-          <span className="shrink-0 text-sm font-medium tabular-nums" aria-label="视频时间">
+          <span className="shrink-0 text-xs font-medium tabular-nums text-white/85" aria-label="视频时间">
             {formatViewerTime(currentTime)} / {duration > 0 ? formatViewerTime(duration) : '--:--'}
           </span>
 
-          <div className="group/volume ml-1 flex min-w-0 items-center">
+          <div className="group/volume ml-0.5 flex min-w-0 items-center">
             <button
               type="button"
               disabled={!hasAudio}
-              className="flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex size-8 shrink-0 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-35"
               onClick={onToggleMuted}
               aria-label={!hasAudio ? '视频没有音轨' : audioPreference.muted ? '开启声音' : '静音'}
             >
               {!hasAudio || audioPreference.muted || audioPreference.volume === 0 ? (
-                <VolumeXIcon className="size-5" />
+                <VolumeXIcon className="size-4" />
               ) : (
-                <Volume2Icon className="size-5" />
+                <Volume2Icon className="size-4" />
               )}
             </button>
             {hasAudio && (
-              <div className="hidden w-0 overflow-hidden opacity-0 transition-[width,opacity] duration-150 md:block md:group-hover/volume:w-16 md:group-hover/volume:opacity-100 md:group-focus-within/volume:w-16 md:group-focus-within/volume:opacity-100">
+              <div className="hidden w-0 overflow-hidden opacity-0 transition-[width,opacity] duration-150 md:block md:group-hover/volume:w-14 md:group-hover/volume:opacity-100 md:group-focus-within/volume:w-14 md:group-focus-within/volume:opacity-100">
                 <Slider
                   aria-label="视频音量"
                   min={0}
@@ -196,7 +196,7 @@ export default function ViewerVideoControls({
                   step={0.05}
                   value={[audioPreference.volume]}
                   onValueChange={(values) => onVolumeChange(values[0] ?? 0)}
-                  className="w-14 [&_[data-slot=slider-range]]:bg-white [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:bg-white/30"
+                  className="w-12 [&_[data-slot=slider-range]]:bg-white/90 [&_[data-slot=slider-thumb]]:size-2.5 [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-track]]:h-0.5 [&_[data-slot=slider-track]]:bg-white/25"
                 />
               </div>
             )}
@@ -206,7 +206,7 @@ export default function ViewerVideoControls({
             <button
               type="button"
               className={cn(
-                'ml-auto flex min-w-0 items-center gap-1.5 rounded-full px-2.5 py-2 text-sm transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80',
+                'ml-auto flex min-w-0 items-center gap-1 rounded-full px-2 py-1.5 text-xs text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
                 chapterPanelOpen && 'bg-white/15'
               )}
               onClick={() => onChapterPanelOpenChange(true)}
@@ -214,11 +214,11 @@ export default function ViewerVideoControls({
               aria-expanded={chapterPanelOpen}
             >
               {loading ? (
-                <Loader2Icon className="size-4 shrink-0 animate-spin" />
+                <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
               ) : (
-                <ListVideoIcon className="size-4 shrink-0" />
+                <ListVideoIcon className="size-3.5 shrink-0" />
               )}
-              <span className="max-w-24 truncate max-[360px]:hidden">{currentChapter?.title || '章节'}</span>
+              <span className="max-w-20 truncate max-[360px]:hidden">{currentChapter?.title || '章节'}</span>
             </button>
           )}
         </div>

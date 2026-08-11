@@ -21,11 +21,12 @@ import ImageOverlay from './image-overlay'
 import type { ViewerOverlayInteractionApi } from './image-overlay'
 import ViewerVideoControls, { type ViewerAudioPreference, type ViewerVideoState } from './viewer-video-controls'
 import { useVideoLongPressPlaybackRate, useVideoSeekStepSeconds } from '@/components/user-setting'
+import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
 import { createFeedGestureEngine, type FeedGestureEngine } from '@/components/players/video-feed-gesture-engine'
 import type { VideoInteractionFeedback } from '@/components/players/video-interaction-core'
 import { readMediaPreloadEnvironment, type MediaPreloadEnvironment } from '@/lib/media-preload'
 import { withMediaVersion } from '@/lib/media-url'
-import { isApngFile, isGifFile } from '@/lib/media'
+import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
 import { Loader2Icon, PauseIcon, PlayIcon } from 'lucide-react'
 
 // 导入 Swiper 样式
@@ -247,6 +248,10 @@ export function SingleImage({
     )
   }
 
+  const usesAnimatedImagePlayer =
+    media.mediaType === MediaType.IMAGE &&
+    (isWebpFile(media.url) || (isGifFile(media.url) && media.isAnimated))
+
   return (
     <div
       ref={onGestureSurfaceChange}
@@ -257,7 +262,20 @@ export function SingleImage({
       onPointerCancel={onGesturePointerCancel}
       onContextMenu={(event) => event.preventDefault()}
     >
-      {media.mediaType === MediaType.IMAGE ? (
+      {usesAnimatedImagePlayer ? (
+        <AnimatedWebpPlayer
+          src={media.url}
+          alt={media.key || 'Artwork media'}
+          size={media.size}
+          isAnimated={Boolean(media.isAnimated)}
+          formatLabel={isGifFile(media.url) ? 'GIF' : 'WEBP'}
+          updatedAt={media.updatedAt}
+          fillContainer
+          posterLoading={priority || preloadMode === 'eager' ? 'eager' : 'lazy'}
+          onPosterLoad={onMediaReady}
+          onPosterError={handleImageError}
+        />
+      ) : media.mediaType === MediaType.IMAGE ? (
         <Image
           key={`${media.key}-${retryKey}`}
           src={withMediaVersion(media.url, media.updatedAt)}

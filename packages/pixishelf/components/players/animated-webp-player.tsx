@@ -3,6 +3,7 @@
 import { InfoIcon, Loader2Icon, PlayIcon } from 'lucide-react'
 import { useMemo, useState, type KeyboardEvent } from 'react'
 import { cn } from '@/lib/utils'
+import { withMediaVersion } from '@/lib/media-url'
 import { combinationApiResource } from '@/utils/combination-static'
 
 interface AnimatedWebpPlayerProps {
@@ -12,6 +13,11 @@ interface AnimatedWebpPlayerProps {
   isAnimated?: boolean
   formatLabel?: string
   className?: string
+  updatedAt?: string | null
+  fillContainer?: boolean
+  posterLoading?: 'eager' | 'lazy'
+  onPosterLoad?: () => void
+  onPosterError?: () => void
 }
 
 const IMGPROXY_URL = process.env.NEXT_PUBLIC_IMGPROXY_URL || 'http://localhost:5431'
@@ -37,13 +43,18 @@ export default function AnimatedWebpPlayer({
   size,
   isAnimated = true,
   formatLabel = 'WEBP',
-  className
+  className,
+  updatedAt,
+  fillContainer = false,
+  posterLoading = 'lazy',
+  onPosterLoad,
+  onPosterError
 }: AnimatedWebpPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isLoadingAnimation, setIsLoadingAnimation] = useState(false)
   const [animationFailed, setAnimationFailed] = useState(false)
-  const originalSrc = useMemo(() => combinationApiResource(src), [src])
-  const posterSrc = useMemo(() => getStaticWebpPosterUrl(src), [src])
+  const originalSrc = useMemo(() => withMediaVersion(combinationApiResource(src), updatedAt), [src, updatedAt])
+  const posterSrc = useMemo(() => withMediaVersion(getStaticWebpPosterUrl(src), updatedAt), [src, updatedAt])
   const fileSize = formatFileSize(size)
   const canStartPlayback = isAnimated && !isPlaying
 
@@ -74,14 +85,27 @@ export default function AnimatedWebpPlayer({
 
   return (
     <div
-      className={cn('relative w-full bg-neutral-100', canStartPlayback && 'cursor-pointer', className)}
+      className={cn(
+        'relative w-full bg-neutral-100',
+        fillContainer && 'h-full',
+        canStartPlayback && 'cursor-pointer',
+        className
+      )}
       role={canStartPlayback ? 'button' : undefined}
       tabIndex={canStartPlayback ? 0 : undefined}
       aria-label={canStartPlayback ? `播放 ${formatLabel} 动图` : undefined}
       onClick={handlePlay}
       onKeyDown={handleKeyDown}
     >
-      <img src={posterSrc} alt={alt} loading="lazy" decoding="async" className="block w-full h-auto object-contain" />
+      <img
+        src={posterSrc}
+        alt={alt}
+        loading={posterLoading}
+        decoding="async"
+        className={cn('block w-full object-contain', fillContainer ? 'h-full' : 'h-auto')}
+        onLoad={onPosterLoad}
+        onError={onPosterError}
+      />
 
       {isAnimated && isPlaying && !animationFailed && (
         <img
