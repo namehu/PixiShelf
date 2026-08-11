@@ -42,7 +42,7 @@ async function getOrCreateMediaDerivedTags(tx: MediaDerivedTagTx): Promise<Recor
     const tagDef = MEDIA_DERIVED_TAGS[key]
     const existing = await tx.tag.findFirst({
       where: {
-        OR: [{ systemKey: tagDef.systemKey }, { name: tagDef.name }]
+        OR: [{ systemKey: tagDef.systemKey }, { namespace: 'general', name: tagDef.name }]
       },
       select: { id: true }
     })
@@ -52,6 +52,7 @@ async function getOrCreateMediaDerivedTags(tx: MediaDerivedTagTx): Promise<Recor
         where: { id: existing.id },
         data: {
           name: tagDef.name,
+          namespace: 'general',
           isSystem: true,
           systemKey: tagDef.systemKey
         },
@@ -64,6 +65,7 @@ async function getOrCreateMediaDerivedTags(tx: MediaDerivedTagTx): Promise<Recor
     const tag = await tx.tag.create({
       data: {
         name: tagDef.name,
+        namespace: 'general',
         isSystem: true,
         systemKey: tagDef.systemKey
       },
@@ -116,7 +118,8 @@ export async function syncMediaDerivedTagsForArtworks(tx: MediaDerivedTagTx, art
   const createData = (Object.keys(expected) as MediaDerivedTagKey[]).flatMap((key) =>
     expected[key].map((artworkId) => ({
       artworkId,
-      tagId: tagIds[key]
+      tagId: tagIds[key],
+      provenance: 'DERIVED'
     }))
   )
 
@@ -176,7 +179,7 @@ async function syncTagRelations(
 
   for (const batch of chunk(idsToAdd, MEDIA_TAG_SYNC_BATCH_SIZE)) {
     const result = await prisma.artworkTag.createMany({
-      data: batch.map((artworkId) => ({ artworkId, tagId })),
+      data: batch.map((artworkId) => ({ artworkId, tagId, provenance: 'DERIVED' })),
       skipDuplicates: true
     })
     added += result.count

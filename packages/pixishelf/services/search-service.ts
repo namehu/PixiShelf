@@ -78,7 +78,7 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
       a.username,
       COUNT(aw.id) as artwork_count
     FROM "Artist" a
-    LEFT JOIN "Artwork" aw ON a.id = aw."artistId"
+    LEFT JOIN "Artwork" aw ON a.id = aw."artistId" AND aw."deletedAt" IS NULL
     WHERE (a.name ILIKE $1 OR a.username ILIKE $2)
     GROUP BY a.id, a.name, a.username
     ORDER BY artwork_count DESC, a.name ASC
@@ -122,7 +122,8 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
         aw."imageCount" as image_count
       FROM "Artwork" aw
       LEFT JOIN "Artist" a ON aw."artistId" = a.id
-      WHERE (aw.title ILIKE $1 OR aw.description ILIKE $1)
+      WHERE aw."deletedAt" IS NULL
+        AND (aw.title ILIKE $1 OR aw.description ILIKE $1)
       ORDER BY aw."imageCount" DESC, aw."createdAt" DESC
       LIMIT $2
     `

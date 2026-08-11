@@ -179,10 +179,13 @@ function getFlatVideoMetadataFields(image: Record<string, unknown>) {
   return fields
 }
 
-export const generateLocalExternalId = (artworkId: number) => {
+export const generateLocalStorageKey = (artworkId: number) => {
   const randomSuffix = Math.floor(1000000 + Math.random() * 9000000).toString()
   return `e_${artworkId}_${randomSuffix}`
 }
+
+/** @deprecated Use generateLocalStorageKey. Kept for one compatibility release. */
+export const generateLocalExternalId = generateLocalStorageKey
 
 /**
  * 确定作品的相对存储路径
@@ -192,6 +195,7 @@ export const generateLocalExternalId = (artworkId: number) => {
  */
 export function determineArtworkRelDir(artwork: {
   storagePath?: string | null
+  storageKey?: string | null
   images?: { path: string }[]
   artist?: { userId: string | null } | null
   externalId: string | null
@@ -201,8 +205,8 @@ export function determineArtworkRelDir(artwork: {
     targetRelDir = artwork.storagePath
   } else if (artwork.images && artwork.images.length > 0 && artwork.images[0]?.path) {
     targetRelDir = path.dirname(artwork.images[0].path)
-  } else if (artwork.artist?.userId && artwork.externalId) {
-    targetRelDir = `/${artwork.artist.userId}/${artwork.externalId}`
+  } else if (artwork.artist?.userId && (artwork.storageKey || artwork.externalId)) {
+    targetRelDir = `/${artwork.artist.userId}/${artwork.storageKey || artwork.externalId}`
   } else {
     return null
   }

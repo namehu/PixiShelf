@@ -37,6 +37,13 @@ export async function GET(
       }
     })
 
+    // Internal archive lifecycle directories contain unpublished, failed, or
+    // soft-deleted files. They must never be addressable through the public
+    // media route, even when a caller can guess their relative path.
+    if (decodedSegments.some((segment) => segment.startsWith('.'))) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
+
     const relativePath = path.join(...decodedSegments)
     let fullFilePath: string
     try {

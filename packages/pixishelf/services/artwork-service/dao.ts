@@ -14,6 +14,7 @@ export async function fetchRandomIds(limit: number, tagNames?: string[]): Promis
   const where: Prisma.ArtworkWhereInput =
     filteredTagNames.length > 0
       ? {
+          deletedAt: null,
           artworkTags: {
             some: {
               tag: {
@@ -22,9 +23,10 @@ export async function fetchRandomIds(limit: number, tagNames?: string[]): Promis
             }
           }
         }
-      : {}
+      : { deletedAt: null }
 
   const bounds = await prisma.artwork.aggregate({
+    where: { deletedAt: null },
     _min: { id: true },
     _max: { id: true }
   })

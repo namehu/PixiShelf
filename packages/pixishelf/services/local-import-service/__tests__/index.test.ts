@@ -31,7 +31,7 @@ vi.mock('@/services/artwork-service/image-manager', () => ({
   updateArtworkImagesWithTransactionClient: mocks.updateImages
 }))
 vi.mock('@/services/artwork-service/utils', () => ({
-  generateLocalExternalId: mocks.generateExternalId
+  generateLocalStorageKey: mocks.generateExternalId
 }))
 
 import { runLocalImport, saveLocalImportArtistMapping } from '../index'

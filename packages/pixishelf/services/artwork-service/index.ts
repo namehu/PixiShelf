@@ -13,7 +13,7 @@ import { combinationApiResource, combinationStaticAvatar } from '@/utils/combina
 import { getUserArtworkLikeStatus } from '@/services/like-service'
 import logger from '@/lib/logger'
 import { EMediaType } from '@/enums/e-media-type'
-import { generateLocalExternalId, shuffleArray, transformImages, transformSingleArtwork } from './utils'
+import { generateLocalStorageKey, shuffleArray, transformImages, transformSingleArtwork } from './utils'
 import { fetchRandomIds } from './dao'
 import { RandomTagDto } from '@/schemas/tag.dto'
 import { Prisma, ScanRunMode, ScanRunType } from '@prisma/client'
@@ -26,6 +26,8 @@ import { ESource, type ESource as ArtworkSource } from '@/enums/e-source'
 import { appendScanRunItems, completeScanRunSummary, startScanRun } from '@/services/scan-run-service'
 import { toApiImageSize } from '@/utils/image-size'
 import { buildVideoPosterUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
+import { requireArchiveStorageRoot } from '@/services/archive/config'
+import { trashPublishedArchive } from '@/services/archive/publisher'
 
 export * from './related'
 export * from './video-chapters'
@@ -225,6 +227,14 @@ export async function getArtworkCardsPage(
  * 3. 删除 Artwork 表记录 (数据库级联删除 ArtworkTag, ArtworkLike, SeriesArtwork)
  */
 export async function deleteArtwork(id: number) {
+  const artwork = await prisma.artwork.findUnique({ where: { id } })
+  if (!artwork) throw new Error(`Artwork ${id} not found`)
+  if (artwork.createdVia === 'URL_ARCHIVE') {
+    const archiveRoot = await requireArchiveStorageRoot()
+    await trashPublishedArchive(id, archiveRoot)
+    return prisma.artwork.findUniqueOrThrow({ where: { id } })
+  }
+
   // 1. 获取关联图片
   const images = await prisma.image.findMany({
     where: { artworkId: id }
@@ -301,6 +311,9 @@ export async function updateArtwork(
 
   const updateData: Prisma.ArtworkUpdateInput = { ...rest }
 
+  if (data.title !== undefined) updateData.titleOverridden = true
+  if (data.description !== undefined) updateData.descriptionOverridden = true
+
   if (sourceDate !== undefined) {
     updateData.sourceDate = typeof sourceDate === 'string' ? new Date(sourceDate) : sourceDate
   }
@@ -311,8 +324,8 @@ export async function updateArtwork(
 
   if (tags !== undefined) {
     updateData.artworkTags = {
-      deleteMany: {},
-      create: tags.map((tagId) => ({ tagId }))
+      deleteMany: { provenance: { in: ['MANUAL', 'LEGACY'] } },
+      create: tags.map((tagId) => ({ tagId, provenance: 'MANUAL' }))
     }
   }
 
@@ -334,32 +347,34 @@ export async function createArtwork(data: {
   sourceDate?: Date | string | null
 }) {
   const { tags, artistId, source, sourceDate, ...rest } = data
+  const effectiveSource = source ?? ESource.LOCAL_CREATED
 
   const artwork = await prisma.artwork.create({
     data: {
       ...rest,
       sourceDate: typeof sourceDate === 'string' ? new Date(sourceDate) : sourceDate,
-      source,
+      source: effectiveSource,
+      createdVia: effectiveSource === ESource.LOCAL_CREATED ? 'MANUAL_CREATE' : 'UNKNOWN',
       artist: artistId ? { connect: { id: artistId } } : undefined,
       artworkTags:
         tags && tags.length > 0
           ? {
-              create: tags.map((tagId) => ({ tagId }))
+              create: tags.map((tagId) => ({ tagId, provenance: 'MANUAL' }))
             }
           : undefined
     }
   })
 
-  if (source === ESource.LOCAL_CREATED) {
-    const externalId = generateLocalExternalId(artwork.id)
+  if (effectiveSource === ESource.LOCAL_CREATED) {
+    const storageKey = generateLocalStorageKey(artwork.id)
     await prisma.artwork.update({
       where: { id: artwork.id },
-      data: { externalId }
+      data: { storageKey }
     })
     await recordLocalCreateAudit({
       artworkId: artwork.id,
       title: artwork.title,
-      externalId
+      storageKey
     })
   }
 
@@ -367,7 +382,7 @@ export async function createArtwork(data: {
   return result!
 }
 
-async function recordLocalCreateAudit(input: { artworkId: number; title: string; externalId: string }) {
+async function recordLocalCreateAudit(input: { artworkId: number; title: string; storageKey: string }) {
   try {
     const scanRun = await startScanRun({
       type: ScanRunType.LOCAL_CREATE,
@@ -376,7 +391,7 @@ async function recordLocalCreateAudit(input: { artworkId: number; title: string;
     await appendScanRunItems([
       {
         scanRunId: scanRun.id,
-        externalId: input.externalId,
+        externalId: input.storageKey,
         title: input.title,
         status: 'SUCCESS',
         action: 'CREATE',
@@ -400,6 +415,7 @@ async function recordLocalCreateAudit(input: { artworkId: number; title: string;
 export async function getNoSeriesArtworkExternalIds(): Promise<string[]> {
   const artworks = await prisma.artwork.findMany({
     where: {
+      deletedAt: null,
       seriesId: null,
       seriesArtworks: {
         none: {}
@@ -463,7 +479,7 @@ export const getRecommendedArtworks = async (
   // 2. 卡片只查询渲染所需字段，避免把描述和完整关联序列化进 RSC/TRPC。
   const artworks = await prisma.artwork.findMany({
     select: artworkCardSelect,
-    where: { id: { in: randomIds } }
+    where: { id: { in: randomIds }, deletedAt: null }
   })
   const resolvedArtworks = await resolveArtworkCardCovers(artworks)
 
@@ -497,12 +513,13 @@ export const getRecentArtworks = async (
   // 1. 并行查询作品数据和总数
   const [artworks, total] = await Promise.all([
     prisma.artwork.findMany({
+      where: { deletedAt: null },
       select: artworkCardSelect,
       orderBy: { sourceDate: 'desc' },
       skip: skip,
       take: pageSize
     }),
-    prisma.artwork.count()
+    prisma.artwork.count({ where: { deletedAt: null } })
   ])
 
   // 2. 转换数据格式
@@ -525,6 +542,7 @@ export const getDashboardRecentArtworks = async (
 ): Promise<ArtworkCardListResponse> => {
   const { pageSize = 10 } = options
   const artworks = await prisma.artwork.findMany({
+    where: { deletedAt: null },
     select: artworkCardSelect,
     orderBy: [{ sourceDate: 'desc' }, { id: 'desc' }],
     take: pageSize
@@ -567,6 +585,7 @@ export async function getRandomArtworks(
   // 1. 查询所有符合条件的 Artwork 的 ID
   const allArtworkIds = await prisma.artwork.findMany({
     where: {
+      deletedAt: null,
       imageCount: { lte: maxImageCount },
       ...buildMediaFilter(mediaTypeParam)
     },
@@ -607,6 +626,7 @@ export async function getRandomArtworks(
   // 4. 查询完整数据
   const artworks = await prisma.artwork.findMany({
     where: {
+      deletedAt: null,
       id: { in: paginatedIds },
       ...buildMediaFilter(mediaTypeParam)
     },
@@ -769,7 +789,7 @@ export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, bo
  */
 export async function getArtworkById(id: number): Promise<ArtworkResponseDto | null> {
   const artwork = await prisma.artwork.findUnique({
-    where: { id },
+    where: { id, deletedAt: null },
     include: {
       images: { orderBy: { sortOrder: 'asc' }, include: { videoMetadata: true } },
       artist: true,
@@ -777,6 +797,7 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
       series: {
         include: {
           seriesArtworks: {
+            where: { artwork: { deletedAt: null } },
             orderBy: { sortOrder: 'asc' },
             include: { artwork: { select: { id: true, title: true } } }
           }

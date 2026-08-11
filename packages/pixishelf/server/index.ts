@@ -13,6 +13,7 @@ import { userSettingRouter } from './routers/user-setting'
 import { localImportRouter } from './routers/local-import'
 import { scanRunRouter } from './routers/scan-run'
 import { pendingReplaceRouter } from './routers/pending-replace'
+import { archiveRouter } from './routers/archive'
 
 // 挂载子路由
 export const appRouter = router({
@@ -29,7 +30,8 @@ export const appRouter = router({
   userSetting: userSettingRouter,
   localImport: localImportRouter,
   scanRun: scanRunRouter,
-  pendingReplace: pendingReplaceRouter
+  pendingReplace: pendingReplaceRouter,
+  archive: archiveRouter
 })
 
 // 导出类型供前端使用

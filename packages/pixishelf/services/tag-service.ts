@@ -230,11 +230,11 @@ export async function createTag(data: {
   description?: string | null
 }) {
   // Check if tag exists
-  const existing = await prisma.tag.findUnique({ where: { name: data.name } })
+  const existing = await prisma.tag.findUnique({ where: { namespace_name: { namespace: 'general', name: data.name } } })
   if (existing) {
     throw new Error('Tag already exists')
   }
-  return prisma.tag.create({ data })
+  return prisma.tag.create({ data: { ...data, namespace: 'general' } })
 }
 
 /**
@@ -261,6 +261,7 @@ export async function updateTag(
     const existing = await prisma.tag.findFirst({
       where: {
         name: data.name,
+        namespace: 'general',
         NOT: { id }
       }
     })

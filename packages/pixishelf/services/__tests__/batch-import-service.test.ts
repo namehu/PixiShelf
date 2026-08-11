@@ -35,7 +35,7 @@ vi.mock('fs/promises', () => ({
 }))
 
 vi.mock('../artwork-service/utils', () => ({
-  generateLocalExternalId: mocks.generateLocalExternalId
+  generateLocalStorageKey: mocks.generateLocalExternalId
 }))
 
 vi.mock('../media-derived-tag-service', () => ({

@@ -180,4 +180,53 @@ describe('local import discovery', () => {
       })
     ])
   })
+
+  it('recognizes a self-contained archive manifest before treating its media folder as a local work', async () => {
+    const archiveDirectory = path.join(scanPath, 'local-imports', 'Recovered', 'Gallery')
+    await fs.mkdir(path.join(archiveDirectory, 'media'), { recursive: true })
+    await fs.writeFile(path.join(archiveDirectory, 'media', '0001-source.png'), 'image')
+    await fs.writeFile(
+      path.join(archiveDirectory, 'manifest.json'),
+      JSON.stringify({
+        manifestVersion: 1,
+        revisionId: 'revision-1',
+        provider: {
+          key: 'e-hentai',
+          externalId: '123',
+          canonicalUrl: 'https://e-hentai.org/g/123/token/',
+          locator: { gid: '123', token: 'token' }
+        },
+        sourceSnapshot: {
+          metadataHash: 'a'.repeat(64),
+          normalized: { titles: { display: 'Recovered gallery' }, tags: [] },
+          raw: {}
+        },
+        media: [
+          {
+            index: 0,
+            path: 'media/0001-source.png',
+            quality: 'ORIGINAL',
+            mimeType: 'image/png',
+            width: 1,
+            height: 1,
+            bytes: '5',
+            sha256: 'b'.repeat(64)
+          }
+        ],
+        createdAt: new Date().toISOString()
+      })
+    )
+
+    const result = await discoverLocalImports({ scanPath })
+
+    expect(result.counts).toMatchObject({ works: 1, new: 1, media: 1 })
+    expect(result.artists[0]?.works).toEqual([
+      expect.objectContaining({
+        title: 'Recovered gallery',
+        storagePath: 'local-imports/Recovered/Gallery',
+        archiveManifest: true,
+        mediaFiles: ['media/0001-source.png']
+      })
+    ])
+  })
 })

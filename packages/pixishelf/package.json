@@ -17,6 +17,8 @@
     "test": "pnpm test:unit",
     "test:unit": "vitest run --exclude \"tests/integration/**\" --exclude \"**/*.e2e.test.*\" --exclude \"services/scan-service/__tests__/*fixture-integration.test.ts\"",
     "test:integration": "vitest run tests/integration services/scan-service/__tests__/scan-fixture-integration.test.ts services/scan-service/__tests__/rescan-fixture-integration.test.ts",
+    "archive:worker": "tsx scripts/archive-worker.ts",
+    "archive:migration-report": "tsx scripts/archive-identity-report.ts",
     "check:full": "pnpm check:quick && pnpm test:unit && pnpm build",
     "bench:scan-fixture": "node scripts/scan-benchmark-fixture.js"
   },
@@ -110,6 +112,7 @@
     "jsdom": "^27.4.0",
     "tailwindcss": "^4.1.13",
     "typescript": "^5",
+    "tsx": "^4.20.6",
     "vitest": "^4.0.18"
   },
   "pnpm": {

@@ -23,7 +23,7 @@ describe('buildArtworkWhereClause', () => {
     const params = ArtworksInfiniteQuerySchema.parse({})
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toBe('WHERE 1=1')
+    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL')
     expect(sqlParams).toHaveLength(0)
   })
 
@@ -49,7 +49,7 @@ describe('buildArtworkWhereClause', () => {
     const params = ArtworksInfiniteQuerySchema.parse({ sources: '' })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toBe('WHERE 1=1')
+    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL')
     expect(sqlParams).toEqual([])
   })
 
@@ -197,7 +197,7 @@ describe('buildArtworkWhereClause', () => {
     })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toBe('WHERE 1=1')
+    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL')
     expect(sqlParams).toHaveLength(0)
   })
 
@@ -256,7 +256,7 @@ describe('buildArtworkWhereClause', () => {
     })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toBe('WHERE 1=1')
+    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL')
     expect(sqlParams).toHaveLength(0)
   })
 

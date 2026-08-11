@@ -3,7 +3,7 @@ import 'server-only'
 import { prisma } from '@/lib/prisma'
 import { scanLocalArtworkMediaDirectory } from '@/services/artwork-service/local-media-scanner'
 import { updateArtworkImagesWithTransactionClient } from '@/services/artwork-service/image-manager'
-import { generateLocalExternalId } from '@/services/artwork-service/utils'
+import { generateLocalStorageKey } from '@/services/artwork-service/utils'
 import {
   localImportDiscoveryInputSchema,
   saveLocalImportArtistMappingSchema,
@@ -15,6 +15,7 @@ import {
 } from '@/schemas/local-import.dto'
 import { discoverLocalImports } from './discovery'
 import { ESource } from '@/enums/e-source'
+import { importArchiveManifest } from '@/services/archive/manifest-importer'
 
 const MAX_ERRORS = 200
 
@@ -105,6 +106,40 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
   for (let index = 0; index < candidates.length; index += 1) {
     await throwIfCancelled(input.checkCancelled)
     const candidate = candidates[index]!
+    if (candidate.work.archiveManifest) {
+      try {
+        const restored = await importArchiveManifest({ scanRoot: scanPath, storagePath: candidate.work.storagePath })
+        if (restored.imported) {
+          result.imported += 1
+          result.newImages += restored.imageCount
+        } else {
+          result.skipped += 1
+        }
+        await input.audit?.recordItems?.([
+          buildLocalImportAuditItem(candidate, {
+            externalId: `archive:${restored.artworkId}`,
+            artistName: null,
+            status: restored.imported ? 'SUCCESS' : 'SKIPPED',
+            action: restored.imported ? 'CREATE' : 'SKIP_EXISTING',
+            mediaCount: restored.imageCount,
+            newImageCount: restored.imageCount
+          })
+        ])
+        await reportProgress({
+          input,
+          candidate,
+          index,
+          total: candidates.length,
+          status: restored.imported ? 'imported' : 'skipped'
+        })
+      } catch (error) {
+        result.failed += 1
+        const message = error instanceof Error ? error.message : '归档 Manifest 恢复失败'
+        addError(result.errors, `${getCandidateDisplayPath(candidate)}: ${message}`)
+        await reportProgress({ input, candidate, index, total: candidates.length, status: 'failed', message })
+      }
+      continue
+    }
     const artistId = mappingByDirectory.get(candidate.artistDirectory)
     if (!artistId) {
       result.failed += 1
@@ -149,14 +184,15 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
             title: candidate.work.title,
             artistId,
             source: ESource.LOCAL_IMPORT,
+            createdVia: 'LOCAL_DIRECTORY',
             sourceDate: media.earliestMediaMtime,
             storagePath: candidate.work.storagePath
           },
           select: { id: true }
         })
-        const externalId = generateLocalExternalId(artwork.id)
-        createdExternalId = externalId
-        await tx.artwork.update({ where: { id: artwork.id }, data: { externalId } })
+        const storageKey = generateLocalStorageKey(artwork.id)
+        createdExternalId = storageKey
+        await tx.artwork.update({ where: { id: artwork.id }, data: { storageKey } })
         await updateArtworkImagesWithTransactionClient(
           tx,
           artwork.id,

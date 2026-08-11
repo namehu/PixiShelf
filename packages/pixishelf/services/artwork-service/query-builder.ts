@@ -28,7 +28,7 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     excludeTags
   } = params
 
-  let whereSQL = 'WHERE 1=1'
+  let whereSQL = 'WHERE a."deletedAt" IS NULL'
   const sqlParams: any[] = []
   let paramIndex = initialParamIndex
 

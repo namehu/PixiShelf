@@ -60,14 +60,17 @@ describe('media-derived-tag-service', () => {
 
     expect(tagFindFirstMock).toHaveBeenCalledWith({
       where: {
-        OR: [{ systemKey: MEDIA_DERIVED_TAGS.webp.systemKey }, { name: MEDIA_DERIVED_TAGS.webp.name }]
+        OR: [
+          { systemKey: MEDIA_DERIVED_TAGS.webp.systemKey },
+          { namespace: 'general', name: MEDIA_DERIVED_TAGS.webp.name }
+        ]
       },
       select: { id: true }
     })
     expect(artworkTagCreateManyMock).toHaveBeenCalledWith({
       data: [
-        { artworkId: 1, tagId: tagIds.webp },
-        { artworkId: 1, tagId: tagIds.image }
+        { artworkId: 1, tagId: tagIds.webp, provenance: 'DERIVED' },
+        { artworkId: 1, tagId: tagIds.image, provenance: 'DERIVED' }
       ],
       skipDuplicates: true
     })
@@ -85,7 +88,7 @@ describe('media-derived-tag-service', () => {
     await syncMediaDerivedTagForArtwork(createTx(), 1)
 
     expect(artworkTagCreateManyMock).toHaveBeenCalledWith({
-      data: [{ artworkId: 1, tagId: tagIds.video }],
+      data: [{ artworkId: 1, tagId: tagIds.video, provenance: 'DERIVED' }],
       skipDuplicates: true
     })
     expect(artworkTagDeleteManyMock).toHaveBeenCalledWith({
@@ -107,10 +110,10 @@ describe('media-derived-tag-service', () => {
 
     expect(artworkTagCreateManyMock).toHaveBeenCalledWith({
       data: [
-        { artworkId: 1, tagId: tagIds.webp },
-        { artworkId: 2, tagId: tagIds.video },
-        { artworkId: 1, tagId: tagIds.image },
-        { artworkId: 3, tagId: tagIds.image }
+        { artworkId: 1, tagId: tagIds.webp, provenance: 'DERIVED' },
+        { artworkId: 2, tagId: tagIds.video, provenance: 'DERIVED' },
+        { artworkId: 1, tagId: tagIds.image, provenance: 'DERIVED' },
+        { artworkId: 3, tagId: tagIds.image, provenance: 'DERIVED' }
       ],
       skipDuplicates: true
     })

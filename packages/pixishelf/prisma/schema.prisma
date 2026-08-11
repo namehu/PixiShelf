@@ -41,40 +41,50 @@ model LocalImportArtistMapping {
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Artwork {
-  id                 Int             @id @default(autoincrement())
-  title              String
-  description        String?
-  artistId           Int?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  descriptionLength  Int             @default(0)
-  directoryCreatedAt DateTime?
-  imageCount         Int             @default(0)
-  bookmarkCount      Int?
-  externalId         String?
-  isAiGenerated      Boolean?
-  originalUrl        String?
-  size               String?
-  sourceDate         DateTime?
-  sourceUrl          String?
-  thumbnailUrl       String?
-  xRestrict          String?
-  likeCount          Int             @default(0)
-  metaSource         String?         @unique
-  metadataFormat     String?
-  pixivAiType        Int?
-  pixivType          Int?
-  sanityLevel        Int?
-  storagePath        String?         @unique
-  rawMetadata        ArtworkRawMetadata?
-  artist             Artist?         @relation(fields: [artistId], references: [id])
-  likes              ArtworkLike[]
-  seriesId           Int?
-  series             Series?         @relation(fields: [seriesId], references: [id])
-  seriesArtworks     SeriesArtwork[]
-  artworkTags        ArtworkTag[]
-  images             Image[]
-  source             ArtworkSource   @default(PIXIV_IMPORTED)
+  id                    Int                   @id @default(autoincrement())
+  title                 String
+  description           String?
+  artistId              Int?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  descriptionLength     Int                   @default(0)
+  directoryCreatedAt    DateTime?
+  imageCount            Int                   @default(0)
+  bookmarkCount         Int?
+  externalId            String?
+  isAiGenerated         Boolean?
+  originalUrl           String?
+  size                  String?
+  sourceDate            DateTime?
+  sourceUrl             String?
+  thumbnailUrl          String?
+  xRestrict             String?
+  likeCount             Int                   @default(0)
+  metaSource            String?               @unique
+  metadataFormat        String?
+  pixivAiType           Int?
+  pixivType             Int?
+  sanityLevel           Int?
+  storagePath           String?               @unique
+  storageKey            String?               @unique
+  createdVia            ArtworkCreationMethod @default(UNKNOWN)
+  deletedAt             DateTime?
+  titleOverridden       Boolean               @default(false)
+  descriptionOverridden Boolean               @default(false)
+  rawMetadata           ArtworkRawMetadata?
+  artist                Artist?               @relation(fields: [artistId], references: [id])
+  likes                 ArtworkLike[]
+  seriesId              Int?
+  series                Series?               @relation(fields: [seriesId], references: [id])
+  seriesArtworks        SeriesArtwork[]
+  artworkTags           ArtworkTag[]
+  images                Image[]
+  source                ArtworkSource         @default(PIXIV_IMPORTED)
+  externalRefs          ArtworkExternalRef[]
+  archiveImports        ArchiveImport[]
+  archiveRevisions      ArchiveRevision[]
+  relationsFrom         ArtworkRelation[]     @relation("ArtworkRelationFrom")
+  relationsTo           ArtworkRelation[]     @relation("ArtworkRelationTo")
 
   @@unique([externalId])
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
@@ -87,6 +97,47 @@ model Artwork {
   @@index([likeCount])
   @@index([metaSource])
   @@index([metadataFormat])
+  @@index([createdVia])
+  @@index([deletedAt])
+}
+
+model ArtworkExternalRef {
+  id               String                  @id @default(cuid())
+  artworkId        Int
+  providerKey      String                  @db.VarChar(50)
+  externalId       String
+  canonicalUrl     String                  @db.Text
+  locator          Json
+  metadataHash     String?
+  fetchedAt        DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  artwork          Artwork                 @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  snapshots        ArtworkSourceSnapshot[]
+  sourceTags       ArtworkTag[]
+  archiveImports   ArchiveImport[]
+  archiveRevisions ArchiveRevision[]
+
+  @@unique([providerKey, externalId])
+  @@index([artworkId])
+  @@index([providerKey, fetchedAt])
+  @@map("artwork_external_refs")
+}
+
+model ArtworkSourceSnapshot {
+  id                    String             @id @default(cuid())
+  externalRefId         String
+  providerSchemaVersion Int                @default(1)
+  normalizedMetadata    Json
+  rawMetadata           Json
+  metadataHash          String
+  fetchedAt             DateTime
+  createdAt             DateTime           @default(now())
+  externalRef           ArtworkExternalRef @relation(fields: [externalRefId], references: [id], onDelete: Cascade)
+
+  @@unique([externalRefId, metadataHash])
+  @@index([externalRefId, fetchedAt(sort: Desc)])
+  @@map("artwork_source_snapshots")
 }
 
 model ArtworkRawMetadata {
@@ -102,7 +153,8 @@ model ArtworkRawMetadata {
 
 model Tag {
   id            Int                      @id @default(autoincrement())
-  name          String                   @unique
+  name          String
+  namespace     String                   @default("general") @db.VarChar(50)
   isSystem      Boolean                  @default(false)
   systemKey     String?                  @unique
   createdAt     DateTime                 @default(now())
@@ -117,6 +169,7 @@ model Tag {
   name_en       String?
   artworkTags   ArtworkTag[]
 
+  @@unique([namespace, name])
   @@index([name])
   @@index([name_zh]) // 增加索引，提高查询速度
   @@index([name_en]) //  增加索引，提高查询速度
@@ -128,35 +181,40 @@ model Tag {
 }
 
 model ArtworkTag {
-  id        Int      @id @default(autoincrement())
-  artworkId Int
-  tagId     Int
-  createdAt DateTime @default(now())
-  artwork   Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
-  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  id          Int                  @id @default(autoincrement())
+  artworkId   Int
+  tagId       Int
+  provenance  ArtworkTagProvenance @default(LEGACY)
+  sourceRefId String?
+  createdAt   DateTime             @default(now())
+  artwork     Artwork              @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  tag         Tag                  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  sourceRef   ArtworkExternalRef?  @relation(fields: [sourceRefId], references: [id], onDelete: SetNull)
 
   @@unique([artworkId, tagId])
   @@index([tagId, artworkId], map: "ArtworkTag_tagId_artworkId_idx")
+  @@index([sourceRefId])
+  @@index([provenance])
 }
 
 model Image {
-  id                  Int                 @id @default(autoincrement())
+  id                  Int                   @id @default(autoincrement())
   path                String
   width               Int?
   height              Int?
   size                BigInt?
-  sortOrder           Int                 @default(0)
+  sortOrder           Int                   @default(0)
   artworkId           Int?
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-  webpAnimationStatus Int?                @db.SmallInt
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  webpAnimationStatus Int?                  @db.SmallInt
   chaptersPath        String?
-  chaptersCount       Int                 @default(0)
+  chaptersCount       Int                   @default(0)
   chaptersDuration    Float?
   chaptersUpdatedAt   DateTime?
   chaptersHash        String?
-  mediaType           MediaType           @default(UNKNOWN)
-  artwork             Artwork?            @relation(fields: [artworkId], references: [id])
+  mediaType           MediaType             @default(UNKNOWN)
+  artwork             Artwork?              @relation(fields: [artworkId], references: [id])
   videoMetadata       MediaVideoMetadata?
   chapterPreviews     MediaChapterPreview[]
 
@@ -167,23 +225,23 @@ model Image {
 }
 
 model MediaVideoMetadata {
-  imageId        Int              @id
-  image          Image            @relation(fields: [imageId], references: [id], onDelete: Cascade)
-  probeStatus    MediaProbeStatus @default(PENDING)
-  probeUpdatedAt DateTime?
-  probeError     String?          @db.Text
-  hasAudio       Boolean?
-  audioCodec     String?
-  audioChannels  Int?
-  videoCodec     String?
-  duration       Float?
-  fps            Float?
-  posterStatus   VideoPosterStatus @default(PENDING)
-  posterPath     String?
+  imageId         Int               @id
+  image           Image             @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  probeStatus     MediaProbeStatus  @default(PENDING)
+  probeUpdatedAt  DateTime?
+  probeError      String?           @db.Text
+  hasAudio        Boolean?
+  audioCodec      String?
+  audioChannels   Int?
+  videoCodec      String?
+  duration        Float?
+  fps             Float?
+  posterStatus    VideoPosterStatus @default(PENDING)
+  posterPath      String?
   posterUpdatedAt DateTime?
-  posterError    String?          @db.Text
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  posterError     String?           @db.Text
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   @@index([probeStatus])
   @@index([posterStatus])
@@ -329,24 +387,25 @@ enum TranslateType {
 }
 
 model SystemJob {
-  id            String    @id @default(cuid())
-  type          String    @db.VarChar(50)
-  status        JobStatus @default(PENDING)
-  progress      Int       @default(0)
-  message       String?   @db.Text
-  result        Json?
-  error         String?   @db.Text
-  targetImageId Int?
-  targetPath    String?   @db.Text
-  mode          String?   @db.VarChar(50)
-  startedAt     DateTime?
-  heartbeatAt   DateTime?
-  finishedAt    DateTime?
-  attempt       Int       @default(0)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  scanRuns      ScanRun[]
+  id                  String               @id @default(cuid())
+  type                String               @db.VarChar(50)
+  status              JobStatus            @default(PENDING)
+  progress            Int                  @default(0)
+  message             String?              @db.Text
+  result              Json?
+  error               String?              @db.Text
+  targetImageId       Int?
+  targetPath          String?              @db.Text
+  mode                String?              @db.VarChar(50)
+  startedAt           DateTime?
+  heartbeatAt         DateTime?
+  finishedAt          DateTime?
+  attempt             Int                  @default(0)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  scanRuns            ScanRun[]
   pendingReplaceBatch PendingReplaceBatch?
+  archiveImport       ArchiveImport?
 
   @@index([type, status])
   @@index([type, status, createdAt])
@@ -354,6 +413,132 @@ model SystemJob {
   @@index([type, targetImageId, createdAt])
   @@index([createdAt])
   @@map("system_jobs")
+}
+
+model ArchiveImport {
+  id                 String              @id @default(cuid())
+  systemJobId        String              @unique
+  providerKey        String              @db.VarChar(50)
+  externalId         String
+  externalRefId      String?
+  submittedUrl       String              @db.Text
+  canonicalUrl       String              @db.Text
+  locator            Json
+  status             ArchiveImportStatus @default(PENDING)
+  requestedQuality   ArchiveQuality      @default(ORIGINAL)
+  selectedQuality    ArchiveQuality      @default(ORIGINAL)
+  decisionCode       String?             @db.VarChar(80)
+  normalizedMetadata Json
+  rawMetadata        Json
+  metadataHash       String
+  creatorBucket      String              @db.VarChar(180)
+  stagingPath        String              @unique @db.Text
+  totalItems         Int                 @default(0)
+  completedItems     Int                 @default(0)
+  failedItems        Int                 @default(0)
+  warning            String?             @db.Text
+  errorCode          String?             @db.VarChar(80)
+  errorMessage       String?             @db.Text
+  publishedArtworkId Int?
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  retainUntil        DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  systemJob          SystemJob           @relation(fields: [systemJobId], references: [id], onDelete: Cascade)
+  externalRef        ArtworkExternalRef? @relation(fields: [externalRefId], references: [id], onDelete: SetNull)
+  publishedArtwork   Artwork?            @relation(fields: [publishedArtworkId], references: [id], onDelete: SetNull)
+  items              ArchiveImportItem[]
+  publishedRevision  ArchiveRevision?
+
+  @@index([providerKey, externalId])
+  @@index([status, createdAt])
+  @@index([publishedArtworkId])
+  @@index([externalRefId])
+  @@map("archive_imports")
+}
+
+model ArchivePreviewSession {
+  id           String   @id @default(cuid())
+  providerKey  String   @db.VarChar(50)
+  externalId   String
+  resolved     Json
+  metadataHash String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([expiresAt])
+  @@index([providerKey, externalId])
+  @@map("archive_preview_sessions")
+}
+
+model ArchiveImportItem {
+  id               String                  @id @default(cuid())
+  archiveImportId  String
+  pageIndex        Int
+  sourcePageUrl    String                  @db.Text
+  locator          Json
+  expectedFilename String
+  status           ArchiveImportItemStatus @default(PENDING)
+  attempts         Int                     @default(0)
+  stagedPath       String?                 @db.Text
+  byteCount        BigInt?
+  mimeType         String?                 @db.VarChar(120)
+  quality          ArchiveQuality?
+  width            Int?
+  height           Int?
+  sha256           String?                 @db.VarChar(64)
+  errorCode        String?                 @db.VarChar(80)
+  errorMessage     String?                 @db.Text
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  archiveImport    ArchiveImport           @relation(fields: [archiveImportId], references: [id], onDelete: Cascade)
+
+  @@unique([archiveImportId, pageIndex])
+  @@index([archiveImportId, status])
+  @@map("archive_import_items")
+}
+
+model ArchiveRevision {
+  id              String             @id @default(cuid())
+  artworkId       Int
+  externalRefId   String
+  archiveImportId String?            @unique
+  archivePath     String             @db.Text
+  manifestPath    String             @db.Text
+  mediaSnapshot   Json
+  metadataHash    String
+  isCurrent       Boolean            @default(false)
+  trashPath       String?            @db.Text
+  trashedAt       DateTime?
+  purgeAfter      DateTime?
+  publishedAt     DateTime           @default(now())
+  createdAt       DateTime           @default(now())
+  artwork         Artwork            @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  externalRef     ArtworkExternalRef @relation(fields: [externalRefId], references: [id], onDelete: Restrict)
+  archiveImport   ArchiveImport?     @relation(fields: [archiveImportId], references: [id], onDelete: SetNull)
+
+  @@index([artworkId, publishedAt(sort: Desc)])
+  @@index([externalRefId])
+  @@index([purgeAfter])
+  @@map("archive_revisions")
+}
+
+model ArtworkRelation {
+  id            String              @id @default(cuid())
+  fromArtworkId Int
+  toArtworkId   Int
+  type          ArtworkRelationType
+  providerKey   String?             @db.VarChar(50)
+  createdAt     DateTime            @default(now())
+  fromArtwork   Artwork             @relation("ArtworkRelationFrom", fields: [fromArtworkId], references: [id], onDelete: Cascade)
+  toArtwork     Artwork             @relation("ArtworkRelationTo", fields: [toArtworkId], references: [id], onDelete: Cascade)
+
+  @@unique([fromArtworkId, toArtworkId, type])
+  @@index([toArtworkId, type])
+  @@map("artwork_relations")
 }
 
 model PendingReplaceBatch {
@@ -577,6 +762,47 @@ enum JobStatus {
   CANCELLING
 }
 
+enum ArtworkCreationMethod {
+  UNKNOWN
+  PIXIV_SCAN
+  URL_ARCHIVE
+  LOCAL_DIRECTORY
+  MANUAL_CREATE
+}
+
+enum ArtworkTagProvenance {
+  SOURCE
+  MANUAL
+  DERIVED
+  LEGACY
+}
+
+enum ArchiveImportStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  CANCELLING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ArchiveImportItemStatus {
+  PENDING
+  DOWNLOADING
+  COMPLETED
+  FAILED
+}
+
+enum ArchiveQuality {
+  ORIGINAL
+  DISPLAY
+}
+
+enum ArtworkRelationType {
+  REPLACES
+}
+
 enum MediaType {
   IMAGE
   VIDEO
@@ -632,6 +858,7 @@ enum ArtworkSource {
   LOCAL_CREATED
   PIXIV_IMPORTED
   LOCAL_IMPORT
+  URL_ARCHIVE
 }
 
 model SeriesArtwork {

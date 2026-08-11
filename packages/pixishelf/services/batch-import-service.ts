@@ -5,7 +5,7 @@ import { getScanPath } from '@/services/setting.service'
 import path from 'path'
 import fs from 'fs/promises'
 import logger from '@/lib/logger'
-import { generateLocalExternalId } from './artwork-service/utils'
+import { generateLocalStorageKey } from './artwork-service/utils'
 import { syncMediaDerivedTagsForArtworks } from './media-derived-tag-service'
 import { ESource } from '@/enums/e-source'
 import { ScanRunMode, ScanRunType } from '@prisma/client'
@@ -48,21 +48,22 @@ export async function batchCreateArtworksService(data: BatchCreateArtworkSchema)
             data: {
               title: item.title,
               source: ESource.LOCAL_CREATED,
+              createdVia: 'MANUAL_CREATE',
               sourceDate: item.sourceDate ? new Date(item.sourceDate) : new Date(),
               artistId: item.artistId
             }
           })
 
           // 2. 生成 externalId 并更新
-          const externalId = generateLocalExternalId(artwork.id)
+          const storageKey = generateLocalStorageKey(artwork.id)
 
           await tx.artwork.update({
             where: { id: artwork.id },
             data: {
-              externalId
+              storageKey
             }
           })
-          logger.info(`Created artwork: ${artwork.id} with externalId: ${externalId}`)
+          logger.info(`Created artwork: ${artwork.id} with storageKey: ${storageKey}`)
 
           // 3. 关联标签
           if (item.tagIds.length > 0) {
@@ -70,13 +71,14 @@ export async function batchCreateArtworksService(data: BatchCreateArtworkSchema)
             await tx.artworkTag.createMany({
               data: item.tagIds.map((tagId) => ({
                 artworkId: artwork.id,
-                tagId
+                tagId,
+                provenance: 'MANUAL'
               }))
             })
           }
 
           // 4. 准备上传目录
-          const targetRelDir = `/${item.artistUserId}/${externalId}`
+          const targetRelDir = `/${item.artistUserId}/${storageKey}`
           const uploadTargetDir = path.join(scanRoot, targetRelDir)
           logger.info(`Creating directory: ${uploadTargetDir}`)
           try {
@@ -90,7 +92,7 @@ export async function batchCreateArtworksService(data: BatchCreateArtworkSchema)
               tempId: item.tempId,
               id: artwork.id,
               title: artwork.title,
-              externalId,
+              externalId: storageKey,
               targetRelDir,
               uploadTargetDir
             })

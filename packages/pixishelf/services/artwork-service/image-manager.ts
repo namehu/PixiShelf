@@ -182,7 +182,8 @@ export async function updateArtworkImagesWithTransactionClient(
       await tx.artworkTag.createMany({
         data: existingTags.map((tag: { id: number }) => ({
           artworkId,
-          tagId: tag.id
+          tagId: tag.id,
+          provenance: 'MANUAL'
         })),
         skipDuplicates: true
       })

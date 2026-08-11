@@ -67,6 +67,7 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
           imageCount: 0, // 初始为 0，由 DB 触发器在插入图片时自动增加
           descriptionLength: metadata.description?.length || 0,
           externalId: metadata.id,
+          createdVia: 'PIXIV_SCAN' as const,
           metaSource: getMetaSource(metadataFilePath, context.options.scanPath),
           sourceUrl: metadata.url || null,
           originalUrl: metadata.original || null,
@@ -111,6 +112,24 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
           }
         })
 
+        await tx.artworkExternalRef.createMany({
+          data: createdArtworks
+            .filter((artwork) => Boolean(artwork.externalId))
+            .map((artwork) => ({
+              artworkId: artwork.id,
+              providerKey: 'pixiv',
+              externalId: artwork.externalId!,
+              canonicalUrl: artwork.sourceUrl || `https://www.pixiv.net/artworks/${artwork.externalId}`,
+              locator: { artworkId: artwork.externalId }
+            })),
+          skipDuplicates: true
+        })
+        const pixivRefs = await tx.artworkExternalRef.findMany({
+          where: { providerKey: 'pixiv', externalId: { in: externalIds } },
+          select: { id: true, externalId: true }
+        })
+        const pixivRefByExternalId = new Map(pixivRefs.map((ref) => [ref.externalId, ref.id]))
+
         // 创建 externalId 到 artwork 的映射
         const artworkMap = new Map<string, CreatedArtworkLookup>()
         for (const artwork of createdArtworks) {
@@ -149,7 +168,9 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
               if (tagId) {
                 artworkTagsToCreate.push({
                   artworkId: artwork.id,
-                  tagId
+                  tagId,
+                  provenance: 'SOURCE',
+                  sourceRefId: pixivRefByExternalId.get(artworkData.metadata.id)
                 })
               }
             }
@@ -375,6 +396,7 @@ export async function batchProcessTags(artworks: ArtworkData[], context: ScanCon
   // 2. 批量查询数据库中已存在的标签
   const existingTags = await prisma.tag.findMany({
     where: {
+      namespace: 'general',
       name: {
         in: Array.from(uncachedTagNames)
       }
@@ -401,7 +423,7 @@ export async function batchProcessTags(artworks: ArtworkData[], context: ScanCon
     logger.info('Creating new tags in batch:', { tagsToCreateCount: tagsToCreate.length })
 
     await prisma.tag.createMany({
-      data: tagsToCreate.map((name) => ({ name })),
+      data: tagsToCreate.map((name) => ({ name, namespace: 'general' })),
       skipDuplicates: true // 防止并发创建重复标签
     })
 
@@ -410,6 +432,7 @@ export async function batchProcessTags(artworks: ArtworkData[], context: ScanCon
     // 再次查询新创建的标签获取其ID
     const newlyCreatedTags = await prisma.tag.findMany({
       where: {
+        namespace: 'general',
         name: {
           in: tagsToCreate
         }
@@ -459,9 +482,12 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
 
         // 1. 更新 Artwork 基础信息
         // 查找现有 Artwork
-        const existingArtwork = await tx.artwork.findUnique({
-          where: { externalId: metadata.id }
+        const sourceRef = await tx.artworkExternalRef.findUnique({
+          where: { providerKey_externalId: { providerKey: 'pixiv', externalId: metadata.id } },
+          include: { artwork: true }
         })
+        const existingArtwork =
+          sourceRef?.artwork ?? (await tx.artwork.findUnique({ where: { externalId: metadata.id } }))
 
         if (!existingArtwork) {
           throw new Error(`Artwork with externalId ${metadata.id} not found in database`)
@@ -490,10 +516,14 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
         await tx.artwork.update({
           where: { id: existingArtwork.id },
           data: {
-            title: metadata.title,
-            description: metadata.description || null,
+            ...(existingArtwork.titleOverridden ? {} : { title: metadata.title }),
+            ...(existingArtwork.descriptionOverridden
+              ? {}
+              : {
+                  description: metadata.description || null,
+                  descriptionLength: metadata.description?.length || 0
+                }),
             artistId: artist.id,
-            descriptionLength: metadata.description?.length || 0,
             sourceUrl: metadata.url || null,
             originalUrl: metadata.original || null,
             thumbnailUrl: metadata.thumbnail || null,
@@ -508,6 +538,23 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
             pixivAiType: metadata.pixivAiType ?? null,
             pixivType: metadata.pixivType ?? null,
             sanityLevel: metadata.sanityLevel ?? null
+          }
+        })
+
+        await tx.artworkExternalRef.upsert({
+          where: { providerKey_externalId: { providerKey: 'pixiv', externalId: metadata.id } },
+          create: {
+            artworkId: existingArtwork.id,
+            providerKey: 'pixiv',
+            externalId: metadata.id,
+            canonicalUrl: metadata.url || `https://www.pixiv.net/artworks/${metadata.id}`,
+            locator: { artworkId: metadata.id },
+            fetchedAt: new Date()
+          },
+          update: {
+            canonicalUrl: metadata.url || `https://www.pixiv.net/artworks/${metadata.id}`,
+            locator: { artworkId: metadata.id },
+            fetchedAt: new Date()
           }
         })
 

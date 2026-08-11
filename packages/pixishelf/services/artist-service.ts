@@ -313,6 +313,7 @@ export async function getDashboardArtists(
                 SELECT a.id, a."artistId", a."sourceDate"
                 FROM "Artwork" a
                 WHERE a."artistId" = selected."artistId"
+                  AND a."deletedAt" IS NULL
                 ORDER BY a."sourceDate" DESC, a.id DESC
                 LIMIT ${previewArtworkSize}
               ) preview
@@ -324,7 +325,7 @@ export async function getDashboardArtists(
     const recentArtworks =
       recentArtworkIds.length > 0
         ? await prisma.artwork.findMany({
-            where: { id: { in: recentArtworkIds } },
+            where: { id: { in: recentArtworkIds }, deletedAt: null },
             select: {
               id: true,
               title: true,

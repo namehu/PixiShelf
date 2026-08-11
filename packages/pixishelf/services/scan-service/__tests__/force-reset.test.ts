@@ -52,14 +52,22 @@ describe('clearPixivImportedData', () => {
     const relationFilter = {
       where: {
         artwork: {
-          source: ESource.PIXIV_IMPORTED
+          OR: [
+            { createdVia: 'PIXIV_SCAN' },
+            { externalRefs: { some: { providerKey: 'pixiv' } } }
+          ]
         }
       }
     }
     expect(mocks.artworkTagDeleteMany).toHaveBeenCalledWith(relationFilter)
     expect(mocks.imageDeleteMany).toHaveBeenCalledWith(relationFilter)
     expect(mocks.artworkDeleteMany).toHaveBeenCalledWith({
-      where: { source: ESource.PIXIV_IMPORTED }
+      where: {
+        OR: [
+          { createdVia: 'PIXIV_SCAN' },
+          { externalRefs: { some: { providerKey: 'pixiv' } } }
+        ]
+      }
     })
     expect(mocks.artworkTagDeleteMany.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.imageDeleteMany.mock.invocationCallOrder[0]!

@@ -3,17 +3,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   imageFindManyMock,
   imageDeleteManyMock,
+  artworkFindUniqueMock,
+  artworkFindUniqueOrThrowMock,
   artworkDeleteMock,
   getScanPathMock,
   unlinkMock,
-  loggerWarnMock
+  loggerWarnMock,
+  requireArchiveStorageRootMock,
+  trashPublishedArchiveMock
 } = vi.hoisted(() => ({
   imageFindManyMock: vi.fn(),
   imageDeleteManyMock: vi.fn(),
+  artworkFindUniqueMock: vi.fn(),
+  artworkFindUniqueOrThrowMock: vi.fn(),
   artworkDeleteMock: vi.fn(),
   getScanPathMock: vi.fn(),
   unlinkMock: vi.fn(),
-  loggerWarnMock: vi.fn()
+  loggerWarnMock: vi.fn(),
+  requireArchiveStorageRootMock: vi.fn(),
+  trashPublishedArchiveMock: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
@@ -24,12 +32,20 @@ vi.mock('@/lib/prisma', () => ({
       deleteMany: imageDeleteManyMock
     },
     artwork: {
+      findUnique: artworkFindUniqueMock,
+      findUniqueOrThrow: artworkFindUniqueOrThrowMock,
       delete: artworkDeleteMock
     }
   }
 }))
 vi.mock('@/services/setting.service', () => ({
   getScanPath: getScanPathMock
+}))
+vi.mock('@/services/archive/config', () => ({
+  requireArchiveStorageRoot: requireArchiveStorageRootMock
+}))
+vi.mock('@/services/archive/publisher', () => ({
+  trashPublishedArchive: trashPublishedArchiveMock
 }))
 vi.mock('fs/promises', () => ({
   default: {
@@ -56,10 +72,14 @@ describe('deleteArtwork', () => {
   beforeEach(() => {
     imageFindManyMock.mockReset()
     imageDeleteManyMock.mockReset()
+    artworkFindUniqueMock.mockReset().mockResolvedValue({ id: 1, createdVia: 'LOCAL_DIRECTORY' })
+    artworkFindUniqueOrThrowMock.mockReset()
     artworkDeleteMock.mockReset()
     getScanPathMock.mockReset()
     unlinkMock.mockReset()
     loggerWarnMock.mockReset()
+    requireArchiveStorageRootMock.mockReset().mockResolvedValue('D:/archive-root')
+    trashPublishedArchiveMock.mockReset().mockResolvedValue({ artworkId: 1 })
 
     imageDeleteManyMock.mockResolvedValue({ count: 2 })
     artworkDeleteMock.mockResolvedValue({ id: 1 })
@@ -99,5 +119,18 @@ describe('deleteArtwork', () => {
 
     expect(unlinkMock).toHaveBeenCalledTimes(1)
     expectUnlinkWithPathEnding('/artist/artwork/video.mp4')
+  })
+
+  it('soft-deletes URL archives through the archive lifecycle instead of unlinking media', async () => {
+    const restored = { id: 1, createdVia: 'URL_ARCHIVE', deletedAt: new Date() }
+    artworkFindUniqueMock.mockResolvedValue({ id: 1, createdVia: 'URL_ARCHIVE' })
+    artworkFindUniqueOrThrowMock.mockResolvedValue(restored)
+
+    await expect(deleteArtwork(1)).resolves.toBe(restored)
+
+    expect(trashPublishedArchiveMock).toHaveBeenCalledWith(1, 'D:/archive-root')
+    expect(imageFindManyMock).not.toHaveBeenCalled()
+    expect(unlinkMock).not.toHaveBeenCalled()
+    expect(artworkDeleteMock).not.toHaveBeenCalled()
   })
 })

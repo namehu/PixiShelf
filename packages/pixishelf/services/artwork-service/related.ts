@@ -13,7 +13,7 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
 
   // 1. 获取当前作品（作为 cursor）的 sourceDate 和 ID
   const cursorArtwork = await prisma.artwork.findUnique({
-    where: { id: artworkId },
+    where: { id: artworkId, deletedAt: null },
     select: { id: true, sourceDate: true }
   })
 
@@ -42,6 +42,7 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
     // 排序：ASC (离 cursor 最近的先查出来)
     const items = await prisma.artwork.findMany({
       where: {
+        deletedAt: null,
         artistId,
         OR: [{ sourceDate: { gt: cursorDate } }, { sourceDate: cursorDate, id: { gt: cursorId } }]
       },
@@ -65,6 +66,7 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
     // 排序：DESC (离 cursor 最近的先查出来)
     const items = await prisma.artwork.findMany({
       where: {
+        deletedAt: null,
         artistId,
         OR: [{ sourceDate: { lt: cursorDate } }, { sourceDate: cursorDate, id: { lt: cursorId } }]
       },
@@ -81,6 +83,7 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
   // 3. 获取“前”（Newer/Previous）的作品
   const prevItems = await prisma.artwork.findMany({
     where: {
+      deletedAt: null,
       artistId,
       OR: [{ sourceDate: { gt: cursorDate } }, { sourceDate: cursorDate, id: { gt: cursorId } }]
     },
@@ -92,6 +95,7 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
   // 4. 获取“后”（Older/Next）的作品
   const nextItems = await prisma.artwork.findMany({
     where: {
+      deletedAt: null,
       artistId,
       OR: [{ sourceDate: { lt: cursorDate } }, { sourceDate: cursorDate, id: { lt: cursorId } }]
     },
@@ -102,7 +106,7 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
 
   // 5. 获取当前作品的完整信息
   const currentFull = await prisma.artwork.findUnique({
-    where: { id: artworkId },
+    where: { id: artworkId, deletedAt: null },
     include: {
       images: {
         orderBy: { sortOrder: 'asc' },

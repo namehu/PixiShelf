@@ -15,6 +15,7 @@ import {
   type LocalImportDiscoveryResult,
   type LocalImportWorkItem
 } from '@/schemas/local-import.dto'
+import { readArchiveManifest } from '@/services/archive/manifest-importer'
 
 const supportedMediaExtensions = new Set(MEDIA_EXTENSIONS)
 
@@ -140,6 +141,41 @@ async function visitWorkDirectory(input: {
     .sort((a, b) => a.name.localeCompare(b.name))
 
   if (currentWork) {
+    const manifestEntry = entries.find((entry) => entry.isFile() && entry.name === 'manifest.json')
+    if (manifestEntry) {
+      try {
+        const manifest = await readArchiveManifest(currentPath)
+        works.push({
+          workDirectory: currentWork.workDirectory,
+          relativeDirectory: currentWork.relativeDirectory,
+          title:
+            typeof manifest.sourceSnapshot.normalized.titles === 'object' &&
+            manifest.sourceSnapshot.normalized.titles !== null &&
+            !Array.isArray(manifest.sourceSnapshot.normalized.titles) &&
+            typeof (manifest.sourceSnapshot.normalized.titles as Record<string, unknown>).display === 'string'
+              ? String((manifest.sourceSnapshot.normalized.titles as Record<string, unknown>).display)
+              : currentWork.workDirectory,
+          storagePath: currentWork.storagePath,
+          status: 'new',
+          mediaFiles: manifest.media.map((item) => item.path),
+          mediaCount: manifest.media.length,
+          archiveManifest: true
+        })
+      } catch (error) {
+        works.push({
+          workDirectory: currentWork.workDirectory,
+          relativeDirectory: currentWork.relativeDirectory,
+          title: currentWork.workDirectory,
+          storagePath: currentWork.storagePath,
+          status: 'invalid',
+          mediaFiles: [],
+          mediaCount: 0,
+          archiveManifest: true,
+          error: error instanceof Error ? error.message : '归档 Manifest 无效'
+        })
+      }
+      return
+    }
     const mediaFiles = entries
       .filter((entry) => entry.isFile() && supportedMediaExtensions.has(path.extname(entry.name).toLowerCase()))
       .map((entry) => entry.name)

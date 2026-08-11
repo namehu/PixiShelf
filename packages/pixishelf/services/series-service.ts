@@ -18,10 +18,11 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
       take: pageSize,
       include: {
         _count: {
-          select: { seriesArtworks: true }
+          select: { seriesArtworks: { where: { artwork: { deletedAt: null } } } }
         },
         // Get the first artwork in series order to use as cover fallback
         seriesArtworks: {
+          where: { artwork: { deletedAt: null } },
           take: 1,
           orderBy: { sortOrder: 'asc' },
           include: {
@@ -75,6 +76,7 @@ export async function getSeriesDetail(id: number) {
     where: { id },
     include: {
       seriesArtworks: {
+        where: { artwork: { deletedAt: null } },
         include: {
           artwork: {
             include: {

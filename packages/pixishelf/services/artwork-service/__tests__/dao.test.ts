@@ -30,7 +30,7 @@ describe('fetchRandomIds', () => {
 
     expect(artworkFindManyMock).toHaveBeenCalledTimes(1)
     expect(artworkFindManyMock).toHaveBeenCalledWith({
-      where: { id: { gte: 42 } },
+      where: { deletedAt: null, id: { gte: 42 } },
       select: { id: true },
       orderBy: { id: 'asc' },
       take: 2
@@ -44,6 +44,7 @@ describe('fetchRandomIds', () => {
     await expect(fetchRandomIds(2, ['cat'])).resolves.toEqual([99, 2])
 
     const tagWhere = {
+      deletedAt: null,
       artworkTags: {
         some: {
           tag: {
@@ -52,7 +53,11 @@ describe('fetchRandomIds', () => {
         }
       }
     }
-    expect(artworkAggregateMock).toHaveBeenCalledWith({ _min: { id: true }, _max: { id: true } })
+    expect(artworkAggregateMock).toHaveBeenCalledWith({
+      where: { deletedAt: null },
+      _min: { id: true },
+      _max: { id: true }
+    })
     expect(artworkFindManyMock).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ where: { ...tagWhere, id: { gte: 42 } }, take: 2 })

@@ -105,8 +105,8 @@ describe('updateArtworkImagesTransaction', () => {
     })
     expect(artworkTagCreateManyMock).toHaveBeenCalledWith({
       data: [
-        { artworkId: 10, tagId: 2 },
-        { artworkId: 10, tagId: 5 }
+        { artworkId: 10, tagId: 2, provenance: 'MANUAL' },
+        { artworkId: 10, tagId: 5, provenance: 'MANUAL' }
       ],
       skipDuplicates: true
     })
@@ -196,7 +196,7 @@ describe('updateArtworkImagesWithTransactionClient', () => {
     })
     expect(syncMediaDerivedTagMock).toHaveBeenCalledWith(tx, 10)
     expect(artworkTagCreateManyMock).toHaveBeenCalledWith({
-      data: [{ artworkId: 10, tagId: 4 }],
+      data: [{ artworkId: 10, tagId: 4, provenance: 'MANUAL' }],
       skipDuplicates: true
     })
   })

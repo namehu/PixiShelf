@@ -1,4 +1,3 @@
-import { ESource } from '@/enums/e-source'
 import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
 
@@ -15,7 +14,10 @@ export async function clearPixivImportedData(): Promise<number> {
       async (tx) => {
         const pixivArtworkFilter = {
           artwork: {
-            source: ESource.PIXIV_IMPORTED
+            OR: [
+              { createdVia: 'PIXIV_SCAN' as const },
+              { externalRefs: { some: { providerKey: 'pixiv' } } }
+            ]
           }
         }
 
@@ -23,7 +25,12 @@ export async function clearPixivImportedData(): Promise<number> {
         await tx.artworkTag.deleteMany({ where: pixivArtworkFilter })
         await tx.image.deleteMany({ where: pixivArtworkFilter })
         const result = await tx.artwork.deleteMany({
-          where: { source: ESource.PIXIV_IMPORTED }
+          where: {
+            OR: [
+              { createdVia: 'PIXIV_SCAN' },
+              { externalRefs: { some: { providerKey: 'pixiv' } } }
+            ]
+          }
         })
 
         return result.count
