@@ -1,0 +1,61 @@
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ProTable, type ProColumnDef } from '../index'
+
+interface RowData {
+  id: number
+  externalId: string
+}
+
+const columns: ProColumnDef<RowData>[] = [
+  {
+    accessorKey: 'externalId',
+    header: '作品 ID',
+    copyable: true,
+    copyValue: (row) => `__ext-${row.externalId}`
+  }
+]
+
+describe('ProTable expandable rows', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn().mockImplementation((query) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn()
+      }))
+    })
+  })
+
+  afterEach(cleanup)
+
+  it('renders expanded content only after the expand control is clicked', () => {
+    render(
+      <ProTable
+        columns={columns}
+        dataSource={[{ id: 1, externalId: '123' }]}
+        renderExpandedRow={(row) => <div>preview-{row.externalId}</div>}
+      />
+    )
+
+    expect(screen.queryByText('preview-123')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '展开预览' }))
+    expect(screen.getByText('preview-123')).toBeTruthy()
+  })
+
+  it('uses the custom copy value without changing the displayed cell value', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    render(<ProTable columns={columns} dataSource={[{ id: 1, externalId: '123' }]} />)
+
+    expect(screen.getByText('123')).toBeTruthy()
+    fireEvent.click(document.querySelector('.lucide-copy')!)
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('__ext-123'))
+  })
+})

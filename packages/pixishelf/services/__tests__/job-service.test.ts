@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   count: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  updateMany: vi.fn(),
   transaction: vi.fn()
 }))
 
@@ -27,6 +28,8 @@ import {
   claimNextVideoStreamingOptimizationJob,
   cancelVideoStreamingOptimizationJob,
   createLocalDirectoryImportJob,
+  createMigrationJob,
+  createPendingReplaceJob,
   createScanJob,
   createScanRunRetentionCleanupJob,
   createTriggerLogRetentionCleanupJob,
@@ -34,7 +37,8 @@ import {
   createVideoMediaProbeJob,
   createWebpAnimationScanJob,
   enqueueVideoStreamingOptimizationJob,
-  getLatestVideoStreamingOptimizationJobsByImageIds
+  getLatestVideoStreamingOptimizationJobsByImageIds,
+  finalizePendingReplaceJob
 } from '../job-service'
 
 const tx = {
@@ -45,7 +49,8 @@ const tx = {
     findMany: mocks.findMany,
     count: mocks.count,
     create: mocks.create,
-    update: mocks.update
+    update: mocks.update,
+    updateMany: mocks.updateMany
   }
 }
 
@@ -61,6 +66,7 @@ describe('job locking and video optimization queue', () => {
     mocks.count.mockResolvedValue(0)
     mocks.create.mockImplementation(({ data }) => Promise.resolve({ id: 'job-1', ...data }))
     mocks.update.mockImplementation(({ where, data }) => Promise.resolve({ id: where.id, ...data }))
+    mocks.updateMany.mockResolvedValue({ count: 1 })
     mocks.transaction.mockImplementation((callback) => callback(tx))
   })
 
@@ -78,6 +84,55 @@ describe('job locking and video optimization queue', () => {
 
     await expect(createLocalDirectoryImportJob()).rejects.toThrow('Media scan job already in progress')
     expect(mocks.create).not.toHaveBeenCalled()
+  })
+
+  it('uses one mutex for scans, migrations, and pending replacements', async () => {
+    await createPendingReplaceJob('batch-1')
+    const pendingReplaceLockId = mocks.queryRaw.mock.calls[0]?.[1]
+    expect(mocks.findFirst).toHaveBeenCalledWith({
+      where: {
+        type: { in: ['SCAN', 'LOCAL_DIRECTORY_IMPORT', 'MIGRATION', 'PENDING_REPLACE'] },
+        status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] }
+      }
+    })
+    expect(mocks.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'PENDING_REPLACE', targetPath: 'batch-1' })
+    })
+
+    mocks.queryRaw.mockClear()
+    await createMigrationJob()
+    expect(mocks.queryRaw.mock.calls[0]?.[1]).toBe(pendingReplaceLockId)
+  })
+
+  it('finalizes a pending replacement only for the owning attempt', async () => {
+    const onFinalized = vi.fn()
+
+    await expect(
+      finalizePendingReplaceJob(
+        'job-1',
+        3,
+        { status: 'COMPLETED', result: { ok: true } },
+        onFinalized
+      )
+    ).resolves.toBe(true)
+
+    expect(mocks.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'job-1',
+        type: 'PENDING_REPLACE',
+        attempt: 3,
+        status: { in: ['RUNNING', 'CANCELLING'] }
+      },
+      data: expect.objectContaining({ status: 'COMPLETED', result: { ok: true } })
+    })
+    expect(onFinalized).toHaveBeenCalledOnce()
+
+    mocks.updateMany.mockResolvedValueOnce({ count: 0 })
+    onFinalized.mockClear()
+    await expect(
+      finalizePendingReplaceJob('job-1', 2, { status: 'FAILED', error: 'stale' }, onFinalized)
+    ).resolves.toBe(false)
+    expect(onFinalized).not.toHaveBeenCalled()
   })
 
   it('creates an exclusive trigger log retention cleanup job', async () => {

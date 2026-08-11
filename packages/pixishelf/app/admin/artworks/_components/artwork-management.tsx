@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { toast } from 'sonner'
 import { exportNoSeriesArtworksAction } from '@/actions/artwork-action'
@@ -16,9 +17,10 @@ import { ArtworkUnifiedEditor } from './artwork-unified-editor'
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { OSource } from '@/enums/e-source'
 import { ArtworkManagementToolbar } from './artwork-management-toolbar'
-import { ArtworkSearchPanel } from './artwork-search-panel'
+import { ArtworkFilterPanel } from '@/components/artwork/artwork-filter'
 import { createArtworkManagementColumns } from './artwork-management-columns'
 import type { MigrationSafety } from './artwork-management-types'
+import { ArtworkRowMediaPreview } from './artwork-row-media-preview'
 import {
   buildArtworkSearchPayload,
   buildEmptyLocalSearch,
@@ -29,6 +31,7 @@ import {
 } from './artwork-management-utils'
 
 export default function ArtworkManagement() {
+  const router = useRouter()
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
@@ -68,6 +71,7 @@ export default function ArtworkManagement() {
     hasAudio: parseAsString.withDefault('all'),
     mediaCountMin: parseAsInteger,
     mediaCountMax: parseAsInteger,
+    copyMode: parseAsString,
     page: parseAsInteger.withDefault(1),
     pageSize: parseAsInteger.withDefault(20)
   })
@@ -291,6 +295,7 @@ export default function ArtworkManagement() {
   }
 
   const columns = createArtworkManagementColumns({
+    pendingReplaceCopyMode: searchState.copyMode === 'pending-replace',
     onOpenInfo: handleOpenInfo,
     onEdit: handleEdit,
     onCopy: handleCopy,
@@ -356,9 +361,16 @@ export default function ArtworkManagement() {
           setEditorConfig({ id: null, tab: 'info' })
         }}
         onBatchImport={() => setBatchImportOpen(true)}
+        onBatchReplace={() => router.push('/admin/artworks/batch-replace')}
         onExportNoSeries={handleExportNoSeries}
         onMigrationClick={handleMigrationClick}
         onOpenLogs={() => setLogOpen(true)}
+        pendingReplaceCopyMode={searchState.copyMode === 'pending-replace'}
+        onTogglePendingReplaceCopyMode={() =>
+          setSearchState({
+            copyMode: searchState.copyMode === 'pending-replace' ? null : 'pending-replace'
+          })
+        }
       />
 
       <ProTable
@@ -373,8 +385,10 @@ export default function ArtworkManagement() {
         onPaginationChange={handlePaginationChange}
         rowSelection={rowSelection}
         onRowSelectionChange={setRowSelection}
+        renderExpandedRow={(artwork) => <ArtworkRowMediaPreview artworkId={(artwork as ArtworkResponseDto).id} />}
+        getRowCanExpand={(artwork) => (artwork as ArtworkResponseDto).mediaCount > 0}
         searchRender={() => (
-          <ArtworkSearchPanel
+          <ArtworkFilterPanel
             localSearch={localSearch}
             setLocalSearch={setLocalSearch}
             advancedSearchOpen={isAdvancedSearchOpen.advancedSearch}

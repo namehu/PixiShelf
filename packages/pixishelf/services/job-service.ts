@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { JobStatus, Prisma } from '@prisma/client'
 
 const MEDIA_SCAN_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT']
+const MEDIA_ROOT_WRITE_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT', 'MIGRATION', 'PENDING_REPLACE']
 const MEDIA_SCAN_ADVISORY_LOCK_ID = 728341
 const MEDIA_MAINTENANCE_JOB_TYPES = ['WEBP_ANIMATION_SCAN', 'VIDEO_MEDIA_PROBE', 'VIDEO_CHAPTER_PREVIEW_GENERATION']
 const MEDIA_MAINTENANCE_ADVISORY_LOCK_ID = 728342
@@ -54,29 +55,61 @@ async function createMutexJob(input: {
   })
 }
 
-async function createMediaScanJob(type: 'SCAN' | 'LOCAL_DIRECTORY_IMPORT', message: string) {
+async function createMediaRootWriteJob(input: {
+  type: 'SCAN' | 'LOCAL_DIRECTORY_IMPORT' | 'MIGRATION' | 'PENDING_REPLACE'
+  message: string
+  conflictMessage: string
+  targetPath?: string
+  mode?: string
+  onCreated?: (tx: PendingReplaceJobSetupClient, job: { id: string }) => Promise<void>
+}) {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', MEDIA_SCAN_ADVISORY_LOCK_ID)
 
     const activeJob = await tx.systemJob.findFirst({
       where: {
-        type: { in: MEDIA_SCAN_JOB_TYPES },
-        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+        type: { in: MEDIA_ROOT_WRITE_JOB_TYPES },
+        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED, JobStatus.CANCELLING] }
       }
     })
 
     if (activeJob) {
-      throw new Error('Media scan job already in progress')
+      throw new Error(input.conflictMessage)
     }
 
-    return tx.systemJob.create({
+    const job = await tx.systemJob.create({
       data: {
-        type,
+        type: input.type,
         status: JobStatus.RUNNING,
-        message,
-        progress: 0
+        message: input.message,
+        progress: 0,
+        attempt: 1,
+        heartbeatAt: new Date(),
+        ...(input.targetPath ? { targetPath: input.targetPath } : {}),
+        ...(input.mode ? { mode: input.mode } : {})
       }
     })
+    if (input.onCreated) {
+      await input.onCreated(tx as unknown as PendingReplaceJobSetupClient, job)
+    }
+    return job
+  })
+}
+
+export interface PendingReplaceJobSetupClient {
+  pendingReplaceItem: {
+    updateMany(args: Prisma.PendingReplaceItemUpdateManyArgs): PromiseLike<{ count: number }>
+  }
+  pendingReplaceBatch: {
+    update(args: Prisma.PendingReplaceBatchUpdateArgs): PromiseLike<unknown>
+  }
+}
+
+async function createMediaScanJob(type: 'SCAN' | 'LOCAL_DIRECTORY_IMPORT', message: string) {
+  return createMediaRootWriteJob({
+    type,
+    message,
+    conflictMessage: 'Media scan job already in progress'
   })
 }
 
@@ -92,31 +125,34 @@ export async function createLocalDirectoryImportJob() {
   return createMediaScanJob('LOCAL_DIRECTORY_IMPORT', '正在准备本地目录导入...')
 }
 
+export async function createPendingReplaceJob(
+  targetPath: string,
+  mode: 'BATCH' | 'RESTORE' | 'CLEANUP' = 'BATCH',
+  onCreated?: (tx: PendingReplaceJobSetupClient, job: { id: string }) => Promise<void>
+) {
+  return createMediaRootWriteJob({
+    type: 'PENDING_REPLACE',
+    message:
+      mode === 'RESTORE'
+        ? '正在恢复旧媒体...'
+        : mode === 'CLEANUP'
+          ? '正在清理替换备份...'
+          : '正在准备批量替换...',
+    conflictMessage: 'Media root write job already in progress',
+    targetPath,
+    mode,
+    onCreated
+  })
+}
+
 /**
  * 尝试创建一个迁移任务
  */
 export async function createMigrationJob() {
-  return await prisma.$transaction(async (tx) => {
-    // 检查是否有正在运行或正在取消的迁移任务
-    const activeJob = await tx.systemJob.findFirst({
-      where: {
-        type: 'MIGRATION',
-        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED, JobStatus.CANCELLING] }
-      }
-    })
-
-    if (activeJob) {
-      throw new Error('Migration already in progress')
-    }
-
-    return await tx.systemJob.create({
-      data: {
-        type: 'MIGRATION',
-        status: JobStatus.RUNNING,
-        message: '初始化迁移...',
-        progress: 0
-      }
-    })
+  return createMediaRootWriteJob({
+    type: 'MIGRATION',
+    message: '初始化迁移...',
+    conflictMessage: 'Migration already in progress'
   })
 }
 
@@ -168,6 +204,17 @@ export async function getActiveLocalDirectoryImportJob() {
 export async function getLatestLocalDirectoryImportJob() {
   return prisma.systemJob.findFirst({
     where: { type: 'LOCAL_DIRECTORY_IMPORT' },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+export async function getActivePendingReplaceJob() {
+  return getActiveJobByType('PENDING_REPLACE')
+}
+
+export async function getLatestPendingReplaceJob() {
+  return prisma.systemJob.findFirst({
+    where: { type: 'PENDING_REPLACE' },
     orderBy: { createdAt: 'desc' }
   })
 }
@@ -612,10 +659,100 @@ export async function hasPendingVideoStreamingOptimizationJobs() {
   )
 }
 
-export async function touchJobHeartbeat(jobId: string) {
-  await prisma.systemJob.updateMany({
-    where: { id: jobId, status: JobStatus.RUNNING },
+export async function touchJobHeartbeat(jobId: string, attempt?: number) {
+  return prisma.systemJob.updateMany({
+    where: {
+      id: jobId,
+      ...(attempt === undefined ? {} : { attempt }),
+      status: { in: [JobStatus.RUNNING, JobStatus.CANCELLING] }
+    },
     data: { heartbeatAt: new Date() }
+  })
+}
+
+export async function hasPendingReplaceJobLease(jobId: string, attempt: number) {
+  return (
+    (await prisma.systemJob.count({
+      where: {
+        id: jobId,
+        type: 'PENDING_REPLACE',
+        attempt,
+        status: { in: [JobStatus.RUNNING, JobStatus.CANCELLING] }
+      }
+    })) === 1
+  )
+}
+
+export async function claimStalePendingReplaceJob(jobId: string, staleBefore: Date) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', MEDIA_SCAN_ADVISORY_LOCK_ID)
+    const claimed = await tx.systemJob.updateMany({
+      where: {
+        id: jobId,
+        type: 'PENDING_REPLACE',
+        status: { in: [JobStatus.RUNNING, JobStatus.CANCELLING] },
+        OR: [{ heartbeatAt: { lt: staleBefore } }, { heartbeatAt: null, updatedAt: { lt: staleBefore } }]
+      },
+      data: {
+        status: JobStatus.CANCELLING,
+        message: '正在回收服务中断的替换任务...',
+        heartbeatAt: new Date(),
+        attempt: { increment: 1 }
+      }
+    })
+    if (claimed.count !== 1) return null
+    return tx.systemJob.findUnique({ where: { id: jobId }, select: { id: true, attempt: true } })
+  })
+}
+
+type PendingReplaceJobFinalization =
+  | { status: 'COMPLETED'; result: unknown }
+  | { status: 'FAILED'; error: string }
+  | { status: 'CANCELLED' }
+
+export async function finalizePendingReplaceJob(
+  jobId: string,
+  attempt: number,
+  finalization: PendingReplaceJobFinalization,
+  onFinalized?: (tx: PendingReplaceJobSetupClient) => Promise<void>
+) {
+  return prisma.$transaction(async (tx) => {
+    const now = new Date()
+    const data: Prisma.SystemJobUpdateManyMutationInput =
+      finalization.status === 'COMPLETED'
+        ? {
+            status: JobStatus.COMPLETED,
+            progress: 100,
+            message: '完成',
+            result: finalization.result as Prisma.InputJsonValue,
+            heartbeatAt: now,
+            finishedAt: now
+          }
+        : finalization.status === 'FAILED'
+          ? {
+              status: JobStatus.FAILED,
+              error: finalization.error,
+              heartbeatAt: now,
+              finishedAt: now
+            }
+          : {
+              status: JobStatus.CANCELLED,
+              message: '已取消',
+              heartbeatAt: now,
+              finishedAt: now
+            }
+    const finalized = await tx.systemJob.updateMany({
+      where: {
+        id: jobId,
+        type: 'PENDING_REPLACE',
+        attempt,
+        status: { in: [JobStatus.RUNNING, JobStatus.CANCELLING] }
+      },
+      data
+    })
+    if (finalized.count !== 1) return false
+    if (onFinalized) await onFinalized(tx as unknown as PendingReplaceJobSetupClient)
+    return true
   })
 }
 

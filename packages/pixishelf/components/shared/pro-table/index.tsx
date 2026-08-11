@@ -14,10 +14,12 @@ import {
   useReactTable,
   PaginationState,
   RowSelectionState,
-  OnChangeFn
+  OnChangeFn,
+  ExpandedState,
+  getExpandedRowModel
 } from '@tanstack/react-table'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Loader2, Copy, ChevronUp, ChevronDown } from 'lucide-react'
+import { Loader2, Copy, ChevronUp, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -37,6 +39,10 @@ export type ProColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
    * @default false
    */
   copyable?: boolean
+  /**
+   * 自定义复制内容；未提供时复制 accessor 的显示值
+   */
+  copyValue?: (row: TData) => string | null | undefined
   /**
    * 自定义表头 className
    */
@@ -177,6 +183,16 @@ interface ProTableProps<TData, TValue> {
    * @default [10, 20, 30, 50, 100]
    */
   pageSizeOptions?: number[]
+
+  /**
+   * 展开行内容；提供后表格自动增加展开按钮列
+   */
+  renderExpandedRow?: (row: TData) => React.ReactNode
+
+  /**
+   * 控制某一行是否允许展开
+   */
+  getRowCanExpand?: (row: TData) => boolean
 }
 
 import { ProTablePagination } from './pagination'
@@ -199,7 +215,9 @@ export function ProTable<TData, TValue>({
   onSortingChange: controlledOnSortingChange,
   className,
   scrollToTopOnPageChange = true,
-  pageSizeOptions
+  pageSizeOptions,
+  renderExpandedRow,
+  getRowCanExpand
 }: ProTableProps<TData, TValue>) {
   // --- 状态管理 ---
   const [internalData, setInternalData] = React.useState<TData[]>([])
@@ -225,6 +243,7 @@ export function ProTable<TData, TValue>({
 
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
+  const [expanded, setExpanded] = React.useState<ExpandedState>({})
 
   // Row Selection (如果外部没有传入，则使用内部状态，或者默认为空对象)
   const [internalRowSelection, setInternalRowSelection] = React.useState<RowSelectionState>({})
@@ -287,10 +306,35 @@ export function ProTable<TData, TValue>({
     }
   }))
 
+  const finalColumns = React.useMemo<ProColumnDef<TData, TValue>[]>(() => {
+    if (!renderExpandedRow) return columns
+    return [
+      {
+        id: '__expand',
+        size: 44,
+        header: '',
+        enableSorting: false,
+        enableHiding: false,
+        cell: ({ row }) =>
+          row.getCanExpand() ? (
+            <button
+              type="button"
+              onClick={row.getToggleExpandedHandler()}
+              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label={row.getIsExpanded() ? '收起预览' : '展开预览'}
+            >
+              {row.getIsExpanded() ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+          ) : null
+      },
+      ...columns
+    ]
+  }, [columns, renderExpandedRow])
+
   // --- TanStack Table 初始化 ---
   const table = useReactTable({
     data,
-    columns,
+    columns: finalColumns,
     pageCount: isLocal ? undefined : Math.ceil(rowCount / pagination.pageSize), // 服务端分页必须计算页数
     // 开启手动模式（服务端模式），这告诉 table 不要自己在前端做分页/排序/筛选
     manualPagination: !isLocal,
@@ -318,15 +362,19 @@ export function ProTable<TData, TValue>({
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: finalOnRowSelectionChange,
+    onExpandedChange: setExpanded,
     enableRowSelection: enableRowSelection,
+    getRowCanExpand: (row) => Boolean(renderExpandedRow && (getRowCanExpand ? getRowCanExpand(row.original) : true)),
     state: {
       pagination,
       sorting,
       columnFilters,
       columnVisibility,
-      rowSelection: finalRowSelection
+      rowSelection: finalRowSelection,
+      expanded
     },
-    getCoreRowModel: getCoreRowModel()
+    getCoreRowModel: getCoreRowModel(),
+    getExpandedRowModel: renderExpandedRow ? getExpandedRowModel() : undefined
   })
 
   // --- 渲染逻辑准备 ---
@@ -420,7 +468,7 @@ export function ProTable<TData, TValue>({
             {loading && data.length === 0 ? (
               // 首次加载或无数据刷新时的 Loading 骨架
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell colSpan={finalColumns.length} className="h-24 text-center">
                   <div className="flex justify-center items-center text-muted-foreground">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading data...
                   </div>
@@ -428,55 +476,67 @@ export function ProTable<TData, TValue>({
               </TableRow>
             ) : table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
-                  {row.getVisibleCells().map((cell) => {
-                    const columnDef = cell.column.columnDef as ProColumnDef<TData, TValue>
-                    const content = flexRender(columnDef.cell, cell.getContext())
+                <React.Fragment key={row.id}>
+                  <TableRow data-state={row.getIsSelected() && 'selected'}>
+                    {row.getVisibleCells().map((cell) => {
+                      const columnDef = cell.column.columnDef as ProColumnDef<TData, TValue>
+                      const content = flexRender(columnDef.cell, cell.getContext())
 
-                    if (columnDef.ellipsis || columnDef.copyable) {
-                      const value = cell.getValue()
-                      const displayValue =
-                        typeof value === 'string' || typeof value === 'number' ? String(value) : undefined
+                      if (columnDef.ellipsis || columnDef.copyable) {
+                        const value = cell.getValue()
+                        const displayValue =
+                          typeof value === 'string' || typeof value === 'number' ? String(value) : undefined
+                        const copyValue = columnDef.copyValue
+                          ? columnDef.copyValue(row.original)
+                          : displayValue
+
+                        return (
+                          <TableCell
+                            key={cell.id}
+                            className={columnDef.cellClassName}
+                            style={{ maxWidth: columnDef.size !== 150 ? columnDef.size : undefined }}
+                          >
+                            <div className="flex items-center gap-2 max-w-full">
+                              {columnDef.copyable && copyValue && (
+                                <Copy
+                                  className="h-3 w-3 cursor-pointer text-muted-foreground hover:text-foreground shrink-0"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    navigator.clipboard.writeText(copyValue)
+                                    toast.success('已复制')
+                                  }}
+                                />
+                              )}
+                              <div
+                                className={cn('flex-1', columnDef.ellipsis && 'truncate')}
+                                title={columnDef.ellipsis ? displayValue : undefined}
+                              >
+                                {content}
+                              </div>
+                            </div>
+                          </TableCell>
+                        )
+                      }
 
                       return (
-                        <TableCell
-                          key={cell.id}
-                          className={columnDef.cellClassName}
-                          style={{ maxWidth: columnDef.size !== 150 ? columnDef.size : undefined }}
-                        >
-                          <div className="flex items-center gap-2 max-w-full">
-                            {columnDef.copyable && displayValue && (
-                              <Copy
-                                className="h-3 w-3 cursor-pointer text-muted-foreground hover:text-foreground shrink-0"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  navigator.clipboard.writeText(displayValue)
-                                  toast.success('已复制')
-                                }}
-                              />
-                            )}
-                            <div
-                              className={cn('flex-1', columnDef.ellipsis && 'truncate')}
-                              title={columnDef.ellipsis ? displayValue : undefined}
-                            >
-                              {content}
-                            </div>
-                          </div>
+                        <TableCell key={cell.id} className={columnDef.cellClassName}>
+                          {content}
                         </TableCell>
                       )
-                    }
-
-                    return (
-                      <TableCell key={cell.id} className={columnDef.cellClassName}>
-                        {content}
+                    })}
+                  </TableRow>
+                  {row.getIsExpanded() && renderExpandedRow && (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={row.getVisibleCells().length} className="bg-muted/10 p-0">
+                        {renderExpandedRow(row.original)}
                       </TableCell>
-                    )
-                  })}
-                </TableRow>
+                    </TableRow>
+                  )}
+                </React.Fragment>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell colSpan={finalColumns.length} className="h-24 text-center">
                   No results.
                 </TableCell>
               </TableRow>

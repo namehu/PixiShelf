@@ -11,12 +11,12 @@ import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { ProDatePicker, ProDatePickerPresets } from '@/components/shared/pro-date-picker'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import type { LocalArtworkSearchState } from './artwork-management-types'
-import { normalizeAudioFilter } from './artwork-management-utils'
+import type { ArtworkFilterValue } from './artwork-filter-types'
+import { normalizeAudioFilter } from './artwork-filter-utils'
 
-interface ArtworkSearchPanelProps {
-  localSearch: LocalArtworkSearchState
-  setLocalSearch: Dispatch<SetStateAction<LocalArtworkSearchState>>
+interface ArtworkFilterPanelProps {
+  localSearch: ArtworkFilterValue
+  setLocalSearch: Dispatch<SetStateAction<ArtworkFilterValue>>
   advancedSearchOpen: boolean
   onAdvancedSearchOpenChange: (open: boolean) => void
   mediaTypeOptions: Option[]
@@ -26,7 +26,7 @@ interface ArtworkSearchPanelProps {
   onReset: () => void
 }
 
-export function ArtworkSearchPanel({
+export function ArtworkFilterPanel({
   localSearch,
   setLocalSearch,
   advancedSearchOpen,
@@ -36,7 +36,7 @@ export function ArtworkSearchPanel({
   onSearchTags,
   onSearch,
   onReset
-}: ArtworkSearchPanelProps) {
+}: ArtworkFilterPanelProps) {
   return (
     <div className="flex flex-col gap-4 w-full bg-white p-4 rounded-lg border border-neutral-200 shadow-sm">
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">

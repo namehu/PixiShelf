@@ -346,6 +346,7 @@ model SystemJob {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   scanRuns      ScanRun[]
+  pendingReplaceBatch PendingReplaceBatch?
 
   @@index([type, status])
   @@index([type, status, createdAt])
@@ -353,6 +354,90 @@ model SystemJob {
   @@index([type, targetImageId, createdAt])
   @@index([createdAt])
   @@map("system_jobs")
+}
+
+model PendingReplaceBatch {
+  id             String                    @id @default(cuid())
+  systemJobId    String?                   @unique
+  systemJob      SystemJob?                @relation(fields: [systemJobId], references: [id], onDelete: SetNull)
+  status         PendingReplaceBatchStatus @default(PREVIEWED)
+  sourceRoot     String                    @db.Text
+  totalItems     Int                       @default(0)
+  readyItems     Int                       @default(0)
+  invalidItems   Int                       @default(0)
+  excludedItems  Int                       @default(0)
+  succeededItems Int                       @default(0)
+  failedItems    Int                       @default(0)
+  restoredItems  Int                       @default(0)
+  backupBytes    BigInt                    @default(0)
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  items          PendingReplaceItem[]
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@map("pending_replace_batches")
+}
+
+model PendingReplaceItem {
+  id                  String                   @id @default(cuid())
+  batchId             String
+  batch               PendingReplaceBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  artworkId           Int?
+  externalId          String?
+  artworkTitle        String?
+  artistName          String?
+  sourceDirectory     String                   @db.Text
+  sourceDirectoryName String
+  targetDirectory     String?                  @db.Text
+  status              PendingReplaceItemStatus
+  included            Boolean                  @default(true)
+  fingerprint         String?
+  sourceManifest      Json
+  oldMediaSnapshot    Json
+  newMediaSnapshot    Json
+  targetFileSnapshot  Json
+  warnings            Json
+  error               String?                  @db.Text
+  backupDirectory     String?                  @db.Text
+  completedDirectory  String?                  @db.Text
+  startedAt           DateTime?
+  finishedAt          DateTime?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  @@index([batchId, status])
+  @@index([artworkId])
+  @@index([externalId])
+  @@map("pending_replace_items")
+}
+
+enum PendingReplaceBatchStatus {
+  PREVIEWED
+  RUNNING
+  CANCELLING
+  COMPLETED
+  PARTIAL_FAILED
+  CANCELLED
+}
+
+enum PendingReplaceItemStatus {
+  READY
+  INVALID
+  EXCLUDED
+  STAGING
+  BACKING_UP
+  SWAPPING
+  COMMITTING
+  SUCCESS
+  ROLLING_BACK
+  RESTORING
+  RESTORE_SWAPPING
+  FAILED
+  RESTORED
+  BACKUP_CLEANED
 }
 
 model ScanRun {

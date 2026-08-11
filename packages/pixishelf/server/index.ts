@@ -12,6 +12,7 @@ import { jobRouter } from './routers/job'
 import { userSettingRouter } from './routers/user-setting'
 import { localImportRouter } from './routers/local-import'
 import { scanRunRouter } from './routers/scan-run'
+import { pendingReplaceRouter } from './routers/pending-replace'
 
 // 挂载子路由
 export const appRouter = router({
@@ -27,7 +28,8 @@ export const appRouter = router({
   job: jobRouter,
   userSetting: userSettingRouter,
   localImport: localImportRouter,
-  scanRun: scanRunRouter
+  scanRun: scanRunRouter,
+  pendingReplace: pendingReplaceRouter
 })
 
 // 导出类型供前端使用

@@ -1,7 +1,7 @@
 'use client'
 
 import { Dispatch, SetStateAction } from 'react'
-import { BarChart3, ChevronDown, Download, FileText, FolderInput, Plus, Sliders } from 'lucide-react'
+import { BarChart3, ChevronDown, Copy, Download, FileText, FolderInput, FolderSync, Plus, Sliders } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -18,11 +18,14 @@ interface ArtworkManagementToolbarProps {
     migrating: boolean
   }
   hasMigrationLogs: boolean
+  pendingReplaceCopyMode: boolean
   onCreate: () => void
   onBatchImport: () => void
+  onBatchReplace: () => void
   onExportNoSeries: () => void
   onMigrationClick: () => void
   onOpenLogs: () => void
+  onTogglePendingReplaceCopyMode: () => void
 }
 
 export function ArtworkManagementToolbar({
@@ -32,11 +35,14 @@ export function ArtworkManagementToolbar({
   selectedCount,
   migrationState,
   hasMigrationLogs,
+  pendingReplaceCopyMode,
   onCreate,
   onBatchImport,
+  onBatchReplace,
   onExportNoSeries,
   onMigrationClick,
-  onOpenLogs
+  onOpenLogs,
+  onTogglePendingReplaceCopyMode
 }: ArtworkManagementToolbarProps) {
   return (
     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-neutral-200 pb-4">
@@ -48,6 +54,16 @@ export function ArtworkManagementToolbar({
         <p className="text-sm md:text-base text-neutral-600 mt-1">管理作品，支持搜索、筛选和批量操作</p>
       </div>
       <div className="flex gap-2 w-full md:w-auto">
+        <Button
+          variant={pendingReplaceCopyMode ? 'secondary' : 'outline'}
+          size="sm"
+          className="gap-2"
+          onClick={onTogglePendingReplaceCopyMode}
+          title="开启后复制作品 externalId 将得到 __ext-{externalId}"
+        >
+          <Copy className="h-4 w-4" />
+          {pendingReplaceCopyMode ? '替换后缀复制中' : '复制替换后缀'}
+        </Button>
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm" className="flex items-center gap-2">
@@ -116,6 +132,12 @@ export function ArtworkManagementToolbar({
                 icon: <Plus className="w-4 h-4" />,
                 label: '批量导入',
                 onClick: onBatchImport
+              },
+              {
+                key: 'batchReplace',
+                icon: <FolderSync className="w-4 h-4" />,
+                label: '批量替换媒体',
+                onClick: onBatchReplace
               },
               {
                 key: 'export',

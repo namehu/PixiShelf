@@ -26,6 +26,7 @@ function PreferredTagCell({ artwork }: { artwork: ArtworkResponseDto }) {
 }
 
 interface ArtworkManagementColumnHandlers {
+  pendingReplaceCopyMode: boolean
   onOpenInfo: (item: ArtworkResponseDto) => void
   onEdit: (item: ArtworkResponseDto) => void
   onCopy: (item: ArtworkResponseDto) => void
@@ -35,6 +36,7 @@ interface ArtworkManagementColumnHandlers {
 }
 
 export function createArtworkManagementColumns({
+  pendingReplaceCopyMode,
   onOpenInfo,
   onEdit,
   onCopy,
@@ -76,6 +78,8 @@ export function createArtworkManagementColumns({
       accessorKey: 'externalId',
       size: 180,
       copyable: true,
+      copyValue: (artwork) =>
+        artwork.externalId ? (pendingReplaceCopyMode ? `__ext-${artwork.externalId}` : artwork.externalId) : null,
       cell: ({ row }) => (row.original as any).externalId || '-'
     },
     {
