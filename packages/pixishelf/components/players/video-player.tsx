@@ -60,6 +60,14 @@ export function formatVideoRemainingTime(duration: number, currentTime: number) 
   return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${paddedSeconds}` : `${minutes}:${paddedSeconds}`
 }
 
+export interface VideoPlayerSettingAction {
+  name: string
+  label: string
+  tooltip?: string
+  disabled?: boolean
+  onClick?: () => void
+}
+
 export interface VideoPlayerProps {
   src: string
   chaptersUrl?: string | null
@@ -74,6 +82,7 @@ export interface VideoPlayerProps {
   onPlay?: () => void
   onPause?: () => void
   onError?: (error: string) => void
+  settingActions?: VideoPlayerSettingAction[]
 }
 
 export function VideoPlayer({
@@ -89,7 +98,8 @@ export function VideoPlayer({
   fillParent = false,
   onPlay,
   onPause,
-  onError
+  onError,
+  settingActions
 }: VideoPlayerProps) {
   const previousChapterControlName = 'chapter-previous'
   const nextChapterControlName = 'chapter-next'
@@ -220,6 +230,16 @@ export function VideoPlayer({
         loop,
         muted: showAudioControls ? muted : true,
         setting: true,
+        settings: (settingActions ?? []).map((action) => ({
+          name: action.name,
+          html: action.label,
+          tooltip: action.tooltip,
+          onClick(this: ArtplayerType) {
+            if (!action.disabled) action.onClick?.()
+            this.setting.show = false
+            return action.tooltip
+          }
+        })),
         playbackRate: true,
         fullscreen: true,
         fullscreenWeb: true,
@@ -384,7 +404,7 @@ export function VideoPlayer({
         artRef.current = null
       }
     }
-  }, [autoPlay, loop, mediaSrc, muted, preload, showAudioControls])
+  }, [autoPlay, loop, mediaSrc, muted, preload, settingActions, showAudioControls])
 
   useEffect(() => {
     const video = getArtVideo(artRef.current)

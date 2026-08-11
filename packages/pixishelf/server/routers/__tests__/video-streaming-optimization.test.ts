@@ -1,20 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  cancelJob: vi.fn(),
-  completeJob: vi.fn(),
-  createJob: vi.fn(),
-  failJob: vi.fn(),
-  getActiveJobByType: vi.fn(),
-  getJob: vi.fn(),
+  enqueue: vi.fn(),
+  cancel: vi.fn(),
   getLatestJob: vi.fn(),
   getLatestJobsByImageIds: vi.fn(),
-  getScanPath: vi.fn(),
-  markAsCancelled: vi.fn(),
-  optimizeVideo: vi.fn(),
-  resolveProbePath: vi.fn(),
-  resolveOptimizationTarget: vi.fn(),
-  updateProgress: vi.fn()
+  listQueue: vi.fn(),
+  resolveProbePath: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
@@ -27,31 +19,20 @@ vi.mock('@/lib/logger', () => ({
   default: { error: vi.fn(), info: vi.fn(), warn: vi.fn() }
 }))
 
-vi.mock('@/services/setting.service', () => ({
-  getScanPath: mocks.getScanPath
-}))
-
 vi.mock('@/services/video-media-probe-service', () => ({
   reprobeVideoMediaByImageId: vi.fn(),
   resolveVideoImageForReprobePath: mocks.resolveProbePath
 }))
 
-vi.mock('@/services/video-streaming-optimization-service', () => ({
-  optimizeVideoForStreaming: mocks.optimizeVideo,
-  resolveVideoStreamingOptimizationTarget: mocks.resolveOptimizationTarget
+vi.mock('@/services/video-streaming-optimization-queue', () => ({
+  enqueueVideoOptimization: mocks.enqueue,
+  cancelVideoOptimization: mocks.cancel
 }))
 
 vi.mock('@/services/job-service', () => ({
-  cancelJob: mocks.cancelJob,
-  completeJob: mocks.completeJob,
-  createVideoStreamingOptimizationJob: mocks.createJob,
-  failJob: mocks.failJob,
-  getActiveJobByType: mocks.getActiveJobByType,
-  getJob: mocks.getJob,
   getLatestVideoStreamingOptimizationJob: mocks.getLatestJob,
   getLatestVideoStreamingOptimizationJobsByImageIds: mocks.getLatestJobsByImageIds,
-  markAsCancelled: mocks.markAsCancelled,
-  updateProgress: mocks.updateProgress
+  listVideoStreamingOptimizationQueue: mocks.listQueue
 }))
 
 vi.mock('@/services/scan-service/refill-meta-source', () => ({ refillMetaSource: vi.fn() }))
@@ -74,57 +55,57 @@ const ctx = {
 describe('video streaming optimization job router', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.getScanPath.mockResolvedValue('/scan-root')
-    mocks.resolveOptimizationTarget.mockResolvedValue({
-      id: 9,
-      path: '/artist/work/video.mp4',
-      sourcePath: '/scan-root/artist/work/video.mp4'
-    })
-    mocks.createJob.mockResolvedValue({ id: 'job-7' })
-    mocks.getJob.mockResolvedValue({ id: 'job-7', status: 'RUNNING' })
-    mocks.optimizeVideo.mockResolvedValue({
+    mocks.enqueue.mockResolvedValue({
+      jobId: 'job-7',
       imageId: 9,
       path: '/artist/work/video.mp4',
-      originalSize: 200,
-      optimizedSize: 190,
-      savedBytes: 10
+      status: 'PENDING',
+      queuePosition: 2,
+      reused: false
     })
+    mocks.cancel.mockResolvedValue({ changed: true, job: { id: 'job-7', status: 'CANCELLED' } })
+    mocks.listQueue.mockResolvedValue({ capacity: 100, active: [], recent: [] })
   })
 
-  it('starts the remux in the background and completes the job', async () => {
+  it('adds the requested video to the persistent queue', async () => {
     const caller = jobRouter.createCaller(ctx)
 
     await expect(caller.startVideoStreamingOptimization({ imageId: 9 })).resolves.toEqual({
       jobId: 'job-7',
       imageId: 9,
-      path: '/artist/work/video.mp4'
+      path: '/artist/work/video.mp4',
+      status: 'PENDING',
+      queuePosition: 2,
+      reused: false
     })
-
-    await vi.waitFor(() => expect(mocks.completeJob).toHaveBeenCalledTimes(1))
-    expect(mocks.resolveOptimizationTarget).toHaveBeenCalledWith(9, '/scan-root')
-    expect(mocks.resolveProbePath).not.toHaveBeenCalled()
-    expect(mocks.createJob).toHaveBeenCalledWith({ imageId: 9, path: '/artist/work/video.mp4' })
-    expect(mocks.optimizeVideo).toHaveBeenCalledWith(expect.objectContaining({ imageId: 9, scanPath: '/scan-root' }))
-    expect(mocks.failJob).not.toHaveBeenCalled()
+    expect(mocks.enqueue).toHaveBeenCalledWith(9)
   })
 
-  it('marks a cancelled background remux as cancelled', async () => {
-    mocks.optimizeVideo.mockRejectedValueOnce(new Error('Task cancelled'))
-    mocks.getJob.mockResolvedValueOnce({ id: 'job-7', status: 'CANCELLING' })
+  it('returns the existing job when the image is already queued', async () => {
+    mocks.enqueue.mockResolvedValueOnce({
+      jobId: 'job-existing',
+      imageId: 9,
+      path: '/artist/work/video.mp4',
+      status: 'RUNNING',
+      queuePosition: null,
+      reused: true
+    })
     const caller = jobRouter.createCaller(ctx)
 
-    await caller.startVideoStreamingOptimization({ imageId: 9 })
-
-    await vi.waitFor(() => expect(mocks.markAsCancelled).toHaveBeenCalledWith('job-7'))
-    expect(mocks.failJob).not.toHaveBeenCalled()
+    await expect(caller.startVideoStreamingOptimization({ imageId: 9 })).resolves.toMatchObject({
+      jobId: 'job-existing',
+      reused: true
+    })
   })
 
-  it('requests cancellation for the active optimization job', async () => {
-    mocks.getJob.mockResolvedValueOnce({ id: 'job-7', type: 'VIDEO_STREAMING_OPTIMIZATION', status: 'RUNNING' })
+  it('cancels a pending queue item immediately', async () => {
     const caller = jobRouter.createCaller(ctx)
 
-    await expect(caller.cancelVideoStreamingOptimization({ jobId: 'job-7' })).resolves.toEqual({ success: true })
-    expect(mocks.cancelJob).toHaveBeenCalledWith('job-7')
+    await expect(caller.cancelVideoStreamingOptimization({ jobId: 'job-7' })).resolves.toEqual({
+      success: true,
+      status: 'CANCELLED'
+    })
+    expect(mocks.cancel).toHaveBeenCalledWith('job-7')
   })
 
   it('returns the latest row-level status for requested media ids', async () => {
@@ -135,5 +116,15 @@ describe('video streaming optimization job router', () => {
       { id: 'job-7', targetImageId: 9, status: 'RUNNING' }
     ])
     expect(mocks.getLatestJobsByImageIds).toHaveBeenCalledWith([9, 10])
+  })
+
+  it('returns the global active and recent queue view', async () => {
+    const caller = jobRouter.createCaller(ctx)
+
+    await expect(caller.getVideoStreamingOptimizationQueue()).resolves.toEqual({
+      capacity: 100,
+      active: [],
+      recent: []
+    })
   })
 })

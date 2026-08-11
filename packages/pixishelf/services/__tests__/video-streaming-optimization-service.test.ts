@@ -26,7 +26,7 @@ vi.mock('@/lib/prisma', () => ({
   }
 }))
 
-import { optimizeVideoForStreaming } from '../video-streaming-optimization-service'
+import { optimizeVideoForStreaming, recoverInterruptedVideoOptimization } from '../video-streaming-optimization-service'
 
 const probeOutput = JSON.stringify({
   streams: [
@@ -138,6 +138,26 @@ describe('video streaming optimization service', () => {
     )
     expect(execFileMock).not.toHaveBeenCalled()
     expect(spawnMock).not.toHaveBeenCalled()
+  })
+
+  it('restores the backup and removes temporary output left by an interrupted replacement', async () => {
+    const operationId = 'job-recover'
+    const backupPath = path.join(scanPath, `.pixishelf-remux-backup-${operationId}.mp4`)
+    const temporaryPath = path.join(scanPath, `.pixishelf-remux-${operationId}.mp4`)
+    await Promise.all([
+      rm(sourcePath),
+      writeFile(backupPath, 'recoverable-original'),
+      writeFile(temporaryPath, 'partial-output')
+    ])
+
+    await recoverInterruptedVideoOptimization({ imageId: 7, scanPath, operationId })
+
+    expect(await readFile(sourcePath, 'utf8')).toBe('recoverable-original')
+    expect((await readdir(scanPath)).filter((name) => name.includes(operationId))).toEqual([])
+    expect(imageUpdateMock).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: { size: BigInt(Buffer.byteLength('recoverable-original')) }
+    })
   })
 })
 

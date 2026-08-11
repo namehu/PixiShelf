@@ -6,27 +6,18 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 import type { ImageListItem } from '../types'
+import {
+  ACTIVE_VIDEO_OPTIMIZATION_STATUSES,
+  isActiveVideoOptimization,
+  type VideoOptimizationJobView
+} from '@/types/video-optimization'
 import { isVideoImageListItem } from './utils'
 
-export interface VideoOptimizationJob {
-  id: string
-  status: string
-  progress: number
-  message?: string | null
-  error?: string | null
-  targetImageId?: number | null
-  targetPath?: string | null
-  mode?: string | null
-}
-
-export const ACTIVE_VIDEO_OPTIMIZATION_STATUSES = ['PENDING', 'RUNNING', 'CANCELLING']
+export type VideoOptimizationJob = VideoOptimizationJobView
+export { ACTIVE_VIDEO_OPTIMIZATION_STATUSES, isActiveVideoOptimization }
 
 export function isMp4OptimizationTarget(image: ImageListItem) {
   return isVideoImageListItem(image) && image.path.toLowerCase().endsWith('.mp4')
-}
-
-export function isActiveVideoOptimization(job?: VideoOptimizationJob | null) {
-  return Boolean(job && ACTIVE_VIDEO_OPTIMIZATION_STATUSES.includes(job.status))
 }
 
 interface ImageVideoOptimizationEntryProps {
@@ -71,6 +62,7 @@ export function ImageVideoOptimizationEntry({
 
   if (job && isActiveVideoOptimization(job)) {
     const cancelling = job.status === 'CANCELLING'
+    const pending = job.status === 'PENDING'
     return (
       <div
         className={cn('min-w-0', compact ? 'w-32' : 'w-44')}
@@ -78,9 +70,19 @@ export function ImageVideoOptimizationEntry({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-1 flex items-center gap-1 text-[11px] font-medium">
-          <Loader2 className="size-3 shrink-0 animate-spin text-blue-500" />
-          <span className="min-w-0 flex-1 truncate">{cancelling ? '正在取消' : '无损重新封装'}</span>
-          <span>{job.progress ?? 0}%</span>
+          {pending ? (
+            <span className="size-3 shrink-0 rounded-full border border-amber-500" />
+          ) : (
+            <Loader2 className="size-3 shrink-0 animate-spin text-blue-500" />
+          )}
+          <span className="min-w-0 flex-1 truncate">
+            {pending
+              ? `排队中${job.queuePosition ? ` · 第 ${job.queuePosition} 位` : ''}`
+              : cancelling
+                ? '正在取消'
+                : '无损重新封装'}
+          </span>
+          {!pending && <span>{job.progress ?? 0}%</span>}
           <Button
             type="button"
             variant="ghost"
@@ -93,7 +95,7 @@ export function ImageVideoOptimizationEntry({
             <X className="size-3" />
           </Button>
         </div>
-        <Progress value={job.progress ?? 0} className="h-1" />
+        {!pending && <Progress value={job.progress ?? 0} className="h-1" />}
       </div>
     )
   }

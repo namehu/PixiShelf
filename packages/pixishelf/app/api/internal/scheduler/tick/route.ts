@@ -3,6 +3,7 @@ import 'server-only'
 import { runSchedulerTick } from '@/services/scheduled-task-service'
 import logger from '@/lib/logger'
 import { apiFailure, apiSuccess } from '@/lib/api-response'
+import { wakeVideoOptimizationQueue } from '@/services/video-streaming-optimization-queue'
 
 function validateInternalJobAuth(req: Request) {
   const expectedToken = process.env.INTERNAL_JOB_TOKEN
@@ -25,6 +26,7 @@ export async function POST(req: Request) {
   if (authError) return authError
 
   try {
+    wakeVideoOptimizationQueue()
     const result = await runSchedulerTick()
     return apiSuccess({ data: result })
   } catch (error) {

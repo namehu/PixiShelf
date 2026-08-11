@@ -14,6 +14,7 @@ import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
 import { cn } from '@/lib/utils'
 import AdaptiveMediaPreview from './adaptive-media-preview'
+import { ArtworkVideoOptimizationProvider } from './artwork-video-optimization-context'
 
 interface ArtworkImagesProps {
   images: ArtworkImageResponseDto[]
@@ -654,8 +655,10 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
     />
   )
 
+  const videoImageIds = useMemo(() => images.filter(isVideoMedia).map((media) => media.id), [images])
+
   return (
-    <>
+    <ArtworkVideoOptimizationProvider imageIds={videoImageIds}>
       {mediaContent}
       <PreviewContextMenu
         contextMenu={contextMenu}
@@ -674,6 +677,6 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
           onClose={handlePreviewClose}
         />
       )}
-    </>
+    </ArtworkVideoOptimizationProvider>
   )
 }

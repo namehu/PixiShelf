@@ -387,7 +387,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
           <p className="text-amber-600">成功后会原位替换文件。执行期间请勿从外部修改或移动该视频。</p>
         </div>
       ),
-      confirmText: '开始无损优化',
+      confirmText: '加入优化队列',
       onConfirm: async () => {
         setStartingVideoOptimizationImageId(image.id)
         try {
@@ -395,7 +395,15 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
           startedOptimizationJobIdsRef.current.add(result.jobId)
           setOptimizationPollInterval(1000)
           await optimizationStatusQuery.refetch()
-          toast.success('任务已启动，进度会直接显示在当前媒体行')
+          if (result.reused) {
+            toast.info(result.queuePosition ? `该视频已在队列第 ${result.queuePosition} 位` : '该视频正在优化')
+          } else {
+            toast.success(
+              result.queuePosition
+                ? `已加入优化队列，第 ${result.queuePosition} 位；状态会显示在当前媒体行`
+                : '已开始优化，进度会显示在当前媒体行'
+            )
+          }
         } catch (error) {
           toast.error(`启动优化失败: ${error instanceof Error ? error.message : '未知错误'}`)
         } finally {
@@ -409,7 +417,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     try {
       const result = await trpcClient.job.cancelVideoStreamingOptimization.mutate({ jobId: job.id })
       if (result.success) {
-        toast.info('正在取消 MP4 无损播放优化...')
+        toast.info(job.status === 'PENDING' ? '排队任务已取消' : '正在取消 MP4 无损播放优化...')
         setOptimizationPollInterval(1000)
         await optimizationStatusQuery.refetch()
       } else {

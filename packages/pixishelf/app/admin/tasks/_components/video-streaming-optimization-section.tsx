@@ -2,168 +2,229 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Activity, ArrowRight, CheckCircle2, Loader2, XCircle } from 'lucide-react'
-import Link from 'next/link'
+import { CheckCircle2, Clock3, Loader2, RotateCcw, X, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { useTRPC } from '@/lib/trpc'
+import { isActiveVideoOptimization, type VideoOptimizationJobView } from '@/types/video-optimization'
 import { formatFileSize } from '@/utils/media'
 
-interface JobView {
-  id: string
-  status: string
-  progress: number
-  message?: string | null
-  error?: string | null
-  result?: unknown
-  targetImageId?: number | null
-  targetPath?: string | null
-  mode?: string | null
+interface VideoOptimizationQueueView {
+  capacity: number
+  active: VideoOptimizationJobView[]
+  recent: VideoOptimizationJobView[]
 }
 
 interface VideoStreamingOptimizationResult {
-  imageId?: number
   path?: string
   originalSize?: number
   optimizedSize?: number
   savedBytes?: number
 }
 
-const ACTIVE_STATUSES = ['PENDING', 'RUNNING', 'CANCELLING']
-
 export function VideoStreamingOptimizationSection() {
   const trpc = useTRPC()
   const [pollInterval, setPollInterval] = useState<number | false>(false)
-
-  const jobQuery = useQuery(
-    trpc.job.getVideoStreamingOptimizationStatus.queryOptions(undefined, {
+  const queueQuery = useQuery(
+    trpc.job.getVideoStreamingOptimizationQueue.queryOptions(undefined, {
       refetchInterval: pollInterval
     })
   )
-  const job = jobQuery.data as JobView | null | undefined
-  const isRunning = Boolean(job && ACTIVE_STATUSES.includes(job.status))
-  const isCancelling = job?.status === 'CANCELLING'
-  const result = toOptimizationResult(job?.result)
+  const queue = queueQuery.data as VideoOptimizationQueueView | undefined
 
   useEffect(() => {
-    setPollInterval(job && ACTIVE_STATUSES.includes(job.status) ? 1000 : false)
-  }, [job?.status])
+    setPollInterval(queue?.active.length ? 1000 : false)
+  }, [queue?.active.length])
 
   const cancelMutation = useMutation(
     trpc.job.cancelVideoStreamingOptimization.mutationOptions({
       onSuccess: (data) => {
-        if (data.success) toast.info('正在取消 MP4 无损播放优化...')
-        else toast.info('当前任务已经结束')
-        jobQuery.refetch()
+        toast.info(data.success ? '任务取消请求已提交' : '该任务已经结束')
+        void queueQuery.refetch()
       },
-      onError: (error) => {
-        toast.error(`取消优化失败: ${error.message}`)
-      }
+      onError: (error) => toast.error(`取消优化失败: ${error.message}`)
+    })
+  )
+  const retryMutation = useMutation(
+    trpc.job.startVideoStreamingOptimization.mutationOptions({
+      onSuccess: (data) => {
+        if (data.reused) {
+          toast.info(data.queuePosition ? `该视频已在队列第 ${data.queuePosition} 位` : '该视频正在优化')
+        } else {
+          toast.success(data.queuePosition ? `已重新加入队列，第 ${data.queuePosition} 位` : '已开始优化')
+        }
+        setPollInterval(1000)
+        void queueQuery.refetch()
+      },
+      onError: (error) => toast.error(`重新加入队列失败: ${error.message}`)
     })
   )
 
+  const active = queue?.active ?? []
+  const recent = queue?.recent ?? []
+  const runningCount = active.filter((job) => job.status === 'RUNNING' || job.status === 'CANCELLING').length
+  const pendingCount = active.filter((job) => job.status === 'PENDING').length
+
   return (
     <div className="flex flex-col gap-5 px-6 py-6 transition-colors hover:bg-muted/5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1.5">
-          <h4 className="font-semibold tracking-tight text-foreground">MP4 无损播放优化</h4>
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            对 MP4 执行 stream copy + faststart，移动 moov 并重建容器索引；不会增加关键帧，也不会转换编码。
-          </p>
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <h4 className="font-semibold tracking-tight text-foreground">MP4 无损播放优化队列</h4>
+          <Badge variant="secondary">运行 {runningCount}/1</Badge>
+          <Badge variant="outline">排队 {pendingCount}</Badge>
+          <Badge variant="outline">
+            占用 {active.length}/{queue?.capacity ?? 100}
+          </Badge>
         </div>
-        {isRunning && (
-          <Button
-            variant="destructive"
-            onClick={() => cancelMutation.mutate({ jobId: job!.id })}
-            disabled={isCancelling || cancelMutation.isPending}
-          >
-            {isCancelling ? '正在取消...' : '取消任务'}
-          </Button>
-        )}
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          从作品详情或媒体管理提交；任务持久化到数据库并严格按提交顺序串行执行。仅做 stream copy + faststart，
+          不重新编码，也不会增加关键帧。
+        </p>
       </div>
 
-      <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/10 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-foreground">从作品的媒体管理列表发起处理</p>
-          <p className="text-xs text-muted-foreground">每个视频行会直接显示进度、失败原因、取消与重试；本页只保留最近任务审计。</p>
-        </div>
-        <Button asChild variant="outline" className="shrink-0">
-          <Link href="/admin/artworks">
-            前往作品管理
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Link>
-        </Button>
-      </div>
+      <QueueGroup title="正在处理与等待" emptyText="当前没有等待或执行中的视频优化任务">
+        {active.map((job) => (
+          <OptimizationJobRow
+            key={job.id}
+            job={job}
+            onCancel={() => cancelMutation.mutate({ jobId: job.id })}
+            cancelling={cancelMutation.isPending && cancelMutation.variables?.jobId === job.id}
+          />
+        ))}
+      </QueueGroup>
 
-      <OptimizationJobStatus job={job} isRunning={isRunning} result={result} />
+      <QueueGroup title="近期记录（保留 90 天）" emptyText="还没有视频优化记录">
+        {recent.map((job) => (
+          <OptimizationJobRow
+            key={job.id}
+            job={job}
+            onRetry={
+              job.targetImageId && ['FAILED', 'CANCELLED'].includes(job.status)
+                ? () => retryMutation.mutate({ imageId: job.targetImageId! })
+                : undefined
+            }
+            retrying={retryMutation.isPending && retryMutation.variables?.imageId === job.targetImageId}
+          />
+        ))}
+      </QueueGroup>
     </div>
   )
 }
 
-function OptimizationJobStatus({
+function QueueGroup({ title, emptyText, children }: { title: string; emptyText: string; children: React.ReactNode }) {
+  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children)
+  return (
+    <section className="space-y-2">
+      <h5 className="text-sm font-medium text-foreground">{title}</h5>
+      {hasChildren ? (
+        <div className="space-y-2">{children}</div>
+      ) : (
+        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{emptyText}</p>
+      )}
+    </section>
+  )
+}
+
+function OptimizationJobRow({
   job,
-  isRunning,
-  result
+  onCancel,
+  onRetry,
+  cancelling = false,
+  retrying = false
 }: {
-  job: JobView | null | undefined
-  isRunning: boolean
-  result: VideoStreamingOptimizationResult | null
+  job: VideoOptimizationJobView
+  onCancel?: () => void
+  onRetry?: () => void
+  cancelling?: boolean
+  retrying?: boolean
 }) {
-  if (!job || (!isRunning && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(job.status))) return null
+  const active = isActiveVideoOptimization(job)
+  const pending = job.status === 'PENDING'
+  const result = toOptimizationResult(job.result)
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
       <div className="space-y-3 p-4">
-        <div className="flex items-center justify-between gap-3 text-sm">
-          <div className="flex items-center gap-2 font-medium">
-            {isRunning ? (
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            ) : job.status === 'COMPLETED' ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-            ) : job.status === 'FAILED' ? (
-              <XCircle className="h-4 w-4 text-destructive" />
-            ) : (
-              <Activity className="h-4 w-4 text-muted-foreground" />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+              <JobStatusIcon status={job.status} />
+              <span>{getStatusLabel(job)}</span>
+              {job.attempt && job.attempt > 1 ? <Badge variant="outline">第 {job.attempt} 次执行</Badge> : null}
+            </div>
+            <p className="break-all font-mono text-xs text-muted-foreground" title={job.targetPath ?? undefined}>
+              媒体 #{job.targetImageId ?? '-'} · {job.targetPath || '路径未知'}
+            </p>
+            {job.createdAt && <p className="text-xs text-muted-foreground">提交于 {formatDateTime(job.createdAt)}</p>}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {onCancel && active && (
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                disabled={job.status === 'CANCELLING' || cancelling}
+                onClick={onCancel}
+              >
+                {cancelling || job.status === 'CANCELLING' ? (
+                  <Loader2 className="mr-1.5 size-4 animate-spin" />
+                ) : (
+                  <X className="mr-1.5 size-4" />
+                )}
+                {pending ? '取消排队' : '取消任务'}
+              </Button>
             )}
-            <span>状态: {job.status}</span>
-            {job.message && (
-              <span className="hidden font-normal text-muted-foreground sm:inline"> - {job.message}</span>
+            {onRetry && (
+              <Button type="button" size="sm" variant="outline" disabled={retrying} onClick={onRetry}>
+                <RotateCcw className={`mr-1.5 size-4 ${retrying ? 'animate-spin' : ''}`} />
+                重新加入队列
+              </Button>
             )}
           </div>
-          <span className="font-medium text-muted-foreground">{job.progress ?? 0}%</span>
         </div>
-        {job.message && <p className="text-sm text-muted-foreground sm:hidden">{job.message}</p>}
-        {job.targetPath && (
-          <p className="break-all font-mono text-xs text-muted-foreground" title={job.targetPath}>
-            媒体 #{job.targetImageId ?? '-'} · {job.targetPath}
-          </p>
+
+        {active && !pending && (
+          <div className="flex items-center gap-3">
+            <Progress value={job.progress} className="h-2 flex-1" />
+            <span className="text-xs font-medium text-muted-foreground">{job.progress}%</span>
+          </div>
         )}
-        <Progress value={job.progress ?? 0} className="h-2" />
-        {job.error && <p className="mt-2 text-sm font-medium text-destructive">错误: {job.error}</p>}
+        {job.error && <p className="text-sm font-medium text-destructive">错误: {job.error}</p>}
       </div>
 
       {job.status === 'COMPLETED' && result && (
-        <div className="space-y-2 border-t bg-muted/20 px-4 py-3 text-muted-foreground">
-          <p className="break-all font-mono text-xs text-foreground">{result.path || job.targetPath}</p>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-            <SizeStat label="优化前" value={result.originalSize} />
-            <SizeStat label="优化后" value={result.optimizedSize} />
-            <span>
-              体积变化：
-              <strong className="font-medium text-foreground">
-                {result.savedBytes && result.savedBytes > 0 ? '-' : '+'}
-                {formatFileSize(Math.abs(result.savedBytes ?? 0))}
-              </strong>
-            </span>
-          </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+          <SizeStat label="优化前" value={result.originalSize} />
+          <SizeStat label="优化后" value={result.optimizedSize} />
+          <span>
+            体积变化：
+            <strong className="font-medium text-foreground">
+              {(result.savedBytes ?? 0) > 0 ? '-' : '+'}
+              {formatFileSize(Math.abs(result.savedBytes ?? 0))}
+            </strong>
+          </span>
         </div>
-      )}
-      {job.status === 'CANCELLED' && (
-        <div className="border-t bg-muted/20 px-4 py-3 text-sm text-muted-foreground">任务已取消，原视频未替换</div>
       )}
     </div>
   )
+}
+
+function JobStatusIcon({ status }: { status: string }) {
+  if (status === 'PENDING') return <Clock3 className="size-4 text-amber-500" />
+  if (status === 'RUNNING' || status === 'CANCELLING') return <Loader2 className="size-4 animate-spin text-primary" />
+  if (status === 'COMPLETED') return <CheckCircle2 className="size-4 text-emerald-500" />
+  return <XCircle className="size-4 text-destructive" />
+}
+
+function getStatusLabel(job: VideoOptimizationJobView) {
+  if (job.status === 'PENDING') return `排队中${job.queuePosition ? ` · 第 ${job.queuePosition} 位` : ''}`
+  if (job.status === 'RUNNING') return job.message || '正在优化'
+  if (job.status === 'CANCELLING') return '正在取消'
+  if (job.status === 'COMPLETED') return '优化完成'
+  if (job.status === 'CANCELLED') return '已取消'
+  return '优化失败'
 }
 
 function SizeStat({ label, value }: { label: string; value?: number }) {
@@ -176,4 +237,8 @@ function SizeStat({ label, value }: { label: string; value?: number }) {
 
 function toOptimizationResult(result: unknown): VideoStreamingOptimizationResult | null {
   return result && typeof result === 'object' ? (result as VideoStreamingOptimizationResult) : null
+}
+
+function formatDateTime(value: Date | string) {
+  return new Date(value).toLocaleString('zh-CN')
 }

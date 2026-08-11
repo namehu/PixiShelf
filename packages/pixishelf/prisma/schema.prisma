@@ -339,11 +339,17 @@ model SystemJob {
   targetImageId Int?
   targetPath    String?   @db.Text
   mode          String?   @db.VarChar(50)
+  startedAt     DateTime?
+  heartbeatAt   DateTime?
+  finishedAt    DateTime?
+  attempt       Int       @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   scanRuns      ScanRun[]
 
   @@index([type, status])
+  @@index([type, status, createdAt])
+  @@index([type, status, finishedAt])
   @@index([type, targetImageId, createdAt])
   @@index([createdAt])
   @@map("system_jobs")

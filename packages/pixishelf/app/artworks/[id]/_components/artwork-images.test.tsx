@@ -60,6 +60,10 @@ vi.mock('./adaptive-media-preview', () => ({
   )
 }))
 
+vi.mock('./artwork-video-optimization-context', () => ({
+  ArtworkVideoOptimizationProvider: ({ children }: { children: React.ReactNode }) => children
+}))
+
 global.ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}

@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto'
 import logger from '@/lib/logger'
 import { isVideoFile } from '@/lib/media'
 import { prisma } from '@/lib/prisma'
-import { resolveExistingPathWithinRoot } from '@/lib/safe-path'
+import { resolveCreatablePathWithinRoot, resolveExistingPathWithinRoot } from '@/lib/safe-path'
 
 const FFMPEG_TIMEOUT_MS = 2 * 60 * 60 * 1000
 const FFPROBE_TIMEOUT_MS = 2 * 60 * 1000
@@ -83,6 +83,7 @@ export async function resolveVideoStreamingOptimizationTarget(
 export async function optimizeVideoForStreaming(options: {
   imageId: number
   scanPath: string
+  operationId?: string
   onProgress?: (progress: VideoStreamingOptimizationProgress) => Promise<void> | void
   checkCancelled?: CancellationCheck
 }): Promise<VideoStreamingOptimizationResult> {
@@ -97,8 +98,8 @@ export async function optimizeVideoForStreaming(options: {
   const sourceStat = await fs.stat(sourcePath)
   await ensureNotCancelled()
 
-  const operationId = `${process.pid}-${Date.now()}-${randomUUID()}`
-  const temporaryPath = path.join(path.dirname(sourcePath), `.pixishelf-remux-${operationId}.mp4`)
+  const operationId = normalizeOperationId(options.operationId ?? `${process.pid}-${Date.now()}-${randomUUID()}`)
+  const { temporaryPath } = getOptimizationArtifactPaths(sourcePath, operationId)
 
   try {
     await report(8, '正在读取原视频流信息...')
@@ -173,6 +174,36 @@ export async function optimizeVideoForStreaming(options: {
   } finally {
     await fs.rm(temporaryPath, { force: true }).catch(() => undefined)
   }
+}
+
+export async function recoverInterruptedVideoOptimization(options: {
+  imageId: number
+  scanPath: string
+  operationId: string
+}) {
+  const image = await prisma.image.findUnique({
+    where: { id: options.imageId },
+    select: { id: true, path: true }
+  })
+  if (!image) throw new Error('Image not found')
+  if (path.extname(image.path).toLowerCase() !== '.mp4') throw new Error('Only MP4 videos can be optimized')
+
+  const sourcePath = await resolveCreatablePathWithinRoot(options.scanPath, image.path.replace(/^[/\\]+/, ''))
+  const operationId = normalizeOperationId(options.operationId)
+  const { temporaryPath, backupPath } = getOptimizationArtifactPaths(sourcePath, operationId)
+  const [sourceExists, backupExists] = await Promise.all([fileExists(sourcePath), fileExists(backupPath)])
+
+  if (!sourceExists && backupExists) {
+    await fs.rename(backupPath, sourcePath)
+  } else if (sourceExists && backupExists) {
+    await fs.rm(backupPath, { force: true })
+  } else if (!sourceExists) {
+    throw new Error('Interrupted optimization left neither the source video nor a recoverable backup')
+  }
+
+  await fs.rm(temporaryPath, { force: true })
+  const sourceStat = await fs.stat(sourcePath)
+  await prisma.image.update({ where: { id: image.id }, data: { size: BigInt(sourceStat.size) } })
 }
 
 function probeMediaFingerprint(filePath: string): Promise<MediaFingerprint> {
@@ -399,10 +430,7 @@ async function replaceFileWithRollback(temporaryPath: string, sourcePath: string
     if (!['EEXIST', 'EPERM', 'EACCES'].includes(code ?? '')) throw error
   }
 
-  const backupPath = path.join(
-    path.dirname(sourcePath),
-    `.pixishelf-remux-backup-${operationId}${path.extname(sourcePath) || '.mp4'}`
-  )
+  const { backupPath } = getOptimizationArtifactPaths(sourcePath, operationId)
   await fs.rename(sourcePath, backupPath)
   try {
     await fs.rename(temporaryPath, sourcePath)
@@ -416,4 +444,27 @@ async function replaceFileWithRollback(temporaryPath: string, sourcePath: string
   await fs.rm(backupPath, { force: true }).catch((error) => {
     logger.warn('Optimized video installed but backup cleanup failed', { backupPath, error })
   })
+}
+
+function getOptimizationArtifactPaths(sourcePath: string, operationId: string) {
+  const directory = path.dirname(sourcePath)
+  const extension = path.extname(sourcePath) || '.mp4'
+  return {
+    temporaryPath: path.join(directory, `.pixishelf-remux-${operationId}.mp4`),
+    backupPath: path.join(directory, `.pixishelf-remux-backup-${operationId}${extension}`)
+  }
+}
+
+function normalizeOperationId(operationId: string) {
+  if (!/^[a-zA-Z0-9_-]+$/.test(operationId)) throw new Error('Invalid video optimization operation id')
+  return operationId
+}
+
+async function fileExists(filePath: string) {
+  try {
+    return (await fs.stat(filePath)).isFile()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
 }

@@ -107,6 +107,7 @@ describe('VideoPlayer component behavior', () => {
         add: vi.fn(),
         remove: vi.fn()
       },
+      setting: { show: true },
       layers: {
         add: vi.fn(
           (option: {
@@ -198,6 +199,28 @@ describe('VideoPlayer component behavior', () => {
 
     await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
     expect(artplayerMock.constructor.mock.calls[0]?.[0]).toMatchObject({ gesture: false })
+  })
+
+  it('adds optional business actions to the native Artplayer settings menu', async () => {
+    const art = setupArtplayerMock()
+    const onClick = vi.fn()
+
+    render(
+      <VideoPlayer
+        src="/video.mp4"
+        settingActions={[{ name: 'video-streaming-optimization', label: '无损优化', tooltip: '执行', onClick }]}
+      />
+    )
+
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    const settings = artplayerMock.constructor.mock.calls[0]?.[0].settings
+    expect(settings).toEqual([
+      expect.objectContaining({ name: 'video-streaming-optimization', html: '无损优化', tooltip: '执行' })
+    ])
+
+    settings[0].onClick.call(art)
+    expect(onClick).toHaveBeenCalledOnce()
+    expect(art.setting.show).toBe(false)
   })
 
   it('does not autoplay and unmutes videos with an audio track when playback starts', async () => {

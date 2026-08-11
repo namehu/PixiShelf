@@ -3,13 +3,8 @@ import { JobStatus, Prisma } from '@prisma/client'
 
 const MEDIA_SCAN_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT']
 const MEDIA_SCAN_ADVISORY_LOCK_ID = 728341
-const MEDIA_MAINTENANCE_JOB_TYPES = [
-  'WEBP_ANIMATION_SCAN',
-  'VIDEO_MEDIA_PROBE',
-  'VIDEO_CHAPTER_PREVIEW_GENERATION'
-]
+const MEDIA_MAINTENANCE_JOB_TYPES = ['WEBP_ANIMATION_SCAN', 'VIDEO_MEDIA_PROBE', 'VIDEO_CHAPTER_PREVIEW_GENERATION']
 const MEDIA_MAINTENANCE_ADVISORY_LOCK_ID = 728342
-const VIDEO_PROCESSING_JOB_TYPES = ['VIDEO_STREAMING_OPTIMIZATION']
 const VIDEO_PROCESSING_ADVISORY_LOCK_ID = 728344
 const AUDIT_MAINTENANCE_JOB_TYPES = ['SCAN_RUN_RETENTION_CLEANUP', 'TRIGGER_LOG_RETENTION_CLEANUP']
 const AUDIT_MAINTENANCE_ADVISORY_LOCK_ID = 728343
@@ -17,6 +12,9 @@ const SCAN_RUN_RETENTION_CLEANUP_JOB_TYPE = 'SCAN_RUN_RETENTION_CLEANUP'
 const TRIGGER_LOG_RETENTION_CLEANUP_JOB_TYPE = 'TRIGGER_LOG_RETENTION_CLEANUP'
 const VIDEO_CHAPTER_PREVIEW_GENERATION_JOB_TYPE = 'VIDEO_CHAPTER_PREVIEW_GENERATION'
 const VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE = 'VIDEO_STREAMING_OPTIMIZATION'
+const VIDEO_STREAMING_OPTIMIZATION_ACTIVE_STATUSES = [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING]
+const VIDEO_STREAMING_OPTIMIZATION_TERMINAL_STATUSES = [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]
+export const VIDEO_STREAMING_OPTIMIZATION_QUEUE_CAPACITY = 100
 
 async function createMutexJob(input: {
   type: string
@@ -276,19 +274,159 @@ export async function createVideoChapterPreviewGenerationJob() {
   })
 }
 
-/**
- * 尝试创建一个单视频无损重新封装任务
- */
-export async function createVideoStreamingOptimizationJob(input: { imageId: number; path: string }) {
-  return createMutexJob({
-    type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
-    mutexJobTypes: VIDEO_PROCESSING_JOB_TYPES,
-    advisoryLockId: VIDEO_PROCESSING_ADVISORY_LOCK_ID,
-    message: '正在准备 MP4 无损播放优化...',
-    conflictMessage: 'Another MP4 lossless optimization job is already in progress',
-    targetImageId: input.imageId,
-    targetPath: input.path,
-    mode: 'REMUX_FASTSTART'
+export async function enqueueVideoStreamingOptimizationJob(input: { imageId: number; path: string }) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', VIDEO_PROCESSING_ADVISORY_LOCK_ID)
+
+    const existingJob = await tx.systemJob.findFirst({
+      where: {
+        type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
+        targetImageId: input.imageId,
+        status: { in: VIDEO_STREAMING_OPTIMIZATION_ACTIVE_STATUSES }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    if (existingJob) {
+      let queuePosition: number | null = null
+      if (existingJob.status === JobStatus.PENDING) {
+        const pendingJobs = await tx.systemJob.findMany({
+          where: { type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE, status: JobStatus.PENDING },
+          select: { id: true },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+        })
+        const pendingIndex = pendingJobs.findIndex((job) => job.id === existingJob.id)
+        queuePosition = pendingIndex >= 0 ? pendingIndex + 1 : null
+      }
+      return {
+        job: existingJob,
+        reused: true,
+        queuePosition
+      }
+    }
+
+    const activeCount = await tx.systemJob.count({
+      where: {
+        type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
+        status: { in: VIDEO_STREAMING_OPTIMIZATION_ACTIVE_STATUSES }
+      }
+    })
+    if (activeCount >= VIDEO_STREAMING_OPTIMIZATION_QUEUE_CAPACITY) {
+      throw new Error(`Video optimization queue is full (${VIDEO_STREAMING_OPTIMIZATION_QUEUE_CAPACITY})`)
+    }
+
+    const pendingCount = await tx.systemJob.count({
+      where: { type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE, status: JobStatus.PENDING }
+    })
+    const job = await tx.systemJob.create({
+      data: {
+        type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
+        status: JobStatus.PENDING,
+        message: '等待 MP4 无损播放优化...',
+        progress: 0,
+        targetImageId: input.imageId,
+        targetPath: input.path,
+        mode: 'REMUX_FASTSTART'
+      }
+    })
+
+    return { job, reused: false, queuePosition: pendingCount + 1 }
+  })
+}
+
+export async function claimNextVideoStreamingOptimizationJob() {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', VIDEO_PROCESSING_ADVISORY_LOCK_ID)
+
+    const activeJob = await tx.systemJob.findFirst({
+      where: {
+        type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
+        status: { in: [JobStatus.RUNNING, JobStatus.CANCELLING] }
+      }
+    })
+    if (activeJob) return null
+
+    const nextJob = await tx.systemJob.findFirst({
+      where: { type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE, status: JobStatus.PENDING },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+    })
+    if (!nextJob) return null
+
+    const now = new Date()
+    return tx.systemJob.update({
+      where: { id: nextJob.id },
+      data: {
+        status: JobStatus.RUNNING,
+        message: '正在准备 MP4 无损播放优化...',
+        progress: 1,
+        startedAt: now,
+        heartbeatAt: now,
+        attempt: { increment: 1 },
+        error: null,
+        finishedAt: null
+      }
+    })
+  })
+}
+
+export async function cancelVideoStreamingOptimizationJob(jobId: string) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', VIDEO_PROCESSING_ADVISORY_LOCK_ID)
+    const job = await tx.systemJob.findUnique({ where: { id: jobId } })
+    if (!job || job.type !== VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE) return null
+
+    if (job.status === JobStatus.PENDING) {
+      return {
+        changed: true,
+        job: await tx.systemJob.update({
+          where: { id: job.id },
+          data: {
+            status: JobStatus.CANCELLED,
+            message: '排队任务已取消',
+            finishedAt: new Date()
+          }
+        })
+      }
+    }
+
+    if (job.status === JobStatus.RUNNING) {
+      return {
+        changed: true,
+        job: await tx.systemJob.update({
+          where: { id: job.id },
+          data: { status: JobStatus.CANCELLING, message: '正在取消...', heartbeatAt: new Date() }
+        })
+      }
+    }
+
+    return { changed: false, job }
+  })
+}
+
+export async function recoverStaleVideoStreamingOptimizationJobs(staleBefore: Date) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', VIDEO_PROCESSING_ADVISORY_LOCK_ID)
+    const staleJobs = await tx.systemJob.findMany({
+      where: {
+        type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
+        status: { in: [JobStatus.RUNNING, JobStatus.CANCELLING] },
+        OR: [{ heartbeatAt: { lt: staleBefore } }, { heartbeatAt: null, updatedAt: { lt: staleBefore } }]
+      }
+    })
+    if (staleJobs.length === 0) return []
+
+    const finishedAt = new Date()
+    await tx.systemJob.updateMany({
+      where: { id: { in: staleJobs.map((job) => job.id) } },
+      data: {
+        status: JobStatus.FAILED,
+        message: '服务中断，任务已停止',
+        error: 'Video optimization was interrupted by a service restart',
+        finishedAt
+      }
+    })
+
+    return staleJobs
   })
 }
 
@@ -384,13 +522,36 @@ export async function getLatestVideoStreamingOptimizationJob() {
 export async function getLatestVideoStreamingOptimizationJobsByImageIds(imageIds: number[]) {
   if (imageIds.length === 0) return []
 
-  const jobs = await prisma.systemJob.findMany({
+  const latestKeys = await prisma.systemJob.groupBy({
+    by: ['targetImageId'],
     where: {
       type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
       targetImageId: { in: imageIds }
     },
-    orderBy: { createdAt: 'desc' }
+    _max: { createdAt: true }
   })
+  const latestTargets = latestKeys.flatMap((item) =>
+    item.targetImageId !== null && item._max.createdAt
+      ? [{ targetImageId: item.targetImageId, createdAt: item._max.createdAt }]
+      : []
+  )
+  if (latestTargets.length === 0) return []
+
+  const [jobs, pendingJobs] = await Promise.all([
+    prisma.systemJob.findMany({
+      where: {
+        type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
+        OR: latestTargets
+      },
+      orderBy: { createdAt: 'desc' }
+    }),
+    prisma.systemJob.findMany({
+      where: { type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE, status: JobStatus.PENDING },
+      select: { id: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+    })
+  ])
+  const pendingPositions = new Map(pendingJobs.map((job, index) => [job.id, index + 1]))
   const latestByImageId = new Map<number, (typeof jobs)[number]>()
 
   for (const job of jobs) {
@@ -399,7 +560,63 @@ export async function getLatestVideoStreamingOptimizationJobsByImageIds(imageIds
     }
   }
 
-  return [...latestByImageId.values()]
+  return [...latestByImageId.values()].map((job) => ({
+    ...job,
+    queuePosition: pendingPositions.get(job.id) ?? null
+  }))
+}
+
+export async function listVideoStreamingOptimizationQueue(recentLimit = 20) {
+  const [activeJobs, recentJobs] = await Promise.all([
+    prisma.systemJob.findMany({
+      where: {
+        type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
+        status: { in: VIDEO_STREAMING_OPTIMIZATION_ACTIVE_STATUSES }
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+    }),
+    prisma.systemJob.findMany({
+      where: {
+        type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
+        status: { in: VIDEO_STREAMING_OPTIMIZATION_TERMINAL_STATUSES }
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: recentLimit
+    })
+  ])
+  const pendingIds = activeJobs.filter((job) => job.status === JobStatus.PENDING).map((job) => job.id)
+  const pendingPositions = new Map(pendingIds.map((id, index) => [id, index + 1]))
+
+  return {
+    capacity: VIDEO_STREAMING_OPTIMIZATION_QUEUE_CAPACITY,
+    active: activeJobs.map((job) => ({ ...job, queuePosition: pendingPositions.get(job.id) ?? null })),
+    recent: recentJobs.map((job) => ({ ...job, queuePosition: null as number | null }))
+  }
+}
+
+export async function deleteExpiredVideoStreamingOptimizationJobs(olderThan: Date) {
+  return prisma.systemJob.deleteMany({
+    where: {
+      type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE,
+      status: { in: VIDEO_STREAMING_OPTIMIZATION_TERMINAL_STATUSES },
+      OR: [{ finishedAt: { lt: olderThan } }, { finishedAt: null, updatedAt: { lt: olderThan } }]
+    }
+  })
+}
+
+export async function hasPendingVideoStreamingOptimizationJobs() {
+  return (
+    (await prisma.systemJob.count({
+      where: { type: VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE, status: JobStatus.PENDING }
+    })) > 0
+  )
+}
+
+export async function touchJobHeartbeat(jobId: string) {
+  await prisma.systemJob.updateMany({
+    where: { id: jobId, status: JobStatus.RUNNING },
+    data: { heartbeatAt: new Date() }
+  })
 }
 
 export async function getActiveJobByType(type: string) {
@@ -465,7 +682,7 @@ export async function updateProgress(jobId: string, progress: number, message: s
 
   await prisma.systemJob.update({
     where: { id: jobId },
-    data: { progress, message }
+    data: { progress, message, heartbeatAt: new Date() }
   })
 }
 
@@ -479,7 +696,9 @@ export async function completeJob(jobId: string, result: any) {
       status: JobStatus.COMPLETED,
       progress: 100,
       message: '完成',
-      result: result as Prisma.InputJsonValue
+      result: result as Prisma.InputJsonValue,
+      heartbeatAt: new Date(),
+      finishedAt: new Date()
     }
   })
 }
@@ -492,7 +711,9 @@ export async function failJob(jobId: string, error: string) {
     where: { id: jobId },
     data: {
       status: JobStatus.FAILED,
-      error
+      error,
+      heartbeatAt: new Date(),
+      finishedAt: new Date()
     }
   })
 }
@@ -505,7 +726,9 @@ export async function markAsCancelled(jobId: string) {
     where: { id: jobId },
     data: {
       status: JobStatus.CANCELLED,
-      message: '已取消'
+      message: '已取消',
+      heartbeatAt: new Date(),
+      finishedAt: new Date()
     }
   })
 }

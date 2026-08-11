@@ -1,15 +1,19 @@
 'use client'
 
-import VideoPlayer from '@/components/players/video-player'
+import VideoPlayer, { type VideoPlayerSettingAction } from '@/components/players/video-player'
 import ApngPlayer from '@/components/players/apng-player'
 import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import Image from 'next/image'
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { useOnInView } from 'react-intersection-observer'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
 import { combinationApiResource } from '@/utils/combination-static'
+import { Loader2, X } from 'lucide-react'
+import { Progress } from '@/components/ui/progress'
+import { Button } from '@/components/ui/button'
+import { useArtworkVideoOptimization } from './artwork-video-optimization-context'
 
 interface LazyMediaProps {
   media: ArtworkImageResponseDto
@@ -21,9 +25,35 @@ interface LazyMediaProps {
  */
 const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
+  const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
   const src = media.path
   const hasDimensions = Boolean(media.width && media.height && media.width > 0 && media.height > 0)
   const aspectRatio = hasDimensions ? `${media.width} / ${media.height}` : undefined
+  const videoSettingActions = useMemo<VideoPlayerSettingAction[]>(() => {
+    if (!canManage || !isVideoFile(src)) return []
+
+    const isMp4 = media.path.toLowerCase().endsWith('.mp4')
+    const completed = job?.status === 'COMPLETED'
+    const tooltip = !isMp4
+      ? '需要转码'
+      : completed
+        ? '已优化'
+        : job?.status === 'FAILED'
+          ? '失败，重试'
+          : job?.status === 'CANCELLED'
+            ? '重新执行'
+            : '执行'
+
+    return [
+      {
+        name: 'video-streaming-optimization',
+        label: '无损优化',
+        tooltip,
+        disabled: !isMp4 || completed,
+        onClick: isMp4 && !completed && enqueue ? () => enqueue(media) : undefined
+      }
+    ]
+  }, [canManage, enqueue, job?.status, media, src])
 
   const trackingRef = useOnInView(
     (inView) => {
@@ -35,6 +65,46 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
   // 主渲染逻辑
   const renderContent = () => {
     if (isVideoFile(src)) {
+      if (suspendPlayback) {
+        const pending = job?.status === 'PENDING'
+        const cancelling = job?.status === 'CANCELLING'
+        const statusText = isStarting
+          ? '正在提交优化任务...'
+          : pending
+            ? `排队中${job.queuePosition ? ` · 第 ${job.queuePosition} 位` : ''}`
+            : cancelling
+              ? '正在取消优化...'
+              : job?.message || '正在无损优化视频...'
+        return (
+          <div className="flex min-h-72 w-full flex-col items-center justify-center gap-3 bg-neutral-950 px-6 text-white">
+            <Loader2 className="size-7 animate-spin" />
+            <p className="text-sm font-medium">优化处理中</p>
+            <p className="text-xs text-white/60">{statusText}</p>
+            {!isStarting && !pending && (
+              <div className="flex w-full max-w-sm items-center gap-3">
+                <Progress value={job?.progress ?? 0} className="h-1.5 flex-1 bg-white/20" />
+                <span className="text-xs text-white/70">{job?.progress ?? 0}%</span>
+              </div>
+            )}
+            {job && cancel && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-1 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                disabled={cancelling}
+                onClick={() => cancel(job)}
+              >
+                {cancelling ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <X className="mr-1.5 size-3.5" />}
+                {pending ? '取消排队' : '取消优化'}
+              </Button>
+            )}
+            <p className="text-xs text-white/50">
+              {cancelling ? '取消完成后会恢复播放器' : '处理完成后会刷新整个作品页'}
+            </p>
+          </div>
+        )
+      }
       const mediaSrc = appendMediaVersion(combinationApiResource(src), media.updatedAt)
       return (
         <VideoPlayer
@@ -44,6 +114,7 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
           size={media.size}
           className="w-full h-auto"
           preload="metadata"
+          settingActions={videoSettingActions}
         />
       )
     }

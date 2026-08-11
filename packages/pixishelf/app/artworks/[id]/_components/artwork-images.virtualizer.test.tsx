@@ -19,6 +19,10 @@ vi.mock('./lazy-media', () => ({
   default: ({ index }: { index: number }) => <div data-testid="real-virtual-media">Image {index + 1}</div>
 }))
 
+vi.mock('./artwork-video-optimization-context', () => ({
+  ArtworkVideoOptimizationProvider: ({ children }: { children: React.ReactNode }) => children
+}))
+
 class ResizeObserverMock {
   observe() {}
   unobserve() {}
