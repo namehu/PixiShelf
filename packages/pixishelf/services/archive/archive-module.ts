@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { Prisma } from '@prisma/client'
+import { ArchiveImportStatus, JobStatus, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { ArchiveError } from './errors'
 import { archiveProviderRegistry, type ArchiveProviderRegistry } from './provider-registry'
 import { hashResolvedMetadata } from './providers/e-hentai'
-import { buildArchiveStoragePaths, removeArchivePath } from './storage'
-import { restorePublishedArchive, trashPublishedArchive } from './publisher'
+import { buildArchiveStoragePaths } from './storage'
+import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID, restorePublishedArchive, trashPublishedArchive } from './publisher'
 import type {
   ArchivePreview,
   ArchiveProvider,
@@ -14,6 +14,7 @@ import type {
   ResolvedArchive
 } from './types'
 import { requireArchiveStorageRoot } from './config'
+import type { ArchiveTransactionClient } from './relationships'
 
 const PREVIEW_TTL_MS = 30 * 60 * 1000
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
@@ -50,6 +51,14 @@ export class ArchiveModule {
       })
     ])
     const warnings = [...resolved.warnings]
+    if (
+      existingRef &&
+      (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')
+    ) {
+      throw new ArchiveError('STATE_CONFLICT', '该作品已在归档回收站中，请先显式恢复后再更新', {
+        recoverable: true
+      })
+    }
     const currentRevision = existingRef?.archiveRevisions[0]
     const isUpdate = Boolean(existingRef)
     const previousMediaCount = Array.isArray(currentRevision?.mediaSnapshot)
@@ -120,6 +129,23 @@ export class ArchiveModule {
     })
     try {
       await prisma.$transaction(async (tx) => {
+        const existingRef = await tx.artworkExternalRef.findUnique({
+          where: {
+            providerKey_externalId: {
+              providerKey: resolved.providerKey,
+              externalId: resolved.externalId
+            }
+          },
+          include: { artwork: true }
+        })
+        if (
+          existingRef &&
+          (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')
+        ) {
+          throw new ArchiveError('STATE_CONFLICT', '该作品已在归档回收站中，请先显式恢复后再更新', {
+            recoverable: true
+          })
+        }
         await tx.systemJob.create({
           data: {
             id: jobId,
@@ -197,36 +223,54 @@ export class ArchiveModule {
   }
 
   async requestAction(taskId: string, action: ArchiveTaskAction) {
-    const task = await prisma.archiveImport.findUnique({ where: { id: taskId } })
+    const task = await prisma.archiveImport.findUnique({ where: { id: taskId }, include: { systemJob: true } })
     if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
-    const scanRoot = await requireArchiveStorageRoot()
+    if (task.cleanupRequestedAt) {
+      if (action === 'DELETE_STAGING') return this.getTask(taskId)
+      throw stateConflict('暂存目录正在由归档 Worker 清理，请等待清理完成')
+    }
     const now = new Date()
 
     switch (action) {
       case 'PAUSE':
-        if (!['PENDING', 'RUNNING'].includes(task.status)) break
-        await updateTaskAndJob(task, { importStatus: 'PAUSED', jobStatus: 'PAUSED', message: '任务已暂停' })
+        assertActionStatus(action, task.status, ['PENDING', 'RUNNING'])
+        await transitionTaskAndJob(task, {
+          importStatus: 'PAUSED',
+          jobStatus: 'PAUSED',
+          message: '任务已暂停'
+        })
         break
       case 'RESUME':
-        if (task.status !== 'PAUSED') break
+        assertActionStatus(action, task.status, ['PAUSED'])
         if (task.decisionCode === 'USE_DISPLAY_QUALITY' && task.selectedQuality === 'ORIGINAL') {
           throw new ArchiveError('ORIGINAL_UNAVAILABLE', '请先明确选择展示质量', {
             pause: true,
             decisionCode: 'USE_DISPLAY_QUALITY'
           })
         }
-        await prisma.archiveImportItem.updateMany({
-          where: { archiveImportId: task.id, status: 'FAILED' },
-          data: { status: 'PENDING', attempts: 0, errorCode: null, errorMessage: null, startedAt: null, finishedAt: null }
+        await transitionTaskAndJob(task, {
+          importStatus: 'PENDING',
+          jobStatus: 'PENDING',
+          message: '等待归档 Worker...',
+          mutate: async (tx) => {
+            await tx.archiveImportItem.updateMany({
+              where: { archiveImportId: task.id, status: { not: 'COMPLETED' } },
+              data: { status: 'PENDING', attempts: 0, errorCode: null, errorMessage: null, startedAt: null, finishedAt: null }
+            })
+          }
         })
-        await updateTaskAndJob(task, { importStatus: 'PENDING', jobStatus: 'PENDING', message: '等待归档 Worker...' })
         break
       case 'CANCEL':
-        if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(task.status)) break
+        assertActionStatus(action, task.status, ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'])
+        if (task.status === 'CANCELLING') throw stateConflict('任务已经在取消中')
         if (task.status === 'RUNNING') {
-          await updateTaskAndJob(task, { importStatus: 'CANCELLING', jobStatus: 'CANCELLING', message: '正在取消...' })
+          await transitionTaskAndJob(task, {
+            importStatus: 'CANCELLING',
+            jobStatus: 'CANCELLING',
+            message: '正在取消...'
+          })
         } else {
-          await updateTaskAndJob(task, {
+          await transitionTaskAndJob(task, {
             importStatus: 'CANCELLED',
             jobStatus: 'CANCELLED',
             message: '任务已取消',
@@ -236,94 +280,56 @@ export class ArchiveModule {
         }
         break
       case 'RETRY':
-        if (!['FAILED', 'CANCELLED'].includes(task.status)) break
-        await prisma.$transaction([
-          prisma.archiveImportItem.updateMany({
-            where: { archiveImportId: task.id, status: 'FAILED' },
-            data: { status: 'PENDING', attempts: 0, errorCode: null, errorMessage: null, startedAt: null, finishedAt: null }
-          }),
-          prisma.archiveImport.update({
-            where: { id: task.id },
-            data: {
-              status: 'PENDING',
-              failedItems: 0,
-              errorCode: null,
-              errorMessage: null,
-              finishedAt: null,
-              retainUntil: null
-            }
-          }),
-          prisma.systemJob.update({
-            where: { id: task.systemJobId },
-            data: { status: 'PENDING', message: '等待重试...', error: null, finishedAt: null, progress: 0 }
-          })
-        ])
+        assertActionStatus(action, task.status, ['FAILED', 'CANCELLED'])
+        await transitionTaskAndJob(task, {
+          importStatus: 'PENDING',
+          jobStatus: 'PENDING',
+          message: '等待重试...',
+          importData: { failedItems: 0, errorCode: null, errorMessage: null, finishedAt: null, retainUntil: null },
+          jobData: { error: null, finishedAt: null, progress: 0 },
+          mutate: async (tx) => {
+            await tx.archiveImportItem.updateMany({
+              where: { archiveImportId: task.id, status: { not: 'COMPLETED' } },
+              data: { status: 'PENDING', attempts: 0, errorCode: null, errorMessage: null, startedAt: null, finishedAt: null }
+            })
+          }
+        })
         break
       case 'USE_DISPLAY_QUALITY':
-        if (!['PAUSED', 'FAILED'].includes(task.status)) break
-        await prisma.$transaction([
-          prisma.archiveImportItem.updateMany({
-            where: { archiveImportId: task.id, status: 'FAILED' },
-            data: { status: 'PENDING', attempts: 0, errorCode: null, errorMessage: null, startedAt: null, finishedAt: null }
-          }),
-          prisma.archiveImport.update({
-            where: { id: task.id },
-            data: {
-              selectedQuality: 'DISPLAY',
-              decisionCode: null,
-              status: 'PENDING',
-              errorCode: null,
-              errorMessage: null,
-              failedItems: 0,
-              finishedAt: null,
-              retainUntil: null
-            }
-          }),
-          prisma.systemJob.update({
-            where: { id: task.systemJobId },
-            data: { status: 'PENDING', message: '已选择展示质量，等待继续...', error: null, finishedAt: null }
-          })
-        ])
+        assertActionStatus(action, task.status, ['PAUSED', 'FAILED'])
+        await transitionTaskAndJob(task, {
+          importStatus: 'PENDING',
+          jobStatus: 'PENDING',
+          message: '已选择展示质量，等待继续...',
+          importData: {
+            selectedQuality: 'DISPLAY', decisionCode: null, errorCode: null, errorMessage: null,
+            failedItems: 0, finishedAt: null, retainUntil: null
+          },
+          jobData: { error: null, finishedAt: null },
+          mutate: async (tx) => {
+            await tx.archiveImportItem.updateMany({
+              where: { archiveImportId: task.id, status: { not: 'COMPLETED' } },
+              data: { status: 'PENDING', attempts: 0, errorCode: null, errorMessage: null, startedAt: null, finishedAt: null }
+            })
+          }
+        })
         break
       case 'DELETE_STAGING':
-        if (['RUNNING', 'CANCELLING'].includes(task.status)) {
-          throw new ArchiveError('INTERNAL', '运行中的任务不能删除暂存文件')
-        }
-        await removeArchivePath(scanRoot, task.stagingPath).catch((error) => {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        assertActionStatus(action, task.status, ['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'])
+        await transitionTaskAndJob(task, {
+          importStatus: task.status,
+          jobStatus: task.systemJob.status,
+          message: '等待归档 Worker 清理暂存目录...',
+          importData: { cleanupRequestedAt: now }
         })
-        await prisma.$transaction([
-          prisma.archiveImportItem.updateMany({
-            where: { archiveImportId: task.id },
-            data: {
-              status: 'PENDING',
-              attempts: 0,
-              stagedPath: null,
-              byteCount: null,
-              mimeType: null,
-              quality: null,
-              width: null,
-              height: null,
-              sha256: null,
-              errorCode: null,
-              errorMessage: null,
-              startedAt: null,
-              finishedAt: null
-            }
-          }),
-          prisma.archiveImport.update({
-            where: { id: task.id },
-            data: { completedItems: 0, failedItems: 0 }
-          })
-        ])
         break
       case 'DELETE_ARCHIVE':
         if (!task.publishedArtworkId) throw new ArchiveError('INTERNAL', '任务尚未发布作品')
-        await trashPublishedArchive(task.publishedArtworkId, scanRoot)
+        await trashPublishedArchive(task.publishedArtworkId)
         break
       case 'RESTORE_ARCHIVE':
         if (!task.publishedArtworkId) throw new ArchiveError('INTERNAL', '任务尚未发布作品')
-        await restorePublishedArchive(task.publishedArtworkId, scanRoot)
+        await restorePublishedArchive(task.publishedArtworkId)
         break
     }
     return this.getTask(taskId)
@@ -337,34 +343,60 @@ export class ArchiveModule {
 export const archiveModule = new ArchiveModule()
 export { ARCHIVE_IMPORT_JOB_TYPE, FAILED_STAGING_RETENTION_MS }
 
-async function updateTaskAndJob(
-  task: { id: string; systemJobId: string },
+async function transitionTaskAndJob(
+  task: {
+    id: string
+    systemJobId: string
+    status: ArchiveImportStatus
+    systemJob: { status: JobStatus }
+  },
   input: {
     importStatus: 'PENDING' | 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
     jobStatus: 'PENDING' | 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
     message: string
     finishedAt?: Date
     retainUntil?: Date
+    importData?: Prisma.ArchiveImportUpdateManyMutationInput
+    jobData?: Prisma.SystemJobUpdateManyMutationInput
+    mutate?: (tx: ArchiveTransactionClient) => Promise<void>
   }
 ) {
-  await prisma.$transaction([
-    prisma.archiveImport.update({
-      where: { id: task.id },
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+    const job = await tx.systemJob.updateMany({
+      where: { id: task.systemJobId, status: task.systemJob.status },
       data: {
-        status: input.importStatus,
-        ...(input.finishedAt ? { finishedAt: input.finishedAt } : {}),
-        ...(input.retainUntil ? { retainUntil: input.retainUntil } : {})
-      }
-    }),
-    prisma.systemJob.update({
-      where: { id: task.systemJobId },
-      data: {
+        ...input.jobData,
         status: input.jobStatus,
         message: input.message,
         ...(input.finishedAt ? { finishedAt: input.finishedAt } : {})
       }
     })
-  ])
+    if (job.count !== 1) throw stateConflict('归档任务状态已改变，请刷新后重试')
+    const archiveImport = await tx.archiveImport.updateMany({
+      where: { id: task.id, status: task.status, cleanupRequestedAt: null },
+      data: {
+        ...input.importData,
+        status: input.importStatus,
+        ...(input.finishedAt ? { finishedAt: input.finishedAt } : {}),
+        ...(input.retainUntil ? { retainUntil: input.retainUntil } : {})
+      }
+    })
+    if (archiveImport.count !== 1) throw stateConflict('归档任务状态已改变，请刷新后重试')
+    await input.mutate?.(tx)
+  })
+}
+
+function assertActionStatus(
+  action: ArchiveTaskAction,
+  actual: string,
+  allowed: readonly string[]
+): void {
+  if (!allowed.includes(actual)) throw stateConflict(`任务状态 ${actual} 不允许执行 ${action}`)
+}
+
+function stateConflict(message: string): ArchiveError {
+  return new ArchiveError('STATE_CONFLICT', message, { recoverable: true })
 }
 
 async function findActiveImport(providerKey: string, externalId: string) {

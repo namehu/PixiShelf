@@ -27,8 +27,13 @@ export type ScanStreamSchema = z.infer<typeof ScanStreamSchema>
 /**
  * 请求体：重新扫描指定作品
  */
-export const ScanRescanSchema = z.object({
-  externalId: z.string()
-})
+export const ScanRescanSchema = z
+  .object({
+    artworkId: z.number().int().positive().optional(),
+    externalId: z.string().min(1).optional()
+  })
+  .refine((value) => value.artworkId !== undefined || value.externalId !== undefined, {
+    message: 'artworkId or externalId is required'
+  })
 
 export type ScanRescanSchema = z.infer<typeof ScanRescanSchema>

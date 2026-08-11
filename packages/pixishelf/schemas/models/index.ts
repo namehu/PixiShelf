@@ -58,6 +58,7 @@ export const ArtworkModel = z.object({
   imageCount: z.number().int().default(0), // [cite: 8]
   bookmarkCount: z.number().int().nullable(),
   externalId: z.string().nullable(), // [cite: 9]
+  storageKey: z.string().nullable().default(null),
   isAiGenerated: z.boolean().nullable(),
   originalUrl: z.string().nullable(), // [cite: 10]
   size: z.string().nullable(),

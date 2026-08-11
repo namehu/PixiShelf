@@ -39,6 +39,7 @@ interface DiscoveredDirectory {
 interface ArtworkForPendingReplace {
   id: number
   externalId: string | null
+  storageKey: string | null
   title: string
   storagePath: string | null
   artist: { name: string; userId: string | null } | null
@@ -72,10 +73,13 @@ export async function previewPendingReplacements(scanPath: string) {
     new Set(directories.flatMap((entry) => (entry.parsed?.externalId ? [entry.parsed.externalId] : [])))
   )
   const artworks = (await prisma.artwork.findMany({
-    where: { externalId: { in: requestedExternalIds } },
+    where: {
+      OR: [{ externalId: { in: requestedExternalIds } }, { storageKey: { in: requestedExternalIds } }]
+    },
     select: {
       id: true,
       externalId: true,
+      storageKey: true,
       title: true,
       storagePath: true,
       artist: { select: { name: true, userId: true } },
@@ -94,7 +98,10 @@ export async function previewPendingReplacements(scanPath: string) {
     }
   })) as ArtworkForPendingReplace[]
   const artworkByExternalId = new Map(
-    artworks.flatMap((artwork) => (artwork.externalId ? [[artwork.externalId, artwork] as const] : []))
+    artworks.flatMap((artwork) => {
+      const identity = artwork.storageKey ?? artwork.externalId
+      return identity ? [[identity, artwork] as const] : []
+    })
   )
   const externalIdCounts = new Map<string, number>()
   for (const directory of directories) {
@@ -203,6 +210,7 @@ export async function preparePendingReplaceBinding(input: {
     select: {
       id: true,
       externalId: true,
+      storageKey: true,
       title: true,
       storagePath: true,
       artist: { select: { name: true, userId: true } },
@@ -221,7 +229,7 @@ export async function preparePendingReplaceBinding(input: {
     }
   })) as ArtworkForPendingReplace | null
   if (!artwork) throw new Error('未找到待绑定作品')
-  const externalId = pendingReplaceExternalIdSchema.parse(artwork.externalId)
+  const externalId = pendingReplaceExternalIdSchema.parse(artwork.storageKey ?? artwork.externalId)
   const targetDirectory = determineArtworkRelDir(artwork)
   if (!targetDirectory) throw new Error('无法确定作品目标目录')
 

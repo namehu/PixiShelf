@@ -11,7 +11,7 @@ const { findManyMock, loggerWarnMock, extractArtworkIdFromFilenameMock } = vi.ho
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    artwork: {
+    artworkExternalRef: {
       findMany: findManyMock
     }
   }

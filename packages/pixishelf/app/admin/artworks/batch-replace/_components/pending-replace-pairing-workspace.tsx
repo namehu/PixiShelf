@@ -33,6 +33,7 @@ import type { BatchItemView, BatchView } from './batch-replace-types'
 interface CandidateArtwork {
   id: number
   externalId?: string | null
+  storageKey?: string | null
   title: string
   imageCount: number
   artist?: { name?: string | null } | null
@@ -328,6 +329,7 @@ export function PendingReplacePairingWorkspace({
           ) : (
             <div className="divide-y xl:max-h-[560px] xl:overflow-y-auto xl:overscroll-contain">
               {candidates.map((artwork) => {
+                const storageIdentity = artwork.storageKey ?? artwork.externalId
                 const boundElsewhere = artworkIdsBoundElsewhere.has(artwork.id)
                 const currentBinding = activeItem?.artworkId === artwork.id
                 const bindingThisArtwork = bindMutation.isPending && bindMutation.variables?.artworkId === artwork.id
@@ -349,7 +351,7 @@ export function PendingReplacePairingWorkspace({
                           {boundElsewhere && <Badge variant="outline">已被其他目录占用</Badge>}
                         </div>
                         <p className="mt-1 truncate text-xs text-muted-foreground">
-                          {artwork.artist?.name || '未知作者'} · {artwork.externalId || '无 externalId'} ·{' '}
+                          {artwork.artist?.name || '未知作者'} · {storageIdentity || '无存储标识'} ·{' '}
                           {artwork.imageCount} 项
                         </p>
                         <div className="mt-2">
@@ -362,7 +364,7 @@ export function PendingReplacePairingWorkspace({
                         disabled={
                           disabled ||
                           !activeItem ||
-                          !artwork.externalId ||
+                          !storageIdentity ||
                           boundElsewhere ||
                           currentBinding ||
                           bindMutation.isPending ||

@@ -158,7 +158,8 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
 
       const { targetDir, targetRelDir } = await trpcClient.artwork.getUploadPath.query(artworkId)
       const ext = file.name.split('.').pop() || ''
-      const fileName = `${artwork.externalId}_p${order}.${ext}`
+      const storageIdentity = artwork.storageKey ?? artwork.externalId ?? `artwork-${artworkId}`
+      const fileName = `${storageIdentity}_p${order}.${ext}`
 
       const meta = await uploadSingleFile(file, fileName, targetDir, targetRelDir, (progress) => {
         setAddProgress(progress)

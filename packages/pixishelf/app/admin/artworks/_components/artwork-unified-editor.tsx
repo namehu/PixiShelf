@@ -210,8 +210,9 @@ function getArtworkDirectory(artwork: ArtworkResponseDto | null): string {
     }
   }
 
-  if (artwork?.artist?.userId && artwork.externalId) {
-    return `/${artwork.artist.userId}/${artwork.externalId}`
+  const storageIdentity = artwork?.storageKey ?? artwork?.externalId
+  if (artwork?.artist?.userId && storageIdentity) {
+    return `/${artwork.artist.userId}/${storageIdentity}`
   }
 
   return ''

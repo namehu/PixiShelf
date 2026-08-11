@@ -158,7 +158,7 @@ Preview does not create an Artwork or start media downloads.
 5. Each media response must pass status, MIME, configured response-size, decode, dimensions, expected length when supplied, and SHA-256 validation.
 6. Original quality is preferred. If it is unavailable or would require an unsupported account action, the task pauses for an explicit switch to display quality; there is no silent downgrade.
 7. After every required item succeeds, the worker writes and verifies the manifest.
-8. The worker acquires the existing media-root write lock only for final publication, atomically renames the directory, and commits catalog rows and the current revision.
+8. The worker fences the lease, atomically renames staging to an immutable import-specific revision directory, then commits catalog rows and the current revision in a second fenced transaction. The deterministic prepared directory makes either crash boundary idempotently resumable.
 
 An Artwork is visible only after step 8.
 
@@ -166,6 +166,7 @@ An Artwork is visible only after step 8.
 
 - `PAUSED` retains staging until the user resumes or deletes it.
 - `FAILED` and `CANCELLED` retain staging for seven days, allowing retry or explicit cleanup.
+- Explicit and seven-day-expiry staging cleanup use the same durable path: a fenced transaction records `cleanupRequestedAt`, queue claiming is blocked while that intent exists, and the read-write worker idempotently removes staging and any unpublished prepared revision before resetting item checkpoints and clearing retention state.
 - Worker restart recovery reclaims stale running jobs from durable checkpoints.
 - `ENOSPC` is a classified recoverable failure; the design intentionally performs no disk-space preflight.
 - Re-submitting a running identity returns the active task. Re-submitting a published identity opens repair or update preview.
@@ -184,14 +185,14 @@ The first release supports public `e-hentai.org/g/{gid}/{token}` gallery URLs an
 
 The provider maps one gallery to one Artwork with ordered media. Japanese title is the default display title when available; English or romanized titles remain searchable aliases. Uploader is preserved as source metadata and never mapped to Artist. `artist:*` and `group:*` remain namespaced tags.
 
-Storage uses a creator bucket selected once at initial import:
+Storage uses a creator bucket selected for each immutable revision:
 
 1. exactly one `artist` tag: `artist--{safeName}`;
 2. otherwise exactly one `group` tag: `group--{safeName}`;
 3. multiple creators: `_multiple`;
 4. no creator: `_unknown`.
 
-The bucket is not remote identity and is not automatically renamed after metadata changes.
+The bucket is not remote identity. If source metadata changes it, the next revision is written to the new bucket while older immutable revisions remain at their original paths.
 
 ## Storage and manifest
 
@@ -200,15 +201,15 @@ sources/
   e-hentai/
     artist--creator/
       1234567/
-        manifest.json
-        media/
-          0001-original-name.jpg
-          0002-original-name.png
         revisions/
           revision-id/
+            manifest.json
+            media/
+              0001-original-name.jpg
+              0002-original-name.png
 ```
 
-Staging resides on the same writable filesystem as the final directory so publication can use atomic rename. The Web container retains a read-only media mount; only the archive worker receives a read-write mount.
+Staging resides on the same writable filesystem as the revision directory. Publication atomically renames staging into an import-specific immutable revision path, then a fenced database transaction switches the catalog's current revision. A crash before the database commit leaves a deterministic prepared directory that the same import can resume; it never overwrites the current revision. The Web container retains a read-only media mount; only the archive worker receives a read-write mount.
 
 The manifest is self-contained and versioned. It includes provider identity and locator, canonical URL, titles and aliases, normalized metadata, category, uploader, namespaced tags, replacement relationships, revision identity, ordered media paths, original filenames, dimensions, sizes, hashes, source-page locators, and creation timestamps.
 
@@ -216,7 +217,9 @@ Local directory import detects a supported manifest and reconstructs source refe
 
 ## Deletion and trash
 
-Deleting a published URL archive soft-deletes the Artwork and moves its archive directory to `.trash/archive/...` on the same filesystem. The trash entry is retained for seven days and is restorable during that window. Permanent cleanup is a worker operation and never follows an unresolved or user-controlled path.
+Deleting a published URL archive makes the read-only Web process commit a durable `TRASHING` intent and hide the Artwork. The read-write worker then moves every immutable revision (including revisions stored under older creator buckets) to `.trash/archive/<artwork-id>/<revision-id>` on the same filesystem. Restore similarly commits `RESTORING`; the worker moves every revision back and only then makes the Artwork visible. Both moves are idempotent; an independent wall-clock reconciler runs on worker startup and every 30 seconds even while another gallery is downloading, so a process crash cannot leave a visible Artwork whose media has disappeared. A trashed identity cannot be refreshed by a new URL import until it has been explicitly restored.
+
+Trash is retained for seven days. Permanent cleanup only handles fully `TRASHED` Artworks and is a worker operation that never follows an unresolved or user-controlled path.
 
 ## Security
 

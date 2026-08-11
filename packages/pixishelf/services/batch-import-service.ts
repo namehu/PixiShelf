@@ -196,9 +196,11 @@ export async function batchRegisterImagesService(data: BatchRegisterImageSchema)
 async function updateBatchImportAuditMedia(scanRunId: string, items: BatchRegisterImageSchema['items']) {
   const artworks = await prisma.artwork.findMany({
     where: { id: { in: items.map((item) => item.artworkId) } },
-    select: { id: true, externalId: true }
+    select: { id: true, storageKey: true, externalId: true }
   })
-  const externalIdByArtworkId = new Map(artworks.map((artwork) => [artwork.id, artwork.externalId]))
+  const externalIdByArtworkId = new Map(
+    artworks.map((artwork) => [artwork.id, artwork.storageKey ?? artwork.externalId])
+  )
 
   for (const item of items) {
     const externalId = externalIdByArtworkId.get(item.artworkId)
@@ -219,7 +221,7 @@ async function recordBatchRegisterFailure(
 ) {
   const artworks = await prisma.artwork.findMany({
     where: { id: { in: items.map((item) => item.artworkId) } },
-    select: { id: true, externalId: true, title: true, storagePath: true }
+    select: { id: true, storageKey: true, externalId: true, title: true, storagePath: true }
   })
 
   const artworkById = new Map(artworks.map((artwork) => [artwork.id, artwork]))
@@ -228,7 +230,7 @@ async function recordBatchRegisterFailure(
       const artwork = artworkById.get(item.artworkId)
       return {
         scanRunId,
-        externalId: artwork?.externalId ?? String(item.artworkId),
+        externalId: artwork?.storageKey ?? artwork?.externalId ?? String(item.artworkId),
         title: artwork?.title ?? null,
         relativeDirectory: artwork?.storagePath ?? null,
         status: 'FAILED',

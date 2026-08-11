@@ -89,6 +89,20 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
 
       // 批量创建作品
       if (artworksToCreate.length > 0) {
+        const requestedExternalIds = artworksToCreate
+          .map((artwork) => artwork.externalId)
+          .filter((externalId): externalId is string => typeof externalId === 'string')
+        const ambiguousLegacyRows = await tx.artwork.findMany({
+          where: {
+            externalId: { in: requestedExternalIds },
+            externalRefs: { none: { providerKey: 'pixiv' } }
+          },
+          select: { id: true, externalId: true, createdVia: true }
+        })
+        if (ambiguousLegacyRows.length > 0) {
+          const conflicts = ambiguousLegacyRows.map((row) => `${row.externalId}(Artwork ${row.id}, ${row.createdVia})`).join(', ')
+          throw new Error(`Pixiv 来源身份冲突，未自动认领历史作品: ${conflicts}`)
+        }
         // 使用 createMany 而不是 createManyAndReturn 来提高性能
         await tx.artwork.createMany({
           data: artworksToCreate,
@@ -486,11 +500,10 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
           where: { providerKey_externalId: { providerKey: 'pixiv', externalId: metadata.id } },
           include: { artwork: true }
         })
-        const existingArtwork =
-          sourceRef?.artwork ?? (await tx.artwork.findUnique({ where: { externalId: metadata.id } }))
+        const existingArtwork = sourceRef?.artwork
 
         if (!existingArtwork) {
-          throw new Error(`Artwork with externalId ${metadata.id} not found in database`)
+          throw new Error(`Pixiv Source Reference ${metadata.id} not found; refusing to claim a legacy global externalId`)
         }
 
         logger.debug('update artwork:', existingArtwork, {

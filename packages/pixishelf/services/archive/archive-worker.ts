@@ -1,47 +1,88 @@
 import { setTimeout as delay } from 'node:timers/promises'
+import { rename, rm } from 'node:fs/promises'
 import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
 import { ArchiveError, toArchiveError } from './errors'
 import { archiveModule, ARCHIVE_IMPORT_JOB_TYPE, FAILED_STAGING_RETENTION_MS } from './archive-module'
-import { publishArchiveImport, purgeExpiredArchiveTrash } from './publisher'
+import {
+  ARCHIVE_PUBLISH_ADVISORY_LOCK_ID,
+  publishArchiveImport,
+  purgeExpiredArchiveTrash,
+  reconcilePendingArchiveCleanups,
+  reconcilePendingArchiveLifecycles,
+  requestExpiredArchiveCleanups
+} from './publisher'
 import {
   prepareStagingDirectory,
-  removeArchivePath,
+  buildArchiveStoragePaths,
+  pathExists,
   storeRemoteMedia,
   validateStoredMedia,
   writeManifest
 } from './storage'
 import type { ResolvedMedia } from './types'
 import { requireArchiveStorageRoot } from './config'
+import type { ArchiveTransactionClient } from './relationships'
+import { selectPrimaryWorkerError } from './worker-control'
 
 const ARCHIVE_QUEUE_ADVISORY_LOCK_ID = 7_341_902_118
 const HEARTBEAT_INTERVAL_MS = 30_000
 const CONTROL_POLL_INTERVAL_MS = 2_000
 const STALE_JOB_THRESHOLD_MS = 10 * 60 * 1000
+const STALE_RECOVERY_INTERVAL_MS = 30_000
+const LIFECYCLE_RECONCILE_INTERVAL_MS = 30_000
 const MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000
 const MEDIA_CONCURRENCY = 2
 const MAX_MEDIA_ATTEMPTS = 3
 
 let lastMaintenanceAt = 0
+let lastStaleRecoveryAt = 0
 
 export async function runArchiveWorkerLoop(options: { signal?: AbortSignal; pollIntervalMs?: number } = {}) {
   const pollIntervalMs = options.pollIntervalMs ?? 5_000
   await recoverStaleArchiveImports()
-  while (!options.signal?.aborted) {
-    const processed = await processNextArchiveImport()
-    if (!processed) await delay(pollIntervalMs, undefined, { signal: options.signal }).catch(() => undefined)
+  lastStaleRecoveryAt = Date.now()
+  const scanRoot = await requireArchiveStorageRoot()
+  await reconcileArchiveMaintenance(scanRoot)
+  let activeReconciliation: Promise<void> | null = null
+  const triggerReconciliation = () => {
+    if (activeReconciliation) return
+    activeReconciliation = reconcileArchiveMaintenance(scanRoot)
+      .catch((error) => {
+        logger.error('Archive lifecycle reconciliation failed', { error })
+      })
+      .finally(() => {
+        activeReconciliation = null
+      })
+  }
+  const reconciliationTimer = setInterval(triggerReconciliation, LIFECYCLE_RECONCILE_INTERVAL_MS)
+  reconciliationTimer.unref()
+  try {
+    while (!options.signal?.aborted) {
+      const processed = await processNextArchiveImport(options.signal)
+      if (!processed) await delay(pollIntervalMs, undefined, { signal: options.signal }).catch(() => undefined)
+    }
+  } finally {
+    clearInterval(reconciliationTimer)
+    await activeReconciliation
   }
 }
 
-export async function processNextArchiveImport(): Promise<boolean> {
+export async function processNextArchiveImport(signal?: AbortSignal): Promise<boolean> {
+  await maybeRecoverStaleArchiveImports()
   await maintainArchiveQueue()
+  if (signal?.aborted) return false
   const claimed = await claimNextArchiveImport()
   if (!claimed) return false
-  await processClaimedArchiveImport(claimed.id, claimed.systemJob.attempt)
+  await processClaimedArchiveImport(claimed.id, claimed.systemJob.attempt, signal)
   return true
 }
 
-export async function processClaimedArchiveImport(importId: string, leaseAttempt: number): Promise<void> {
+export async function processClaimedArchiveImport(
+  importId: string,
+  leaseAttempt: number,
+  shutdownSignal?: AbortSignal
+): Promise<void> {
   const archiveImport = await prisma.archiveImport.findUnique({
     where: { id: importId },
     include: { items: { orderBy: { pageIndex: 'asc' } }, systemJob: true }
@@ -50,13 +91,32 @@ export async function processClaimedArchiveImport(importId: string, leaseAttempt
     throw new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效')
   }
   const scanRoot = await requireArchiveStorageRoot()
-  const stagingDirectory = await prepareStagingDirectory(scanRoot, archiveImport.stagingPath)
+  const storagePaths = buildArchiveStoragePaths({
+    scanRoot,
+    importId,
+    providerKey: archiveImport.providerKey,
+    creatorBucket: archiveImport.creatorBucket,
+    externalId: archiveImport.externalId
+  })
+  const stagingDirectory = (await pathExists(storagePaths.finalAbsolutePath))
+    ? storagePaths.finalAbsolutePath
+    : await prepareStagingDirectory(scanRoot, archiveImport.stagingPath)
   const provider = archiveModule.getProvider(archiveImport.providerKey)
   const controller = new AbortController()
+  let rootError: ArchiveError | null = null
+  const abortWith = (error: unknown) => {
+    rootError ??= toArchiveError(error)
+    if (!controller.signal.aborted) controller.abort(rootError)
+  }
+  const onShutdown = () => {
+    abortWith(new ArchiveError('WORKER_STOPPED', '归档 Worker 正在停止，任务将自动续传', { recoverable: true }))
+  }
+  if (shutdownSignal?.aborted) onShutdown()
+  else shutdownSignal?.addEventListener('abort', onShutdown, { once: true })
   const heartbeat = setInterval(() => {
     void touchLease(archiveImport.systemJobId, leaseAttempt).catch((error) => {
       logger.warn('Archive worker heartbeat failed', { error, importId })
-      controller.abort()
+      abortWith(error)
     })
   }, HEARTBEAT_INTERVAL_MS)
   heartbeat.unref()
@@ -64,9 +124,15 @@ export async function processClaimedArchiveImport(importId: string, leaseAttempt
     void prisma.systemJob
       .findUnique({ where: { id: archiveImport.systemJobId }, select: { status: true, attempt: true } })
       .then((job) => {
-        if (!job || job.attempt !== leaseAttempt || ['CANCELLING', 'PAUSED'].includes(job.status)) controller.abort()
+        if (!job || job.attempt !== leaseAttempt) {
+          abortWith(new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效'))
+        } else if (job.status === 'CANCELLING') {
+          abortWith(new ArchiveError('CANCELLED', '任务正在取消', { recoverable: true }))
+        } else if (job.status === 'PAUSED') {
+          abortWith(new ArchiveError('PAUSED', '任务已暂停', { recoverable: true, pause: true }))
+        }
       })
-      .catch(() => controller.abort())
+      .catch((error) => abortWith(error))
   }, CONTROL_POLL_INTERVAL_MS)
   controlPoll.unref()
 
@@ -93,13 +159,14 @@ export async function processClaimedArchiveImport(importId: string, leaseAttempt
           })
         }
       } catch (error) {
-        controller.abort()
+        abortWith(error)
         throw error
       }
     })
     const workerResults = await Promise.allSettled(workers)
-    const rejectedWorker = workerResults.find((result): result is PromiseRejectedResult => result.status === 'rejected')
-    if (rejectedWorker) throw rejectedWorker.reason
+    const rejectedWorkers = workerResults.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    const primaryWorkerError = selectPrimaryWorkerError(rootError, rejectedWorkers.map((result) => result.reason))
+    if (primaryWorkerError) throw primaryWorkerError
     await assertRunningLease(archiveImport.systemJobId, leaseAttempt)
 
     const completed = await prisma.archiveImportItem.findMany({
@@ -110,6 +177,7 @@ export async function processClaimedArchiveImport(importId: string, leaseAttempt
       throw new ArchiveError('MEDIA_INVALID', '归档媒体检查点不完整', { recoverable: true })
     }
     await validateStoredMedia(stagingDirectory, completed)
+    throwIfWorkerAborted(controller.signal, rootError)
     await writeManifest(stagingDirectory, {
       manifestVersion: 1,
       revisionId: importId,
@@ -143,13 +211,24 @@ export async function processClaimedArchiveImport(importId: string, leaseAttempt
       })),
       createdAt: new Date().toISOString()
     })
-    await publishArchiveImport(importId, scanRoot)
+    throwIfWorkerAborted(controller.signal, rootError)
+    await publishArchiveImport(importId, scanRoot, leaseAttempt)
   } catch (error) {
-    controller.abort()
-    await finalizeFailure(importId, archiveImport.systemJobId, leaseAttempt, error)
+    abortWith(error)
+    try {
+      await finalizeFailure(importId, archiveImport.systemJobId, leaseAttempt, rootError ?? error)
+    } catch (finalizeError) {
+      const classified = toArchiveError(finalizeError)
+      if (!['LEASE_LOST', 'STATE_CONFLICT'].includes(classified.code)) throw finalizeError
+      logger.info('Archive failure finalization skipped because task ownership changed', {
+        importId,
+        code: classified.code
+      })
+    }
   } finally {
     clearInterval(heartbeat)
     clearInterval(controlPoll)
+    shutdownSignal?.removeEventListener('abort', onShutdown)
   }
 }
 
@@ -174,16 +253,18 @@ async function downloadItemWithRetry(input: {
   let attempt = input.item.attempts
   while (attempt < MAX_MEDIA_ATTEMPTS) {
     attempt += 1
-    await prisma.archiveImportItem.update({
-      where: { id: input.item.id },
-      data: {
-        status: 'DOWNLOADING',
-        attempts: { increment: 1 },
-        startedAt: new Date(),
-        finishedAt: null,
-        errorCode: null,
-        errorMessage: null
-      }
+    await withRunningLeaseTransaction(input.jobId, input.importId, input.leaseAttempt, async (tx) => {
+      await tx.archiveImportItem.update({
+        where: { id: input.item.id },
+        data: {
+          status: 'DOWNLOADING',
+          attempts: { increment: 1 },
+          startedAt: new Date(),
+          finishedAt: null,
+          errorCode: null,
+          errorMessage: null
+        }
+      })
     })
     try {
       const remote = await input.provider.openMedia(
@@ -200,10 +281,21 @@ async function downloadItemWithRetry(input: {
         stagingDirectory: input.stagingDirectory,
         index: input.item.pageIndex,
         expectedFilename: input.item.expectedFilename,
-        signal: input.signal
+        signal: input.signal,
+        partialKey: `lease-${input.leaseAttempt}`,
+        commitFile: async ({ partial, target }) => {
+          await withRunningLeaseTransaction(input.jobId, input.importId, input.leaseAttempt, async () => {
+            await rm(target, { force: true })
+            await rename(partial, target)
+          })
+        }
       })
-      const [, task] = await prisma.$transaction([
-        prisma.archiveImportItem.update({
+      const task = await withRunningLeaseTransaction(
+        input.jobId,
+        input.importId,
+        input.leaseAttempt,
+        async (tx) => {
+          await tx.archiveImportItem.update({
           where: { id: input.item.id },
           data: {
             status: 'COMPLETED',
@@ -218,26 +310,29 @@ async function downloadItemWithRetry(input: {
             errorMessage: null,
             finishedAt: new Date()
           }
-        }),
-        prisma.archiveImport.update({
-          where: { id: input.importId },
-          data: { completedItems: { increment: 1 } },
-          select: { completedItems: true }
-        })
-      ])
+          })
+          return tx.archiveImport.update({
+            where: { id: input.importId },
+            data: { completedItems: { increment: 1 } },
+            select: { completedItems: true }
+          })
+        }
+      )
       const progress = Math.max(1, Math.min(95, Math.round((task.completedItems / input.totalItems) * 90) + 5))
       await updateLeaseProgress(input.jobId, input.leaseAttempt, progress, `已下载 ${task.completedItems}/${input.totalItems}`)
       return
     } catch (error) {
       const classified = toArchiveError(error)
-      await prisma.archiveImportItem.update({
-        where: { id: input.item.id },
-        data: {
-          status: 'FAILED',
-          errorCode: classified.code,
-          errorMessage: classified.message,
-          finishedAt: new Date()
-        }
+      await withRunningLeaseTransaction(input.jobId, input.importId, input.leaseAttempt, async (tx) => {
+        await tx.archiveImportItem.update({
+          where: { id: input.item.id },
+          data: {
+            status: 'FAILED',
+            errorCode: classified.code,
+            errorMessage: classified.message,
+            finishedAt: new Date()
+          }
+        })
       })
       if (classified.pause || !classified.recoverable || attempt >= MAX_MEDIA_ATTEMPTS || input.signal.aborted) {
         throw classified
@@ -252,20 +347,30 @@ async function downloadItemWithRetry(input: {
 async function claimNextArchiveImport() {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_QUEUE_ADVISORY_LOCK_ID)
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
     const active = await tx.systemJob.findFirst({
       where: { type: ARCHIVE_IMPORT_JOB_TYPE, status: { in: ['RUNNING', 'CANCELLING'] } },
       select: { id: true }
     })
     if (active) return null
     const next = await tx.archiveImport.findFirst({
-      where: { status: 'PENDING', systemJob: { status: 'PENDING', type: ARCHIVE_IMPORT_JOB_TYPE } },
+      where: {
+        status: 'PENDING',
+        cleanupRequestedAt: null,
+        systemJob: { status: 'PENDING', type: ARCHIVE_IMPORT_JOB_TYPE }
+      },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       include: { systemJob: true }
     })
     if (!next) return null
     const now = new Date()
-    const job = await tx.systemJob.update({
-      where: { id: next.systemJobId },
+    const task = await tx.archiveImport.updateMany({
+      where: { id: next.id, status: 'PENDING', cleanupRequestedAt: null },
+      data: { status: 'RUNNING', startedAt: next.startedAt ?? now, finishedAt: null, retainUntil: null }
+    })
+    if (task.count !== 1) return null
+    const jobUpdate = await tx.systemJob.updateMany({
+      where: { id: next.systemJobId, status: 'PENDING', type: ARCHIVE_IMPORT_JOB_TYPE },
       data: {
         status: 'RUNNING',
         progress: Math.max(1, next.systemJob.progress),
@@ -277,10 +382,8 @@ async function claimNextArchiveImport() {
         attempt: { increment: 1 }
       }
     })
-    await tx.archiveImport.update({
-      where: { id: next.id },
-      data: { status: 'RUNNING', startedAt: next.startedAt ?? now, finishedAt: null, retainUntil: null }
-    })
+    if (jobUpdate.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务领取状态已改变', { recoverable: true })
+    const job = await tx.systemJob.findUniqueOrThrow({ where: { id: next.systemJobId } })
     return { ...next, systemJob: job }
   })
 }
@@ -291,14 +394,23 @@ async function finalizeFailure(importId: string, jobId: string, leaseAttempt: nu
   const classified = toArchiveError(error)
   const now = new Date()
   if (current.status === 'CANCELLING' || classified.code === 'CANCELLED') {
-    await setFinalState({ importId, jobId, status: 'CANCELLED', message: '任务已取消', error: classified, now })
+    await setFinalState({ importId, jobId, leaseAttempt, status: 'CANCELLED', message: '任务已取消', error: classified, now })
     return
   }
   if (current.status === 'PAUSED') return
+  if (classified.code === 'WORKER_STOPPED') {
+    await requeueOwnedLease(importId, jobId, leaseAttempt)
+    return
+  }
   if (classified.pause) {
-    await prisma.$transaction([
-      prisma.archiveImport.update({
-        where: { id: importId },
+    await prisma.$transaction(async (tx) => {
+      const job = await tx.systemJob.updateMany({
+        where: { id: jobId, attempt: leaseAttempt, status: 'RUNNING' },
+        data: { status: 'PAUSED', message: classified.message, error: classified.message, heartbeatAt: now }
+      })
+      if (job.count !== 1) throw new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效')
+      const task = await tx.archiveImport.updateMany({
+        where: { id: importId, status: 'RUNNING' },
         data: {
           status: 'PAUSED',
           decisionCode: classified.decisionCode,
@@ -306,29 +418,32 @@ async function finalizeFailure(importId: string, jobId: string, leaseAttempt: nu
           errorMessage: classified.message,
           failedItems: { increment: 1 }
         }
-      }),
-      prisma.systemJob.update({
-        where: { id: jobId },
-        data: { status: 'PAUSED', message: classified.message, error: classified.message, heartbeatAt: now }
       })
-    ])
+      if (task.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变', { recoverable: true })
+    })
     return
   }
-  await setFinalState({ importId, jobId, status: 'FAILED', message: classified.message, error: classified, now })
+  await setFinalState({ importId, jobId, leaseAttempt, status: 'FAILED', message: classified.message, error: classified, now })
 }
 
 async function setFinalState(input: {
   importId: string
   jobId: string
+  leaseAttempt: number
   status: 'FAILED' | 'CANCELLED'
   message: string
   error: ArchiveError
   now: Date
 }) {
-  const { importId, jobId, status, message, error, now } = input
-  await prisma.$transaction([
-    prisma.archiveImport.update({
-      where: { id: importId },
+  const { importId, jobId, leaseAttempt, status, message, error, now } = input
+  await prisma.$transaction(async (tx) => {
+    const job = await tx.systemJob.updateMany({
+      where: { id: jobId, attempt: leaseAttempt, status: { in: ['RUNNING', 'CANCELLING'] } },
+      data: { status, message, error: error.message, finishedAt: now, heartbeatAt: now }
+    })
+    if (job.count !== 1) throw new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效')
+    const task = await tx.archiveImport.updateMany({
+      where: { id: importId, status: { in: ['RUNNING', 'CANCELLING'] } },
       data: {
         status,
         errorCode: error.code,
@@ -337,15 +452,34 @@ async function setFinalState(input: {
         finishedAt: now,
         retainUntil: new Date(now.getTime() + FAILED_STAGING_RETENTION_MS)
       }
-    }),
-    prisma.systemJob.update({
-      where: { id: jobId },
-      data: { status, message, error: error.message, finishedAt: now, heartbeatAt: now }
     })
-  ])
+    if (task.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变', { recoverable: true })
+  })
 }
 
-async function recoverStaleArchiveImports() {
+async function requeueOwnedLease(importId: string, jobId: string, leaseAttempt: number): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const job = await tx.systemJob.updateMany({
+      where: { id: jobId, attempt: leaseAttempt, status: 'RUNNING' },
+      data: { status: 'PENDING', message: 'Worker 已停止，等待续传', heartbeatAt: null }
+    })
+    if (job.count !== 1) return
+    const task = await tx.archiveImport.updateMany({
+      where: { id: importId, status: 'RUNNING' },
+      data: { status: 'PENDING' }
+    })
+    if (task.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变', { recoverable: true })
+    await tx.archiveImportItem.updateMany({
+      where: { archiveImportId: importId, status: { not: 'COMPLETED' } },
+      data: {
+        status: 'PENDING', attempts: 0, startedAt: null, finishedAt: null,
+        errorCode: null, errorMessage: null
+      }
+    })
+  })
+}
+
+export async function recoverStaleArchiveImports() {
   const staleBefore = new Date(Date.now() - STALE_JOB_THRESHOLD_MS)
   await prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_QUEUE_ADVISORY_LOCK_ID)
@@ -374,8 +508,11 @@ async function recoverStaleArchiveImports() {
         })
       } else {
         await tx.archiveImportItem.updateMany({
-          where: { archiveImportId: job.archiveImport.id, status: 'DOWNLOADING' },
-          data: { status: 'PENDING', startedAt: null }
+          where: { archiveImportId: job.archiveImport.id, status: { not: 'COMPLETED' } },
+          data: {
+            status: 'PENDING', attempts: 0, startedAt: null, finishedAt: null,
+            errorCode: null, errorMessage: null
+          }
         })
         await tx.systemJob.update({
           where: { id: job.id },
@@ -393,21 +530,35 @@ async function recoverStaleArchiveImports() {
 async function maintainArchiveQueue() {
   const now = Date.now()
   if (now - lastMaintenanceAt < MAINTENANCE_INTERVAL_MS) return
-  await recoverStaleArchiveImports()
   const scanRoot = await requireArchiveStorageRoot()
-  const expired = await prisma.archiveImport.findMany({
-    where: { status: { in: ['FAILED', 'CANCELLED'] }, retainUntil: { lte: new Date() } },
-    select: { id: true, stagingPath: true }
-  })
-  for (const task of expired) {
-    await removeArchivePath(scanRoot, task.stagingPath).catch((error) => {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    })
-    await prisma.archiveImport.update({ where: { id: task.id }, data: { retainUntil: null } })
-  }
+  await requestExpiredArchiveCleanups()
   await prisma.archivePreviewSession.deleteMany({ where: { expiresAt: { lte: new Date() } } })
   await purgeExpiredArchiveTrash(scanRoot)
   lastMaintenanceAt = now
+}
+
+async function maybeRecoverStaleArchiveImports(): Promise<void> {
+  const now = Date.now()
+  if (now - lastStaleRecoveryAt < STALE_RECOVERY_INTERVAL_MS) return
+  await recoverStaleArchiveImports()
+  lastStaleRecoveryAt = now
+}
+
+async function reconcileArchiveMaintenance(scanRoot: string): Promise<void> {
+  const lifecycleResult = await reconcilePendingArchiveLifecycles(scanRoot)
+  for (const failure of lifecycleResult.failures) {
+    logger.error('Failed to reconcile archive lifecycle', {
+      artworkId: failure.artworkId,
+      error: failure.error
+    })
+  }
+  const cleanupResult = await reconcilePendingArchiveCleanups(scanRoot)
+  for (const failure of cleanupResult.failures) {
+    logger.error('Failed to reconcile archive staging cleanup', {
+      importId: failure.importId,
+      error: failure.error
+    })
+  }
 }
 
 async function assertRunningLease(jobId: string, leaseAttempt: number) {
@@ -434,9 +585,35 @@ async function updateLeaseProgress(jobId: string, leaseAttempt: number, progress
   if (result.count !== 1) throw new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效')
 }
 
+async function withRunningLeaseTransaction<T>(
+  jobId: string,
+  importId: string,
+  leaseAttempt: number,
+  operation: (tx: ArchiveTransactionClient) => Promise<T>
+): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    const lease = await tx.systemJob.updateMany({
+      where: { id: jobId, attempt: leaseAttempt, status: 'RUNNING' },
+      data: { heartbeatAt: new Date() }
+    })
+    if (lease.count !== 1) throw new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效')
+    const task = await tx.archiveImport.findFirst({
+      where: { id: importId, systemJobId: jobId, status: 'RUNNING' },
+      select: { id: true }
+    })
+    if (!task) throw new ArchiveError('STATE_CONFLICT', '归档任务已不再允许运行', { recoverable: true })
+    return operation(tx)
+  })
+}
+
 function backoffWithJitter(attempt: number) {
   const base = Math.min(30_000, 1_000 * 2 ** Math.max(0, attempt - 1))
   return base + Math.floor(Math.random() * Math.max(250, Math.floor(base * 0.25)))
+}
+
+function throwIfWorkerAborted(signal: AbortSignal, rootError: ArchiveError | null): void {
+  if (!signal.aborted) return
+  throw rootError ?? toArchiveError(signal.reason)
 }
 
 function relationshipValues(value: unknown): unknown[] {

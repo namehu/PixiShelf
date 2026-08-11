@@ -128,7 +128,7 @@ describe('deleteArtwork', () => {
 
     await expect(deleteArtwork(1)).resolves.toBe(restored)
 
-    expect(trashPublishedArchiveMock).toHaveBeenCalledWith(1, 'D:/archive-root')
+    expect(trashPublishedArchiveMock).toHaveBeenCalledWith(1)
     expect(imageFindManyMock).not.toHaveBeenCalled()
     expect(unlinkMock).not.toHaveBeenCalled()
     expect(artworkDeleteMock).not.toHaveBeenCalled()

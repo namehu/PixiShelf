@@ -188,6 +188,38 @@ describe('preparePendingReplaceBinding', () => {
     expect(result.oldMediaSnapshot[0]).toMatchObject({ path: '/artist/work/old.jpg' })
     expect(result.targetFileSnapshot[0]).toMatchObject({ name: 'old.jpg', size: 3 })
   })
+
+  it('uses a local storage key when the artwork has no source external id', async () => {
+    const scanPath = await fs.mkdtemp(path.join(os.tmpdir(), 'pixishelf-pending-replace-storage-key-'))
+    temporaryDirectories.push(scanPath)
+    const sourceDirectoryName = 'local-replacement'
+    const sourceDirectory = path.join(scanPath, PENDING_REPLACE_DIRECTORY, sourceDirectoryName)
+    const targetDirectory = path.join(scanPath, 'local-artist', 'local-work')
+    await fs.mkdir(sourceDirectory, { recursive: true })
+    await fs.mkdir(targetDirectory, { recursive: true })
+    await fs.writeFile(path.join(sourceDirectory, 'new.jpg'), 'new')
+    mocks.artworkFindUnique.mockResolvedValue({
+      id: 43,
+      externalId: null,
+      storageKey: 'e_43_20260811',
+      title: 'Local artwork',
+      storagePath: '/local-artist/local-work',
+      artist: { name: 'Local artist', userId: null },
+      images: []
+    })
+
+    const result = await preparePendingReplaceBinding({
+      scanPath,
+      sourceDirectoryName,
+      artworkId: 43
+    })
+
+    expect(result.externalId).toBe('e_43_20260811')
+    expect(result.newMediaSnapshot[0]?.targetName).toBe('e_43_20260811_p0.jpg')
+    expect(mocks.artworkFindUnique).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ storageKey: true })
+    }))
+  })
 })
 
 describe('createManifestFingerprint', () => {

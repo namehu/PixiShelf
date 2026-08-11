@@ -3,19 +3,13 @@ import path from 'node:path'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { ArchiveError } from './errors'
-import { buildArchiveStoragePaths, normalizeRelativePath, pathExists } from './storage'
+import { buildArchiveStoragePaths, normalizeRelativePath, pathExists, removeArchivePath } from './storage'
 import { syncArtworkRelationships, type ArchiveTransactionClient } from './relationships'
 
-const ARCHIVE_PUBLISH_ADVISORY_LOCK_ID = 7_341_902_117
+export const ARCHIVE_PUBLISH_ADVISORY_LOCK_ID = 7_341_902_117
 const TRASH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
-interface FilePublication {
-  rollback(): Promise<void>
-  commit(): Promise<void>
-  previousRevisionRelativePath: string | null
-}
-
-export async function publishArchiveImport(importId: string, scanRoot: string) {
+export async function publishArchiveImport(importId: string, scanRoot: string, leaseAttempt: number) {
   const archiveImport = await prisma.archiveImport.findUnique({
     where: { id: importId },
     include: {
@@ -35,12 +29,18 @@ export async function publishArchiveImport(importId: string, scanRoot: string) {
     creatorBucket: archiveImport.creatorBucket,
     externalId: archiveImport.externalId
   })
-  let filePublication: FilePublication | null = null
+  await prepareRevisionDirectory({
+    importId,
+    jobId: archiveImport.systemJobId,
+    leaseAttempt,
+    stagingAbsolutePath: paths.stagingAbsolutePath,
+    finalAbsolutePath: paths.finalAbsolutePath
+  })
 
-  try {
-    return await prisma.$transaction(
+  const result = await prisma.$transaction(
       async (tx) => {
         await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+        await assertPublishLease(tx, archiveImport.id, archiveImport.systemJobId, leaseAttempt)
         const existingRef = await tx.artworkExternalRef.findUnique({
           where: {
             providerKey_externalId: {
@@ -54,14 +54,12 @@ export async function publishArchiveImport(importId: string, scanRoot: string) {
           }
         })
         const previousRevision = existingRef?.archiveRevisions[0] ?? null
-        filePublication = await publishFiles({
-          scanRoot,
-          stagingAbsolutePath: paths.stagingAbsolutePath,
-          finalAbsolutePath: paths.finalAbsolutePath,
-          finalRelativePath: paths.finalRelativePath,
-          importId,
-          previousRevisionId: previousRevision?.id ?? null
-        })
+        if (
+          existingRef &&
+          (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')
+        ) {
+          throw stateConflict('该作品已在归档回收站中，请先显式恢复后再更新')
+        }
 
         const metadata = archiveImport.normalizedMetadata as Prisma.JsonObject
         const title = stringValue(metadata, ['titles', 'display']) || `Archive ${archiveImport.externalId}`
@@ -78,7 +76,6 @@ export async function publishArchiveImport(importId: string, scanRoot: string) {
                 sourceUrl: archiveImport.canonicalUrl,
                 originalUrl: archiveImport.canonicalUrl,
                 storagePath: paths.finalRelativePath,
-                deletedAt: null,
                 createdVia: 'URL_ARCHIVE',
                 source: 'URL_ARCHIVE'
               }
@@ -167,13 +164,7 @@ export async function publishArchiveImport(importId: string, scanRoot: string) {
         if (previousRevision) {
           await tx.archiveRevision.update({
             where: { id: previousRevision.id },
-            data: {
-              isCurrent: false,
-              archivePath: filePublication.previousRevisionRelativePath!,
-              manifestPath: normalizeRelativePath(
-                path.join(filePublication.previousRevisionRelativePath!, 'manifest.json')
-              )
-            }
+            data: { isCurrent: false }
           })
         }
         const mediaSnapshot = archiveImport.items.map((item) => ({
@@ -198,8 +189,8 @@ export async function publishArchiveImport(importId: string, scanRoot: string) {
             isCurrent: true
           }
         })
-        await tx.archiveImport.update({
-          where: { id: archiveImport.id },
+        const importResult = await tx.archiveImport.updateMany({
+          where: { id: archiveImport.id, status: 'RUNNING' },
           data: {
             status: 'COMPLETED',
             externalRefId: externalRef.id,
@@ -213,8 +204,9 @@ export async function publishArchiveImport(importId: string, scanRoot: string) {
             decisionCode: null
           }
         })
-        await tx.systemJob.update({
-          where: { id: archiveImport.systemJobId },
+        if (importResult.count !== 1) throw stateConflict('归档任务已不再允许发布')
+        const jobResult = await tx.systemJob.updateMany({
+          where: { id: archiveImport.systemJobId, attempt: leaseAttempt, status: 'RUNNING' },
           data: {
             status: 'COMPLETED',
             progress: 100,
@@ -225,94 +217,393 @@ export async function publishArchiveImport(importId: string, scanRoot: string) {
             heartbeatAt: new Date()
           }
         })
+        if (jobResult.count !== 1) throw new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效')
         return { artworkId: artwork.id, revisionId: revision.id, archivePath: paths.finalRelativePath }
       },
       { maxWait: 10_000, timeout: 120_000 }
     )
-  } catch (error) {
-    await (filePublication as FilePublication | null)?.rollback().catch(() => undefined)
-    throw error
-  } finally {
-    await (filePublication as FilePublication | null)?.commit().catch(() => undefined)
+  // A crash before this cleanup is harmless: publication is already committed
+  // and the deterministic staging directory is internal and collectible.
+  if (paths.stagingAbsolutePath !== paths.finalAbsolutePath) {
+    await rm(paths.stagingAbsolutePath, { recursive: true, force: true })
   }
+  return result
 }
 
-export async function trashPublishedArchive(artworkId: number, scanRoot: string) {
-  const artwork = await prisma.artwork.findUnique({
-    where: { id: artworkId },
-    include: { archiveRevisions: { where: { isCurrent: true }, take: 1 } }
-  })
-  if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') {
-    throw new ArchiveError('INTERNAL', '只能通过归档任务删除 URL 归档作品')
-  }
-  if (artwork.deletedAt) return { artworkId, deletedAt: artwork.deletedAt }
-  const revision = artwork.archiveRevisions[0]
-  if (!revision) throw new ArchiveError('INTERNAL', '作品缺少当前归档版本')
-  const source = path.resolve(scanRoot, revision.archivePath)
-  const trashRelativePath = normalizeRelativePath(
-    path.join('.trash', 'archive', `${artworkId}-${Date.now()}-${path.basename(revision.archivePath)}`)
-  )
-  const trash = path.resolve(scanRoot, trashRelativePath)
-  await mkdir(path.dirname(trash), { recursive: true })
-  await rename(source, trash)
-  try {
+export async function trashPublishedArchive(artworkId: number) {
+  const intent = await prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+    const artwork = await tx.artwork.findUnique({
+      where: { id: artworkId },
+      include: { archiveRevisions: { include: { externalRef: true } } }
+    })
+    if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') {
+      throw new ArchiveError('INTERNAL', '只能通过归档任务删除 URL 归档作品')
+    }
+    if (artwork.archiveLifecycleState === 'RESTORING') {
+      throw stateConflict('作品正在恢复，请稍后再删除')
+    }
+    if (artwork.archiveLifecycleState === 'TRASHED') {
+      if (!artwork.deletedAt) throw stateConflict('作品回收站状态不一致')
+      return { artworkId, deletedAt: artwork.deletedAt }
+    }
+    if (artwork.archiveLifecycleState === 'TRASHING') {
+      if (!artwork.deletedAt) throw stateConflict('作品回收站状态不一致')
+      return { artworkId, deletedAt: artwork.deletedAt }
+    }
+    if (artwork.deletedAt) throw stateConflict('作品删除状态不一致')
+    if (artwork.archiveRevisions.length === 0) throw new ArchiveError('INTERNAL', '作品缺少归档版本')
+    for (const identity of uniqueRevisionIdentities(artwork.archiveRevisions)) {
+      await assertNoActiveIdentityImport(tx, identity.providerKey, identity.externalId)
+    }
     const deletedAt = new Date()
-    await prisma.$transaction([
-      prisma.artwork.update({ where: { id: artworkId }, data: { deletedAt } }),
-      prisma.archiveRevision.update({
+    for (const revision of artwork.archiveRevisions) {
+      await tx.archiveRevision.update({
         where: { id: revision.id },
-        data: { trashPath: trashRelativePath, trashedAt: deletedAt, purgeAfter: new Date(deletedAt.getTime() + TRASH_RETENTION_MS) }
+        data: {
+          trashPath: revision.trashPath ?? buildRevisionTrashPath(artworkId, revision.id),
+          trashedAt: deletedAt,
+          purgeAfter: new Date(deletedAt.getTime() + TRASH_RETENTION_MS)
+        }
       })
-    ])
+    }
+    const changed = await tx.artwork.updateMany({
+      where: { id: artworkId, archiveLifecycleState: 'ACTIVE', deletedAt: null },
+      data: {
+        deletedAt,
+        archiveLifecycleState: 'TRASHING'
+      }
+    })
+    if (changed.count !== 1) throw stateConflict('作品状态已改变，未能开始删除')
     return { artworkId, deletedAt }
-  } catch (error) {
-    await rename(trash, source).catch(() => undefined)
-    throw error
-  }
+  }, { maxWait: 10_000, timeout: 30_000 })
+  return intent
 }
 
-export async function restorePublishedArchive(artworkId: number, scanRoot: string) {
-  const artwork = await prisma.artwork.findUnique({
-    where: { id: artworkId },
-    include: { archiveRevisions: { where: { isCurrent: true }, take: 1 } }
+export async function restorePublishedArchive(artworkId: number) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+    const artwork = await tx.artwork.findUnique({
+      where: { id: artworkId },
+      include: { archiveRevisions: { include: { externalRef: true } } }
+    })
+    if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') {
+      throw new ArchiveError('INTERNAL', '只能恢复 URL 归档作品')
+    }
+    if (artwork.archiveLifecycleState === 'ACTIVE') {
+      throw new ArchiveError('INTERNAL', '作品不在归档回收站中')
+    }
+    if (artwork.archiveLifecycleState === 'TRASHING') {
+      throw stateConflict('作品仍在移入回收站，请稍后再恢复')
+    }
+    if (!artwork.deletedAt || artwork.archiveRevisions.some((revision) => !revision.trashPath)) {
+      throw stateConflict('作品回收站状态不完整，暂时不能恢复')
+    }
+    if (artwork.archiveLifecycleState === 'RESTORING') return
+    for (const identity of uniqueRevisionIdentities(artwork.archiveRevisions)) {
+      await assertNoActiveIdentityImport(tx, identity.providerKey, identity.externalId)
+    }
+    const changed = await tx.artwork.updateMany({
+      where: { id: artworkId, archiveLifecycleState: 'TRASHED', deletedAt: { not: null } },
+      data: { archiveLifecycleState: 'RESTORING' }
+    })
+    if (changed.count !== 1) throw stateConflict('作品状态已改变，未能开始恢复')
+  }, { maxWait: 10_000, timeout: 30_000 })
+  return { artworkId }
+}
+
+export async function reconcilePendingArchiveLifecycles(scanRoot: string): Promise<{
+  reconciled: number
+  failures: Array<{ artworkId: number; error: unknown }>
+}> {
+  const pending = await prisma.artwork.findMany({
+    where: { archiveLifecycleState: { in: ['TRASHING', 'RESTORING'] } },
+    select: { id: true }
   })
-  const revision = artwork?.archiveRevisions[0]
-  if (!artwork?.deletedAt || !revision?.trashPath) throw new ArchiveError('INTERNAL', '作品不在归档回收站中')
-  const source = path.resolve(scanRoot, revision.trashPath)
-  const target = path.resolve(scanRoot, revision.archivePath)
-  if (await pathExists(target)) throw new ArchiveError('INTERNAL', '归档原路径已被占用，无法恢复')
-  await mkdir(path.dirname(target), { recursive: true })
-  await rename(source, target)
-  try {
-    await prisma.$transaction([
-      prisma.artwork.update({ where: { id: artwork.id }, data: { deletedAt: null } }),
-      prisma.archiveRevision.update({
-        where: { id: revision.id },
-        data: { trashPath: null, trashedAt: null, purgeAfter: null }
-      })
-    ])
-    return { artworkId: artwork.id }
-  } catch (error) {
-    await rename(target, source).catch(() => undefined)
-    throw error
+  let reconciled = 0
+  const failures: Array<{ artworkId: number; error: unknown }> = []
+  for (const artwork of pending) {
+    try {
+      await reconcileArchiveLifecycle(artwork.id, scanRoot)
+      reconciled += 1
+    } catch (error) {
+      failures.push({ artworkId: artwork.id, error })
+    }
   }
+  return { reconciled, failures }
+}
+
+export async function reconcilePendingArchiveCleanups(scanRoot: string): Promise<{
+  reconciled: number
+  failures: Array<{ importId: string; error: unknown }>
+}> {
+  const pending = await prisma.archiveImport.findMany({
+    where: {
+      cleanupRequestedAt: { not: null },
+      status: { in: ['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'] }
+    },
+    select: { id: true }
+  })
+  let reconciled = 0
+  const failures: Array<{ importId: string; error: unknown }> = []
+  for (const candidate of pending) {
+    try {
+      const didReconcile = await prisma.$transaction(async (tx) => {
+        await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+        const archiveImport = await tx.archiveImport.findFirst({
+          where: {
+            id: candidate.id,
+            cleanupRequestedAt: { not: null },
+            status: { in: ['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'] }
+          },
+          include: { systemJob: true }
+        })
+        if (!archiveImport) return false
+        const preparedPath = buildArchiveStoragePaths({
+          scanRoot,
+          importId: archiveImport.id,
+          providerKey: archiveImport.providerKey,
+          creatorBucket: archiveImport.creatorBucket,
+          externalId: archiveImport.externalId
+        }).finalRelativePath
+        await removeArchivePathIfExists(scanRoot, archiveImport.stagingPath)
+        await removeArchivePathIfExists(scanRoot, preparedPath)
+        await tx.archiveImportItem.updateMany({
+          where: { archiveImportId: archiveImport.id },
+          data: {
+            status: 'PENDING',
+            attempts: 0,
+            stagedPath: null,
+            byteCount: null,
+            mimeType: null,
+            quality: null,
+            width: null,
+            height: null,
+            sha256: null,
+            errorCode: null,
+            errorMessage: null,
+            startedAt: null,
+            finishedAt: null
+          }
+        })
+        const task = await tx.archiveImport.updateMany({
+          where: {
+            id: archiveImport.id,
+            cleanupRequestedAt: { not: null },
+            status: archiveImport.status
+          },
+          data: { cleanupRequestedAt: null, completedItems: 0, failedItems: 0, retainUntil: null }
+        })
+        if (task.count !== 1) throw stateConflict('暂存清理任务状态已改变')
+        const job = await tx.systemJob.updateMany({
+          where: { id: archiveImport.systemJobId, status: archiveImport.systemJob.status },
+          data: { message: '暂存目录已清理' }
+        })
+        if (job.count !== 1) throw stateConflict('暂存清理对应任务状态已改变')
+        return true
+      }, { maxWait: 10_000, timeout: 120_000 })
+      if (didReconcile) reconciled += 1
+    } catch (error) {
+      failures.push({ importId: candidate.id, error })
+    }
+  }
+  return { reconciled, failures }
+}
+
+export async function requestExpiredArchiveCleanups(now = new Date()): Promise<number> {
+  const expired = await prisma.archiveImport.findMany({
+    where: {
+      status: { in: ['FAILED', 'CANCELLED'] },
+      retainUntil: { lte: now },
+      cleanupRequestedAt: null
+    },
+    select: { id: true, systemJobId: true }
+  })
+  let requested = 0
+  for (const candidate of expired) {
+    const didRequest = await prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+      const task = await tx.archiveImport.updateMany({
+        where: {
+          id: candidate.id,
+          status: { in: ['FAILED', 'CANCELLED'] },
+          retainUntil: { lte: now },
+          cleanupRequestedAt: null
+        },
+        data: { cleanupRequestedAt: now }
+      })
+      if (task.count !== 1) return false
+      await tx.systemJob.updateMany({
+        where: { id: candidate.systemJobId },
+        data: { message: '保留期已结束，等待归档 Worker 清理暂存目录...' }
+      })
+      return true
+    })
+    if (didRequest) requested += 1
+  }
+  return requested
+}
+
+export async function reconcileArchiveLifecycle(artworkId: number, scanRoot: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+    const artwork = await tx.artwork.findUnique({
+      where: { id: artworkId },
+      include: { archiveRevisions: true }
+    })
+    if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') return
+    if (artwork.archiveLifecycleState === 'ACTIVE' || artwork.archiveLifecycleState === 'TRASHED') return
+    if (!artwork.deletedAt) throw stateConflict('归档生命周期状态缺少删除时间')
+    if (artwork.archiveRevisions.length === 0) throw new ArchiveError('INTERNAL', '作品缺少归档版本')
+
+    if (artwork.archiveLifecycleState === 'TRASHING') {
+      for (const revision of artwork.archiveRevisions) {
+        if (!revision.trashPath) throw stateConflict('归档版本缺少回收站目标路径')
+        await moveArchiveDirectory(
+          archiveAbsolutePath(scanRoot, revision.archivePath),
+          archiveAbsolutePath(scanRoot, revision.trashPath),
+          '归档媒体目录不存在'
+        )
+      }
+      const changed = await tx.artwork.updateMany({
+        where: { id: artwork.id, archiveLifecycleState: 'TRASHING', deletedAt: { not: null } },
+        data: { archiveLifecycleState: 'TRASHED' }
+      })
+      if (changed.count !== 1) throw stateConflict('作品删除状态已改变')
+      return
+    }
+
+    for (const revision of artwork.archiveRevisions) {
+      if (!revision.trashPath) throw stateConflict('归档版本缺少回收站来源路径')
+      await moveArchiveDirectory(
+        archiveAbsolutePath(scanRoot, revision.trashPath),
+        archiveAbsolutePath(scanRoot, revision.archivePath),
+        '回收站媒体目录不存在'
+      )
+    }
+    await tx.archiveRevision.updateMany({
+      where: { artworkId: artwork.id },
+      data: { trashPath: null, trashedAt: null, purgeAfter: null }
+    })
+    const changed = await tx.artwork.updateMany({
+      where: { id: artwork.id, archiveLifecycleState: 'RESTORING', deletedAt: { not: null } },
+      data: { deletedAt: null, archiveLifecycleState: 'ACTIVE' }
+    })
+    if (changed.count !== 1) throw stateConflict('作品恢复状态已改变')
+  }, { maxWait: 10_000, timeout: 120_000 })
 }
 
 export async function purgeExpiredArchiveTrash(scanRoot: string, now = new Date()): Promise<number> {
-  const revisions = await prisma.archiveRevision.findMany({
-    where: { isCurrent: true, purgeAfter: { lte: now }, trashPath: { not: null }, artwork: { deletedAt: { not: null } } },
-    select: { id: true, artworkId: true, trashPath: true }
+  const artworks = await prisma.artwork.findMany({
+    where: {
+      createdVia: 'URL_ARCHIVE',
+      archiveLifecycleState: 'TRASHED',
+      deletedAt: { not: null },
+      archiveRevisions: { some: { purgeAfter: { lte: now } } }
+    },
+    select: { id: true }
   })
   let purged = 0
-  for (const revision of revisions) {
-    const target = path.resolve(scanRoot, revision.trashPath!)
-    await rm(target, { recursive: true, force: true })
-    await prisma.artwork.deleteMany({
-      where: { id: revision.artworkId, createdVia: 'URL_ARCHIVE', deletedAt: { not: null } }
-    })
-    purged += 1
+  for (const candidate of artworks) {
+    const removed = await prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+      const artwork = await tx.artwork.findFirst({
+        where: {
+          id: candidate.id,
+          createdVia: 'URL_ARCHIVE',
+          archiveLifecycleState: 'TRASHED',
+          deletedAt: { not: null },
+          archiveRevisions: { some: { purgeAfter: { lte: now } } }
+        },
+        include: { archiveRevisions: true }
+      })
+      if (!artwork) return false
+      for (const revision of artwork.archiveRevisions) {
+        if (revision.trashPath) {
+          await rm(archiveAbsolutePath(scanRoot, revision.trashPath), { recursive: true, force: true })
+        }
+        await rm(archiveAbsolutePath(scanRoot, revision.archivePath), { recursive: true, force: true })
+      }
+      const result = await tx.artwork.deleteMany({
+        where: {
+          id: artwork.id,
+          createdVia: 'URL_ARCHIVE',
+          archiveLifecycleState: 'TRASHED',
+          deletedAt: { not: null }
+        }
+      })
+      return result.count === 1
+    }, { maxWait: 10_000, timeout: 120_000 })
+    if (removed) purged += 1
   }
   return purged
+}
+
+function buildRevisionTrashPath(artworkId: number, revisionId: string): string {
+  return normalizeRelativePath(path.join('.trash', 'archive', String(artworkId), revisionId))
+}
+
+function archiveAbsolutePath(scanRoot: string, storedPath: string): string {
+  const root = path.resolve(scanRoot)
+  const trimmedPath = storedPath.trim()
+  if (!trimmedPath || trimmedPath === '.') {
+    throw new ArchiveError('INTERNAL', '归档路径不能指向存储根目录')
+  }
+  const absolute = path.resolve(root, storedPath)
+  const relative = path.relative(root, absolute)
+  if (
+    absolute === root ||
+    relative === '' ||
+    relative === '..' ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    throw new ArchiveError('INTERNAL', '归档路径越过存储根目录')
+  }
+  return absolute
+}
+
+async function moveArchiveDirectory(source: string, target: string, missingMessage: string): Promise<void> {
+  const [sourceExists, targetExists] = await Promise.all([pathExists(source), pathExists(target)])
+  if (sourceExists && !targetExists) {
+    await mkdir(path.dirname(target), { recursive: true })
+    await rename(source, target)
+    return
+  }
+  if (!sourceExists && targetExists) return
+  if (!sourceExists && !targetExists) throw new ArchiveError('INTERNAL', missingMessage)
+  throw new ArchiveError('INTERNAL', '归档来源路径和目标路径同时存在')
+}
+
+async function removeArchivePathIfExists(scanRoot: string, relativePath: string): Promise<void> {
+  try {
+    await removeArchivePath(scanRoot, relativePath)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+}
+
+function uniqueRevisionIdentities(
+  revisions: Array<{ externalRef: { providerKey: string; externalId: string } }>
+): Array<{ providerKey: string; externalId: string }> {
+  const identities = new Map<string, { providerKey: string; externalId: string }>()
+  for (const revision of revisions) {
+    const identity = revision.externalRef
+    identities.set(`${identity.providerKey}\u0000${identity.externalId}`, identity)
+  }
+  return [...identities.values()]
+}
+
+async function assertNoActiveIdentityImport(
+  tx: ArchiveTransactionClient,
+  providerKey: string,
+  externalId: string
+): Promise<void> {
+  const active = await tx.archiveImport.findFirst({
+    where: { providerKey, externalId, status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] } },
+    select: { id: true }
+  })
+  if (active) throw stateConflict('该作品有进行中的归档更新，暂时不能删除或恢复')
 }
 
 async function replaceSourceTags(
@@ -345,82 +636,55 @@ async function replaceSourceTags(
   }
 }
 
-async function publishFiles(input: {
-  scanRoot: string
+async function prepareRevisionDirectory(input: {
+  importId: string
+  jobId: string
+  leaseAttempt: number
   stagingAbsolutePath: string
   finalAbsolutePath: string
-  finalRelativePath: string
-  importId: string
-  previousRevisionId: string | null
-}): Promise<FilePublication> {
-  await mkdir(path.dirname(input.finalAbsolutePath), { recursive: true })
-  if (!input.previousRevisionId) {
-    if (await pathExists(input.finalAbsolutePath)) {
-      throw new ArchiveError('INTERNAL', '归档目标目录已存在，但数据库没有对应版本')
-    }
-    await rename(input.stagingAbsolutePath, input.finalAbsolutePath)
-    let active = true
-    return {
-      previousRevisionRelativePath: null,
-      rollback: async () => {
-        if (!active || !(await pathExists(input.finalAbsolutePath))) return
-        await rename(input.finalAbsolutePath, input.stagingAbsolutePath)
-        active = false
-      },
-      commit: async () => {
-        active = false
+}): Promise<void> {
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+      await assertPublishLease(tx, input.importId, input.jobId, input.leaseAttempt)
+      await mkdir(path.dirname(input.finalAbsolutePath), { recursive: true })
+      if (!(await pathExists(input.finalAbsolutePath))) {
+        if (!(await pathExists(input.stagingAbsolutePath))) {
+          throw new ArchiveError('MEDIA_INVALID', '归档暂存目录和已准备版本均不存在', { recoverable: true })
+        }
+        await rename(input.stagingAbsolutePath, input.finalAbsolutePath)
       }
-    }
-  }
-
-  const oldTemporary = path.resolve(input.scanRoot, '.archive-publish', `${input.importId}-old`)
-  const previousRevisionRelativePath = normalizeRelativePath(
-    path.join(input.finalRelativePath, 'revisions', input.previousRevisionId)
-  )
-  const previousRevisionAbsolutePath = path.resolve(input.scanRoot, previousRevisionRelativePath)
-  await rm(oldTemporary, { recursive: true, force: true })
-  await mkdir(oldTemporary, { recursive: true })
-  await rename(path.join(input.finalAbsolutePath, 'media'), path.join(oldTemporary, 'media'))
-  await rename(path.join(input.finalAbsolutePath, 'manifest.json'), path.join(oldTemporary, 'manifest.json'))
-  try {
-    await rename(path.join(input.stagingAbsolutePath, 'media'), path.join(input.finalAbsolutePath, 'media'))
-    await rename(path.join(input.stagingAbsolutePath, 'manifest.json'), path.join(input.finalAbsolutePath, 'manifest.json'))
-    await mkdir(path.dirname(previousRevisionAbsolutePath), { recursive: true })
-    await rename(oldTemporary, previousRevisionAbsolutePath)
-    await rm(input.stagingAbsolutePath, { recursive: true, force: true })
-  } catch (error) {
-    if (await pathExists(path.join(input.finalAbsolutePath, 'media'))) {
-      await mkdir(input.stagingAbsolutePath, { recursive: true })
-      await rename(path.join(input.finalAbsolutePath, 'media'), path.join(input.stagingAbsolutePath, 'media')).catch(() => undefined)
-      await rename(path.join(input.finalAbsolutePath, 'manifest.json'), path.join(input.stagingAbsolutePath, 'manifest.json')).catch(
-        () => undefined
-      )
-    }
-    const oldLocation = (await pathExists(previousRevisionAbsolutePath)) ? previousRevisionAbsolutePath : oldTemporary
-    await rename(path.join(oldLocation, 'media'), path.join(input.finalAbsolutePath, 'media')).catch(() => undefined)
-    await rename(path.join(oldLocation, 'manifest.json'), path.join(input.finalAbsolutePath, 'manifest.json')).catch(
-      () => undefined
-    )
-    throw error
-  }
-
-  let active = true
-  return {
-    previousRevisionRelativePath,
-    rollback: async () => {
-      if (!active) return
-      await mkdir(input.stagingAbsolutePath, { recursive: true })
-      await rename(path.join(input.finalAbsolutePath, 'media'), path.join(input.stagingAbsolutePath, 'media'))
-      await rename(path.join(input.finalAbsolutePath, 'manifest.json'), path.join(input.stagingAbsolutePath, 'manifest.json'))
-      await rename(path.join(previousRevisionAbsolutePath, 'media'), path.join(input.finalAbsolutePath, 'media'))
-      await rename(path.join(previousRevisionAbsolutePath, 'manifest.json'), path.join(input.finalAbsolutePath, 'manifest.json'))
-      await rm(previousRevisionAbsolutePath, { recursive: true, force: true })
-      active = false
+      if (
+        !(await pathExists(path.join(input.finalAbsolutePath, 'media'))) ||
+        !(await pathExists(path.join(input.finalAbsolutePath, 'manifest.json')))
+      ) {
+        throw new ArchiveError('MEDIA_INVALID', '已准备的归档版本不完整', { recoverable: true })
+      }
     },
-    commit: async () => {
-      active = false
-    }
-  }
+    { maxWait: 10_000, timeout: 30_000 }
+  )
+}
+
+async function assertPublishLease(
+  tx: ArchiveTransactionClient,
+  importId: string,
+  jobId: string,
+  leaseAttempt: number
+): Promise<void> {
+  const job = await tx.systemJob.updateMany({
+    where: { id: jobId, attempt: leaseAttempt, status: 'RUNNING' },
+    data: { heartbeatAt: new Date() }
+  })
+  if (job.count !== 1) throw new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效')
+  const archiveImport = await tx.archiveImport.updateMany({
+    where: { id: importId, systemJobId: jobId, status: 'RUNNING' },
+    data: { retainUntil: null }
+  })
+  if (archiveImport.count !== 1) throw stateConflict('归档任务已不再允许运行')
+}
+
+function stateConflict(message: string): ArchiveError {
+  return new ArchiveError('STATE_CONFLICT', message, { recoverable: true })
 }
 
 function nullableString(value: unknown): string | null {

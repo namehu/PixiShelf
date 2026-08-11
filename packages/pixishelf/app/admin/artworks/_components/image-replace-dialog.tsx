@@ -47,7 +47,7 @@ interface ImageReplaceDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   artworkId?: number
-  artwork: Partial<Pick<ArtworkResponseDto, 'title' | 'externalId' | 'images'>>
+  artwork: Partial<Pick<ArtworkResponseDto, 'title' | 'externalId' | 'storageKey' | 'images'>>
   onSuccess?: () => void
 }
 
@@ -84,6 +84,7 @@ interface ChapterPreviewItem {
 }
 
 export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onSuccess }: ImageReplaceDialogProps) {
+  const storageIdentity = artwork.storageKey ?? artwork.externalId ?? `artwork-${artworkId ?? 'unknown'}`
   const [globalStatus, setGlobalStatus] = useState<GlobalUploadStatus>('idle')
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
   const [chapterItems, setChapterItems] = useState<ChapterPreviewItem[]>([])
@@ -246,7 +247,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     const newItems = validMediaFiles.map((file) => {
       const order = extractOrderFromName(file.name)
       const ext = file.name.split('.').pop()
-      const newName = `${artwork.externalId}_p${order}.${ext}`
+      const newName = `${storageIdentity}_p${order}.${ext}`
 
       return {
         id: guid(),
@@ -312,7 +313,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
 
     item.order = newOrder
     const ext = item.file.name.split('.').pop()
-    item.newName = `${artwork.externalId}_p${newOrder}.${ext}`
+    item.newName = `${storageIdentity}_p${newOrder}.${ext}`
 
     updatePreviewItems(validateItems(newItems))
   }
@@ -641,7 +642,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `upload-errors-${artwork.externalId}.txt`
+    a.download = `upload-errors-${storageIdentity}.txt`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -721,7 +722,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     >
       <DialogContent className="sm:max-w-4xl max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>全量替换 - {artwork.title || artwork.externalId}</DialogTitle>
+          <DialogTitle>全量替换 - {artwork.title || storageIdentity}</DialogTitle>
           <DialogDescription>将会清空当前作品的所有图片，并替换为上传的新文件。支持拖拽文件夹。</DialogDescription>
         </DialogHeader>
 

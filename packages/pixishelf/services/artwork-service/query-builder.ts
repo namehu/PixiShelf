@@ -40,7 +40,7 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
 
   // 1.0 External ID
   if (externalId) {
-    whereSQL += ` AND a."externalId" = $${paramIndex}`
+    whereSQL += ` AND (a."externalId" = $${paramIndex} OR a."storageKey" = $${paramIndex})`
     sqlParams.push(externalId)
     paramIndex++
   }

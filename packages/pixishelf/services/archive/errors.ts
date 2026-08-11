@@ -14,6 +14,8 @@ export type ArchiveErrorCode =
   | 'CANCELLED'
   | 'PAUSED'
   | 'LEASE_LOST'
+  | 'WORKER_STOPPED'
+  | 'STATE_CONFLICT'
   | 'INTERNAL'
 
 export class ArchiveError extends Error {

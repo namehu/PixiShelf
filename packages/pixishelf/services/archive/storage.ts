@@ -37,7 +37,12 @@ export function buildArchiveStoragePaths(input: {
   const externalId = safePathSegment(input.externalId)
   const importId = safePathSegment(input.importId)
   const stagingRelativePath = normalizeRelativePath(path.join('.archive-staging', importId))
-  const finalRelativePath = normalizeRelativePath(path.join('sources', provider, bucket, externalId))
+  // Every published revision has an immutable, import-specific directory. This
+  // makes filesystem publication retryable: a crash can leave an unreferenced
+  // prepared directory, but it can never replace the currently published one.
+  const finalRelativePath = normalizeRelativePath(
+    path.join('sources', provider, bucket, externalId, 'revisions', importId)
+  )
   return {
     stagingRelativePath,
     stagingAbsolutePath: path.resolve(input.scanRoot, stagingRelativePath),
@@ -59,6 +64,8 @@ export async function storeRemoteMedia(input: {
   expectedFilename: string
   signal?: AbortSignal
   maxBytes?: number
+  partialKey?: string
+  commitFile?: (paths: { partial: string; target: string }) => Promise<void>
 }): Promise<StoredMediaResult> {
   const maxBytes = input.maxBytes ?? getConfiguredMaxMediaBytes()
   if (input.remote.contentLength !== null && input.remote.contentLength > maxBytes) {
@@ -72,7 +79,8 @@ export async function storeRemoteMedia(input: {
   )
   const mediaDirectory = path.join(input.stagingDirectory, 'media')
   const target = path.join(mediaDirectory, filename)
-  const partial = `${target}.part`
+  const partialKey = safePathSegment(input.partialKey ?? 'default')
+  const partial = `${target}.part-${partialKey}`
   await mkdir(mediaDirectory, { recursive: true })
   await rm(partial, { force: true })
 
@@ -120,8 +128,12 @@ export async function storeRemoteMedia(input: {
   }
   // A worker can crash after the atomic rename but before persisting the
   // checkpoint. In that case this item is intentionally re-downloaded.
-  await rm(target, { force: true })
-  await rename(partial, target)
+  if (input.commitFile) {
+    await input.commitFile({ partial, target })
+  } else {
+    await rm(target, { force: true })
+    await rename(partial, target)
+  }
   return {
     relativePath: normalizeRelativePath(path.join('media', filename)),
     filename,

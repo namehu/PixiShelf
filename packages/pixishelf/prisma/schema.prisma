@@ -69,6 +69,7 @@ model Artwork {
   storageKey            String?               @unique
   createdVia            ArtworkCreationMethod @default(UNKNOWN)
   deletedAt             DateTime?
+  archiveLifecycleState ArchiveLifecycleState @default(ACTIVE)
   titleOverridden       Boolean               @default(false)
   descriptionOverridden Boolean               @default(false)
   rawMetadata           ArtworkRawMetadata?
@@ -99,6 +100,7 @@ model Artwork {
   @@index([metadataFormat])
   @@index([createdVia])
   @@index([deletedAt])
+  @@index([archiveLifecycleState])
 }
 
 model ArtworkExternalRef {
@@ -443,6 +445,7 @@ model ArchiveImport {
   startedAt          DateTime?
   finishedAt         DateTime?
   retainUntil        DateTime?
+  cleanupRequestedAt DateTime?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   systemJob          SystemJob           @relation(fields: [systemJobId], references: [id], onDelete: Cascade)
@@ -455,6 +458,7 @@ model ArchiveImport {
   @@index([status, createdAt])
   @@index([publishedArtworkId])
   @@index([externalRefId])
+  @@index([cleanupRequestedAt])
   @@map("archive_imports")
 }
 
@@ -797,6 +801,13 @@ enum ArchiveImportItemStatus {
 enum ArchiveQuality {
   ORIGINAL
   DISPLAY
+}
+
+enum ArchiveLifecycleState {
+  ACTIVE
+  TRASHING
+  TRASHED
+  RESTORING
 }
 
 enum ArtworkRelationType {

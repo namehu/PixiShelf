@@ -48,7 +48,7 @@ export function ArtworkRescanButton({ artwork, onComplete }: ArtworkRescanButton
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ externalId: artwork.externalId }),
+        body: JSON.stringify({ artworkId: artwork.id }),
         signal: controllerRef.current.signal,
         onopen: async (response) => {
           if (!response.ok) {

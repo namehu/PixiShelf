@@ -74,13 +74,15 @@ export function createArtworkManagementColumns({
       cell: ({ row }) => <span className="font-mono">{row.original.id}</span>
     },
     {
-      header: '作品id',
+      header: '存储/来源ID',
       accessorKey: 'externalId',
       size: 180,
       copyable: true,
-      copyValue: (artwork) =>
-        artwork.externalId ? (pendingReplaceCopyMode ? `__ext-${artwork.externalId}` : artwork.externalId) : null,
-      cell: ({ row }) => (row.original as any).externalId || '-'
+      copyValue: (artwork) => {
+        const identity = artwork.storageKey ?? artwork.externalId
+        return identity ? (pendingReplaceCopyMode ? `__ext-${identity}` : identity) : null
+      },
+      cell: ({ row }) => row.original.storageKey ?? row.original.externalId ?? '-'
     },
     {
       header: '偏好',

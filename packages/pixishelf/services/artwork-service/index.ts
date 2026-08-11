@@ -26,7 +26,6 @@ import { ESource, type ESource as ArtworkSource } from '@/enums/e-source'
 import { appendScanRunItems, completeScanRunSummary, startScanRun } from '@/services/scan-run-service'
 import { toApiImageSize } from '@/utils/image-size'
 import { buildVideoPosterUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
-import { requireArchiveStorageRoot } from '@/services/archive/config'
 import { trashPublishedArchive } from '@/services/archive/publisher'
 
 export * from './related'
@@ -230,8 +229,7 @@ export async function deleteArtwork(id: number) {
   const artwork = await prisma.artwork.findUnique({ where: { id } })
   if (!artwork) throw new Error(`Artwork ${id} not found`)
   if (artwork.createdVia === 'URL_ARCHIVE') {
-    const archiveRoot = await requireArchiveStorageRoot()
-    await trashPublishedArchive(id, archiveRoot)
+    await trashPublishedArchive(id)
     return prisma.artwork.findUniqueOrThrow({ where: { id } })
   }
 
@@ -322,16 +320,20 @@ export async function updateArtwork(
     updateData.artist = artistId ? { connect: { id: artistId } } : { disconnect: true }
   }
 
-  if (tags !== undefined) {
-    updateData.artworkTags = {
-      deleteMany: { provenance: { in: ['MANUAL', 'LEGACY'] } },
-      create: tags.map((tagId) => ({ tagId, provenance: 'MANUAL' }))
+  return prisma.$transaction(async (tx) => {
+    const artwork = await tx.artwork.update({ where: { id }, data: updateData })
+    if (tags !== undefined) {
+      await tx.artworkTag.deleteMany({
+        where: { artworkId: id, provenance: { in: ['MANUAL', 'LEGACY'] } }
+      })
+      if (tags.length > 0) {
+        await tx.artworkTag.createMany({
+          data: tags.map((tagId) => ({ artworkId: id, tagId, provenance: 'MANUAL' as const })),
+          skipDuplicates: true
+        })
+      }
     }
-  }
-
-  return prisma.artwork.update({
-    where: { id },
-    data: updateData
+    return artwork
   })
 }
 
@@ -349,32 +351,34 @@ export async function createArtwork(data: {
   const { tags, artistId, source, sourceDate, ...rest } = data
   const effectiveSource = source ?? ESource.LOCAL_CREATED
 
-  const artwork = await prisma.artwork.create({
-    data: {
-      ...rest,
-      sourceDate: typeof sourceDate === 'string' ? new Date(sourceDate) : sourceDate,
-      source: effectiveSource,
-      createdVia: effectiveSource === ESource.LOCAL_CREATED ? 'MANUAL_CREATE' : 'UNKNOWN',
-      artist: artistId ? { connect: { id: artistId } } : undefined,
-      artworkTags:
-        tags && tags.length > 0
-          ? {
-              create: tags.map((tagId) => ({ tagId, provenance: 'MANUAL' }))
-            }
-          : undefined
-    }
+  const artwork = await prisma.$transaction(async (tx) => {
+    const created = await tx.artwork.create({
+      data: {
+        ...rest,
+        sourceDate: typeof sourceDate === 'string' ? new Date(sourceDate) : sourceDate,
+        source: effectiveSource,
+        createdVia: effectiveSource === ESource.LOCAL_CREATED ? 'MANUAL_CREATE' : 'UNKNOWN',
+        artist: artistId ? { connect: { id: artistId } } : undefined,
+        artworkTags:
+          tags && tags.length > 0
+            ? {
+                create: tags.map((tagId) => ({ tagId, provenance: 'MANUAL' }))
+              }
+            : undefined
+      }
+    })
+    if (effectiveSource !== ESource.LOCAL_CREATED) return created
+    return tx.artwork.update({
+      where: { id: created.id },
+      data: { storageKey: generateLocalStorageKey(created.id) }
+    })
   })
 
-  if (effectiveSource === ESource.LOCAL_CREATED) {
-    const storageKey = generateLocalStorageKey(artwork.id)
-    await prisma.artwork.update({
-      where: { id: artwork.id },
-      data: { storageKey }
-    })
+  if (effectiveSource === ESource.LOCAL_CREATED && artwork.storageKey) {
     await recordLocalCreateAudit({
       artworkId: artwork.id,
       title: artwork.title,
-      storageKey
+      storageKey: artwork.storageKey
     })
   }
 

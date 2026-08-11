@@ -63,9 +63,9 @@ export async function globMetadataFiles(
     const artworkIds = preferredFiles.map(({ artworkId }) => artworkId) // 提取所有作品的 artworkId
 
     if (artworkIds.length > 0) {
-      // 查询数据库中已存在的 externalId
-      const existingArtworks = await prisma.artwork.findMany({
+      const existingRefs = await prisma.artworkExternalRef.findMany({
         where: {
+          providerKey: 'pixiv',
           externalId: {
             in: artworkIds
           }
@@ -75,7 +75,7 @@ export async function globMetadataFiles(
         }
       })
 
-      const existingIds = new Set(existingArtworks.map((artwork) => artwork.externalId))
+      const existingIds = new Set(existingRefs.map((reference) => reference.externalId))
 
       // 过滤掉已存在的文件
       filesToProcess = preferredFiles.filter((file) => !existingIds.has(file.artworkId))
@@ -156,12 +156,12 @@ export async function prepareMetadataFilesFromList(
   if (!forceUpdate) {
     const artworkIds = preferredFiles.map(({ artworkId }) => artworkId)
     if (artworkIds.length > 0) {
-      const existingArtworks = await prisma.artwork.findMany({
-        where: { externalId: { in: artworkIds } },
+      const existingRefs = await prisma.artworkExternalRef.findMany({
+        where: { providerKey: 'pixiv', externalId: { in: artworkIds } },
         select: { externalId: true }
       })
 
-      const existingIds = new Set(existingArtworks.map((a) => a.externalId))
+      const existingIds = new Set(existingRefs.map((reference) => reference.externalId))
       filesToProcess = preferredFiles.filter((file) => !existingIds.has(file.artworkId))
       context.scanResult.skippedArtworks = preferredFiles.length - filesToProcess.length
 

@@ -48,10 +48,10 @@ function createEventSender(
 
 /**
  * POST /api/scan/rescan
- * 根据作品 externalId 重新扫描该作品
+ * 根据作品主键重新扫描；externalId 仅为旧客户端保留。
  */
 export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
-  const { externalId } = data
+  const { artworkId, externalId } = data
 
   const scanPath = await getScanPath()
   if (!scanPath) {
@@ -60,9 +60,10 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
 
   // 服务端查询获取相对路径，防止路径穿透
   const artwork = await prisma.artwork.findUnique({
-    where: { externalId },
+    where: artworkId !== undefined ? { id: artworkId } : { externalId: externalId! },
     include: {
       artist: true,
+      externalRefs: { where: { providerKey: 'pixiv' }, take: 1 },
       images: {
         orderBy: { sortOrder: 'asc' },
         take: 1
@@ -138,9 +139,14 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
           }
         }
 
+        const pixivReference = artwork.externalRefs[0]
         const result = isLocalDirectoryArtworkSource(artwork.source)
           ? await rescanLocalArtwork(scanOptions, artwork.id, relativePath)
-          : await rescanArtwork(scanOptions, artwork.externalId!, relativePath)
+          : pixivReference
+            ? await rescanArtwork(scanOptions, pixivReference.externalId, relativePath)
+            : (() => {
+                throw new Error('作品没有 Pixiv Source Reference，拒绝按历史 externalId 猜测来源')
+              })()
 
         await auditBuffer.flush()
         if (currentJobId) {

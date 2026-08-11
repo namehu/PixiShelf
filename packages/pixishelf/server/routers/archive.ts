@@ -49,7 +49,7 @@ async function runArchiveOperation<T>(operation: () => Promise<T>): Promise<T> {
           ? 'NOT_FOUND'
           : error.code === 'REMOTE_RATE_LIMITED'
             ? 'TOO_MANY_REQUESTS'
-            : error.code === 'ORIGINAL_UNAVAILABLE'
+            : error.code === 'ORIGINAL_UNAVAILABLE' || error.code === 'STATE_CONFLICT'
               ? 'PRECONDITION_FAILED'
               : 'INTERNAL_SERVER_ERROR'
     throw new TRPCError({ code, message: error.message, cause: error })
