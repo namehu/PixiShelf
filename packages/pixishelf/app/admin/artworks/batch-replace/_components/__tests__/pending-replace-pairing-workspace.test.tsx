@@ -128,14 +128,16 @@ describe('PendingReplacePairingWorkspace', () => {
   })
   afterEach(cleanup)
 
-  it('uses balanced list columns and keeps a bound source collapsed until expanded', () => {
-    render(<PendingReplacePairingWorkspace batch={createBatch()} disabled={false} onBound={vi.fn()} />)
+  it('uses a narrow source queue and shows the active source preview', () => {
+    render(<PendingReplacePairingWorkspace batch={createUnboundBatch()} disabled={false} onBound={vi.fn()} />)
 
-    expect(screen.getByTestId('pairing-columns').className).toContain('xl:grid-cols-2')
-    expect(screen.queryByText('only-visible-when-expanded.jpg')).toBeNull()
+    expect(screen.getByTestId('pairing-layout').className).toContain('xl:grid-cols-[17rem_minmax(0,1fr)]')
+    expect(screen.getByText('source-a.jpg')).not.toBeNull()
+    expect(screen.queryByText('source-b.jpg')).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: '展开 source-a' }))
-    expect(screen.getByText('only-visible-when-expanded.jpg')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '选择资源目录 source-b' }))
+    expect(screen.queryByText('source-a.jpg')).toBeNull()
+    expect(screen.getByText('source-b.jpg')).not.toBeNull()
   })
 
   it('offers an explicit unbind action for a bound source', () => {

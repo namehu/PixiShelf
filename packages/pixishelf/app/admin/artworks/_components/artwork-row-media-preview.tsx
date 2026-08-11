@@ -13,7 +13,7 @@ export function ArtworkRowMediaPreview({ artworkId }: { artworkId: number }) {
   if (artworkQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载媒体预览...
+        <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> 加载媒体预览…
       </div>
     )
   }
@@ -35,20 +35,24 @@ export function ArtworkRowMediaPreview({ artworkId }: { artworkId: number }) {
             <div key={image.id} className="min-w-0 overflow-hidden rounded-md border bg-background">
               <div className="flex aspect-square items-center justify-center overflow-hidden bg-muted">
                 {isVideo ? (
-                  <Video className="h-8 w-8 text-muted-foreground" />
+                  <Video aria-hidden="true" className="h-8 w-8 text-muted-foreground" />
                 ) : image.path ? (
                   <img
                     src={combinationApiResource(image.path)}
                     alt={fileName}
+                    width={240}
+                    height={240}
                     loading="lazy"
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                  <ImageIcon aria-hidden="true" className="h-8 w-8 text-muted-foreground" />
                 )}
               </div>
               <div className="space-y-0.5 p-2 text-[10px]">
-                <div className="truncate" title={fileName}>{fileName}</div>
+                <div className="truncate" title={fileName}>
+                  {fileName}
+                </div>
                 <div className="text-muted-foreground">
                   {image.width ?? 0}×{image.height ?? 0} · {formatFileSize(Number(image.size ?? 0))}
                 </div>
@@ -60,4 +64,3 @@ export function ArtworkRowMediaPreview({ artworkId }: { artworkId: number }) {
     </div>
   )
 }
-

@@ -45,7 +45,7 @@ export function ArtworkManagementToolbar({
   onTogglePendingReplaceCopyMode
 }: ArtworkManagementToolbarProps) {
   return (
-    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-neutral-200 pb-4">
+    <div className="flex flex-col gap-4 border-b border-neutral-200 pb-4 md:flex-row md:items-center md:justify-between">
       <div>
         <h1 className="text-xl md:text-2xl font-bold text-neutral-900 flex items-center gap-2">
           <BarChart3 className="w-5 h-5 md:w-6 md:h-6" />
@@ -53,20 +53,21 @@ export function ArtworkManagementToolbar({
         </h1>
         <p className="text-sm md:text-base text-neutral-600 mt-1">管理作品，支持搜索、筛选和批量操作</p>
       </div>
-      <div className="flex gap-2 w-full md:w-auto">
+      <div className="flex w-full flex-wrap gap-2 md:w-auto md:justify-end">
         <Button
           variant={pendingReplaceCopyMode ? 'secondary' : 'outline'}
           size="sm"
-          className="gap-2"
+          className="min-w-0 flex-1 gap-2 sm:flex-none"
           onClick={onTogglePendingReplaceCopyMode}
           title="开启后复制作品 externalId 将得到 __ext-{externalId}"
+          aria-pressed={pendingReplaceCopyMode}
         >
           <Copy className="h-4 w-4" />
           {pendingReplaceCopyMode ? '替换后缀复制中' : '复制替换后缀'}
         </Button>
         <Popover>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="flex flex-1 items-center gap-2 sm:flex-none">
               <Sliders className="w-4 h-4" />
               迁移策略
             </Button>
@@ -91,7 +92,7 @@ export function ArtworkManagementToolbar({
                   <SelectItem value="copy">复制</SelectItem>
                 </SelectContent>
               </Select>
-              <div className="flex items-center gap-2">
+              <label className="flex cursor-pointer items-center gap-2">
                 <Checkbox
                   checked={migrationSafety.verifyAfterCopy}
                   onCheckedChange={(value) =>
@@ -103,8 +104,8 @@ export function ArtworkManagementToolbar({
                   disabled={migrationSafety.transferMode !== 'copy'}
                 />
                 <span className="text-sm text-neutral-700">复制后校验</span>
-              </div>
-              <div className="flex items-center gap-2">
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
                 <Checkbox
                   checked={migrationSafety.cleanupSource}
                   onCheckedChange={(value) =>
@@ -115,11 +116,11 @@ export function ArtworkManagementToolbar({
                   }
                 />
                 <span className="text-sm text-neutral-700">清理源文件</span>
-              </div>
+              </label>
             </div>
           </PopoverContent>
         </Popover>
-        <Button key="create" variant="default" size="sm" className="gap-2" onClick={onCreate}>
+        <Button key="create" variant="default" size="sm" className="flex-1 gap-2 sm:flex-none" onClick={onCreate}>
           <Plus className="w-4 h-4" />
           新增作品
         </Button>
@@ -142,7 +143,7 @@ export function ArtworkManagementToolbar({
               {
                 key: 'export',
                 icon: <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />,
-                label: isExporting ? '导出中...' : '导出无系列ID',
+                label: isExporting ? '导出中…' : '导出无系列 ID',
                 disabled: isExporting,
                 onClick: onExportNoSeries
               },
@@ -154,7 +155,7 @@ export function ArtworkManagementToolbar({
                   <FolderInput className="w-4 h-4" />
                 ),
                 label: migrationState.migrating
-                  ? '迁移中...'
+                  ? '迁移中…'
                   : selectedCount > 0
                     ? `批量迁移 (${selectedCount})`
                     : '目录迁移',
@@ -176,7 +177,7 @@ export function ArtworkManagementToolbar({
             ]
           }}
         >
-          <Button variant="outline" size="sm" className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="flex flex-1 items-center gap-2 sm:flex-none">
             更多操作
             <ChevronDown className="w-4 h-4" />
           </Button>
