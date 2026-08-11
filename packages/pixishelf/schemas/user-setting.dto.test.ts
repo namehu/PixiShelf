@@ -34,3 +34,21 @@ describe('media privacy settings', () => {
     expect(userSettingsWithDefaultsSchema.parse({ media_privacy_mode: true }).media_privacy_mode).toBe(true)
   })
 })
+
+describe('video interaction settings', () => {
+  it('uses stable defaults for video gestures', () => {
+    const settings = userSettingsWithDefaultsSchema.parse({})
+
+    expect(settings.video_long_press_playback_rate).toBe(3)
+    expect(settings.video_seek_step_seconds).toBe(10)
+  })
+
+  it('accepts only the supported video gesture choices', () => {
+    expect(userSettingsSchema.parse({ video_long_press_playback_rate: 2, video_seek_step_seconds: 15 })).toMatchObject({
+      video_long_press_playback_rate: 2,
+      video_seek_step_seconds: 15
+    })
+    expect(() => userSettingsSchema.parse({ video_long_press_playback_rate: 5 })).toThrow()
+    expect(() => userSettingsSchema.parse({ video_seek_step_seconds: 30 })).toThrow()
+  })
+})

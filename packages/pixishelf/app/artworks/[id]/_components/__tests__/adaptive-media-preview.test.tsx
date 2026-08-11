@@ -16,34 +16,17 @@ const swiperMocks = vi.hoisted(() => {
 })
 
 vi.mock('next/image', () => ({
-  default: (imageProps: React.ImgHTMLAttributes<HTMLImageElement> & { priority?: boolean; fill?: boolean }) => {
-    const props = { ...imageProps }
-    delete props.priority
-    delete props.fill
+  default: ({ src, alt, className }: { src: string; alt: string; className?: string }) => {
     // oxlint-disable-next-line nextjs/no-img-element
-    return <img {...props} />
+    return <img src={src} alt={alt} className={className} />
   }
-}))
-
-vi.mock('@/components/players/video-player', () => ({
-  default: ({ src }: { src: string }) => <div data-testid="preview-video" data-src={src} />
 }))
 
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) => (open ? children : null),
-  DialogContent: (contentProps: React.HTMLAttributes<HTMLDivElement> & {
-    showCloseButton?: boolean
-    onPointerDownOutside?: (event: Event) => void
-  }) => {
-    const props = { ...contentProps }
-    delete props.showCloseButton
-    delete props.onPointerDownOutside
-    return <div {...props} />
-  },
-  DialogTitle: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h2 {...props}>{children}</h2>,
-  DialogDescription: ({ children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) => (
-    <p {...props}>{children}</p>
-  )
+  DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
+  DialogDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>
 }))
 
 vi.mock('swiper/react', () => ({
@@ -169,13 +152,5 @@ describe('AdaptiveMediaPreview', () => {
 
     act(() => window.dispatchEvent(new PopStateEvent('popstate', { state: {} })))
     expect(onClose).toHaveBeenCalledWith(2)
-  })
-
-  it('continues to render videos through the existing player', () => {
-    render(
-      <AdaptiveMediaPreview images={[createMedia(0, '/clip.mp4')]} initialIndex={0} open onClose={vi.fn()} />
-    )
-
-    expect(screen.getByTestId('preview-video').getAttribute('data-src')).toBe('/clip.mp4')
   })
 })

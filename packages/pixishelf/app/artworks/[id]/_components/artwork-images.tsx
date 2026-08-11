@@ -147,10 +147,7 @@ function useArtworkMediaVirtualizer({
   return { virtualizer, visibleCount, remainingCount }
 }
 
-function usePreviewContextMenu(
-  images: ArtworkImageResponseDto[],
-  onOpenAdaptivePreview: (index: number) => void
-) {
+function usePreviewContextMenu(images: ArtworkImageResponseDto[], onOpenAdaptivePreview: (index: number) => void) {
   const [contextMenu, setContextMenu] = useState<PreviewMenuState | null>(null)
   const router = useRouter()
   const setStoreImages = useArtworkStore((state) => state.setImages)
@@ -267,7 +264,7 @@ function ArtworkMediaItem({
     >
       <PreviewableMedia
         index={index}
-        enabled
+        enabled={!isVideoMedia(media)}
         tapPreviewEnabled={canPreviewFullSize(media) && !usesInteractiveMediaPlayer(media)}
         onOpenMenu={onOpenPreviewMenu}
         onPreview={onOpenAdaptivePreview}
@@ -445,26 +442,10 @@ function PreviewContextMenu({
   )
 }
 
-function SingleVideoArtworkMedia({
-  media,
-  onOpenPreviewMenu,
-  onOpenAdaptivePreview
-}: {
-  media: ArtworkImageResponseDto
-  onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
-  onOpenAdaptivePreview: (index: number) => void
-}) {
+function SingleVideoArtworkMedia({ media }: { media: ArtworkImageResponseDto }) {
   return (
     <div className="w-full sm:px-2" data-testid="artwork-video-container">
-      <PreviewableMedia
-        index={0}
-        enabled
-        tapPreviewEnabled={false}
-        onOpenMenu={onOpenPreviewMenu}
-        onPreview={onOpenAdaptivePreview}
-      >
-        <LazyMedia media={media} index={0} />
-      </PreviewableMedia>
+      <LazyMedia media={media} index={0} />
     </div>
   )
 }
@@ -620,38 +601,42 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [returnIndex, setReturnIndex] = useState<number | null>(null)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
-  const {
-    contextMenu,
-    openContextMenu,
-    closeContextMenu,
-    previewSelectedMedia,
-    viewOriginalSelectedMedia
-  } = usePreviewContextMenu(images, setPreviewIndex)
+  const adaptivePreviewImages = useMemo(() => images.filter((media) => !isVideoMedia(media)), [images])
+  const openAdaptivePreview = useCallback(
+    (originalIndex: number) => {
+      const media = images[originalIndex]
+      if (!media || isVideoMedia(media)) return
+      const filteredIndex = adaptivePreviewImages.findIndex((candidate) => candidate.id === media.id)
+      if (filteredIndex >= 0) setPreviewIndex(filteredIndex)
+    },
+    [adaptivePreviewImages, images]
+  )
+  const { contextMenu, openContextMenu, closeContextMenu, previewSelectedMedia, viewOriginalSelectedMedia } =
+    usePreviewContextMenu(images, openAdaptivePreview)
 
   const handlePreviewClose = useCallback(
     (finalIndex: number) => {
+      const returnedMedia = adaptivePreviewImages[finalIndex]
+      const originalIndex = returnedMedia ? images.findIndex((media) => media.id === returnedMedia.id) : -1
       setPreviewIndex(null)
-      setCurrentIndex(finalIndex)
-      setReturnIndex(finalIndex)
+      if (originalIndex < 0) return
+      setCurrentIndex(originalIndex)
+      setReturnIndex(originalIndex)
     },
-    [setCurrentIndex]
+    [adaptivePreviewImages, images, setCurrentIndex]
   )
 
   const handleReturnHandled = useCallback(() => setReturnIndex(null), [])
 
   const mediaContent = isSingleVideoArtwork(images) ? (
-    <SingleVideoArtworkMedia
-      media={images[0]!}
-      onOpenPreviewMenu={openContextMenu}
-      onOpenAdaptivePreview={setPreviewIndex}
-    />
+    <SingleVideoArtworkMedia media={images[0]!} />
   ) : (
     <VirtualizedArtworkMediaList
       images={images}
       returnIndex={returnIndex}
       onReturnHandled={handleReturnHandled}
       onOpenPreviewMenu={openContextMenu}
-      onOpenAdaptivePreview={setPreviewIndex}
+      onOpenAdaptivePreview={openAdaptivePreview}
     />
   )
 
@@ -671,7 +656,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
       />
       {previewIndex !== null && (
         <AdaptiveMediaPreview
-          images={images}
+          images={adaptivePreviewImages}
           initialIndex={previewIndex}
           open
           onClose={handlePreviewClose}

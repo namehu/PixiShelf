@@ -3,6 +3,10 @@
 import { z } from 'zod'
 import { formatTime } from '@/lib/utils'
 
+const VideoChapterAudioSchema = z.looseObject({
+  hasAudio: z.unknown().optional()
+})
+
 const VideoChapterSchema = z.looseObject({
   index: z.number().int().positive(),
   title: z.string().trim().min(1),
@@ -10,6 +14,7 @@ const VideoChapterSchema = z.looseObject({
   end: z.number().nonnegative(),
   duration: z.number().nonnegative(),
   file: z.string().optional(),
+  audio: VideoChapterAudioSchema.optional(),
   previewStatus: z.enum(['PENDING', 'GENERATING', 'COMPLETED', 'FAILED']).optional().default('PENDING'),
   previewUrl: z.string().nullable().optional().default(null),
   previewCaptureTime: z.number().nonnegative().nullable().optional().default(null),
@@ -20,6 +25,7 @@ const VideoChapterManifestSchema = z.looseObject({
   source: z.enum(['chapters-file', 'mp4-embedded', 'database']).optional(),
   version: z.union([z.literal(1), z.literal(2)]),
   duration: z.number().nonnegative(),
+  hasAudio: z.boolean().optional(),
   chapters: z.array(VideoChapterSchema)
 })
 
@@ -33,6 +39,7 @@ export interface NormalizedChapter {
   start: number
   end: number
   duration: number
+  hasAudio?: boolean
   previewStatus: 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED'
   previewUrl: string | null
   previewCaptureTime: number | null
@@ -79,6 +86,11 @@ export function normalizeVideoChapterManifest(input: unknown): {
         start: chapter.start,
         end: chapter.end,
         duration: chapter.duration,
+        ...(typeof chapter.audio?.hasAudio === 'boolean'
+          ? { hasAudio: chapter.audio.hasAudio }
+          : manifest.hasAudio === false
+            ? { hasAudio: false }
+            : {}),
         previewStatus: chapter.previewStatus,
         previewUrl: chapter.previewUrl,
         previewCaptureTime: chapter.previewCaptureTime,

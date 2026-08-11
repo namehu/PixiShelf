@@ -7,14 +7,8 @@ import { Keyboard, Virtual, Zoom } from 'swiper/modules'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import type { Swiper as SwiperType } from 'swiper'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
-import VideoPlayer from '@/components/players/video-player'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle
-} from '@/components/ui/dialog'
-import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
 
 import 'swiper/css'
 import 'swiper/css/zoom'
@@ -30,9 +24,7 @@ interface AdaptiveMediaPreviewProps {
 }
 
 function asHistoryRecord(state: unknown): Record<string, unknown> {
-  return typeof state === 'object' && state !== null && !Array.isArray(state)
-    ? (state as Record<string, unknown>)
-    : {}
+  return typeof state === 'object' && state !== null && !Array.isArray(state) ? (state as Record<string, unknown>) : {}
 }
 
 function createHistoryToken() {
@@ -41,25 +33,15 @@ function createHistoryToken() {
     : `${Date.now()}-${Math.random()}`
 }
 
-function isVideoMedia(media: ArtworkImageResponseDto) {
-  return media.mediaType === 'video' || isVideoFile(media.path)
-}
-
 function isAnimatedMedia(media: ArtworkImageResponseDto) {
-  return Boolean(media.isAnimated) &&
-    (isApngFile(media.path) || isGifFile(media.path) || isWebpFile(media.path))
+  return Boolean(media.isAnimated) && (isApngFile(media.path) || isGifFile(media.path) || isWebpFile(media.path))
 }
 
 function clampIndex(index: number, length: number) {
   return Math.min(Math.max(index, 0), Math.max(0, length - 1))
 }
 
-export default function AdaptiveMediaPreview({
-  images,
-  initialIndex,
-  open,
-  onClose
-}: AdaptiveMediaPreviewProps) {
+export default function AdaptiveMediaPreview({ images, initialIndex, open, onClose }: AdaptiveMediaPreviewProps) {
   const safeInitialIndex = clampIndex(initialIndex, images.length)
   const [currentIndex, setCurrentIndex] = useState(safeInitialIndex)
   const [zoomScale, setZoomScale] = useState(1)
@@ -139,14 +121,17 @@ export default function AdaptiveMediaPreview({
   const activeMedia = images[currentIndex]
   const activeAnimated = useMemo(() => (activeMedia ? isAnimatedMedia(activeMedia) : false), [activeMedia])
 
-  const handleSlideChange = useCallback((swiper: SwiperType) => {
-    const nextIndex = clampIndex(swiper.activeIndex, images.length)
-    currentIndexRef.current = nextIndex
-    setCurrentIndex(nextIndex)
-    setZoomScale(1)
-    swiper.allowSlideNext = true
-    swiper.allowSlidePrev = true
-  }, [images.length])
+  const handleSlideChange = useCallback(
+    (swiper: SwiperType) => {
+      const nextIndex = clampIndex(swiper.activeIndex, images.length)
+      currentIndexRef.current = nextIndex
+      setCurrentIndex(nextIndex)
+      setZoomScale(1)
+      swiper.allowSlideNext = true
+      swiper.allowSlidePrev = true
+    },
+    [images.length]
+  )
 
   const handleZoomChange = useCallback((swiper: SwiperType, scale: number) => {
     const isZoomed = scale > 1.01
@@ -165,9 +150,7 @@ export default function AdaptiveMediaPreview({
         onPointerDownOutside={(event) => event.preventDefault()}
       >
         <DialogTitle className="sr-only">适配尺寸媒体预览</DialogTitle>
-        <DialogDescription className="sr-only">
-          左右滑动切换媒体，双指或双击缩放图片。
-        </DialogDescription>
+        <DialogDescription className="sr-only">左右滑动切换媒体，双指或双击缩放图片。</DialogDescription>
 
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/75 via-black/35 to-transparent px-3 pb-8 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-5">
           <div
@@ -207,7 +190,6 @@ export default function AdaptiveMediaPreview({
           data-testid="adaptive-media-preview-swiper"
         >
           {images.map((media, index) => {
-            const video = isVideoMedia(media)
             const animated = isAnimatedMedia(media)
 
             return (
@@ -216,37 +198,24 @@ export default function AdaptiveMediaPreview({
                 virtualIndex={index}
                 className="flex h-full items-center justify-center overflow-hidden"
               >
-                {video ? (
-                  <div className="flex h-full w-full items-center justify-center px-0 py-16 sm:px-12 sm:py-20">
-                    <VideoPlayer
-                      src={media.path}
-                      chaptersUrl={media.chaptersUrl}
-                      hasAudio={media.hasAudio}
-                      size={media.size}
-                      className="h-full w-full"
-                      fillParent
-                    />
-                  </div>
-                ) : (
-                  <div className="swiper-zoom-container relative h-full w-full px-0 py-16 sm:px-12 sm:py-20">
-                    <Image
-                      src={media.path}
-                      alt={`作品媒体 ${index + 1}`}
-                      fill
-                      sizes="100vw"
-                      quality={95}
-                      priority={Math.abs(index - safeInitialIndex) <= 1}
-                      loading={Math.abs(index - safeInitialIndex) <= 1 ? 'eager' : 'lazy'}
-                      draggable={false}
-                      className="select-none object-contain"
-                    />
-                    {animated && (
-                      <span className="pointer-events-none absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-xs text-white/85 backdrop-blur-md">
-                        动图静态预览
-                      </span>
-                    )}
-                  </div>
-                )}
+                <div className="swiper-zoom-container relative h-full w-full px-0 py-16 sm:px-12 sm:py-20">
+                  <Image
+                    src={media.path}
+                    alt={`作品媒体 ${index + 1}`}
+                    fill
+                    sizes="100vw"
+                    quality={95}
+                    priority={Math.abs(index - safeInitialIndex) <= 1}
+                    loading={Math.abs(index - safeInitialIndex) <= 1 ? 'eager' : 'lazy'}
+                    draggable={false}
+                    className="select-none object-contain"
+                  />
+                  {animated && (
+                    <span className="pointer-events-none absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-xs text-white/85 backdrop-blur-md">
+                      动图静态预览
+                    </span>
+                  )}
+                </div>
               </SwiperSlide>
             )
           })}

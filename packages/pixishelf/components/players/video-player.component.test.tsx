@@ -201,6 +201,33 @@ describe('VideoPlayer component behavior', () => {
     expect(artplayerMock.constructor.mock.calls[0]?.[0]).toMatchObject({ gesture: false })
   })
 
+  it('keeps the explicit control state when Artplayer attempts to auto-hide it', async () => {
+    const art = setupArtplayerMock()
+
+    render(<VideoPlayer src="/video.mp4" />)
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    act(() => emitArtplayerEvent('ready'))
+
+    art.controls.show = false
+    act(() => emitArtplayerEvent('control', false))
+
+    expect(art.controls.show).toBe(true)
+  })
+
+  it('offers current-position and from-start recovery after a video error', async () => {
+    setupArtplayerMock()
+
+    render(<VideoPlayer src="/video.mp4" />)
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalledTimes(1))
+    act(() => emitArtplayerEvent('video:error'))
+
+    expect(screen.getByRole('button', { name: '重新加载' })).toBeDefined()
+    expect(screen.getByRole('button', { name: '从头加载' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }))
+
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalledTimes(2))
+  })
+
   it('adds optional business actions to the native Artplayer settings menu', async () => {
     const art = setupArtplayerMock()
     const onClick = vi.fn()
@@ -286,12 +313,28 @@ describe('VideoPlayer component behavior', () => {
     videoChaptersMock.useVideoChapters.mockReturnValue({
       chapters: [
         {
-          id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10,
-          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+          id: 'chapter-1',
+          index: 1,
+          title: 'Opening',
+          start: 0,
+          end: 10,
+          duration: 10,
+          previewStatus: 'PENDING',
+          previewUrl: null,
+          previewCaptureTime: null,
+          previewUpdatedAt: null
         },
         {
-          id: 'chapter-2', index: 2, title: 'Middle', start: 20, end: 30, duration: 10,
-          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+          id: 'chapter-2',
+          index: 2,
+          title: 'Middle',
+          start: 20,
+          end: 30,
+          duration: 10,
+          previewStatus: 'PENDING',
+          previewUrl: null,
+          previewCaptureTime: null,
+          previewUpdatedAt: null
         }
       ],
       duration: 30,
@@ -343,12 +386,28 @@ describe('VideoPlayer component behavior', () => {
     videoChaptersMock.useVideoChapters.mockReturnValue({
       chapters: [
         {
-          id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10,
-          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+          id: 'chapter-1',
+          index: 1,
+          title: 'Opening',
+          start: 0,
+          end: 10,
+          duration: 10,
+          previewStatus: 'PENDING',
+          previewUrl: null,
+          previewCaptureTime: null,
+          previewUpdatedAt: null
         },
         {
-          id: 'chapter-2', index: 2, title: 'Middle', start: 20, end: 30, duration: 10,
-          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+          id: 'chapter-2',
+          index: 2,
+          title: 'Middle',
+          start: 20,
+          end: 30,
+          duration: 10,
+          previewStatus: 'PENDING',
+          previewUrl: null,
+          previewCaptureTime: null,
+          previewUpdatedAt: null
         }
       ],
       duration: 30,
@@ -398,12 +457,28 @@ describe('VideoPlayer component behavior', () => {
     videoChaptersMock.useVideoChapters.mockReturnValue({
       chapters: [
         {
-          id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10,
-          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+          id: 'chapter-1',
+          index: 1,
+          title: 'Opening',
+          start: 0,
+          end: 10,
+          duration: 10,
+          previewStatus: 'PENDING',
+          previewUrl: null,
+          previewCaptureTime: null,
+          previewUpdatedAt: null
         },
         {
-          id: 'chapter-2', index: 2, title: 'Middle', start: 20, end: 30, duration: 10,
-          previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+          id: 'chapter-2',
+          index: 2,
+          title: 'Middle',
+          start: 20,
+          end: 30,
+          duration: 10,
+          previewStatus: 'PENDING',
+          previewUrl: null,
+          previewCaptureTime: null,
+          previewUpdatedAt: null
         }
       ],
       duration: 30,

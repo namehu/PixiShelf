@@ -47,7 +47,22 @@ vi.mock('@/components/shared/multiple-selector', () => ({
 }))
 
 vi.mock('@/components/ui/select', () => ({
-  Select: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  Select: ({
+    children,
+    onValueChange,
+    value
+  }: React.PropsWithChildren<{ onValueChange?: (value: string) => void; value?: string }>) => (
+    <div>
+      {children}
+      {value && (
+        <button
+          type="button"
+          aria-label={`更改选择 ${value}`}
+          onClick={() => onValueChange?.(value === '3' ? '2' : '15')}
+        />
+      )}
+    </div>
+  ),
   SelectContent: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   SelectItem: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   SelectTrigger: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
@@ -56,13 +71,7 @@ vi.mock('@/components/ui/select', () => ({
 
 vi.mock('@/components/ui/switch', () => ({
   Switch: ({ checked, onCheckedChange, ...props }: any) => (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onCheckedChange(!checked)}
-      {...props}
-    />
+    <button type="button" role="switch" aria-checked={checked} onClick={() => onCheckedChange(!checked)} {...props} />
   )
 }))
 
@@ -95,6 +104,20 @@ describe('SettingsPreferencesPage media privacy setting', () => {
       key: 'media_privacy_mode',
       value: true,
       type: 'boolean'
+    })
+  })
+
+  it('persists the video long-press rate as an account preference', () => {
+    render(<SettingsPreferencesPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: '更改选择 3' }))
+
+    expect(useUserSettingsStore.getState().settings.video_long_press_playback_rate).toBe(2)
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+    expect(testState.execute).toHaveBeenCalledWith({
+      settings: [{ key: 'video_long_press_playback_rate', value: 2, type: 'number' }]
     })
   })
 })

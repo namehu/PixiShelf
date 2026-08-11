@@ -43,13 +43,15 @@ vi.mock('./lazy-media', () => ({
 
 vi.mock('./adaptive-media-preview', () => ({
   default: ({
+    images,
     initialIndex,
     onClose
   }: {
+    images: Array<{ path: string }>
     initialIndex: number
     onClose: (finalIndex: number) => void
   }) => (
-    <div data-testid="adaptive-media-preview" data-initial-index={initialIndex}>
+    <div data-testid="adaptive-media-preview" data-initial-index={initialIndex} data-media-count={images.length}>
       <button type="button" onClick={() => onClose(initialIndex)}>
         关闭适配预览
       </button>
@@ -203,7 +205,7 @@ describe('ArtworkImages', () => {
     expect(screen.getByText('查看原始文件')).toBeTruthy()
   })
 
-  it('offers adaptive preview without an original-file action on video long press', () => {
+  it('does not open the adaptive preview menu on video long press', () => {
     vi.useFakeTimers()
     const images = generateImages(1).map((image) => ({
       ...image,
@@ -215,8 +217,22 @@ describe('ArtworkImages', () => {
     fireEvent.mouseDown(screen.getByTestId('lazy-media'))
     act(() => vi.advanceTimersByTime(500))
 
-    expect(screen.getByText('适配尺寸预览')).toBeTruthy()
+    expect(screen.queryByText('适配尺寸预览')).toBeNull()
     expect(screen.queryByText('查看原始文件')).toBeNull()
+  })
+
+  it('excludes videos when an image opens the adaptive preview', () => {
+    const images = generateImages(3).map((image, index) =>
+      index === 1 ? { ...image, path: '/path/to/video.mp4', mediaType: 'video' as const } : image
+    )
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    const thirdMedia = screen.getAllByTestId('lazy-media')[2]!
+    fireEvent.mouseDown(thirdMedia)
+    fireEvent.mouseUp(thirdMedia)
+
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-media-count')).toBe('2')
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('1')
   })
 
   it('opens adaptive preview on a regular image click without opening the long-press menu', () => {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { clusterTimelineMarkers, getAdjacentChapters, type NormalizedChapter, type TimelineMarker } from './video-chapters'
+import {
+  clusterTimelineMarkers,
+  getAdjacentChapters,
+  normalizeVideoChapterManifest,
+  type NormalizedChapter,
+  type TimelineMarker
+} from './video-chapters'
 
 function createMarkers(count: number, spacingSeconds = 10): TimelineMarker[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -48,16 +54,40 @@ describe('clusterTimelineMarkers', () => {
 describe('getAdjacentChapters', () => {
   const chapters: NormalizedChapter[] = [
     {
-      id: 'chapter-1', index: 1, title: 'Opening', start: 0, end: 10, duration: 10,
-      previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+      id: 'chapter-1',
+      index: 1,
+      title: 'Opening',
+      start: 0,
+      end: 10,
+      duration: 10,
+      previewStatus: 'PENDING',
+      previewUrl: null,
+      previewCaptureTime: null,
+      previewUpdatedAt: null
     },
     {
-      id: 'chapter-2', index: 2, title: 'Middle', start: 20, end: 30, duration: 10,
-      previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+      id: 'chapter-2',
+      index: 2,
+      title: 'Middle',
+      start: 20,
+      end: 30,
+      duration: 10,
+      previewStatus: 'PENDING',
+      previewUrl: null,
+      previewCaptureTime: null,
+      previewUpdatedAt: null
     },
     {
-      id: 'chapter-3', index: 3, title: 'Finale', start: 40, end: 50, duration: 10,
-      previewStatus: 'PENDING', previewUrl: null, previewCaptureTime: null, previewUpdatedAt: null
+      id: 'chapter-3',
+      index: 3,
+      title: 'Finale',
+      start: 40,
+      end: 50,
+      duration: 10,
+      previewStatus: 'PENDING',
+      previewUrl: null,
+      previewCaptureTime: null,
+      previewUpdatedAt: null
     }
   ]
 
@@ -83,5 +113,33 @@ describe('getAdjacentChapters', () => {
 
   it('returns no targets when no chapters are available', () => {
     expect(getAdjacentChapters([], 15)).toEqual({})
+  })
+})
+
+describe('normalizeVideoChapterManifest audio state', () => {
+  it('keeps chapter audio state and infers no audio from the whole video', () => {
+    const normalized = normalizeVideoChapterManifest({
+      version: 2,
+      duration: 30,
+      hasAudio: false,
+      chapters: [
+        { index: 1, title: 'Known audio', start: 0, end: 10, duration: 10, audio: { hasAudio: true } },
+        { index: 2, title: 'Known no audio', start: 10, end: 20, duration: 10, audio: { hasAudio: false } },
+        { index: 3, title: 'Inherited no audio', start: 20, end: 30, duration: 10 }
+      ]
+    })
+
+    expect(normalized.chapters.map((chapter) => chapter.hasAudio)).toEqual([true, false, false])
+  })
+
+  it('keeps missing chapter audio unknown when the video has an audio track', () => {
+    const normalized = normalizeVideoChapterManifest({
+      version: 2,
+      duration: 10,
+      hasAudio: true,
+      chapters: [{ index: 1, title: 'Unknown', start: 0, end: 10, duration: 10 }]
+    })
+
+    expect(normalized.chapters[0]?.hasAudio).toBeUndefined()
   })
 })

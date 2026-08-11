@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { ImageOffIcon, Loader2Icon, VideoIcon } from 'lucide-react'
+import { CircleHelpIcon, ImageOffIcon, Loader2Icon, VideoIcon, Volume2Icon, VolumeXIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
@@ -45,6 +45,7 @@ export default function ChapterSidebar({
   }
 
   const isLight = tone === 'light'
+  const hasKnownAudioState = chapters.some((chapter) => typeof chapter.hasAudio === 'boolean')
 
   const renderChapter = (chapter: NormalizedChapter) => {
     const isActive = currentChapterId === chapter.id
@@ -114,6 +115,24 @@ export default function ChapterSidebar({
         </span>
         <span data-chapter-title className="block min-h-12 px-2 py-1.5 text-xs font-medium leading-4">
           <span className="line-clamp-2">{chapter.title}</span>
+          {hasKnownAudioState && (
+            <span
+              className={cn(
+                'mt-1 flex items-center gap-1 text-[10px] font-normal',
+                isLight ? 'text-neutral-500' : 'text-white/55'
+              )}
+              aria-label={chapter.hasAudio === true ? '有音频' : chapter.hasAudio === false ? '无音频' : '音频状态未知'}
+            >
+              {chapter.hasAudio === true ? (
+                <Volume2Icon className="h-3 w-3 text-blue-500" aria-hidden="true" />
+              ) : chapter.hasAudio === false ? (
+                <VolumeXIcon className="h-3 w-3" aria-hidden="true" />
+              ) : (
+                <CircleHelpIcon className="h-3 w-3" aria-hidden="true" />
+              )}
+              <span>{chapter.hasAudio === true ? '有音频' : chapter.hasAudio === false ? '无音频' : '未知'}</span>
+            </span>
+          )}
         </span>
       </button>
     )

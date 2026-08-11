@@ -6,6 +6,8 @@ import { userSettingsWithDefaultsSchema } from '@/schemas/user-setting.dto'
 import type {
   ArtworkDisplayMode,
   ArtworkMediaAnchorInterval,
+  VideoLongPressPlaybackRate,
+  VideoSeekStepSeconds,
   UserSettings,
   UserSettingsWithDefaults
 } from '@/schemas/user-setting.dto'
@@ -19,7 +21,8 @@ interface UserSettingState {
 
 const defaultSettings = userSettingsWithDefaultsSchema.parse({})
 
-const normalizeSettings = (settings?: UserSettings): UserSettingsWithDefaults => userSettingsWithDefaultsSchema.parse(settings ?? {})
+const normalizeSettings = (settings?: UserSettings): UserSettingsWithDefaults =>
+  userSettingsWithDefaultsSchema.parse(settings ?? {})
 
 function MediaPrivacyRootSync() {
   const enabled = useUserSettingsStore((state) => state.settings.media_privacy_mode)
@@ -118,6 +121,14 @@ export function useArtworkMediaAnchorInterval(): ArtworkMediaAnchorInterval {
 
 export function useMediaPrivacyMode(): boolean {
   return useUserSettingValue('media_privacy_mode')
+}
+
+export function useVideoLongPressPlaybackRate(): VideoLongPressPlaybackRate {
+  return useUserSettingValue('video_long_press_playback_rate')
+}
+
+export function useVideoSeekStepSeconds(): VideoSeekStepSeconds {
+  return useUserSettingValue('video_seek_step_seconds')
 }
 
 export { useUserSettingsStore }

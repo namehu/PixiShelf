@@ -34,9 +34,7 @@ describe('ChapterSidebar', () => {
   afterEach(() => cleanup())
 
   it('renders a two-column chapter grid with preview, time, and active state', () => {
-    render(
-      <ChapterSidebar chapters={chapters} currentChapterId="chapter-1" onChapterClick={vi.fn()} tone="dark" />
-    )
+    render(<ChapterSidebar chapters={chapters} currentChapterId="chapter-1" onChapterClick={vi.fn()} tone="dark" />)
 
     expect(screen.getByRole('img', { name: 'Opening 章节截图' })).toBeDefined()
     expect(screen.getByText('00:00')).toBeDefined()
@@ -71,5 +69,27 @@ describe('ChapterSidebar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Opening/ }))
     expect(onChapterClick).toHaveBeenCalledWith(chapters[0])
+  })
+
+  it('shows chapter audio state only when the manifest contains known states', () => {
+    const chaptersWithAudio = [
+      { ...chapters[0]!, hasAudio: true },
+      { ...chapters[1]!, hasAudio: false },
+      {
+        ...chapters[1]!,
+        id: 'chapter-3',
+        index: 3,
+        title: 'Unknown audio',
+        start: 20,
+        end: 30,
+        hasAudio: undefined
+      }
+    ]
+
+    render(<ChapterSidebar chapters={chaptersWithAudio} onChapterClick={vi.fn()} tone="dark" />)
+
+    expect(screen.getByLabelText('有音频')).toBeDefined()
+    expect(screen.getByLabelText('无音频')).toBeDefined()
+    expect(screen.getByLabelText('音频状态未知')).toBeDefined()
   })
 })

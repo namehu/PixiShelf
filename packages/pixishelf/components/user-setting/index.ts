@@ -6,5 +6,7 @@ export {
   useArtworkDisplayMode,
   usePreferredTags,
   useArtworkMediaAnchorInterval,
-  useMediaPrivacyMode
+  useMediaPrivacyMode,
+  useVideoLongPressPlaybackRate,
+  useVideoSeekStepSeconds
 } from './user-setting-provider'

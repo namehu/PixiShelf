@@ -4,6 +4,12 @@
   display: none !important;
 }
 
+/* The PixiShelf gesture surface owns canvas taps; keep ArtPlayer's center state from intercepting them. */
+.video-player .art-video-player .art-state {
+  display: none !important;
+  pointer-events: none !important;
+}
+
 /* ArtPlayer's layer stack normally sits below controls, settings, and context menus. */
 .art-video-player.pixishelf-chapter-overlay-open .art-layers {
   z-index: 130;

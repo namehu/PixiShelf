@@ -14,15 +14,25 @@ import {
   useArtworkMediaAnchorInterval,
   useMediaPrivacyMode,
   usePreferredTags,
+  useVideoLongPressPlaybackRate,
+  useVideoSeekStepSeconds,
   useUserSettingsStore
 } from '@/components/user-setting'
 import { useTRPC } from '@/lib/trpc'
-import type { ArtworkDisplayMode, ArtworkMediaAnchorInterval } from '@/schemas/user-setting.dto'
+import type {
+  ArtworkDisplayMode,
+  ArtworkMediaAnchorInterval,
+  UpdateUserSettingDTO,
+  VideoLongPressPlaybackRate,
+  VideoSeekStepSeconds
+} from '@/schemas/user-setting.dto'
 
 const DISPLAY_MODE_KEY = 'artwork_display_mode'
 const PREFERRED_TAGS_KEY = 'preferred_tags'
 const MEDIA_ANCHOR_INTERVAL_KEY = 'artwork_media_anchor_interval'
 const MEDIA_PRIVACY_MODE_KEY = 'media_privacy_mode'
+const VIDEO_LONG_PRESS_PLAYBACK_RATE_KEY = 'video_long_press_playback_rate'
+const VIDEO_SEEK_STEP_SECONDS_KEY = 'video_seek_step_seconds'
 
 export default function SettingsPreferencesPage() {
   const trpc = useTRPC()
@@ -30,13 +40,18 @@ export default function SettingsPreferencesPage() {
   const preferredTagsSetting = usePreferredTags()
   const mediaAnchorIntervalSetting = useArtworkMediaAnchorInterval()
   const mediaPrivacyModeSetting = useMediaPrivacyMode()
+  const videoLongPressPlaybackRateSetting = useVideoLongPressPlaybackRate()
+  const videoSeekStepSecondsSetting = useVideoSeekStepSeconds()
   const updateSettingLocally = useUserSettingsStore((state) => state.updateSettingLocally)
 
   const [displayMode, setDisplayMode] = useState<ArtworkDisplayMode>(displayModeSetting)
   const [preferredTags, setPreferredTags] = useState<string[]>(preferredTagsSetting)
-  const [mediaAnchorInterval, setMediaAnchorInterval] =
-    useState<ArtworkMediaAnchorInterval>(mediaAnchorIntervalSetting)
+  const [mediaAnchorInterval, setMediaAnchorInterval] = useState<ArtworkMediaAnchorInterval>(mediaAnchorIntervalSetting)
   const [mediaPrivacyMode, setMediaPrivacyMode] = useState(mediaPrivacyModeSetting)
+  const [videoLongPressPlaybackRate, setVideoLongPressPlaybackRate] = useState<VideoLongPressPlaybackRate>(
+    videoLongPressPlaybackRateSetting
+  )
+  const [videoSeekStepSeconds, setVideoSeekStepSeconds] = useState<VideoSeekStepSeconds>(videoSeekStepSecondsSetting)
 
   useEffect(() => {
     setDisplayMode(displayModeSetting)
@@ -53,6 +68,14 @@ export default function SettingsPreferencesPage() {
   useEffect(() => {
     setMediaPrivacyMode(mediaPrivacyModeSetting)
   }, [mediaPrivacyModeSetting])
+
+  useEffect(() => {
+    setVideoLongPressPlaybackRate(videoLongPressPlaybackRateSetting)
+  }, [videoLongPressPlaybackRateSetting])
+
+  useEffect(() => {
+    setVideoSeekStepSeconds(videoSeekStepSecondsSetting)
+  }, [videoSeekStepSecondsSetting])
 
   const { data: tagsData } = useQuery(
     trpc.tag.list.queryOptions({
@@ -72,6 +95,7 @@ export default function SettingsPreferencesPage() {
   )
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingSettings = useRef(new Map<string, UpdateUserSettingDTO>())
 
   useEffect(() => {
     return () => {
@@ -91,23 +115,16 @@ export default function SettingsPreferencesPage() {
     }
   })
 
-  const scheduleSave = (
-    nextDisplayMode: ArtworkDisplayMode,
-    nextPreferredTags: string[],
-    nextMediaAnchorInterval: ArtworkMediaAnchorInterval,
-    nextMediaPrivacyMode: boolean
-  ) => {
+  const scheduleSave = (setting: UpdateUserSettingDTO) => {
+    pendingSettings.current.set(setting.key, setting)
     if (saveTimer.current) {
       clearTimeout(saveTimer.current)
     }
     saveTimer.current = setTimeout(() => {
+      const settings = Array.from(pendingSettings.current.values())
+      pendingSettings.current.clear()
       execute({
-        settings: [
-          { key: DISPLAY_MODE_KEY, value: nextDisplayMode, type: 'string' },
-          { key: PREFERRED_TAGS_KEY, value: nextPreferredTags, type: 'json' },
-          { key: MEDIA_ANCHOR_INTERVAL_KEY, value: nextMediaAnchorInterval, type: 'number' },
-          { key: MEDIA_PRIVACY_MODE_KEY, value: nextMediaPrivacyMode, type: 'boolean' }
-        ]
+        settings
       })
     }, 500)
   }
@@ -115,7 +132,7 @@ export default function SettingsPreferencesPage() {
   const onDisplayModeChange = (value: ArtworkDisplayMode) => {
     setDisplayMode(value)
     updateSettingLocally(DISPLAY_MODE_KEY, value)
-    scheduleSave(value, preferredTags, mediaAnchorInterval, mediaPrivacyMode)
+    scheduleSave({ key: DISPLAY_MODE_KEY, value, type: 'string' })
   }
 
   const selectedTagOptions = useMemo<Option[]>(
@@ -131,20 +148,34 @@ export default function SettingsPreferencesPage() {
     const values = options.map((item) => item.value)
     setPreferredTags(values)
     updateSettingLocally(PREFERRED_TAGS_KEY, values)
-    scheduleSave(displayMode, values, mediaAnchorInterval, mediaPrivacyMode)
+    scheduleSave({ key: PREFERRED_TAGS_KEY, value: values, type: 'json' })
   }
 
   const onMediaAnchorIntervalChange = (value: string) => {
     const nextValue = Number(value) as ArtworkMediaAnchorInterval
     setMediaAnchorInterval(nextValue)
     updateSettingLocally(MEDIA_ANCHOR_INTERVAL_KEY, nextValue)
-    scheduleSave(displayMode, preferredTags, nextValue, mediaPrivacyMode)
+    scheduleSave({ key: MEDIA_ANCHOR_INTERVAL_KEY, value: nextValue, type: 'number' })
   }
 
   const onMediaPrivacyModeChange = (checked: boolean) => {
     setMediaPrivacyMode(checked)
     updateSettingLocally(MEDIA_PRIVACY_MODE_KEY, checked)
-    scheduleSave(displayMode, preferredTags, mediaAnchorInterval, checked)
+    scheduleSave({ key: MEDIA_PRIVACY_MODE_KEY, value: checked, type: 'boolean' })
+  }
+
+  const onVideoLongPressPlaybackRateChange = (value: string) => {
+    const nextValue = Number(value) as VideoLongPressPlaybackRate
+    setVideoLongPressPlaybackRate(nextValue)
+    updateSettingLocally(VIDEO_LONG_PRESS_PLAYBACK_RATE_KEY, nextValue)
+    scheduleSave({ key: VIDEO_LONG_PRESS_PLAYBACK_RATE_KEY, value: nextValue, type: 'number' })
+  }
+
+  const onVideoSeekStepSecondsChange = (value: string) => {
+    const nextValue = Number(value) as VideoSeekStepSeconds
+    setVideoSeekStepSeconds(nextValue)
+    updateSettingLocally(VIDEO_SEEK_STEP_SECONDS_KEY, nextValue)
+    scheduleSave({ key: VIDEO_SEEK_STEP_SECONDS_KEY, value: nextValue, type: 'number' })
   }
 
   return (
@@ -184,14 +215,48 @@ export default function SettingsPreferencesPage() {
       </PreferenceItem>
 
       <PreferenceItem
+        title="视频长按倍速"
+        description="触摸设备播放视频时，按住画面 1 秒进入临时倍速，松手后恢复原速度"
+      >
+        <Select
+          value={String(videoLongPressPlaybackRate)}
+          onValueChange={onVideoLongPressPlaybackRateChange}
+          disabled={isExecuting}
+        >
+          <SelectTrigger className="w-full sm:w-[420px]" aria-label="视频长按倍速">
+            <SelectValue placeholder="选择长按倍速" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="2">2 倍速</SelectItem>
+            <SelectItem value="3">3 倍速（推荐）</SelectItem>
+          </SelectContent>
+        </Select>
+      </PreferenceItem>
+
+      <PreferenceItem title="视频跳转步长" description="统一控制左右双击和键盘方向键每次快进、快退的时间">
+        <Select
+          value={String(videoSeekStepSeconds)}
+          onValueChange={onVideoSeekStepSecondsChange}
+          disabled={isExecuting}
+        >
+          <SelectTrigger className="w-full sm:w-[420px]" aria-label="视频跳转步长">
+            <SelectValue placeholder="选择跳转步长" />
+          </SelectTrigger>
+          <SelectContent>
+            {[5, 10, 15].map((seconds) => (
+              <SelectItem key={seconds} value={String(seconds)}>
+                {seconds} 秒{seconds === 10 ? '（推荐）' : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </PreferenceItem>
+
+      <PreferenceItem
         title="作品媒体快捷导航"
         description="大量图片作品在右侧显示快捷刻度；设置数字表示每隔多少张生成一个节点"
       >
-        <Select
-          value={String(mediaAnchorInterval)}
-          onValueChange={onMediaAnchorIntervalChange}
-          disabled={isExecuting}
-        >
+        <Select value={String(mediaAnchorInterval)} onValueChange={onMediaAnchorIntervalChange} disabled={isExecuting}>
           <SelectTrigger className="w-full sm:w-[420px]">
             <SelectValue placeholder="选择节点间隔" />
           </SelectTrigger>

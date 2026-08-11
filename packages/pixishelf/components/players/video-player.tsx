@@ -1,11 +1,20 @@
 'use client'
 
-import { InfoIcon, ListVideoIcon, Loader2Icon, SkipBackIcon, SkipForwardIcon, Volume2Icon } from 'lucide-react'
+import {
+  InfoIcon,
+  ListVideoIcon,
+  Loader2Icon,
+  RotateCcwIcon,
+  SkipBackIcon,
+  SkipForwardIcon,
+  Volume2Icon
+} from 'lucide-react'
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import type ArtplayerType from 'artplayer'
 import ChapterTimelinePreview from '@/components/players/chapter-timeline-preview'
+import ChapterAudioTrack from '@/components/players/chapter-audio-track'
 import TimelineMarkers from '@/components/players/timeline-markers'
 import {
   createChapterOverlayPlugin,
@@ -18,17 +27,25 @@ import { useVideoChapters } from '@/components/players/use-video-chapters'
 import {
   createChapterTimelineMarkers,
   getAdjacentChapters,
+  getCurrentChapter,
   type NormalizedChapter
 } from '@/components/players/video-chapters'
 import { useMediaQuery } from '@/hooks/use-media-query'
+import { useVideoLongPressPlaybackRate, useVideoSeekStepSeconds } from '@/components/user-setting'
+import { Button } from '@/components/ui/button'
 import { createArtplayerCleanup } from '@/lib/artplayer-lifecycle'
 import { cn } from '@/lib/utils'
 import { combinationApiResource } from '@/utils/combination-static'
 import { formatFileSize } from '@/utils/media'
+import {
+  createVideoInteractionPlugin,
+  getVideoInteractionPlugin,
+  type VideoInteractionFeedback,
+  type VideoInteractionPluginApi
+} from '@/components/players/video-interaction-controller'
 import './video-player.css'
 
 const VIDEO_TIME_SYNC_THRESHOLD = 0.25
-const CHAPTER_CONTROL_VISIBILITY_DURATION = 1200
 
 export function shouldShowVideoBuffering(video?: HTMLVideoElement | null) {
   if (!video) {
@@ -115,16 +132,26 @@ export function VideoPlayer({
   const [progressPortalTarget, setProgressPortalTarget] = useState<HTMLDivElement | null>(null)
   const [chapterOverlayPortal, setChapterOverlayPortal] = useState<ChapterOverlayPortal | null>(null)
   const [timelinePreviewChapterId, setTimelinePreviewChapterId] = useState<string | null>(null)
+  const [gestureFeedback, setGestureFeedback] = useState<VideoInteractionFeedback | null>(null)
+  const [playerAttempt, setPlayerAttempt] = useState(0)
   const hasStartedPlayingRef = useRef(false)
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const artRef = useRef<ArtplayerType | null>(null)
   const chapterOverlayPluginRef = useRef<ChapterOverlayPluginApi | null>(null)
+  const videoInteractionPluginRef = useRef<VideoInteractionPluginApi | null>(null)
   const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const keepControlsVisibleUntilRef = useRef(0)
+  const controlsVisibleRef = useRef(true)
+  const chaptersRef = useRef<NormalizedChapter[]>([])
+  const lastConfirmedTimeRef = useRef(0)
+  const wasPlayingBeforeErrorRef = useRef(false)
+  const errorRetrySnapshotRef = useRef({ time: 0, shouldPlay: false })
+  const pendingRetryRef = useRef<{ time: number; shouldPlay: boolean } | null>(null)
   const onPlayRef = useRef(onPlay)
   const onPauseRef = useRef(onPause)
   const onErrorRef = useRef(onError)
   const mediaSrc = useMemo(() => combinationApiResource(src), [src])
+  const longPressPlaybackRate = useVideoLongPressPlaybackRate()
+  const seekStepSeconds = useVideoSeekStepSeconds()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const { chapters, duration: chaptersDuration } = useVideoChapters(chaptersUrl)
   const currentChapter = useCurrentChapter(chapters, currentTime)
@@ -138,6 +165,10 @@ export function VideoPlayer({
   const showAudioControls = shouldShowAudioControls(hasAudio)
   const showVideoMetadataTag = (size ?? 0) > 0 || showAudioControls
 
+  useEffect(() => {
+    chaptersRef.current = chapters
+  }, [chapters])
+
   const clearLoading = () => {
     if (loadingTimeoutRef.current) {
       clearTimeout(loadingTimeoutRef.current)
@@ -147,8 +178,17 @@ export function VideoPlayer({
   }
 
   const showVideoError = (message = '视频加载失败') => {
+    const art = artRef.current
+    if (art && Number.isFinite(art.currentTime)) {
+      lastConfirmedTimeRef.current = Math.max(art.currentTime, 0)
+    }
+    errorRetrySnapshotRef.current = {
+      time: lastConfirmedTimeRef.current,
+      shouldPlay: wasPlayingBeforeErrorRef.current
+    }
     setError(message)
     setLoading(false)
+    setIsPlaying(false)
     onErrorRef.current?.(message)
   }
 
@@ -203,7 +243,12 @@ export function VideoPlayer({
     setProgressPortalTarget(null)
     setChapterOverlayPortal(null)
     setTimelinePreviewChapterId(null)
-    keepControlsVisibleUntilRef.current = 0
+    setGestureFeedback(null)
+    controlsVisibleRef.current = true
+    lastConfirmedTimeRef.current = 0
+    wasPlayingBeforeErrorRef.current = false
+    errorRetrySnapshotRef.current = { time: 0, shouldPlay: false }
+    pendingRetryRef.current = null
   }, [mediaSrc])
 
   useEffect(() => {
@@ -211,6 +256,7 @@ export function VideoPlayer({
     let instance: ArtplayerType | null = null
     let cleanupPlayer: (() => void) | null = null
     let handleFullscreenWeb: ((enabled: boolean) => void) | null = null
+    let handleControl: ((visible: boolean) => void) | null = null
 
     async function initPlayer() {
       if (!playerContainerRef.current) {
@@ -247,7 +293,22 @@ export function VideoPlayer({
         mutex: true,
         gesture: false,
         theme: '#3b82f6',
-        plugins: [createChapterOverlayPlugin(setChapterOverlayPortal)],
+        plugins: [
+          createVideoInteractionPlugin({
+            longPressRate: longPressPlaybackRate,
+            seekStepSeconds,
+            getChapterAt: (time) => getCurrentChapter(chaptersRef.current, time),
+            onFeedback: (feedback) => {
+              if (active) setGestureFeedback(feedback)
+            },
+            setControlsVisible: (visible) => {
+              controlsVisibleRef.current = visible
+              if (instance) instance.controls.show = visible
+            },
+            getControlsVisible: () => controlsVisibleRef.current
+          }),
+          createChapterOverlayPlugin(setChapterOverlayPortal)
+        ],
         moreVideoAttr: {
           preload,
           playsInline: true
@@ -257,6 +318,7 @@ export function VideoPlayer({
       const art = instance
       artRef.current = art
       cleanupPlayer = createArtplayerCleanup(art, playerContainerRef.current)
+      videoInteractionPluginRef.current = getVideoInteractionPlugin(art)
       chapterOverlayPluginRef.current = getChapterOverlayPlugin(art)
       setArtInstance(art)
       setIsFullscreenWeb(Boolean(art.fullscreenWeb))
@@ -266,6 +328,13 @@ export function VideoPlayer({
         if (active) setIsFullscreenWeb(Boolean(enabled))
       }
       art.on('fullscreenWeb', handleFullscreenWeb)
+
+      handleControl = (visible: boolean) => {
+        if (Boolean(visible) !== controlsVisibleRef.current) {
+          art.controls.show = controlsVisibleRef.current
+        }
+      }
+      art.on('control', handleControl)
 
       if (!showAudioControls) {
         const player = (art as ArtplayerType & { template?: { $player?: HTMLDivElement } }).template?.$player
@@ -296,21 +365,20 @@ export function VideoPlayer({
         }
       }
 
-      const hideControls = () => {
-        if (Date.now() < keepControlsVisibleUntilRef.current) {
-          art.controls.show = true
-          return
-        }
-
-        art.controls.show = false
-      }
-
       art.on('ready', () => {
         syncMetadata()
         updateRemainingTime()
         setProgressPortalTarget(getArtProgress(art))
+        controlsVisibleRef.current = true
+        art.controls.show = true
         clearLoading()
-        hideControls()
+
+        const retry = pendingRetryRef.current
+        pendingRetryRef.current = null
+        if (retry) {
+          art.currentTime = Math.min(Math.max(retry.time, 0), art.duration || retry.time)
+          if (retry.shouldPlay) void art.play().catch(() => undefined)
+        }
       })
 
       art.on('play', () => {
@@ -321,23 +389,26 @@ export function VideoPlayer({
         }
 
         hasStartedPlayingRef.current = true
+        wasPlayingBeforeErrorRef.current = true
         setIsPlaying(true)
         onPlayRef.current?.()
-        hideControls()
       })
 
       art.on('pause', () => {
         const video = getArtVideo(art)
+        wasPlayingBeforeErrorRef.current = false
         setIsPlaying(false)
         onPauseRef.current?.()
-        art.controls.show = true
         if (video?.readyState && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
           clearLoading()
         }
       })
 
       art.on('ended', () => {
+        wasPlayingBeforeErrorRef.current = false
         setIsPlaying(false)
+        controlsVisibleRef.current = true
+        art.controls.show = true
         clearLoading()
       })
 
@@ -356,6 +427,7 @@ export function VideoPlayer({
 
         const video = getArtVideo(art)
         if (video?.readyState && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          lastConfirmedTimeRef.current = Math.max(nextTime, 0)
           clearLoading()
         }
       })
@@ -372,7 +444,7 @@ export function VideoPlayer({
       art.on('video:playing', () => {
         clearLoading()
         hasStartedPlayingRef.current = true
-        hideControls()
+        wasPlayingBeforeErrorRef.current = true
       })
       art.on('error', () => {
         showVideoError()
@@ -396,6 +468,12 @@ export function VideoPlayer({
       if (instance && handleFullscreenWeb) {
         instance.off('fullscreenWeb', handleFullscreenWeb)
       }
+      if (instance && handleControl) {
+        instance.off('control', handleControl)
+      }
+      const videoInteractionPlugin = videoInteractionPluginRef.current
+      videoInteractionPluginRef.current = null
+      videoInteractionPlugin?.destroy()
       const chapterOverlayPlugin = chapterOverlayPluginRef.current
       chapterOverlayPluginRef.current = null
       chapterOverlayPlugin?.destroy()
@@ -404,7 +482,18 @@ export function VideoPlayer({
         artRef.current = null
       }
     }
-  }, [autoPlay, loop, mediaSrc, muted, preload, settingActions, showAudioControls])
+  }, [
+    autoPlay,
+    longPressPlaybackRate,
+    loop,
+    mediaSrc,
+    muted,
+    playerAttempt,
+    preload,
+    seekStepSeconds,
+    settingActions,
+    showAudioControls
+  ])
 
   useEffect(() => {
     const video = getArtVideo(artRef.current)
@@ -524,8 +613,6 @@ export function VideoPlayer({
             return
           }
 
-          keepControlsVisibleUntilRef.current = Date.now() + CHAPTER_CONTROL_VISIBILITY_DURATION
-          artInstance.controls.show = true
           seekToChapter(chapter)
         }
       })
@@ -570,8 +657,6 @@ export function VideoPlayer({
       },
       click(_, event) {
         event.stopPropagation()
-        keepControlsVisibleUntilRef.current = Date.now() + CHAPTER_CONTROL_VISIBILITY_DURATION
-        artInstance.controls.show = true
         chapterOverlayPluginRef.current?.toggle()
       }
     })
@@ -602,14 +687,14 @@ export function VideoPlayer({
     }
   }, [])
 
-  if (error) {
-    return (
-      <div className={cn('flex flex-col items-center justify-center bg-neutral-100 text-neutral-600', className)}>
-        <InfoIcon className="text-neutral-400 w-16 h-16 mb-4" />
-        <p className="text-sm">{error}</p>
-        <p className="text-xs text-neutral-500 mt-1">请检查视频文件是否存在或格式是否支持</p>
-      </div>
-    )
+  const retryVideo = (fromStart: boolean) => {
+    pendingRetryRef.current = {
+      time: fromStart ? 0 : errorRetrySnapshotRef.current.time,
+      shouldPlay: errorRetrySnapshotRef.current.shouldPlay
+    }
+    setError(null)
+    setLoading(true)
+    setPlayerAttempt((attempt) => attempt + 1)
   }
 
   return (
@@ -619,17 +704,45 @@ export function VideoPlayer({
     >
       <div ref={playerContainerRef} className="h-full w-full" />
 
+      {error && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-neutral-950/95 px-6 text-center text-white">
+          <InfoIcon className="mb-3 h-14 w-14 text-neutral-400" aria-hidden="true" />
+          <p className="text-sm font-medium">{error}</p>
+          <p className="mt-1 text-xs text-neutral-400">可以从最后可播放位置重试，或从头重新加载</p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Button type="button" size="sm" variant="secondary" onClick={() => retryVideo(false)}>
+              <RotateCcwIcon className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              重新加载
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => retryVideo(true)}>
+              从头加载
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {gestureFeedback && !error && (
+        <div
+          className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center px-6"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="max-w-[80%] rounded-xl bg-black/75 px-4 py-3 text-center text-white shadow-xl backdrop-blur-sm motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95">
+            <p className="text-sm font-semibold sm:text-base">{gestureFeedback.title}</p>
+            {gestureFeedback.detail && <p className="mt-1 truncate text-xs text-white/70">{gestureFeedback.detail}</p>}
+          </div>
+        </div>
+      )}
+
       {showVideoMetadataTag && !isPlaying && (
         <div className="pointer-events-none absolute right-2 top-2 z-20 flex items-center gap-1 rounded bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-          {(size ?? 0) > 0 && (
-            <span>{formatFileSize(size ?? 0)}</span>
-          )}
+          {(size ?? 0) > 0 && <span>{formatFileSize(size ?? 0)}</span>}
           {showAudioControls && <Volume2Icon aria-label="含音频" size={10} />}
         </div>
       )}
 
       {/* 加载指示器 */}
-      {loading && (
+      {loading && !error && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/35">
           <div className="rounded-full bg-white/90 p-4">
             <Loader2Icon className="h-8 w-8 animate-spin text-neutral-600" />
@@ -645,6 +758,7 @@ export function VideoPlayer({
         chapterUiDuration > 0 &&
         createPortal(
           <div className="pointer-events-none absolute inset-0 z-20">
+            <ChapterAudioTrack chapters={chapters} duration={chapterUiDuration} />
             {isDesktop && (
               <ChapterTimelinePreview
                 target={progressPortalTarget}
@@ -668,7 +782,6 @@ export function VideoPlayer({
           </div>,
           progressPortalTarget
         )}
-
     </div>
   )
 }
