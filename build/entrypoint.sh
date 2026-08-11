@@ -4,13 +4,22 @@
 # 严格模式，任何命令失败则脚本退出
 set -e
 
-# 执行数据库迁移
-echo "Running database migrations..."
-# 注意：在 Standalone 模式下，我们使用全局安装的 prisma CLI
-# schema 路径相对于工作目录 /app
-prisma migrate deploy --schema=packages/pixishelf/prisma/schema.prisma
+if [ "${RUN_DB_MIGRATIONS:-true}" = "true" ]; then
+  echo "Running database migrations..."
+  prisma migrate deploy --schema=packages/pixishelf/prisma/schema.prisma
+fi
+
+if [ "${MIGRATE_ONLY:-false}" = "true" ]; then
+  echo "Database migrations completed."
+  exit 0
+fi
 
 # ==================== MODIFICATION START ====================
+if [ "${SKIP_ASSET_REWRITE:-false}" = "true" ]; then
+  echo "Skipping Web asset placeholder replacement."
+  exec "$@"
+fi
+
 echo "Searching for files with placeholders..."
 
 # 定义要搜索的目录和占位符模式

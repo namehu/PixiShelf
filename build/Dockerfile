@@ -77,11 +77,20 @@ RUN adduser --system --uid 1001 nextjs
 # 修复：安装 openssl 以解决 Prisma 引擎检测问题
 # 修复：修改全局 node_modules 权限，允许非 root 用户写入（解决 Can't write to ... @prisma/engines 错误）
 RUN apk add --no-cache curl ffmpeg openssl \
-    && npm install -g prisma@5.22.0 \
-    && chown -R nextjs:nodejs /usr/local/lib/node_modules/prisma
+    && npm install -g prisma@5.22.0 tsx@4.20.6 \
+    && npm install --no-save --omit=dev \
+      @prisma/client@5.22.0 \
+      sharp@0.33.5 \
+      winston@3.17.0 \
+      zod@4.1.11 \
+    && chown -R nextjs:nodejs /usr/local/lib/node_modules/prisma \
+    && mkdir -p /app/logs \
+    && chown nextjs:nodejs /app/logs
 
 # 复制 Prisma Schema (用于迁移)
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
+RUN prisma generate --schema=packages/pixishelf/prisma/schema.prisma \
+    && chown -R nextjs:nodejs /app/node_modules
 
 # 复制 public 文件夹 (注意 monorepo 路径)
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/public ./packages/pixishelf/public
@@ -93,6 +102,8 @@ RUN chmod +x /app/entrypoint.sh
 # 复制 lib 和 scripts 文件夹 (用户自定义需求)
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/lib ./packages/pixishelf/lib
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/scripts ./packages/pixishelf/scripts
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/services/archive ./packages/pixishelf/services/archive
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/tsconfig.json ./packages/pixishelf/tsconfig.json
 
 # 关键：复制 Standalone 构建产物
 # Standalone 文件夹结构会自动包含 monorepo 的结构 (packages/pixishelf/...)

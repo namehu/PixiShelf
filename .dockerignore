@@ -27,6 +27,11 @@ pids
 *.pid
 *.seed
 *.pid.lock
+data/
+build/data/
+build/derived-media/
+packages/pixishelf/.local-data/
+*.dump
 
 # Coverage directory used by tools like istanbul
 coverage

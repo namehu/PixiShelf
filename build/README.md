@@ -75,6 +75,54 @@ cp .env.example .env
 docker-compose -f docker-compose.deploy.yml up -d
 ```
 
+`migrate` 是一次性容器，会在 `app` 和 `archive-worker` 启动前执行 `prisma migrate deploy`。迁移失败时两个服务都不会启动，避免新代码连到旧 Schema。
+
+### 生产升级与回滚准备
+
+升级前先同时备份数据库和媒体目录。下面命令在 `build` 目录执行：
+
+```bash
+mkdir -p backups
+docker-compose -f docker-compose.deploy.yml exec -T postgres \
+  sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
+  > "backups/pixishelf-$(date +%Y%m%d-%H%M%S).dump"
+
+# 对 PIXISHELF_DATA_PATH 做文件系统快照，或复制到另一块磁盘。
+```
+
+先单独执行迁移并查看结果，再启动长驻服务：
+
+```bash
+docker-compose -f docker-compose.deploy.yml pull
+docker-compose -f docker-compose.deploy.yml up migrate
+docker-compose -f docker-compose.deploy.yml run --rm archive-worker \
+  tsx --tsconfig packages/pixishelf/tsconfig.json packages/pixishelf/scripts/archive-identity-report.ts
+docker-compose -f docker-compose.deploy.yml up -d app archive-worker scheduler imgproxy thumbor
+```
+
+身份迁移报告中：
+
+- `localStorageKeys` 是已搬到 `storageKey` 的本地作品数；
+- `pixivReferences` 只统计有可信 Pixiv 证据后建立的 Source Reference；
+- `unknownOrigins` 会保留为未知来源，不会因数字 ID 或历史默认值被猜成 Pixiv；
+- `localRowsStillUsingLegacyExternalId` 在兼容期内是预期值。这些行以 `storageKey` 为权威本地身份，不会生成 E-Hentai 或 Pixiv Source Reference。
+
+若迁移失败，不要启动新版 `app`/`archive-worker`；保留日志，使用已验证的 dump 和媒体快照恢复到一套新的 PostgreSQL 数据目录后，再切回旧镜像。不要在唯一一份生产卷上直接试错恢复。
+
+### URL 归档 Worker
+
+`app` 对媒体目录保持只读，只有 `archive-worker` 使用读写挂载。E-Hentai 归档默认每次只运行一个画廊、最多两个媒体请求；下载前不做磁盘空间预检，`ENOSPC` 会作为可恢复失败保留断点。
+
+```bash
+# 查看 Worker 日志
+docker-compose -f docker-compose.deploy.yml logs -f archive-worker
+
+# 本地容器化调试（会同时启动 migrate）
+docker-compose -f docker-compose.dev.yml --profile archive-worker up -d --build archive-worker
+```
+
+媒体根目录下的 `.archive-staging`、`.archive-publish` 和 `.trash` 是内部生命周期目录，不会通过图片 API 暴露。失败/取消暂存保留 7 天，暂停任务无限期保留，软删除作品在回收站保留 7 天。
+
 ### 单独构建镜像
 
 ```bash

@@ -25,6 +25,29 @@ services:
       start_period: 30s
     restart: always
 
+  migrate:
+    profiles:
+      - container-app
+      - archive-worker
+    build:
+      context: ..
+      dockerfile: build/Dockerfile
+      target: production
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=5&pool_timeout=20
+      RUN_DB_MIGRATIONS: "true"
+      MIGRATE_ONLY: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pixishelf-network
+    restart: "no"
+    healthcheck:
+      disable: true
+
   # 可选：容器化运行 Next.js 应用。默认开发模式下不启动，通常直接在宿主机 pnpm dev。
   app:
     profiles:
@@ -44,6 +67,8 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
       SCAN_PATH: /app/data
+      ARCHIVE_STORAGE_PATH: /app/data
+      RUN_DB_MIGRATIONS: "false"
       NEXT_PUBLIC_IMGPROXY_URL: http://127.0.0.1:${IMGPROXY_HOST_PORT:-5431}
       NEXT_PUBLIC_THUMBOR_VIDEO_URL: http://127.0.0.1:${THUMBOR_HOST_PORT:-5433}
     volumes:
@@ -52,14 +77,41 @@ services:
     networks:
       - pixishelf-network
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
     logging:
       driver: "json-file"
       options:
         max-size: "20m" # 单个日志文件最大 20MB
         max-file: "10"    # 最多保留 10 个日志文件
+
+  archive-worker:
+    profiles:
+      - archive-worker
+    build:
+      context: ..
+      dockerfile: build/Dockerfile
+      target: production
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=5&pool_timeout=20
+      ARCHIVE_STORAGE_PATH: /app/data
+      RUN_DB_MIGRATIONS: "false"
+      SKIP_ASSET_REWRITE: "true"
+    command: ["tsx", "--tsconfig", "packages/pixishelf/tsconfig.json", "packages/pixishelf/scripts/archive-worker.ts"]
+    volumes:
+      - "${PIXISHELF_DATA_PATH}:/app/data:rw"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - pixishelf-network
+    restart: unless-stopped
+    healthcheck:
+      disable: true
 
   scheduler:
     profiles:
