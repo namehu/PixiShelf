@@ -98,6 +98,7 @@ export async function runPendingReplaceBatch(input: {
   batchId: string
   jobId: string
   leaseAttempt: number
+  appendTagIds: number[]
 }): Promise<PendingReplaceBatchResult> {
   const startedAt = Date.now()
   const batch = await prisma.pendingReplaceBatch.findUnique({
@@ -128,7 +129,8 @@ export async function runPendingReplaceBatch(input: {
         scanPath: input.scanPath,
         itemId: item.id,
         jobId: input.jobId,
-        leaseAttempt: input.leaseAttempt
+        leaseAttempt: input.leaseAttempt,
+        appendTagIds: input.appendTagIds
       })
     } catch (error) {
       if (
@@ -191,6 +193,7 @@ export async function runPendingReplaceItem(input: {
   itemId: string
   jobId?: string
   leaseAttempt?: number
+  appendTagIds: number[]
 }) {
   const item = await prisma.pendingReplaceItem.findUnique({ where: { id: input.itemId } })
   if (!item || !item.externalId || !item.artworkId || !item.targetDirectory || !item.fingerprint) {
@@ -369,7 +372,8 @@ export async function runPendingReplaceItem(input: {
         tx,
         item.artworkId!,
         scannedMedia.filesMeta,
-        scannedMedia.chaptersMeta
+        scannedMedia.chaptersMeta,
+        { appendTagIds: input.appendTagIds }
       )
       await tx.pendingReplaceItem.update({
         where: { id: item.id },

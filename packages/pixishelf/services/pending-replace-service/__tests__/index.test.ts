@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   createJob: vi.fn(),
   touchHeartbeat: vi.fn(),
   finalizeJob: vi.fn(),
+  getSystemSettings: vi.fn(),
   prepareBinding: vi.fn(),
   item: null as any,
   batchLock: vi.fn(),
@@ -37,6 +38,10 @@ vi.mock('@/services/job-service', () => ({
   finalizePendingReplaceJob: mocks.finalizeJob,
   hasPendingReplaceJobLease: vi.fn().mockResolvedValue(true),
   getJob: vi.fn().mockResolvedValue(null)
+}))
+
+vi.mock('@/services/setting.service', () => ({
+  getSystemSettings: mocks.getSystemSettings
 }))
 
 vi.mock('../discovery', () => ({
@@ -88,6 +93,10 @@ beforeEach(() => {
   mocks.syncCounters.mockResolvedValue({})
   mocks.touchHeartbeat.mockResolvedValue({ count: 1 })
   mocks.finalizeJob.mockResolvedValue(true)
+  mocks.getSystemSettings.mockResolvedValue({
+    replace_default_tag_ids: [2, 5],
+    local_import_default_tag_ids: []
+  })
   mocks.runBatch.mockResolvedValue({
     batchId: 'batch-1',
     total: 1,
@@ -136,6 +145,30 @@ describe('startPendingReplaceBatch', () => {
       },
       data: { status: PendingReplaceItemStatus.EXCLUDED, included: false }
     })
+    await vi.waitFor(() => {
+      expect(mocks.runBatch).toHaveBeenCalledWith({
+        scanPath: 'D:/media',
+        batchId: 'batch-1',
+        jobId: 'job-1',
+        leaseAttempt: 1,
+        appendTagIds: [2, 5]
+      })
+    })
+    expect(mocks.getSystemSettings).toHaveBeenCalledOnce()
+  })
+
+  it('does not create a job when the default tag snapshot cannot be read', async () => {
+    mocks.getSystemSettings.mockRejectedValueOnce(new Error('settings unavailable'))
+
+    await expect(
+      startPendingReplaceBatch({
+        scanPath: 'D:/media',
+        batchId: 'batch-1'
+      })
+    ).rejects.toThrow('settings unavailable')
+
+    expect(mocks.createJob).not.toHaveBeenCalled()
+    expect(mocks.runBatch).not.toHaveBeenCalled()
   })
 })
 

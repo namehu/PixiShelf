@@ -111,6 +111,31 @@ describe('updateArtworkImagesTransaction', () => {
       skipDuplicates: true
     })
   })
+
+  it('fails the replacement transaction when configured tags cannot be appended', async () => {
+    tagFindManyMock.mockResolvedValue([{ id: 2 }])
+    artworkTagCreateManyMock.mockRejectedValueOnce(new Error('tag insert failed'))
+
+    await expect(
+      updateArtworkImagesTransaction(
+        10,
+        [
+          {
+            fileName: 'image.jpg',
+            order: 1,
+            width: 100,
+            height: 120,
+            size: 2048,
+            path: '/artist/artwork/image.jpg'
+          }
+        ],
+        [],
+        { appendTagIds: [2] }
+      )
+    ).rejects.toThrow('tag insert failed')
+
+    expect(transactionMock).toHaveBeenCalledOnce()
+  })
 })
 
 describe('updateArtworkImagesWithTransactionClient', () => {

@@ -16,6 +16,7 @@ import {
 } from '@/schemas/pending-replace.dto'
 import { resolveCanonicalChapterPath } from '@/services/artwork-service/video-chapters'
 import * as JobService from '@/services/job-service'
+import { getSystemSettings } from '@/services/setting.service'
 import { preparePendingReplaceBinding, previewPendingReplacements } from './discovery'
 import {
   cleanupPendingReplaceBackups,
@@ -267,6 +268,11 @@ export async function startPendingReplaceBatch(input: {
   const selectedItems = selectableItems.filter((item) => !requestedIds || requestedIds.has(item.id))
   if (selectedItems.length === 0) throw new Error('没有可执行的替换项目')
 
+  // Freeze the configured default tags for this execution attempt so every
+  // selected artwork receives the same tag set.
+  const systemSettings = await getSystemSettings()
+  const appendTagIds = [...systemSettings.replace_default_tag_ids]
+
   const job = await JobService.createPendingReplaceJob(batch.id, 'BATCH', async (tx, createdJob) => {
       await tx.pendingReplaceItem.updateMany({
         where: { batchId: batch.id, id: { in: selectedItems.map((item) => item.id) } },
@@ -305,7 +311,8 @@ export async function startPendingReplaceBatch(input: {
         scanPath: input.scanPath,
         batchId: batch.id,
         jobId: job.id,
-        leaseAttempt: job.attempt
+        leaseAttempt: job.attempt,
+        appendTagIds
       })
       await JobService.finalizePendingReplaceJob(
         job.id,

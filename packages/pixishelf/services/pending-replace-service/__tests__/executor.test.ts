@@ -112,10 +112,17 @@ import {
   cleanupPendingReplaceBackups,
   recoverInterruptedPendingReplaceBatch,
   restorePendingReplaceItem,
-  runPendingReplaceItem
+  runPendingReplaceItem as executePendingReplaceItem
 } from '../executor'
 
 const temporaryDirectories: string[] = []
+const defaultAppendTagIds = [2, 5]
+
+function runPendingReplaceItem(
+  input: Omit<Parameters<typeof executePendingReplaceItem>[0], 'appendTagIds'>
+) {
+  return executePendingReplaceItem({ ...input, appendTagIds: defaultAppendTagIds })
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -175,6 +182,7 @@ describe('runPendingReplaceItem', () => {
     await expect(fs.stat(fixture.pendingDirectory)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(mocks.item.status).toBe(PendingReplaceItemStatus.SUCCESS)
     expect(mocks.updateArtworkImages).toHaveBeenCalledOnce()
+    expect(mocks.updateArtworkImages.mock.calls[0]?.[4]).toEqual({ appendTagIds: [2, 5] })
   })
 
   it('restores source and old media when the database transaction fails', async () => {
@@ -379,6 +387,8 @@ describe('runPendingReplaceItem', () => {
     await expect(fs.stat(path.join(fixture.targetDirectory, '123_p0.jpg'))).rejects.toMatchObject({ code: 'ENOENT' })
     expect(mocks.item.status).toBe(PendingReplaceItemStatus.RESTORED)
     expect(mocks.updateArtworkImages).toHaveBeenCalledTimes(2)
+    expect(mocks.updateArtworkImages.mock.calls[0]?.[4]).toEqual({ appendTagIds: [2, 5] })
+    expect(mocks.updateArtworkImages.mock.calls[1]?.[4]).toBeUndefined()
   })
 
   it('does not reverse a restore when its commit response is lost', async () => {
