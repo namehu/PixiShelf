@@ -8,7 +8,8 @@
 build/
 ├── README.md                    # 本说明文件
 ├── .env.example                 # 环境变量配置模板
-├── Dockerfile                   # Docker 多阶段构建文件
+├── Dockerfile                   # Web + API standalone 镜像
+├── archive-worker.Dockerfile    # 独立归档 Worker 镜像
 ├── docker-compose.dev.yml       # 开发/本地构建用 Docker Compose
 └── docker-compose.deploy.yml    # 生产部署用 Docker Compose (使用预构建镜像)
 ```
@@ -17,8 +18,13 @@ build/
 
 ### Dockerfile
 - **用途**: 多阶段 Docker 构建文件
-- **包含**: API 和 Web 两个构建目标
+- **包含**: API 和 Web standalone 运行时
 - **特性**: 支持多架构构建 (linux/amd64, linux/arm64)
+
+### archive-worker.Dockerfile
+- **用途**: 构建独立的 URL 归档 Worker 运行时
+- **包含**: 编译后的 Worker JavaScript、生成后的 Prisma Client 和媒体处理依赖
+- **不包含**: Next.js standalone、`tsx`、Prisma CLI 或应用源码目录
 
 
 ### docker-compose.dev.yml
@@ -75,13 +81,17 @@ cp .env.example .env
 docker-compose -f docker-compose.deploy.yml up -d
 ```
 
-`migrate` 是一次性容器，会在 `app` 和 `archive-worker` 启动前执行 `prisma migrate deploy`。迁移失败时两个服务都不会启动，避免新代码连到旧 Schema。
+`app` 保留原有的数据库迁移职责：它的 entrypoint 会先执行 `prisma migrate deploy`，成功后才启动 Next.js standalone 服务。`archive-worker` 使用独立镜像，并等待 `app` 健康后启动，因此不会与 Web 进程竞争迁移。
+
+当前业务实现仍复用 `packages/pixishelf/services/archive`，独立 workspace 包 `packages/pixishelf-archive-worker` 只提供进程入口和构建边界；Docker 构建时将依赖打包成 JavaScript，生产 Worker 镜像不会携带整个 Web 工程。
 
 ### 生产升级与回滚准备
 
-升级前先同时备份数据库和媒体目录。下面命令在 `build` 目录执行：
+升级前先停止会写数据库的进程，再同时备份数据库和媒体目录。下面命令在 `build` 目录执行：
 
 ```bash
+docker-compose -f docker-compose.deploy.yml stop archive-worker scheduler app
+
 mkdir -p backups
 docker-compose -f docker-compose.deploy.yml exec -T postgres \
   sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
@@ -90,14 +100,15 @@ docker-compose -f docker-compose.deploy.yml exec -T postgres \
 # 对 PIXISHELF_DATA_PATH 做文件系统快照，或复制到另一块磁盘。
 ```
 
-先单独执行迁移并查看结果，再启动长驻服务：
+先启动 `app` 完成迁移并确认健康，再运行身份报告和其他长驻服务：
 
 ```bash
 docker-compose -f docker-compose.deploy.yml pull
-docker-compose -f docker-compose.deploy.yml up migrate
-docker-compose -f docker-compose.deploy.yml run --rm archive-worker \
-  tsx --tsconfig packages/pixishelf/tsconfig.json packages/pixishelf/scripts/archive-identity-report.ts
-docker-compose -f docker-compose.deploy.yml up -d app archive-worker scheduler imgproxy thumbor
+docker-compose -f docker-compose.deploy.yml up -d app
+docker-compose -f docker-compose.deploy.yml logs --tail=200 app
+docker-compose -f docker-compose.deploy.yml run --rm --no-deps archive-worker \
+  node dist/archive-identity-report.cjs
+docker-compose -f docker-compose.deploy.yml up -d archive-worker scheduler imgproxy thumbor
 ```
 
 身份迁移报告中：
@@ -117,7 +128,7 @@ docker-compose -f docker-compose.deploy.yml up -d app archive-worker scheduler i
 # 查看 Worker 日志
 docker-compose -f docker-compose.deploy.yml logs -f archive-worker
 
-# 本地容器化调试（会同时启动 migrate）
+# 本地容器化调试；数据库 Schema 仍使用现有 pnpm db:migrate/db:push 流程维护
 docker-compose -f docker-compose.dev.yml --profile archive-worker up -d --build archive-worker
 ```
 
@@ -126,10 +137,13 @@ docker-compose -f docker-compose.dev.yml --profile archive-worker up -d --build 
 ### 单独构建镜像
 
 ```bash
-# 构建统一镜像（包含 Web + API）
+# 构建 Web + API standalone 镜像
 docker build -f build/Dockerfile --target production -t pixishelf .
 
-# 或者使用默认 target（production 是默认的）
+# 构建独立的归档 Worker 镜像
+docker build -f build/archive-worker.Dockerfile --target production -t pixishelf-archive-worker .
+
+# Web 镜像也可以省略默认的 production target
 docker build -f build/Dockerfile -t pixishelf .
 ```
 
@@ -148,7 +162,8 @@ Clash Verge 的 TUN/Fake-IP 模式可以直接使用；本机 `pnpm dev` 通常�
 ## 🔄 CI/CD 集成
 
 GitHub Actions 工作流会自动使用这些配置文件：
-- 使用 `build/Dockerfile` 构建镜像
+- 使用 `build/Dockerfile` 构建 Web 镜像
+- 使用 `build/archive-worker.Dockerfile` 构建独立的归档 Worker 镜像
 - 将 `build/docker-compose.deploy.yml` 发布到 Release
 
 ## 🛠️ 自定义配置

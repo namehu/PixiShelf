@@ -17,8 +17,8 @@
     "test": "pnpm test:unit",
     "test:unit": "vitest run --exclude \"tests/integration/**\" --exclude \"**/*.e2e.test.*\" --exclude \"services/scan-service/__tests__/*fixture-integration.test.ts\"",
     "test:integration": "vitest run tests/integration services/scan-service/__tests__/scan-fixture-integration.test.ts services/scan-service/__tests__/rescan-fixture-integration.test.ts",
-    "archive:worker": "tsx scripts/archive-worker.ts",
     "archive:migration-report": "tsx scripts/archive-identity-report.ts",
+    "archive:worker": "pnpm --dir ../pixishelf-archive-worker dev",
     "check:full": "pnpm check:quick && pnpm test:unit && pnpm build",
     "bench:scan-fixture": "node scripts/scan-benchmark-fixture.js"
   },

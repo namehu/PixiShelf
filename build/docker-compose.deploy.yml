@@ -25,23 +25,6 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  migrate:
-    image: docker.io/dockernamehu/pixishelf:${IMAGE_TAG:-latest}
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=5&pool_timeout=20
-      RUN_DB_MIGRATIONS: "true"
-      MIGRATE_ONLY: "true"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - pixishelf-network
-    restart: "no"
-    healthcheck:
-      disable: true
-
   # 统一的 Web + API 服务容器 - 使用预构建镜像
   app:
     image: docker.io/dockernamehu/pixishelf:${IMAGE_TAG:-latest}
@@ -56,7 +39,6 @@ services:
       # 固定应用在容器内的派生媒体写入目录，避免受 Next.js 运行时工作目录影响
       DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
       ARCHIVE_STORAGE_PATH: /app/data
-      RUN_DB_MIGRATIONS: "false"
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
     volumes:
       # 挂载图片目录 - 根据实际需要调整路径
@@ -65,8 +47,8 @@ services:
     networks:
       - pixishelf-network
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -75,26 +57,22 @@ services:
         max-file: "3"
 
   archive-worker:
-    image: docker.io/dockernamehu/pixishelf:${IMAGE_TAG:-latest}
+    image: docker.io/dockernamehu/pixishelf-archive-worker:${IMAGE_TAG:-latest}
     env_file:
       - .env
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=5&pool_timeout=20
       ARCHIVE_STORAGE_PATH: /app/data
-      RUN_DB_MIGRATIONS: "false"
-      SKIP_ASSET_REWRITE: "true"
-    command: ["tsx", "--tsconfig", "packages/pixishelf/tsconfig.json", "packages/pixishelf/scripts/archive-worker.ts"]
+    command: ["node", "dist/archive-worker.cjs"]
     volumes:
       - "${PIXISHELF_DATA_PATH:-./data}:/app/data:rw"
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      app:
+        condition: service_healthy
     networks:
       - pixishelf-network
     restart: unless-stopped
-    healthcheck:
-      disable: true
     logging:
       driver: "json-file"
       options:

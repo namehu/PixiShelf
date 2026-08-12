@@ -272,12 +272,12 @@ After verification shows no legacy reads or writes, remove the global `Artwork.e
 1. Stop app, scheduler, and worker writes.
 2. Create and validate a PostgreSQL dump outside the Compose volume.
 3. Pull the new image.
-4. Run one dedicated `migrate` Compose service.
-5. Review migration status and classification counts.
-6. Start Web, worker, and scheduler.
+4. Start the Web container; its existing entrypoint runs `prisma migrate deploy` before the standalone server.
+5. After Web is healthy, review migration status and classification counts.
+6. Start the independently built worker image and scheduler.
 7. Confirm health, queue recovery, and representative Pixiv/local records before enabling URL import.
 
-The Compose deployment should move migration ownership from the general app entrypoint to a one-shot migrate service so Web and worker cannot race. Local non-container deployment continues to use `pnpm --filter @pixishelf/next db:deploy`.
+The Web entrypoint remains the sole migration owner. The worker image never contains Prisma CLI or migration behavior and starts only after Web is healthy, so the two processes cannot race. The Web image remains a Next.js standalone artifact; the independently built worker image contains compiled JavaScript plus its narrow runtime dependency set. Local non-container deployment continues to use `pnpm --filter @pixishelf/next db:deploy`.
 
 ## Admin interface
 

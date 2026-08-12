@@ -4,22 +4,11 @@
 # 严格模式，任何命令失败则脚本退出
 set -e
 
-if [ "${RUN_DB_MIGRATIONS:-true}" = "true" ]; then
-  echo "Running database migrations..."
-  prisma migrate deploy --schema=packages/pixishelf/prisma/schema.prisma
-fi
-
-if [ "${MIGRATE_ONLY:-false}" = "true" ]; then
-  echo "Database migrations completed."
-  exit 0
-fi
+# The Web process owns schema deployment. Other runtime images never run this entrypoint.
+echo "Running database migrations..."
+prisma migrate deploy --schema=packages/pixishelf/prisma/schema.prisma
 
 # ==================== MODIFICATION START ====================
-if [ "${SKIP_ASSET_REWRITE:-false}" = "true" ]; then
-  echo "Skipping Web asset placeholder replacement."
-  exec "$@"
-fi
-
 echo "Searching for files with placeholders..."
 
 # 定义要搜索的目录和占位符模式

@@ -1,6 +1,6 @@
-import { disconnectDatabase } from '../lib/prisma'
-import logger from '../lib/logger'
-import { runArchiveWorkerLoop } from '../services/archive/archive-worker'
+import { disconnectDatabase } from '../../pixishelf/lib/prisma'
+import logger from '../../pixishelf/lib/logger'
+import { runArchiveWorkerLoop } from '../../pixishelf/services/archive/archive-worker'
 
 const controller = new AbortController()
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
