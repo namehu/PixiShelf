@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertSafeResolvedAddresses,
   assertSuccessStatus,
+  createPinnedLookup,
   isPublicNetworkAddress,
   readResponseBuffer,
   resolveArchiveProxyUrl,
@@ -80,6 +81,20 @@ describe('archive safe HTTP network policy', () => {
     expect(() => assertSafeResolvedAddresses([{ address: '127.0.0.1', family: 4 }], proxy)).toThrowError(
       expect.objectContaining({ code: 'SSRF_BLOCKED' })
     )
+  })
+
+  it('returns an address array when Node requests all addresses for automatic family selection', async () => {
+    const selected = { address: '1.1.1.1', family: 4 }
+    const lookup = createPinnedLookup(selected)
+
+    await expect(
+      new Promise((resolve, reject) => {
+        lookup('e-hentai.org', { all: true }, (error, addresses) => {
+          if (error) reject(error)
+          else resolve(addresses)
+        })
+      })
+    ).resolves.toEqual([selected])
   })
 
   it('honors an archive proxy override and NO_PROXY for standard proxy variables', () => {

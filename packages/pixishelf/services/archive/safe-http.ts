@@ -276,10 +276,18 @@ function sendPinnedRequest(
   options: SafeHttpRequestOptions
 ): Promise<Omit<SafeHttpResponse, 'url'>> {
   return sendRequest(url, options, {
-    lookup: (_hostname, _lookupOptions, callback) => {
-      callback(null, selected.address, selected.family)
-    }
+    lookup: createPinnedLookup(selected)
   })
+}
+
+export function createPinnedLookup(selected: ResolvedNetworkAddress): NonNullable<RequestOptions['lookup']> {
+  return (_hostname, lookupOptions, callback) => {
+    if (lookupOptions.all) {
+      callback(null, [selected], selected.family)
+      return
+    }
+    callback(null, selected.address, selected.family)
+  }
 }
 
 function sendProxiedRequest(
