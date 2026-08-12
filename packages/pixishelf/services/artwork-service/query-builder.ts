@@ -96,11 +96,13 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
 
   // 1.2.8 多标签 ID 精确收窄：作品必须同时包含所选的全部标签
   if (tagIds && tagIds.length > 0) {
-    whereSQL += ` AND (
-      SELECT COUNT(DISTINCT at_ids."tagId")
+    whereSQL += ` AND a.id IN (
+      SELECT at_ids."artworkId"
       FROM "ArtworkTag" at_ids
-      WHERE at_ids."artworkId" = a.id AND at_ids."tagId" = ANY($${paramIndex}::int[])
-    ) = cardinality($${paramIndex}::int[])`
+      WHERE at_ids."tagId" = ANY($${paramIndex}::int[])
+      GROUP BY at_ids."artworkId"
+      HAVING COUNT(DISTINCT at_ids."tagId") = cardinality($${paramIndex}::int[])
+    )`
     sqlParams.push(tagIds)
     paramIndex++
   }

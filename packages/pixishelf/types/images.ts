@@ -9,6 +9,13 @@ export interface RandomImagesResponse {
   nextPage: number | null
 }
 
+export interface ViewerFeedResponse {
+  items: RandomImageItem[]
+  page: number
+  pageSize: number
+  nextPage: number | null
+}
+
 export interface ViewerMediaItem {
   id: number
   key: string

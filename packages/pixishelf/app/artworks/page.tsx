@@ -42,9 +42,17 @@ const viewerQueryParsers = {
   sortBy: parseAsString,
   randomSeed: parseAsInteger,
   search: parseAsString,
+  artistId: parseAsInteger,
+  artistLabel: parseAsString,
+  tags: parseAsString,
+  tagLabels: parseAsString,
+  sources: parseAsString,
+  hasAudio: parseAsString,
   mediaType: parseAsString,
   startDate: parseAsString,
-  endDate: parseAsString
+  endDate: parseAsString,
+  createdStartDate: parseAsString,
+  createdEndDate: parseAsString
 }
 
 const serializeViewerQuery = createSerializer(viewerQueryParsers)
@@ -169,11 +177,34 @@ export default function GalleryPage() {
       sortBy: sortBy === 'random' ? null : sortBy || 'source_date_desc',
       randomSeed: sortBy === 'random' && Number.isFinite(randomSeedValue) ? randomSeedValue : null,
       search: searchQuery || null,
-      mediaType: mediaType && mediaType !== 'all' ? mediaType : null,
+      artistId: artistId || null,
+      artistLabel: artistId ? artistLabel || null : null,
+      tags: tagIds.join(',') || null,
+      tagLabels: selectedTags.length > 0 ? encodeLabels(selectedTags) : null,
+      sources: selectedSources.join(',') || null,
+      hasAudio: hasAudio === 'all' ? null : hasAudio,
+      mediaType: mediaType || 'all',
       startDate: startDate || null,
-      endDate: endDate || null
+      endDate: endDate || null,
+      createdStartDate: createdStartDate || null,
+      createdEndDate: createdEndDate || null
     })
-  }, [artistId, endDate, mediaType, randomSeed, searchQuery, sortBy, startDate, tagIds])
+  }, [
+    artistId,
+    artistLabel,
+    createdEndDate,
+    createdStartDate,
+    endDate,
+    hasAudio,
+    mediaType,
+    randomSeed,
+    searchQuery,
+    selectedSources,
+    selectedTags,
+    sortBy,
+    startDate,
+    tagIds
+  ])
 
   const handleSearchArtist = async (value: string): Promise<Option[]> => {
     const res = await trpcClient.artist.queryPage.query({

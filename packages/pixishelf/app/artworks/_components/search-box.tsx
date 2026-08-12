@@ -16,6 +16,8 @@ export interface SearchBoxProps {
   placeholder?: string
   /** 搜索回调 */
   onSearch?: (query: string) => void
+  /** 输入值变化回调 */
+  onValueChange?: (value: string) => void
   /** 建议点击回调 */
   onSuggestionClick?: (suggestion: SearchSuggestion) => void
   /** 搜索模式 */
@@ -33,6 +35,7 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   value = '',
   placeholder = '搜索作品、艺术家...',
   onSearch,
+  onValueChange,
   onSuggestionClick,
   mode = 'normal',
   className,
@@ -77,6 +80,7 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value
     setInputValue(newValue)
+    onValueChange?.(newValue)
   }
 
   // 处理键盘事件

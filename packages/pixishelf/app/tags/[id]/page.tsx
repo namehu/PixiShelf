@@ -14,7 +14,10 @@ const serializeViewerQuery = createSerializer({
   source: parseAsString,
   sourceId: parseAsInteger,
   mode: parseAsString,
-  sortBy: parseAsString
+  sortBy: parseAsString,
+  tags: parseAsString,
+  tagLabels: parseAsString,
+  mediaType: parseAsString
 })
 
 /**
@@ -75,7 +78,10 @@ export default async function TagDetailPage({ params }: PageProps<'/tags/[id]'>)
                     source: 'tag',
                     sourceId: tagId,
                     mode: 'ordered',
-                    sortBy: 'source_date_desc'
+                    sortBy: 'source_date_desc',
+                    tags: String(tagId),
+                    tagLabels: encodeURIComponent(getTranslateName(tag) || tag.name),
+                    mediaType: 'all'
                   })}
                 >
                   <ImageUpIcon className="w-4 h-4" />

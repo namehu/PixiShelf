@@ -21,6 +21,8 @@ const viewerQueryParsers = {
   sortBy: parseAsString,
   randomSeed: parseAsInteger,
   search: parseAsString,
+  artistId: parseAsInteger,
+  artistLabel: parseAsString,
   mediaType: parseAsString,
   startDate: parseAsString,
   endDate: parseAsString
@@ -86,11 +88,13 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
       sortBy: sortBy === 'random' ? null : sortBy || 'source_date_desc',
       randomSeed: sortBy === 'random' && Number.isFinite(randomSeedValue) ? randomSeedValue : null,
       search: search || null,
-      mediaType: mediaType && mediaType !== 'all' ? mediaType : null,
+      artistId: Number(id),
+      artistLabel: artist.name,
+      mediaType: mediaType || 'all',
       startDate: startDate || null,
       endDate: endDate || null
     })
-  }, [endDate, id, mediaType, randomSeed, search, sortBy, startDate])
+  }, [artist.name, endDate, id, mediaType, randomSeed, search, sortBy, startDate])
 
   return (
     <div className="relative">

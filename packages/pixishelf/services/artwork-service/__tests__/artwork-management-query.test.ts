@@ -95,9 +95,12 @@ describe('buildArtworkWhereClause', () => {
     })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
+    expect(whereSQL).toContain('a.id IN')
     expect(whereSQL).toContain('COUNT(DISTINCT at_ids."tagId")')
     expect(whereSQL).toContain('at_ids."tagId" = ANY($1::int[])')
+    expect(whereSQL).toContain('GROUP BY at_ids."artworkId"')
     expect(whereSQL).toContain('cardinality($1::int[])')
+    expect(whereSQL).not.toContain('WHERE at_ids."artworkId" = a.id')
     expect(sqlParams[0]).toEqual([1, 2])
   })
 

@@ -2,11 +2,15 @@ import 'server-only'
 
 import { ArtworkCardData, ArtworkCardListResponse, EnhancedArtworksResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
-import { RandomArtworksGetSchema, ArtworkResponseDto, ViewerFeedQuerySchema } from '@/schemas/artwork.dto'
+import {
+  ArtworksInfiniteQuerySchema,
+  RandomArtworksGetSchema,
+  ArtworkResponseDto,
+  ViewerFeedQuerySchema
+} from '@/schemas/artwork.dto'
 import { isApngFile, isVideoFile } from '@/lib/media'
-import type { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 import { VIDEO_EXTENSIONS } from '@/lib/constant'
-import { RandomImageItem, RandomImagesResponse } from '@/types/images'
+import { RandomImageItem, RandomImagesResponse, ViewerFeedResponse } from '@/types/images'
 import { guid } from '@/utils/guid'
 import { MediaType } from '@/types'
 import { combinationApiResource, combinationStaticAvatar } from '@/utils/combination-static'
@@ -37,12 +41,10 @@ export * from './video-chapters'
  * 同时复用 transformSingleArtwork 确保返回数据格式一致。
  */
 export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Promise<EnhancedArtworksResponse> {
-  const { cursor, sortBy } = params
+  const { cursor } = params
   const page = cursor ?? 1
   const pageSize = params.pageSize
-  const skip = (page - 1) * pageSize
-
-  let { whereSQL, sqlParams, paramIndex } = buildArtworkWhereClause(params)
+  const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
   // --- 2. 获取总数 ---
   const countQuery = `
@@ -54,45 +56,63 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
   const countResult = await prisma.$queryRawUnsafe<{ count: bigint }[]>(countQuery, ...sqlParams)
   const total = Number(countResult[0]?.count || 0)
 
-  // --- 3. 获取列表 ---
-  let orderBySQL: string
-  if (sortBy === 'random' && params.randomSeed !== undefined) {
-    orderBySQL = `ORDER BY md5(a.id::text || $${paramIndex}) ASC, a.id ASC`
-    sqlParams.push(params.randomSeed.toString())
-    paramIndex++
-  } else {
-    orderBySQL = mapSortOptionToSQL(sortBy || 'source_date_desc')
-  }
-
-  const artworksQuery = `
-    SELECT
-      a.*,
-      artist.id as artist_id,
-      artist.name as artist_name,
-      artist.username as artist_username,
-      artist."userId" as artist_userId,
-      artist.bio as artist_bio,
-      artist.avatar as artist_avatar,
-      artist."createdAt" as artist_createdAt,
-      artist."updatedAt" as artist_updatedAt
-    FROM "Artwork" a
-    LEFT JOIN "Artist" artist ON a."artistId" = artist.id
-    ${whereSQL}
-    ${orderBySQL}
-    LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-  `
-
-  // 关键：这里 sqlParams 的顺序必须和上面 whereSQL 里的占位符完全对应
-  // 如果上面没有进入 mediaType 判断，paramIndex 就不会乱跳
-  sqlParams.push(pageSize, skip)
-
-  const rawArtworks = await prisma.$queryRawUnsafe<any[]>(artworksQuery, ...sqlParams)
+  const { rows: rawArtworks } = await queryArtworkRowsPage(params)
 
   if (rawArtworks.length === 0) {
     return { items: [], total, page, pageSize }
   }
 
-  // ... 后续组装逻辑保持不变
+  const items = await hydrateArtworkRows(rawArtworks)
+
+  return { items, total, page, pageSize }
+}
+
+async function queryArtworkRowsPage(params: ArtworksInfiniteQuerySchema, overfetch = false) {
+  const page = params.cursor ?? 1
+  const skip = (page - 1) * params.pageSize
+  const { whereSQL, sqlParams, paramIndex: initialParamIndex } = buildArtworkWhereClause(params)
+  let paramIndex = initialParamIndex
+  const orderBySQL =
+    params.sortBy === 'random' && params.randomSeed !== undefined
+      ? `ORDER BY md5(a.id::text || $${paramIndex++}) ASC, a.id ASC`
+      : mapSortOptionToSQL(params.sortBy || 'source_date_desc')
+
+  if (params.sortBy === 'random' && params.randomSeed !== undefined) {
+    sqlParams.push(params.randomSeed.toString())
+  }
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(
+    `
+      SELECT
+        a.*,
+        artist.id as artist_id,
+        artist.name as artist_name,
+        artist.username as artist_username,
+        artist."userId" as artist_userId,
+        artist.bio as artist_bio,
+        artist.avatar as artist_avatar,
+        artist."createdAt" as artist_createdAt,
+        artist."updatedAt" as artist_updatedAt
+      FROM "Artwork" a
+      LEFT JOIN "Artist" artist ON a."artistId" = artist.id
+      ${whereSQL}
+      ${orderBySQL}
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `,
+    ...sqlParams,
+    params.pageSize + (overfetch ? 1 : 0),
+    skip
+  )
+
+  return {
+    rows: overfetch ? rows.slice(0, params.pageSize) : rows,
+    hasNextPage: overfetch && rows.length > params.pageSize
+  }
+}
+
+async function hydrateArtworkRows(rawArtworks: any[]) {
+  if (rawArtworks.length === 0) return []
+
   const artworkIds = rawArtworks.map((a) => a.id)
   const [allImages, allTags] = await Promise.all([
     prisma.image.findMany({
@@ -106,7 +126,20 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
     })
   ])
 
-  const items = rawArtworks.map((raw) => {
+  const imagesByArtwork = new Map<number, (typeof allImages)[number][]>()
+  for (const image of allImages) {
+    const images = imagesByArtwork.get(image.artworkId!) ?? []
+    images.push(image)
+    imagesByArtwork.set(image.artworkId!, images)
+  }
+  const tagsByArtwork = new Map<number, (typeof allTags)[number][]>()
+  for (const tag of allTags) {
+    const tags = tagsByArtwork.get(tag.artworkId) ?? []
+    tags.push(tag)
+    tagsByArtwork.set(tag.artworkId, tags)
+  }
+
+  return rawArtworks.map((raw) => {
     const artistObj = raw.artist_id
       ? {
           id: raw.artist_id,
@@ -120,8 +153,8 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
         }
       : null
 
-    const artworkImages = allImages.filter((img) => img.artworkId === raw.id)
-    const artworkTags = allTags.filter((tag) => tag.artworkId === raw.id)
+    const artworkImages = imagesByArtwork.get(raw.id) ?? []
+    const artworkTags = tagsByArtwork.get(raw.id) ?? []
 
     const prismaLikeObject = {
       ...raw,
@@ -134,8 +167,6 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
 
     return transformSingleArtwork(prismaLikeObject)
   })
-
-  return { items, total, page, pageSize }
 }
 
 export interface ArtworkCardsPageResponse {
@@ -678,7 +709,7 @@ export async function getRandomArtworks(
  * 获取沉浸浏览 Feed
  * 支持从全站、艺术家、标签等上下文进入，并在顺序/稳定随机之间切换。
  */
-export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: string }): Promise<RandomImagesResponse> {
+export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: string }): Promise<ViewerFeedResponse> {
   const {
     cursor,
     pageSize,
@@ -688,30 +719,42 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     sortBy,
     randomSeed,
     search,
+    artistId,
+    tagIds,
+    sources,
+    hasAudio,
     mediaType,
     startDate,
     endDate,
+    createdStartDate,
+    createdEndDate,
     mediaCountMax,
     userId
   } = input
 
   const page = cursor ?? 1
 
-  const result = await getArtworksList({
+  const listInput = ArtworksInfiniteQuerySchema.parse({
     cursor: page,
     pageSize,
-    artistId: source === 'artist' ? sourceId : undefined,
-    tagId: source === 'tag' ? sourceId : undefined,
+    artistId: artistId ?? (source === 'artist' ? sourceId : undefined),
+    tagIds: tagIds.length > 0 ? tagIds : source === 'tag' && sourceId ? [sourceId] : [],
+    sources,
+    hasAudio,
     search,
     mediaType,
     startDate,
     endDate,
+    createdStartDate,
+    createdEndDate,
     mediaCountMax,
     sortBy: mode === 'random' ? 'random' : sortBy || 'source_date_desc',
     randomSeed: mode === 'random' ? randomSeed : undefined
-  } as ArtworksInfiniteQuerySchema)
+  })
+  const { rows, hasNextPage } = await queryArtworkRowsPage(listInput, true)
+  const artworks = await hydrateArtworkRows(rows)
 
-  const artworkIds = result.items.map((item) => item.id)
+  const artworkIds = artworks.map((item) => item.id)
   let likeStatusMap: Record<number, boolean> = {}
   try {
     if (userId && artworkIds.length > 0) {
@@ -721,15 +764,13 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     logger.error('批量获取点赞状态失败:', _error)
   }
 
-  const items = result.items.map((item) => toViewerImageItem(item, likeStatusMap))
-  const nextPage = page * pageSize < result.total ? page + 1 : null
+  const items = artworks.map((item) => toViewerImageItem(item, likeStatusMap))
 
   return {
     items,
-    total: result.total,
     page,
     pageSize,
-    nextPage
+    nextPage: hasNextPage ? page + 1 : null
   }
 }
 

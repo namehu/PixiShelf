@@ -181,6 +181,25 @@ export const ViewerFeedQuerySchema = z.object({
     .string()
     .nullish()
     .transform((val) => val?.trim() || ''),
+  artistId: z.coerce.number().int().positive().optional(),
+  tagIds: z
+    .union([z.string(), z.array(z.coerce.number().int().positive())])
+    .nullish()
+    .transform((val) => {
+      if (!val) return []
+      const values = Array.isArray(val) ? val : val.split(',').map(Number)
+      return Array.from(new Set(values.filter((item) => Number.isInteger(item) && item > 0)))
+    }),
+  sources: z
+    .union([z.string(), z.array(z.string())])
+    .nullish()
+    .transform((val) => {
+      if (!val) return []
+      const values = Array.isArray(val) ? val : val.split(',')
+      return Array.from(new Set(values.map((item) => item.trim()).filter(Boolean)))
+    })
+    .pipe(z.array(ArtworkSourceEnum)),
+  hasAudio: z.enum(['all', 'yes', 'no']).optional().default('all'),
   mediaType: z
     .string()
     .optional()
@@ -192,6 +211,16 @@ export const ViewerFeedQuerySchema = z.object({
     .optional()
     .nullish(),
   endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
+    .optional()
+    .nullish(),
+  createdStartDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
+    .optional()
+    .nullish(),
+  createdEndDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
     .optional()

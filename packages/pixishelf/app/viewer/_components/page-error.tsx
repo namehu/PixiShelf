@@ -7,7 +7,7 @@ export default function PageError({ content }: { content?: string }) {
   const safeBack = useSafeBack()
 
   return (
-    <main className="h-screen w-screen bg-black flex items-center justify-center">
+    <div className="h-screen w-screen bg-black flex items-center justify-center">
       <div className="text-center text-white">
         <div className="mb-4">
           <ConstructionIcon className="w-16 h-16 mx-auto opacity-40" />
@@ -29,6 +29,6 @@ export default function PageError({ content }: { content?: string }) {
           </button>
         </div>
       </div>
-    </main>
+    </div>
   )
 }

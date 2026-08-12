@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
+import type { SearchSuggestion } from '@/schemas/search.dto'
 import { Button } from '@/components/ui/button'
 import { SSheet } from '@/components/shared/s-sheet'
 import { SortControl } from '@/components/ui/sort-control'
@@ -12,6 +13,8 @@ import dayjs from 'dayjs'
 import { OSource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Slider } from '@/components/ui/slider'
+import { SearchBox } from '@/app/artworks/_components/search-box'
 
 interface FilterSheetProps {
   open: boolean
@@ -21,6 +24,9 @@ interface FilterSheetProps {
   currentTags?: Option[]
   currentSources?: ArtworkSource[]
   currentHasAudio?: AudioFilter
+  currentSearch?: string
+  currentMaxMediaCount?: number
+  resetSortBy?: SortOption
   randomSeed?: number
   startDate?: string
   endDate?: string
@@ -36,6 +42,8 @@ interface FilterSheetProps {
     tags?: Option[]
     sources: ArtworkSource[]
     hasAudio: AudioFilter
+    search?: string
+    maxMediaCount?: number
     randomSeed?: number
     startTime?: string
     endTime?: string
@@ -57,6 +65,9 @@ export function FilterSheet(props: FilterSheetProps) {
     currentTags = EMPTY_OPTIONS,
     currentSources = EMPTY_SOURCES,
     currentHasAudio = 'all',
+    currentSearch,
+    currentMaxMediaCount,
+    resetSortBy = 'source_date_desc',
     randomSeed,
     startDate,
     endDate,
@@ -73,6 +84,8 @@ export function FilterSheet(props: FilterSheetProps) {
   const [localTags, setLocalTags] = useState<Option[]>([])
   const [localSources, setLocalSources] = useState<Option[]>([])
   const [localHasAudio, setLocalHasAudio] = useState<AudioFilter>('all')
+  const [localSearch, setLocalSearch] = useState('')
+  const [localMaxMediaCount, setLocalMaxMediaCount] = useState(8)
   const [localRandomSeed, setLocalRandomSeed] = useState<number | undefined>(undefined)
   const [localDateRange, setLocalDateRange] = useState<[Date | undefined, Date | undefined]>([undefined, undefined])
   const [localCreatedDateRange, setLocalCreatedDateRange] = useState<[Date | undefined, Date | undefined]>([
@@ -92,6 +105,8 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalTags(currentTags)
     setLocalSources(OSource.filter((option) => currentSources.includes(option.value)))
     setLocalHasAudio(currentHasAudio)
+    setLocalSearch(currentSearch ?? '')
+    setLocalMaxMediaCount(currentMaxMediaCount ?? 8)
     setLocalRandomSeed(randomSeed)
     setLocalDateRange([
       startDate ? dayjs(startDate).toDate() : undefined,
@@ -109,6 +124,8 @@ export function FilterSheet(props: FilterSheetProps) {
     currentTags,
     currentSources,
     currentHasAudio,
+    currentSearch,
+    currentMaxMediaCount,
     randomSeed,
     startDate,
     endDate,
@@ -133,6 +150,8 @@ export function FilterSheet(props: FilterSheetProps) {
       tags: localTags,
       sources: localSources.map((option) => option.value as ArtworkSource),
       hasAudio: localHasAudio,
+      search: localSearch.trim() || undefined,
+      maxMediaCount: currentMaxMediaCount === undefined ? undefined : localMaxMediaCount,
       randomSeed: seed,
       startTime: start ? dayjs(start).toISOString() : undefined,
       endTime: end ? dayjs(end).toISOString() : undefined,
@@ -144,15 +163,42 @@ export function FilterSheet(props: FilterSheetProps) {
 
   function handleReset() {
     setLocalMediaType('all')
-    setLocalSortBy('source_date_desc')
+    setLocalSortBy(resetSortBy)
     setLocalArtist([])
     setLocalTags([])
     setLocalSources([])
     setLocalHasAudio('all')
+    setLocalSearch('')
+    setLocalMaxMediaCount(8)
     setLocalRandomSeed(undefined)
     setLocalDateRange([undefined, undefined])
     setLocalCreatedDateRange([undefined, undefined])
   }
+
+  const handleSuggestionClick = (suggestion: SearchSuggestion) => {
+    const id = suggestion.metadata?.id
+    if (suggestion.type === 'artist' && id) {
+      setLocalSearch('')
+      setLocalArtist([{ value: String(id), label: suggestion.label }])
+      return
+    }
+    if (suggestion.type === 'tag' && id) {
+      setLocalSearch('')
+      setLocalTags((current) =>
+        current.some((tag) => tag.value === String(id))
+          ? current
+          : [...current, { value: String(id), label: suggestion.label }]
+      )
+      return
+    }
+    setLocalSearch(suggestion.value)
+  }
+
+  const showExtendedFilters =
+    props.currentSources !== undefined ||
+    props.currentHasAudio !== undefined ||
+    props.createdStartDate !== undefined ||
+    props.createdEndDate !== undefined
 
   return (
     <SSheet
@@ -175,6 +221,20 @@ export function FilterSheet(props: FilterSheetProps) {
     >
       {/* 5. 中间主要内容区域 (会自动处理滚动) */}
       <div className="space-y-8">
+        {currentSearch !== undefined && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">关键词</h3>
+            <SearchBox
+              value={localSearch}
+              onValueChange={setLocalSearch}
+              onSearch={setLocalSearch}
+              onSuggestionClick={handleSuggestionClick}
+              placeholder="搜索作品、艺术家或标签"
+              className="w-full"
+            />
+          </div>
+        )}
+
         {/* 艺术家 */}
         {onSearchArtist && (
           <div className="space-y-3">
@@ -208,19 +268,20 @@ export function FilterSheet(props: FilterSheetProps) {
           </div>
         )}
 
-        {/* 创建类型 */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">创建类型</h3>
-          <MultipleSelector
-            value={localSources}
-            options={OSource}
-            onChange={setLocalSources}
-            placeholder="选择创建类型..."
-            emptyIndicator="没有可用的创建类型"
-            className="min-h-10"
-            selectFirstItem={false}
-          />
-        </div>
+        {showExtendedFilters && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">创建类型</h3>
+            <MultipleSelector
+              value={localSources}
+              options={OSource}
+              onChange={setLocalSources}
+              placeholder="选择创建类型..."
+              emptyIndicator="没有可用的创建类型"
+              className="min-h-10"
+              selectFirstItem={false}
+            />
+          </div>
+        )}
 
         {/* 作品原始时间范围 */}
         <div className="space-y-3">
@@ -233,16 +294,17 @@ export function FilterSheet(props: FilterSheetProps) {
           />
         </div>
 
-        {/* 数据库创建时间范围 */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">入库创建时间</h3>
-          <DatePickerRange
-            value={localCreatedDateRange}
-            onChange={setLocalCreatedDateRange}
-            className="w-full sm:w-[240px]"
-            placeholder="选择入库时间范围"
-          />
-        </div>
+        {showExtendedFilters && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">入库创建时间</h3>
+            <DatePickerRange
+              value={localCreatedDateRange}
+              onChange={setLocalCreatedDateRange}
+              className="w-full sm:w-[240px]"
+              placeholder="选择入库时间范围"
+            />
+          </div>
+        )}
 
         {/* 排序控制 */}
         <div className="space-y-3">
@@ -260,20 +322,37 @@ export function FilterSheet(props: FilterSheetProps) {
           />
         </div>
 
-        {/* 视频音频 */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">视频音频</h3>
-          <Select value={localHasAudio} onValueChange={(value) => setLocalHasAudio(value as AudioFilter)}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="全部" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部</SelectItem>
-              <SelectItem value="yes">有音频</SelectItem>
-              <SelectItem value="no">无音频</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {showExtendedFilters && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">视频音频</h3>
+            <Select value={localHasAudio} onValueChange={(value) => setLocalHasAudio(value as AudioFilter)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="全部" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部</SelectItem>
+                <SelectItem value="yes">有音频</SelectItem>
+                <SelectItem value="no">无音频</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {currentMaxMediaCount !== undefined && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">单个作品最多媒体数</h3>
+              <span className="text-sm text-muted-foreground">{localMaxMediaCount}</span>
+            </div>
+            <Slider
+              value={[localMaxMediaCount]}
+              onValueChange={(value) => setLocalMaxMediaCount(value[0] ?? 8)}
+              min={1}
+              max={100}
+              step={1}
+            />
+          </div>
+        )}
       </div>
     </SSheet>
   )

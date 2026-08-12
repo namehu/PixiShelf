@@ -155,6 +155,7 @@ interface ImmersiveImageViewerProps {
   hasMore: boolean
   isLoading: boolean
   onLoadMore: () => void
+  interactionLocked?: boolean
 }
 
 /**
@@ -166,7 +167,8 @@ export default function ImmersiveImageViewer({
   initialImages,
   onLoadMore,
   hasMore,
-  isLoading
+  isLoading,
+  interactionLocked = false
 }: ImmersiveImageViewerProps) {
   const [audioPreference, setAudioPreference] = useState<ViewerAudioPreference>({ muted: true, volume: 1 })
   const [chapterPanelOpen, setChapterPanelOpen] = useChapterPanelHistory()
@@ -237,10 +239,10 @@ export default function ImmersiveImageViewer({
           initialSlide={verticalIndex}
           direction="vertical"
           className="h-full w-full"
-          allowTouchMove={!chapterPanelOpen}
+          allowTouchMove={!chapterPanelOpen && !interactionLocked}
           // PC配置
-          mousewheel={true}
-          keyboard={{ enabled: !chapterPanelOpen }}
+          mousewheel={{ enabled: !interactionLocked }}
+          keyboard={{ enabled: !chapterPanelOpen && !interactionLocked }}
           modules={[Mousewheel, Keyboard]}
           // 初始索引配置
           slidesPerView={1}

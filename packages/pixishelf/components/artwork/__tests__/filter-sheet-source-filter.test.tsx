@@ -29,6 +29,20 @@ vi.mock('@/components/shared/date-range-picker', () => ({
   DatePickerRange: () => <div />
 }))
 
+vi.mock('@/app/artworks/_components/search-box', () => ({
+  SearchBox: ({ value, onValueChange }: { value: string; onValueChange: (value: string) => void }) => (
+    <input aria-label="viewer-search" value={value} onChange={(event) => onValueChange(event.target.value)} />
+  )
+}))
+
+vi.mock('@/components/ui/slider', () => ({
+  Slider: ({ onValueChange }: { onValueChange: (value: number[]) => void }) => (
+    <button type="button" data-testid="max-media-slider" onClick={() => onValueChange([42])}>
+      设置 42
+    </button>
+  )
+}))
+
 vi.mock('@/components/ui/sort-control', () => ({
   SortControl: () => <div />
 }))
@@ -98,5 +112,35 @@ describe('FilterSheet artwork sources', () => {
     fireEvent.click(screen.getByRole('button', { name: '确定' }))
 
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ hasAudio: 'yes' }))
+  })
+
+  it('submits viewer search and maximum media count, then resets to viewer defaults', () => {
+    const onApply = vi.fn()
+
+    render(
+      <FilterSheet
+        open
+        onOpenChange={vi.fn()}
+        currentSearch="old"
+        currentMediaType="video"
+        currentSortBy="source_date_desc"
+        currentMaxMediaCount={8}
+        resetSortBy="random"
+        onApply={onApply}
+      />
+    )
+
+    fireEvent.change(screen.getByLabelText('viewer-search'), { target: { value: 'miku' } })
+    fireEvent.click(screen.getByTestId('max-media-slider'))
+    fireEvent.click(screen.getByRole('button', { name: '确定' }))
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: 'miku', maxMediaCount: 42, mediaType: 'video' })
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '重置' }))
+    fireEvent.click(screen.getByRole('button', { name: '确定' }))
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: undefined, maxMediaCount: 8, sortBy: 'random', mediaType: 'all' })
+    )
   })
 })
