@@ -313,7 +313,10 @@ function sendProxiedRequest(
       upstreamRequest?.destroy(error)
       responseStream?.destroy(error)
       tunnelSocket?.destroy(error)
-      proxySocket?.destroy(error)
+      // The raw CONNECT socket has no independent error consumer. Passing an
+      // error to destroy() can surface as an uncaught socket error after the
+      // request promise has already been rejected.
+      proxySocket?.destroy()
       proxyRequest.destroy(error)
     }
     const removeAbortListener = () => options.signal?.removeEventListener('abort', onAbort)
@@ -343,7 +346,13 @@ function sendProxiedRequest(
       port: proxyUrl.port || (proxyUrl.protocol === 'https:' ? 443 : 80),
       method: 'CONNECT',
       path: targetHost,
-      headers: { host: targetHost },
+      headers: {
+        host: targetHost,
+        connection: 'keep-alive',
+        // Some older HTTP proxies use this de-facto header to decide whether the
+        // CONNECT socket may remain open for the subsequent TLS handshake.
+        'proxy-connection': 'keep-alive'
+      },
       agent: false
     })
     proxyRequest.on('socket', (socket) => {

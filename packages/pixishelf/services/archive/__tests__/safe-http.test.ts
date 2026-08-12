@@ -1,7 +1,8 @@
+import http from 'node:http'
 import net from 'node:net'
 import { Readable } from 'node:stream'
 import { setTimeout as delay } from 'node:timers/promises'
-import type { IncomingMessage } from 'node:http'
+import type { IncomingHttpHeaders, IncomingMessage } from 'node:http'
 import type { AddressInfo, Socket } from 'node:net'
 import { describe, expect, it } from 'vitest'
 import {
@@ -138,6 +139,23 @@ describe('archive safe HTTP network policy', () => {
     ).toThrowError(expect.objectContaining({ code: 'INTERNAL', message: '归档代理暂不支持 URL 中的账号或密码' }))
   })
 
+  it('keeps CONNECT tunnels open for legacy HTTP proxies', async () => {
+    const proxy = await createRejectingProxy()
+    try {
+      const client = new SafeHttpClient(['198.18.0.53'], { ARCHIVE_HTTPS_PROXY: proxy.url })
+
+      await expect(client.request('https://198.18.0.53/')).rejects.toMatchObject({
+        code: 'REMOTE_RESPONSE_INVALID'
+      })
+      await expect(proxy.requestHeaders).resolves.toMatchObject({
+        connection: 'keep-alive',
+        'proxy-connection': 'keep-alive'
+      })
+    } finally {
+      await proxy.close()
+    }
+  })
+
   it('times out a stalled proxy CONNECT and closes its socket', async () => {
     const proxy = await createHangingProxy()
     try {
@@ -244,6 +262,41 @@ async function createHangingProxy(): Promise<{
     socketClosed,
     close: async () => {
       for (const socket of sockets) socket.destroy()
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  }
+}
+
+async function createRejectingProxy(): Promise<{
+  url: string
+  requestHeaders: Promise<IncomingHttpHeaders>
+  close: () => Promise<void>
+}> {
+  let captureHeaders!: (headers: IncomingHttpHeaders) => void
+  const requestHeaders = new Promise<IncomingHttpHeaders>((resolve) => {
+    captureHeaders = resolve
+  })
+  const server = http.createServer()
+  server.on('connect', (request, socket) => {
+    captureHeaders(request.headers)
+    socket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n')
+  })
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => reject(error)
+    server.once('error', onError)
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', onError)
+      resolve()
+    })
+  })
+  const address = server.address() as AddressInfo
+
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    requestHeaders,
+    close: async () => {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
       })
