@@ -32,6 +32,18 @@ export const archiveRouter = router({
     .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }).default({ limit: 30 }))
     .query(async ({ input }) => runArchiveOperation(() => archiveModule.listTasks(input.limit))),
 
+  listTaskItems: authProcedure
+    .input(
+      z.object({
+        taskId: z.string().min(1),
+        cursor: z.number().int().min(0).nullish(),
+        limit: z.number().int().min(1).max(100).default(50)
+      })
+    )
+    .query(async ({ input }) =>
+      runArchiveOperation(() => archiveModule.listTaskItems(input.taskId, input.cursor, input.limit))
+    ),
+
   action: authProcedure
     .input(z.object({ taskId: z.string().min(1), action: actionSchema }))
     .mutation(async ({ input }) => runArchiveOperation(() => archiveModule.requestAction(input.taskId, input.action)))

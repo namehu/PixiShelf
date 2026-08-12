@@ -10,6 +10,7 @@ import {
   CirclePlay,
   ExternalLink,
   Loader2,
+  Images,
   RefreshCw,
   RotateCcw,
   Search,
@@ -24,6 +25,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import type { AppRouter } from '@/server'
+import { ArchiveItemDrawer } from './archive-item-drawer'
 
 const ACTIVE_STATUSES = new Set(['PENDING', 'RUNNING', 'CANCELLING'])
 type RouterOutputs = inferRouterOutputs<AppRouter>
@@ -34,6 +36,7 @@ export function ArchiveManagement() {
   const trpc = useTRPC()
   const [url, setUrl] = useState('')
   const [preview, setPreview] = useState<ArchivePreviewOutput | null>(null)
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
   const tasksQuery = useQuery(
     trpc.archive.listTasks.queryOptions(
       { limit: 30 },
@@ -77,6 +80,8 @@ export function ArchiveManagement() {
     previewMutation.mutate({ url: value })
   }
 
+  const detailTask = tasksQuery.data?.find((task) => task.id === detailTaskId) ?? null
+
   return (
     <div className="p-4 md:p-6">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -90,7 +95,9 @@ export function ArchiveManagement() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">解析作品链接</CardTitle>
-            <CardDescription>首版仅支持 e-hentai.org 的 /g/... 和 /s/... HTTPS 链接，不使用账号 Cookie。</CardDescription>
+            <CardDescription>
+              首版仅支持 e-hentai.org 的 /g/... 和 /s/... HTTPS 链接，不使用账号 Cookie。
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <form
@@ -199,7 +206,9 @@ export function ArchiveManagement() {
           </CardHeader>
           <CardContent>
             {tasksQuery.isLoading ? (
-              <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin" /></div>
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin" />
+              </div>
             ) : tasksQuery.data?.length ? (
               <div className="divide-y rounded-lg border">
                 {tasksQuery.data.map((task) => (
@@ -208,6 +217,7 @@ export function ArchiveManagement() {
                     task={task}
                     acting={actionMutation.isPending}
                     onAction={(action) => actionMutation.mutate({ taskId: task.id, action })}
+                    onViewItems={() => setDetailTaskId(task.id)}
                   />
                 ))}
               </div>
@@ -217,6 +227,14 @@ export function ArchiveManagement() {
           </CardContent>
         </Card>
       </div>
+      <ArchiveItemDrawer
+        key={detailTask?.id ?? 'archive-item-drawer'}
+        open={Boolean(detailTaskId && detailTask)}
+        task={detailTask}
+        onOpenChange={(open) => {
+          if (!open) setDetailTaskId(null)
+        }}
+      />
     </div>
   )
 }
@@ -224,10 +242,12 @@ export function ArchiveManagement() {
 function TaskRow({
   task,
   acting,
-  onAction
+  onAction,
+  onViewItems
 }: {
   task: ArchiveTaskOutput
   acting: boolean
+  onViewItems: () => void
   onAction: (
     action:
       | 'PAUSE'
@@ -256,6 +276,9 @@ function TaskRow({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={onViewItems}>
+            <Images /> 图片明细
+          </Button>
           {task.status === 'RUNNING' && (
             <Button variant="outline" size="sm" disabled={acting} onClick={() => onAction('PAUSE')}>
               <CirclePause /> 暂停
@@ -272,7 +295,12 @@ function TaskRow({
             </Button>
           )}
           {['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'].includes(task.status) && (
-            <Button variant="destructive" size="sm" disabled={acting || task.status === 'CANCELLING'} onClick={() => onAction('CANCEL')}>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={acting || task.status === 'CANCELLING'}
+              onClick={() => onAction('CANCEL')}
+            >
               <Square /> {task.status === 'CANCELLING' ? '正在取消' : '取消'}
             </Button>
           )}
@@ -284,7 +312,9 @@ function TaskRow({
           {task.status === 'COMPLETED' && task.publishedArtwork && !deleted && (
             <>
               <Button asChild variant="outline" size="sm">
-                <Link href={`/artworks/${task.publishedArtwork.id}`}><ExternalLink /> 查看作品</Link>
+                <Link href={`/artworks/${task.publishedArtwork.id}`}>
+                  <ExternalLink /> 查看作品
+                </Link>
               </Button>
               <Button variant="destructive" size="sm" disabled={acting} onClick={() => onAction('DELETE_ARCHIVE')}>
                 <Trash2 /> 移入回收站

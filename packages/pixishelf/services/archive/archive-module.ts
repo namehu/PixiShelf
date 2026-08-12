@@ -20,6 +20,14 @@ const PREVIEW_TTL_MS = 30 * 60 * 1000
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const ARCHIVE_IMPORT_JOB_TYPE = 'ARCHIVE_IMPORT'
 
+type ArchiveTaskSummaryRecord = Prisma.ArchiveImportGetPayload<{
+  include: {
+    systemJob: true
+    publishedRevision: true
+    publishedArtwork: { select: { id: true; title: true; deletedAt: true } }
+  }
+}>
+
 type ArchiveTaskRecord = Prisma.ArchiveImportGetPayload<{
   include: {
     systemJob: true
@@ -51,10 +59,7 @@ export class ArchiveModule {
       })
     ])
     const warnings = [...resolved.warnings]
-    if (
-      existingRef &&
-      (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')
-    ) {
+    if (existingRef && (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')) {
       throw new ArchiveError('STATE_CONFLICT', '该作品已在归档回收站中，请先显式恢复后再更新', {
         recoverable: true
       })
@@ -138,10 +143,7 @@ export class ArchiveModule {
           },
           include: { artwork: true }
         })
-        if (
-          existingRef &&
-          (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')
-        ) {
+        if (existingRef && (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')) {
           throw new ArchiveError('STATE_CONFLICT', '该作品已在归档回收站中，请先显式恢复后再更新', {
             recoverable: true
           })
@@ -215,11 +217,58 @@ export class ArchiveModule {
       include: {
         systemJob: true,
         publishedRevision: true,
-        publishedArtwork: { select: { id: true, title: true, deletedAt: true } },
-        items: { orderBy: { pageIndex: 'asc' } }
+        publishedArtwork: { select: { id: true, title: true, deletedAt: true } }
       }
     })
-    return tasks.map(toTaskView)
+    return tasks.map(toTaskSummary)
+  }
+
+  async listTaskItems(taskId: string, cursor: number | null | undefined = null, limit = 50) {
+    const normalizedLimit = Math.min(Math.max(limit, 1), 100)
+    const task = await prisma.archiveImport.findUnique({
+      where: { id: taskId },
+      select: { id: true, totalItems: true }
+    })
+    if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
+
+    const rows = await prisma.archiveImportItem.findMany({
+      where: {
+        archiveImportId: task.id,
+        ...(cursor == null ? {} : { pageIndex: { gt: cursor } })
+      },
+      orderBy: { pageIndex: 'asc' },
+      take: normalizedLimit + 1,
+      select: {
+        id: true,
+        pageIndex: true,
+        sourcePageUrl: true,
+        expectedFilename: true,
+        status: true,
+        attempts: true,
+        stagedPath: true,
+        byteCount: true,
+        mimeType: true,
+        quality: true,
+        width: true,
+        height: true,
+        errorCode: true,
+        errorMessage: true,
+        startedAt: true,
+        finishedAt: true,
+        updatedAt: true
+      }
+    })
+    const hasNextPage = rows.length > normalizedLimit
+    const items = hasNextPage ? rows.slice(0, normalizedLimit) : rows
+
+    return {
+      totalItems: task.totalItems,
+      nextCursor: hasNextPage ? items.at(-1)?.pageIndex : undefined,
+      items: items.map((item) => ({
+        ...item,
+        byteCount: item.byteCount?.toString() ?? null
+      }))
+    }
   }
 
   async requestAction(taskId: string, action: ArchiveTaskAction) {
@@ -255,7 +304,14 @@ export class ArchiveModule {
           mutate: async (tx) => {
             await tx.archiveImportItem.updateMany({
               where: { archiveImportId: task.id, status: { not: 'COMPLETED' } },
-              data: { status: 'PENDING', attempts: 0, errorCode: null, errorMessage: null, startedAt: null, finishedAt: null }
+              data: {
+                status: 'PENDING',
+                attempts: 0,
+                errorCode: null,
+                errorMessage: null,
+                startedAt: null,
+                finishedAt: null
+              }
             })
           }
         })
@@ -290,7 +346,14 @@ export class ArchiveModule {
           mutate: async (tx) => {
             await tx.archiveImportItem.updateMany({
               where: { archiveImportId: task.id, status: { not: 'COMPLETED' } },
-              data: { status: 'PENDING', attempts: 0, errorCode: null, errorMessage: null, startedAt: null, finishedAt: null }
+              data: {
+                status: 'PENDING',
+                attempts: 0,
+                errorCode: null,
+                errorMessage: null,
+                startedAt: null,
+                finishedAt: null
+              }
             })
           }
         })
@@ -302,14 +365,26 @@ export class ArchiveModule {
           jobStatus: 'PENDING',
           message: '已选择展示质量，等待继续...',
           importData: {
-            selectedQuality: 'DISPLAY', decisionCode: null, errorCode: null, errorMessage: null,
-            failedItems: 0, finishedAt: null, retainUntil: null
+            selectedQuality: 'DISPLAY',
+            decisionCode: null,
+            errorCode: null,
+            errorMessage: null,
+            failedItems: 0,
+            finishedAt: null,
+            retainUntil: null
           },
           jobData: { error: null, finishedAt: null },
           mutate: async (tx) => {
             await tx.archiveImportItem.updateMany({
               where: { archiveImportId: task.id, status: { not: 'COMPLETED' } },
-              data: { status: 'PENDING', attempts: 0, errorCode: null, errorMessage: null, startedAt: null, finishedAt: null }
+              data: {
+                status: 'PENDING',
+                attempts: 0,
+                errorCode: null,
+                errorMessage: null,
+                startedAt: null,
+                finishedAt: null
+              }
             })
           }
         })
@@ -387,11 +462,7 @@ async function transitionTaskAndJob(
   })
 }
 
-function assertActionStatus(
-  action: ArchiveTaskAction,
-  actual: string,
-  allowed: readonly string[]
-): void {
+function assertActionStatus(action: ArchiveTaskAction, actual: string, allowed: readonly string[]): void {
   if (!allowed.includes(actual)) throw stateConflict(`任务状态 ${actual} 不允许执行 ${action}`)
 }
 
@@ -432,7 +503,7 @@ function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
 }
 
-function toTaskView(task: ArchiveTaskRecord) {
+function toTaskSummary(task: ArchiveTaskSummaryRecord) {
   return {
     id: task.id,
     providerKey: task.providerKey,
@@ -457,7 +528,13 @@ function toTaskView(task: ArchiveTaskRecord) {
     finishedAt: task.finishedAt,
     retainUntil: task.retainUntil,
     publishedArtwork: task.publishedArtwork,
-    revisionId: task.publishedRevision?.id ?? null,
+    revisionId: task.publishedRevision?.id ?? null
+  }
+}
+
+function toTaskView(task: ArchiveTaskRecord) {
+  return {
+    ...toTaskSummary(task),
     items: task.items.map((item) => ({
       id: item.id,
       pageIndex: item.pageIndex,
