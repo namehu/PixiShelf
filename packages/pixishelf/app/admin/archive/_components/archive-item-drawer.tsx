@@ -1,16 +1,22 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { inferRouterOutputs } from '@trpc/server'
-import { Copy, ExternalLink, Loader2 } from 'lucide-react'
+import { Copy, ExternalLink, Loader2, RefreshCw, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 import { SSheet } from '@/components/shared/s-sheet'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
+import {
+  archiveItemPollingIntervals,
+  defaultArchiveItemFilter,
+  type ArchiveItemFilter
+} from './archive-item-view-state'
 
 const PAGE_SIZE = 50
 
@@ -21,32 +27,65 @@ type ArchiveItem = RouterOutputs['archive']['listTaskItems']['items'][number]
 export function ArchiveItemDrawer({
   open,
   task,
-  onOpenChange
+  onOpenChange,
+  onTaskChanged
 }: {
   open: boolean
   task: ArchiveTask | null
   onOpenChange: (open: boolean) => void
+  onTaskChanged: () => void | Promise<unknown>
 }) {
   const trpc = useTRPC()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [filter, setFilter] = useState<ArchiveItemFilter>('ALL')
+  const partialFailure = Boolean(task?.status === 'FAILED' && task.errorCode === 'PARTIAL_FAILURE')
+  const polling = archiveItemPollingIntervals(task?.status ?? '')
+
+  useEffect(() => {
+    if (!open || !task) return
+    setFilter(defaultArchiveItemFilter(task.status, task.errorCode))
+    scrollRef.current?.scrollTo({ top: 0 })
+  }, [open, partialFailure, task?.id])
+
+  const countsQuery = useQuery(
+    trpc.archive.getTaskItemCounts.queryOptions(
+      { taskId: task?.id ?? '' },
+      {
+        enabled: open && Boolean(task),
+        refetchInterval: polling.counts,
+        staleTime: polling.counts ? 0 : 5_000
+      }
+    )
+  )
   const itemsQuery = useInfiniteQuery(
     trpc.archive.listTaskItems.infiniteQueryOptions(
-      { taskId: task?.id ?? '', limit: PAGE_SIZE },
+      { taskId: task?.id ?? '', limit: PAGE_SIZE, status: filter },
       {
         initialCursor: null,
         getNextPageParam: (lastPage) => lastPage.nextCursor,
         enabled: open && Boolean(task),
-        staleTime: 5_000
+        refetchInterval: polling.items,
+        staleTime: polling.items ? 0 : 5_000
       }
     )
   )
+  const retryMutation = useMutation(
+    trpc.archive.retryTaskItem.mutationOptions({
+      onSuccess: async () => {
+        toast.success('已将选中的图片重新加入下载队列')
+        await Promise.all([countsQuery.refetch(), itemsQuery.refetch(), onTaskChanged()])
+      },
+      onError: (error) => toast.error(error.message)
+    })
+  )
   const items = useMemo(() => itemsQuery.data?.pages.flatMap((batch) => batch.items) ?? [], [itemsQuery.data])
-  const totalItems = itemsQuery.data?.pages[0]?.totalItems ?? task?.totalItems ?? 0
+  const totalItems = countsQuery.data?.all ?? task?.totalItems ?? 0
+  const filteredItems = filterCount(filter, countsQuery.data, task)
   const rowVirtualizer = useVirtualizer({
     useFlushSync: false,
     count: itemsQuery.hasNextPage ? items.length + 1 : items.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 176,
+    estimateSize: () => 192,
     overscan: 5
   })
   const virtualRows = rowVirtualizer.getVirtualItems()
@@ -64,6 +103,10 @@ export function ArchiveItemDrawer({
     void itemsQuery.fetchNextPage()
   }, [items.length, itemsQuery.fetchNextPage, itemsQuery.hasNextPage, itemsQuery.isFetchingNextPage, lastVirtualIndex])
 
+  const refresh = async () => {
+    await Promise.all([countsQuery.refetch(), itemsQuery.refetch(), onTaskChanged()])
+  }
+
   return (
     <SSheet
       open={open}
@@ -71,17 +114,47 @@ export function ArchiveItemDrawer({
       title={task?.title || (task ? `E-Hentai #${task.externalId}` : '图片明细')}
       description={
         task
-          ? `${task.providerKey} #${task.externalId} · ${task.completedItems}/${task.totalItems} 张已完成`
+          ? `${task.providerKey} #${task.externalId} · 成功 ${task.completedItems} · 失败 ${task.failedItems} · 共 ${task.totalItems} 张`
           : undefined
       }
       side="right"
       className="w-[min(100vw,46rem)] sm:max-w-[46rem]"
     >
       <div className="flex h-full min-h-0 flex-col">
-        <p className="mb-4 shrink-0 rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-          这里展示归档时保存的 E-Hentai 图片页链接；下载时临时解析的 CDN 直链可能过期，因此不会持久化。共 {totalItems}{' '}
-          张，向下滚动会自动加载。
-        </p>
+        <div className="mb-3 flex shrink-0 items-start gap-2 rounded-md border bg-muted/30 p-3">
+          <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+            保存的是稳定的 E-Hentai 图片页链接；临时 CDN 直链不会持久化。筛选由服务端执行，向下滚动自动加载。
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0"
+            title="刷新明细"
+            aria-label="刷新图片明细"
+            disabled={itemsQuery.isFetching || countsQuery.isFetching}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw className={itemsQuery.isFetching || countsQuery.isFetching ? 'animate-spin' : ''} />
+          </Button>
+        </div>
+
+        <Tabs
+          value={filter}
+          onValueChange={(value) => {
+            setFilter(value as ArchiveItemFilter)
+            scrollRef.current?.scrollTo({ top: 0 })
+          }}
+          className="mb-4 shrink-0"
+        >
+          <TabsList className="grid h-auto w-full grid-cols-3 sm:grid-cols-5">
+            <TabsTrigger value="ALL">全部 {countsQuery.data?.all ?? totalItems}</TabsTrigger>
+            <TabsTrigger value="COMPLETED">成功 {countsQuery.data?.completed ?? task?.completedItems ?? 0}</TabsTrigger>
+            <TabsTrigger value="FAILED">失败 {countsQuery.data?.failed ?? task?.failedItems ?? 0}</TabsTrigger>
+            <TabsTrigger value="PENDING">待下载 {countsQuery.data?.pending ?? 0}</TabsTrigger>
+            <TabsTrigger value="DOWNLOADING">下载中 {countsQuery.data?.downloading ?? 0}</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {itemsQuery.isLoading ? (
           <div className="flex justify-center py-16">
@@ -111,7 +184,13 @@ export function ArchiveItemDrawer({
                     style={{ transform: `translateY(${virtualRow.start}px)` }}
                   >
                     {item ? (
-                      <ArchiveItemCard item={item} totalItems={totalItems} />
+                      <ArchiveItemCard
+                        item={item}
+                        totalItems={totalItems}
+                        canRetry={partialFailure && item.status === 'FAILED'}
+                        retrying={retryMutation.isPending && retryMutation.variables?.itemId === item.id}
+                        onRetry={() => task && retryMutation.mutate({ taskId: task.id, itemId: item.id })}
+                      />
                     ) : (
                       <div className="flex items-center justify-center gap-2 py-5 text-sm text-muted-foreground">
                         <Loader2 className="size-4 animate-spin" />
@@ -124,14 +203,28 @@ export function ArchiveItemDrawer({
             </div>
           </div>
         ) : (
-          <div className="py-16 text-center text-sm text-muted-foreground">该任务没有图片明细。</div>
+          <div className="py-16 text-center text-sm text-muted-foreground">
+            {filteredItems === 0 ? '当前筛选条件下没有图片。' : '该任务没有图片明细。'}
+          </div>
         )}
       </div>
     </SSheet>
   )
 }
 
-function ArchiveItemCard({ item, totalItems }: { item: ArchiveItem; totalItems: number }) {
+function ArchiveItemCard({
+  item,
+  totalItems,
+  canRetry,
+  retrying,
+  onRetry
+}: {
+  item: ArchiveItem
+  totalItems: number
+  canRetry: boolean
+  retrying: boolean
+  onRetry: () => void
+}) {
   const pageNumber = item.pageIndex + 1
   const numberLabel = String(pageNumber).padStart(String(Math.max(totalItems, 1)).length, '0')
   const metadata = [
@@ -145,9 +238,15 @@ function ArchiveItemCard({ item, totalItems }: { item: ArchiveItem; totalItems: 
     <div className="space-y-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline">#{numberLabel}</Badge>
-        <ItemStatusBadge status={item.status} />
+        <ItemStatusBadge status={item.status} attempts={item.attempts} />
         <span className="text-xs text-muted-foreground">尝试 {item.attempts}</span>
         {metadata.length > 0 && <span className="text-xs text-muted-foreground">{metadata.join(' · ')}</span>}
+        {canRetry && (
+          <Button type="button" variant="outline" size="sm" className="ml-auto" disabled={retrying} onClick={onRetry}>
+            {retrying ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+            重试此图
+          </Button>
+        )}
       </div>
 
       <div className="flex items-start gap-1">
@@ -175,6 +274,12 @@ function ArchiveItemCard({ item, totalItems }: { item: ArchiveItem; totalItems: 
 
       <p className="break-all text-xs text-muted-foreground">预期文件名：{item.expectedFilename}</p>
       {item.stagedPath && <p className="break-all text-xs text-muted-foreground">暂存路径：{item.stagedPath}</p>}
+      {(item.errorStage || item.remoteHost) && (
+        <p className="break-all text-xs text-amber-700">
+          失败位置：{failureStageLabel(item.errorStage)}
+          {item.remoteHost ? ` · ${item.remoteHost}` : ''}
+        </p>
+      )}
       {item.errorMessage && (
         <p className="whitespace-pre-wrap break-words text-sm text-destructive">
           {item.errorCode ? `${item.errorCode}：` : ''}
@@ -185,15 +290,40 @@ function ArchiveItemCard({ item, totalItems }: { item: ArchiveItem; totalItems: 
   )
 }
 
-function ItemStatusBadge({ status }: { status: string }) {
+function ItemStatusBadge({ status, attempts }: { status: string; attempts: number }) {
   const labels: Record<string, string> = {
-    PENDING: '等待下载',
+    PENDING: attempts > 0 ? '等待下一轮重试' : '等待下载',
     DOWNLOADING: '下载中',
     COMPLETED: '已完成',
     FAILED: '失败'
   }
   const variant = status === 'COMPLETED' ? 'default' : status === 'FAILED' ? 'destructive' : 'secondary'
   return <Badge variant={variant}>{labels[status] || status}</Badge>
+}
+
+function filterCount(
+  filter: ArchiveItemFilter,
+  counts: RouterOutputs['archive']['getTaskItemCounts'] | undefined,
+  task: ArchiveTask | null
+): number {
+  if (filter === 'ALL') return counts?.all ?? task?.totalItems ?? 0
+  if (filter === 'COMPLETED') return counts?.completed ?? task?.completedItems ?? 0
+  if (filter === 'FAILED') return counts?.failed ?? task?.failedItems ?? 0
+  if (filter === 'PENDING') return counts?.pending ?? 0
+  return counts?.downloading ?? 0
+}
+
+function failureStageLabel(value: string | null): string {
+  const labels: Record<string, string> = {
+    SOURCE_PAGE: '图片页',
+    PROXY_CONNECT: '代理连接',
+    TLS_HANDSHAKE: 'TLS 握手',
+    MEDIA_REQUEST: '媒体请求',
+    MEDIA_STREAM: '媒体传输',
+    MEDIA_VALIDATION: '图片校验',
+    STORAGE: '本地存储'
+  }
+  return value ? labels[value] || value : '未知阶段'
 }
 
 function formatBytes(value: string | null): string | null {

@@ -2,8 +2,13 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { rename, rm } from 'node:fs/promises'
 import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
-import { ArchiveError, toArchiveError } from './errors'
-import { archiveModule, ARCHIVE_IMPORT_JOB_TYPE, FAILED_STAGING_RETENTION_MS } from './archive-module'
+import { ArchiveError, toArchiveError, withArchiveErrorContext } from './errors'
+import {
+  archiveModule,
+  ARCHIVE_IMPORT_JOB_TYPE,
+  FAILED_STAGING_RETENTION_MS,
+  PARTIAL_FAILED_STAGING_RETENTION_MS
+} from './archive-module'
 import {
   ARCHIVE_PUBLISH_ADVISORY_LOCK_ID,
   publishArchiveImport,
@@ -23,7 +28,7 @@ import {
 import type { ResolvedMedia } from './types'
 import { requireArchiveStorageRoot } from './config'
 import type { ArchiveTransactionClient } from './relationships'
-import { selectPrimaryWorkerError } from './worker-control'
+import { classifyArchiveFailure, runConcurrentArchiveRound, selectPrimaryWorkerError } from './worker-control'
 
 const ARCHIVE_QUEUE_ADVISORY_LOCK_ID = 7_341_902_118
 const HEARTBEAT_INTERVAL_MS = 30_000
@@ -34,6 +39,20 @@ const LIFECYCLE_RECONCILE_INTERVAL_MS = 30_000
 const MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000
 const MEDIA_CONCURRENCY = 2
 const MAX_MEDIA_ATTEMPTS = 3
+
+interface ArchiveWorkItem {
+  id: string
+  pageIndex: number
+  sourcePageUrl: string
+  locator: unknown
+  expectedFilename: string
+  attempts: number
+}
+
+type ArchiveItemAttemptResult =
+  | { kind: 'COMPLETED' }
+  | { kind: 'RETRY'; item: ArchiveWorkItem }
+  | { kind: 'FAILED' }
 
 let lastMaintenanceAt = 0
 let lastStaleRecoveryAt = 0
@@ -90,18 +109,6 @@ export async function processClaimedArchiveImport(
   if (!archiveImport || archiveImport.systemJob.attempt !== leaseAttempt || archiveImport.status !== 'RUNNING') {
     throw new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效')
   }
-  const scanRoot = await requireArchiveStorageRoot()
-  const storagePaths = buildArchiveStoragePaths({
-    scanRoot,
-    importId,
-    providerKey: archiveImport.providerKey,
-    creatorBucket: archiveImport.creatorBucket,
-    externalId: archiveImport.externalId
-  })
-  const stagingDirectory = (await pathExists(storagePaths.finalAbsolutePath))
-    ? storagePaths.finalAbsolutePath
-    : await prepareStagingDirectory(scanRoot, archiveImport.stagingPath)
-  const provider = archiveModule.getProvider(archiveImport.providerKey)
   const controller = new AbortController()
   let rootError: ArchiveError | null = null
   const abortWith = (error: unknown) => {
@@ -137,16 +144,42 @@ export async function processClaimedArchiveImport(
   controlPoll.unref()
 
   try {
+    throwIfWorkerAborted(controller.signal, rootError)
+    const scanRoot = await requireArchiveStorageRoot()
+    const storagePaths = buildArchiveStoragePaths({
+      scanRoot,
+      importId,
+      providerKey: archiveImport.providerKey,
+      creatorBucket: archiveImport.creatorBucket,
+      externalId: archiveImport.externalId
+    })
+    const stagingDirectory = (await pathExists(storagePaths.finalAbsolutePath))
+      ? storagePaths.finalAbsolutePath
+      : await prepareStagingDirectory(scanRoot, archiveImport.stagingPath)
+    const provider = archiveModule.getProvider(archiveImport.providerKey)
     await touchLease(archiveImport.systemJobId, leaseAttempt)
-    const pendingItems = archiveImport.items.filter((item) => item.status !== 'COMPLETED')
-    let cursor = 0
-    const workers = Array.from({ length: Math.min(MEDIA_CONCURRENCY, pendingItems.length) }, async () => {
-      try {
-        while (cursor < pendingItems.length) {
-          const item = pendingItems[cursor++]
-          if (!item) return
+    await syncArchiveItemCounts(importId, archiveImport.systemJobId, leaseAttempt)
+    let roundItems: ArchiveWorkItem[] = archiveImport.items
+      .filter((item) => item.status === 'PENDING')
+      .map((item) => ({
+        id: item.id,
+        pageIndex: item.pageIndex,
+        sourcePageUrl: item.sourcePageUrl,
+        locator: item.locator,
+        expectedFilename: item.expectedFilename,
+        attempts: item.attempts
+      }))
+    let round = 1
+
+    while (roundItems.length > 0 && round <= MAX_MEDIA_ATTEMPTS) {
+      const retryItems: ArchiveWorkItem[] = []
+      const roundResult = await runConcurrentArchiveRound(
+        roundItems,
+        MEDIA_CONCURRENCY,
+        async (item) => {
+          throwIfWorkerAborted(controller.signal, rootError)
           await assertRunningLease(archiveImport.systemJobId, leaseAttempt)
-          await downloadItemWithRetry({
+          return downloadItemAttempt({
             importId,
             jobId: archiveImport.systemJobId,
             leaseAttempt,
@@ -157,17 +190,47 @@ export async function processClaimedArchiveImport(
             signal: controller.signal,
             totalItems: archiveImport.totalItems
           })
-        }
-      } catch (error) {
-        abortWith(error)
-        throw error
+        },
+        abortWith
+      )
+      for (const result of roundResult.results) {
+        if (result.kind === 'RETRY') retryItems.push(result.item)
       }
-    })
-    const workerResults = await Promise.allSettled(workers)
-    const rejectedWorkers = workerResults.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-    const primaryWorkerError = selectPrimaryWorkerError(rootError, rejectedWorkers.map((result) => result.reason))
-    if (primaryWorkerError) throw primaryWorkerError
+      const primaryWorkerError = selectPrimaryWorkerError(rootError, roundResult.rejectedReasons)
+      if (primaryWorkerError) throw primaryWorkerError
+
+      const counts = await syncArchiveItemCounts(importId, archiveImport.systemJobId, leaseAttempt)
+      const retryMessage = retryItems.length > 0 ? `，${retryItems.length} 张等待下一轮` : ''
+      await updateLeaseProgress(
+        archiveImport.systemJobId,
+        leaseAttempt,
+        archiveProgress(counts.completed, archiveImport.totalItems),
+        `第 ${round}/${MAX_MEDIA_ATTEMPTS} 轮完成：已下载 ${counts.completed}/${archiveImport.totalItems}${retryMessage}`
+      )
+
+      if (retryItems.length === 0 || round >= MAX_MEDIA_ATTEMPTS) break
+      await delay(backoffWithJitter(round), undefined, { signal: controller.signal }).catch(() => undefined)
+      throwIfWorkerAborted(controller.signal, rootError)
+      roundItems = retryItems.sort((left, right) => left.pageIndex - right.pageIndex)
+      round += 1
+    }
+
     await assertRunningLease(archiveImport.systemJobId, leaseAttempt)
+    const finalCounts = await syncArchiveItemCounts(importId, archiveImport.systemJobId, leaseAttempt)
+    if (finalCounts.failed > 0) {
+      await finalizePartialFailure({
+        importId,
+        jobId: archiveImport.systemJobId,
+        leaseAttempt,
+        completed: finalCounts.completed,
+        failed: finalCounts.failed,
+        total: archiveImport.totalItems
+      })
+      return
+    }
+    if (finalCounts.pending > 0 || finalCounts.downloading > 0) {
+      throw new ArchiveError('MEDIA_INVALID', '归档媒体检查点仍有未处理项目', { recoverable: true })
+    }
 
     const completed = await prisma.archiveImportItem.findMany({
       where: { archiveImportId: importId },
@@ -232,71 +295,77 @@ export async function processClaimedArchiveImport(
   }
 }
 
-async function downloadItemWithRetry(input: {
+async function downloadItemAttempt(input: {
   importId: string
   jobId: string
   leaseAttempt: number
-  item: {
-    id: string
-    pageIndex: number
-    sourcePageUrl: string
-    locator: unknown
-    expectedFilename: string
-    attempts: number
-  }
+  item: ArchiveWorkItem
   provider: ReturnType<typeof archiveModule.getProvider>
   selectedQuality: 'ORIGINAL' | 'DISPLAY'
   stagingDirectory: string
   signal: AbortSignal
   totalItems: number
-}) {
-  let attempt = input.item.attempts
-  while (attempt < MAX_MEDIA_ATTEMPTS) {
-    attempt += 1
-    await withRunningLeaseTransaction(input.jobId, input.importId, input.leaseAttempt, async (tx) => {
-      await tx.archiveImportItem.update({
-        where: { id: input.item.id },
-        data: {
-          status: 'DOWNLOADING',
-          attempts: { increment: 1 },
-          startedAt: new Date(),
-          finishedAt: null,
-          errorCode: null,
-          errorMessage: null
-        }
-      })
+}): Promise<ArchiveItemAttemptResult> {
+  if (input.signal.aborted) throw toArchiveError(input.signal.reason)
+  const attempt = input.item.attempts + 1
+  let itemCompleted = false
+  await withRunningLeaseTransaction(input.jobId, input.importId, input.leaseAttempt, async (tx) => {
+    const claimed = await tx.archiveImportItem.updateMany({
+      where: {
+        id: input.item.id,
+        archiveImportId: input.importId,
+        status: 'PENDING',
+        attempts: input.item.attempts
+      },
+      data: {
+        status: 'DOWNLOADING',
+        attempts: { increment: 1 },
+        startedAt: new Date(),
+        finishedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        errorStage: null,
+        remoteHost: null
+      }
     })
-    try {
-      const remote = await input.provider.openMedia(
-        {
-          index: input.item.pageIndex,
-          sourcePageUrl: input.item.sourcePageUrl,
-          locator: input.item.locator as Record<string, unknown>,
-          expectedFilename: input.item.expectedFilename
-        } satisfies ResolvedMedia,
-        { quality: input.selectedQuality, signal: input.signal }
-      )
-      const stored = await storeRemoteMedia({
-        remote,
-        stagingDirectory: input.stagingDirectory,
+    if (claimed.count !== 1) throw new ArchiveError('STATE_CONFLICT', '图片下载状态已改变', { recoverable: true })
+  })
+
+  try {
+    const remote = await input.provider.openMedia(
+      {
         index: input.item.pageIndex,
-        expectedFilename: input.item.expectedFilename,
-        signal: input.signal,
-        partialKey: `lease-${input.leaseAttempt}`,
-        commitFile: async ({ partial, target }) => {
-          await withRunningLeaseTransaction(input.jobId, input.importId, input.leaseAttempt, async () => {
+        sourcePageUrl: input.item.sourcePageUrl,
+        locator: input.item.locator as Record<string, unknown>,
+        expectedFilename: input.item.expectedFilename
+      } satisfies ResolvedMedia,
+      { quality: input.selectedQuality, signal: input.signal }
+    )
+    const stored = await storeRemoteMedia({
+      remote,
+      stagingDirectory: input.stagingDirectory,
+      index: input.item.pageIndex,
+      expectedFilename: input.item.expectedFilename,
+      signal: input.signal,
+      partialKey: `lease-${input.leaseAttempt}`,
+      commitFile: async ({ partial, target }) => {
+        await withRunningLeaseTransaction(input.jobId, input.importId, input.leaseAttempt, async () => {
+          try {
             await rm(target, { force: true })
             await rename(partial, target)
-          })
-        }
-      })
-      const task = await withRunningLeaseTransaction(
-        input.jobId,
-        input.importId,
-        input.leaseAttempt,
-        async (tx) => {
-          await tx.archiveImportItem.update({
-          where: { id: input.item.id },
+          } catch (error) {
+            throw withArchiveErrorContext(error, { stage: 'STORAGE' })
+          }
+        })
+      }
+    })
+    const task = await withRunningLeaseTransaction(
+      input.jobId,
+      input.importId,
+      input.leaseAttempt,
+      async (tx) => {
+        const completed = await tx.archiveImportItem.updateMany({
+          where: { id: input.item.id, archiveImportId: input.importId, status: 'DOWNLOADING', attempts: attempt },
           data: {
             status: 'COMPLETED',
             stagedPath: stored.relativePath,
@@ -308,40 +377,158 @@ async function downloadItemWithRetry(input: {
             sha256: stored.sha256,
             errorCode: null,
             errorMessage: null,
-            finishedAt: new Date()
-          }
-          })
-          return tx.archiveImport.update({
-            where: { id: input.importId },
-            data: { completedItems: { increment: 1 } },
-            select: { completedItems: true }
-          })
-        }
-      )
-      const progress = Math.max(1, Math.min(95, Math.round((task.completedItems / input.totalItems) * 90) + 5))
-      await updateLeaseProgress(input.jobId, input.leaseAttempt, progress, `已下载 ${task.completedItems}/${input.totalItems}`)
-      return
-    } catch (error) {
-      const classified = toArchiveError(error)
-      await withRunningLeaseTransaction(input.jobId, input.importId, input.leaseAttempt, async (tx) => {
-        await tx.archiveImportItem.update({
-          where: { id: input.item.id },
-          data: {
-            status: 'FAILED',
-            errorCode: classified.code,
-            errorMessage: classified.message,
+            errorStage: null,
+            remoteHost: null,
             finishedAt: new Date()
           }
         })
-      })
-      if (classified.pause || !classified.recoverable || attempt >= MAX_MEDIA_ATTEMPTS || input.signal.aborted) {
-        throw classified
+        if (completed.count !== 1) throw new ArchiveError('STATE_CONFLICT', '图片下载状态已改变', { recoverable: true })
+        return tx.archiveImport.update({
+          where: { id: input.importId },
+          data: { completedItems: { increment: 1 } },
+          select: { completedItems: true }
+        })
       }
-      const waitMs = classified.retryAfterMs ?? backoffWithJitter(attempt)
-      await delay(waitMs, undefined, { signal: input.signal }).catch(() => undefined)
-      if (input.signal.aborted) throw classified
+    )
+    itemCompleted = true
+    await updateLeaseProgress(
+      input.jobId,
+      input.leaseAttempt,
+      archiveProgress(task.completedItems, input.totalItems),
+      `已下载 ${task.completedItems}/${input.totalItems}`
+    )
+    return { kind: 'COMPLETED' }
+  } catch (error) {
+    const classified = toArchiveError(error)
+    if (itemCompleted) throw classified
+    const disposition = classifyArchiveFailure(classified)
+    const retry = disposition === 'RETRY_ITEM' && attempt < MAX_MEDIA_ATTEMPTS && !input.signal.aborted
+    const terminalItemFailure = disposition === 'FAIL_ITEM' || (disposition === 'RETRY_ITEM' && !retry)
+
+    try {
+      await withRunningLeaseTransaction(input.jobId, input.importId, input.leaseAttempt, async (tx) => {
+        const failed = await tx.archiveImportItem.updateMany({
+          where: { id: input.item.id, archiveImportId: input.importId, status: 'DOWNLOADING', attempts: attempt },
+          data: {
+            status: terminalItemFailure ? 'FAILED' : 'PENDING',
+            errorCode: classified.code,
+            errorMessage: classified.message,
+            errorStage: classified.stage,
+            remoteHost: classified.remoteHost,
+            finishedAt: terminalItemFailure ? new Date() : null
+          }
+        })
+        if (failed.count !== 1) throw new ArchiveError('STATE_CONFLICT', '图片下载状态已改变', { recoverable: true })
+        if (terminalItemFailure) {
+          await tx.archiveImport.update({
+            where: { id: input.importId },
+            data: { failedItems: { increment: 1 } }
+          })
+        }
+      })
+    } catch (checkpointError) {
+      if (!input.signal.aborted) throw checkpointError
     }
+
+    if (disposition === 'PAUSE_TASK' || disposition === 'STOP_TASK' || input.signal.aborted) throw classified
+    if (retry) return { kind: 'RETRY', item: { ...input.item, attempts: attempt } }
+    return { kind: 'FAILED' }
   }
+}
+
+interface ArchiveItemCounts {
+  completed: number
+  failed: number
+  pending: number
+  downloading: number
+}
+
+async function syncArchiveItemCounts(
+  importId: string,
+  jobId: string,
+  leaseAttempt: number
+): Promise<ArchiveItemCounts> {
+  return withRunningLeaseTransaction(jobId, importId, leaseAttempt, async (tx) => {
+    const groups = await tx.archiveImportItem.groupBy({
+      by: ['status'],
+      where: { archiveImportId: importId },
+      _count: { _all: true }
+    })
+    const counts = normalizeItemCounts(groups)
+    await tx.archiveImport.update({
+      where: { id: importId },
+      data: { completedItems: counts.completed, failedItems: counts.failed }
+    })
+    return counts
+  })
+}
+
+async function readArchiveItemCounts(importId: string): Promise<ArchiveItemCounts> {
+  const groups = await prisma.archiveImportItem.groupBy({
+    by: ['status'],
+    where: { archiveImportId: importId },
+    _count: { _all: true }
+  })
+  return normalizeItemCounts(groups)
+}
+
+function normalizeItemCounts(
+  groups: Array<{ status: 'PENDING' | 'DOWNLOADING' | 'COMPLETED' | 'FAILED'; _count: { _all: number } }>
+): ArchiveItemCounts {
+  const counts: ArchiveItemCounts = { completed: 0, failed: 0, pending: 0, downloading: 0 }
+  for (const group of groups) {
+    const count = group._count._all
+    if (group.status === 'COMPLETED') counts.completed = count
+    else if (group.status === 'FAILED') counts.failed = count
+    else if (group.status === 'PENDING') counts.pending = count
+    else counts.downloading = count
+  }
+  return counts
+}
+
+async function finalizePartialFailure(input: {
+  importId: string
+  jobId: string
+  leaseAttempt: number
+  completed: number
+  failed: number
+  total: number
+}): Promise<void> {
+  const now = new Date()
+  const message = `部分失败：已下载 ${input.completed}/${input.total}，失败 ${input.failed} 张`
+  await prisma.$transaction(async (tx) => {
+    const job = await tx.systemJob.updateMany({
+      where: { id: input.jobId, attempt: input.leaseAttempt, status: 'RUNNING' },
+      data: {
+        status: 'FAILED',
+        progress: 95,
+        message,
+        error: message,
+        finishedAt: now,
+        heartbeatAt: now
+      }
+    })
+    if (job.count !== 1) throw new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效')
+    const task = await tx.archiveImport.updateMany({
+      where: { id: input.importId, status: 'RUNNING' },
+      data: {
+        status: 'FAILED',
+        completedItems: input.completed,
+        failedItems: input.failed,
+        errorCode: 'PARTIAL_FAILURE',
+        errorMessage: message,
+        finishedAt: now,
+        retainUntil: new Date(
+          now.getTime() + (input.completed > 0 ? PARTIAL_FAILED_STAGING_RETENTION_MS : FAILED_STAGING_RETENTION_MS)
+        )
+      }
+    })
+    if (task.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变', { recoverable: true })
+  })
+}
+
+function archiveProgress(completed: number, total: number): number {
+  return Math.max(1, Math.min(95, Math.round((completed / Math.max(total, 1)) * 90) + 5))
 }
 
 async function claimNextArchiveImport() {
@@ -393,8 +580,18 @@ async function finalizeFailure(importId: string, jobId: string, leaseAttempt: nu
   if (!current || current.attempt !== leaseAttempt || ['COMPLETED', 'FAILED', 'CANCELLED'].includes(current.status)) return
   const classified = toArchiveError(error)
   const now = new Date()
+  const counts = await readArchiveItemCounts(importId)
   if (current.status === 'CANCELLING' || classified.code === 'CANCELLED') {
-    await setFinalState({ importId, jobId, leaseAttempt, status: 'CANCELLED', message: '任务已取消', error: classified, now })
+    await setFinalState({
+      importId,
+      jobId,
+      leaseAttempt,
+      status: 'CANCELLED',
+      message: '任务已取消',
+      error: classified,
+      counts,
+      now
+    })
     return
   }
   if (current.status === 'PAUSED') return
@@ -416,14 +613,24 @@ async function finalizeFailure(importId: string, jobId: string, leaseAttempt: nu
           decisionCode: classified.decisionCode,
           errorCode: classified.code,
           errorMessage: classified.message,
-          failedItems: { increment: 1 }
+          completedItems: counts.completed,
+          failedItems: counts.failed
         }
       })
       if (task.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变', { recoverable: true })
     })
     return
   }
-  await setFinalState({ importId, jobId, leaseAttempt, status: 'FAILED', message: classified.message, error: classified, now })
+  await setFinalState({
+    importId,
+    jobId,
+    leaseAttempt,
+    status: 'FAILED',
+    message: classified.message,
+    error: classified,
+    counts,
+    now
+  })
 }
 
 async function setFinalState(input: {
@@ -433,9 +640,10 @@ async function setFinalState(input: {
   status: 'FAILED' | 'CANCELLED'
   message: string
   error: ArchiveError
+  counts: ArchiveItemCounts
   now: Date
 }) {
-  const { importId, jobId, leaseAttempt, status, message, error, now } = input
+  const { importId, jobId, leaseAttempt, status, message, error, counts, now } = input
   await prisma.$transaction(async (tx) => {
     const job = await tx.systemJob.updateMany({
       where: { id: jobId, attempt: leaseAttempt, status: { in: ['RUNNING', 'CANCELLING'] } },
@@ -448,9 +656,15 @@ async function setFinalState(input: {
         status,
         errorCode: error.code,
         errorMessage: error.message,
-        failedItems: status === 'FAILED' ? { increment: 1 } : undefined,
+        completedItems: counts.completed,
+        failedItems: counts.failed,
         finishedAt: now,
-        retainUntil: new Date(now.getTime() + FAILED_STAGING_RETENTION_MS)
+        retainUntil: new Date(
+          now.getTime() +
+            (status === 'FAILED' && counts.completed > 0
+              ? PARTIAL_FAILED_STAGING_RETENTION_MS
+              : FAILED_STAGING_RETENTION_MS)
+        )
       }
     })
     if (task.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变', { recoverable: true })
@@ -464,18 +678,19 @@ async function requeueOwnedLease(importId: string, jobId: string, leaseAttempt: 
       data: { status: 'PENDING', message: 'Worker 已停止，等待续传', heartbeatAt: null }
     })
     if (job.count !== 1) return
-    const task = await tx.archiveImport.updateMany({
-      where: { id: importId, status: 'RUNNING' },
-      data: { status: 'PENDING' }
-    })
-    if (task.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变', { recoverable: true })
     await tx.archiveImportItem.updateMany({
       where: { archiveImportId: importId, status: { not: 'COMPLETED' } },
       data: {
         status: 'PENDING', attempts: 0, startedAt: null, finishedAt: null,
-        errorCode: null, errorMessage: null
+        errorCode: null, errorMessage: null, errorStage: null, remoteHost: null
       }
     })
+    const completedItems = await tx.archiveImportItem.count({ where: { archiveImportId: importId, status: 'COMPLETED' } })
+    const task = await tx.archiveImport.updateMany({
+      where: { id: importId, status: 'RUNNING' },
+      data: { status: 'PENDING', completedItems, failedItems: 0 }
+    })
+    if (task.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变', { recoverable: true })
   })
 }
 
@@ -494,6 +709,13 @@ export async function recoverStaleArchiveImports() {
     for (const job of stale) {
       if (!job.archiveImport) continue
       if (job.status === 'CANCELLING') {
+        const counts = normalizeItemCounts(
+          await tx.archiveImportItem.groupBy({
+            by: ['status'],
+            where: { archiveImportId: job.archiveImport.id },
+            _count: { _all: true }
+          })
+        )
         await tx.systemJob.update({
           where: { id: job.id },
           data: { status: 'CANCELLED', message: '中断恢复：取消完成', finishedAt: new Date() }
@@ -502,6 +724,8 @@ export async function recoverStaleArchiveImports() {
           where: { id: job.archiveImport.id },
           data: {
             status: 'CANCELLED',
+            completedItems: counts.completed,
+            failedItems: counts.failed,
             finishedAt: new Date(),
             retainUntil: new Date(Date.now() + FAILED_STAGING_RETENTION_MS)
           }
@@ -511,8 +735,11 @@ export async function recoverStaleArchiveImports() {
           where: { archiveImportId: job.archiveImport.id, status: { not: 'COMPLETED' } },
           data: {
             status: 'PENDING', attempts: 0, startedAt: null, finishedAt: null,
-            errorCode: null, errorMessage: null
+            errorCode: null, errorMessage: null, errorStage: null, remoteHost: null
           }
+        })
+        const completedItems = await tx.archiveImportItem.count({
+          where: { archiveImportId: job.archiveImport.id, status: 'COMPLETED' }
         })
         await tx.systemJob.update({
           where: { id: job.id },
@@ -520,7 +747,7 @@ export async function recoverStaleArchiveImports() {
         })
         await tx.archiveImport.update({
           where: { id: job.archiveImport.id },
-          data: { status: 'PENDING' }
+          data: { status: 'PENDING', completedItems, failedItems: 0 }
         })
       }
     }

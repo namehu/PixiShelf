@@ -1,6 +1,7 @@
 import type { Readable } from 'node:stream'
 
 export type ArchiveQualityValue = 'ORIGINAL' | 'DISPLAY'
+export type ArchiveItemStatusFilter = 'ALL' | 'COMPLETED' | 'FAILED' | 'PENDING' | 'DOWNLOADING'
 
 export interface SourceTagValue {
   namespace: string
@@ -50,6 +51,7 @@ export interface RemoteMedia {
   contentLength: number | null
   originalFilename: string | null
   quality: ArchiveQualityValue
+  remoteHost: string | null
 }
 
 export interface ArchiveProviderContext {

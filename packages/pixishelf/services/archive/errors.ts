@@ -16,7 +16,17 @@ export type ArchiveErrorCode =
   | 'LEASE_LOST'
   | 'WORKER_STOPPED'
   | 'STATE_CONFLICT'
+  | 'PARTIAL_FAILURE'
   | 'INTERNAL'
+
+export type ArchiveErrorStage =
+  | 'SOURCE_PAGE'
+  | 'PROXY_CONNECT'
+  | 'TLS_HANDSHAKE'
+  | 'MEDIA_REQUEST'
+  | 'MEDIA_STREAM'
+  | 'MEDIA_VALIDATION'
+  | 'STORAGE'
 
 export class ArchiveError extends Error {
   readonly code: ArchiveErrorCode
@@ -24,6 +34,8 @@ export class ArchiveError extends Error {
   readonly pause: boolean
   readonly retryAfterMs: number | null
   readonly decisionCode: string | null
+  readonly stage: ArchiveErrorStage | null
+  readonly remoteHost: string | null
 
   constructor(
     code: ArchiveErrorCode,
@@ -34,6 +46,8 @@ export class ArchiveError extends Error {
       pause?: boolean
       retryAfterMs?: number | null
       decisionCode?: string | null
+      stage?: ArchiveErrorStage | null
+      remoteHost?: string | null
     } = {}
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
@@ -43,6 +57,8 @@ export class ArchiveError extends Error {
     this.pause = options.pause ?? false
     this.retryAfterMs = options.retryAfterMs ?? null
     this.decisionCode = options.decisionCode ?? null
+    this.stage = options.stage ?? null
+    this.remoteHost = sanitizeRemoteHost(options.remoteHost)
   }
 }
 
@@ -52,11 +68,35 @@ export function toArchiveError(error: unknown): ArchiveError {
   if (nodeError?.code === 'ENOSPC') {
     return new ArchiveError('STORAGE_FULL', '归档磁盘空间不足；释放空间后可以重试', {
       cause: error,
-      recoverable: true
+      recoverable: true,
+      stage: 'STORAGE'
     })
   }
   return new ArchiveError('INTERNAL', error instanceof Error ? error.message : '未知归档错误', {
     cause: error,
     recoverable: true
   })
+}
+
+export function withArchiveErrorContext(
+  error: unknown,
+  context: { stage?: ArchiveErrorStage; remoteHost?: string | null }
+): ArchiveError {
+  const classified = toArchiveError(error)
+  return new ArchiveError(classified.code, classified.message, {
+    cause: classified,
+    recoverable: classified.recoverable,
+    pause: classified.pause,
+    retryAfterMs: classified.retryAfterMs,
+    decisionCode: classified.decisionCode,
+    stage: classified.stage ?? context.stage,
+    remoteHost: classified.remoteHost ?? context.remoteHost
+  })
+}
+
+function sanitizeRemoteHost(value: string | null | undefined): string | null {
+  if (!value) return null
+  const trimmed = value.trim().toLowerCase()
+  if (!trimmed || trimmed.length > 300 || /[\s/@?#\\]/.test(trimmed)) return null
+  return trimmed
 }

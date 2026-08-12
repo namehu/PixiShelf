@@ -3,7 +3,7 @@ import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/prom
 import path from 'node:path'
 import sharp from 'sharp'
 import { assertSafeFileName, resolveCreatablePathWithinRoot, resolveExistingPathWithinRoot } from '@/lib/safe-path'
-import { ArchiveError } from './errors'
+import { ArchiveError, toArchiveError, withArchiveErrorContext } from './errors'
 import type { RemoteMedia } from './types'
 
 const DEFAULT_MAX_MEDIA_BYTES = 512 * 1024 * 1024
@@ -53,7 +53,11 @@ export function buildArchiveStoragePaths(input: {
 
 export async function prepareStagingDirectory(scanRoot: string, stagingRelativePath: string): Promise<string> {
   const target = await resolveCreatablePathWithinRoot(scanRoot, stagingRelativePath)
-  await mkdir(path.join(target, 'media'), { recursive: true })
+  try {
+    await mkdir(path.join(target, 'media'), { recursive: true })
+  } catch (error) {
+    throw withStorageContext(error)
+  }
   return target
 }
 
@@ -70,7 +74,10 @@ export async function storeRemoteMedia(input: {
   const maxBytes = input.maxBytes ?? getConfiguredMaxMediaBytes()
   if (input.remote.contentLength !== null && input.remote.contentLength > maxBytes) {
     input.remote.stream.destroy()
-    throw new ArchiveError('DOWNLOAD_TOO_LARGE', `媒体超过 ${maxBytes} 字节限制`)
+    throw new ArchiveError('DOWNLOAD_TOO_LARGE', `媒体超过 ${maxBytes} 字节限制`, {
+      stage: 'MEDIA_VALIDATION',
+      remoteHost: input.remote.remoteHost
+    })
   }
   const filename = buildStoredFilename(
     input.index,
@@ -81,50 +88,88 @@ export async function storeRemoteMedia(input: {
   const target = path.join(mediaDirectory, filename)
   const partialKey = safePathSegment(input.partialKey ?? 'default')
   const partial = `${target}.part-${partialKey}`
-  await mkdir(mediaDirectory, { recursive: true })
-  await rm(partial, { force: true })
-
-  const handle = await open(partial, 'wx')
+  let handle: Awaited<ReturnType<typeof open>>
+  try {
+    await mkdir(mediaDirectory, { recursive: true })
+    await rm(partial, { force: true })
+    handle = await open(partial, 'wx')
+  } catch (error) {
+    throw withStorageContext(error)
+  }
   const hash = createHash('sha256')
   let byteCount = 0
+  let transferError: ArchiveError | null = null
   try {
     for await (const chunk of input.remote.stream) {
       if (input.signal?.aborted) throw new ArchiveError('CANCELLED', '归档下载已取消', { recoverable: true })
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
       byteCount += buffer.length
       if (byteCount > maxBytes) {
-        throw new ArchiveError('DOWNLOAD_TOO_LARGE', `媒体超过 ${maxBytes} 字节限制`)
+        throw new ArchiveError('DOWNLOAD_TOO_LARGE', `媒体超过 ${maxBytes} 字节限制`, {
+          stage: 'MEDIA_STREAM',
+          remoteHost: input.remote.remoteHost
+        })
       }
       hash.update(buffer)
-      await handle.write(buffer)
+      try {
+        await handle.write(buffer)
+      } catch (error) {
+        throw withStorageContext(error)
+      }
     }
-    await handle.sync()
+    try {
+      await handle.sync()
+    } catch (error) {
+      throw withStorageContext(error)
+    }
   } catch (error) {
     input.remote.stream.destroy()
-    throw error
-  } finally {
-    await handle.close()
+    transferError = classifyMediaTransferError(error, input.remote.remoteHost)
   }
+  try {
+    await handle.close()
+  } catch (error) {
+    // close() can surface delayed write failures such as ENOSPC/EIO. A storage
+    // failure must stop the task even when the remote stream also failed.
+    transferError = withStorageContext(error)
+  }
+  if (transferError) throw transferError
 
   if (input.remote.contentLength !== null && byteCount !== input.remote.contentLength) {
     await rm(partial, { force: true })
-    throw new ArchiveError('MEDIA_INVALID', '媒体长度与远端 Content-Length 不一致', { recoverable: true })
+    throw new ArchiveError('MEDIA_INVALID', '媒体长度与远端 Content-Length 不一致', {
+      recoverable: true,
+      stage: 'MEDIA_VALIDATION',
+      remoteHost: input.remote.remoteHost
+    })
   }
   const mimeType = normalizeImageMimeType(input.remote.mimeType, filename)
   if (!mimeType.startsWith('image/')) {
     await rm(partial, { force: true })
-    throw new ArchiveError('MEDIA_INVALID', `不支持的媒体类型: ${mimeType}`)
+    throw new ArchiveError('MEDIA_INVALID', `不支持的媒体类型: ${mimeType}`, {
+      stage: 'MEDIA_VALIDATION',
+      remoteHost: input.remote.remoteHost
+    })
   }
   let metadata: sharp.Metadata
   try {
     metadata = await sharp(partial, { animated: true }).metadata()
   } catch (error) {
     await rm(partial, { force: true })
-    throw new ArchiveError('MEDIA_INVALID', '下载内容不是可解码的图片', { cause: error, recoverable: true })
+    throw new ArchiveError('MEDIA_INVALID', '下载内容不是可解码的图片', {
+      cause: error,
+      recoverable: true,
+      stage: 'MEDIA_VALIDATION',
+      remoteHost: input.remote.remoteHost
+    })
   }
   if (!metadata.width || !metadata.height) {
     await rm(partial, { force: true })
-    throw new ArchiveError('MEDIA_INVALID', '图片缺少有效尺寸', { recoverable: true })
+    throw new ArchiveError('MEDIA_INVALID', '图片缺少有效尺寸', {
+      recoverable: true,
+      stage: 'MEDIA_VALIDATION',
+      remoteHost: input.remote.remoteHost
+    })
   }
   // A worker can crash after the atomic rename but before persisting the
   // checkpoint. In that case this item is intentionally re-downloaded.
@@ -143,6 +188,31 @@ export async function storeRemoteMedia(input: {
     height: metadata.height,
     sha256: hash.digest('hex')
   }
+}
+
+function withStorageContext(error: unknown): ArchiveError {
+  const classified = toArchiveError(error)
+  if (classified.code === 'STORAGE_FULL') return classified
+  return withArchiveErrorContext(classified, { stage: 'STORAGE' })
+}
+
+function classifyMediaTransferError(error: unknown, remoteHost: string | null): ArchiveError {
+  const classified = toArchiveError(error)
+  if (classified.stage === 'STORAGE') return classified
+  if (classified.code === 'INTERNAL') {
+    return new ArchiveError('REMOTE_RESPONSE_INVALID', '远端媒体传输中断', {
+      cause: classified,
+      recoverable: true,
+      stage: 'MEDIA_STREAM',
+      remoteHost
+    })
+  }
+  return classified.stage
+    ? classified
+    : withArchiveErrorContext(classified, {
+        stage: 'MEDIA_STREAM',
+        remoteHost
+      })
 }
 
 export async function validateStoredMedia(

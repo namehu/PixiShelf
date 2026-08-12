@@ -7,7 +7,7 @@ import { Buffer } from 'node:buffer'
 import type { ClientRequest, IncomingHttpHeaders, IncomingMessage } from 'node:http'
 import type { RequestOptions } from 'node:https'
 import type { Socket } from 'node:net'
-import { ArchiveError } from './errors'
+import { ArchiveError, type ArchiveErrorStage, withArchiveErrorContext } from './errors'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_BODY_LIMIT = 8 * 1024 * 1024
@@ -49,7 +49,11 @@ export class SafeHttpClient {
   async text(url: string, options: SafeHttpRequestOptions & { maxBytes?: number } = {}): Promise<string> {
     const response = await this.request(url, options)
     assertSuccessStatus(response)
-    return (await readResponseBuffer(response, options.maxBytes ?? DEFAULT_BODY_LIMIT)).toString('utf8')
+    try {
+      return (await readResponseBuffer(response, options.maxBytes ?? DEFAULT_BODY_LIMIT)).toString('utf8')
+    } catch (error) {
+      throw classifyNetworkError(error, 'MEDIA_STREAM', remoteHostForUrl(new URL(response.url)))
+    }
   }
 
   async json<T>(url: string, options: SafeHttpRequestOptions & { maxBytes?: number } = {}): Promise<T> {
@@ -72,8 +76,13 @@ export class SafeHttpClient {
 
     const url = validateArchiveUrl(input, this.allowedHostSuffixes, this.nonStandardPortHostSuffixes)
     const proxyUrl = resolveArchiveProxyUrl(url, this.proxyEnvironment)
-    const addresses = await resolveNetworkAddresses(url.hostname)
-    assertSafeResolvedAddresses(addresses, proxyUrl)
+    let addresses: ResolvedNetworkAddress[]
+    try {
+      addresses = await resolveNetworkAddresses(url.hostname)
+      assertSafeResolvedAddresses(addresses, proxyUrl)
+    } catch (error) {
+      throw classifyNetworkError(error, 'MEDIA_REQUEST', remoteHostForUrl(url))
+    }
     const response = proxyUrl
       ? await sendProxiedRequest(url, proxyUrl, options)
       : await sendPinnedRequest(url, addresses[0]!, options)
@@ -101,30 +110,37 @@ export function assertSuccessStatus(response: SafeHttpResponse): void {
   if (response.status >= 200 && response.status < 300) return
   response.stream.resume()
   const retryAfterMs = parseRetryAfter(response.headers['retry-after'])
-  if (response.status === 404) throw new ArchiveError('REMOTE_NOT_FOUND', '远端作品或媒体不存在')
+  const diagnostic = { stage: 'MEDIA_REQUEST' as const, remoteHost: remoteHostForUrl(new URL(response.url)) }
+  if (response.status === 404) {
+    throw new ArchiveError('REMOTE_NOT_FOUND', '远端作品或媒体不存在', diagnostic)
+  }
   if (response.status === 429) {
     throw new ArchiveError('REMOTE_RATE_LIMITED', '远端要求降低请求频率，任务已暂停', {
       recoverable: true,
       pause: true,
-      retryAfterMs
+      retryAfterMs,
+      ...diagnostic
     })
   }
   if (response.status === 509) {
     throw new ArchiveError('REMOTE_QUOTA_EXCEEDED', 'E-Hentai 图片额度不足，任务已暂停', {
       recoverable: true,
       pause: true,
-      retryAfterMs
+      retryAfterMs,
+      ...diagnostic
     })
   }
   if (response.status === 403) {
     throw new ArchiveError('REMOTE_FORBIDDEN', '远端拒绝了下载请求，任务已暂停', {
       recoverable: true,
       pause: true,
-      retryAfterMs
+      retryAfterMs,
+      ...diagnostic
     })
   }
   throw new ArchiveError('REMOTE_RESPONSE_INVALID', `远端返回 HTTP ${response.status}`, {
-    recoverable: response.status >= 500
+    recoverable: response.status >= 500,
+    ...diagnostic
   })
 }
 
@@ -308,6 +324,7 @@ function sendProxiedRequest(
     let upstreamRequest: ClientRequest | null = null
     let responseStream: IncomingMessage | null = null
     let settled = false
+    let connectionStage: ArchiveErrorStage = 'PROXY_CONNECT'
 
     const destroyConnections = (error: Error) => {
       upstreamRequest?.destroy(error)
@@ -320,13 +337,14 @@ function sendProxiedRequest(
       proxyRequest.destroy(error)
     }
     const removeAbortListener = () => options.signal?.removeEventListener('abort', onAbort)
-    const fail = (error: Error) => {
+    const fail = (error: unknown) => {
       if (settled) return
       settled = true
       clearTimeout(connectTimer)
       removeAbortListener()
-      destroyConnections(error)
-      reject(error)
+      const classified = classifyNetworkError(error, connectionStage, targetHost)
+      destroyConnections(classified)
+      reject(classified)
     }
     const onAbort = () => {
       const error = new ArchiveError('CANCELLED', '请求已取消', { recoverable: true })
@@ -373,6 +391,7 @@ function sendProxiedRequest(
         return
       }
       if (head.length > 0) socket.unshift(head)
+      connectionStage = 'TLS_HANDSHAKE'
 
       tunnelSocket = tls.connect({
         socket,
@@ -382,6 +401,7 @@ function sendProxiedRequest(
       tunnelSocket.once('error', fail)
       tunnelSocket.once('secureConnect', () => {
         if (settled || !tunnelSocket) return
+        connectionStage = 'MEDIA_REQUEST'
         const tunnelAgent = new https.Agent({ keepAlive: false })
         tunnelAgent.createConnection = () => tunnelSocket!
         upstreamRequest = https.request(
@@ -440,6 +460,8 @@ function sendRequest(
   return new Promise((resolve, reject) => {
     const body =
       options.body === undefined ? undefined : Buffer.isBuffer(options.body) ? options.body : Buffer.from(options.body)
+    const targetHost = remoteHostForUrl(url)
+    let connectionStage: ArchiveErrorStage = 'TLS_HANDSHAKE'
     const request = https.request(
       url,
       {
@@ -452,18 +474,49 @@ function sendRequest(
           ...options.headers
         }
       },
-      (response) => resolve({ status: response.statusCode ?? 0, headers: response.headers, stream: response })
+      (response) => {
+        connectionStage = 'MEDIA_REQUEST'
+        resolve({ status: response.statusCode ?? 0, headers: response.headers, stream: response })
+      }
     )
+    request.on('socket', (socket) => {
+      socket.once('secureConnect', () => {
+        connectionStage = 'MEDIA_REQUEST'
+      })
+    })
     const onAbort = () => request.destroy(new ArchiveError('CANCELLED', '请求已取消', { recoverable: true }))
     options.signal?.addEventListener('abort', onAbort, { once: true })
     request.setTimeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, () => {
       request.destroy(new ArchiveError('REMOTE_RESPONSE_INVALID', '远端请求超时', { recoverable: true }))
     })
-    request.on('error', (error) => reject(error))
+    request.on('error', (error) => reject(classifyNetworkError(error, connectionStage, targetHost)))
     request.on('close', () => options.signal?.removeEventListener('abort', onAbort))
     if (body) request.write(body)
     request.end()
   })
+}
+
+function classifyNetworkError(error: unknown, stage: ArchiveErrorStage, remoteHost: string): ArchiveError {
+  const classified = withArchiveErrorContext(error, { stage, remoteHost })
+  if (classified.code !== 'INTERNAL') return classified
+  return new ArchiveError('REMOTE_RESPONSE_INVALID', networkFailureMessage(stage), {
+    cause: classified,
+    recoverable: true,
+    stage,
+    remoteHost
+  })
+}
+
+function networkFailureMessage(stage: ArchiveErrorStage): string {
+  if (stage === 'PROXY_CONNECT') return '归档代理连接失败'
+  if (stage === 'TLS_HANDSHAKE') return '远端 TLS 握手失败'
+  if (stage === 'MEDIA_STREAM') return '远端媒体传输中断'
+  return '远端请求失败'
+}
+
+export function remoteHostForUrl(url: URL): string {
+  const hostname = net.isIPv6(url.hostname) ? `[${url.hostname}]` : url.hostname.toLowerCase().replace(/\.$/, '')
+  return `${hostname}:${url.port || '443'}`
 }
 
 function parseRetryAfter(value: string | string[] | undefined): number | null {

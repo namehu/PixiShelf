@@ -132,6 +132,28 @@ describe('E-Hentai archive provider', () => {
     })
   })
 
+  it('keeps an original-media 404 as an item failure instead of pausing the gallery', async () => {
+    const http = createHttpMock()
+    http.text.mockResolvedValue(`
+      <a href="/fullimg.php?gid=123&page=1&key=abc">Download original</a>
+      <img id="img" src="https://i1.e-hentai.org/display.jpg">
+    `)
+    http.request.mockResolvedValue({
+      status: 404,
+      headers: {},
+      stream: Readable.from([]),
+      url: 'https://e-hentai.org/fullimg.php?gid=123&page=1&key=abc'
+    })
+    const provider = new EHentaiProvider(http as unknown as SafeHttpClient)
+
+    await expect(
+      provider.openMedia(
+        { index: 0, sourcePageUrl: 'https://e-hentai.org/s/a/123-1', locator: {}, expectedFilename: '0001' },
+        { quality: 'ORIGINAL' }
+      )
+    ).rejects.toMatchObject({ code: 'REMOTE_NOT_FOUND', pause: false })
+  })
+
   it('uses immutable creator bucket fallback rules', () => {
     expect(chooseCreatorBucket([{ namespace: 'group', name: 'Circle' }])).toBe('group--circle')
     expect(

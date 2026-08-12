@@ -14,6 +14,7 @@ const actionSchema = z.enum([
   'DELETE_ARCHIVE',
   'RESTORE_ARCHIVE'
 ])
+const itemStatusFilterSchema = z.enum(['ALL', 'COMPLETED', 'FAILED', 'PENDING', 'DOWNLOADING'])
 
 export const archiveRouter = router({
   preview: authProcedure
@@ -37,11 +38,22 @@ export const archiveRouter = router({
       z.object({
         taskId: z.string().min(1),
         cursor: z.number().int().min(0).nullish(),
-        limit: z.number().int().min(1).max(100).default(50)
+        limit: z.number().int().min(1).max(100).default(50),
+        status: itemStatusFilterSchema.default('ALL')
       })
     )
     .query(async ({ input }) =>
-      runArchiveOperation(() => archiveModule.listTaskItems(input.taskId, input.cursor, input.limit))
+      runArchiveOperation(() => archiveModule.listTaskItems(input.taskId, input.cursor, input.limit, input.status))
+    ),
+
+  getTaskItemCounts: authProcedure
+    .input(z.object({ taskId: z.string().min(1) }))
+    .query(async ({ input }) => runArchiveOperation(() => archiveModule.getTaskItemCounts(input.taskId))),
+
+  retryTaskItem: authProcedure
+    .input(z.object({ taskId: z.string().min(1), itemId: z.string().min(1) }))
+    .mutation(async ({ input }) =>
+      runArchiveOperation(() => archiveModule.retryTaskItem(input.taskId, input.itemId))
     ),
 
   action: authProcedure

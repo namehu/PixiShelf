@@ -207,6 +207,27 @@ describe('archive safe HTTP network policy', () => {
     ).toThrowError(expect.objectContaining({ code, pause: true }))
   })
 
+  it.each([
+    [404, 'REMOTE_NOT_FOUND', false],
+    [503, 'REMOTE_RESPONSE_INVALID', true]
+  ])('classifies HTTP %s with item-level retry semantics and safe diagnostics', (status, code, recoverable) => {
+    expect(() =>
+      assertSuccessStatus({
+        status: Number(status),
+        headers: {},
+        stream: Readable.from([]) as unknown as IncomingMessage,
+        url: 'https://node.hath.network:2333/media?temporary=secret'
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code,
+        recoverable,
+        stage: 'MEDIA_REQUEST',
+        remoteHost: 'node.hath.network:2333'
+      })
+    )
+  })
+
   it('rejects a buffered response that exceeds its configured limit', async () => {
     await expect(
       readResponseBuffer(

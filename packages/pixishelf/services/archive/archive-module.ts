@@ -8,6 +8,7 @@ import { buildArchiveStoragePaths } from './storage'
 import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID, restorePublishedArchive, trashPublishedArchive } from './publisher'
 import type {
   ArchivePreview,
+  ArchiveItemStatusFilter,
   ArchiveProvider,
   ArchiveTaskAction,
   ConfirmedArchiveInput,
@@ -18,6 +19,7 @@ import type { ArchiveTransactionClient } from './relationships'
 
 const PREVIEW_TTL_MS = 30 * 60 * 1000
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+const PARTIAL_FAILED_STAGING_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 const ARCHIVE_IMPORT_JOB_TYPE = 'ARCHIVE_IMPORT'
 
 type ArchiveTaskSummaryRecord = Prisma.ArchiveImportGetPayload<{
@@ -223,7 +225,12 @@ export class ArchiveModule {
     return tasks.map(toTaskSummary)
   }
 
-  async listTaskItems(taskId: string, cursor: number | null | undefined = null, limit = 50) {
+  async listTaskItems(
+    taskId: string,
+    cursor: number | null | undefined = null,
+    limit = 50,
+    status: ArchiveItemStatusFilter = 'ALL'
+  ) {
     const normalizedLimit = Math.min(Math.max(limit, 1), 100)
     const task = await prisma.archiveImport.findUnique({
       where: { id: taskId },
@@ -234,7 +241,8 @@ export class ArchiveModule {
     const rows = await prisma.archiveImportItem.findMany({
       where: {
         archiveImportId: task.id,
-        ...(cursor == null ? {} : { pageIndex: { gt: cursor } })
+        ...(cursor == null ? {} : { pageIndex: { gt: cursor } }),
+        ...(status === 'ALL' ? {} : { status })
       },
       orderBy: { pageIndex: 'asc' },
       take: normalizedLimit + 1,
@@ -253,6 +261,8 @@ export class ArchiveModule {
         height: true,
         errorCode: true,
         errorMessage: true,
+        errorStage: true,
+        remoteHost: true,
         startedAt: true,
         finishedAt: true,
         updatedAt: true
@@ -269,6 +279,78 @@ export class ArchiveModule {
         byteCount: item.byteCount?.toString() ?? null
       }))
     }
+  }
+
+  async getTaskItemCounts(taskId: string) {
+    const task = await prisma.archiveImport.findUnique({ where: { id: taskId }, select: { id: true } })
+    if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
+    const groups = await prisma.archiveImportItem.groupBy({
+      by: ['status'],
+      where: { archiveImportId: task.id },
+      _count: { _all: true }
+    })
+    const counts = { all: 0, completed: 0, failed: 0, pending: 0, downloading: 0 }
+    for (const group of groups) {
+      const count = group._count._all
+      counts.all += count
+      if (group.status === 'COMPLETED') counts.completed = count
+      else if (group.status === 'FAILED') counts.failed = count
+      else if (group.status === 'PENDING') counts.pending = count
+      else counts.downloading = count
+    }
+    return counts
+  }
+
+  async retryTaskItem(taskId: string, itemId: string) {
+    const task = await prisma.archiveImport.findUnique({ where: { id: taskId }, include: { systemJob: true } })
+    if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
+    if (
+      task.status !== 'FAILED' ||
+      task.errorCode !== 'PARTIAL_FAILURE' ||
+      task.failedItems <= 0
+    ) {
+      throw stateConflict('只有部分失败的终态任务可以重试单张图片')
+    }
+    const item = await prisma.archiveImportItem.findFirst({
+      where: { id: itemId, archiveImportId: task.id },
+      select: { id: true, status: true }
+    })
+    if (!item || item.status !== 'FAILED') throw stateConflict('该图片当前不是可重试的失败状态')
+
+    await transitionTaskAndJob(task, {
+      importStatus: 'PENDING',
+      jobStatus: 'PENDING',
+      message: '等待重试选中的图片...',
+      importData: {
+        failedItems: Math.max(0, task.failedItems - 1),
+        errorCode: null,
+        errorMessage: null,
+        finishedAt: null,
+        retainUntil: null
+      },
+      jobData: {
+        error: null,
+        finishedAt: null,
+        progress: taskProgress(task.completedItems, task.totalItems)
+      },
+      mutate: async (tx) => {
+        const updated = await tx.archiveImportItem.updateMany({
+          where: { id: item.id, archiveImportId: task.id, status: 'FAILED' },
+          data: {
+            status: 'PENDING',
+            attempts: 0,
+            errorCode: null,
+            errorMessage: null,
+            errorStage: null,
+            remoteHost: null,
+            startedAt: null,
+            finishedAt: null
+          }
+        })
+        if (updated.count !== 1) throw stateConflict('图片状态已改变，请刷新后重试')
+      }
+    })
+    return this.getTask(taskId)
   }
 
   async requestAction(taskId: string, action: ArchiveTaskAction) {
@@ -301,6 +383,7 @@ export class ArchiveModule {
           importStatus: 'PENDING',
           jobStatus: 'PENDING',
           message: '等待归档 Worker...',
+          importData: { failedItems: 0 },
           mutate: async (tx) => {
             await tx.archiveImportItem.updateMany({
               where: { archiveImportId: task.id, status: { not: 'COMPLETED' } },
@@ -309,6 +392,8 @@ export class ArchiveModule {
                 attempts: 0,
                 errorCode: null,
                 errorMessage: null,
+                errorStage: null,
+                remoteHost: null,
                 startedAt: null,
                 finishedAt: null
               }
@@ -342,7 +427,7 @@ export class ArchiveModule {
           jobStatus: 'PENDING',
           message: '等待重试...',
           importData: { failedItems: 0, errorCode: null, errorMessage: null, finishedAt: null, retainUntil: null },
-          jobData: { error: null, finishedAt: null, progress: 0 },
+          jobData: { error: null, finishedAt: null, progress: taskProgress(task.completedItems, task.totalItems) },
           mutate: async (tx) => {
             await tx.archiveImportItem.updateMany({
               where: { archiveImportId: task.id, status: { not: 'COMPLETED' } },
@@ -351,6 +436,8 @@ export class ArchiveModule {
                 attempts: 0,
                 errorCode: null,
                 errorMessage: null,
+                errorStage: null,
+                remoteHost: null,
                 startedAt: null,
                 finishedAt: null
               }
@@ -382,6 +469,8 @@ export class ArchiveModule {
                 attempts: 0,
                 errorCode: null,
                 errorMessage: null,
+                errorStage: null,
+                remoteHost: null,
                 startedAt: null,
                 finishedAt: null
               }
@@ -416,7 +505,11 @@ export class ArchiveModule {
 }
 
 export const archiveModule = new ArchiveModule()
-export { ARCHIVE_IMPORT_JOB_TYPE, FAILED_STAGING_RETENTION_MS }
+export {
+  ARCHIVE_IMPORT_JOB_TYPE,
+  FAILED_STAGING_RETENTION_MS,
+  PARTIAL_FAILED_STAGING_RETENTION_MS
+}
 
 async function transitionTaskAndJob(
   task: {
@@ -468,6 +561,10 @@ function assertActionStatus(action: ArchiveTaskAction, actual: string, allowed: 
 
 function stateConflict(message: string): ArchiveError {
   return new ArchiveError('STATE_CONFLICT', message, { recoverable: true })
+}
+
+function taskProgress(completed: number, total: number): number {
+  return Math.max(1, Math.min(95, Math.round((completed / Math.max(total, 1)) * 90) + 5))
 }
 
 async function findActiveImport(providerKey: string, externalId: string) {
@@ -546,7 +643,9 @@ function toTaskView(task: ArchiveTaskRecord) {
       mimeType: item.mimeType,
       quality: item.quality,
       errorCode: item.errorCode,
-      errorMessage: item.errorMessage
+      errorMessage: item.errorMessage,
+      errorStage: item.errorStage,
+      remoteHost: item.remoteHost
     }))
   }
 }

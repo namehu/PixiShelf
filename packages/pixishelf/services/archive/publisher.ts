@@ -382,6 +382,8 @@ export async function reconcilePendingArchiveCleanups(scanRoot: string): Promise
             sha256: null,
             errorCode: null,
             errorMessage: null,
+            errorStage: null,
+            remoteHost: null,
             startedAt: null,
             finishedAt: null
           }
