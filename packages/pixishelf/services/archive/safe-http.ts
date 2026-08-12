@@ -38,7 +38,8 @@ export interface ResolvedNetworkAddress {
 export class SafeHttpClient {
   constructor(
     private readonly allowedHostSuffixes: readonly string[],
-    private readonly proxyEnvironment: ArchiveProxyEnvironment = process.env
+    private readonly proxyEnvironment: ArchiveProxyEnvironment = process.env,
+    private readonly nonStandardPortHostSuffixes: readonly string[] = []
   ) {}
 
   async request(url: string, options: SafeHttpRequestOptions = {}): Promise<SafeHttpResponse> {
@@ -69,7 +70,7 @@ export class SafeHttpClient {
       throw new ArchiveError('REMOTE_RESPONSE_INVALID', '远端重定向次数过多')
     }
 
-    const url = validateArchiveUrl(input, this.allowedHostSuffixes)
+    const url = validateArchiveUrl(input, this.allowedHostSuffixes, this.nonStandardPortHostSuffixes)
     const proxyUrl = resolveArchiveProxyUrl(url, this.proxyEnvironment)
     const addresses = await resolveNetworkAddresses(url.hostname)
     assertSafeResolvedAddresses(addresses, proxyUrl)
@@ -142,21 +143,34 @@ export async function readResponseBuffer(response: SafeHttpResponse, maxBytes: n
   return Buffer.concat(chunks)
 }
 
-export function validateArchiveUrl(input: string, allowedSuffixes: readonly string[]): URL {
+export function validateArchiveUrl(
+  input: string,
+  allowedSuffixes: readonly string[],
+  nonStandardPortSuffixes: readonly string[] = []
+): URL {
   let url: URL
   try {
     url = new URL(input)
   } catch (error) {
     throw new ArchiveError('INVALID_URL', '链接格式无效', { cause: error })
   }
-  if (url.protocol !== 'https:' || (url.port && url.port !== '443') || url.username || url.password) {
-    throw new ArchiveError('SSRF_BLOCKED', '只允许不含账号信息的标准 HTTPS 链接')
-  }
+  if (url.protocol !== 'https:') throw new ArchiveError('SSRF_BLOCKED', '只允许 HTTPS 链接')
+  if (url.username || url.password) throw new ArchiveError('SSRF_BLOCKED', '链接不能包含账号或密码')
   const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
-  if (!allowedSuffixes.some((suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`))) {
+  if (!matchesHostSuffix(hostname, allowedSuffixes)) {
     throw new ArchiveError('SSRF_BLOCKED', '链接主机不在归档 Provider 的允许列表中')
   }
+  if (url.port && !matchesHostSuffix(hostname, nonStandardPortSuffixes)) {
+    throw new ArchiveError('SSRF_BLOCKED', '链接端口不在归档 Provider 的允许列表中')
+  }
   return url
+}
+
+function matchesHostSuffix(hostname: string, suffixes: readonly string[]): boolean {
+  return suffixes.some((rawSuffix) => {
+    const suffix = rawSuffix.toLowerCase().replace(/^\.+|\.$/g, '')
+    return suffix.length > 0 && (hostname === suffix || hostname.endsWith(`.${suffix}`))
+  })
 }
 
 async function resolveNetworkAddresses(hostname: string): Promise<ResolvedNetworkAddress[]> {
@@ -166,10 +180,7 @@ async function resolveNetworkAddresses(hostname: string): Promise<ResolvedNetwor
     : await dns.lookup(hostname, { all: true, verbatim: true })
 }
 
-export function assertSafeResolvedAddresses(
-  addresses: readonly ResolvedNetworkAddress[],
-  proxyUrl: URL | null
-): void {
+export function assertSafeResolvedAddresses(addresses: readonly ResolvedNetworkAddress[], proxyUrl: URL | null): void {
   const blocked = addresses.filter(({ address }) => !isPublicNetworkAddress(address))
   const proxyCanResolveFakeIps = proxyUrl !== null && blocked.every(({ address }) => isProxySyntheticAddress(address))
   if (addresses.length === 0 || (blocked.length > 0 && !proxyCanResolveFakeIps)) {
@@ -277,7 +288,8 @@ function sendProxiedRequest(
   options: SafeHttpRequestOptions
 ): Promise<Omit<SafeHttpResponse, 'url'>> {
   return new Promise((resolve, reject) => {
-    const body = options.body === undefined ? undefined : Buffer.isBuffer(options.body) ? options.body : Buffer.from(options.body)
+    const body =
+      options.body === undefined ? undefined : Buffer.isBuffer(options.body) ? options.body : Buffer.from(options.body)
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
     const targetPort = url.port || '443'
     const targetHost = net.isIPv6(url.hostname) ? `[${url.hostname}]:${targetPort}` : `${url.hostname}:${targetPort}`
@@ -380,9 +392,7 @@ function sendProxiedRequest(
           }
         )
         upstreamRequest.setTimeout(timeoutMs, () => {
-          upstreamRequest?.destroy(
-            new ArchiveError('REMOTE_RESPONSE_INVALID', '远端请求超时', { recoverable: true })
-          )
+          upstreamRequest?.destroy(new ArchiveError('REMOTE_RESPONSE_INVALID', '远端请求超时', { recoverable: true }))
         })
         upstreamRequest.once('error', fail)
         if (body) upstreamRequest.write(body)
@@ -411,7 +421,8 @@ function sendRequest(
   connection: Pick<RequestOptions, 'agent' | 'lookup'>
 ): Promise<Omit<SafeHttpResponse, 'url'>> {
   return new Promise((resolve, reject) => {
-    const body = options.body === undefined ? undefined : Buffer.isBuffer(options.body) ? options.body : Buffer.from(options.body)
+    const body =
+      options.body === undefined ? undefined : Buffer.isBuffer(options.body) ? options.body : Buffer.from(options.body)
     const request = https.request(
       url,
       {

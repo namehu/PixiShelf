@@ -16,6 +16,7 @@ const PROVIDER_KEY = 'e-hentai'
 const GALLERY_HOST = 'e-hentai.org'
 const API_URL = 'https://api.e-hentai.org/api.php'
 const MAX_GALLERY_PAGES = 500
+const HATH_NETWORK_SUFFIX = 'hath.network'
 
 interface EhGalleryMetadata {
   gid: number
@@ -53,10 +54,8 @@ export class EHentaiProvider implements ArchiveProvider {
   readonly key = PROVIDER_KEY
 
   constructor(
-    private readonly http = new SafeHttpClient([
-      'e-hentai.org',
-      'ehgt.org',
-      'hath.network'
+    private readonly http = new SafeHttpClient(['e-hentai.org', 'ehgt.org', HATH_NETWORK_SUFFIX], process.env, [
+      HATH_NETWORK_SUFFIX
     ])
   ) {}
 
@@ -73,8 +72,9 @@ export class EHentaiProvider implements ArchiveProvider {
     const sourcePages = await this.fetchSourcePages(canonicalUrl, gallery.gid, fileCount, context)
     const tags = normalizeTags(metadata.tags ?? [])
     const title = cleanText(metadata.title_jpn) || cleanText(metadata.title) || `E-Hentai ${gallery.gid}`
-    const aliases = Array.from(new Set([cleanText(metadata.title), cleanText(metadata.title_jpn)].filter(Boolean)))
-      .filter((value) => value !== title)
+    const aliases = Array.from(
+      new Set([cleanText(metadata.title), cleanText(metadata.title_jpn)].filter(Boolean))
+    ).filter((value) => value !== title)
     const postedAt = parseUnixTimestamp(metadata.posted)
     const creatorBucket = chooseCreatorBucket(tags)
     const relationships = normalizeRelationships(metadata, gallery.gid)
@@ -241,7 +241,9 @@ export class EHentaiProvider implements ArchiveProvider {
       previousSize = pages.size
     }
 
-    const ordered = Array.from(pages.entries()).sort((left, right) => left[0] - right[0]).map((entry) => entry[1])
+    const ordered = Array.from(pages.entries())
+      .sort((left, right) => left[0] - right[0])
+      .map((entry) => entry[1])
     if (ordered.length !== fileCount) {
       throw new ArchiveError(
         'REMOTE_RESPONSE_INVALID',
@@ -324,7 +326,9 @@ function normalizeTags(values: string[]): SourceTagValue[] {
 }
 
 function safeNamespace(value: string): string {
-  const normalized = cleanText(value).toLowerCase().replace(/[^a-z0-9-]+/g, '-')
+  const normalized = cleanText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
   return normalized.slice(0, 50) || 'general'
 }
 
@@ -380,7 +384,9 @@ function parseAttributes(tag: string): Record<string, string> {
 
 function extractOriginalFilename(html: string): string | null {
   const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
-  const value = cleanText(decodeHtml(title ?? '')).split(' :: ')[0]?.trim()
+  const value = cleanText(decodeHtml(title ?? ''))
+    .split(' :: ')[0]
+    ?.trim()
   if (!value || value.length > 240) return null
   const base = path.basename(value.replace(/[\\/]/g, '-'))
   return base && base !== '.' ? base : null

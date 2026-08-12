@@ -39,9 +39,7 @@ describe('archive safe HTTP network policy', () => {
   })
 
   it('accepts only credential-free HTTPS URLs on an exact allowed suffix', () => {
-    expect(validateArchiveUrl('https://api.e-hentai.org/api.php', ['e-hentai.org']).hostname).toBe(
-      'api.e-hentai.org'
-    )
+    expect(validateArchiveUrl('https://api.e-hentai.org/api.php', ['e-hentai.org']).hostname).toBe('api.e-hentai.org')
     expect(() => validateArchiveUrl('http://e-hentai.org/', ['e-hentai.org'])).toThrowError(
       expect.objectContaining({ code: 'SSRF_BLOCKED' })
     )
@@ -49,8 +47,24 @@ describe('archive safe HTTP network policy', () => {
       expect.objectContaining({ code: 'SSRF_BLOCKED' })
     )
     expect(() => validateArchiveUrl('https://user:secret@e-hentai.org/', ['e-hentai.org'])).toThrowError(
-      expect.objectContaining({ code: 'SSRF_BLOCKED' })
+      expect.objectContaining({ code: 'SSRF_BLOCKED', message: '链接不能包含账号或密码' })
     )
+  })
+
+  it('allows non-standard HTTPS ports only for an explicitly configured host suffix', () => {
+    expect(
+      validateArchiveUrl(
+        'https://node.hath.network:8472/media.webp',
+        ['e-hentai.org', 'hath.network'],
+        ['hath.network']
+      ).port
+    ).toBe('8472')
+    expect(() =>
+      validateArchiveUrl('https://e-hentai.org:8472/', ['e-hentai.org', 'hath.network'], ['hath.network'])
+    ).toThrowError(expect.objectContaining({ code: 'SSRF_BLOCKED', message: '链接端口不在归档 Provider 的允许列表中' }))
+    expect(() =>
+      validateArchiveUrl('https://node.hath.network.evil.test:8472/', ['hath.network'], ['hath.network'])
+    ).toThrowError(expect.objectContaining({ code: 'SSRF_BLOCKED', message: '链接主机不在归档 Provider 的允许列表中' }))
   })
 
   it('routes a Clash fake IP only through an explicitly configured HTTP proxy', () => {
