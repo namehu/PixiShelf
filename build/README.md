@@ -140,6 +140,11 @@ docker build -f build/Dockerfile -t pixishelf .
 3. **环境变量**: Docker Compose 需要正确配置 `build/.env` 文件；本机运行 Next.js 使用 `packages/pixishelf/.env.local`
 4. **网络配置**: 所有服务都在 `pixishelf-network` 网络中通信
 
+URL 归档会读取 `ARCHIVE_HTTPS_PROXY`，未设置时兼容标准 `HTTPS_PROXY`/`HTTP_PROXY` 和 `NO_PROXY`。
+Clash Verge 的 TUN/Fake-IP 模式可以直接使用；本机 `pnpm dev` 通常配置为
+`http://127.0.0.1:7890`，Docker 中的 `app` 与 `archive-worker` 则应配置为
+`http://host.docker.internal:7890`。
+
 ## 🔄 CI/CD 集成
 
 GitHub Actions 工作流会自动使用这些配置文件：

@@ -1,8 +1,12 @@
 import dns from 'node:dns/promises'
+import http from 'node:http'
 import https from 'node:https'
 import net from 'node:net'
+import tls from 'node:tls'
 import { Buffer } from 'node:buffer'
-import type { IncomingHttpHeaders, IncomingMessage } from 'node:http'
+import type { ClientRequest, IncomingHttpHeaders, IncomingMessage } from 'node:http'
+import type { RequestOptions } from 'node:https'
+import type { Socket } from 'node:net'
 import { ArchiveError } from './errors'
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -24,8 +28,18 @@ export interface SafeHttpRequestOptions {
   timeoutMs?: number
 }
 
+export type ArchiveProxyEnvironment = Readonly<Record<string, string | undefined>>
+
+export interface ResolvedNetworkAddress {
+  address: string
+  family: number
+}
+
 export class SafeHttpClient {
-  constructor(private readonly allowedHostSuffixes: readonly string[]) {}
+  constructor(
+    private readonly allowedHostSuffixes: readonly string[],
+    private readonly proxyEnvironment: ArchiveProxyEnvironment = process.env
+  ) {}
 
   async request(url: string, options: SafeHttpRequestOptions = {}): Promise<SafeHttpResponse> {
     return this.requestFollowingRedirects(url, options, 0)
@@ -56,9 +70,12 @@ export class SafeHttpClient {
     }
 
     const url = validateArchiveUrl(input, this.allowedHostSuffixes)
-    const addresses = await resolvePublicAddresses(url.hostname)
-    const selected = addresses[0]!
-    const response = await sendPinnedRequest(url, selected, options)
+    const proxyUrl = resolveArchiveProxyUrl(url, this.proxyEnvironment)
+    const addresses = await resolveNetworkAddresses(url.hostname)
+    assertSafeResolvedAddresses(addresses, proxyUrl)
+    const response = proxyUrl
+      ? await sendProxiedRequest(url, proxyUrl, options)
+      : await sendPinnedRequest(url, addresses[0]!, options)
 
     if (response.status >= 300 && response.status < 400 && response.headers.location) {
       response.stream.resume()
@@ -142,15 +159,57 @@ export function validateArchiveUrl(input: string, allowedSuffixes: readonly stri
   return url
 }
 
-async function resolvePublicAddresses(hostname: string) {
+async function resolveNetworkAddresses(hostname: string): Promise<ResolvedNetworkAddress[]> {
   const literalFamily = net.isIP(hostname)
-  const addresses = literalFamily
+  return literalFamily
     ? [{ address: hostname, family: literalFamily }]
     : await dns.lookup(hostname, { all: true, verbatim: true })
-  if (addresses.length === 0 || addresses.some(({ address }) => !isPublicNetworkAddress(address))) {
+}
+
+export function assertSafeResolvedAddresses(
+  addresses: readonly ResolvedNetworkAddress[],
+  proxyUrl: URL | null
+): void {
+  const blocked = addresses.filter(({ address }) => !isPublicNetworkAddress(address))
+  const proxyCanResolveFakeIps = proxyUrl !== null && blocked.every(({ address }) => isProxySyntheticAddress(address))
+  if (addresses.length === 0 || (blocked.length > 0 && !proxyCanResolveFakeIps)) {
     throw new ArchiveError('SSRF_BLOCKED', '链接解析到了私有、保留或不可路由地址')
   }
-  return addresses
+}
+
+export function resolveArchiveProxyUrl(target: URL, environment: ArchiveProxyEnvironment = process.env): URL | null {
+  const explicitProxy = environment.ARCHIVE_HTTPS_PROXY
+  if (explicitProxy === '') return null
+
+  if (explicitProxy === undefined && shouldBypassProxy(target, environment.NO_PROXY ?? environment.no_proxy)) {
+    return null
+  }
+
+  const rawProxy =
+    explicitProxy ??
+    environment.HTTPS_PROXY ??
+    environment.https_proxy ??
+    environment.HTTP_PROXY ??
+    environment.http_proxy
+  if (!rawProxy?.trim()) return null
+
+  let proxyUrl: URL
+  try {
+    proxyUrl = new URL(rawProxy)
+  } catch {
+    // URL parse errors may echo proxy credentials in their cause; do not retain it.
+    throw new ArchiveError('INTERNAL', '归档代理地址格式无效')
+  }
+  if (!['http:', 'https:'].includes(proxyUrl.protocol)) {
+    throw new ArchiveError('INTERNAL', '归档下载仅支持 HTTP 或 HTTPS 代理')
+  }
+  if (proxyUrl.username || proxyUrl.password) {
+    throw new ArchiveError('INTERNAL', '归档代理暂不支持 URL 中的账号或密码')
+  }
+  if ((proxyUrl.pathname && proxyUrl.pathname !== '/') || proxyUrl.search || proxyUrl.hash) {
+    throw new ArchiveError('INTERNAL', '归档代理地址不能包含路径、查询参数或片段')
+  }
+  return proxyUrl
 }
 
 export function isPublicNetworkAddress(address: string): boolean {
@@ -174,25 +233,195 @@ export function isPublicNetworkAddress(address: string): boolean {
   return true
 }
 
+function isProxySyntheticAddress(address: string): boolean {
+  if (!net.isIPv4(address)) return false
+  const [a = 0, b = 0] = address.split('.').map(Number)
+  return a === 198 && (b === 18 || b === 19)
+}
+
+function shouldBypassProxy(target: URL, noProxy: string | undefined): boolean {
+  if (!noProxy?.trim()) return false
+  const hostname = target.hostname.toLowerCase().replace(/\.$/, '')
+  const port = target.port || '443'
+
+  return noProxy.split(',').some((rawEntry) => {
+    const entry = rawEntry.trim().toLowerCase()
+    if (!entry) return false
+    if (entry === '*') return true
+
+    const separator = entry.lastIndexOf(':')
+    const hasSingleColon = separator > 0 && entry.indexOf(':') === separator
+    const entryPort = hasSingleColon ? entry.slice(separator + 1) : null
+    if (entryPort && entryPort !== port) return false
+
+    const entryHost = (hasSingleColon ? entry.slice(0, separator) : entry).replace(/^\*?\./, '')
+    return hostname === entryHost || hostname.endsWith(`.${entryHost}`)
+  })
+}
+
 function sendPinnedRequest(
   url: URL,
-  selected: { address: string; family: number },
+  selected: ResolvedNetworkAddress,
   options: SafeHttpRequestOptions
+): Promise<Omit<SafeHttpResponse, 'url'>> {
+  return sendRequest(url, options, {
+    lookup: (_hostname, _lookupOptions, callback) => {
+      callback(null, selected.address, selected.family)
+    }
+  })
+}
+
+function sendProxiedRequest(
+  url: URL,
+  proxyUrl: URL,
+  options: SafeHttpRequestOptions
+): Promise<Omit<SafeHttpResponse, 'url'>> {
+  return new Promise((resolve, reject) => {
+    const body = options.body === undefined ? undefined : Buffer.isBuffer(options.body) ? options.body : Buffer.from(options.body)
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    const targetPort = url.port || '443'
+    const targetHost = net.isIPv6(url.hostname) ? `[${url.hostname}]:${targetPort}` : `${url.hostname}:${targetPort}`
+    const proxyRequestFactory = proxyUrl.protocol === 'https:' ? https.request : http.request
+    let proxyRequest: ClientRequest
+    let proxySocket: Socket | null = null
+    let tunnelSocket: tls.TLSSocket | null = null
+    let upstreamRequest: ClientRequest | null = null
+    let responseStream: IncomingMessage | null = null
+    let settled = false
+
+    const destroyConnections = (error: Error) => {
+      upstreamRequest?.destroy(error)
+      responseStream?.destroy(error)
+      tunnelSocket?.destroy(error)
+      proxySocket?.destroy(error)
+      proxyRequest.destroy(error)
+    }
+    const removeAbortListener = () => options.signal?.removeEventListener('abort', onAbort)
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(connectTimer)
+      removeAbortListener()
+      destroyConnections(error)
+      reject(error)
+    }
+    const onAbort = () => {
+      const error = new ArchiveError('CANCELLED', '请求已取消', { recoverable: true })
+      if (!settled) {
+        fail(error)
+        return
+      }
+      destroyConnections(error)
+    }
+    const connectTimer = setTimeout(() => {
+      fail(new ArchiveError('REMOTE_RESPONSE_INVALID', '远端请求超时', { recoverable: true }))
+    }, timeoutMs)
+
+    proxyRequest = proxyRequestFactory({
+      protocol: proxyUrl.protocol,
+      hostname: proxyUrl.hostname,
+      port: proxyUrl.port || (proxyUrl.protocol === 'https:' ? 443 : 80),
+      method: 'CONNECT',
+      path: targetHost,
+      headers: { host: targetHost },
+      agent: false
+    })
+    proxyRequest.on('socket', (socket) => {
+      if (settled) {
+        socket.destroy()
+        return
+      }
+      proxySocket = socket
+    })
+    proxyRequest.on('connect', (response, socket, head) => {
+      proxySocket = socket
+      if (response.statusCode !== 200) {
+        fail(
+          new ArchiveError('REMOTE_RESPONSE_INVALID', `归档代理 CONNECT 返回 HTTP ${response.statusCode ?? 0}`, {
+            recoverable: true
+          })
+        )
+        return
+      }
+      if (head.length > 0) socket.unshift(head)
+
+      tunnelSocket = tls.connect({
+        socket,
+        servername: net.isIP(url.hostname) ? undefined : url.hostname,
+        ALPNProtocols: ['http/1.1']
+      })
+      tunnelSocket.once('error', fail)
+      tunnelSocket.once('secureConnect', () => {
+        if (settled || !tunnelSocket) return
+        const tunnelAgent = new https.Agent({ keepAlive: false })
+        tunnelAgent.createConnection = () => tunnelSocket!
+        upstreamRequest = https.request(
+          url,
+          {
+            agent: tunnelAgent,
+            method: options.method ?? 'GET',
+            headers: {
+              'user-agent': 'PixiShelf-Archive/1.0',
+              accept: '*/*',
+              ...(body ? { 'content-length': String(body.length) } : {}),
+              ...options.headers
+            }
+          },
+          (response) => {
+            if (settled) {
+              response.destroy()
+              return
+            }
+            settled = true
+            clearTimeout(connectTimer)
+            responseStream = response
+            response.once('close', removeAbortListener)
+            resolve({ status: response.statusCode ?? 0, headers: response.headers, stream: response })
+          }
+        )
+        upstreamRequest.setTimeout(timeoutMs, () => {
+          upstreamRequest?.destroy(
+            new ArchiveError('REMOTE_RESPONSE_INVALID', '远端请求超时', { recoverable: true })
+          )
+        })
+        upstreamRequest.once('error', fail)
+        if (body) upstreamRequest.write(body)
+        upstreamRequest.end()
+      })
+    })
+    proxyRequest.once('response', (response) => {
+      response.resume()
+      fail(
+        new ArchiveError('REMOTE_RESPONSE_INVALID', `归档代理未建立 CONNECT 隧道（HTTP ${response.statusCode ?? 0}）`, {
+          recoverable: true
+        })
+      )
+    })
+    proxyRequest.once('error', fail)
+
+    if (options.signal?.aborted) onAbort()
+    else options.signal?.addEventListener('abort', onAbort, { once: true })
+    if (!settled) proxyRequest.end()
+  })
+}
+
+function sendRequest(
+  url: URL,
+  options: SafeHttpRequestOptions,
+  connection: Pick<RequestOptions, 'agent' | 'lookup'>
 ): Promise<Omit<SafeHttpResponse, 'url'>> {
   return new Promise((resolve, reject) => {
     const body = options.body === undefined ? undefined : Buffer.isBuffer(options.body) ? options.body : Buffer.from(options.body)
     const request = https.request(
       url,
       {
+        ...connection,
         method: options.method ?? 'GET',
         headers: {
           'user-agent': 'PixiShelf-Archive/1.0',
           accept: '*/*',
           ...(body ? { 'content-length': String(body.length) } : {}),
           ...options.headers
-        },
-        lookup: (_hostname, _lookupOptions, callback) => {
-          callback(null, selected.address, selected.family)
         }
       },
       (response) => resolve({ status: response.statusCode ?? 0, headers: response.headers, stream: response })

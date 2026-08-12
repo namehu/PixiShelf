@@ -25,7 +25,8 @@ Domain language is defined in [CONTEXT.md](../../CONTEXT.md). The two governing 
 - ExHentai, private galleries, or account Cookie management.
 - Paid archive acquisition, torrent acquisition, or collection-page crawling.
 - Browser-extension request forwarding or browser automation.
-- HTTP proxy configuration.
+- Per-provider proxy UI, PAC, and SOCKS configuration. Standard `HTTPS_PROXY`/`HTTP_PROXY` and the
+  archive-specific `ARCHIVE_HTTPS_PROXY` override are supported by the server transport.
 - Multiple URLs in one submission; users can submit several single-URL tasks to the queue.
 - Scheduled remote update checks.
 - Disk-space preflight or storage quotas. `ENOSPC` is reported as a recoverable task failure.
@@ -226,6 +227,9 @@ Trash is retained for seven days. Permanent cleanup only handles fully `TRASHED`
 - Archive import is administrator-only and writes to the existing global library.
 - Accept only registered provider HTTPS hosts.
 - Validate every redirect and reject loopback, private, link-local, multicast, and cloud-metadata destinations after DNS resolution.
+- When a configured HTTP(S) proxy uses Clash-style `198.18.0.0/15` synthetic DNS addresses, send the
+  request through the proxy CONNECT tunnel; never treat that range as a generally public destination,
+  and continue rejecting every other non-public address.
 - Apply connect, header, body, and overall timeouts plus response-size limits.
 - Sanitize every remote path segment and keep final paths under the resolved media root.
 - Never log Cookie values, authorization headers, full gallery locators, or unredacted provider tokens.
