@@ -200,25 +200,26 @@ model ArtworkTag {
 }
 
 model Image {
-  id                  Int                   @id @default(autoincrement())
+  id                  Int                     @id @default(autoincrement())
   path                String
   width               Int?
   height              Int?
   size                BigInt?
-  sortOrder           Int                   @default(0)
+  sortOrder           Int                     @default(0)
   artworkId           Int?
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
-  webpAnimationStatus Int?                  @db.SmallInt
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  webpAnimationStatus Int?                    @db.SmallInt
   chaptersPath        String?
-  chaptersCount       Int                   @default(0)
+  chaptersCount       Int                     @default(0)
   chaptersDuration    Float?
   chaptersUpdatedAt   DateTime?
   chaptersHash        String?
-  mediaType           MediaType             @default(UNKNOWN)
-  artwork             Artwork?              @relation(fields: [artworkId], references: [id])
+  mediaType           MediaType               @default(UNKNOWN)
+  artwork             Artwork?                @relation(fields: [artworkId], references: [id])
   videoMetadata       MediaVideoMetadata?
   chapterPreviews     MediaChapterPreview[]
+  keyframeSets        MediaVideoKeyframeSet[]
 
   @@unique([artworkId, path], name: "unique_artwork_path")
   @@index([webpAnimationStatus])
@@ -227,23 +228,27 @@ model Image {
 }
 
 model MediaVideoMetadata {
-  imageId         Int               @id
-  image           Image             @relation(fields: [imageId], references: [id], onDelete: Cascade)
-  probeStatus     MediaProbeStatus  @default(PENDING)
-  probeUpdatedAt  DateTime?
-  probeError      String?           @db.Text
-  hasAudio        Boolean?
-  audioCodec      String?
-  audioChannels   Int?
-  videoCodec      String?
-  duration        Float?
-  fps             Float?
-  posterStatus    VideoPosterStatus @default(PENDING)
-  posterPath      String?
-  posterUpdatedAt DateTime?
-  posterError     String?           @db.Text
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  imageId                   Int               @id
+  image                     Image             @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  probeStatus               MediaProbeStatus  @default(PENDING)
+  probeUpdatedAt            DateTime?
+  probeError                String?           @db.Text
+  hasAudio                  Boolean?
+  audioCodec                String?
+  audioChannels             Int?
+  videoCodec                String?
+  duration                  Float?
+  fps                       Float?
+  posterStatus              VideoPosterStatus @default(PENDING)
+  posterPath                String?
+  posterUpdatedAt           DateTime?
+  posterError               String?           @db.Text
+  manualPosterTimestamp     Float?
+  manualPosterSourceSize    BigInt?
+  manualPosterSourceMtimeMs BigInt?
+  manualPosterWarning       String?           @db.Text
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
 
   @@index([probeStatus])
   @@index([posterStatus])
@@ -269,6 +274,54 @@ model MediaChapterPreview {
   @@unique([imageId, chapterOrder])
   @@index([status])
   @@index([imageId, chaptersHash])
+}
+
+model MediaVideoKeyframeSet {
+  id                  String                 @id @default(cuid())
+  imageId             Int
+  image               Image                  @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  systemJobId         String?                @unique
+  systemJob           SystemJob?             @relation(fields: [systemJobId], references: [id], onDelete: SetNull)
+  status              VideoKeyframeSetStatus @default(STAGING)
+  sourceSize          BigInt
+  sourceMtimeMs       BigInt
+  policyVersion       Int
+  duration            Float
+  targetCount         Int
+  candidateCount      Int
+  completedCandidates Int                    @default(0)
+  publishedCount      Int                    @default(0)
+  warning             String?                @db.Text
+  error               String?                @db.Text
+  publishedAt         DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  frames              MediaVideoKeyframe[]
+
+  @@index([imageId, status])
+  @@index([status, updatedAt])
+}
+
+model MediaVideoKeyframe {
+  id              String                @id @default(cuid())
+  setId           String
+  set             MediaVideoKeyframeSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+  candidateIndex  Int
+  captureTime     Float
+  path            String?
+  status          VideoKeyframeStatus   @default(PENDING)
+  luma            Float?
+  sharpness       Float?
+  perceptualHash  String?               @db.VarChar(64)
+  rejectionReason String?               @db.VarChar(80)
+  selectedOrder   Int?
+  error           String?               @db.Text
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@unique([setId, candidateIndex])
+  @@index([setId, status])
+  @@index([setId, selectedOrder])
 }
 
 model UserBA {
@@ -389,30 +442,38 @@ enum TranslateType {
 }
 
 model SystemJob {
-  id                  String               @id @default(cuid())
-  type                String               @db.VarChar(50)
-  status              JobStatus            @default(PENDING)
-  progress            Int                  @default(0)
-  message             String?              @db.Text
+  id                  String                 @id @default(cuid())
+  type                String                 @db.VarChar(50)
+  status              JobStatus              @default(PENDING)
+  progress            Int                    @default(0)
+  message             String?                @db.Text
   result              Json?
-  error               String?              @db.Text
+  error               String?                @db.Text
   targetImageId       Int?
-  targetPath          String?              @db.Text
-  mode                String?              @db.VarChar(50)
+  targetPath          String?                @db.Text
+  mode                String?                @db.VarChar(50)
   startedAt           DateTime?
   heartbeatAt         DateTime?
   finishedAt          DateTime?
-  attempt             Int                  @default(0)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  attempt             Int                    @default(0)
+  parentJobId         String?
+  parentJob           SystemJob?             @relation("SystemJobChildren", fields: [parentJobId], references: [id], onDelete: SetNull)
+  childJobs           SystemJob[]            @relation("SystemJobChildren")
+  queuePriority       Int                    @default(100)
+  availableAt         DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
   scanRuns            ScanRun[]
   pendingReplaceBatch PendingReplaceBatch?
   archiveImport       ArchiveImport?
+  keyframeSet         MediaVideoKeyframeSet?
 
   @@index([type, status])
   @@index([type, status, createdAt])
   @@index([type, status, finishedAt])
   @@index([type, targetImageId, createdAt])
+  @@index([parentJobId, status])
+  @@index([type, status, queuePriority, availableAt, createdAt])
   @@index([createdAt])
   @@map("system_jobs")
 }
@@ -761,11 +822,27 @@ enum ScheduleMode {
 enum JobStatus {
   PENDING
   RUNNING
+  PAUSING
   PAUSED
   COMPLETED
   FAILED
   CANCELLED
   CANCELLING
+}
+
+enum VideoKeyframeSetStatus {
+  STAGING
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+enum VideoKeyframeStatus {
+  PENDING
+  GENERATING
+  COMPLETED
+  REJECTED
+  FAILED
 }
 
 enum ArtworkCreationMethod {

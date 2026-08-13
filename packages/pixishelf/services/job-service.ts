@@ -5,6 +5,7 @@ const MEDIA_SCAN_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT']
 const MEDIA_ROOT_WRITE_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT', 'MIGRATION', 'PENDING_REPLACE']
 const MEDIA_SCAN_ADVISORY_LOCK_ID = 728341
 const MEDIA_MAINTENANCE_JOB_TYPES = ['WEBP_ANIMATION_SCAN', 'VIDEO_MEDIA_PROBE', 'VIDEO_CHAPTER_PREVIEW_GENERATION']
+const RUNNING_ONLY_MEDIA_MAINTENANCE_JOB_TYPES = ['VIDEO_KEYFRAME_GENERATION']
 const MEDIA_MAINTENANCE_ADVISORY_LOCK_ID = 728342
 const VIDEO_PROCESSING_ADVISORY_LOCK_ID = 728344
 const AUDIT_MAINTENANCE_JOB_TYPES = ['SCAN_RUN_RETENTION_CLEANUP', 'TRIGGER_LOG_RETENTION_CLEANUP']
@@ -23,6 +24,7 @@ async function createMutexJob(input: {
   advisoryLockId: number
   message: string
   conflictMessage: string
+  runningOnlyMutexJobTypes?: string[]
   targetImageId?: number
   targetPath?: string
   mode?: string
@@ -31,10 +33,23 @@ async function createMutexJob(input: {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', input.advisoryLockId)
 
     const activeJob = await tx.systemJob.findFirst({
-      where: {
-        type: { in: input.mutexJobTypes },
-        status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
-      }
+      where: input.runningOnlyMutexJobTypes?.length
+        ? {
+            OR: [
+              {
+                type: { in: input.mutexJobTypes },
+                status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+              },
+              {
+                type: { in: input.runningOnlyMutexJobTypes },
+                status: { in: [JobStatus.RUNNING, JobStatus.PAUSING, JobStatus.CANCELLING] }
+              }
+            ]
+          }
+        : {
+            type: { in: input.mutexJobTypes },
+            status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+          }
     })
 
     if (activeJob) {
@@ -289,6 +304,7 @@ export async function createWebpAnimationScanJob() {
   return createMutexJob({
     type: 'WEBP_ANIMATION_SCAN',
     mutexJobTypes: MEDIA_MAINTENANCE_JOB_TYPES,
+    runningOnlyMutexJobTypes: RUNNING_ONLY_MEDIA_MAINTENANCE_JOB_TYPES,
     advisoryLockId: MEDIA_MAINTENANCE_ADVISORY_LOCK_ID,
     message: '初始化...',
     conflictMessage: 'Media maintenance job already in progress'
@@ -302,6 +318,7 @@ export async function createVideoMediaProbeJob() {
   return createMutexJob({
     type: 'VIDEO_MEDIA_PROBE',
     mutexJobTypes: MEDIA_MAINTENANCE_JOB_TYPES,
+    runningOnlyMutexJobTypes: RUNNING_ONLY_MEDIA_MAINTENANCE_JOB_TYPES,
     advisoryLockId: MEDIA_MAINTENANCE_ADVISORY_LOCK_ID,
     message: '初始化...',
     conflictMessage: 'Media maintenance job already in progress'
@@ -315,6 +332,7 @@ export async function createVideoChapterPreviewGenerationJob() {
   return createMutexJob({
     type: VIDEO_CHAPTER_PREVIEW_GENERATION_JOB_TYPE,
     mutexJobTypes: MEDIA_MAINTENANCE_JOB_TYPES,
+    runningOnlyMutexJobTypes: RUNNING_ONLY_MEDIA_MAINTENANCE_JOB_TYPES,
     advisoryLockId: MEDIA_MAINTENANCE_ADVISORY_LOCK_ID,
     message: '正在准备章节截图...',
     conflictMessage: 'Media maintenance job already in progress'

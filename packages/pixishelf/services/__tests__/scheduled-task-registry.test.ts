@@ -13,7 +13,8 @@ const {
   getScanPathMock,
   markAsCancelledMock,
   runVideoChapterPreviewGenerationJobMock,
-  updateProgressMock
+  updateProgressMock,
+  enqueueVideoKeyframeBatchMock
 } = vi.hoisted(() => ({
   cleanupScanRunHistoryMock: vi.fn(),
   cleanupTriggerLogsMock: vi.fn(),
@@ -27,7 +28,8 @@ const {
   getScanPathMock: vi.fn(),
   markAsCancelledMock: vi.fn(),
   runVideoChapterPreviewGenerationJobMock: vi.fn(),
-  updateProgressMock: vi.fn()
+  updateProgressMock: vi.fn(),
+  enqueueVideoKeyframeBatchMock: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
@@ -69,6 +71,10 @@ vi.mock('@/services/video-poster-service', () => ({
   runVideoPosterGenerationJob: vi.fn()
 }))
 
+vi.mock('@/services/video-keyframe-queue', () => ({
+  enqueueVideoKeyframeBatch: enqueueVideoKeyframeBatchMock
+}))
+
 vi.mock('@/services/webp-animation-scan-service', () => ({
   runWebpAnimationScanJob: vi.fn()
 }))
@@ -103,6 +109,7 @@ describe('scheduled-task-registry', () => {
       failedSamples: []
     })
     updateProgressMock.mockReset().mockResolvedValue(undefined)
+    enqueueVideoKeyframeBatchMock.mockReset().mockResolvedValue({ jobId: 'job-keyframes', status: 'PENDING' })
   })
 
   it('registers scan run retention cleanup as a disabled-by-default scheduled task', () => {
@@ -144,6 +151,46 @@ describe('scheduled-task-registry', () => {
         })
       ])
     )
+  })
+
+  it('registers keyframe discovery at 05:00 and disabled by default', () => {
+    expect(SCHEDULED_TASK_DEFINITIONS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'video_keyframe_generation',
+          type: SCHEDULED_TASK_TYPES.VIDEO_KEYFRAME_DISCOVERY,
+          defaultTime: '05:00',
+          defaultEnabled: false,
+          mutexKey: 'media-maintenance'
+        })
+      ])
+    )
+  })
+
+  it('runs keyframe discovery with the scheduled task filter', async () => {
+    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.VIDEO_KEYFRAME_DISCOVERY)
+    const config = { minDuration: 600, maxDuration: null, includePaths: [], excludePaths: [] }
+
+    await expect(handler?.start({ trigger: 'schedule', taskConfig: config })).resolves.toEqual({
+      jobId: 'job-keyframes'
+    })
+    expect(enqueueVideoKeyframeBatchMock).toHaveBeenCalledWith({
+      trigger: 'schedule',
+      previewOnly: false,
+      filter: config
+    })
+  })
+
+  it('turns a manual scheduled-task trigger into a preview instead of direct generation', async () => {
+    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.VIDEO_KEYFRAME_DISCOVERY)
+
+    await handler?.start({ trigger: 'manual', taskConfig: {} })
+
+    expect(enqueueVideoKeyframeBatchMock).toHaveBeenCalledWith({
+      trigger: 'manual',
+      previewOnly: true,
+      filter: {}
+    })
   })
 
   it('runs trigger log retention cleanup and records its result', async () => {

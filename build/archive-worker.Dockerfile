@@ -10,7 +10,7 @@ ENV PATH=$PNPM_HOME:$PATH
 
 WORKDIR /workspace
 
-RUN apk add --no-cache openssl \
+RUN apk add --no-cache openssl ffmpeg \
     && npm install -g pnpm@${PNPM_VERSION} \
     && pnpm config set registry ${REGISTRY_URL} \
     && pnpm config set store-dir /pnpm/store
@@ -40,7 +40,7 @@ FROM node:20-alpine AS production
 ENV NODE_ENV=production
 WORKDIR /app
 
-RUN apk add --no-cache openssl \
+RUN apk add --no-cache openssl ffmpeg \
     && addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 --ingroup nodejs archiveworker \
     && mkdir -p /app/logs \

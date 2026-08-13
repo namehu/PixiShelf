@@ -75,9 +75,13 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=5&pool_timeout=20
       ARCHIVE_STORAGE_PATH: /app/data
+      SCAN_PATH: /app/data
+      DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
+      KEYFRAME_FFMPEG_THREADS: ${KEYFRAME_FFMPEG_THREADS:-2}
     command: ["node", "dist/archive-worker.cjs"]
     volumes:
       - "${PIXISHELF_DATA_PATH}:/app/data:rw"
+      - "${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media:rw"
     depends_on:
       postgres:
         condition: service_healthy

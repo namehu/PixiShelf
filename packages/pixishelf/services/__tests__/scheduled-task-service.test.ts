@@ -213,7 +213,7 @@ describe('scheduled-task-service', () => {
     const now = new Date('2026-06-01T00:30:00.000Z')
     const result = await runSchedulerTick(now)
 
-    expect(handlerStartMock).toHaveBeenCalledWith({ trigger: 'schedule' })
+    expect(handlerStartMock).toHaveBeenCalledWith({ trigger: 'schedule', taskConfig: null })
     expect(scheduledTaskUpdateMock).toHaveBeenCalledWith({
       where: { key: 'webp_animation_scan' },
       data: {
@@ -234,7 +234,7 @@ describe('scheduled-task-service', () => {
     const now = new Date('2026-06-01T00:10:00.000Z')
     const result = await runSchedulerTick(now)
 
-    expect(handlerStartMock).toHaveBeenCalledWith({ trigger: 'schedule' })
+    expect(handlerStartMock).toHaveBeenCalledWith({ trigger: 'schedule', taskConfig: null })
     expect(scheduledTaskUpdateMock).toHaveBeenCalledWith({
       where: { key: 'scan_run_retention_cleanup' },
       data: {
@@ -282,7 +282,7 @@ describe('scheduled-task-service', () => {
 
     const result = await triggerScheduledTaskNow('scan_run_retention_cleanup')
 
-    expect(handlerStartMock).toHaveBeenCalledWith({ trigger: 'manual' })
+    expect(handlerStartMock).toHaveBeenCalledWith({ trigger: 'manual', taskConfig: null })
     expect(scheduledTaskUpdateMock).toHaveBeenCalledWith({
       where: { key: 'scan_run_retention_cleanup' },
       data: {
@@ -299,6 +299,7 @@ describe('scheduled-task-service', () => {
 
     expect(handlerStartMock).toHaveBeenCalledWith({
       trigger: 'manual',
+      taskConfig: null,
       chapterPreviewMode: 'INCREMENTAL'
     })
   })

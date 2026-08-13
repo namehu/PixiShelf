@@ -7,6 +7,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Database, Film, ImagePlay, Loader2, PlayCircle, Tags, Wrench } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { VideoKeyframeSection } from './video-keyframe-section'
 import { VideoStreamingOptimizationSection } from './video-streaming-optimization-section'
 import {
   getDraftForTask,
@@ -183,7 +184,13 @@ export function MaintenanceCard() {
   const videoScheduledTask = scheduledTasksByKey.get('video_media_probe')
   const chapterPreviewScheduledTask = scheduledTasksByKey.get('video_chapter_preview_generation')
   const standaloneScheduledTasks = scheduledTasks.filter(
-    (task) => !['webp_animation_scan', 'video_media_probe', 'video_chapter_preview_generation'].includes(task.key)
+    (task) =>
+      ![
+        'webp_animation_scan',
+        'video_media_probe',
+        'video_chapter_preview_generation',
+        'video_keyframe_generation'
+      ].includes(task.key)
   )
 
   useEffect(() => {
@@ -769,6 +776,8 @@ export function MaintenanceCard() {
           </TaskSection>
 
           <VideoStreamingOptimizationSection />
+
+          <VideoKeyframeSection />
 
           <TaskSection
             id="chapter-previews"

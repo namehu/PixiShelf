@@ -520,7 +520,7 @@ async function transitionTaskAndJob(
   },
   input: {
     importStatus: 'PENDING' | 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
-    jobStatus: 'PENDING' | 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+    jobStatus: 'PENDING' | 'RUNNING' | 'PAUSING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
     message: string
     finishedAt?: Date
     retainUntil?: Date

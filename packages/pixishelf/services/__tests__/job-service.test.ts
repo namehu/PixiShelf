@@ -108,12 +108,7 @@ describe('job locking and video optimization queue', () => {
     const onFinalized = vi.fn()
 
     await expect(
-      finalizePendingReplaceJob(
-        'job-1',
-        3,
-        { status: 'COMPLETED', result: { ok: true } },
-        onFinalized
-      )
+      finalizePendingReplaceJob('job-1', 3, { status: 'COMPLETED', result: { ok: true } }, onFinalized)
     ).resolves.toBe(true)
 
     expect(mocks.updateMany).toHaveBeenCalledWith({
@@ -235,6 +230,25 @@ describe('job locking and video optimization queue', () => {
 
     await expect(createVideoChapterPreviewGenerationJob()).rejects.toThrow('Media maintenance job already in progress')
     expect(mocks.create).not.toHaveBeenCalled()
+  })
+
+  it('only treats running keyframe work as a media maintenance conflict', async () => {
+    await createVideoMediaProbeJob()
+
+    expect(mocks.findFirst).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          {
+            type: { in: ['WEBP_ANIMATION_SCAN', 'VIDEO_MEDIA_PROBE', 'VIDEO_CHAPTER_PREVIEW_GENERATION'] },
+            status: { in: ['PENDING', 'RUNNING', 'CANCELLING'] }
+          },
+          {
+            type: { in: ['VIDEO_KEYFRAME_GENERATION'] },
+            status: { in: ['RUNNING', 'PAUSING', 'CANCELLING'] }
+          }
+        ]
+      }
+    })
   })
 
   it('uses a separate shared advisory lock for audit maintenance jobs', async () => {
