@@ -40,11 +40,11 @@ The application exposes these roles as semantic tokens rather than using the lit
 - `Archive Canvas` `#F5F7FA`: the cool page background around media and workbenches.
 - `Paper Surface` `#FFFFFF`: controls, dialogs, forms, and bounded work surfaces.
 - `Gallery Ink` `#1F2937`: primary text and high-emphasis utility data.
-- `Quiet Slate` `#6B7280`: descriptions, counts, and secondary metadata.
+- `Quiet Slate` `#5F6B7A`: descriptions, counts, and secondary metadata.
 - `PixiShelf Accent` `#0096FA`: the archive index marker, focus treatment, selection tint source, and other non-text brand accents.
 - `Signal Red` `#C8323C`: destructive actions and genuine failure states only.
 
-Interactive text and filled actions use a darker `Action Blue` `#0076C9`, not the brighter accent token. On white, `#0076C9` has approximately `4.74:1` contrast; white on `#0076C9` has the same ratio. White on `Signal Red #C8323C` has approximately `5.28:1` contrast. The bright `#0096FA` accent is never used for ordinary small text or as a white-text button background. Token foreground/background pairs must maintain at least `4.5:1` for normal text and control labels.
+Interactive text and filled actions use a darker `Action Blue` `#006FBE`, not the brighter accent token. On Archive Canvas, `#006FBE` has approximately `4.87:1` contrast; white on `#006FBE` has approximately `5.23:1`. White on `Signal Red #C8323C` has approximately `5.28:1` contrast. The bright `#0096FA` accent is never used for ordinary small text or as a white-text button background. Token foreground/background pairs must maintain at least `4.5:1` for normal text and control labels.
 
 Blue hover, muted surface, borders, success, and warning colors are derived semantic roles with documented contrast; they do not become decorative gradients or arbitrary per-module accents. Large blue fields, blurred color blobs, and tinted card mosaics are excluded.
 
