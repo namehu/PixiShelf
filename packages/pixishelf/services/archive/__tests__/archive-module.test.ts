@@ -14,7 +14,7 @@ const { prismaMock } = vi.hoisted(() => {
       update: vi.fn(),
       updateMany: vi.fn()
     },
-    archiveImportItem: { findMany: vi.fn(), updateMany: vi.fn() },
+    archiveImportItem: { findFirst: vi.fn(), findMany: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn() },
     archivePreviewSession: { deleteMany: vi.fn(), create: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
     systemJob: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     $queryRawUnsafe: vi.fn(),
@@ -231,6 +231,92 @@ describe('archive module', () => {
         })
       ]
     })
+  })
+
+  it('filters task item batches in the database before applying the cursor and limit', async () => {
+    prismaMock.archiveImport.findUnique.mockResolvedValue({ id: 'import-1', totalItems: 101 })
+    prismaMock.archiveImportItem.findMany.mockResolvedValue([])
+
+    await module.listTaskItems('import-1', 49, 50, 'FAILED')
+
+    expect(prismaMock.archiveImportItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { archiveImportId: 'import-1', pageIndex: { gt: 49 }, status: 'FAILED' },
+        orderBy: { pageIndex: 'asc' },
+        take: 51
+      })
+    )
+  })
+
+  it('returns lightweight task item counts for every server-side filter', async () => {
+    prismaMock.archiveImport.findUnique.mockResolvedValue({ id: 'import-1' })
+    prismaMock.archiveImportItem.groupBy.mockResolvedValue([
+      { status: 'COMPLETED', _count: { _all: 80 } },
+      { status: 'FAILED', _count: { _all: 2 } },
+      { status: 'PENDING', _count: { _all: 17 } },
+      { status: 'DOWNLOADING', _count: { _all: 2 } }
+    ])
+
+    await expect(module.getTaskItemCounts('import-1')).resolves.toEqual({
+      all: 101,
+      completed: 80,
+      failed: 2,
+      pending: 17,
+      downloading: 2
+    })
+  })
+
+  it('requeues only the selected failed item and preserves completed checkpoints', async () => {
+    prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce({
+        id: 'import-1',
+        systemJobId: 'job-1',
+        status: 'FAILED',
+        errorCode: 'PARTIAL_FAILURE',
+        completedItems: 98,
+        failedItems: 2,
+        totalItems: 100,
+        systemJob: { status: 'FAILED' }
+      })
+      .mockResolvedValueOnce(null)
+    prismaMock.archiveImportItem.findFirst.mockResolvedValue({ id: 'item-99', status: 'FAILED' })
+    prismaMock.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+
+    await module.retryTaskItem('import-1', 'item-99')
+
+    expect(prismaMock.archiveImportItem.updateMany).toHaveBeenCalledWith({
+      where: { id: 'item-99', archiveImportId: 'import-1', status: 'FAILED' },
+      data: expect.objectContaining({ status: 'PENDING', attempts: 0, errorStage: null, remoteHost: null })
+    })
+    expect(prismaMock.archiveImport.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'PENDING', failedItems: 1, retainUntil: null })
+      })
+    )
+  })
+
+  it('allows single-item retry when a gallery failed before completing any image', async () => {
+    prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce({
+        id: 'import-1',
+        systemJobId: 'job-1',
+        status: 'FAILED',
+        errorCode: 'PARTIAL_FAILURE',
+        completedItems: 0,
+        failedItems: 1,
+        totalItems: 1,
+        systemJob: { status: 'FAILED' }
+      })
+      .mockResolvedValueOnce(null)
+    prismaMock.archiveImportItem.findFirst.mockResolvedValue({ id: 'item-1', status: 'FAILED' })
+    prismaMock.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+
+    await expect(module.retryTaskItem('import-1', 'item-1')).resolves.toBeNull()
+    expect(prismaMock.archiveImport.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'PENDING', failedItems: 0, retainUntil: null })
+      })
+    )
   })
 
   it('lists task summaries without loading every media item', async () => {

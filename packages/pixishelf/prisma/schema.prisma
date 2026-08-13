@@ -494,6 +494,8 @@ model ArchiveImportItem {
   sha256           String?                 @db.VarChar(64)
   errorCode        String?                 @db.VarChar(80)
   errorMessage     String?                 @db.Text
+  errorStage       String?                 @db.VarChar(40)
+  remoteHost       String?                 @db.VarChar(300)
   startedAt        DateTime?
   finishedAt       DateTime?
   createdAt        DateTime                @default(now())

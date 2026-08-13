@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
@@ -31,6 +31,17 @@ describe('archive storage', () => {
     expect(second.finalAbsolutePath).not.toBe(first.finalAbsolutePath)
   })
 
+  it('classifies staging-directory filesystem failures as task-level storage errors', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'pixishelf-archive-'))
+    temporaryDirectories.push(root)
+    await writeFile(path.join(root, 'occupied'), 'not a directory')
+
+    await expect(prepareStagingDirectory(root, 'occupied')).rejects.toMatchObject({
+      code: 'INTERNAL',
+      stage: 'STORAGE'
+    })
+  })
+
   it('streams, hashes, decodes and validates media before writing a manifest', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'pixishelf-archive-'))
     temporaryDirectories.push(root)
@@ -41,7 +52,8 @@ describe('archive storage', () => {
         mimeType: 'image/png',
         contentLength: PNG_1X1.length,
         originalFilename: 'source.png',
-        quality: 'ORIGINAL'
+        quality: 'ORIGINAL',
+        remoteHost: 'cdn.example.test:443'
       },
       stagingDirectory: staging,
       index: 0,
@@ -65,12 +77,49 @@ describe('archive storage', () => {
         mimeType: 'image/png',
         contentLength: PNG_1X1.length,
         originalFilename: 'source.png',
-        quality: 'ORIGINAL'
+        quality: 'ORIGINAL',
+        remoteHost: 'cdn.example.test:443'
       },
       stagingDirectory: staging,
       index: 0,
       expectedFilename: '0001'
     })
     expect(retried.filename).toBe(result.filename)
+  })
+
+  it('classifies an interrupted media stream as a retryable remote failure with safe diagnostics', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'pixishelf-archive-'))
+    temporaryDirectories.push(root)
+    const staging = await prepareStagingDirectory(root, '.archive-staging/task-stream-error')
+    const stream = Readable.from(
+      (async function* () {
+        yield PNG_1X1.subarray(0, 10)
+        throw Object.assign(new Error('socket disconnected for https://secret.example/path?token=private'), {
+          code: 'ECONNRESET'
+        })
+      })()
+    )
+
+    await expect(
+      storeRemoteMedia({
+        remote: {
+          stream,
+          mimeType: 'image/png',
+          contentLength: PNG_1X1.length,
+          originalFilename: 'source.png',
+          quality: 'ORIGINAL',
+          remoteHost: 'node.hath.network:2333'
+        },
+        stagingDirectory: staging,
+        index: 0,
+        expectedFilename: '0001'
+      })
+    ).rejects.toMatchObject({
+      code: 'REMOTE_RESPONSE_INVALID',
+      recoverable: true,
+      stage: 'MEDIA_STREAM',
+      remoteHost: 'node.hath.network:2333',
+      message: '远端媒体传输中断'
+    })
   })
 })

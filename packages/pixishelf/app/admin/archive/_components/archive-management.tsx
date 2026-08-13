@@ -37,6 +37,7 @@ export function ArchiveManagement() {
   const [url, setUrl] = useState('')
   const [preview, setPreview] = useState<ArchivePreviewOutput | null>(null)
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
+  const [detailRefreshVersion, setDetailRefreshVersion] = useState(0)
   const tasksQuery = useQuery(
     trpc.archive.listTasks.queryOptions(
       { limit: 30 },
@@ -69,6 +70,7 @@ export function ArchiveManagement() {
     trpc.archive.action.mutationOptions({
       onSuccess: async () => {
         await tasksQuery.refetch()
+        setDetailRefreshVersion((value) => value + 1)
       },
       onError: (error) => toast.error(error.message)
     })
@@ -197,7 +199,9 @@ export function ArchiveManagement() {
           <CardHeader className="flex-row items-start justify-between gap-4">
             <div>
               <CardTitle className="text-lg">归档任务</CardTitle>
-              <CardDescription>失败或取消的暂存保留 7 天；暂停任务会一直保留，直到继续或手动清理。</CardDescription>
+              <CardDescription>
+                部分失败且已有成功图片的暂存保留 30 天；零进度失败和取消任务保留 7 天；暂停任务会一直保留。
+              </CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={() => tasksQuery.refetch()} disabled={tasksQuery.isFetching}>
               <RefreshCw className={tasksQuery.isFetching ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
@@ -228,12 +232,13 @@ export function ArchiveManagement() {
         </Card>
       </div>
       <ArchiveItemDrawer
-        key={detailTask?.id ?? 'archive-item-drawer'}
+        key={`${detailTask?.id ?? 'archive-item-drawer'}:${detailRefreshVersion}`}
         open={Boolean(detailTaskId && detailTask)}
         task={detailTask}
         onOpenChange={(open) => {
           if (!open) setDetailTaskId(null)
         }}
+        onTaskChanged={() => tasksQuery.refetch()}
       />
     </div>
   )
@@ -268,11 +273,12 @@ function TaskRow({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="truncate font-medium">{task.title || `E-Hentai #${task.externalId}`}</span>
-            <StatusBadge status={task.status} />
+            <StatusBadge status={task.status} errorCode={task.errorCode} />
             <Badge variant="outline">{task.selectedQuality === 'ORIGINAL' ? '原图' : '展示质量'}</Badge>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            {task.providerKey} #{task.externalId} · {task.completedItems}/{task.totalItems} · 尝试 {task.attempt}
+            {task.providerKey} #{task.externalId} · 成功 {task.completedItems} · 失败 {task.failedItems} · 共{' '}
+            {task.totalItems} 张 · 尝试 {task.attempt}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -342,11 +348,14 @@ function TaskRow({
       </div>
       {task.warning && <p className="whitespace-pre-wrap text-xs text-amber-700">{task.warning}</p>}
       {task.errorMessage && <p className="whitespace-pre-wrap text-sm text-destructive">{task.errorMessage}</p>}
+      {task.retainUntil && task.status !== 'COMPLETED' && (
+        <p className="text-xs text-muted-foreground">暂存预计保留至 {formatRetentionTime(task.retainUntil)}</p>
+      )}
     </div>
   )
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, errorCode }: { status: string; errorCode: string | null }) {
   const variant = status === 'COMPLETED' ? 'default' : status === 'FAILED' ? 'destructive' : 'secondary'
   const labels: Record<string, string> = {
     PENDING: '排队中',
@@ -357,5 +366,11 @@ function StatusBadge({ status }: { status: string }) {
     FAILED: '失败',
     CANCELLED: '已取消'
   }
-  return <Badge variant={variant}>{labels[status] || status}</Badge>
+  const label = status === 'FAILED' && errorCode === 'PARTIAL_FAILURE' ? '部分失败' : labels[status] || status
+  return <Badge variant={variant}>{label}</Badge>
+}
+
+function formatRetentionTime(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', { hour12: false })
 }

@@ -183,7 +183,13 @@ describe('archive publication lifecycle', () => {
     expect(await pathExists(paths.finalAbsolutePath)).toBe(false)
     expect(prismaMock.archiveImportItem.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { archiveImportId: 'import-1' },
-      data: expect.objectContaining({ status: 'PENDING', attempts: 0, stagedPath: null })
+      data: expect.objectContaining({
+        status: 'PENDING',
+        attempts: 0,
+        stagedPath: null,
+        errorStage: null,
+        remoteHost: null
+      })
     }))
     expect(prismaMock.archiveImport.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: { cleanupRequestedAt: null, completedItems: 0, failedItems: 0, retainUntil: null }

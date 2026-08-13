@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
-import { ArchiveError } from '../errors'
-import { SafeHttpClient, assertSuccessStatus } from '../safe-http'
+import { ArchiveError, withArchiveErrorContext } from '../errors'
+import { SafeHttpClient, assertSuccessStatus, remoteHostForUrl } from '../safe-http'
 import type {
   ArchiveDownloadContext,
   ArchiveProvider,
@@ -125,11 +125,19 @@ export class EHentaiProvider implements ArchiveProvider {
   }
 
   async openMedia(item: ResolvedMedia, context: ArchiveDownloadContext): Promise<RemoteMedia> {
-    const html = await this.http.text(item.sourcePageUrl, {
-      signal: context.signal,
-      maxBytes: 4 * 1024 * 1024,
-      headers: { referer: item.sourcePageUrl }
-    })
+    let html: string
+    try {
+      html = await this.http.text(item.sourcePageUrl, {
+        signal: context.signal,
+        maxBytes: 4 * 1024 * 1024,
+        headers: { referer: item.sourcePageUrl }
+      })
+    } catch (error) {
+      throw withArchiveErrorContext(error, {
+        stage: 'SOURCE_PAGE',
+        remoteHost: remoteHostForUrl(new URL(item.sourcePageUrl))
+      })
+    }
     const originalUrl = findLink(html, /fullimg\.php/i, item.sourcePageUrl)
     const displayUrl = findImageById(html, 'img', item.sourcePageUrl)
     let selectedUrl: string | null = null
@@ -146,7 +154,9 @@ export class EHentaiProvider implements ArchiveProvider {
 
     if (!selectedUrl) {
       throw new ArchiveError('REMOTE_RESPONSE_INVALID', '无法从 E-Hentai 图片页解析媒体地址', {
-        recoverable: true
+        recoverable: true,
+        stage: 'SOURCE_PAGE',
+        remoteHost: remoteHostForUrl(new URL(item.sourcePageUrl))
       })
     }
 
@@ -161,19 +171,22 @@ export class EHentaiProvider implements ArchiveProvider {
         mimeType: headerValue(response.headers['content-type'])?.split(';')[0]?.trim() || null,
         contentLength: parseContentLength(response.headers['content-length']),
         originalFilename: extractOriginalFilename(html),
-        quality: selectedQuality
+        quality: selectedQuality,
+        remoteHost: remoteHostForUrl(new URL(response.url))
       }
     } catch (error) {
       if (
         context.quality === 'ORIGINAL' &&
         error instanceof ArchiveError &&
-        ['REMOTE_FORBIDDEN', 'REMOTE_QUOTA_EXCEEDED', 'REMOTE_NOT_FOUND'].includes(error.code)
+        ['REMOTE_FORBIDDEN', 'REMOTE_QUOTA_EXCEEDED'].includes(error.code)
       ) {
         throw new ArchiveError('ORIGINAL_UNAVAILABLE', '原图当前不可用；请明确选择展示质量后继续', {
           cause: error,
           recoverable: true,
           pause: true,
-          decisionCode: 'USE_DISPLAY_QUALITY'
+          decisionCode: 'USE_DISPLAY_QUALITY',
+          stage: error.stage,
+          remoteHost: error.remoteHost
         })
       }
       throw error
