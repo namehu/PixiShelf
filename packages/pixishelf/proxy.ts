@@ -67,6 +67,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     }
 
     const requestHeaders = new Headers(request.headers)
+    requestHeaders.set('x-pathname', pathname)
     requestHeaders.set(
       'x-user-session',
       JSON.stringify({

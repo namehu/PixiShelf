@@ -182,7 +182,7 @@ export default function SettingsPreferencesPage() {
     <div className="space-y-4">
       <PreferenceItem
         title="媒体隐私模式"
-        description="对全站图片、视频和动画画布进行强模糊、灰度及低可见度处理；仅改变显示，不阻止媒体加载或访问"
+        description="开启后模糊全站媒体；关闭后，进入非管理后台时需先确认 R18 内容警告。此功能仅改变显示，不阻止媒体加载或访问"
       >
         <div className="flex items-center gap-3">
           <Switch
