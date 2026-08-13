@@ -4,6 +4,7 @@ import { Toaster } from '@/components/ui/sonner'
 import type { Metadata, Viewport } from 'next'
 import { Providers } from '@/components/providers'
 import { GlobalConfirmDialog } from '@/components/shared/global-confirm' // 引入组件
+import { isContentWarningPath } from '@/components/content-warning/content-warning-routes'
 import { headers } from 'next/headers'
 import './globals.css'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
@@ -35,6 +36,7 @@ export interface RootLayoutProps {
 export default async function RootLayout({ children }: RootLayoutProps) {
   const headersList = await headers()
   const sessionHeader = headersList.get('x-user-session')
+  const pathname = headersList.get('x-pathname')
   let initialUser: AuthMeResponseDTO | null = null
   let initialSettings: UserSettings = {}
 
@@ -58,17 +60,30 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   }
 
   const mediaPrivacyMode = userSettingsWithDefaultsSchema.parse(initialSettings).media_privacy_mode
+  const contentWarningPending =
+    Boolean(initialUser) && !mediaPrivacyMode && (pathname ? isContentWarningPath(pathname) : true)
 
   return (
-    <html lang="zh-CN" data-media-privacy={mediaPrivacyMode ? 'on' : 'off'}>
+    <html
+      lang="zh-CN"
+      data-media-privacy={mediaPrivacyMode ? 'on' : 'off'}
+      data-content-warning={contentWarningPending ? 'pending' : 'clear'}
+    >
       <body suppressHydrationWarning={true}>
-        <NuqsAdapter>
-          <Providers initialUser={initialUser} initialSettings={initialSettings}>
-            <Toaster />
-            {children}
-            <GlobalConfirmDialog />
-          </Providers>
-        </NuqsAdapter>
+        <div id="content-warning-initial-blocker" aria-hidden="true" />
+        <div
+          id="content-warning-protected-content"
+          inert={contentWarningPending ? true : undefined}
+          aria-hidden={contentWarningPending ? true : undefined}
+        >
+          <NuqsAdapter>
+            <Providers initialUser={initialUser} initialSettings={initialSettings}>
+              <Toaster />
+              {children}
+              <GlobalConfirmDialog />
+            </Providers>
+          </NuqsAdapter>
+        </div>
       </body>
     </html>
   )

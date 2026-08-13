@@ -122,6 +122,18 @@
     @apply bg-background text-foreground;
   }
 
+  #content-warning-initial-blocker {
+    display: none;
+  }
+
+  html[data-content-warning='pending'] #content-warning-initial-blocker {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483645;
+    display: block;
+    background: #f8fafc;
+  }
+
   html[data-media-privacy='on'] :where(img, video, canvas) {
     filter: blur(24px) grayscale(1) brightness(0.25) opacity(0.12) !important;
   }

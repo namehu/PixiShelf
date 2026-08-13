@@ -3,6 +3,7 @@
 import type { PropsWithChildren } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAuthUser } from '@/components/auth'
+import { ContentWarningGate } from '@/components/content-warning/content-warning-gate'
 import { ROUTES } from '@/lib/constants'
 import AppHeader from './app-header'
 
@@ -19,6 +20,7 @@ export default function AppShell({ children }: PropsWithChildren) {
 
   return (
     <>
+      <ContentWarningGate />
       {showHeader && <AppHeader />}
       {children}
     </>
