@@ -1,12 +1,16 @@
+import { Spinner } from '@/components/ui/spinner'
+
 export default function PageLoading() {
   return (
-    <div className="h-screen w-screen bg-black flex items-center justify-center">
-      <div className="text-center text-white">
-        <div className="mb-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto" />
-        </div>
-        <p className="text-lg font-medium mb-2">正在加载图片...</p>
-        <p className="text-sm opacity-60">请稍候</p>
+    <div
+      className="flex h-full w-full items-center justify-center bg-black text-white"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="text-center">
+        <Spinner className="mx-auto mb-4 size-8" aria-hidden="true" />
+        <p className="text-base font-medium">正在准备沉浸浏览</p>
+        <p className="mt-1 text-sm text-white/60">正在读取作品与媒体信息…</p>
       </div>
     </div>
   )

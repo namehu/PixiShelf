@@ -11,6 +11,7 @@ import { useSafeBack } from '@/hooks/use-safe-back'
 import PageToolbar from '@/components/layout/page-toolbar'
 import MediaOrderReviewDialog from './media-order-review-dialog'
 import Link from 'next/link'
+import { Button } from '@/components/ui/button'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
@@ -38,56 +39,58 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   return (
     <>
       <PageToolbar
+        containerSize="reading"
         leading={
-          <button
-            onClick={safeBack}
-            className="flex w-16 items-center gap-2 text-gray-600 transition-colors hover:text-gray-900"
-            aria-label="返回作品列表"
-          >
-            <ChevronLeftIcon size={24} />
+          <Button variant="ghost" size="sm" onClick={safeBack} aria-label="返回作品列表" className="-ml-2 min-h-11">
+            <ChevronLeftIcon data-icon="inline-start" aria-hidden="true" />
             <span className="hidden sm:inline">返回</span>
-          </button>
+          </Button>
         }
         actions={
-          <div className="flex items-center">
-            <Link
-              href={{
-                pathname: '/admin/artworks',
-                query: {
-                  id: data.id,
-                  edit: data.id,
-                  tab: 'media',
-                  returnTo: `/artworks/${data.id}`
-                }
-              }}
-              className="flex size-11 items-center justify-center text-gray-600 transition-colors hover:text-gray-900 sm:size-12"
-              aria-label="管理当前作品"
-              title="管理当前作品"
-            >
-              <Settings2 size={22} />
-            </Link>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" asChild className="size-11">
+              <Link
+                href={{
+                  pathname: '/admin/artworks',
+                  query: {
+                    id: data.id,
+                    edit: data.id,
+                    tab: 'media',
+                    returnTo: `/artworks/${data.id}`
+                  }
+                }}
+                aria-label="管理当前作品"
+                title="管理当前作品"
+              >
+                <Settings2 aria-hidden="true" />
+              </Link>
+            </Button>
             {data.images.length > 1 && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => setOrderReviewOpen(true)}
-                className="flex size-11 items-center justify-center text-gray-600 transition-colors hover:text-gray-900 sm:size-12"
+                className="size-11"
                 aria-label="顺序校对"
                 title="顺序校对"
               >
-                <ListOrdered size={22} />
-              </button>
+                <ListOrdered aria-hidden="true" />
+              </Button>
             )}
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               onClick={() => {
                 setImages(data.images)
                 router.push('/artworks/preview')
               }}
-              className="flex size-11 items-center justify-center text-gray-600 transition-colors hover:text-gray-900 sm:size-12"
+              className="size-11"
               aria-label="全屏预览"
             >
-              <FullscreenIcon size={22} className="text-gray-600" />
-            </button>
+              <FullscreenIcon aria-hidden="true" />
+            </Button>
           </div>
         }
       >

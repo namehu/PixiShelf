@@ -44,18 +44,15 @@ export function ArtistAvatar({ src, name, size = 12, className }: ArtistAvatarPr
     }
   }
 
-  // 计算默认尺寸类名
-  const defaultSizeClass = `w-${size} h-${size}`
-
   return (
-    <Avatar className={cn(defaultSizeClass, className)}>
+    <Avatar className={cn(className)} style={{ width: `${size * 0.25}rem`, height: `${size * 0.25}rem` }}>
       <AvatarImage
         src={src ?? undefined}
         alt={name}
         className="h-full w-full object-cover"
         onError={handleImageError}
       />
-      <AvatarFallback className="h-full w-full bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 text-2xl font-bold flex items-center justify-center">
+      <AvatarFallback className="flex h-full w-full items-center justify-center bg-accent text-sm font-semibold text-accent-foreground">
         {getInitials(name)}
       </AvatarFallback>
     </Avatar>

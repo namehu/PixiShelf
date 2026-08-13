@@ -19,6 +19,7 @@ import type { AudioFilter, MediaTypeFilter, SortOption } from '@/types'
 import { OSource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
 import dayjs from 'dayjs'
+import { Button } from '@/components/ui/button'
 
 type ViewerSource = 'all' | 'artist' | 'tag'
 type ViewerMode = 'ordered' | 'random'
@@ -124,9 +125,7 @@ export default function ViewerPage() {
 
   const selectedArtist = useMemo<Option[]>(() => {
     const artistId = viewerQuery.artistId ?? (sourceContext.source === 'artist' ? sourceContext.sourceId : undefined)
-    return artistId
-      ? [{ value: String(artistId), label: viewerQuery.artistLabel || `艺术家 #${artistId}` }]
-      : []
+    return artistId ? [{ value: String(artistId), label: viewerQuery.artistLabel || `艺术家 #${artistId}` }] : []
   }, [sourceContext, viewerQuery.artistId, viewerQuery.artistLabel])
 
   const selectedTags = useMemo<Option[]>(() => {
@@ -172,16 +171,7 @@ export default function ViewerPage() {
       mediaCountMax: maxImageCount,
       pageSize: 20
     }
-  }, [
-    hasAudio,
-    maxImageCount,
-    mediaType,
-    selectedArtist,
-    selectedSources,
-    selectedTags,
-    sourceContext,
-    viewerQuery
-  ])
+  }, [hasAudio, maxImageCount, mediaType, selectedArtist, selectedSources, selectedTags, sourceContext, viewerQuery])
 
   const feedKey = useMemo(() => JSON.stringify(feedInput), [feedInput])
   const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteQuery(
@@ -214,7 +204,12 @@ export default function ViewerPage() {
     Number(Boolean(viewerQuery.createdStartDate || viewerQuery.createdEndDate))
 
   const handleSearchArtist = async (value: string): Promise<Option[]> => {
-    const result = await trpcClient.artist.queryPage.query({ cursor: 1, pageSize: 20, search: value, sortBy: 'artworks_desc' })
+    const result = await trpcClient.artist.queryPage.query({
+      cursor: 1,
+      pageSize: 20,
+      search: value,
+      sortBy: 'artworks_desc'
+    })
     return result.data.map((artist) => ({ value: String(artist.id), label: artist.name }))
   }
 
@@ -276,7 +271,7 @@ export default function ViewerPage() {
       sourceId: null,
       mode: isRandom ? 'random' : 'ordered',
       sortBy: isRandom ? null : filters.sortBy,
-      randomSeed: isRandom ? filters.randomSeed ?? Math.floor(Math.random() * 1000000) : null,
+      randomSeed: isRandom ? (filters.randomSeed ?? Math.floor(Math.random() * 1000000)) : null,
       search: filters.search || null,
       artistId: artist ? Number(artist.value) : null,
       artistLabel: artist?.label || null,
@@ -293,30 +288,34 @@ export default function ViewerPage() {
   }
 
   return (
-    <main className="h-screen w-screen overflow-hidden bg-black relative">
+    <main className="relative h-dvh w-screen overflow-hidden bg-black">
       {!isChromeHidden && (
         <>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             aria-label="返回"
-            className="absolute top-3 left-3 z-50 flex size-10 cursor-pointer items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-md transition-colors hover:bg-black/65"
+            className="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-[max(0.75rem,env(safe-area-inset-left))] z-50 size-11 rounded-full bg-black/45 text-white backdrop-blur-md hover:bg-black/65 hover:text-white"
             onClick={safeBack}
           >
-            <ChevronLeftIcon className="size-6" />
-          </button>
-          <button
+            <ChevronLeftIcon aria-hidden="true" />
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             aria-label={activeFilterCount > 0 ? `筛选，已启用 ${activeFilterCount} 项` : '筛选'}
-            className="absolute top-3 right-3 z-50 flex size-10 cursor-pointer items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-md transition-colors hover:bg-black/65"
+            className="absolute top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-50 size-11 rounded-full bg-black/45 text-white backdrop-blur-md hover:bg-black/65 hover:text-white"
             onClick={() => setIsFilterOpen(true)}
           >
-            <SlidersHorizontal className="size-5" />
+            <SlidersHorizontal aria-hidden="true" />
             {activeFilterCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-blue-500 px-1 text-[11px] font-semibold leading-5 text-white">
+              <span className="absolute -top-1 -right-1 flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] leading-5 font-semibold text-primary-foreground">
                 {activeFilterCount}
               </span>
             )}
-          </button>
+          </Button>
         </>
       )}
 

@@ -1,62 +1,82 @@
-
 import Link from 'next/link'
+import { BookOpenIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ChevronLeft, ChevronRight, BookOpen } from 'lucide-react'
+
+interface SeriesArtworkLink {
+  id: number
+  title: string
+}
 
 interface Props {
   series: {
     id: number
     title: string
     order: number
-    prev: { id: number; title: string } | null
-    next: { id: number; title: string } | null
+    prev: SeriesArtworkLink | null
+    next: SeriesArtworkLink | null
   }
 }
 
-export default function SeriesNav({ series }: Props) {
-  if (!series) return null
+function PreviousButton({ artwork }: { artwork: SeriesArtworkLink | null }) {
+  if (!artwork) {
+    return (
+      <Button variant="ghost" size="sm" disabled>
+        <ChevronLeftIcon data-icon="inline-start" aria-hidden="true" />
+        上一篇
+      </Button>
+    )
+  }
 
   return (
-    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border my-6">
-      <div className="flex items-center gap-4">
-        <Button variant="outline" size="sm" asChild disabled={!series.prev}>
-          {series.prev ? (
-            <Link href={`/artworks/${series.prev.id}`} title={series.prev.title}>
-              <ChevronLeft className="w-4 h-4 mr-1" />
-              上一篇
-            </Link>
-          ) : (
-            <span>
-              <ChevronLeft className="w-4 h-4 mr-1" />
-              上一篇
-            </span>
-          )}
-        </Button>
-      </div>
+    <Button variant="ghost" size="sm" asChild>
+      <Link href={`/artworks/${artwork.id}`} title={artwork.title}>
+        <ChevronLeftIcon data-icon="inline-start" aria-hidden="true" />
+        上一篇
+      </Link>
+    </Button>
+  )
+}
 
-      <div className="flex flex-col items-center">
-        <Link href={`/series/${series.id}`} className="flex items-center gap-2 font-medium hover:underline text-center">
-           <BookOpen className="w-4 h-4" />
-           {series.title}
-        </Link>
-        <span className="text-xs text-muted-foreground">第 {series.order} 话</span>
-      </div>
+function NextButton({ artwork }: { artwork: SeriesArtworkLink | null }) {
+  if (!artwork) {
+    return (
+      <Button variant="ghost" size="sm" disabled>
+        下一篇
+        <ChevronRightIcon data-icon="inline-end" aria-hidden="true" />
+      </Button>
+    )
+  }
 
-      <div className="flex items-center gap-4">
-        <Button variant="outline" size="sm" asChild disabled={!series.next}>
-          {series.next ? (
-             <Link href={`/artworks/${series.next.id}`} title={series.next.title}>
-              下一篇
-              <ChevronRight className="w-4 h-4 ml-1" />
-            </Link>
-          ) : (
-             <span>
-              下一篇
-              <ChevronRight className="w-4 h-4 ml-1" />
-            </span>
-          )}
-        </Button>
-      </div>
-    </div>
+  return (
+    <Button variant="ghost" size="sm" asChild>
+      <Link href={`/artworks/${artwork.id}`} title={artwork.title}>
+        下一篇
+        <ChevronRightIcon data-icon="inline-end" aria-hidden="true" />
+      </Link>
+    </Button>
+  )
+}
+
+export default function SeriesNav({ series }: Props) {
+  return (
+    <nav
+      aria-label="系列作品导航"
+      className="my-8 grid grid-cols-[auto_1fr_auto] items-center gap-2 border-y border-border py-4"
+    >
+      <PreviousButton artwork={series.prev} />
+
+      <Link
+        href={`/series/${series.id}`}
+        className="flex min-w-0 flex-col items-center rounded-md px-2 py-1 text-center outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+          <BookOpenIcon className="size-4 shrink-0" aria-hidden="true" />
+          <span className="truncate">{series.title}</span>
+        </span>
+        <span className="font-utility text-xs text-muted-foreground">第 {series.order} 话</span>
+      </Link>
+
+      <NextButton artwork={series.next} />
+    </nav>
   )
 }

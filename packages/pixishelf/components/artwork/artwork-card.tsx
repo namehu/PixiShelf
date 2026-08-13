@@ -30,12 +30,13 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
   const preferredTag = useMemo(() => getPreferredTagName(preferredTags, tags), [preferredTags, tags])
 
   return (
-    <Link href={`/artworks/${id}`} className={cn('group block', className)}>
-      {/* 作品封面 */}
-      <div
+    <article data-slot="artwork-card" className={cn('group min-w-0', className)}>
+      <Link
+        href={`/artworks/${id}`}
+        aria-label={`查看作品：${title}`}
         className={cn(
-          'relative aspect-[3/4] w-full overflow-hidden bg-gray-100',
-          displayMode === 'minimal' ? 'rounded-none mb-0.5' : 'rounded-lg mb-2'
+          'relative block aspect-[3/4] w-full overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2',
+          displayMode === 'minimal' ? 'rounded-none' : 'rounded-md'
         )}
       >
         <MediaThumbnail
@@ -43,57 +44,50 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
           alt={title}
           width={400}
           height={533}
-          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+          className="h-full w-full object-cover transition-transform duration-(--motion-base) ease-(--ease-standard) group-hover:scale-[1.02]"
           loading={priority ? 'eager' : 'lazy'}
           priority={priority}
         />
 
-        {/* 遮罩层 - 悬停时微微变暗增加层次感 */}
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300" />
+        <div className="absolute inset-0 bg-foreground/0 transition-colors duration-(--motion-fast) group-hover:bg-foreground/5" />
 
         {preferredTag && (
-          <div className="absolute top-2 left-2 max-w-[72%] rounded-sm bg-[#ff2f4d] px-2 py-0.5 text-[10px] font-semibold leading-tight text-white shadow-sm">
-            <span className="truncate block">{preferredTag}</span>
+          <div className="absolute top-2 left-2 max-w-[72%] rounded-sm bg-destructive px-2 py-0.5 text-[10px] leading-tight font-semibold text-destructive-foreground">
+            <span className="block truncate">{preferredTag}</span>
           </div>
         )}
 
         <div className="absolute top-2 right-2 flex flex-col gap-1">
           {/* 图片数量标识 */}
           {mediaType === 'image' && imageCount > 1 && (
-            <div className="bg-black/50 backdrop-blur-sm text-white px-1.5 py-0.5 rounded text-[10px] font-medium flex items-center gap-1">
-              <ImageIcon size={10} />
+            <div className="flex items-center gap-1 rounded bg-foreground/70 px-1.5 py-0.5 text-[10px] font-medium text-background backdrop-blur-sm">
+              <ImageIcon className="size-2.5" aria-hidden="true" />
               {imageCount}
             </div>
           )}
           {/* 视频icon */}
           {mediaType === 'video' && totalMediaSize > 0 && (
-            <div className="bg-black/50 backdrop-blur-sm text-white px-1.5 py-0.5 rounded text-[10px] font-medium flex items-center gap-1">
-              <VideoIcon size={10} />
+            <div className="flex items-center gap-1 rounded bg-foreground/70 px-1.5 py-0.5 text-[10px] font-medium text-background backdrop-blur-sm">
+              <VideoIcon className="size-2.5" aria-hidden="true" />
               {formatFileSize(totalMediaSize)}
             </div>
           )}
         </div>
-      </div>
+      </Link>
 
       {/* 作品信息 */}
       {displayMode !== 'minimal' && (
-        <div className="space-y-0.5 px-0.5">
-          <h4 className="font-bold text-sm text-gray-900 truncate leading-snug group-hover:text-blue-600 transition-colors">
-            {title}
-          </h4>
+        <div className="mt-2 flex min-w-0 flex-col gap-0.5 px-0.5">
+          <h3 className="truncate text-sm leading-5 font-semibold text-foreground" title={title}>
+            {title || '未命名作品'}
+          </h3>
           {name && (
-            <div className="flex items-center gap-1 text-xs text-gray-500">
-              <span className="truncate hover:text-gray-700 transition-colors">{name}</span>
-            </div>
+            <p className="truncate text-xs leading-5 text-muted-foreground" title={name}>
+              {name}
+            </p>
           )}
         </div>
       )}
-      {displayMode === 'minimal' && (
-        <div className="sr-only">
-          <span>{title}</span>
-          {name && <span>{name}</span>}
-        </div>
-      )}
-    </Link>
+    </article>
   )
 }

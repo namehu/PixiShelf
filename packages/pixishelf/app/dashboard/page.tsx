@@ -10,6 +10,8 @@ import { PageContainer } from '@/components/layout/page-container'
 import { PageState } from '@/components/layout/page-state'
 import { SectionHeader } from '@/components/layout/section-header'
 import RecommendedArtworkSection from './_components/recommended-artwork-section'
+import { PageHeader } from '@/components/layout/page-header'
+import { ArrowRightIcon } from 'lucide-react'
 
 // export const dynamic = 'force-dynamic'
 export const revalidate = 300
@@ -40,14 +42,24 @@ export default function DashboardPage() {
   return (
     <div className="min-h-dvh bg-background">
       <PageContainer as="main" size="standard" className="py-8">
-        <div className="mb-12">
+        <PageHeader
+          className="mb-8"
+          eyebrow="私人收藏档案"
+          title="收藏概览"
+          description="从最近入库的作品继续浏览，再回到常看的艺术家与偏好集合。"
+        />
+
+        <section aria-labelledby="dashboard-latest-heading" className="mb-12">
           <SectionHeader
-            className="mb-6"
-            title="最新作品"
-            description="发现最新上传的精彩作品"
+            className="mb-5"
+            title={<span id="dashboard-latest-heading">最新作品</span>}
+            description="按入库时间查看最近加入收藏的内容。"
             actions={
-              <Button asChild variant="ghost">
-                <Link href={ROUTES.ARTWORKS}>查看全部 →</Link>
+              <Button asChild variant="ghost" size="sm">
+                <Link href={ROUTES.ARTWORKS}>
+                  查看全部
+                  <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
+                </Link>
               </Button>
             }
           />
@@ -55,7 +67,7 @@ export default function DashboardPage() {
           <Suspense fallback={<SectionFallback label="正在加载最新作品…" />}>
             <RecentArtworkGrid />
           </Suspense>
-        </div>
+        </section>
 
         <Suspense fallback={<SectionFallback label="正在加载艺术家…" />}>
           <DashboardArtists />

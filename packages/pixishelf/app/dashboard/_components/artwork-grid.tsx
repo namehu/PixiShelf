@@ -1,10 +1,10 @@
 'use client'
 
-import { Card, CardContent } from '@/components/ui/card'
-import { ImageIcon } from 'lucide-react'
 import { ArtworkCardListResponse } from '@/types'
 import ArtworkCard from '@/components/artwork/artwork-card'
 import { useArtworkDisplayMode } from '@/components/user-setting'
+import { PageState } from '@/components/layout/page-state'
+import { cn } from '@/lib/utils'
 
 interface ArtworkGridProps {
   initialData: ArtworkCardListResponse
@@ -19,7 +19,12 @@ export default function ArtworkGrid({ initialData }: ArtworkGridProps) {
 
   if (initialData?.items?.length) {
     return (
-      <div className={`grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 ${displayMode === 'minimal' ? 'gap-[2px]' : 'gap-4'}`}>
+      <div
+        className={cn(
+          'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5',
+          displayMode === 'minimal' ? 'gap-[2px]' : 'gap-4'
+        )}
+      >
         {initialData.items.map((artwork, index) => (
           <ArtworkCard key={artwork.id} artwork={artwork} priority={index < 4} displayMode={displayMode} />
         ))}
@@ -28,12 +33,12 @@ export default function ArtworkGrid({ initialData }: ArtworkGridProps) {
   }
 
   return (
-    <Card>
-      <CardContent className="p-12 text-center">
-        <ImageIcon size={52} className="text-gray-300 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-gray-900 mb-2">暂无作品</h3>
-        <p className="text-gray-600 mb-4">还没有任何作品，快去发现精彩内容吧！</p>
-      </CardContent>
-    </Card>
+    <PageState
+      variant="empty"
+      compact
+      headingLevel="h3"
+      title="暂无作品"
+      description="完成首次导入后，最新作品会出现在这里。"
+    />
   )
 }

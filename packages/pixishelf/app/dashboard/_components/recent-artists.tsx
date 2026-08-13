@@ -1,16 +1,16 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { ROUTES } from '@/lib/constants'
-import { UsersIcon, ArrowRight, Sparkles } from 'lucide-react'
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
+import { ArrowRightIcon, UsersIcon } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import type { ArtistResponseDto } from '@/schemas/artist.dto'
+import { Button } from '@/components/ui/button'
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
+import { PageState } from '@/components/layout/page-state'
+import { SectionHeader } from '@/components/layout/section-header'
 import MediaThumbnail from '@/components/media/media-thumbnail'
+import { ROUTES } from '@/lib/constants'
+import type { ArtistResponseDto } from '@/schemas/artist.dto'
 
 interface RecentArtworkPreview {
   id: number
@@ -28,145 +28,118 @@ interface RecentArtistsProps {
   error?: string | null
 }
 
-function CompactArtistCard({ artist, onClick }: { artist: DashboardArtistItem; onClick: () => void }) {
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map((word) => word.charAt(0))
-      .join('')
-      .toUpperCase()
-      .slice(0, 2)
-  }
+function getInitials(name: string) {
+  return name
+    .split(' ')
+    .map((word) => word.charAt(0))
+    .join('')
+    .toUpperCase()
+    .slice(0, 2)
+}
 
+function CompactArtistCard({ artist }: { artist: DashboardArtistItem }) {
   return (
-    <div
-      onClick={onClick}
-      className="group relative rounded-xl border bg-card text-card-foreground shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer w-[260px] overflow-hidden hover:-translate-y-1"
-    >
-      <div className="grid grid-cols-3 gap-1 p-2 bg-muted/30">
+    <article className="w-[17.5rem] shrink-0 overflow-hidden rounded-surface border border-border bg-surface-raised">
+      <div className="grid grid-cols-3 gap-1 bg-surface-muted p-1">
         {artist.recentArtworks.length > 0 ? (
           artist.recentArtworks.slice(0, 3).map((artwork) => (
             <Link
               key={artwork.id}
               href={`/artworks/${artwork.id}`}
-              onClick={(event) => event.stopPropagation()}
-              className="relative aspect-square overflow-hidden rounded-md bg-muted"
-              title={artwork.title}
+              aria-label={`查看作品：${artwork.title}`}
+              className="group relative aspect-square overflow-hidden rounded-sm bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-inset"
             >
               <MediaThumbnail
                 media={
                   artwork.coverUrl
-                    ? { path: artwork.coverUrl, mediaType: 'image' }
+                    ? { path: artwork.coverUrl, mediaType: artwork.coverMediaType }
                     : { path: null, mediaType: artwork.coverMediaType }
                 }
                 alt={artwork.title}
                 fill
                 loading="lazy"
-                sizes="120px"
-                className="object-cover transition-transform duration-300 group-hover:scale-105"
+                sizes="96px"
+                className="object-cover transition-transform duration-(--motion-base) group-hover:scale-[1.02]"
               />
             </Link>
           ))
         ) : (
-          <div className="col-span-3 aspect-[3/1] rounded-md bg-gray-100 flex items-center justify-center text-xs text-muted-foreground">
+          <div className="col-span-3 flex aspect-[3/1] items-center justify-center text-xs text-muted-foreground">
             暂无最近作品
           </div>
         )}
       </div>
 
-      <div className="p-3 flex items-start gap-3">
-        <Avatar className="size-12 shrink-0 group-hover:scale-105 transition-transform duration-200">
+      <div className="flex items-center gap-3 p-3">
+        <Avatar className="size-11 shrink-0">
           <AvatarImage src={artist.avatar} alt={artist.name} loading="lazy" />
-          <AvatarFallback className="text-sm bg-primary/10 text-primary font-medium">
+          <AvatarFallback className="bg-accent text-sm font-medium text-accent-foreground">
             {getInitials(artist.name)}
           </AvatarFallback>
         </Avatar>
 
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-sm truncate" title={artist.name}>
+          <Link
+            href={`/artists/${artist.id}`}
+            className="block truncate rounded-sm text-sm font-semibold text-foreground outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/50"
+            title={artist.name}
+          >
             {artist.name}
-          </h3>
-          {artist.username && <p className="text-xs text-muted-foreground truncate">@{artist.username}</p>}
-          <div className="mt-2 flex items-center gap-2">
-            <Badge variant="secondary" className="text-[10px] h-5 px-2 bg-secondary/50">
-              {artist.artworksCount} 作品
-            </Badge>
-          </div>
+          </Link>
+          {artist.username && <p className="truncate text-xs text-muted-foreground">@{artist.username}</p>}
         </div>
+
+        <Badge variant="secondary" className="font-utility shrink-0 font-normal">
+          {artist.artworksCount}
+        </Badge>
       </div>
-    </div>
+    </article>
   )
 }
 
-/**
- * 热门艺术家展示组件
- */
 export default function RecentArtists({ data, error }: RecentArtistsProps) {
-  const router = useRouter()
-
-  if (error) {
-    return (
-      <div className="mb-8">
-        <h3 className="text-2xl font-bold text-gray-900 mb-6">发现艺术家</h3>
-        <Card>
-          <CardContent className="p-6 text-center">
-            <p className="text-red-600">{error}</p>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  if (!data.length) {
-    return (
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h3 className="text-2xl font-bold text-gray-900 mb-2">随机发现艺术家</h3>
-            <p className="text-gray-600">每次都会看到不一样的创作者和最近作品</p>
-          </div>
-        </div>
-        <Card>
-          <CardContent className="p-12 text-center">
-            <UsersIcon size={48} className="text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">暂无艺术家</h3>
-            <p className="text-gray-600 mb-4">还没有任何艺术家，快去发现精彩内容吧！</p>
-            <Link href={ROUTES.ARTISTS}>
-              <Button>浏览艺术家</Button>
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
   return (
-    <div className="mb-8">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-2 flex items-center gap-2">
-            <Sparkles className="size-6 text-amber-500" />
-            热门艺术家
-          </h3>
-          <p className="text-gray-600 text-sm">热门艺术家，最新作品预览</p>
-        </div>
-        <Link
-          href={ROUTES.ARTISTS}
-          className="group flex items-center text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
-        >
-          查看全部
-          <ArrowRight className="ml-1 size-4 transition-transform group-hover:translate-x-1" />
-        </Link>
-      </div>
+    <section aria-labelledby="dashboard-artists-heading" className="mb-12">
+      <SectionHeader
+        className="mb-5"
+        title={<span id="dashboard-artists-heading">热门艺术家</span>}
+        description="从活跃收藏中快速回到熟悉的创作者。"
+        actions={
+          <Button asChild variant="ghost" size="sm">
+            <Link href={ROUTES.ARTISTS}>
+              查看全部
+              <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
+            </Link>
+          </Button>
+        }
+      />
 
-      <ScrollArea className="w-full whitespace-nowrap rounded-md">
-        <div className="flex w-max space-x-4 pb-4 px-1">
-          {data.map((artist) => (
-            <CompactArtistCard key={artist.id} artist={artist} onClick={() => router.push(`/artists/${artist.id}`)} />
-          ))}
-        </div>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
-    </div>
+      {error ? (
+        <PageState variant="error" compact headingLevel="h3" title="艺术家加载失败" description={error} />
+      ) : data.length === 0 ? (
+        <PageState
+          variant="empty"
+          compact
+          headingLevel="h3"
+          title="暂无艺术家"
+          description="导入作品后，这里会展示活跃艺术家与最近作品。"
+          icon={<UsersIcon aria-hidden="true" />}
+          action={
+            <Button asChild variant="outline">
+              <Link href={ROUTES.ARTISTS}>浏览艺术家</Link>
+            </Button>
+          }
+        />
+      ) : (
+        <ScrollArea className="w-full whitespace-nowrap">
+          <div className="flex w-max gap-4 pb-4">
+            {data.map((artist) => (
+              <CompactArtistCard key={artist.id} artist={artist} />
+            ))}
+          </div>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
+      )}
+    </section>
   )
 }

@@ -340,20 +340,34 @@ export default function GalleryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50/50">
-      {/* 1. 页面搜索与操作工具栏 */}
+    <div className="min-h-dvh bg-background">
       <PageToolbar
         containerSize="gallery"
+        title={
+          <h1 className="sr-only items-center gap-2 text-base font-semibold text-foreground md:not-sr-only md:flex">
+            作品
+            {total > 0 && (
+              <span className="font-utility text-xs font-normal text-muted-foreground" aria-live="polite">
+                {total.toLocaleString()}
+              </span>
+            )}
+          </h1>
+        }
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="outline" asChild>
-              <Link href={immersiveViewerHref}>
-                <ImageUpIcon className="w-4 h-4" />
+            <Button variant="outline" asChild className="size-11 px-0 sm:h-9 sm:w-auto sm:px-3">
+              <Link href={immersiveViewerHref} aria-label="沉浸浏览">
+                <ImageUpIcon data-icon="inline-start" aria-hidden="true" />
                 <span className="hidden sm:inline">沉浸浏览</span>
               </Link>
             </Button>
-            <Button variant="outline" onClick={() => setIsFilterOpen(true)}>
-              <SlidersHorizontal className="w-4 h-4" />
+            <Button
+              variant={hasActiveFilters ? 'secondary' : 'outline'}
+              aria-label="筛选作品"
+              onClick={() => setIsFilterOpen(true)}
+              className="size-11 px-0 sm:h-9 sm:w-auto sm:px-3"
+            >
+              <SlidersHorizontal data-icon="inline-start" aria-hidden="true" />
               <span className="hidden sm:inline">筛选</span>
             </Button>
           </div>
@@ -363,33 +377,17 @@ export default function GalleryPage() {
           value={searchQuery}
           onSearch={handleSearch}
           onSuggestionClick={handleSuggestionClick}
-          className="w-full shadow-sm"
+          className="w-full"
         />
       </PageToolbar>
 
-      {/* 2. 筛选状态摘要 */}
-      <div className="border-b border-border bg-surface-raised/85 backdrop-blur-xl">
-        <PageContainer size="gallery" className="py-3">
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col gap-1">
-              <h1 className="flex items-center gap-2 text-xl font-bold text-foreground">
-                作品
-                {total > 0 && (
-                  <Badge variant="secondary" className="rounded-full font-normal">
-                    {total.toLocaleString()}
-                  </Badge>
-                )}
-                {hasActiveFilters && (
-                  <Badge variant="outline" className="rounded-full font-normal text-xs">
-                    已筛选
-                  </Badge>
-                )}
-              </h1>
-            </div>
-          </div>
-
-          {hasActiveFilters && (
-            <div className="mt-3 flex flex-wrap gap-2">
+      {hasActiveFilters && (
+        <div className="border-b border-border bg-surface-raised/70">
+          <PageContainer size="gallery" className="py-2.5">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className="h-7 rounded-full px-3 text-xs font-normal">
+                当前筛选
+              </Badge>
               {searchQuery && (
                 <FilterChip label={`关键词：${searchQuery}`} onRemove={() => setQueryStates({ search: null })} />
               )}
@@ -447,31 +445,30 @@ export default function GalleryPage() {
                 清空全部
               </Button>
             </div>
-          )}
+          </PageContainer>
+        </div>
+      )}
 
-          <FilterSheet
-            open={isFilterOpen}
-            onOpenChange={setIsFilterOpen}
-            currentMediaType={mediaType as MediaTypeFilter}
-            currentSortBy={sortBy as SortOption}
-            currentArtist={selectedArtist}
-            currentTags={selectedTags}
-            currentSources={selectedSources}
-            currentHasAudio={hasAudio}
-            randomSeed={randomSeed ? Number(randomSeed) : undefined}
-            startDate={startDate}
-            endDate={endDate}
-            createdStartDate={createdStartDate}
-            createdEndDate={createdEndDate}
-            onSearchArtist={handleSearchArtist}
-            onSearchTag={handleSearchTag}
-            onApply={handleApplyFilters}
-          />
-        </PageContainer>
-      </div>
+      <FilterSheet
+        open={isFilterOpen}
+        onOpenChange={setIsFilterOpen}
+        currentMediaType={mediaType as MediaTypeFilter}
+        currentSortBy={sortBy as SortOption}
+        currentArtist={selectedArtist}
+        currentTags={selectedTags}
+        currentSources={selectedSources}
+        currentHasAudio={hasAudio}
+        randomSeed={randomSeed ? Number(randomSeed) : undefined}
+        startDate={startDate}
+        endDate={endDate}
+        createdStartDate={createdStartDate}
+        createdEndDate={createdEndDate}
+        onSearchArtist={handleSearchArtist}
+        onSearchTag={handleSearchTag}
+        onApply={handleApplyFilters}
+      />
 
-      <PageContainer as="main" size="gallery" className="pb-10">
-        {/* 3. 虚拟滚动列表 */}
+      <PageContainer as="main" size="gallery" className="pt-4 pb-10 sm:pt-6">
         <InfiniteArtworkList
           searchQuery={searchQuery}
           sortBy={sortBy as SortOption}
@@ -500,9 +497,10 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
       <button
         type="button"
         onClick={onRemove}
-        className="inline-flex size-5 items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900"
+        aria-label={`移除筛选：${label}`}
+        className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
       >
-        <X className="size-3" />
+        <X className="size-3.5" aria-hidden="true" />
       </button>
     </Badge>
   )

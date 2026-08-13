@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
-import { Loader2, Filter } from 'lucide-react'
+import { FilterIcon } from 'lucide-react'
 import ArtworkCard from '@/components/artwork/artwork-card'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useTRPC } from '@/lib/trpc'
@@ -11,8 +11,11 @@ import { useColumns } from '@/hooks/use-columns'
 import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
+import { PageState } from '@/components/layout/page-state'
 import { useArtworkDisplayMode } from '@/components/user-setting'
 import type { ArtworkSource } from '@/schemas/models'
+import { cn } from '@/lib/utils'
 
 /**
  * 无限滚动作品列表组件 (InfiniteArtworkList)
@@ -231,43 +234,51 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   // 错误状态
   if (isError) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-red-500">
-        <p className="mb-2">加载失败</p>
-        <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
-          重新加载
-        </Button>
-      </div>
+      <PageState
+        variant="error"
+        title="作品加载失败"
+        description="暂时无法读取当前作品集合，请稍后重试。"
+        action={
+          <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+            重新加载
+          </Button>
+        }
+      />
     )
   }
 
   // 空状态
   if (!isLoading && allItems.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-32 text-neutral-400">
-        <Filter className="w-12 h-12 mb-4 opacity-20" />
-        <p className="text-lg font-medium">{emptyMessage || '没有找到相关作品'}</p>
-        {onClearFilters && (
-          <Button variant="link" onClick={onClearFilters}>
-            清除筛选条件试试？
-          </Button>
-        )}
-      </div>
+      <PageState
+        variant="empty"
+        title={emptyMessage || '没有找到相关作品'}
+        description="可以调整关键词、标签或媒体类型后再试。"
+        icon={<FilterIcon aria-hidden="true" />}
+        action={
+          onClearFilters ? (
+            <Button variant="outline" onClick={onClearFilters}>
+              清除筛选条件
+            </Button>
+          ) : undefined
+        }
+      />
     )
   }
 
   return (
     <div
       ref={containerRef}
-      className={`space-y-8 min-h-[50vh] transition-opacity duration-300 ${isReady ? 'opacity-100' : 'opacity-0'}`}
+      className={cn('min-h-[50vh] transition-opacity duration-(--motion-base)', isReady ? 'opacity-100' : 'opacity-0')}
     >
       {isLoading && !data ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
           {Array.from({ length: 12 }).map((_, i) => (
-            <div key={`skeleton-${i}`} className="space-y-2">
-              <Skeleton className="aspect-[3/4] w-full rounded-xl bg-gray-200" />
-              <div className="space-y-1">
-                <Skeleton className="h-4 w-3/4 bg-gray-200" />
-                <Skeleton className="h-3 w-1/2 bg-gray-200" />
+            <div key={`skeleton-${i}`} className="flex flex-col gap-2">
+              <Skeleton className="aspect-[3/4] w-full rounded-md" />
+              <div className="flex flex-col gap-1">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
               </div>
             </div>
           ))}
@@ -287,7 +298,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
                 <div
                   key={virtualRow.key}
                   data-index={virtualRow.index}
-                  className={`absolute top-0 left-0 w-full grid ${displayMode === 'minimal' ? 'gap-[2px]' : 'gap-3'}`}
+                  className={cn('absolute top-0 left-0 grid w-full', displayMode === 'minimal' ? 'gap-[2px]' : 'gap-3')}
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
@@ -308,9 +319,11 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
           </div>
 
           <div ref={loadMoreRef} className="flex justify-center py-8">
-            {isFetchingNextPage && <Loader2 className="h-6 w-6 animate-spin text-gray-400" />}
+            {isFetchingNextPage && <Spinner className="size-5 text-primary" aria-label="正在加载更多作品" />}
             {!hasNextPage && allItems.length > 0 && (
-              <div className="text-center text-xs text-neutral-400 uppercase tracking-widest">— 已经到底了 —</div>
+              <div className="font-utility text-center text-xs tracking-[0.08em] text-muted-foreground uppercase">
+                已显示全部作品
+              </div>
             )}
           </div>
         </>

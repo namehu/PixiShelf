@@ -1,6 +1,7 @@
 'use client'
 
-import { ImageOffIcon, SlidersHorizontal } from 'lucide-react'
+import { ImageOffIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { useSafeBack } from '@/hooks/use-safe-back'
 
 interface PageNoDataProps {
@@ -13,40 +14,28 @@ export default function PageNoData({ hasActiveFilters, onAdjustFilters, onClearF
   const safeBack = useSafeBack()
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-black">
-      <div className="text-center text-white">
-        <ImageOffIcon className="mx-auto mb-4 size-16 opacity-40" />
-        <h2 className="mb-2 text-xl font-semibold">暂无图片</h2>
-        <p className="mb-4 text-sm opacity-60">
-          {hasActiveFilters ? '没有作品符合当前筛选条件' : '当前没有可浏览的图片内容'}
+    <div className="flex h-full w-full items-center justify-center bg-black px-6 text-white">
+      <div className="max-w-sm text-center">
+        <ImageOffIcon className="mx-auto mb-4 size-10 opacity-60" aria-hidden="true" />
+        <h1 className="text-xl font-semibold">暂无可浏览作品</h1>
+        <p className="mt-2 text-sm leading-6 text-white/60">
+          {hasActiveFilters ? '没有作品符合当前筛选条件。' : '当前收藏中没有可用于沉浸浏览的媒体。'}
         </p>
-        <div className="flex justify-center gap-2">
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
           {onAdjustFilters && (
-            <button
-              type="button"
-              onClick={onAdjustFilters}
-              className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-black transition-colors hover:bg-gray-200"
-            >
-              <SlidersHorizontal className="size-4" />
+            <Button variant="secondary" onClick={onAdjustFilters}>
+              <SlidersHorizontalIcon data-icon="inline-start" aria-hidden="true" />
               调整筛选
-            </button>
+            </Button>
           )}
           {hasActiveFilters && onClearFilters ? (
-            <button
-              type="button"
-              onClick={onClearFilters}
-              className="rounded-lg bg-white/10 px-4 py-2 text-white transition-colors hover:bg-white/20"
-            >
+            <Button variant="ghost" className="text-white hover:bg-white/15 hover:text-white" onClick={onClearFilters}>
               清空筛选
-            </button>
+            </Button>
           ) : (
-            <button
-              type="button"
-              onClick={safeBack}
-              className="rounded-lg bg-white/10 px-4 py-2 text-white transition-colors hover:bg-white/20"
-            >
+            <Button variant="ghost" className="text-white hover:bg-white/15 hover:text-white" onClick={safeBack}>
               返回
-            </button>
+            </Button>
           )}
         </div>
       </div>

@@ -1,6 +1,6 @@
 import React from 'react'
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GalleryPage from '../page'
 
 const { queryState } = vi.hoisted(() => ({
@@ -55,13 +55,31 @@ vi.mock('@/components/artwork/infinite-artwork-list', () => ({
   default: () => <div>作品列表</div>
 }))
 
+beforeEach(() => {
+  queryState.search = ''
+})
+
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
 })
 
 describe('GalleryPage layout', () => {
-  it('aligns the toolbar, filter summary, and main content to the gallery axis', () => {
+  it('aligns the toolbar and main content to the gallery axis without an empty filter rail', () => {
+    const { container } = render(<GalleryPage />)
+    const pageContainers = container.querySelectorAll('[data-slot="page-container"]')
+
+    expect(pageContainers).toHaveLength(2)
+    pageContainers.forEach((pageContainer) => {
+      expect(pageContainer.className).toContain('max-w-gallery')
+    })
+    expect(screen.getByRole('main').getAttribute('data-slot')).toBe('page-container')
+    expect(screen.getByRole('link', { name: '沉浸浏览' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '筛选作品' })).toBeTruthy()
+  })
+
+  it('adds an aligned filter rail when a filter is active', () => {
+    queryState.search = '蓝色'
     const { container } = render(<GalleryPage />)
     const pageContainers = container.querySelectorAll('[data-slot="page-container"]')
 
@@ -69,6 +87,7 @@ describe('GalleryPage layout', () => {
     pageContainers.forEach((pageContainer) => {
       expect(pageContainer.className).toContain('max-w-gallery')
     })
-    expect(screen.getByRole('main').getAttribute('data-slot')).toBe('page-container')
+    expect(screen.getByText('当前筛选')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '移除筛选：关键词：蓝色' })).toBeTruthy()
   })
 })

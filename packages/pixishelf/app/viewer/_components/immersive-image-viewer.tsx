@@ -20,9 +20,7 @@ const VIEWER_CHAPTER_HISTORY_KEY = '__pixishelf_viewer_chapters__'
 const VIEWER_CLEAR_MODE_HISTORY_KEY = '__pixishelf_viewer_clear_mode__'
 
 function asHistoryRecord(state: unknown): Record<string, unknown> {
-  return typeof state === 'object' && state !== null && !Array.isArray(state)
-    ? (state as Record<string, unknown>)
-    : {}
+  return typeof state === 'object' && state !== null && !Array.isArray(state) ? (state as Record<string, unknown>) : {}
 }
 
 function useChapterPanelHistory() {
@@ -232,9 +230,9 @@ export default function ImmersiveImageViewer({
 
   return (
     // PC端适配容器
-    <div className="w-full h-full bg-black md:flex md:items-center md:justify-center">
+    <div className="h-full w-full bg-black md:flex md:items-center md:justify-center">
       {/* 沉浸式查看器主容器 */}
-      <div className="immersive-container h-full w-full md:max-w-[420px] md:h-[90vh] md:aspect-[9/16] md:rounded-lg relative bg-neutral-900">
+      <div className="immersive-container relative h-full w-full bg-black md:h-[90dvh] md:max-w-[420px] md:aspect-[9/16] md:rounded-surface">
         <Swiper
           initialSlide={verticalIndex}
           direction="vertical"
@@ -269,8 +267,8 @@ export default function ImmersiveImageViewer({
             const shouldRender = isActive || isPreloading
 
             return (
-              <SwiperSlide key={image.key} className=" flex w-full h-ful items-center justify-center overflow-hidden">
-                <div className="relative w-full h-full bg-black">
+              <SwiperSlide key={image.key} className="flex h-full w-full items-center justify-center overflow-hidden">
+                <div className="relative h-full w-full bg-black">
                   {shouldRender ? (
                     <ImageSlide
                       isActive={isActive}
@@ -300,7 +298,7 @@ export default function ImmersiveImageViewer({
           {!hasMore && initialImages.length > 0 && (
             <SwiperSlide className="flex items-center justify-center text-white">
               <div className="text-center">
-                <p className="text-sm opacity-60">没有更多图片了</p>
+                <p className="text-sm opacity-60">已浏览全部作品</p>
               </div>
             </SwiperSlide>
           )}

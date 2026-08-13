@@ -1,23 +1,24 @@
+import { PageContainer } from '@/components/layout/page-container'
+import { Skeleton } from '@/components/ui/skeleton'
+
 export default function Loading() {
   return (
-    <div className="space-y-8 px-4 sm:px-6 py-8">
-      {/* Header skeleton */}
-      <div className="space-y-4">
-        <div className="h-8 w-64 bg-gray-200 rounded animate-pulse" />
-        <div className="h-5 w-32 bg-gray-200 rounded animate-pulse" />
+    <PageContainer as="main" size="reading" className="py-8" aria-label="正在加载作品详情" aria-busy="true">
+      <div className="mb-8 flex flex-col gap-4">
+        <Skeleton className="h-9 w-4/5" />
+        <Skeleton className="h-11 w-44 rounded-full" />
         <div className="flex gap-2">
-          <div className="h-6 w-16 bg-gray-200 rounded-full animate-pulse" />
-          <div className="h-6 w-20 bg-gray-200 rounded-full animate-pulse" />
-          <div className="h-6 w-18 bg-gray-200 rounded-full animate-pulse" />
+          <Skeleton className="h-8 w-20 rounded-full" />
+          <Skeleton className="h-8 w-24 rounded-full" />
+          <Skeleton className="h-8 w-16 rounded-full" />
         </div>
       </div>
 
-      {/* Images skeleton */}
-      <div className="max-w-4xl mx-auto space-y-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="aspect-[4/3] bg-gray-200 rounded-2xl animate-pulse" />
+      <div className="flex flex-col gap-4">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <Skeleton key={index} className="aspect-[4/3] w-full rounded-md" />
         ))}
       </div>
-    </div>
+    </PageContainer>
   )
 }

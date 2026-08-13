@@ -1,16 +1,17 @@
-import { ArtistAvatar } from '@/components/artwork/artist-avatar'
-import TagArea from './_components/tag-area'
-import ArtworkImages from './_components/artwork-images'
-import ArtworkDes from './_components/artwork-des'
-import RelatedArtworks from './_components/related-artworks'
-import { getArtworkById } from '@/services/artwork-service'
-import z from 'zod'
-import NavHead from './_components/nav-head'
-import SeriesNav from './_components/series-nav'
 import Link from 'next/link'
-import { Button } from '@/components/ui/button'
-import { ExternalLink } from 'lucide-react'
 import { notFound } from 'next/navigation'
+import { ExternalLinkIcon } from 'lucide-react'
+import z from 'zod'
+import { ArtistAvatar } from '@/components/artwork/artist-avatar'
+import { PageContainer } from '@/components/layout/page-container'
+import { Button } from '@/components/ui/button'
+import { getArtworkById } from '@/services/artwork-service'
+import ArtworkDes from './_components/artwork-des'
+import ArtworkImages from './_components/artwork-images'
+import NavHead from './_components/nav-head'
+import RelatedArtworks from './_components/related-artworks'
+import SeriesNav from './_components/series-nav'
+import TagArea from './_components/tag-area'
 
 export default async function ArtworkDetailPage({ params }: PageProps<'/artworks/[id]'>) {
   const { id } = await params
@@ -23,78 +24,64 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
   const { id: artistId, name: artistName, avatar: artistAvatar } = data.artist ?? {}
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-dvh bg-background">
       <NavHead data={data} id={id} />
-      <main className="max-w-7xl mx-auto lg:px-8">
-        <div className="bg-white max-w-2xl mx-auto">
-          {/* 主内容 */}
-          <div className="max-w-full overflow-hidden">
-            {/* Header */}
-            <div className="mt-6 px-6 space-y-4">
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 leading-tight break-words">
-                {data.title}
-              </h1>
 
-              <div className="flex flex-wrap items-center gap-3">
-                {data.artist && (
-                  <Link
-                    href={`/artists/${artistId}`}
-                    className="flex items-center gap-2 min-w-0 cursor-pointer group hover:bg-gray-50 p-1 -ml-1 pr-3 rounded-full transition-colors"
-                  >
-                    <ArtistAvatar src={artistAvatar} name={artistName} size={10} />
-                    <div className="text-base sm:text-lg text-blue-600 group-hover:text-blue-800 font-medium truncate transition-colors duration-200 underline-offset-2 group-hover:underline">
-                      {artistName}
-                    </div>
-                  </Link>
-                )}
+      <PageContainer as="main" size="reading" className="py-6 sm:py-8">
+        <article className="max-w-full overflow-hidden">
+          <header className="mb-6 flex flex-col gap-4">
+            <h1 className="break-words text-2xl leading-tight font-semibold tracking-[-0.025em] text-foreground sm:text-3xl lg:text-4xl">
+              {data.title}
+            </h1>
 
-                {data.externalId && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    asChild
-                    className="h-8 gap-1.5 rounded-full text-muted-foreground hover:text-[#0096fa] hover:border-[#0096fa]/30 hover:bg-[#0096fa]/5 transition-all"
+            <div className="flex flex-wrap items-center gap-3">
+              {data.artist && (
+                <Link
+                  href={`/artists/${artistId}`}
+                  className="group -ml-1 flex min-h-11 min-w-0 items-center gap-2 rounded-full p-1 pr-3 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+                >
+                  <ArtistAvatar src={artistAvatar} name={artistName} size={10} />
+                  <span className="truncate text-base font-medium text-primary underline-offset-4 group-hover:underline sm:text-lg">
+                    {artistName}
+                  </span>
+                </Link>
+              )}
+
+              {data.externalId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                  className="h-9 rounded-full text-muted-foreground hover:border-primary/30 hover:bg-accent hover:text-accent-foreground"
+                >
+                  <a
+                    href={`https://www.pixiv.net/artworks/${data.externalId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="在 Pixiv 查看该作品"
                   >
-                    <a
-                      href={`https://www.pixiv.net/artworks/${data.externalId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="在 Pixiv 查看该作品"
-                    >
-                      <span className="font-semibold text-xs uppercase tracking-wide">Pixiv</span>
-                      <span className="w-px h-3 bg-border mx-0.5" />
-                      <span className="font-mono text-xs">{data.externalId}</span>
-                      <ExternalLink className="ml-0.5 w-3 h-3 opacity-50" />
-                    </a>
-                  </Button>
-                )}
-              </div>
+                    <span className="text-xs font-semibold tracking-wide uppercase">Pixiv</span>
+                    <span aria-hidden="true" className="mx-0.5 h-3 w-px bg-border" />
+                    <span className="font-utility text-xs">{data.externalId}</span>
+                    <ExternalLinkIcon data-icon="inline-end" aria-hidden="true" />
+                  </a>
+                </Button>
+              )}
             </div>
-            {/* Tags */}
-            {!!data.tags.length && (
-              <div className="mb-3 px-6">
-                <TagArea tags={data.tags} />
-              </div>
-            )}
+          </header>
 
-            {/* Images */}
-            <ArtworkImages images={data.images} artworkId={data.id} />
+          {!!data.tags.length && (
+            <div className="mb-6">
+              <TagArea tags={data.tags} />
+            </div>
+          )}
 
-            {/* Description */}
-            <ArtworkDes description={data.description} className="mt-3 px-6" />
-
-            {/* Series Navigation */}
-            {data.series && (
-              <div className="px-2">
-                <SeriesNav series={data.series} />
-              </div>
-            )}
-
-            {/* Related Artworks */}
-            {artistId && <RelatedArtworks artistId={artistId} currentArtworkId={data.id} />}
-          </div>
-        </div>
-      </main>
+          <ArtworkImages images={data.images} artworkId={data.id} />
+          <ArtworkDes description={data.description} className="mt-8" />
+          {data.series && <SeriesNav series={data.series} />}
+          {artistId && <RelatedArtworks artistId={artistId} currentArtworkId={data.id} />}
+        </article>
+      </PageContainer>
     </div>
   )
 }

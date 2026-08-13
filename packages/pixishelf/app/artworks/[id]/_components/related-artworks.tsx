@@ -13,6 +13,8 @@ import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { toast } from 'sonner'
 import { usePreferredTags } from '@/components/user-setting'
 import { getPreferredTagName } from '@/components/artwork/preferred-tag'
+import { Button } from '@/components/ui/button'
+import { ArrowRightIcon } from 'lucide-react'
 
 interface RelatedArtworksProps {
   artistId: number
@@ -136,23 +138,28 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
   if (artworks.length === 0) return null
 
   return (
-    <div className="w-full my-8 border-t border-gray-100 py-8">
-      <div className="px-6 mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-900">其他作品</h2>
-        <Link href={`/artists/${artistId}`} className="text-sm text-blue-600 hover:underline">
-          查看全部
-        </Link>
+    <section aria-labelledby="related-artworks-heading" className="my-8 w-full border-t border-border py-8">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 id="related-artworks-heading" className="text-lg font-semibold text-foreground">
+          该艺术家的其他作品
+        </h2>
+        <Button asChild variant="ghost" size="sm">
+          <Link href={`/artists/${artistId}`}>
+            查看全部
+            <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
+          </Link>
+        </Button>
       </div>
 
-      <ScrollAreaPrimitive.Root className="w-full whitespace-nowrap relative overflow-hidden" ref={scrollRef}>
-        <ScrollAreaPrimitive.Viewport ref={viewportRef} className="w-full h-full rounded-[inherit]" onScroll={onScroll}>
-          <div className="flex w-max space-x-4 px-6 pb-4 items-center">
+      <ScrollAreaPrimitive.Root className="relative w-full overflow-hidden whitespace-nowrap" ref={scrollRef}>
+        <ScrollAreaPrimitive.Viewport ref={viewportRef} className="h-full w-full rounded-[inherit]" onScroll={onScroll}>
+          <div className="flex w-max items-center gap-3 pb-4">
             {hasMoreNewer && (
-              <div className="flex items-center justify-center w-10 h-32 shrink-0">
+              <div className="flex h-32 w-10 shrink-0 items-center justify-center">
                 {isFetchingMore ? (
-                  <Loader2 className="animate-spin text-gray-400" size={20} />
+                  <Loader2 className="size-5 animate-spin text-muted-foreground" aria-label="正在加载较新作品" />
                 ) : (
-                  <div className="w-1 h-1" />
+                  <div className="size-1" />
                 )}
               </div>
             )}
@@ -169,7 +176,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
                   href={`/artworks/${artwork.id}`}
                   ref={isCurrent ? currentRef : null}
                   className={cn(
-                    'relative block h-32 w-32 shrink-0 overflow-hidden  transition-all',
+                    'relative block h-32 w-32 shrink-0 overflow-hidden rounded-sm outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-ring/60',
                     !isCurrent && 'hover:opacity-90'
                   )}
                   title={artwork.title}
@@ -178,21 +185,21 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
                     media={cover}
                     alt={artwork.title}
                     fill
-                    className={cn('object-cover', isCurrent && 'bg-white opacity-20')}
+                    className={cn('object-cover', isCurrent && 'opacity-35')}
                     sizes="128px"
                   />
-                  {isCurrent && <div className="absolute inset-0 bg-white opacity-20 z-10" />}
+                  {isCurrent && <div className="absolute inset-0 z-10 border-2 border-primary bg-background/20" />}
                   {preferredTag && (
-                    <div className="absolute top-1 left-1 z-20 max-w-[72%] rounded-sm bg-[#ff2f4d] px-1.5 py-0.5 text-[10px] font-semibold leading-tight text-white shadow-sm">
+                    <div className="absolute top-1 left-1 z-20 max-w-[72%] rounded-sm bg-destructive px-1.5 py-0.5 text-[10px] leading-tight font-semibold text-destructive-foreground">
                       <span className="block truncate">{preferredTag}</span>
                     </div>
                   )}
                   {(artwork as any).isVideo ? (
-                    <div className="absolute top-1 right-1 bg-black/50 text-white p-1 flex items-center justify-center w-6 h-6 rounded-full z-20">
+                    <div className="absolute top-1 right-1 z-20 flex size-6 items-center justify-center rounded-full bg-foreground/70 p-1 text-background">
                       <VideoIcon size={14} />
                     </div>
                   ) : artwork.imageCount > 1 ? (
-                    <div className="absolute top-1 right-1 bg-black/50 text-white p-1 flex items-center justify-center w-6 h-6 rounded-full z-20 text-[10px]">
+                    <div className="absolute top-1 right-1 z-20 flex size-6 items-center justify-center rounded-full bg-foreground/70 p-1 text-[10px] text-background">
                       {artwork.imageCount}
                     </div>
                   ) : null}
@@ -201,11 +208,11 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
             })}
 
             {hasMoreOlder && (
-              <div className="flex items-center justify-center w-10 h-32 shrink-0">
+              <div className="flex h-32 w-10 shrink-0 items-center justify-center">
                 {isFetchingMore ? (
-                  <Loader2 className="animate-spin text-gray-400" size={20} />
+                  <Loader2 className="size-5 animate-spin text-muted-foreground" aria-label="正在加载较早作品" />
                 ) : (
-                  <div className="w-1 h-1" />
+                  <div className="size-1" />
                 )}
               </div>
             )}
@@ -214,6 +221,6 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
         <ScrollBar orientation="horizontal" />
         <ScrollAreaPrimitive.Corner />
       </ScrollAreaPrimitive.Root>
-    </div>
+    </section>
   )
 }

@@ -6,6 +6,7 @@ import { Heart } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useSuperLock } from '@/hooks/use-super-lock'
+import { Spinner } from '@/components/ui/spinner'
 
 export interface LikeButtonProps {
   liked: boolean
@@ -37,16 +38,15 @@ export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, onTogg
 
   return (
     <Button
+      type="button"
+      variant="ghost"
+      size="icon"
       aria-label={liked ? '取消喜欢作品' : '喜欢作品'}
       className={cn(
-        'relative transition-all duration-200 ease-in-out',
-        'hover:scale-105 active:scale-95',
-        'focus-visible:ring-2 focus-visible:ring-red-500/50',
-        liked && 'text-red-500',
-        likeLoading && 'opacity-50 cursor-not-allowed',
-        'w-12 h-12 bg-black/20 hover:bg-black/30 backdrop-blur-sm',
-        'rounded-full flex items-center justify-center',
-        'shadow-lg',
+        'relative flex size-12 items-center justify-center rounded-full bg-black/20 text-white shadow-floating backdrop-blur-sm transition-[color,background-color,transform] hover:scale-105 hover:bg-black/30 hover:text-white active:scale-95 motion-reduce:transform-none',
+        'focus-visible:ring-2 focus-visible:ring-white/70',
+        liked && 'text-destructive hover:text-destructive',
+        likeLoading && 'cursor-not-allowed opacity-50',
         className
       )}
       onClick={handleLikeClick}
@@ -63,10 +63,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, onTogg
             transition={{ duration: 0.15 }}
             className="flex items-center justify-center"
           >
-            <div
-              className="animate-spin rounded-full border-2 border-current border-t-transparent"
-              style={{ width: 24, height: 24 }}
-            />
+            <Spinner className="size-5" aria-label={liked ? '正在取消喜欢' : '正在添加喜欢'} />
           </motion.div>
         ) : (
           <motion.div
@@ -80,10 +77,10 @@ export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, onTogg
             {/* 爱心图标 */}
             <motion.div animate={liked ? { scale: [1, 1.2, 1] } : {}} transition={{ duration: 0.3, ease: 'easeOut' }}>
               <Heart
-                size={24}
+                aria-hidden="true"
                 className={cn(
-                  'size-6 transition-all duration-200',
-                  liked ? 'fill-current text-red-500' : 'text-white hover:text-red-400'
+                  'size-6 transition-[color,fill] duration-(--motion-fast)',
+                  liked ? 'fill-current text-destructive' : 'text-white hover:text-destructive'
                 )}
               />
             </motion.div>
@@ -93,7 +90,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, onTogg
 
       {/* 点击波纹效果 */}
       <motion.div
-        className="absolute inset-0 rounded-md bg-red-500/20"
+        className="absolute inset-0 rounded-full bg-destructive/20"
         initial={{ scale: 0, opacity: 0 }}
         animate={{ scale: 0, opacity: 0 }}
         whileTap={{ scale: 1.5, opacity: [0, 0.3, 0] }}

@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
-import { Loader2 } from 'lucide-react'
 import ArtworkCard from '@/components/artwork/artwork-card'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useTRPC } from '@/lib/trpc'
@@ -10,6 +9,9 @@ import { ArtworkCardListResponse } from '@/types'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { useColumns } from '@/hooks/use-columns'
 import { useArtworkDisplayMode } from '@/components/user-setting'
+import { PageState } from '@/components/layout/page-state'
+import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/utils'
 
 interface InfiniteArtworkGridProps {
   initialData: ArtworkCardListResponse & { nextCursor?: number }
@@ -36,23 +38,20 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
   )
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status } = useInfiniteQuery(
-    trpc.artwork.queryRecommendPage.infiniteQueryOptions(
-      recommendQueryInput,
-      {
-        getNextPageParam: (lastPage) => lastPage.nextCursor,
-        initialCursor: 1,
-        ...(selectedTags.length === 0
-          ? {
-              initialData: {
-                pages: [initialData],
-                pageParams: [1]
-              }
+    trpc.artwork.queryRecommendPage.infiniteQueryOptions(recommendQueryInput, {
+      getNextPageParam: (lastPage) => lastPage.nextCursor,
+      initialCursor: 1,
+      ...(selectedTags.length === 0
+        ? {
+            initialData: {
+              pages: [initialData],
+              pageParams: [1]
             }
-          : {}),
-        staleTime: 20 * 60 * 1000,
-        gcTime: 25 * 60 * 1000
-      }
-    )
+          }
+        : {}),
+      staleTime: 20 * 60 * 1000,
+      gcTime: 25 * 60 * 1000
+    })
   )
 
   const allItems = useMemo(() => data?.pages.flatMap((page) => page.items) || [], [data])
@@ -153,17 +152,27 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
   }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage, containerWidth])
 
   if (status === 'error') {
-    return <div className="p-8 text-center text-red-500">加载失败</div>
+    return (
+      <PageState
+        variant="error"
+        compact
+        headingLevel="h3"
+        title="推荐作品加载失败"
+        description="暂时无法读取推荐集合，请稍后重试。"
+      />
+    )
   }
 
   if (allItems.length === 0) {
-    return <div className="p-12 text-center">暂无推荐作品</div>
+    return (
+      <PageState variant="empty" compact headingLevel="h3" title="暂无推荐作品" description="调整偏好标签后再试。" />
+    )
   }
 
   return (
     <div
       ref={containerRef}
-      className={`space-y-8 transition-opacity duration-300 ${isReady ? 'opacity-100' : 'opacity-0'}`}
+      className={cn('transition-opacity duration-(--motion-base)', isReady ? 'opacity-100' : 'opacity-0')}
     >
       <div ref={virtualListRef} className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -174,7 +183,7 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
             <div
               key={virtualRow.key}
               data-index={virtualRow.index}
-              className={`absolute top-0 left-0 w-full grid ${displayMode === 'minimal' ? 'gap-[2px]' : 'gap-4'}`}
+              className={cn('absolute top-0 left-0 grid w-full', displayMode === 'minimal' ? 'gap-[2px]' : 'gap-4')}
               style={{
                 height: `${virtualRow.size}px`,
                 transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
@@ -182,11 +191,7 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
               }}
             >
               {rowItems.map((artwork, index) => (
-                <ArtworkCard
-                  key={`${artwork.id}-${startIndex + index}`}
-                  artwork={artwork}
-                  displayMode={displayMode}
-                />
+                <ArtworkCard key={`${artwork.id}-${startIndex + index}`} artwork={artwork} displayMode={displayMode} />
               ))}
             </div>
           )
@@ -194,7 +199,7 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
       </div>
 
       <div ref={loadMoreRef} className="flex justify-center py-8">
-        {isFetchingNextPage && <Loader2 className="h-6 w-6 animate-spin text-gray-400" />}
+        {isFetchingNextPage && <Spinner className="size-5 text-primary" aria-label="正在加载更多推荐作品" />}
       </div>
     </div>
   )

@@ -257,8 +257,8 @@ function ArtworkMediaItem({
   return (
     <div
       className={cn(
-        'relative group transition-[box-shadow] duration-300',
-        highlighted && 'z-[1] ring-4 ring-blue-500/75 ring-offset-2 ring-offset-white'
+        'group relative transition-[box-shadow] duration-(--motion-base)',
+        highlighted && 'z-[1] ring-4 ring-ring/70 ring-offset-2 ring-offset-background'
       )}
       data-preview-highlighted={highlighted ? 'true' : undefined}
     >
@@ -279,11 +279,11 @@ function ArtworkMediaItem({
 
 function ExpandRemainingMediaButton({ remainingCount, onExpand }: { remainingCount: number; onExpand: () => void }) {
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-10 flex h-64 items-end justify-center bg-gradient-to-t from-white via-white/90 to-transparent">
+    <div className="absolute inset-x-0 bottom-0 z-10 flex h-64 items-end justify-center bg-gradient-to-t from-background via-background/90 to-transparent">
       <Button
         variant="secondary"
         onClick={onExpand}
-        className="h-12 w-full min-w-[240px] rounded-full px-8 text-base font-medium shadow-sm transition-all hover:bg-gray-200 md:w-auto"
+        className="h-12 w-full min-w-[240px] rounded-full px-8 text-base font-medium shadow-surface md:w-auto"
       >
         查看剩余 {remainingCount} 张图片
       </Button>
@@ -312,7 +312,7 @@ function MediaAnchorList({
     <nav
       aria-label="作品媒体快捷导航"
       className={cn(
-        'max-h-[70vh] overflow-y-auto rounded-xl border border-neutral-200 bg-white/95 p-1.5 shadow-lg backdrop-blur',
+        'max-h-[70dvh] overflow-y-auto rounded-surface border border-border bg-surface-raised/95 p-1.5 shadow-floating backdrop-blur',
         className
       )}
     >
@@ -328,10 +328,10 @@ function MediaAnchorList({
               aria-label={`跳转到第 ${index + 1} 张媒体`}
               onClick={() => onSelect(index)}
               className={cn(
-                'min-w-10 rounded-md px-2 py-1 text-right font-mono text-xs tabular-nums transition-colors text-center',
+                'font-utility flex size-11 items-center justify-center rounded-md px-2 text-center text-xs tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
                 isActive
-                  ? 'bg-neutral-900 font-semibold text-white'
-                  : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'
+                  ? 'bg-foreground font-semibold text-background'
+                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
               )}
             >
               {index + 1}
@@ -419,12 +419,12 @@ function PreviewContextMenu({
       )}
       <PopoverContent
         align="start"
-        className="w-auto rounded-[4px] border border-[#E5E5E5] bg-white p-1 shadow-[0_8px_16px_rgba(0,0,0,0.1)] duration-150 ease-out data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+        className="w-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-floating duration-(--motion-fast) ease-out data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
       >
         <button
           type="button"
           onClick={onPreview}
-          className="block w-full cursor-pointer select-none rounded-[2px] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+          className="block min-h-10 w-full cursor-pointer select-none rounded-sm px-4 py-2 text-left text-sm text-foreground outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
         >
           适配尺寸预览
         </button>
@@ -432,7 +432,7 @@ function PreviewContextMenu({
           <button
             type="button"
             onClick={onViewOriginal}
-            className="block w-full cursor-pointer select-none rounded-[2px] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+            className="block min-h-10 w-full cursor-pointer select-none rounded-sm px-4 py-2 text-left text-sm text-foreground outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
           >
             查看原始文件
           </button>

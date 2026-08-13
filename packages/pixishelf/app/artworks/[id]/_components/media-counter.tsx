@@ -20,22 +20,22 @@ export default function MediaCounter({ hasVideo, ext }: MediaCounterProps) {
   if (total === 0) return null
 
   return (
-    <div className="flex items-center gap-1 sm:gap-2 text-neutral-500 max-w-full overflow-hidden">
-      <div className="flex items-center gap-1 min-w-0">
+    <div className="flex max-w-full items-center gap-1 overflow-hidden text-muted-foreground sm:gap-2">
+      <div className="flex min-w-0 items-center gap-1">
         {hasVideo ? (
           <>
-            <VideoIcon size={16} />
-            <span className="font-mono text-xs sm:text-sm whitespace-nowrap">
-              <span className="text-neutral-900 font-medium">{ext}</span>
+            <VideoIcon className="size-4" aria-hidden="true" />
+            <span className="font-utility whitespace-nowrap text-xs sm:text-sm">
+              <span className="font-medium text-foreground">{ext}</span>
             </span>
           </>
         ) : (
           <>
-            <ImageIcon size={16} />
-            <span className="font-mono text-xs sm:text-sm whitespace-nowrap">
-              <span className="text-neutral-900 font-medium">{currentIndex + 1}</span>
-              <span className="mx-0.5 sm:mx-1 text-neutral-400">/</span>
-              <span className="text-neutral-600">{total}</span>
+            <ImageIcon className="size-4" aria-hidden="true" />
+            <span className="font-utility whitespace-nowrap text-xs sm:text-sm">
+              <span className="font-medium text-foreground">{currentIndex + 1}</span>
+              <span className="mx-0.5 text-muted-foreground sm:mx-1">/</span>
+              <span>{total}</span>
             </span>
           </>
         )}

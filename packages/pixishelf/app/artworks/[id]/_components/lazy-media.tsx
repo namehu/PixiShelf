@@ -76,14 +76,14 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
               ? '正在取消优化...'
               : job?.message || '正在无损优化视频...'
         return (
-          <div className="flex min-h-72 w-full flex-col items-center justify-center gap-3 bg-neutral-950 px-6 text-white">
+          <div className="flex min-h-72 w-full flex-col items-center justify-center gap-3 bg-foreground px-6 text-background">
             <Loader2 className="size-7 animate-spin" />
             <p className="text-sm font-medium">优化处理中</p>
-            <p className="text-xs text-white/60">{statusText}</p>
+            <p className="text-xs text-background/60">{statusText}</p>
             {!isStarting && !pending && (
               <div className="flex w-full max-w-sm items-center gap-3">
-                <Progress value={job?.progress ?? 0} className="h-1.5 flex-1 bg-white/20" />
-                <span className="text-xs text-white/70">{job?.progress ?? 0}%</span>
+                <Progress value={job?.progress ?? 0} className="h-1.5 flex-1 bg-background/20" />
+                <span className="text-xs text-background/70">{job?.progress ?? 0}%</span>
               </div>
             )}
             {job && cancel && (
@@ -91,7 +91,7 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
                 type="button"
                 size="sm"
                 variant="outline"
-                className="mt-1 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                className="mt-1 border-background/20 bg-background/5 text-background hover:bg-background/10 hover:text-background"
                 disabled={cancelling}
                 onClick={() => cancel(job)}
               >
@@ -99,7 +99,7 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
                 {pending ? '取消排队' : '取消优化'}
               </Button>
             )}
-            <p className="text-xs text-white/50">
+            <p className="text-xs text-background/50">
               {cancelling ? '取消完成后会恢复播放器' : '处理完成后会刷新整个作品页'}
             </p>
           </div>
@@ -157,7 +157,7 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
   return (
     <div
       ref={trackingRef}
-      className="relative flex w-full items-center justify-center overflow-hidden bg-neutral-100"
+      className="relative flex w-full items-center justify-center overflow-hidden bg-muted"
       style={{ aspectRatio }}
     >
       {renderContent()}

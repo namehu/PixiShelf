@@ -9,11 +9,15 @@ import { useSyncExternalStore } from 'react'
  * - sm (>= 640px): 3
  * - md (>= 768px): 4
  * - lg (>= 1024px): 5
+ * - xl (>= 1280px): 6
+ * - 2xl (>= 1536px): 7
  */
 
 function getColumns() {
   if (typeof window === 'undefined') return 2
   const width = window.innerWidth
+  if (width >= 1536) return 7
+  if (width >= 1280) return 6
   if (width >= 1024) return 5
   if (width >= 768) return 4
   if (width >= 640) return 3

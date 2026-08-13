@@ -1,34 +1,34 @@
-import { TArtworkTagDto } from '@/schemas/artwork.dto'
-import { getTranslateName } from '@/utils/tags'
-import { TagIcon } from 'lucide-react'
 import Link from 'next/link'
-import { FC, memo } from 'react'
+import { memo, type FC } from 'react'
+import type { TArtworkTagDto } from '@/schemas/artwork.dto'
+import { getTranslateName } from '@/utils/tags'
 
 interface TagAreaProps {
   tags?: TArtworkTagDto[]
 }
 
-const TagArea: FC<TagAreaProps> = ({ tags = [] }) => {
-  return (
-    <div className={`space-y-4 mt-6`}>
-      <div className="flex items-center gap-2">
-        <TagIcon />
-        <h3 className="text-base sm:text-lg font-semibold text-gray-900">标签</h3>
-      </div>
-      <div className="flex flex-wrap gap-2 align-center max-w-full">
-        {tags.map((tag) => {
-          const cName = getTranslateName(tag)
-          return (
-            <Link href={`/tags/${tag.id}`} key={tag.id} className="inline-flex items-center  gap-2">
-              <span className="rounded-full text-sm font-medium  text-blue-800 break-all cursor-pointer">
-                #{tag.name}
-              </span>
-              {!!cName && <span className="text-xs text-gray-500 mx-0.5 cursor-pointer">{cName}</span>}
-            </Link>
-          )
-        })}
-      </div>
+const TagArea: FC<TagAreaProps> = ({ tags = [] }) => (
+  <section aria-labelledby="artwork-tags-heading">
+    <h2 id="artwork-tags-heading" className="sr-only">
+      标签
+    </h2>
+    <div className="flex max-w-full flex-wrap gap-2">
+      {tags.map((tag) => {
+        const translatedName = getTranslateName(tag)
+
+        return (
+          <Link
+            href={`/tags/${tag.id}`}
+            key={tag.id}
+            className="inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-sm text-accent-foreground outline-none hover:bg-accent/75 focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <span className="break-all font-medium">#{tag.name}</span>
+            {translatedName && <span className="truncate text-xs text-muted-foreground">{translatedName}</span>}
+          </Link>
+        )
+      })}
     </div>
-  )
-}
+  </section>
+)
+
 export default memo(TagArea)

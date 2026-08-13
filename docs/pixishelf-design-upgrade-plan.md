@@ -319,6 +319,14 @@ Add reusable primitives under `components/layout`:
 - Titles and metadata can be selected without triggering navigation.
 - Desktop and mobile screenshots share consistent axes and density.
 
+### Verification record
+
+- `1440x900`: `/dashboard`, `/artworks`, `/artworks/50`, and `/viewer` had no horizontal overflow and no nested link/button combinations. The artwork index rendered six image-led columns with selectable title and artist metadata; dashboard retained `最新作品` → `热门艺术家` → `推荐作品`; the detail page used the `720px` reading axis without a card shell; Viewer media measured `420x810` within its `90dvh` frame.
+- `390x844`: dashboard and artwork index rendered two `164–166px` columns without document overflow. Artwork detail retained one main landmark and aligned reading toolbar/content. Viewer exposed `44x44px` back and filter controls inside the top safe area, had no overflow, and kept title, artist, and tags as unnested links.
+- The mobile Viewer filter Drawer measured `390x717`, exposed a labelled and described dialog, and stayed within the viewport. The Viewer tag panel was migrated to the official shadcn Drawer composition; existing filter behavior and media gestures were preserved.
+- `1440x720`: dashboard, artwork index, artwork detail, and Viewer had no horizontal overflow or nested interactions. Viewer media measured `648px` high (`90dvh`) and fit entirely within the viewport.
+- Focused coverage verifies card metadata is outside the cover link, minimal display remains image-only, virtualization/query behavior is preserved, detail image virtualization remains intact, and Viewer navigation/actions use the expected links and buttons.
+
 ## 9. Stage 4 — shadcn and Interaction Convergence
 
 ### Components

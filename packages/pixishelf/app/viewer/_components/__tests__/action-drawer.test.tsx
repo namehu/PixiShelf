@@ -4,8 +4,6 @@ import type { ReactNode } from 'react'
 import type { RandomImageItem } from '@/types/images'
 import { MediaType } from '@/types'
 
-const pushMock = vi.fn()
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }))
 vi.mock('@/components/ui/drawer', () => ({
   Drawer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DrawerContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -35,17 +33,18 @@ describe('ActionDrawer', () => {
   it('keeps artwork actions and removes feed-level settings', () => {
     const onOpenChange = vi.fn()
     const onEnterClearMode = vi.fn()
-    render(
-      <ActionDrawer open onOpenChange={onOpenChange} image={image} onEnterClearMode={onEnterClearMode} />
-    )
+    render(<ActionDrawer open onOpenChange={onOpenChange} image={image} onEnterClearMode={onEnterClearMode} />)
 
     expect(screen.queryByText('浏览模式')).toBeNull()
     expect(screen.queryByText('最大图片数量')).toBeNull()
     expect(screen.queryByText('媒体类型')).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: '查看作品详情' }))
+    const artworkLink = screen.getByRole('link', { name: '查看作品详情' })
+    expect(artworkLink.getAttribute('href')).toBe('/artworks/7')
+    fireEvent.click(artworkLink)
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    expect(pushMock).toHaveBeenCalledWith('/artworks/7')
+
+    expect(screen.getByRole('link', { name: '查看艺术家' }).getAttribute('href')).toBe('/artists/9')
 
     fireEvent.click(screen.getByRole('button', { name: '清屏播放' }))
     expect(onEnterClearMode).toHaveBeenCalledOnce()

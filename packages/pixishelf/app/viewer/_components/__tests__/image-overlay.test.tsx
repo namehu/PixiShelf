@@ -49,8 +49,9 @@ describe('viewer image overlay', () => {
     render(<ImageOverlay isActive image={artwork} onEnterClearMode={vi.fn()} />)
 
     const information = screen.getByRole('region', { name: '作品信息与操作' })
-    expect(within(information).getByRole('button', { name: '查看艺术家 Artist' })).toBeTruthy()
-    expect(within(information).getByRole('button', { name: '喜欢作品' })).toBeTruthy()
-    expect(within(information).getByRole('button', { name: '更多操作' })).toBeTruthy()
+    expect(within(information).getByRole('link', { name: 'Test artwork' }).getAttribute('href')).toBe('/artworks/1')
+    expect(within(information).getByRole('link', { name: '查看艺术家 Artist' }).getAttribute('href')).toBe('/artists/2')
+    expect(within(information).getByRole('button', { name: '喜欢作品' }).className).toContain('size-11')
+    expect(within(information).getByRole('button', { name: '更多操作' }).className).toContain('size-11')
   })
 })
