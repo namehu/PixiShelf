@@ -147,6 +147,47 @@ describe('transformImages', () => {
     expect(() => transformImages(images as any)).not.toThrow()
   })
 
+  it('exposes a published keyframe summary without merging it into chapters', () => {
+    const now = new Date()
+    const { images } = transformImages([
+      {
+        id: 1,
+        path: '/artist/artwork/video.mp4',
+        width: null,
+        height: null,
+        size: 100,
+        sortOrder: 0,
+        artworkId: 1,
+        createdAt: now,
+        updatedAt: now,
+        webpAnimationStatus: null,
+        chaptersPath: '/artist/artwork/video.chapters.json',
+        chaptersCount: 2,
+        chaptersDuration: 20,
+        chaptersUpdatedAt: now,
+        chaptersHash: 'chapter-hash',
+        mediaType: 'VIDEO',
+        keyframeSets: [
+          {
+            id: 'set-1',
+            publishedCount: 6,
+            sourceSize: BigInt(100),
+            sourceMtimeMs: 123
+          }
+        ]
+      }
+    ] as any)
+
+    expect(images[0]).toMatchObject({
+      hasChapters: true,
+      chaptersCount: 2,
+      hasKeyframes: true,
+      keyframeCount: 6,
+      keyframesUrl: '/api/v1/media/1/keyframes'
+    })
+    expect('keyframeSets' in images[0]!).toBe(false)
+  })
+
   it('flattens video metadata when it is included by the query', () => {
     const now = new Date()
     const { images } = transformImages([

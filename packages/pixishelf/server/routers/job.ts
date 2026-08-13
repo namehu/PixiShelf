@@ -8,7 +8,30 @@ import { syncAllMediaDerivedTags } from '@/services/media-derived-tag-service'
 import { listScheduledTasks, triggerScheduledTaskNow, updateScheduledTask } from '@/services/scheduled-task-service'
 import { reprobeVideoMediaByImageId, resolveVideoImageForReprobePath } from '@/services/video-media-probe-service'
 import { cancelVideoOptimization, enqueueVideoOptimization } from '@/services/video-streaming-optimization-queue'
+import {
+  controlVideoKeyframeJob,
+  enqueueSingleVideoKeyframe,
+  enqueueVideoKeyframeBatch,
+  getLatestVideoKeyframeJobsByImageIds,
+  getVideoKeyframeDetails,
+  listVideoKeyframeQueue,
+  retryFailedVideoKeyframeJobs,
+  retryVideoKeyframeJob,
+  selectVideoKeyframePoster
+} from '@/services/video-keyframe-queue'
 import { z } from 'zod'
+
+const videoKeyframeFilterSchema = z.object({
+  minDuration: z.number().nonnegative().nullable().default(null),
+  maxDuration: z.number().nonnegative().nullable().default(null),
+  includePaths: z.array(z.string().trim().min(1).max(500)).max(50).default([]),
+  excludePaths: z.array(z.string().trim().min(1).max(500)).max(50).default([]),
+  statuses: z
+    .array(z.enum(['MISSING', 'STALE', 'FAILED']))
+    .min(1)
+    .max(3)
+    .default(['MISSING', 'STALE', 'FAILED'])
+})
 
 export const jobRouter = router({
   startRefillMetaSource: authProcedure.mutation(async () => {
@@ -265,6 +288,92 @@ export const jobRouter = router({
       return { success: result.changed, status: result.job.status }
     }),
 
+  startVideoKeyframeGeneration: authProcedure
+    .input(z.object({ imageId: z.number().int().positive(), force: z.boolean().default(false) }))
+    .mutation(async ({ input }) => {
+      try {
+        const result = await enqueueSingleVideoKeyframe(input.imageId, input.force)
+        return { jobId: result.job.id, status: result.job.status, reused: result.reused }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        if (message === 'Image not found') throw new TRPCError({ code: 'NOT_FOUND', message })
+        if (message === 'Image is not a video') throw new TRPCError({ code: 'BAD_REQUEST', message })
+        if (message.startsWith('Video keyframe queue is full')) {
+          throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message })
+        }
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
+      }
+    }),
+
+  startVideoKeyframeBatch: authProcedure
+    .input(
+      z
+        .object({
+          imageIds: z.array(z.number().int().positive()).min(1).max(1000).optional(),
+          force: z.boolean().default(false),
+          previewOnly: z.boolean().default(false),
+          filter: videoKeyframeFilterSchema.optional()
+        })
+        .superRefine((value, context) => {
+          if (!value.previewOnly && !value.imageIds?.length) {
+            context.addIssue({
+              code: 'custom',
+              path: ['imageIds'],
+              message: '请先预览并选择要处理的视频'
+            })
+          }
+        })
+    )
+    .mutation(async ({ input }) => {
+      return enqueueVideoKeyframeBatch({
+        trigger: 'manual',
+        force: input.force,
+        previewOnly: input.previewOnly,
+        imageIds: input.imageIds,
+        filter: input.filter
+      })
+    }),
+
+  getVideoKeyframeQueue: authProcedure.query(() => listVideoKeyframeQueue()),
+
+  getVideoKeyframeStatuses: authProcedure
+    .input(z.object({ imageIds: z.array(z.number().int().positive()).max(1000) }))
+    .query(({ input }) => getLatestVideoKeyframeJobsByImageIds([...new Set(input.imageIds)])),
+
+  getVideoKeyframeDetails: authProcedure
+    .input(z.object({ imageId: z.number().int().positive() }))
+    .query(({ input }) => getVideoKeyframeDetails(input.imageId)),
+
+  controlVideoKeyframe: authProcedure
+    .input(z.object({ jobId: z.string().min(1), action: z.enum(['pause', 'resume', 'cancel']) }))
+    .mutation(async ({ input }) => {
+      const job = await controlVideoKeyframeJob(input.jobId, input.action)
+      if (!job) throw new TRPCError({ code: 'NOT_FOUND', message: 'Video keyframe job not found' })
+      return { jobId: job.id, status: job.status }
+    }),
+
+  retryVideoKeyframe: authProcedure.input(z.object({ jobId: z.string().min(1) })).mutation(async ({ input }) => {
+    const job = await retryVideoKeyframeJob(input.jobId)
+    if (!job) throw new TRPCError({ code: 'NOT_FOUND', message: 'Video keyframe job not found' })
+    return { jobId: job.id, status: job.status }
+  }),
+
+  retryFailedVideoKeyframes: authProcedure
+    .input(z.object({ filter: videoKeyframeFilterSchema.optional() }))
+    .mutation(({ input }) => retryFailedVideoKeyframeJobs(input.filter)),
+
+  selectVideoKeyframePoster: authProcedure
+    .input(z.object({ imageId: z.number().int().positive(), frameId: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      try {
+        return await selectVideoKeyframePoster(input.imageId, input.frameId)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        if (message === 'Published keyframe not found') throw new TRPCError({ code: 'NOT_FOUND', message })
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
+      }
+    }),
+
   listScheduledTasks: authProcedure.query(async () => {
     return listScheduledTasks()
   }),
@@ -278,7 +387,8 @@ export const jobRouter = router({
           .string()
           .regex(/^\d{2}:\d{2}$/)
           .optional(),
-        priority: z.number().int().min(0).max(1000).optional()
+        priority: z.number().int().min(0).max(1000).optional(),
+        config: videoKeyframeFilterSchema.optional()
       })
     )
     .mutation(async ({ input }) => {

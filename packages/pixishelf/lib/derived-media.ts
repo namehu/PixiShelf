@@ -1,15 +1,14 @@
 export const VIDEO_POSTER_PUBLIC_PREFIX = '/_video-posters/'
 export const VIDEO_CHAPTER_PREVIEW_PUBLIC_PREFIX = '/_video-chapter-previews/'
+export const VIDEO_KEYFRAME_PUBLIC_PREFIX = '/_video-keyframes/'
 
 export const VIDEO_POSTER_IMGPROXY_PREFIX = '/derived-media/video/posters'
 export const VIDEO_CHAPTER_PREVIEW_IMGPROXY_PREFIX = '/derived-media/video/chapters'
+export const VIDEO_KEYFRAME_IMGPROXY_PREFIX = '/derived-media/video/keyframes'
 
-export type DerivedMediaKind = 'VIDEO_POSTER' | 'VIDEO_CHAPTER_PREVIEW'
+export type DerivedMediaKind = 'VIDEO_POSTER' | 'VIDEO_CHAPTER_PREVIEW' | 'VIDEO_KEYFRAME'
 
-const DERIVED_MEDIA_ROUTES: Record<
-  DerivedMediaKind,
-  { publicPrefix: string; imgproxyPrefix: string }
-> = {
+const DERIVED_MEDIA_ROUTES: Record<DerivedMediaKind, { publicPrefix: string; imgproxyPrefix: string }> = {
   VIDEO_POSTER: {
     publicPrefix: VIDEO_POSTER_PUBLIC_PREFIX,
     imgproxyPrefix: VIDEO_POSTER_IMGPROXY_PREFIX
@@ -17,6 +16,10 @@ const DERIVED_MEDIA_ROUTES: Record<
   VIDEO_CHAPTER_PREVIEW: {
     publicPrefix: VIDEO_CHAPTER_PREVIEW_PUBLIC_PREFIX,
     imgproxyPrefix: VIDEO_CHAPTER_PREVIEW_IMGPROXY_PREFIX
+  },
+  VIDEO_KEYFRAME: {
+    publicPrefix: VIDEO_KEYFRAME_PUBLIC_PREFIX,
+    imgproxyPrefix: VIDEO_KEYFRAME_IMGPROXY_PREFIX
   }
 }
 

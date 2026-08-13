@@ -1,6 +1,6 @@
 'use client'
 
-import { LayoutGrid, List as ListIcon, Plus, RefreshCw } from 'lucide-react'
+import { LayoutGrid, List as ListIcon, Plus, RefreshCw, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { formatFileSize } from '@/utils/media'
@@ -14,6 +14,9 @@ interface ImageManagerToolbarProps {
   firstImagePath: string | null
   mediaCount: number
   totalSize: number
+  selectedVideoCount: number
+  isSubmittingKeyframes: boolean
+  onGenerateSelectedKeyframes: () => void
 }
 
 export function ImageManagerToolbar({
@@ -24,7 +27,10 @@ export function ImageManagerToolbar({
   onReplace,
   firstImagePath,
   mediaCount,
-  totalSize
+  totalSize,
+  selectedVideoCount,
+  isSubmittingKeyframes,
+  onGenerateSelectedKeyframes
 }: ImageManagerToolbarProps) {
   return (
     <div className="flex justify-between items-center px-1 shrink-0">
@@ -61,6 +67,16 @@ export function ImageManagerToolbar({
 
         <Button variant="danger" size="sm" onClick={onReplace}>
           全量替换
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={selectedVideoCount === 0 || isSubmittingKeyframes}
+          onClick={onGenerateSelectedKeyframes}
+        >
+          <Sparkles className="mr-1.5 size-4" />
+          为已选视频生成代表帧{selectedVideoCount > 0 ? ` (${selectedVideoCount})` : ''}
         </Button>
       </div>
       {mediaCount > 0 && (

@@ -48,6 +48,8 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   const [refreshKey, setRefreshKey] = useState(0)
   const [isSavingTags, setIsSavingTags] = useState(false)
   const [selectedTagOptions, setSelectedTagOptions] = useState<Option[]>([])
+  const [mediaRowSelection, setMediaRowSelection] = useState<Record<string, boolean>>({})
+  const [isSubmittingKeyframes, setIsSubmittingKeyframes] = useState(false)
   const saveTagsQueueRef = useRef(Promise.resolve())
 
   useEffect(() => {
@@ -63,10 +65,31 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     onSuccess?.()
   }, [onSuccess])
 
-  const videoImageIds = useMemo(
-    () => imageList.filter(isVideoImageListItem).map((image) => image.id),
-    [artwork.images]
+  const videoImageIds = useMemo(() => imageList.filter(isVideoImageListItem).map((image) => image.id), [artwork.images])
+  const selectedVideoIds = useMemo(
+    () =>
+      imageList
+        .filter((image) => mediaRowSelection[String(image.id)] && isVideoImageListItem(image))
+        .map((image) => image.id),
+    [imageList, mediaRowSelection]
   )
+
+  const handleGenerateSelectedKeyframes = async () => {
+    if (selectedVideoIds.length === 0) return
+    setIsSubmittingKeyframes(true)
+    try {
+      const response = await trpcClient.job.startVideoKeyframeBatch.mutate({
+        imageIds: selectedVideoIds,
+        force: false
+      })
+      toast.success(`代表帧发现任务已提交（${response.status}）`)
+      setMediaRowSelection({})
+    } catch (error) {
+      toast.error(`批量提交代表帧失败: ${error instanceof Error ? error.message : '未知错误'}`)
+    } finally {
+      setIsSubmittingKeyframes(false)
+    }
+  }
   const [optimizationPollInterval, setOptimizationPollInterval] = useState<number | false>(false)
   const [startingVideoOptimizationImageId, setStartingVideoOptimizationImageId] = useState<number | null>(null)
   const startedOptimizationJobIdsRef = useRef(new Set<string>())
@@ -604,6 +627,11 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         firstImagePath={firstImagePath}
         mediaCount={mediaStats.count}
         totalSize={mediaStats.totalSize}
+        selectedVideoCount={selectedVideoIds.length}
+        isSubmittingKeyframes={isSubmittingKeyframes}
+        onGenerateSelectedKeyframes={() => {
+          void handleGenerateSelectedKeyframes()
+        }}
       />
 
       <div
@@ -646,6 +674,8 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
               key={refreshKey}
               columns={columns}
               dataSource={imageList}
+              rowSelection={mediaRowSelection}
+              onRowSelectionChange={setMediaRowSelection}
               defaultPageSize={50}
               className="h-full"
             />

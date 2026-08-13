@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { normalizeVideoChapterManifest, type NormalizedChapter } from './video-chapters'
 
 interface UseVideoChaptersResult {
   chapters: NormalizedChapter[]
   duration: number
   loading: boolean
+  loaded: boolean
   error: string | null
   reload: () => void
 }
@@ -18,8 +19,10 @@ export function useVideoChapters(chaptersUrl?: string | null): UseVideoChaptersR
   const [chapters, setChapters] = useState<NormalizedChapter[]>([])
   const [duration, setDuration] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const previousUrlRef = useRef<string | null>(null)
 
   const reload = useCallback(() => {
     setReloadKey((current) => current + 1)
@@ -27,14 +30,22 @@ export function useVideoChapters(chaptersUrl?: string | null): UseVideoChaptersR
 
   useEffect(() => {
     if (!chaptersUrl) {
+      previousUrlRef.current = null
       setChapters([])
       setDuration(0)
       setLoading(false)
+      setLoaded(true)
       setError(null)
       return
     }
 
     const requestUrl = chaptersUrl
+    if (previousUrlRef.current !== requestUrl) {
+      previousUrlRef.current = requestUrl
+      setChapters([])
+      setDuration(0)
+      setLoaded(false)
+    }
     const controller = new AbortController()
 
     async function loadChapters() {
@@ -73,6 +84,7 @@ export function useVideoChapters(chaptersUrl?: string | null): UseVideoChaptersR
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false)
+          setLoaded(true)
         }
       }
     }
@@ -89,9 +101,10 @@ export function useVideoChapters(chaptersUrl?: string | null): UseVideoChaptersR
       chapters,
       duration,
       loading,
+      loaded,
       error,
       reload
     }),
-    [chapters, duration, loading, error, reload]
+    [chapters, duration, loading, loaded, error, reload]
   )
 }

@@ -3,6 +3,7 @@
 import { Download, MoreHorizontal, RotateCcw, Trash2, Upload, WandSparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ProColumnDef } from '@/components/shared/pro-table'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
@@ -218,6 +219,31 @@ export function createImageManagerColumns({
   onDelete
 }: CreateImageManagerColumnsInput): ProColumnDef<ImageListItem>[] {
   return [
+    {
+      id: '__select',
+      size: 44,
+      header: ({ table }) => {
+        const videoRows = table.getRowModel().rows.filter((row) => isVideoImageListItem(row.original))
+        const selectedCount = videoRows.filter((row) => row.getIsSelected()).length
+        return (
+          <Checkbox
+            aria-label="选择当前页全部视频"
+            checked={selectedCount === 0 ? false : selectedCount === videoRows.length ? true : 'indeterminate'}
+            disabled={videoRows.length === 0}
+            onCheckedChange={(checked) => videoRows.forEach((row) => row.toggleSelected(Boolean(checked)))}
+          />
+        )
+      },
+      cell: ({ row }) =>
+        isVideoImageListItem(row.original) ? (
+          <Checkbox
+            aria-label={`选择视频 ${row.original.path}`}
+            checked={row.getIsSelected()}
+            onCheckedChange={(checked) => row.toggleSelected(Boolean(checked))}
+            onClick={(event) => event.stopPropagation()}
+          />
+        ) : null
+    },
     {
       header: 'Order',
       accessorKey: 'sortOrder',

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import VideoPlayer, { formatVideoRemainingTime } from './video-player'
@@ -12,6 +12,10 @@ const videoChaptersMock = vi.hoisted(() => ({
   useVideoChapters: vi.fn()
 }))
 
+const videoKeyframesMock = vi.hoisted(() => ({
+  useVideoKeyframes: vi.fn()
+}))
+
 vi.mock('artplayer', () => ({
   default: artplayerMock.constructor
 }))
@@ -20,8 +24,13 @@ vi.mock('./use-video-chapters', () => ({
   useVideoChapters: videoChaptersMock.useVideoChapters
 }))
 
+vi.mock('./use-video-keyframes', () => ({
+  useVideoKeyframes: videoKeyframesMock.useVideoKeyframes
+}))
+
 describe('VideoPlayer component behavior', () => {
   afterEach(() => {
+    cleanup()
     artplayerMock.constructor.mockReset()
     artplayerMock.handlers.clear()
     history.replaceState(null, '', window.location.href)
@@ -55,6 +64,15 @@ describe('VideoPlayer component behavior', () => {
       chapters: [],
       duration: 0,
       loading: false,
+      loaded: true,
+      error: null,
+      reload: vi.fn()
+    })
+    videoKeyframesMock.useVideoKeyframes.mockReturnValue({
+      keyframes: [],
+      publishedAt: null,
+      loading: false,
+      loaded: true,
       error: null,
       reload: vi.fn()
     })
@@ -440,6 +458,52 @@ describe('VideoPlayer component behavior', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '关闭章节列表' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: /章节/ })).toBeNull())
+    unmount()
+  })
+
+  it('opens a keyframe-only navigation sheet and keeps playback state after seeking', async () => {
+    videoKeyframesMock.useVideoKeyframes.mockReturnValue({
+      keyframes: [
+        {
+          id: 'frame-1',
+          captureTime: 5,
+          selectedOrder: 0,
+          url: '/_video-keyframes/1/set-1/001.webp'
+        },
+        {
+          id: 'frame-2',
+          captureTime: 20,
+          selectedOrder: 1,
+          url: '/_video-keyframes/1/set-1/002.webp'
+        }
+      ],
+      publishedAt: '2026-08-13T00:00:00.000Z',
+      loading: false,
+      loaded: true,
+      error: null,
+      reload: vi.fn()
+    })
+    const pause = vi.fn()
+    const play = vi.fn().mockResolvedValue(undefined)
+    const art = setupArtplayerMock({ paused: false, pause, play }, false)
+    const { unmount } = render(<VideoPlayer src="/video.mp4" keyframesUrl="/api/v1/media/1/keyframes" />)
+
+    await waitFor(() => {
+      expect(art.controls.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'chapter-entry', tooltip: '画面' }))
+    })
+    const navigationControl = art.controls.add.mock.calls
+      .map(([control]) => control)
+      .reverse()
+      .find((control) => control.name === 'chapter-entry')
+
+    act(() => navigationControl.click(null, new Event('click')))
+    const dialog = await screen.findByRole('dialog', { name: /画面/ })
+    fireEvent.click(screen.getByRole('button', { name: '跳转到画面 00:20' }))
+
+    expect(art.currentTime).toBe(20)
+    expect(pause).not.toHaveBeenCalled()
+    expect(play).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: /画面/ })).toBe(dialog)
     unmount()
   })
 

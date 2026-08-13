@@ -5,8 +5,9 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ReactNode, SyntheticEvent } from 'react'
 import type Artplayer from 'artplayer'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import ChapterSidebar from './chapter-sidebar'
 import type { NormalizedChapter } from './video-chapters'
+import type { NormalizedVideoKeyframe } from './video-keyframes'
+import { VideoNavigationBody, VideoNavigationHeader, type VideoNavigationTab } from './video-navigation-content'
 
 export const CHAPTER_OVERLAY_PLUGIN_NAME = 'pixishelfChapterOverlay' as const
 
@@ -20,7 +21,20 @@ export type ChapterOverlayMode = 'desktop' | 'mobile-fullweb' | 'mobile-sheet'
 
 export interface ChapterOverlaySnapshot {
   chapters: NormalizedChapter[]
+  chaptersAvailable: boolean
+  chapterCount: number
+  chaptersLoading: boolean
+  chaptersError: string | null
+  onChaptersRetry: () => void
   currentChapterId?: string
+  keyframes: NormalizedVideoKeyframe[]
+  keyframesAvailable: boolean
+  keyframeCount: number
+  keyframesLoading: boolean
+  keyframesError: string | null
+  onKeyframesRetry: () => void
+  onKeyframesOpen: () => void
+  currentKeyframeId?: string
   mode: ChapterOverlayMode
 }
 
@@ -41,8 +55,11 @@ export interface ChapterOverlayPortal {
 
 interface ChapterOverlayViewProps extends ChapterOverlaySnapshot {
   visible: boolean
+  activeTab: VideoNavigationTab
   onClose: () => void
+  onTabChange: (tab: VideoNavigationTab) => void
   onChapterClick: (chapter: NormalizedChapter) => void
+  onKeyframeClick: (keyframe: NormalizedVideoKeyframe) => void
 }
 
 function stopOverlayEvent(event: SyntheticEvent) {
@@ -51,13 +68,63 @@ function stopOverlayEvent(event: SyntheticEvent) {
 
 function ChapterOverlayView({
   chapters,
+  chaptersAvailable,
+  chapterCount,
+  chaptersLoading,
+  chaptersError,
+  onChaptersRetry,
   currentChapterId,
+  keyframes,
+  keyframesAvailable,
+  keyframeCount,
+  keyframesLoading,
+  keyframesError,
+  onKeyframesRetry,
+  currentKeyframeId,
   mode,
   visible,
+  activeTab,
   onClose,
-  onChapterClick
+  onTabChange,
+  onChapterClick,
+  onKeyframeClick
 }: ChapterOverlayViewProps) {
   const prefersReducedMotion = useReducedMotion()
+  const navigationLabel =
+    chaptersAvailable && keyframesAvailable ? '视频导航' : keyframesAvailable ? '视频画面' : '视频章节'
+  const closeLabel = keyframesAvailable && !chaptersAvailable ? '关闭画面列表' : '关闭章节列表'
+  const header = (
+    <VideoNavigationHeader
+      activeTab={activeTab}
+      onTabChange={onTabChange}
+      chaptersAvailable={chaptersAvailable}
+      chapterCount={chapterCount}
+      keyframesAvailable={keyframesAvailable}
+      keyframeCount={keyframeCount}
+      compact={mode !== 'mobile-sheet'}
+    />
+  )
+  const body = (layout: 'grid' | 'horizontal', horizontalCardClassName?: string) => (
+    <VideoNavigationBody
+      activeTab={activeTab}
+      chapters={chapters}
+      chaptersLoading={chaptersLoading}
+      chaptersError={chaptersError}
+      onChaptersRetry={onChaptersRetry}
+      currentChapterId={currentChapterId}
+      onChapterClick={onChapterClick}
+      keyframes={keyframes}
+      keyframesLoading={keyframesLoading}
+      keyframesError={keyframesError}
+      onKeyframesRetry={onKeyframesRetry}
+      currentKeyframeId={currentKeyframeId}
+      onKeyframeClick={onKeyframeClick}
+      layout={layout}
+      className="h-full rounded-none border-none bg-transparent"
+      scrollAreaClassName={layout === 'grid' ? 'h-full' : undefined}
+      horizontalCardClassName={horizontalCardClassName}
+    />
+  )
 
   if (mode === 'desktop') {
     return (
@@ -71,7 +138,7 @@ function ChapterOverlayView({
             className="pointer-events-auto absolute inset-0"
             role="dialog"
             aria-modal="true"
-            aria-label="视频章节"
+            aria-label={navigationLabel}
             onClick={stopOverlayEvent}
             onDoubleClick={stopOverlayEvent}
             onPointerDown={stopOverlayEvent}
@@ -80,7 +147,7 @@ function ChapterOverlayView({
           >
             <button
               type="button"
-              aria-label="关闭章节列表"
+              aria-label={closeLabel}
               className="absolute inset-0 cursor-default border-0 bg-black/25 p-0"
               onClick={onClose}
             />
@@ -93,30 +160,18 @@ function ChapterOverlayView({
               style={{ width: 'min(480px, 42vw)' }}
             >
               <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-                <div>
-                  <span className="font-medium text-white">章节</span>
-                  <span className="ml-2 text-xs text-white/60">{chapters.length} 段</span>
-                </div>
+                {header}
                 <button
                   type="button"
                   onClick={onClose}
-                  aria-label="关闭章节列表"
+                  aria-label={closeLabel}
                   data-chapter-overlay-close
                   className="rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   <XIcon className="h-4 w-4" />
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <ChapterSidebar
-                  chapters={chapters}
-                  currentChapterId={currentChapterId}
-                  onChapterClick={onChapterClick}
-                  tone="dark"
-                  className="h-full rounded-none border-none bg-transparent"
-                  scrollAreaClassName="h-full"
-                />
-              </div>
+              <div className="min-h-0 flex-1 overflow-hidden">{body('grid')}</div>
             </motion.div>
           </motion.div>
         )}
@@ -129,9 +184,9 @@ function ChapterOverlayView({
       <Sheet open={visible} onOpenChange={(open) => !open && onClose()}>
         <SheetContent
           side="bottom"
-          aria-label="视频章节"
+          aria-label={navigationLabel}
           aria-describedby={undefined}
-          closeLabel="关闭章节列表"
+          closeLabel={closeLabel}
           overlayClassName="z-[200] bg-black/60"
           className="pixishelf-chapter-sheet z-[200] overflow-hidden rounded-t-2xl border-white/10 bg-neutral-950 px-0 pb-[env(safe-area-inset-bottom)] text-white shadow-2xl [&>button]:right-4 [&>button]:top-4 [&>button]:text-white/75"
           onClick={stopOverlayEvent}
@@ -141,20 +196,9 @@ function ChapterOverlayView({
           onContextMenu={stopOverlayEvent}
         >
           <SheetHeader className="min-h-14 shrink-0 justify-center border-b border-white/10 px-4 py-2 text-left">
-            <SheetTitle className="pr-10 text-base text-white">
-              章节 <span className="ml-1 text-xs font-normal text-white/60">{chapters.length} 段</span>
-            </SheetTitle>
+            <SheetTitle className="pr-10 text-base text-white">{header}</SheetTitle>
           </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <ChapterSidebar
-              chapters={chapters}
-              currentChapterId={currentChapterId}
-              onChapterClick={onChapterClick}
-              tone="dark"
-              className="h-full rounded-none border-none bg-transparent"
-              scrollAreaClassName="h-full"
-            />
-          </div>
+          <div className="min-h-0 flex-1 overflow-hidden">{body('grid')}</div>
         </SheetContent>
       </Sheet>
     )
@@ -172,7 +216,7 @@ function ChapterOverlayView({
           className="pointer-events-none absolute inset-0 text-white"
           role="dialog"
           aria-modal="false"
-          aria-label="视频章节"
+          aria-label={navigationLabel}
           onClick={stopOverlayEvent}
           onDoubleClick={stopOverlayEvent}
           onPointerDown={stopOverlayEvent}
@@ -181,7 +225,7 @@ function ChapterOverlayView({
         >
           <button
             type="button"
-            aria-label="关闭章节列表并返回视频"
+            aria-label={keyframesAvailable && !chaptersAvailable ? '关闭画面列表并返回视频' : '关闭章节列表并返回视频'}
             className="pointer-events-auto absolute inset-x-0 top-0 border-0 bg-transparent p-0"
             style={{ bottom: 'var(--pixishelf-chapter-rail-height)' }}
             onClick={onClose}
@@ -195,14 +239,11 @@ function ChapterOverlayView({
             style={{ height: 'var(--pixishelf-chapter-rail-height)' }}
           >
             <div className="flex min-h-11 shrink-0 items-center justify-between px-3">
-              <div>
-                <span className="text-sm font-medium">章节</span>
-                <span className="ml-2 text-xs text-white/60">{chapters.length} 段</span>
-              </div>
+              {header}
               <button
                 type="button"
                 onClick={onClose}
-                aria-label="关闭章节列表"
+                aria-label={closeLabel}
                 data-chapter-overlay-close
                 className="rounded-full bg-white/10 p-2 text-white/75 active:bg-white/20"
               >
@@ -210,14 +251,7 @@ function ChapterOverlayView({
               </button>
             </div>
             <div className="relative min-h-0 flex-1 overflow-hidden">
-              <ChapterSidebar
-                chapters={chapters}
-                currentChapterId={currentChapterId}
-                onChapterClick={onChapterClick}
-                tone="dark"
-                layout="horizontal"
-                className="h-full rounded-none border-none bg-transparent"
-              />
+              {body('horizontal')}
               <div
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-black/95 to-transparent"
@@ -239,18 +273,43 @@ function isMobileMode(mode: ChapterOverlayMode | null): mode is Exclude<ChapterO
 }
 
 function asHistoryRecord(state: unknown): Record<string, unknown> {
-  return typeof state === 'object' && state !== null && !Array.isArray(state)
-    ? (state as Record<string, unknown>)
-    : {}
+  return typeof state === 'object' && state !== null && !Array.isArray(state) ? (state as Record<string, unknown>) : {}
+}
+
+function hasVideoNavigation(snapshot: ChapterOverlaySnapshot) {
+  return snapshot.chaptersAvailable || snapshot.keyframesAvailable
+}
+
+function getAvailableNavigationTab(
+  snapshot: ChapterOverlaySnapshot,
+  preferred: VideoNavigationTab
+): VideoNavigationTab {
+  if (preferred === 'chapters' && snapshot.chaptersAvailable) return 'chapters'
+  if (preferred === 'keyframes' && snapshot.keyframesAvailable) return 'keyframes'
+  return snapshot.chaptersAvailable ? 'chapters' : 'keyframes'
 }
 
 export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlayPortal) => void) {
   return (art: Artplayer): ChapterOverlayPluginApi => {
     let snapshot: ChapterOverlaySnapshot = {
       chapters: [],
+      chaptersAvailable: false,
+      chapterCount: 0,
+      chaptersLoading: false,
+      chaptersError: null,
+      onChaptersRetry: () => undefined,
       currentChapterId: undefined,
+      keyframes: [],
+      keyframesAvailable: false,
+      keyframeCount: 0,
+      keyframesLoading: false,
+      keyframesError: null,
+      onKeyframesRetry: () => undefined,
+      onKeyframesOpen: () => undefined,
+      currentKeyframeId: undefined,
       mode: 'desktop'
     }
+    let activeTab: VideoNavigationTab = 'chapters'
     let layerElement: HTMLElement | null = null
     let visible = false
     let destroyed = false
@@ -329,6 +388,19 @@ export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlay
       art.currentTime = artDuration ? Math.min(Math.max(chapter.start, 0), artDuration) : Math.max(chapter.start, 0)
     }
 
+    const seekToKeyframe = (keyframe: NormalizedVideoKeyframe) => {
+      const artDuration = Number.isFinite(art.duration) && art.duration > 0 ? art.duration : null
+      art.currentTime = artDuration
+        ? Math.min(Math.max(keyframe.captureTime, 0), artDuration)
+        : Math.max(keyframe.captureTime, 0)
+    }
+
+    const selectTab = (tab: VideoNavigationTab) => {
+      activeTab = getAvailableNavigationTab(snapshot, tab)
+      if (activeTab === 'keyframes') snapshot.onKeyframesOpen()
+      render()
+    }
+
     const render = () => {
       if (!layerElement || destroyed) return
       renderPortal({
@@ -337,8 +409,11 @@ export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlay
           <ChapterOverlayView
             {...snapshot}
             visible={visible}
+            activeTab={activeTab}
             onClose={() => api.hide()}
+            onTabChange={selectTab}
             onChapterClick={seekToChapter}
+            onKeyframeClick={seekToKeyframe}
           />
         )
       })
@@ -393,8 +468,9 @@ export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlay
 
         const previousMode = snapshot.mode
         snapshot = nextSnapshot
+        activeTab = getAvailableNavigationTab(snapshot, activeTab)
 
-        if (snapshot.chapters.length === 0) {
+        if (!hasVideoNavigation(snapshot)) {
           api.hide()
           render()
           return
@@ -407,9 +483,11 @@ export function createChapterOverlayPlugin(renderPortal: (portal: ChapterOverlay
         render()
       },
       show() {
-        if (destroyed || visible || snapshot.chapters.length === 0) return
+        if (destroyed || visible || !hasVideoNavigation(snapshot)) return
 
         clearCloseTimer()
+        activeTab = getAvailableNavigationTab(snapshot, activeTab)
+        if (activeTab === 'keyframes') snapshot.onKeyframesOpen()
         previousFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
         visible = true
         playerElement.classList.add(CHAPTER_OVERLAY_OPEN_CLASS)

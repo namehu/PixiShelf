@@ -2,9 +2,9 @@
 
 import Image from 'next/image'
 import { CircleHelpIcon, ImageOffIcon, Loader2Icon, VideoIcon, Volume2Icon, VolumeXIcon } from 'lucide-react'
-import { useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { useActiveItemVisibility } from './use-active-item-visibility'
 import { formatChapterTime, type NormalizedChapter } from './video-chapters'
 
 interface ChapterSidebarProps {
@@ -26,19 +26,7 @@ export default function ChapterSidebar({
   tone = 'dark',
   layout = 'grid'
 }: ChapterSidebarProps) {
-  const itemRefs = useRef<Record<string, HTMLButtonElement | null>>({})
-
-  useEffect(() => {
-    if (!currentChapterId) {
-      return
-    }
-
-    itemRefs.current[currentChapterId]?.scrollIntoView?.({
-      block: 'nearest',
-      inline: layout === 'horizontal' ? 'nearest' : undefined,
-      behavior: 'smooth'
-    })
-  }, [currentChapterId, layout])
+  const { viewportRef, setItemRef, interactionProps } = useActiveItemVisibility(currentChapterId)
 
   if (chapters.length === 0) {
     return null
@@ -53,9 +41,7 @@ export default function ChapterSidebar({
     return (
       <button
         key={chapter.id}
-        ref={(element) => {
-          itemRefs.current[chapter.id] = element
-        }}
+        ref={setItemRef(chapter.id)}
         type="button"
         onClick={() => onChapterClick(chapter)}
         aria-current={isActive ? 'true' : undefined}
@@ -146,9 +132,11 @@ export default function ChapterSidebar({
         isLight ? 'border-neutral-200 bg-white text-neutral-900' : 'border-white/10 bg-black/30 text-white/90',
         className
       )}
+      {...interactionProps}
     >
       {layout === 'horizontal' ? (
         <div
+          ref={viewportRef}
           className={cn(
             'flex min-h-0 flex-1 snap-x snap-mandatory items-stretch gap-3 overflow-x-auto px-3 pb-3 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
             scrollAreaClassName
@@ -157,7 +145,7 @@ export default function ChapterSidebar({
           {chapters.map(renderChapter)}
         </div>
       ) : (
-        <ScrollArea className={cn('flex-1', scrollAreaClassName || 'max-h-72 sm:max-h-96')}>
+        <ScrollArea viewportRef={viewportRef} className={cn('flex-1', scrollAreaClassName || 'max-h-72 sm:max-h-96')}>
           <div className="grid grid-cols-2 gap-2 p-2">{chapters.map(renderChapter)}</div>
         </ScrollArea>
       )}

@@ -16,6 +16,12 @@ describe('imgproxyLoader', () => {
     )
   })
 
+  it('routes generated video keyframes through ImgProxy', () => {
+    expect(imgproxyLoader({ src: '/_video-keyframes/1/set-1/0.webp?v=30', width: 320, quality: 80 })).toBe(
+      'http://localhost:5431/_/rs:fit:320:0/q:80/sm:1/plain/local://%2Fderived-media%2Fvideo%2Fkeyframes%2F1%2Fset-1%2F0.webp@webp?v=30'
+    )
+  })
+
   it('rejects encoded traversal and encoded path separators in derived media URLs', () => {
     const traversal = '/_video-chapter-previews/1/%2e%2e/secret.webp'
     const encodedSeparator = '/_video-chapter-previews/1%2Fsecret.webp'

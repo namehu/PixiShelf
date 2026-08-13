@@ -9,7 +9,7 @@ import {
   SCHEDULED_TASK_DEFINITIONS
 } from '@/services/scheduled-task-registry'
 import type { VideoChapterPreviewGenerationMode } from '@/services/video-chapter-preview-service'
-import { ScheduleMode } from '@prisma/client'
+import { Prisma, ScheduleMode } from '@prisma/client'
 
 export interface ScheduledTaskView {
   id: string
@@ -28,6 +28,7 @@ export interface ScheduledTaskView {
   lastJobId: string | null
   lastJobStatus: string | null
   nextRunAt: string | null
+  config: unknown
 }
 
 export interface SchedulerDecision {
@@ -61,7 +62,10 @@ export async function ensureDefaultScheduledTasks() {
         time: definition.defaultTime,
         timezone: definition.defaultTimezone,
         priority: definition.defaultPriority,
-        mutexKey: definition.mutexKey
+        mutexKey: definition.mutexKey,
+        ...(definition.defaultConfig !== undefined
+          ? { config: JSON.parse(JSON.stringify(definition.defaultConfig)) as Prisma.InputJsonValue }
+          : {})
       }
     })
   }
@@ -100,22 +104,30 @@ export async function listScheduledTasks(): Promise<ScheduledTaskView[]> {
       lastTriggeredDate: task.lastTriggeredDate,
       lastJobId: task.lastJobId,
       lastJobStatus: task.lastJobId ? (statusByJobId.get(task.lastJobId) ?? null) : null,
-      nextRunAt: getNextRunAt(task.time, task.timezone)
+      nextRunAt: getNextRunAt(task.time, task.timezone),
+      config: task.config
     }
   })
 }
 
-export async function updateScheduledTask(input: { key: string; enabled?: boolean; time?: string; priority?: number }) {
+export async function updateScheduledTask(input: {
+  key: string
+  enabled?: boolean
+  time?: string
+  priority?: number
+  config?: unknown
+}) {
   await ensureDefaultScheduledTasks()
   const definition = getScheduledTaskDefinition(input.key)
   if (!definition) {
     throw new Error(`Unknown scheduled task: ${input.key}`)
   }
 
-  const data: { enabled?: boolean; time?: string; priority?: number } = {}
+  const data: { enabled?: boolean; time?: string; priority?: number; config?: Prisma.InputJsonValue } = {}
   if (input.enabled !== undefined) data.enabled = input.enabled
   if (input.time !== undefined) data.time = normalizeDailyTime(input.time)
   if (input.priority !== undefined) data.priority = input.priority
+  if (input.config !== undefined) data.config = JSON.parse(JSON.stringify(input.config)) as Prisma.InputJsonValue
 
   return prisma.scheduledTask.update({
     where: { key: input.key },
@@ -153,6 +165,7 @@ export async function triggerScheduledTaskNow(
 
   const result = await handler.start({
     trigger: 'manual',
+    taskConfig: task.config,
     ...(options.chapterPreviewMode ? { chapterPreviewMode: options.chapterPreviewMode } : {})
   })
   await prisma.scheduledTask.update({
@@ -216,7 +229,7 @@ export async function runSchedulerTick(now = new Date()): Promise<SchedulerTickR
     }
 
     try {
-      const result = await handler.start({ trigger: 'schedule' })
+      const result = await handler.start({ trigger: 'schedule', taskConfig: task.config })
       await prisma.scheduledTask.update({
         where: { key: task.key },
         data: {

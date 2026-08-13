@@ -11,12 +11,14 @@ import {
   type VideoChapterPreviewGenerationMode
 } from '@/services/video-chapter-preview-service'
 import { runVideoPosterGenerationJob } from '@/services/video-poster-service'
+import { enqueueVideoKeyframeBatch } from '@/services/video-keyframe-queue'
 import { runWebpAnimationScanJob } from '@/services/webp-animation-scan-service'
 
 export const SCHEDULED_TASK_TYPES = {
   WEBP_ANIMATION_SCAN: 'WEBP_ANIMATION_SCAN',
   VIDEO_MEDIA_PROBE: 'VIDEO_MEDIA_PROBE',
   VIDEO_CHAPTER_PREVIEW_GENERATION: 'VIDEO_CHAPTER_PREVIEW_GENERATION',
+  VIDEO_KEYFRAME_DISCOVERY: 'VIDEO_KEYFRAME_DISCOVERY',
   SCAN_RUN_RETENTION_CLEANUP: 'SCAN_RUN_RETENTION_CLEANUP',
   TRIGGER_LOG_RETENTION_CLEANUP: 'TRIGGER_LOG_RETENTION_CLEANUP'
 } as const
@@ -33,6 +35,7 @@ export interface ScheduledTaskDefinition {
   defaultPriority: number
   defaultEnabled: boolean
   mutexKey: string | null
+  defaultConfig?: unknown
 }
 
 export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
@@ -90,12 +93,31 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
     defaultPriority: 50,
     defaultEnabled: false,
     mutexKey: 'media-maintenance'
+  },
+  {
+    key: 'video_keyframe_generation',
+    type: SCHEDULED_TASK_TYPES.VIDEO_KEYFRAME_DISCOVERY,
+    name: '生成视频代表帧',
+    description: '增量发现缺失或源文件已变化的视频，并交由持久 Worker 生成代表帧。',
+    defaultTime: '05:00',
+    defaultTimezone: 'Asia/Shanghai',
+    defaultPriority: 60,
+    defaultEnabled: false,
+    mutexKey: 'media-maintenance',
+    defaultConfig: {
+      minDuration: null,
+      maxDuration: null,
+      includePaths: [],
+      excludePaths: [],
+      statuses: ['MISSING', 'STALE', 'FAILED']
+    }
   }
 ]
 
 export interface StartScheduledTaskOptions {
   trigger: 'manual' | 'schedule'
   chapterPreviewMode?: VideoChapterPreviewGenerationMode
+  taskConfig?: unknown
 }
 
 export interface StartScheduledTaskResult {
@@ -121,6 +143,9 @@ export const SCHEDULED_TASK_HANDLERS: Record<ScheduledTaskType, ScheduledTaskHan
   },
   [SCHEDULED_TASK_TYPES.VIDEO_CHAPTER_PREVIEW_GENERATION]: {
     start: startVideoChapterPreviewGenerationTask
+  },
+  [SCHEDULED_TASK_TYPES.VIDEO_KEYFRAME_DISCOVERY]: {
+    start: startVideoKeyframeDiscoveryTask
   }
 }
 
@@ -345,4 +370,13 @@ async function startVideoChapterPreviewGenerationTask(
   })()
 
   return { jobId: job.id }
+}
+
+async function startVideoKeyframeDiscoveryTask(options: StartScheduledTaskOptions): Promise<StartScheduledTaskResult> {
+  const result = await enqueueVideoKeyframeBatch({
+    trigger: options.trigger,
+    previewOnly: options.trigger === 'manual',
+    filter: options.taskConfig
+  })
+  return { jobId: result.jobId }
 }

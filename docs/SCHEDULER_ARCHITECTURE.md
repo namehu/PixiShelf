@@ -264,6 +264,17 @@ Authorization: Bearer <INTERNAL_JOB_TOKEN>
 
 scheduler 主流程不需要因为新增任务而修改。
 
+### 视频代表帧发现任务
+
+`video_keyframe_generation` 默认关闭并预设为每天 `05:00`。它只执行短时发现与入队：
+
+1. 按 `ScheduledTask.config` 中的时长和目录前缀筛选视频。
+2. 使用源文件大小、修改时间和策略版本判断代表帧是否缺失或过期。
+3. 向 PostgreSQL `SystemJob` 持久队列加入逐视频的 `VIDEO_KEYFRAME_GENERATION` 任务。
+4. 达到自动队列 90 个位置的上限后停止，预留 10 个位置给人工任务。
+
+真正的 FFmpeg 抽帧不在 scheduler 请求或 Next.js 进程内执行，而由 `archive-worker` 容器中的独立 keyframe loop 单并发领取。该循环和归档下载循环共享进程宿主及退出信号，但使用独立任务类型、数据库领取锁、租约、心跳和恢复逻辑。
+
 ## 设计取舍
 
 - v1 只支持每日固定时间，不支持 cron 表达式。

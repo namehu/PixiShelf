@@ -104,6 +104,9 @@ export default function ArtworkPreviewPage() {
             <VideoPlayer
               src={imgPath}
               chaptersUrl={image.chaptersUrl}
+              chaptersCount={image.chaptersCount}
+              keyframesUrl={image.keyframesUrl}
+              keyframeCount={image.keyframeCount}
               hasAudio={image.hasAudio}
               size={image.size}
               className="h-full w-full"

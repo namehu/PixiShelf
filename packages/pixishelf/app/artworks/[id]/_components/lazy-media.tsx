@@ -110,6 +110,9 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
         <VideoPlayer
           src={mediaSrc}
           chaptersUrl={media.chaptersUrl}
+          chaptersCount={media.chaptersCount}
+          keyframesUrl={media.keyframesUrl}
+          keyframeCount={media.keyframeCount}
           hasAudio={media.hasAudio}
           size={media.size}
           className="w-full h-auto"

@@ -2,7 +2,8 @@ import type Artplayer from 'artplayer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createChapterOverlayPlugin,
-  type ChapterOverlayPortal
+  type ChapterOverlayPortal,
+  type ChapterOverlaySnapshot
 } from '../artplayer-chapter-overlay-plugin'
 import type { NormalizedChapter } from '../video-chapters'
 
@@ -32,6 +33,28 @@ const chapters: NormalizedChapter[] = [
     previewUpdatedAt: null
   }
 ]
+
+function createSnapshot(overrides: Partial<ChapterOverlaySnapshot> = {}): ChapterOverlaySnapshot {
+  return {
+    chapters,
+    chaptersAvailable: true,
+    chapterCount: chapters.length,
+    chaptersLoading: false,
+    chaptersError: null,
+    onChaptersRetry: vi.fn(),
+    currentChapterId: 'chapter-1',
+    keyframes: [],
+    keyframesAvailable: false,
+    keyframeCount: 0,
+    keyframesLoading: false,
+    keyframesError: null,
+    onKeyframesRetry: vi.fn(),
+    onKeyframesOpen: vi.fn(),
+    currentKeyframeId: undefined,
+    mode: 'desktop',
+    ...overrides
+  }
+}
 
 function createArtplayerStub() {
   const player = document.createElement('div')
@@ -110,7 +133,7 @@ describe('ArtPlayer chapter overlay plugin', () => {
 
     expect(portal?.target.parentElement).toBe(layerRoot)
 
-    api.update({ chapters, currentChapterId: 'chapter-1', mode: 'desktop' })
+    api.update(createSnapshot())
     api.show()
     expect(api.visible).toBe(true)
     expect(player.classList.contains('pixishelf-chapter-overlay-open')).toBe(true)
@@ -140,7 +163,7 @@ describe('ArtPlayer chapter overlay plugin', () => {
     const api = createChapterOverlayPlugin(renderPortal)(art)
     document.body.style.overflow = 'clip'
 
-    api.update({ chapters, currentChapterId: 'chapter-1', mode: 'mobile-fullweb' })
+    api.update(createSnapshot({ mode: 'mobile-fullweb' }))
     api.show()
     expect(video.pause).not.toHaveBeenCalled()
     expect(player.classList.contains('pixishelf-chapter-rail-open')).toBe(true)
@@ -160,7 +183,7 @@ describe('ArtPlayer chapter overlay plugin', () => {
     const fullscreenState = { __artplayer_fullscreen_web__: 'fullscreen-token' }
     history.replaceState(fullscreenState, '', window.location.href)
 
-    api.update({ chapters, currentChapterId: 'chapter-1', mode: 'mobile-fullweb' })
+    api.update(createSnapshot({ mode: 'mobile-fullweb' }))
     api.show()
 
     expect(history.state).toMatchObject(fullscreenState)
@@ -183,11 +206,11 @@ describe('ArtPlayer chapter overlay plugin', () => {
     api.show()
     expect(api.visible).toBe(false)
 
-    api.update({ chapters, currentChapterId: 'chapter-1', mode: 'desktop' })
+    api.update(createSnapshot())
     api.show()
     expect(api.visible).toBe(true)
 
-    api.update({ chapters: [], currentChapterId: undefined, mode: 'desktop' })
+    api.update(createSnapshot({ chapters: [], chaptersAvailable: false, chapterCount: 0, currentChapterId: undefined }))
     expect(api.visible).toBe(false)
     api.destroy()
   })

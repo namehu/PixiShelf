@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { formatFileSize } from '@/utils/media'
 import type React from 'react'
 import type { ImageListItem } from './types'
+import { VideoKeyframePanel } from './video-keyframe-panel'
 
 interface MediaVideoMetadataDialogProps {
   open: boolean
@@ -133,6 +134,10 @@ export function MediaVideoMetadataDialog({ open, image, onOpenChange }: MediaVid
               <DetailRow label="章节时长" value={formatDuration(image.chaptersDuration)} />
               <DetailRow label="章节文件" value={chapterFileName || '-'} title={image.chaptersPath || undefined} />
             </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <VideoKeyframePanel imageId={image.id} visible={open} />
           </div>
         </div>
       ) : null}

@@ -17,7 +17,7 @@ describe('derived media URLs', () => {
     ).toBe('/_video-chapter-previews/229/0123456789abcdef/%E7%AB%A0%201.webp?v=1786233600000')
   })
 
-  it('maps both virtual resource types into the common ImgProxy root', () => {
+  it('maps every virtual resource type into the common ImgProxy root', () => {
     expect(resolveDerivedMediaSource('/_video-posters/229-cover.webp?v=10')).toEqual({
       kind: 'VIDEO_POSTER',
       relativePath: '229-cover.webp',
@@ -29,6 +29,12 @@ describe('derived media URLs', () => {
       relativePath: '229/hash/1.webp',
       imgproxySourcePath: '/derived-media/video/chapters/229/hash/1.webp',
       version: '20'
+    })
+    expect(resolveDerivedMediaSource('/_video-keyframes/229/set-1/001.webp?v=30')).toEqual({
+      kind: 'VIDEO_KEYFRAME',
+      relativePath: '229/set-1/001.webp',
+      imgproxySourcePath: '/derived-media/video/keyframes/229/set-1/001.webp',
+      version: '30'
     })
   })
 
