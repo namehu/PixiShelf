@@ -7,6 +7,7 @@ import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
 import type { SearchSuggestion } from '@/schemas/search.dto'
 import { SearchBox } from './_components/search-box'
 import { FilterSheet } from '@/components/artwork/filter-sheet'
+import { PageContainer } from '@/components/layout/page-container'
 import PageToolbar from '@/components/layout/page-toolbar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -342,6 +343,7 @@ export default function GalleryPage() {
     <div className="min-h-screen bg-gray-50/50">
       {/* 1. 页面搜索与操作工具栏 */}
       <PageToolbar
+        containerSize="gallery"
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" asChild>
@@ -366,102 +368,109 @@ export default function GalleryPage() {
       </PageToolbar>
 
       {/* 2. 筛选状态摘要 */}
-      <div className="border-b border-gray-100/80 bg-white/85 px-4 py-3 backdrop-blur-xl transition-all">
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-xl font-bold text-neutral-900 flex items-center gap-2">
-              画廊
-              {total > 0 && (
-                <Badge variant="secondary" className="rounded-full font-normal">
-                  {total.toLocaleString()}
-                </Badge>
-              )}
-              {hasActiveFilters && (
-                <Badge variant="outline" className="rounded-full font-normal text-xs">
-                  已筛选
-                </Badge>
-              )}
-            </h1>
+      <div className="border-b border-border bg-surface-raised/85 backdrop-blur-xl">
+        <PageContainer size="gallery" className="py-3">
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-1">
+              <h1 className="flex items-center gap-2 text-xl font-bold text-foreground">
+                作品
+                {total > 0 && (
+                  <Badge variant="secondary" className="rounded-full font-normal">
+                    {total.toLocaleString()}
+                  </Badge>
+                )}
+                {hasActiveFilters && (
+                  <Badge variant="outline" className="rounded-full font-normal text-xs">
+                    已筛选
+                  </Badge>
+                )}
+              </h1>
+            </div>
           </div>
-        </div>
 
-        {hasActiveFilters && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {searchQuery && (
-              <FilterChip label={`关键词：${searchQuery}`} onRemove={() => setQueryStates({ search: null })} />
-            )}
-            {artistId && (
-              <FilterChip label={`艺术家：${artistLabel || artistId}`} onRemove={() => updateSelectedArtist([])} />
-            )}
-            {selectedTags.map((tag) => (
-              <FilterChip key={tag.value} label={`标签：${tag.label}`} onRemove={() => removeTag(tag.value)} />
-            ))}
-            {selectedSources.map((source) => (
-              <FilterChip
-                key={source}
-                label={`创建类型：${MSource[source]}`}
-                onRemove={() =>
-                  setQueryStates({ sources: selectedSources.filter((item) => item !== source).join(',') || null })
-                }
-              />
-            ))}
-            {hasAudio !== 'all' && (
-              <FilterChip
-                label={`视频音频：${AUDIO_FILTER_LABELS[hasAudio]}`}
-                onRemove={() => setQueryStates({ hasAudio: null })}
-              />
-            )}
-            {mediaType !== 'all' && (
-              <FilterChip
-                label={MEDIA_TYPE_LABELS[mediaType as MediaTypeFilter]}
-                onRemove={() => setQueryStates({ mediaType: null })}
-              />
-            )}
-            {(startDate || endDate) && (
-              <FilterChip
-                label={`原始时间：${startDate || '不限'} - ${endDate || '不限'}`}
-                onRemove={() => setQueryStates({ startDate: null, endDate: null })}
-              />
-            )}
-            {(createdStartDate || createdEndDate) && (
-              <FilterChip
-                label={`入库时间：${createdStartDate || '不限'} - ${createdEndDate || '不限'}`}
-                onRemove={() => setQueryStates({ createdStartDate: null, createdEndDate: null })}
-              />
-            )}
-            {sortBy !== 'source_date_desc' && (
-              <FilterChip
-                label={`排序：${SORT_LABELS[sortBy as SortOption] || sortBy}`}
-                onRemove={() => setQueryStates({ sortBy: null, randomSeed: null })}
-              />
-            )}
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-neutral-500" onClick={clearAllFilters}>
-              清空全部
-            </Button>
-          </div>
-        )}
+          {hasActiveFilters && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {searchQuery && (
+                <FilterChip label={`关键词：${searchQuery}`} onRemove={() => setQueryStates({ search: null })} />
+              )}
+              {artistId && (
+                <FilterChip label={`艺术家：${artistLabel || artistId}`} onRemove={() => updateSelectedArtist([])} />
+              )}
+              {selectedTags.map((tag) => (
+                <FilterChip key={tag.value} label={`标签：${tag.label}`} onRemove={() => removeTag(tag.value)} />
+              ))}
+              {selectedSources.map((source) => (
+                <FilterChip
+                  key={source}
+                  label={`创建类型：${MSource[source]}`}
+                  onRemove={() =>
+                    setQueryStates({ sources: selectedSources.filter((item) => item !== source).join(',') || null })
+                  }
+                />
+              ))}
+              {hasAudio !== 'all' && (
+                <FilterChip
+                  label={`视频音频：${AUDIO_FILTER_LABELS[hasAudio]}`}
+                  onRemove={() => setQueryStates({ hasAudio: null })}
+                />
+              )}
+              {mediaType !== 'all' && (
+                <FilterChip
+                  label={MEDIA_TYPE_LABELS[mediaType as MediaTypeFilter]}
+                  onRemove={() => setQueryStates({ mediaType: null })}
+                />
+              )}
+              {(startDate || endDate) && (
+                <FilterChip
+                  label={`原始时间：${startDate || '不限'} - ${endDate || '不限'}`}
+                  onRemove={() => setQueryStates({ startDate: null, endDate: null })}
+                />
+              )}
+              {(createdStartDate || createdEndDate) && (
+                <FilterChip
+                  label={`入库时间：${createdStartDate || '不限'} - ${createdEndDate || '不限'}`}
+                  onRemove={() => setQueryStates({ createdStartDate: null, createdEndDate: null })}
+                />
+              )}
+              {sortBy !== 'source_date_desc' && (
+                <FilterChip
+                  label={`排序：${SORT_LABELS[sortBy as SortOption] || sortBy}`}
+                  onRemove={() => setQueryStates({ sortBy: null, randomSeed: null })}
+                />
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-muted-foreground"
+                onClick={clearAllFilters}
+              >
+                清空全部
+              </Button>
+            </div>
+          )}
 
-        <FilterSheet
-          open={isFilterOpen}
-          onOpenChange={setIsFilterOpen}
-          currentMediaType={mediaType as MediaTypeFilter}
-          currentSortBy={sortBy as SortOption}
-          currentArtist={selectedArtist}
-          currentTags={selectedTags}
-          currentSources={selectedSources}
-          currentHasAudio={hasAudio}
-          randomSeed={randomSeed ? Number(randomSeed) : undefined}
-          startDate={startDate}
-          endDate={endDate}
-          createdStartDate={createdStartDate}
-          createdEndDate={createdEndDate}
-          onSearchArtist={handleSearchArtist}
-          onSearchTag={handleSearchTag}
-          onApply={handleApplyFilters}
-        />
+          <FilterSheet
+            open={isFilterOpen}
+            onOpenChange={setIsFilterOpen}
+            currentMediaType={mediaType as MediaTypeFilter}
+            currentSortBy={sortBy as SortOption}
+            currentArtist={selectedArtist}
+            currentTags={selectedTags}
+            currentSources={selectedSources}
+            currentHasAudio={hasAudio}
+            randomSeed={randomSeed ? Number(randomSeed) : undefined}
+            startDate={startDate}
+            endDate={endDate}
+            createdStartDate={createdStartDate}
+            createdEndDate={createdEndDate}
+            onSearchArtist={handleSearchArtist}
+            onSearchTag={handleSearchTag}
+            onApply={handleApplyFilters}
+          />
+        </PageContainer>
       </div>
 
-      <main className="container mx-auto pb-10 px-4">
+      <PageContainer as="main" size="gallery" className="pb-10">
         {/* 3. 虚拟滚动列表 */}
         <InfiniteArtworkList
           searchQuery={searchQuery}
@@ -479,7 +488,7 @@ export default function GalleryPage() {
           onTotalChange={setTotal}
           onClearFilters={clearAllFilters}
         />
-      </main>
+      </PageContainer>
     </div>
   )
 }

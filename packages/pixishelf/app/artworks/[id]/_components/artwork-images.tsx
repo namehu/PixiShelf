@@ -372,7 +372,7 @@ function MediaAnchorNavigation({
         aria-label={isMobileOpen ? '关闭媒体快捷导航' : '打开媒体快捷导航'}
         aria-expanded={isMobileOpen}
         onClick={() => onMobileOpenChange(!isMobileOpen)}
-        className="fixed bottom-20 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg md:hidden"
+        className="fixed right-4 bottom-[calc(var(--app-mobile-navigation-offset)+1rem)] z-40 flex h-11 w-11 items-center justify-center rounded-full bg-foreground text-background shadow-floating md:hidden"
       >
         {isMobileOpen ? <X className="h-5 w-5" /> : <ListTree className="h-5 w-5" />}
       </button>
@@ -382,7 +382,7 @@ function MediaAnchorNavigation({
           indexes={indexes}
           activeIndex={activeIndex}
           onSelect={onSelect}
-          className="fixed bottom-32 right-4 z-40 md:hidden"
+          className="fixed right-4 bottom-[calc(var(--app-mobile-navigation-offset)+4rem)] z-40 md:hidden"
         />
       )}
     </>

@@ -177,14 +177,14 @@ If no focused test exists, add one when the changed behavior can be tested econo
 
 Stage-specific route checks:
 
-| Stage | Representative routes |
-| --- | --- |
-| 1 | the migrated state/primitives sample plus `/dashboard` |
-| 2 | `/dashboard`, `/artworks`, `/artworks/[id]`, `/admin`, `/admin/artworks` |
-| 3 | `/dashboard`, `/artworks`, `/artworks/[id]`, `/viewer` |
-| 4 | `/viewer`, `/login`, one touched table route, and one touched form/dialog route |
-| 5 | `/artists`, `/tags`, `/series`, `/settings`, `/login`, global error/loading states |
-| 6 | `/admin`, management tables, scanning/history, and artwork import/media dialogs |
+| Stage | Representative routes                                                              |
+| ----- | ---------------------------------------------------------------------------------- |
+| 1     | the migrated state/primitives sample plus `/dashboard`                             |
+| 2     | `/dashboard`, `/artworks`, `/artworks/[id]`, `/admin`, `/admin/artworks`           |
+| 3     | `/dashboard`, `/artworks`, `/artworks/[id]`, `/viewer`                             |
+| 4     | `/viewer`, `/login`, one touched table route, and one touched form/dialog route    |
+| 5     | `/artists`, `/tags`, `/series`, `/settings`, `/login`, global error/loading states |
+| 6     | `/admin`, management tables, scanning/history, and artwork import/media dialogs    |
 
 ### Change discipline
 
@@ -281,6 +281,14 @@ Add reusable primitives under `components/layout`:
 - Admin modules can be switched directly on mobile.
 - Core navigation is reachable by keyboard and does not rely on clickable generic elements.
 - The document has one `main` landmark, a practical skip-to-content link, and `aria-current` on active navigation.
+
+### Verification record
+
+- `1440x900`: `/dashboard`, `/artworks`, `/artworks/50`, `/admin`, and `/admin/artworks` had no horizontal overflow; desktop navigation was visible, mobile navigation was hidden, and all four visible artwork-index containers shared the gallery axis.
+- `390x844`: the same representative routes had no horizontal overflow; desktop navigation was hidden, the four-item bottom navigation was visible, and the artwork toolbar, filter summary, and main grid all used `16px` inline padding. The admin module Sheet measured `344x844`, all eleven links measured `44px` high, and the Sheet scroll region retained safe-area padding in its class contract.
+- `1440x720`: all representative routes had no horizontal overflow; the admin sidebar measured `240px` wide with `overflow-y: auto`, a `656px` viewport, and `660px` scroll content.
+- The real `/artworks/50` detail route was checked at desktop and mobile widths. Its dataset is below the media-anchor threshold, so the fixed media controls were additionally verified with the existing 120-media component fixture; AppShell and both fixed controls use `--app-mobile-navigation-offset`.
+- `/change-password` was checked after dismissing the content warning and exposed exactly one visible `main` landmark with the skip target wrapping it.
 
 ## 8. Stage 3 — Core Gallery Experiences
 

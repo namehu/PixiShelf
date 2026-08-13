@@ -89,7 +89,7 @@ export default function ChangePasswordPage() {
   // 成功页面
   if (success) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] w-full flex bg-background">
+      <main className="min-h-[calc(100vh-4rem)] w-full flex bg-background">
         {/* 左侧：静态插画区域 */}
         <div className="hidden lg:flex lg:w-1/2 xl:w-[60%] relative overflow-hidden bg-slate-900">
           <div className="absolute inset-0 w-full h-full">
@@ -143,12 +143,12 @@ export default function ChangePasswordPage() {
             </div>
           </div>
         </div>
-      </div>
+      </main>
     )
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] w-full flex bg-background">
+    <main className="min-h-[calc(100vh-4rem)] w-full flex bg-background">
       {/* 左侧：静态插画区域 */}
       <div className="hidden lg:flex lg:w-1/2 xl:w-[60%] relative overflow-hidden bg-slate-900">
         <div className="absolute inset-0 w-full h-full">
@@ -313,6 +313,6 @@ export default function ChangePasswordPage() {
           </form>
         </div>
       </div>
-    </div>
+    </main>
   )
 }

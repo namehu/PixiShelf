@@ -179,10 +179,13 @@ describe('ArtworkImages', () => {
     render(<ArtworkImages images={generateImages(120)} artworkId={1} />)
 
     expect(screen.getAllByRole('navigation', { name: '作品媒体快捷导航' })).toHaveLength(1)
-    fireEvent.click(screen.getByRole('button', { name: '打开媒体快捷导航' }))
+    const mobileTrigger = screen.getByRole('button', { name: '打开媒体快捷导航' })
+    expect(mobileTrigger.className).toContain('var(--app-mobile-navigation-offset)')
+    fireEvent.click(mobileTrigger)
 
     const navigations = screen.getAllByRole('navigation', { name: '作品媒体快捷导航' })
     expect(navigations).toHaveLength(2)
+    expect(navigations[1]!.className).toContain('var(--app-mobile-navigation-offset)')
     fireEvent.click(within(navigations[1]!).getByRole('button', { name: '跳转到第 50 张媒体' }))
     expect(screen.queryByRole('button', { name: '关闭媒体快捷导航' })).toBeNull()
   })

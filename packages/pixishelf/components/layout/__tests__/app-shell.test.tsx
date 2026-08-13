@@ -13,8 +13,16 @@ vi.mock('@/components/auth', () => ({
   useAuthUser: vi.fn()
 }))
 
+vi.mock('@/components/content-warning/content-warning-gate', () => ({
+  ContentWarningGate: () => null
+}))
+
 vi.mock('../app-header', () => ({
   default: () => <div data-testid="app-header">应用导航</div>
+}))
+
+vi.mock('../mobile-bottom-navigation', () => ({
+  default: () => <div data-testid="mobile-bottom-navigation">手机导航</div>
 }))
 
 afterEach(() => {
@@ -43,7 +51,12 @@ describe('AppShell', () => {
     render(<AppShell>页面内容</AppShell>)
 
     expect(screen.getByTestId('app-header')).toBeTruthy()
+    expect(screen.getByTestId('mobile-bottom-navigation')).toBeTruthy()
+    expect(screen.getByRole('link', { name: '跳到主要内容' }).getAttribute('href')).toBe('#main-content')
     expect(screen.getByText('页面内容')).toBeTruthy()
+    expect(screen.getByText('页面内容').closest('#main-content')?.className).toContain(
+      'var(--app-mobile-navigation-offset)'
+    )
   })
 
   it.each(['/login', '/viewer', '/artworks/preview'])('does not render the header on %s', (pathname) => {
@@ -53,6 +66,8 @@ describe('AppShell', () => {
     render(<AppShell>页面内容</AppShell>)
 
     expect(screen.queryByTestId('app-header')).toBeNull()
+    expect(screen.queryByTestId('mobile-bottom-navigation')).toBeNull()
+    expect(screen.queryByRole('link', { name: '跳到主要内容' })).toBeNull()
   })
 
   it('does not render authenticated chrome without a user', () => {
@@ -62,5 +77,6 @@ describe('AppShell', () => {
     render(<AppShell>页面内容</AppShell>)
 
     expect(screen.queryByTestId('app-header')).toBeNull()
+    expect(screen.queryByTestId('mobile-bottom-navigation')).toBeNull()
   })
 })

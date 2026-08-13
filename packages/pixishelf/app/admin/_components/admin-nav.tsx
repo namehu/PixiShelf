@@ -3,31 +3,50 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { sections } from '../_constant'
+import { adminNavigationGroups, isAdminNavigationItemActive } from '../_constant'
 
-export function AdminNav({ className }: { className?: string }) {
+interface AdminNavProps {
+  className?: string
+  onNavigate?: () => void
+}
+
+export function AdminNav({ className, onNavigate }: AdminNavProps) {
   const pathname = usePathname()
 
   return (
-    <nav className={cn('flex flex-col space-y-1 p-2 border-r bg-white', className)}>
-      <div className="mb-4 px-2 text-xs font-semibold uppercase text-muted-foreground tracking-wider">管理菜单</div>
-      {sections.map((item) => {
-        const isActive = item.href === '/admin' ? pathname === '/admin' : pathname?.startsWith(item.href)
-
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={cn(
-              'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-              isActive ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-            )}
+    <nav aria-label="管理模块" className={cn('flex flex-col gap-5 p-4', className)}>
+      {adminNavigationGroups.map((group) => (
+        <div key={group.id} role="group" aria-labelledby={`admin-nav-${group.id}`}>
+          <p
+            id={`admin-nav-${group.id}`}
+            className="font-utility mb-2 px-3 text-xs font-medium tracking-[0.08em] text-muted-foreground uppercase"
           >
-            <item.icon className="h-4 w-4" />
-            {item.title}
-          </Link>
-        )
-      })}
+            {group.label}
+          </p>
+          <div className="flex flex-col gap-1">
+            {group.items.map((item) => {
+              const active = isAdminNavigationItemActive(pathname, item.href)
+              const Icon = item.icon
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? 'page' : undefined}
+                  onClick={onNavigate}
+                  className={cn(
+                    'flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring/50',
+                    active && 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  )}
+                >
+                  <Icon className="size-4" aria-hidden="true" />
+                  <span>{item.title}</span>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      ))}
     </nav>
   )
 }

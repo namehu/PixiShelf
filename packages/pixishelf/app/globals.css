@@ -51,6 +51,7 @@
   --app-container-standard: 80rem;
   --app-container-reading: 45rem;
   --app-container-workbench: 105rem;
+  --app-mobile-navigation-offset: calc(4rem + env(safe-area-inset-bottom));
   --motion-fast: 120ms;
   --motion-base: 180ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);

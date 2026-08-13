@@ -84,7 +84,7 @@ function ArtistsPage() {
           <Users className="w-6 h-6 text-primary" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">推荐画师</h1>
+          <h1 className="text-2xl font-bold text-foreground">艺术家</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">发现 {totalCount} 位才华横溢的创作者</p>
         </div>
       </div>

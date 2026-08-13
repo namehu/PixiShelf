@@ -21,8 +21,11 @@ type PageContainerProps = ComponentProps<'div'> &
     as?: Extract<ElementType, 'div' | 'main' | 'section'>
   }
 
+type PageContainerSize = NonNullable<VariantProps<typeof pageContainerVariants>['size']>
+
 export function PageContainer({ as: Comp = 'div', size, className, ...props }: PageContainerProps) {
   return <Comp data-slot="page-container" className={cn(pageContainerVariants({ size }), className)} {...props} />
 }
 
 export { pageContainerVariants }
+export type { PageContainerProps, PageContainerSize }

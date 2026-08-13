@@ -3,7 +3,9 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { usePathname } from 'next/navigation'
 import AppHeader from '../app-header'
-import { isNavigationItemActive, usesContextualMobileToolbar } from '../app-navigation'
+import MobileBottomNavigation from '../mobile-bottom-navigation'
+import PageToolbar from '../page-toolbar'
+import { getNavigationContainerSize, isMoreNavigationActive, isNavigationItemActive } from '../app-navigation'
 
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn(),
@@ -38,16 +40,19 @@ describe('isNavigationItemActive', () => {
   })
 })
 
-describe('usesContextualMobileToolbar', () => {
-  it.each(['/artworks', '/artworks/42', '/artists', '/artists/42', '/tags', '/tags/42', '/series/42'])(
-    'uses a single contextual mobile bar for %s',
-    (pathname) => {
-      expect(usesContextualMobileToolbar(pathname)).toBe(true)
-    }
-  )
+describe('navigation shell helpers', () => {
+  it('selects a stable container axis for each shell', () => {
+    expect(getNavigationContainerSize('/artworks')).toBe('gallery')
+    expect(getNavigationContainerSize('/artworks/42')).toBe('standard')
+    expect(getNavigationContainerSize('/admin/tasks')).toBe('workbench')
+    expect(getNavigationContainerSize('/dashboard')).toBe('standard')
+  })
 
-  it.each(['/dashboard', '/series', '/admin', '/settings/profile'])('keeps the compact app bar for %s', (pathname) => {
-    expect(usesContextualMobileToolbar(pathname)).toBe(false)
+  it('marks secondary destinations as part of More navigation', () => {
+    expect(isMoreNavigationActive('/artists/42')).toBe(true)
+    expect(isMoreNavigationActive('/admin/tasks')).toBe(true)
+    expect(isMoreNavigationActive('/settings/profile')).toBe(true)
+    expect(isMoreNavigationActive('/artworks')).toBe(false)
   })
 })
 
@@ -55,30 +60,63 @@ describe('AppHeader', () => {
   it('renders the global destinations and marks the current section', () => {
     vi.mocked(usePathname).mockReturnValue('/artworks/42')
 
-    render(<AppHeader />)
+    const { container } = render(<AppHeader />)
 
     expect(screen.getByRole('link', { name: '返回首页' }).getAttribute('href')).toBe('/dashboard')
     expect(screen.getByRole('link', { name: '作品' }).getAttribute('aria-current')).toBe('page')
-    expect(screen.getByRole('link', { name: '刷图' }).getAttribute('href')).toBe('/viewer')
+    expect(screen.getByRole('link', { name: '沉浸浏览' }).getAttribute('href')).toBe('/viewer')
     expect(screen.getByRole('link', { name: '管理' }).getAttribute('href')).toBe('/admin')
     expect(screen.getByTestId('user-menu')).toBeTruthy()
-    expect(screen.getByRole('banner').className).toContain('hidden lg:block')
+    expect(screen.getByRole('banner').className).toContain('hidden')
+    expect(screen.getByRole('banner').className).toContain('lg:block')
+    expect(container.querySelector('[data-slot="page-container"]')?.className).toContain('max-w-standard')
   })
 
-  it('exposes all primary destinations and management in the mobile menu', () => {
-    vi.mocked(usePathname).mockReturnValue('/dashboard')
-    render(<AppHeader />)
+  it('uses the gallery axis on the artwork index', () => {
+    vi.mocked(usePathname).mockReturnValue('/artworks')
+    const { container } = render(<AppHeader />)
 
-    fireEvent.click(screen.getByRole('button', { name: '打开导航菜单' }))
+    expect(container.querySelector('[data-slot="page-container"]')?.className).toContain('max-w-gallery')
+  })
+})
 
-    const mobileNavigation = screen.getByRole('navigation', { name: '移动端主导航' })
-    expect(within(mobileNavigation).getByRole('link', { name: '首页' }).getAttribute('href')).toBe('/dashboard')
-    expect(within(mobileNavigation).getByRole('link', { name: '作品' }).getAttribute('href')).toBe('/artworks')
-    expect(within(mobileNavigation).getByRole('link', { name: '刷图' }).getAttribute('href')).toBe('/viewer')
-    expect(within(mobileNavigation).getByRole('link', { name: '艺术家' }).getAttribute('href')).toBe('/artists')
-    expect(within(mobileNavigation).getByRole('link', { name: '标签' }).getAttribute('href')).toBe('/tags')
-    expect(within(mobileNavigation).getByRole('link', { name: '系列' }).getAttribute('href')).toBe('/series')
-    expect(within(mobileNavigation).getByRole('link', { name: '管理' }).getAttribute('href')).toBe('/admin')
+describe('MobileBottomNavigation', () => {
+  it('keeps three core destinations visible and exposes secondary routes in More', () => {
+    vi.mocked(usePathname).mockReturnValue('/tags')
+    render(<MobileBottomNavigation />)
+
+    const primaryNavigation = screen.getByRole('navigation', { name: '手机主导航' })
+    expect(within(primaryNavigation).getByRole('link', { name: '首页' }).getAttribute('href')).toBe('/dashboard')
+    expect(within(primaryNavigation).getByRole('link', { name: '作品' }).getAttribute('href')).toBe('/artworks')
+    expect(within(primaryNavigation).getByRole('link', { name: '沉浸浏览' }).getAttribute('href')).toBe('/viewer')
+
+    fireEvent.click(within(primaryNavigation).getByRole('button', { name: /更多/ }))
+
+    const moreNavigation = screen.getByRole('navigation', { name: '更多导航' })
+    expect(within(moreNavigation).getByRole('link', { name: '艺术家' }).getAttribute('href')).toBe('/artists')
+    expect(within(moreNavigation).getByRole('link', { name: '标签' }).getAttribute('aria-current')).toBe('page')
+    expect(within(moreNavigation).getByRole('link', { name: '系列' }).getAttribute('href')).toBe('/series')
+    expect(within(moreNavigation).getByRole('link', { name: '管理' }).getAttribute('href')).toBe('/admin')
     expect(screen.getByRole('link', { name: '个人设置' }).getAttribute('href')).toBe('/settings/profile')
+    expect(document.querySelectorAll('[data-slot="separator"]')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: '关闭更多导航' }).className).toContain('size-11')
+  })
+
+  it('marks the active utility destination inside More navigation', () => {
+    vi.mocked(usePathname).mockReturnValue('/settings/profile')
+    render(<MobileBottomNavigation />)
+
+    fireEvent.click(screen.getByRole('button', { name: /更多/ }))
+
+    expect(screen.getByRole('link', { name: '个人设置' }).getAttribute('aria-current')).toBe('page')
+  })
+})
+
+describe('PageToolbar', () => {
+  it('uses the same named container axes as the application header', () => {
+    const { container } = render(<PageToolbar containerSize="gallery">搜索作品</PageToolbar>)
+
+    expect(container.querySelector('[data-slot="page-container"]')?.className).toContain('max-w-gallery')
+    expect(screen.getByText('搜索作品')).toBeTruthy()
   })
 })
