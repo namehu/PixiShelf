@@ -32,6 +32,18 @@ import { toApiImageSize } from '@/utils/image-size'
 import { buildVideoPosterUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
 import { trashPublishedArchive } from '@/services/archive/publisher'
 
+const publishedKeyframeSummaryInclude = {
+  where: { status: 'PUBLISHED' as const },
+  orderBy: { publishedAt: 'desc' as const },
+  take: 1,
+  select: {
+    id: true,
+    publishedCount: true,
+    sourceSize: true,
+    sourceMtimeMs: true
+  }
+} as const
+
 export * from './related'
 export * from './video-chapters'
 
@@ -118,7 +130,7 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
     prisma.image.findMany({
       where: { artworkId: { in: artworkIds } },
       orderBy: { sortOrder: 'asc' },
-      include: { videoMetadata: true }
+      include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
     }),
     prisma.artworkTag.findMany({
       where: { artworkId: { in: artworkIds } },
@@ -183,9 +195,7 @@ export interface ArtworkCardsPageResponse {
  * 这里只返回 ArtworkCard 所需字段，并把每个作品的媒体关系限制为封面一条。
  * 第一页保留精确总数；后续页多取一条记录判断是否还有下一页，避免重复 COUNT。
  */
-export async function getArtworkCardsPage(
-  params: ArtworksInfiniteQuerySchema
-): Promise<ArtworkCardsPageResponse> {
+export async function getArtworkCardsPage(params: ArtworksInfiniteQuerySchema): Promise<ArtworkCardsPageResponse> {
   const { cursor, sortBy } = params
   const page = cursor ?? 1
   const pageSize = params.pageSize
@@ -669,7 +679,7 @@ export async function getRandomArtworks(
       images: {
         take: maxImageCount,
         orderBy: { sortOrder: 'asc' },
-        include: { videoMetadata: true }
+        include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
       },
       artist: true,
       artworkTags: { include: { tag: true } }
@@ -796,6 +806,10 @@ export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, bo
       height: typeof img.height === 'number' ? img.height : null,
       isAnimated: img.isAnimated === true,
       chaptersUrl: mediaType === MediaType.VIDEO ? (img.chaptersUrl ?? null) : null,
+      chaptersCount: mediaType === MediaType.VIDEO ? (img.chaptersCount ?? 0) : 0,
+      keyframesUrl: mediaType === MediaType.VIDEO ? (img.keyframesUrl ?? null) : null,
+      hasKeyframes: mediaType === MediaType.VIDEO ? img.hasKeyframes === true : false,
+      keyframeCount: mediaType === MediaType.VIDEO ? (img.keyframeCount ?? 0) : 0,
       hasAudio: mediaType === MediaType.VIDEO ? (img.hasAudio ?? null) : null,
       duration: mediaType === MediaType.VIDEO ? (img.duration ?? null) : null
     }
@@ -836,7 +850,10 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
   const artwork = await prisma.artwork.findUnique({
     where: { id, deletedAt: null },
     include: {
-      images: { orderBy: { sortOrder: 'asc' }, include: { videoMetadata: true } },
+      images: {
+        orderBy: { sortOrder: 'asc' },
+        include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
+      },
       artist: true,
       artworkTags: { include: { tag: true } },
       series: {
@@ -979,7 +996,10 @@ async function resolveArtworkCardCovers(artworks: ArtworkCardQueryRow[]): Promis
 }
 
 function getLogicalMediaKey(artworkId: number, mediaPath: string): string {
-  const normalizedPath = mediaPath.replace(/\\/g, '/').replace(/\.[^/.]+$/, '').toLowerCase()
+  const normalizedPath = mediaPath
+    .replace(/\\/g, '/')
+    .replace(/\.[^/.]+$/, '')
+    .toLowerCase()
   return `${artworkId}:${normalizedPath}`
 }
 

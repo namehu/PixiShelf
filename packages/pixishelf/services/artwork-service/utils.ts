@@ -66,10 +66,17 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
         ? 'video'
         : 'image'
     const isAnimated =
-      storedMediaType === 'ANIMATION' ||
-      normalizedImage.webpAnimationStatus === EMediaAnimationStatus.animated
+      storedMediaType === 'ANIMATION' || normalizedImage.webpAnimationStatus === EMediaAnimationStatus.animated
     const hasChapters =
       mediaType === 'video' && Boolean(normalizedImage.chaptersPath && (normalizedImage.chaptersCount ?? 0) > 0)
+    const publishedKeyframeSet = Array.isArray((normalizedImage as any).keyframeSets)
+      ? (normalizedImage as any).keyframeSets[0]
+      : null
+    const keyframeCount =
+      mediaType === 'video' && Number.isInteger(publishedKeyframeSet?.publishedCount)
+        ? Math.max(0, publishedKeyframeSet.publishedCount)
+        : 0
+    const hasKeyframes = keyframeCount > 0
     const videoMetadata = normalizedImage.videoMetadata
     const metadataFields = videoMetadata
       ? {
@@ -95,6 +102,9 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
       isAnimated,
       hasChapters,
       chaptersUrl: hasChapters ? `/api/v1/media/${normalizedImage.id}/chapters` : null,
+      hasKeyframes,
+      keyframeCount,
+      keyframesUrl: hasKeyframes ? `/api/v1/media/${normalizedImage.id}/keyframes` : null,
       ...metadataFields
     })
   })

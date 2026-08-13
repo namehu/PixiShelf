@@ -24,12 +24,14 @@ import {
 } from '@/components/players/artplayer-chapter-overlay-plugin'
 import { useCurrentChapter } from '@/components/players/use-current-chapter'
 import { useVideoChapters } from '@/components/players/use-video-chapters'
+import { useVideoKeyframes } from '@/components/players/use-video-keyframes'
 import {
   createChapterTimelineMarkers,
   getAdjacentChapters,
   getCurrentChapter,
   type NormalizedChapter
 } from '@/components/players/video-chapters'
+import { getNearestVideoKeyframe } from '@/components/players/video-keyframes'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { useVideoLongPressPlaybackRate, useVideoSeekStepSeconds } from '@/components/user-setting'
 import { Button } from '@/components/ui/button'
@@ -88,6 +90,9 @@ export interface VideoPlayerSettingAction {
 export interface VideoPlayerProps {
   src: string
   chaptersUrl?: string | null
+  chaptersCount?: number
+  keyframesUrl?: string | null
+  keyframeCount?: number
   hasAudio?: boolean | null
   size?: number | null
   autoPlay?: boolean
@@ -105,6 +110,9 @@ export interface VideoPlayerProps {
 export function VideoPlayer({
   src,
   chaptersUrl,
+  chaptersCount: chapterCountHint = 0,
+  keyframesUrl,
+  keyframeCount: keyframeCountHint = 0,
   hasAudio,
   size,
   autoPlay = false,
@@ -153,13 +161,34 @@ export function VideoPlayer({
   const longPressPlaybackRate = useVideoLongPressPlaybackRate()
   const seekStepSeconds = useVideoSeekStepSeconds()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
-  const { chapters, duration: chaptersDuration } = useVideoChapters(chaptersUrl)
+  const {
+    chapters,
+    duration: chaptersDuration,
+    loading: chaptersLoading,
+    loaded: chaptersLoaded,
+    error: chaptersError,
+    reload: reloadChapters
+  } = useVideoChapters(chaptersUrl)
+  const {
+    keyframes,
+    loading: keyframesLoading,
+    loaded: keyframesLoaded,
+    error: keyframesError,
+    reload: reloadKeyframes
+  } = useVideoKeyframes(keyframesUrl)
   const currentChapter = useCurrentChapter(chapters, currentTime)
+  const currentKeyframe = useMemo(() => getNearestVideoKeyframe(keyframes, currentTime), [keyframes, currentTime])
   const { previous: previousChapter, next: nextChapter } = useMemo(
     () => getAdjacentChapters(chapters, currentTime),
     [chapters, currentTime]
   )
   const chapterMarkers = useMemo(() => createChapterTimelineMarkers(chapters), [chapters])
+  const chaptersAvailable =
+    chapters.length > 0 || (Boolean(chaptersUrl) && (!chaptersLoaded || chaptersLoading || Boolean(chaptersError)))
+  const keyframesAvailable =
+    keyframes.length > 0 || (Boolean(keyframesUrl) && (!keyframesLoaded || keyframesLoading || Boolean(keyframesError)))
+  const chapterCount = chapters.length || chapterCountHint
+  const keyframeCount = keyframes.length || keyframeCountHint
   const chapterUiDuration = duration > 0 ? duration : chaptersDuration
   const chapterMarkerMinSpacingPx = isDesktop ? 18 : 28
   const showAudioControls = shouldShowAudioControls(hasAudio)
@@ -534,10 +563,41 @@ export function VideoPlayer({
 
     chapterOverlayPluginRef.current?.update({
       chapters,
+      chaptersAvailable,
+      chapterCount,
+      chaptersLoading,
+      chaptersError,
+      onChaptersRetry: reloadChapters,
       currentChapterId: currentChapter?.id,
+      keyframes,
+      keyframesAvailable,
+      keyframeCount,
+      keyframesLoading,
+      keyframesError,
+      onKeyframesRetry: reloadKeyframes,
+      onKeyframesOpen: reloadKeyframes,
+      currentKeyframeId: currentKeyframe?.id,
       mode: isDesktop ? 'desktop' : isFullscreenWeb ? 'mobile-fullweb' : 'mobile-sheet'
     })
-  }, [artInstance, chapters, currentChapter?.id, isDesktop, isFullscreenWeb])
+  }, [
+    artInstance,
+    chapterCount,
+    chapters,
+    chaptersAvailable,
+    chaptersError,
+    chaptersLoading,
+    currentChapter?.id,
+    currentKeyframe?.id,
+    isDesktop,
+    isFullscreenWeb,
+    keyframeCount,
+    keyframes,
+    keyframesAvailable,
+    keyframesError,
+    keyframesLoading,
+    reloadChapters,
+    reloadKeyframes
+  ])
 
   useEffect(() => {
     if (!artInstance) {
@@ -565,7 +625,7 @@ export function VideoPlayer({
       }
     })
 
-    if (chapters.length === 0) {
+    if (!chaptersAvailable && !keyframesAvailable) {
       return
     }
 
@@ -618,36 +678,40 @@ export function VideoPlayer({
       })
     }
 
-    addChapterNavigationControl({
-      name: previousChapterControlName,
-      chapter: previousChapter,
-      label: previousChapter ? `上一章：${previousChapter.title}` : '已经是第一章',
-      icon: <SkipBackIcon aria-hidden="true" className="h-5 w-5" />,
-      index: 18,
-      disabled: !previousChapter
-    })
+    if (chapters.length > 0) {
+      addChapterNavigationControl({
+        name: previousChapterControlName,
+        chapter: previousChapter,
+        label: previousChapter ? `上一章：${previousChapter.title}` : '已经是第一章',
+        icon: <SkipBackIcon aria-hidden="true" className="h-5 w-5" />,
+        index: 18,
+        disabled: !previousChapter
+      })
 
-    addChapterNavigationControl({
-      name: nextChapterControlName,
-      chapter: nextChapter,
-      label: nextChapter ? `下一章：${nextChapter.title}` : '已经是最后一章',
-      icon: <SkipForwardIcon aria-hidden="true" className="h-5 w-5" />,
-      index: 19,
-      disabled: !nextChapter
-    })
+      addChapterNavigationControl({
+        name: nextChapterControlName,
+        chapter: nextChapter,
+        label: nextChapter ? `下一章：${nextChapter.title}` : '已经是最后一章',
+        icon: <SkipForwardIcon aria-hidden="true" className="h-5 w-5" />,
+        index: 19,
+        disabled: !nextChapter
+      })
+    }
+
+    const navigationLabel = chaptersAvailable && keyframesAvailable ? '视频导航' : keyframesAvailable ? '画面' : '章节'
 
     artInstance.controls.add({
       name: chapterControlName,
       position: 'right',
       index: 20,
       html: '',
-      tooltip: '章节',
+      tooltip: navigationLabel,
       style: {
         padding: '0 10px'
       },
       mounted(element) {
         element.classList.add('art-control-chapter-entry')
-        element.setAttribute('aria-label', '章节')
+        element.setAttribute('aria-label', navigationLabel)
         const root = createRoot(element)
         controlRoots.set(chapterControlName, root)
         root.render(<ListVideoIcon aria-hidden="true" className="h-5 w-5" />)
@@ -672,6 +736,8 @@ export function VideoPlayer({
     artInstance,
     chapterControlName,
     chapters.length,
+    chaptersAvailable,
+    keyframesAvailable,
     nextChapter,
     nextChapterControlName,
     previousChapter,

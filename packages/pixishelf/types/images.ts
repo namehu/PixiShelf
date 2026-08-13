@@ -27,6 +27,10 @@ export interface ViewerMediaItem {
   height?: number | null
   isAnimated?: boolean
   chaptersUrl?: string | null
+  chaptersCount?: number
+  keyframesUrl?: string | null
+  hasKeyframes?: boolean
+  keyframeCount?: number
   hasAudio?: boolean | null
   duration?: number | null
 }

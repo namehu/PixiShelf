@@ -24,14 +24,13 @@ None of these represents a general, restart-safe collection of representative fr
 - Keep job state durable in PostgreSQL and resume safely after worker or container restarts.
 - Support pause, resume, cancel, retry, progress, warnings, and manual-priority queueing.
 - Reuse the existing scheduler, `SystemJob`, derived-media storage, and archive-worker container.
-- Keep the first UI iteration in administration pages.
+- Expose published representative frames in the artwork detail player and immersive viewer without merging them into chapter data.
 
 ## Non-goals
 
 - Re-encoding videos or inserting codec I-frames.
 - Full-video scene-cut or concatenation-point detection.
 - Replacing existing posters or chapter previews.
-- Showing keyframe strips in the public artwork viewer in the first iteration.
 - Introducing Redis, BullMQ, or another queue service.
 
 ## Confirmed product policy
@@ -263,6 +262,38 @@ All enqueue paths use the same transaction-level deduplication. One image may ha
 - Pending retries show their live remaining delay instead of only a generic waiting state.
 - Selecting a frame regenerates the existing formal poster at 960 px. Failure preserves the prior poster and exposes a warning.
 
+## Consumer video navigation
+
+Chapter previews and representative frames remain separate domain objects, read endpoints, loading states, and failure states. They share only a presentation shell called **视频导航** in the artwork detail player and immersive viewer.
+
+### Read contract
+
+- Artwork and viewer media DTOs expose `hasKeyframes`, `keyframeCount`, and `keyframesUrl` as lightweight hints. Chapter fields remain unchanged.
+- `GET /api/v1/media/:imageId/keyframes` independently returns the latest readable published keyframe set, ordered by `selectedOrder`, with capture time and derived-media URL.
+- The endpoint stats the current source and compares its size/mtime fingerprint to the published set. A source mismatch, missing selected output, or no published set returns 404 so stale frames are not displayed.
+- A policy-version mismatch alone does not hide the old published set while its replacement is pending.
+- At most 30 keyframe metadata rows are returned in one response. Thumbnail bytes continue to load lazily through the existing Next Image/ImgProxy path.
+- The route follows the same authenticated application boundary as chapter metadata. Derived image delivery keeps the existing ImgProxy access model.
+
+### Presentation rules
+
+- When both sources exist, the panel shows independent `章节 N 段` and `画面 N 张` tabs. The first open defaults to chapters and the selected tab is remembered for the current video.
+- When only one source exists, the panel opens that source directly without tabs. When neither exists, no navigation entry is rendered.
+- Keyframe cards contain only a 16:9 image and accurate capture time. Partial published sets are shown normally without surfacing administration warnings.
+- Selecting either a chapter or keyframe seeks to its timestamp, preserves the current play/pause state, and keeps the panel open.
+- The active keyframe is the nearest capture time to the current playback time; an exact tie selects the earlier frame.
+- Existing chapter timeline markers and chapter previews are unchanged. Keyframes add no timeline markers and no progress-bar hover/drag preview.
+- Chapter and keyframe requests fail independently. The failed tab shows its own error and retry action; opening the keyframe tab refreshes its metadata once, without polling.
+
+### User-scroll priority
+
+Chapter and keyframe rails share one active-item visibility policy in both players:
+
+1. Wheel, touch, pointer, keyboard, or actual scroll input immediately suppresses programmatic positioning.
+2. Playback-driven active-item changes during the interaction and the following 1000 ms do not move the rail.
+3. After 1000 ms of inactivity, the current item is repositioned only if it is outside the visible viewport, using the smallest nearest-edge scroll.
+4. If the active item is already visible, the rail remains unchanged.
+
 ## Security and integrity
 
 - Resolve source paths with the existing scan-root path guard.
@@ -306,7 +337,11 @@ All enqueue paths use the same transaction-level deduplication. One image may ha
    - Add per-video state, keyframe panel, and formal-poster selection.
 7. **Deployment and documentation**
    - Update Dockerfile, Compose files, `.env.example`, and scheduler architecture documentation.
-8. **Verification**
+8. **Consumer navigation**
+   - Add the fingerprint-checked read endpoint and DTO summary fields.
+   - Add the shared chapter/keyframe navigation shell to the artwork player and immersive viewer.
+   - Add user-priority active-item scrolling shared by both rails.
+9. **Verification**
    - Add policy, storage path, queue lifecycle, recovery, extraction command, API, and UI tests.
    - Run Prisma generation, targeted tests, lint, typecheck, package tests, and production build.
 
@@ -327,6 +362,10 @@ All enqueue paths use the same transaction-level deduplication. One image may ha
 - Source size/mtime or policy-version changes cause regeneration.
 - Selecting a keyframe regenerates a 960 px formal poster; failure preserves the old poster.
 - Existing poster and chapter-preview behavior remains unchanged.
+- Artwork detail and immersive viewer expose separate chapter/keyframe tabs when both sources exist and default to chapters.
+- Keyframe selection seeks without closing the panel or changing play/pause state.
+- A changed source fingerprint or missing selected output hides the published keyframe set; a policy-only mismatch does not.
+- User rail scrolling is never overridden during input or the following 1000 ms, and an offscreen active item is minimally restored afterward.
 
 ### Integrity and security
 

@@ -72,7 +72,7 @@ describe('getArtworksList video posters', () => {
     const result = await getArtworksList(ArtworksInfiniteQuerySchema.parse({}))
 
     expect(imageFindManyMock).toHaveBeenCalledWith(
-      expect.objectContaining({ include: { videoMetadata: true } })
+      expect.objectContaining({ include: expect.objectContaining({ videoMetadata: true }) })
     )
     expect(result.items[0]?.images[0]).toMatchObject({
       path: '/artist/work/video.mp4',

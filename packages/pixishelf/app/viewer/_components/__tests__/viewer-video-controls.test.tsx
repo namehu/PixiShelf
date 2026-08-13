@@ -54,6 +54,51 @@ function renderControls(overrides: Partial<React.ComponentProps<typeof ViewerVid
   return { ...render(<ViewerVideoControls {...props} />), props }
 }
 
+function stubVideoNavigationFetch() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/keyframes')) {
+        const imageId = Number(url.match(/media\/(\d+)/)?.[1] ?? 1)
+        return {
+          status: 200,
+          ok: true,
+          json: async () => ({
+            version: 1,
+            imageId,
+            publishedAt: '2026-08-13T00:00:00.000Z',
+            count: 2,
+            frames: [
+              {
+                id: `frame-${imageId}-1`,
+                captureTime: 12,
+                selectedOrder: 0,
+                url: `/_video-keyframes/${imageId}/set-1/001.webp`
+              },
+              {
+                id: `frame-${imageId}-2`,
+                captureTime: 48,
+                selectedOrder: 1,
+                url: `/_video-keyframes/${imageId}/set-1/002.webp`
+              }
+            ]
+          })
+        }
+      }
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({
+          version: 1,
+          duration: 95,
+          chapters: [{ index: 1, title: 'Opening', start: 0, end: 95, duration: 95 }]
+        })
+      }
+    })
+  )
+}
+
 describe('ViewerVideoControls', () => {
   afterEach(() => {
     cleanup()
@@ -125,5 +170,72 @@ describe('ViewerVideoControls', () => {
     expect(screen.getByRole('dialog', { name: /章节/ })).toBeDefined()
     expect(container.ownerDocument.querySelector('[data-chapter-layout="horizontal"]')).not.toBeNull()
     expect(container.ownerDocument.querySelectorAll('.pixishelf-chapter-card-horizontal')).toHaveLength(2)
+  })
+
+  it('keeps chapters and keyframes separate inside the shared navigation sheet', async () => {
+    stubVideoNavigationFetch()
+    const onSeek = vi.fn()
+    const onOpenChange = vi.fn()
+
+    renderControls({
+      media: {
+        ...videoMedia,
+        chaptersUrl: '/api/v1/media/1/chapters',
+        chaptersCount: 1,
+        hasKeyframes: true,
+        keyframeCount: 2,
+        keyframesUrl: '/api/v1/media/1/keyframes'
+      },
+      chapterPanelOpen: true,
+      onSeek,
+      onChapterPanelOpenChange: onOpenChange
+    })
+
+    await waitFor(() => expect(screen.getByRole('tab', { name: /画面/ })).toBeDefined())
+    expect(screen.getByRole('tab', { name: /章节/ }).getAttribute('aria-selected')).toBe('true')
+
+    fireEvent.click(screen.getByRole('tab', { name: /画面/ }))
+    const keyframe = await screen.findByRole('button', { name: '跳转到画面 00:48' })
+    fireEvent.click(keyframe)
+
+    expect(onSeek).toHaveBeenCalledWith(48)
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    expect(screen.getByRole('dialog', { name: '视频导航' })).toBeDefined()
+  })
+
+  it('remembers the selected navigation tab separately for each video', async () => {
+    stubVideoNavigationFetch()
+    const mediaA = {
+      ...videoMedia,
+      id: 101,
+      key: 'video-101',
+      chaptersUrl: '/api/v1/media/101/chapters',
+      chaptersCount: 1,
+      keyframesUrl: '/api/v1/media/101/keyframes',
+      hasKeyframes: true,
+      keyframeCount: 2
+    }
+    const mediaB = {
+      ...mediaA,
+      id: 102,
+      key: 'video-102',
+      chaptersUrl: '/api/v1/media/102/chapters',
+      keyframesUrl: '/api/v1/media/102/keyframes'
+    }
+
+    const firstVideo = renderControls({ media: mediaA, chapterPanelOpen: true })
+    await waitFor(() => expect(screen.getByRole('tab', { name: /章节/ })).toBeDefined())
+    fireEvent.click(screen.getByRole('tab', { name: /画面/ }))
+    expect(screen.getByRole('tab', { name: /画面/ }).getAttribute('aria-selected')).toBe('true')
+    firstVideo.unmount()
+
+    const secondVideo = renderControls({ media: mediaB, chapterPanelOpen: true })
+    await waitFor(() => expect(screen.getByRole('tab', { name: /章节/ })).toBeDefined())
+    expect(screen.getByRole('tab', { name: /章节/ }).getAttribute('aria-selected')).toBe('true')
+    secondVideo.unmount()
+
+    renderControls({ media: mediaA, chapterPanelOpen: true })
+    await waitFor(() => expect(screen.getByRole('tab', { name: /画面/ })).toBeDefined())
+    expect(screen.getByRole('tab', { name: /画面/ }).getAttribute('aria-selected')).toBe('true')
   })
 })

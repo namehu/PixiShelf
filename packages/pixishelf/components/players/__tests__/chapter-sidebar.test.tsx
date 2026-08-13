@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ChapterSidebar from '../chapter-sidebar'
 import type { NormalizedChapter } from '../video-chapters'
@@ -31,7 +31,10 @@ const chapters: NormalizedChapter[] = [
 ]
 
 describe('ChapterSidebar', () => {
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   it('renders a two-column chapter grid with preview, time, and active state', () => {
     render(<ChapterSidebar chapters={chapters} currentChapterId="chapter-1" onChapterClick={vi.fn()} tone="dark" />)
@@ -91,5 +94,41 @@ describe('ChapterSidebar', () => {
     expect(screen.getByLabelText('有音频')).toBeDefined()
     expect(screen.getByLabelText('无音频')).toBeDefined()
     expect(screen.getByLabelText('音频状态未知')).toBeDefined()
+  })
+
+  it('lets user scrolling win and only restores an offscreen active item after 1000ms', () => {
+    vi.useFakeTimers()
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    const { container, rerender } = render(
+      <ChapterSidebar
+        chapters={chapters}
+        currentChapterId="chapter-1"
+        onChapterClick={vi.fn()}
+        tone="dark"
+        layout="horizontal"
+      />
+    )
+    const viewport = container.querySelector<HTMLElement>('[data-chapter-layout="horizontal"] > div')!
+    const ending = screen.getByRole('button', { name: /Ending/ })
+    viewport.getBoundingClientRect = () => ({ left: 0, right: 100, top: 0, bottom: 100 }) as DOMRect
+    ending.getBoundingClientRect = () => ({ left: 180, right: 280, top: 0, bottom: 100 }) as DOMRect
+    scrollIntoView.mockClear()
+
+    fireEvent.wheel(viewport)
+    rerender(
+      <ChapterSidebar
+        chapters={chapters}
+        currentChapterId="chapter-2"
+        onChapterClick={vi.fn()}
+        tone="dark"
+        layout="horizontal"
+      />
+    )
+
+    act(() => vi.advanceTimersByTime(999))
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
   })
 })
