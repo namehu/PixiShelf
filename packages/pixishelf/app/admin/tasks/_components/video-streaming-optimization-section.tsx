@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { CheckCircle2, Clock3, Loader2, RotateCcw, X, XCircle } from 'lucide-react'
+import { CheckCircle2, Clock3, Film, Loader2, RotateCcw, X, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import { Progress } from '@/components/ui/progress'
 import { useTRPC } from '@/lib/trpc'
 import { isActiveVideoOptimization, type VideoOptimizationJobView } from '@/types/video-optimization'
 import { formatFileSize } from '@/utils/media'
+import { TaskSection } from './task-ui'
 
 interface VideoOptimizationQueueView {
   capacity: number
@@ -44,7 +45,7 @@ export function VideoStreamingOptimizationSection() {
         toast.info(data.success ? '任务取消请求已提交' : '该任务已经结束')
         void queueQuery.refetch()
       },
-      onError: (error) => toast.error(`取消优化失败: ${error.message}`)
+      onError: (error) => toast.error(`取消优化失败：${error.message}`)
     })
   )
   const retryMutation = useMutation(
@@ -58,7 +59,7 @@ export function VideoStreamingOptimizationSection() {
         setPollInterval(1000)
         void queueQuery.refetch()
       },
-      onError: (error) => toast.error(`重新加入队列失败: ${error.message}`)
+      onError: (error) => toast.error(`重新加入队列失败：${error.message}`)
     })
   )
 
@@ -68,22 +69,21 @@ export function VideoStreamingOptimizationSection() {
   const pendingCount = active.filter((job) => job.status === 'PENDING').length
 
   return (
-    <div className="flex flex-col gap-5 px-6 py-6 transition-colors hover:bg-muted/5">
-      <div className="space-y-1.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <h4 className="font-semibold tracking-tight text-foreground">MP4 无损播放优化队列</h4>
-          <Badge variant="secondary">运行 {runningCount}/1</Badge>
-          <Badge variant="outline">排队 {pendingCount}</Badge>
-          <Badge variant="outline">
-            占用 {active.length}/{queue?.capacity ?? 100}
-          </Badge>
-        </div>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          从作品详情或媒体管理提交；任务持久化到数据库并严格按提交顺序串行执行。仅做 stream copy + faststart，
-          不重新编码，也不会增加关键帧。
-        </p>
-      </div>
-
+    <TaskSection
+      id="video-streaming"
+      category="持久队列"
+      icon={Film}
+      title="MP4 无损播放优化队列"
+      description="从作品详情或媒体管理提交，任务按顺序串行执行；仅做 stream copy + faststart，不重新编码。"
+      summary={
+        runningCount > 0
+          ? `${runningCount} 项运行中 · ${pendingCount} 项等待`
+          : pendingCount > 0
+            ? `${pendingCount} 项等待执行`
+            : `队列空闲 · ${recent.length} 条近期记录`
+      }
+      tone={active.length > 0 ? 'active' : 'idle'}
+    >
       <QueueGroup title="正在处理与等待" emptyText="当前没有等待或执行中的视频优化任务">
         {active.map((job) => (
           <OptimizationJobRow
@@ -109,7 +109,7 @@ export function VideoStreamingOptimizationSection() {
           />
         ))}
       </QueueGroup>
-    </div>
+    </TaskSection>
   )
 }
 
@@ -117,7 +117,7 @@ function QueueGroup({ title, emptyText, children }: { title: string; emptyText: 
   const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children)
   return (
     <section className="space-y-2">
-      <h5 className="text-sm font-medium text-foreground">{title}</h5>
+      <h4 className="text-sm font-medium text-foreground">{title}</h4>
       {hasChildren ? (
         <div className="space-y-2">{children}</div>
       ) : (
@@ -169,16 +169,19 @@ function OptimizationJobRow({
                 onClick={onCancel}
               >
                 {cancelling || job.status === 'CANCELLING' ? (
-                  <Loader2 className="mr-1.5 size-4 animate-spin" />
+                  <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 ) : (
-                  <X className="mr-1.5 size-4" />
+                  <X className="size-4" aria-hidden="true" />
                 )}
                 {pending ? '取消排队' : '取消任务'}
               </Button>
             )}
             {onRetry && (
               <Button type="button" size="sm" variant="outline" disabled={retrying} onClick={onRetry}>
-                <RotateCcw className={`mr-1.5 size-4 ${retrying ? 'animate-spin' : ''}`} />
+                <RotateCcw
+                  className={`size-4 ${retrying ? 'animate-spin motion-reduce:animate-none' : ''}`}
+                  aria-hidden="true"
+                />
                 重新加入队列
               </Button>
             )}
@@ -187,11 +190,11 @@ function OptimizationJobRow({
 
         {active && !pending && (
           <div className="flex items-center gap-3">
-            <Progress value={job.progress} className="h-2 flex-1" />
-            <span className="text-xs font-medium text-muted-foreground">{job.progress}%</span>
+            <Progress value={job.progress} className="h-2 flex-1" aria-label={`优化进度 ${job.progress}%`} />
+            <span className="text-xs font-medium tabular-nums text-muted-foreground">{job.progress}%</span>
           </div>
         )}
-        {job.error && <p className="text-sm font-medium text-destructive">错误: {job.error}</p>}
+        {job.error && <p className="break-words text-sm font-medium text-destructive">错误：{job.error}</p>}
       </div>
 
       {job.status === 'COMPLETED' && result && (
@@ -212,10 +215,12 @@ function OptimizationJobRow({
 }
 
 function JobStatusIcon({ status }: { status: string }) {
-  if (status === 'PENDING') return <Clock3 className="size-4 text-amber-500" />
-  if (status === 'RUNNING' || status === 'CANCELLING') return <Loader2 className="size-4 animate-spin text-primary" />
-  if (status === 'COMPLETED') return <CheckCircle2 className="size-4 text-emerald-500" />
-  return <XCircle className="size-4 text-destructive" />
+  if (status === 'PENDING') return <Clock3 className="size-4 text-amber-500" aria-hidden="true" />
+  if (status === 'RUNNING' || status === 'CANCELLING') {
+    return <Loader2 className="size-4 animate-spin text-primary motion-reduce:animate-none" aria-hidden="true" />
+  }
+  if (status === 'COMPLETED') return <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
+  return <XCircle className="size-4 text-destructive" aria-hidden="true" />
 }
 
 function getStatusLabel(job: VideoOptimizationJobView) {
