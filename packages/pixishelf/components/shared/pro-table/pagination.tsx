@@ -4,7 +4,7 @@ import * as React from 'react'
 import { ChevronLeft, ChevronRight, MoreHorizontal, Loader2, ArrowLeft, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useMediaQuery } from '@/hooks/use-media-query'
@@ -227,11 +227,13 @@ export function ProTablePagination({
             <SelectValue placeholder={`${pageSize} 条/页`} />
           </SelectTrigger>
           <SelectContent side="top">
-            {pageSizeOptions.map((size) => (
-              <SelectItem key={size} value={`${size}`}>
-                {size} / 页
-              </SelectItem>
-            ))}
+            <SelectGroup>
+              {pageSizeOptions.map((size) => (
+                <SelectItem key={size} value={`${size}`}>
+                  {size} / 页
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
 

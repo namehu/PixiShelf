@@ -1,8 +1,16 @@
-import React, { useState, memo, useRef } from 'react'
-import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
-import { LogEntry } from '@/lib/db'
+'use client'
+
+import { memo, useId, useMemo, useRef, useState } from 'react'
+import { ArrowDown, Copy, Eraser, Search, Terminal } from 'lucide-react'
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
+import { toast } from 'sonner'
+import type { LogEntry } from '@/lib/db'
 import { cn } from '@/lib/utils'
-import { Terminal, Eraser, Search, ArrowDown } from 'lucide-react'
+import { confirm } from '@/components/shared/global-confirm'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { Label } from '@/components/ui/label'
 
 interface LogViewerProps {
   logs: LogEntry[]
@@ -12,133 +20,167 @@ interface LogViewerProps {
   loading?: boolean
 }
 
-// 日志项组件 - 使用 memo 优化渲染
-const LogItem = memo(({ log }: { index: number; log: LogEntry }) => {
-  return (
-    <div className="flex items-start gap-2 sm:gap-3 hover:bg-white/[0.03] px-2 py-1 rounded transition-colors group text-[11px] font-mono leading-relaxed">
-      {/* 时间戳 */}
-      <span className="text-neutral-500 shrink-0 select-none w-[65px] group-hover:text-neutral-400 transition-colors pt-[1px]">
-        {new Date(log.timestamp).toLocaleTimeString()}
-      </span>
+function formatLogEntry(log: LogEntry) {
+  const time = new Date(log.timestamp).toLocaleTimeString()
+  const level = log.level?.toUpperCase() || 'INFO'
 
-      {/* 类型标签 */}
-      <span
-        className={cn(
-          'shrink-0 font-bold w-16 sm:w-20 text-center select-none rounded-[3px] py-[1px] text-[10px] h-fit',
-          log.level === 'error' && 'text-red-400 bg-red-400/10',
-          log.level === 'complete' && 'text-emerald-400 bg-emerald-400/10',
-          log.level === 'success' && 'text-green-400 bg-green-400/10',
-          log.level === 'progress' && 'text-blue-400 bg-blue-400/10',
-          log.level === 'connection' && 'text-purple-400 bg-purple-400/10',
-          log.level === 'warn' && 'text-orange-400 bg-orange-400/10',
-          (log.level === 'info' || !log.level) && 'text-neutral-400 bg-neutral-400/10'
-        )}
-      >
-        {log.level?.toUpperCase() || 'INFO'}
-      </span>
+  return `${time} [${level}] ${log.message}`
+}
 
-      {/* 消息内容 */}
-      <span
-        className={cn(
-          'break-all min-w-0 pt-[1px] whitespace-pre-wrap',
-          log.level === 'error' ? 'text-red-200' : 'text-neutral-300',
-          (log.level === 'complete' || log.level === 'success') && 'text-emerald-200'
-        )}
-      >
-        {log.message}
-      </span>
-    </div>
-  )
-})
+const LogItem = memo(({ log }: { log: LogEntry }) => (
+  <div className="group flex items-start gap-2 rounded px-2 py-1 font-mono text-[11px] leading-relaxed transition-colors hover:bg-white/[0.03] sm:gap-3">
+    <span className="w-[65px] shrink-0 pt-px text-neutral-500 transition-colors group-hover:text-neutral-400">
+      {new Date(log.timestamp).toLocaleTimeString()}
+    </span>
+    <span
+      className={cn(
+        'h-fit w-16 shrink-0 rounded-sm py-px text-center text-[10px] font-bold sm:w-20',
+        log.level === 'error' && 'bg-red-400/10 text-red-400',
+        log.level === 'complete' && 'bg-emerald-400/10 text-emerald-400',
+        log.level === 'success' && 'bg-green-400/10 text-green-400',
+        log.level === 'progress' && 'bg-blue-400/10 text-blue-400',
+        log.level === 'connection' && 'bg-purple-400/10 text-purple-400',
+        log.level === 'warn' && 'bg-orange-400/10 text-orange-400',
+        (log.level === 'info' || !log.level) && 'bg-neutral-400/10 text-neutral-400'
+      )}
+    >
+      {log.level?.toUpperCase() || 'INFO'}
+    </span>
+    <span
+      className={cn(
+        'min-w-0 break-all whitespace-pre-wrap pt-px',
+        log.level === 'error' ? 'text-red-200' : 'text-neutral-300',
+        (log.level === 'complete' || log.level === 'success') && 'text-emerald-200'
+      )}
+    >
+      {log.message}
+    </span>
+  </div>
+))
 
 LogItem.displayName = 'LogItem'
 
 export function LogViewer({ logs, onClear, className, height = 400, loading }: LogViewerProps) {
   const [autoScroll, setAutoScroll] = useState(true)
-  const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [filter, setFilter] = useState('')
+  const virtuosoRef = useRef<VirtuosoHandle>(null)
+  const autoScrollId = useId()
 
-  // 过滤日志
-  const filteredLogs = React.useMemo(() => {
-    if (!filter) return logs
-    const lowerFilter = filter.toLowerCase()
+  const filteredLogs = useMemo(() => {
+    const normalizedFilter = filter.trim().toLowerCase()
+    if (!normalizedFilter) return logs
+
     return logs.filter(
-      (log) => log.message.toLowerCase().includes(lowerFilter) || log.level.toLowerCase().includes(lowerFilter)
+      (log) =>
+        log.message.toLowerCase().includes(normalizedFilter) ||
+        (log.level || 'info').toLowerCase().includes(normalizedFilter)
     )
   }, [logs, filter])
 
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(filteredLogs.map(formatLogEntry).join('\n'))
+      toast.success(`已复制 ${filteredLogs.length} 条日志`)
+    } catch {
+      toast.error('复制失败，请直接框选日志内容复制')
+    }
+  }
+
+  const handleClear = () => {
+    if (!onClear) return
+
+    confirm({
+      title: '清空运行日志？',
+      description: '全部运行日志将被永久删除，此操作无法撤销。',
+      confirmText: '清空日志',
+      variant: 'destructive',
+      onConfirm: onClear
+    })
+  }
+
   return (
-    <div
+    <section
+      aria-label="运行日志"
       className={cn(
-        'flex flex-col rounded-xl overflow-hidden border border-neutral-200 shadow-sm ring-1 ring-black/5 bg-[#1e1e1e]',
+        'flex flex-col overflow-hidden rounded-xl border border-neutral-800 bg-[#1e1e1e] shadow-sm',
         className
       )}
     >
-      {/* 终端头部 */}
-      <div className="bg-neutral-900 px-4 py-2.5 flex items-center justify-between text-xs border-b border-white/10 shrink-0">
-        <div className="flex items-center gap-4 flex-1">
-          {/* 模拟 Mac 窗口按钮 */}
-          <div className="flex gap-1.5 opacity-80 group hover:opacity-100 transition-opacity">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
-            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/80" />
-            <div className="w-2.5 h-2.5 rounded-full bg-green-500/80" />
+      <header className="flex shrink-0 flex-col gap-2 border-b border-white/10 bg-neutral-900 px-3 py-2.5 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-2 font-mono text-neutral-400">
+            <Terminal className="size-3.5" aria-hidden="true" />
+            <span className="whitespace-nowrap">运行日志</span>
+            <span aria-live="polite" className="text-neutral-500">
+              {filteredLogs.length} 条
+            </span>
           </div>
 
-          <div className="flex items-center gap-2 text-neutral-400 font-mono">
-            <Terminal className="h-3.5 w-3.5" />
-            <span>Console — {filteredLogs.length} events</span>
-          </div>
-
-          {/* 搜索框 */}
-          <div className="relative group ml-2 flex-1 max-w-[200px]">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-neutral-500 group-focus-within:text-neutral-300 transition-colors" />
-            <input
-              type="text"
-              placeholder="Filter logs..."
+          <InputGroup className="h-8 max-w-64 border-neutral-700 bg-neutral-800/70 shadow-none focus-within:border-neutral-500">
+            <InputGroupAddon>
+              <Search className="text-neutral-500" aria-hidden="true" />
+            </InputGroupAddon>
+            <InputGroupInput
+              type="search"
+              name="log-filter"
+              autoComplete="off"
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="w-full bg-neutral-800/50 border border-neutral-700/50 rounded text-[11px] py-1 pl-7 pr-2 text-neutral-300 placeholder:text-neutral-600 focus:outline-none focus:bg-neutral-800 focus:border-neutral-600 transition-all"
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="筛选日志…"
+              aria-label="筛选日志"
+              className="h-8 text-xs text-neutral-200 placeholder:text-neutral-500"
             />
-          </div>
+          </InputGroup>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-1 sm:justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleCopy}
+            disabled={filteredLogs.length === 0}
+            className="text-neutral-400 hover:bg-white/10 hover:text-white"
+          >
+            <Copy data-icon="inline-start" aria-hidden="true" />
+            复制{filter ? '筛选结果' : '日志'}
+          </Button>
+
           {onClear && (
-            <button
-              onClick={onClear}
-              className="flex items-center gap-1.5 text-neutral-500 hover:text-red-400 transition-colors text-[11px]"
-              title="Clear Console"
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleClear}
+              className="text-neutral-400 hover:bg-red-500/10 hover:text-red-300"
             >
-              <Eraser className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Clear</span>
-            </button>
+              <Eraser data-icon="inline-start" aria-hidden="true" />
+              清空
+            </Button>
           )}
 
-          <div className="w-[1px] h-3 bg-white/10 mx-1" />
+          <div className="mx-1 hidden h-4 w-px bg-white/10 sm:block" aria-hidden="true" />
 
-          <label className="flex items-center gap-2 cursor-pointer text-neutral-400 hover:text-white transition-colors select-none text-[11px] font-medium tracking-wide">
-            <div className="relative flex items-center">
-              <input
-                type="checkbox"
-                checked={autoScroll}
-                onChange={(e) => setAutoScroll(e.target.checked)}
-                className="peer h-3 w-3 cursor-pointer appearance-none rounded-sm border border-neutral-600 bg-neutral-800 checked:bg-blue-500 checked:border-blue-500 transition-all"
-              />
-              <ArrowDown className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100 w-2 h-2" />
-            </div>
-            AUTO-SCROLL
-          </label>
+          <div className="flex min-h-9 items-center gap-2 px-2 text-neutral-400 hover:text-white">
+            <Checkbox
+              id={autoScrollId}
+              checked={autoScroll}
+              onCheckedChange={(checked) => setAutoScroll(checked === true)}
+              className="border-neutral-600 bg-neutral-800 data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500"
+            />
+            <Label htmlFor={autoScrollId} className="cursor-pointer gap-1.5 whitespace-nowrap text-[11px]">
+              <ArrowDown className="size-3" aria-hidden="true" />
+              自动滚动
+            </Label>
+          </div>
         </div>
-      </div>
+      </header>
 
-      {/* 终端内容区 */}
       <div className="relative bg-[#1e1e1e]" style={{ height }}>
         {filteredLogs.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center text-neutral-600 space-y-3">
-            <Terminal className="h-8 w-8 opacity-20" />
-            <p className="italic font-sans text-xs">
-              {filter ? 'No logs match your filter' : loading ? 'Waiting for logs...' : 'No logs available'}
-            </p>
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-neutral-500">
+            <Terminal className="size-8 opacity-30" aria-hidden="true" />
+            <p className="text-xs">{filter ? '没有符合筛选条件的日志' : loading ? '正在等待日志…' : '暂无日志'}</p>
           </div>
         ) : (
           <Virtuoso
@@ -146,21 +188,15 @@ export function LogViewer({ logs, onClear, className, height = 400, loading }: L
             data={filteredLogs}
             totalCount={filteredLogs.length}
             atBottomStateChange={(atBottom) => {
-              // 如果用户手动向上滚动，自动关闭 autoScroll
-              if (!atBottom) {
-                setAutoScroll(false)
-              }
+              if (!atBottom) setAutoScroll(false)
             }}
-            followOutput={() => {
-              // 如果开启了 autoScroll，强制滚动到底部
-              return autoScroll ? 'smooth' : false
-            }}
-            itemContent={(index, log) => <LogItem index={index} log={log} />}
+            followOutput={() => (autoScroll ? 'smooth' : false)}
+            itemContent={(_index, log) => <LogItem log={log} />}
             className="custom-scrollbar"
             style={{ height: '100%' }}
           />
         )}
       </div>
-    </div>
+    </section>
   )
 }

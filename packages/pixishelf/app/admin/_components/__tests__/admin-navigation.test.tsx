@@ -25,6 +25,8 @@ describe('getActiveAdminSection', () => {
   it('matches only an exact admin destination or its child route', () => {
     expect(isAdminNavigationItemActive('/admin/tasks/42', '/admin/tasks')).toBe(true)
     expect(isAdminNavigationItemActive('/admin/tasks-archive', '/admin/tasks')).toBe(false)
+    expect(getActiveAdminSection(null)).toBeUndefined()
+    expect(isAdminNavigationItemActive(null, '/admin/tasks')).toBe(false)
   })
 })
 

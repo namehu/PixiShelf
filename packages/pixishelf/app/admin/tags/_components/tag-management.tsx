@@ -7,7 +7,7 @@ import type { TagManagementStats } from '@/types/tags'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { updateTagStatsAction, exportUntranslatedTagsAction } from '@/actions/tag-action'
 import { getTranslateName } from '@/utils/tags'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
@@ -401,9 +401,11 @@ export default function TagManagement() {
                 <SelectValue placeholder="翻译状态" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                <SelectItem value="translated">已翻译</SelectItem>
-                <SelectItem value="untranslated">未翻译</SelectItem>
+                <SelectGroup>
+                  <SelectItem value="all">全部</SelectItem>
+                  <SelectItem value="translated">已翻译</SelectItem>
+                  <SelectItem value="untranslated">未翻译</SelectItem>
+                </SelectGroup>
               </SelectContent>
             </Select>
             <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">

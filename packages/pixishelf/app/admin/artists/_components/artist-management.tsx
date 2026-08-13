@@ -14,7 +14,7 @@ import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 
 export function StarButton({
@@ -309,9 +309,11 @@ export function ArtistManagement() {
                 <SelectValue placeholder="星标状态" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                <SelectItem value="true">已星标</SelectItem>
-                <SelectItem value="false">未星标</SelectItem>
+                <SelectGroup>
+                  <SelectItem value="all">全部</SelectItem>
+                  <SelectItem value="true">已星标</SelectItem>
+                  <SelectItem value="false">未星标</SelectItem>
+                </SelectGroup>
               </SelectContent>
             </Select>
             <Input

@@ -4,6 +4,7 @@ import parseAPNG from 'apng-js'
 import { Loader2, Pause, Play } from 'lucide-react'
 import Image from 'next/image'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { cn } from '@/lib/utils'
 
 // -----------------------------------------------------------------------------
 // 子组件：APNG 播放器
@@ -34,7 +35,7 @@ const ApngPlayer = (props: ApngPlayerProps) => {
     }
   }, [player])
 
-  const handleToggle = async (e: React.MouseEvent) => {
+  const handleToggle = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation()
 
     // 1. 如果处于空闲状态，开始加载并初始化
@@ -90,9 +91,21 @@ const ApngPlayer = (props: ApngPlayerProps) => {
 
   // 遮罩层样式逻辑
   const isReady = status === 'playing' || status === 'paused'
+  const controlLabel = `播放或暂停动画：${alt}`
 
   return (
-    <div className={`relative cursor-pointer group ${className}`} onClick={handleToggle}>
+    <button
+      type="button"
+      className={cn(
+        'group relative block w-full cursor-pointer overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+        className
+      )}
+      onClick={handleToggle}
+      disabled={status === 'loading'}
+      aria-label={controlLabel}
+      aria-pressed={status === 'playing'}
+      aria-busy={status === 'loading'}
+    >
       {/* 1. 封面图 (Next/Image)
         - 当状态是 idle (未加载) 或 loading 时显示
         - 当 canvas 准备好后隐藏 (或者你可以选择保留在底部作为背景)
@@ -105,12 +118,19 @@ const ApngPlayer = (props: ApngPlayerProps) => {
           width={0}
           height={0}
           sizes="100vw"
-          className={`w-full h-auto object-contain transition-opacity duration-300 ${status === 'loading' ? 'opacity-50' : 'opacity-100'}`}
+          className={cn(
+            'h-auto w-full object-contain transition-opacity duration-300',
+            status === 'loading' ? 'opacity-50' : 'opacity-100'
+          )}
         />
       )}
 
       {/* 2. Canvas (实际播放层)- 仅在初始化成功后显示      */}
-      <canvas ref={canvasRef} className={`w-full h-auto object-contain ${isReady ? 'block' : 'hidden'}`} />
+      <canvas
+        ref={canvasRef}
+        aria-hidden="true"
+        className={cn('h-auto w-full object-contain', isReady ? 'block' : 'hidden')}
+      />
 
       {/* 3. 控制按钮遮罩
         - Idle/Paused: 显示黑色半透明背景
@@ -118,8 +138,10 @@ const ApngPlayer = (props: ApngPlayerProps) => {
         - Playing: 默认隐藏，Hover 时显示
       */}
       <div
-        className={`absolute inset-0 flex items-center justify-center transition-all duration-300
-        ${status === 'playing' ? 'opacity-0 group-hover:opacity-100 bg-black/10' : 'bg-black/20 opacity-100'}`}
+        className={cn(
+          'absolute inset-0 flex items-center justify-center transition-opacity duration-300',
+          status === 'playing' ? 'bg-black/10 opacity-0 group-hover:opacity-100' : 'bg-black/20 opacity-100'
+        )}
       >
         <div className="bg-black/50  text-white rounded-full p-4 backdrop-blur-sm transition-transform transform hover:scale-110 shadow-lg">
           {status === 'loading' && <Loader2 className="w-8 h-8 animate-spin" />}
@@ -128,7 +150,7 @@ const ApngPlayer = (props: ApngPlayerProps) => {
           {status === 'playing' && <Pause className="w-8 h-8" />}
         </div>
       </div>
-    </div>
+    </button>
   )
 }
 

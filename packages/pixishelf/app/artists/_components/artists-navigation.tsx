@@ -1,7 +1,7 @@
 'use client'
 
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ArtistsQuery } from '@/types'
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import PageToolbar from '@/components/layout/page-toolbar'
@@ -131,15 +131,17 @@ const ArtistsNavigation = () => {
               align="end"
               className="rounded-xl border-gray-100 dark:border-gray-800 shadow-xl min-w-[160px] p-1"
             >
-              {sortOptions.map((option) => (
-                <SelectItem
-                  key={option.value}
-                  value={option.value || ''}
-                  className="rounded-lg cursor-pointer py-2 px-3 text-[13px] focus:bg-gray-50 dark:focus:bg-gray-800/50"
-                >
-                  {option.label}
-                </SelectItem>
-              ))}
+              <SelectGroup>
+                {sortOptions.map((option) => (
+                  <SelectItem
+                    key={option.value}
+                    value={option.value || ''}
+                    className="rounded-lg cursor-pointer py-2 px-3 text-[13px] focus:bg-gray-50 dark:focus:bg-gray-800/50"
+                  >
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
         </div>

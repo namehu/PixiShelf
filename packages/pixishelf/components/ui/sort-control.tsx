@@ -3,7 +3,7 @@
 import React from 'react'
 import { SortOption } from '@/types'
 import { cn } from '@/lib/utils'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 // ============================================================================
 // SortControl 组件
@@ -60,11 +60,13 @@ export const SortControl: React.FC<SortControlProps> = ({
         <SelectValue>{currentOption?.label || '请选择排序'}</SelectValue>
       </SelectTrigger>
       <SelectContent>
-        {SORT_OPTIONS.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            {option.label}
-          </SelectItem>
-        ))}
+        <SelectGroup>
+          {SORT_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   )

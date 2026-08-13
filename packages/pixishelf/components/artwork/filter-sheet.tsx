@@ -12,7 +12,7 @@ import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import dayjs from 'dayjs'
 import { OSource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 import { SearchBox } from '@/app/artworks/_components/search-box'
 
@@ -330,9 +330,11 @@ export function FilterSheet(props: FilterSheetProps) {
                 <SelectValue placeholder="全部" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                <SelectItem value="yes">有音频</SelectItem>
-                <SelectItem value="no">无音频</SelectItem>
+                <SelectGroup>
+                  <SelectItem value="all">全部</SelectItem>
+                  <SelectItem value="yes">有音频</SelectItem>
+                  <SelectItem value="no">无音频</SelectItem>
+                </SelectGroup>
               </SelectContent>
             </Select>
           </div>

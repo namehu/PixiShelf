@@ -3,13 +3,7 @@
 import React from 'react'
 import { MediaTypeFilter as MediaTypeFilterType } from '@/types'
 import { cn } from '@/lib/utils'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 // ============================================================================
 // MediaTypeFilter 组件
@@ -49,19 +43,12 @@ export const MediaTypeFilter: React.FC<MediaTypeFilterProps> = ({
 }) => {
   // 将自定义尺寸映射到 shadcn Select 的尺寸
   const selectSize = size === 'lg' ? 'default' : size === 'sm' ? 'sm' : 'default'
-  
-  const currentOption = MEDIA_TYPE_OPTIONS.find(option => option.value === value)
+
+  const currentOption = MEDIA_TYPE_OPTIONS.find((option) => option.value === value)
 
   return (
-    <Select
-      value={value}
-      onValueChange={onChange}
-      disabled={disabled}
-    >
-      <SelectTrigger 
-        className={cn('w-fit min-w-[120px]', className)}
-        size={selectSize}
-      >
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className={cn('w-fit min-w-[120px]', className)} size={selectSize}>
         <SelectValue>
           {currentOption ? (
             <span className="flex items-center gap-2">
@@ -74,14 +61,16 @@ export const MediaTypeFilter: React.FC<MediaTypeFilterProps> = ({
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
-        {MEDIA_TYPE_OPTIONS.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            <span className="flex items-center gap-2">
-              <span>{option.icon}</span>
-              <span>{option.label}</span>
-            </span>
-          </SelectItem>
-        ))}
+        <SelectGroup>
+          {MEDIA_TYPE_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              <span className="flex items-center gap-2">
+                <span>{option.icon}</span>
+                <span>{option.label}</span>
+              </span>
+            </SelectItem>
+          ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   )

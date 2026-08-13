@@ -1,44 +1,41 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Card, CardContent } from '@/components/ui/card'
-import { ROUTES } from '@/lib/constants'
 import { CircleXIcon, LockKeyholeIcon, UserIcon } from 'lucide-react'
 import { useAction } from 'next-safe-action/hooks'
-import { loginUserAction } from '@/actions/auth-action'
-import { authLoginSchema } from '@/schemas/auth.dto'
 import z from 'zod'
+import { loginUserAction } from '@/actions/auth-action'
 import { useAuth } from '@/components/auth'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { Spinner } from '@/components/ui/spinner'
+import { ROUTES } from '@/lib/constants'
+import { authLoginSchema } from '@/schemas/auth.dto'
 
-/**
- * 表单状态接口
- */
 interface FormState {
   username: string
   password: string
 }
 
-/**
- * 表单错误接口
- */
 interface FormErrors {
   username?: string
   password?: string
   general?: string
 }
 
-/**
- * 登录表单组件
- */
 export const LoginForm: React.FC = () => {
   const router = useRouter()
   const searchParams = useSearchParams()
-
   const { refreshUser } = useAuth()
   const redirectTo = searchParams.get('redirect') || ROUTES.DASHBOARD
+
+  const [formState, setFormState] = useState<FormState>({ username: '', password: '' })
+  const [errors, setErrors] = useState<FormErrors>({})
+  const usernameRef = useRef<HTMLInputElement>(null)
+  const passwordRef = useRef<HTMLInputElement>(null)
 
   const { execute, isExecuting } = useAction(loginUserAction, {
     onSuccess: async () => {
@@ -47,112 +44,111 @@ export const LoginForm: React.FC = () => {
     },
     onError: ({ error }) => {
       const { fieldErrors = {}, formErrors = [] } = error.validationErrors || {}
-      setErrors((pre) => ({
-        ...pre,
-        general: formErrors[0] || '登录失败',
+      setErrors((previous) => ({
+        ...previous,
+        general: formErrors[0] || '登录失败，请检查用户名和密码后重试。',
         username: fieldErrors.username?.[0],
         password: fieldErrors.password?.[0]
       }))
+      if (fieldErrors.username?.[0]) usernameRef.current?.focus()
+      else if (fieldErrors.password?.[0]) passwordRef.current?.focus()
     }
   })
 
-  const [formState, setFormState] = useState<FormState>({
-    username: '',
-    password: ''
-  })
-  const [errors, setErrors] = useState<FormErrors>({})
-
-  /**
-   * 处理输入变化
-   */
   const handleInputChange = (field: keyof FormState) => (event: React.ChangeEvent<HTMLInputElement>) => {
     const { value } = event.target
-    setFormState((prev) => ({ ...prev, [field]: value }))
-    // 清除对应字段的错误
-    if (errors[field as keyof FormErrors]) {
-      setErrors((prev) => ({ ...prev, [field]: undefined }))
+    setFormState((previous) => ({ ...previous, [field]: value }))
+    if (errors[field]) {
+      setErrors((previous) => ({ ...previous, [field]: undefined }))
     }
   }
 
-  /**
-   * 处理表单提交
-   */
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setErrors({})
 
     try {
-      const data = authLoginSchema.parse({ username: formState.username, password: formState.password })
-      execute(data)
+      execute(authLoginSchema.parse(formState))
     } catch (error) {
       if (error instanceof z.ZodError) {
-        setErrors((pre) => ({ ...pre, ...z.flattenError(error).fieldErrors }))
+        const fieldErrors = z.flattenError(error).fieldErrors as Partial<Record<keyof FormState, string[]>>
+        setErrors({
+          username: fieldErrors.username?.[0],
+          password: fieldErrors.password?.[0]
+        })
+        if (fieldErrors.username?.[0]) usernameRef.current?.focus()
+        else if (fieldErrors.password?.[0]) passwordRef.current?.focus()
       }
     }
   }
 
   return (
-    <Card className="border-none shadow-none bg-transparent p-0 [&>div]:p-0">
-      <CardContent className="p-8">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-foreground">用户名</label>
-            <div className="relative">
-              <UserIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
-              <Input
-                type="text"
-                value={formState.username}
-                onChange={handleInputChange('username')}
-                className="pl-11"
-                placeholder="输入用户名"
-                required
-                disabled={isExecuting}
-                autoComplete="username"
-              />
-            </div>
-            {errors.username && <p className="text-sm text-destructive">{errors.username}</p>}
-          </div>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-6" noValidate>
+      <FieldGroup className="gap-5">
+        <Field data-invalid={!!errors.username}>
+          <FieldLabel htmlFor="login-username">用户名</FieldLabel>
+          <InputGroup data-disabled={isExecuting || undefined}>
+            <InputGroupInput
+              ref={usernameRef}
+              id="login-username"
+              name="username"
+              type="text"
+              value={formState.username}
+              onChange={handleInputChange('username')}
+              placeholder="输入用户名…"
+              required
+              disabled={isExecuting}
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              aria-invalid={!!errors.username}
+              aria-describedby={errors.username ? 'login-username-error' : undefined}
+            />
+            <InputGroupAddon>
+              <UserIcon aria-hidden="true" />
+            </InputGroupAddon>
+          </InputGroup>
+          <FieldError id="login-username-error">{errors.username}</FieldError>
+        </Field>
 
-          {/* Password Field */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-foreground">密码</label>
-            <div className="relative">
-              <LockKeyholeIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
-              <Input
-                type="password"
-                value={formState.password}
-                onChange={handleInputChange('password')}
-                className="pl-11"
-                placeholder="输入密码"
-                required
-                disabled={isExecuting}
-                autoComplete="current-password"
-              />
-            </div>
-            {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
-          </div>
+        <Field data-invalid={!!errors.password}>
+          <FieldLabel htmlFor="login-password">密码</FieldLabel>
+          <InputGroup data-disabled={isExecuting || undefined}>
+            <InputGroupInput
+              ref={passwordRef}
+              id="login-password"
+              name="password"
+              type="password"
+              value={formState.password}
+              onChange={handleInputChange('password')}
+              placeholder="输入密码…"
+              required
+              disabled={isExecuting}
+              autoComplete="current-password"
+              spellCheck={false}
+              aria-invalid={!!errors.password}
+              aria-describedby={errors.password ? 'login-password-error' : undefined}
+            />
+            <InputGroupAddon>
+              <LockKeyholeIcon aria-hidden="true" />
+            </InputGroupAddon>
+          </InputGroup>
+          <FieldError id="login-password-error">{errors.password}</FieldError>
+        </Field>
+      </FieldGroup>
 
-          {/* Error Message */}
-          {errors.general && (
-            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 flex items-start gap-3">
-              <CircleXIcon className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-destructive/80 mt-1">{errors.general}</p>
-            </div>
-          )}
+      {errors.general && (
+        <Alert variant="destructive">
+          <CircleXIcon aria-hidden="true" />
+          <AlertTitle>无法登录</AlertTitle>
+          <AlertDescription>{errors.general}</AlertDescription>
+        </Alert>
+      )}
 
-          {/* Submit Button */}
-          <Button type="submit" disabled={isExecuting} className="w-full" size="lg">
-            {isExecuting ? (
-              <div className="flex items-center justify-center gap-2">
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                登录中...
-              </div>
-            ) : (
-              '登录'
-            )}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+      <Button type="submit" disabled={isExecuting} className="w-full" size="lg">
+        {isExecuting && <Spinner data-icon="inline-start" aria-label="正在登录" />}
+        {isExecuting ? '登录中…' : '登录'}
+      </Button>
+    </form>
   )
 }

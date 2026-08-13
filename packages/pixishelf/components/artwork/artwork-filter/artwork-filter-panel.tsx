@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { ProDatePicker, ProDatePickerPresets } from '@/components/shared/pro-date-picker'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import type { ArtworkFilterValue } from './artwork-filter-types'
 import { normalizeAudioFilter } from './artwork-filter-utils'
@@ -262,10 +262,12 @@ export function ArtworkFilterPanel({
                 <SelectValue placeholder="全部" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                <SelectItem value="yes">有音频</SelectItem>
-                <SelectItem value="no">无音频</SelectItem>
-                <SelectItem value="unknown">未探测</SelectItem>
+                <SelectGroup>
+                  <SelectItem value="all">全部</SelectItem>
+                  <SelectItem value="yes">有音频</SelectItem>
+                  <SelectItem value="no">无音频</SelectItem>
+                  <SelectItem value="unknown">未探测</SelectItem>
+                </SelectGroup>
               </SelectContent>
             </Select>
           </div>

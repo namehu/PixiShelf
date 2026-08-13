@@ -358,6 +358,16 @@ Add reusable primitives under `components/layout`:
 - Copyable content works through selection and explicit copy actions.
 - No shadcn component is overwritten without reviewed diffs.
 
+### Verification record
+
+- Added the official shadcn `InputGroup` source only after checking component info, documentation, examples, dry-run output, and diffs. The CLI was allowed to stop at its overwrite prompt; existing `Button`, `Input`, and `Textarea` files were not overwritten.
+- All ten production Select surfaces found by the audit now group their `SelectItem` children with `SelectGroup`; affected test doubles were updated to reflect the official composition.
+- Login and initialization forms use connected Field labels, local field errors, appropriate `name` and `autocomplete` attributes, and leave native selection, copy, and paste behavior untouched. The APNG surface is now a labelled native button rather than a clickable `div`.
+- The log viewer keeps virtualized, selectable log messages, uses labelled shadcn controls, and adds an explicit copy action for all or currently filtered entries with a direct-selection fallback.
+- The Stage 4 review gate additionally verified that complete log rows remain selectable, destructive log clearing requires confirmation, invalid custom forms focus their first failing field, and APNG toggles use stable, item-specific names.
+- Browser checks at `1440x900`, `390x844`, and `1440x720` found no horizontal overflow or nested interactive controls on `/login`. It retained exactly one `h1`; the mobile marketing panel collapsed; inputs remained selectable; empty submission connected both visible errors through `aria-describedby`.
+- `pnpm --filter @pixishelf/next lint` completed with zero warnings/errors, TypeScript typecheck passed, and six focused test files passed across forms, log copying, APNG semantics, pagination, preferences, and artwork filtering. The final full unit suite passed all `159` files / `848` tests after adding a runtime-safe null-path fallback exposed by the aggregate run and the review-gate destructive-action coverage.
+
 ## 10. Stage 5 — Supporting Gallery Pages
 
 Migrate:

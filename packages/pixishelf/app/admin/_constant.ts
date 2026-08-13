@@ -121,11 +121,13 @@ export const adminNavigationGroups = [
   }
 ]
 
-export function getActiveAdminSection(pathname: string) {
+export function getActiveAdminSection(pathname: string | null) {
+  if (!pathname) return undefined
   if (pathname === adminHomeSection.href) return adminHomeSection
   return sections.find((section) => pathname === section.href || pathname.startsWith(`${section.href}/`))
 }
 
-export function isAdminNavigationItemActive(pathname: string, href: string) {
+export function isAdminNavigationItemActive(pathname: string | null, href: string) {
+  if (!pathname) return false
   return pathname === href || (href !== adminHomeSection.href && pathname.startsWith(`${href}/`))
 }

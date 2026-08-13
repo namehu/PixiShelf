@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAction } from 'next-safe-action/hooks'
 import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { updateUserSettingAction } from '@/actions/user-setting-action'
@@ -208,8 +208,10 @@ export default function SettingsPreferencesPage() {
             <SelectValue placeholder="选择展示模式" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="card">包含间距的卡片模式</SelectItem>
-            <SelectItem value="minimal">极简模式（2px 间距）</SelectItem>
+            <SelectGroup>
+              <SelectItem value="card">包含间距的卡片模式</SelectItem>
+              <SelectItem value="minimal">极简模式（2px 间距）</SelectItem>
+            </SelectGroup>
           </SelectContent>
         </Select>
       </PreferenceItem>
@@ -227,8 +229,10 @@ export default function SettingsPreferencesPage() {
             <SelectValue placeholder="选择长按倍速" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="2">2 倍速</SelectItem>
-            <SelectItem value="3">3 倍速（推荐）</SelectItem>
+            <SelectGroup>
+              <SelectItem value="2">2 倍速</SelectItem>
+              <SelectItem value="3">3 倍速（推荐）</SelectItem>
+            </SelectGroup>
           </SelectContent>
         </Select>
       </PreferenceItem>
@@ -243,11 +247,13 @@ export default function SettingsPreferencesPage() {
             <SelectValue placeholder="选择跳转步长" />
           </SelectTrigger>
           <SelectContent>
-            {[5, 10, 15].map((seconds) => (
-              <SelectItem key={seconds} value={String(seconds)}>
-                {seconds} 秒{seconds === 10 ? '（推荐）' : ''}
-              </SelectItem>
-            ))}
+            <SelectGroup>
+              {[5, 10, 15].map((seconds) => (
+                <SelectItem key={seconds} value={String(seconds)}>
+                  {seconds} 秒{seconds === 10 ? '（推荐）' : ''}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
       </PreferenceItem>
@@ -261,12 +267,14 @@ export default function SettingsPreferencesPage() {
             <SelectValue placeholder="选择节点间隔" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="0">关闭</SelectItem>
-            {[10, 20, 30, 40, 50, 100].map((interval) => (
-              <SelectItem key={interval} value={String(interval)}>
-                每 {interval} 张
-              </SelectItem>
-            ))}
+            <SelectGroup>
+              <SelectItem value="0">关闭</SelectItem>
+              {[10, 20, 30, 40, 50, 100].map((interval) => (
+                <SelectItem key={interval} value={String(interval)}>
+                  每 {interval} 张
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
       </PreferenceItem>

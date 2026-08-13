@@ -5,7 +5,7 @@ import { BarChart3, ChevronDown, Copy, Download, FileText, FolderInput, FolderSy
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SDropdown } from '@/components/shared/s-dropdown'
 import type { MigrationSafety } from './artwork-management-types'
 
@@ -88,8 +88,10 @@ export function ArtworkManagementToolbar({
                   <SelectValue placeholder="选择方式" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="move">移动</SelectItem>
-                  <SelectItem value="copy">复制</SelectItem>
+                  <SelectGroup>
+                    <SelectItem value="move">移动</SelectItem>
+                    <SelectItem value="copy">复制</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <label className="flex cursor-pointer items-center gap-2">
