@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Check, Loader2, Pause, Play, RotateCcw, Sparkles, X } from 'lucide-react'
+import { Check, Pause, Play, RotateCcw, Sparkles, X } from 'lucide-react'
 import Image from 'next/image'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { Spinner } from '@/components/ui/spinner'
+import { confirm } from '@/components/shared/global-confirm'
 import { useVideoKeyframeRetryClock } from '@/hooks/use-video-keyframe-retry-clock'
 import { useTRPC } from '@/lib/trpc'
 import { formatVideoKeyframeError, getVideoKeyframeRetryCountdown } from '@/types/video-keyframe'
@@ -68,15 +70,15 @@ export function VideoKeyframePanel({ imageId, visible }: { imageId: number; visi
   const active = Boolean(job && ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'CANCELLING'].includes(job.status))
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div className="flex items-center gap-2 text-xs font-medium text-neutral-500">
+          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             视频代表帧
             {published ? <Badge variant="outline">{published.publishedCount} 张</Badge> : null}
             {job?.queuePosition ? <Badge variant="outline">队列 #{job.queuePosition}</Badge> : null}
             {published?.warning ? (
-              <Badge variant="outline" className="text-amber-700">
+              <Badge variant="warning">
                 有警告
               </Badge>
             ) : null}
@@ -89,27 +91,39 @@ export function VideoKeyframePanel({ imageId, visible }: { imageId: number; visi
               size="sm"
               variant="outline"
               disabled={start.isPending}
-              onClick={() => start.mutate({ imageId, force: Boolean(published) })}
+              onClick={() => {
+                if (!published) {
+                  start.mutate({ imageId, force: false })
+                  return
+                }
+                confirm({
+                  title: '重新生成视频代表帧？',
+                  description: '现有代表帧会被新的生成结果替换，当前手动封面将尽量保留。',
+                  confirmText: '确认重建',
+                  variant: 'destructive',
+                  onConfirm: () => start.mutate({ imageId, force: true })
+                })
+              }}
             >
               {start.isPending ? (
-                <Loader2 className="mr-1 size-4 animate-spin" />
+                <Spinner data-icon="inline-start" aria-hidden="true" />
               ) : published ? (
-                <RotateCcw className="mr-1 size-4" />
+                <RotateCcw data-icon="inline-start" aria-hidden="true" />
               ) : (
-                <Sparkles className="mr-1 size-4" />
+                <Sparkles data-icon="inline-start" aria-hidden="true" />
               )}
               {published ? '强制重建' : '生成代表帧'}
             </Button>
           ) : null}
           {job?.status === 'RUNNING' ? (
             <Button size="sm" variant="outline" onClick={() => control.mutate({ jobId: job.id, action: 'pause' })}>
-              <Pause className="mr-1 size-4" />
+              <Pause data-icon="inline-start" aria-hidden="true" />
               暂停
             </Button>
           ) : null}
           {job?.status === 'PAUSED' ? (
             <Button size="sm" variant="outline" onClick={() => control.mutate({ jobId: job.id, action: 'resume' })}>
-              <Play className="mr-1 size-4" />
+              <Play data-icon="inline-start" aria-hidden="true" />
               恢复
             </Button>
           ) : null}
@@ -118,15 +132,23 @@ export function VideoKeyframePanel({ imageId, visible }: { imageId: number; visi
               size="sm"
               variant="destructive"
               disabled={job.status === 'CANCELLING'}
-              onClick={() => control.mutate({ jobId: job.id, action: 'cancel' })}
+              onClick={() =>
+                confirm({
+                  title: '取消视频代表帧任务？',
+                  description: '当前生成会停止；已经发布的正式封面不会被删除。',
+                  confirmText: '确认取消',
+                  variant: 'destructive',
+                  onConfirm: () => control.mutate({ jobId: job.id, action: 'cancel' })
+                })
+              }
             >
-              <X className="mr-1 size-4" />
+              <X data-icon="inline-start" aria-hidden="true" />
               取消
             </Button>
           ) : null}
           {job && ['FAILED', 'CANCELLED'].includes(job.status) ? (
             <Button size="sm" variant="outline" onClick={() => retry.mutate({ jobId: job.id })}>
-              <RotateCcw className="mr-1 size-4" />
+              <RotateCcw data-icon="inline-start" aria-hidden="true" />
               重试
             </Button>
           ) : null}
@@ -140,16 +162,16 @@ export function VideoKeyframePanel({ imageId, visible }: { imageId: number; visi
         </div>
       ) : null}
       {job?.error ? <p className="text-xs text-destructive">{formatVideoKeyframeError(job.error)}</p> : null}
-      {retryCountdown ? <p className="text-xs text-amber-700">{retryCountdown}</p> : null}
-      {published?.warning ? <p className="text-xs text-amber-700">{published.warning}</p> : null}
+      {retryCountdown ? <p className="text-xs text-warning-foreground">{retryCountdown}</p> : null}
+      {published?.warning ? <p className="text-xs text-warning-foreground">{published.warning}</p> : null}
       {details.data?.manualPosterWarning ? (
-        <p className="text-xs text-amber-700">正式封面保留为旧版本：{details.data.manualPosterWarning}</p>
+        <p className="text-xs text-warning-foreground">正式封面保留为旧版本：{details.data.manualPosterWarning}</p>
       ) : null}
 
       {published?.frames.length ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {published.frames.map((frame) => (
-            <div key={frame.id} className="group overflow-hidden rounded-md border bg-neutral-950">
+            <div key={frame.id} className="group overflow-hidden rounded-md border bg-black">
               <div className="relative aspect-video w-full">
                 <Image
                   src={frame.url}
@@ -168,7 +190,7 @@ export function VideoKeyframePanel({ imageId, visible }: { imageId: number; visi
                   disabled={selectPoster.isPending}
                   onClick={() => selectPoster.mutate({ imageId, frameId: frame.id })}
                 >
-                  <Check className="mr-1 size-3" />
+                  <Check data-icon="inline-start" aria-hidden="true" />
                   设为封面
                 </Button>
               </div>

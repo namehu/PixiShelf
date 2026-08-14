@@ -1,7 +1,7 @@
 'use client'
 
 import { Dispatch, SetStateAction } from 'react'
-import { BarChart3, ChevronDown, Copy, Download, FileText, FolderInput, FolderSync, Plus, Sliders } from 'lucide-react'
+import { ChevronDown, Copy, Download, FileText, FolderInput, FolderSync, Plus, Sliders } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -45,15 +45,7 @@ export function ArtworkManagementToolbar({
   onTogglePendingReplaceCopyMode
 }: ArtworkManagementToolbarProps) {
   return (
-    <div className="flex flex-col gap-4 border-b border-neutral-200 pb-4 md:flex-row md:items-center md:justify-between">
-      <div>
-        <h1 className="text-xl md:text-2xl font-bold text-neutral-900 flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 md:w-6 md:h-6" />
-          作品管理
-        </h1>
-        <p className="text-sm md:text-base text-neutral-600 mt-1">管理作品，支持搜索、筛选和批量操作</p>
-      </div>
-      <div className="flex w-full flex-wrap gap-2 md:w-auto md:justify-end">
+    <div className="flex w-full flex-wrap justify-end gap-2 border-b border-border pb-4" role="toolbar" aria-label="作品管理操作">
         <Button
           variant={pendingReplaceCopyMode ? 'secondary' : 'outline'}
           size="sm"
@@ -62,19 +54,19 @@ export function ArtworkManagementToolbar({
           title="开启后复制作品 externalId 将得到 __ext-{externalId}"
           aria-pressed={pendingReplaceCopyMode}
         >
-          <Copy className="h-4 w-4" />
+          <Copy data-icon="inline-start" aria-hidden="true" />
           {pendingReplaceCopyMode ? '替换后缀复制中' : '复制替换后缀'}
         </Button>
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm" className="flex flex-1 items-center gap-2 sm:flex-none">
-              <Sliders className="w-4 h-4" />
+              <Sliders data-icon="inline-start" aria-hidden="true" />
               迁移策略
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-64" align="end">
-            <div className="space-y-3">
-              <div className="text-sm font-medium text-neutral-800">传输方式</div>
+            <div className="flex flex-col gap-3">
+              <div className="text-sm font-medium text-foreground">传输方式</div>
               <Select
                 value={migrationSafety.transferMode}
                 onValueChange={(value) =>
@@ -84,7 +76,7 @@ export function ArtworkManagementToolbar({
                   }))
                 }
               >
-                <SelectTrigger className="h-8">
+                <SelectTrigger className="h-8" aria-label="迁移传输方式">
                   <SelectValue placeholder="选择方式" />
                 </SelectTrigger>
                 <SelectContent>
@@ -105,7 +97,7 @@ export function ArtworkManagementToolbar({
                   }
                   disabled={migrationSafety.transferMode !== 'copy'}
                 />
-                <span className="text-sm text-neutral-700">复制后校验</span>
+                <span className="text-sm text-foreground">复制后校验</span>
               </label>
               <label className="flex cursor-pointer items-center gap-2">
                 <Checkbox
@@ -117,7 +109,7 @@ export function ArtworkManagementToolbar({
                     }))
                   }
                 />
-                <span className="text-sm text-neutral-700">清理源文件</span>
+                <span className="text-sm text-foreground">清理源文件</span>
               </label>
             </div>
           </PopoverContent>
@@ -152,7 +144,7 @@ export function ArtworkManagementToolbar({
               {
                 key: 'migrate',
                 icon: migrationState.migrating ? (
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                  <span className="size-2 animate-pulse rounded-full bg-success" />
                 ) : (
                   <FolderInput className="w-4 h-4" />
                 ),
@@ -184,7 +176,6 @@ export function ArtworkManagementToolbar({
             <ChevronDown className="w-4 h-4" />
           </Button>
         </SDropdown>
-      </div>
     </div>
   )
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { CheckCircle2, Clock3, Film, Loader2, RotateCcw, X, XCircle } from 'lucide-react'
+import { Film, RotateCcw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,10 @@ import { useTRPC } from '@/lib/trpc'
 import { isActiveVideoOptimization, type VideoOptimizationJobView } from '@/types/video-optimization'
 import { formatFileSize } from '@/utils/media'
 import { TaskSection } from './task-ui'
+import { Spinner } from '@/components/ui/spinner'
+import { AdminStatusBadge } from '../../_components/admin-status-badge'
+import { confirm } from '@/components/shared/global-confirm'
+import { cn } from '@/lib/utils'
 
 interface VideoOptimizationQueueView {
   capacity: number
@@ -89,7 +93,15 @@ export function VideoStreamingOptimizationSection() {
           <OptimizationJobRow
             key={job.id}
             job={job}
-            onCancel={() => cancelMutation.mutate({ jobId: job.id })}
+            onCancel={() =>
+              confirm({
+                title: '取消这个视频优化任务？',
+                description: '当前优化会停止，原始媒体文件不会被删除。',
+                confirmText: '确认取消',
+                variant: 'destructive',
+                onConfirm: () => cancelMutation.mutate({ jobId: job.id })
+              })
+            }
             cancelling={cancelMutation.isPending && cancelMutation.variables?.jobId === job.id}
           />
         ))}
@@ -116,10 +128,10 @@ export function VideoStreamingOptimizationSection() {
 function QueueGroup({ title, emptyText, children }: { title: string; emptyText: string; children: React.ReactNode }) {
   const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children)
   return (
-    <section className="space-y-2">
+    <section className="flex flex-col gap-2">
       <h4 className="text-sm font-medium text-foreground">{title}</h4>
       {hasChildren ? (
-        <div className="space-y-2">{children}</div>
+        <div className="flex flex-col gap-2">{children}</div>
       ) : (
         <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{emptyText}</p>
       )}
@@ -146,12 +158,11 @@ function OptimizationJobRow({
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-      <div className="space-y-3 p-4">
+      <div className="flex flex-col gap-3 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 space-y-1">
+          <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-              <JobStatusIcon status={job.status} />
-              <span>{getStatusLabel(job)}</span>
+              <AdminStatusBadge status={job.status}>{getStatusLabel(job)}</AdminStatusBadge>
               {job.attempt && job.attempt > 1 ? <Badge variant="outline">第 {job.attempt} 次执行</Badge> : null}
             </div>
             <p className="break-all font-mono text-xs text-muted-foreground" title={job.targetPath ?? undefined}>
@@ -169,9 +180,9 @@ function OptimizationJobRow({
                 onClick={onCancel}
               >
                 {cancelling || job.status === 'CANCELLING' ? (
-                  <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  <Spinner data-icon="inline-start" aria-hidden="true" />
                 ) : (
-                  <X className="size-4" aria-hidden="true" />
+                  <X data-icon="inline-start" aria-hidden="true" />
                 )}
                 {pending ? '取消排队' : '取消任务'}
               </Button>
@@ -179,7 +190,8 @@ function OptimizationJobRow({
             {onRetry && (
               <Button type="button" size="sm" variant="outline" disabled={retrying} onClick={onRetry}>
                 <RotateCcw
-                  className={`size-4 ${retrying ? 'animate-spin motion-reduce:animate-none' : ''}`}
+                  data-icon="inline-start"
+                  className={cn(retrying && 'animate-spin motion-reduce:animate-none')}
                   aria-hidden="true"
                 />
                 重新加入队列
@@ -212,15 +224,6 @@ function OptimizationJobRow({
       )}
     </div>
   )
-}
-
-function JobStatusIcon({ status }: { status: string }) {
-  if (status === 'PENDING') return <Clock3 className="size-4 text-amber-500" aria-hidden="true" />
-  if (status === 'RUNNING' || status === 'CANCELLING') {
-    return <Loader2 className="size-4 animate-spin text-primary motion-reduce:animate-none" aria-hidden="true" />
-  }
-  if (status === 'COMPLETED') return <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
-  return <XCircle className="size-4 text-destructive" aria-hidden="true" />
 }
 
 function getStatusLabel(job: VideoOptimizationJobView) {

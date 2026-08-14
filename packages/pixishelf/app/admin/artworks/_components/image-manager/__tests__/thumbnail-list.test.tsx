@@ -94,4 +94,30 @@ describe('ImageManagerThumbnailList', () => {
     expect(container.querySelector('video')).not.toBeNull()
     expect(screen.queryByTestId('video-thumbnail-play')).toBeNull()
   })
+
+  test('opens an image preview through a named native button', () => {
+    const onPreviewIndexChange = vi.fn()
+    render(
+      <ImageManagerThumbnailList
+        imageList={[image({ id: 3, path: '/artist/work/preview.jpg' })]}
+        refreshKey={1}
+        reprobingImageId={null}
+        videoOptimizationJobsByImageId={{}}
+        startingVideoOptimizationImageId={null}
+        onPreviewIndexChange={onPreviewIndexChange}
+        onOpenVideoMetadata={vi.fn()}
+        onDownload={vi.fn()}
+        onOpenChapterDialog={vi.fn()}
+        onDownloadChapters={vi.fn()}
+        onDeleteChapter={vi.fn()}
+        onReprobeVideo={vi.fn()}
+        onStartVideoOptimization={vi.fn()}
+        onCancelVideoOptimization={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '预览 preview.jpg' }))
+    expect(onPreviewIndexChange).toHaveBeenCalledWith(0)
+  })
 })

@@ -79,12 +79,11 @@ function ScanManagement() {
   }
 
   return (
-    <div className="p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* 页面标题 */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-neutral-900 mb-2">扫描管理</h1>
-          <p className="text-neutral-600">管理艺术品扫描路径、监控扫描进度和查看详细日志</p>
+    <div className="py-6">
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Pixiv 扫描</h2>
+          <p className="mt-1 text-sm text-muted-foreground">管理作品扫描路径、监控扫描进度和查看详细日志。</p>
         </div>
 
         <ServerScanCard

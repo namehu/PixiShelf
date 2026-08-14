@@ -1,9 +1,10 @@
 'use client'
 
-import { CheckCircle2, Loader2, RotateCcw, WandSparkles, X, XCircle } from 'lucide-react'
+import { CheckCircle2, RotateCcw, WandSparkles, X, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import type { ImageListItem } from '../types'
 import {
@@ -37,15 +38,11 @@ export function ImageVideoOptimizationEntry({
   onStart,
   onCancel
 }: ImageVideoOptimizationEntryProps) {
-  if (!isVideoImageListItem(image)) return compact ? null : <span className="text-xs text-neutral-400">-</span>
+  if (!isVideoImageListItem(image)) return compact ? null : <span className="text-xs text-muted-foreground">-</span>
 
   if (!isMp4OptimizationTarget(image)) {
     return (
-      <Badge
-        variant="outline"
-        className="border-amber-200 bg-amber-50 text-amber-700"
-        title="第一阶段仅支持 MP4 无损重新封装；该格式需要后续转码功能"
-      >
+      <Badge variant="warning" title="第一阶段仅支持 MP4 无损重新封装；该格式需要后续转码功能">
         需转码
       </Badge>
     )
@@ -53,8 +50,8 @@ export function ImageVideoOptimizationEntry({
 
   if (isStarting) {
     return (
-      <Badge variant="outline" className="gap-1 border-blue-200 bg-blue-50 text-blue-700">
-        <Loader2 className="size-3 animate-spin" />
+      <Badge variant="info">
+        <Spinner data-icon="inline-start" aria-hidden="true" />
         正在启动
       </Badge>
     )
@@ -64,16 +61,12 @@ export function ImageVideoOptimizationEntry({
     const cancelling = job.status === 'CANCELLING'
     const pending = job.status === 'PENDING'
     return (
-      <div
-        className={cn('min-w-0', compact ? 'w-32' : 'w-44')}
-        title={job.message || (cancelling ? '正在取消任务' : '正在处理')}
-        onClick={(event) => event.stopPropagation()}
-      >
+      <div className={cn('min-w-0', compact ? 'w-32' : 'w-44')} title={job.message || (cancelling ? '正在取消任务' : '正在处理')}>
         <div className="mb-1 flex items-center gap-1 text-[11px] font-medium">
           {pending ? (
-            <span className="size-3 shrink-0 rounded-full border border-amber-500" />
+            <span className="size-3 shrink-0 rounded-full border border-warning" />
           ) : (
-            <Loader2 className="size-3 shrink-0 animate-spin text-blue-500" />
+            <Spinner className="size-3 shrink-0 text-primary" aria-hidden="true" />
           )}
           <span className="min-w-0 flex-1 truncate">
             {pending
@@ -89,10 +82,13 @@ export function ImageVideoOptimizationEntry({
             size="icon"
             className="size-5 shrink-0"
             disabled={cancelling}
-            title="取消任务"
-            onClick={() => onCancel(job)}
+            aria-label={`取消 ${image.path} 的视频优化任务`}
+            onClick={(event) => {
+              event.stopPropagation()
+              onCancel(job)
+            }}
           >
-            <X className="size-3" />
+            <X aria-hidden="true" />
           </Button>
         </div>
         {!pending && <Progress value={job.progress ?? 0} className="h-1" />}
@@ -102,20 +98,23 @@ export function ImageVideoOptimizationEntry({
 
   if (job?.status === 'FAILED') {
     return (
-      <div className={cn('min-w-0', compact ? 'max-w-32' : 'w-44')} onClick={(event) => event.stopPropagation()}>
+      <div className={cn('min-w-0', compact ? 'max-w-32' : 'w-44')}>
         <Button
           type="button"
           variant="outline"
           size="sm"
-          className="h-7 gap-1 border-red-200 bg-red-50 px-2 text-xs text-red-700 hover:bg-red-100 hover:text-red-800"
+          className="h-7 px-2 text-xs"
           title={job.error || '处理失败，点击重试'}
-          onClick={() => onStart(image)}
+          onClick={(event) => {
+            event.stopPropagation()
+            onStart(image)
+          }}
         >
-          <XCircle className="size-3.5" />
+          <XCircle data-icon="inline-start" aria-hidden="true" />
           失败，重试
         </Button>
         {!compact && (
-          <p className="mt-1 truncate text-[10px] text-red-600" title={job.error || undefined}>
+          <p className="mt-1 truncate text-[10px] text-destructive" title={job.error || undefined}>
             {job.error || '未知错误'}
           </p>
         )}
@@ -129,14 +128,14 @@ export function ImageVideoOptimizationEntry({
         type="button"
         variant="outline"
         size="sm"
-        className="h-7 gap-1 border-emerald-200 bg-emerald-50 px-2 text-xs text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
+        className="h-7 px-2 text-xs text-success"
         title="已完成 MP4 无损播放优化；点击可再次执行"
         onClick={(event) => {
           event.stopPropagation()
           onStart(image)
         }}
       >
-        <CheckCircle2 className="size-3.5" />
+        <CheckCircle2 data-icon="inline-start" aria-hidden="true" />
         已优化
       </Button>
     )
@@ -147,14 +146,18 @@ export function ImageVideoOptimizationEntry({
       type="button"
       variant="outline"
       size="sm"
-      className="h-7 gap-1 px-2 text-xs"
+      className="h-7 px-2 text-xs"
       title={job?.status === 'CANCELLED' ? '任务已取消，点击重试' : 'MP4 无损播放优化'}
       onClick={(event) => {
         event.stopPropagation()
         onStart(image)
       }}
     >
-      {job?.status === 'CANCELLED' ? <RotateCcw className="size-3.5" /> : <WandSparkles className="size-3.5" />}
+      {job?.status === 'CANCELLED' ? (
+        <RotateCcw data-icon="inline-start" aria-hidden="true" />
+      ) : (
+        <WandSparkles data-icon="inline-start" aria-hidden="true" />
+      )}
       {job?.status === 'CANCELLED' ? '已取消，重试' : '无损优化'}
     </Button>
   )

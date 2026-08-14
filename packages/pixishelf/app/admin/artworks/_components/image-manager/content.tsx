@@ -404,11 +404,11 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     confirm({
       title: '确认执行 MP4 无损播放优化？',
       description: (
-        <div className="mt-2 space-y-2 text-sm">
+        <div className="mt-2 flex flex-col gap-2 text-sm">
           <p className="break-all font-mono text-xs">{image.path}</p>
           <p>将使用 FFmpeg stream copy + faststart 移动 moov 并重建容器索引，视频和音频不会重新编码。</p>
           <p>此操作不会增加关键帧；如果视频本身关键帧稀疏，仍需使用后续的兼容转码功能。</p>
-          <p className="text-amber-600">成功后会原位替换文件。执行期间请勿从外部修改或移动该视频。</p>
+          <p className="text-warning-foreground">成功后会原位替换文件。执行期间请勿从外部修改或移动该视频。</p>
         </div>
       ),
       confirmText: '加入优化队列',
@@ -505,7 +505,6 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
 
   const columns = createImageManagerColumns({
     reprobingImageId,
-    onClearHover: () => setHoverImage(null),
     onMouseEnter: handleMouseEnter,
     onMouseLeave: handleMouseLeave,
     onOpenVideoMetadata: setVideoMetadataTarget,
@@ -747,14 +746,14 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         okButtonProps={{ variant: 'destructive' }}
         onCancel={() => setDeleteTarget(null)}
       >
-        <div className="flex flex-row items-start space-x-3 space-y-0 py-4">
+        <div className="flex flex-row items-start gap-3 py-4">
           <Checkbox
             id="delete-physical"
             checked={deletePhysical}
             onCheckedChange={(checked) => setDeletePhysical(checked as boolean)}
             className="mt-1"
           />
-          <div className="space-y-1 leading-none">
+          <div className="flex flex-col gap-1 leading-none">
             <Label
               htmlFor="delete-physical"
               className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
@@ -786,14 +785,14 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
           setDeleteChapterPhysical(false)
         }}
       >
-        <div className="flex flex-row items-start space-x-3 space-y-0 py-4">
+        <div className="flex flex-row items-start gap-3 py-4">
           <Checkbox
             id="delete-chapter-physical"
             checked={deleteChapterPhysical}
             onCheckedChange={(checked) => setDeleteChapterPhysical(checked as boolean)}
             className="mt-1"
           />
-          <div className="space-y-1 leading-none">
+          <div className="flex flex-col gap-1 leading-none">
             <Label
               htmlFor="delete-chapter-physical"
               className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"

@@ -235,7 +235,7 @@ function ArchiveItemCard({
   ].filter(Boolean)
 
   return (
-    <div className="space-y-2 rounded-lg border p-3">
+    <div className="flex flex-col gap-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline">#{numberLabel}</Badge>
         <ItemStatusBadge status={item.status} attempts={item.attempts} />
@@ -275,7 +275,7 @@ function ArchiveItemCard({
       <p className="break-all text-xs text-muted-foreground">预期文件名：{item.expectedFilename}</p>
       {item.stagedPath && <p className="break-all text-xs text-muted-foreground">暂存路径：{item.stagedPath}</p>}
       {(item.errorStage || item.remoteHost) && (
-        <p className="break-all text-xs text-amber-700">
+        <p className="break-all text-xs text-warning-foreground">
           失败位置：{failureStageLabel(item.errorStage)}
           {item.remoteHost ? ` · ${item.remoteHost}` : ''}
         </p>

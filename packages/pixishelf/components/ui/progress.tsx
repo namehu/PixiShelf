@@ -11,7 +11,7 @@ function Progress({
   indicatorVariant = 'default',
   ...props
 }: React.ComponentProps<typeof ProgressPrimitive.Root> & {
-  indicatorVariant?: 'default' | 'destructive'
+  indicatorVariant?: 'default' | 'destructive' | 'success' | 'warning'
 }) {
   return (
     <ProgressPrimitive.Root
@@ -24,7 +24,9 @@ function Progress({
         data-slot="progress-indicator"
         className={cn(
           'h-full w-full flex-1 bg-primary transition-transform',
-          indicatorVariant === 'destructive' && 'bg-destructive'
+          indicatorVariant === 'destructive' && 'bg-destructive',
+          indicatorVariant === 'success' && 'bg-success',
+          indicatorVariant === 'warning' && 'bg-warning'
         )}
         style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
       />

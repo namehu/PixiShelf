@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { FileIcon, Loader2, X } from 'lucide-react'
+import { FileIcon, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { ProDialog } from '@/components/shared/pro-dialog'
 import { Label } from '@/components/ui/label'
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { formatFileSize } from '@/utils/media'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { ImageListItem } from './types'
+import { Spinner } from '@/components/ui/spinner'
 
 interface ImageChapterDialogProps {
   open: boolean
@@ -52,11 +53,11 @@ export function ImageChapterDialog({
       description={image ? `为 ${image.path.split('/').pop()} 管理章节文件` : '管理章节文件'}
       onOk={handleSubmit}
       confirmLoading={isSubmitting}
-      okText={isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : mode === 'replace' ? '确认替换' : '确认上传'}
+      okText={isSubmitting ? <Spinner aria-label="正在提交章节文件" /> : mode === 'replace' ? '确认替换' : '确认上传'}
       okButtonProps={{ disabled: !file || isSubmitting }}
       cancelButtonProps={{ disabled: isSubmitting }}
     >
-      <div className="space-y-4 py-2">
+      <div className="flex flex-col gap-4 py-2">
         {image && (
           <div className="rounded-md border bg-muted/30 p-3">
             <div className="text-sm font-medium">{image.path.split('/').pop()}</div>
@@ -70,7 +71,7 @@ export function ImageChapterDialog({
             <div className="flex items-center justify-between rounded-md border bg-muted/50 p-2">
               <div className="flex items-center gap-3 overflow-hidden">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded border bg-background">
-                  <FileIcon className="h-5 w-5 text-muted-foreground" />
+                  <FileIcon className="size-5 text-muted-foreground" aria-hidden="true" />
                 </div>
                 <div className="flex min-w-0 flex-col">
                   <span className="truncate text-sm font-medium">{file.name}</span>
@@ -83,13 +84,15 @@ export function ImageChapterDialog({
                 className="h-8 w-8 shrink-0 hover:text-destructive"
                 onClick={() => setFile(null)}
                 disabled={isSubmitting}
+                aria-label={`移除章节文件 ${file.name}`}
               >
-                <X className="h-4 w-4" />
+                <X aria-hidden="true" />
               </Button>
             </div>
           ) : (
             <Input
               id="chapter-manifest-file"
+              name="chapter-manifest-file"
               type="file"
               accept=".json,application/json"
               disabled={isSubmitting}

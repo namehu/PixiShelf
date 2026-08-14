@@ -7,6 +7,8 @@ import { SCard } from '@/components/shared/s-card' // 使用我们之前封装�
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea' // 记得使用 shadcn 的 Textarea
 import { Badge } from '@/components/ui/badge'
+import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/utils'
 import { useDragImages } from '../../artworks/_hooks/use-drag-images'
 
 interface ClientScanCardProps {
@@ -120,30 +122,44 @@ export function ClientScanCard({ hasScanPath, isScanning, onScan, className }: C
             </Badge>
           )}
           {text && (
-            <Button variant="danger" size="sm" onClick={handleClear} disabled={isScanning}>
-              <X className="mr-1 h-3.5 w-3.5" /> 清空
+            <Button variant="outline" size="sm" onClick={handleClear} disabled={isScanning}>
+              <X data-icon="inline-start" />
+              清空
             </Button>
           )}
           <Button onClick={handleSubmit} disabled={isScanning || !hasScanPath || validLinesCount === 0} size="sm">
             {isScanning ? (
               <>
-                <span className="animate-spin mr-2">⏳</span> 进行中...
+                <Spinner data-icon="inline-start" />
+                进行中…
               </>
             ) : (
               <>
-                <Play className="mr-2 h-4 w-4" /> 提交扫描
+                <Play data-icon="inline-start" />
+                提交扫描
               </>
             )}
           </Button>
         </div>
       }
     >
-      <div className={`space-y-3 transition-colors ${isDragging ? 'bg-neutral-50' : ''}`} {...dragHandlers}>
+      <div
+        className={cn('flex flex-col gap-3 transition-colors', isDragging && 'bg-muted/50')}
+        {...dragHandlers}
+      >
         {/* 工具栏区域 */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {/* 隐藏的文件上传 input */}
-            <input type="file" ref={fileInputRef} className="hidden" accept=".txt" onChange={handleFileUpload} />
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept=".txt"
+              name="scan-path-file"
+              aria-label="导入扫描路径 TXT 文件"
+              onChange={handleFileUpload}
+            />
 
             <Button
               variant="outline"
@@ -152,11 +168,11 @@ export function ClientScanCard({ hasScanPath, isScanning, onScan, className }: C
               disabled={isScanning}
               className="h-8 border-dashed"
             >
-              <Upload className="mr-2 h-3.5 w-3.5" />
+              <Upload data-icon="inline-start" />
               导入 TXT 文件
             </Button>
 
-            <span className="text-xs text-neutral-400">支持按行分割的 .txt 文件</span>
+            <span className="text-xs text-muted-foreground">支持按行分割的 .txt 文件</span>
           </div>
         </div>
 
@@ -165,14 +181,18 @@ export function ClientScanCard({ hasScanPath, isScanning, onScan, className }: C
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
+            name="scan-paths"
+            aria-label="待扫描路径"
+            autoComplete="off"
+            spellCheck={false}
             placeholder={
               '粘贴相对路径，一行一个\n例如：\n112349563/ー/137026182-meta.txt\n9645567/HALLOWEEN/136994763-meta.txt'
             }
-            className="min-h-[200px] font-mono text-xs leading-relaxed resize-y pr-4"
+            className="min-h-[200px] resize-y pr-8 font-mono text-xs leading-relaxed"
             disabled={isScanning}
           />
           {/* 这里可以加一个小图标提示 */}
-          <FileText className="absolute right-3 top-3 h-4 w-4 text-neutral-200 pointer-events-none" />
+          <FileText className="pointer-events-none absolute right-3 top-3 size-4 text-muted-foreground/40" />
         </div>
       </div>
     </SCard>

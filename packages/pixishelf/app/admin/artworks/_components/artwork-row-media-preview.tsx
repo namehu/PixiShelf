@@ -49,7 +49,7 @@ export function ArtworkRowMediaPreview({ artworkId }: { artworkId: number }) {
                   <ImageIcon aria-hidden="true" className="h-8 w-8 text-muted-foreground" />
                 )}
               </div>
-              <div className="space-y-0.5 p-2 text-[10px]">
+              <div className="flex flex-col gap-0.5 p-2 text-[10px]">
                 <div className="truncate" title={fileName}>
                   {fileName}
                 </div>

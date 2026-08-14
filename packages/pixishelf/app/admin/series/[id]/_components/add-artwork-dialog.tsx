@@ -55,19 +55,26 @@ export function AddArtworkDialog({ open, onOpenChange, seriesId, existingArtwork
           <DialogTitle>添加作品到系列</DialogTitle>
         </DialogHeader>
         <div className="p-1">
-          <Input placeholder="搜索作品标题..." value={query} onChange={(e) => setQuery(e.target.value)} />
+          <Input
+            name="series-artwork-search"
+            aria-label="搜索要添加到系列的作品"
+            autoComplete="off"
+            placeholder="搜索作品标题…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
         </div>
         <div className="flex-1 overflow-y-auto min-h-[300px]">
           {isLoading ? (
-            <div className="p-4 text-center">加载中...</div>
+            <div className="p-4 text-center">加载中…</div>
           ) : (
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               {data?.items.map((item: any) => {
                 const isAdded = existingArtworkIds.includes(item.id)
                 return (
                   <div key={item.id} className="flex items-center gap-3 p-2 hover:bg-muted rounded border">
                     <Avatar className="w-12 h-12 rounded">
-                      <AvatarImage src={item.thumbnailUrl || ''} />
+                      <AvatarImage src={item.thumbnailUrl || ''} alt={item.title} />
                       <AvatarFallback>?</AvatarFallback>
                     </Avatar>
                     <div className="flex-1 overflow-hidden">
@@ -79,8 +86,9 @@ export function AddArtworkDialog({ open, onOpenChange, seriesId, existingArtwork
                       variant={isAdded ? 'secondary' : 'default'}
                       disabled={isAdded || addMutation.isPending}
                       onClick={() => handleAdd(item.id)}
+                      aria-label={isAdded ? `${item.title} 已在系列中` : `将 ${item.title} 添加到系列`}
                     >
-                      {isAdded ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                      {isAdded ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
                     </Button>
                   </div>
                 )

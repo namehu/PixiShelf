@@ -37,7 +37,7 @@ The implementation direction is **PixiShelf Blue Archive**: a quiet blue-and-whi
 
 The application exposes these roles as semantic tokens rather than using the literal values in page classes:
 
-- `Archive Canvas` `#F5F7FA`: the cool page background around media and workbenches.
+- `Gallery White` `#FFFFFF`: the user-approved page background for gallery and workbench routes; subtle neutral fills are limited to bounded controls and secondary surfaces.
 - `Paper Surface` `#FFFFFF`: controls, dialogs, forms, and bounded work surfaces.
 - `Gallery Ink` `#1F2937`: primary text and high-emphasis utility data.
 - `Quiet Slate` `#5F6B7A`: descriptions, counts, and secondary metadata.
@@ -419,6 +419,13 @@ Migrate admin modules in functional groups:
 - No admin module is unreachable on mobile.
 - Destructive actions have consistent confirmation and consequences.
 - Table values and logs remain selectable and copyable.
+
+### Stage 6 execution record
+
+- Every admin route now uses the shared workbench hierarchy, with a grouped desktop sidebar and the same eleven destinations available from the mobile module Sheet. Overview, statistics, content management, archive, scan, task, settings, and batch-media workflows share the same title, section, metric, table, status, and feedback vocabulary.
+- Destructive admin actions now use the shared confirmation flow, while recoverable operations remain lightweight. Table values, identifiers, logs, and filter content remain selectable; explicit copy controls provide feedback without blocking ordinary mouse selection.
+- Complex artwork import and replacement tools remain desktop-optimized but are horizontally contained and give mobile users explicit viewing/light-action guidance. Browser checks at `1440x900` and `390x844` covered the admin overview, artwork management, batch replacement, settings, and tasks: each route had one `main`, one `h1`, a white body background, no document-level horizontal overflow, and reachable mobile navigation.
+- `pnpm --filter @pixishelf/next lint` completed with zero warnings/errors, TypeScript typecheck passed, and the full unit suite passed all `165` files / `866` tests.
 
 ## 12. Stage 7 — Regression and Final Cleanup
 

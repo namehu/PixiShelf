@@ -1,13 +1,14 @@
 'use client'
 
 import * as React from 'react'
-import { ChevronLeft, ChevronRight, MoreHorizontal, Loader2, ArrowLeft, ArrowRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, MoreHorizontal, ArrowLeft, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useMediaQuery } from '@/hooks/use-media-query'
+import { Spinner } from '@/components/ui/spinner'
 
 interface ProTablePaginationProps {
   pageIndex: number // 0-based
@@ -88,16 +89,17 @@ export function ProTablePagination({
   // --- Mobile Layout (≤ 768px) ---
   if (isMobile) {
     return (
-      <div className="flex w-full h-11 items-center justify-between px-4 py-2 select-none">
+      <div className="flex h-11 w-full items-center justify-between px-4 py-2">
         {/* Prev Button */}
         <Button
           variant="ghost"
           size="icon"
+          className="size-8"
           onClick={() => handlePageChange(currentPage - 1)}
           disabled={currentPage <= 1 || loading || disabled}
-          className="h-8 w-8"
+          aria-label="上一页"
         >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeft className="h-4 w-4" />}
+          {loading ? <Spinner aria-hidden="true" /> : <ArrowLeft aria-hidden="true" />}
         </Button>
 
         {/* Center Info & Input */}
@@ -106,9 +108,15 @@ export function ProTablePagination({
             第 {currentPage} / {pageCount} 页
           </span>
           <Input
-            type="text"
-            className="h-8 w-[60px] text-center px-1"
-            placeholder="Go"
+            type="number"
+            inputMode="numeric"
+            name="mobile-page-jump"
+            autoComplete="off"
+            aria-label={`跳转页码，范围 1 到 ${pageCount}`}
+            min={1}
+            max={pageCount}
+            className="h-8 w-[60px] px-1 text-center"
+            placeholder="页码"
             value={jumpPage}
             onChange={(e) => {
               const val = e.target.value.replace(/[^\d]/g, '')
@@ -123,11 +131,12 @@ export function ProTablePagination({
         <Button
           variant="ghost"
           size="icon"
+          className="size-8"
           onClick={() => handlePageChange(currentPage + 1)}
           disabled={currentPage >= pageCount || loading || disabled}
-          className="h-8 w-8"
+          aria-label="下一页"
         >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+          {loading ? <Spinner aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
         </Button>
       </div>
     )
@@ -143,24 +152,24 @@ export function ProTablePagination({
       // 1 2 3 4 5 ... N
       if (currentPage < 5) {
         for (let i = 1; i <= 5; i++) items.push(i)
-        items.push('...', pageCount)
+        items.push('…', pageCount)
       }
       // 1 ... N-4 N-3 N-2 N-1 N
       else if (currentPage >= pageCount - 3) {
-        items.push(1, '...')
+        items.push(1, '…')
         for (let i = pageCount - 4; i <= pageCount; i++) items.push(i)
       }
       // 1 ... C-1 C C+1 ... N
       else {
-        items.push(1, '...', currentPage - 1, currentPage, currentPage + 1, '...', pageCount)
+        items.push(1, '…', currentPage - 1, currentPage, currentPage + 1, '…', pageCount)
       }
     }
 
     return items.map((item, index) => {
-      if (item === '...') {
+      if (item === '…') {
         return (
-          <div key={`ellipsis-${index}`} className="flex h-8 w-8 items-center justify-center">
-            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+          <div key={`ellipsis-${index}`} className="flex size-8 items-center justify-center" aria-hidden="true">
+            <MoreHorizontal className="text-muted-foreground" />
           </div>
         )
       }
@@ -173,48 +182,50 @@ export function ProTablePagination({
           key={page}
           variant={isActive ? 'outline' : 'ghost'}
           size="icon"
-          className={cn('h-8 w-8', isActive && 'border-primary text-primary hover:bg-background hover:text-primary')}
+          className={cn('size-8', isActive && 'border-primary text-primary hover:bg-background hover:text-primary')}
           onClick={() => handlePageChange(page)}
           disabled={loading || disabled}
+          aria-label={`第 ${page} 页`}
+          aria-current={isActive ? 'page' : undefined}
         >
-          {loading && isActive ? <Loader2 className="h-4 w-4 animate-spin" /> : page}
+          {loading && isActive ? <Spinner aria-hidden="true" /> : page}
         </Button>
       )
     })
   }
 
   return (
-    <div className="flex items-center justify-between px-2 py-2 select-none w-full">
+    <div className="flex w-full items-center justify-between px-2 py-2">
       {/* 1.4 Left: Total Count */}
       <div className="flex-1 text-sm text-muted-foreground">共 {rowCount} 项</div>
 
       {/* Right: Pagination Controls */}
-      <div className="flex items-center space-x-2 lg:space-x-4">
+      <div className="flex items-center gap-2 lg:gap-4">
         {/* Prev Button */}
         <Button
           variant="outline"
           size="icon"
-          className="h-8 w-8"
+          className="size-8"
           onClick={() => handlePageChange(currentPage - 1)}
           disabled={currentPage <= 1 || loading || disabled}
-          aria-label="Previous Page"
+          aria-label="上一页"
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft aria-hidden="true" />
         </Button>
 
         {/* Page Numbers */}
-        <div className="flex items-center space-x-1">{renderPageNumbers()}</div>
+        <div className="flex items-center gap-1">{renderPageNumbers()}</div>
 
         {/* Next Button */}
         <Button
           variant="outline"
           size="icon"
-          className="h-8 w-8"
+          className="size-8"
           onClick={() => handlePageChange(currentPage + 1)}
           disabled={currentPage >= pageCount || loading || disabled}
-          aria-label="Next Page"
+          aria-label="下一页"
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight aria-hidden="true" />
         </Button>
 
         {/* Page Size Selector */}
@@ -223,7 +234,7 @@ export function ProTablePagination({
           onValueChange={(value) => handlePageSizeChange(Number(value))}
           disabled={loading || disabled}
         >
-          <SelectTrigger className="h-8 w-[100px]">
+          <SelectTrigger className="h-8 w-[100px]" aria-label="每页显示数量">
             <SelectValue placeholder={`${pageSize} 条/页`} />
           </SelectTrigger>
           <SelectContent side="top">
@@ -242,10 +253,18 @@ export function ProTablePagination({
           <span className="text-sm text-muted-foreground">跳至</span>
           <div className="relative group">
             <Input
-              type="text"
+              type="number"
+              inputMode="numeric"
+              name="desktop-page-jump"
+              autoComplete="off"
+              min={1}
+              max={pageCount}
+              aria-label={`跳转页码，范围 1 到 ${pageCount}`}
+              aria-invalid={isJumpInvalid}
+              aria-describedby={isJumpInvalid ? 'desktop-page-jump-error' : undefined}
               className={cn(
                 'h-8 w-[60px] px-1 text-center',
-                isJumpInvalid && 'border-red-500 focus-visible:ring-red-500 text-red-500'
+                isJumpInvalid && 'border-destructive text-destructive focus-visible:ring-destructive'
               )}
               value={jumpPage}
               onChange={(e) => {
@@ -257,7 +276,11 @@ export function ProTablePagination({
             />
             {/* Tooltip for invalid input */}
             {isJumpInvalid && (
-              <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-destructive text-destructive-foreground text-xs px-2 py-1 rounded whitespace-nowrap">
+              <div
+                id="desktop-page-jump-error"
+                role="alert"
+                className="absolute bottom-full left-1/2 mb-1 -translate-x-1/2 whitespace-nowrap rounded bg-destructive px-2 py-1 text-xs text-destructive-foreground"
+              >
                 请输入 1-{pageCount}
               </div>
             )}

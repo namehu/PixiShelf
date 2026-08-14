@@ -24,7 +24,7 @@ interface ImageVideoMetadataEntryProps {
 
 export function ImageVideoMetadataEntry({ image, onOpenVideoMetadata }: ImageVideoMetadataEntryProps) {
   if (!isVideoImageListItem(image)) {
-    return <span className="text-xs text-neutral-400">-</span>
+    return <span className="text-xs text-muted-foreground">-</span>
   }
 
   const summary = getVideoMetadataSummary(image)
@@ -36,13 +36,13 @@ export function ImageVideoMetadataEntry({ image, onOpenVideoMetadata }: ImageVid
       variant="outline"
       size="sm"
       className={cn('h-7 gap-1.5 rounded-sm px-2 text-xs font-medium', summary.className)}
-      title="查看视频媒体详情"
+      aria-label={`查看视频媒体详情：${image.path}`}
       onClick={(event) => {
         event.stopPropagation()
         onOpenVideoMetadata(image)
       }}
     >
-      <Icon className="h-3.5 w-3.5" />
+      <Icon data-icon="inline-start" aria-hidden="true" />
       {summary.label}
     </Button>
   )
@@ -86,13 +86,13 @@ export function ImageMediaActions({
         variant={buttonVariant}
         size="icon"
         className="h-6 w-6 text-muted-foreground hover:text-primary"
-        title="下载媒体"
+        aria-label={`下载媒体 ${image.path}`}
         onClick={(e) => {
           e.stopPropagation()
           onDownload(image.path)
         }}
       >
-        <Download className="w-3.5 h-3.5" />
+        <Download aria-hidden="true" />
       </Button>
 
       {video && (
@@ -102,10 +102,10 @@ export function ImageMediaActions({
               variant={buttonVariant}
               size="icon"
               className="h-6 w-6 text-muted-foreground hover:text-primary"
-              title="章节操作"
+              aria-label={`打开章节操作菜单：${image.path}`}
               onClick={(e) => e.stopPropagation()}
             >
-              <MoreHorizontal className="w-3.5 h-3.5" />
+              <MoreHorizontal aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -115,7 +115,7 @@ export function ImageMediaActions({
                 onOpenChapterDialog(image, image.hasChapters ? 'replace' : 'upload')
               }}
             >
-              <Upload className="w-4 h-4" />
+              <Upload data-icon="inline-start" aria-hidden="true" />
               {getChapterActionLabel(image)}
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -125,7 +125,7 @@ export function ImageMediaActions({
                 onDownloadChapters(image)
               }}
             >
-              <Download className="w-4 h-4" />
+              <Download data-icon="inline-start" aria-hidden="true" />
               下载章节
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -136,7 +136,7 @@ export function ImageMediaActions({
                 onDeleteChapter(image)
               }}
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 data-icon="inline-start" aria-hidden="true" />
               删除章节
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -146,7 +146,7 @@ export function ImageMediaActions({
                 onStartVideoOptimization(image)
               }}
             >
-              <WandSparkles className="w-4 h-4" />
+              <WandSparkles data-icon="inline-start" aria-hidden="true" />
               {!isMp4OptimizationTarget(image)
                 ? '该格式需要转码'
                 : optimizationActive
@@ -160,8 +160,12 @@ export function ImageMediaActions({
                 onReprobeVideo(image)
               }}
             >
-              <RotateCcw className={cn('w-4 h-4', reprobingImageId === image.id && 'animate-spin')} />
-              {reprobingImageId === image.id ? '探测中...' : '重新探测视频'}
+              <RotateCcw
+                data-icon="inline-start"
+                aria-hidden="true"
+                className={cn(reprobingImageId === image.id && 'animate-spin')}
+              />
+              {reprobingImageId === image.id ? '探测中…' : '重新探测视频'}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -171,13 +175,13 @@ export function ImageMediaActions({
         variant={buttonVariant}
         size="icon"
         className="h-6 w-6 text-muted-foreground hover:text-destructive"
-        title="删除媒体"
+        aria-label={`删除媒体 ${image.path}`}
         onClick={(e) => {
           e.stopPropagation()
           onDelete(image.id)
         }}
       >
-        <Trash2 className="w-3.5 h-3.5" />
+        <Trash2 aria-hidden="true" />
       </Button>
     </div>
   )
@@ -185,7 +189,6 @@ export function ImageMediaActions({
 
 interface CreateImageManagerColumnsInput {
   reprobingImageId: number | null
-  onClearHover: () => void
   onMouseEnter: (image: ImageListItem, event: React.MouseEvent) => void
   onMouseLeave: () => void
   onOpenVideoMetadata: (image: ImageListItem) => void
@@ -203,7 +206,6 @@ interface CreateImageManagerColumnsInput {
 
 export function createImageManagerColumns({
   reprobingImageId,
-  onClearHover,
   onMouseEnter,
   onMouseLeave,
   onOpenVideoMetadata,
@@ -256,7 +258,7 @@ export function createImageManagerColumns({
       cell: ({ getValue, row }) => {
         const val = getValue<string>()
         return (
-          <div className="flex flex-col gap-0.5" onClick={onClearHover}>
+          <div className="flex flex-col gap-0.5">
             <span>
               <span
                 className="font-medium text-sm cursor-help"
@@ -266,7 +268,7 @@ export function createImageManagerColumns({
                 {val.split('/').pop()}
               </span>
             </span>
-            <span className="text-[10px] text-neutral-400 truncate max-w-[300px]" title={val}>
+            <span className="max-w-[300px] truncate text-[10px] text-muted-foreground" title={val}>
               {val}
             </span>
           </div>
@@ -308,7 +310,7 @@ export function createImageManagerColumns({
       accessorKey: 'width',
       size: 100,
       cell: ({ row }) => (
-        <span className="text-xs font-mono text-neutral-500">
+        <span className="font-mono text-xs text-muted-foreground">
           {row.original.width && row.original.height ? `${row.original.width} x ${row.original.height}` : '-'}
         </span>
       )
@@ -318,7 +320,7 @@ export function createImageManagerColumns({
       accessorKey: 'size',
       size: 80,
       cell: ({ getValue }) => (
-        <span className="text-xs text-neutral-500">{formatFileSize(getValue<number>() || 0)}</span>
+        <span className="text-xs text-muted-foreground">{formatFileSize(getValue<number>() || 0)}</span>
       )
     },
     {

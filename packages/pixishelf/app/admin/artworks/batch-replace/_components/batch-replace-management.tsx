@@ -47,7 +47,7 @@ import {
   XCircle
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useTRPC } from '@/lib/trpc'
+import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -67,6 +67,8 @@ import { formatFileSize } from '@/utils/media'
 import { PENDING_REPLACE_STALE_JOB_MS, type PendingReplaceMediaSnapshot } from '@/schemas/pending-replace.dto'
 import type { BatchItemView, BatchView } from './batch-replace-types'
 import { PendingReplacePairingWorkspace } from './pending-replace-pairing-workspace'
+import { AdminWorkbench } from '../../../_components/admin-workbench'
+import { AdminStatusBadge } from '../../../_components/admin-status-badge'
 
 const ACTIVE_JOB_STATUSES = new Set(['PENDING', 'RUNNING', 'CANCELLING'])
 const SUCCESS_ITEM_STATUSES = new Set(['SUCCESS', 'BACKUP_CLEANED'])
@@ -74,6 +76,7 @@ const SELECTABLE_ITEM_STATUSES = new Set(['READY', 'FAILED', 'EXCLUDED'])
 
 export default function BatchReplaceManagement() {
   const trpc = useTRPC()
+  const trpcClient = useTRPCClient()
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
   const [view, setView] = useQueryState('view', parseAsString.withOptions({ history: 'replace' }))
@@ -90,66 +93,60 @@ export default function BatchReplaceManagement() {
     )
   )
   const batch = statusQuery.data as unknown as BatchView | null | undefined
-  const previewMutation = useMutation(
-    trpc.pendingReplace.preview.mutationOptions({
+  const previewMutation = useMutation({
+      mutationFn: () => trpcClient.pendingReplace.preview.mutate(),
       onSuccess: async () => {
         toast.success('待替换目录扫描完成')
         await statusQuery.refetch()
       },
       onError: (error) => toast.error(error.message)
     })
-  )
-  const startMutation = useMutation(
-    trpc.pendingReplace.start.mutationOptions({
+  const startMutation = useMutation({
+      mutationFn: (input: { batchId: string; itemIds?: string[] }) => trpcClient.pendingReplace.start.mutate(input),
       onSuccess: async () => {
         toast.success('批量替换任务已启动')
         await statusQuery.refetch()
       },
       onError: (error) => toast.error(error.message)
     })
-  )
-  const cancelMutation = useMutation(
-    trpc.pendingReplace.cancel.mutationOptions({
+  const cancelMutation = useMutation({
+      mutationFn: (input: { batchId: string }) => trpcClient.pendingReplace.cancel.mutate(input),
       onSuccess: async () => statusQuery.refetch(),
       onError: (error) => toast.error(error.message)
     })
-  )
-  const restoreMutation = useMutation(
-    trpc.pendingReplace.restore.mutationOptions({
+  const restoreMutation = useMutation({
+      mutationFn: (input: { itemId: string }) => trpcClient.pendingReplace.restore.mutate(input),
       onSuccess: async () => {
         toast.success('旧媒体已恢复，新媒体已退回待处理目录')
         await statusQuery.refetch()
       },
       onError: (error) => toast.error(error.message)
     })
-  )
-  const recoverMutation = useMutation(
-    trpc.pendingReplace.recover.mutationOptions({
+  const recoverMutation = useMutation({
+      mutationFn: (input: { batchId: string }) => trpcClient.pendingReplace.recover.mutate(input),
       onSuccess: async (result) => {
         toast.success(`中断现场已回滚，处理 ${result.recoveredItems} 个未完成项目`)
         await statusQuery.refetch()
       },
       onError: (error) => toast.error(error.message)
     })
-  )
-  const cleanupMutation = useMutation(
-    trpc.pendingReplace.cleanupBackups.mutationOptions({
+  const cleanupMutation = useMutation({
+      mutationFn: (input: { batchId: string }) => trpcClient.pendingReplace.cleanupBackups.mutate(input),
       onSuccess: async () => {
         toast.success('本批次旧媒体备份已清理')
         await statusQuery.refetch()
       },
       onError: (error) => toast.error(error.message)
     })
-  )
-  const reorderMutation = useMutation(
-    trpc.pendingReplace.reorder.mutationOptions({
+  const reorderMutation = useMutation({
+      mutationFn: (input: { itemId: string; orderedSourceNames: string[] }) =>
+        trpcClient.pendingReplace.reorder.mutate(input),
       onSuccess: async () => {
         toast.success('媒体顺序已保存')
         await statusQuery.refetch()
       },
       onError: (error) => toast.error(error.message)
     })
-  )
 
   useEffect(() => {
     if (!batch || batch.status !== 'PREVIEWED') return
@@ -222,24 +219,26 @@ export default function BatchReplaceManagement() {
   }
 
   return (
-    <div className="min-h-full w-full bg-neutral-50/70 p-4 dark:bg-neutral-950/30 md:p-6">
-      <div className="mx-auto w-full max-w-[1680px] space-y-5">
-        <header className="flex flex-col gap-4 border-b border-border pb-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2 text-muted-foreground">
-              <Link href="/admin/artworks">
-                <ArrowLeft aria-hidden="true" />
-                返回作品管理
-              </Link>
-            </Button>
-            <h1 className="text-pretty text-2xl font-semibold tracking-normal text-foreground">批量替换作品媒体</h1>
-            <div className="mt-2 flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-              <FolderSearch aria-hidden="true" className="size-4 shrink-0" />
-              <code className="truncate rounded bg-muted px-1.5 py-0.5" translate="no">
-                scanPath/pending-replaces
-              </code>
-            </div>
-          </div>
+    <AdminWorkbench
+      title="批量替换作品媒体"
+      eyebrow={
+        <Link href="/admin/artworks" className="inline-flex items-center gap-1 hover:underline">
+          <ArrowLeft className="size-3.5" aria-hidden="true" />
+          返回作品管理
+        </Link>
+      }
+      description={
+        <span className="flex min-w-0 flex-wrap items-center gap-2">
+          <FolderSearch aria-hidden="true" className="size-4 shrink-0" />
+          <code className="truncate rounded bg-muted px-1.5 py-0.5" translate="no">
+            scanPath/pending-replaces
+          </code>
+          <span className="basis-full sm:basis-auto">
+            桌面端适合配对、排序与批量复核；手机端可查看进度并执行轻量操作。
+          </span>
+        </span>
+      }
+      actions={
           <div className="flex w-full flex-wrap gap-2 lg:w-auto lg:justify-end" aria-live="polite">
             <Button
               variant="outline"
@@ -312,7 +311,9 @@ export default function BatchReplaceManagement() {
               </Button>
             )}
           </div>
-        </header>
+      }
+      contentClassName="flex min-w-0 flex-col gap-5"
+    >
 
         <WorkflowStages
           batch={batch}
@@ -354,7 +355,7 @@ export default function BatchReplaceManagement() {
                     </TabsTrigger>
                   </TabsList>
                   {pairingAvailable && unboundCount > 0 && (
-                    <p className="text-sm text-amber-700 dark:text-amber-300" role="status">
+                    <p className="text-sm text-warning" role="status">
                       还有 {unboundCount} 个目录需要配对
                     </p>
                   )}
@@ -412,8 +413,7 @@ export default function BatchReplaceManagement() {
         ) : (
           <EmptyState onScan={() => previewMutation.mutate()} scanning={previewMutation.isPending} />
         )}
-      </div>
-    </div>
+    </AdminWorkbench>
   )
 }
 
@@ -447,7 +447,7 @@ function WorkflowStages({
             aria-current={active ? 'step' : undefined}
             className={cn(
               'relative flex min-w-0 items-center justify-center gap-2 border-r px-2 py-3 text-xs font-medium last:border-r-0 sm:text-sm',
-              complete && 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300',
+              complete && 'bg-success/10 text-success',
               active && 'bg-primary/10 text-primary',
               !complete && !active && 'text-muted-foreground'
             )}
@@ -474,12 +474,12 @@ function BatchSummary({ batch }: { batch: BatchView }) {
     {
       label: '可执行',
       value: batch.readyItems,
-      emphasis: batch.readyItems > 0 ? 'text-emerald-700 dark:text-emerald-300' : undefined
+      emphasis: batch.readyItems > 0 ? 'text-success' : undefined
     },
     {
       label: '需处理',
       value: batch.invalidItems,
-      emphasis: batch.invalidItems > 0 ? 'text-amber-700 dark:text-amber-300' : undefined
+      emphasis: batch.invalidItems > 0 ? 'text-warning' : undefined
     },
     { label: '成功', value: batch.succeededItems },
     { label: '失败', value: batch.failedItems, emphasis: batch.failedItems > 0 ? 'text-destructive' : undefined },
@@ -522,7 +522,7 @@ function BatchStatusBadge({ batch }: { batch: BatchView }) {
   }
   if (batch.failedItems > 0) return <Badge variant="destructive">存在失败项</Badge>
   if (batch.succeededItems > 0 && batch.succeededItems === batch.totalItems) {
-    return <Badge className="bg-emerald-600 text-white">已完成</Badge>
+    return <AdminStatusBadge status="COMPLETED">已完成</AdminStatusBadge>
   }
   if (batch.status === 'PREVIEWED') return <Badge variant="secondary">等待确认</Badge>
   return <Badge variant="outline">{batch.status}</Badge>
@@ -676,7 +676,7 @@ function BatchItemList({
                       </span>
                       <ItemStatusBadge item={item} />
                       {item.warnings.length > 0 && (
-                        <Badge variant="outline" className="border-amber-300 text-amber-700 dark:text-amber-300">
+                        <Badge variant="warning">
                           <AlertTriangle aria-hidden="true" />
                           {item.warnings.length} 条警告
                         </Badge>
@@ -745,7 +745,7 @@ function ExpandedItem({
         <MediaPreviewGroup title="替换后" item={item} media={item.newMediaSnapshot.slice(0, 5)} side="new" />
       </div>
       {item.warnings.length > 0 && (
-        <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+        <div className="mt-4 rounded-md border border-warning/20 bg-warning/10 p-3 text-sm text-warning">
           {item.warnings.map((warning) => (
             <div key={warning}>{warning}</div>
           ))}
@@ -818,7 +818,7 @@ function MediaPreviewCard({
           <ImageIcon aria-hidden="true" className="size-8 text-muted-foreground" />
         )}
       </div>
-      <div className="space-y-1 p-2 text-[11px]">
+      <div className="flex flex-col gap-1 p-2 text-[11px]">
         <div className="truncate" title={media.sourceName}>
           {media.sourceName}
         </div>
@@ -882,7 +882,7 @@ function MediaOrderEditor({
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={names} strategy={verticalListSortingStrategy}>
-          <div className="max-h-72 space-y-1 overflow-y-auto overscroll-contain">
+          <div className="flex max-h-72 flex-col gap-1 overflow-y-auto overscroll-contain">
             {names.map((name, index) => (
               <SortableMediaRow key={name} id={name} order={index} descriptionId={descriptionId} />
             ))}
@@ -921,45 +921,45 @@ function ItemStatusBadge({ item }: { item: BatchItemView }) {
   const { status } = item
   if (['SUCCESS', 'BACKUP_CLEANED'].includes(status)) {
     return (
-      <Badge className="bg-emerald-600 text-white">
+      <AdminStatusBadge status="SUCCESS">
         <CheckCircle2 aria-hidden="true" />
         成功
-      </Badge>
+      </AdminStatusBadge>
     )
   }
   if (status === 'RESTORED') {
     return (
-      <Badge variant="secondary">
+      <AdminStatusBadge status={status}>
         <RotateCcw aria-hidden="true" />
         已恢复
-      </Badge>
+      </AdminStatusBadge>
     )
   }
   if (status === 'INVALID' && !item.artworkId && item.newMediaSnapshot.length > 0) {
-    return <Badge className="bg-amber-500 text-white">待配对</Badge>
+    return <AdminStatusBadge status="PENDING">待配对</AdminStatusBadge>
   }
   if (['INVALID', 'FAILED'].includes(status)) {
     return (
-      <Badge variant="destructive">
+      <AdminStatusBadge status={status}>
         <XCircle aria-hidden="true" />
         {status === 'INVALID' ? '无效' : '失败'}
-      </Badge>
+      </AdminStatusBadge>
     )
   }
-  if (status === 'EXCLUDED') return <Badge variant="outline">已排除</Badge>
+  if (status === 'EXCLUDED') return <AdminStatusBadge status={status}>已排除</AdminStatusBadge>
   if (
     ['STAGING', 'BACKING_UP', 'SWAPPING', 'COMMITTING', 'ROLLING_BACK', 'RESTORING', 'RESTORE_SWAPPING'].includes(
       status
     )
   ) {
     return (
-      <Badge>
+      <AdminStatusBadge status={status}>
         <Loader2 aria-hidden="true" className="animate-spin" />
         处理中
-      </Badge>
+      </AdminStatusBadge>
     )
   }
-  return <Badge variant="secondary">待执行</Badge>
+  return <AdminStatusBadge status="PENDING">待执行</AdminStatusBadge>
 }
 
 function LoadingState() {

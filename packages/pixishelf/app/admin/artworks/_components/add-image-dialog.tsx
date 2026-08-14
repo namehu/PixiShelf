@@ -4,11 +4,13 @@ import { useState, useEffect } from 'react'
 import { ProDialog } from '@/components/shared/pro-dialog'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Loader2, FileIcon, X } from 'lucide-react'
+import { FileIcon, X } from 'lucide-react'
 import { formatFileSize } from '@/utils/media'
 import { Button } from '@/components/ui/button'
 import { VIDEO_EXTENSIONS } from '@/lib/constant'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
+import { Spinner } from '@/components/ui/spinner'
+import { toast } from 'sonner'
 
 interface AddImageDialogProps {
   open: boolean
@@ -64,16 +66,16 @@ export function AddImageDialog({
       confirmLoading={isSubmitting}
       okButtonProps={{ disabled: !file || isSubmitting }}
       cancelButtonProps={{ disabled: isSubmitting }}
-      okText={isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : '确认添加'}
+      okText={isSubmitting ? <Spinner aria-label="正在添加媒体" /> : '确认添加'}
     >
-      <div className="space-y-4 py-4">
+      <div className="flex flex-col gap-4 py-4">
         <div className="grid w-full max-w-sm items-center gap-1.5">
           <Label htmlFor="picture">图片/视频文件</Label>
           {file ? (
             <div className="flex items-center justify-between p-2 border rounded-md bg-muted/50">
               <div className="flex items-center gap-3 overflow-hidden">
                 <div className="h-10 w-10 shrink-0 bg-background rounded border flex items-center justify-center">
-                  <FileIcon className="w-5 h-5 text-muted-foreground" />
+                  <FileIcon className="size-5 text-muted-foreground" aria-hidden="true" />
                 </div>
                 <div className="flex flex-col min-w-0">
                   <span className="text-sm font-medium truncate">{file.name}</span>
@@ -86,13 +88,15 @@ export function AddImageDialog({
                 className="shrink-0 h-8 w-8 hover:text-destructive"
                 onClick={() => setFile(null)}
                 disabled={isSubmitting}
+                aria-label={`移除文件 ${file.name}`}
               >
-                <X className="w-4 h-4" />
+                <X aria-hidden="true" />
               </Button>
             </div>
           ) : (
             <Input
               id="picture"
+              name="artwork-media-file"
               type="file"
               accept="image/*,video/*"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -107,7 +111,7 @@ export function AddImageDialog({
               <div className="flex items-center justify-between p-2 border rounded-md bg-muted/50">
                 <div className="flex items-center gap-3 overflow-hidden">
                   <div className="h-10 w-10 shrink-0 bg-background rounded border flex items-center justify-center">
-                    <FileIcon className="w-5 h-5 text-muted-foreground" />
+                    <FileIcon className="size-5 text-muted-foreground" aria-hidden="true" />
                   </div>
                   <div className="flex flex-col min-w-0">
                     <span className="text-sm font-medium truncate">{chapterFile.name}</span>
@@ -120,19 +124,21 @@ export function AddImageDialog({
                   className="shrink-0 h-8 w-8 hover:text-destructive"
                   onClick={() => setChapterFile(null)}
                   disabled={isSubmitting}
+                  aria-label={`移除章节文件 ${chapterFile.name}`}
                 >
-                  <X className="w-4 h-4" />
+                  <X aria-hidden="true" />
                 </Button>
               </div>
             ) : (
               <Input
                 id="chapter-file"
+                name="artwork-chapter-file"
                 type="file"
                 accept=".json,application/json"
                 onChange={(e) => {
                   const nextFile = e.target.files?.[0] || null
                   if (nextFile && !isChapterManifestFileName(nextFile.name)) {
-                    alert('请选择以 .chapters.json 或 ..chapters.json 结尾的章节文件')
+                    toast.error('请选择以 .chapters.json 或 ..chapters.json 结尾的章节文件')
                     e.target.value = ''
                     return
                   }
@@ -147,6 +153,7 @@ export function AddImageDialog({
           <Label htmlFor="order">排序 (Order)</Label>
           <Input
             id="order"
+            name="artwork-media-order"
             type="number"
             value={order}
             onChange={(e) => setOrder(parseInt(e.target.value) || 0)}
@@ -155,13 +162,13 @@ export function AddImageDialog({
         </div>
 
         {isSubmitting && (
-          <div className="space-y-1">
+          <div className="flex flex-col gap-1">
             <div className="text-xs text-muted-foreground flex justify-between">
-              <span>上传中...</span>
+              <span>上传中…</span>
               <span>{progress}%</span>
             </div>
             <div className="h-1 bg-muted rounded overflow-hidden">
-              <div className="h-full bg-primary transition-all duration-300" style={{ width: `${progress}%` }} />
+              <div className="h-full bg-primary transition-[width] duration-300" style={{ width: `${progress}%` }} />
             </div>
           </div>
         )}

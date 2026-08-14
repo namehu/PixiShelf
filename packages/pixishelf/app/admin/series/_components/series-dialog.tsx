@@ -80,32 +80,42 @@ export function SeriesDialog({ open, onOpenChange, series, onSuccess }: SeriesDi
         <DialogHeader>
           <DialogTitle>{series ? '编辑系列' : '创建系列'}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label>标题</Label>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="series-title">标题</Label>
             <Input
+              id="series-title"
+              name="series-title"
+              autoComplete="off"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               required
             />
           </div>
-          <div className="space-y-2">
-            <Label>描述</Label>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="series-description">描述</Label>
             <Textarea
+              id="series-description"
+              name="series-description"
+              autoComplete="off"
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             />
           </div>
-          <div className="space-y-2">
-            <Label>封面图 URL</Label>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="series-cover-url">封面图 URL</Label>
             <Input
+              id="series-cover-url"
+              name="series-cover-url"
+              type="url"
+              autoComplete="url"
               value={formData.coverImageUrl}
               onChange={(e) => setFormData({ ...formData, coverImageUrl: e.target.value })}
             />
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isPending}>
-              {isPending ? '提交中...' : '确定'}
+              {isPending ? '提交中…' : '确定'}
             </Button>
           </DialogFooter>
         </form>

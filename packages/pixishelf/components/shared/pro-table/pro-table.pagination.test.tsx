@@ -53,27 +53,27 @@ describe('ProTablePagination', () => {
     expect(screen.getByText('共 100 项')).toBeTruthy()
 
     // Check buttons: 1, 2, 3 (active), 4, 5, ..., 10
-    expect(screen.getByRole('button', { name: '1' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '2' })).toBeTruthy()
-    const btn3 = screen.getByRole('button', { name: '3' })
+    expect(screen.getByRole('button', { name: '第 1 页' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '第 2 页' })).toBeTruthy()
+    const btn3 = screen.getByRole('button', { name: '第 3 页' })
     expect(btn3).toBeTruthy()
     // Check active class manually
     expect(btn3.className).toContain('border-primary')
 
-    expect(screen.getByRole('button', { name: '4' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '5' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '10' })).toBeTruthy()
+    expect(btn3.getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('button', { name: '第 4 页' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '第 5 页' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '第 10 页' })).toBeTruthy()
 
     // Check jumper input exists
-    const inputs = screen.getAllByRole('textbox')
-    expect(inputs.length).toBeGreaterThan(0)
+    expect(screen.getByRole('spinbutton', { name: '跳转页码，范围 1 到 10' })).toBeTruthy()
   })
 
   it('calls onChange when clicking a page number', () => {
     const handleChange = vi.fn()
     render(<ProTablePagination pageIndex={0} pageSize={10} rowCount={100} onChange={handleChange} />)
 
-    const btn5 = screen.getByRole('button', { name: '5' })
+    const btn5 = screen.getByRole('button', { name: '第 5 页' })
     fireEvent.click(btn5)
     expect(handleChange).toHaveBeenCalledWith(4, 10) // 0-based index
   })
@@ -82,7 +82,7 @@ describe('ProTablePagination', () => {
     const handleChange = vi.fn()
     render(<ProTablePagination pageIndex={0} pageSize={10} rowCount={100} onChange={handleChange} />)
 
-    const input = screen.getAllByRole('textbox')[0] as HTMLInputElement
+    const input = screen.getByRole('spinbutton') as HTMLInputElement
     fireEvent.change(input, { target: { value: '5' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -93,14 +93,14 @@ describe('ProTablePagination', () => {
     const handleChange = vi.fn()
     render(<ProTablePagination pageIndex={0} pageSize={10} rowCount={100} onChange={handleChange} />)
 
-    const input = screen.getByRole('textbox') as HTMLInputElement
+    const input = screen.getByRole('spinbutton') as HTMLInputElement
     fireEvent.change(input, { target: { value: '999' } })
     // Simulate Enter
     fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
 
     expect(handleChange).not.toHaveBeenCalled()
     // Check if error class is applied
-    expect(input.className).toContain('border-red-500')
+    expect(input.className).toContain('border-destructive')
     // Tooltip text
     expect(screen.getByText('请输入 1-10')).toBeTruthy()
   })
@@ -137,7 +137,7 @@ describe('ProTablePagination', () => {
 
     render(<ProTablePagination pageIndex={0} pageSize={10} rowCount={100} onChange={handleChange} />)
 
-    const input = screen.getByRole('textbox')
+    const input = screen.getByRole('spinbutton')
     fireEvent.change(input, { target: { value: '999' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -149,10 +149,10 @@ describe('ProTablePagination', () => {
     render(<ProTablePagination pageIndex={0} pageSize={10} rowCount={100} onChange={vi.fn()} loading={true} />)
 
     // Use specific selector to avoid ambiguity if multiple elements match text "2"
-    const nextBtn = screen.getByRole('button', { name: '2' }) as HTMLButtonElement
+    const nextBtn = screen.getByRole('button', { name: '第 2 页' }) as HTMLButtonElement
     expect(nextBtn.disabled).toBe(true)
 
-    const input = screen.getByRole('textbox') as HTMLInputElement
+    const input = screen.getByRole('spinbutton') as HTMLInputElement
     expect(input.disabled).toBe(true)
   })
 

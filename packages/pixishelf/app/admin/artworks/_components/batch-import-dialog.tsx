@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
-import { Trash2, Folder, File as FileIcon, AlertCircle, CheckCircle, Loader2, FolderInput } from 'lucide-react'
+import { Trash2, Folder, File as FileIcon, AlertCircle, CheckCircle, Loader2, FolderInput, InfoIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { useTRPCClient } from '@/lib/trpc'
@@ -21,6 +21,7 @@ import { useRecentTags } from '@/store/admin/use-recent-tags'
 import { RecentTagsList } from './recent-tags-list'
 import { parseFileDate, parseDateFromFilename, DateSource } from '@/lib/date-parser'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 interface BatchImportDialogProps {
   open: boolean
@@ -342,9 +343,10 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
       title="批量导入作品"
       open={open}
       onOpenChange={onOpenChange}
-      width={1200} // Widen for table-like list
+      width={1200}
+      className="max-h-[calc(100dvh-1rem)] overflow-hidden sm:max-h-[calc(100dvh-2rem)]"
       footer={
-        <div className="space-y-2">
+        <div className="flex w-full flex-col gap-2">
           {status !== 'idle' && (
             <div className="flex items-center gap-2 text-sm">
               <Progress value={globalProgress} className="flex-1" />
@@ -368,22 +370,27 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
     >
       <div
         className={cn(
-          'flex h-[600px] gap-4 relative',
+          'relative flex h-[min(68dvh,600px)] min-h-0 flex-col gap-4 overflow-y-auto lg:flex-row lg:overflow-hidden',
           isDragging &&
-            "after:absolute after:inset-0 after:bg-blue-500/10 after:border-2 after:border-blue-500 after:border-dashed after:z-50 after:content-['释放以添加文件'] after:flex after:items-center after:justify-center after:text-blue-600 after:font-bold after:text-xl"
+            "after:absolute after:inset-0 after:z-50 after:flex after:items-center after:justify-center after:border-2 after:border-dashed after:border-primary after:bg-primary/10 after:text-xl after:font-bold after:text-primary after:content-['释放以添加文件']"
         )}
         {...dragHandlers}
       >
+        <Alert variant="info" className="lg:hidden">
+          <InfoIcon aria-hidden="true" />
+          <AlertTitle>大批量操作建议使用桌面端</AlertTitle>
+          <AlertDescription>手机可检查默认值、添加文件并查看进度；数量较多时请在桌面端完成逐项调整。</AlertDescription>
+        </Alert>
         {/* Left: Configuration (Stage 1) */}
-        <div className="w-[300px] flex flex-col gap-4 border-r pr-4 shrink-0">
+        <div className="flex w-full shrink-0 flex-col gap-4 border-b border-border pb-4 lg:w-[300px] lg:border-r lg:border-b-0 lg:pr-4 lg:pb-0">
           <div className="font-semibold text-lg flex items-center gap-2">
             <span>🛠️ 默认设置</span>
             <span className="text-xs font-normal text-muted-foreground">(仅对新增生效)</span>
           </div>
 
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <Label>
-              默认艺术家 <span className="text-red-500">*</span>
+              默认艺术家 <span className="text-destructive">*</span>
             </Label>
             <MultipleSelector
               placeholder="搜索艺术家..."
@@ -394,7 +401,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
               maxSelected={1}
             />
           </div>
-          <div className="space-y-2 flex flex-col">
+          <div className="flex flex-col gap-2">
             <Label>默认发布日期</Label>
             <ProDatePicker
               mode="single"
@@ -404,7 +411,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
               clearable={false}
             />
           </div>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <Label>默认标签</Label>
             <MultipleSelector
               triggerSearchOnFocus
@@ -428,9 +435,9 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
             />
           </div>
 
-          <div className="mt-auto bg-neutral-50 p-4 rounded-lg border text-sm text-neutral-500 space-y-2">
-            <p className="font-medium text-neutral-900">使用说明</p>
-            <ul className="list-disc list-inside space-y-1 text-xs">
+          <div className="mt-auto flex flex-col gap-2 rounded-lg border border-border bg-muted/50 p-4 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">使用说明</p>
+            <ul className="flex list-inside list-disc flex-col gap-1 text-xs">
               <li>阶段1：设置默认值</li>
               <li>阶段2：拖入文件，自动解析时间</li>
               <li>红色边框表示使用了默认时间(解析失败)</li>
@@ -440,23 +447,24 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
         </div>
 
         {/* Right: Preview List (Stage 2) */}
-        <div className="flex-1 flex flex-col gap-4 min-h-0">
+        <div className="flex min-h-[24rem] min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
           <div className="flex justify-between items-center">
             <h3 className="font-medium">待导入列表 ({items.length})</h3>
             <div className="flex gap-2">
-              <div className="relative">
-                <Button variant="outline" size="sm">
-                  <FolderInput className="w-4 h-4 mr-2" />
-                  添加文件
-                </Button>
+              <Button asChild variant="outline" size="sm">
+                <label aria-disabled={status !== 'idle'}>
+                  <FolderInput data-icon="inline-start" aria-hidden="true" />
+                  <span>添加文件</span>
                 <input
                   type="file"
+                  name="batch-import-files"
                   multiple
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  className="sr-only"
                   onChange={handleFileSelect}
                   disabled={status !== 'idle'}
                 />
-              </div>
+                </label>
+              </Button>
               {items.length > 0 && (
                 <Button variant="ghost" size="sm" onClick={() => setItems([])} disabled={status !== 'idle'}>
                   清空列表
@@ -466,15 +474,15 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
           </div>
 
           {items.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-neutral-400 gap-2 border-2 border-dashed border-neutral-200 m-2 rounded-lg bg-neutral-50/50">
-              <FolderInput className="w-12 h-12 text-neutral-300" />
-              <div className="text-center space-y-1">
+            <div className="m-2 flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-muted/35 text-muted-foreground">
+              <FolderInput className="size-12 opacity-50" aria-hidden="true" />
+              <div className="flex flex-col gap-1 text-center">
                 <p className="font-medium">暂无文件</p>
-                <p className="text-xs text-neutral-400">请从左侧拖入文件或点击上方按钮添加</p>
+                <p className="text-xs text-muted-foreground">拖入文件或点击上方按钮添加</p>
               </div>
             </div>
           ) : (
-            <ScrollArea viewportRef={parentRef} className="flex-1 min-h-0 border rounded-md bg-white">
+            <ScrollArea viewportRef={parentRef} className="min-h-0 flex-1 rounded-md border border-border bg-background">
               <div className="p-2 w-full">
                 <div
                   style={{
@@ -497,13 +505,13 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
                       >
                         <div
                           className={cn(
-                            'flex flex-col gap-2 p-3 border rounded bg-white hover:bg-neutral-50 transition-colors',
-                            item.dateSource === 'default' && 'border-l-4 border-l-red-400' // Visual hint for fallback
+                            'flex flex-col gap-2 rounded border border-border bg-background p-3 transition-colors hover:bg-muted/45',
+                            item.dateSource === 'default' && 'border-l-4 border-l-destructive'
                           )}
                         >
                           {/* Top Row: Icon + Title + Status */}
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-neutral-100 flex items-center justify-center rounded shrink-0 text-neutral-500">
+                            <div className="flex size-8 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
                               {item.type === 'collection' ? <Folder size={16} /> : <FileIcon size={16} />}
                             </div>
                             <div className="flex-1 min-w-0 font-medium text-sm truncate" title={item.title}>
@@ -514,22 +522,26 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-6 w-6 text-neutral-400 hover:text-red-500"
+                                  className="size-7 text-muted-foreground hover:text-destructive"
                                   onClick={() => setItems((prev) => prev.filter((i) => i.id !== item.id))}
+                                  aria-label={`移除 ${item.title}`}
                                 >
-                                  <Trash2 size={14} />
+                                  <Trash2 aria-hidden="true" />
                                 </Button>
                               ) : item.status === 'done' ? (
-                                <CheckCircle className="text-green-500 w-5 h-5" />
+                                <span className="inline-flex items-center text-success">
+                                  <CheckCircle className="size-5" aria-hidden="true" />
+                                  <span className="sr-only">已完成</span>
+                                </span>
                               ) : item.status === 'error' ? (
-                                <div className="flex items-center gap-1 text-red-500 text-xs">
-                                  <AlertCircle className="w-4 h-4" />
-                                  <span>{item.errorMsg || 'Error'}</span>
+                                <div className="flex items-center gap-1 text-xs text-destructive">
+                                  <AlertCircle className="size-4" aria-hidden="true" />
+                                  <span>{item.errorMsg || '导入失败'}</span>
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-2">
-                                  <span className="text-xs text-blue-500">{item.progress}%</span>
-                                  <Loader2 className="animate-spin text-blue-500 w-4 h-4" />
+                                  <span className="text-xs text-primary">{item.progress}%</span>
+                                  <Loader2 className="size-4 animate-spin text-primary" aria-hidden="true" />
                                 </div>
                               )}
                             </div>
@@ -547,7 +559,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
                                   clearable={false}
                                   className={cn(
                                     'h-8 text-xs',
-                                    item.dateSource === 'default' && 'border-red-200 bg-red-50'
+                                    item.dateSource === 'default' && 'border-destructive/30 bg-destructive/5'
                                   )}
                                 />
                               </div>

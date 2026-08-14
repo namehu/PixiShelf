@@ -26,6 +26,8 @@ import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import type { AppRouter } from '@/server'
 import { ArchiveItemDrawer } from './archive-item-drawer'
+import { AdminStatusBadge } from '../../_components/admin-status-badge'
+import { confirm } from '@/components/shared/global-confirm'
 
 const ACTIVE_STATUSES = new Set(['PENDING', 'RUNNING', 'CANCELLING'])
 type RouterOutputs = inferRouterOutputs<AppRouter>
@@ -85,14 +87,10 @@ export function ArchiveManagement() {
   const detailTask = tasksQuery.data?.find((task) => task.id === detailTaskId) ?? null
 
   return (
-    <div className="p-4 md:p-6">
-      <div className="mx-auto max-w-5xl space-y-6">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight">链接归档</h1>
-          <p className="text-sm text-muted-foreground">
-            粘贴一个公开 E-Hentai 画廊或图片页链接，预览后由独立 Worker 下载、校验并发布到作品库。
-          </p>
-        </div>
+    <div className="mx-auto flex max-w-5xl flex-col gap-6">
+      <p className="text-sm leading-6 text-muted-foreground">
+        粘贴一个公开 E-Hentai 画廊或图片页链接，预览后由独立 Worker 下载、校验并发布到作品库。
+      </p>
 
         <Card>
           <CardHeader>
@@ -101,7 +99,7 @@ export function ArchiveManagement() {
               首版仅支持 e-hentai.org 的 /g/... 和 /s/... HTTPS 链接，不使用账号 Cookie。
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="flex flex-col gap-4">
             <form
               className="flex flex-col gap-2 sm:flex-row"
               onSubmit={(event) => {
@@ -110,6 +108,8 @@ export function ArchiveManagement() {
               }}
             >
               <Input
+                name="archive-source-url"
+                aria-label="作品来源链接"
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder="https://e-hentai.org/g/1234567/token/"
@@ -139,7 +139,7 @@ export function ArchiveManagement() {
                       <Archive className="h-8 w-8 text-muted-foreground" />
                     </div>
                   )}
-                  <div className="min-w-0 flex-1 space-y-3">
+                  <div className="flex min-w-0 flex-1 flex-col gap-3">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="text-lg font-semibold">{preview.title}</h2>
@@ -164,7 +164,7 @@ export function ArchiveManagement() {
                       {preview.tags.length > 30 && <Badge variant="outline">+{preview.tags.length - 30}</Badge>}
                     </div>
                     {preview.warnings.length > 0 && (
-                      <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                      <div className="rounded-md border border-warning/20 bg-warning/10 p-3 text-sm text-warning">
                         {preview.warnings.map((warning) => (
                           <div key={warning}>{warning}</div>
                         ))}
@@ -188,8 +188,8 @@ export function ArchiveManagement() {
                         取消预览
                       </Button>
                     </div>
-                  </div>
                 </div>
+              </div>
               </div>
             )}
           </CardContent>
@@ -230,7 +230,6 @@ export function ArchiveManagement() {
             )}
           </CardContent>
         </Card>
-      </div>
       <ArchiveItemDrawer
         key={`${detailTask?.id ?? 'archive-item-drawer'}:${detailRefreshVersion}`}
         open={Boolean(detailTaskId && detailTask)}
@@ -267,8 +266,28 @@ function TaskRow({
 }) {
   const active = ACTIVE_STATUSES.has(task.status)
   const deleted = Boolean(task.publishedArtwork?.deletedAt)
+  const confirmAction = (action: 'CANCEL' | 'DELETE_STAGING' | 'DELETE_ARCHIVE') => {
+    const content = {
+      CANCEL: {
+        title: '取消这个归档任务？',
+        description: '任务会停止处理，已下载的暂存文件会按保留策略处理。',
+        confirmText: '确认取消'
+      },
+      DELETE_STAGING: {
+        title: '清理这个任务的暂存文件？',
+        description: '暂存文件将被永久删除，此操作不可撤销。',
+        confirmText: '确认清理'
+      },
+      DELETE_ARCHIVE: {
+        title: '将已归档作品移入回收站？',
+        description: '作品会从前台隐藏，但之后仍可从这里恢复。',
+        confirmText: '移入回收站'
+      }
+    }[action]
+    confirm({ ...content, variant: 'destructive', onConfirm: () => onAction(action) })
+  }
   return (
-    <div className="space-y-3 p-4">
+    <div className="flex flex-col gap-3 p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -305,9 +324,9 @@ function TaskRow({
               variant="destructive"
               size="sm"
               disabled={acting || task.status === 'CANCELLING'}
-              onClick={() => onAction('CANCEL')}
+              onClick={() => confirmAction('CANCEL')}
             >
-              <Square /> {task.status === 'CANCELLING' ? '正在取消' : '取消'}
+              <Square data-icon="inline-start" aria-hidden="true" /> {task.status === 'CANCELLING' ? '正在取消' : '取消'}
             </Button>
           )}
           {['FAILED', 'CANCELLED'].includes(task.status) && (
@@ -322,8 +341,8 @@ function TaskRow({
                   <ExternalLink /> 查看作品
                 </Link>
               </Button>
-              <Button variant="destructive" size="sm" disabled={acting} onClick={() => onAction('DELETE_ARCHIVE')}>
-                <Trash2 /> 移入回收站
+              <Button variant="destructive" size="sm" disabled={acting} onClick={() => confirmAction('DELETE_ARCHIVE')}>
+                <Trash2 data-icon="inline-start" aria-hidden="true" /> 移入回收站
               </Button>
             </>
           )}
@@ -333,20 +352,20 @@ function TaskRow({
             </Button>
           )}
           {!active && task.status !== 'COMPLETED' && (
-            <Button variant="ghost" size="sm" disabled={acting} onClick={() => onAction('DELETE_STAGING')}>
-              <Trash2 /> 清理暂存
+            <Button variant="ghost" size="sm" disabled={acting} onClick={() => confirmAction('DELETE_STAGING')}>
+              <Trash2 data-icon="inline-start" aria-hidden="true" /> 清理暂存
             </Button>
           )}
         </div>
       </div>
-      <div className="space-y-1.5">
+      <div className="flex flex-col gap-1.5">
         <div className="flex justify-between text-xs text-muted-foreground">
           <span>{task.message || task.status}</span>
           <span>{task.progress}%</span>
         </div>
         <Progress value={task.progress} />
       </div>
-      {task.warning && <p className="whitespace-pre-wrap text-xs text-amber-700">{task.warning}</p>}
+      {task.warning && <p className="whitespace-pre-wrap text-xs text-warning">{task.warning}</p>}
       {task.errorMessage && <p className="whitespace-pre-wrap text-sm text-destructive">{task.errorMessage}</p>}
       {task.retainUntil && task.status !== 'COMPLETED' && (
         <p className="text-xs text-muted-foreground">暂存预计保留至 {formatRetentionTime(task.retainUntil)}</p>
@@ -356,7 +375,6 @@ function TaskRow({
 }
 
 function StatusBadge({ status, errorCode }: { status: string; errorCode: string | null }) {
-  const variant = status === 'COMPLETED' ? 'default' : status === 'FAILED' ? 'destructive' : 'secondary'
   const labels: Record<string, string> = {
     PENDING: '排队中',
     RUNNING: '下载中',
@@ -367,7 +385,7 @@ function StatusBadge({ status, errorCode }: { status: string; errorCode: string 
     CANCELLED: '已取消'
   }
   const label = status === 'FAILED' && errorCode === 'PARTIAL_FAILURE' ? '部分失败' : labels[status] || status
-  return <Badge variant={variant}>{label}</Badge>
+  return <AdminStatusBadge status={status}>{label}</AdminStatusBadge>
 }
 
 function formatRetentionTime(value: Date | string): string {

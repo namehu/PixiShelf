@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Copy, Edit, ExternalLink, Trash } from 'lucide-react'
+import { Copy, Edit, ExternalLink, InfoIcon, Trash } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ProColumnDef } from '@/components/shared/pro-table'
@@ -9,19 +9,20 @@ import { usePreferredTags } from '@/components/user-setting'
 import { getPreferredTagName } from '@/components/artwork/preferred-tag'
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { ArtworkRescanButton } from './artwork-rescan-button'
+import { Badge } from '@/components/ui/badge'
 
 function PreferredTagCell({ artwork }: { artwork: ArtworkResponseDto }) {
   const preferredTags = usePreferredTags()
   const preferredTag = getPreferredTagName(preferredTags, artwork.tags)
 
   if (!preferredTag) {
-    return <span className="text-neutral-400">-</span>
+    return <span className="text-muted-foreground">-</span>
   }
 
   return (
-    <span className="inline-flex max-w-full rounded-sm bg-[#ff2f4d]/10 px-2 py-0.5 text-xs font-medium text-[#c81e3a]">
+    <Badge variant="secondary" className="max-w-full font-normal">
       <span className="truncate">{preferredTag}</span>
-    </span>
+    </Badge>
   )
 }
 
@@ -51,7 +52,7 @@ export function createArtworkManagementColumns({
         <Checkbox
           checked={table.getIsAllPageRowsSelected()}
           onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all"
+          aria-label="选择本页全部作品"
           className="translate-y-[2px]"
         />
       ),
@@ -59,7 +60,7 @@ export function createArtworkManagementColumns({
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label="Select row"
+          aria-label={`选择作品 ${row.original.title}`}
           className="translate-y-[2px]"
         />
       ),
@@ -95,16 +96,24 @@ export function createArtworkManagementColumns({
       accessorKey: 'title',
       size: 240,
       ellipsis: true,
+      copyable: true,
       cell: ({ row: { original } }) => {
         const { title } = original
         return (
-          <div
-            className="font-medium cursor-pointer hover:text-primary transition-colors"
-            onClick={() => onOpenInfo(original)}
-          >
-            <div className="truncate" title={title}>
+          <div className="flex min-w-0 items-center gap-1">
+            <span className="min-w-0 flex-1 truncate font-medium" title={title}>
               {title}
-            </div>
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0"
+              onClick={() => onOpenInfo(original)}
+              aria-label={`查看作品 ${title} 的信息`}
+            >
+              <InfoIcon aria-hidden="true" />
+            </Button>
           </div>
         )
       }
@@ -129,11 +138,11 @@ export function createArtworkManagementColumns({
                 href={`/artists/${artist.id}`}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex shrink-0 items-center text-neutral-400 transition-colors hover:text-primary"
-                title={`在新窗口打开 ${artist.name} 详情页`}
+                className="inline-flex shrink-0 items-center text-muted-foreground transition-colors hover:text-primary"
+                aria-label={`在新标签页打开艺术家 ${artist.name}`}
                 onClick={(event) => event.stopPropagation()}
               >
-                <ExternalLink className="w-3 h-3" />
+                <ExternalLink className="size-3" aria-hidden="true" />
               </Link>
             </div>
           </div>
@@ -164,30 +173,45 @@ export function createArtworkManagementColumns({
       id: 'actions',
       header: '操作',
       size: 160,
-      headerClassName: 'sticky right-0 z-20 bg-background shadow-[-1px_0_0_0_hsl(var(--border))]',
-      cellClassName: 'sticky right-0 z-10 bg-background shadow-[-1px_0_0_0_hsl(var(--border))]',
+      headerClassName: 'sticky right-0 z-20 border-l border-border bg-background',
+      cellClassName: 'sticky right-0 z-10 border-l border-border bg-background',
       cell: ({ row }) => (
         <div className="flex gap-1">
-          <Button variant="ghost" size="icon" onClick={() => onEdit(row.original)} title="编辑">
-            <Edit className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => onCopy(row.original)} title="复制">
-            <Copy className="w-4 h-4" />
-          </Button>
-          <ArtworkRescanButton artwork={row.original} onComplete={onRefresh} />
-          <Link href={`/artworks/${row.original.id}`} target="_blank">
-            <Button variant="ghost" size="icon" title="新标签页打开">
-              <ExternalLink className="w-4 h-4" />
-            </Button>
-          </Link>
           <Button
             variant="ghost"
             size="icon"
-            className="text-red-500"
-            onClick={() => onDelete(row.original.id)}
-            title="删除"
+            onClick={() => onEdit(row.original)}
+            aria-label={`编辑作品 ${row.original.title}`}
           >
-            <Trash className="w-4 h-4" />
+            <Edit aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onCopy(row.original)}
+            aria-label={`复制作品 ${row.original.title}`}
+          >
+            <Copy aria-hidden="true" />
+          </Button>
+          <ArtworkRescanButton artwork={row.original} onComplete={onRefresh} />
+          <Button asChild variant="ghost" size="icon">
+            <Link
+              href={`/artworks/${row.original.id}`}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`在新标签页打开作品 ${row.original.title}`}
+            >
+              <ExternalLink aria-hidden="true" />
+            </Link>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-destructive"
+            onClick={() => onDelete(row.original.id)}
+            aria-label={`删除作品 ${row.original.title}`}
+          >
+            <Trash aria-hidden="true" />
           </Button>
         </div>
       )

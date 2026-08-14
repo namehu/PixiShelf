@@ -65,7 +65,7 @@ export function ImageManagerToolbar({
           新增媒体
         </Button>
 
-        <Button variant="danger" size="sm" onClick={onReplace}>
+        <Button variant="destructive" size="sm" onClick={onReplace}>
           全量替换
         </Button>
 

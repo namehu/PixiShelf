@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { useTRPC } from '@/lib/trpc'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Database, Film, ImagePlay, Loader2, PlayCircle, Tags, Wrench } from 'lucide-react'
+import { Database, Film, ImagePlay, PlayCircle, Tags, Wrench } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { VideoKeyframeSection } from './video-keyframe-section'
 import { VideoStreamingOptimizationSection } from './video-streaming-optimization-section'
@@ -20,6 +20,8 @@ import {
   type ScheduledTaskView,
   type TaskDraft
 } from './task-ui'
+import { Spinner } from '@/components/ui/spinner'
+import { confirm } from '@/components/shared/global-confirm'
 
 interface MediaDerivedTagSyncStats {
   expectedArtworks?: number
@@ -409,6 +411,16 @@ export function MaintenanceCard() {
     triggerScheduledTaskMutation.mutate({ key: task.key, chapterPreviewMode })
   }
 
+  const confirmTaskCancellation = (taskName: string, onConfirm: () => void) => {
+    confirm({
+      title: `取消“${taskName}”？`,
+      description: '当前处理会停止，已完成的项目会保留；未完成项目之后可以重新执行。',
+      confirmText: '确认取消',
+      variant: 'destructive',
+      onConfirm
+    })
+  }
+
   const renderScheduleSettings = (task: ScheduledTaskView) => {
     const draft = getDraftForTask(task, taskDrafts)
 
@@ -424,14 +436,14 @@ export function MaintenanceCard() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-5">
       <div
         className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y py-3 text-sm text-muted-foreground"
         aria-live="polite"
       >
         <span>{scheduledTasksQuery.isPending ? '正在读取任务…' : `${scheduledTasks.length + 3} 项后台任务`}</span>
         <span>{enabledScheduleCount} 个自动计划已启用</span>
-        <span className={runningTaskCount > 0 ? 'font-medium text-blue-700' : undefined}>
+        <span className={runningTaskCount > 0 ? 'font-medium text-primary' : undefined}>
           {runningTaskCount > 0 ? `${runningTaskCount} 项正在运行` : '当前没有运行中的任务'}
         </span>
         <span className="ml-auto hidden text-xs sm:inline">展开任务即可执行或调整计划</span>
@@ -451,7 +463,7 @@ export function MaintenanceCard() {
               isRunning ? (
                 <Button
                   variant="destructive"
-                  onClick={() => cancelMutation.mutate()}
+                  onClick={() => confirmTaskCancellation('补全元数据源', () => cancelMutation.mutate())}
                   disabled={Boolean(isCancelling) || cancelMutation.isPending}
                 >
                   {isCancelling ? '正在取消…' : '取消任务'}
@@ -459,9 +471,9 @@ export function MaintenanceCard() {
               ) : (
                 <Button onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
                   {startMutation.isPending ? (
-                    <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    <Spinner data-icon="inline-start" aria-hidden="true" />
                   ) : (
-                    <PlayCircle className="size-4" aria-hidden="true" />
+                    <PlayCircle data-icon="inline-start" aria-hidden="true" />
                   )}
                   开始补全
                 </Button>
@@ -485,9 +497,9 @@ export function MaintenanceCard() {
                 disabled={Boolean(isMediaTagRunning) || startMediaTagMutation.isPending}
               >
                 {startMediaTagMutation.isPending ? (
-                  <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  <Spinner data-icon="inline-start" aria-hidden="true" />
                 ) : (
-                  <PlayCircle className="size-4" aria-hidden="true" />
+                  <PlayCircle data-icon="inline-start" aria-hidden="true" />
                 )}
                 {isMediaTagRunning ? '同步中…' : '开始同步'}
               </Button>
@@ -497,7 +509,7 @@ export function MaintenanceCard() {
               job={mediaTagJob}
               isRunning={Boolean(isMediaTagRunning)}
               completeContent={
-                <div className="space-y-1 text-muted-foreground">
+                <div className="flex flex-col gap-1 text-muted-foreground">
                   <p>
                     <span className="font-medium text-foreground">任务完成：</span>
                     image <strong className="text-foreground">{mediaTagResult?.image?.finalRelations ?? 0}</strong> 个，
@@ -542,9 +554,9 @@ export function MaintenanceCard() {
                 disabled={!webpScheduledTask || Boolean(isWebpScanRunning) || triggerScheduledTaskMutation.isPending}
               >
                 {triggeringTaskKey === webpScheduledTask?.key ? (
-                  <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  <Spinner data-icon="inline-start" aria-hidden="true" />
                 ) : (
-                  <PlayCircle className="size-4" aria-hidden="true" />
+                  <PlayCircle data-icon="inline-start" aria-hidden="true" />
                 )}
                 {isWebpScanRunning ? '识别中…' : '立即执行'}
               </Button>
@@ -554,7 +566,7 @@ export function MaintenanceCard() {
               job={webpScanJob}
               isRunning={Boolean(isWebpScanRunning)}
               completeContent={
-                <div className="space-y-3 text-muted-foreground">
+                <div className="flex flex-col gap-3 text-muted-foreground">
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                     <span>
                       初始化：
@@ -580,7 +592,7 @@ export function MaintenanceCard() {
                   {webpScanResult?.failedSamples && webpScanResult.failedSamples.length > 0 && (
                     <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive">
                       <p className="font-medium mb-2 text-sm">失败样例</p>
-                      <ul className="space-y-1 text-xs font-mono">
+                      <ul className="flex flex-col gap-1 font-mono text-xs">
                         {webpScanResult.failedSamples.slice(0, 5).map((sample) => (
                           <li key={sample.id} className="break-all">
                             <span className="opacity-70">
@@ -612,7 +624,7 @@ export function MaintenanceCard() {
               isVideoProbeRunning ? (
                 <Button
                   variant="destructive"
-                  onClick={() => cancelVideoProbeMutation.mutate()}
+                  onClick={() => confirmTaskCancellation('视频媒体探测', () => cancelVideoProbeMutation.mutate())}
                   disabled={isVideoProbeCancelling || cancelVideoProbeMutation.isPending}
                 >
                   {isVideoProbeCancelling ? '正在取消…' : '取消任务'}
@@ -623,9 +635,9 @@ export function MaintenanceCard() {
                   disabled={!videoScheduledTask || triggerScheduledTaskMutation.isPending}
                 >
                   {triggeringTaskKey === videoScheduledTask?.key ? (
-                    <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    <Spinner data-icon="inline-start" aria-hidden="true" />
                   ) : (
-                    <PlayCircle className="size-4" aria-hidden="true" />
+                    <PlayCircle data-icon="inline-start" aria-hidden="true" />
                   )}
                   立即执行
                 </Button>
@@ -634,7 +646,7 @@ export function MaintenanceCard() {
           >
             <div className="rounded-lg border border-border bg-muted/10 p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="flex-1 space-y-1.5">
+                <div className="flex flex-1 flex-col gap-1.5">
                   <label htmlFor="video-reprobe-path" className="text-sm font-medium text-foreground">
                     按路径重试视频探测
                   </label>
@@ -661,7 +673,7 @@ export function MaintenanceCard() {
                   className="h-9 shrink-0 w-full sm:w-auto"
                 >
                   {reprobeVideoByPathMutation.isPending && (
-                    <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    <Spinner data-icon="inline-start" aria-hidden="true" />
                   )}
                   {reprobeVideoByPathMutation.isPending ? '探测中…' : '重试探测'}
                 </Button>
@@ -672,8 +684,8 @@ export function MaintenanceCard() {
               job={videoProbeJob}
               isRunning={Boolean(isVideoProbeRunning)}
               completeContent={
-                <div className="space-y-3 text-muted-foreground">
-                  <div className="space-y-1.5">
+                <div className="flex flex-col gap-3 text-muted-foreground">
+                  <div className="flex flex-col gap-1.5">
                     <p className="text-sm font-medium text-foreground">本次新分类 UNKNOWN 媒体：</p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                       <span>
@@ -700,7 +712,7 @@ export function MaintenanceCard() {
                       </span>
                     </div>
                   </div>
-                  <div className="space-y-1.5 border-t border-border/50 pt-2">
+                  <div className="flex flex-col gap-1.5 border-t border-border/50 pt-2">
                     <p className="text-sm font-medium text-foreground">探测与处理进度：</p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                       <span>
@@ -725,7 +737,7 @@ export function MaintenanceCard() {
                       </span>
                     </div>
                   </div>
-                  <div className="space-y-1.5 border-t border-border/50 pt-2">
+                  <div className="flex flex-col gap-1.5 border-t border-border/50 pt-2">
                     <p className="text-sm font-medium text-foreground">视频封面处理：</p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                       <span>
@@ -757,7 +769,7 @@ export function MaintenanceCard() {
                   {videoProbeResult?.failedSamples && videoProbeResult.failedSamples.length > 0 && (
                     <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive mt-2">
                       <p className="font-medium mb-2 text-sm">失败样例</p>
-                      <ul className="space-y-1 text-xs font-mono">
+                      <ul className="flex flex-col gap-1 font-mono text-xs">
                         {videoProbeResult.failedSamples.slice(0, 5).map((sample) => (
                           <li key={sample.imageId} className="break-all">
                             <span className="opacity-70">
@@ -797,7 +809,9 @@ export function MaintenanceCard() {
               isChapterPreviewRunning ? (
                 <Button
                   variant="destructive"
-                  onClick={() => cancelChapterPreviewMutation.mutate()}
+                  onClick={() =>
+                    confirmTaskCancellation('生成视频章节截图', () => cancelChapterPreviewMutation.mutate())
+                  }
                   disabled={isChapterPreviewCancelling || cancelChapterPreviewMutation.isPending}
                 >
                   {isChapterPreviewCancelling ? '正在取消…' : '取消任务'}
@@ -813,9 +827,9 @@ export function MaintenanceCard() {
                     disabled={!chapterPreviewScheduledTask || triggerScheduledTaskMutation.isPending}
                   >
                     {triggeringTaskKey === `${chapterPreviewScheduledTask?.key}:INCREMENTAL` ? (
-                      <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                      <Spinner data-icon="inline-start" aria-hidden="true" />
                     ) : (
-                      <PlayCircle className="size-4" aria-hidden="true" />
+                      <PlayCircle data-icon="inline-start" aria-hidden="true" />
                     )}
                     增量执行
                   </Button>
@@ -826,9 +840,9 @@ export function MaintenanceCard() {
                     disabled={!chapterPreviewScheduledTask || triggerScheduledTaskMutation.isPending}
                   >
                     {triggeringTaskKey === `${chapterPreviewScheduledTask?.key}:FULL` ? (
-                      <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                      <Spinner data-icon="inline-start" aria-hidden="true" />
                     ) : (
-                      <PlayCircle className="size-4" aria-hidden="true" />
+                      <PlayCircle data-icon="inline-start" aria-hidden="true" />
                     )}
                     全量执行
                   </Button>
@@ -840,7 +854,7 @@ export function MaintenanceCard() {
               job={chapterPreviewJob}
               isRunning={Boolean(isChapterPreviewRunning)}
               completeContent={
-                <div className="space-y-3 text-muted-foreground">
+                <div className="flex flex-col gap-3 text-muted-foreground">
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                     <span>
                       模式：{' '}
@@ -879,7 +893,7 @@ export function MaintenanceCard() {
                   {chapterPreviewResult?.failedSamples && chapterPreviewResult.failedSamples.length > 0 && (
                     <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive">
                       <p className="mb-2 text-sm font-medium">失败样例</p>
-                      <ul className="space-y-1 text-xs font-mono">
+                      <ul className="flex flex-col gap-1 font-mono text-xs">
                         {chapterPreviewResult.failedSamples.slice(0, 5).map((sample, index) => (
                           <li
                             key={`${sample.imageId}-${sample.chapterOrder ?? 'manifest'}-${index}`}
@@ -922,9 +936,9 @@ export function MaintenanceCard() {
                     disabled={triggerScheduledTaskMutation.isPending}
                   >
                     {triggeringTaskKey === task.key ? (
-                      <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                      <Spinner data-icon="inline-start" aria-hidden="true" />
                     ) : (
-                      <PlayCircle className="size-4" aria-hidden="true" />
+                      <PlayCircle data-icon="inline-start" aria-hidden="true" />
                     )}
                     立即执行
                   </Button>

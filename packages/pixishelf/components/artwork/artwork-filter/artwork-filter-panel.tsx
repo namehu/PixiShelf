@@ -51,7 +51,7 @@ export function ArtworkFilterPanel({
       className={cn('flex w-full flex-col gap-4', !embedded && 'rounded-lg border bg-background p-4 shadow-sm')}
     >
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-        <div className="col-span-12 md:col-span-3 space-y-1">
+        <div className="col-span-12 flex flex-col gap-1 md:col-span-3">
           <div className="h-6 flex items-center">
             <Label htmlFor={fieldId('id')} className="text-xs font-medium text-muted-foreground">
               内部 ID
@@ -71,7 +71,7 @@ export function ArtworkFilterPanel({
           />
         </div>
 
-        <div className="col-span-12 md:col-span-3 space-y-1">
+        <div className="col-span-12 flex flex-col gap-1 md:col-span-3">
           <div className="h-6 flex items-center">
             <Label htmlFor={fieldId('title')} className="text-xs font-medium text-muted-foreground">
               标题
@@ -88,7 +88,7 @@ export function ArtworkFilterPanel({
           />
         </div>
 
-        <div className="col-span-6 md:col-span-3 space-y-1">
+        <div className="col-span-6 flex flex-col gap-1 md:col-span-3">
           <div className="h-6 flex items-center">
             <Label htmlFor={fieldId('external-id')} className="text-xs font-medium text-muted-foreground">
               外部 ID
@@ -106,7 +106,7 @@ export function ArtworkFilterPanel({
           />
         </div>
 
-        <div className="col-span-6 md:col-span-3 space-y-1">
+        <div className="col-span-6 flex flex-col gap-1 md:col-span-3">
           <div className="h-6 flex items-center">
             <Label htmlFor={fieldId('artist')} className="text-xs font-medium text-muted-foreground">
               作者
@@ -124,7 +124,7 @@ export function ArtworkFilterPanel({
         </div>
 
         <div className="col-span-12 flex flex-col md:flex-row gap-4 md:items-end justify-between">
-          <div className="w-full md:w-1/3 space-y-1">
+          <div className="flex w-full flex-col gap-1 md:w-1/3">
             <div className="h-6 flex items-center">
               <Label className="text-xs font-medium text-muted-foreground">发布日期</Label>
             </div>
@@ -149,7 +149,7 @@ export function ArtworkFilterPanel({
           </div>
 
           <div className="flex items-center gap-4 h-9 w-full md:w-auto justify-between md:justify-end">
-            <div className="flex h-full shrink-0 items-center space-x-2 rounded-md bg-muted px-3 py-2">
+            <div className="flex h-full shrink-0 items-center gap-2 rounded-md bg-muted px-3 py-2">
               <Checkbox
                 id={fieldId('exact-match')}
                 checked={localSearch.exactMatch}
@@ -165,11 +165,11 @@ export function ArtworkFilterPanel({
 
             <div className="flex gap-1">
               <Button type="submit" variant="default" size="sm" className="h-9 shrink-0 px-3">
-                <Search aria-hidden="true" className="size-3" />
+                <Search aria-hidden="true" data-icon="inline-start" className="size-3" />
                 搜索
               </Button>
               <Button type="button" variant="outline" size="sm" onClick={onReset} className="h-9 shrink-0 px-3">
-                <RotateCcw aria-hidden="true" className="size-3" />
+                <RotateCcw aria-hidden="true" data-icon="inline-start" className="size-3" />
                 重置
               </Button>
               <Button
@@ -194,7 +194,7 @@ export function ArtworkFilterPanel({
           id={fieldId('advanced-search')}
           className="grid grid-cols-1 gap-4 border-t pt-4 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-200 md:grid-cols-2 lg:grid-cols-12"
         >
-          <div className="col-span-1 lg:col-span-3 space-y-1">
+          <div className="col-span-1 flex flex-col gap-1 lg:col-span-3">
             <div className="h-6 flex items-center">
               <Label className="text-xs font-medium text-muted-foreground">媒体数量</Label>
             </div>
@@ -233,7 +233,7 @@ export function ArtworkFilterPanel({
             </div>
           </div>
 
-          <div className="col-span-1 lg:col-span-3 space-y-1">
+          <div className="col-span-1 flex flex-col gap-1 lg:col-span-3">
             <div className="h-6 flex items-center">
               <Label className="text-xs font-medium text-muted-foreground">媒体类型</Label>
             </div>
@@ -250,7 +250,7 @@ export function ArtworkFilterPanel({
             />
           </div>
 
-          <div className="col-span-1 lg:col-span-2 space-y-1">
+          <div className="col-span-1 flex flex-col gap-1 lg:col-span-2">
             <div className="h-6 flex items-center">
               <Label className="text-xs font-medium text-muted-foreground">视频音频</Label>
             </div>
@@ -272,7 +272,7 @@ export function ArtworkFilterPanel({
             </Select>
           </div>
 
-          <div className="col-span-1 lg:col-span-2 space-y-1">
+          <div className="col-span-1 flex flex-col gap-1 lg:col-span-2">
             <div className="h-6 flex items-center">
               <Label className="text-xs font-medium text-muted-foreground">创建类型</Label>
             </div>
@@ -287,7 +287,7 @@ export function ArtworkFilterPanel({
             />
           </div>
 
-          <div className="col-span-1 lg:col-span-4 space-y-1">
+          <div className="col-span-1 flex flex-col gap-1 lg:col-span-4">
             <div className="h-6 flex items-center justify-between">
               <Label className="text-xs font-medium text-muted-foreground">标签筛选</Label>
               <div className="flex rounded-md bg-muted p-0.5" aria-label="标签筛选方式">

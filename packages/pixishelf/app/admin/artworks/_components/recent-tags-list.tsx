@@ -1,9 +1,10 @@
 'use client'
 
 import React from 'react'
-import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { X } from 'lucide-react'
 import { useRecentTags, TagOption } from '@/store/admin/use-recent-tags'
+import { cn } from '@/lib/utils'
 
 interface RecentTagsListProps {
   /** 当前已选中的标签值列表，用于去重判断 */
@@ -27,31 +28,33 @@ export function RecentTagsList({ selectedValues, onSelect, limit = 10 }: RecentT
       {recentTags.slice(0, limit).map((tag) => {
         const isSelected = selectedValues.includes(tag.value)
         return (
-          <Badge
-            key={tag.value}
-            variant={isSelected ? 'outline' : 'secondary'}
-            className={`cursor-pointer flex items-center gap-1 group ${
-              isSelected ? 'opacity-50 cursor-not-allowed' : 'hover:bg-secondary/80'
-            }`}
-            onClick={() => {
-              if (!isSelected) {
+          <div key={tag.value} className="group inline-flex items-center rounded-full bg-secondary text-secondary-foreground">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={cn('h-6 rounded-full px-2 text-xs hover:bg-secondary/80', isSelected && 'opacity-50')}
+              disabled={isSelected}
+              onClick={() => {
                 onSelect(tag)
                 addTag(tag) // 点击也视为使用，更新时间戳
-              }
-            }}
-          >
-            {tag.label}
-            <div
-              role="button"
-              className="ml-0 h-5 w-0 overflow-hidden rounded-full opacity-0 pointer-events-none translate-x-1 hover:bg-destructive/20 flex items-center justify-center group-hover:ml-1 group-hover:w-5 group-hover:opacity-100 group-hover:pointer-events-auto group-hover:translate-x-0 transition-all duration-300 ease-out delay-[1000ms]"
-              onClick={(e) => {
-                e.stopPropagation()
+              }}
+            >
+              {tag.label}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="mr-0.5 size-5 rounded-full text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+              aria-label={`从常用标签中移除 ${tag.label}`}
+              onClick={() => {
                 removeTag(tag.value)
               }}
             >
-              <X size={10} />
-            </div>
-          </Badge>
+              <X aria-hidden="true" />
+            </Button>
+          </div>
         )
       })}
     </div>

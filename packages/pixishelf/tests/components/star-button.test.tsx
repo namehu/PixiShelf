@@ -9,8 +9,8 @@ vi.mock('lucide-react', () => ({
 }))
 
 vi.mock('@/components/ui/button', () => ({
-  Button: ({ children, onClick, title, disabled }: any) => (
-    <button onClick={onClick} title={title} disabled={disabled} data-testid="star-button">
+  Button: ({ children, ...props }: any) => (
+    <button {...props}>
       {children}
     </button>
   )
@@ -34,19 +34,20 @@ describe('StarButton', () => {
 
     const icon = screen.getByTestId('star-icon')
     expect(icon.className).toContain('text-muted-foreground')
-    expect(screen.getByTestId('star-button').title).toBe('设为星标')
+    expect(screen.getByRole('button', { name: '设为星标' })).toBeTruthy()
   })
 
   it('should toggle state optimistically', async () => {
     const onToggle = vi.fn().mockResolvedValue(undefined)
     render(<StarButton id={1} initialIsStarred={false} onToggle={onToggle} />)
 
-    const button = screen.getByTestId('star-button')
+    const button = screen.getByRole('button', { name: '设为星标' })
     fireEvent.click(button)
 
     // Check optimistic update
     const icon = screen.getByTestId('star-icon')
-    expect(icon.className).toContain('text-yellow-400')
+    expect(icon.className).toContain('text-warning')
+    expect(screen.getByRole('button', { name: '取消星标' })).toBeTruthy()
     expect(onToggle).toHaveBeenCalledWith(1, true)
   })
 
@@ -54,12 +55,12 @@ describe('StarButton', () => {
     const onToggle = vi.fn().mockRejectedValue(new Error('Failed'))
     render(<StarButton id={1} initialIsStarred={false} onToggle={onToggle} />)
 
-    const button = screen.getByTestId('star-button')
+    const button = screen.getByRole('button', { name: '设为星标' })
     fireEvent.click(button)
 
     // Optimistic update first
     const icon = screen.getByTestId('star-icon')
-    expect(icon.className).toContain('text-yellow-400')
+    expect(icon.className).toContain('text-warning')
 
     // Wait for rollback
     await waitFor(() => {

@@ -68,6 +68,7 @@ export function ProDialog({
   className,
   showCloseButton = true
 }: ProDialogProps) {
+  const widthValue = typeof width === 'number' ? `${width}px` : width
   // 处理 onOpenChange，适配 Antd 的 onCancel
   // 当用户点击遮罩层、ESC 或右上角关闭按钮时触发
   const handleOpenChange = (newOpen: boolean) => {
@@ -100,7 +101,7 @@ export function ProDialog({
         {cancelText}
       </Button>
       <Button onClick={handleOkClick} disabled={confirmLoading} {...okButtonProps}>
-        {confirmLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        {confirmLoading && <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden="true" />}
         {okText}
       </Button>
     </>
@@ -110,7 +111,7 @@ export function ProDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         className={cn('sm:max-w-lg', className)}
-        style={width ? { maxWidth: width, width: '100%' } : undefined}
+        style={widthValue ? { maxWidth: `min(calc(100vw - 2rem), ${widthValue})`, width: '100%' } : undefined}
         showCloseButton={showCloseButton}
       >
         <DialogHeader>

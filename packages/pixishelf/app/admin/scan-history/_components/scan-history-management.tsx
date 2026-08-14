@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ChevronDown, History, Loader2, RefreshCw, SearchX } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Loader2, RefreshCw, SearchX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useTRPC } from '@/lib/trpc'
@@ -80,26 +80,14 @@ export function ScanHistoryManagement() {
   }
 
   return (
-    <div className="px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600">
-              <History className="size-5" aria-hidden="true" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-pretty text-2xl font-semibold tracking-tight text-foreground">扫描历史</h1>
-              <p className="mt-1 max-w-2xl text-pretty text-sm leading-6 text-muted-foreground">
-                展开任意一次运行，直接查看作品明细与失败原因。
-              </p>
-            </div>
-          </div>
+    <div className="mx-auto flex max-w-6xl flex-col gap-6">
+        <div className="flex justify-end">
           <Button
             type="button"
             variant="outline"
             onClick={() => historyQuery.refetch()}
             disabled={historyQuery.isFetching}
-            className="self-start bg-white"
+            className="self-start"
           >
             <RefreshCw
               className={cn('size-4 motion-reduce:animate-none', historyQuery.isFetching && 'animate-spin')}
@@ -107,7 +95,7 @@ export function ScanHistoryManagement() {
             />
             {historyQuery.isFetching ? '刷新中…' : '刷新记录'}
           </Button>
-        </header>
+        </div>
 
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y py-3 text-sm text-muted-foreground">
           <span>{historyQuery.isPending ? '正在读取记录…' : `最近 ${runs.length} 次运行`}</span>
@@ -126,7 +114,7 @@ export function ScanHistoryManagement() {
         ) : runs.length === 0 ? (
           <EmptyState />
         ) : (
-          <section aria-label="扫描运行记录" className="space-y-2">
+          <section aria-label="扫描运行记录" className="flex flex-col gap-2">
             {runs.map((run, index) => {
               const expanded = run.id === selectedRunId
               const panelId = `scan-run-${run.id}-panel`
@@ -136,7 +124,7 @@ export function ScanHistoryManagement() {
                   key={run.id}
                   className={cn(
                     'relative overflow-hidden rounded-xl border bg-card shadow-sm transition-[border-color,box-shadow]',
-                    expanded && 'border-blue-200 shadow-md shadow-blue-950/5'
+                    expanded && 'border-primary/30 shadow-surface'
                   )}
                 >
                   <span
@@ -159,7 +147,7 @@ export function ScanHistoryManagement() {
                           {formatDate(run.startedAt)}
                         </time>
                         {index === 0 ? (
-                          <span className="hidden text-xs font-medium text-blue-600 sm:mt-1 sm:block">最近运行</span>
+                          <span className="hidden text-xs font-medium text-primary sm:mt-1 sm:block">最近运行</span>
                         ) : null}
                         <div className="flex items-center gap-2 sm:hidden">
                           <StatusBadge status={run.status as ScanRunStatus} />
@@ -263,7 +251,7 @@ export function ScanHistoryManagement() {
 
                       {selectedRun.errorMessage ? (
                         <div
-                          className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+                          className="mb-4 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"
                           role="alert"
                         >
                           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -282,7 +270,7 @@ export function ScanHistoryManagement() {
                       )}
 
                       {detailQuery.data?.nextCursor ? (
-                        <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                        <div className="mt-4 flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2.5 text-sm text-warning">
                           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                           当前显示前 500 条明细。使用状态筛选可以缩小结果范围。
                         </div>
@@ -294,7 +282,6 @@ export function ScanHistoryManagement() {
             })}
           </section>
         )}
-      </div>
     </div>
   )
 }
@@ -320,13 +307,13 @@ function RunMetrics({
       )}
     >
       <span>
-        <strong className="font-semibold text-emerald-700">{numberFormatter.format(succeeded)}</strong> 成功
+        <strong className="font-semibold text-success">{numberFormatter.format(succeeded)}</strong> 成功
       </span>
       <span>
         <strong className="font-semibold text-foreground">{numberFormatter.format(skipped)}</strong> 跳过
       </span>
       <span>
-        <strong className={cn('font-semibold', failed > 0 ? 'text-red-700' : 'text-foreground')}>
+        <strong className={cn('font-semibold', failed > 0 ? 'text-destructive' : 'text-foreground')}>
           {numberFormatter.format(failed)}
         </strong>{' '}
         失败
@@ -339,10 +326,10 @@ function RunMetrics({
 }
 
 function getStatusRailClass(status: string) {
-  if (status === 'RUNNING') return 'bg-blue-500'
-  if (status === 'COMPLETED') return 'bg-emerald-500'
-  if (status === 'FAILED') return 'bg-red-500'
-  return 'bg-neutral-300'
+  if (status === 'RUNNING') return 'bg-primary'
+  if (status === 'COMPLETED') return 'bg-success'
+  if (status === 'FAILED') return 'bg-destructive'
+  return 'bg-muted-foreground/40'
 }
 
 function EmptyState() {
@@ -359,13 +346,13 @@ function EmptyState() {
 
 function QueryError({ title, description, onRetry }: { title: string; description: string; onRetry: () => void }) {
   return (
-    <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-red-800" role="alert">
+    <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-5 text-destructive" role="alert">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-medium">{title}</p>
-          <p className="mt-1 text-sm text-red-700">{description}</p>
+          <p className="mt-1 text-sm text-destructive/90">{description}</p>
         </div>
-        <Button type="button" variant="outline" onClick={onRetry} className="border-red-200 bg-white hover:bg-red-100">
+        <Button type="button" variant="outline" onClick={onRetry}>
           <RefreshCw className="size-4" aria-hidden="true" />
           重新加载
         </Button>
@@ -376,7 +363,7 @@ function QueryError({ title, description, onRetry }: { title: string; descriptio
 
 function RunListSkeleton() {
   return (
-    <div className="space-y-2" aria-label="正在加载扫描记录" aria-busy="true">
+    <div className="flex flex-col gap-2" aria-label="正在加载扫描记录" aria-busy="true">
       {[0, 1, 2, 3].map((item) => (
         <div key={item} className="flex items-center gap-5 rounded-xl border bg-white px-5 py-5">
           <Loader2

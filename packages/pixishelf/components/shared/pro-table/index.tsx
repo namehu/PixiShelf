@@ -19,9 +19,12 @@ import {
   getExpandedRowModel
 } from '@tanstack/react-table'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Loader2, Copy, ChevronUp, ChevronDown, ChevronRight } from 'lucide-react'
+import { Copy, ChevronUp, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 // --- 类型定义 ---
 
@@ -222,6 +225,7 @@ export function ProTable<TData, TValue>({
   // --- 状态管理 ---
   const [internalData, setInternalData] = React.useState<TData[]>([])
   const [loading, setLoading] = React.useState<boolean>(false)
+  const [requestError, setRequestError] = React.useState<string | null>(null)
   const [internalRowCount, setInternalRowCount] = React.useState<number>(0)
 
   const isLocal = !!dataSource
@@ -258,6 +262,7 @@ export function ProTable<TData, TValue>({
 
     setLoading(true)
     try {
+      setRequestError(null)
       // 构造请求参数
       // 注意：React Table 的 pageIndex 从 0 开始，通常后端 API (如 Antd 规范) current 从 1 开始
       const params = {
@@ -270,10 +275,12 @@ export function ProTable<TData, TValue>({
       if (response.success) {
         setInternalData(response.data)
         setInternalRowCount(response.total)
+      } else {
+        setRequestError('数据请求未成功，请检查筛选条件后重试。')
       }
     } catch (error) {
       console.error('ProDataTable Request Failed:', error)
-      // 这里可以集成你的 Toast 组件提示错误
+      setRequestError('数据加载失败，请检查连接后重试。')
     } finally {
       setLoading(false)
     }
@@ -317,14 +324,16 @@ export function ProTable<TData, TValue>({
         enableHiding: false,
         cell: ({ row }) =>
           row.getCanExpand() ? (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               onClick={row.getToggleExpandedHandler()}
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="size-7 text-muted-foreground hover:text-foreground"
               aria-label={row.getIsExpanded() ? '收起预览' : '展开预览'}
             >
-              {row.getIsExpanded() ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-            </button>
+              {row.getIsExpanded() ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+            </Button>
           ) : null
       },
       ...columns
@@ -407,19 +416,31 @@ export function ProTable<TData, TValue>({
   }, [pagination.pageIndex, pagination.pageSize, scrollToTopOnPageChange])
 
   return (
-    <div ref={rootRef} className={cn('space-y-4 w-full', className)}>
+    <div ref={rootRef} className={cn('flex w-full min-w-0 flex-col gap-4', className)}>
       {/* 1. 工具栏区域 */}
       {showToolbar && (
         <div className="flex flex-col gap-4">
           {searchContent && <div className="w-full">{searchContent}</div>}
           {(headerTitle || toolBarContent) && (
             <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-              {headerTitle && <h3 className="text-lg font-medium">{headerTitle}</h3>}
+              {headerTitle && <h2 className="text-lg font-medium">{headerTitle}</h2>}
               <div className="flex items-center gap-2">{toolBarContent}</div>
             </div>
           )}
         </div>
       )}
+
+      {requestError && data.length > 0 ? (
+        <Alert variant="destructive">
+          <AlertTitle>表格刷新失败</AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{requestError}</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => fetchData()}>
+              重新加载
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {/* 2. 表格主体 */}
       <div className="relative overflow-x-auto rounded-md border">
@@ -430,33 +451,47 @@ export function ProTable<TData, TValue>({
                 {headerGroup.headers.map((header) => {
                   const columnDef = header.column.columnDef as ProColumnDef<TData, TValue>
                   return (
-                    <TableHead key={header.id} className={columnDef.headerClassName}>
+                    <TableHead
+                      key={header.id}
+                      className={columnDef.headerClassName}
+                      aria-sort={
+                        header.column.getIsSorted() === 'asc'
+                          ? 'ascending'
+                          : header.column.getIsSorted() === 'desc'
+                            ? 'descending'
+                            : header.column.getCanSort()
+                              ? 'none'
+                              : undefined
+                      }
+                    >
                       {header.isPlaceholder ? null : (
-                        <div
-                          className={cn(
-                            'flex items-center gap-2',
-                            header.column.getCanSort() && 'cursor-pointer select-none'
-                          )}
-                          onClick={header.column.getToggleSortingHandler()}
-                        >
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                          {header.column.getCanSort() && (
+                        header.column.getCanSort() ? (
+                          <button
+                            type="button"
+                            className="inline-flex min-h-8 max-w-full select-none items-center gap-2 rounded-sm text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                            onClick={header.column.getToggleSortingHandler()}
+                          >
+                            <span className="truncate">{flexRender(header.column.columnDef.header, header.getContext())}</span>
                             <div className="flex flex-col">
                               <ChevronUp
                                 className={cn(
-                                  'h-3 w-3 -mb-1',
+                                  '-mb-1 size-3',
                                   header.column.getIsSorted() === 'asc' ? 'text-primary' : 'text-muted-foreground/70'
                                 )}
+                                aria-hidden="true"
                               />
                               <ChevronDown
                                 className={cn(
-                                  'h-3 w-3',
+                                  'size-3',
                                   header.column.getIsSorted() === 'desc' ? 'text-primary' : 'text-muted-foreground/70'
                                 )}
+                                aria-hidden="true"
                               />
                             </div>
-                          )}
-                        </div>
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-2">{flexRender(header.column.columnDef.header, header.getContext())}</div>
+                        )
                       )}
                     </TableHead>
                   )
@@ -465,12 +500,26 @@ export function ProTable<TData, TValue>({
             ))}
           </TableHeader>
           <TableBody>
-            {loading && data.length === 0 ? (
+            {requestError && data.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={finalColumns.length} className="h-32 text-center">
+                  <div className="flex flex-col items-center justify-center gap-3" role="alert">
+                    <div>
+                      <p className="text-sm font-medium text-destructive">表格加载失败</p>
+                      <p className="mt-1 max-w-xl text-sm text-muted-foreground">{requestError}</p>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={() => fetchData()}>
+                      重新加载
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : loading && data.length === 0 ? (
               // 首次加载或无数据刷新时的 Loading 骨架
               <TableRow>
                 <TableCell colSpan={finalColumns.length} className="h-24 text-center">
                   <div className="flex justify-center items-center text-muted-foreground">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading data...
+                    <Spinner className="mr-2" aria-hidden="true" /> 正在加载数据…
                   </div>
                 </TableCell>
               </TableRow>
@@ -498,14 +547,22 @@ export function ProTable<TData, TValue>({
                           >
                             <div className="flex items-center gap-2 max-w-full">
                               {columnDef.copyable && copyValue && (
-                                <Copy
-                                  className="h-3 w-3 cursor-pointer text-muted-foreground hover:text-foreground shrink-0"
-                                  onClick={(e) => {
+                                <button
+                                  type="button"
+                                  className="inline-flex size-7 shrink-0 select-none items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                                  aria-label={`复制 ${copyValue}`}
+                                  onClick={async (e) => {
                                     e.stopPropagation()
-                                    navigator.clipboard.writeText(copyValue)
-                                    toast.success('已复制')
+                                    try {
+                                      await navigator.clipboard.writeText(copyValue)
+                                      toast.success('已复制')
+                                    } catch {
+                                      toast.error('复制失败，请直接选择表格内容复制。')
+                                    }
                                   }}
-                                />
+                                >
+                                  <Copy className="size-3.5" aria-hidden="true" />
+                                </button>
                               )}
                               <div
                                 className={cn('flex-1', columnDef.ellipsis && 'truncate')}
@@ -537,7 +594,7 @@ export function ProTable<TData, TValue>({
             ) : (
               <TableRow>
                 <TableCell colSpan={finalColumns.length} className="h-24 text-center">
-                  No results.
+                  暂无数据
                 </TableCell>
               </TableRow>
             )}
@@ -546,8 +603,8 @@ export function ProTable<TData, TValue>({
 
         {/* 覆盖层 Loading (当有数据但正在刷新时显示) */}
         {loading && data.length > 0 && (
-          <div className="absolute inset-0 bg-background/50 flex items-center justify-center z-10">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50" role="status">
+            <Spinner className="size-6 text-primary" aria-label="正在刷新表格…" />
           </div>
         )}
       </div>

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { FolderInput, StopCircle, PauseCircle, PlayCircle, Download } from 'lucide-react'
 import { LogViewer } from '@/components/shared/log-viewer'
 import { useMigration } from '../_hooks/use-migration'
+import { confirm } from '@/components/shared/global-confirm'
 
 interface MigrationDialogProps {
   open: boolean
@@ -21,11 +22,11 @@ export function MigrationDialog({
 }: MigrationDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl h-[80vh] flex flex-col p-0 gap-0 bg-[#1e1e1e] border-neutral-800">
+      <DialogContent className="flex h-[min(90dvh,52rem)] flex-col gap-0 border-neutral-800 bg-[#1e1e1e] p-0 sm:max-w-5xl">
         <DialogHeader className="p-4 border-b border-white/10 bg-neutral-900">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <DialogTitle className="text-neutral-200 flex items-center gap-2 text-sm font-mono">
-              <FolderInput className="w-4 h-4" />
+              <FolderInput className="size-4" aria-hidden="true" />
               MIGRATION_CONSOLE
               {migrationState.migrating && !migrationState.paused && (
                 <span className="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400 ml-2 animate-pulse">
@@ -40,24 +41,24 @@ export function MigrationDialog({
               {!migrationState.migrating && (migrationState.stats?.failed || 0) > 0 && (
                 <>
                   <Button variant="outline" size="sm" className="h-7 text-xs" onClick={migrationActions.exportFailed}>
-                    <Download className="w-3 h-3 mr-1" />
+                    <Download data-icon="inline-start" aria-hidden="true" />
                     失败清单
                   </Button>
                   <Button size="sm" className="h-7 text-xs" onClick={migrationActions.retryFailed}>
-                    <PlayCircle className="w-3 h-3 mr-1" />
+                    <PlayCircle data-icon="inline-start" aria-hidden="true" />
                     失败重试
                   </Button>
                 </>
               )}
               {migrationState.migrating && !migrationState.paused && (
                 <Button size="sm" className="h-7 text-xs" onClick={migrationActions.pauseMigration}>
-                  <PauseCircle className="w-3 h-3 mr-1" />
+                  <PauseCircle data-icon="inline-start" aria-hidden="true" />
                   暂停
                 </Button>
               )}
               {migrationState.migrating && migrationState.paused && (
                 <Button size="sm" className="h-7 text-xs" onClick={migrationActions.resumeMigration}>
-                  <PlayCircle className="w-3 h-3 mr-1" />
+                  <PlayCircle data-icon="inline-start" aria-hidden="true" />
                   继续
                 </Button>
               )}
@@ -66,9 +67,17 @@ export function MigrationDialog({
                   variant="destructive"
                   size="sm"
                   className="h-7 text-xs"
-                  onClick={migrationActions.cancelMigration}
+                  onClick={() =>
+                    confirm({
+                      title: '中止当前文件迁移？',
+                      description: '尚未处理的文件会停止迁移，已经完成的文件不会自动撤销。',
+                      confirmText: '确认中止',
+                      variant: 'destructive',
+                      onConfirm: migrationActions.cancelMigration
+                    })
+                  }
                 >
-                  <StopCircle className="w-3 h-3 mr-1" />
+                  <StopCircle data-icon="inline-start" aria-hidden="true" />
                   中止
                 </Button>
               )}

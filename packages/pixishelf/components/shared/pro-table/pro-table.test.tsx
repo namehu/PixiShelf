@@ -64,9 +64,7 @@ describe('ProTable Integration', () => {
       )
     })
 
-    // Click Next Page (to page 2)
-    // Use findByLabelText which handles waiting automatically and tests accessibility
-    const nextBtn = await screen.findByLabelText('Next Page', {}, { timeout: 3000 })
+    const nextBtn = await screen.findByRole('button', { name: '下一页' }, { timeout: 3000 })
 
     fireEvent.click(nextBtn)
 
@@ -95,9 +93,7 @@ describe('ProTable Integration', () => {
       expect(requestFn).toHaveBeenCalledTimes(1)
     })
 
-    // Find jumper input
-    // Note: input type is now text, so role is textbox
-    const input = screen.getByRole('textbox')
+    const input = screen.getByRole('spinbutton', { name: '跳转页码，范围 1 到 10' })
     fireEvent.change(input, { target: { value: '5' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 

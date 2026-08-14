@@ -2,15 +2,19 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { FolderSearch, Loader2, Play, Square, UserPlus, FolderOpen, AlertCircle, HardDriveDownload } from 'lucide-react'
+import { FolderSearch, Play, Square, UserPlus, FolderOpen, AlertCircle, HardDriveDownload } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
+import { Spinner } from '@/components/ui/spinner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import MultipleSelector, { type Option } from '@/components/shared/multiple-selector'
 import type { LocalImportRunResult } from '@/schemas/local-import.dto'
+import { confirm } from '@/components/shared/global-confirm'
+import { AdminStatusBadge } from '../../_components/admin-status-badge'
+import { cn } from '@/lib/utils'
 
 const ACTIVE_JOB_STATUSES = new Set(['PENDING', 'RUNNING', 'CANCELLING'])
 
@@ -134,10 +138,10 @@ export default function LocalDirectoryImportManagement() {
   }
 
   return (
-    <div className="p-6">
-      <div className="mx-auto max-w-5xl space-y-6">
+    <div className="py-6">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6">
         <div className="flex flex-col gap-1.5">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">本地目录导入</h1>
+          <h2 className="text-lg font-semibold text-foreground">本地目录导入</h2>
           <p className="text-sm text-muted-foreground">
             扫描{' '}
             <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
@@ -149,7 +153,7 @@ export default function LocalDirectoryImportManagement() {
 
         <Card className="shadow-sm">
           <CardHeader className="border-b bg-muted/10 px-6 py-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-1.5">
               <CardTitle className="text-lg">目录预览</CardTitle>
               <CardDescription>递归发现包含直属媒体文件的作品目录，不解析图片尺寸。</CardDescription>
             </div>
@@ -159,9 +163,9 @@ export default function LocalDirectoryImportManagement() {
               className="shrink-0"
             >
               {previewQuery.isFetching ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Spinner data-icon="inline-start" aria-hidden="true" />
               ) : (
-                <FolderSearch className="mr-2 h-4 w-4" />
+                <FolderSearch data-icon="inline-start" aria-hidden="true" />
               )}
               {previewQuery.data ? '重新扫描' : '扫描预览'}
             </Button>
@@ -179,7 +183,7 @@ export default function LocalDirectoryImportManagement() {
             ) : (
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <div className="rounded-full bg-muted/50 p-4 mb-4">
-                  <FolderSearch className="h-8 w-8 text-muted-foreground/50" />
+                  <FolderSearch className="size-8 text-muted-foreground/50" aria-hidden="true" />
                 </div>
                 <p className="text-sm font-medium text-muted-foreground">点击右上角“扫描预览”检查目录结构</p>
               </div>
@@ -191,7 +195,7 @@ export default function LocalDirectoryImportManagement() {
           <Card className="shadow-sm border-primary/20 overflow-hidden">
             <CardHeader className="border-b bg-primary/5 px-6 py-5">
               <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-primary" />
+                <AlertCircle className="size-5 text-primary" aria-hidden="true" />
                 <CardTitle className="text-lg text-primary">艺术家映射</CardTitle>
               </div>
               <CardDescription className="text-primary/80">
@@ -204,9 +208,9 @@ export default function LocalDirectoryImportManagement() {
                   key={artist.artistDirectory}
                   className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between hover:bg-muted/5 transition-colors"
                 >
-                  <div className="flex-1 space-y-1.5">
+                  <div className="flex flex-1 flex-col gap-1.5">
                     <div className="flex items-center gap-2">
-                      <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                      <FolderOpen className="size-4 text-muted-foreground" aria-hidden="true" />
                       <span className="font-medium text-foreground">{artist.artistDirectory}</span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -240,9 +244,9 @@ export default function LocalDirectoryImportManagement() {
                       className="w-full sm:w-auto shrink-0"
                     >
                       {creatingDirectory === artist.artistDirectory ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Spinner data-icon="inline-start" aria-hidden="true" />
                       ) : (
-                        <UserPlus className="mr-2 h-4 w-4" />
+                        <UserPlus data-icon="inline-start" aria-hidden="true" />
                       )}
                       按目录名创建
                     </Button>
@@ -255,18 +259,10 @@ export default function LocalDirectoryImportManagement() {
 
         <Card className="shadow-sm">
           <CardHeader className="border-b bg-muted/10 px-6 py-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-1.5">
               <div className="flex items-center gap-3">
                 <CardTitle className="text-lg">导入执行</CardTitle>
-                {job && (
-                  <Badge
-                    variant={
-                      job.status === 'COMPLETED' ? 'default' : job.status === 'FAILED' ? 'destructive' : 'secondary'
-                    }
-                  >
-                    {job.status}
-                  </Badge>
-                )}
+                {job && <AdminStatusBadge status={job.status} />}
               </div>
               <CardDescription>
                 {scanBlocked
@@ -277,14 +273,22 @@ export default function LocalDirectoryImportManagement() {
             {isRunning ? (
               <Button
                 variant="destructive"
-                onClick={() => cancelMutation.mutate()}
+                onClick={() =>
+                  confirm({
+                    title: '取消本地目录导入任务？',
+                    description: '当前导入会停止；已经成功写入的作品会保留，下次运行时将自动跳过。',
+                    confirmText: '确认取消',
+                    variant: 'destructive',
+                    onConfirm: () => cancelMutation.mutate()
+                  })
+                }
                 disabled={job?.status === 'CANCELLING'}
                 className="shrink-0"
               >
                 {job?.status === 'CANCELLING' ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Spinner data-icon="inline-start" aria-hidden="true" />
                 ) : (
-                  <Square className="mr-2 h-4 w-4" />
+                  <Square data-icon="inline-start" aria-hidden="true" />
                 )}
                 {job?.status === 'CANCELLING' ? '正在取消' : '取消任务'}
               </Button>
@@ -301,9 +305,9 @@ export default function LocalDirectoryImportManagement() {
                 className="shrink-0"
               >
                 {startMutation.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Spinner data-icon="inline-start" aria-hidden="true" />
                 ) : (
-                  <Play className="mr-2 h-4 w-4" />
+                  <Play data-icon="inline-start" aria-hidden="true" />
                 )}
                 开始导入
               </Button>
@@ -311,16 +315,16 @@ export default function LocalDirectoryImportManagement() {
           </CardHeader>
           <CardContent className="p-6">
             {job ? (
-              <div className="space-y-6">
-                <div className="space-y-3 rounded-lg border border-border bg-card p-4 shadow-sm">
+              <div className="flex flex-col gap-6">
+                <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-surface">
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium text-foreground flex items-center gap-2">
                       {isRunning ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                        <Spinner className="size-4 text-primary" aria-hidden="true" />
                       ) : (
-                        <HardDriveDownload className="h-4 w-4 text-muted-foreground" />
+                        <HardDriveDownload className="size-4 text-muted-foreground" aria-hidden="true" />
                       )}
-                      {job.message || '等待任务更新...'}
+                      {job.message || '等待任务更新…'}
                     </span>
                     <span className="font-medium text-muted-foreground">{job.progress}%</span>
                   </div>
@@ -339,9 +343,9 @@ export default function LocalDirectoryImportManagement() {
                 )}
 
                 {result?.errors?.length ? (
-                  <div className="space-y-2 mt-4">
+                  <div className="mt-4 flex flex-col gap-2">
                     <p className="text-sm font-medium text-destructive">失败详情</p>
-                    <div className="max-h-48 overflow-auto rounded-md border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive font-mono space-y-1">
+                    <div className="flex max-h-48 flex-col gap-1 overflow-auto rounded-md border border-destructive/20 bg-destructive/10 p-3 font-mono text-xs text-destructive">
                       {result.errors.map((error, i) => (
                         <div key={i} className="break-all">
                           {error}
@@ -354,7 +358,7 @@ export default function LocalDirectoryImportManagement() {
             ) : (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <div className="rounded-full bg-muted/50 p-4 mb-4">
-                  <HardDriveDownload className="h-8 w-8 text-muted-foreground/50" />
+                  <HardDriveDownload className="size-8 text-muted-foreground/50" aria-hidden="true" />
                 </div>
                 <p className="text-sm font-medium text-muted-foreground">尚未执行本地目录导入任务</p>
                 <p className="text-xs text-muted-foreground mt-1">扫描目录并完成映射后，即可开始导入</p>
@@ -380,9 +384,7 @@ function Stat({
 }) {
   if (highlight) {
     return (
-      <div
-        className={`rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-sm flex flex-col gap-1.5 ${className}`}
-      >
+      <div className={cn('flex flex-col gap-1.5 rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-sm', className)}>
         <div className="text-xs font-medium text-primary/80">{label}</div>
         <div className="text-3xl font-bold tracking-tight text-primary">{value}</div>
       </div>
@@ -390,7 +392,7 @@ function Stat({
   }
 
   return (
-    <div className={`rounded-xl border border-border bg-card p-4 shadow-sm flex flex-col gap-1.5 ${className}`}>
+    <div className={cn('flex flex-col gap-1.5 rounded-xl border border-border bg-card p-4 shadow-sm', className)}>
       <div className="text-xs font-medium text-muted-foreground">{label}</div>
       <div className="text-2xl font-semibold tracking-tight text-foreground">{value}</div>
     </div>

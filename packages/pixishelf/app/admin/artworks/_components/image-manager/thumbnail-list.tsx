@@ -74,15 +74,10 @@ export function ImageManagerThumbnailList({
               key={img.id}
               data-testid="image-manager-thumbnail-card"
               className="group relative aspect-square overflow-hidden rounded-lg border bg-card shadow-sm transition-colors hover:border-primary/40"
-              onClick={() => {
-                if (!isVideo) {
-                  onPreviewIndexChange(index)
-                }
-              }}
             >
               <div
                 data-testid="image-manager-thumbnail-media"
-                className="relative aspect-square h-full w-full bg-neutral-100/50 dark:bg-neutral-800/50"
+                className="relative aspect-square h-full w-full bg-muted/50"
               >
                 {isPlaying ? (
                   <video
@@ -103,13 +98,23 @@ export function ImageManagerThumbnailList({
                         sizes="(max-width: 768px) 100vw, 720px"
                       />
                     ) : (
-                      <LazyImage
-                        src={thumbnailMedia.path}
-                        alt={img.path}
-                        fill
-                        className="object-contain p-3"
-                        sizes="(max-width: 768px) 100vw, 720px"
-                      />
+                      <>
+                        <LazyImage
+                          src={thumbnailMedia.path}
+                          alt={img.path}
+                          fill
+                          className="object-contain p-3"
+                          sizes="(max-width: 768px) 100vw, 720px"
+                        />
+                        <button
+                          type="button"
+                          className="absolute inset-0 z-10 flex items-center justify-center opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+                          aria-label={`预览 ${fileName}`}
+                          onClick={() => onPreviewIndexChange(index)}
+                        >
+                          <ZoomIn className="size-8 text-primary/60 drop-shadow-sm" aria-hidden="true" />
+                        </button>
+                      </>
                     )}
                     {isVideo ? (
                       <button
@@ -126,11 +131,7 @@ export function ImageManagerThumbnailList({
                           <Play className="size-5 fill-current" />
                         </span>
                       </button>
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                        <ZoomIn className="text-primary/50 w-8 h-8 drop-shadow-sm" />
-                      </div>
-                    )}
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -146,7 +147,7 @@ export function ImageManagerThumbnailList({
                 </div>
               </div>
 
-              <div className="absolute right-2 top-2 flex shrink-0 gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+              <div className="absolute right-2 top-2 z-20 flex shrink-0 gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                 <ImageMediaActions
                   image={img}
                   buttonVariant="secondary"
@@ -163,7 +164,7 @@ export function ImageManagerThumbnailList({
                 />
               </div>
 
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/35 to-transparent p-2.5 text-white">
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/70 via-black/35 to-transparent p-2.5 text-white">
                 <div className="truncate text-xs font-medium" title={fileName}>
                   {fileName}
                 </div>

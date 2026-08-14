@@ -9,6 +9,7 @@ import { ScanStats } from './scan-stats'
 import { LogViewer } from '@/components/shared/log-viewer'
 import { useLogger } from '@/hooks/use-logger'
 import { formatTime } from '@/lib/utils'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 interface ScanResultCardProps {
   onCancel: () => void
@@ -32,24 +33,24 @@ export function ScanResultCard({ onCancel, elapsed }: ScanResultCardProps) {
       return (
         <div className="flex items-center gap-2.5">
           <div className="relative flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-75" />
+            <span className="relative inline-flex size-3 rounded-full bg-primary" />
           </div>
-          <span className="text-blue-600 font-medium">扫描进行中... ({formatTime(elapsed)})</span>
+          <span className="font-medium text-primary">扫描进行中…（{formatTime(elapsed)}）</span>
         </div>
       )
     }
     if (result) {
       return (
-        <div className="flex items-center gap-2 text-green-600 font-medium">
-          <CheckCircle2 className="h-5 w-5" /> 扫描任务完成
+        <div className="flex items-center gap-2 font-medium text-success">
+          <CheckCircle2 className="size-5" aria-hidden="true" /> 扫描任务完成
         </div>
       )
     }
     if (error) {
       return (
-        <div className="flex items-center gap-2 text-red-600 font-medium">
-          <XCircle className="h-5 w-5" /> 扫描任务中断
+        <div className="flex items-center gap-2 font-medium text-destructive">
+          <XCircle className="size-5" aria-hidden="true" /> 扫描任务中断
         </div>
       )
     }
@@ -59,7 +60,7 @@ export function ScanResultCard({ onCancel, elapsed }: ScanResultCardProps) {
   return (
     <SCard
       title={renderTitle()}
-      className="border-neutral-200 shadow-md"
+      className="border-border"
       extra={
         <div className="flex items-center gap-2">
           {isScanning && (
@@ -70,16 +71,14 @@ export function ScanResultCard({ onCancel, elapsed }: ScanResultCardProps) {
         </div>
       }
     >
-      <div className="space-y-6">
+      <div className="flex flex-col gap-6">
         {/* 1. 错误横幅 (更醒目) */}
         {error && (
-          <div className="flex items-start gap-3 bg-red-50 text-red-700 p-4 rounded-lg border border-red-100 shadow-sm animate-in slide-in-from-top-2">
-            <Bug className="h-5 w-5 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="font-semibold">发生错误</p>
-              <p className="text-sm opacity-90">{error}</p>
-            </div>
-          </div>
+          <Alert variant="destructive">
+            <Bug aria-hidden="true" />
+            <AlertTitle>发生错误</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {/* 2. 统计数据 */}

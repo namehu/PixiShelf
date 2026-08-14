@@ -1,37 +1,24 @@
 'use client'
 
-import { Badge } from '@/components/ui/badge'
+import { AdminStatusBadge } from '../../_components/admin-status-badge'
 
 export type ScanRunStatus = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 export type ScanRunItemStatus = 'SUCCESS' | 'SKIPPED' | 'FAILED'
 
 export function StatusBadge({ status }: { status: ScanRunStatus }) {
-  const className = {
-    RUNNING: 'border-blue-200 bg-blue-50 text-blue-700',
-    COMPLETED: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    FAILED: 'border-red-200 bg-red-50 text-red-700',
-    CANCELLED: 'border-neutral-200 bg-neutral-50 text-neutral-600'
-  }[status]
-
   return (
-    <Badge variant="outline" className={className}>
+    <AdminStatusBadge status={status}>
       <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
       {formatStatus(status)}
-    </Badge>
+    </AdminStatusBadge>
   )
 }
 
 export function ItemStatusBadge({ status }: { status: ScanRunItemStatus }) {
-  const className = {
-    SUCCESS: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    SKIPPED: 'border-neutral-200 bg-neutral-50 text-neutral-600',
-    FAILED: 'border-red-200 bg-red-50 text-red-700'
-  }[status]
-
   return (
-    <Badge variant="outline" className={className}>
+    <AdminStatusBadge status={status}>
       {formatItemStatus(status)}
-    </Badge>
+    </AdminStatusBadge>
   )
 }
 

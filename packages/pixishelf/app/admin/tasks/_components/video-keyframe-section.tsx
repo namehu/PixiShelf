@@ -5,9 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   ChevronLeft,
   ChevronRight,
-  Clock3,
   ListChecks,
-  Loader2,
   Pause,
   Play,
   RotateCcw,
@@ -20,7 +18,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Textarea } from '@/components/ui/textarea'
 import { useVideoKeyframeRetryClock } from '@/hooks/use-video-keyframe-retry-clock'
@@ -35,6 +32,9 @@ import {
   type VideoKeyframeQueueView
 } from '@/types/video-keyframe'
 import { TaskSection } from './task-ui'
+import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field'
+import { AdminStatusBadge } from '../../_components/admin-status-badge'
+import { confirm } from '@/components/shared/global-confirm'
 
 interface FilterDraft {
   minMinutes: string
@@ -214,54 +214,65 @@ export function VideoKeyframeSection() {
           <Badge variant="outline">自动上限 {queue?.automaticCapacity ?? 90}</Badge>
         </div>
 
-        <section className="space-y-3 rounded-lg border p-4">
+        <section className="flex flex-col gap-3 rounded-lg border p-4">
           <div>
             <h5 className="text-sm font-medium">自动任务筛选规则</h5>
             <p className="text-xs text-muted-foreground">留空表示不限制；目录每行一个相对扫描根目录的前缀。</p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="keyframe-min-duration">最小时长（分钟）</Label>
+          <FieldGroup className="gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor="keyframe-min-duration">最小时长（分钟）</FieldLabel>
               <Input
                 id="keyframe-min-duration"
+                name="keyframe-min-duration"
                 type="number"
+                inputMode="decimal"
+                autoComplete="off"
                 min="0"
                 value={filter.minMinutes}
                 onChange={(event) => setFilter((current) => ({ ...current, minMinutes: event.target.value }))}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="keyframe-max-duration">最大时长（分钟）</Label>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="keyframe-max-duration">最大时长（分钟）</FieldLabel>
               <Input
                 id="keyframe-max-duration"
+                name="keyframe-max-duration"
                 type="number"
+                inputMode="decimal"
+                autoComplete="off"
                 min="0"
                 value={filter.maxMinutes}
                 onChange={(event) => setFilter((current) => ({ ...current, maxMinutes: event.target.value }))}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="keyframe-include-paths">包含目录</Label>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="keyframe-include-paths">包含目录</FieldLabel>
               <Textarea
                 id="keyframe-include-paths"
+                name="keyframe-include-paths"
+                autoComplete="off"
                 rows={3}
                 value={filter.includePaths}
                 onChange={(event) => setFilter((current) => ({ ...current, includePaths: event.target.value }))}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="keyframe-exclude-paths">排除目录</Label>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="keyframe-exclude-paths">排除目录</FieldLabel>
               <Textarea
                 id="keyframe-exclude-paths"
+                name="keyframe-exclude-paths"
+                autoComplete="off"
                 rows={3}
                 value={filter.excludePaths}
                 onChange={(event) => setFilter((current) => ({ ...current, excludePaths: event.target.value }))}
               />
+            </Field>
             </div>
-          </div>
-          <div className="space-y-2">
-            <Label>处理状态</Label>
-            <div className="flex flex-wrap gap-4 text-sm">
+          <FieldSet>
+            <FieldLegend variant="label">处理状态</FieldLegend>
+            <FieldGroup className="flex-row flex-wrap gap-4">
               {(
                 [
                   ['MISSING', '缺失'],
@@ -269,8 +280,9 @@ export function VideoKeyframeSection() {
                   ['FAILED', '失败']
                 ] as const
               ).map(([value, label]) => (
-                <label key={value} className="flex items-center gap-2">
+                <Field key={value} orientation="horizontal" className="w-auto">
                   <Checkbox
+                    id={`keyframe-status-${value.toLowerCase()}`}
                     checked={filter.statuses.includes(value)}
                     onCheckedChange={(checked) =>
                       setFilter((current) => ({
@@ -281,11 +293,12 @@ export function VideoKeyframeSection() {
                       }))
                     }
                   />
-                  {label}
-                </label>
+                  <FieldLabel htmlFor={`keyframe-status-${value.toLowerCase()}`}>{label}</FieldLabel>
+                </Field>
               ))}
-            </div>
-          </div>
+            </FieldGroup>
+          </FieldSet>
+          </FieldGroup>
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
@@ -300,7 +313,7 @@ export function VideoKeyframeSection() {
               disabled={previewBatch.isPending || hasActivePreview}
               onClick={() => previewBatch.mutate({ force: false, previewOnly: true, filter: normalizedFilter })}
             >
-              <Search className="mr-1.5 size-4" />
+              <Search data-icon="inline-start" aria-hidden="true" />
               预览待处理视频
             </Button>
             <Button
@@ -309,13 +322,13 @@ export function VideoKeyframeSection() {
               disabled={previewBatch.isPending || hasActivePreview}
               onClick={() => previewBatch.mutate({ force: true, previewOnly: true, filter: normalizedFilter })}
             >
-              <ListChecks className="mr-1.5 size-4" />
+              <ListChecks data-icon="inline-start" aria-hidden="true" />
               预览全部匹配视频
             </Button>
           </div>
         </section>
 
-        <section className="space-y-3">
+        <section className="flex flex-col gap-3">
           <div>
             <h5 className="text-sm font-medium">手工筛选结果</h5>
             <p className="text-xs text-muted-foreground">预览不会开始生成；勾选确认后，所选视频才会进入队列。</p>
@@ -362,7 +375,7 @@ export function VideoKeyframeSection() {
                       })
                     }
                   >
-                    <Sparkles className="mr-1.5 size-4" />
+                    <Sparkles data-icon="inline-start" aria-hidden="true" />
                     确认处理 {selectedPreviewIds.length} 个
                   </Button>
                 </div>
@@ -390,12 +403,12 @@ export function VideoKeyframeSection() {
                           })
                         }
                       />
-                      <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex min-w-0 flex-1 flex-col gap-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-medium">媒体 #{candidate.imageId}</span>
-                          <Badge variant={candidate.status === 'FAILED' ? 'destructive' : 'outline'}>
+                          <AdminStatusBadge status={candidate.status}>
                             {formatPreviewStatus(candidate.status)}
-                          </Badge>
+                          </AdminStatusBadge>
                           <span className="text-xs text-muted-foreground">
                             {formatVideoDuration(candidate.duration)}
                           </span>
@@ -424,7 +437,7 @@ export function VideoKeyframeSection() {
                       disabled={previewPage <= 1}
                       onClick={() => setPreviewPage((page) => Math.max(1, page - 1))}
                     >
-                      <ChevronLeft className="mr-1 size-4" />
+                      <ChevronLeft data-icon="inline-start" aria-hidden="true" />
                       上一页
                     </Button>
                     <Button
@@ -435,21 +448,21 @@ export function VideoKeyframeSection() {
                       onClick={() => setPreviewPage((page) => Math.min(previewPageCount, page + 1))}
                     >
                       下一页
-                      <ChevronRight className="ml-1 size-4" />
+                      <ChevronRight data-icon="inline-end" aria-hidden="true" />
                     </Button>
                   </div>
                 </div>
               ) : null}
               {previewResult.previewTruncated ? (
-                <p className="border-t px-4 py-3 text-xs text-amber-700">
+                <p className="border-t px-4 py-3 text-xs text-warning">
                   结果超过 1000 个，本次仅提供前 1000 个供选择。请缩小目录或时长范围后重新预览。
                 </p>
               ) : null}
               {previewResult.inaccessible > 0 ? (
-                <div className="space-y-2 border-t px-4 py-3 text-xs text-amber-700">
+                <div className="flex flex-col gap-2 border-t px-4 py-3 text-xs text-warning">
                   <p>{previewResult.inaccessible} 个视频无法读取或探测，未列入候选。</p>
                   {previewResult.failedSamples.length > 0 ? (
-                    <ul className="space-y-1 font-mono">
+                    <ul className="flex flex-col gap-1 font-mono">
                       {previewResult.failedSamples.slice(0, 5).map((sample) => (
                         <li key={`${sample.imageId}-${sample.path}`} className="break-all">
                           #{sample.imageId} {sample.path}：{sample.error}
@@ -467,7 +480,7 @@ export function VideoKeyframeSection() {
             </p>
           ) : null}
           {otherPreviewJobs.length > 0 ? (
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <p className="text-xs font-medium text-muted-foreground">其他筛选任务</p>
               {otherPreviewJobs.map((job) => (
                 <KeyframeJobRow key={job.id} job={job} retryClock={retryClock} />
@@ -487,7 +500,19 @@ export function VideoKeyframeSection() {
               key={job.id}
               job={job}
               retryClock={retryClock}
-              onAction={(action) => control.mutate({ jobId: job.id, action })}
+              onAction={(action) => {
+                if (action !== 'cancel') {
+                  control.mutate({ jobId: job.id, action })
+                  return
+                }
+                confirm({
+                  title: '取消这个代表帧任务？',
+                  description: '当前生成会停止，已经发布的代表帧会保留。',
+                  confirmText: '确认取消',
+                  variant: 'destructive',
+                  onConfirm: () => control.mutate({ jobId: job.id, action })
+                })
+              }}
             />
           ))}
         </JobGroup>
@@ -509,10 +534,10 @@ export function VideoKeyframeSection() {
 function JobGroup({ title, empty, children }: { title: string; empty: string; children: React.ReactNode }) {
   const present = Array.isArray(children) ? children.length > 0 : Boolean(children)
   return (
-    <section className="space-y-2">
+    <section className="flex flex-col gap-2">
       <h5 className="text-sm font-medium">{title}</h5>
       {present ? (
-        <div className="space-y-2">{children}</div>
+        <div className="flex flex-col gap-2">{children}</div>
       ) : (
         <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{empty}</p>
       )}
@@ -535,25 +560,18 @@ function KeyframeJobRow({
   const warning = getJobWarning(job.result)
   const retryCountdown = getVideoKeyframeRetryCountdown(job, retryClock)
   return (
-    <div className="space-y-3 rounded-lg border bg-card p-4">
+    <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <p className="flex items-center gap-2 text-sm font-medium">
-            {job.status === 'RUNNING' || job.status === 'CANCELLING' ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Clock3 className="size-4" />
-            )}
-            {job.message || job.status}
-          </p>
+          <AdminStatusBadge status={job.status}>{job.message || job.status}</AdminStatusBadge>
           <p className="break-all font-mono text-xs text-muted-foreground">
             {job.type === 'VIDEO_KEYFRAME_DISCOVERY'
               ? '批量发现任务'
               : `媒体 #${job.targetImageId ?? '-'} · ${job.targetPath || '路径未知'}`}
           </p>
           {job.error ? <p className="mt-1 text-xs text-destructive">{formatVideoKeyframeError(job.error)}</p> : null}
-          {retryCountdown ? <p className="mt-1 text-xs text-amber-700">{retryCountdown}</p> : null}
-          {warning ? <p className="mt-1 text-xs text-amber-700">{warning}</p> : null}
+          {retryCountdown ? <p className="mt-1 text-xs text-warning">{retryCountdown}</p> : null}
+          {warning ? <p className="mt-1 text-xs text-warning">{warning}</p> : null}
           {job.type === 'VIDEO_KEYFRAME_DISCOVERY' ? (
             <p className="mt-1 text-xs text-muted-foreground">{getDiscoverySummary(job.result)}</p>
           ) : null}
@@ -561,13 +579,13 @@ function KeyframeJobRow({
         <div className="flex flex-wrap gap-2">
           {onAction && job.status === 'RUNNING' ? (
             <Button size="sm" variant="outline" onClick={() => onAction('pause')}>
-              <Pause className="mr-1 size-4" />
+              <Pause data-icon="inline-start" aria-hidden="true" />
               暂停
             </Button>
           ) : null}
           {onAction && job.status === 'PAUSED' ? (
             <Button size="sm" variant="outline" onClick={() => onAction('resume')}>
-              <Play className="mr-1 size-4" />
+              <Play data-icon="inline-start" aria-hidden="true" />
               恢复
             </Button>
           ) : null}
@@ -578,13 +596,13 @@ function KeyframeJobRow({
               disabled={job.status === 'CANCELLING'}
               onClick={() => onAction('cancel')}
             >
-              <X className="mr-1 size-4" />
+              <X data-icon="inline-start" aria-hidden="true" />
               取消
             </Button>
           ) : null}
           {onRetry ? (
             <Button size="sm" variant="outline" onClick={onRetry}>
-              <RotateCcw className="mr-1 size-4" />
+              <RotateCcw data-icon="inline-start" aria-hidden="true" />
               重试
             </Button>
           ) : null}

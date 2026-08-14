@@ -3,11 +3,14 @@ import { useState } from 'react'
 import { useTRPC } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Trash, Plus } from 'lucide-react'
+import { ArrowDown, ArrowUp, Trash, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { AddArtworkDialog } from './add-artwork-dialog'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { confirm } from '@/components/shared/global-confirm'
+import { PageState } from '@/components/layout/page-state'
+import { AdminTableFrame, AdminWorkbench } from '../../../_components/admin-workbench'
 
 interface Props {
   seriesId: number
@@ -18,7 +21,7 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
   const queryClient = useQueryClient()
   const [addDialogOpen, setAddDialogOpen] = useState(false)
 
-  const { data: series, isLoading } = useQuery(trpc.series.get.queryOptions(seriesId))
+  const { data: series, isLoading, isError } = useQuery(trpc.series.get.queryOptions(seriesId))
 
   const removeMutation = useMutation(
     trpc.series.removeArtwork.mutationOptions({
@@ -38,9 +41,12 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
   )
 
   const handleRemove = (artworkId: number) => {
-    if (confirm('确定从系列中移除该作品吗？')) {
-      removeMutation.mutate({ seriesId, artworkId })
-    }
+    confirm({
+      title: '从系列中移除该作品？',
+      description: '作品本身不会被删除，只会解除与当前系列的关联。',
+      confirmText: '确认移除',
+      onConfirm: () => removeMutation.mutate({ seriesId, artworkId })
+    })
   }
 
   // Simplified Reorder: Move Up/Down
@@ -62,24 +68,41 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
     })
   }
 
-  if (isLoading) return <div>加载中...</div>
-  if (!series) return <div>系列不存在</div>
+  if (isLoading) {
+    return (
+      <AdminWorkbench title="系列详情" description="正在读取系列内容。">
+        <PageState variant="loading" title="正在加载系列" compact />
+      </AdminWorkbench>
+    )
+  }
+  if (isError) {
+    return (
+      <AdminWorkbench title="系列详情" description="管理系列内作品和显示顺序。">
+        <PageState variant="error" title="系列加载失败" description="请刷新页面重试。" compact />
+      </AdminWorkbench>
+    )
+  }
+  if (!series) {
+    return (
+      <AdminWorkbench title="系列详情" description="管理系列内作品和显示顺序。">
+        <PageState variant="empty" title="系列不存在" description="该系列可能已被删除。" compact />
+      </AdminWorkbench>
+    )
+  }
 
   return (
-    <div className="space-y-4 p-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">系列详情: {series.title}</h2>
+    <AdminWorkbench
+      title={series.title}
+      eyebrow="系列管理"
+      description={series.description || '管理系列内作品和显示顺序。'}
+      actions={
         <Button onClick={() => setAddDialogOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
+          <Plus data-icon="inline-start" aria-hidden="true" />
           添加作品
         </Button>
-      </div>
-
-      <div className="border rounded-md p-4 bg-muted/20">
-        <p className="text-sm text-muted-foreground">{series.description}</p>
-      </div>
-
-      <div className="border rounded-md">
+      }
+    >
+      <AdminTableFrame>
         <Table>
           <TableHeader>
             <TableRow>
@@ -100,35 +123,43 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6"
+                        className="size-7"
                         disabled={index === 0}
                         onClick={() => handleMove(index, 'up')}
+                        aria-label={`将 ${artwork.title} 上移`}
                       >
-                        ▲
+                        <ArrowUp aria-hidden="true" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6"
+                        className="size-7"
                         disabled={index === series.artworks.length - 1}
                         onClick={() => handleMove(index, 'down')}
+                        aria-label={`将 ${artwork.title} 下移`}
                       >
-                        ▼
+                        <ArrowDown aria-hidden="true" />
                       </Button>
                     </div>
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Avatar className="w-12 h-12 rounded">
-                    <AvatarImage src={artwork.thumbnailUrl || ''} />
+                  <Avatar className="size-12 rounded">
+                    <AvatarImage src={artwork.thumbnailUrl || ''} alt={artwork.title} />
                     <AvatarFallback>?</AvatarFallback>
                   </Avatar>
                 </TableCell>
                 <TableCell>{artwork.title}</TableCell>
                 <TableCell>{artwork.id}</TableCell>
                 <TableCell>
-                  <Button variant="ghost" size="icon" className="text-red-500" onClick={() => handleRemove(artwork.id)}>
-                    <Trash className="w-4 h-4" />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive"
+                    onClick={() => handleRemove(artwork.id)}
+                    aria-label={`从系列移除 ${artwork.title}`}
+                  >
+                    <Trash aria-hidden="true" />
                   </Button>
                 </TableCell>
               </TableRow>
@@ -142,7 +173,7 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
             )}
           </TableBody>
         </Table>
-      </div>
+      </AdminTableFrame>
 
       <AddArtworkDialog
         open={addDialogOpen}
@@ -151,6 +182,6 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
         existingArtworkIds={series.artworks.map((a: any) => a.id)}
         onSuccess={() => queryClient.invalidateQueries({ queryKey: trpc.series.get.queryKey(seriesId) })}
       />
-    </div>
+    </AdminWorkbench>
   )
 }

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { useTRPC } from '@/lib/trpc'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ProDialog } from '@/components/shared/pro-dialog'
-import { Loader2 } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 
 interface ArtistDialogProps {
   open: boolean
@@ -20,6 +20,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
   const trpc = useTRPC()
   const queryClient = useQueryClient()
   const isEdit = !!artist
+  const nameInputRef = useRef<HTMLInputElement>(null)
 
   const [formData, setFormData] = useState({
     name: '',
@@ -96,9 +97,14 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
   }
 
   const handleSubmit = () => {
+    if (!formData.name.trim()) {
+      toast.error('请输入艺术家姓名')
+      nameInputRef.current?.focus()
+      return
+    }
     const payload = {
-      name: formData.name,
-      username: formData.name, // 自动使用 name 作为 username
+      name: formData.name.trim(),
+      username: formData.name.trim(), // 自动使用 name 作为 username
       userId: formData.userId || undefined,
       bio: formData.bio || undefined,
       avatar: formData.avatar,
@@ -129,16 +135,20 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
     >
       {isLoading ? (
         <div className="flex justify-center items-center h-40">
-          <Loader2 className="w-8 h-8 animate-spin text-neutral-400" />
+          <Spinner className="size-8 text-muted-foreground" aria-label="正在加载艺术家信息" />
         </div>
       ) : (
-        <div className="space-y-4 py-2">
+        <div className="flex flex-col gap-4 py-2">
           {/* Name */}
-          <div className="space-y-2">
-            <Label>
-              姓名 <span className="text-red-500">*</span>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="artist-name">
+              姓名 <span className="text-destructive">*</span>
             </Label>
             <Input
+              ref={nameInputRef}
+              id="artist-name"
+              name="artist-name"
+              autoComplete="off"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="请输入艺术家姓名"
@@ -146,20 +156,26 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
           </div>
 
           {/* UserID (Pixiv) */}
-          <div className="space-y-2">
-            <Label>Pixiv UserID</Label>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="artist-pixiv-user-id">Pixiv UserID</Label>
             <Input
+              id="artist-pixiv-user-id"
+              name="artist-pixiv-user-id"
+              autoComplete="off"
               value={formData.userId}
               onChange={(e) => setFormData({ ...formData, userId: e.target.value })}
               placeholder="请输入 Pixiv UserID（可选，不填将自动生成）"
             />
-            <p className="text-xs text-neutral-500">如果不填写，系统将自动生成格式为 p_{'{id}'} 的 ID</p>
+            <p className="text-xs text-muted-foreground">如果不填写，系统将自动生成格式为 p_{'{id}'} 的 ID</p>
           </div>
 
           {/* Bio */}
-          <div className="space-y-2">
-            <Label>简介</Label>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="artist-bio">简介</Label>
             <Textarea
+              id="artist-bio"
+              name="artist-bio"
+              autoComplete="off"
               value={formData.bio}
               onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
               placeholder="请输入艺术家简介（可选）"
@@ -168,9 +184,13 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
           </div>
 
           {/* Avatar URL (Temporary text input until upload is ready) */}
-          <div className="space-y-2">
-            <Label>头像 URL</Label>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="artist-avatar-url">头像 URL</Label>
             <Input
+              id="artist-avatar-url"
+              name="artist-avatar-url"
+              type="url"
+              autoComplete="url"
               value={formData.avatar}
               onChange={(e) => setFormData({ ...formData, avatar: e.target.value })}
               placeholder="请输入头像 URL（可选）"
@@ -178,9 +198,13 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
           </div>
 
           {/* Background URL */}
-          <div className="space-y-2">
-            <Label>背景图 URL</Label>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="artist-background-url">背景图 URL</Label>
             <Input
+              id="artist-background-url"
+              name="artist-background-url"
+              type="url"
+              autoComplete="url"
               value={formData.backgroundImg}
               onChange={(e) => setFormData({ ...formData, backgroundImg: e.target.value })}
               placeholder="请输入背景图 URL（可选）"

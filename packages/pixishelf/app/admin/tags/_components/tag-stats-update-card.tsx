@@ -5,6 +5,7 @@ import { RefreshCw, Clock, CheckCircle, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { updateTagStatsAction } from '@/actions/tag-action'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 interface TagStatsUpdateCardProps {
   onUpdateStats: () => void
@@ -55,18 +56,18 @@ export function TagStatsUpdateCard({ onUpdateStats }: TagStatsUpdateCardProps) {
   }
 
   return (
-    <div className="bg-white rounded-lg border border-neutral-200 p-4 md:p-6">
+    <section className="rounded-lg border border-border bg-background p-4 md:p-6" aria-labelledby="tag-stats-title">
       <div className="flex flex-col md:flex-row md:items-center gap-4 mb-4">
-        <h2 className="text-lg font-semibold text-neutral-900 flex items-center gap-2">
-          <RefreshCw className="w-5 h-5" />
+        <h2 id="tag-stats-title" className="flex items-center gap-2 text-lg font-semibold text-foreground">
+          <RefreshCw className="size-5" aria-hidden="true" />
           标签统计更新
         </h2>
         <div className="flex-1 hidden md:block" />
 
         <div className="flex flex-col md:flex-row gap-3 md:items-center">
           {lastStatsUpdate && (
-            <div className="flex items-center gap-2 text-sm text-neutral-500">
-              <Clock className="w-4 h-4" />
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Clock className="size-4" aria-hidden="true" />
               <span className="md:hidden">最后更新：</span>
               {lastStatsUpdate}
             </div>
@@ -75,37 +76,31 @@ export function TagStatsUpdateCard({ onUpdateStats }: TagStatsUpdateCardProps) {
           <Button
             onClick={handleUpdateStats}
             disabled={isUpdatingStats}
-            className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full md:w-auto"
           >
-            <RefreshCw className={`w-4 h-4 ${isUpdatingStats ? 'animate-spin' : ''}`} />
-            {isUpdatingStats ? '正在更新...' : '手动更新统计'}
+            <RefreshCw data-icon="inline-start" aria-hidden="true" className={isUpdatingStats ? 'animate-spin' : undefined} />
+            {isUpdatingStats ? '正在更新…' : '手动更新统计'}
           </Button>
         </div>
       </div>
 
       {/* 更新状态显示 */}
       {statsUpdateStatus === 'success' && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-          <div className="flex items-center gap-2 text-green-800">
-            <CheckCircle className="w-4 h-4" />
-            <div>标签统计更新成功</div>
-          </div>
-        </div>
+        <Alert variant="success" className="mb-4">
+          <CheckCircle aria-hidden="true" />
+          <AlertTitle>标签统计更新成功</AlertTitle>
+        </Alert>
       )}
 
       {statsUpdateStatus === 'error' && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <div className="flex items-center gap-2 text-red-800">
-            <AlertCircle className="w-4 h-4" />
-            <div>
-              <div>标签统计更新失败</div>
-              {statsUpdateError && <div className="text-sm mt-1 text-red-600">{statsUpdateError}</div>}
-            </div>
-          </div>
-        </div>
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle aria-hidden="true" />
+          <AlertTitle>标签统计更新失败</AlertTitle>
+          {statsUpdateError && <AlertDescription>{statsUpdateError}</AlertDescription>}
+        </Alert>
       )}
 
-      <p className="text-sm text-neutral-500 mt-3">手动更新将重新计算所有标签的作品数量，可能需要几分钟时间</p>
-    </div>
+      <p className="mt-3 text-sm text-muted-foreground">手动更新将重新计算所有标签的作品数量，可能需要几分钟时间</p>
+    </section>
   )
 }

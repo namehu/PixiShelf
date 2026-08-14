@@ -10,6 +10,7 @@ import { ScanProgress } from '@/types'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { isLocalDirectoryArtworkSource } from '@/utils/artwork/artwork-source'
+import { cn } from '@/lib/utils'
 
 interface ArtworkRescanButtonProps {
   artwork: ArtworkResponseDto
@@ -98,11 +99,17 @@ export function ArtworkRescanButton({ artwork, onComplete }: ArtworkRescanButton
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="absolute -left-2 -top-2 z-10 text-red-500 cursor-help bg-white rounded-full p-0.5 shadow-sm border border-red-200">
-                <AlertCircle className="w-4 h-4" />
-              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute -left-2 -top-2 z-10 size-5 rounded-full border border-destructive/20 bg-background p-0 text-destructive shadow-surface"
+                aria-label="查看重新扫描失败原因"
+              >
+                <AlertCircle aria-hidden="true" />
+              </Button>
             </TooltipTrigger>
-            <TooltipContent className="bg-red-50 text-red-900 border-red-200 max-w-[300px]">
+            <TooltipContent className="max-w-[300px] border-destructive/20 bg-background text-destructive">
               <p>{error}</p>
             </TooltipContent>
           </Tooltip>
@@ -114,16 +121,19 @@ export function ArtworkRescanButton({ artwork, onComplete }: ArtworkRescanButton
         size="icon"
         onClick={handleRescan}
         disabled={scanning}
-        title={scanning ? `正在扫描... ${progress}%` : '重新扫描'}
-        className={error ? 'text-red-500 hover:text-red-600 hover:bg-red-50' : ''}
+        aria-label={scanning ? `正在扫描 ${artwork.title}，${progress}%` : `重新扫描 ${artwork.title}`}
+        className={error ? 'text-destructive hover:bg-destructive/10 hover:text-destructive' : undefined}
       >
-        <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
+        <RefreshCw className={cn(scanning && 'animate-spin motion-reduce:animate-none')} aria-hidden="true" />
         {scanning && (
-          <span className="absolute text-[10px] font-bold text-primary bottom-0.5 bg-background/80 px-0.5 rounded">
+          <span className="absolute bottom-0.5 rounded bg-background/80 px-0.5 text-[10px] font-bold text-primary" aria-hidden="true">
             {progress}%
           </span>
         )}
       </Button>
+      <span className="sr-only" role="status" aria-live="polite">
+        {scanning ? `正在扫描 ${artwork.title}，${progress}%` : ''}
+      </span>
     </div>
   )
 }

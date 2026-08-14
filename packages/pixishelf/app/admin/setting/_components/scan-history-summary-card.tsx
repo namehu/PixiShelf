@@ -35,7 +35,7 @@ export function ScanHistorySummaryCard() {
     <SCard
       title={
         <span className="flex items-center gap-2">
-          <Clock3 className="h-5 w-5 text-neutral-500" />
+          <Clock3 className="size-5 text-muted-foreground" aria-hidden="true" />
           最近扫描
         </span>
       }
@@ -56,7 +56,7 @@ export function ScanHistorySummaryCard() {
       }
     >
       {latest ? (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -65,7 +65,7 @@ export function ScanHistorySummaryCard() {
                   {formatType(latest.type)} · {formatMode(latest.mode)}
                 </span>
               </div>
-              <p className="mt-2 text-sm text-neutral-600">
+              <p className="mt-2 text-sm text-muted-foreground">
                 {formatDate(latest.startedAt)} · 耗时 {formatDuration(latest.durationMs)}
               </p>
             </div>
@@ -91,7 +91,7 @@ export function ScanHistorySummaryCard() {
 
 function SummaryStat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md border bg-neutral-50 px-3 py-2">
+    <div className="rounded-md border bg-muted/50 px-3 py-2">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 text-lg font-semibold">{value}</div>
     </div>

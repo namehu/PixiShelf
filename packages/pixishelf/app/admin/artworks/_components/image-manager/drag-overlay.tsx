@@ -13,34 +13,34 @@ export function ImageManagerDragOverlay({ dragZone }: ImageManagerDragOverlayPro
       <div
         className={cn(
           'flex-1 flex flex-col items-center justify-center h-full border-r-2 border-dashed transition-colors duration-200',
-          dragZone === 'add' ? 'bg-blue-500/10 border-blue-500/30' : 'bg-transparent border-muted-foreground/10'
+          dragZone === 'add' ? 'border-primary/30 bg-primary/10' : 'border-muted-foreground/10 bg-transparent'
         )}
       >
         <div
           className={cn(
-            'flex flex-col items-center transition-all duration-200',
+            'flex flex-col items-center transition-[opacity,transform] duration-200',
             dragZone === 'add' ? 'scale-110 opacity-100' : 'opacity-40 scale-90'
           )}
         >
-          <Plus className="w-16 h-16 text-blue-500" strokeWidth={1.5} />
-          <div className="mt-4 text-lg font-medium text-blue-500">新增媒体</div>
+          <Plus className="size-16 text-primary" strokeWidth={1.5} aria-hidden="true" />
+          <div className="mt-4 text-lg font-medium text-primary">新增媒体</div>
         </div>
       </div>
 
       <div
         className={cn(
           'flex-1 flex flex-col items-center justify-center h-full transition-colors duration-200',
-          dragZone === 'replace' ? 'bg-red-500/10' : 'bg-transparent'
+          dragZone === 'replace' ? 'bg-destructive/10' : 'bg-transparent'
         )}
       >
         <div
           className={cn(
-            'flex flex-col items-center transition-all duration-200',
+            'flex flex-col items-center transition-[opacity,transform] duration-200',
             dragZone === 'replace' ? 'scale-110 opacity-100' : 'opacity-40 scale-90'
           )}
         >
-          <FileUp className="w-16 h-16 text-red-500" strokeWidth={1.5} />
-          <div className="mt-4 text-lg font-medium text-red-500">全量替换</div>
+          <FileUp className="size-16 text-destructive" strokeWidth={1.5} aria-hidden="true" />
+          <div className="mt-4 text-lg font-medium text-destructive">全量替换</div>
         </div>
       </div>
     </div>

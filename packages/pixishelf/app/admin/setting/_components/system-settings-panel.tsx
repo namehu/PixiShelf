@@ -127,11 +127,11 @@ export function SystemSettingsPanel() {
   }
 
   return (
-    <div className="p-6">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <div className="mb-6">
-          <h1 className="mb-2 text-2xl font-bold text-neutral-900">系统设置</h1>
-          <p className="text-neutral-600">配置对所有用户和后台流程生效的系统级选项</p>
+    <div className="py-6">
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">系统设置</h2>
+          <p className="mt-1 text-sm text-muted-foreground">配置对所有用户和后台流程生效的系统级选项。</p>
         </div>
 
         <PreferenceItem
@@ -146,9 +146,9 @@ export function SystemSettingsPanel() {
               triggerSearchOnFocus
               placeholder="搜索并选择全量替换默认标签..."
               disabled={systemSettingsQuery.isLoading || updateMutation.isPending}
-              emptyIndicator={<p className="py-4 text-center text-sm text-slate-500">暂无可选标签</p>}
+              emptyIndicator={<p className="py-4 text-center text-sm text-muted-foreground">暂无可选标签</p>}
             />
-            <div className="mt-2 text-xs text-neutral-500">
+            <div className="mt-2 text-xs text-muted-foreground">
               {updateMutation.isPending ? '保存中...' : `当前已选择 ${replaceDefaultTagIds.length} 个默认标签`}
             </div>
           </div>
@@ -166,9 +166,9 @@ export function SystemSettingsPanel() {
               triggerSearchOnFocus
               placeholder="搜索并选择本地导入默认标签..."
               disabled={systemSettingsQuery.isLoading || updateMutation.isPending}
-              emptyIndicator={<p className="py-4 text-center text-sm text-slate-500">暂无可选标签</p>}
+              emptyIndicator={<p className="py-4 text-center text-sm text-muted-foreground">暂无可选标签</p>}
             />
-            <div className="mt-2 text-xs text-neutral-500">
+            <div className="mt-2 text-xs text-muted-foreground">
               {updateMutation.isPending ? '保存中...' : `当前已选择 ${localImportDefaultTagIds.length} 个默认标签`}
             </div>
           </div>

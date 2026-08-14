@@ -62,34 +62,38 @@ export function ServerScanCard({
       return (
         <div className="flex items-center gap-2 animate-in fade-in zoom-in-95 duration-200">
           <div className="relative flex-1">
-            <FolderOpen className="absolute left-3 top-2.5 h-4 w-4 text-neutral-400" />
+            <FolderOpen className="absolute left-3 top-2.5 size-4 text-muted-foreground" aria-hidden="true" />
             <Input
+              name="server-scan-path"
+              aria-label="服务端扫描目录"
+              autoComplete="off"
+              spellCheck={false}
               value={tempPath}
               onChange={(e) => setTempPath(e.target.value)}
-              placeholder="请输入绝对路径..."
+              placeholder="请输入绝对路径…"
               className="pl-9 font-mono text-sm"
-              autoFocus
               onKeyDown={(e) => e.key === 'Enter' && handleSave()}
             />
           </div>
           <Button size="sm" onClick={handleSave} disabled={isUpdatingPath || !tempPath.trim()}>
-            <Save className="mr-1 h-3.5 w-3.5" /> 保存
+            <Save data-icon="inline-start" aria-hidden="true" />
+            保存
           </Button>
-          <Button size="sm" variant="ghost" onClick={handleCancel}>
-            <X className="h-4 w-4" />
+          <Button size="icon" variant="ghost" onClick={handleCancel} aria-label="取消编辑扫描目录">
+            <X aria-hidden="true" />
           </Button>
         </div>
       )
     }
 
     return (
-      <div className="flex items-center justify-between rounded-lg border bg-neutral-50/50 p-3">
+      <div className="flex items-center justify-between rounded-lg border bg-muted/50 p-3">
         <div className="flex items-center gap-3 overflow-hidden">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-600">
-            <FolderOpen size={16} />
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent text-primary">
+            <FolderOpen className="size-4" aria-hidden="true" />
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-xs text-neutral-500">当前扫描目录</span>
+            <span className="text-xs text-muted-foreground">当前扫描目录</span>
             <span className="font-mono text-sm font-medium truncate" title={scanPathData}>
               {scanPathData || '未配置'}
             </span>
@@ -110,28 +114,27 @@ export function ServerScanCard({
       // 把健康状态放在 Header 右上角
       extra={
         <div className="flex items-center gap-2">
-          <span className="text-xs text-neutral-400">后端状态</span>
+          <span className="text-xs text-muted-foreground">后端状态</span>
           <Badge
-            variant={healthStatus === 'ok' ? 'outline' : 'destructive'}
-            className={cn('gap-1', healthStatus === 'ok' && 'border-green-200 text-green-700 bg-green-50')}
+            variant={healthStatus === 'ok' ? 'success' : 'destructive'}
           >
-            <Activity size={10} />
-            {healthStatus || 'Checking...'}
+            <Activity data-icon="inline-start" aria-hidden="true" />
+            {healthStatus || '检查中…'}
           </Badge>
         </div>
       }
       // 把主要的扫描动作放在 Footer，符合"配置完 -> 执行"的逻辑流
       footer={
         <div className="flex items-center justify-end gap-3 w-full">
-          <span className="text-xs text-neutral-400 mr-auto">
-            {isScanning ? '任务正在后台执行中...' : '选择扫描模式以开始'}
+          <span className="mr-auto text-xs text-muted-foreground">
+            {isScanning ? '任务正在后台执行中…' : '选择扫描模式以开始'}
           </span>
 
           <Button variant="secondary" onClick={onScanForce} disabled={isScanning || !scanPathData}>
             强制全量重扫
           </Button>
           <Button onClick={onScanIncremental} disabled={isScanning || !scanPathData}>
-            {isScanning ? '扫描中...' : '开始增量扫描'}
+            {isScanning ? '扫描中…' : '开始增量扫描'}
           </Button>
         </div>
       }

@@ -42,6 +42,7 @@ import type {
   ImageReplaceInitResponse,
   MediaChapterUploadResponse
 } from '@/types/artwork-media-api'
+import { confirm as confirmAction } from '@/components/shared/global-confirm'
 
 interface ImageReplaceDialogProps {
   open: boolean
@@ -319,8 +320,6 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   }
 
   const handleRemoveItem = (index: number) => {
-    if (!confirm('确定要删除该文件吗？')) return
-
     updatePreviewItems((prev) => {
       const newItems = [...prev]
       const removed = newItems.splice(index, 1)[0]
@@ -330,7 +329,6 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   }
 
   const removeChapterItem = (id: string) => {
-    if (!confirm('确定要删除该章节文件吗？')) return
     updateChapterItems((prev) => prev.filter((item) => item.id !== id))
   }
 
@@ -618,9 +616,43 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   }
 
   const handleIgnoreAndCommit = () => {
-    if (confirm('确定要忽略失败文件并提交吗？失败的文件将不会出现在最终作品中。')) {
-      commitReplace(previewItems, true)
-    }
+    confirmAction({
+      title: '忽略失败文件并提交？',
+      description: '失败的媒体不会出现在最终作品中；成功上传的媒体会替换当前作品内容。',
+      confirmText: '忽略并提交',
+      variant: 'destructive',
+      onConfirm: () => commitReplace(previewItems, true)
+    })
+  }
+
+  const handleRollbackAndClose = () => {
+    confirmAction({
+      title: '放弃更改并回滚？',
+      description: '本次替换已上传的内容会被撤销，并恢复操作前的媒体。',
+      confirmText: '确认回滚',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          await executeRollback()
+          onOpenChange(false)
+          toast.success('已回滚并关闭')
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '未知错误'
+          toast.error(`回滚失败: ${message}`)
+          throw error
+        }
+      }
+    })
+  }
+
+  const handleStartReplace = () => {
+    confirmAction({
+      title: '替换当前作品的全部媒体？',
+      description: `将使用列表中的 ${previewItems.length} 个媒体替换当前内容；系统会先创建可回滚备份。`,
+      confirmText: '开始替换',
+      variant: 'destructive',
+      onConfirm: startReplace
+    })
   }
 
   const exportErrorReport = () => {
@@ -720,34 +752,36 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         onOpenChange(val)
       }}
     >
-      <DialogContent className="sm:max-w-4xl max-w-4xl max-h-[90vh] flex flex-col">
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-4xl flex-col sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>全量替换 - {artwork.title || storageIdentity}</DialogTitle>
           <DialogDescription>将会清空当前作品的所有图片，并替换为上传的新文件。支持拖拽文件夹。</DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto p-1 space-y-4">
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-1">
           {/* File Selection */}
           <div
             className={cn(
-              'border-2 border-dashed border-neutral-200 rounded-lg p-6 text-center transition-colors relative',
+              'relative rounded-lg border-2 border-dashed border-border p-6 text-center transition-colors',
               globalStatus === 'uploading' || globalStatus === 'syncing' || globalStatus === 'rolling-back'
                 ? 'opacity-50 cursor-not-allowed'
-                : 'hover:bg-neutral-50 cursor-pointer'
+                : 'cursor-pointer hover:bg-muted/50'
             )}
             {...dragHandlers}
           >
             <input
+              name="replacement-media-files"
+              aria-label="选择用于全量替换的媒体与章节文件"
               type="file"
               multiple
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
               onChange={handleFileSelect}
               disabled={globalStatus === 'uploading' || globalStatus === 'syncing' || globalStatus === 'rolling-back'}
             />
-            <div className="flex flex-col items-center gap-2 text-neutral-500">
-              <FolderInput className="w-8 h-8 text-neutral-400" />
+            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <FolderInput className="size-8" aria-hidden="true" />
               <p className="text-sm font-medium">点击选择 / 拖拽文件夹或文件</p>
-              <p className="text-xs text-neutral-400">支持批量选择，自动解析排序序号</p>
+              <p className="text-xs text-muted-foreground">支持批量选择，自动解析排序序号</p>
             </div>
           </div>
 
@@ -756,32 +790,32 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
             <div
               className={cn(
                 'flex items-center gap-2 text-sm p-3 rounded border',
-                globalStatus === 'partial-error' ? 'bg-amber-50 border-amber-200' : 'bg-muted'
+                globalStatus === 'partial-error' ? 'border-warning/20 bg-warning/10' : 'bg-muted'
               )}
             >
               {globalStatus === 'backup' && <Loader2 className="w-4 h-4 animate-spin" />}
               {globalStatus === 'uploading' && <Loader2 className="w-4 h-4 animate-spin" />}
               {globalStatus === 'syncing' && <RefreshCw className="w-4 h-4 animate-spin" />}
-              {globalStatus === 'success' && <CheckCircle className="w-4 h-4 text-green-500" />}
-              {globalStatus === 'error' && <XCircle className="w-4 h-4 text-red-500" />}
-              {globalStatus === 'partial-error' && <AlertTriangle className="w-4 h-4 text-amber-500" />}
+              {globalStatus === 'success' && <CheckCircle className="size-4 text-success" />}
+              {globalStatus === 'error' && <XCircle className="size-4 text-destructive" />}
+              {globalStatus === 'partial-error' && <AlertTriangle className="size-4 text-warning-foreground" />}
               {globalStatus === 'rolling-back' && <RotateCcw className="w-4 h-4 animate-spin" />}
 
               <div className="flex-1 font-medium flex justify-between items-center">
                 <span>
-                  {globalStatus === 'backup' && '正在备份旧文件...'}
-                  {globalStatus === 'uploading' && '正在上传文件...'}
-                  {globalStatus === 'syncing' && '正在同步数据库...'}
+                  {globalStatus === 'backup' && '正在备份旧文件…'}
+                  {globalStatus === 'uploading' && '正在上传文件…'}
+                  {globalStatus === 'syncing' && '正在同步数据库…'}
                   {globalStatus === 'success' && '替换成功'}
                   {globalStatus === 'error' && '操作失败'}
                   {globalStatus === 'partial-error' && '部分文件上传失败，请选择后续操作'}
-                  {globalStatus === 'rolling-back' && '正在回滚操作，请稍候...'}
+                  {globalStatus === 'rolling-back' && '正在回滚操作，请稍候…'}
                 </span>
 
                 {globalStatus === 'partial-error' && (
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={exportErrorReport} className="h-7 text-xs gap-1">
-                      <Download className="w-3 h-3" />
+                      <Download data-icon="inline-start" aria-hidden="true" />
                       导出报告
                     </Button>
                   </div>
@@ -795,7 +829,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
             <div className="border rounded-md overflow-hidden flex flex-col max-h-[400px]">
               <div className="overflow-y-auto flex-1" ref={scrollContainerRef}>
                 <Table>
-                  <TableHeader className="sticky top-0 bg-white z-10">
+                  <TableHeader className="sticky top-0 z-10 bg-background">
                     <TableRow>
                       <TableHead className="w-[80px]">Order</TableHead>
                       <TableHead className="w-[60px]">预览</TableHead>
@@ -815,13 +849,13 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                       return (
                         <Fragment key={item.id}>
                           {isGap && (
-                            <TableRow className="bg-orange-50/50 hover:bg-orange-50/50">
+                            <TableRow className="bg-warning/5 hover:bg-warning/5">
                               <TableCell
                                 colSpan={7}
-                                className="py-2 text-center text-xs text-orange-600 font-medium border-y border-orange-100"
+                                className="border-y border-warning/15 py-2 text-center text-xs font-medium text-warning-foreground"
                               >
                                 <div className="flex items-center justify-center gap-2">
-                                  <AlertTriangle className="w-3 h-3" />
+                                  <AlertTriangle className="size-3" aria-hidden="true" />
                                   <span>
                                     序号中断：缺少 {gapSize} 个文件 (序号 {prevItem.order + 1} - {item.order - 1})
                                   </span>
@@ -831,11 +865,13 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                           )}
                           <TableRow
                             id={`row-${item.id}`}
-                            className={cn(item.error && 'bg-red-50', item.status === 'uploading' && 'bg-blue-50')}
+                            className={cn(item.error && 'bg-destructive/5', item.status === 'uploading' && 'bg-primary/5')}
                           >
                             <TableCell>
-                              <Input
-                                type="number"
+                            <Input
+                              name={`media-order-${item.id}`}
+                              aria-label={`调整 ${item.originalName} 的排序`}
+                              type="number"
                                 value={item.order}
                                 onChange={(e) => handleOrderChange(index, parseInt(e.target.value) || 0)}
                                 className="h-7 w-16 text-center px-1"
@@ -843,7 +879,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                               />
                             </TableCell>
                             <TableCell>
-                              <div className="w-10 h-10 rounded overflow-hidden bg-neutral-100 flex items-center justify-center border">
+                              <div className="flex size-10 items-center justify-center overflow-hidden rounded border bg-muted">
                                 {item.previewUrl &&
                                   (VIDEO_EXTENSIONS.includes(
                                     '.' + (item.file.name.split('.').pop() || '').toLowerCase()
@@ -855,7 +891,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                               </div>
                             </TableCell>
                             <TableCell
-                              className="font-mono text-xs text-neutral-400 truncate max-w-[150px]"
+                              className="max-w-[150px] truncate font-mono text-xs text-muted-foreground"
                               title={item.originalName}
                             >
                               {item.originalName}
@@ -866,9 +902,9 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                                 if (match) {
                                   return (
                                     <div className="font-mono text-xs truncate">
-                                      <span className="text-neutral-400">{match[1]}</span>
+                                      <span className="text-muted-foreground">{match[1]}</span>
                                       <span className="text-foreground font-bold text-base mx-0.5">{match[2]}</span>
-                                      <span className="text-neutral-400">{match[3]}</span>
+                                      <span className="text-muted-foreground">{match[3]}</span>
                                     </div>
                                   )
                                 }
@@ -885,13 +921,13 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                                   <Progress value={item.progress} className="h-2 w-20" />
                                   <span className="text-[10px] text-muted-foreground">{item.progress}%</span>
                                 </div>
-                                <span className="text-[10px] text-neutral-400">{formatFileSize(item.size)}</span>
+                                <span className="text-[10px] text-muted-foreground">{formatFileSize(item.size)}</span>
                               </div>
                             </TableCell>
                             <TableCell>
                               {item.status === 'error' ? (
                                 <div className="flex items-center gap-1">
-                                  <span className="text-red-500 text-xs flex items-center gap-1">
+                                  <span className="flex items-center gap-1 text-xs text-destructive">
                                     <XCircle className="w-3 h-3" />
                                     失败
                                   </span>
@@ -901,29 +937,29 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                                       variant="ghost"
                                       className="h-5 w-5"
                                       onClick={() => handleRetrySingle(index)}
-                                      title="重试"
+                                      aria-label={`重试上传 ${item.originalName}`}
                                     >
                                       <RotateCcw className="w-3 h-3" />
                                     </Button>
                                   )}
                                 </div>
                               ) : item.status === 'success' ? (
-                                <span className="text-green-500 text-xs flex items-center gap-1">
+                                <span className="flex items-center gap-1 text-xs text-success">
                                   <CheckCircle className="w-3 h-3" />
                                   完成
                                 </span>
                               ) : item.status === 'uploading' ? (
-                                <span className="text-blue-500 text-xs flex items-center gap-1">
+                                <span className="flex items-center gap-1 text-xs text-primary">
                                   <Loader2 className="w-3 h-3 animate-spin" />
                                   上传中
                                 </span>
                               ) : item.error ? (
-                                <span className="text-red-500 text-xs flex items-center gap-1">
+                                <span className="flex items-center gap-1 text-xs text-destructive">
                                   <AlertTriangle className="w-3 h-3" />
                                   冲突
                                 </span>
                               ) : (
-                                <span className="text-neutral-400 text-xs">等待</span>
+                                <span className="text-xs text-muted-foreground">等待</span>
                               )}
                             </TableCell>
                             <TableCell>
@@ -931,8 +967,9 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  className="h-6 w-6 text-neutral-400 hover:text-red-500"
+                                  className="size-6 text-muted-foreground hover:text-destructive"
                                   onClick={() => handleRemoveItem(index)}
+                                  aria-label={`从替换列表移除 ${item.originalName}`}
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </Button>
@@ -949,21 +986,21 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
           )}
 
           {chapterItems.length > 0 && (
-            <div className="border rounded-md p-3 space-y-3">
+            <div className="flex flex-col gap-3 rounded-md border p-3">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm font-medium">章节文件</div>
-                  <div className="text-xs text-neutral-500">
+                  <div className="text-xs text-muted-foreground">
                     已匹配 {chapterUploadPlan.matched.length} 个，未匹配 {chapterUploadPlan.unmatched.length} 个，冲突{' '}
                     {chapterUploadPlan.conflicting.length} 个
                   </div>
                 </div>
                 {(chapterUploadPlan.unmatched.length > 0 || chapterUploadPlan.conflicting.length > 0) && (
-                  <span className="text-xs text-red-500">存在未匹配或冲突章节文件，当前不可提交</span>
+                  <span className="text-xs text-destructive">存在未匹配或冲突章节文件，当前不可提交</span>
                 )}
               </div>
 
-              <div className="space-y-2 max-h-48 overflow-y-auto">
+              <div className="flex max-h-48 flex-col gap-2 overflow-y-auto">
                 {chapterItems.map((item) => {
                   const matchedPlan = chapterUploadPlan.matched.find((plan) => plan.chapterId === item.id)
                   const isUnmatched = !matchedPlan
@@ -973,29 +1010,30 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                       key={item.id}
                       className={cn(
                         'flex items-center justify-between gap-3 rounded border px-3 py-2',
-                        isUnmatched && 'border-red-200 bg-red-50/60',
-                        item.status === 'error' && 'border-amber-200 bg-amber-50/60'
+                        isUnmatched && 'border-destructive/20 bg-destructive/5',
+                        item.status === 'error' && 'border-warning/20 bg-warning/5'
                       )}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-mono truncate">{item.originalName}</div>
-                        <div className="text-xs text-neutral-500 truncate">
+                        <div className="truncate text-xs text-muted-foreground">
                           {matchedPlan
                             ? `匹配视频: ${matchedPlan.videoOriginalName} -> ${matchedPlan.chapterNewName}`
                             : '未找到对应视频文件'}
                         </div>
-                        {item.error && <div className="text-xs text-red-500 truncate">{item.error}</div>}
+                        {item.error && <div className="truncate text-xs text-destructive">{item.error}</div>}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        {item.status === 'uploading' && <Loader2 className="w-3 h-3 animate-spin text-blue-500" />}
-                        {item.status === 'success' && <CheckCircle className="w-3 h-3 text-green-500" />}
-                        {item.status === 'error' && <XCircle className="w-3 h-3 text-red-500" />}
+                        {item.status === 'uploading' && <Loader2 className="size-3 animate-spin text-primary" />}
+                        {item.status === 'success' && <CheckCircle className="size-3 text-success" />}
+                        {item.status === 'error' && <XCircle className="size-3 text-destructive" />}
                         {globalStatus === 'idle' && (
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-6 w-6 text-neutral-400 hover:text-red-500"
+                            className="size-6 text-muted-foreground hover:text-destructive"
                             onClick={() => removeChapterItem(item.id)}
+                            aria-label={`从替换列表移除章节文件 ${item.originalName}`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -1007,9 +1045,9 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
               </div>
 
               {chapterUploadPlan.conflicting.length > 0 && (
-                <div className="rounded border border-red-200 bg-red-50/60 p-3 space-y-1">
+                <div className="flex flex-col gap-1 rounded border border-destructive/20 bg-destructive/10 p-3">
                   {chapterUploadPlan.conflicting.map((conflict) => (
-                    <div key={conflict.videoId} className="text-xs text-red-600">
+                    <div key={conflict.videoId} className="text-xs text-destructive">
                       {conflict.videoOriginalName}: {conflict.chapterOriginalNames.join(', ')}
                     </div>
                   ))}
@@ -1020,10 +1058,10 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         </div>
 
         <DialogFooter className="gap-2 sm:justify-between">
-          <div className="text-xs text-neutral-500 flex gap-4 items-center">
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
             <span>媒体: {previewItems.length} 个</span>
             <span>章节: {chapterItems.length} 个</span>
-            <span className="text-neutral-400">
+            <span className="text-muted-foreground">
               总大小: {formatFileSize(previewItems.reduce((acc, cur) => acc + cur.size, 0))}
             </span>
           </div>
@@ -1032,17 +1070,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
               <>
                 <Button
                   variant="ghost"
-                  onClick={async () => {
-                    if (confirm('确定要放弃并回滚所有更改吗？')) {
-                      try {
-                        await executeRollback()
-                        onOpenChange(false)
-                        toast.success('已回滚并关闭')
-                      } catch (e: any) {
-                        toast.error(`回滚失败: ${e.message}`)
-                      }
-                    }
-                  }}
+                  onClick={handleRollbackAndClose}
                 >
                   取消 (回滚)
                 </Button>
@@ -1066,7 +1094,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                 </Button>
                 <Button
                   variant="destructive"
-                  onClick={startReplace}
+                  onClick={handleStartReplace}
                   disabled={
                     previewItems.length === 0 ||
                     globalStatus === 'uploading' ||
@@ -1077,7 +1105,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                     chapterUploadPlan.conflicting.length > 0
                   }
                 >
-                  {globalStatus === 'uploading' ? '上传中...' : '确认全量替换'}
+                  {globalStatus === 'uploading' ? '上传中…' : '确认全量替换'}
                 </Button>
               </>
             )}

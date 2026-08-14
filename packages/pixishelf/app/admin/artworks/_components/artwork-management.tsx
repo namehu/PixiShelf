@@ -253,12 +253,12 @@ export default function ArtworkManagement() {
             ? `确认按筛选条件迁移 ${result.total} 个作品？`
             : '确认执行全量迁移？',
         description: (
-          <div className="text-sm text-neutral-400 mt-2 space-y-2">
+          <div className="mt-2 flex flex-col gap-2 text-sm text-muted-foreground">
             <div>
               预检结果：总数 {result.total}，可迁移 {result.eligible}，缺少艺术家 {result.missingArtist}，缺少
               ExternalId {result.missingExternalId}，无图片 {result.missingImages}
             </div>
-            <ul className="list-disc list-inside space-y-1 pl-2">
+            <ul className="flex list-inside list-disc flex-col gap-1 pl-2">
               <li>迁移过程中请勿关闭浏览器窗口。</li>
               {!isBatch && !hasFilters && <li>涉及大量文件移动，可能需要较长时间。</li>}
             </ul>
@@ -348,7 +348,7 @@ export default function ArtworkManagement() {
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="flex min-w-0 flex-col gap-4">
       <ArtworkManagementToolbar
         migrationSafety={migrationSafety}
         setMigrationSafety={setMigrationSafety}

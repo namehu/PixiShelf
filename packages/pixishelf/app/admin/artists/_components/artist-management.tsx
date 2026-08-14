@@ -49,10 +49,10 @@ export function StarButton({
       variant="ghost"
       size="icon"
       onClick={handleClick}
-      title={isStarred ? '取消星标' : '设为星标'}
+      aria-label={isStarred ? '取消星标' : '设为星标'}
       disabled={isLoading}
     >
-      <Star className={cn('w-4 h-4', isStarred ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground')} />
+      <Star className={cn(isStarred ? 'fill-warning text-warning' : 'text-muted-foreground')} aria-hidden="true" />
     </Button>
   )
 }
@@ -227,7 +227,7 @@ export function ArtistManagement() {
           const name = row.getValue('name') as string
           return (
             <Avatar>
-              <AvatarImage src={avatar} alt={name} className="w-[32px] h-[32px]" />
+              <AvatarImage src={avatar} alt={name} className="size-8" />
               <AvatarFallback>{name?.substring(0, 2).toUpperCase()}</AvatarFallback>
             </Avatar>
           )
@@ -258,22 +258,32 @@ export function ArtistManagement() {
         header: '操作',
         cell: ({ row }) => (
           <div className="flex gap-1">
-            <Button variant="ghost" size="icon" onClick={() => handleEdit(row.original)} title="编辑">
-              <Edit className="w-4 h-4" />
-            </Button>
-            <Link href={`/artists/${row.original.id}`} target="_blank">
-              <Button variant="ghost" size="icon" title="新标签页打开">
-                <ExternalLink className="w-4 h-4" />
-              </Button>
-            </Link>
             <Button
               variant="ghost"
               size="icon"
-              className="text-red-500"
-              onClick={() => handleDelete(row.original.id)}
-              title="删除"
+              onClick={() => handleEdit(row.original)}
+              aria-label={`编辑艺术家 ${row.original.name}`}
             >
-              <Trash className="w-4 h-4" />
+              <Edit aria-hidden="true" />
+            </Button>
+            <Button asChild variant="ghost" size="icon">
+              <Link
+                href={`/artists/${row.original.id}`}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`在新标签页打开艺术家 ${row.original.name}`}
+              >
+                <ExternalLink aria-hidden="true" />
+              </Link>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-destructive"
+              onClick={() => handleDelete(row.original.id)}
+              aria-label={`删除艺术家 ${row.original.name}`}
+            >
+              <Trash aria-hidden="true" />
             </Button>
           </div>
         )
@@ -305,7 +315,7 @@ export function ArtistManagement() {
                 setSearchState({ isStarred: val === 'all' ? null : val, page: 1 })
               }}
             >
-              <SelectTrigger className="w-[120px] h-8">
+              <SelectTrigger className="h-8 w-[120px]" aria-label="筛选星标状态">
                 <SelectValue placeholder="星标状态" />
               </SelectTrigger>
               <SelectContent>
@@ -317,30 +327,32 @@ export function ArtistManagement() {
               </SelectContent>
             </Select>
             <Input
-              placeholder="搜索艺术家..."
+              name="artist-search"
+              aria-label="搜索艺术家"
+              autoComplete="off"
+              placeholder="搜索艺术家…"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               className="h-8 w-full md:w-[200px]"
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
             <Button variant="default" size="sm" onClick={handleSearch}>
-              <Search className="w-4 h-4 mr-1" />
+              <Search data-icon="inline-start" aria-hidden="true" />
               搜索
             </Button>
             <Button variant="outline" size="sm" onClick={handleReset}>
-              <RotateCcw className="w-4 h-4 mr-1" />
+              <RotateCcw data-icon="inline-start" aria-hidden="true" />
               重置
             </Button>
             <Button
               variant="default"
               size="sm"
-              className="gap-2"
               onClick={() => {
                 setEditingArtist(null)
                 setDialogOpen(true)
               }}
             >
-              <Plus className="w-4 h-4" />
+              <Plus data-icon="inline-start" aria-hidden="true" />
               新增艺术家
             </Button>
           </div>

@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { BarChart3, RefreshCw, Download, Edit2, Trash, Languages, Search, RotateCcw, Plus } from 'lucide-react'
+import { RefreshCw, Download, Edit2, Trash, Languages, Search, RotateCcw, Plus } from 'lucide-react'
 import type { TagManagementStats } from '@/types/tags'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
@@ -216,7 +216,7 @@ export default function TagManagement() {
       cell: ({ row }) => {
         const record = row.original
         const tName = getTranslateName(record)
-        return <div className={tName ? 'text-neutral-900' : 'text-neutral-400 italic'}>{tName || '未翻译'}</div>
+        return <div className={tName ? 'text-foreground' : 'text-muted-foreground italic'}>{tName || '未翻译'}</div>
       }
     },
     {
@@ -246,34 +246,34 @@ export default function TagManagement() {
         return (
           <div className="flex items-center gap-2">
             <Button
-              size="sm"
+              size="icon"
               variant="ghost"
               onClick={() => handleEdit(record)}
-              className="text-neutral-600 hover:text-neutral-900 h-8 w-8 p-0"
-              title="编辑"
+              className="size-8 text-muted-foreground hover:text-foreground"
+              aria-label={`编辑标签 ${record.name}`}
             >
-              <Edit2 className="w-4 h-4" />
+              <Edit2 aria-hidden="true" />
             </Button>
             {!tName && (
               <Button
-                size="sm"
+                size="icon"
                 onClick={() => handleEdit(record)} // Quick edit usually targets translation
                 variant="ghost"
-                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 h-8 w-8 p-0"
-                title="翻译"
+                className="size-8 text-primary hover:bg-accent hover:text-primary"
+                aria-label={`翻译标签 ${record.name}`}
               >
-                <Languages className="w-4 h-4" />
+                <Languages aria-hidden="true" />
               </Button>
             )}
             {!record.isSystem && (
               <Button
                 variant="ghost"
-                size="sm"
-                className="text-red-500 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0"
+                size="icon"
+                className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
                 onClick={() => handleDelete(record.id, record.artworkCount)}
-                title="删除"
+                aria-label={`删除标签 ${record.name}`}
               >
-                <Trash className="w-4 h-4" />
+                <Trash aria-hidden="true" />
               </Button>
             )}
           </div>
@@ -335,25 +335,16 @@ export default function TagManagement() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      {/* 页面标题 */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-neutral-200 pb-4">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-neutral-900 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 md:w-6 md:h-6" />
-            标签管理
-          </h1>
-          <p className="text-sm md:text-base text-neutral-600 mt-1">管理标签翻译，支持搜索、筛选和批量操作</p>
-        </div>
-        <div className="flex gap-2 w-full md:w-auto">
+    <div className="flex min-w-0 flex-col gap-6">
+      <div className="flex w-full flex-wrap justify-end gap-2 border-b border-border pb-4" role="toolbar" aria-label="标签维护操作">
           <Button
             variant="outline"
             onClick={handleExportUntranslated}
             disabled={isExporting}
             className="flex-1 md:flex-none flex items-center justify-center gap-2"
           >
-            <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
-            {isExporting ? '导出中...' : '导出未翻译'}
+            <Download data-icon="inline-start" className={isExporting ? 'animate-bounce' : undefined} aria-hidden="true" />
+            {isExporting ? '导出中…' : '导出未翻译'}
           </Button>
           <Button
             variant="outline"
@@ -361,10 +352,9 @@ export default function TagManagement() {
             disabled={isUpdatingStats}
             className="flex-1 md:flex-none flex items-center justify-center gap-2"
           >
-            <RefreshCw className={`w-4 h-4 ${isUpdatingStats ? 'animate-spin' : ''}`} />
-            {isUpdatingStats ? '更新中...' : '更新统计'}
+            <RefreshCw data-icon="inline-start" className={isUpdatingStats ? 'animate-spin' : undefined} aria-hidden="true" />
+            {isUpdatingStats ? '更新中…' : '更新统计'}
           </Button>
-        </div>
       </div>
 
       {/* 统计卡片 */}
@@ -387,7 +377,10 @@ export default function TagManagement() {
         searchRender={() => (
           <div className="flex flex-wrap items-center gap-2 w-full">
             <Input
-              placeholder="搜索标签名称..."
+              name="tag-search"
+              aria-label="搜索标签名称"
+              autoComplete="off"
+              placeholder="搜索标签名称…"
               value={localSearch.name}
               onChange={(e) => setLocalSearch((prev) => ({ ...prev, name: e.target.value }))}
               className="h-8 w-full md:w-[200px]"
@@ -397,7 +390,7 @@ export default function TagManagement() {
               value={localSearch.filter}
               onValueChange={(value) => setLocalSearch((prev) => ({ ...prev, filter: value }))}
             >
-              <SelectTrigger className="h-8 w-full md:w-[120px]">
+              <SelectTrigger className="h-8 w-full md:w-[120px]" aria-label="筛选翻译状态">
                 <SelectValue placeholder="翻译状态" />
               </SelectTrigger>
               <SelectContent>
@@ -410,15 +403,15 @@ export default function TagManagement() {
             </Select>
             <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
               <Button variant="default" size="sm" onClick={handleSearch} className="h-8 px-3 flex-1 md:flex-none">
-                <Search className="w-4 h-4 mr-1" />
+                <Search data-icon="inline-start" aria-hidden="true" />
                 搜索
               </Button>
               <Button variant="outline" size="sm" onClick={handleReset} className="h-8 px-3 flex-1 md:flex-none">
-                <RotateCcw className="w-4 h-4 mr-1" />
+                <RotateCcw data-icon="inline-start" aria-hidden="true" />
                 重置
               </Button>
-              <Button variant="default" size="sm" className="gap-2 ml-auto" onClick={handleCreate}>
-                <Plus className="w-4 h-4" />
+              <Button variant="default" size="sm" className="ml-auto" onClick={handleCreate}>
+                <Plus data-icon="inline-start" aria-hidden="true" />
                 新增标签
               </Button>
             </div>

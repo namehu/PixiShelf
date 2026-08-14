@@ -11,6 +11,9 @@ import { toast } from 'sonner'
 import Link from 'next/link'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { AdminSectionHeader, AdminTableFrame } from '../../_components/admin-workbench'
+import { confirm } from '@/components/shared/global-confirm'
+import { PageState } from '@/components/layout/page-state'
 
 export default function SeriesManagement() {
   const trpc = useTRPC()
@@ -38,10 +41,14 @@ export default function SeriesManagement() {
     })
   )
 
-  const handleDelete = (id: number) => {
-    if (confirm('确定删除该系列吗？')) {
-      deleteMutation.mutate(id)
-    }
+  const handleDelete = (id: number, title: string) => {
+    confirm({
+      title: `删除系列“${title}”？`,
+      description: '系列记录会被永久删除；作品本身仍保留在图库中。',
+      confirmText: '确认删除',
+      variant: 'destructive',
+      onConfirm: () => deleteMutation.mutate(id)
+    })
   }
 
   const handleEdit = (item: any) => {
@@ -55,25 +62,31 @@ export default function SeriesManagement() {
   }
 
   return (
-    <div className="space-y-4 p-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">系列管理</h2>
-        <Button onClick={handleCreate}>
-          <Plus className="w-4 h-4 mr-2" />
-          新建系列
-        </Button>
-      </div>
+    <div className="flex min-w-0 flex-col gap-4">
+      <AdminSectionHeader
+        title="系列列表"
+        description="按标题查找系列，进入详情可调整系列内作品。"
+        actions={
+          <Button onClick={handleCreate}>
+            <Plus data-icon="inline-start" aria-hidden="true" />
+            新建系列
+          </Button>
+        }
+      />
 
       <div className="flex gap-4">
         <Input
-          placeholder="搜索系列..."
+          name="series-search"
+          aria-label="搜索系列"
+          autoComplete="off"
+          placeholder="搜索系列…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="max-w-sm"
         />
       </div>
 
-      <div className="border rounded-md">
+      <AdminTableFrame>
         <Table>
           <TableHeader>
             <TableRow>
@@ -88,15 +101,15 @@ export default function SeriesManagement() {
             {isLoading ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center">
-                  加载中...
+                  正在加载…
                 </TableCell>
               </TableRow>
             ) : (
               data?.items.map((item: any) => (
                 <TableRow key={item.id}>
                   <TableCell>
-                    <Avatar className="w-10 h-10 rounded">
-                      <AvatarImage src={item.coverImageUrl || ''} />
+                    <Avatar className="size-10 rounded">
+                      <AvatarImage src={item.coverImageUrl || ''} alt={item.title} />
                       <AvatarFallback>{item.title[0]}</AvatarFallback>
                     </Avatar>
                   </TableCell>
@@ -108,16 +121,27 @@ export default function SeriesManagement() {
                   <TableCell>{item.artworkCount}</TableCell>
                   <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
                   <TableCell className="flex gap-2">
-                    <Button variant="ghost" size="icon" onClick={() => handleEdit(item)}>
-                      <Edit className="w-4 h-4" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleEdit(item)}
+                      aria-label={`编辑系列 ${item.title}`}
+                    >
+                      <Edit aria-hidden="true" />
                     </Button>
-                    <Link href={`/admin/series/${item.id}`}>
-                      <Button variant="ghost" size="icon">
-                        <ExternalLink className="w-4 h-4" />
-                      </Button>
-                    </Link>
-                    <Button variant="ghost" size="icon" className="text-red-500" onClick={() => handleDelete(item.id)}>
-                      <Trash className="w-4 h-4" />
+                    <Button asChild variant="ghost" size="icon">
+                      <Link href={`/admin/series/${item.id}`} aria-label={`管理系列 ${item.title}`}>
+                        <ExternalLink aria-hidden="true" />
+                      </Link>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive"
+                      onClick={() => handleDelete(item.id, item.title)}
+                      aria-label={`删除系列 ${item.title}`}
+                    >
+                      <Trash aria-hidden="true" />
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -125,14 +149,14 @@ export default function SeriesManagement() {
             )}
             {!isLoading && (!data?.items || data.items.length === 0) && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center">
-                  暂无数据
+                <TableCell colSpan={5} className="p-0">
+                  <PageState variant="empty" title="暂无系列" description="新建系列后可在这里组织作品。" compact />
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
-      </div>
+      </AdminTableFrame>
 
       <SeriesDialog open={dialogOpen} onOpenChange={setDialogOpen} series={editingSeries} onSuccess={() => {}} />
     </div>

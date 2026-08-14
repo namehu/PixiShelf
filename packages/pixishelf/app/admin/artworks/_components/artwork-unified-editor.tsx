@@ -3,12 +3,15 @@
 import { useState, useEffect } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ProDrawer } from '@/components/shared/pro-drawer'
-import { ArrowLeft, Loader2, Info, Image as ImageIcon, ExternalLink, Copy } from 'lucide-react'
+import { ArrowLeft, Info, Image as ImageIcon, ExternalLink, Copy } from 'lucide-react'
 import { useTRPC } from '@/lib/trpc'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/utils'
 
 import { ArtworkInfoForm } from './artwork-info-form'
 import type { ArtworkInfoFormInitialData } from './artwork-info-form'
@@ -68,48 +71,55 @@ export function ArtworkUnifiedEditor({
         title={
           <div className="flex min-w-0 flex-col gap-2.5 pr-4">
             <div className="flex min-w-0 items-center gap-3">
-              <TabsList className="grid h-10 w-full max-w-[320px] shrink-0 grid-cols-2 rounded-lg bg-neutral-100 p-1">
+              <TabsList className="grid h-10 w-full max-w-[320px] shrink-0 grid-cols-2 rounded-lg bg-muted p-1">
                 <TabsTrigger value="info" className="flex items-center gap-2 rounded-md text-sm">
-                  <Info className="w-4 h-4" /> 基础信息
+                  <Info data-icon="inline-start" aria-hidden="true" /> 基础信息
                 </TabsTrigger>
                 <TabsTrigger
                   value="media"
                   className="flex items-center gap-2 rounded-md text-sm"
                   disabled={!currentArtworkId}
                 >
-                  <ImageIcon className="w-4 h-4" /> 媒体管理
+                  <ImageIcon data-icon="inline-start" aria-hidden="true" /> 媒体管理
                 </TabsTrigger>
               </TabsList>
 
               {!currentArtworkId && (
-                <span className="truncate text-xs text-neutral-500">先保存基础信息，再继续管理媒体。</span>
+                <span className="truncate text-xs text-muted-foreground">先保存基础信息，再继续管理媒体。</span>
               )}
             </div>
 
             <div className="flex min-w-0 items-center gap-2">
               {safeReturnTo && (
-                <button
+                <Button
                   type="button"
                   onClick={() => window.location.assign(`${safeReturnTo}?mediaRefresh=${Date.now()}`)}
-                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-neutral-200 bg-white px-2 text-xs font-medium text-neutral-600 transition-colors hover:border-neutral-300 hover:text-neutral-900"
-                  title="重新加载作品详情页查看效果"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 text-xs"
                 >
-                  <ArrowLeft className="size-3.5" />
+                  <ArrowLeft data-icon="inline-start" aria-hidden="true" />
                   返回并刷新
-                </button>
+                </Button>
               )}
-              <span className="min-w-0 flex-1 truncate text-lg font-bold text-neutral-900">
-                {currentArtworkId ? artwork?.title || '加载中...' : '新增作品'}
+              <span className="min-w-0 flex-1 truncate text-lg font-bold text-foreground">
+                {currentArtworkId ? artwork?.title || '加载中…' : '新增作品'}
               </span>
               {currentArtworkId && (
-                <Link href={`/artworks/${currentArtworkId}`} target="_blank" className="shrink-0" title="打开作品页">
-                  <ExternalLink className="h-4 w-4 text-neutral-400 transition-colors hover:text-primary" />
+                <Link
+                  href={`/artworks/${currentArtworkId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 text-muted-foreground transition-colors hover:text-primary"
+                  aria-label="在新标签页打开作品"
+                >
+                  <ExternalLink className="size-4" aria-hidden="true" />
                 </Link>
               )}
             </div>
 
             {currentArtworkId && (
-              <div className="flex min-w-0 items-center gap-2 text-xs text-neutral-500">
+              <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                 <CopyMetaItem label="外部ID" value={artwork?.externalId || '-'} />
                 <CopyMetaItem label="内部ID" value={String(currentArtworkId)} />
                 <CopyMetaItem label="作者ID" value={artwork?.artist?.userId || '-'} />
@@ -123,7 +133,7 @@ export function ArtworkUnifiedEditor({
       >
         {isLoading ? (
           <div className="h-full flex items-center justify-center">
-            <Loader2 className="w-10 h-10 animate-spin text-neutral-300" />
+            <Spinner className="size-10 text-muted-foreground" aria-label="正在加载作品" />
           </div>
         ) : (
           <div className="relative min-h-0 flex-1">
@@ -172,20 +182,25 @@ function CopyMetaItem({ label, value, className }: { label: string; value: strin
 
   return (
     <span
-      className={`inline-flex h-7 min-w-0 items-center gap-1 rounded-md border border-neutral-200 bg-white px-2 font-mono text-[11px] text-neutral-600 ${className || ''}`}
+      className={cn(
+        'inline-flex h-7 min-w-0 items-center gap-1 rounded-md border border-border bg-background px-2 font-mono text-[11px] text-muted-foreground',
+        className
+      )}
       title={value}
     >
-      <span className="shrink-0 text-neutral-400">{label}:</span>
-      <span className="min-w-0 truncate">{value}</span>
-      <button
+      <span className="shrink-0 text-muted-foreground">{label}:</span>
+      <span className="min-w-0 truncate select-text">{value}</span>
+      <Button
         type="button"
-        className="ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
-        title={`复制${label}`}
+        variant="ghost"
+        size="icon"
+        className="ml-1 size-5 shrink-0 text-muted-foreground"
+        aria-label={`复制${label}`}
         disabled={!canCopy}
         onClick={() => copyText(value, label)}
       >
-        <Copy className="size-3.5" />
-      </button>
+        <Copy aria-hidden="true" />
+      </Button>
     </span>
   )
 }
@@ -195,7 +210,7 @@ async function copyText(value: string, label: string) {
     await navigator.clipboard.writeText(value)
     toast.success(`已复制${label}`)
   } catch {
-    toast.error(`复制${label}失败`)
+    toast.error(`复制${label}失败，可直接框选文本复制`)
   }
 }
 

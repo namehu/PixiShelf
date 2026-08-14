@@ -10,6 +10,10 @@ import { UserPlus, Trash2, User as UserIcon } from 'lucide-react'
 import { useTRPC } from '@/lib/trpc'
 import { toast } from 'sonner'
 import { confirm } from '@/components/shared/global-confirm'
+import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Spinner } from '@/components/ui/spinner'
+import { PageState } from '@/components/layout/page-state'
+import { AdminTableFrame } from '../../_components/admin-workbench'
 
 function UserManagement() {
   const trpc = useTRPC()
@@ -36,11 +40,14 @@ function UserManagement() {
   const [showForm, setShowForm] = React.useState(false)
   const [username, setUsername] = React.useState('')
   const [password, setPassword] = React.useState('')
+  const [formError, setFormError] = React.useState<string | null>(null)
+  const usernameRef = React.useRef<HTMLInputElement>(null)
 
   // 处理表单提交
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!username.trim() || !password.trim()) return
+    setFormError(null)
 
     try {
       await createUser.mutateAsync({ username: username.trim(), password })
@@ -48,7 +55,9 @@ function UserManagement() {
       setPassword('')
       setShowForm(false)
     } catch (error: any) {
-      toast.error(error.message)
+      const message = error instanceof Error ? error.message : '用户创建失败，请检查输入后重试。'
+      setFormError(message)
+      usernameRef.current?.focus()
     }
   }
 
@@ -70,19 +79,13 @@ function UserManagement() {
   }
 
   return (
-    <div className="p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* 页面标题和操作区域 */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-neutral-900 mb-2">用户管理</h1>
-            <p className="text-neutral-600">管理系统用户账户、权限和访问控制</p>
-          </div>
+    <div className="mx-auto flex max-w-5xl flex-col gap-6">
+      <div className="flex justify-end">
           <Button onClick={() => setShowForm(!showForm)} className="sm:w-auto">
-            <UserPlus className="mr-2 h-4 w-4" />
+            <UserPlus data-icon="inline-start" aria-hidden="true" />
             {showForm ? '取消' : '添加用户'}
           </Button>
-        </div>
+      </div>
 
         {/* 添加用户表单 */}
         {showForm && (
@@ -92,43 +95,63 @@ function UserManagement() {
               <CardDescription>创建新的用户账户</CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">用户名</label>
-                  <Input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="请输入用户名"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">密码</label>
-                  <Input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="请输入密码"
-                    required
-                  />
-                </div>
-                <div className="flex gap-3">
-                  <Button type="submit" disabled={createUser.isPending || !username.trim() || !password.trim()}>
-                    {createUser.isPending ? '创建中...' : '创建用户'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setShowForm(false)
-                      setUsername('')
-                      setPassword('')
-                    }}
-                  >
-                    取消
-                  </Button>
-                </div>
+              <form onSubmit={handleSubmit}>
+                <FieldGroup className="gap-4">
+                  <Field data-invalid={Boolean(formError)}>
+                    <FieldLabel htmlFor="admin-new-username">用户名</FieldLabel>
+                    <Input
+                      ref={usernameRef}
+                      id="admin-new-username"
+                      name="username"
+                      type="text"
+                      value={username}
+                      onChange={(event) => {
+                        setUsername(event.target.value)
+                        setFormError(null)
+                      }}
+                      placeholder="请输入用户名"
+                      required
+                      autoComplete="username"
+                      spellCheck={false}
+                      aria-invalid={Boolean(formError)}
+                      aria-describedby={formError ? 'admin-new-user-error' : undefined}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="admin-new-password">密码</FieldLabel>
+                    <Input
+                      id="admin-new-password"
+                      name="new-password"
+                      type="password"
+                      value={password}
+                      onChange={(event) => {
+                        setPassword(event.target.value)
+                        setFormError(null)
+                      }}
+                      placeholder="请输入密码"
+                      required
+                      autoComplete="new-password"
+                    />
+                  </Field>
+                  {formError ? <FieldError id="admin-new-user-error">{formError}</FieldError> : null}
+                  <div className="flex gap-3">
+                    <Button type="submit" disabled={createUser.isPending}>
+                      {createUser.isPending ? '创建中…' : '创建用户'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setShowForm(false)
+                        setUsername('')
+                        setPassword('')
+                        setFormError(null)
+                      }}
+                    >
+                      取消
+                    </Button>
+                  </div>
+                </FieldGroup>
               </form>
             </CardContent>
           </Card>
@@ -143,36 +166,30 @@ function UserManagement() {
           <CardContent>
             {/* 加载状态 */}
             {isLoading && (
-              <div className="flex items-center justify-center py-8">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
-                  <p className="text-muted-foreground">加载中...</p>
-                </div>
+                <div className="flex items-center justify-center py-8" role="status">
+                  <Spinner className="size-6 text-primary" aria-label="正在加载用户…" />
               </div>
             )}
 
             {/* 错误状态 */}
             {isError && (
-              <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center">
-                <div className="text-destructive font-medium">加载失败</div>
-                <div className="text-destructive/80 text-sm mt-1">无法获取用户列表，请稍后重试</div>
-              </div>
+              <PageState variant="error" title="用户加载失败" description="无法获取用户列表，请稍后重试。" compact />
             )}
 
             {/* 用户列表 */}
             {data && (
               <>
                 {data.length === 0 ? (
-                  <div className="text-center py-8">
-                    <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
-                      <UserIcon className="w-8 h-8 text-muted-foreground" />
-                    </div>
-                    <h3 className="text-lg font-medium mb-2">暂无用户</h3>
-                    <p className="text-muted-foreground mb-4">还没有创建任何用户账户</p>
-                    <Button onClick={() => setShowForm(true)}>添加第一个用户</Button>
-                  </div>
+                  <PageState
+                    variant="empty"
+                    title="暂无用户"
+                    description="还没有创建任何用户账户。"
+                    icon={<UserIcon aria-hidden="true" />}
+                    action={<Button onClick={() => setShowForm(true)}>添加第一个用户</Button>}
+                    compact
+                  />
                 ) : (
-                  <div className="rounded-md border">
+                  <AdminTableFrame>
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -187,7 +204,7 @@ function UserManagement() {
                           <TableRow key={user.id}>
                             <TableCell className="text-muted-foreground">{user.id}</TableCell>
                             <TableCell>
-                              <div className="flex items-center space-x-3 font-medium">{user.username}</div>
+                              <div className="font-medium">{user.username}</div>
                             </TableCell>
                             <TableCell className="text-muted-foreground">
                               {new Date(user.createdAt).toLocaleString()}
@@ -200,15 +217,15 @@ function UserManagement() {
                                 disabled={deleteUser.isPending}
                                 className="text-destructive hover:text-destructive"
                               >
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                {deleteUser.isPending ? '删除中...' : '删除'}
+                                <Trash2 data-icon="inline-start" aria-hidden="true" />
+                                {deleteUser.isPending ? '删除中…' : '删除'}
                               </Button>
                             </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
-                  </div>
+                  </AdminTableFrame>
                 )}
 
                 {/* 用户统计 */}
@@ -221,7 +238,6 @@ function UserManagement() {
             )}
           </CardContent>
         </Card>
-      </div>
     </div>
   )
 }

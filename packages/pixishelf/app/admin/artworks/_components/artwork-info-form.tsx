@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -74,6 +74,7 @@ function createFormDataFromInitialData(initialData?: ArtworkInfoFormInitialData 
 }
 
 export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFormProps) {
+  const titleInputRef = useRef<HTMLInputElement>(null)
   const { addTag } = useRecentTags()
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
@@ -127,6 +128,7 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
   const handleSubmit = () => {
     if (!formData.title) {
       toast.error('请输入标题')
+      titleInputRef.current?.focus()
       return
     }
     if (!formData.artist) {
@@ -185,24 +187,28 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
 
   return (
     <div className="flex flex-col h-full">
-      <div className="space-y-4 py-2 flex-1 overflow-y-auto px-1">
-        <div className="space-y-2">
-          <Label>
-            标题 <span className="text-red-500">*</span>
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-1 py-2">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="artwork-title">
+            标题 <span className="text-destructive">*</span>
           </Label>
           <Input
+            ref={titleInputRef}
+            id="artwork-title"
+            name="artwork-title"
+            autoComplete="off"
             value={formData.title}
             onChange={(e) => setFormData({ ...formData, title: e.target.value })}
             placeholder="请输入作品标题"
           />
         </div>
 
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <Label>
-            艺术家 <span className="text-red-500">*</span>
+            艺术家 <span className="text-destructive">*</span>
           </Label>
           <MultipleSelector
-            placeholder="搜索并选择艺术家..."
+            placeholder="搜索并选择艺术家…"
             defaultOptions={
               formData.artist?.id ? [{ value: formData.artist.id.toString(), label: formData.artist.name }] : []
             }
@@ -220,7 +226,7 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
           />
         </div>
 
-        <div className="space-y-2 flex flex-col">
+        <div className="flex flex-col gap-2">
           <Label>发布日期</Label>
           <ProDatePicker
             mode="single"
@@ -231,10 +237,10 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
           />
         </div>
 
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <Label>标签</Label>
           <MultipleSelector
-            placeholder="搜索并添加标签..."
+            placeholder="搜索并添加标签…"
             defaultOptions={formData.tags.map((t) => ({
               value: t.id.toString(),
               label: t.name
@@ -272,13 +278,16 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
           />
         </div>
 
-        <div className="space-y-2">
-          <Label>描述</Label>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="artwork-description">描述</Label>
           <Textarea
+            id="artwork-description"
+            name="artwork-description"
+            autoComplete="off"
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             rows={5}
-            placeholder="作品描述..."
+            placeholder="作品描述…"
             className="[field-sizing:fixed] min-h-[120px] max-h-[400px] break-all whitespace-pre-wrap"
           />
         </div>
@@ -286,7 +295,7 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
 
       <div className="pt-4 mt-auto border-t">
         <Button onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto">
-          <Save className="w-4 h-4 mr-2" />
+          <Save data-icon="inline-start" aria-hidden="true" />
           {data?.id ? '保存更改' : '创建作品'}
         </Button>
       </div>

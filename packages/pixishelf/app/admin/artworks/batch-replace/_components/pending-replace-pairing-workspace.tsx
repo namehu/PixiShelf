@@ -204,8 +204,8 @@ export function PendingReplacePairingWorkspace({
                       className={cn(
                         'flex size-7 shrink-0 items-center justify-center rounded-md',
                         item.artworkId
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
-                          : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+                          ? 'bg-success/10 text-success'
+                          : 'bg-warning/10 text-warning-foreground'
                       )}
                     >
                       {item.artworkId ? (
@@ -338,7 +338,7 @@ export function PendingReplacePairingWorkspace({
                     key={artwork.id}
                     className={cn(
                       'p-3 transition-colors hover:bg-muted/30',
-                      currentBinding && 'bg-emerald-50/60 dark:bg-emerald-950/10'
+                      currentBinding && 'bg-success/5'
                     )}
                   >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
@@ -347,7 +347,7 @@ export function PendingReplacePairingWorkspace({
                           <h3 className="max-w-full truncate text-sm font-medium" title={artwork.title}>
                             {artwork.title}
                           </h3>
-                          {currentBinding && <Badge className="bg-emerald-600 text-white">当前绑定</Badge>}
+                          {currentBinding && <Badge variant="success">当前绑定</Badge>}
                           {boundElsewhere && <Badge variant="outline">已被其他目录占用</Badge>}
                         </div>
                         <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -416,7 +416,7 @@ function ActiveSourceSummary({ item }: { item: BatchItemView }) {
       <div className="mb-3 flex min-w-0 flex-wrap items-center gap-2">
         <span className="text-xs font-medium text-muted-foreground">当前资源目录</span>
         {item.artworkId ? (
-          <Badge className="bg-emerald-600 text-white">
+          <Badge variant="success">
             <Check aria-hidden="true" />
             已绑定
           </Badge>

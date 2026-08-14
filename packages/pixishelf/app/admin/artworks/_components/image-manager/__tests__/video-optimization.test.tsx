@@ -32,7 +32,7 @@ describe('ImageVideoOptimizationEntry', () => {
     render(<ImageVideoOptimizationEntry image={mp4Image} job={job} onStart={vi.fn()} onCancel={onCancel} />)
 
     expect(screen.getByText('48%')).toBeTruthy()
-    fireEvent.click(screen.getByTitle('取消任务'))
+    fireEvent.click(screen.getByRole('button', { name: '取消 /artist/work/video.mp4 的视频优化任务' }))
     expect(onCancel).toHaveBeenCalledWith(job)
   })
 

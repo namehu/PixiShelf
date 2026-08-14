@@ -55,7 +55,22 @@ describe('ProTable expandable rows', () => {
     render(<ProTable columns={columns} dataSource={[{ id: 1, externalId: '123' }]} />)
 
     expect(screen.getByText('123')).toBeTruthy()
-    fireEvent.click(document.querySelector('.lucide-copy')!)
+    fireEvent.click(screen.getByRole('button', { name: '复制 __ext-123' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('__ext-123'))
+  })
+
+  it('renders an actionable request error and retries without hiding the table contract', async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ data: [{ id: 1, externalId: '456' }], total: 1, success: true })
+
+    render(<ProTable columns={columns} request={request} />)
+
+    expect((await screen.findByRole('alert')).textContent).toContain('表格加载失败')
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }))
+
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('456')).toBeTruthy()
   })
 })
