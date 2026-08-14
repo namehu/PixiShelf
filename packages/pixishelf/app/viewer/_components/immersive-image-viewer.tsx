@@ -229,7 +229,7 @@ export default function ImmersiveImageViewer({
   }, [chapterPanelOpen, enterClearMode, exitClearMode, isChromeHidden])
 
   return (
-    // PC端适配容器
+    // 桌面端适配容器
     <div className="h-full w-full bg-black md:flex md:items-center md:justify-center">
       {/* 沉浸式查看器主容器 */}
       <div className="immersive-container relative h-full w-full bg-black md:h-[90dvh] md:max-w-[420px] md:aspect-[9/16] md:rounded-surface">
@@ -238,7 +238,7 @@ export default function ImmersiveImageViewer({
           direction="vertical"
           className="h-full w-full"
           allowTouchMove={!chapterPanelOpen && !interactionLocked}
-          // PC配置
+          // 桌面端配置
           mousewheel={{ enabled: !interactionLocked }}
           keyboard={{ enabled: !chapterPanelOpen && !interactionLocked }}
           modules={[Mousewheel, Keyboard]}

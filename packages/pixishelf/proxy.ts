@@ -26,7 +26,7 @@ function matchesPattern(pathname: string, patterns: string[]): boolean {
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl
 
-  // 1. 全局限流 (Global Rate Limit)
+  // 1. 全局限流（全局速率控制）
   // 限制每个 IP 每分钟 1000 次请求 (16 requests/sec average)
   // 这是一个宽松的限制，主要用于防止 DDoS 攻击
   // 静态资源已被 config.matcher 排除

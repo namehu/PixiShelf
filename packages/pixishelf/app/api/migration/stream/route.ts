@@ -91,7 +91,7 @@ export const POST = apiHandler(MigrationSchema, async (req, data) => {
               lastDbUpdate = now
             }
           },
-          // checkCancelled
+          // 检查任务是否已取消。
           async () => {
             if (!currentJobId) return false
             const job = await JobService.getJob(currentJobId)

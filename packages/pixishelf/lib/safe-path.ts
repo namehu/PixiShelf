@@ -56,6 +56,9 @@ async function nearestExistingAncestor(candidate: string): Promise<string> {
   }
 }
 
+/**
+ * 解析已经存在的路径，并通过 realpath 同时校验根目录和目标，阻止符号链接逃逸扫描根目录。
+ */
 export async function resolveExistingPathWithinRoot(root: string, candidate: string): Promise<string> {
   const resolved = resolveCandidate(root, candidate)
   const [canonicalRoot, canonicalCandidate] = await Promise.all([realpath(resolved.root), realpath(resolved.candidate)])
@@ -64,6 +67,9 @@ export async function resolveExistingPathWithinRoot(root: string, candidate: str
   return canonicalCandidate
 }
 
+/**
+ * 校验尚未创建的目标路径。由于目标本身无法 realpath，只解析最近的已存在祖先以检查符号链接边界。
+ */
 export async function resolveCreatablePathWithinRoot(root: string, candidate: string): Promise<string> {
   const resolved = resolveCandidate(root, candidate)
   const existingAncestor = await nearestExistingAncestor(resolved.candidate)

@@ -13,9 +13,9 @@ export interface Option {
   value: string
   label: string
   disable?: boolean
-  /** fixed option that can't be removed. */
+  /** 固定项（不可移除）。 */
   fixed?: boolean
-  /** Group the options by providing key. */
+  /** 可按 key 建立分组。 */
   [key: string]: string | boolean | undefined | null
 }
 interface GroupOption {
@@ -25,54 +25,53 @@ interface GroupOption {
 interface MultipleSelectorProps {
   value?: Option[]
   defaultOptions?: Option[]
-  /** manually controlled options */
+  /** 手动受控的 `options`，配合外部状态更新。 */
   options?: Option[]
   placeholder?: string
-  /** Loading component. */
+  /** 加载中的组件。 */
   loadingIndicator?: React.ReactNode
-  /** Empty component. */
+  /** 空列表展示组件。 */
   emptyIndicator?: React.ReactNode
-  /** Debounce time for async search. Only work with `onSearch`. */
+  /** 异步搜索防抖时长，仅对 `onSearch` 生效。 */
   delay?: number
   /**
-   * Only work with `onSearch` prop. Trigger search when `onFocus`.
-   * For example, when user click on the input, it will trigger the search to get initial options.
+   * 仅在 `onSearch` 存在时生效。`onFocus` 时可立即触发检索。
+   * 常用于点击输入框后立刻加载默认候选。
    **/
   triggerSearchOnFocus?: boolean
-  /** async search */
+  /** 异步搜索（返回 Promise）。 */
   onSearch?: (value: string) => Promise<Option[]>
   /**
-   * sync search. This search will not showing loadingIndicator.
-   * The rest props are the same as async search.
-   * i.e.: creatable, groupBy, delay.
+   * 同步搜索（返回数组）。
+   * 该模式不展示 loadingIndicator，其余行为参数与异步搜索保持一致（如：creatable、groupBy、delay）。
    **/
   onSearchSync?: (value: string) => Option[]
   onChange?: (options: Option[]) => void
-  /** Limit the maximum number of selected options. */
+  /** 限制最大可选项数量。 */
   maxSelected?: number
-  /** When the number of selected options exceeds the limit, the onMaxSelected will be called. */
+  /** 超过上限时会回调 `onMaxSelected`。 */
   onMaxSelected?: (maxLimit: number) => void
-  /** Hide the placeholder when there are options selected. */
+  /** 有选中项时隐藏占位符。 */
   hidePlaceholderWhenSelected?: boolean
   disabled?: boolean
-  /** Group the options base on provided key. */
+  /** 按给定字段分组。 */
   groupBy?: string
   className?: string
   badgeClassName?: string
   /**
-   * First item selected is a default behavior by cmdk. That is why the default is true.
-   * This is a workaround solution by add a dummy item.
+   * cmdk 默认会自动选中首项，因此默认保留 true。
+   * 通过添加占位项实现兼容方案，避免边界行为差异。
    *
    * @reference: https://github.com/pacocoursey/cmdk/issues/171
    */
   selectFirstItem?: boolean
-  /** Allow user to create option when there is no option matched. */
+  /** 无匹配项时支持用户手动创建新选项。 */
   creatable?: boolean
-  /** Props of `Command` */
+  /** `Command` 的 Props。 */
   commandProps?: React.ComponentPropsWithoutRef<typeof Command>
-  /** Props of `CommandInput` */
+  /** `CommandInput` 的 Props。 */
   inputProps?: Omit<React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>, 'value' | 'placeholder' | 'disabled'>
-  /** hide the clear all button. */
+  /** 隐藏“清空全部”按钮。 */
   hideClearAllButton?: boolean
 }
 
@@ -137,11 +136,11 @@ function isOptionsExist(groupOption: GroupOption, targetOption: Option[]) {
 }
 
 /**
- * The `CommandEmpty` of shadcn/ui will cause the cmdk empty not rendering correctly.
- * So we create one and copy the `Empty` implementation from `cmdk`.
+ * shadcn/ui 的 `CommandEmpty` 在该场景下会导致 cmdk 空态无法正确渲染，
+ * 所以这里自定义 Empty 组件并复用 `cmdk` 的实现方式。
  *
  * @reference: https://github.com/hsuanyi-chou/shadcn-ui-expansions/issues/34#issuecomment-1949561607
- **/
+ */
 const CommandEmpty = forwardRef<HTMLDivElement, React.ComponentProps<typeof CommandPrimitive.Empty>>(
   ({ className, ...props }, forwardedRef) => {
     const render = useCommandState((state) => state.filtered.count === 0)
@@ -196,7 +195,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
     const [open, setOpen] = React.useState(false)
     const [onScrollbar, setOnScrollbar] = React.useState(false)
     const [isLoading, setIsLoading] = React.useState(false)
-    const dropdownRef = React.useRef<HTMLDivElement>(null) // Added this
+    const dropdownRef = React.useRef<HTMLDivElement>(null) // 用于监听下拉区域外点击并关闭面板
 
     const [selected, setSelected] = React.useState<Option[]>(value || [])
     const [options, setOptions] = React.useState<GroupOption>(transToGroupOption(arrayDefaultOptions, groupBy))
@@ -242,13 +241,13 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
           if (e.key === 'Delete' || e.key === 'Backspace') {
             if (input.value === '' && selected.length > 0) {
               const lastSelectOption = selected[selected.length - 1]
-              // If there is a last item and it is not fixed, we can remove it.
+              // 输入为空且最后一项非固定时，允许用退格键快速删除末尾项。
               if (lastSelectOption && !lastSelectOption.fixed) {
                 handleUnselect(lastSelectOption)
               }
             }
           }
-          // This is not a default behavior of the <input /> field
+          // Escape 默认不会清空输入，这里只移除焦点以关闭面板。
           if (e.key === 'Escape') {
             input.blur()
           }
@@ -279,7 +278,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
     }, [value])
 
     useEffect(() => {
-      /** If `onSearch` is provided, do not trigger options updated. */
+      /** 当 `onSearch` 存在时，不允许 `arrayOptions` 覆盖结果，避免混用本地/远端数据源。 */
       if (!arrayOptions || onSearch) {
         return
       }
@@ -290,7 +289,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
     }, [arrayDefaultOptions, arrayOptions, groupBy, onSearch, options])
 
     useEffect(() => {
-      /** sync search */
+      /** 同步搜索：依赖开关仅在面板打开时执行。 */
 
       const doSearchSync = () => {
         const res = onSearchSync?.(debouncedSearchTerm)
@@ -310,7 +309,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
     }, [debouncedSearchTerm, groupBy, open, triggerSearchOnFocus])
 
     useEffect(() => {
-      /** async search */
+      /** 异步搜索：依赖 `debouncedSearchTerm`，避免每次输入触发请求。 */
 
       const doSearch = async () => {
         setIsLoading(true)
@@ -367,12 +366,12 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
         </CommandItem>
       )
 
-      // For normal creatable
+      // 非异步搜索时，仅在输入不为空时显示“创建”项
       if (!onSearch && inputValue.length > 0) {
         return Item
       }
 
-      // For async search creatable. avoid showing creatable item before loading at first.
+      // 异步搜索下，等待搜索结果返回后再展示“创建”项，避免闪现误导
       if (onSearch && debouncedSearchTerm.length > 0 && !isLoading) {
         return Item
       }
@@ -383,7 +382,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
     const emptyItem = React.useCallback(() => {
       if (!emptyIndicator) return undefined
 
-      // For async search that showing emptyIndicator
+      // 异步搜索且无结果且不可创建时显示空状态
       if (onSearch && !creatable && Object.keys(options).length === 0) {
         return (
           <CommandItem value="-" disabled>
@@ -397,7 +396,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
 
     const selectables = React.useMemo<GroupOption>(() => removePickedOption(options, selected), [options, selected])
 
-    /** Avoid Creatable Selector freezing or lagging when paste a long string. */
+    /** 长文本粘贴场景复用筛选函数，避免 `creatable` 模式下卡顿。 */
     const commandFilter = React.useCallback(() => {
       if (commandProps?.filter) {
         return commandProps.filter
@@ -408,10 +407,11 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
           return value.toLowerCase().includes(search.toLowerCase()) ? 1 : -1
         }
       }
-      // Using default filter in `cmdk`. We don't have to provide it.
+      // 未配置自定义 filter 时，沿用 cmdk 默认实现即可。
       return undefined
     }, [creatable, commandProps?.filter])
 
+    // onSearch 存在时不再做本地筛选；仍可通过 commandProps.shouldFilter 显式覆盖。
     return (
       <Command
         ref={dropdownRef}
@@ -421,7 +421,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
           commandProps?.onKeyDown?.(e)
         }}
         className={cn('h-auto overflow-visible bg-transparent', commandProps?.className)}
-        shouldFilter={commandProps?.shouldFilter !== undefined ? commandProps.shouldFilter : !onSearch} // When onSearch is provided, we don't want to filter the options. You can still override it.
+        shouldFilter={commandProps?.shouldFilter !== undefined ? commandProps.shouldFilter : !onSearch}
         filter={commandFilter()}
       >
         <div
@@ -473,7 +473,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
                 </Badge>
               )
             })}
-            {/* Avoid having the "Search" Icon */}
+            {/* 设计要求：不展示内置搜索图标 */}
             <CommandPrimitive.Input
               {...inputProps}
               ref={inputRef}

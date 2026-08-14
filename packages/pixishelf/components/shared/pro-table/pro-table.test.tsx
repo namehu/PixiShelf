@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ProTable } from './index'
 import * as React from 'react'
 
-// Mock toast
+// 模拟消息提示。
 vi.mock('sonner', () => ({
   toast: {
     error: vi.fn(),
@@ -11,7 +11,7 @@ vi.mock('sonner', () => ({
   }
 }))
 
-// Mock matchMedia
+// 模拟 matchMedia。
 const mockMatchMedia = (matches: boolean) => {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -54,7 +54,7 @@ describe('ProTable Integration', () => {
 
     render(<ProTable columns={mockColumns} request={requestFn} defaultPageSize={10} rowKey="id" />)
 
-    // Initial load
+    // 首次加载。
     await waitFor(() => {
       expect(requestFn).toHaveBeenCalledTimes(1)
       expect(requestFn).toHaveBeenCalledWith(
@@ -68,7 +68,7 @@ describe('ProTable Integration', () => {
 
     fireEvent.click(nextBtn)
 
-    // Verify request called with page 2
+    // 验证请求使用第 2 页参数。
     await waitFor(() => {
       expect(requestFn).toHaveBeenCalledTimes(2)
       expect(requestFn).toHaveBeenCalledWith(
@@ -88,7 +88,7 @@ describe('ProTable Integration', () => {
 
     render(<ProTable columns={mockColumns} request={requestFn} defaultPageSize={10} rowKey="id" />)
 
-    // Initial load
+    // 首次加载。
     await waitFor(() => {
       expect(requestFn).toHaveBeenCalledTimes(1)
     })
@@ -97,7 +97,7 @@ describe('ProTable Integration', () => {
     fireEvent.change(input, { target: { value: '5' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    // Verify request called with page 5
+    // 验证请求使用第 5 页参数。
     await waitFor(() => {
       expect(requestFn).toHaveBeenCalledTimes(2)
       expect(requestFn).toHaveBeenCalledWith(
@@ -117,16 +117,16 @@ describe('ProTable Integration', () => {
 
     render(<ProTable columns={mockColumns} request={requestFn} defaultPageSize={10} rowKey="id" />)
 
-    // Initial load
+    // 首次加载。
     await waitFor(() => {
       expect(requestFn).toHaveBeenCalledTimes(1)
     })
 
-    // Find and click page 2
+    // 找到并点击第 2 页。
     const page2Btn = await screen.findByText('2', {}, { timeout: 3000 })
     fireEvent.click(page2Btn)
 
-    // Verify request called with page 2
+    // 验证请求使用第 2 页参数。
     await waitFor(() => {
       expect(requestFn).toHaveBeenCalledTimes(2)
       expect(requestFn).toHaveBeenCalledWith(

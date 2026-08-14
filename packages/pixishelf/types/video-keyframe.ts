@@ -57,6 +57,7 @@ export function isActiveVideoKeyframeJob(job?: VideoKeyframeJobView | null) {
 }
 
 export function shouldPollVideoKeyframeQueue(queue?: VideoKeyframeQueueView) {
+  // PAUSED 仍属于活动任务，但暂停期间状态不会自动推进，因此无需保持轮询。
   return Boolean(
     queue &&
       [...queue.active, ...queue.discoveryActive].some((job) =>
@@ -69,6 +70,7 @@ export function isVideoKeyframePreviewJob(job: VideoKeyframeJobView) {
   if (!job.result || typeof job.result !== 'object' || Array.isArray(job.result)) return false
   const result = job.result as Record<string, unknown>
   if (result.previewOnly === true) return true
+  // 兼容旧任务结果：早期版本把 previewOnly 保存在原始 request 中。
   const request = result.request
   return Boolean(
     request &&
@@ -84,6 +86,7 @@ export function getVideoKeyframePreviewResult(job?: VideoKeyframeJobView | null)
   }
   const result = job.result as Record<string, unknown>
   if (result.previewOnly !== true || !Array.isArray(result.candidates)) return null
+  // result 来自持久化的 unknown 数据；逐项收窄并丢弃损坏条目，避免旧任务数据破坏管理界面。
   const candidates = result.candidates.flatMap((candidate) => {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return []
     const value = candidate as Record<string, unknown>
@@ -141,6 +144,7 @@ export function getVideoKeyframeRetryCountdown(job?: VideoKeyframeJobView | null
   if (job?.status !== 'PENDING' || !job.availableAt) return null
   const retryAt = new Date(job.availableAt).getTime()
   if (!Number.isFinite(retryAt)) return null
+  // 向上取整可避免界面在真正到期前提前显示 0 秒。
   const seconds = Math.max(0, Math.ceil((retryAt - now) / 1_000))
   if (seconds === 0) return '即将自动重试'
   const minutes = Math.floor(seconds / 60)
@@ -152,6 +156,7 @@ export function getVideoKeyframeRetryCountdown(job?: VideoKeyframeJobView | null
 }
 
 export function formatVideoKeyframeError(error: string) {
+  // 兼容旧工作进程写入的英文质量错误；新错误保持原文，避免掩盖诊断信息。
   const legacyQualityError = /^Only (\d+)\/(\d+) representative frames passed quality checks$/.exec(error)
   if (legacyQualityError) {
     return `仅 ${legacyQualityError[1]}/${legacyQualityError[2]} 张通过质量检查；可重试并按实际有效数量发布`

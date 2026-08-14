@@ -36,7 +36,7 @@ export function AddImageDialog({
   const [order, setOrder] = useState(defaultOrder)
   const isVideoFile = !!file && VIDEO_EXTENSIONS.includes(`.${file.name.split('.').pop()?.toLowerCase() || ''}`)
 
-  // Reset state when dialog opens
+  // 每次打开对话框时重置临时状态。
   useEffect(() => {
     if (open) {
       setOrder(defaultOrder)

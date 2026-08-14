@@ -36,7 +36,7 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
     description: ''
   })
 
-  // Sync form data
+  // 同步表单数据（区分编辑和新增）
   useEffect(() => {
     if (open) {
       if (tag) {
@@ -47,7 +47,7 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
           description: tag.description || ''
         })
       } else {
-        // Create mode - reset
+        // 新增模式：重置为默认空值
         setFormData({
           name: '',
           name_zh: '',
@@ -58,7 +58,7 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
     }
   }, [tag, open])
 
-  // --- Mutations ---
+  // --- 变更提交 ---
   const updateMutation = useMutation(
     trpc.tag.update.mutationOptions({
       onSuccess: () => {
@@ -124,7 +124,7 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
       onOk={handleSubmit}
     >
       <FieldGroup className="gap-4 py-2">
-        {/* Name */}
+        {/* 标签名 */}
         <Field className="gap-2" data-disabled={tag?.isSystem || undefined}>
           <FieldLabel htmlFor="tag-name">
             标签名称 <span className="text-destructive">*</span>
@@ -142,7 +142,7 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
           {tag?.isSystem && <FieldDescription className="text-xs">系统标签名称由程序维护，不允许修改。</FieldDescription>}
         </Field>
 
-        {/* Chinese Name */}
+        {/* 中文名称 */}
         <Field className="gap-2">
           <FieldLabel htmlFor="tag-name-zh">中文翻译</FieldLabel>
           <Input
@@ -155,7 +155,7 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
           />
         </Field>
 
-        {/* English Name */}
+        {/* 英文名称 */}
         <Field className="gap-2">
           <FieldLabel htmlFor="tag-name-en">英文翻译</FieldLabel>
           <Input
@@ -168,7 +168,7 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
           />
         </Field>
 
-        {/* Description */}
+        {/* 描述 */}
         <Field className="gap-2">
           <FieldLabel htmlFor="tag-description">描述</FieldLabel>
           <Textarea

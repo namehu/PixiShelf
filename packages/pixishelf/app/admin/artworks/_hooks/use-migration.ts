@@ -6,7 +6,7 @@ import { useLogger } from '@/hooks/use-logger'
 import { create } from 'zustand'
 
 /**
- * Migration specific types
+ * 迁移相关类型
  */
 export interface MigrationStats {
   total: number
@@ -48,8 +48,8 @@ export interface MigrationSafetyOptions {
 }
 
 /**
- * Global Migration Store (Simple Zustand)
- * To share state between hook and components if needed
+ * 全局迁移状态（Zustand）
+ * 用于 hook 与页面组件之间共享迁移状态
  */
 interface MigrationStore {
   isMigrating: boolean
@@ -76,7 +76,7 @@ export const useMigrationStore = create<MigrationStore>((set) => ({
 }))
 
 /**
- * Fatal Error that should not be retried
+ * 不可重试的致命错误（连接/鉴权/参数层）
  */
 class FatalError extends Error {
   constructor(message: string) {
@@ -86,7 +86,7 @@ class FatalError extends Error {
 }
 
 /**
- * Hook state
+ * 状态结构
  */
 interface SseMigrationState {
   migrating: boolean
@@ -98,7 +98,7 @@ interface SseMigrationState {
 }
 
 /**
- * Hook actions
+ * 可执行动作
  */
 interface SseMigrationActions {
   startMigration: (options?: MigrationOptions) => void
@@ -111,36 +111,36 @@ interface SseMigrationActions {
 }
 
 /**
- * SSE Migration Hook
+ * SSE 迁移钩子
  */
 export function useMigration(): {
   state: SseMigrationState
   actions: SseMigrationActions
   logger: ReturnType<typeof useLogger>
 } {
-  // 1. Global Store State
+  // 1. 全局状态（跨组件共享）
   const { isMigrating, paused, stats, error, setIsMigrating, setPaused, setStats, setError, reset } =
     useMigrationStore()
   const trpcClient = useTRPCClient()
 
-  // 2. Logger Hook - use independent logger namespace
+  // 2. 独立日志器（避免与其他流日志混淆）
   const logger = useLogger('migration-client')
 
-  // 3. Local State
+  // 3. 本地状态（当前消息、耗时）
   const [currentMessage, setCurrentMessage] = React.useState('')
   const [elapsed, setElapsed] = React.useState(0)
 
-  // 4. Refs
+  // 4. 引用（控制器与终态回调）
   const fetchControllerRef = React.useRef<AbortController | null>(null)
   const streamingRef = React.useRef(false)
   const onCompleteRef = React.useRef<(() => void) | undefined>(undefined)
 
-  // Sync streaming ref
+  // 同步 streaming 标记，避免回调闭包读取到过期状态
   React.useEffect(() => {
     streamingRef.current = isMigrating
   }, [isMigrating])
 
-  // Timer
+  // 计时器：每秒更新已运行时长
   React.useEffect(() => {
     let timer: NodeJS.Timeout
     if (isMigrating) {
@@ -153,14 +153,14 @@ export function useMigration(): {
     return () => clearInterval(timer)
   }, [isMigrating])
 
-  // Cleanup on unmount
+  // 卸载时清理连接控制器
   React.useEffect(() => {
     return () => {
       fetchControllerRef.current?.abort()
     }
   }, [])
 
-  // --- Helpers ---
+  // --- 辅助函数 ---
 
   const handleSseEvent = React.useCallback(
     (eventName: string, data: any) => {
@@ -170,7 +170,7 @@ export function useMigration(): {
           break
 
         case 'progress':
-          // data structure: { progress: number, message: string[], stats: MigrationStats }
+          // 数据结构：{ progress: number, message: string[], stats: MigrationStats }
           const { message, stats: newStats, progress } = data
           const msgs = Array.isArray(message) ? message : [message]
 
@@ -226,7 +226,7 @@ export function useMigration(): {
           break
       }
 
-      // Stop stream on terminal events
+    // 命中终态事件时关闭 SSE，停止后续事件处理
       if (['complete', 'error', 'cancelled'].includes(eventName)) {
         fetchControllerRef.current?.abort()
         fetchControllerRef.current = null
@@ -235,7 +235,7 @@ export function useMigration(): {
     [logger, setError, setIsMigrating, setStats]
   )
 
-  // --- Core Logic ---
+  // --- 核心流程 ---
 
   const runStream = React.useCallback(
     async (options?: MigrationOptions) => {
@@ -296,7 +296,7 @@ export function useMigration(): {
           },
 
           onclose() {
-            // Normal closure handled by event logic
+            // 正常关闭由事件分发逻辑统一处理
           },
 
           onerror(err) {

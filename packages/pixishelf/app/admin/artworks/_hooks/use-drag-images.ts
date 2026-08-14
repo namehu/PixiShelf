@@ -1,37 +1,37 @@
 import { useState, useCallback, useRef } from 'react'
 
 export interface UseDragImagesProps {
-  /** Callback when files are successfully dropped and scanned */
+  /** 文件拖入并扫描完成后的回调 */
   onDrop?: (files: File[]) => void
-  /** Callback when drag state changes (dragging over the area) */
+  /** 拖拽状态变化回调（悬停区域状态） */
   onDragStateChange?: (isDragging: boolean) => void
-  /** Disable drag and drop functionality */
+  /** 禁用拖拽处理开关 */
   disabled?: boolean
 }
 
 export interface UseDragImagesReturn {
-  /** Whether a drag operation is currently active over the drop zone */
+  /** 当前是否处于可拖拽悬停态 */
   isDragging: boolean
-  /** Event handlers to bind to the drop zone element */
+  /** 绑定到 drop area 的事件处理器 */
   dragHandlers: {
     onDragEnter: (e: React.DragEvent) => void
     onDragLeave: (e: React.DragEvent) => void
     onDragOver: (e: React.DragEvent) => void
     onDrop: (e: React.DragEvent) => void
   }
-  /** Reset the drag state manually */
+  /** 手动重置拖拽态 */
   resetDragState: () => void
 }
 
 /**
- * Custom hook to handle drag and drop of files/folders with recursive scanning
+ * 自定义 Hook：递归扫描文件/文件夹并聚合为文件列表
  * @example
  * const { isDragging, dragHandlers } = useDragImages({
  *   onDrop: (files) => console.log(files)
  * })
  *
  * <div {...dragHandlers} className={isDragging ? 'bg-blue-100' : ''}>
- *   Drop files here
+ *   将文件拖拽到此处
  * </div>
  */
 export function useDragImages({
@@ -143,7 +143,7 @@ export function useDragImages({
       const promises: Promise<void>[] = []
 
       for (const item of Array.from(items)) {
-        // webkitGetAsEntry is non-standard but supported in most modern browsers for folder drop
+        // webkitGetAsEntry 非标准，但现代浏览器普遍支持文件夹拖拽场景
         const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null
         if (entry) {
           promises.push(scanEntry(entry, fileList))

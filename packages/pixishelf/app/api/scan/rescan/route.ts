@@ -21,7 +21,7 @@ import {
 } from '@/services/scan-run-service'
 
 /**
- * Helper: Create SSE event sender
+ * SSE 事件发送器：统一封装 heartbeat 与连接关闭后的失败判定
  */
 function createEventSender(
   controller: ReadableStreamDefaultController,
@@ -48,7 +48,7 @@ function createEventSender(
 
 /**
  * POST /api/scan/rescan
- * 根据作品主键重新扫描；externalId 仅为旧客户端保留。
+ * 按作品重扫：优先按本地目录作品来源走本地重扫，兜底按历史 Pixiv 引用重扫
  */
 export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
   const { artworkId, externalId } = data
@@ -97,14 +97,14 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
       const sendEvent = createEventSender(controller, encoder, streamState)
 
       try {
-        // Setup heartbeat (every 15s)
+        // 每 15 秒发一次 ping，保持长连接活跃
         pingInterval = setInterval(() => {
           if (!sendEvent('ping', {})) {
             if (pingInterval) clearInterval(pingInterval)
           }
         }, 15000)
 
-        // Create job lock
+        // 建立扫描任务锁，用于前端取消/日志及任务完成状态更新
         const job = await JobService.createScanJob()
         currentJobId = job.id
         const scanRun = await startScanRun({
@@ -175,7 +175,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
           try {
             controller.close()
           } catch (_e) {
-            // Ignore
+            // 忽略关闭阶段可能出现的错误
           }
         }
       }

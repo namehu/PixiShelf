@@ -5,7 +5,7 @@ import { combinationStaticTagImage } from '@/utils/combination-static'
 import { TAG_SELECT } from './models/tags'
 
 /**
- * Tag Response DTO
+ * 标签响应 DTO
  * 包含：标签本身信息 + 时间字段
  */
 export const TagResponseDto = TagModel.pick(TAG_SELECT).extend({

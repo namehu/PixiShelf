@@ -18,7 +18,7 @@ interface ArtistAvatarProps {
   className?: string
 }
 /**
- * Artist Avatar 组件，支持多格式图片和fallback
+ * 艺术家头像组件，支持多种图片格式和回退内容。
  * @param param0
  * @returns
  */

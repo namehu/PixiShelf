@@ -4,7 +4,7 @@ import { ProTablePagination } from './pagination'
 import * as React from 'react'
 import { toast } from 'sonner'
 
-// Mock toast
+// 模拟消息提示。
 vi.mock('sonner', () => ({
   toast: {
     error: vi.fn(),
@@ -12,7 +12,7 @@ vi.mock('sonner', () => ({
   }
 }))
 
-// Mock matchMedia
+// 模拟 matchMedia。
 const mockMatchMedia = (matches: boolean) => {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -49,15 +49,15 @@ describe('ProTablePagination', () => {
       />
     )
 
-    // Check text
+    // 检查分页文本。
     expect(screen.getByText('共 100 项')).toBeTruthy()
 
-    // Check buttons: 1, 2, 3 (active), 4, 5, ..., 10
+    // 检查页码按钮：1、2、3（当前页）、4、5、…、10。
     expect(screen.getByRole('button', { name: '第 1 页' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '第 2 页' })).toBeTruthy()
     const btn3 = screen.getByRole('button', { name: '第 3 页' })
     expect(btn3).toBeTruthy()
-    // Check active class manually
+    // 单独检查当前页样式。
     expect(btn3.className).toContain('border-primary')
 
     expect(btn3.getAttribute('aria-current')).toBe('page')
@@ -65,7 +65,7 @@ describe('ProTablePagination', () => {
     expect(screen.getByRole('button', { name: '第 5 页' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '第 10 页' })).toBeTruthy()
 
-    // Check jumper input exists
+    // 检查快速跳转输入框存在。
     expect(screen.getByRole('spinbutton', { name: '跳转页码，范围 1 到 10' })).toBeTruthy()
   })
 
@@ -95,13 +95,13 @@ describe('ProTablePagination', () => {
 
     const input = screen.getByRole('spinbutton') as HTMLInputElement
     fireEvent.change(input, { target: { value: '999' } })
-    // Simulate Enter
+    // 模拟按下回车键。
     fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
 
     expect(handleChange).not.toHaveBeenCalled()
-    // Check if error class is applied
+    // 检查错误样式是否生效。
     expect(input.className).toContain('border-destructive')
-    // Tooltip text
+    // 检查提示文本。
     expect(screen.getByText('请输入 1-10')).toBeTruthy()
   })
 
@@ -117,17 +117,15 @@ describe('ProTablePagination', () => {
       />
     )
 
-    // Check mobile elements
-    // Should NOT see "10 条/页" (Select)
+    // 检查移动端元素，不应显示“10 条/页”选择器。
     expect(screen.queryByText('10 条/页')).toBeNull()
 
-    // Should see "第 3 / 10 页"
+    // 应显示“第 3 / 10 页”。
     expect(screen.getByText('第 3 / 10 页')).toBeTruthy()
 
-    // Should have Prev, Next buttons (icon only, ghost)
+    // 应只有上一页和下一页两个幽灵样式图标按钮。
     const buttons = screen.getAllByRole('button')
-    // We expect 2 buttons (Prev, Next).
-    // Wait, are there others? No.
+    // 预期仅存在两个翻页按钮。
     expect(buttons.length).toBe(2)
   })
 
@@ -148,7 +146,7 @@ describe('ProTablePagination', () => {
   it('disables buttons when loading', () => {
     render(<ProTablePagination pageIndex={0} pageSize={10} rowCount={100} onChange={vi.fn()} loading={true} />)
 
-    // Use specific selector to avoid ambiguity if multiple elements match text "2"
+    // 使用精确选择器，避免多个元素同时匹配文本“2”。
     const nextBtn = screen.getByRole('button', { name: '第 2 页' }) as HTMLButtonElement
     expect(nextBtn.disabled).toBe(true)
 

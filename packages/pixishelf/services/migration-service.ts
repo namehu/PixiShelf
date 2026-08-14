@@ -234,7 +234,7 @@ export async function migrateArtwork(
   const sourceAbsDir = path.dirname(currentAbsPath)
 
   // 2. 幂等性检查：如果已经在目标路径下
-  // Windows下路径可能包含反斜杠，统一替换为正斜杠比较
+  // Windows 下路径可能包含反斜杠，统一替换为正斜杠后比较。
   const normalizedCurrent = currentRelPath.replace(/\\/g, '/').replace(/^\//, '')
   const normalizedTarget = targetRelDir.replace(/\\/g, '/')
 

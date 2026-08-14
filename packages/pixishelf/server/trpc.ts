@@ -2,13 +2,11 @@ import { initTRPC, TRPCError } from '@trpc/server'
 import { type Context } from './context'
 import { rateLimiter } from '@/lib/rate-limit'
 
-// Avoid exporting the entire t-object
-// since it's not very descriptive.
-// For instance, the use of a t variable
-// is common in i18n libraries.
+// 不要导出完整的 t 对象（含义不直观）。
+// 例如，很多 i18n 库都把“t”作为通用变量名，语义会冲突。
 const t = initTRPC.context<Context>().create()
 
-// Base router and procedure helpers
+// 基础的 router/procedure 入口
 export const router = t.router
 
 const rateLimitMiddleware = t.middleware(({ ctx, next }) => {

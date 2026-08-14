@@ -12,7 +12,7 @@ export function useLongPress({ onLongPress, onClick, threshold = 500 }: UseLongP
 
   const start = useCallback(
     (event: React.MouseEvent | React.TouchEvent) => {
-      // Only handle left click or touch
+      // 仅处理左键按下与触控事件，避免误触发右键等场景
       if (event.nativeEvent instanceof MouseEvent && event.nativeEvent.button !== 0) return
 
       if (event.type === 'touchstart') {
@@ -51,7 +51,7 @@ export function useLongPress({ onLongPress, onClick, threshold = 500 }: UseLongP
       const touch = event.touches[0]!
       const dx = Math.abs(touch.clientX - startPos.current.x)
       const dy = Math.abs(touch.clientY - startPos.current.y)
-      // If moved more than 10px, cancel long press
+      // 手指移动超过 10px 视为滑动，直接取消长按计时，避免误判
       if (dx > 10 || dy > 10) {
         if (timeout.current) {
           clearTimeout(timeout.current)

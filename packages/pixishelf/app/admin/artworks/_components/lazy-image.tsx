@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 export const LazyImage = ({ src, alt, className, ...props }: any) => {
   const { ref, inView } = useInView({
     triggerOnce: true,
-    rootMargin: '100px 0px', // Preload when close
+    rootMargin: '100px 0px', // 接近视口 100px 时提前加载
     threshold: 0.1
   })
 

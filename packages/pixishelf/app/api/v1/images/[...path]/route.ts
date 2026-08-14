@@ -37,9 +37,8 @@ export async function GET(
       }
     })
 
-    // Internal archive lifecycle directories contain unpublished, failed, or
-    // soft-deleted files. They must never be addressable through the public
-    // media route, even when a caller can guess their relative path.
+    // 内部归档生命周期目录（未发布、失败、软删除）中的文件不允许外部访问。
+    // 即使调用方猜到相对路径，也不能通过公共媒体路由读取。
     if (decodedSegments.some((segment) => segment.startsWith('.'))) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }

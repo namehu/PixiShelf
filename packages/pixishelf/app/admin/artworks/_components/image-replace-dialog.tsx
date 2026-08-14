@@ -60,7 +60,7 @@ type GlobalUploadStatus =
   | 'success'
   | 'error'
   | 'partial-error'
-  | 'rolling-back' // ROLLBACK-TODO: 新增状态
+  | 'rolling-back' // 回滚中状态（兼容旧注释风格）
 
 interface PreviewItem {
   id: string
@@ -90,7 +90,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
   const [chapterItems, setChapterItems] = useState<ChapterPreviewItem[]>([])
   const [uploadConfig, setUploadConfig] = useState<{ uploadTargetDir: string; targetRelDir: string } | null>(null)
-  // Use ref to store uploaded meta to avoid closure staleness issues in async flows
+  // 使用 ref 缓存上传元数据，避免异步流程中闭包读取到过期状态
   const uploadedMetaRef = useRef<Record<string, any>>({})
   const uploadedChapterMetaRef = useRef<Record<string, any>>({})
   const previewItemsRef = useRef<PreviewItem[]>([])
@@ -121,7 +121,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     setChapterItems(next)
   }
 
-  // Reset state when dialog opens
+  // 对话框打开时重置上传会话状态
   useEffect(() => {
     if (open) {
       setGlobalStatus('idle')
@@ -138,7 +138,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     }
   }, [open])
 
-  // 1. Calculate active item ID (low frequency)
+  // 1. 只在上传进行中计算当前活跃项（低频更新，避免不必要重算）
   const activeItemId = useMemo(() => {
     if (globalStatus !== 'uploading') return null
     const item = previewItems.find((i) => i.status === 'uploading')
@@ -159,7 +159,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     )
   }, [previewItems, chapterItems])
 
-  // 2. Scroll control logic
+  // 2. 上传中滚动控制（用于突出展示当前上传项）
   const { run: runThrottledScroll } = useThrottleFn(
     (id: string) => {
       const row = document.getElementById(`row-${id}`)
@@ -181,7 +181,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
           const isFar = distance > 2000
 
           row.scrollIntoView({
-            behavior: isFar ? 'auto' : 'smooth', // 智能切换滚动模式
+            behavior: isFar ? 'auto' : 'smooth', // 距离过大时改为 instant，减少长距离动画等待
             block: 'nearest'
           })
         }
@@ -195,11 +195,11 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
 
     lastScrolledIdRef.current = activeItemId
 
-    // 调用节流滚动函数
+    // 触发节流滚动函数，减少快速变更时重复布局
     runThrottledScroll(activeItemId)
   }, [activeItemId, runThrottledScroll])
 
-  // 3. Auto-scroll to bottom when new files are added
+  // 3. 新增文件时自动滚到列表底部
   useEffect(() => {
     if (previewItems.length > prevFileCountRef.current && prevFileCountRef.current !== 0) {
       setTimeout(() => {
@@ -280,8 +280,8 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     }
   }
 
-  // --- Consume Store Files ---
-  // Use selectors to prevent unnecessary re-renders
+  // --- 消费拖拽 Store 队列 ---
+  // 用选择器读取状态，避免不必要的重复渲染
   const fileQueue = useDragDropStore((state) => state.fileQueue)
   const resetQueue = useDragDropStore((state) => state.resetQueue)
 
@@ -332,13 +332,13 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     updateChapterItems((prev) => prev.filter((item) => item.id !== id))
   }
 
-  // ROLLBACK-TODO: 客户端回滚执行函数
+  // 客户端回滚执行函数
   const executeRollback = async () => {
     setGlobalStatus('rolling-back')
     const res = await fetch(`/api/artwork/${artworkId}/replace?action=rollback`, { method: 'POST' })
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as Partial<ArtworkMediaApiErrorResponse>
-      // 忽略 "No active backup" 错误，视为回滚成功
+      // 忽略“无可用备份”提示，视为回滚成功
       if (!(res.status === 400 && data.error?.includes('No active backup'))) {
         throw new Error(data.error || '回滚请求失败')
       }
@@ -568,7 +568,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       })
 
       if (!commitRes.ok) {
-        // [新增] 如果后端返回 400 重复错误，可以在这里处理
+        // [新增] 若后端返回 400 重复错误，可在此处扩展处理
         const errorData = (await commitRes.json()) as ArtworkMediaApiErrorResponse
         throw new Error(errorData.error || '数据库同步失败')
       }
@@ -579,7 +579,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       onOpenChange(false)
     } catch (error: any) {
       console.error(error)
-      // ROLLBACK-TODO: 提交失败触发自动回滚
+      // 提交失败触发自动回滚
       toast.error(`提交失败: ${error.message}，正在回滚...`)
 
       try {
@@ -697,7 +697,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   }
 
   /**
-   * Batch upload files with concurrency control
+   * 并发上传文件（限制并发数以平衡速度与后台压力）
    */
   const uploadLargeFile = async (
     items: { id: string; file: File; newName: string }[],
@@ -759,7 +759,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         </DialogHeader>
 
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-1">
-          {/* File Selection */}
+          {/* 文件选择 */}
           <div
             className={cn(
               'relative rounded-lg border-2 border-dashed border-border p-6 text-center transition-colors',
@@ -785,7 +785,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
             </div>
           </div>
 
-          {/* Global Status */}
+          {/* 全局状态 */}
           {globalStatus !== 'idle' && (
             <div
               className={cn(
@@ -824,7 +824,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
             </div>
           )}
 
-          {/* Preview List */}
+          {/* 预览列表 */}
           {previewItems.length > 0 && (
             <div className="border rounded-md overflow-hidden flex flex-col max-h-[400px]">
               <div className="overflow-y-auto flex-1" ref={scrollContainerRef}>

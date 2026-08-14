@@ -7,7 +7,7 @@ import { useLogger } from '@/hooks/use-logger'
 import { formatScanHttpErrorText } from '@/services/scan-service/scan-errors'
 
 /**
- * Fatal Error that should not be retried
+ * 不可重试的致命错误（连接层/参数层问题）
  */
 class FatalError extends Error {
   constructor(message: string) {
@@ -17,17 +17,17 @@ class FatalError extends Error {
 }
 
 /**
- * Scan options for starting a scan
+ * 扫描入参配置
  */
 interface ScanOptions {
-  /** Force full scan (re-scan existing files) */
+  /** 强制执行完整重扫（重跑现有文件） */
   force?: boolean
-  /** List of metadata paths for partial scan */
+  /** 列表扫描时的元数据路径集合 */
   metadataList?: string[]
 }
 
 /**
- * Hook state
+ * 状态结构
  */
 interface SseScanState {
   streaming: boolean
@@ -39,7 +39,7 @@ interface SseScanState {
 }
 
 /**
- * Hook actions
+ * 可调用动作
  */
 interface SseScanActions {
   startScan: (options: ScanOptions) => void
@@ -48,10 +48,10 @@ interface SseScanActions {
 }
 
 /**
- * Unified SSE Scan Hook using fetch-event-source
+ * 扫描 SSE Hook：使用 fetch-event-source 管理长连接与重试
  */
 export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
-  // 1. Global Store State
+  // 1. 全局状态（与 UI store 同步）
   const {
     isScanning,
     result,
@@ -62,25 +62,25 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
     clearLogs: storeClearLogs // 我们仍需清除 store 中的状态，但日志由 useLogger 管理
   } = useScanStore()
 
-  // 2. Logger Hook
+  // 2. 日志 Hook（独立命名空间，避免日志串线）
   const logger = useLogger('scan-server')
 
-  // 3. Local State
+  // 3. 本地状态（扫描过程 UI 视图）
   const [progress, setProgress] = React.useState<ScanProgress | null>(null)
   const [elapsed, setElapsed] = React.useState(0)
   const [retryCount] = React.useState(0)
 
-  // 4. Refs
+  // 4. 运行时引用（如控制器、计时与重试状态）
   const fetchControllerRef = React.useRef<AbortController | null>(null)
   const streamingRef = React.useRef(false)
-  const retryCountRef = React.useRef(0) // Use ref for retry logic inside callbacks
+  const retryCountRef = React.useRef(0) // 用 ref 记录重试次数，避免回调闭包读数过期
 
-  // Sync streaming ref
+  // 同步 streaming 标志，保证事件回调能拿到最新运行态
   React.useEffect(() => {
     streamingRef.current = isScanning
   }, [isScanning])
 
-  // Timer
+  // 进度计时器（扫描持续时长）
   React.useEffect(() => {
     let timer: NodeJS.Timeout
     if (isScanning) {
@@ -93,14 +93,14 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
     return () => clearInterval(timer)
   }, [isScanning])
 
-  // Cleanup on unmount
+  // 组件卸载时清理连接与定时器
   React.useEffect(() => {
     return () => {
       fetchControllerRef.current?.abort()
     }
   }, [])
 
-  // --- Helpers ---
+  // --- 工具函数 ---
 
   const handleSseEvent = React.useCallback(
     (eventName: string, data: any) => {
@@ -145,7 +145,7 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
           break
       }
 
-      // Stop stream on terminal events
+      // 到达终态事件时关闭流，防止回调继续触发
       if (['complete', 'error', 'cancelled'].includes(eventName)) {
         fetchControllerRef.current?.abort()
         fetchControllerRef.current = null
@@ -154,7 +154,7 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
     [logger, setError, setIsScanning, setResult]
   )
 
-  // --- Core Logic ---
+  // --- 核心执行链 ---
 
   const runScan = React.useCallback(
     async (options: ScanOptions) => {
@@ -184,12 +184,12 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
           body: JSON.stringify(body),
           signal: controller.signal,
 
-          async onopen(response) {
-            if (response.ok) {
-              setIsScanning(true)
-              setError(null)
-              setResult(null)
-              retryCountRef.current = 0 // Reset retry count on success
+      async onopen(response) {
+        if (response.ok) {
+          setIsScanning(true)
+          setError(null)
+          setResult(null)
+              retryCountRef.current = 0 // 成功建立连接后重置重试计数
               return
             } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
               const errorText = await response.text()
@@ -209,24 +209,24 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
 
           onclose() {
             if (streamingRef.current) {
-              // 如果是意外关闭（streaming 仍为 true），可能需要处理重连或报错
-              // 这里简单视为结束
+              // 若 onclose 时 streaming 仍为 true，通常是异常关闭；
+              // 当前实现不执行重连，直接按扫描结束处理
               // setIsScanning(false)
             }
           },
 
           onerror(err) {
-            if (err instanceof FatalError) {
+        if (err instanceof FatalError) {
               logger.error(`Fatal Error: ${err.message}`)
-              throw err // Stop retrying
+              throw err // 停止重试并上抛致命错误
             }
             logger.warn(`Connection error: ${err.message}. Retrying...`)
-            // Default retry logic applies
+            // 使用 fetch-event-source 的默认重试策略
           }
         })
       } catch (err: any) {
         if (err.name === 'AbortError') {
-          // Normal cancellation
+          // 用户主动取消导致的正常中断
           return
         }
         setIsScanning(false)

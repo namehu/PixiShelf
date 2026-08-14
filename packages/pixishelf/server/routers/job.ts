@@ -38,7 +38,7 @@ const videoKeyframeFilterSchema = z.object({
  */
 export const jobRouter = router({
   /**
-   * 启动元数据补全任务（Fire-and-forget）。
+   * 启动元数据补全任务（异步投递）。
    * 先检查活跃任务与 scanPath，有任务直接返回 CONFLICT；成功后立即返回 jobId，由服务端异步推进。
    */
   startRefillMetaSource: authProcedure.mutation(async () => {
@@ -63,7 +63,7 @@ export const jobRouter = router({
     // 3. 创建任务记录
     const job = await JobService.createRefillMetaSourceJob()
 
-    // 4. 异步执行任务 (Fire-and-forget)
+    // 4. 异步执行任务（不 await，避免阻塞请求）
     // 注意：不要 await 这个 Promise，否则会阻塞请求
     ;(async () => {
       try {
@@ -351,7 +351,7 @@ export const jobRouter = router({
     }),
 
   /**
-   * keyframe 队列视图为纯查询 API，仅返回全局容量、活跃队列与最近任务。
+   * 关键帧队列视图为纯查询 API，仅返回全局容量、活跃队列与最近任务。
    */
   getVideoKeyframeQueue: authProcedure.query(() => listVideoKeyframeQueue()),
 

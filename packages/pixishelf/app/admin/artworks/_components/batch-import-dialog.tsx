@@ -38,7 +38,7 @@ interface ExtendedImportItem extends BatchImportItem, Partial<Omit<BatchImportAr
   artworkId?: number
   externalId?: string
   uploadedFiles?: { fileName: string; size: number }[]
-  // New fields
+  // 新增字段（仅批量导入流程内使用）
   parsedDate: Date
   dateSource: DateSource
   tags: Option[]
@@ -52,7 +52,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
   const [status, setStatus] = useState<ImportStatus>('idle')
   const [globalProgress, setGlobalProgress] = useState(0)
 
-  // Global Config (Stage 1)
+  // 全局默认配置（阶段一）
   const [artist, setArtist] = useState<Option | null>(null)
   const [defaultTags, setDefaultTags] = useState<Option[]>([])
   const [defaultSourceDate, setDefaultSourceDate] = useState<Date>(new Date())
@@ -70,40 +70,26 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
 
   const disabled = (status !== 'idle' && status !== 'error') || !items.length || !artist
 
-  // Helper to process new items with date parsing
+  // 新增条目时先做日期解析（为每条记录预置元数据）
   const processNewItems = async (newItems: BatchImportItem[]) => {
     const processed = await Promise.all(
       newItems.map(async (item) => {
-        // Determine file to parse date from
-        // If collection, use the first file or just rely on title (folder name)
-        // But parseFileDate takes a File object.
-        // If we want to parse from title, we can pass a dummy file or use parseDateFromFilename directly?
-        // Better: use parseFileDate with the first file, but override filename check with item.title if needed?
-        // Actually, item.title IS the filename/foldername.
+        // 优先尝试从目录/文件名解析日期；
+        // 回退到文件内容/主文件名解析，兼容单文件与文件夹两类导入源。
 
         let dateResult: { date: Date; source: DateSource } = { date: defaultSourceDate, source: 'default' }
 
-        // 1. Try parsing from item title (filename/foldername) first
-        // We can reuse the logic in parseFileDate but we need to expose parseDateFromFilename or construct a dummy file
-        // Let's use the first file for metadata fallback
+        // 1. 先从 item.title（文件/文件夹名）解析日期
         const mainFile = item.files[0]
 
         if (mainFile) {
-          // We construct a 'virtual' file with item.title to test the title parser
-          // But item.title might not have extension if it's a folder, or might be edited?
-          // Actually item.title is initially derived from file/folder name.
-          // Let's just pass the main file. parseFileDate checks filename then metadata.
-          // However, if it's a collection (folder), item.title is the folder name. mainFile.name is a file inside.
-          // We usually want the folder name date if present.
-
-          // If it's a collection, we might want to test item.title first.
-          // Let's manually check title first
+          // 文件夹场景下优先以文件夹名作为日期依据，单文件则继续用文件解析。
           const titleDate = parseDateFromFilename(item.title)
 
           if (titleDate) {
             dateResult = { date: titleDate, source: 'filename' }
           } else {
-            // Fallback to file parsing (metadata or filename of the file itself)
+            // 兜底到主文件的文件名/元数据解析
             dateResult = await parseFileDate(mainFile, defaultSourceDate)
           }
         }
@@ -114,14 +100,14 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
           progress: 0,
           parsedDate: dateResult.date,
           dateSource: dateResult.source,
-          tags: [...defaultTags] // Inherit default tags
+          tags: [...defaultTags] // 继承默认标签
         }
       })
     )
     return processed
   }
 
-  // Drag Hook
+  // 拖拽 Hook
   const { isDragging, dragHandlers, processFiles } = useBatchImportDrag({
     onDrop: async (newItems) => {
       const processed = await processNewItems(newItems)
@@ -135,14 +121,13 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
       setStatus('idle')
       setGlobalProgress(0)
       setItems([])
-      // Reset defaults is optional, maybe keep them?
-      // Requirement: "Component first render... default to today...".
-      // "Any subsequent added files inherit...".
-      // If user closes and reopens, maybe reset? Usually better UX to keep if accidental close, but safe to reset.
+      // 关闭弹窗时清空列表与状态；默认日期重置为今天，避免影响下一次独立导入会话。
+      // 如需保留标签可恢复相关语句，但当前偏向“显式开始”更安全。
+      // 重新打开窗口时保持“从空白开始”，减少误用上一次的默认配置
       setDefaultSourceDate(new Date())
-      // setDefaultTags([]) // Keep tags maybe?
+      // setDefaultTags([]) // 如需保留标签，可恢复该行
     } else {
-      // Ensure date is set to start of day
+      // 默认日期固定到当天 00:00:00（本次会话的归档兜底值）
       const today = new Date()
       today.setHours(0, 0, 0, 0)
       setDefaultSourceDate(today)
@@ -156,14 +141,15 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
       const processed = await processNewItems(newItems)
 
       setItems((prev) => [...prev, ...processed])
-      // Reset input
+      // 重置 input，允许重复选择同名文件再次触发 onChange
       e.target.value = ''
     }
   }
 
   const handleDateChange = (id: string, date: Date | undefined) => {
     if (!date) return
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, parsedDate: date, dateSource: 'filename' as const } : i))) // Set source to something valid to remove error state if any
+    // 将日期源标记为可读来源，避免“解析中/未知日期”错误状态
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, parsedDate: date, dateSource: 'filename' as const } : i)))
   }
 
   const handleTagsChange = (id: string, newTags: Option[]) => {
@@ -196,13 +182,13 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
     }))
   }
 
-  // --- Core Logic ---
+  // --- 核心处理流程 ---
 
   const handleStartImport = async () => {
     if (disabled) return
 
-    // Validate
-    const invalidItems = items.filter((i) => !i.parsedDate) // Should not happen given logic, but check
+    // 先做基础校验
+    const invalidItems = items.filter((i) => !i.parsedDate) // 正常逻辑下不应出现，但保底兜底
     if (invalidItems.length > 0) {
       toast.error('存在无效的日期，请检查')
       return
@@ -212,16 +198,15 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
     setGlobalProgress(0)
 
     try {
-      // 1. Create Artworks
-      // Payload must include parsedDate and tags per item
+      // 1. 创建作品：逐条提交解析后的日期与标签（每条独立）
       const createRes = await batchCreateArtworksAction({
         artworks: items.map((item) => ({
           tempId: item.id,
           title: item.title,
           artistId: parseInt(artist.value),
           artistUserId: artist.userId as any,
-          tagIds: item.tags.map((t) => parseInt(t.value)), // Use item specific tags
-          sourceDate: format(item.parsedDate, 'yyyy-MM-dd') // Use item specific date
+          tagIds: item.tags.map((t) => parseInt(t.value)), // 使用条目自身标签（支持异构标签集）
+          sourceDate: format(item.parsedDate, 'yyyy-MM-dd') // 使用条目自身归档日期
         }))
       })
 
@@ -311,7 +296,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
         }
       }
 
-      // 3. Register
+      // 3. 注册图片索引（写入扫描运行记录）
       if (registrationItems.length > 0) {
         setStatus('registering')
         const registerRes = await batchRegisterImagesAction({ scanRunId, items: registrationItems })
@@ -323,7 +308,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
       const hasErrors = itemsToProcess.some((i) => i.status === 'error')
 
       if (hasErrors) {
-        setStatus('error') // Or 'completed' but with errors?
+        setStatus('error') // 存在错误条目时标记失败态，避免误认为全量成功
         toast.warning('部分导入失败，请检查列表')
       } else {
         setStatus('completed')
@@ -381,7 +366,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
           <AlertTitle>大批量操作建议使用桌面端</AlertTitle>
           <AlertDescription>手机可检查默认值、添加文件并查看进度；数量较多时请在桌面端完成逐项调整。</AlertDescription>
         </Alert>
-        {/* Left: Configuration (Stage 1) */}
+        {/* 左侧：第一阶段配置 */}
         <div className="flex w-full shrink-0 flex-col gap-4 border-b border-border pb-4 lg:w-[300px] lg:border-r lg:border-b-0 lg:pr-4 lg:pb-0">
           <div className="font-semibold text-lg flex items-center gap-2">
             <span>🛠️ 默认设置</span>
@@ -446,7 +431,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
           </div>
         </div>
 
-        {/* Right: Preview List (Stage 2) */}
+        {/* 右侧：第二阶段预览列表 */}
         <div className="flex min-h-[24rem] min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
           <div className="flex justify-between items-center">
             <h3 className="font-medium">待导入列表 ({items.length})</h3>
@@ -509,7 +494,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
                             item.dateSource === 'default' && 'border-l-4 border-l-destructive'
                           )}
                         >
-                          {/* Top Row: Icon + Title + Status */}
+                          {/* 顶行：图标、标题和状态 */}
                           <div className="flex items-center gap-3">
                             <div className="flex size-8 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
                               {item.type === 'collection' ? <Folder size={16} /> : <FileIcon size={16} />}
@@ -547,10 +532,10 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
                             </div>
                           </div>
 
-                          {/* Bottom Row: Controls */}
+                          {/* 底行：操作控件 */}
                           {item.status === 'pending' && (
                             <div className="flex gap-2 pl-11">
-                              {/* Date Picker */}
+                              {/* 日期选择器 */}
                               <div className="w-[160px] shrink-0">
                                 <ProDatePicker
                                   mode="single"
@@ -564,7 +549,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
                                 />
                               </div>
 
-                              {/* Tags */}
+                              {/* 标签 */}
                               <div className="flex-1 min-w-0">
                                 <MultipleSelector
                                   value={item.tags}

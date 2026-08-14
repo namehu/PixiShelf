@@ -30,7 +30,7 @@ export const useDragDropStore = create<DragDropState>((set) => ({
   fileQueue: [],
   uploadPhase: 'idle',
 
-  // Actions 实现
+  // 操作方法实现
   setDragging: (isDragging) => set({ isDragging }),
   addFilesToQueue: (files) => set((state) => ({ fileQueue: [...state.fileQueue, ...files] })),
   resetQueue: () => set({ fileQueue: [], uploadPhase: 'idle' }),

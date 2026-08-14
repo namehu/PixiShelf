@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 /**
- * Request body for scan stream
+ * 扫描流请求体
  */
 export const ScanStreamSchema = z
   .object({

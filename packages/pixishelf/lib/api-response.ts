@@ -15,6 +15,7 @@ export type ApiFailureResponse<TDetails = unknown> = {
   details?: TDetails
 }
 
+// apiSuccess/apiFailure 提供带 success 判别字段的新响应结构；apiError 保留旧路由使用的无 success 错误结构。
 export function apiSuccess<TBody extends Record<string, unknown> = Record<string, never>>(
   body?: TBody,
   init?: ResponseInit

@@ -57,7 +57,7 @@ export type ProColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
 }
 
 /**
- * request 函数返回的数据结构
+ * 请求函数返回的数据结构
  */
 export type RequestData<T> = {
   /** 表格当前页的数据列表 */
@@ -249,7 +249,7 @@ export function ProTable<TData, TValue>({
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
   const [expanded, setExpanded] = React.useState<ExpandedState>({})
 
-  // Row Selection (如果外部没有传入，则使用内部状态，或者默认为空对象)
+  // 行选择：外部未传入时使用内部状态，否则默认为空对象。
   const [internalRowSelection, setInternalRowSelection] = React.useState<RowSelectionState>({})
   const finalRowSelection = rowSelection ?? internalRowSelection
   const finalOnRowSelectionChange = onRowSelectionChange ?? setInternalRowSelection

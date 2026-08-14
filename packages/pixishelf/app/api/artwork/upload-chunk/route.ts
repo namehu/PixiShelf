@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     const offset = parseInt(offsetStr || '0')
     const declaredFileSize = fileSizeStr ? Number(fileSizeStr) : null
 
-    // Decode headers
+    // 解码请求头中的文件名与目录参数（处理 URL 编码）
     const decodedFileName = decodeURIComponent(fileName)
     const decodedTargetDir = decodeURIComponent(targetDir)
     const decodedTargetRelDir = targetRelDir ? decodeURIComponent(targetRelDir) : ''
@@ -45,8 +45,8 @@ export async function POST(req: NextRequest) {
       return apiError('Server configuration error: SCAN_ROOT not set')
     }
 
-    // Convert Web Stream to Node Stream
-    // @ts-ignore: Readable.fromWeb is available in Node 18+ which Next.js 16 uses
+    // 将 Web Stream 转为 Node Stream，便于复用服务端流式写入链路
+    // @ts-ignore: Readable.fromWeb 在 Node 18+ 可用；Next.js 16 运行时已依赖该能力
     const nodeStream = req.body ? Readable.fromWeb(req.body) : null
 
     const result = await handleMediaUploadChunk({
@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
 
     validateMediaUploadStatusMetadata(decodedFileName)
 
-    // Security check
+    // 安全检查：无效配置直接拒绝，避免出现不可写入路径
     const scanRoot = await getScanPath()
     if (!scanRoot) return apiError('Config error')
 

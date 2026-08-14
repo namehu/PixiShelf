@@ -33,7 +33,7 @@ export class PixiShelfDB extends Dexie {
       logs: '++id, module, level'
     })
 
-    // Version 2: 添加 timestamp 索引以支持基于时间的查询和清理
+    // 版本 2：添加 timestamp 索引以支持基于时间的查询和清理。
     this.version(2).stores({
       logs: '++id, module, level, timestamp'
     })

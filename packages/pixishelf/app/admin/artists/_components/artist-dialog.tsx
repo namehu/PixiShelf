@@ -12,7 +12,7 @@ import { Spinner } from '@/components/ui/spinner'
 interface ArtistDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  artist?: { id: number } | null // Minimal info needed to trigger fetch
+  artist?: { id: number } | null // 仅用于触发查询的最小字段
   onSuccess: () => void
 }
 
@@ -31,15 +31,15 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
     backgroundImg: ''
   })
 
-  // --- Data Fetching for Edit Mode ---
+  // --- 编辑模式下加载详情 ---
   const { data: fullArtist, isLoading: isLoadingDetail } = useQuery(
     trpc.artist.getById.queryOptions(artist?.id ?? 0, {
       enabled: !!artist && open,
-      staleTime: 0 // Always fetch fresh data for edit
+      staleTime: 0 // 编辑态总是拉取最新数据
     })
   )
 
-  // Sync form data when full detail is loaded
+  // 详情加载完成后同步到表单字段
   useEffect(() => {
     if (open) {
       if (artist && fullArtist) {
@@ -52,7 +52,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
           backgroundImg: fullArtist.backgroundImg || ''
         })
       } else if (!artist) {
-        // Create mode - reset
+        // 新增模式：重置为默认空值
         setFormData({
           name: '',
           username: '',
@@ -65,7 +65,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
     }
   }, [fullArtist, artist, open])
 
-  // --- Mutations ---
+  // --- 数据提交动作 ---
   const updateMutation = useMutation(
     trpc.artist.update.mutationOptions({
       onSuccess: () => {
@@ -104,7 +104,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
     }
     const payload = {
       name: formData.name.trim(),
-      username: formData.name.trim(), // 自动使用 name 作为 username
+          username: formData.name.trim(), // 编辑提交时自动沿用姓名作为用户名
       userId: formData.userId || undefined,
       bio: formData.bio || undefined,
       avatar: formData.avatar,
@@ -139,7 +139,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
         </div>
       ) : (
         <FieldGroup className="gap-4 py-2">
-          {/* Name */}
+          {/* 名称 */}
           <Field className="gap-2">
             <FieldLabel htmlFor="artist-name">
               姓名 <span className="text-destructive">*</span>
@@ -155,7 +155,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
             />
           </Field>
 
-          {/* UserID (Pixiv) */}
+          {/* Pixiv 用户 ID */}
           <Field className="gap-2">
             <FieldLabel htmlFor="artist-pixiv-user-id">Pixiv UserID</FieldLabel>
             <Input
@@ -169,7 +169,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
             <FieldDescription className="text-xs">如果不填写，系统将自动生成格式为 p_{'{id}'} 的 ID</FieldDescription>
           </Field>
 
-          {/* Bio */}
+          {/* 简介 */}
           <Field className="gap-2">
             <FieldLabel htmlFor="artist-bio">简介</FieldLabel>
             <Textarea
@@ -183,7 +183,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
             />
           </Field>
 
-          {/* Avatar URL (Temporary text input until upload is ready) */}
+          {/* 头像地址（上传功能就绪前暂用文本输入） */}
           <Field className="gap-2">
             <FieldLabel htmlFor="artist-avatar-url">头像 URL</FieldLabel>
             <Input
@@ -197,7 +197,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
             />
           </Field>
 
-          {/* Background URL */}
+          {/* 背景图地址 */}
           <Field className="gap-2">
             <FieldLabel htmlFor="artist-background-url">背景图 URL</FieldLabel>
             <Input

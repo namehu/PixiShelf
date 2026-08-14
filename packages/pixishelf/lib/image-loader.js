@@ -41,7 +41,7 @@ export function buildImgproxyImageUrl({ src, width, quality, format = DEFAULT_IM
  * @param {ImgproxyImageOptions} options
  */
 export default function imgproxyLoader({ src, width, quality, format }) {
-  // pixiv_data 下面可用防止 artists / tags图片数据。根据public挂载
+  // pixiv_data 下用于存放 artists / tags 图片数据，并通过 public 目录挂载。
   if (src.startsWith(API_IMAGE_PREFIX) || src.startsWith('/pixiv_data')) {
     return src
   }

@@ -11,7 +11,7 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { Spinner } from '@/components/ui/spinner'
 
 interface ProTablePaginationProps {
-  pageIndex: number // 0-based
+  pageIndex: number // 使用 0 基索引
   pageSize: number
   rowCount: number
   onChange: (pageIndex: number, pageSize: number) => void
@@ -29,18 +29,18 @@ export function ProTablePagination({
   disabled = false,
   pageSizeOptions = [10, 20, 30, 50, 100]
 }: ProTablePaginationProps) {
-  // Use media query to switch layouts
+  // 通过媒体查询切换移动端/桌面端布局
   const isMobile = useMediaQuery('(max-width: 768px)')
 
-  // Calculate total pages
+  // 计算总页数，至少为 1，避免除零与分页器闪烁
   const pageCount = Math.max(1, Math.ceil(rowCount / pageSize))
-  const currentPage = pageIndex + 1 // 1-based for display
+  const currentPage = pageIndex + 1 // 页面展示使用 1 基索引
 
-  // Jumper state
+  // 页码跳转输入框的受控状态
   const [jumpPage, setJumpPage] = React.useState('')
   const [isJumpInvalid, setIsJumpInvalid] = React.useState(false)
 
-  // Validate jumper input
+  // 实时校验跳转输入（空值视为未提交）
   React.useEffect(() => {
     if (jumpPage === '') {
       setIsJumpInvalid(false)
@@ -50,18 +50,18 @@ export function ProTablePagination({
     setIsJumpInvalid(isNaN(page) || page < 1 || page > pageCount)
   }, [jumpPage, pageCount])
 
-  // Handle page change wrapper
+  // 分页请求前置：过滤非法状态与重复请求
   const handlePageChange = (page: number) => {
     if (page < 1 || page > pageCount || page === currentPage || loading || disabled) return
-    onChange(page - 1, pageSize) // Convert back to 0-based
+    onChange(page - 1, pageSize) // 回传给父组件时转换为 0 基索引
   }
 
-  // Handle page size change wrapper
+  // 切换页码大小时回到第一页，避免越界请求
   const handlePageSizeChange = (newSize: number) => {
-    onChange(0, newSize) // Reset to first page on size change
+    onChange(0, newSize) // 切换每页数量后重置到第一页
   }
 
-  // Handle jumper input
+  // 处理“跳转页码”输入提交
   const handleJump = () => {
     if (jumpPage === '') return
 
@@ -83,14 +83,14 @@ export function ProTablePagination({
     }
   }
 
-  // Hide if total <= 1 (Req 1.5, 2.4)
+  // 当总页数 <= 1 时隐藏分页控件
   if (pageCount <= 1) return null
 
-  // --- Mobile Layout (≤ 768px) ---
+  // --- 移动端布局（≤ 768px） ---
   if (isMobile) {
     return (
       <div className="flex h-11 w-full items-center justify-between px-4 py-2">
-        {/* Prev Button */}
+        {/* 上一页 */}
         <Button
           variant="ghost"
           size="icon"
@@ -102,7 +102,7 @@ export function ProTablePagination({
           {loading ? <Spinner aria-hidden="true" /> : <ArrowLeft aria-hidden="true" />}
         </Button>
 
-        {/* Center Info & Input */}
+        {/* 当前页码 + 输入框 */}
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium whitespace-nowrap">
             第 {currentPage} / {pageCount} 页
@@ -127,7 +127,7 @@ export function ProTablePagination({
           />
         </div>
 
-        {/* Next Button */}
+        {/* 下一页 */}
         <Button
           variant="ghost"
           size="icon"
@@ -142,24 +142,24 @@ export function ProTablePagination({
     )
   }
 
-  // --- PC Layout ---
+  // --- 桌面端布局 ---
   const renderPageNumbers = () => {
     const items: (number | string)[] = []
 
     if (pageCount <= 7) {
       for (let i = 1; i <= pageCount; i++) items.push(i)
     } else {
-      // 1 2 3 4 5 ... N
+      // 当前页靠前：展示 1 2 3 4 5 ... N
       if (currentPage < 5) {
         for (let i = 1; i <= 5; i++) items.push(i)
         items.push('…', pageCount)
       }
-      // 1 ... N-4 N-3 N-2 N-1 N
+      // 当前页靠后：展示 1 ... N-4 N-3 N-2 N-1 N
       else if (currentPage >= pageCount - 3) {
         items.push(1, '…')
         for (let i = pageCount - 4; i <= pageCount; i++) items.push(i)
       }
-      // 1 ... C-1 C C+1 ... N
+      // 当前页居中：展示 1 ... C-1 C C+1 ... N
       else {
         items.push(1, '…', currentPage - 1, currentPage, currentPage + 1, '…', pageCount)
       }
@@ -196,12 +196,12 @@ export function ProTablePagination({
 
   return (
     <div className="flex w-full items-center justify-between px-2 py-2">
-      {/* 1.4 Left: Total Count */}
+      {/* 左侧：总条数显示 */}
       <div className="flex-1 text-sm text-muted-foreground">共 {rowCount} 项</div>
 
-      {/* Right: Pagination Controls */}
+      {/* 右侧：分页控制区 */}
       <div className="flex items-center gap-2 lg:gap-4">
-        {/* Prev Button */}
+        {/* 上一页 */}
         <Button
           variant="outline"
           size="icon"
@@ -213,10 +213,10 @@ export function ProTablePagination({
           <ChevronLeft aria-hidden="true" />
         </Button>
 
-        {/* Page Numbers */}
+        {/* 页码按钮 */}
         <div className="flex items-center gap-1">{renderPageNumbers()}</div>
 
-        {/* Next Button */}
+        {/* 下一页 */}
         <Button
           variant="outline"
           size="icon"
@@ -228,7 +228,7 @@ export function ProTablePagination({
           <ChevronRight aria-hidden="true" />
         </Button>
 
-        {/* Page Size Selector */}
+        {/* 每页条数选择 */}
         <Select
           value={`${pageSize}`}
           onValueChange={(value) => handlePageSizeChange(Number(value))}
@@ -248,7 +248,7 @@ export function ProTablePagination({
           </SelectContent>
         </Select>
 
-        {/* Jumper */}
+        {/* 快速跳转 */}
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">跳至</span>
           <div className="relative group">
@@ -274,7 +274,7 @@ export function ProTablePagination({
               onKeyDown={handleJumpKeyDown}
               disabled={loading || disabled}
             />
-            {/* Tooltip for invalid input */}
+            {/* 输入不合法时的错误提示 */}
             {isJumpInvalid && (
               <div
                 id="desktop-page-jump-error"

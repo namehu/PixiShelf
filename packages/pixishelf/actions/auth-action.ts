@@ -11,7 +11,7 @@ import { checkRateLimit } from '@/lib/rate-limit-server'
 export const loginUserAction = actionClient
   .inputSchema(authLoginSchema)
   .action(async ({ parsedInput: { username, password } }) => {
-    // Rate limit: 5 attempts per minute
+    // 限流：每分钟允许 5 次尝试
     const isAllowed = await checkRateLimit(5, 'login')
     if (!isAllowed) {
       return returnValidationErrors(authLoginSchema, {
@@ -20,7 +20,7 @@ export const loginUserAction = actionClient
     }
 
     try {
-      // Convert username to email format
+      // 将用户名转换为 email 格式
       const email = username.includes('@') ? username : `${username}@pixishelf.local`
 
       const signInResult = await auth.api.signInEmail({
@@ -47,7 +47,7 @@ export const loginUserAction = actionClient
 export const changePasswordAction = authActionClient
   .inputSchema(changePasswordSchema)
   .action(async ({ parsedInput: { currentPassword, newPassword } }) => {
-    // Rate limit: 5 attempts per minute
+    // 限流：每分钟允许 5 次尝试
     const isAllowed = await checkRateLimit(5, 'changePassword')
     if (!isAllowed) {
       return returnValidationErrors(changePasswordSchema, {

@@ -49,19 +49,19 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
     })
   }
 
-  // Simplified Reorder: Move Up/Down
+  // 简化版排序：上下移动当前作品
   const handleMove = (index: number, direction: 'up' | 'down') => {
     if (!series?.artworks) return
     const newArtworks = [...series.artworks]
     const targetIndex = direction === 'up' ? index - 1 : index + 1
     if (targetIndex < 0 || targetIndex >= newArtworks.length) return
 
-    // Swap
+    // 交换相邻两项的顺序
     const temp = newArtworks[index]
     newArtworks[index] = newArtworks[targetIndex]
     newArtworks[targetIndex] = temp
 
-    // Save
+    // 提交变更后的新顺序给服务端
     reorderMutation.mutate({
       seriesId,
       artworkIds: newArtworks.map((a: any) => a.id)

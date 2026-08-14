@@ -411,8 +411,8 @@ export function VideoPlayer({
       })
 
       art.on('play', () => {
-        // Default playback is initiated by the user, so audio tracks should not
-        // remain muted because of an earlier autoplay-oriented configuration.
+        // 默认播放行为来源于用户点击，不应沿用初始化时的 autoplay 静音策略
+        // 否则首次手动播放时会出现“明明开始播放却听不到音频”的体验问题
         if (showAudioControls && !autoPlay) {
           art.muted = false
         }
@@ -611,9 +611,8 @@ export function VideoPlayer({
       const root = controlRoots.get(name)
       controlRoots.delete(name)
 
-      // Artplayer may remove controls while React is committing this component's
-      // cleanup. Deferring the nested root avoids synchronously unmounting a root
-      // during an active React render.
+      // Artplayer 在组件清理阶段可能会同时移除控制区
+      // 为避免与 React 渲染并发，控制面板挂载点延后 0ms 解绑，规避同步卸载冲突
       if (root) {
         window.setTimeout(() => root.unmount(), 0)
       }

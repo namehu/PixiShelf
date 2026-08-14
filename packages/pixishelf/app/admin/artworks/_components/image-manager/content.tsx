@@ -130,13 +130,13 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     if (shouldRefresh) refreshMediaList()
   }, [refreshMediaList, videoOptimizationJobs])
 
-  // View State
+  // 查看状态
   const [showThumbnails, setShowThumbnails] = useState(false)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [showReplaceDialog, setShowReplaceDialog] = useState(false)
   const [showAddDialog, setShowAddDialog] = useState(false)
 
-  // Add State
+  // 新增状态
   const [defaultAddOrder, setDefaultAddOrder] = useState(0)
   const [isAdding, setIsAdding] = useState(false)
   const [addProgress, setAddProgress] = useState(0)
@@ -229,7 +229,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     }
   }
 
-  // Delete State
+  // 删除状态
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
   const [deletePhysical, setDeletePhysical] = useState(false)
 

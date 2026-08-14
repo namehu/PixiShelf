@@ -14,13 +14,13 @@ export interface DateParseResult {
 
 // 预编译正则以提升性能
 const PATTERNS = [
-  // YYYY-MM-DD / YYYY.MM.DD / YYYY_MM_DD / YYYY MM DD
+  // 年-月-日的常见分隔符变体
   { regex: /(\d{4})[-_/. ](\d{1,2})[-_/. ](\d{1,2})/, format: 'YYYY-MM-DD' },
-  // YYYYMMDD (8 digits) - allowing surrounding chars
+  // 连续 8 位年月日，允许前后存在非数字字符
   { regex: /(?:^|[^0-9])(\d{4})(\d{2})(\d{2})(?:[^0-9]|$)/, format: 'YYYYMMDD' },
-  // DD-MM-YYYY / DD.MM.YYYY
+  // 日-月-年
   { regex: /(\d{1,2})[-_/. ](\d{1,2})[-_/. ](\d{4})/, format: 'DD-MM-YYYY' },
-  // MM-DD-YYYY (US format, less common but possible)
+  // 月-日-年：美式格式较少见，但仍可能出现在文件名中
   { regex: /(\d{1,2})[-_/. ](\d{1,2})[-_/. ](\d{4})/, format: 'MM-DD-YYYY' }
 ]
 
@@ -35,19 +35,19 @@ export function parseDateFromFilename(filename: string): Date | null {
       let formatStr = ''
 
       if (p.format === 'YYYY-MM-DD') {
-        // match: [full, Y, M, D]
+        // 捕获组：[完整匹配, 年, 月, 日]
         dateStr = `${match[1]!}-${match[2]!}-${match[3]!}`
         formatStr = `YYYY-${match[2]!.length === 2 ? 'MM' : 'M'}-${match[3]!.length === 2 ? 'DD' : 'D'}`
       } else if (p.format === 'YYYYMMDD') {
-        // match: [full, Y, M, D]
+        // 捕获组：[完整匹配, 年, 月, 日]
         dateStr = `${match[1]!}${match[2]!}${match[3]!}`
         formatStr = 'YYYYMMDD'
       } else if (p.format === 'DD-MM-YYYY') {
-        // match: [full, D, M, Y]
+        // 捕获组：[完整匹配, 日, 月, 年]
         dateStr = `${match[3]!}-${match[2]!}-${match[1]!}`
         formatStr = `YYYY-${match[2]!.length === 2 ? 'MM' : 'M'}-${match[1]!.length === 2 ? 'DD' : 'D'}`
       } else if (p.format === 'MM-DD-YYYY') {
-        // match: [full, M, D, Y]
+        // 捕获组：[完整匹配, 月, 日, 年]
         dateStr = `${match[3]!}-${match[1]!}-${match[2]!}`
         formatStr = `YYYY-${match[1]!.length === 2 ? 'MM' : 'M'}-${match[2]!.length === 2 ? 'DD' : 'D'}`
       }
@@ -71,7 +71,7 @@ export async function parseDateFromMetadata(file: File): Promise<Date | null> {
   }
 
   try {
-    // ExifReader.load 读取文件 buffer
+    // ExifReader.load 读取文件缓冲区。
     // 注意：ExifReader 在浏览器端支持直接传 File 对象
     const tags = (await ExifReader.load(file, { expanded: true })) as any
 
@@ -122,24 +122,24 @@ export function parseDateFromFileAttribute(file: File): Date | null {
  * 综合解析函数
  */
 export async function parseFileDate(file: File, defaultDate: Date): Promise<DateParseResult> {
-  // 1. Filename
+  // 1. 文件名
   const dName = parseDateFromFilename(file.name)
   if (dName) {
     return { date: dName, source: 'filename' }
   }
 
-  // 2. Metadata (Exif for images)
+  // 2. 图片 Exif 元数据
   const dMeta = await parseDateFromMetadata(file)
   if (dMeta) {
     return { date: dMeta, source: 'metadata' }
   }
 
-  // 3. File Attribute (Last Modified - useful for videos without metadata support)
+  // 3. 文件最后修改时间；主要用于无法读取元数据的视频
   const dAttr = parseDateFromFileAttribute(file)
   if (dAttr) {
     return { date: dAttr, source: 'file-attribute' }
   }
 
-  // 4. Default
+  // 4. 调用方提供的默认日期
   return { date: defaultDate, source: 'default' }
 }

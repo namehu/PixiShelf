@@ -11,7 +11,7 @@ const BREAKPOINTS = {
   '2xl': 1536 // 超超大屏幕
 } as const
 
-// Hook返回类型
+// 钩子返回类型
 export interface UseResponsiveReturn {
   // 当前窗口尺寸
   windowSize: {

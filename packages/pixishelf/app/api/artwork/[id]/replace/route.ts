@@ -8,7 +8,7 @@ import {
   ImageReplaceSessionError
 } from '@/services/artwork-service/image-replace-session'
 
-// API route 只负责参数/上下文/响应映射；init/commit/rollback 的三段业务注释保留在 service 中。
+// API 路由只负责参数、上下文和响应映射；初始化、提交、回滚三段业务注释保留在服务层中。
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params

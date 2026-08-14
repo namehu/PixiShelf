@@ -7,7 +7,7 @@ import { useTRPC } from '@/lib/trpc'
 import { useColumns } from '@/hooks/use-columns'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 
-// Mock dependencies
+// 模拟外部依赖。
 vi.mock('react-intersection-observer')
 vi.mock('@tanstack/react-query')
 vi.mock('@/lib/trpc')
@@ -21,7 +21,7 @@ vi.mock('@tanstack/react-virtual', () => ({
   useWindowVirtualizer: vi.fn()
 }))
 
-// Mock UI components
+// 模拟界面组件。
 vi.mock('@/components/artwork/artwork-card', () => ({
   default: () => <div data-testid="artwork-card">Card</div>
 }))
@@ -32,10 +32,10 @@ vi.mock('@/components/ui/skeleton', () => ({
   Skeleton: () => <div data-testid="skeleton" />
 }))
 
-// Mock ResizeObserver
+// 模拟 ResizeObserver。
 const mockResizeObserver = vi.fn(function (this: any, callback: any) {
   this.observe = vi.fn(() => {
-    // Immediately trigger with a width
+    // 立即以指定宽度触发观察回调。
     callback([{ contentRect: { width: 1000 } }])
   })
   this.disconnect = vi.fn()
@@ -58,7 +58,7 @@ describe('InfiniteArtworkList', () => {
     fetchNextPageMock.mockResolvedValue({})
     inViewFlag = false
 
-    // Default mocks
+    // 默认模拟行为。
     ;(useInView as any).mockReturnValue({
       ref: vi.fn(),
       inView: inViewFlag
@@ -77,7 +77,7 @@ describe('InfiniteArtworkList', () => {
       }
     })
 
-    // Default infinite query mock
+    // 无限查询的默认模拟结果。
     ;(useInfiniteQuery as any).mockReturnValue({
       data: { pages: [] },
       fetchNextPage: fetchNextPageMock,
@@ -117,7 +117,7 @@ describe('InfiniteArtworkList', () => {
   })
 
   it('should not trigger duplicate fetchNextPage if re-rendered while request is in progress', async () => {
-    // Setup: inView is true, hasNextPage is true
+    // 前置条件：元素已进入视口，且存在下一页。
     inViewFlag = true
     ;(useInView as any).mockReturnValue({
       ref: vi.fn(),
@@ -134,7 +134,7 @@ describe('InfiniteArtworkList', () => {
 
     const { rerender } = render(<InfiniteArtworkList />)
 
-    // First render should trigger fetch
+    // 首次渲染应触发下一页请求。
     expect(fetchNextPageMock).toHaveBeenCalledTimes(1)
 
     inViewFlag = false

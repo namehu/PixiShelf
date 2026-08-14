@@ -4,7 +4,7 @@ import { dateToString } from './utils'
 import { combinationStaticAvatar, combinationStaticArtistBg } from '@/utils/combination-static'
 
 /**
- * Artists Get Schema
+ * 艺术家详情查询结构
  * 获取单个艺术家查询参数
  */
 export const ArtistGetSchema = z.object({
@@ -15,7 +15,7 @@ export const ArtistGetSchema = z.object({
 export type ArtistGetSchema = z.infer<typeof ArtistGetSchema>
 
 /**
- * Artist Response DTO
+ * 艺术家响应 DTO
  * 包含：艺术家本身信息 + 时间字段转换 + 静态资源路径处理
  */
 export const ArtistResponseDto = ArtistModel.extend({
@@ -41,7 +41,7 @@ export const ArtistResponseDto = ArtistModel.extend({
 export type ArtistResponseDto = z.infer<typeof ArtistResponseDto>
 
 /**
- * Artists Get Schema
+ * 艺术家列表查询结构
  * 获取艺术家列表查询参数
  */
 export const ArtistsGetSchema = z.object({

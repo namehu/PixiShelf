@@ -3,7 +3,7 @@ import logger from '@/lib/logger'
 import { getPlayableVideoKeyframesByImageId } from '@/services/video-keyframe-read-service'
 
 /**
- * C-end video picture navigation.
+ * 为用户端视频画面导航提供关键帧数据。
  * GET /api/v1/media/:imageId/keyframes
  */
 export async function GET(_request: Request, { params }: { params: Promise<{ 'image-id': string }> }) {

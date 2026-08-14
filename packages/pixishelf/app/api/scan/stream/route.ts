@@ -19,7 +19,7 @@ import { ScanStreamSchema } from '@/schemas/scan.dto'
 import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from '@/services/scan-service/scan-errors'
 
 /**
- * Helper: Create SSE event sender
+ * SSE 事件发送器：将事件名与负载格式化为 SSE 原始文本分块发送
  */
 function createEventSender(controller: ReadableStreamDefaultController, encoder: TextEncoder) {
   return (event: string, data: any) => {
@@ -31,7 +31,7 @@ function createEventSender(controller: ReadableStreamDefaultController, encoder:
 
 /**
  * POST /api/scan/stream
- * Unified scan stream endpoint
+ * 统一扫描流式入口，支持增量/全量/列表扫描
  */
 export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
   const { type, force, metadataList } = data
@@ -52,18 +52,18 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
       let pingInterval: NodeJS.Timeout | null = null
 
       try {
-        // Setup heartbeat (every 15s) to prevent proxy timeout
+        // 每 15 秒发送一次心跳，避免反向代理中断长连接
         pingInterval = setInterval(() => {
           try {
             const message = `event: ping\ndata: {}\n\n`
             controller.enqueue(encoder.encode(message))
           } catch (_e) {
-            // Controller might be closed
+            // 流控制器可能已关闭（例如客户端断开）
             if (pingInterval) clearInterval(pingInterval)
           }
         }, 15000)
 
-        // Create job lock
+        // 建立扫描任务锁，确保同一扫描会话可追踪与可取消
         const job = await JobService.createScanJob()
         currentJobId = job.id
         const scanRun = await startScanRun({
@@ -153,7 +153,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
         try {
           controller.close()
         } catch (_e) {
-          // Ignore close errors (e.g. client disconnected)
+        // 忽略关闭阶段可能出现的错误（如客户端断开连接）
         }
       }
     },

@@ -12,13 +12,13 @@ import VideoPlayer from '@/components/players/video-player'
 import ApngPlayer from '@/components/players/apng-player'
 import { useQueryState, parseAsInteger } from 'nuqs'
 
-// Import Swiper styles
+// 引入 Swiper 样式
 import 'swiper/css'
 import 'swiper/css/zoom'
 import 'swiper/css/navigation'
 import 'swiper/css/pagination'
 
-import './styles.css' // Create a local style file for custom overrides if needed
+import './styles.css' // 引入本地样式文件，用于需要时定制覆盖
 import { useShallow } from 'zustand/shallow'
 import { getMediaInfo, isApngFile } from '@/lib/media'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
@@ -47,7 +47,7 @@ export default function ArtworkPreviewPage() {
 
   useEffect(() => {
     setMounted(true)
-    // Hide body scroll
+    // 锁定页面滚动，避免与预览手势冲突
     document.body.style.overflow = 'hidden'
     return () => {
       document.body.style.overflow = 'unset'
@@ -136,7 +136,7 @@ export default function ArtworkPreviewPage() {
 
   return (
     <div className="fixed inset-0 z-[100] bg-black text-white">
-      {/* Top Bar */}
+      {/* 顶部控制条 */}
       <div className="absolute left-0 right-0 top-0 z-10 flex h-16 items-center justify-between bg-gradient-to-b from-black/50 to-transparent px-4">
         <div className="flex items-center gap-3">
           {isApng || isVideo ? (
@@ -192,7 +192,7 @@ export default function ArtworkPreviewPage() {
         </button>
       </div>
 
-      {/* Swiper */}
+      {/* Swiper 轮播容器 */}
       <Swiper
         direction="vertical"
         modules={[Zoom, Navigation, Pagination, Mousewheel, Keyboard]}
@@ -217,7 +217,7 @@ export default function ArtworkPreviewPage() {
       >
         {images.map(renderSwiperSlide)}
 
-        {/* Custom Navigation Buttons (Desktop) - Vertical Layout */}
+        {/* 自定义导航按钮（桌面端）：上下布局 */}
         <div className="absolute bottom-8 right-8 z-10 hidden flex-col gap-4 sm:flex">
           <button
             type="button"

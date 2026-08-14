@@ -49,8 +49,7 @@ export function ImagePreviewDialog({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [open, currentIndex, handlePrev, handleNext, onOpenChange])
 
-  // Early return if no valid image to show, but only if open
-  // We render ProDialog anyway so it handles the "open" state animation correctly
+  // 对话框打开但没有有效图片时提前返回内容；仍保留 ProDialog 外壳以正确处理打开状态动画。
   const currentImage = currentIndex !== null ? images[currentIndex] : null
   const previewMedia = currentImage
     ? isVideoCoverSource(currentImage)
@@ -90,7 +89,7 @@ export function ImagePreviewDialog({
                 />
               </div>
 
-              {/* Navigation */}
+              {/* 导航按钮 */}
               <Button
                 variant="ghost"
                 size="icon"

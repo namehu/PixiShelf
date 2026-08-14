@@ -35,7 +35,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
   const viewportRef = useRef<HTMLDivElement>(null)
   const currentRef = useRef<HTMLAnchorElement>(null)
 
-  // Initial load: centered on current artwork
+  // 初始加载：将当前作品定位到中间
   const { data: initialData, isLoading: isInitialLoading } = useQuery(
     trpc.artwork.getNeighbors.queryOptions({
       artistId,
@@ -49,16 +49,16 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
     if (initialData && !hasFetchedInitial) {
       setArtworks(initialData)
       setHasFetchedInitial(true)
-      // If initial data length is small, maybe no more data
+      // 初始结果较少时直接判定无更多分页
       if (initialData.length < 5) {
-        // arbitrary threshold
+        // 阈值仅用于首屏快速兜底，不作为精确分页条件
         setHasMoreNewer(false)
         setHasMoreOlder(false)
       }
     }
   }, [initialData, hasFetchedInitial])
 
-  // Center the current item on initial load
+  // 首次加载完成后居中当前作品
   useEffect(() => {
     if (hasFetchedInitial && currentRef.current && viewportRef.current) {
       const viewport = viewportRef.current
@@ -67,7 +67,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
     }
   }, [hasFetchedInitial])
 
-  // Fetch more logic
+  // 加载更多逻辑（向左为更新作品，向右为更早作品）
   const fetchMore = async (direction: 'older' | 'newer') => {
     if (isFetchingMore) return
     if (direction === 'older' && !hasMoreOlder) return
@@ -94,14 +94,14 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
         if (direction === 'older') setHasMoreOlder(false)
       } else {
         if (direction === 'newer') {
-          // Prepend items
+          // 向左补数据（保持滚动位置不跳变）
           const oldScrollWidth = viewportRef.current?.scrollWidth || 0
           const oldScrollLeft = viewportRef.current?.scrollLeft || 0
 
           setArtworks((prev) => [...result, ...prev])
 
-          // Adjust scroll position to maintain visual continuity
-          // We need to wait for DOM update.
+          // 先记录新增前宽度，再在下一帧恢复视觉连续性
+          // 需要等待 DOM 更新完成后再重算 scrollLeft
           requestAnimationFrame(() => {
             if (viewportRef.current) {
               const newScrollWidth = viewportRef.current.scrollWidth
@@ -110,7 +110,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
             }
           })
         } else {
-          // Append items
+          // 向右追加数据
           setArtworks((prev) => [...prev, ...result])
         }
       }
@@ -121,11 +121,11 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
     }
   }
 
-  // Scroll listener for infinite scrolling
+  // 滚动监听：到边界时触发分页加载
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget
     const { scrollLeft, scrollWidth, clientWidth } = target
-    const threshold = 200 // pixels from edge
+    const threshold = 200 // 距离边界 200px 触发
 
     if (scrollLeft < threshold) {
       fetchMore('newer')

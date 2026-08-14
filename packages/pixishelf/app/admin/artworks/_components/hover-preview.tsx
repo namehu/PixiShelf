@@ -26,14 +26,14 @@ export const HoverPreview = ({
       ? { ...media, posterUrl: media.posterUrl || null }
       : { ...media, path: appendCacheKey(media.path, cacheKey) }
 
-  // Create portal to body to ensure it's on top of everything
+  // 使用 Portal 挂载到 body，保证预览层级高于页面内容
   if (typeof document === 'undefined') return null
 
-  // Limit position to avoid overflow
+  // 计算可视区域，限制弹窗不出界
   const screenW = typeof window !== 'undefined' ? window.innerWidth : 1000
   const screenH = typeof window !== 'undefined' ? window.innerHeight : 800
 
-  // Adjust position if too close to right/bottom edge
+  // 靠近右/下边界时自动反向偏移避免溢出
   const finalX = x + 320 > screenW ? x - 340 : x + 20
   const finalY = y + 320 > screenH ? y - 320 : y + 20
 

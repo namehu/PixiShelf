@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { StarButton } from '@/app/admin/artists/_components/artist-management'
 
-// Mock dependencies
+// 模拟外部依赖
 vi.mock('lucide-react', () => ({
   Star: ({ className }: { className: string }) => <div data-testid="star-icon" className={className} />
 }))
@@ -44,7 +44,7 @@ describe('StarButton', () => {
     const button = screen.getByRole('button', { name: '设为星标' })
     fireEvent.click(button)
 
-    // Check optimistic update
+    // 验证乐观更新。
     const icon = screen.getByTestId('star-icon')
     expect(icon.className).toContain('text-warning')
     expect(screen.getByRole('button', { name: '取消星标' })).toBeTruthy()
@@ -58,11 +58,11 @@ describe('StarButton', () => {
     const button = screen.getByRole('button', { name: '设为星标' })
     fireEvent.click(button)
 
-    // Optimistic update first
+    // 请求完成前先应用乐观更新。
     const icon = screen.getByTestId('star-icon')
     expect(icon.className).toContain('text-warning')
 
-    // Wait for rollback
+    // 等待失败后的状态回滚。
     await waitFor(() => {
       expect(icon.className).toContain('text-muted-foreground')
     })

@@ -13,9 +13,9 @@ function asHistoryRecord(state: unknown): HistoryRecord {
 }
 
 /**
- * Makes ArtPlayer web fullscreen a history entry.
+ * 将 ArtPlayer 网页全屏同步为一条浏览器历史记录。
  *
- * The first browser Back exits web fullscreen; the next Back leaves the page.
+ * 第一次后退只退出网页全屏，下一次后退才离开当前页面。
  */
 export function bindFullscreenWebHistory(player: Artplayer): () => void {
   const token = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
@@ -60,7 +60,7 @@ export function bindFullscreenWebHistory(player: Artplayer): () => void {
       syncingFromHistory = true
       player.fullscreenWeb = shouldBeFullscreen
     } catch {
-      // The player can still be destroyed safely if browser history sync fails.
+      // 即使浏览器历史同步失败，播放器仍可按正常销毁流程清理。
     } finally {
       if (syncingFromHistory) {
         queueMicrotask(() => {

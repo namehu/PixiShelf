@@ -9,6 +9,7 @@ export const PENDING_REPLACE_COMPLETED_DIRECTORY = 'completed-replaces'
 export const PENDING_REPLACE_EXTERNAL_ID_MARKER = '__ext-'
 export const PENDING_REPLACE_MANIFEST_FILE = 'replace-manifest.json'
 
+// externalId 会进入待替换目录名，因此这里按单个安全文件名片段约束，而不只是普通业务字段校验。
 export const pendingReplaceExternalIdSchema = z
   .string()
   .trim()
@@ -67,6 +68,7 @@ export const pendingReplaceMediaSnapshotSchema = z.object({
 })
 
 export const pendingReplaceManifestSchema = z.array(pendingReplaceManifestFileSchema).max(20_000)
+// 三类快照都来自磁盘或数据库持久化数据，统一限制条目数，避免异常清单造成无界内存占用。
 export const pendingReplaceMediaSnapshotListSchema = z.array(pendingReplaceMediaSnapshotSchema).max(20_000)
 export const pendingReplaceTargetFileSnapshotListSchema = z
   .array(pendingReplaceTargetFileSnapshotSchema)
@@ -124,6 +126,7 @@ export function parsePendingReplaceDirectoryName(directoryName: string): {
   originalName: string
   externalId: string
 } | null {
+  // 使用最后一个标记分隔，允许原始目录名本身包含早先出现的同名片段。
   const markerIndex = directoryName.lastIndexOf(PENDING_REPLACE_EXTERNAL_ID_MARKER)
   if (markerIndex < 0) return null
 

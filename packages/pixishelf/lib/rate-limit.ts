@@ -1,15 +1,13 @@
 /**
- * A simple in-memory rate limiter.
+ * 简单的进程内限流器。
  *
- * Note: This implementation stores rate limit data in memory.
- * If you are deploying to a serverless environment (like Vercel) or a cluster,
- * this will only limit requests per instance.
- * For a production-grade distributed rate limiter, consider using Redis (e.g., @upstash/ratelimit).
+ * 限流状态只保存在当前进程内；部署到无服务器平台或集群时，各实例会分别计数，
+ * 不能提供全局限流保证。需要分布式限流时应改用 Redis 等共享存储。
  */
 
 type Options = {
-  interval?: number // Window size in ms
-  uniqueTokenPerInterval?: number // Max number of unique tokens per interval (not used in simple implementation)
+  interval?: number // 时间窗口，单位为毫秒
+  uniqueTokenPerInterval?: number // 每个窗口允许的唯一令牌数；当前简化实现暂未使用
 }
 
 export class RateLimit {
@@ -39,8 +37,7 @@ export class RateLimit {
   }
 }
 
-// Global rate limiter instance
-// Default: 60 seconds window
+// 全局限流实例，默认使用 60 秒窗口。
 export const rateLimiter = new RateLimit({
   interval: 60000
 })

@@ -8,7 +8,7 @@ interface RootLayoutProps {
 }
 
 /**
- * Admin Root Layout
+ * 管理后台根布局
  */
 export default function RootLayout(props: RootLayoutProps) {
   return (

@@ -1,18 +1,18 @@
-/* Custom styles for Swiper preview */
+/* Swiper 预览的定制样式 */
 
-/* Ensure full height for container */
+/* 确保容器占满可用高度 */
 html, body {
   overscroll-behavior-y: none; /* Prevent pull-to-refresh on mobile */
 }
 
-/* Customize navigation buttons visibility */
+/* 调整导航按钮的显示行为 */
 .swiper-button-disabled {
   opacity: 0.35;
   cursor: auto;
   pointer-events: none;
 }
 
-/* Fix for zoom container alignment */
+/* 修正缩放容器的对齐方式 */
 .swiper-zoom-container {
   display: flex;
   justify-content: center;
@@ -21,7 +21,7 @@ html, body {
   width: 100%;
 }
 
-/* Optional: Custom scrollbar hiding */
+/* 隐藏预览区域滚动条 */
 ::-webkit-scrollbar {
   display: none;
 }

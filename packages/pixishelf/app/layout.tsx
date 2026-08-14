@@ -51,7 +51,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         image: session.image
       }
     } catch (_e) {
-      // console.error('Failed to parse user session', e)
+      // 会话头解析失败说明数据格式不一致，保持 unauthenticated 分支继续渲染
     }
   }
 

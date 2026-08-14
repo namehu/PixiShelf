@@ -32,12 +32,14 @@ export function StarButton({
   const handleClick = async () => {
     if (isLoading) return
     const newValue = !isStarred
-    setIsStarred(newValue) // Optimistic update
+    // 乐观更新：先立即反映 UI 状态，再由请求成功决定是否回滚
+    setIsStarred(newValue)
     setIsLoading(true)
     try {
       await onToggle(id, newValue)
     } catch (_error) {
-      setIsStarred(!newValue) // Rollback
+      // 请求失败时回滚为上一次已确认状态
+      setIsStarred(!newValue)
       toast.error('操作失败')
     } finally {
       setIsLoading(false)

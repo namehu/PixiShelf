@@ -4,13 +4,13 @@
   display: none !important;
 }
 
-/* The PixiShelf gesture surface owns canvas taps; keep ArtPlayer's center state from intercepting them. */
+/* PixiShelf 的手势层负责接收画布点击；防止 ArtPlayer 中心状态接管这些点击。 */
 .video-player .art-video-player .art-state {
   display: none !important;
   pointer-events: none !important;
 }
 
-/* ArtPlayer's layer stack normally sits below controls, settings, and context menus. */
+/* ArtPlayer 的图层默认位于控制条、设置面板和上下文菜单之下。 */
 .art-video-player.pixishelf-chapter-overlay-open .art-layers {
   z-index: 130;
 }

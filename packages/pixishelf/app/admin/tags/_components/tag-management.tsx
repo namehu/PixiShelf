@@ -104,7 +104,7 @@ export default function TagManagement() {
   const [editingTag, setEditingTag] = useState<TagListItem | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
-  // URL Search Params Sync
+  // 同步 URL 查询参数到当前列表状态
   const [searchState, setSearchState] = useQueryStates({
     name: parseAsString,
     filter: parseAsString.withDefault('all'),
@@ -112,7 +112,7 @@ export default function TagManagement() {
     pageSize: parseAsInteger.withDefault(20)
   })
 
-  // Local state for search inputs
+  // 搜索输入框的本地暂存状态
   const [localSearch, setLocalSearch] = useState({
     name: searchState.name || '',
     filter: searchState.filter || 'all'
@@ -156,7 +156,7 @@ export default function TagManagement() {
     }
   }
 
-  // Delete Mutation
+  // 删除标签的 Mutation
   const deleteMutation = useMutation(
     trpc.tag.delete.mutationOptions({
       onSuccess: () => {
@@ -257,7 +257,7 @@ export default function TagManagement() {
             {!tName && (
               <Button
                 size="icon"
-                onClick={() => handleEdit(record)} // Quick edit usually targets translation
+                onClick={() => handleEdit(record)} // 快速编辑入口，默认用于补充翻译
                 variant="ghost"
                 className="size-8 text-primary hover:bg-accent hover:text-primary"
                 aria-label={`翻译标签 ${record.name}`}
@@ -319,7 +319,7 @@ export default function TagManagement() {
   )
 
   const handlePaginationChange = (updaterOrValue: any) => {
-    // 处理 React Table 的 updater 模式
+      // 兼容 React Table 的 updater 模式（支持函数更新）
     const newPagination =
       typeof updaterOrValue === 'function'
         ? updaterOrValue({
@@ -368,7 +368,7 @@ export default function TagManagement() {
         columns={columns}
         request={request}
         defaultPageSize={20}
-        // 分页受控
+        // 分页参数受控，由 URL 同步来源（避免翻页状态丢失）
         pagination={{
           pageIndex: (searchState.page || 1) - 1,
           pageSize: searchState.pageSize || 20

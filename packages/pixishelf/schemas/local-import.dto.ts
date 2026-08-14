@@ -4,6 +4,7 @@ import type { ScanAuditHooks } from '@/services/scan-service/types'
 export const LOCAL_IMPORT_DIRECTORY = 'local-imports'
 export const LOCAL_IMPORT_ROOT_DISPLAY = 'scanPath/local-imports'
 
+/** 将用户提供的存储路径规范为受 scanPath 约束的 POSIX 相对路径。 */
 export function canonicalizeLocalImportStoragePath(value: string): string {
   const input = value.trim().replace(/\\/g, '/')
   if (!input || input.startsWith('/') || /^[A-Za-z]:/.test(input)) {
@@ -14,6 +15,7 @@ export function canonicalizeLocalImportStoragePath(value: string): string {
   for (const segment of input.split('/')) {
     if (!segment || segment === '.') continue
     if (segment === '..') {
+      // 允许在路径内部消解上级片段，但不允许越过 scanPath 根目录。
       if (segments.length === 0) throw new Error('Storage path escapes scanPath')
       segments.pop()
       continue
@@ -96,6 +98,7 @@ export interface LocalImportProgress {
 export interface RunLocalImportInput {
   scanPath: string
   defaultTagIds?: number[]
+  // 取消检查和进度回调由任务队列注入，使同一导入逻辑也能被同步调用方复用。
   checkCancelled?: () => Promise<boolean>
   onProgress?: (progress: LocalImportProgress) => Promise<void> | void
   audit?: ScanAuditHooks

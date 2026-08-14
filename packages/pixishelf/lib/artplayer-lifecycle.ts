@@ -2,10 +2,10 @@ import type Artplayer from 'artplayer'
 import { bindFullscreenWebHistory } from '@/lib/artplayer-fullscreen-history'
 
 /**
- * Creates an idempotent cleanup function for an ArtPlayer instance.
+ * 为 ArtPlayer 实例创建可重复调用的清理函数。
  *
- * ArtPlayer moves its root element outside the React-owned container while in
- * web fullscreen mode, so React cannot remove that element during unmount.
+ * 网页全屏时 ArtPlayer 会把根元素移出 React 管理的容器，组件卸载时 React 无法自动移除该元素，
+ * 因此销毁流程必须同时处理播放器实例和遗留 DOM。
  */
 export function createArtplayerCleanup(player: Artplayer, container: HTMLElement): () => void {
   const playerElement = container.querySelector<HTMLElement>('.art-video-player')
@@ -22,7 +22,7 @@ export function createArtplayerCleanup(player: Artplayer, container: HTMLElement
         player.fullscreenWeb = false
       }
     } catch {
-      // Continue with destruction and the DOM fallback below.
+      // 退出全屏失败也继续销毁，并由下方 DOM 兜底清理。
     }
   }
 
@@ -47,7 +47,7 @@ export function createArtplayerCleanup(player: Artplayer, container: HTMLElement
     try {
       player.destroy(true)
     } catch {
-      // The instance root is removed below if ArtPlayer destruction fails.
+      // ArtPlayer 销毁失败时，下方仍会直接移除实例根元素。
     } finally {
       if (playerElement?.isConnected) {
         playerElement.remove()

@@ -7,7 +7,7 @@ import customParseFormat from 'dayjs/plugin/customParseFormat'
 
 dayjs.extend(customParseFormat)
 
-// Mock ExifReader
+// 模拟 ExifReader。
 vi.mock('exifreader', () => {
   return {
     default: {
@@ -23,21 +23,21 @@ describe('Date Parser', () => {
 
   describe('parseDateFromFilename', () => {
     const testCases = [
-      // YYYY-MM-DD variants
+      // 年-月-日的分隔符变体
       { filename: '2026-02-01 ペリカ(Perlica) (1).mp4', expected: '2026-02-01' },
       { filename: 'IMG_2025_12_31.jpg', expected: '2025-12-31' },
       { filename: '2024.01.15_backup.zip', expected: '2024-01-15' },
       { filename: 'photo 2023 05 20.png', expected: '2023-05-20' },
 
-      // YYYYMMDD
+      // 连续 8 位年月日
       { filename: '20260303_capture.png', expected: '2026-03-03' },
       { filename: 'VID_20251111_123456.mp4', expected: '2025-11-11' },
 
-      // DD-MM-YYYY
+      // 日-月-年
       { filename: '31-12-2024-party.jpg', expected: '2024-12-31' },
       { filename: '01.02.2025 report.pdf', expected: '2025-02-01' },
 
-      // Invalid
+      // 无效日期
       { filename: 'random-file.txt', expected: null },
       { filename: 'version_1.2.3.png', expected: null }, // 可能会误判，取决于正则严谨度，1.2.3 不满4位年份
       { filename: '202-01-01.jpg', expected: null }
@@ -98,7 +98,7 @@ describe('Date Parser', () => {
 
     it('should prioritize filename', async () => {
       const file = new File([''], '2026-02-01.jpg', { type: 'image/jpeg' })
-      // Even if metadata exists
+      // 即使元数据中存在日期，文件名仍具有更高优先级。
       vi.mocked(ExifReader.load).mockResolvedValue({
         exif: { DateTimeOriginal: { description: '2025:12:25 10:30:00' } }
       } as any)

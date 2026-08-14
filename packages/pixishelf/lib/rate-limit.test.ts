@@ -6,11 +6,11 @@ describe('RateLimit', () => {
     const rateLimit = new RateLimit({ interval: 1000 })
     const token = 'test-ip'
 
-    // Should allow 2 requests
+    // 前两次请求应放行。
     expect(rateLimit.check(2, token)).toBe(true)
     expect(rateLimit.check(2, token)).toBe(true)
     
-    // Should block 3rd request
+    // 第三次请求应被拦截。
     expect(rateLimit.check(2, token)).toBe(false)
   })
 
@@ -22,7 +22,7 @@ describe('RateLimit', () => {
     expect(rateLimit.check(1, token)).toBe(true)
     expect(rateLimit.check(1, token)).toBe(false)
 
-    // Advance time by 1001ms
+    // 时间推进 1001 毫秒，确保越过限流窗口。
     vi.advanceTimersByTime(1001)
 
     expect(rateLimit.check(1, token)).toBe(true)

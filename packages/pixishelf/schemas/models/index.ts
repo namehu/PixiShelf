@@ -3,7 +3,7 @@ import { ESource } from '@/enums/e-source'
 import { toApiImageSize } from '@/utils/image-size'
 
 // ==========================================
-// 0. Enums & Shared Types
+// 0. 枚举与公共类型
 // ==========================================
 
 // 对应 schema.prisma 中的 enum TranslateType
@@ -24,11 +24,11 @@ const ImageSizeModel = z
   .transform((size) => toApiImageSize(size))
 
 // ==========================================
-// 1. Base Models (1:1 Mirror of Prisma)
+// 1. 基础模型（与 Prisma 1:1 映射）
 // ==========================================
 
 /**
- * Model Artist
+ * 模型 Artist
  */
 export const ArtistModel = z.object({
   id: z.number().int(),
@@ -44,7 +44,7 @@ export const ArtistModel = z.object({
 })
 
 /**
- * Model Artwork
+ * 模型 Artwork
  */
 export const ArtworkModel = z.object({
   id: z.number().int(),
@@ -78,7 +78,7 @@ export const ArtworkModel = z.object({
 })
 
 /**
- * Model Series
+ * 模型 Series
  */
 export const SeriesModel = z.object({
   id: z.number().int(),
@@ -92,7 +92,7 @@ export const SeriesModel = z.object({
 })
 
 /**
- * Model SeriesArtwork
+ * 模型 SeriesArtwork
  */
 export const SeriesArtworkModel = z.object({
   seriesId: z.number().int(),
@@ -101,7 +101,7 @@ export const SeriesArtworkModel = z.object({
 })
 
 /**
- * Model Tag
+ * 模型 Tag
  */
 export const TagModel = z.object({
   id: z.number().int(),
@@ -121,7 +121,7 @@ export const TagModel = z.object({
 })
 
 /**
- * Model ArtworkTag (关联表)
+ * 模型 ArtworkTag（关联表）
  */
 export const ArtworkTagModel = z.object({
   id: z.number().int(),
@@ -131,7 +131,7 @@ export const ArtworkTagModel = z.object({
 })
 
 /**
- * Model Image
+ * 模型 Image
  */
 export const ImageModel = z.object({
   id: z.number().int(),
@@ -176,7 +176,7 @@ export const ImageModel = z.object({
 export type TImageModel = z.input<typeof ImageModel>
 
 /**
- * Model User
+ * 模型 User
  */
 export const UserModel = z.object({
   id: z.number().int(),
@@ -187,7 +187,7 @@ export const UserModel = z.object({
 })
 
 /**
- * Model ArtworkLike
+ * 模型 ArtworkLike
  */
 export const ArtworkLikeModel = z.object({
   id: z.number().int(),
@@ -198,7 +198,7 @@ export const ArtworkLikeModel = z.object({
 })
 
 /**
- * Model Setting
+ * 模型 Setting
  */
 export const SettingModel = z.object({
   id: z.number().int(),
@@ -210,7 +210,7 @@ export const SettingModel = z.object({
 })
 
 /**
- * Model TriggerLog
+ * 模型 TriggerLog
  */
 export const TriggerLogModel = z.object({
   id: z.number().int(),

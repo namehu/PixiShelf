@@ -5,7 +5,7 @@ import { renderHook, act } from '@testing-library/react'
 import { useDragImages } from './use-drag-images'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock DataTransfer and FileSystemEntry
+// 模拟 DataTransfer 和 FileSystemEntry。
 class MockDataTransferItem {
   kind: string
   type: string
@@ -122,14 +122,14 @@ describe('useDragImages 拖拽逻辑', () => {
 
     const fileInDir = new File(['content'], 'nested.png', { type: 'image/png' })
 
-    // Mock FileSystemEntry structure
+    // 模拟 FileSystemEntry 目录结构。
     const mockEntry = {
       isFile: false,
       isDirectory: true,
       name: 'folder',
       createReader: () => ({
         readEntries: (success: any) => {
-          // Return one file entry then empty to finish
+          // 先返回一个文件条目，再返回空数组表示读取完成。
           success([
             {
               isFile: true,
@@ -138,16 +138,12 @@ describe('useDragImages 拖拽逻辑', () => {
               file: (cb: any) => cb(fileInDir)
             }
           ])
-          // Second call returns empty array to stop recursion
-          // But wait, the loop calls readEntries again.
-          // Simplified mock: just call success once with entries,
-          // then the recursive logic will call readEntries again.
-          // We need a stateful mock or a simpler approach.
+          // 第二次调用返回空数组以终止递归；模拟必须记录调用状态，才能符合 readEntries 的分批读取行为。
         }
       })
     }
 
-    // Improving the mock for recursion
+    // 使用有状态模拟覆盖递归读取。
     let readCount = 0
     mockEntry.createReader = () => ({
       readEntries: (success: any) => {

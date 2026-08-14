@@ -3,7 +3,7 @@
 import { useCallback, useMemo } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 
-// Tab类型定义
+// 选项卡类型定义
 export type AdminTabId = 'scan' | 'users' | 'tags'
 
 export interface AdminTab {
@@ -12,14 +12,14 @@ export interface AdminTab {
   icon?: React.ComponentType<{ className?: string }>
 }
 
-// Hook返回类型
+// 钩子返回类型
 export interface UseAdminTabReturn {
   activeTab: AdminTabId
   setActiveTab: (tabId: AdminTabId) => void
   tabs: AdminTab[]
 }
 
-// Tab配置
+// 选项卡配置
 const ADMIN_TABS: AdminTab[] = [
   { id: 'scan', label: '扫描管理' },
   { id: 'users', label: '用户管理' },
@@ -54,7 +54,7 @@ export function useAdminTab(): UseAdminTabReturn {
     return isValidTab ? tabParam : DEFAULT_TAB
   }, [searchParams])
 
-  // Tab切换函数
+  // 选项卡切换函数
   const setActiveTab = useCallback(
     (tabId: AdminTabId) => {
       // 验证Tab ID是否有效

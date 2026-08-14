@@ -161,7 +161,7 @@ export const RandomArtworksGetSchema = z.object({
 export type RandomArtworksGetSchema = z.infer<typeof RandomArtworksGetSchema>
 
 /**
- * Viewer 沉浸浏览 Feed 参数
+ * 查看器沉浸浏览流参数
  */
 export const ViewerFeedQuerySchema = z.object({
   cursor: z.number().min(1).nullish().default(1),
@@ -243,7 +243,7 @@ export const NeighboringArtworksGetSchema = z.object({
 export type NeighboringArtworksGetSchema = z.infer<typeof NeighboringArtworksGetSchema>
 
 /**
- * Image DTO
+ * 图片 DTO
  * - 时间转字符串
  * - 增加 mediaType 计算字段
  */
@@ -279,7 +279,7 @@ export const ArtworkImageResponseDto = ImageModel.extend({
 export type ArtworkImageResponseDto = z.infer<typeof ArtworkImageResponseDto>
 
 /**
- * Tag DTO
+ * 标签 DTO
  * - 时间转字符串
  */
 const ArtworkTagDtoTag = TagModel.pick({
@@ -291,11 +291,11 @@ const ArtworkTagDtoTag = TagModel.pick({
 export type TArtworkTagDto = z.infer<typeof ArtworkTagDtoTag>
 
 // ==========================================
-// Main Aggregated DTO (核心聚合)
+// 核心聚合 DTO
 // ==========================================
 
 /**
- * Artwork Detail DTO
+ * 作品详情 DTO
  * 包含：作品本身信息 + 艺术家 + 图片列表 + 标签列表
  */
 export const ArtworkResponseDto = ArtworkModel.extend({

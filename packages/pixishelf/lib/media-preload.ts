@@ -17,6 +17,7 @@ export interface AdaptedImagePreloadCandidate {
 }
 
 export function canPreloadAdaptedImage(candidate: AdaptedImagePreloadCandidate, environment: MediaPreloadEnvironment) {
+  // 节省流量模式、慢速网络、动画或元数据不完整时不预加载，避免预取反而抢占当前媒体带宽。
   if (environment.saveData || ['slow-2g', '2g'].includes(environment.effectiveType ?? '')) return false
   if (candidate.isAnimated) return false
   if (
@@ -33,6 +34,7 @@ export function canPreloadAdaptedImage(candidate: AdaptedImagePreloadCandidate, 
 }
 
 export function readMediaPreloadEnvironment(): MediaPreloadEnvironment {
+  // 服务端无法判断设备能力，按更保守的移动端预算处理，避免水合后已经发起过量预加载。
   if (typeof window === 'undefined') return { isMobile: true, saveData: false }
 
   const connection = (

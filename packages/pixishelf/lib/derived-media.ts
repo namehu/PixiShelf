@@ -30,7 +30,7 @@ export interface ResolvedDerivedMediaSource {
   version: string | null
 }
 
-/** Validates a decoded path relative to one derived-media type root. */
+/** 校验已经解码、且相对于某类派生媒体根目录的路径。 */
 export function normalizeDerivedMediaRelativePath(relativePath: string): string | null {
   const hasControlCharacter = Array.from(relativePath).some((character) => {
     const codePoint = character.codePointAt(0) ?? 0
@@ -78,7 +78,7 @@ export function isDerivedMediaPublicUrl(src: string): boolean {
   return Object.values(DERIVED_MEDIA_ROUTES).some((route) => src.startsWith(route.publicPrefix))
 }
 
-/** Resolves the app's stable virtual URL to the single ImgProxy derived-media mount. */
+/** 将应用稳定的虚拟地址解析为 ImgProxy 派生媒体挂载点中的唯一来源路径。 */
 export function resolveDerivedMediaSource(src: string): ResolvedDerivedMediaSource | null {
   const routeEntry = Object.entries(DERIVED_MEDIA_ROUTES).find(([, route]) => src.startsWith(route.publicPrefix))
   if (!routeEntry) {
@@ -98,6 +98,7 @@ export function resolveDerivedMediaSource(src: string): ResolvedDerivedMediaSour
     return null
   }
 
+  // 分段解码后再次拒绝斜杠，防止编码的 %2F 或 %5C 绕过目录边界校验。
   if (decodedSegments.some((segment) => segment.includes('/') || segment.includes('\\'))) {
     return null
   }

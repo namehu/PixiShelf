@@ -21,7 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Separator } from '@/components/ui/separator'
 
 // ----------------------------------------------------------------------
-// Types
+// 类型定义
 // ----------------------------------------------------------------------
 
 export type ProDatePickerMode = 'single' | 'range'
@@ -53,8 +53,8 @@ export interface ProDatePickerProps {
   /** 组件模式 */
   mode?: ProDatePickerMode
   /** * 受控值
-   * single: Date
-   * range: [Date, Date] (AntD 风格)
+   * 单选：Date
+   * 区间：[Date, Date]（AntD 风格）
    */
   value?: DatePickerValue
   /** 默认值 (非受控) */
@@ -85,7 +85,7 @@ export interface ProDatePickerProps {
 }
 
 // ----------------------------------------------------------------------
-// Helper Functions
+// 辅助方法
 // ----------------------------------------------------------------------
 
 /**
@@ -102,7 +102,7 @@ const formatDateValue = (
 
   const formatOptions = { locale }
 
-  // Mode: Single
+  // 单选模式
   if (mode === 'single') {
     if (value instanceof Date && isValid(value)) {
       return format(value, formatStr, formatOptions)
@@ -110,20 +110,20 @@ const formatDateValue = (
     return placeholder
   }
 
-  // Mode: Range
-  // 此时 value 应该是 [Date, Date]
+  // 区间模式
+  // 此时 value 期望是 [Date, Date]
   if (Array.isArray(value)) {
     const [from, to] = value
 
-    // 情况1: 还没选
+    // 情况1：未选择
     if (!from && !to) return placeholder
 
-    // 情况2: 只选了开始
+    // 情况2：仅选了开始时间
     if (from && !to && isValid(from)) {
       return `${format(from, formatStr, formatOptions)} - `
     }
 
-    // 情况3: 选完了 (或者开始和结束是同一天)
+    // 情况3：选完了（含同一天）
     if (from && to && isValid(from) && isValid(to)) {
       return `${format(from, formatStr, formatOptions)} - ${format(to, formatStr, formatOptions)}`
     }
@@ -143,7 +143,7 @@ const transformValueToRange = (value: DatePickerValue): DateRange | undefined =>
 }
 
 // ----------------------------------------------------------------------
-// Component
+// 组件实现
 // ----------------------------------------------------------------------
 
 export function ProDatePicker({
@@ -178,8 +178,7 @@ export function ProDatePicker({
   // 日历显示的当前月份
   const [month, setMonth] = React.useState<Date>(new Date())
 
-  // 当弹窗打开时，同步 month 到当前选中的日期
-  // 避免上次关掉时在 1月，这次打开选中的是 5月，却还要手动翻页
+  // 下拉打开时同步 month 到当前选中日期，避免再次打开后还停在旧月份
   React.useEffect(() => {
     if (open) {
       if (mode === 'single' && date instanceof Date) {
@@ -187,7 +186,7 @@ export function ProDatePicker({
       } else if (mode === 'range' && Array.isArray(date) && date[0]) {
         setMonth(date[0])
       } else {
-        // 兜底：如果没有选中值，就显示当前时间
+        // 无选中值时回退到当前时间
         setMonth(new Date())
       }
     }
@@ -195,7 +194,7 @@ export function ProDatePicker({
   }, [open, mode]) // 移除 date 依赖，防止选择过程中日期变化导致月份跳动
 
   // ----------------------------------------------------------------------
-  // Handlers
+  // 事件处理
   // ----------------------------------------------------------------------
 
   /**
@@ -216,14 +215,14 @@ export function ProDatePicker({
 
   /**
    * 处理 Range 模式选择
-   * 核心修复：对接 AntD 数组逻辑，修复跨天选择 bug
+   * 核心修复：对齐 AntD 数组语义，修复跨天选择兼容问题
    */
   const handleRangeSelect: SelectRangeEventHandler = (range: DateRange | undefined, triggerDate?: Date) => {
     const [selectedFrom, selectedTo] = Array.isArray(date) ? date : []
     const hadRangeBeforeSelect = !!selectedFrom || !!selectedTo
     const hadCompleteRangeBeforeSelect = !!selectedFrom && !!selectedTo
 
-    // 1. 如果是取消选择 (undefined)
+    // 1. 若回传 undefined 表示取消/清空
     if (!range) {
       if (hadCompleteRangeBeforeSelect && triggerDate) {
         const partialState: RangeValue = [startOfDay(triggerDate), undefined]
@@ -247,20 +246,20 @@ export function ProDatePicker({
       return
     }
 
-    // 2. 只有 from (正在选择中)
+    // 2. 仅 from 存在（选择进行中）
     // react-day-picker 默认允许 0 天范围，第一次点击会返回 { from, to: from }。
     // 这里把初始的同日范围视为半选状态，避免开始日期刚点下去 Popover 就关闭。
     if (from && (!to || isInitialSameDayRange)) {
       const partialState: RangeValue = [startOfDay(from), undefined]
       if (!isControlled) setInternalDate(partialState)
       onChange?.(partialState)
-      // 此时不关闭弹窗，等待选择结束
+      // 保持弹窗，等待用户完成结束日期选择
       return
     }
 
-    // 3. 完整的 range (from 和 to 都有)
+    // 3. 完整 range（from 和 to 都已就绪）
     if (from && to) {
-      // 标准化时间：开始时间 00:00:00，结束时间 23:59:59
+      // 标准化时间边界：开始 00:00:00，结束 23:59:59
       const finalState: RangeValue = [startOfDay(from), endOfDay(to)]
 
       if (!isControlled) setInternalDate(finalState)
@@ -299,11 +298,11 @@ export function ProDatePicker({
 
   const displayValue = formatDateValue(date, formatStr, mode, placeholder, locale)
 
-  // 判断是否有值用于显示 "Clear" 按钮
+  // 有值时显示清空按钮
   const hasValue = mode === 'single' ? date instanceof Date : Array.isArray(date) && !!date[0]
 
   // ----------------------------------------------------------------------
-  // Render
+  // 渲染
   // ----------------------------------------------------------------------
 
   return (
@@ -343,7 +342,7 @@ export function ProDatePicker({
 
       <PopoverContent className="w-auto p-0" align="start" {...popoverProps}>
         <div className="flex h-full w-full">
-          {/* ------------------- Presets Sidebar ------------------- */}
+          {/* ------------------- 预设侧边栏 ------------------- */}
           {presets.length > 0 && (
             <>
               <div className="py-2 w-[120px] flex flex-col shrink-0">
@@ -368,17 +367,17 @@ export function ProDatePicker({
             </>
           )}
 
-          {/* ------------------- Calendar ------------------- */}
+          {/* ------------------- 日历区 ------------------- */}
           <div className="p-0">
             {mode === 'range' ? (
               <Calendar
                 mode="range"
-                // 将数组 [Date, Date] 转换为 {from, to} 传给 Calendar
+                // 将 [Date, Date] 转换为 { from, to } 供 Calendar 使用
                 selected={transformValueToRange(date)}
                 onSelect={handleRangeSelect}
                 numberOfMonths={2}
                 defaultMonth={month}
-                // 显式控制 month，防止受控模式下无法翻页
+                // 显式控制 month，避免受控模式下翻页失效
                 month={month}
                 onMonthChange={setMonth}
                 locale={locale}
@@ -403,7 +402,7 @@ export function ProDatePicker({
           </div>
         </div>
 
-        {/* Error Message */}
+        {/* 错误信息 */}
         {typeof error === 'string' && error && (
           <div className="border-t p-2 px-3 bg-destructive/10 text-destructive text-[11px] font-medium">{error}</div>
         )}
@@ -413,7 +412,7 @@ export function ProDatePicker({
 }
 
 // ----------------------------------------------------------------------
-// Common Presets (AntD Array Style)
+// 常用预设（AntD 数组风格）
 // ----------------------------------------------------------------------
 
 export const ProDatePickerPresets = {

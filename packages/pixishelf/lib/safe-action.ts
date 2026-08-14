@@ -13,7 +13,7 @@ export class ActionError extends Error {
 export const actionClient = createSafeActionClient({
   defaultValidationErrorsShape: 'flattened',
   handleServerError(e) {
-    // A. 记录详细日志到控制台（给开发者看）
+    // 可在此记录仅供开发者查看的详细错误日志。
     // logger.error('Action error:', e)
 
     if (e instanceof ActionError) {

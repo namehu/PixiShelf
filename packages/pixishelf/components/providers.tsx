@@ -17,8 +17,8 @@ function makeQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        // With SSR, we usually want to set some default staleTime
-        // above 0 to avoid refetching immediately on the client
+        // SSR 下建议将 staleTime 设为大于 0，
+        // 避免客户端刚挂载时立即再次拉取数据
         staleTime: 60 * 1000
       }
     }
@@ -28,13 +28,11 @@ let browserQueryClient: QueryClient | undefined = undefined
 
 function getQueryClient() {
   if (typeof window === 'undefined') {
-    // Server: always make a new query client
+    // 服务端每次请求都创建独立 QueryClient，避免状态串流
     return makeQueryClient()
   }
-  // Browser: make a new query client if we don't already have one
-  // This is very important, so we don't re-make a new client if React
-  // suspends during the initial render. This may not be needed if we
-  // have a suspense boundary BELOW the creation of the query client
+  // 浏览器端仅首次创建 QueryClient（并复用），避免每次渲染都重建实例
+  // 这是为了规避 SSR 水合首屏时因 React Suspense 而重复发起请求的竞态
   if (!browserQueryClient) browserQueryClient = makeQueryClient()
   return browserQueryClient
 }

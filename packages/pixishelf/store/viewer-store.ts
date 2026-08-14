@@ -4,7 +4,7 @@ import { RandomImageItem } from '@/types/images'
 import { EMediaType } from '@/enums/e-media-type'
 
 /**
- * Viewer 页面状态接口定义
+ * 查看器页面状态接口定义
  */
 export interface ViewerState {
   // 数据状态
@@ -45,7 +45,7 @@ export interface ViewerState {
 }
 
 /**
- * Viewer 页面全局状态管理 Store
+ * 查看器页面全局状态仓库
  *
  * 功能：
  * - 管理图片列表数据
@@ -156,7 +156,7 @@ export const useViewerStore = create<ViewerState>()(
           try {
             state?.setHasHydrated?.(true)
           } catch (_) {
-            // ignore
+            // 忽略无法解析的旧持久化状态。
           }
         }
       },
