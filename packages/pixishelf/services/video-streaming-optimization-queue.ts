@@ -1,6 +1,7 @@
 import 'server-only'
 
 import logger from '@/lib/logger'
+import { assertLegacyBackgroundExecutionAllowed } from '@/services/background-task/dispatcher-cutover'
 import * as JobService from '@/services/job-service'
 import { getScanPath } from '@/services/setting.service'
 import {
@@ -19,6 +20,7 @@ let rerunRequested = false
 let lastMaintenanceAt = 0
 
 export async function enqueueVideoOptimization(imageId: number) {
+  assertLegacyBackgroundExecutionAllowed('VIDEO_STREAMING_OPTIMIZATION')
   // 保证同一 scanPath 下的优化任务不会重复提交超额；入队结果由底层 Queue service 决定复用或排队。
   const scanPath = await requireScanPath()
   const target = await resolveVideoStreamingOptimizationTarget(imageId, scanPath)
@@ -36,12 +38,14 @@ export async function enqueueVideoOptimization(imageId: number) {
 }
 
 export async function cancelVideoOptimization(jobId: string) {
+  assertLegacyBackgroundExecutionAllowed('VIDEO_STREAMING_OPTIMIZATION')
   const result = await JobService.cancelVideoStreamingOptimizationJob(jobId)
   if (result?.changed) wakeVideoOptimizationQueue()
   return result
 }
 
 export function wakeVideoOptimizationQueue() {
+  assertLegacyBackgroundExecutionAllowed('VIDEO_STREAMING_OPTIMIZATION')
   // 以单飞方式驱动队列处理：重复唤醒只保留一个活跃的队列排空过程，避免并发领取任务产生争用。
   if (processorPromise) {
     rerunRequested = true
@@ -62,6 +66,7 @@ export function wakeVideoOptimizationQueue() {
 }
 
 export async function drainVideoOptimizationQueue() {
+  assertLegacyBackgroundExecutionAllowed('VIDEO_STREAMING_OPTIMIZATION')
   const scanPath = await requireScanPath()
   await maintainVideoOptimizationQueue(scanPath)
 

@@ -9,6 +9,12 @@ export interface WorkerApplicationOptions {
   logger: WorkerLogger
   preflight(): Promise<void>
   disconnectDatabase(): Promise<void>
+  presenceReadinessGate?: { allowReady(): void }
+  dispatcher?: {
+    prepare(): Promise<void>
+    activate(): void
+    stop(reason?: string): Promise<void>
+  }
 }
 
 export class WorkerApplication {
@@ -17,6 +23,8 @@ export class WorkerApplication {
   private hostStarted = false
   private hostStartPromise: Promise<void> | null = null
   private preflightPromise: Promise<void> | null = null
+  private dispatcherPreparePromise: Promise<void> | null = null
+  private dispatcherPrepared = false
 
   constructor(private readonly options: WorkerApplicationOptions) {}
 
@@ -43,9 +51,26 @@ export class WorkerApplication {
         await this.options.host.shutdown()
         return
       }
+      if (this.options.dispatcher) {
+        this.dispatcherPreparePromise = this.options.dispatcher.prepare()
+        await this.dispatcherPreparePromise
+        this.dispatcherPrepared = true
+        if (this.options.healthState.snapshot().draining) {
+          await this.options.dispatcher.stop('startup-drain')
+          await this.options.host.shutdown()
+          return
+        }
+      }
+      this.options.presenceReadinessGate?.allowReady()
       await this.options.host.markReady()
+      if (this.options.healthState.snapshot().draining) {
+        if (this.dispatcherPrepared) await this.options.dispatcher?.stop('startup-drain')
+        await this.options.host.shutdown()
+        return
+      }
+      this.options.dispatcher?.activate()
       this.options.logger.info('worker.preflight_completed')
-      this.options.logger.info('worker.awaiting_dispatcher_phase')
+      this.options.logger.info(this.options.dispatcher ? 'worker.dispatch_ready' : 'worker.awaiting_dispatcher_phase')
     } catch (error) {
       if (this.options.healthState.snapshot().draining || this.options.host.signal.aborted) {
         this.options.logger.info('worker.startup_cancelled')
@@ -67,6 +92,14 @@ export class WorkerApplication {
 
   private async shutdownInternal(reason: string) {
     this.options.logger.info('worker.draining', { reason })
+    if (this.dispatcherPreparePromise) {
+      await this.dispatcherPreparePromise
+        .then(() => {
+          this.dispatcherPrepared = true
+        })
+        .catch(() => undefined)
+    }
+    if (this.dispatcherPrepared) await this.options.dispatcher?.stop(reason)
     if (this.hostStartPromise) {
       await this.hostStartPromise
         .then(() => {

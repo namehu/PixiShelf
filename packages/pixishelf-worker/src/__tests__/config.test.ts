@@ -15,7 +15,12 @@ describe('worker config', () => {
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe',
       healthPort: 3011,
-      heartbeatIntervalMs: 30_000
+      heartbeatIntervalMs: 30_000,
+      dispatchEnabled: false,
+      dispatchPollIntervalMs: 1_000,
+      jobLeaseDurationMs: 60_000,
+      jobHeartbeatIntervalMs: 20_000,
+      dispatchDrainGraceMs: 30_000
     })
     expect(
       parseWorkerConfig({
@@ -35,6 +40,19 @@ describe('worker config', () => {
     expect(() => parseWorkerConfig({ ...requiredEnvironment, DATABASE_URL: 'mysql://database/pixishelf' })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_HEARTBEAT_INTERVAL_MS: '20' })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_SERVICE_VERSION: 'x'.repeat(51) })).toThrow()
+    expect(() =>
+      parseWorkerConfig({
+        ...requiredEnvironment,
+        WORKER_JOB_LEASE_DURATION_MS: '20000',
+        WORKER_JOB_HEARTBEAT_INTERVAL_MS: '10000'
+      })
+    ).toThrow('less than half')
+    expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_DISPATCH_ENABLED: 'yes' })).toThrow()
+  })
+
+  it('parses the dispatch opt-in explicitly', () => {
+    expect(parseWorkerConfig({ ...requiredEnvironment, WORKER_DISPATCH_ENABLED: 'true' }).dispatchEnabled).toBe(true)
+    expect(parseWorkerConfig({ ...requiredEnvironment, WORKER_DISPATCH_ENABLED: '0' }).dispatchEnabled).toBe(false)
   })
 
   it('defaults healthcheck mode to ready', () => {

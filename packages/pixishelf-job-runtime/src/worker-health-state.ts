@@ -50,7 +50,11 @@ export function redactSensitiveText(value: string) {
     .replace(/([a-z][a-z\d+.-]*:\/\/)[^\s/@]+@/gi, '$1[REDACTED]@')
     .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [REDACTED]')
     .replace(
-      /((?:authorization|cookie|database[_-]?url|password|secret|token)["']?\s*[:=]\s*["']?)[^\s,"';}\]]+/gi,
+      /([?&](?:access_token|accessToken|api_key|apiKey|authorization|databaseUrl|dsn|password|secret|token)=)[^&#\s]+/gi,
+      '$1[REDACTED]'
+    )
+    .replace(
+      /((?:access[_-]?token|api[_-]?key|authorization|connection[_-]?string|cookie|credential|database[_-]?url|dsn|password|private[_-]?key|secret|token)["']?\s*[:=]\s*["']?)[^\s,"';}\]]+/gi,
       '$1[REDACTED]'
     )
 }

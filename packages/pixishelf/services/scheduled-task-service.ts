@@ -1,6 +1,14 @@
 import 'server-only'
 
+import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
+import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
+import { enqueueJob } from '@/services/background-task/job-command-service'
+import {
+  CENTRAL_SCHEDULE_TIMEZONE,
+  getCurrentOrNextShanghaiScheduleWindow
+} from '@/services/background-task/schedule-window'
+import { buildScheduledTaskJobDefinition } from '@/services/background-task/scheduled-task-payload'
 import * as JobService from '@/services/job-service'
 import {
   getScheduledTaskDefinition,
@@ -28,6 +36,11 @@ export interface ScheduledTaskView {
   lastJobId: string | null
   lastJobStatus: string | null
   nextRunAt: string | null
+  executionWindow?: {
+    timezone: typeof CENTRAL_SCHEDULE_TIMEZONE
+    startAt: string
+    endAt: string
+  }
   config: unknown
 }
 
@@ -87,6 +100,7 @@ export async function listScheduledTasks(): Promise<ScheduledTaskView[]> {
       })
     : []
   const statusByJobId = new Map(lastJobs.map((job) => [job.id, job.status]))
+  const centralWindow = isCentralDispatcherCutoverEnabled() ? getCurrentOrNextShanghaiScheduleWindow(new Date()) : null
 
   return tasks.map((task) => {
     const definition = getScheduledTaskDefinition(task.key)
@@ -106,7 +120,18 @@ export async function listScheduledTasks(): Promise<ScheduledTaskView[]> {
       lastTriggeredDate: task.lastTriggeredDate,
       lastJobId: task.lastJobId,
       lastJobStatus: task.lastJobId ? (statusByJobId.get(task.lastJobId) ?? null) : null,
-      nextRunAt: getNextRunAt(task.time, task.timezone),
+      nextRunAt: centralWindow
+        ? `${centralWindow.scheduledForDate} 00:00 ${CENTRAL_SCHEDULE_TIMEZONE}`
+        : getNextRunAt(task.time, task.timezone),
+      ...(centralWindow
+        ? {
+            executionWindow: {
+              timezone: CENTRAL_SCHEDULE_TIMEZONE,
+              startAt: centralWindow.availableAt.toISOString(),
+              endAt: centralWindow.deadlineAt.toISOString()
+            }
+          }
+        : {}),
       config: task.config
     }
   })
@@ -139,13 +164,42 @@ export async function updateScheduledTask(input: {
 
 export async function triggerScheduledTaskNow(
   key: string,
-  options: { chapterPreviewMode?: VideoChapterPreviewGenerationMode } = {}
+  options: { chapterPreviewMode?: VideoChapterPreviewGenerationMode; requestedByUserId?: string } = {}
 ) {
   await ensureDefaultScheduledTasks()
   const task = await prisma.scheduledTask.findUnique({ where: { key } })
   if (!task) {
     throw new Error(`Unknown scheduled task: ${key}`)
   }
+
+  if (isCentralDispatcherCutoverEnabled()) {
+    if (!options.requestedByUserId) {
+      throw new Error('requestedByUserId is required after central dispatcher cutover')
+    }
+    const definition = buildScheduledTaskJobDefinition(task.type, {
+      trigger: 'manual',
+      taskConfig: task.config,
+      chapterPreviewMode: options.chapterPreviewMode
+    })
+    const job = await enqueueJob({
+      type: definition.type,
+      triggerSource: 'MANUAL',
+      requestedByUserId: options.requestedByUserId,
+      payload: definition.payload,
+      priority: Math.min(99, Math.max(0, task.priority))
+    })
+    await prisma.scheduledTask.update({
+      where: { key },
+      data: { lastJobId: job.id }
+    })
+    return { jobId: job.id }
+  }
+
+  logger.warn('scheduler.manual.legacy_dispatch_path', {
+    key,
+    centralDispatcherCutoverEnabled: false,
+    warning: 'Legacy scheduled handler may start detached in-process work until dispatcher cutover is enabled'
+  })
 
   const handler = getScheduledTaskHandler(task.type)
   if (!handler) {

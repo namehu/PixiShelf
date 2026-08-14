@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
+  enqueueJobMock,
   getActiveJobsByTypesMock,
   handlerStartMock,
   scheduledTaskFindManyMock,
@@ -9,6 +10,7 @@ const {
   scheduledTaskUpsertMock,
   systemJobFindManyMock
 } = vi.hoisted(() => ({
+  enqueueJobMock: vi.fn(),
   getActiveJobsByTypesMock: vi.fn(),
   handlerStartMock: vi.fn(),
   scheduledTaskFindManyMock: vi.fn(),
@@ -36,6 +38,10 @@ vi.mock('@/lib/prisma', () => ({
 
 vi.mock('@/services/job-service', () => ({
   getActiveJobsByTypes: getActiveJobsByTypesMock
+}))
+
+vi.mock('@/services/background-task/job-command-service', () => ({
+  enqueueJob: enqueueJobMock
 }))
 
 vi.mock('@/services/scheduled-task-registry', () => ({
@@ -111,7 +117,12 @@ vi.mock('@/services/scheduled-task-registry', () => ({
       : null
 }))
 
-import { ensureDefaultScheduledTasks, runSchedulerTick, triggerScheduledTaskNow } from '../scheduled-task-service'
+import {
+  ensureDefaultScheduledTasks,
+  listScheduledTasks,
+  runSchedulerTick,
+  triggerScheduledTaskNow
+} from '../scheduled-task-service'
 
 function createTask(overrides: Record<string, unknown> = {}) {
   return {
@@ -148,6 +159,9 @@ function createCleanupTask(overrides: Record<string, unknown> = {}) {
 
 describe('scheduled-task-service', () => {
   beforeEach(() => {
+    vi.useRealTimers()
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
+    enqueueJobMock.mockReset().mockResolvedValue({ id: 'queued-job-1' })
     scheduledTaskUpsertMock.mockReset().mockResolvedValue({})
     scheduledTaskUpdateMock.mockReset().mockResolvedValue({})
     scheduledTaskFindUniqueMock.mockReset()
@@ -177,6 +191,24 @@ describe('scheduled-task-service', () => {
         })
       })
     )
+  })
+
+  it('shows the shared 00:00-08:00 Shanghai window after central cutover', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-02T01:00:00.000Z'))
+    scheduledTaskFindManyMock.mockResolvedValueOnce([createTask({ time: '04:30', timezone: 'UTC' })])
+
+    const [task] = await listScheduledTasks()
+
+    expect(task).toMatchObject({
+      nextRunAt: '2026-06-03 00:00 Asia/Shanghai',
+      executionWindow: {
+        timezone: 'Asia/Shanghai',
+        startAt: '2026-06-02T16:00:00.000Z',
+        endAt: '2026-06-03T00:00:00.000Z'
+      }
+    })
   })
 
   it('does not trigger before the configured daily time', async () => {
@@ -290,6 +322,30 @@ describe('scheduled-task-service', () => {
       }
     })
     expect(result).toEqual({ jobId: 'job-1' })
+  })
+
+  it('only enqueues a manual job after central dispatcher cutover', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    scheduledTaskFindUniqueMock.mockResolvedValueOnce(createCleanupTask())
+
+    const result = await triggerScheduledTaskNow('scan_run_retention_cleanup', {
+      requestedByUserId: 'admin-1'
+    })
+
+    expect(enqueueJobMock).toHaveBeenCalledWith({
+      type: 'SCAN_RUN_RETENTION_CLEANUP',
+      triggerSource: 'MANUAL',
+      requestedByUserId: 'admin-1',
+      payload: {},
+      priority: 20
+    })
+    expect(handlerStartMock).not.toHaveBeenCalled()
+    expect(getActiveJobsByTypesMock).not.toHaveBeenCalled()
+    expect(scheduledTaskUpdateMock).toHaveBeenCalledWith({
+      where: { key: 'scan_run_retention_cleanup' },
+      data: { lastJobId: 'queued-job-1' }
+    })
+    expect(result).toEqual({ jobId: 'queued-job-1' })
   })
 
   it('forwards an explicit incremental chapter preview mode for manual execution', async () => {

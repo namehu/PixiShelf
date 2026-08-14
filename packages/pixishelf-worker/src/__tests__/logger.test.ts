@@ -12,14 +12,39 @@ describe('worker JSON logger', () => {
 
     logger.error('worker.failed', {
       error: new Error(`Could not connect to ${databaseUrl} with Bearer top-secret-token`),
-      nested: { databaseUrl, accessToken: 'top-secret-token' }
+      apiKey: 'bare-api-key',
+      dsn: 'bare-dsn',
+      nested: {
+        databaseUrl,
+        accessToken: 'top-secret-token',
+        connectionString: 'nested-connection-string',
+        credential: 'nested-credential',
+        privateKey: 'nested-private-key'
+      }
     })
 
     expect(output).not.toContain('super-secret')
     expect(output).not.toContain('top-secret-token')
+    for (const secret of [
+      'bare-api-key',
+      'bare-dsn',
+      'nested-connection-string',
+      'nested-credential',
+      'nested-private-key'
+    ]) {
+      expect(output).not.toContain(secret)
+    }
     expect(JSON.parse(output)).toMatchObject({
       event: 'worker.failed',
-      nested: { databaseUrl: '[REDACTED]', accessToken: '[REDACTED]' }
+      apiKey: '[REDACTED]',
+      dsn: '[REDACTED]',
+      nested: {
+        databaseUrl: '[REDACTED]',
+        accessToken: '[REDACTED]',
+        connectionString: '[REDACTED]',
+        credential: '[REDACTED]',
+        privateKey: '[REDACTED]'
+      }
     })
   })
 })

@@ -3,25 +3,45 @@ import { z } from 'zod'
 const positiveInteger = (fallback: number, minimum: number, maximum: number) =>
   z.coerce.number().int().min(minimum).max(maximum).default(fallback)
 
-const workerConfigSchema = z.object({
-  DATABASE_URL: z
-    .string()
-    .url()
-    .refine((value) => value.startsWith('postgresql://') || value.startsWith('postgres://'), {
-      message: 'DATABASE_URL must use PostgreSQL'
-    }),
-  SOURCE_MEDIA_ROOT: z.string().trim().min(1),
-  DERIVED_MEDIA_ROOT: z.string().trim().min(1),
-  ARCHIVE_ROOT: z.string().trim().min(1),
-  FFMPEG_PATH: z.string().trim().min(1).default('ffmpeg'),
-  FFPROBE_PATH: z.string().trim().min(1).default('ffprobe'),
-  WORKER_ID: z.string().trim().min(1).max(120).optional(),
-  WORKER_SERVICE_VERSION: z.string().trim().min(1).max(50).default('0.1.0'),
-  WORKER_HEALTH_HOST: z.string().trim().min(1).default('0.0.0.0'),
-  WORKER_HEALTH_PORT: positiveInteger(3011, 1, 65_535),
-  WORKER_HEARTBEAT_INTERVAL_MS: positiveInteger(30_000, 1_000, 300_000),
-  WORKER_PREFLIGHT_TIMEOUT_MS: positiveInteger(10_000, 100, 120_000)
-})
+const environmentBoolean = z
+  .enum(['true', 'false', '1', '0'])
+  .default('false')
+  .transform((value) => value === 'true' || value === '1')
+
+const workerConfigSchema = z
+  .object({
+    DATABASE_URL: z
+      .string()
+      .url()
+      .refine((value) => value.startsWith('postgresql://') || value.startsWith('postgres://'), {
+        message: 'DATABASE_URL must use PostgreSQL'
+      }),
+    SOURCE_MEDIA_ROOT: z.string().trim().min(1),
+    DERIVED_MEDIA_ROOT: z.string().trim().min(1),
+    ARCHIVE_ROOT: z.string().trim().min(1),
+    FFMPEG_PATH: z.string().trim().min(1).default('ffmpeg'),
+    FFPROBE_PATH: z.string().trim().min(1).default('ffprobe'),
+    WORKER_ID: z.string().trim().min(1).max(120).optional(),
+    WORKER_SERVICE_VERSION: z.string().trim().min(1).max(50).default('0.1.0'),
+    WORKER_HEALTH_HOST: z.string().trim().min(1).default('0.0.0.0'),
+    WORKER_HEALTH_PORT: positiveInteger(3011, 1, 65_535),
+    WORKER_HEARTBEAT_INTERVAL_MS: positiveInteger(30_000, 1_000, 300_000),
+    WORKER_PREFLIGHT_TIMEOUT_MS: positiveInteger(10_000, 100, 120_000),
+    WORKER_DISPATCH_ENABLED: environmentBoolean,
+    WORKER_DISPATCH_POLL_INTERVAL_MS: positiveInteger(1_000, 100, 60_000),
+    WORKER_JOB_LEASE_DURATION_MS: positiveInteger(60_000, 10_000, 600_000),
+    WORKER_JOB_HEARTBEAT_INTERVAL_MS: positiveInteger(20_000, 1_000, 300_000),
+    WORKER_DISPATCH_DRAIN_GRACE_MS: positiveInteger(30_000, 1_000, 300_000)
+  })
+  .superRefine((value, context) => {
+    if (value.WORKER_JOB_HEARTBEAT_INTERVAL_MS * 2 >= value.WORKER_JOB_LEASE_DURATION_MS) {
+      context.addIssue({
+        code: 'custom',
+        path: ['WORKER_JOB_HEARTBEAT_INTERVAL_MS'],
+        message: 'Job heartbeat interval must be less than half of the job lease duration'
+      })
+    }
+  })
 
 export interface WorkerConfig {
   databaseUrl: string
@@ -36,6 +56,11 @@ export interface WorkerConfig {
   healthPort: number
   heartbeatIntervalMs: number
   preflightTimeoutMs: number
+  dispatchEnabled: boolean
+  dispatchPollIntervalMs: number
+  jobLeaseDurationMs: number
+  jobHeartbeatIntervalMs: number
+  dispatchDrainGraceMs: number
 }
 
 export function createDefaultWorkerId(host: string, processId: number, instanceId: string) {
@@ -64,6 +89,11 @@ export function parseWorkerConfig(environment: NodeJS.ProcessEnv): WorkerConfig 
     healthHost: parsed.WORKER_HEALTH_HOST,
     healthPort: parsed.WORKER_HEALTH_PORT,
     heartbeatIntervalMs: parsed.WORKER_HEARTBEAT_INTERVAL_MS,
-    preflightTimeoutMs: parsed.WORKER_PREFLIGHT_TIMEOUT_MS
+    preflightTimeoutMs: parsed.WORKER_PREFLIGHT_TIMEOUT_MS,
+    dispatchEnabled: parsed.WORKER_DISPATCH_ENABLED,
+    dispatchPollIntervalMs: parsed.WORKER_DISPATCH_POLL_INTERVAL_MS,
+    jobLeaseDurationMs: parsed.WORKER_JOB_LEASE_DURATION_MS,
+    jobHeartbeatIntervalMs: parsed.WORKER_JOB_HEARTBEAT_INTERVAL_MS,
+    dispatchDrainGraceMs: parsed.WORKER_DISPATCH_DRAIN_GRACE_MS
   }
 }

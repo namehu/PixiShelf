@@ -13,7 +13,12 @@ const config: WorkerConfig = {
   healthHost: '0.0.0.0',
   healthPort: 3011,
   heartbeatIntervalMs: 30_000,
-  preflightTimeoutMs: 8_000
+  preflightTimeoutMs: 8_000,
+  dispatchEnabled: false,
+  dispatchPollIntervalMs: 1_000,
+  jobLeaseDurationMs: 60_000,
+  jobHeartbeatIntervalMs: 20_000,
+  dispatchDrainGraceMs: 30_000
 }
 
 describe('startup preflight', () => {

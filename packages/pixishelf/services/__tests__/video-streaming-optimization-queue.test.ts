@@ -41,6 +41,7 @@ import { drainVideoOptimizationQueue } from '../video-streaming-optimization-que
 
 describe('video streaming optimization queue processor', () => {
   beforeEach(() => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
     vi.clearAllMocks()
     mocks.getScanPath.mockResolvedValue('/scan-root')
     mocks.recoverStale.mockResolvedValue([])
@@ -52,6 +53,14 @@ describe('video streaming optimization queue processor', () => {
     mocks.markAsCancelled.mockResolvedValue(undefined)
     mocks.getJob.mockResolvedValue(null)
     mocks.recoverArtifacts.mockResolvedValue(undefined)
+  })
+
+  it('rejects the legacy processor before claiming work after central cutover', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+
+    await expect(drainVideoOptimizationQueue()).rejects.toThrow('Legacy background execution is disabled')
+    expect(mocks.getScanPath).not.toHaveBeenCalled()
+    expect(mocks.claimNext).not.toHaveBeenCalled()
   })
 
   it('continues FIFO processing after one video fails', async () => {

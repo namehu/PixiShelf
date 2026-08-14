@@ -45,19 +45,19 @@ PixiShelf 的后台任务应统一为 **PostgreSQL 持久化队列 + 单通用 W
 
 当前前端主要集中在：
 
-| 模块 | 当前职责 | 主要问题 |
-| --- | --- | --- |
-| maintenance-card.tsx | 查询、轮询、Mutation、计划配置、多个任务的结果展示 | 文件过大，任务协议与展示耦合，重复状态映射和表单逻辑 |
-| video-keyframe-section.tsx | 代表帧过滤、预览、批量入队、队列控制 | 同时承担配置、队列、候选选择和展示 |
-| job.ts Router | 所有任务 tRPC 入口 | 路由数量多；普遍使用 authProcedure，缺少明确 adminProcedure 边界 |
-| scheduled-task-service.ts | 定时判定、互斥判断、手动触发 | 同时负责调度和启动业务；“到点即启动”而不是“物化后排队” |
-| scheduled-task-registry.ts | 默认任务、说明和 Handler | 多数 Handler 在 Next.js 内启动 fire-and-forget Promise |
-| job-service.ts | SystemJob 创建、查询、状态转换以及部分队列 | 多种任务生命周期平铺在同一文件，状态更新缺少统一所有权校验 |
-| archive-worker.ts | 归档与关键帧 Worker 进程入口 | 两个消费循环通过 Promise.all 并行，并非全局并发 1 |
+| 模块                       | 当前职责                                           | 主要问题                                                         |
+| -------------------------- | -------------------------------------------------- | ---------------------------------------------------------------- |
+| maintenance-card.tsx       | 查询、轮询、Mutation、计划配置、多个任务的结果展示 | 文件过大，任务协议与展示耦合，重复状态映射和表单逻辑             |
+| video-keyframe-section.tsx | 代表帧过滤、预览、批量入队、队列控制               | 同时承担配置、队列、候选选择和展示                               |
+| job.ts Router              | 所有任务 tRPC 入口                                 | 路由数量多；普遍使用 authProcedure，缺少明确 adminProcedure 边界 |
+| scheduled-task-service.ts  | 定时判定、互斥判断、手动触发                       | 同时负责调度和启动业务；“到点即启动”而不是“物化后排队”           |
+| scheduled-task-registry.ts | 默认任务、说明和 Handler                           | 多数 Handler 在 Next.js 内启动 fire-and-forget Promise           |
+| job-service.ts             | SystemJob 创建、查询、状态转换以及部分队列         | 多种任务生命周期平铺在同一文件，状态更新缺少统一所有权校验       |
+| archive-worker.ts          | 归档与关键帧 Worker 进程入口                       | 两个消费循环通过 Promise.all 并行，并非全局并发 1                |
 
 ### 3.2 当前执行模型
 
-~~~mermaid
+```mermaid
 flowchart LR
   Admin["Admin Tasks UI"] --> TRPC["job tRPC router"]
   Cron["scheduler container"] --> Tick["Next.js scheduler tick API"]
@@ -73,7 +73,7 @@ flowchart LR
   WorkerHost --> KeyframeLoop["Keyframe loop"]
   ArchiveLoop --> DB
   KeyframeLoop --> DB
-~~~
+```
 
 当前实际存在三套语义：
 
@@ -83,23 +83,23 @@ flowchart LR
 
 ### 3.3 当前任务清单
 
-| 任务类型 | 触发方式 | 当前执行位置 | 持久恢复能力 | 目标处理 |
-| --- | --- | --- | --- | --- |
-| REFILL_META_SOURCE | 手动 | Next.js | 无完整租约 | 迁入通用 Worker |
-| MEDIA_DERIVED_TAG_SYNC | 手动 | Next.js | 无完整租约 | 迁入通用 Worker |
-| WEBP_ANIMATION_SCAN | 手动/定时 | Next.js IIFE | 重启可能滞留 | 迁入通用 Worker |
-| VIDEO_MEDIA_PROBE | 手动/定时 | Next.js IIFE | 重启可能滞留 | 拆成工作流并迁入 Worker |
-| VIDEO_POSTER_GENERATION | 探测后串行调用 | Next.js IIFE | 领域状态部分可恢复 | 独立 Executor，不再每次全量 GC |
-| VIDEO_CHAPTER_PREVIEW_GENERATION | 手动/定时 | Next.js IIFE | 重启可能滞留 | 迁入通用 Worker |
-| VIDEO_STREAMING_OPTIMIZATION | 手动 | Next.js 内存消费者 | 有心跳但重启后依赖再次唤醒 | 迁入通用 Worker |
-| VIDEO_KEYFRAME_DISCOVERY | 手动/定时 | Worker | 有持久队列 | 接入统一 Dispatcher |
-| VIDEO_KEYFRAME_GENERATION | 手动/发现任务 | Worker | 租约、心跳、检查点较完整 | 保留领域能力，统一生命周期 |
-| ARCHIVE_IMPORT | 手动/API | Worker | 持久任务与检查点 | 接入统一 Dispatcher |
-| SCAN / LOCAL_DIRECTORY_IMPORT | 手动 | Next.js/服务层 | 部分 SystemJob 状态 | 分阶段迁移 |
-| MIGRATION / PENDING_REPLACE | 手动 | Next.js/服务层 | 领域级互斥和恢复 | 分阶段迁移 |
-| SCAN_RUN_RETENTION_CLEANUP | 定时 | Next.js IIFE | 可重跑 | 迁入 Worker |
-| TRIGGER_LOG_RETENTION_CLEANUP | 定时 | Next.js IIFE | 可重跑 | 迁入 Worker |
-| DERIVED_MEDIA_GC | 当前隐含在生成任务中 | Next.js/服务层 | 无独立队列 | 新增增量 GC Executor |
+| 任务类型                         | 触发方式             | 当前执行位置       | 持久恢复能力               | 目标处理                       |
+| -------------------------------- | -------------------- | ------------------ | -------------------------- | ------------------------------ |
+| REFILL_META_SOURCE               | 手动                 | Next.js            | 无完整租约                 | 迁入通用 Worker                |
+| MEDIA_DERIVED_TAG_SYNC           | 手动                 | Next.js            | 无完整租约                 | 迁入通用 Worker                |
+| WEBP_ANIMATION_SCAN              | 手动/定时            | Next.js IIFE       | 重启可能滞留               | 迁入通用 Worker                |
+| VIDEO_MEDIA_PROBE                | 手动/定时            | Next.js IIFE       | 重启可能滞留               | 拆成工作流并迁入 Worker        |
+| VIDEO_POSTER_GENERATION          | 探测后串行调用       | Next.js IIFE       | 领域状态部分可恢复         | 独立 Executor，不再每次全量 GC |
+| VIDEO_CHAPTER_PREVIEW_GENERATION | 手动/定时            | Next.js IIFE       | 重启可能滞留               | 迁入通用 Worker                |
+| VIDEO_STREAMING_OPTIMIZATION     | 手动                 | Next.js 内存消费者 | 有心跳但重启后依赖再次唤醒 | 迁入通用 Worker                |
+| VIDEO_KEYFRAME_DISCOVERY         | 手动/定时            | Worker             | 有持久队列                 | 接入统一 Dispatcher            |
+| VIDEO_KEYFRAME_GENERATION        | 手动/发现任务        | Worker             | 租约、心跳、检查点较完整   | 保留领域能力，统一生命周期     |
+| ARCHIVE_IMPORT                   | 手动/API             | Worker             | 持久任务与检查点           | 接入统一 Dispatcher            |
+| SCAN / LOCAL_DIRECTORY_IMPORT    | 手动                 | Next.js/服务层     | 部分 SystemJob 状态        | 分阶段迁移                     |
+| MIGRATION / PENDING_REPLACE      | 手动                 | Next.js/服务层     | 领域级互斥和恢复           | 分阶段迁移                     |
+| SCAN_RUN_RETENTION_CLEANUP       | 定时                 | Next.js IIFE       | 可重跑                     | 迁入 Worker                    |
+| TRIGGER_LOG_RETENTION_CLEANUP    | 定时                 | Next.js IIFE       | 可重跑                     | 迁入 Worker                    |
+| DERIVED_MEDIA_GC                 | 当前隐含在生成任务中 | Next.js/服务层     | 无独立队列                 | 新增增量 GC Executor           |
 
 ## 4. 现状问题与优先级
 
@@ -127,7 +127,7 @@ flowchart LR
 
 ## 5. 目标架构
 
-~~~mermaid
+```mermaid
 flowchart TB
   subgraph Clients["控制面"]
     UI["Admin Tasks UI"]
@@ -178,23 +178,23 @@ flowchart TB
   Executors --> DomainServices
   DomainServices --> Domain
   DomainServices --> GC
-~~~
+```
 
 ### 5.1 组件职责
 
-| 组件 | 只负责 | 不负责 |
-| --- | --- | --- |
-| Admin UI | 展示、过滤、配置、提交控制命令 | 推断后端状态、执行任务 |
-| Next.js Router | 鉴权、Zod 校验、调用 Command/Query Service | 直接运行 FFmpeg、扫描目录或循环处理数据 |
-| Task Definition Registry | 任务元数据、输入 Schema、默认优先级、超时、重试和 Executor 映射 | 保存运行状态 |
-| Schedule Materializer | 在每日窗口开始时幂等创建任务实例、窗口结束时跳过未开始任务 | 调用业务 Executor |
-| Job Command Service | 入队、取消、暂停、恢复、重试 | 执行业务 |
-| Job Query Service | 列表、详情、事件、统计和 Worker 健康状态 | 修改任务 |
-| Worker Presence | 进程启动/就绪/降级/停机状态与空闲心跳 | 代替任务租约或允许任务提交 |
-| Central Dispatcher | 领取一个任务、持有全局租约、调用 Executor | 包含具体业务逻辑 |
-| Job Lifecycle | 心跳、事件、进度节流、状态机、CAS 终态、重试恢复 | 领域数据处理 |
-| Executor | 一个任务类型的薄适配器 | 重复实现队列和日志框架 |
-| Domain Service | 探测、扫描、生成、归档等领域算法 | 决定全局调度 |
+| 组件                     | 只负责                                                          | 不负责                                  |
+| ------------------------ | --------------------------------------------------------------- | --------------------------------------- |
+| Admin UI                 | 展示、过滤、配置、提交控制命令                                  | 推断后端状态、执行任务                  |
+| Next.js Router           | 鉴权、Zod 校验、调用 Command/Query Service                      | 直接运行 FFmpeg、扫描目录或循环处理数据 |
+| Task Definition Registry | 任务元数据、输入 Schema、默认优先级、超时、重试和 Executor 映射 | 保存运行状态                            |
+| Schedule Materializer    | 在每日窗口开始时幂等创建任务实例、窗口结束时跳过未开始任务      | 调用业务 Executor                       |
+| Job Command Service      | 入队、取消、暂停、恢复、重试                                    | 执行业务                                |
+| Job Query Service        | 列表、详情、事件、统计和 Worker 健康状态                        | 修改任务                                |
+| Worker Presence          | 进程启动/就绪/降级/停机状态与空闲心跳                           | 代替任务租约或允许任务提交              |
+| Central Dispatcher       | 领取一个任务、持有全局租约、调用 Executor                       | 包含具体业务逻辑                        |
+| Job Lifecycle            | 心跳、事件、进度节流、状态机、CAS 终态、重试恢复                | 领域数据处理                            |
+| Executor                 | 一个任务类型的薄适配器                                          | 重复实现队列和日志框架                  |
+| Domain Service           | 探测、扫描、生成、归档等领域算法                                | 决定全局调度                            |
 
 ### 5.2 Worker 代码与容器边界
 
@@ -207,7 +207,7 @@ flowchart TB
 
 目标依赖图：
 
-~~~mermaid
+```mermaid
 flowchart TB
   Next["@pixishelf/next<br/>UI / API / admin auth"]
   Worker["@pixishelf/worker<br/>dispatcher / executors"]
@@ -226,17 +226,17 @@ flowchart TB
   Runtime --> DB
   Next -. forbidden .-> Worker
   Worker -. forbidden .-> Next
-~~~
+```
 
 包职责：
 
-| 包 | 内容 | 约束 |
-| --- | --- | --- |
-| @pixishelf/db | Prisma Schema、migrations、生成 Client | 移动目录不改变表名、列名和既有 migration 历史 |
-| @pixishelf/job-contracts | 任务类型、状态、Payload Schema、DTO、错误码 | 不依赖 Next.js、React、Prisma 和文件系统 |
-| @pixishelf/job-runtime | claim、租约、心跳、CAS、事件和恢复 | 不包含视频、扫描、归档等具体业务 |
-| @pixishelf/worker | Dispatcher、Executor Registry 和后台领域执行器 | 独立 tsconfig/package/container；不从 @pixishelf/next 导入 |
-| @pixishelf/next | UI、adminProcedure、任务入队和查询 | 不直接访问媒体写目录或启动长进程 |
+| 包                       | 内容                                           | 约束                                                       |
+| ------------------------ | ---------------------------------------------- | ---------------------------------------------------------- |
+| @pixishelf/db            | Prisma Schema、migrations、生成 Client         | 移动目录不改变表名、列名和既有 migration 历史              |
+| @pixishelf/job-contracts | 任务类型、状态、Payload Schema、DTO、错误码    | 不依赖 Next.js、React、Prisma 和文件系统                   |
+| @pixishelf/job-runtime   | claim、租约、心跳、CAS、事件和恢复             | 不包含视频、扫描、归档等具体业务                           |
+| @pixishelf/worker        | Dispatcher、Executor Registry 和后台领域执行器 | 独立 tsconfig/package/container；不从 @pixishelf/next 导入 |
+| @pixishelf/next          | UI、adminProcedure、任务入队和查询             | 不直接访问媒体写目录或启动长进程                           |
 
 拆分采用同一 pnpm monorepo，不拆成独立 Git 仓库。这样既能独立部署，又能原子修改数据库契约、任务协议和调用方。
 
@@ -264,7 +264,7 @@ Phase 2 先完成四个 package、Prisma ownership、WorkerInstance 心跳、启
 
 不在整个任务期间持有 PostgreSQL 事务锁或 advisory session lock。长锁会占用连接，并在连接池切换时产生不可控行为。
 
-~~~mermaid
+```mermaid
 sequenceDiagram
   participant W as Worker
   participant DB as PostgreSQL
@@ -280,7 +280,7 @@ sequenceDiagram
   end
   E-->>W: result
   W->>DB: CAS complete + event + release lease
-~~~
+```
 
 ### 5.4 调度窗口、优先级与老化
 
@@ -305,11 +305,11 @@ sequenceDiagram
 
 有效优先级采用缓存老化：
 
-effectivePriority = max(0, queuePriority - floor(waitMinutes / 30))
+effectivePriority = max(priorityBandFloor, queuePriority - floor(max(0, waitMinutes) / 30))
 
-Dispatcher 每次 claim 前只更新一小批候选任务的 effectivePriority，避免全表更新。手动任务使用更高优先级带，但仍通过同一排序和全局执行槽。
+`priorityBandFloor` 对 MANUAL/RETRY 为 0，对 SCHEDULE/SYSTEM 为 100。老化不会让自动任务跨入手动优先级带。Dispatcher 每次 claim 前最多更新 200 个当前可领取且 Worker 支持的候选任务，避免全表更新；所有任务仍通过同一排序和全局执行槽。
 
-~~~mermaid
+```mermaid
 flowchart TD
   Tick["scheduler tick"] --> Window{"00:00 <= now < 08:00?"}
   Window -- No --> Expire["将过期自动实例标记 SKIPPED"]
@@ -321,11 +321,11 @@ flowchart TD
   Slot -- Yes --> Claim["按有效优先级领取 1 个"]
   Claim --> Run["RUNNING"]
   Run --> Finish["完成 / 失败 / 取消 / 重试"]
-~~~
+```
 
 ### 5.5 状态机
 
-~~~mermaid
+```mermaid
 stateDiagram-v2
   [*] --> PENDING
   PENDING --> RUNNING: claim
@@ -343,7 +343,7 @@ stateDiagram-v2
   CANCELLING --> CANCELLED: executor stopped
   RUNNING --> PENDING: expired lease and attempts remain
   RUNNING --> FAILED: expired lease and attempts exhausted
-~~~
+```
 
 任务终态为 COMPLETED、FAILED、CANCELLED、SKIPPED。终态不可被普通进度更新覆盖。
 
@@ -355,7 +355,7 @@ stateDiagram-v2
 
 ### 6.2 视频维护流水线
 
-~~~mermaid
+```mermaid
 flowchart LR
   Parent["VIDEO_MEDIA_MAINTENANCE<br/>parent job"] --> Classify["CLASSIFY_UNKNOWN_MEDIA"]
   Classify --> Probe["VIDEO_MEDIA_PROBE"]
@@ -364,7 +364,7 @@ flowchart LR
   Discovery --> Keyframes["VIDEO_KEYFRAME_GENERATION"]
   Poster -. old reference .-> GC["DERIVED_MEDIA_GC"]
   Keyframes -. old generation .-> GC
-~~~
+```
 
 规则：
 
@@ -378,18 +378,18 @@ flowchart LR
 
 全局并发 1 已阻止后台任务相互并行，但仍记录资源范围，作为审计、未来扩容和 API 直接写入保护。
 
-| 任务类别 | 数据库 | 原始媒体目录 | 派生媒体目录 | 网络 | 外部进程 | 关系 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 元数据补全/标签同步 | 读写 | 只读或不访问 | 不访问 | 否 | 否 | 可重试、幂等 |
-| WebP 动画识别 | 读写 | 只读 | 不访问 | 否 | Sharp | 与扫描共享媒体快照 |
-| 视频探测 | 读写 | 只读 | 不访问 | 否 | ffprobe | 为封面/关键帧提供元数据 |
-| 视频封面 | 读写 | 只读 | 读写 | 否 | ffmpeg | 替换引用时写入 GC |
-| 章节预览 | 读写 | 只读 | 读写 | 否 | ffmpeg | 源指纹变化后重建 |
-| 代表帧 | 读写 | 只读 | 读写 | 否 | ffprobe/ffmpeg | 保留 staging/published 语义 |
-| MP4 优化 | 读写 | 读写 | 不访问 | 否 | ffmpeg | 必须使用临时文件和原子替换 |
-| 归档导入 | 读写 | 读写 | 可选 | 是 | 可选 | 保留 staging/revision 发布 |
-| 扫描/本地导入 | 读写 | 读写 | 不访问 | 否 | 可选 | 与媒体根写操作互斥 |
-| GC | 读写 | 不访问 | 删除 | 否 | 否 | 删除前再次验证无引用 |
+| 任务类别            | 数据库 | 原始媒体目录 | 派生媒体目录 | 网络 | 外部进程       | 关系                        |
+| ------------------- | ------ | ------------ | ------------ | ---- | -------------- | --------------------------- |
+| 元数据补全/标签同步 | 读写   | 只读或不访问 | 不访问       | 否   | 否             | 可重试、幂等                |
+| WebP 动画识别       | 读写   | 只读         | 不访问       | 否   | Sharp          | 与扫描共享媒体快照          |
+| 视频探测            | 读写   | 只读         | 不访问       | 否   | ffprobe        | 为封面/关键帧提供元数据     |
+| 视频封面            | 读写   | 只读         | 读写         | 否   | ffmpeg         | 替换引用时写入 GC           |
+| 章节预览            | 读写   | 只读         | 读写         | 否   | ffmpeg         | 源指纹变化后重建            |
+| 代表帧              | 读写   | 只读         | 读写         | 否   | ffprobe/ffmpeg | 保留 staging/published 语义 |
+| MP4 优化            | 读写   | 读写         | 不访问       | 否   | ffmpeg         | 必须使用临时文件和原子替换  |
+| 归档导入            | 读写   | 读写         | 可选         | 是   | 可选           | 保留 staging/revision 发布  |
+| 扫描/本地导入       | 读写   | 读写         | 不访问       | 否   | 可选           | 与媒体根写操作互斥          |
+| GC                  | 读写   | 不访问       | 删除         | 否   | 否             | 删除前再次验证无引用        |
 
 ## 7. 派生媒体 GC
 
@@ -414,11 +414,11 @@ flowchart LR
 
 ### 8.1 三层数据
 
-| 层 | 内容 | 消费者 | 保留 |
-| --- | --- | --- | --- |
-| SystemJob | 当前状态、汇总进度、租约、结果 | 列表、Dispatcher | 365 天 |
-| SystemJobEvent | 状态变化、阶段、节流进度、重试、告警 | 任务详情时间线、审计 | 90 天 |
-| stdout JSON log | 结构化上下文、错误栈、运行耗时 | Docker/运维 | 10 MB × 5/容器 |
+| 层              | 内容                                 | 消费者               | 保留           |
+| --------------- | ------------------------------------ | -------------------- | -------------- |
+| SystemJob       | 当前状态、汇总进度、租约、结果       | 列表、Dispatcher     | 365 天         |
+| SystemJobEvent  | 状态变化、阶段、节流进度、重试、告警 | 任务详情时间线、审计 | 90 天          |
+| stdout JSON log | 结构化上下文、错误栈、运行耗时       | Docker/运维          | 10 MB × 5/容器 |
 
 事件和日志都必须包含 jobId、taskType、attempt、workerId、stage 和 event。日志额外保留错误栈；数据库事件只保存适合界面展示的已截断信息。
 
@@ -444,7 +444,7 @@ flowchart LR
 
 建议目录：
 
-~~~text
+```text
 app/admin/tasks/
   page.tsx
   _components/
@@ -466,7 +466,7 @@ app/admin/tasks/
   _lib/
     task-view-model.ts
     task-result-formatters.ts
-~~~
+```
 
 拆分原则：
 
@@ -479,7 +479,7 @@ app/admin/tasks/
 
 ## 10. 后端建议目录
 
-~~~text
+```text
 services/background-jobs/
   task-registry.ts
   job-command-service.ts
@@ -499,7 +499,7 @@ services/background-jobs/
     video-keyframe-executor.ts
     archive-import-executor.ts
     derived-media-gc-executor.ts
-~~~
+```
 
 迁移期间 Executor 只适配现有服务，不复制领域实现。例如 video-keyframe-service.ts 继续拥有代表帧策略，Executor 只把统一 JobContext 转换成它需要的回调。
 

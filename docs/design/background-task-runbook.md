@@ -5,24 +5,24 @@
 
 ## 1. 目标运行基线
 
-| 项目 | 目标值 |
-| --- | --- |
-| Worker 服务 | pixishelf-worker，初期可保留 archive-worker 服务名 |
-| Worker 副本数 | 1 |
-| 全局后台并发 | 1，代码和数据库双重保证 |
-| 自动任务时区 | Asia/Shanghai |
-| 自动运行窗口 | 00:00–08:00 |
-| 手动任务 | 可在窗口外运行；不抢占当前任务 |
-| 心跳间隔 | 30 秒 |
-| 租约长度 | 120 秒 |
-| 默认最大 attempts | 3，可按任务覆盖 |
-| 事件保留 | 90 天 |
-| 任务汇总保留 | 365 天 |
-| 容器日志 | stdout JSON，10 MB × 5 |
+| 项目              | 目标值                                             |
+| ----------------- | -------------------------------------------------- |
+| Worker 服务       | pixishelf-worker，初期可保留 archive-worker 服务名 |
+| Worker 副本数     | 1                                                  |
+| 全局后台并发      | 1，代码和数据库双重保证                            |
+| 自动任务时区      | Asia/Shanghai                                      |
+| 自动运行窗口      | 00:00–08:00                                        |
+| 手动任务          | 可在窗口外运行；不抢占当前任务                     |
+| 心跳间隔          | 30 秒                                              |
+| 租约长度          | 120 秒                                             |
+| 默认最大 attempts | 3，可按任务覆盖                                    |
+| 事件保留          | 90 天                                              |
+| 任务汇总保留      | 365 天                                             |
+| 容器日志          | stdout JSON，10 MB × 5                             |
 
 ## 2. 每日运行流程
 
-~~~mermaid
+```mermaid
 sequenceDiagram
   participant S as scheduler
   participant A as Next.js API
@@ -44,7 +44,7 @@ sequenceDiagram
   end
   S->>A: tick at or after 08:00
   A->>DB: expire remaining scheduled jobs as SKIPPED
-~~~
+```
 
 计划任务的“触发成功”表示实例已持久化，不表示已经开始。后台页面必须分别展示排队时间、开始时间和结束时间。
 
@@ -62,16 +62,16 @@ sequenceDiagram
 
 ### 3.2 页面状态
 
-| 状态 | 页面行为 |
-| --- | --- |
-| Worker healthy | 显示最近心跳和当前实例 |
-| Worker unavailable | 明确告警；仍允许入队，但提示不会立即执行 |
-| PENDING | 显示队列位置、等待时长、deadline |
-| RUNNING | 自适应轮询并显示事件 |
-| RETRY_WAIT | 显示错误码和下次可运行时间 |
-| PAUSING/CANCELLING | 禁止重复操作，显示等待 Executor 响应 |
-| SKIPPED | 显示 WINDOW_EXPIRED 等原因，不使用“失败”文案 |
-| FAILED | 显示可操作错误摘要、attempt 和“创建重试任务” |
+| 状态               | 页面行为                                     |
+| ------------------ | -------------------------------------------- |
+| Worker healthy     | 显示最近心跳和当前实例                       |
+| Worker unavailable | 明确告警；仍允许入队，但提示不会立即执行     |
+| PENDING            | 显示队列位置、等待时长、deadline             |
+| RUNNING            | 自适应轮询并显示事件                         |
+| RETRY_WAIT         | 显示错误码和下次可运行时间                   |
+| PAUSING/CANCELLING | 禁止重复操作，显示等待 Executor 响应         |
+| SKIPPED            | 显示 WINDOW_EXPIRED 等原因，不使用“失败”文案 |
+| FAILED             | 显示可操作错误摘要、attempt 和“创建重试任务” |
 
 ### 3.3 前端拆分顺序
 
@@ -88,7 +88,7 @@ sequenceDiagram
 
 每个后台任务实现统一 Executor：
 
-~~~ts
+```ts
 interface JobExecutor<TPayload, TResult> {
   type: string
   payloadSchema: ZodType<TPayload>
@@ -106,7 +106,7 @@ interface JobContext<TPayload> {
   emitWarning(code: string, message: string, data?: object): Promise<void>
   checkpoint(data: object): Promise<void>
 }
-~~~
+```
 
 约束：
 
@@ -124,7 +124,7 @@ interface JobContext<TPayload> {
 
 每条 Worker info/warn/error 日志至少包含：
 
-~~~text
+```text
 timestamp
 level
 service
@@ -135,7 +135,7 @@ attempt
 workerId
 stage
 durationMs
-~~~
+```
 
 进度类日志可以增加 processedCount、totalCount、progress。错误日志增加 errorCode 和 stack；不得写入 Token、Cookie、密码、完整环境变量或未脱敏 URL。
 
@@ -170,13 +170,13 @@ durationMs
 
 生产环境优先输出 stdout，由 Docker json-file 负责轮转：
 
-~~~yaml
+```yaml
 logging:
   driver: json-file
   options:
     max-size: 10m
-    max-file: "5"
-~~~
+    max-file: '5'
+```
 
 app、pixishelf-worker 和 scheduler 使用相同上限。默认 Logger 在生产输出 JSON 且不使用 ANSI colorize；开发环境可以保留易读格式。
 
@@ -291,16 +291,16 @@ app、pixishelf-worker 和 scheduler 使用相同上限。默认 Logger 在生�
 
 ## 8. 管理操作语义
 
-| 操作 | 语义 |
-| --- | --- |
-| 手动执行 | 创建新的 MANUAL SystemJob；不修改当天自动物化标记 |
-| 取消 PENDING | 直接进入 CANCELLED |
-| 取消 RUNNING | 进入 CANCELLING；Executor 清理后确认 CANCELLED |
-| 暂停 PENDING | 进入 PAUSED |
-| 暂停 RUNNING | 进入 PAUSING；只有支持检查点的 Executor 才开放 |
-| 恢复 PAUSED | 回到 PENDING，重新参与全局排序 |
-| 重试 FAILED | 创建新任务，保留旧任务终态和事件 |
-| 提升优先级 | 只影响下一次 claim，不抢占当前任务 |
+| 操作               | 语义                                               |
+| ------------------ | -------------------------------------------------- |
+| 手动执行           | 创建新的 MANUAL SystemJob；不修改当天自动物化标记  |
+| 取消 PENDING       | 直接进入 CANCELLED                                 |
+| 取消 RUNNING       | 进入 CANCELLING；Executor 清理后确认 CANCELLED     |
+| 暂停 PENDING       | 进入 PAUSED                                        |
+| 暂停 RUNNING       | 进入 PAUSING；只有支持检查点的 Executor 才开放     |
+| 恢复 PAUSED        | 回到 PENDING，重新参与全局排序                     |
+| 重试 FAILED        | 创建新任务，保留旧任务终态和事件                   |
+| 提升优先级         | 只影响下一次 claim，不抢占当前任务                 |
 | 禁用 ScheduledTask | 不再物化未来实例；已存在实例按管理员选择取消或保留 |
 
 不支持检查点的任务不展示“暂停”，只提供取消。取消不是立即强杀；UI 必须展示中间态。
@@ -337,6 +337,8 @@ app、pixishelf-worker 和 scheduler 使用相同上限。默认 Logger 在生�
 验收：不改变任务执行行为；Worker 镜像不复制 Next.js 包；DB 包可独立 generate/validate/typecheck/test，Contracts/Runtime/Worker 可独立 typecheck/test/build；数据库 migration status 无漂移；空闲心跳与停机状态可验证。
 
 ### Phase 3：统一 Lifecycle、API 和 Central Worker
+
+Phase 3 先以默认关闭的双开关交付内核：`CENTRAL_DISPATCHER_CUTOVER_ENABLED=false` 保持旧控制面行为，`WORKER_DISPATCH_ENABLED=false` 禁止新 Worker claim。只有本节列出的首批 Executor 已注册、旧 archive-worker 已停止、迁移与并发门禁通过后，才可在同一次部署中同时开启两个开关；禁止只开启其中一个形成双消费或无人消费。
 
 - 实现 job-command-service、job-query-service、job-lifecycle 和事件服务。
 - 所有新状态变更使用 workerId + attempt + leaseToken CAS。
@@ -447,29 +449,29 @@ app、pixishelf-worker 和 scheduler 使用相同上限。默认 Logger 在生�
 
 数据库与 Web 包从窄到宽执行：
 
-~~~powershell
+```powershell
 pnpm --filter @pixishelf/db db:generate
 pnpm --filter @pixishelf/db db:validate
 pnpm --filter @pixishelf/db test
 pnpm --filter @pixishelf/next lint
 pnpm --filter @pixishelf/next test
 pnpm --filter @pixishelf/next build
-~~~
+```
 
 Worker 包执行：
 
-~~~powershell
+```powershell
 pnpm --filter @pixishelf/worker... typecheck
 pnpm --filter @pixishelf/worker... test
 pnpm --filter @pixishelf/worker... build
 docker build -f build/worker.Dockerfile --target production -t pixishelf-worker .
-~~~
+```
 
 生产 build 按仓库约定使用允许文件系统/子进程的执行环境。最后执行：
 
-~~~powershell
+```powershell
 rg --files packages/pixishelf | rg '[A-Z]'
-~~~
+```
 
 确保没有引入违反 kebab-case 规则的路径。
 
@@ -479,19 +481,19 @@ rg --files packages/pixishelf | rg '[A-Z]'
 
 ### 11.1 旧数据兼容结论
 
-| 旧数据 | 升级处理 | 风险 |
-| --- | --- | --- |
-| Artwork、Image、Artist、Tag | 原样使用 | 无表名/主键变更 |
-| 已完成的视频探测/封面 | 原样使用现有字段与 posterPath | 不批量重探测、不重新生成 |
-| 已完成章节预览 | 原样使用 previewPath | 不移动文件 |
-| PUBLISHED 代表帧 | 原样使用 set/frame/path | 不重新发布 |
-| 已发布 ArchiveRevision/manifest | 原样使用 | 不重建归档 |
-| 终态 SystemJob | 保留，标记 LEGACY + version 0 | 新 Worker不领取，事件时间线为空 |
-| ScheduledTask | 保留 enabled/priority/config | time 被全局窗口替代 |
-| 原始媒体卷 | 挂载到相同容器路径 | 不搬迁、不改名 |
-| derived-media 卷 | 挂载到相同容器路径 | 首次 GC 只 dry-run |
+| 旧数据                          | 升级处理                      | 风险                            |
+| ------------------------------- | ----------------------------- | ------------------------------- |
+| Artwork、Image、Artist、Tag     | 原样使用                      | 无表名/主键变更                 |
+| 已完成的视频探测/封面           | 原样使用现有字段与 posterPath | 不批量重探测、不重新生成        |
+| 已完成章节预览                  | 原样使用 previewPath          | 不移动文件                      |
+| PUBLISHED 代表帧                | 原样使用 set/frame/path       | 不重新发布                      |
+| 已发布 ArchiveRevision/manifest | 原样使用                      | 不重建归档                      |
+| 终态 SystemJob                  | 保留，标记 LEGACY + version 0 | 新 Worker不领取，事件时间线为空 |
+| ScheduledTask                   | 保留 enabled/priority/config  | time 被全局窗口替代             |
+| 原始媒体卷                      | 挂载到相同容器路径            | 不搬迁、不改名                  |
+| derived-media 卷                | 挂载到相同容器路径            | 首次 GC 只 dry-run              |
 
-拆出 @pixishelf/db 时必须携带原 migration 目录和 _prisma_migrations 历史。禁止创建新的空数据库、重新 baseline 或通过 db push 猜测生产差异。
+拆出 @pixishelf/db 时必须携带原 migration 目录和 \_prisma_migrations 历史。禁止创建新的空数据库、重新 baseline 或通过 db push 猜测生产差异。
 
 ### 11.2 停机前预检
 
@@ -505,19 +507,19 @@ rg --files packages/pixishelf | rg '[A-Z]'
 
 audit 必须确认以下阻断计数全部为 0：
 
-| 检查 | 阻断状态 |
-| --- | --- |
-| SystemJob | PENDING、RUNNING、PAUSING、PAUSED、CANCELLING |
-| ArchiveImport | PENDING、RUNNING、PAUSED、CANCELLING |
-| ArchiveImportItem | DOWNLOADING |
-| ScanRun | RUNNING |
-| PendingReplaceBatch | RUNNING、CANCELLING |
-| PendingReplaceItem | STAGING、BACKING_UP、SWAPPING、COMMITTING、ROLLING_BACK、RESTORING、RESTORE_SWAPPING |
-| 视频探测 | PROBING |
-| 视频封面 | GENERATING |
-| 章节预览 | GENERATING |
-| 代表帧 | GENERATING；无法与终态任务对应的 STAGING set |
-| 归档生命周期 | TRASHING、RESTORING |
+| 检查                | 阻断状态                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| SystemJob           | PENDING、RUNNING、PAUSING、PAUSED、CANCELLING                                        |
+| ArchiveImport       | PENDING、RUNNING、PAUSED、CANCELLING                                                 |
+| ArchiveImportItem   | DOWNLOADING                                                                          |
+| ScanRun             | RUNNING                                                                              |
+| PendingReplaceBatch | RUNNING、CANCELLING                                                                  |
+| PendingReplaceItem  | STAGING、BACKING_UP、SWAPPING、COMMITTING、ROLLING_BACK、RESTORING、RESTORE_SWAPPING |
+| 视频探测            | PROBING                                                                              |
+| 视频封面            | GENERATING                                                                           |
+| 章节预览            | GENERATING                                                                           |
+| 代表帧              | GENERATING；无法与终态任务对应的 STAGING set                                         |
+| 归档生命周期        | TRASHING、RESTORING                                                                  |
 
 audit 输出每类数量和有限 ID/数据库记录中的路径样例，并以非零退出码阻止部署。路径字段可能是绝对路径，audit 输出必须按部署日志的敏感信息权限保存，不能公开分发。它只能读取，不能自动“修复”状态。
 
@@ -551,7 +553,7 @@ pnpm background-task:cutover-audit --sample-limit 50
 
 ### 11.4 正式切换
 
-~~~mermaid
+```mermaid
 flowchart TD
   Disable["禁用 scheduler/手动提交"] --> Drain["等待旧任务全部终态"]
   Drain --> Shutdown["停止旧 App/Worker/scheduler 与全部写入者"]
@@ -565,7 +567,7 @@ flowchart TD
   ReadAudit --> Smoke["执行一个低风险手动任务"]
   Smoke --> Enable["下一个窗口前启用 scheduler"]
   Enable --> GCDry["首次 GC reconciliation dry-run"]
-~~~
+```
 
 具体顺序：
 

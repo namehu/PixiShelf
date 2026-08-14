@@ -3,6 +3,7 @@ import 'server-only'
 import path from 'path'
 import { PendingReplaceBatchStatus, PendingReplaceItemStatus, Prisma } from '@prisma/client'
 import logger from '@/lib/logger'
+import { assertLegacyBackgroundExecutionAllowed } from '@/services/background-task/dispatcher-cutover'
 import { prisma } from '@/lib/prisma'
 import {
   PENDING_REPLACE_HEARTBEAT_INTERVAL_MS,
@@ -241,6 +242,7 @@ export async function reorderPendingReplaceItem(input: { itemId: string; ordered
 }
 
 export async function startPendingReplaceBatch(input: { scanPath: string; batchId: string; itemIds?: string[] }) {
+  assertLegacyBackgroundExecutionAllowed('PENDING_REPLACE')
   const batch = await prisma.pendingReplaceBatch.findUnique({
     where: { id: input.batchId },
     include: { items: true }
@@ -353,6 +355,7 @@ export async function startPendingReplaceBatch(input: { scanPath: string; batchI
 }
 
 export async function recoverInterruptedPendingReplaceBatchById(scanPath: string, batchId: string) {
+  assertLegacyBackgroundExecutionAllowed('PENDING_REPLACE')
   return recoverInterruptedPendingReplaceBatch({
     scanPath,
     batchId,
@@ -374,6 +377,7 @@ export async function cancelPendingReplaceBatch(batchId: string) {
 }
 
 export async function restorePendingReplaceItemById(scanPath: string, itemId: string) {
+  assertLegacyBackgroundExecutionAllowed('PENDING_REPLACE')
   const item = await prisma.pendingReplaceItem.findUnique({ where: { id: itemId } })
   if (!item || item.status !== PendingReplaceItemStatus.SUCCESS) {
     throw new Error('该作品没有可恢复的旧媒体备份')
@@ -451,6 +455,7 @@ export async function restorePendingReplaceItemById(scanPath: string, itemId: st
 }
 
 export async function cleanupPendingReplaceBatchBackups(scanPath: string, batchId: string) {
+  assertLegacyBackgroundExecutionAllowed('PENDING_REPLACE')
   const batch = await prisma.pendingReplaceBatch.findUnique({ where: { id: batchId } })
   if (!batch) throw new Error('Pending replacement batch not found')
   const job = await JobService.createPendingReplaceJob(batchId, 'CLEANUP', async (tx, createdJob) => {

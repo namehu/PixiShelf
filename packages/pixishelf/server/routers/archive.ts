@@ -1,8 +1,12 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { authProcedure, router } from '@/server/trpc'
+import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import { archiveModule } from '@/services/archive/archive-module'
 import { ArchiveError } from '@/services/archive/errors'
+import {
+  assertLegacyBackgroundExecutionAllowed,
+  LegacyBackgroundExecutionDisabledError
+} from '@/services/background-task/dispatcher-cutover'
 
 const actionSchema = z.enum([
   'PAUSE',
@@ -17,16 +21,19 @@ const actionSchema = z.enum([
 const itemStatusFilterSchema = z.enum(['ALL', 'COMPLETED', 'FAILED', 'PENDING', 'DOWNLOADING'])
 
 /**
- * 归档任务路由：仅对已登录用户开放，并将归档服务层的领域错误统一转换为 tRPC 错误码。
+ * 归档任务路由：变更操作走显式管理员边界，并将归档服务层的领域错误统一转换为 tRPC 错误码。
  */
 export const archiveRouter = router({
-  preview: authProcedure
+  preview: adminProcedure
     .input(z.object({ url: z.url().max(2_048) }))
     .mutation(async ({ input }) => runArchiveOperation(() => archiveModule.preview(input.url))),
 
-  enqueue: authProcedure
+  enqueue: adminProcedure
     .input(z.object({ previewToken: z.string().min(1), quality: z.enum(['ORIGINAL', 'DISPLAY']) }))
-    .mutation(async ({ input }) => runArchiveOperation(() => archiveModule.enqueue(input))),
+    .mutation(async ({ input }) => {
+      assertLegacyArchiveExecutionAllowed('ARCHIVE_IMPORT_ENQUEUE')
+      return runArchiveOperation(() => archiveModule.enqueue(input))
+    }),
 
   getTask: authProcedure
     .input(z.object({ taskId: z.string().min(1) }))
@@ -53,14 +60,31 @@ export const archiveRouter = router({
     .input(z.object({ taskId: z.string().min(1) }))
     .query(async ({ input }) => runArchiveOperation(() => archiveModule.getTaskItemCounts(input.taskId))),
 
-  retryTaskItem: authProcedure
+  retryTaskItem: adminProcedure
     .input(z.object({ taskId: z.string().min(1), itemId: z.string().min(1) }))
-    .mutation(async ({ input }) => runArchiveOperation(() => archiveModule.retryTaskItem(input.taskId, input.itemId))),
+    .mutation(async ({ input }) => {
+      assertLegacyArchiveExecutionAllowed('ARCHIVE_IMPORT_RETRY')
+      return runArchiveOperation(() => archiveModule.retryTaskItem(input.taskId, input.itemId))
+    }),
 
-  action: authProcedure
+  action: adminProcedure
     .input(z.object({ taskId: z.string().min(1), action: actionSchema }))
-    .mutation(async ({ input }) => runArchiveOperation(() => archiveModule.requestAction(input.taskId, input.action)))
+    .mutation(async ({ input }) => {
+      assertLegacyArchiveExecutionAllowed('ARCHIVE_IMPORT_ACTION')
+      return runArchiveOperation(() => archiveModule.requestAction(input.taskId, input.action))
+    })
 })
+
+function assertLegacyArchiveExecutionAllowed(operation: string) {
+  try {
+    assertLegacyBackgroundExecutionAllowed(operation)
+  } catch (error) {
+    if (error instanceof LegacyBackgroundExecutionDisabledError) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
+    }
+    throw error
+  }
+}
 
 /**
  * 包装归档服务操作，避免将实现细节错误码直接透传给客户端。

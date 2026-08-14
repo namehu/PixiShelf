@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { assertLegacyBackgroundExecutionAllowed } from '@/services/background-task/dispatcher-cutover'
 import { JobStatus, Prisma } from '@prisma/client'
 
 const MEDIA_SCAN_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT']
@@ -29,6 +30,7 @@ async function createMutexJob(input: {
   targetPath?: string
   mode?: string
 }) {
+  assertLegacyBackgroundExecutionAllowed(input.type)
   // 使用事务内的会话级咨询锁保证“状态检查+创建”是原子操作，避免并发工作进程重复获取同一互斥队列。
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', input.advisoryLockId)
@@ -79,6 +81,7 @@ async function createMediaRootWriteJob(input: {
   mode?: string
   onCreated?: (tx: PendingReplaceJobSetupClient, job: { id: string }) => Promise<void>
 }) {
+  assertLegacyBackgroundExecutionAllowed(input.type)
   // 媒体根目录写操作互斥在同一锁下，覆盖扫描、导入、迁移、替换四类高危写任务，防止磁盘路径并发冲突与快照不一致。
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', MEDIA_SCAN_ADVISORY_LOCK_ID)
@@ -244,6 +247,7 @@ export async function getMediaScanActivity() {
  * 尝试创建一个元数据源补全任务
  */
 export async function createRefillMetaSourceJob() {
+  assertLegacyBackgroundExecutionAllowed('REFILL_META_SOURCE')
   return await prisma.$transaction(async (tx) => {
     // 检查是否有正在运行或正在取消的任务
     const activeJob = await tx.systemJob.findFirst({
@@ -272,6 +276,7 @@ export async function createRefillMetaSourceJob() {
  * 尝试创建一个媒体派生标签同步任务
  */
 export async function createMediaDerivedTagSyncJob() {
+  assertLegacyBackgroundExecutionAllowed('MEDIA_DERIVED_TAG_SYNC')
   return await prisma.$transaction(async (tx) => {
     const activeJob = await tx.systemJob.findFirst({
       where: {
@@ -338,6 +343,7 @@ export async function createVideoChapterPreviewGenerationJob() {
 }
 
 export async function enqueueVideoStreamingOptimizationJob(input: { imageId: number; path: string }) {
+  assertLegacyBackgroundExecutionAllowed(VIDEO_STREAMING_OPTIMIZATION_JOB_TYPE)
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', VIDEO_PROCESSING_ADVISORY_LOCK_ID)
 

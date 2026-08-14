@@ -1,5 +1,9 @@
 import { TRPCError } from '@trpc/server'
-import { authProcedure, router } from '@/server/trpc'
+import { adminProcedure, authProcedure, router } from '@/server/trpc'
+import {
+  assertLegacyBackgroundExecutionAllowed,
+  LegacyBackgroundExecutionDisabledError
+} from '@/services/background-task/dispatcher-cutover'
 import { saveLocalImportArtistMappingsSchema } from '@/schemas/local-import.dto'
 import { getScanPath, getSystemSettings } from '@/services/setting.service'
 import { discoverLocalImports, runLocalImport, saveLocalImportArtistMappings } from '@/services/local-import-service'
@@ -23,6 +27,17 @@ async function requireScanPath() {
   return scanPath
 }
 
+function assertLegacyLocalImportAllowed() {
+  try {
+    assertLegacyBackgroundExecutionAllowed('LOCAL_DIRECTORY_IMPORT')
+  } catch (error) {
+    if (error instanceof LegacyBackgroundExecutionDisabledError) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
+    }
+    throw error
+  }
+}
+
 /**
  * 本地目录导入路由：
  * - 预览仅扫描目录结构，不会触发写库；
@@ -35,11 +50,12 @@ export const localImportRouter = router({
     return discoverLocalImports({ scanPath })
   }),
 
-  saveMappings: authProcedure.input(saveLocalImportArtistMappingsSchema).mutation(async ({ input }) => {
+  saveMappings: adminProcedure.input(saveLocalImportArtistMappingsSchema).mutation(async ({ input }) => {
     return saveLocalImportArtistMappings(input)
   }),
 
-  start: authProcedure.mutation(async () => {
+  start: adminProcedure.mutation(async () => {
+    assertLegacyLocalImportAllowed()
     const scanPath = await requireScanPath()
     const systemSettings = await getSystemSettings()
     let job
@@ -112,7 +128,8 @@ export const localImportRouter = router({
     return { job, activity }
   }),
 
-  cancel: authProcedure.mutation(async () => {
+  cancel: adminProcedure.mutation(async () => {
+    assertLegacyLocalImportAllowed()
     const job = await JobService.getActiveLocalDirectoryImportJob()
     if (!job) return { success: false }
     await JobService.cancelJob(job.id)

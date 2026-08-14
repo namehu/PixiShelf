@@ -44,6 +44,9 @@ importers:
       '@pixishelf/db':
         specifier: workspace:*
         version: link:../pixishelf-db
+      '@pixishelf/job-contracts':
+        specifier: workspace:*
+        version: link:../pixishelf-job-contracts
       '@prisma/client':
         specifier: ^5.17.0
         version: 5.22.0(prisma@5.22.0)

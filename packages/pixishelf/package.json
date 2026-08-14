@@ -29,6 +29,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@microsoft/fetch-event-source": "^2.0.1",
     "@pixishelf/db": "workspace:*",
+    "@pixishelf/job-contracts": "workspace:*",
     "@prisma/client": "^5.17.0",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.10",

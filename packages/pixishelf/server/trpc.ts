@@ -42,3 +42,11 @@ export const authProcedure = publicProcedure.use(({ ctx, next }) => {
     }
   })
 })
+
+/**
+ * 管理面过程边界。
+ *
+ * PixiShelf 当前是单用户部署，已登录用户即是实例管理员；单独导出此过程，
+ * 让后台任务等敏感接口不会散落使用普通认证入口，也便于未来在这里集中增加角色校验。
+ */
+export const adminProcedure = authProcedure

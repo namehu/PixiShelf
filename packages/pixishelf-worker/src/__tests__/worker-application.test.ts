@@ -96,6 +96,143 @@ describe('WorkerApplication', () => {
     expect(state.snapshot()).toMatchObject({ live: false, ready: false, draining: true })
   })
 
+  it('prepares dispatch before READY, activates only after READY, and drains before STOPPING', async () => {
+    const state = new WorkerHealthState()
+    const order: string[] = []
+    const host = new WorkerHost({
+      identity: {
+        workerId: 'worker-dispatch',
+        serviceVersion: '1.0.0',
+        hostname: 'worker-host',
+        processId: 42,
+        capabilities: [{ jobType: 'SCAN', definitionVersions: [1] }]
+      },
+      presenceStore: {
+        write: async (record) => void order.push(`presence:${record.status}`)
+      },
+      healthState: state
+    })
+    const dispatcher = {
+      prepare: vi.fn(async () => void order.push('dispatcher:prepare')),
+      activate: vi.fn(() => {
+        expect(state.snapshot().ready).toBe(true)
+        order.push('dispatcher:activate')
+      }),
+      stop: vi.fn(async () => void order.push('dispatcher:stop'))
+    }
+    const application = new WorkerApplication({
+      healthState: state,
+      healthServer: {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        address: () => null
+      },
+      host,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      preflight: async () => void order.push('preflight'),
+      disconnectDatabase: vi.fn().mockResolvedValue(undefined),
+      dispatcher
+    })
+
+    await application.start()
+    expect(order).toEqual([
+      'presence:STARTING',
+      'preflight',
+      'dispatcher:prepare',
+      'presence:READY',
+      'dispatcher:activate'
+    ])
+    await application.shutdown('SIGTERM')
+    expect(order.indexOf('dispatcher:stop')).toBeLessThan(order.indexOf('presence:STOPPING'))
+  })
+
+  it('never records READY when dispatcher preparation fails', async () => {
+    const state = new WorkerHealthState()
+    const records: WorkerPresenceRecord[] = []
+    const host = new WorkerHost({
+      identity: {
+        workerId: 'worker-dispatch-failed',
+        serviceVersion: '1.0.0',
+        hostname: 'worker-host',
+        processId: 42,
+        capabilities: [{ jobType: 'SCAN', definitionVersions: [1] }]
+      },
+      presenceStore: { write: async (record) => void records.push(record) },
+      healthState: state
+    })
+    const application = new WorkerApplication({
+      healthState: state,
+      healthServer: {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        address: () => null
+      },
+      host,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      preflight: vi.fn().mockResolvedValue(undefined),
+      disconnectDatabase: vi.fn().mockResolvedValue(undefined),
+      dispatcher: {
+        prepare: vi.fn().mockRejectedValue(new Error('dispatcher configuration invalid')),
+        activate: vi.fn(),
+        stop: vi.fn().mockResolvedValue(undefined)
+      }
+    })
+
+    await expect(application.start()).rejects.toThrow('dispatcher configuration invalid')
+    expect(records.map(({ status }) => status)).toEqual(['STARTING', 'STOPPING'])
+    expect(state.snapshot().ready).toBe(false)
+  })
+
+  it('does not persist STOPPING or disconnect the database until dispatcher drain finishes', async () => {
+    const state = new WorkerHealthState()
+    const records: WorkerPresenceRecord[] = []
+    let releaseDrain: (() => void) | undefined
+    const drainGate = new Promise<void>((resolve) => {
+      releaseDrain = resolve
+    })
+    const host = new WorkerHost({
+      identity: {
+        workerId: 'worker-fatal-drain',
+        serviceVersion: '1.0.0',
+        hostname: 'worker-host',
+        processId: 42,
+        capabilities: [{ jobType: 'SCAN', definitionVersions: [1] }]
+      },
+      presenceStore: { write: async (record) => void records.push(record) },
+      healthState: state
+    })
+    const disconnectDatabase = vi.fn().mockResolvedValue(undefined)
+    const dispatcher = {
+      prepare: vi.fn().mockResolvedValue(undefined),
+      activate: vi.fn(),
+      stop: vi.fn(() => drainGate)
+    }
+    const application = new WorkerApplication({
+      healthState: state,
+      healthServer: {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        address: () => null
+      },
+      host,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      preflight: vi.fn().mockResolvedValue(undefined),
+      disconnectDatabase,
+      dispatcher
+    })
+    await application.start()
+
+    const stopping = application.shutdown('dispatcher-fatal')
+    await vi.waitFor(() => expect(dispatcher.stop).toHaveBeenCalledOnce())
+    expect(records.map(({ status }) => status)).toEqual(['STARTING', 'READY'])
+    expect(disconnectDatabase).not.toHaveBeenCalled()
+    releaseDrain?.()
+    await stopping
+
+    expect(records.map(({ status }) => status)).toEqual(['STARTING', 'READY', 'STOPPING'])
+    expect(disconnectDatabase).toHaveBeenCalledOnce()
+  })
+
   it('stops a host whose STARTING presence write finishes after shutdown begins', async () => {
     const state = new WorkerHealthState()
     const records: WorkerPresenceRecord[] = []

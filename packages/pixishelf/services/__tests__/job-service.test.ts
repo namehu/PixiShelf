@@ -28,10 +28,12 @@ import {
   claimNextVideoStreamingOptimizationJob,
   cancelVideoStreamingOptimizationJob,
   createLocalDirectoryImportJob,
+  createMediaDerivedTagSyncJob,
   createMigrationJob,
   createPendingReplaceJob,
   createScanJob,
   createScanRunRetentionCleanupJob,
+  createRefillMetaSourceJob,
   createTriggerLogRetentionCleanupJob,
   createVideoChapterPreviewGenerationJob,
   createVideoMediaProbeJob,
@@ -56,6 +58,7 @@ const tx = {
 
 describe('job locking and video optimization queue', () => {
   beforeEach(() => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
     vi.clearAllMocks()
     mocks.queryRaw.mockResolvedValue([{ pg_advisory_xact_lock: '' }])
     mocks.findFirst.mockResolvedValue(null)
@@ -68,6 +71,26 @@ describe('job locking and video optimization queue', () => {
     mocks.update.mockImplementation(({ where, data }) => Promise.resolve({ id: where.id, ...data }))
     mocks.updateMany.mockResolvedValue({ count: 1 })
     mocks.transaction.mockImplementation((callback) => callback(tx))
+  })
+
+  it.each([
+    ['scan', () => createScanJob()],
+    ['local import', () => createLocalDirectoryImportJob()],
+    ['pending replace', () => createPendingReplaceJob('batch-1')],
+    ['migration', () => createMigrationJob()],
+    ['refill metadata', () => createRefillMetaSourceJob()],
+    ['derived tag sync', () => createMediaDerivedTagSyncJob()],
+    ['animation scan', () => createWebpAnimationScanJob()],
+    ['media probe', () => createVideoMediaProbeJob()],
+    ['chapter preview', () => createVideoChapterPreviewGenerationJob()],
+    ['scan retention', () => createScanRunRetentionCleanupJob()],
+    ['trigger retention', () => createTriggerLogRetentionCleanupJob()],
+    ['stream optimization', () => enqueueVideoStreamingOptimizationJob({ imageId: 9, path: '/video.mp4' })]
+  ])('rejects legacy %s creation before database work after central cutover', async (_name, createLegacyJob) => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+
+    await expect(createLegacyJob()).rejects.toThrow('Legacy background execution is disabled')
+    expect(mocks.transaction).not.toHaveBeenCalled()
   })
 
   it('creates scan and local import jobs under the same advisory lock', async () => {
