@@ -170,6 +170,8 @@ export const artworkRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      // 变更图片顺序后会同步刷新多个 Next.js 缓存路径（详情页/列表/控制台），
+      // 以确保同一次重排对前端全局可见且无需等待分页刷新。
       try {
         const result = await reorderArtworkImages(input)
         revalidatePath(`/artworks/${input.artworkId}`)
@@ -190,30 +192,36 @@ export const artworkRouter = router({
       }
     }),
 
-  reprobeVideoMedia: authProcedure.input(z.object({ imageId: z.number().int().positive() })).mutation(async ({ input }) => {
-    const scanPath = await getScanPath()
-    if (!scanPath) {
-      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
-    }
+  // 仅在有扫描根目录时才能重探测视频元信息；服务内部不允许越权访问 scan root 外路径，
+  // 所以此处把“路径逃逸/非视频文件”等错误统一转为 BAD_REQUEST。
+  reprobeVideoMedia: authProcedure
+    .input(z.object({ imageId: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      const scanPath = await getScanPath()
+      if (!scanPath) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
+      }
 
-    try {
-      return await reprobeVideoMediaByImageId(input.imageId, scanPath)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
-      if (message === 'Image not found') {
-        throw new TRPCError({ code: 'NOT_FOUND', message })
+      try {
+        return await reprobeVideoMediaByImageId(input.imageId, scanPath)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        if (message === 'Image not found') {
+          throw new TRPCError({ code: 'NOT_FOUND', message })
+        }
+        if (message === 'Image is not a video' || message.startsWith('Path escapes scan root')) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message })
+        }
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
       }
-      if (message === 'Image is not a video' || message.startsWith('Path escapes scan root')) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message })
-      }
-      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
-    }
-  }),
+    }),
 
   /**
    * 获取上传路径
    */
   getUploadPath: authProcedure.input(z.number()).query(async ({ input }) => {
+    // 返回“相对路径”和“绝对路径”双重信息，便于前端拼接表单上传目标；
+    // 其中 targetRelDir 由作品元数据推导，若无法判定则直接拒绝，避免上传落到无效目录。
     const artwork = await getArtworkById(input)
     if (!artwork) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })

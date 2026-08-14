@@ -16,6 +16,9 @@ const actionSchema = z.enum([
 ])
 const itemStatusFilterSchema = z.enum(['ALL', 'COMPLETED', 'FAILED', 'PENDING', 'DOWNLOADING'])
 
+/**
+ * 归档任务路由：仅对已登录用户开放，并将归档服务层的领域错误统一转换为 tRPC 错误码。
+ */
 export const archiveRouter = router({
   preview: authProcedure
     .input(z.object({ url: z.url().max(2_048) }))
@@ -52,15 +55,22 @@ export const archiveRouter = router({
 
   retryTaskItem: authProcedure
     .input(z.object({ taskId: z.string().min(1), itemId: z.string().min(1) }))
-    .mutation(async ({ input }) =>
-      runArchiveOperation(() => archiveModule.retryTaskItem(input.taskId, input.itemId))
-    ),
+    .mutation(async ({ input }) => runArchiveOperation(() => archiveModule.retryTaskItem(input.taskId, input.itemId))),
 
   action: authProcedure
     .input(z.object({ taskId: z.string().min(1), action: actionSchema }))
     .mutation(async ({ input }) => runArchiveOperation(() => archiveModule.requestAction(input.taskId, input.action)))
 })
 
+/**
+ * 包装归档服务操作，避免将实现细节错误码直接透传给客户端。
+ *
+ * 约束说明：
+ * - INVALID_URL/UNSUPPORTED_PROVIDER/SSRF_BLOCKED 映射为 BAD_REQUEST
+ * - REMOTE_NOT_FOUND 映射为 NOT_FOUND
+ * - REMOTE_RATE_LIMITED 映射为 TOO_MANY_REQUESTS
+ * - 其他冲突/缺失状态映射为 PRECONDITION_FAILED
+ */
 async function runArchiveOperation<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation()

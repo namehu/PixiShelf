@@ -22,12 +22,16 @@ import {
 } from '@/services/pending-replace-service'
 
 async function requireScanPath() {
+  // 大部分替换动作依赖扫描根目录；未配置时返回前置条件失败，避免操作发生在错误路径下。
   const scanPath = await getScanPath()
   if (!scanPath) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
   return scanPath
 }
 
 function wrapPendingReplaceError(error: unknown): never {
+  // 服务抛错并非结构化时，按字符串规则进行分类映射：
+  // - 已存在进行中/未找到/状态不允许 -> 对应 CONFLICT/NOT_FOUND/PRECONDITION_FAILED
+  // - 其他错误默认 BAD_REQUEST，避免将内部异常直接泄露。
   const message = error instanceof Error ? error.message : 'Unknown error'
   if (message.includes('already in progress')) throw new TRPCError({ code: 'CONFLICT', message })
   if (message.includes('not found') || message.includes('未找到')) throw new TRPCError({ code: 'NOT_FOUND', message })

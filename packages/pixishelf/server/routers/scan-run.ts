@@ -4,6 +4,9 @@ import { authProcedure, router } from '@/server/trpc'
 import { getLatestScanRun, getScanRunDetail, listScanRuns } from '@/services/scan-run-service'
 
 export const scanRunRouter = router({
+  /**
+   * latest 仅返回最近一次扫描记录；list 支持可选分页，status 用于可选筛选扫描项状态。
+   */
   latest: authProcedure.query(async () => {
     return getLatestScanRun()
   }),

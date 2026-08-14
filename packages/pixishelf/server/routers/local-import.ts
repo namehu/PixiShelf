@@ -2,11 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { authProcedure, router } from '@/server/trpc'
 import { saveLocalImportArtistMappingsSchema } from '@/schemas/local-import.dto'
 import { getScanPath, getSystemSettings } from '@/services/setting.service'
-import {
-  discoverLocalImports,
-  runLocalImport,
-  saveLocalImportArtistMappings
-} from '@/services/local-import-service'
+import { discoverLocalImports, runLocalImport, saveLocalImportArtistMappings } from '@/services/local-import-service'
 import * as JobService from '@/services/job-service'
 import logger from '@/lib/logger'
 import { ScanRunMode, ScanRunType } from '@prisma/client'
@@ -19,6 +15,7 @@ import {
 } from '@/services/scan-run-service'
 
 async function requireScanPath() {
+  // 本地导入要求必须先有可用扫描根路径；未配置时直接阻断整个流程，避免写入到未知目录。
   const scanPath = await getScanPath()
   if (!scanPath) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
@@ -26,6 +23,12 @@ async function requireScanPath() {
   return scanPath
 }
 
+/**
+ * 本地目录导入路由：
+ * - 预览仅扫描目录结构，不会触发写库；
+ * - start 会创建本地导入作业并异步执行，返回 jobId 后立即返回；
+ * - 运行期间通过扫描任务记录与作业进度持久化每一步状态，便于前端轮询。
+ */
 export const localImportRouter = router({
   preview: authProcedure.query(async () => {
     const scanPath = await requireScanPath()
@@ -57,6 +60,7 @@ export const localImportRouter = router({
 
     void (async () => {
       try {
+        // 采用缓冲器批量记录扫描项，成功/失败路径都需要 flush，避免扫描被中断时丢失状态。
         const result = await runLocalImport({
           scanPath,
           defaultTagIds: systemSettings.local_import_default_tag_ids,
@@ -69,15 +73,12 @@ export const localImportRouter = router({
           },
           onProgress: async ({ current, total, artistDirectory, relativeDirectory, status }) => {
             const percentage = total > 0 ? Math.round(5 + (current / total) * 90) : 95
-            await JobService.updateProgress(
-              job.id,
-              percentage,
-              `${artistDirectory}/${relativeDirectory}: ${status}`
-            )
+            await JobService.updateProgress(job.id, percentage, `${artistDirectory}/${relativeDirectory}: ${status}`)
           }
         })
         await auditBuffer.flush()
         await JobService.completeJob(job.id, result)
+        // 导入结果摘要用于 scan run 历史页展示；错误信息最多保留前 5 条作为前端可读反馈。
         await completeScanRunSummary(scanRun.id, {
           totalArtworks: result.total,
           skippedArtworks: result.skipped,

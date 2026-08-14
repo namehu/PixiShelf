@@ -17,6 +17,8 @@ async function getTagManagementStats(): Promise<TagManagementStats> {
 
   const untranslatedTags = totalTags - translatedTags
   const translationRate = totalTags > 0 ? (translatedTags / totalTags) * 100 : 0
+  // 注意 totalTags 统计的是主记录条数，而 translatedTags 以 name_zh/name_en 非空为计数条件；
+  // untranslatedTags 与 translationRate 用于管理页概览，不参与分页查询条件。
 
   return {
     totalTags,

@@ -33,7 +33,14 @@ const videoKeyframeFilterSchema = z.object({
     .default(['MISSING', 'STALE', 'FAILED'])
 })
 
+/**
+ * 后台任务路由：主要承载异步作业触发与状态查询，不包含可直接返回最终结果的长耗时流程。
+ */
 export const jobRouter = router({
+  /**
+   * 启动元数据补全任务（Fire-and-forget）。
+   * 先检查活跃任务与 scanPath，有任务直接返回 CONFLICT；成功后立即返回 jobId，由服务端异步推进。
+   */
   startRefillMetaSource: authProcedure.mutation(async () => {
     // 1. 检查是否已有任务在运行
     const activeJob = await JobService.getActiveRefillMetaSourceJob()
@@ -104,6 +111,9 @@ export const jobRouter = router({
     return { success: false, message: 'No active job' }
   }),
 
+  /**
+   * 标签派生同步同样是异步作业；若存在进行中/待执行/取消中作业，返回 CONFLICT 避免并发执行导致的重复写入。
+   */
   startMediaDerivedTagSync: authProcedure.mutation(async () => {
     const activeJob = await JobService.getLatestMediaDerivedTagSyncJob()
     if (activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)) {
@@ -202,6 +212,7 @@ export const jobRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      // 通过 resolveVideoImageForReprobePath 校验路径可访问性（含是否为视频、是否在 scan root）后再重探测。
       const scanPath = await getScanPath()
       if (!scanPath) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
@@ -271,6 +282,7 @@ export const jobRouter = router({
       })
     )
     .query(async ({ input }) => {
+      // 去重 imageIds 后查询“每张图片最近一次任务”，确保前端即使带重复 id 也返回单行状态。
       return await JobService.getLatestVideoStreamingOptimizationJobsByImageIds([...new Set(input.imageIds)])
     }),
 
@@ -305,6 +317,10 @@ export const jobRouter = router({
       }
     }),
 
+  /**
+   * 批量触发 keyframe 时，未启用 previewOnly 且未传 imageIds 会在验证阶段直接拒绝；
+   * 否则透传到服务层构造触发策略（manual/force/previewOnly）。
+   */
   startVideoKeyframeBatch: authProcedure
     .input(
       z
@@ -334,6 +350,9 @@ export const jobRouter = router({
       })
     }),
 
+  /**
+   * keyframe 队列视图为纯查询 API，仅返回全局容量、活跃队列与最近任务。
+   */
   getVideoKeyframeQueue: authProcedure.query(() => listVideoKeyframeQueue()),
 
   getVideoKeyframeStatuses: authProcedure
@@ -396,6 +415,10 @@ export const jobRouter = router({
       return { success: true }
     }),
 
+  /**
+   * 触发调度任务接口会透传任务 key 到服务层；
+   * 常见失败分支为任务已运行（返回 CONFLICT）和环境依赖缺失（返回 PRECONDITION_FAILED）。
+   */
   triggerScheduledTaskNow: authProcedure
     .input(
       z.object({
