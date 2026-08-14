@@ -18,6 +18,7 @@ RUN apk add --no-cache openssl ffmpeg \
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/pixishelf-db/package.json ./packages/pixishelf-db/package.json
 COPY packages/pixishelf-job-contracts/package.json ./packages/pixishelf-job-contracts/package.json
+COPY packages/pixishelf-job-executors/package.json ./packages/pixishelf-job-executors/package.json
 COPY packages/pixishelf-job-runtime/package.json ./packages/pixishelf-job-runtime/package.json
 COPY packages/pixishelf-worker/package.json ./packages/pixishelf-worker/package.json
 
@@ -26,6 +27,7 @@ RUN --mount=type=cache,id=pnpm-worker,target=/pnpm/store \
 
 COPY packages/pixishelf-db ./packages/pixishelf-db
 COPY packages/pixishelf-job-contracts ./packages/pixishelf-job-contracts
+COPY packages/pixishelf-job-executors ./packages/pixishelf-job-executors
 COPY packages/pixishelf-job-runtime ./packages/pixishelf-job-runtime
 COPY packages/pixishelf-worker ./packages/pixishelf-worker
 

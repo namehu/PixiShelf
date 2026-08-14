@@ -18,6 +18,7 @@ RUN apk add --no-cache openssl ffmpeg \
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/pixishelf/package.json ./packages/pixishelf/package.json
 COPY packages/pixishelf-db/package.json ./packages/pixishelf-db/package.json
+COPY packages/pixishelf-job-contracts/package.json ./packages/pixishelf-job-contracts/package.json
 COPY packages/pixishelf-archive-worker/package.json ./packages/pixishelf-archive-worker/package.json
 
 RUN --mount=type=cache,id=pnpm-archive-worker,target=/pnpm/store \
@@ -25,9 +26,11 @@ RUN --mount=type=cache,id=pnpm-archive-worker,target=/pnpm/store \
 
 COPY packages/pixishelf ./packages/pixishelf
 COPY packages/pixishelf-db ./packages/pixishelf-db
+COPY packages/pixishelf-job-contracts ./packages/pixishelf-job-contracts
 COPY packages/pixishelf-archive-worker ./packages/pixishelf-archive-worker
 
 RUN pnpm --filter @pixishelf/db db:generate \
+    && pnpm --filter @pixishelf/job-contracts build \
     && pnpm --filter @pixishelf/archive-worker build \
     && pnpm --filter @pixishelf/archive-worker deploy --prod /archive-worker-runtime \
     && generated_client="$(find /workspace/node_modules/.pnpm -path '*/node_modules/.prisma/client' -type d -print -quit)" \

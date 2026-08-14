@@ -278,7 +278,7 @@ scheduler 主流程不需要因为新增任务而修改。
 3. 向 PostgreSQL `SystemJob` 持久队列加入逐视频的 `VIDEO_KEYFRAME_GENERATION` 任务。
 4. 达到自动队列 90 个位置的上限后停止，预留 10 个位置给人工任务。
 
-真正的 FFmpeg 抽帧不在 scheduler 请求或 Next.js 进程内执行，而由 `archive-worker` 容器中的独立 keyframe loop 单并发领取。该循环和归档下载循环共享进程宿主及退出信号，但使用独立任务类型、数据库领取锁、租约、心跳和恢复逻辑。
+真正的 FFmpeg 抽帧不在 scheduler 请求或 Next.js 进程内执行。旧版本由 `archive-worker` 中的 keyframe loop 领取；Central Dispatcher 切换后由独立 `pixishelf-worker` 的 `VIDEO_KEYFRAME_DISCOVERY` / `VIDEO_KEYFRAME_GENERATION` Executor 领取，并与所有后台任务共享全局单执行槽。迁移完成前新 Worker 暗启动且不 claim，避免新旧循环同时消费。
 
 ## 设计取舍
 

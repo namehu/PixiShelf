@@ -83,10 +83,7 @@ export async function resolveVideoKeyframeTarget(imageId: number, scanPath: stri
       mediaType: true,
       videoMetadata: {
         select: {
-          duration: true,
-          manualPosterTimestamp: true,
-          manualPosterSourceSize: true,
-          manualPosterSourceMtimeMs: true
+          duration: true
         }
       }
     }
@@ -261,23 +258,6 @@ export async function generateVideoKeyframes(options: {
   await verifySelectedKeyframeFiles(selected)
   throwIfAborted(options.signal)
 
-  const manualPosterTimestamp = target.videoMetadata?.manualPosterTimestamp
-  const manualPosterStale =
-    manualPosterTimestamp !== null &&
-    manualPosterTimestamp !== undefined &&
-    (target.videoMetadata?.manualPosterSourceSize !== target.fingerprint.size ||
-      target.videoMetadata?.manualPosterSourceMtimeMs !== target.fingerprint.mtimeMs)
-  if (manualPosterStale) {
-    await regenerateManualVideoPoster({
-      imageId: target.id,
-      scanPath: options.scanPath,
-      captureTime: manualPosterTimestamp,
-      expectedManualPosterTimestamp: manualPosterTimestamp,
-      ffmpegThreads: options.ffmpegThreads,
-      signal: options.signal
-    }).catch(() => undefined)
-    throwIfAborted(options.signal)
-  }
   const publishStat = await fs.stat(target.sourcePath)
   if (!sameSourceFingerprint(target.fingerprint, sourceFingerprintFromStat(publishStat))) {
     throw new Error('Source video changed before keyframe publication')

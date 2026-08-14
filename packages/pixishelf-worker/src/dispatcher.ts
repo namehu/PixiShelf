@@ -5,9 +5,11 @@ import type {
   EnqueuedChildJob,
   ExecutionContext,
   ExecutionFence,
-  ExecutionProgressUpdate
+  ExecutionProgressUpdate,
+  FencedExecutionTransaction,
+  QueueSqlExecutor
 } from '@pixishelf/job-runtime'
-import { JobExecutionFenceError } from '@pixishelf/job-runtime'
+import { JobExecutionFenceError, TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME } from '@pixishelf/job-runtime'
 import { ExecutorRegistry, parseJobExecutionOutcome, type JobExecutionOutcome } from './executor-registry.js'
 import type { WorkerLogger } from './logger.js'
 
@@ -27,6 +29,14 @@ export interface DispatcherQueuePort {
   updateProgress(input: ExecutionFence & ExecutionProgressUpdate): Promise<void>
   enqueueChild<TPayload>(fence: ExecutionFence, request: ChildJobRequest<TPayload>): Promise<EnqueuedChildJob>
   readExecutionControl(fence: ExecutionFence): Promise<ExecutionControl | null>
+  withFencedMutationTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+    fence: ExecutionFence,
+    operation: (transaction: TTransaction) => Promise<TResult>
+  ): Promise<TResult>
+  withFencedExecutionTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor>(
+    fence: ExecutionFence,
+    operation: (scope: FencedExecutionTransaction<TTransaction>) => Promise<void>
+  ): Promise<void>
   settle(fence: ExecutionFence, outcome: DispatcherSettlement): Promise<void>
 }
 
@@ -261,6 +271,9 @@ export class CentralDispatcher {
     const monitor = this.monitorExecution(fence, controller, leaseState)
     const logger = createExecutionLogger(this.options.logger, job)
     const progress = createProgressReporter(this.options.queue, fence, this.timing)
+    let fencedFinalizationStarted = false
+    let transactionallyFinalized = false
+    let fencedFinalizationError: unknown
     let outcome: JobExecutionOutcome
     this.options.logger.info('worker.job_started', {
       jobId: job.id,
@@ -275,6 +288,21 @@ export class CentralDispatcher {
       signal: controller.signal,
       progress,
       enqueueChild: (request) => this.options.queue.enqueueChild(fence, request),
+      mutateInTransaction: (operation) => this.options.queue.withFencedMutationTransaction(fence, operation),
+      finalizeInTransaction: async (operation) => {
+        if (fencedFinalizationStarted) {
+          throw new Error(`Execution ${job.id} already started fenced transaction finalization`)
+        }
+        fencedFinalizationStarted = true
+        try {
+          await this.options.queue.withFencedExecutionTransaction(fence, operation)
+          transactionallyFinalized = true
+          return TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+        } catch (error) {
+          fencedFinalizationError = error
+          throw error
+        }
+      },
       logger
     }
     const executorPromise = Promise.resolve()
@@ -314,7 +342,11 @@ export class CentralDispatcher {
                 errorCode: 'INTERNAL_ERROR',
                 error: executorResult.error instanceof Error ? executorResult.error.message : 'Unknown executor failure'
               }
-        if (controller.signal.aborted) outcome = outcomeForInterruption(controller.signal.reason)
+        if (transactionallyFinalized) {
+          outcome = TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+        } else if (controller.signal.aborted) {
+          outcome = outcomeForInterruption(controller.signal.reason)
+        }
       }
     } finally {
       controller.abort()
@@ -322,10 +354,34 @@ export class CentralDispatcher {
       this.currentController = null
     }
 
+    if (fencedFinalizationStarted && !transactionallyFinalized) {
+      if (fencedFinalizationError instanceof JobExecutionFenceError) {
+        this.options.logger.warn('worker.job_domain_finalization_fence_lost', {
+          jobId: job.id,
+          jobType: job.type,
+          attempt: job.attempt
+        })
+      } else {
+        const error = toError(fencedFinalizationError, `Domain transaction finalization failed for job ${job.id}`)
+        this.options.logger.error('worker.job_domain_finalization_failed', {
+          jobId: job.id,
+          jobType: job.type,
+          attempt: job.attempt,
+          error
+        })
+        this.raiseFatal(error)
+      }
+      // A domain-aware executor may already have mutated rows inside the fenced
+      // transaction before it failed. Never issue a second, generic settlement:
+      // the transaction rolled back and lease recovery remains the sole owner.
+      return
+    }
+
+    if (transactionallyFinalized) outcome = TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
     outcome = normalizeRetryOutcome(job, outcome)
 
-    let settled = false
-    if (!isLeaseLost(controller.signal.reason)) {
+    let settled = outcome.kind === 'transactionally-finalized'
+    if (!settled && !isLeaseLost(controller.signal.reason)) {
       const controlledOutcome = await this.applyFinalControl(fence, outcome, leaseState.expiresAt)
       if (controlledOutcome) {
         settled = await this.settleWithRetry(fence, controlledOutcome, leaseState.expiresAt)

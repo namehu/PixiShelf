@@ -11,14 +11,14 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "${POSTGRES_HOST_PORT:-5432}:5432"
+      - '${POSTGRES_HOST_PORT:-5432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - pixishelf-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
       interval: 30s
       timeout: 10s
       retries: 5
@@ -30,7 +30,7 @@ services:
     image: docker.io/dockernamehu/pixishelf:${IMAGE_TAG:-latest}
     container_name: pixishelf-app
     ports:
-      - "${PIXISHELF_HOST_PORT:-5430}:5430"   # Web 服务端口（Nginx）
+      - '${PIXISHELF_HOST_PORT:-5430}:5430' # Web 服务端口（Nginx）
     env_file:
       - .env
     environment:
@@ -42,8 +42,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
     volumes:
       # 挂载图片目录 - 根据实际需要调整路径
-      - "${PIXISHELF_DATA_PATH:-./data}:/app/data:${PIXISHELF_APP_DATA_MOUNT_MODE:-ro}"
-      - "${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/app/.local-data/derived-media"
+      - '${PIXISHELF_DATA_PATH:-./data}:/app/data:${PIXISHELF_APP_DATA_MOUNT_MODE:-ro}'
+      - '${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/app/.local-data/derived-media'
     networks:
       - pixishelf-network
     depends_on:
@@ -51,11 +51,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
     logging:
-      driver: "json-file"
+      driver: 'json-file'
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
 
+  # Transitional compatibility consumer. Keep this service active while the
+  # general Worker remains in dark launch; remove it only at the final cutover.
   archive-worker:
     image: docker.io/dockernamehu/pixishelf-archive-worker:${IMAGE_TAG:-latest}
     env_file:
@@ -67,10 +69,10 @@ services:
       SCAN_PATH: /app/data
       DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
       KEYFRAME_FFMPEG_THREADS: ${KEYFRAME_FFMPEG_THREADS:-2}
-    command: ["node", "dist/archive-worker.cjs"]
+    command: ['node', 'dist/archive-worker.cjs']
     volumes:
-      - "${PIXISHELF_DATA_PATH:-./data}:/app/data:rw"
-      - "${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/app/.local-data/derived-media:rw"
+      - '${PIXISHELF_DATA_PATH:-./data}:/app/data:rw'
+      - '${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/app/.local-data/derived-media:rw'
     depends_on:
       app:
         condition: service_healthy
@@ -78,15 +80,14 @@ services:
       - pixishelf-network
     restart: unless-stopped
     logging:
-      driver: "json-file"
+      driver: 'json-file'
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
 
-  # Disabled by default until the central dispatcher and first Executors land.
+  # New general Worker dark launch. It is safe to run beside archive-worker
+  # only while WORKER_DISPATCH_ENABLED remains false.
   worker:
-    profiles:
-      - worker-preview
     image: docker.io/dockernamehu/pixishelf-worker:${IMAGE_TAG:-latest}
     env_file:
       - .env
@@ -99,21 +100,30 @@ services:
       ARCHIVE_STORAGE_PATH: /app/data
       SCAN_PATH: /app/data
       DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
+      KEYFRAME_FFMPEG_THREADS: ${KEYFRAME_FFMPEG_THREADS:-2}
+      ARCHIVE_MAX_MEDIA_BYTES: ${ARCHIVE_MAX_MEDIA_BYTES:-536870912}
+      WORKER_DISPATCH_ENABLED: ${WORKER_DISPATCH_ENABLED:-false}
+      WORKER_DISPATCH_POLL_INTERVAL_MS: ${WORKER_DISPATCH_POLL_INTERVAL_MS:-1000}
+      WORKER_JOB_LEASE_DURATION_MS: ${WORKER_JOB_LEASE_DURATION_MS:-60000}
+      WORKER_JOB_HEARTBEAT_INTERVAL_MS: ${WORKER_JOB_HEARTBEAT_INTERVAL_MS:-20000}
+      WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS: ${WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS:-5000}
+      WORKER_QUEUE_TRANSACTION_TIMEOUT_MS: ${WORKER_QUEUE_TRANSACTION_TIMEOUT_MS:-30000}
+      WORKER_DISPATCH_DRAIN_GRACE_MS: ${WORKER_DISPATCH_DRAIN_GRACE_MS:-30000}
     volumes:
-      - "${PIXISHELF_DATA_PATH:-./data}:/app/data:rw"
-      - "${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/app/.local-data/derived-media:rw"
+      - '${PIXISHELF_DATA_PATH:-./data}:/app/data:rw'
+      - '${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/app/.local-data/derived-media:rw'
     depends_on:
-      app:
+      postgres:
         condition: service_healthy
     networks:
       - pixishelf-network
     restart: unless-stopped
-    stop_grace_period: 30s
+    stop_grace_period: 45s
     logging:
-      driver: "json-file"
+      driver: 'json-file'
       options:
-        max-size: "10m"
-        max-file: "5"
+        max-size: '10m'
+        max-file: '5'
 
   scheduler:
     image: curlimages/curl:latest
@@ -140,8 +150,8 @@ services:
       - '${IMGPROXY_HOST_PORT:-5431}:5431' # 将 ImgProxy 的 8080 端口映射到宿主机
     volumes:
       # 关键：将存储原图的文件夹挂载到 ImgProxy 容器中
-      - "${PIXISHELF_DATA_PATH:-./data}:/mnt/pixishelf/media:ro"
-      - "${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/mnt/pixishelf/derived-media:ro"
+      - '${PIXISHELF_DATA_PATH:-./data}:/mnt/pixishelf/media:ro'
+      - '${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/mnt/pixishelf/derived-media:ro'
     environment:
       - IMGPROXY_BIND=:5431
       # 允许 ImgProxy 处理来自本地文件系统的图片
@@ -167,15 +177,15 @@ services:
       - pixishelf-network
 
   thumbor:
-  # 给我们自己构建的镜像起个名字
+    # 给我们自己构建的镜像起个名字
     image: dockernamehu/pixishelf-thumbor:latest
     restart: always
     ports:
-      - "${THUMBOR_HOST_PORT:-5433}:80"
+      - '${THUMBOR_HOST_PORT:-5433}:80'
     networks:
       - pixishelf-network
     volumes:
-      - "${PIXISHELF_DATA_PATH:-./data}:/media:ro"  # 'ro' 表示只读，更安全
+      - '${PIXISHELF_DATA_PATH:-./data}:/media:ro' # 'ro' 表示只读，更安全
     environment:
       # 设置日志级别，方便调试
       # - LOG_LEVEL=debug

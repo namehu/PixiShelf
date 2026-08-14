@@ -332,13 +332,13 @@ app、pixishelf-worker 和 scheduler 使用相同上限。默认 Logger 在生�
 - @pixishelf/worker 拥有自己的 package.json、tsconfig、测试和 Dockerfile。
 - 删除 Worker 对 packages/pixishelf 源码、tsconfig 和路径别名的依赖。
 - 增加 WorkerInstance 空闲心跳、启动预检、`/livez`、`/readyz` 和 SIGTERM drain 骨架。
-- 新 Worker 先以 `worker-preview` profile 启动，不领取任务，不与旧 archive-worker 争抢领域状态。
+- 新 Worker 作为普通 `worker` 服务暗启动，但保持 `WORKER_DISPATCH_ENABLED=false`，只做预检、健康检查和实例心跳，不与旧 archive-worker 争抢领域状态。
 
 验收：不改变任务执行行为；Worker 镜像不复制 Next.js 包；DB 包可独立 generate/validate/typecheck/test，Contracts/Runtime/Worker 可独立 typecheck/test/build；数据库 migration status 无漂移；空闲心跳与停机状态可验证。
 
 ### Phase 3：统一 Lifecycle、API 和 Central Worker
 
-Phase 3 先以默认关闭的双开关交付内核：`CENTRAL_DISPATCHER_CUTOVER_ENABLED=false` 保持旧控制面行为，`WORKER_DISPATCH_ENABLED=false` 禁止新 Worker claim。只有本节列出的首批 Executor 已注册、旧 archive-worker 已停止、迁移与并发门禁通过后，才可在同一次部署中同时开启两个开关；禁止只开启其中一个形成双消费或无人消费。
+Phase 3 先以默认关闭的双开关交付内核：`CENTRAL_DISPATCHER_CUTOVER_ENABLED=false` 保持旧控制面行为，`WORKER_DISPATCH_ENABLED=false` 禁止新 Worker claim。归档与关键帧 Executor 先随新镜像暗装，但旧 archive-worker 仍是生产消费者；因为两枚开关是全局边界，只有全部旧入口和 Executor 迁移完成后，才可在同一次部署中停止旧 archive-worker 并同时开启两个开关。禁止在只有部分 capability 时提前开启，也禁止只开启其中一个形成双消费、无人消费或未支持任务积压。
 
 - 实现 job-command-service、job-query-service、job-lifecycle 和事件服务。
 - 所有新状态变更使用 workerId + attempt + leaseToken CAS。
@@ -348,7 +348,7 @@ Phase 3 先以默认关闭的双开关交付内核：`CENTRAL_DISPATCHER_CUTOVER
 - 归档、关键帧先接入统一 claim，不再 Promise.all 启动独立消费者。
 - 部署副本数保持 1。
 
-验收：取消/完成竞争、租约丢失、事件事务测试通过；误启动两个 Worker 时仍只有一个有效 RUNNING；生产 compose 停用旧 archive-worker。
+验收：取消/完成竞争、租约丢失、事件事务测试通过；误启动两个通用 Worker 时仍只有一个有效 RUNNING；暗启动阶段旧 archive-worker 继续消费且通用 Worker 不 claim，最终全量切换提交再从生产 compose/CI 停用旧 archive-worker。
 
 ### Phase 4：迁移维护任务
 

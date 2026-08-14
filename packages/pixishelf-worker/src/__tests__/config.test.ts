@@ -14,12 +14,16 @@ describe('worker config', () => {
     expect(parseWorkerConfig(requiredEnvironment)).toMatchObject({
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe',
+      keyframeFfmpegThreads: 2,
+      archiveMaxMediaBytes: 512 * 1024 * 1024,
       healthPort: 3011,
       heartbeatIntervalMs: 30_000,
       dispatchEnabled: false,
       dispatchPollIntervalMs: 1_000,
       jobLeaseDurationMs: 60_000,
       jobHeartbeatIntervalMs: 20_000,
+      queueTransactionMaxWaitMs: 5_000,
+      queueTransactionTimeoutMs: 30_000,
       dispatchDrainGraceMs: 30_000
     })
     expect(
@@ -40,13 +44,25 @@ describe('worker config', () => {
     expect(() => parseWorkerConfig({ ...requiredEnvironment, DATABASE_URL: 'mysql://database/pixishelf' })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_HEARTBEAT_INTERVAL_MS: '20' })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_SERVICE_VERSION: 'x'.repeat(51) })).toThrow()
+    expect(() => parseWorkerConfig({ ...requiredEnvironment, KEYFRAME_FFMPEG_THREADS: '9' })).toThrow()
+    expect(() => parseWorkerConfig({ ...requiredEnvironment, ARCHIVE_MAX_MEDIA_BYTES: '0' })).toThrow()
     expect(() =>
       parseWorkerConfig({
         ...requiredEnvironment,
         WORKER_JOB_LEASE_DURATION_MS: '20000',
-        WORKER_JOB_HEARTBEAT_INTERVAL_MS: '10000'
+        WORKER_JOB_HEARTBEAT_INTERVAL_MS: '10000',
+        WORKER_QUEUE_TRANSACTION_TIMEOUT_MS: '10000'
       })
     ).toThrow('less than half')
+    expect(() =>
+      parseWorkerConfig({
+        ...requiredEnvironment,
+        WORKER_JOB_LEASE_DURATION_MS: '30000',
+        WORKER_JOB_HEARTBEAT_INTERVAL_MS: '10000',
+        WORKER_QUEUE_TRANSACTION_TIMEOUT_MS: '30000'
+      })
+    ).toThrow('less than the job lease')
+    expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS: '99' })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_DISPATCH_ENABLED: 'yes' })).toThrow()
   })
 

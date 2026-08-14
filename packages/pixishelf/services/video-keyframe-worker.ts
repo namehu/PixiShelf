@@ -2,7 +2,6 @@ import logger from '@/lib/logger'
 import {
   acknowledgeVideoKeyframePaused,
   claimNextVideoKeyframeJob,
-  cleanupOrphanedVideoKeyframeStorage,
   completeVideoKeyframeJob,
   finalizeVideoKeyframeDiscoveryFailure,
   finalizeVideoKeyframeCancelled,
@@ -30,11 +29,9 @@ const CONTROL_POLL_INTERVAL_MS = 1_000
 const HEARTBEAT_INTERVAL_MS = 30_000
 const STALE_THRESHOLD_MS = 10 * 60 * 1000
 const STALE_RECOVERY_INTERVAL_MS = 60_000
-const ORPHAN_CLEANUP_INTERVAL_MS = 60 * 60 * 1000
 
 export async function runVideoKeyframeWorkerLoop(options: { signal?: AbortSignal } = {}) {
   let lastStaleRecoveryAt = 0
-  let lastOrphanCleanupAt = 0
 
   while (!options.signal?.aborted) {
     const now = Date.now()
@@ -42,13 +39,6 @@ export async function runVideoKeyframeWorkerLoop(options: { signal?: AbortSignal
       await recoverStaleVideoKeyframeJobs(new Date(now - STALE_THRESHOLD_MS))
       lastStaleRecoveryAt = now
     }
-    if (now - lastOrphanCleanupAt >= ORPHAN_CLEANUP_INTERVAL_MS) {
-      await cleanupOrphanedVideoKeyframeStorage().catch((error) => {
-        logger.warn('Video keyframe orphan cleanup failed', { error })
-      })
-      lastOrphanCleanupAt = now
-    }
-
     const claimed = await claimNextVideoKeyframeJob()
     if (!claimed) {
       await waitForAbortOrTimeout(options.signal, POLL_INTERVAL_MS)

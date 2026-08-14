@@ -1,4 +1,4 @@
-import type { ClaimedJob } from './queue-repository.js'
+import type { ClaimedJob, FencedExecutionTransaction, QueueSqlExecutor } from './queue-repository.js'
 
 export interface ExecutionProgressUpdate {
   progress: number
@@ -21,12 +21,30 @@ export interface ExecutionLogger {
   error(message: string, error?: unknown, data?: unknown): void
 }
 
+export interface TransactionallyFinalizedExecutionOutcome {
+  kind: 'transactionally-finalized'
+}
+
+export const TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME: TransactionallyFinalizedExecutionOutcome = Object.freeze({
+  kind: 'transactionally-finalized'
+})
+
+export type FencedExecutionFinalizer = <TTransaction extends QueueSqlExecutor = QueueSqlExecutor>(
+  operation: (scope: FencedExecutionTransaction<TTransaction>) => Promise<void>
+) => Promise<TransactionallyFinalizedExecutionOutcome>
+
+export type FencedExecutionMutator = <TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+  operation: (transaction: TTransaction) => Promise<TResult>
+) => Promise<TResult>
+
 export interface ExecutionContext<TPayload = unknown, TChildJob = ClaimedJob> {
   job: ClaimedJob
   payload: TPayload
   signal: AbortSignal
   progress(update: ExecutionProgressUpdate): Promise<void>
   enqueueChild<TChildPayload = unknown>(request: ChildJobRequest<TChildPayload>): Promise<TChildJob>
+  mutateInTransaction: FencedExecutionMutator
+  finalizeInTransaction: FencedExecutionFinalizer
   logger: ExecutionLogger
 }
 

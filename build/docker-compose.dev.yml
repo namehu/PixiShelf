@@ -11,14 +11,14 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
     ports:
-      - "${POSTGRES_HOST_PORT:-5432}:5432"
+      - '${POSTGRES_HOST_PORT:-5432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - pixishelf-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
       interval: 30s
       timeout: 10s
       retries: 5
@@ -35,8 +35,8 @@ services:
       target: production
     container_name: pixishelf-app
     ports:
-      - "${PIXISHELF_HOST_PORT:-5430}:5430"  # Web 服务端口
-      - "${PRISMA_STUDIO_HOST_PORT:-5555}:5555"  # Prisma Studio 端口
+      - '${PIXISHELF_HOST_PORT:-5430}:5430' # Web 服务端口
+      - '${PRISMA_STUDIO_HOST_PORT:-5555}:5555' # Prisma Studio 端口
     env_file:
       - .env
     environment:
@@ -48,8 +48,8 @@ services:
       NEXT_PUBLIC_IMGPROXY_URL: http://127.0.0.1:${IMGPROXY_HOST_PORT:-5431}
       NEXT_PUBLIC_THUMBOR_VIDEO_URL: http://127.0.0.1:${THUMBOR_HOST_PORT:-5433}
     volumes:
-      - "${PIXISHELF_DATA_PATH}:/app/data:cached"
-      - "${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media"
+      - '${PIXISHELF_DATA_PATH}:/app/data:cached'
+      - '${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media'
     networks:
       - pixishelf-network
     depends_on:
@@ -57,10 +57,10 @@ services:
         condition: service_healthy
     restart: unless-stopped
     logging:
-      driver: "json-file"
+      driver: 'json-file'
       options:
-        max-size: "20m" # 单个日志文件最大 20MB
-        max-file: "10"    # 最多保留 10 个日志文件
+        max-size: '20m' # 单个日志文件最大 20MB
+        max-file: '10' # 最多保留 10 个日志文件
 
   archive-worker:
     profiles:
@@ -78,10 +78,10 @@ services:
       SCAN_PATH: /app/data
       DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
       KEYFRAME_FFMPEG_THREADS: ${KEYFRAME_FFMPEG_THREADS:-2}
-    command: ["node", "dist/archive-worker.cjs"]
+    command: ['node', 'dist/archive-worker.cjs']
     volumes:
-      - "${PIXISHELF_DATA_PATH}:/app/data:rw"
-      - "${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media:rw"
+      - '${PIXISHELF_DATA_PATH}:/app/data:rw'
+      - '${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media:rw'
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,11 +89,9 @@ services:
       - pixishelf-network
     restart: unless-stopped
 
-  # Phase 2 boundary preview. It validates the independent Worker image and
-  # heartbeat contract but does not claim domain jobs until the dispatcher phase.
+  # New general Worker dark launch. It stays present for health/preflight, but
+  # claims no jobs until WORKER_DISPATCH_ENABLED is explicitly enabled.
   worker:
-    profiles:
-      - worker-preview
     build:
       context: ..
       dockerfile: build/worker.Dockerfile
@@ -109,21 +107,30 @@ services:
       ARCHIVE_STORAGE_PATH: /app/data
       SCAN_PATH: /app/data
       DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
+      KEYFRAME_FFMPEG_THREADS: ${KEYFRAME_FFMPEG_THREADS:-2}
+      ARCHIVE_MAX_MEDIA_BYTES: ${ARCHIVE_MAX_MEDIA_BYTES:-536870912}
+      WORKER_DISPATCH_ENABLED: ${WORKER_DISPATCH_ENABLED:-false}
+      WORKER_DISPATCH_POLL_INTERVAL_MS: ${WORKER_DISPATCH_POLL_INTERVAL_MS:-1000}
+      WORKER_JOB_LEASE_DURATION_MS: ${WORKER_JOB_LEASE_DURATION_MS:-60000}
+      WORKER_JOB_HEARTBEAT_INTERVAL_MS: ${WORKER_JOB_HEARTBEAT_INTERVAL_MS:-20000}
+      WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS: ${WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS:-5000}
+      WORKER_QUEUE_TRANSACTION_TIMEOUT_MS: ${WORKER_QUEUE_TRANSACTION_TIMEOUT_MS:-30000}
+      WORKER_DISPATCH_DRAIN_GRACE_MS: ${WORKER_DISPATCH_DRAIN_GRACE_MS:-30000}
     volumes:
-      - "${PIXISHELF_DATA_PATH}:/app/data:rw"
-      - "${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media:rw"
+      - '${PIXISHELF_DATA_PATH}:/app/data:rw'
+      - '${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media:rw'
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - pixishelf-network
     restart: unless-stopped
-    stop_grace_period: 30s
+    stop_grace_period: 45s
     logging:
-      driver: "json-file"
+      driver: 'json-file'
       options:
-        max-size: "10m"
-        max-file: "5"
+        max-size: '10m'
+        max-file: '5'
 
   scheduler:
     profiles:
@@ -133,7 +140,7 @@ services:
     env_file:
       - .env
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - 'host.docker.internal:host-gateway'
     environment:
       PIXISHELF_INTERNAL_URL: ${PIXISHELF_INTERNAL_URL:-http://host.docker.internal:5430}
       SCHEDULER_TICK_SECONDS: ${SCHEDULER_TICK_SECONDS:-60}
@@ -152,8 +159,8 @@ services:
       - '${IMGPROXY_HOST_PORT:-5431}:5431' # 将 ImgProxy 的 8080 端口映射到宿主机
     volumes:
       # 关键：将存储原图的文件夹挂载到 ImgProxy 容器中
-      - "${PIXISHELF_DATA_PATH}:/mnt/pixishelf/media:ro"
-      - "${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/mnt/pixishelf/derived-media:ro"
+      - '${PIXISHELF_DATA_PATH}:/mnt/pixishelf/media:ro'
+      - '${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/mnt/pixishelf/derived-media:ro'
     environment:
       - IMGPROXY_BIND=:5431
       # 允许 ImgProxy 处理来自本地文件系统的图片
@@ -173,14 +180,14 @@ services:
     build:
       context: ..
       dockerfile: build/thumbor/Dockerfile
-  # 给我们自己构建的镜像起个名字
+    # 给我们自己构建的镜像起个名字
     image: thumbor-video:latest
     container_name: thumbor_video
     restart: always
     ports:
-      - "${THUMBOR_HOST_PORT:-5433}:80"
+      - '${THUMBOR_HOST_PORT:-5433}:80'
     volumes:
-      - "${PIXISHELF_DATA_PATH}:/media:ro"  # 'ro' 表示只读，更安全
+      - '${PIXISHELF_DATA_PATH}:/media:ro' # 'ro' 表示只读，更安全
     environment:
       # 设置日志级别，方便调试
       - LOG_LEVEL=debug

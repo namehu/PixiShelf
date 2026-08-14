@@ -3,7 +3,7 @@ import { ArchiveModule } from '../archive-module'
 import { ArchiveProviderRegistry } from '../provider-registry'
 import type { ArchiveProvider, ResolvedArchive } from '../types'
 
-const { prismaMock } = vi.hoisted(() => {
+const { prismaMock, writeJobEventMock } = vi.hoisted(() => {
   const prismaMock = {
     artworkExternalRef: { findUnique: vi.fn() },
     archiveImport: {
@@ -17,13 +17,15 @@ const { prismaMock } = vi.hoisted(() => {
     archiveImportItem: { findFirst: vi.fn(), findMany: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn() },
     archivePreviewSession: { deleteMany: vi.fn(), create: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
     systemJob: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    jobResourceLease: { deleteMany: vi.fn() },
     $queryRawUnsafe: vi.fn(),
     $transaction: vi.fn()
   }
-  return { prismaMock }
+  return { prismaMock, writeJobEventMock: vi.fn() }
 })
 
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }))
+vi.mock('@/services/background-task/job-event-service', () => ({ writeJobEvent: writeJobEventMock }))
 
 const resolved: ResolvedArchive = {
   providerKey: 'test-provider',
@@ -65,6 +67,7 @@ describe('archive module', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
     prismaMock.artworkExternalRef.findUnique.mockReset()
     process.env.ARCHIVE_STORAGE_PATH = 'D:/archive-root'
     prismaMock.$transaction.mockImplementation(async (value: unknown) => {
@@ -78,6 +81,7 @@ describe('archive module', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     delete process.env.ARCHIVE_STORAGE_PATH
   })
 
@@ -139,6 +143,53 @@ describe('archive module', () => {
     expect(prismaMock.archivePreviewSession.delete).toHaveBeenCalledWith({ where: { id: 'preview-1' } })
   })
 
+  it('atomically creates a v1 central job, archive import, and queued event', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    prismaMock.archivePreviewSession.findUnique.mockResolvedValue({
+      id: 'preview-central',
+      providerKey: resolved.providerKey,
+      externalId: resolved.externalId,
+      resolved: JSON.parse(JSON.stringify({ ...resolved, submittedUrl: 'https://archive.test/submitted' })),
+      metadataHash: 'b'.repeat(64),
+      expiresAt: new Date(Date.now() + 60_000)
+    })
+    prismaMock.archiveImport.findFirst.mockResolvedValue(null)
+    prismaMock.systemJob.create.mockResolvedValue({ id: 'job-central' })
+    prismaMock.archiveImport.create.mockResolvedValue({ id: 'import-central' })
+    prismaMock.archivePreviewSession.delete.mockResolvedValue({ id: 'preview-central' })
+
+    await expect(
+      module.enqueue({ previewToken: 'preview-central', quality: 'DISPLAY' }, { requestedByUserId: 'admin-1' })
+    ).resolves.toMatchObject({ reused: false })
+
+    const jobCreate = prismaMock.systemJob.create.mock.calls[0]![0]
+    const archiveCreate = prismaMock.archiveImport.create.mock.calls[0]![0]
+    expect(jobCreate.data).toMatchObject({
+      id: expect.any(String),
+      type: 'ARCHIVE_IMPORT',
+      definitionVersion: 1,
+      triggerSource: 'MANUAL',
+      requestedByUserId: 'admin-1',
+      status: 'PENDING',
+      payload: { archiveImportId: expect.any(String) },
+      queuePriority: 10,
+      effectivePriority: 10
+    })
+    expect(archiveCreate.data).toMatchObject({
+      id: jobCreate.data.payload.archiveImportId,
+      systemJobId: jobCreate.data.id
+    })
+    expect(writeJobEventMock).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        jobId: jobCreate.data.id,
+        type: 'job.queued',
+        data: expect.objectContaining({ archiveImportId: archiveCreate.data.id })
+      })
+    )
+    expect(prismaMock.$transaction).toHaveBeenCalledOnce()
+  })
+
   it('resets failed-item attempts when an administrator retries a terminal task', async () => {
     prismaMock.archiveImport.findUnique.mockResolvedValue({
       id: 'import-1',
@@ -166,6 +217,78 @@ describe('archive module', () => {
       where: { archiveImportId: 'import-1', status: { not: 'COMPLETED' } },
       data: expect.objectContaining({ status: 'PENDING', attempts: 0 })
     })
+  })
+
+  it('atomically cancels a queued central archive task and records the lifecycle event', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    const task = {
+      id: 'import-central',
+      systemJobId: 'job-central',
+      status: 'PENDING',
+      cleanupRequestedAt: null,
+      systemJob: { id: 'job-central', status: 'PENDING', attempt: 0, queuePriority: 10, maxAttempts: 3 }
+    }
+    prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(null)
+    prismaMock.jobResourceLease.deleteMany.mockResolvedValue({ count: 0 })
+
+    await module.requestAction('import-central', 'CANCEL', { requestedByUserId: 'admin-1' })
+
+    expect(prismaMock.systemJob.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'job-central', status: 'PENDING' },
+        data: expect.objectContaining({ status: 'CANCELLED', cancelRequestedAt: expect.any(Date) })
+      })
+    )
+    expect(prismaMock.archiveImport.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED', finishedAt: expect.any(Date) }) })
+    )
+    expect(writeJobEventMock).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({ jobId: 'job-central', type: 'job.cancelled' })
+    )
+  })
+
+  it('retries a terminal central archive task as a new linked SystemJob', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    const task = {
+      id: 'import-central',
+      systemJobId: 'job-failed',
+      status: 'FAILED',
+      cleanupRequestedAt: null,
+      completedItems: 1,
+      failedItems: 1,
+      totalItems: 2,
+      systemJob: { id: 'job-failed', status: 'FAILED', attempt: 3, queuePriority: 10, maxAttempts: 3 }
+    }
+    prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(null)
+    prismaMock.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    prismaMock.systemJob.create.mockResolvedValue({ id: 'job-retry' })
+
+    await module.requestAction('import-central', 'RETRY', { requestedByUserId: 'admin-1' })
+
+    expect(prismaMock.systemJob.updateMany).not.toHaveBeenCalled()
+    expect(prismaMock.systemJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: 'ARCHIVE_IMPORT',
+        definitionVersion: 1,
+        status: 'PENDING',
+        triggerSource: 'RETRY',
+        requestedByUserId: 'admin-1',
+        parentJobId: 'job-failed',
+        payload: { archiveImportId: 'import-central' }
+      })
+    })
+    const retryJobId = prismaMock.systemJob.create.mock.calls[0]![0].data.id
+    expect(prismaMock.archiveImport.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ systemJobId: retryJobId, status: 'PENDING' }) })
+    )
+    expect(writeJobEventMock).toHaveBeenCalledTimes(2)
   })
 
   it('returns cursor-based task item batches with stable source-page links', async () => {

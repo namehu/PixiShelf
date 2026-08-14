@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import type { PrismaClient } from '@pixishelf/db'
+import { createWorkerExecutorRegistry } from '../create-worker-executor-registry.js'
 import { ExecutorRegistry } from '../executor-registry.js'
 
 describe('ExecutorRegistry', () => {
@@ -71,5 +73,26 @@ describe('ExecutorRegistry', () => {
         execute: async () => ({ kind: 'completed' })
       })
     ).toThrow('requires an explicit payload parser')
+  })
+
+  it('registers the three initial production executor capabilities', () => {
+    const registry = createWorkerExecutorRegistry({
+      database: {} as PrismaClient,
+      config: {
+        archiveRoot: '/media/archive',
+        sourceMediaRoot: '/media/source',
+        derivedMediaRoot: '/media/derived',
+        archiveMaxMediaBytes: 512 * 1024 * 1024,
+        ffmpegPath: 'ffmpeg',
+        ffprobePath: 'ffprobe',
+        keyframeFfmpegThreads: 2
+      }
+    })
+
+    expect(registry.capabilities()).toEqual([
+      { jobType: 'ARCHIVE_IMPORT', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'VIDEO_KEYFRAME_DISCOVERY', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'VIDEO_KEYFRAME_GENERATION', definitionVersions: [JOB_DEFINITION_VERSION] }
+    ])
   })
 })

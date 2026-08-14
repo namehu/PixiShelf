@@ -15,6 +15,6 @@ await build({
   entryNames: '[name]',
   sourcemap: true,
   tsconfig: 'tsconfig.json',
-  external: ['@prisma/client', '.prisma/client'],
+  external: ['@prisma/client', '.prisma/client', 'sharp'],
   logLevel: 'info'
 })

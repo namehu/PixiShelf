@@ -22,7 +22,8 @@
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
-    "@pixishelf/job-contracts": "workspace:*"
+    "@pixishelf/job-contracts": "workspace:*",
+    "zod": "^4.1.11"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",

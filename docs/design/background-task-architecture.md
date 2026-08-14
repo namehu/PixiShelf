@@ -210,18 +210,23 @@ flowchart TB
 ```mermaid
 flowchart TB
   Next["@pixishelf/next<br/>UI / API / admin auth"]
-  Worker["@pixishelf/worker<br/>dispatcher / executors"]
+  Worker["@pixishelf/worker<br/>dispatcher / process host"]
+  Executors["@pixishelf/job-executors<br/>archive / keyframe / maintenance"]
   Contracts["@pixishelf/job-contracts<br/>types / Zod payloads / DTOs"]
   Runtime["@pixishelf/job-runtime<br/>queue / lease / lifecycle / events"]
   DB["@pixishelf/db<br/>Prisma schema / migrations / client"]
-  Domain["worker-owned domain executors"]
+  Domain["worker-owned domain services"]
 
   Next --> Contracts
   Next --> DB
   Worker --> Contracts
   Worker --> Runtime
   Worker --> DB
-  Worker --> Domain
+  Worker --> Executors
+  Executors --> Contracts
+  Executors --> Runtime
+  Executors --> DB
+  Executors --> Domain
   Runtime --> Contracts
   Runtime --> DB
   Next -. forbidden .-> Worker
@@ -230,17 +235,18 @@ flowchart TB
 
 包职责：
 
-| 包                       | 内容                                           | 约束                                                       |
-| ------------------------ | ---------------------------------------------- | ---------------------------------------------------------- |
-| @pixishelf/db            | Prisma Schema、migrations、生成 Client         | 移动目录不改变表名、列名和既有 migration 历史              |
-| @pixishelf/job-contracts | 任务类型、状态、Payload Schema、DTO、错误码    | 不依赖 Next.js、React、Prisma 和文件系统                   |
-| @pixishelf/job-runtime   | claim、租约、心跳、CAS、事件和恢复             | 不包含视频、扫描、归档等具体业务                           |
-| @pixishelf/worker        | Dispatcher、Executor Registry 和后台领域执行器 | 独立 tsconfig/package/container；不从 @pixishelf/next 导入 |
-| @pixishelf/next          | UI、adminProcedure、任务入队和查询             | 不直接访问媒体写目录或启动长进程                           |
+| 包                       | 内容                                         | 约束                                                       |
+| ------------------------ | -------------------------------------------- | ---------------------------------------------------------- |
+| @pixishelf/db            | Prisma Schema、migrations、生成 Client       | 移动目录不改变表名、列名和既有 migration 历史              |
+| @pixishelf/job-contracts | 任务类型、状态、Payload Schema、DTO、错误码  | 不依赖 Next.js、React、Prisma 和文件系统                   |
+| @pixishelf/job-runtime   | claim、租约、心跳、CAS、事件和恢复           | 不包含视频、扫描、归档等具体业务                           |
+| @pixishelf/job-executors | 可注入的领域 Executor 与文件/进程适配器      | 不依赖 Next.js alias、singleton、Router 或 Worker host     |
+| @pixishelf/worker        | Dispatcher、Executor Registry 和进程生命周期 | 独立 tsconfig/package/container；不从 @pixishelf/next 导入 |
+| @pixishelf/next          | UI、adminProcedure、任务入队和查询           | 不直接访问媒体写目录或启动长进程                           |
 
 拆分采用同一 pnpm monorepo，不拆成独立 Git 仓库。这样既能独立部署，又能原子修改数据库契约、任务协议和调用方。
 
-Phase 2 先完成四个 package、Prisma ownership、WorkerInstance 心跳、启动预检、健康端点和独立镜像。此时新 Worker 以 `worker-preview` profile 运行，明确不 claim 领域任务；归档/关键帧和其他 Executor 在 Central Dispatcher 阶段迁入后，才替换旧 archive-worker。这样 package/容器边界变更不会悄悄改变任务执行行为。
+Phase 2 先完成四个基础 package、Prisma ownership、WorkerInstance 心跳、启动预检、健康端点和独立镜像。Phase 3 增加 `@pixishelf/job-executors`，先暗装归档与关键帧 Executor。因为控制面和 Worker 使用全局切换开关，在所有旧入口迁完前，新 Worker 保持 `WORKER_DISPATCH_ENABLED=false`，旧 archive-worker 继续消费；最终切换才同时停止旧 Worker、开启中央物化和 Dispatcher，避免中间版本双消费或无人消费。
 
 语言选型：
 
@@ -337,6 +343,7 @@ stateDiagram-v2
   RUNNING --> FAILED: terminal error
   RUNNING --> RETRY_WAIT: recoverable error
   RUNNING --> PAUSING: pause requested
+  RUNNING --> PAUSED: executor action required
   PAUSING --> PAUSED: executor checkpointed
   PAUSED --> PENDING: resume
   RUNNING --> CANCELLING: cancel requested
@@ -512,6 +519,7 @@ services/background-jobs/
 - FFmpeg/FFprobe 使用 spawn 或 execFile 参数数组，禁止 shell 拼接。
 - 子进程统一设置超时、输出缓冲上限，并响应 AbortSignal。
 - Worker 日志不记录 Token、Cookie、完整环境变量或未经脱敏的用户输入。
+- 原始媒体和 derived-media 写挂载只允许当前 Worker 单写。Node 路径 API 的 realpath/最近祖先复核可以阻止既有 symlink/junction 越界，但不能提供 Linux `openat` + dirfd 级的无竞争保证；宿主机不得在任务运行期间并发替换受管目录祖先。
 
 ## 12. 目标验收标准
 

@@ -21,6 +21,8 @@ const workerConfigSchema = z
     ARCHIVE_ROOT: z.string().trim().min(1),
     FFMPEG_PATH: z.string().trim().min(1).default('ffmpeg'),
     FFPROBE_PATH: z.string().trim().min(1).default('ffprobe'),
+    KEYFRAME_FFMPEG_THREADS: positiveInteger(2, 1, 8),
+    ARCHIVE_MAX_MEDIA_BYTES: positiveInteger(512 * 1024 * 1024, 1, 2_147_483_647),
     WORKER_ID: z.string().trim().min(1).max(120).optional(),
     WORKER_SERVICE_VERSION: z.string().trim().min(1).max(50).default('0.1.0'),
     WORKER_HEALTH_HOST: z.string().trim().min(1).default('0.0.0.0'),
@@ -31,6 +33,8 @@ const workerConfigSchema = z
     WORKER_DISPATCH_POLL_INTERVAL_MS: positiveInteger(1_000, 100, 60_000),
     WORKER_JOB_LEASE_DURATION_MS: positiveInteger(60_000, 10_000, 600_000),
     WORKER_JOB_HEARTBEAT_INTERVAL_MS: positiveInteger(20_000, 1_000, 300_000),
+    WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS: positiveInteger(5_000, 100, 60_000),
+    WORKER_QUEUE_TRANSACTION_TIMEOUT_MS: positiveInteger(30_000, 1_000, 300_000),
     WORKER_DISPATCH_DRAIN_GRACE_MS: positiveInteger(30_000, 1_000, 300_000)
   })
   .superRefine((value, context) => {
@@ -39,6 +43,13 @@ const workerConfigSchema = z
         code: 'custom',
         path: ['WORKER_JOB_HEARTBEAT_INTERVAL_MS'],
         message: 'Job heartbeat interval must be less than half of the job lease duration'
+      })
+    }
+    if (value.WORKER_QUEUE_TRANSACTION_TIMEOUT_MS >= value.WORKER_JOB_LEASE_DURATION_MS) {
+      context.addIssue({
+        code: 'custom',
+        path: ['WORKER_QUEUE_TRANSACTION_TIMEOUT_MS'],
+        message: 'Queue transaction timeout must be less than the job lease duration'
       })
     }
   })
@@ -50,6 +61,8 @@ export interface WorkerConfig {
   archiveRoot: string
   ffmpegPath: string
   ffprobePath: string
+  keyframeFfmpegThreads: number
+  archiveMaxMediaBytes: number
   workerId?: string
   serviceVersion: string
   healthHost: string
@@ -60,6 +73,8 @@ export interface WorkerConfig {
   dispatchPollIntervalMs: number
   jobLeaseDurationMs: number
   jobHeartbeatIntervalMs: number
+  queueTransactionMaxWaitMs: number
+  queueTransactionTimeoutMs: number
   dispatchDrainGraceMs: number
 }
 
@@ -84,6 +99,8 @@ export function parseWorkerConfig(environment: NodeJS.ProcessEnv): WorkerConfig 
     archiveRoot: parsed.ARCHIVE_ROOT,
     ffmpegPath: parsed.FFMPEG_PATH,
     ffprobePath: parsed.FFPROBE_PATH,
+    keyframeFfmpegThreads: parsed.KEYFRAME_FFMPEG_THREADS,
+    archiveMaxMediaBytes: parsed.ARCHIVE_MAX_MEDIA_BYTES,
     ...(parsed.WORKER_ID ? { workerId: parsed.WORKER_ID } : {}),
     serviceVersion: parsed.WORKER_SERVICE_VERSION,
     healthHost: parsed.WORKER_HEALTH_HOST,
@@ -94,6 +111,8 @@ export function parseWorkerConfig(environment: NodeJS.ProcessEnv): WorkerConfig 
     dispatchPollIntervalMs: parsed.WORKER_DISPATCH_POLL_INTERVAL_MS,
     jobLeaseDurationMs: parsed.WORKER_JOB_LEASE_DURATION_MS,
     jobHeartbeatIntervalMs: parsed.WORKER_JOB_HEARTBEAT_INTERVAL_MS,
+    queueTransactionMaxWaitMs: parsed.WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS,
+    queueTransactionTimeoutMs: parsed.WORKER_QUEUE_TRANSACTION_TIMEOUT_MS,
     dispatchDrainGraceMs: parsed.WORKER_DISPATCH_DRAIN_GRACE_MS
   }
 }

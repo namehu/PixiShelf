@@ -103,9 +103,13 @@ describe('unified background task router integration', () => {
       expect(routerSource).toContain(`assertLegacyRouterExecutionAllowed('${operation}')`)
     }
     expect(localImportRouterSource).toContain("assertLegacyBackgroundExecutionAllowed('LOCAL_DIRECTORY_IMPORT')")
-    for (const operation of ['ARCHIVE_IMPORT_ENQUEUE', 'ARCHIVE_IMPORT_RETRY', 'ARCHIVE_IMPORT_ACTION']) {
-      expect(archiveRouterSource).toContain(`assertLegacyArchiveExecutionAllowed('${operation}')`)
-    }
+    expect(archiveRouterSource).toContain('archiveModule.enqueue(input, { requestedByUserId: ctx.userId })')
+    expect(archiveRouterSource).toContain(
+      'archiveModule.retryTaskItem(input.taskId, input.itemId, { requestedByUserId: ctx.userId })'
+    )
+    expect(archiveRouterSource).toContain(
+      'archiveModule.requestAction(input.taskId, input.action, { requestedByUserId: ctx.userId })'
+    )
     expect(
       videoOptimizationQueueSource.match(/assertLegacyBackgroundExecutionAllowed\('VIDEO_STREAMING_OPTIMIZATION'\)/g)
     ).toHaveLength(4)

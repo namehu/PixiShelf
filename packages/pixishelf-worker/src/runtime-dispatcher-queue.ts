@@ -5,7 +5,9 @@ import type {
   EnqueuedChildJob,
   ExecutionControlState,
   ExecutionFence,
-  ExecutionProgressUpdate
+  ExecutionProgressUpdate,
+  FencedExecutionTransaction,
+  QueueSqlExecutor
 } from '@pixishelf/job-runtime'
 import type { DispatcherQueuePort, DispatcherSettlement } from './dispatcher.js'
 import { parseJobExecutionOutcome } from './executor-registry.js'
@@ -19,6 +21,14 @@ export interface QueueRepositoryPort {
     input: ChildJobRequest & { type: ReturnType<typeof jobTypeSchema.parse> }
   ): Promise<EnqueuedChildJob>
   readExecutionControl(fence: ExecutionFence): Promise<ExecutionControlState>
+  withFencedMutationTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+    fence: ExecutionFence,
+    operation: (transaction: TTransaction) => Promise<TResult>
+  ): Promise<TResult>
+  withFencedExecutionTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+    fence: ExecutionFence,
+    operation: (scope: FencedExecutionTransaction<TTransaction>) => Promise<TResult>
+  ): Promise<TResult>
   complete(input: ExecutionFence & { result?: unknown; message?: string | null }): Promise<void>
   retry(
     input: ExecutionFence & {
@@ -61,6 +71,20 @@ export class RuntimeDispatcherQueue implements DispatcherQueuePort {
     return this.repository.readExecutionControl(fence)
   }
 
+  withFencedMutationTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+    fence: ExecutionFence,
+    operation: (transaction: TTransaction) => Promise<TResult>
+  ) {
+    return this.repository.withFencedMutationTransaction<TTransaction, TResult>(fence, operation)
+  }
+
+  withFencedExecutionTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor>(
+    fence: ExecutionFence,
+    operation: (scope: FencedExecutionTransaction<TTransaction>) => Promise<void>
+  ) {
+    return this.repository.withFencedExecutionTransaction<TTransaction, void>(fence, operation)
+  }
+
   settle(fence: ExecutionFence, outcome: DispatcherSettlement): Promise<void> {
     const parsedOutcome = parseJobExecutionOutcome(outcome)
     switch (parsedOutcome.kind) {
@@ -78,6 +102,8 @@ export class RuntimeDispatcherQueue implements DispatcherQueuePort {
         return this.repository.pause({ ...fence, ...parsedOutcome })
       case 'released':
         return this.repository.release({ ...fence, ...parsedOutcome })
+      case 'transactionally-finalized':
+        throw new TypeError('A transactionally finalized execution must not be settled a second time')
       default:
         return assertNever(parsedOutcome)
     }

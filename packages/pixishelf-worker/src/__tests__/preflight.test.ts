@@ -9,6 +9,8 @@ const config: WorkerConfig = {
   archiveRoot: '/media/archive',
   ffmpegPath: '/usr/bin/ffmpeg',
   ffprobePath: '/usr/bin/ffprobe',
+  keyframeFfmpegThreads: 2,
+  archiveMaxMediaBytes: 512 * 1024 * 1024,
   serviceVersion: '1.0.0',
   healthHost: '0.0.0.0',
   healthPort: 3011,
@@ -18,6 +20,8 @@ const config: WorkerConfig = {
   dispatchPollIntervalMs: 1_000,
   jobLeaseDurationMs: 60_000,
   jobHeartbeatIntervalMs: 20_000,
+  queueTransactionMaxWaitMs: 5_000,
+  queueTransactionTimeoutMs: 30_000,
   dispatchDrainGraceMs: 30_000
 }
 

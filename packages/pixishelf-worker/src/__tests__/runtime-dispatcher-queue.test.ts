@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { ExecutionFence } from '@pixishelf/job-runtime'
+import type { ExecutionFence, FencedExecutionTransaction, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { RuntimeDispatcherQueue, type QueueRepositoryPort } from '../runtime-dispatcher-queue.js'
 
 describe('RuntimeDispatcherQueue', () => {
@@ -54,6 +54,20 @@ describe('RuntimeDispatcherQueue', () => {
     expect(repository.retry).not.toHaveBeenCalled()
     expect(repository.fail).not.toHaveBeenCalled()
   })
+
+  it('maps fenced mutation/finalization transactions and rejects a duplicate terminal settlement', async () => {
+    const repository = createRepository()
+    const queue = new RuntimeDispatcherQueue(repository)
+    const fence = executionFence()
+    const mutation = vi.fn(async () => 'checkpoint')
+    const finalization = vi.fn(async () => undefined)
+
+    await expect(queue.withFencedMutationTransaction(fence, mutation)).resolves.toBe('checkpoint')
+    await expect(queue.withFencedExecutionTransaction(fence, finalization)).resolves.toBeUndefined()
+    expect(repository.withFencedMutationTransaction).toHaveBeenCalledWith(fence, mutation)
+    expect(repository.withFencedExecutionTransaction).toHaveBeenCalledWith(fence, finalization)
+    expect(() => queue.settle(fence, { kind: 'transactionally-finalized' })).toThrow('must not be settled')
+  })
 })
 
 function createRepository() {
@@ -70,6 +84,25 @@ function createRepository() {
       cancelRequestedAt: null,
       pauseRequestedAt: null
     })),
+    withFencedMutationTransaction: vi.fn(
+      async (_fence: ExecutionFence, operation: (transaction: QueueSqlExecutor) => Promise<unknown>) =>
+        operation({} as never)
+    ) as unknown as QueueRepositoryPort['withFencedMutationTransaction'],
+    withFencedExecutionTransaction: vi.fn(
+      async (_fence: ExecutionFence, operation: (scope: FencedExecutionTransaction) => Promise<unknown>) =>
+        operation({
+          transaction: {} as never,
+          executionStatus: 'RUNNING',
+          controlStatus: 'CONTINUE',
+          complete: async () => undefined,
+          fail: async () => undefined,
+          retry: async () => undefined,
+          skip: async () => undefined,
+          cancel: async () => undefined,
+          pause: async () => undefined,
+          release: async () => undefined
+        })
+    ) as unknown as QueueRepositoryPort['withFencedExecutionTransaction'],
     complete: vi.fn<QueueRepositoryPort['complete']>(async () => undefined),
     retry: vi.fn<QueueRepositoryPort['retry']>(async () => undefined),
     fail: vi.fn<QueueRepositoryPort['fail']>(async () => undefined),

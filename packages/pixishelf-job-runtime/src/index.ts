@@ -1,6 +1,7 @@
 export * from './heartbeat-loop.js'
 export * from './dispatch-window.js'
 export * from './execution-context.js'
+export * from './executor-definition.js'
 export * from './queue-clock.js'
 export * from './queue-repository.js'
 export * from './worker-health-state.js'

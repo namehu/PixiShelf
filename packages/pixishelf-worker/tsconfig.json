@@ -15,6 +15,7 @@
     "paths": {
       "@pixishelf/db": ["../pixishelf-db/src/index.ts"],
       "@pixishelf/job-contracts": ["../pixishelf-job-contracts/src/index.ts"],
+      "@pixishelf/job-executors": ["../pixishelf-job-executors/src/index.ts"],
       "@pixishelf/job-runtime": ["../pixishelf-job-runtime/src/index.ts"]
     },
     "types": ["node", "vitest/globals"]

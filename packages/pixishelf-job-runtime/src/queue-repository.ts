@@ -161,13 +161,23 @@ export interface TransactionBoundSkipInput {
   message?: string | null
 }
 
+export interface TransactionBoundPauseInput {
+  reason: 'USER_REQUESTED' | 'ACTION_REQUIRED'
+  message?: string | null
+  data?: unknown
+}
+
 export interface FencedExecutionTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor> {
   transaction: TTransaction
+  executionStatus: 'RUNNING' | 'PAUSING' | 'CANCELLING'
+  controlStatus: 'CONTINUE' | 'PAUSE_REQUESTED' | 'CANCEL_REQUESTED'
   complete(input?: TransactionBoundCompleteInput): Promise<void>
   fail(input: TransactionBoundFailInput): Promise<void>
   retry(input: TransactionBoundRetryInput): Promise<void>
   skip(input: TransactionBoundSkipInput): Promise<void>
   cancel(message?: string | null): Promise<void>
+  pause(input: TransactionBoundPauseInput): Promise<void>
+  release(message?: string | null): Promise<void>
 }
 
 interface JobResourceLeaseRow {
@@ -222,10 +232,19 @@ export class PostgresQueueRepository {
     this.windowPolicy = options.windowPolicy ?? new DispatchWindowPolicy()
     this.leaseDurationMs = options.leaseDurationMs ?? 60_000
     this.transactionMaxWaitMs = options.transactionMaxWaitMs ?? 5_000
-    this.transactionTimeoutMs = options.transactionTimeoutMs ?? 10_000
+    this.transactionTimeoutMs = options.transactionTimeoutMs ?? 30_000
 
     if (!Number.isSafeInteger(this.leaseDurationMs) || this.leaseDurationMs <= 0) {
       throw new Error('leaseDurationMs must be a positive safe integer')
+    }
+    if (!Number.isSafeInteger(this.transactionMaxWaitMs) || this.transactionMaxWaitMs <= 0) {
+      throw new Error('transactionMaxWaitMs must be a positive safe integer')
+    }
+    if (!Number.isSafeInteger(this.transactionTimeoutMs) || this.transactionTimeoutMs <= 0) {
+      throw new Error('transactionTimeoutMs must be a positive safe integer')
+    }
+    if (this.transactionTimeoutMs >= this.leaseDurationMs) {
+      throw new Error('transactionTimeoutMs must be less than leaseDurationMs')
     }
   }
 
@@ -558,6 +577,7 @@ export class PostgresQueueRepository {
       definitionVersion === JOB_DEFINITION_VERSION
         ? parseJobPayload(type, input.payload ?? {})
         : jsonValueSchema.parse(input.payload ?? {})
+    const legacyProjection = deriveLegacyJobProjection(type, definitionVersion, normalizedPayload)
     const childId = randomUUID()
     return this.runTransaction(async (transaction) => {
       await this.lockOwnedExecution(transaction, parentFence, now)
@@ -565,11 +585,11 @@ export class PostgresQueueRepository {
         `INSERT INTO "system_jobs" (
            "id", "type", "definitionVersion", "status", "triggerSource", "idempotencyKey",
            "payload", "parentJobId", "queuePriority", "effectivePriority", "availableAt",
-           "deadlineAt", "maxAttempts", "createdAt", "updatedAt"
+           "deadlineAt", "maxAttempts", "targetImageId", "targetPath", "mode", "createdAt", "updatedAt"
          ) VALUES (
            $1, $2, $3, 'PENDING', 'SYSTEM', $4,
            $5::jsonb, $6, $7, $8, $9,
-           $10, $11, $12, $12
+           $10, $11, $12, $13, $14, $15, $15
          )
          ON CONFLICT ("idempotencyKey") DO NOTHING
          RETURNING "id"`,
@@ -584,6 +604,9 @@ export class PostgresQueueRepository {
         availableAt,
         input.deadlineAt ?? null,
         maxAttempts,
+        legacyProjection.targetImageId,
+        legacyProjection.targetPath,
+        legacyProjection.mode,
         now
       )
       const inserted = insertedRows[0]
@@ -867,22 +890,34 @@ export class PostgresQueueRepository {
     operation: (scope: FencedExecutionTransaction<TTransaction>) => Promise<TResult>
   ): Promise<TResult> {
     assertFence(fence)
-    const now = this.clock.now()
 
     return this.runTransaction(async (transaction) => {
-      await this.lockOwnedExecution(transaction, fence, now)
-      let finalized = false
+      const executionStatus = await this.lockOwnedExecution(transaction, fence, this.clock.now())
+      // The first SELECT may have waited for a concurrent controller while its
+      // timestamp parameter aged. Revalidate after both lease/job rows are ours
+      // so an execution whose lease expired while waiting never enters domain code.
+      await this.lockOwnedExecution(transaction, fence, this.clock.now())
+      const finalization: { calls: number; intent: OwnedJobTransition | null } = { calls: 0, intent: null }
 
       const finalize = async (transition: OwnedJobTransition): Promise<void> => {
-        if (finalized) {
+        finalization.calls += 1
+        if (finalization.calls > 1) {
           throw new Error(`Execution ${fence.jobId} was already finalized in this transaction`)
         }
-        await this.transitionOwnedJobInTransaction(transaction, fence, now, transition)
-        finalized = true
+        // Record intent only. The terminal transition is deliberately delayed
+        // until after the callback so no domain write can happen after release.
+        finalization.intent = transition
       }
 
       const result = await operation({
         transaction: transaction as TTransaction,
+        executionStatus,
+        controlStatus:
+          executionStatus === 'CANCELLING'
+            ? 'CANCEL_REQUESTED'
+            : executionStatus === 'PAUSING'
+              ? 'PAUSE_REQUESTED'
+              : 'CONTINUE',
         complete: (input = {}) =>
           finalize({
             status: 'COMPLETED',
@@ -908,7 +943,7 @@ export class PostgresQueueRepository {
             extraPredicate: `AND "status" = 'RUNNING'`
           }),
         retry: (input) => {
-          if (input.availableAt.getTime() < now.getTime()) {
+          if (input.availableAt.getTime() < this.clock.now().getTime()) {
             throw new Error('Retry availableAt cannot be earlier than the current queue clock')
           }
           return finalize({
@@ -943,13 +978,77 @@ export class PostgresQueueRepository {
             eventLevel: 'WARN',
             message: message ?? 'Job cancelled',
             assignments: `"cancelRequestedAt" = COALESCE("cancelRequestedAt", $5)`,
-            values: []
+            values: [],
+            extraPredicate: `AND "status" IN ('RUNNING', 'CANCELLING')`
+          }),
+        pause: (input) => {
+          if (!input || !['USER_REQUESTED', 'ACTION_REQUIRED'].includes(input.reason)) {
+            throw new Error('Transaction-bound pause requires a supported reason')
+          }
+          return finalize({
+            status: 'PAUSED',
+            eventType: 'job.paused',
+            eventLevel: 'INFO',
+            message: input.message ?? 'Job paused',
+            assignments: `"pauseRequestedAt" = CASE
+                            WHEN "status" = 'PAUSING' THEN COALESCE("pauseRequestedAt", $5)
+                            ELSE "pauseRequestedAt"
+                          END`,
+            values: [],
+            extraPredicate: `AND "status" IN ('RUNNING', 'PAUSING')`,
+            eventData: {
+              reason: input.reason,
+              ...(input.data === undefined ? {} : { data: input.data })
+            }
+          })
+        },
+        release: (message) =>
+          finalize({
+            status: 'PENDING',
+            eventType: 'job.retry_scheduled',
+            eventLevel: 'INFO',
+            message: message ?? 'Worker shutdown released job without a business failure',
+            assignments: `"availableAt" = $5,
+                          "maxAttempts" = GREATEST("maxAttempts", "attempt" + 1),
+                          "errorCode" = NULL,
+                          "error" = NULL`,
+            values: [],
+            extraPredicate: `AND "status" = 'RUNNING'`,
+            eventData: { reason: 'WORKER_SHUTDOWN_RELEASE' }
           })
       })
 
-      if (!finalized) {
+      const terminalIntent = finalization.intent
+      if (finalization.calls !== 1 || !terminalIntent) {
         throw new Error(`Fenced transaction for job ${fence.jobId} must call exactly one terminal finalizer`)
       }
+      const finalizedAt = this.clock.now()
+      if (
+        terminalIntent.status === 'RETRY_WAIT' &&
+        terminalIntent.values[0] instanceof Date &&
+        terminalIntent.values[0].getTime() < finalizedAt.getTime()
+      ) {
+        throw new Error('Retry availableAt cannot be earlier than the current queue clock')
+      }
+      // Recheck at the actual commit boundary. A stale or controlled execution
+      // rolls back both the preceding domain mutations and the terminal intent.
+      await this.lockOwnedExecution(transaction, fence, finalizedAt)
+      await this.transitionOwnedJobInTransaction(transaction, fence, finalizedAt, terminalIntent)
+      return result
+    })
+  }
+
+  async withFencedMutationTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+    fence: ExecutionFence,
+    operation: (transaction: TTransaction) => Promise<TResult>
+  ): Promise<TResult> {
+    assertFence(fence)
+    return this.runTransaction(async (transaction) => {
+      await this.lockRunningExecution(transaction, fence, this.clock.now())
+      const result = await operation(transaction as TTransaction)
+      // Recheck at the commit boundary so a transaction that accidentally runs
+      // beyond its lease cannot publish a stale checkpoint.
+      await this.lockRunningExecution(transaction, fence, this.clock.now())
       return result
     })
   }
@@ -1047,7 +1146,11 @@ export class PostgresQueueRepository {
     })
   }
 
-  private async lockOwnedExecution(transaction: QueueSqlExecutor, input: ExecutionFence, now: Date): Promise<void> {
+  private async lockOwnedExecution(
+    transaction: QueueSqlExecutor,
+    input: ExecutionFence,
+    now: Date
+  ): Promise<'RUNNING' | 'PAUSING' | 'CANCELLING'> {
     const leaseRows = await transaction.$queryRawUnsafe<Array<{ resourceKey: string }>>(
       `SELECT "resourceKey"
        FROM "job_resource_leases"
@@ -1068,8 +1171,10 @@ export class PostgresQueueRepository {
       throw new JobExecutionFenceError(input.jobId)
     }
 
-    const jobRows = await transaction.$queryRawUnsafe<Array<{ id: string }>>(
-      `SELECT "id"
+    const jobRows = await transaction.$queryRawUnsafe<
+      Array<{ id: string; status: 'RUNNING' | 'PAUSING' | 'CANCELLING' }>
+    >(
+      `SELECT "id", "status"
        FROM "system_jobs"
        WHERE "id" = $1
          AND "workerId" = $2
@@ -1086,6 +1191,13 @@ export class PostgresQueueRepository {
       now
     )
     if (jobRows.length !== 1) {
+      throw new JobExecutionFenceError(input.jobId)
+    }
+    return jobRows[0]!.status
+  }
+
+  private async lockRunningExecution(transaction: QueueSqlExecutor, input: ExecutionFence, now: Date): Promise<void> {
+    if ((await this.lockOwnedExecution(transaction, input, now)) !== 'RUNNING') {
       throw new JobExecutionFenceError(input.jobId)
     }
   }
@@ -1467,6 +1579,28 @@ function toJsonParameter(value: unknown): string | null {
     return null
   }
   return JSON.stringify(value)
+}
+
+function deriveLegacyJobProjection(
+  type: JobType,
+  definitionVersion: number,
+  payload: unknown
+): { targetImageId: number | null; targetPath: string | null; mode: string | null } {
+  if (
+    definitionVersion !== JOB_DEFINITION_VERSION ||
+    type !== 'VIDEO_KEYFRAME_GENERATION' ||
+    payload === null ||
+    typeof payload !== 'object'
+  ) {
+    return { targetImageId: null, targetPath: null, mode: null }
+  }
+
+  const generationPayload = payload as { imageId: number; relativePath: string; mode: string }
+  return {
+    targetImageId: generationPayload.imageId,
+    targetPath: generationPayload.relativePath,
+    mode: generationPayload.mode
+  }
 }
 
 function sanitizeError(value: string): string {

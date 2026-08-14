@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@pixishelf/db": "workspace:*",
+    "@pixishelf/job-contracts": "workspace:*",
     "@prisma/client": "^5.17.0",
     "sharp": "^0.33.5"
   },

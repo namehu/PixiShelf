@@ -10,8 +10,8 @@ env:
   REGISTRY_GITHUB: ghcr.io
   REGISTRY_DOCKERHUB: docker.io
   IMAGE_NAME: pixishelf
-  WORKER_IMAGE_NAME: pixishelf-archive-worker
-  NEXT_WORKER_IMAGE_NAME: pixishelf-worker
+  ARCHIVE_WORKER_IMAGE_NAME: pixishelf-archive-worker
+  WORKER_IMAGE_NAME: pixishelf-worker
 
 jobs:
   build-and-push:
@@ -107,7 +107,32 @@ jobs:
           cache-to: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:cache,mode=max
           platforms: linux/amd64
 
-      - name: Extract metadata for PixiShelf archive worker
+      - name: Extract metadata for transitional PixiShelf archive worker
+        id: archive-worker-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.ARCHIVE_WORKER_IMAGE_NAME }}
+            ${{ env.REGISTRY_DOCKERHUB }}/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.ARCHIVE_WORKER_IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=sha-
+
+      - name: Build and push transitional PixiShelf archive worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./build/archive-worker.Dockerfile
+          target: production
+          push: true
+          tags: ${{ steps.archive-worker-meta.outputs.tags }}
+          labels: ${{ steps.archive-worker-meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.ARCHIVE_WORKER_IMAGE_NAME }}:cache
+          cache-to: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.ARCHIVE_WORKER_IMAGE_NAME }}:cache,mode=max
+          platforms: linux/amd64
+
+      - name: Extract metadata for PixiShelf worker
         id: worker-meta
         uses: docker/metadata-action@v5
         with:
@@ -119,42 +144,17 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=sha,prefix=sha-
 
-      - name: Build and push PixiShelf archive worker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./build/archive-worker.Dockerfile
-          target: production
-          push: true
-          tags: ${{ steps.worker-meta.outputs.tags }}
-          labels: ${{ steps.worker-meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.WORKER_IMAGE_NAME }}:cache
-          cache-to: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.WORKER_IMAGE_NAME }}:cache,mode=max
-          platforms: linux/amd64
-
-      - name: Extract metadata for PixiShelf general worker preview
-        id: next-worker-meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.NEXT_WORKER_IMAGE_NAME }}
-            ${{ env.REGISTRY_DOCKERHUB }}/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.NEXT_WORKER_IMAGE_NAME }}
-          tags: |
-            type=ref,event=tag
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix=sha-
-
-      - name: Build and push PixiShelf general worker preview image
+      - name: Build and push PixiShelf worker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./build/worker.Dockerfile
           target: production
           push: true
-          tags: ${{ steps.next-worker-meta.outputs.tags }}
-          labels: ${{ steps.next-worker-meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.NEXT_WORKER_IMAGE_NAME }}:cache
-          cache-to: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.NEXT_WORKER_IMAGE_NAME }}:cache,mode=max
+          tags: ${{ steps.worker-meta.outputs.tags }}
+          labels: ${{ steps.worker-meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.WORKER_IMAGE_NAME }}:cache
+          cache-to: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.WORKER_IMAGE_NAME }}:cache,mode=max
           platforms: linux/amd64
 
   # 创建 GitHub Release (只在第一个job完成后执行)
@@ -212,28 +212,28 @@ jobs:
           sarif_file: 'trivy-web-results.sarif'
           category: 'pixishelf-web'
 
-      - name: Run Trivy vulnerability scanner for archive worker
+      - name: Run Trivy vulnerability scanner for transitional archive worker
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.ARCHIVE_WORKER_IMAGE_NAME }}:${{ github.ref_name }}'
+          format: 'sarif'
+          output: 'trivy-archive-worker-results.sarif'
+
+      - name: Upload transitional archive worker scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-archive-worker-results.sarif'
+          category: 'pixishelf-archive-worker'
+
+      - name: Run Trivy vulnerability scanner for worker
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: '${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.WORKER_IMAGE_NAME }}:${{ github.ref_name }}'
           format: 'sarif'
           output: 'trivy-worker-results.sarif'
 
-      - name: Upload archive worker scan results to GitHub Security tab
+      - name: Upload worker scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-worker-results.sarif'
-          category: 'pixishelf-archive-worker'
-
-      - name: Run Trivy vulnerability scanner for general worker preview
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: '${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.NEXT_WORKER_IMAGE_NAME }}:${{ github.ref_name }}'
-          format: 'sarif'
-          output: 'trivy-next-worker-results.sarif'
-
-      - name: Upload general worker preview scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-next-worker-results.sarif'
-          category: 'pixishelf-worker-preview'
+          category: 'pixishelf-worker'

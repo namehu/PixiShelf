@@ -15,8 +15,10 @@
   "dependencies": {
     "@pixishelf/db": "workspace:*",
     "@pixishelf/job-contracts": "workspace:*",
+    "@pixishelf/job-executors": "workspace:*",
     "@pixishelf/job-runtime": "workspace:*",
     "@prisma/client": "^5.17.0",
+    "sharp": "^0.33.5",
     "zod": "^4.1.11"
   },
   "devDependencies": {

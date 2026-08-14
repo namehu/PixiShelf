@@ -123,6 +123,24 @@ function isUniqueConstraintError(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002'
 }
 
+function deriveLegacyJobProjection(type: string, definitionVersion: number, payload: unknown) {
+  if (
+    definitionVersion !== JOB_DEFINITION_VERSION ||
+    type !== 'VIDEO_KEYFRAME_GENERATION' ||
+    payload === null ||
+    typeof payload !== 'object'
+  ) {
+    return { targetImageId: null, targetPath: null, mode: null }
+  }
+
+  const generationPayload = payload as { imageId: number; relativePath: string; mode: string }
+  return {
+    targetImageId: generationPayload.imageId,
+    targetPath: generationPayload.relativePath,
+    mode: generationPayload.mode
+  }
+}
+
 async function loadIdempotentJob(
   transaction: Prisma.TransactionClient,
   idempotencyKey: string,
@@ -170,6 +188,7 @@ export async function enqueueJob(
       }
 
       const timestamp = now()
+      const legacyProjection = deriveLegacyJobProjection(parsed.type, parsed.definitionVersion, payload)
       const record = await transaction.systemJob.create({
         data: {
           type: parsed.type,
@@ -182,6 +201,7 @@ export async function enqueueJob(
           availableAt: parsed.availableAt ?? timestamp,
           deadlineAt: parsed.deadlineAt,
           maxAttempts: parsed.maxAttempts,
+          ...legacyProjection,
           idempotencyKey: parsed.idempotencyKey,
           parentJobId: parsed.parentJobId,
           ...(parsed.triggerSource === 'MANUAL' ? { requestedByUserId: parsed.requestedByUserId } : {}),
@@ -338,6 +358,7 @@ export async function retryJobCommand(
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Legacy definition version 0 jobs cannot be retried')
     }
     const priority = Math.min(job.queuePriority, 99)
+    const legacyProjection = deriveLegacyJobProjection(job.type, job.definitionVersion, job.payload)
     const retried = await transaction.systemJob.create({
       data: {
         type: job.type,
@@ -350,7 +371,8 @@ export async function retryJobCommand(
         queuePriority: priority,
         effectivePriority: priority,
         availableAt: now(),
-        maxAttempts: job.maxAttempts
+        maxAttempts: job.maxAttempts,
+        ...legacyProjection
       },
       select: systemJobWireSelect
     })

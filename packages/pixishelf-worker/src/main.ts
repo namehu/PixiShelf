@@ -23,11 +23,8 @@ import { WorkerApplication } from './worker-application.js'
 export async function runWorkerMain(environment: NodeJS.ProcessEnv = process.env) {
   const config = parseWorkerConfig(environment)
   const logger = createJsonLogger()
-  const registry = createWorkerExecutorRegistry()
-  if (config.dispatchEnabled && registry.size === 0) {
-    throw new Error('WORKER_DISPATCH_ENABLED requires at least one registered executor')
-  }
   const database = createDatabaseClient({ datasourceUrl: config.databaseUrl })
+  const registry = createWorkerExecutorRegistry({ database, config })
   const healthState = new WorkerHealthState()
   const workerId = config.workerId ?? createDefaultWorkerId(hostname(), process.pid, randomUUID())
   const presenceReadinessGate = new PresenceReadinessGate(
@@ -64,7 +61,9 @@ export async function runWorkerMain(environment: NodeJS.ProcessEnv = process.env
         workerId,
         queue: new RuntimeDispatcherQueue(
           new PostgresQueueRepository(database as unknown as QueueDatabase, {
-            leaseDurationMs: config.jobLeaseDurationMs
+            leaseDurationMs: config.jobLeaseDurationMs,
+            transactionMaxWaitMs: config.queueTransactionMaxWaitMs,
+            transactionTimeoutMs: config.queueTransactionTimeoutMs
           })
         ),
         registry,

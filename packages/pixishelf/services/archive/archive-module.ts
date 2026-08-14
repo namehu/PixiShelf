@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto'
+import { archiveImportPayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import { ArchiveImportStatus, JobStatus, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
+import { writeJobEvent } from '@/services/background-task/job-event-service'
 import { ArchiveError } from './errors'
 import { archiveProviderRegistry, type ArchiveProviderRegistry } from './provider-registry'
 import { hashResolvedMetadata } from './providers/e-hentai'
@@ -22,14 +25,7 @@ const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const PARTIAL_FAILED_STAGING_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 const ARCHIVE_IMPORT_JOB_TYPE = 'ARCHIVE_IMPORT'
 
-type ArchiveWorkflowStatus =
-  | 'PENDING'
-  | 'RUNNING'
-  | 'PAUSED'
-  | 'CANCELLING'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED'
+type ArchiveWorkflowStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 
 type ArchiveTransitionInput = {
   importStatus: ArchiveWorkflowStatus
@@ -39,11 +35,7 @@ type ArchiveTransitionInput = {
   importData?: Omit<Prisma.ArchiveImportUpdateManyMutationInput, 'status'>
   jobData?: Omit<Prisma.SystemJobUpdateManyMutationInput, 'status'>
   mutate?: (tx: ArchiveTransactionClient) => Promise<void>
-} &
-  (
-    | { jobStatus: ArchiveWorkflowStatus; preserveJobStatus?: false }
-    | { jobStatus?: never; preserveJobStatus: true }
-  )
+} & ({ jobStatus: ArchiveWorkflowStatus; preserveJobStatus?: false } | { jobStatus?: never; preserveJobStatus: true })
 
 type ArchiveTaskSummaryRecord = Prisma.ArchiveImportGetPayload<{
   include: {
@@ -61,6 +53,7 @@ type ArchiveTaskRecord = Prisma.ArchiveImportGetPayload<{
     items: true
   }
 }>
+type ArchiveControlTaskRecord = Prisma.ArchiveImportGetPayload<{ include: { systemJob: true } }>
 
 export class ArchiveModule {
   constructor(private readonly providers: ArchiveProviderRegistry = archiveProviderRegistry) {}
@@ -135,7 +128,7 @@ export class ArchiveModule {
     }
   }
 
-  async enqueue(input: ConfirmedArchiveInput) {
+  async enqueue(input: ConfirmedArchiveInput, options: { requestedByUserId?: string } = {}) {
     const session = await prisma.archivePreviewSession.findUnique({ where: { id: input.previewToken } })
     if (!session || session.expiresAt <= new Date()) {
       throw new ArchiveError('INVALID_URL', '归档预览已过期，请重新解析链接')
@@ -149,6 +142,10 @@ export class ArchiveModule {
 
     const importId = randomUUID()
     const jobId = randomUUID()
+    const centralDispatcher = isCentralDispatcherCutoverEnabled()
+    if (centralDispatcher && !options.requestedByUserId) {
+      throw new ArchiveError('STATE_CONFLICT', 'Central archive enqueue requires an authenticated administrator')
+    }
     const scanRoot = await requireArchiveStorageRoot()
     const paths = buildArchiveStoragePaths({
       scanRoot,
@@ -177,9 +174,21 @@ export class ArchiveModule {
           data: {
             id: jobId,
             type: ARCHIVE_IMPORT_JOB_TYPE,
+            ...(centralDispatcher
+              ? {
+                  definitionVersion: JOB_DEFINITION_VERSION,
+                  triggerSource: 'MANUAL' as const,
+                  requestedByUserId: options.requestedByUserId,
+                  payload: archiveImportPayloadSchema.parse({ archiveImportId: importId }),
+                  queuePriority: 10,
+                  effectivePriority: 10,
+                  availableAt: new Date(),
+                  maxAttempts: 3
+                }
+              : {}),
             status: 'PENDING',
             progress: 0,
-            message: '等待归档 Worker...'
+            message: centralDispatcher ? '等待中央 Worker...' : '等待归档 Worker...'
           }
         })
         await tx.archiveImport.create({
@@ -210,6 +219,15 @@ export class ArchiveModule {
             }
           }
         })
+        if (centralDispatcher) {
+          await writeArchiveJobEvent(tx, {
+            jobId,
+            type: 'job.queued',
+            attempt: 0,
+            message: 'Archive import queued',
+            data: { triggerSource: 'MANUAL', priority: 10, archiveImportId: importId }
+          })
+        }
         await tx.archivePreviewSession.delete({ where: { id: session.id } })
       })
       return { taskId: importId, reused: false }
@@ -324,14 +342,10 @@ export class ArchiveModule {
     return counts
   }
 
-  async retryTaskItem(taskId: string, itemId: string) {
+  async retryTaskItem(taskId: string, itemId: string, options: { requestedByUserId?: string } = {}) {
     const task = await prisma.archiveImport.findUnique({ where: { id: taskId }, include: { systemJob: true } })
     if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
-    if (
-      task.status !== 'FAILED' ||
-      task.errorCode !== 'PARTIAL_FAILURE' ||
-      task.failedItems <= 0
-    ) {
+    if (task.status !== 'FAILED' || task.errorCode !== 'PARTIAL_FAILURE' || task.failedItems <= 0) {
       throw stateConflict('只有部分失败的终态任务可以重试单张图片')
     }
     const item = await prisma.archiveImportItem.findFirst({
@@ -339,6 +353,14 @@ export class ArchiveModule {
       select: { id: true, status: true }
     })
     if (!item || item.status !== 'FAILED') throw stateConflict('该图片当前不是可重试的失败状态')
+
+    if (isCentralDispatcherCutoverEnabled()) {
+      return this.retryCentralArchiveImport(task, {
+        requestedByUserId: requireCentralRequestedBy(options.requestedByUserId),
+        message: 'Retry selected archive media item',
+        retryItemId: item.id
+      })
+    }
 
     await transitionTaskAndJob(task, {
       importStatus: 'PENDING',
@@ -376,7 +398,7 @@ export class ArchiveModule {
     return this.getTask(taskId)
   }
 
-  async requestAction(taskId: string, action: ArchiveTaskAction) {
+  async requestAction(taskId: string, action: ArchiveTaskAction, options: { requestedByUserId?: string } = {}) {
     const task = await prisma.archiveImport.findUnique({ where: { id: taskId }, include: { systemJob: true } })
     if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
     if (task.cleanupRequestedAt) {
@@ -384,6 +406,13 @@ export class ArchiveModule {
       throw stateConflict('暂存目录正在由归档 Worker 清理，请等待清理完成')
     }
     const now = new Date()
+
+    if (isCentralDispatcherCutoverEnabled()) {
+      return this.requestCentralAction(task, action, {
+        requestedByUserId: requireCentralRequestedBy(options.requestedByUserId),
+        now
+      })
+    }
 
     switch (action) {
       case 'PAUSE':
@@ -522,16 +551,276 @@ export class ArchiveModule {
     return this.getTask(taskId)
   }
 
+  private async requestCentralAction(
+    task: ArchiveControlTaskRecord,
+    action: ArchiveTaskAction,
+    options: { requestedByUserId: string; now: Date }
+  ) {
+    if (action === 'RETRY') {
+      assertActionStatus(action, task.status, ['FAILED', 'CANCELLED'])
+      return this.retryCentralArchiveImport(task, {
+        requestedByUserId: options.requestedByUserId,
+        message: 'Retry archive import'
+      })
+    }
+    if (action === 'USE_DISPLAY_QUALITY') {
+      assertActionStatus(action, task.status, ['PAUSED', 'FAILED'])
+      if (task.status === 'FAILED') {
+        return this.retryCentralArchiveImport(task, {
+          requestedByUserId: options.requestedByUserId,
+          message: 'Retry archive import with display quality',
+          useDisplayQuality: true
+        })
+      }
+      await transitionCentralArchiveControl(task, 'RESUME', options.now, { useDisplayQuality: true })
+      return this.getTask(task.id)
+    }
+    if (action === 'PAUSE' || action === 'RESUME' || action === 'CANCEL') {
+      await transitionCentralArchiveControl(task, action, options.now)
+      return this.getTask(task.id)
+    }
+    throw stateConflict(
+      `${action} maintenance is not part of the archive executor; run the dedicated maintenance workflow`
+    )
+  }
+
+  private async retryCentralArchiveImport(
+    task: ArchiveControlTaskRecord,
+    options: {
+      requestedByUserId: string
+      message: string
+      retryItemId?: string
+      useDisplayQuality?: boolean
+    }
+  ) {
+    const nextJobId = randomUUID()
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+      const current = await tx.archiveImport.findUnique({ where: { id: task.id }, include: { systemJob: true } })
+      if (
+        !current ||
+        current.systemJobId !== task.systemJobId ||
+        !['FAILED', 'CANCELLED', 'PAUSED'].includes(current.status)
+      ) {
+        throw stateConflict('归档任务状态已改变，请刷新后重试')
+      }
+      if (options.retryItemId) {
+        const item = await tx.archiveImportItem.updateMany({
+          where: { id: options.retryItemId, archiveImportId: current.id, status: 'FAILED' },
+          data: resetArchiveItemForRetry()
+        })
+        if (item.count !== 1) throw stateConflict('该图片状态已改变，请刷新后重试')
+      } else {
+        await tx.archiveImportItem.updateMany({
+          where: { archiveImportId: current.id, status: { not: 'COMPLETED' } },
+          data: resetArchiveItemForRetry()
+        })
+      }
+      const priority = Math.min(99, Math.max(0, current.systemJob.queuePriority))
+      await tx.systemJob.create({
+        data: {
+          id: nextJobId,
+          type: ARCHIVE_IMPORT_JOB_TYPE,
+          definitionVersion: JOB_DEFINITION_VERSION,
+          status: 'PENDING',
+          triggerSource: 'RETRY',
+          requestedByUserId: options.requestedByUserId,
+          parentJobId: current.systemJobId,
+          payload: archiveImportPayloadSchema.parse({ archiveImportId: current.id }),
+          queuePriority: priority,
+          effectivePriority: priority,
+          availableAt: new Date(),
+          maxAttempts: current.systemJob.maxAttempts,
+          progress: taskProgress(current.completedItems, current.totalItems),
+          message: options.message
+        }
+      })
+      const changed = await tx.archiveImport.updateMany({
+        where: { id: current.id, systemJobId: current.systemJobId, status: current.status },
+        data: {
+          systemJobId: nextJobId,
+          status: 'PENDING',
+          ...(options.useDisplayQuality ? { selectedQuality: 'DISPLAY' as const } : {}),
+          decisionCode: null,
+          errorCode: null,
+          errorMessage: null,
+          failedItems: Math.max(0, current.failedItems - (options.retryItemId ? 1 : current.failedItems)),
+          finishedAt: null,
+          retainUntil: null
+        }
+      })
+      if (changed.count !== 1) throw stateConflict('归档任务状态已改变，请刷新后重试')
+      await writeArchiveJobEvent(tx, {
+        jobId: current.systemJobId,
+        type: 'job.retry_scheduled',
+        attempt: current.systemJob.attempt,
+        message: options.message,
+        data: { retryJobId: nextJobId }
+      })
+      await writeArchiveJobEvent(tx, {
+        jobId: nextJobId,
+        type: 'job.queued',
+        attempt: 0,
+        message: options.message,
+        data: { retryOfJobId: current.systemJobId, archiveImportId: current.id, priority }
+      })
+    })
+    return this.getTask(task.id)
+  }
+
   getProvider(key: string): ArchiveProvider {
     return this.providers.getByKey(key)
   }
 }
 
 export const archiveModule = new ArchiveModule()
-export {
-  ARCHIVE_IMPORT_JOB_TYPE,
-  FAILED_STAGING_RETENTION_MS,
-  PARTIAL_FAILED_STAGING_RETENTION_MS
+export { ARCHIVE_IMPORT_JOB_TYPE, FAILED_STAGING_RETENTION_MS, PARTIAL_FAILED_STAGING_RETENTION_MS }
+
+async function transitionCentralArchiveControl(
+  task: ArchiveControlTaskRecord,
+  action: 'PAUSE' | 'RESUME' | 'CANCEL',
+  now: Date,
+  options: { useDisplayQuality?: boolean } = {}
+) {
+  const allowedImportStatuses =
+    action === 'PAUSE' ? ['PENDING', 'RUNNING'] : action === 'RESUME' ? ['PAUSED'] : ['PENDING', 'RUNNING', 'PAUSED']
+  assertActionStatus(action, task.status, allowedImportStatuses)
+
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+    const current = await tx.archiveImport.findUnique({ where: { id: task.id }, include: { systemJob: true } })
+    if (!current || current.systemJobId !== task.systemJobId || current.status !== task.status) {
+      throw stateConflict('归档任务状态已改变，请刷新后重试')
+    }
+
+    const running = ['RUNNING', 'PAUSING'].includes(current.systemJob.status)
+    const direct = !running
+    const nextJobStatus =
+      action === 'CANCEL'
+        ? direct
+          ? 'CANCELLED'
+          : 'CANCELLING'
+        : action === 'PAUSE'
+          ? direct
+            ? 'PAUSED'
+            : 'PAUSING'
+          : 'PENDING'
+    const allowedJobStatuses =
+      action === 'PAUSE'
+        ? ['PENDING', 'RETRY_WAIT', 'RUNNING']
+        : action === 'RESUME'
+          ? ['PAUSED']
+          : ['PENDING', 'RETRY_WAIT', 'PAUSED', 'RUNNING', 'PAUSING']
+    if (!allowedJobStatuses.includes(current.systemJob.status)) {
+      throw stateConflict(`任务状态 ${current.systemJob.status} 不允许执行 ${action}`)
+    }
+
+    const job = await tx.systemJob.updateMany({
+      where: { id: current.systemJobId, status: current.systemJob.status },
+      data: {
+        status: nextJobStatus,
+        message:
+          action === 'CANCEL'
+            ? direct
+              ? 'Archive import cancelled before execution'
+              : 'Archive import cancellation requested'
+            : action === 'PAUSE'
+              ? direct
+                ? 'Archive import paused before execution'
+                : 'Archive import pause requested'
+              : 'Archive import resumed',
+        ...(action === 'CANCEL' ? { cancelRequestedAt: now } : {}),
+        ...(action === 'PAUSE' ? { pauseRequestedAt: now } : {}),
+        ...(action === 'RESUME' ? { pauseRequestedAt: null, availableAt: now } : {}),
+        ...(direct || action === 'RESUME'
+          ? { workerId: null, leaseToken: null, leaseExpiresAt: null, heartbeatAt: null }
+          : {}),
+        ...(action === 'CANCEL' && direct ? { finishedAt: now } : {})
+      }
+    })
+    if (job.count !== 1) throw stateConflict('归档任务状态已改变，请刷新后重试')
+
+    if (direct || action === 'RESUME') {
+      await tx.jobResourceLease.deleteMany({ where: { ownerJobId: current.systemJobId } })
+    }
+    if (action === 'RESUME') {
+      await tx.archiveImportItem.updateMany({
+        where: { archiveImportId: current.id, status: { not: 'COMPLETED' } },
+        data: resetArchiveItemForRetry()
+      })
+    }
+    const nextImportStatus =
+      action === 'CANCEL'
+        ? direct
+          ? 'CANCELLED'
+          : 'CANCELLING'
+        : action === 'PAUSE'
+          ? direct
+            ? 'PAUSED'
+            : 'RUNNING'
+          : 'PENDING'
+    const archiveImport = await tx.archiveImport.updateMany({
+      where: { id: current.id, systemJobId: current.systemJobId, status: current.status },
+      data: {
+        status: nextImportStatus,
+        ...(options.useDisplayQuality ? { selectedQuality: 'DISPLAY' as const, decisionCode: null } : {}),
+        ...(action === 'RESUME'
+          ? { errorCode: null, errorMessage: null, failedItems: 0, finishedAt: null, retainUntil: null }
+          : {}),
+        ...(action === 'CANCEL' && direct
+          ? { finishedAt: now, retainUntil: new Date(now.getTime() + FAILED_STAGING_RETENTION_MS) }
+          : {})
+      }
+    })
+    if (archiveImport.count !== 1) throw stateConflict('归档任务状态已改变，请刷新后重试')
+
+    await writeArchiveJobEvent(tx, {
+      jobId: current.systemJobId,
+      type:
+        action === 'CANCEL'
+          ? direct
+            ? 'job.cancelled'
+            : 'job.cancel_requested'
+          : action === 'PAUSE'
+            ? 'job.pause_requested'
+            : 'job.queued',
+      level: action === 'RESUME' ? 'INFO' : 'WARN',
+      attempt: current.systemJob.attempt,
+      message: `${action.toLowerCase()} archive import`,
+      data: action === 'RESUME' ? { reason: 'RESUME' } : null
+    })
+    if (action === 'PAUSE' && direct) {
+      await writeArchiveJobEvent(tx, {
+        jobId: current.systemJobId,
+        type: 'job.paused',
+        level: 'WARN',
+        attempt: current.systemJob.attempt,
+        message: 'Archive import paused before execution'
+      })
+    }
+  })
+}
+
+function resetArchiveItemForRetry(): Prisma.ArchiveImportItemUpdateManyMutationInput {
+  return {
+    status: 'PENDING',
+    attempts: 0,
+    errorCode: null,
+    errorMessage: null,
+    errorStage: null,
+    remoteHost: null,
+    startedAt: null,
+    finishedAt: null
+  }
+}
+
+function requireCentralRequestedBy(value: string | undefined): string {
+  if (!value) throw stateConflict('Central archive command requires an authenticated administrator')
+  return value
+}
+
+function writeArchiveJobEvent(transaction: unknown, input: Parameters<typeof writeJobEvent>[1]) {
+  return writeJobEvent(transaction as Parameters<typeof writeJobEvent>[0], input)
 }
 
 async function transitionTaskAndJob(

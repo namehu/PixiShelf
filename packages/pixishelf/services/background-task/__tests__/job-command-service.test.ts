@@ -62,6 +62,37 @@ describe('enqueueJob', () => {
     )
   })
 
+  it('projects canonical keyframe generation payload fields into legacy columns', async () => {
+    const created = jobRecord({ type: 'VIDEO_KEYFRAME_GENERATION' })
+    const harness = commandHarness([created])
+    harness.create.mockResolvedValue(created)
+
+    await enqueueJob(
+      {
+        type: 'VIDEO_KEYFRAME_GENERATION',
+        triggerSource: 'MANUAL',
+        requestedByUserId: 'user-1',
+        priority: 10,
+        payload: {
+          imageId: 42,
+          relativePath: 'videos/example.mp4',
+          mode: 'MANUAL_FORCE'
+        }
+      },
+      harness.client
+    )
+
+    expect(harness.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          targetImageId: 42,
+          targetPath: 'videos/example.mp4',
+          mode: 'MANUAL_FORCE'
+        })
+      })
+    )
+  })
+
   it('enforces separate manual and scheduled priority bands', async () => {
     const harness = commandHarness([])
     await expect(
@@ -342,6 +373,41 @@ describe('job commands', () => {
       })
     )
     expect(harness.eventCreate).toHaveBeenCalledTimes(2)
+  })
+
+  it('projects canonical keyframe generation payload fields when creating a retry', async () => {
+    const failed = jobRecord({
+      type: 'VIDEO_KEYFRAME_GENERATION',
+      status: 'FAILED',
+      payload: {
+        imageId: 84,
+        relativePath: 'videos/retry.mp4',
+        mode: 'MANUAL_INCREMENTAL'
+      },
+      finishedAt: new Date()
+    })
+    const retried = jobRecord({
+      id: 'job-keyframe-retry-1',
+      type: 'VIDEO_KEYFRAME_GENERATION',
+      status: 'PENDING',
+      triggerSource: 'RETRY',
+      parentJobId: failed.id,
+      payload: failed.payload
+    })
+    const harness = commandHarness([failed, retried])
+    harness.create.mockResolvedValue(retried)
+
+    await retryJobCommand({ jobId: failed.id, requestedByUserId: 'admin-1' }, harness.client)
+
+    expect(harness.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          targetImageId: 84,
+          targetPath: 'videos/retry.mp4',
+          mode: 'MANUAL_INCREMENTAL'
+        })
+      })
+    )
   })
 
   it('rejects invalid transitions without writing an event', async () => {

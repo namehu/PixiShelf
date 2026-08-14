@@ -23,7 +23,7 @@ None of these represents a general, restart-safe collection of representative fr
 - Support scheduled incremental discovery, preview-first filtered manual batches, and single-video actions.
 - Keep job state durable in PostgreSQL and resume safely after worker or container restarts.
 - Support pause, resume, cancel, retry, progress, warnings, and manual-priority queueing.
-- Reuse the existing scheduler, `SystemJob`, derived-media storage, and archive-worker container.
+- Reuse the existing scheduler, `SystemJob`, and derived-media storage while running execution in the independent Central Dispatcher Worker.
 - Expose published representative frames in the artwork detail player and immersive viewer without merging them into chapter data.
 
 ## Non-goals
@@ -81,23 +81,22 @@ flowchart LR
   Scheduler["Scheduler tick or administrator"]
   Discovery["Discovery and enqueue service"]
   Jobs["PostgreSQL SystemJob queue"]
-  Host["archive-worker process host"]
-  ArchiveLoop["Archive loop"]
-  KeyframeLoop["Keyframe loop"]
+  Host["pixishelf-worker Central Dispatcher"]
+  Registry["Executor registry"]
+  KeyframeExecutors["Discovery + generation executors"]
   Extractor["FFprobe + FFmpeg + Sharp"]
   Staging["Derived-media staging generation"]
   Published["Published keyframe set"]
   Admin["Admin tasks and media manager"]
 
   Scheduler --> Discovery --> Jobs
-  Host --> ArchiveLoop
-  Host --> KeyframeLoop --> Jobs
-  KeyframeLoop --> Extractor --> Staging --> Published --> Admin
+  Jobs --> Host --> Registry --> KeyframeExecutors
+  KeyframeExecutors --> Extractor --> Staging --> Published --> Admin
 ```
 
-The existing archive-worker container becomes a process host with two independently supervised loops. Archive work and keyframe work may run concurrently. A failure that unexpectedly terminates either top-level loop terminates the process so Docker can restart both loops. Expected per-job failures stay inside their own loop.
+The first implementation used two independently supervised loops in `archive-worker`; that host is now a migration-only compatibility consumer. The target implementation registers discovery and generation in the independent Central Dispatcher Worker. PostgreSQL fencing permits only one globally executing background job, even if two Worker containers are started accidentally.
 
-The keyframe loop does not claim a new video while an existing heavy media-maintenance job (`VIDEO_MEDIA_PROBE` or `VIDEO_CHAPTER_PREVIEW_GENERATION`) is active. This avoids overlapping independent FFmpeg maintenance workloads.
+The global execution lease replaces the former type-specific check for `VIDEO_MEDIA_PROBE` and `VIDEO_CHAPTER_PREVIEW_GENERATION`: keyframe extraction cannot overlap any other central background job. During dark launch `WORKER_DISPATCH_ENABLED=false`; the old archive consumer is removed only in the final all-task cutover.
 
 ## Data model
 

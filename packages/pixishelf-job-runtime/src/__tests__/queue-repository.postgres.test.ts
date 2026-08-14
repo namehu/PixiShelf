@@ -330,6 +330,31 @@ describePostgres('PostgresQueueRepository integration', () => {
       triggerSource: 'SYSTEM'
     })
 
+    const keyframeChild = await repository.enqueueChild(parentFence, {
+      type: 'VIDEO_KEYFRAME_GENERATION',
+      payload: {
+        imageId: 42,
+        relativePath: 'videos/example.mp4',
+        mode: 'MANUAL_INCREMENTAL'
+      },
+      idempotencyKey: `${testPrefix}-keyframe-child`
+    })
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: keyframeChild.id },
+        select: { targetImageId: true, targetPath: true, mode: true, payload: true }
+      })
+    ).toEqual({
+      targetImageId: 42,
+      targetPath: 'videos/example.mp4',
+      mode: 'MANUAL_INCREMENTAL',
+      payload: {
+        imageId: 42,
+        relativePath: 'videos/example.mp4',
+        mode: 'MANUAL_INCREMENTAL'
+      }
+    })
+
     await expect(
       repository.enqueueChild(parentFence, {
         type: 'SCAN',
@@ -686,6 +711,91 @@ describePostgres('PostgresQueueRepository integration', () => {
     expect(await client().systemJobEvent.count({ where: { jobId, type: eventType } })).toBe(1)
   })
 
+  it('atomically self-pauses a RUNNING domain job with an explicit action-required reason', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('queue-kernel-domain-pause-worker', capabilities))!
+
+    await repository.withFencedExecutionTransaction(fence(claimed), async (scope) => {
+      await scope.transaction.$executeRawUnsafe(
+        `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+        jobId,
+        'waiting for an operator decision'
+      )
+      await scope.pause({
+        reason: 'ACTION_REQUIRED',
+        message: 'Original media is unavailable',
+        data: { decisionCode: 'ORIGINAL_UNAVAILABLE' }
+      })
+    })
+
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { status: true, message: true, pauseRequestedAt: true, finishedAt: true }
+      })
+    ).toEqual({
+      status: 'PAUSED',
+      message: 'waiting for an operator decision',
+      pauseRequestedAt: null,
+      finishedAt: null
+    })
+    const event = await client().systemJobEvent.findFirstOrThrow({
+      where: { jobId, type: 'job.paused' },
+      orderBy: { id: 'desc' }
+    })
+    expect(event.data).toEqual({
+      reason: 'ACTION_REQUIRED',
+      data: { decisionCode: 'ORIGINAL_UNAVAILABLE' }
+    })
+  })
+
+  it('gives cancellation priority over a transaction-bound domain self-pause', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('queue-kernel-cancel-domain-pause-worker', capabilities))!
+    const ownedFence = fence(claimed)
+    expect(await repository.requestCancellation(jobId)).toEqual({ jobId, status: 'CANCELLING' })
+
+    await expect(
+      repository.withFencedExecutionTransaction(ownedFence, async (scope) => {
+        await scope.transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'cancel must roll this pause back'
+        )
+        await scope.pause({ reason: 'ACTION_REQUIRED', data: { decisionCode: 'ORIGINAL_UNAVAILABLE' } })
+      })
+    ).rejects.toBeInstanceOf(JobExecutionFenceError)
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { status: true, message: true }
+      })
+    ).toEqual({ status: 'CANCELLING', message: null })
+    await repository.cancel(ownedFence)
+  })
+
+  it('rejects a stale-token domain self-pause before its callback can mutate state', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10, maxAttempts: 3 })
+    const repository = createRepository(clock, 1_000)
+    const stale = (await repository.claim('queue-kernel-stale-domain-pause-worker', capabilities))!
+    clock.advance(1_001)
+    await repository.recoverExpiredExecution()
+    const current = (await repository.claim('queue-kernel-current-domain-pause-worker', capabilities))!
+    let callbackEntered = false
+
+    await expect(
+      repository.withFencedExecutionTransaction(fence(stale), async (scope) => {
+        callbackEntered = true
+        await scope.pause({ reason: 'ACTION_REQUIRED' })
+      })
+    ).rejects.toBeInstanceOf(JobExecutionFenceError)
+    expect(callbackEntered).toBe(false)
+    expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe('RUNNING')
+    await repository.complete(fence(current))
+  })
+
   it('commits a domain mutation and terminal transition in one fenced transaction', async () => {
     const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
     const repository = createRepository(clock)
@@ -712,6 +822,152 @@ describePostgres('PostgresQueueRepository integration', () => {
     })
   })
 
+  it.each([
+    ['RUNNING', 'CONTINUE', 'complete', 'COMPLETED'],
+    ['PAUSING', 'PAUSE_REQUESTED', 'pause', 'PAUSED'],
+    ['CANCELLING', 'CANCEL_REQUESTED', 'cancel', 'CANCELLED']
+  ] as const)(
+    'exposes the locked %s execution state and atomically applies its %s branch',
+    async (executionStatus, controlStatus, operation, terminalStatus) => {
+      const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+      const repository = createRepository(clock)
+      const claimed = (await repository.claim(`queue-kernel-status-${executionStatus}`, capabilities))!
+      if (executionStatus !== 'RUNNING') {
+        await client().systemJob.update({
+          where: { id: jobId },
+          data:
+            executionStatus === 'PAUSING'
+              ? { status: executionStatus, pauseRequestedAt: clock.now() }
+              : { status: executionStatus, cancelRequestedAt: clock.now() }
+        })
+      }
+
+      await repository.withFencedExecutionTransaction(fence(claimed), async (scope) => {
+        expect(scope.executionStatus).toBe(executionStatus)
+        expect(scope.controlStatus).toBe(controlStatus)
+        await scope.transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          `handled ${executionStatus}`
+        )
+        if (operation === 'complete') await scope.complete()
+        else if (operation === 'pause') await scope.pause({ reason: 'USER_REQUESTED' })
+        else await scope.cancel()
+      })
+
+      expect(
+        await client().systemJob.findUniqueOrThrow({
+          where: { id: jobId },
+          select: { status: true, message: true }
+        })
+      ).toEqual({ status: terminalStatus, message: `handled ${executionStatus}` })
+    }
+  )
+
+  it('linearizes a control request after a domain finalization transaction that acquired the job lock first', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('queue-kernel-finalization-lock-winner', capabilities))!
+    let releaseFinalization!: () => void
+    let markFinalizationEntered!: () => void
+    const finalizationEntered = new Promise<void>((resolve) => {
+      markFinalizationEntered = resolve
+    })
+    const finalizationGate = new Promise<void>((resolve) => {
+      releaseFinalization = resolve
+    })
+
+    const finalization = repository.withFencedExecutionTransaction(fence(claimed), async (scope) => {
+      expect(scope.executionStatus).toBe('RUNNING')
+      markFinalizationEntered()
+      await finalizationGate
+      await scope.complete({ result: { winner: 'domain-finalization' } })
+    })
+    await finalizationEntered
+
+    let cancellationSettled = false
+    const cancellation = repository.requestCancellation(jobId).then((result) => {
+      cancellationSettled = true
+      return result
+    })
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    expect(cancellationSettled).toBe(false)
+
+    releaseFinalization()
+    await finalization
+    await expect(cancellation).resolves.toBeNull()
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { status: true, result: true }
+      })
+    ).toEqual({ status: 'COMPLETED', result: { winner: 'domain-finalization' } })
+  })
+
+  it('rejects before entering domain code when the lease expires while the initial row lock is waiting', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10, maxAttempts: 3 })
+    const repository = createRepository(clock, 1_000)
+    const claimed = (await repository.claim('queue-kernel-expired-while-waiting', capabilities))!
+    let releaseLock!: () => void
+    let markLockHeld!: () => void
+    const lockHeld = new Promise<void>((resolve) => {
+      markLockHeld = resolve
+    })
+    const lockGate = new Promise<void>((resolve) => {
+      releaseLock = resolve
+    })
+    const holder = client().$transaction(
+      async (transaction) => {
+        await transaction.$queryRawUnsafe(
+          `SELECT "resourceKey"
+           FROM "job_resource_leases"
+           WHERE "resourceKey" = $1
+             AND "ownerJobId" = $2
+           FOR UPDATE`,
+          GLOBAL_BACKGROUND_WORKER_RESOURCE,
+          jobId
+        )
+        markLockHeld()
+        await lockGate
+      },
+      { maxWait: 5_000, timeout: 10_000 }
+    )
+    await lockHeld
+
+    let callbackEntered = false
+    const finalization = repository.withFencedExecutionTransaction(fence(claimed), async (scope) => {
+      callbackEntered = true
+      await scope.complete()
+    })
+    let observedLockWait = false
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const [row] = await client().$queryRawUnsafe<Array<{ waiting: boolean }>>(
+        `SELECT EXISTS (
+           SELECT 1
+           FROM pg_stat_activity
+           WHERE datname = current_database()
+             AND wait_event_type = 'Lock'
+             AND query LIKE '%job_resource_leases%'
+         ) AS "waiting"`
+      )
+      if (row?.waiting) {
+        observedLockWait = true
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(observedLockWait).toBe(true)
+    expect(callbackEntered).toBe(false)
+
+    clock.advance(1_001)
+    releaseLock()
+    await holder
+    await expect(finalization).rejects.toBeInstanceOf(JobExecutionFenceError)
+    expect(callbackEntered).toBe(false)
+    expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe('RUNNING')
+    expect(await repository.recoverExpiredExecution()).toMatchObject({ jobId, status: 'RETRY_WAIT' })
+  })
+
   it('rolls back domain changes when a fenced transaction omits its finalizer', async () => {
     const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
     const repository = createRepository(clock)
@@ -735,6 +991,269 @@ describePostgres('PostgresQueueRepository integration', () => {
     ).toEqual({ status: 'RUNNING', message: null })
     await repository.complete(fence(claimed))
   })
+
+  it('rolls back the first terminal transition when a fenced transaction finalizes twice', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('queue-kernel-double-finalizer-worker', capabilities))!
+
+    await expect(
+      repository.withFencedExecutionTransaction(fence(claimed), async (scope) => {
+        await scope.transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'must roll back with duplicate finalizer'
+        )
+        await scope.complete({ result: { published: true } })
+        await scope.complete({ result: { published: 'twice' } })
+      })
+    ).rejects.toThrow('already finalized')
+
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { status: true, message: true, result: true }
+      })
+    ).toEqual({ status: 'RUNNING', message: null, result: null })
+    expect(await client().jobResourceLease.count({ where: { ownerJobId: jobId } })).toBe(1)
+    await repository.complete(fence(claimed))
+  })
+
+  it('rolls back when an executor catches its own duplicate finalizer error', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('queue-kernel-caught-double-finalizer-worker', capabilities))!
+
+    await expect(
+      repository.withFencedExecutionTransaction(fence(claimed), async (scope) => {
+        await scope.transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'caught duplicate must still roll back'
+        )
+        await scope.complete()
+        await scope.fail({ errorCode: 'TEST', error: 'duplicate' }).catch(() => undefined)
+      })
+    ).rejects.toThrow('must call exactly one terminal finalizer')
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { status: true, message: true }
+      })
+    ).toEqual({ status: 'RUNNING', message: null })
+    await repository.complete(fence(claimed))
+  })
+
+  it('rolls back a terminal domain transaction that outlives its execution lease', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10, maxAttempts: 3 })
+    const repository = createRepository(clock, 1_000)
+    const claimed = (await repository.claim('queue-kernel-expired-finalizer-worker', capabilities))!
+
+    await expect(
+      repository.withFencedExecutionTransaction(fence(claimed), async (scope) => {
+        await scope.complete({ result: { published: true } })
+        await scope.transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'domain write after terminal intent must roll back'
+        )
+        clock.advance(1_001)
+      })
+    ).rejects.toBeInstanceOf(JobExecutionFenceError)
+
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { status: true, message: true, result: true }
+      })
+    ).toEqual({ status: 'RUNNING', message: null, result: null })
+    expect(await repository.recoverExpiredExecution()).toMatchObject({ jobId, status: 'RETRY_WAIT' })
+  })
+
+  it('gives pause priority over a transaction-bound cancellation finalizer', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('queue-kernel-tx-pause-cancel-worker', capabilities))!
+    const ownedFence = fence(claimed)
+    await client().systemJob.update({
+      where: { id: jobId },
+      data: { status: 'PAUSING', pauseRequestedAt: clock.now() }
+    })
+
+    await expect(
+      repository.withFencedExecutionTransaction(ownedFence, async (scope) => {
+        await scope.transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'pause must roll this cancellation publication back'
+        )
+        await scope.cancel()
+      })
+    ).rejects.toBeInstanceOf(JobExecutionFenceError)
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { status: true, message: true }
+      })
+    ).toEqual({ status: 'PAUSING', message: null })
+    await repository.pause(ownedFence)
+  })
+
+  it.each([
+    ['pause', 'PAUSED', 'job.paused'],
+    ['release', 'PENDING', 'job.retry_scheduled']
+  ] as const)('atomically commits domain state with transaction-bound %s', async (operation, status, eventType) => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim(`queue-kernel-tx-${operation}-worker`, capabilities))!
+    const ownedFence = fence(claimed)
+    if (operation === 'pause') {
+      await client().systemJob.update({
+        where: { id: jobId },
+        data: { status: 'PAUSING', pauseRequestedAt: clock.now() }
+      })
+    }
+
+    await repository.withFencedExecutionTransaction(ownedFence, async (scope) => {
+      await scope.transaction.$executeRawUnsafe(
+        `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+        jobId,
+        `${operation} domain state committed`
+      )
+      if (operation === 'pause') {
+        await scope.pause({ reason: 'USER_REQUESTED', message: 'paused atomically' })
+      } else await scope.release('released atomically')
+    })
+
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { status: true, message: true, finishedAt: true, workerId: true, leaseToken: true }
+      })
+    ).toEqual({
+      status,
+      message: `${operation} domain state committed`,
+      finishedAt: null,
+      workerId: null,
+      leaseToken: null
+    })
+    expect(await client().jobResourceLease.count({ where: { ownerJobId: jobId } })).toBe(0)
+    expect(await client().systemJobEvent.count({ where: { jobId, type: eventType } })).toBe(1)
+  })
+
+  it('rejects stale-token checkpoint mutation before the callback can write domain state', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10, maxAttempts: 3 })
+    const repository = createRepository(clock, 1_000)
+    const stale = (await repository.claim('queue-kernel-stale-mutation-worker', capabilities))!
+    clock.advance(1_001)
+    await repository.recoverExpiredExecution()
+    const current = (await repository.claim('queue-kernel-current-mutation-worker', capabilities))!
+    let callbackEntered = false
+
+    await expect(
+      repository.withFencedMutationTransaction(fence(stale), async (transaction) => {
+        callbackEntered = true
+        await transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'stale checkpoint must not persist'
+        )
+      })
+    ).rejects.toBeInstanceOf(JobExecutionFenceError)
+
+    expect(callbackEntered).toBe(false)
+    expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).message).toBeNull()
+    await repository.complete(fence(current))
+  })
+
+  it('gives cancellation priority over a checkpoint mutation and never enters its callback', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('queue-kernel-cancel-mutation-worker', capabilities))!
+    const ownedFence = fence(claimed)
+    await repository.requestCancellation(jobId)
+    let callbackEntered = false
+
+    await expect(
+      repository.withFencedMutationTransaction(ownedFence, async (transaction) => {
+        callbackEntered = true
+        await transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'cancelled checkpoint must not persist'
+        )
+      })
+    ).rejects.toBeInstanceOf(JobExecutionFenceError)
+
+    expect(callbackEntered).toBe(false)
+    expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).message).toBeNull()
+    await repository.cancel(ownedFence)
+  })
+
+  it('serializes a concurrent cancellation behind an in-flight checkpoint transaction', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('queue-kernel-cancel-race-worker', capabilities))!
+    const ownedFence = fence(claimed)
+    let releaseMutation!: () => void
+    let markMutationEntered!: () => void
+    const mutationEntered = new Promise<void>((resolve) => {
+      markMutationEntered = resolve
+    })
+    const mutationGate = new Promise<void>((resolve) => {
+      releaseMutation = resolve
+    })
+
+    const mutation = repository.withFencedMutationTransaction(ownedFence, async (transaction) => {
+      await transaction.$executeRawUnsafe(
+        `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+        jobId,
+        'linearized checkpoint'
+      )
+      markMutationEntered()
+      await mutationGate
+    })
+    await mutationEntered
+
+    let cancellationSettled = false
+    const cancellation = repository.requestCancellation(jobId).then((result) => {
+      cancellationSettled = true
+      return result
+    })
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    expect(cancellationSettled).toBe(false)
+
+    releaseMutation()
+    await mutation
+    await expect(cancellation).resolves.toEqual({ jobId, status: 'CANCELLING' })
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { status: true, message: true }
+      })
+    ).toEqual({ status: 'CANCELLING', message: 'linearized checkpoint' })
+    await repository.cancel(ownedFence)
+  })
+
+  it('rolls back a checkpoint transaction that outlives its execution lease', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10, maxAttempts: 3 })
+    const repository = createRepository(clock, 1_000)
+    const claimed = (await repository.claim('queue-kernel-expired-mutation-worker', capabilities))!
+
+    await expect(
+      repository.withFencedMutationTransaction(fence(claimed), async (transaction) => {
+        await transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'expired checkpoint must roll back'
+        )
+        clock.advance(1_001)
+      })
+    ).rejects.toBeInstanceOf(JobExecutionFenceError)
+
+    expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).message).toBeNull()
+    expect(await repository.recoverExpiredExecution()).toMatchObject({ jobId, status: 'RETRY_WAIT' })
+  })
 })
 
 function client(): PrismaClient {
@@ -748,8 +1267,8 @@ function createRepository(clock: MutableQueueClock, leaseDurationMs = 60_000) {
   return new PostgresQueueRepository(client() as unknown as QueueDatabase, {
     clock,
     leaseDurationMs,
-    transactionMaxWaitMs: 15_000,
-    transactionTimeoutMs: 20_000
+    transactionMaxWaitMs: Math.min(15_000, Math.max(100, Math.floor(leaseDurationMs / 4))),
+    transactionTimeoutMs: Math.min(20_000, leaseDurationMs - 1)
   })
 }
 

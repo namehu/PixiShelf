@@ -3,10 +3,6 @@ import { z } from 'zod'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import { archiveModule } from '@/services/archive/archive-module'
 import { ArchiveError } from '@/services/archive/errors'
-import {
-  assertLegacyBackgroundExecutionAllowed,
-  LegacyBackgroundExecutionDisabledError
-} from '@/services/background-task/dispatcher-cutover'
 
 const actionSchema = z.enum([
   'PAUSE',
@@ -30,10 +26,9 @@ export const archiveRouter = router({
 
   enqueue: adminProcedure
     .input(z.object({ previewToken: z.string().min(1), quality: z.enum(['ORIGINAL', 'DISPLAY']) }))
-    .mutation(async ({ input }) => {
-      assertLegacyArchiveExecutionAllowed('ARCHIVE_IMPORT_ENQUEUE')
-      return runArchiveOperation(() => archiveModule.enqueue(input))
-    }),
+    .mutation(async ({ input, ctx }) =>
+      runArchiveOperation(() => archiveModule.enqueue(input, { requestedByUserId: ctx.userId }))
+    ),
 
   getTask: authProcedure
     .input(z.object({ taskId: z.string().min(1) }))
@@ -62,29 +57,20 @@ export const archiveRouter = router({
 
   retryTaskItem: adminProcedure
     .input(z.object({ taskId: z.string().min(1), itemId: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      assertLegacyArchiveExecutionAllowed('ARCHIVE_IMPORT_RETRY')
-      return runArchiveOperation(() => archiveModule.retryTaskItem(input.taskId, input.itemId))
-    }),
+    .mutation(async ({ input, ctx }) =>
+      runArchiveOperation(() =>
+        archiveModule.retryTaskItem(input.taskId, input.itemId, { requestedByUserId: ctx.userId })
+      )
+    ),
 
   action: adminProcedure
     .input(z.object({ taskId: z.string().min(1), action: actionSchema }))
-    .mutation(async ({ input }) => {
-      assertLegacyArchiveExecutionAllowed('ARCHIVE_IMPORT_ACTION')
-      return runArchiveOperation(() => archiveModule.requestAction(input.taskId, input.action))
-    })
+    .mutation(async ({ input, ctx }) =>
+      runArchiveOperation(() =>
+        archiveModule.requestAction(input.taskId, input.action, { requestedByUserId: ctx.userId })
+      )
+    )
 })
-
-function assertLegacyArchiveExecutionAllowed(operation: string) {
-  try {
-    assertLegacyBackgroundExecutionAllowed(operation)
-  } catch (error) {
-    if (error instanceof LegacyBackgroundExecutionDisabledError) {
-      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
-    }
-    throw error
-  }
-}
 
 /**
  * 包装归档服务操作，避免将实现细节错误码直接透传给客户端。

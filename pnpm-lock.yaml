@@ -309,6 +309,9 @@ importers:
       '@pixishelf/db':
         specifier: workspace:*
         version: link:../pixishelf-db
+      '@pixishelf/job-contracts':
+        specifier: workspace:*
+        version: link:../pixishelf-job-contracts
       '@prisma/client':
         specifier: ^5.17.0
         version: 5.22.0(prisma@5.22.0)
@@ -467,11 +470,39 @@ importers:
         specifier: ^4.0.18
         version: 4.0.18(@types/node@20.19.17)
 
+  packages/pixishelf-job-executors:
+    dependencies:
+      '@pixishelf/db':
+        specifier: workspace:*
+        version: link:../pixishelf-db
+      '@pixishelf/job-contracts':
+        specifier: workspace:*
+        version: link:../pixishelf-job-contracts
+      '@pixishelf/job-runtime':
+        specifier: workspace:*
+        version: link:../pixishelf-job-runtime
+      sharp:
+        specifier: ^0.33.5
+        version: 0.33.5
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.0
+        version: 20.19.17
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.2
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@20.19.17)
+
   packages/pixishelf-job-runtime:
     dependencies:
       '@pixishelf/job-contracts':
         specifier: workspace:*
         version: link:../pixishelf-job-contracts
+      zod:
+        specifier: ^4.1.11
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^20.19.0
@@ -491,12 +522,18 @@ importers:
       '@pixishelf/job-contracts':
         specifier: workspace:*
         version: link:../pixishelf-job-contracts
+      '@pixishelf/job-executors':
+        specifier: workspace:*
+        version: link:../pixishelf-job-executors
       '@pixishelf/job-runtime':
         specifier: workspace:*
         version: link:../pixishelf-job-runtime
       '@prisma/client':
         specifier: ^5.17.0
         version: 5.22.0(prisma@5.22.0)
+      sharp:
+        specifier: ^0.33.5
+        version: 0.33.5
       zod:
         specifier: ^4.1.11
         version: 4.3.6

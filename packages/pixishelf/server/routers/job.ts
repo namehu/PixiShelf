@@ -19,6 +19,13 @@ import {
   retryVideoKeyframeJob,
   selectVideoKeyframePoster
 } from '@/services/video-keyframe-queue'
+import {
+  controlCentralVideoKeyframeJob,
+  enqueueCentralVideoKeyframeDiscovery,
+  enqueueCentralVideoKeyframeGeneration,
+  retryCentralVideoKeyframeJob,
+  retryFailedCentralVideoKeyframes
+} from '@/services/video-keyframe-central-service'
 import { z } from 'zod'
 import {
   assertLegacyBackgroundExecutionAllowed,
@@ -39,7 +46,10 @@ import {
   resumeJobCommand,
   retryJobCommand
 } from '@/services/background-task'
-import { LegacyBackgroundExecutionDisabledError } from '@/services/background-task/dispatcher-cutover'
+import {
+  isCentralDispatcherCutoverEnabled,
+  LegacyBackgroundExecutionDisabledError
+} from '@/services/background-task/dispatcher-cutover'
 
 const videoKeyframeFilterSchema = z.object({
   minDuration: z.number().nonnegative().nullable().default(null),
@@ -356,9 +366,12 @@ export const jobRouter = router({
 
   startVideoKeyframeGeneration: adminProcedure
     .input(z.object({ imageId: z.number().int().positive(), force: z.boolean().default(false) }))
-    .mutation(async ({ input }) => {
-      assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_GENERATION')
+    .mutation(async ({ input, ctx }) => {
       try {
+        if (isCentralDispatcherCutoverEnabled()) {
+          return await enqueueCentralVideoKeyframeGeneration({ ...input, requestedByUserId: ctx.userId })
+        }
+        assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_GENERATION')
         const result = await enqueueSingleVideoKeyframe(input.imageId, input.force)
         return { jobId: result.job.id, status: result.job.status, reused: result.reused }
       } catch (error) {
@@ -395,7 +408,16 @@ export const jobRouter = router({
           }
         })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      if (isCentralDispatcherCutoverEnabled()) {
+        return enqueueCentralVideoKeyframeDiscovery({
+          force: input.force,
+          previewOnly: input.previewOnly,
+          imageIds: input.imageIds,
+          filter: input.filter,
+          requestedByUserId: ctx.userId
+        })
+      }
       assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_BATCH')
       return enqueueVideoKeyframeBatch({
         trigger: 'manual',
@@ -422,22 +444,37 @@ export const jobRouter = router({
   controlVideoKeyframe: adminProcedure
     .input(z.object({ jobId: z.string().min(1), action: z.enum(['pause', 'resume', 'cancel']) }))
     .mutation(async ({ input }) => {
-      assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_CONTROL')
-      const job = await controlVideoKeyframeJob(input.jobId, input.action)
+      let job
+      if (isCentralDispatcherCutoverEnabled()) {
+        job = await runBackgroundTaskCommand(() => controlCentralVideoKeyframeJob(input.jobId, input.action))
+      } else {
+        assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_CONTROL')
+        job = await controlVideoKeyframeJob(input.jobId, input.action)
+      }
       if (!job) throw new TRPCError({ code: 'NOT_FOUND', message: 'Video keyframe job not found' })
       return { jobId: job.id, status: job.status }
     }),
 
-  retryVideoKeyframe: adminProcedure.input(z.object({ jobId: z.string().min(1) })).mutation(async ({ input }) => {
-    assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_RETRY')
-    const job = await retryVideoKeyframeJob(input.jobId)
+  retryVideoKeyframe: adminProcedure.input(z.object({ jobId: z.string().min(1) })).mutation(async ({ input, ctx }) => {
+    let job
+    if (isCentralDispatcherCutoverEnabled()) {
+      job = await runBackgroundTaskCommand(() => retryCentralVideoKeyframeJob(input.jobId, ctx.userId))
+    } else {
+      assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_RETRY')
+      job = await retryVideoKeyframeJob(input.jobId)
+    }
     if (!job) throw new TRPCError({ code: 'NOT_FOUND', message: 'Video keyframe job not found' })
     return { jobId: job.id, status: job.status }
   }),
 
   retryFailedVideoKeyframes: adminProcedure
     .input(z.object({ filter: videoKeyframeFilterSchema.optional() }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
+      if (isCentralDispatcherCutoverEnabled()) {
+        return runBackgroundTaskCommand(() =>
+          retryFailedCentralVideoKeyframes({ filter: input.filter, requestedByUserId: ctx.userId })
+        )
+      }
       assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_RETRY_FAILED')
       return retryFailedVideoKeyframeJobs(input.filter)
     }),

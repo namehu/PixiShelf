@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { JOB_DEFINITION_VERSION, type WorkerCapability } from '@pixishelf/job-contracts'
-import { JobExecutionFenceError, type ClaimedJob, type ExecutionFence } from '@pixishelf/job-runtime'
+import {
+  JobExecutionFenceError,
+  type ClaimedJob,
+  type ExecutionFence,
+  type FencedExecutionTransaction,
+  type QueueSqlExecutor
+} from '@pixishelf/job-runtime'
 import {
   CentralDispatcher,
   type DispatcherQueuePort,
@@ -101,6 +107,88 @@ describe('CentralDispatcher', () => {
       'worker.job_info',
       expect.objectContaining({ jobId: 'job-context', message: 'domain-step', data: { count: 3 } })
     )
+  })
+
+  it('does not settle twice after the executor atomically finalizes its domain transaction', async () => {
+    const queue = createQueue([claimedJob('job-domain-finalized')])
+    let duplicateFinalizationError: unknown
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      execute: async (context) => {
+        const finalized = await context.finalizeInTransaction(async ({ complete }) => {
+          await complete({ result: { published: true } })
+        })
+        try {
+          await context.finalizeInTransaction(async ({ complete }) => complete())
+        } catch (error) {
+          duplicateFinalizationError = error
+        }
+        // The dispatcher tracks the successful context call and does not trust a
+        // later, accidentally inconsistent executor return value.
+        return finalized.kind === 'transactionally-finalized' ? ({ kind: 'completed' } as const) : finalized
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry)
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.claim.mock.calls.length).toBeGreaterThanOrEqual(2))
+    await dispatcher.stop()
+
+    expect(queue.withFencedExecutionTransaction).toHaveBeenCalledOnce()
+    expect(duplicateFinalizationError).toEqual(expect.objectContaining({ message: expect.stringContaining('already') }))
+    expect(queue.settle).not.toHaveBeenCalled()
+    expect(queue.settlements).toEqual([])
+  })
+
+  it('never falls back to generic settlement after a fenced domain finalization loses ownership', async () => {
+    const queue = createQueue([claimedJob('job-domain-fence-lost')])
+    vi.mocked(queue.withFencedExecutionTransaction).mockRejectedValueOnce(
+      new JobExecutionFenceError('job-domain-fence-lost')
+    )
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      execute: async (context) => {
+        try {
+          await context.finalizeInTransaction(async ({ complete }) => complete())
+        } catch {
+          // A swallowed fence error still must not trigger a second settlement.
+        }
+        return { kind: 'failed', errorCode: 'INTERNAL_ERROR', error: 'must not settle generically' }
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry)
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.claim.mock.calls.length).toBeGreaterThanOrEqual(2))
+    await dispatcher.stop()
+
+    expect(queue.settle).not.toHaveBeenCalled()
+    expect(queue.settlements).toEqual([])
+  })
+
+  it('treats a non-fencing domain finalization failure as fatal without generic settlement', async () => {
+    const queue = createQueue([claimedJob('job-domain-finalization-failed')])
+    vi.mocked(queue.withFencedExecutionTransaction).mockRejectedValueOnce(new Error('domain transaction unavailable'))
+    const onFatal = vi.fn()
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      execute: async (context) => {
+        await context.finalizeInTransaction(async ({ complete }) => complete())
+        return { kind: 'completed' }
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry, { onFatal })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(onFatal).toHaveBeenCalledOnce())
+    await dispatcher.stop()
+
+    expect(onFatal).toHaveBeenCalledWith(expect.objectContaining({ message: 'domain transaction unavailable' }))
+    expect(queue.settle).not.toHaveBeenCalled()
+    expect(queue.settlements).toEqual([])
   })
 
   it('settles an executor precondition skip with its canonical reason', async () => {
@@ -595,6 +683,25 @@ function createQueue(jobs: ClaimedJob[]) {
     readExecutionControl: vi.fn<DispatcherQueuePort['readExecutionControl']>(
       async (): Promise<ExecutionControl | null> => null
     ),
+    withFencedMutationTransaction: vi.fn(
+      async (_fence: ExecutionFence, operation: (transaction: QueueSqlExecutor) => Promise<unknown>) =>
+        operation({} as never)
+    ) as unknown as DispatcherQueuePort['withFencedMutationTransaction'],
+    withFencedExecutionTransaction: vi.fn(
+      async (_fence: ExecutionFence, operation: (scope: FencedExecutionTransaction) => Promise<void>) =>
+        operation({
+          transaction: {} as never,
+          executionStatus: 'RUNNING',
+          controlStatus: 'CONTINUE',
+          complete: async () => undefined,
+          fail: async () => undefined,
+          retry: async () => undefined,
+          skip: async () => undefined,
+          cancel: async () => undefined,
+          pause: async () => undefined,
+          release: async () => undefined
+        })
+    ) as unknown as DispatcherQueuePort['withFencedExecutionTransaction'],
     settle: vi.fn<DispatcherQueuePort['settle']>(async (fence, outcome) => {
       settlements.push({ fence, outcome })
     }),
