@@ -1,9 +1,14 @@
-import { getSeriesDetail } from '@/services/series-service'
 import { notFound } from 'next/navigation'
+import { LayersIcon } from 'lucide-react'
+import { getSeriesDetail } from '@/services/series-service'
 import ArtworkCard from '@/components/artwork/artwork-card'
 import MediaThumbnail from '@/components/media/media-thumbnail'
 import PageToolbar from '@/components/layout/page-toolbar'
 import PageBackButton from '@/components/layout/page-back-button'
+import { PageContainer } from '@/components/layout/page-container'
+import { PageHeader } from '@/components/layout/page-header'
+import { PageState } from '@/components/layout/page-state'
+import { SectionHeader } from '@/components/layout/section-header'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -17,47 +22,60 @@ export default async function SeriesDetailPage({ params }: PageProps) {
   const series = await getSeriesDetail(seriesId)
   if (!series) notFound()
 
-  const artworks = series.artworks
-
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-dvh bg-background">
       <PageToolbar
+        containerSize="gallery"
         leading={<PageBackButton fallbackHref="/series" label="返回系列列表" />}
-        title={<span className="line-clamp-1 text-lg font-semibold">{series.title}</span>}
+        title={<span className="line-clamp-1 text-sm font-semibold">{series.title}</span>}
       />
-      <main className="container mx-auto space-y-6 p-4 py-8">
-        <div className="flex flex-col md:flex-row gap-6 mb-8 bg-white p-6 rounded-lg shadow-sm">
-          <div className="w-full md:w-48 aspect-[3/4] bg-muted rounded-lg overflow-hidden shrink-0">
+
+      <PageContainer as="main" size="gallery" className="flex flex-col gap-9 py-6 sm:py-8">
+        <div className="grid gap-6 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-start lg:grid-cols-[12rem_minmax(0,1fr)]">
+          <div className="aspect-[3/4] overflow-hidden rounded-lg bg-muted">
             <MediaThumbnail
               media={series.coverImageUrl ? { path: series.coverImageUrl, mediaType: 'image' } : null}
               alt={series.title}
-              width={0}
-              height={0}
-              sizes="100vw"
-              className="w-full h-full object-cover"
+              width={384}
+              height={512}
+              sizes="(max-width: 640px) 100vw, 12rem"
+              className="size-full object-cover"
             />
           </div>
-          <div className="flex-1 space-y-4">
-            <h1 className="text-3xl font-bold">{series.title}</h1>
-            <p className="text-muted-foreground whitespace-pre-wrap">{series.description || '暂无描述'}</p>
-            <div className="text-sm text-muted-foreground">
-              共 {series.artworks.length} 个作品 · 更新于 {series.updatedAt.toLocaleDateString()}
-            </div>
-          </div>
+          <PageHeader
+            className="h-full"
+            eyebrow="系列档案"
+            title={series.title}
+            description={series.description || '这个系列暂时没有描述。'}
+            metadata={`${series.artworks.length} 件作品 · ${series.updatedAt.toLocaleDateString('zh-CN')} 更新`}
+          />
         </div>
 
-        <h2 className="text-xl font-bold">作品列表</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {artworks.map((artwork: any, index: number) => (
-            <div key={artwork.id} className="relative group">
-              <div className="absolute top-2 left-2 z-10 bg-black/60 text-white w-6 h-6 flex items-center justify-center rounded-full text-xs">
-                {index + 1}
-              </div>
-              <ArtworkCard artwork={artwork} />
+        <section className="flex flex-col gap-6">
+          <SectionHeader title="作品顺序" description="按系列中保存的顺序浏览。" />
+          {series.artworks.length > 0 ? (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              {series.artworks.map((artwork: any, index: number) => (
+                <div key={artwork.id} className="relative">
+                  <span className="font-utility pointer-events-none absolute top-2 left-2 z-10 flex size-6 items-center justify-center rounded-full bg-foreground/70 text-xs text-background">
+                    {index + 1}
+                  </span>
+                  <ArtworkCard artwork={artwork} />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </main>
+          ) : (
+            <PageState
+              variant="empty"
+              compact
+              headingLevel="h3"
+              icon={<LayersIcon aria-hidden="true" />}
+              title="系列中暂无作品"
+              description="在管理中心为这个系列添加作品。"
+            />
+          )}
+        </section>
+      </PageContainer>
     </div>
   )
 }

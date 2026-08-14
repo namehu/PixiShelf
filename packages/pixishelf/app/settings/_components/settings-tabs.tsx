@@ -14,17 +14,19 @@ export function SettingsTabs() {
   const pathname = usePathname()
 
   return (
-    <div className="w-full rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
-      <div className="grid grid-cols-2 gap-1">
+    <nav aria-label="设置页面" className="border-b border-border">
+      <div className="flex gap-6">
         {tabs.map((tab) => {
           const isActive = pathname === tab.href
           return (
             <Link
               key={tab.href}
               href={tab.href}
+              aria-current={isActive ? 'page' : undefined}
               className={cn(
-                'rounded-xl px-4 py-2 text-sm font-medium transition-all text-center',
-                isActive ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                'relative min-h-11 px-0.5 py-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:text-foreground',
+                isActive &&
+                  'text-primary after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-primary'
               )}
             >
               {tab.label}
@@ -32,6 +34,6 @@ export function SettingsTabs() {
           )
         })}
       </div>
-    </div>
+    </nav>
   )
 }

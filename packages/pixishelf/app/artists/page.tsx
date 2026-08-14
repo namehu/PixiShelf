@@ -1,26 +1,24 @@
 'use client'
 
 import { useCallback, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { useQueryState, parseAsString } from 'nuqs'
-import { ArtistsQuery } from '@/types'
+import { parseAsString, useQueryState } from 'nuqs'
+import { SearchIcon } from 'lucide-react'
+import type { ArtistsQuery } from '@/types'
+import { useTRPC } from '@/lib/trpc'
 import useInfiniteScroll from '@/hooks/use-infinite-scroll'
+import { PageContainer } from '@/components/layout/page-container'
+import { PageHeader } from '@/components/layout/page-header'
+import { PageState } from '@/components/layout/page-state'
+import { Skeleton } from '@/components/ui/skeleton'
 import ArtistsNavigation from './_components/artists-navigation'
 import { ArtistCard } from './_components/artist-card'
-import { Users, Search } from 'lucide-react'
-import { useTRPC } from '@/lib/trpc'
 
-function ArtistsPage() {
-  const router = useRouter()
-
-  // 1. 使用 nuqs 读取和同步状态
+function ArtistsPageContent() {
   const [searchTerm] = useQueryState('search', parseAsString.withDefault('').withOptions({ history: 'replace' }))
   const [sortBy] = useQueryState('sortBy', parseAsString.withDefault('name_asc').withOptions({ history: 'replace' }))
-
   const trpc = useTRPC()
 
-  // 2. 使用 useInfiniteQuery
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery(
     trpc.artist.queryPage.infiniteQueryOptions(
       { search: searchTerm, sortBy: sortBy as ArtistsQuery['sortBy'] },
@@ -33,105 +31,76 @@ function ArtistsPage() {
     )
   )
 
-  // 3. 展平数据
-  const allArtists = useMemo(() => {
-    return data?.pages.flatMap((page) => page.data) || []
-  }, [data])
-
-  // 计算总数 (取第一页的 total 即可，因为每次返回的 total 应该是一样的)
+  const allArtists = useMemo(() => data?.pages.flatMap((page) => page.data) || [], [data])
   const totalCount = data?.pages[0]?.pagination.total || 0
 
-  // 加载更多
   const handleLoadMore = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) {
-      fetchNextPage()
-    }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+    if (hasNextPage && !isFetchingNextPage) fetchNextPage()
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage])
 
-  // 无限滚动
   const { targetRef } = useInfiniteScroll({
     onLoadMore: handleLoadMore,
     hasMore: !!hasNextPage,
     loading: isFetchingNextPage || isLoading
   })
 
-  if (isLoading) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {[...Array(8)].map((_, i) => (
-            <div key={i} className="h-48 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
+  return (
+    <PageContainer size="gallery" className="flex flex-col gap-8 py-6 sm:py-8">
+      <PageHeader
+        eyebrow="创作者索引"
+        title="艺术家"
+        description="按名称或作品数量浏览收藏中的创作者。"
+        metadata={isLoading ? '正在统计…' : `${totalCount} 位艺术家`}
+      />
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 gap-x-5 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 8 }, (_, index) => (
+            <div key={index} className="flex flex-col gap-3">
+              <Skeleton className="aspect-[16/9] w-full rounded-lg" />
+              <Skeleton className="ml-3 h-5 w-2/3" />
+              <Skeleton className="ml-3 h-4 w-1/2" />
+            </div>
           ))}
         </div>
-      </div>
-    )
-  }
-
-  if (isError) {
-    return (
-      <div className="container mx-auto px-4 py-16 text-center">
-        <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-8 rounded-xl inline-block">
-          <p className="text-lg font-medium">加载失败，请稍后重试</p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="container mx-auto px-4 py-6">
-      <div className="flex items-center gap-3 mb-8">
-        <div className="p-2 bg-primary/10 rounded-lg">
-          <Users className="w-6 h-6 text-primary" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">艺术家</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">发现 {totalCount} 位才华横溢的创作者</p>
-        </div>
-      </div>
-
-      {allArtists.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      ) : isError ? (
+        <PageState
+          variant="error"
+          headingLevel="h2"
+          title="艺术家加载失败"
+          description="当前无法读取艺术家索引，请稍后重试。"
+        />
+      ) : allArtists.length > 0 ? (
+        <div className="grid grid-cols-1 gap-x-5 gap-y-9 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {allArtists.map((artist) => (
-            <div key={artist.id} className="transform transition-transform hover:-translate-y-1 duration-200">
-              <ArtistCard artist={artist} onClick={() => router.push(`/artists/${artist.id}`)} />
-            </div>
+            <ArtistCard key={artist.id} artist={artist} />
           ))}
         </div>
       ) : (
-        <div className="flex flex-col justify-center items-center h-96 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700">
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-full shadow-sm mb-4">
-            <Search className="w-8 h-8 text-gray-400" />
-          </div>
-          <div className="text-lg font-medium text-gray-900 dark:text-gray-200 mb-2">
-            {searchTerm ? '未找到匹配的艺术家' : '暂无艺术家'}
-          </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-xs text-center">
-            {searchTerm ? '换个关键词试试看？' : '稍后再来看看吧'}
-          </p>
-        </div>
+        <PageState
+          variant="empty"
+          headingLevel="h2"
+          icon={<SearchIcon aria-hidden="true" />}
+          title={searchTerm ? '没有匹配的艺术家' : '暂无艺术家'}
+          description={searchTerm ? '尝试更换关键词。' : '导入带有创作者信息的作品后，这里会建立艺术家索引。'}
+        />
       )}
 
       {hasNextPage && (
-        <div ref={targetRef} className="flex justify-center py-12">
-          {(isFetchingNextPage || isLoading) && (
-            <div className="flex items-center gap-2 text-primary">
-              <div className="w-2 h-2 rounded-full bg-current animate-bounce" />
-              <div className="w-2 h-2 rounded-full bg-current animate-bounce [animation-delay:0.2s]" />
-              <div className="w-2 h-2 rounded-full bg-current animate-bounce [animation-delay:0.4s]" />
-            </div>
-          )}
+        <div ref={targetRef} className="flex min-h-16 items-center justify-center text-sm text-muted-foreground">
+          {isFetchingNextPage ? '正在加载更多…' : '继续向下浏览'}
         </div>
       )}
-    </div>
+    </PageContainer>
   )
 }
 
 export default function Page() {
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-gray-950">
+    <div className="min-h-dvh bg-background">
       <ArtistsNavigation />
-      <main className="max-w-[1600px] mx-auto">
-        <ArtistsPage />
+      <main>
+        <ArtistsPageContent />
       </main>
     </div>
   )

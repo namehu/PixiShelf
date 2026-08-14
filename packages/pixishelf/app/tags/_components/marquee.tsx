@@ -1,5 +1,5 @@
 import React from 'react'
-import { motion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 
 interface MarqueeProps {
@@ -19,6 +19,7 @@ export const Marquee: React.FC<MarqueeProps> = ({
 }) => {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const [contentWidth, setContentWidth] = React.useState(0)
+  const shouldReduceMotion = useReducedMotion()
 
   React.useEffect(() => {
     if (containerRef.current) {
@@ -26,11 +27,15 @@ export const Marquee: React.FC<MarqueeProps> = ({
     }
   }, [children])
 
+  if (shouldReduceMotion) {
+    return <div className={cn('flex flex-wrap gap-4 px-2 py-1', className)}>{children}</div>
+  }
+
   return (
-    <div className={cn('overflow-hidden whitespace-nowrap flex group', className)}>
+    <div className={cn('group flex overflow-hidden whitespace-nowrap', className)}>
       <motion.div
         ref={containerRef}
-        className="flex shrink-0 min-w-full"
+        className="flex min-w-full shrink-0"
         animate={{
           x: direction === 'left' ? [-contentWidth, 0] : [0, -contentWidth]
         }}

@@ -20,71 +20,68 @@ export default async function LoginPage() {
   const needInit = !(await hasUsers())
 
   return (
-    <div className="min-h-screen w-full flex bg-background">
-      {/* 左侧：静态插画区域 */}
-      <aside className="hidden lg:flex lg:w-1/2 xl:w-[60%] relative overflow-hidden bg-slate-900">
-        <div className="absolute inset-0 w-full h-full">
-          <div className="w-full h-full bg-gradient-to-br from-blue-600 to-indigo-900 relative">
-            <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_1px_1px,#fff_1px,transparent_0)] [background-size:24px_24px]" />
-            <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-400/30 rounded-full blur-3xl" />
-            <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-400/20 rounded-full blur-3xl" />
-          </div>
+    <div className="flex min-h-dvh w-full bg-background">
+      <aside className="relative hidden w-[46%] min-w-[30rem] overflow-hidden bg-primary text-primary-foreground lg:flex">
+        <div
+          className="pointer-events-none absolute inset-x-10 top-[20%] grid grid-cols-3 gap-3 opacity-20"
+          aria-hidden="true"
+        >
+          <div className="aspect-[3/4] rounded-lg border border-primary-foreground/60 bg-primary-foreground/20" />
+          <div className="mt-10 aspect-[4/5] rounded-lg border border-primary-foreground/60 bg-primary-foreground/10" />
+          <div className="aspect-square rounded-lg border border-primary-foreground/60 bg-primary-foreground/25" />
+          <div className="col-span-2 aspect-[16/7] rounded-lg border border-primary-foreground/60 bg-primary-foreground/15" />
+          <div className="-mt-5 aspect-[3/4] rounded-lg border border-primary-foreground/60 bg-primary-foreground/10" />
         </div>
 
-        {/* 品牌信息 */}
-        <div className="relative z-10 flex flex-col justify-between w-full h-full p-12 text-white">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-white/10 rounded-lg backdrop-blur-sm">
-              <PLogo className="w-6 h-6 text-white" />
-            </div>
+        <div className="relative z-10 flex min-h-dvh w-full flex-col justify-between p-10 xl:p-14">
+          <div className="flex items-center gap-3">
+            <span className="grid size-10 place-items-center rounded-lg bg-primary-foreground/12">
+              <PLogo className="size-6 text-primary-foreground" />
+            </span>
             <span className="text-xl font-bold tracking-tight">PixiShelf</span>
           </div>
 
-          <div className="space-y-6 max-w-lg">
-            <p className="text-5xl font-bold leading-tight">
-              探索、收藏 <br />
-              你喜爱的艺术作品
-            </p>
-            <p className="text-lg text-blue-100/80 leading-relaxed">
-              PixiShelf 是一个现代化的个人画廊管理系统，致力于为你提供最优质的艺术品浏览与收藏体验。
+          <div className="max-w-md border-l border-primary-foreground/45 pl-6">
+            <p className="text-4xl font-bold leading-tight tracking-tight xl:text-5xl">你的私人作品档案</p>
+            <p className="mt-5 text-base leading-7 text-primary-foreground/78 xl:text-lg">
+              整理本地收藏，保留作品脉络，并在属于自己的空间里继续浏览。
             </p>
           </div>
 
-          <div className="flex items-center gap-4 text-sm text-blue-200/60">
+          <div className="flex items-center gap-3 text-sm text-primary-foreground/65">
             <span>© {new Date().getFullYear()} PixiShelf</span>
-            <span>·</span>
-            <span className="hover:text-white transition-colors">{APP_VERSION}</span>
+            <span aria-hidden="true">·</span>
+            <span>{APP_VERSION}</span>
           </div>
         </div>
       </aside>
 
-      {/* 右侧：交互区域 */}
-      <main className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 lg:p-12 relative">
-        {/* 移动端 Logo */}
-        <div className="lg:hidden absolute top-8 left-8 flex items-center gap-2">
-          <div className="p-1.5 bg-primary/10 rounded-md">
-            <PLogo className="w-5 h-5 text-primary" />
-          </div>
-          <span className="font-bold text-lg">PixiShelf</span>
+      <main className="relative flex flex-1 flex-col items-center justify-center px-5 py-24 sm:px-8 lg:p-12">
+        <div className="absolute left-5 top-6 flex items-center gap-2.5 lg:hidden">
+          <span className="grid size-9 place-items-center rounded-lg bg-primary/10">
+            <PLogo className="size-5 text-primary" />
+          </span>
+          <span className="text-lg font-bold tracking-tight">PixiShelf</span>
         </div>
 
-        <div className="w-full max-w-[400px] space-y-8">
+        <div className="w-full max-w-md">
           {needInit ? (
-            <div className="space-y-2 text-center lg:text-left">
-              <h1 className="text-3xl font-bold tracking-tight text-foreground">初始化系统</h1>
-              <p className="text-muted-foreground">创建第一个管理员账户</p>
+            <div className="mb-8">
+              <p className="mb-2 text-sm font-medium text-primary">开始使用</p>
+              <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">初始化系统</h1>
+              <p className="mt-3 text-muted-foreground">创建第一个管理员账户，建立你的作品档案。</p>
             </div>
           ) : (
-            <div className="space-y-2 text-center lg:text-left">
-              <h1 className="text-3xl font-bold tracking-tight text-foreground">欢迎回来</h1>
-              <p className="text-muted-foreground">请输入您的账户信息以继续</p>
+            <div className="mb-8">
+              <p className="mb-2 text-sm font-medium text-primary">个人作品库</p>
+              <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">欢迎回来</h1>
+              <p className="mt-3 text-muted-foreground">登录后继续整理和浏览你的收藏。</p>
             </div>
           )}
 
           <Suspense fallback={<AuthLoading />}>{needInit ? <InitAdminForm /> : <LoginForm />}</Suspense>
 
-          {/* 底部版权 (移动端) */}
-          <div className="lg:hidden text-center mt-8 text-xs text-muted-foreground/50">
+          <div className="mt-10 text-center text-xs text-muted-foreground lg:hidden">
             © {new Date().getFullYear()} PixiShelf {APP_VERSION}
           </div>
         </div>

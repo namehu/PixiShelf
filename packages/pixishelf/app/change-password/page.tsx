@@ -1,318 +1,266 @@
 'use client'
 
-import React, { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@/components/auth'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { ROUTES } from '@/lib/constants'
 import { useAction } from 'next-safe-action/hooks'
-import { changePasswordAction } from '@/actions/auth-action'
+import { CircleAlertIcon, LockKeyholeIcon, LogInIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import PLogo from '@/components/layout/p-logo'
-import { LockKeyholeIcon } from 'lucide-react'
+import { z } from 'zod'
+import { changePasswordAction } from '@/actions/auth-action'
+import { useAuth } from '@/components/auth'
+import { PageContainer } from '@/components/layout/page-container'
+import { PageHeader } from '@/components/layout/page-header'
+import { PageState } from '@/components/layout/page-state'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { Progress } from '@/components/ui/progress'
+import { Spinner } from '@/components/ui/spinner'
+import { ROUTES } from '@/lib/constants'
+import { changePasswordSchema } from '@/schemas/users.dto'
 
-/**
- * 密码强度验证
- */
-function getPasswordStrength(password: string) {
-  if (password.length < 6) return { level: 'weak' as const, text: '密码长度至少6位' }
-  if (password.length < 8) return { level: 'medium' as const, text: '密码强度：中等' }
-  if (password.match(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)) {
-    return { level: 'strong' as const, text: '密码强度：强' }
-  }
-  return { level: 'medium' as const, text: '密码强度：中等' }
+interface PasswordErrors {
+  currentPassword?: string
+  newPassword?: string
+  confirmPassword?: string
+  general?: string
 }
 
-/**
- * 修改密码页面组件
- */
+function getPasswordStrength(password: string) {
+  if (password.length < 6) return { value: 33, tone: 'weak' as const, text: '至少需要 6 个字符' }
+  if (password.length >= 8 && /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
+    return { value: 100, tone: 'strong' as const, text: '强度较高' }
+  }
+  return { value: 66, tone: 'medium' as const, text: '强度中等' }
+}
+
 export default function ChangePasswordPage() {
   const router = useRouter()
   const { logout } = useAuth()
-
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [errors, setErrors] = useState<PasswordErrors>({})
   const [success, setSuccess] = useState(false)
+  const currentPasswordRef = useRef<HTMLInputElement>(null)
+  const newPasswordRef = useRef<HTMLInputElement>(null)
+  const confirmPasswordRef = useRef<HTMLInputElement>(null)
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const [error, setError] = useState<string | null>()
+  useEffect(
+    () => () => {
+      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current)
+    },
+    []
+  )
 
   const { execute, isExecuting } = useAction(changePasswordAction, {
     onSuccess: () => {
       setSuccess(true)
       toast.success('密码修改成功，请重新登录')
-      setTimeout(async () => {
+      redirectTimerRef.current = setTimeout(async () => {
         await logout()
         router.push(ROUTES.LOGIN)
       }, 1500)
     },
     onError: ({ error }) => {
-      const { fieldErrors = {}, formErrors = [] } = error.validationErrors || {}
-
-      if (fieldErrors.currentPassword) {
-        setError(fieldErrors.currentPassword[0])
-      } else if (fieldErrors.newPassword) {
-        setError(fieldErrors.newPassword[0])
-      } else if (formErrors.length > 0) {
-        setError(formErrors[0])
-      } else if (error.serverError) {
-        setError(error.serverError)
-      } else {
-        setError('密码修改失败')
+      const fieldErrors = error.validationErrors?.fieldErrors || {}
+      const nextErrors: PasswordErrors = {
+        currentPassword: fieldErrors.currentPassword?.[0],
+        newPassword: fieldErrors.newPassword?.[0],
+        general: error.validationErrors?.formErrors?.[0] || error.serverError || '密码修改失败，请稍后重试。'
       }
+      setErrors(nextErrors)
+      if (nextErrors.currentPassword) currentPasswordRef.current?.focus()
+      else if (nextErrors.newPassword) newPasswordRef.current?.focus()
     }
   })
 
   const passwordStrength = getPasswordStrength(newPassword)
-  const isPasswordMatch = newPassword && confirmPassword && newPassword === confirmPassword
-  const canSubmit = currentPassword && newPassword && confirmPassword && isPasswordMatch && !isExecuting
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault()
+    setErrors({})
 
-    if (!canSubmit) return
+    const result = changePasswordSchema.safeParse({ currentPassword, newPassword })
+    if (!result.success) {
+      const fieldErrors = z.flattenError(result.error).fieldErrors as Partial<
+        Record<'currentPassword' | 'newPassword', string[]>
+      >
+      setErrors({
+        currentPassword: fieldErrors.currentPassword?.[0],
+        newPassword: fieldErrors.newPassword?.[0]
+      })
+      if (fieldErrors.currentPassword?.[0]) currentPasswordRef.current?.focus()
+      else if (fieldErrors.newPassword?.[0]) newPasswordRef.current?.focus()
+      return
+    }
 
-    execute({ currentPassword, newPassword })
-  }
+    if (newPassword !== confirmPassword) {
+      setErrors({ confirmPassword: '两次输入的新密码不一致。' })
+      confirmPasswordRef.current?.focus()
+      return
+    }
 
-  const handleBack = () => {
-    router.back()
+    execute(result.data)
   }
 
   const handleReLogin = async () => {
+    if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current)
     await logout()
     router.push(ROUTES.LOGIN)
   }
 
-  // 成功页面
   if (success) {
     return (
-      <main className="min-h-[calc(100vh-4rem)] w-full flex bg-background">
-        {/* 左侧：静态插画区域 */}
-        <div className="hidden lg:flex lg:w-1/2 xl:w-[60%] relative overflow-hidden bg-slate-900">
-          <div className="absolute inset-0 w-full h-full">
-            <div className="w-full h-full bg-gradient-to-br from-blue-600 to-indigo-900 relative">
-              <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_1px_1px,#fff_1px,transparent_0)] [background-size:24px_24px]" />
-              <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-400/30 rounded-full blur-3xl" />
-              <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-400/20 rounded-full blur-3xl" />
-            </div>
-          </div>
-
-          {/* 品牌信息 */}
-          <div className="relative z-10 flex flex-col justify-between w-full h-full p-12 text-white">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-white/10 rounded-lg backdrop-blur-sm">
-                <PLogo className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xl font-bold tracking-tight">PixiShelf</span>
-            </div>
-
-            <div className="space-y-6 max-w-lg">
-              <h1 className="text-5xl font-bold leading-tight">
-                账户安全 <br />
-                始于强密码
-              </h1>
-              <p className="text-lg text-blue-100/80 leading-relaxed">定期修改密码可以有效保护您的数字资产安全。</p>
-            </div>
-
-            <div className="flex items-center gap-4 text-sm text-blue-200/60">
-              <span>© {new Date().getFullYear()} PixiShelf</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 右侧：成功提示 */}
-        <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 lg:p-12 relative">
-          <div className="w-full max-w-[400px] text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-green-500/20">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-bold text-neutral-900 mb-2">密码修改成功</h2>
-            <p className="text-muted-foreground mb-8">您的密码已成功更新。为了安全起见，请使用新密码重新登录。</p>
-            <div className="space-y-3">
-              <Button onClick={handleReLogin} className="w-full" size="lg">
+      <PageContainer as="main" size="reading" className="flex min-h-[calc(100dvh-4rem)] items-center py-12">
+        <PageState
+          variant="empty"
+          headingLevel="h1"
+          icon={<LogInIcon aria-hidden="true" />}
+          title="密码修改成功"
+          description="密码已经更新。为保护账户安全，请使用新密码重新登录。"
+          action={
+            <>
+              <Button size="lg" onClick={handleReLogin}>
                 重新登录
               </Button>
-              <Button onClick={handleBack} variant="secondary" className="w-full" size="lg">
+              <Button size="lg" variant="outline" onClick={() => router.back()}>
                 返回
               </Button>
-            </div>
-          </div>
-        </div>
-      </main>
+            </>
+          }
+        />
+      </PageContainer>
     )
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] w-full flex bg-background">
-      {/* 左侧：静态插画区域 */}
-      <div className="hidden lg:flex lg:w-1/2 xl:w-[60%] relative overflow-hidden bg-slate-900">
-        <div className="absolute inset-0 w-full h-full">
-          <div className="w-full h-full bg-gradient-to-br from-blue-600 to-indigo-900 relative">
-            <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_1px_1px,#fff_1px,transparent_0)] [background-size:24px_24px]" />
-            <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-400/30 rounded-full blur-3xl" />
-            <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-400/20 rounded-full blur-3xl" />
-          </div>
-        </div>
+    <PageContainer as="main" size="reading" className="flex min-h-[calc(100dvh-4rem)] flex-col gap-8 py-8 sm:py-12">
+      <PageHeader
+        eyebrow="账户安全"
+        title="修改密码"
+        description="输入当前密码，并设置一个仅用于 PixiShelf 的新密码。保存后需要重新登录。"
+      />
 
-        {/* 品牌信息 */}
-        <div className="relative z-10 flex flex-col justify-between w-full h-full p-12 text-white">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-white/10 rounded-lg backdrop-blur-sm">
-              <PLogo className="w-6 h-6 text-white" />
-            </div>
-            <span className="text-xl font-bold tracking-tight">PixiShelf</span>
-          </div>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-7" noValidate>
+        <FieldGroup className="gap-5">
+          <Field data-invalid={!!errors.currentPassword} data-disabled={isExecuting || undefined}>
+            <FieldLabel htmlFor="current-password">当前密码</FieldLabel>
+            <InputGroup data-disabled={isExecuting || undefined}>
+              <InputGroupAddon>
+                <LockKeyholeIcon aria-hidden="true" />
+              </InputGroupAddon>
+              <InputGroupInput
+                ref={currentPasswordRef}
+                id="current-password"
+                name="currentPassword"
+                type="password"
+                value={currentPassword}
+                onChange={(event) => {
+                  setCurrentPassword(event.target.value)
+                  if (errors.currentPassword) setErrors((current) => ({ ...current, currentPassword: undefined }))
+                }}
+                placeholder="输入当前密码…"
+                autoComplete="current-password"
+                required
+                disabled={isExecuting}
+                aria-invalid={!!errors.currentPassword}
+                aria-describedby={errors.currentPassword ? 'current-password-error' : undefined}
+              />
+            </InputGroup>
+            <FieldError id="current-password-error">{errors.currentPassword}</FieldError>
+          </Field>
 
-          <div className="space-y-6 max-w-lg">
-            <h1 className="text-5xl font-bold leading-tight">
-              账户安全 <br />
-              始于强密码
-            </h1>
-            <p className="text-lg text-blue-100/80 leading-relaxed">定期修改密码可以有效保护您的数字资产安全。</p>
-          </div>
-
-          <div className="flex items-center gap-4 text-sm text-blue-200/60">
-            <span>© {new Date().getFullYear()} PixiShelf</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 右侧：交互区域 */}
-      <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 lg:p-12 relative">
-        <div className="w-full max-w-[400px] space-y-8">
-          <div className="space-y-2 text-center lg:text-left">
-            <h2 className="text-3xl font-bold tracking-tight text-foreground">修改密码</h2>
-            <p className="text-muted-foreground">为了账户安全，请输入当前密码并设置新密码</p>
-          </div>
-
-          {/* 密码修改表单 */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* 当前密码 */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">当前密码</label>
-              <div className="relative">
-                <LockKeyholeIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
-                <Input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="输入当前密码"
-                  required
-                  disabled={isExecuting}
-                  className="pl-11"
+          <Field data-invalid={!!errors.newPassword} data-disabled={isExecuting || undefined}>
+            <FieldLabel htmlFor="new-password">新密码</FieldLabel>
+            <InputGroup data-disabled={isExecuting || undefined}>
+              <InputGroupAddon>
+                <LockKeyholeIcon aria-hidden="true" />
+              </InputGroupAddon>
+              <InputGroupInput
+                ref={newPasswordRef}
+                id="new-password"
+                name="newPassword"
+                type="password"
+                value={newPassword}
+                onChange={(event) => {
+                  setNewPassword(event.target.value)
+                  if (errors.newPassword) setErrors((current) => ({ ...current, newPassword: undefined }))
+                }}
+                placeholder="输入新密码…"
+                autoComplete="new-password"
+                required
+                disabled={isExecuting}
+                aria-invalid={!!errors.newPassword}
+                aria-describedby={
+                  [errors.newPassword && 'new-password-error', newPassword && 'password-strength']
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
+              />
+            </InputGroup>
+            <FieldError id="new-password-error">{errors.newPassword}</FieldError>
+            {newPassword && (
+              <div id="password-strength" className="flex flex-col gap-2 text-sm leading-normal text-muted-foreground">
+                <Progress
+                  value={passwordStrength.value}
+                  aria-label={`密码${passwordStrength.text}`}
+                  className="h-1.5"
+                  indicatorVariant={passwordStrength.tone === 'weak' ? 'destructive' : 'default'}
                 />
-              </div>
-            </div>
-
-            {/* 新密码 */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">新密码</label>
-              <div className="relative">
-                <LockKeyholeIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
-                <Input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="输入新密码"
-                  required
-                  disabled={isExecuting}
-                  className="pl-11"
-                />
-              </div>
-              {/* 密码强度指示器 */}
-              {newPassword && (
-                <div className="flex items-center gap-2 mt-2">
-                  <div className="h-1.5 flex-1 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all duration-300 ${
-                        passwordStrength.level === 'weak'
-                          ? 'w-1/3 bg-red-500'
-                          : passwordStrength.level === 'medium'
-                            ? 'w-2/3 bg-yellow-500'
-                            : 'w-full bg-green-500'
-                      }`}
-                    />
-                  </div>
-                  <span
-                    className={`text-xs font-medium ${
-                      passwordStrength.level === 'weak'
-                        ? 'text-red-600'
-                        : passwordStrength.level === 'medium'
-                          ? 'text-yellow-600'
-                          : 'text-green-600'
-                    }`}
-                  >
-                    {passwordStrength.text}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* 确认新密码 */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">确认新密码</label>
-              <div className="relative">
-                <LockKeyholeIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
-                <Input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="再次输入新密码"
-                  required
-                  disabled={isExecuting}
-                  className={`pl-11 ${confirmPassword && !isPasswordMatch ? 'border-destructive focus-visible:ring-destructive' : ''}`}
-                />
-              </div>
-              {confirmPassword && !isPasswordMatch && <p className="text-sm text-destructive">两次输入的密码不一致</p>}
-            </div>
-
-            {/* 错误提示 */}
-            {error && (
-              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 flex items-start gap-3">
-                <svg
-                  className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                <div>
-                  <h4 className="text-sm font-medium text-destructive">修改失败</h4>
-                  <p className="text-sm text-destructive/80 mt-1">{error}</p>
-                </div>
+                <span>{passwordStrength.text}</span>
               </div>
             )}
+          </Field>
 
-            {/* 操作按钮 */}
-            <div className="space-y-3 pt-2">
-              <Button type="submit" size="lg" className="w-full" disabled={!canSubmit || isExecuting}>
-                {isExecuting ? (
-                  <div className="flex items-center justify-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    修改中...
-                  </div>
-                ) : (
-                  '修改密码'
-                )}
-              </Button>
-              <Button type="button" onClick={handleBack} variant="ghost" className="w-full" disabled={isExecuting}>
-                返回
-              </Button>
-            </div>
-          </form>
+          <Field data-invalid={!!errors.confirmPassword} data-disabled={isExecuting || undefined}>
+            <FieldLabel htmlFor="confirm-password">确认新密码</FieldLabel>
+            <InputGroup data-disabled={isExecuting || undefined}>
+              <InputGroupAddon>
+                <LockKeyholeIcon aria-hidden="true" />
+              </InputGroupAddon>
+              <InputGroupInput
+                ref={confirmPasswordRef}
+                id="confirm-password"
+                name="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => {
+                  setConfirmPassword(event.target.value)
+                  if (errors.confirmPassword) setErrors((current) => ({ ...current, confirmPassword: undefined }))
+                }}
+                placeholder="再次输入新密码…"
+                autoComplete="new-password"
+                required
+                disabled={isExecuting}
+                aria-invalid={!!errors.confirmPassword}
+                aria-describedby={errors.confirmPassword ? 'confirm-password-error' : undefined}
+              />
+            </InputGroup>
+            <FieldError id="confirm-password-error">{errors.confirmPassword}</FieldError>
+          </Field>
+        </FieldGroup>
+
+        {errors.general && (
+          <Alert variant="destructive">
+            <CircleAlertIcon aria-hidden="true" />
+            <AlertTitle>无法修改密码</AlertTitle>
+            <AlertDescription>{errors.general}</AlertDescription>
+          </Alert>
+        )}
+
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button type="button" variant="ghost" onClick={() => router.back()} disabled={isExecuting}>
+            返回
+          </Button>
+          <Button type="submit" disabled={isExecuting}>
+            {isExecuting && <Spinner data-icon="inline-start" aria-label="正在修改密码" />}
+            {isExecuting ? '修改中…' : '修改密码'}
+          </Button>
         </div>
-      </div>
-    </main>
+      </form>
+    </PageContainer>
   )
 }

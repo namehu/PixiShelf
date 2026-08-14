@@ -1,19 +1,19 @@
-import React from 'react'
+import type { ReactNode } from 'react'
 
 interface PreferenceItemProps {
   title: string
   description: string
-  children: React.ReactNode
+  children: ReactNode
 }
 
 export function PreferenceItem({ title, description, children }: PreferenceItemProps) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="space-y-1">
-        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-        <p className="text-sm text-slate-500">{description}</p>
+    <section className="grid gap-4 border-b border-border py-6 first:pt-0 sm:grid-cols-[minmax(0,1fr)_minmax(18rem,26rem)] sm:gap-8">
+      <div className="min-w-0">
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">{description}</p>
       </div>
-      <div className="mt-4">{children}</div>
-    </div>
+      <div className="min-w-0 sm:justify-self-end sm:self-start">{children}</div>
+    </section>
   )
 }

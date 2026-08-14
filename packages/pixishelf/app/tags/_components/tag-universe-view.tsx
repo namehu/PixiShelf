@@ -5,10 +5,9 @@ import { Tag } from '@/types'
 
 interface TagUniverseViewProps {
   tags: Tag[]
-  onTagClick: (tag: Tag) => void
 }
 
-export const TagUniverseView: React.FC<TagUniverseViewProps> = ({ tags, onTagClick }) => {
+export const TagUniverseView: React.FC<TagUniverseViewProps> = ({ tags }) => {
   const rows = React.useMemo(() => {
     const rowCount = 8
     const chunked: Tag[][] = Array.from({ length: rowCount }, () => [])
@@ -23,7 +22,7 @@ export const TagUniverseView: React.FC<TagUniverseViewProps> = ({ tags, onTagCli
   }, [tags])
 
   return (
-    <div className="relative w-full h-full flex flex-col justify-center py-4 overflow-hidden bg-transparent">
+    <div className="relative flex size-full flex-col justify-center overflow-hidden bg-transparent py-4">
       {/* 核心流动区域 */}
       {rows.map((rowTags, idx) => (
         <Marquee
@@ -33,14 +32,14 @@ export const TagUniverseView: React.FC<TagUniverseViewProps> = ({ tags, onTagCli
           className="py-1"
         >
           {rowTags.map((tag) => (
-            <TagItem key={tag.id} tag={tag} onClick={onTagClick} size={'md'} />
+            <TagItem key={tag.id} tag={tag} size="md" />
           ))}
         </Marquee>
       ))}
 
       {/* 精细化侧边遮罩：移动端更窄，防止遮挡 */}
-      <div className="absolute inset-y-0 left-0 w-12 md:w-32 bg-gradient-to-r from-[#f8fafc] to-transparent pointer-events-none z-10" />
-      <div className="absolute inset-y-0 right-0 w-12 md:w-32 bg-gradient-to-l from-[#f8fafc] to-transparent pointer-events-none z-10" />
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-background to-transparent md:w-32" />
+      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-background to-transparent md:w-32" />
     </div>
   )
 }

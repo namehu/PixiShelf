@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import { Layers } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import MediaThumbnail from '@/components/media/media-thumbnail'
 
@@ -17,51 +16,38 @@ interface SeriesCardProps {
   className?: string
 }
 
-/**
- * 系列卡片组件
- * 样式与 ArtworkCard 保持一致
- */
 export default function SeriesCard({ series, priority = false, className }: SeriesCardProps) {
   const { id, title, coverImageUrl, artworkCount, updatedAt } = series
+  const href = `/series/${id}`
 
   return (
-    <Link href={`/series/${id}`} className={cn('group block', className)}>
-      {/* 封面区域 */}
-      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-gray-100 mb-2">
+    <article className={cn('group min-w-0', className)}>
+      <Link
+        href={href}
+        aria-label={`查看系列：${title}`}
+        className="relative mb-3 block aspect-[3/4] overflow-hidden rounded-lg bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
         <MediaThumbnail
           media={coverImageUrl ? { path: coverImageUrl, mediaType: 'image' } : null}
           alt={title}
           width={400}
           height={533}
-          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+          className="size-full object-cover transition-transform duration-300 motion-safe:group-hover:scale-[1.02]"
           loading={priority ? 'eager' : 'lazy'}
           priority={priority}
-          sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 20vw"
+          sizes="(max-width: 640px) 50vw, (max-width: 1024px) 25vw, 20vw"
         />
+      </Link>
 
-        {/* 遮罩层 - 悬停时微微变暗增加层次感 */}
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300" />
-
-        {/* 右上角标识 - 作品数量 */}
-        <div className="absolute top-2 right-2 flex flex-col gap-1">
-          {artworkCount > 0 && (
-            <div className="bg-black/50 backdrop-blur-sm text-white px-1.5 py-0.5 rounded text-[10px] font-medium flex items-center gap-1">
-              <Layers size={10} />
-              {artworkCount}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 信息区域 */}
-      <div className="space-y-0.5 px-0.5">
-        <h4 className="font-bold text-sm text-gray-900 truncate leading-snug group-hover:text-blue-600 transition-colors" title={title}>
+      <h2 className="truncate text-sm font-semibold text-foreground">
+        <Link href={href} className="outline-none hover:text-primary focus-visible:text-primary">
           {title}
-        </h4>
-        <div className="flex items-center gap-1 text-xs text-gray-500">
-          <span className="truncate">{new Date(updatedAt).toLocaleDateString()}</span>
-        </div>
+        </Link>
+      </h2>
+      <div className="font-utility mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span>{artworkCount} 件作品</span>
+        <span>{new Date(updatedAt).toLocaleDateString('zh-CN')} 更新</span>
       </div>
-    </Link>
+    </article>
   )
 }

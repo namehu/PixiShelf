@@ -386,6 +386,15 @@ Migrate:
 - Forms use the shared form language.
 - Empty, loading, and error states use the shared state language.
 
+### Verification record
+
+- Artists, artist detail, tags, tag detail, series, settings, profile, preferences, change password, and login now share the gallery/standard/reading container axes and the `PageHeader` / `SectionHeader` hierarchy. Artist and series cards use separate cover and title links, leaving counts, usernames, and dates directly selectable.
+- The login entry keeps the confirmed blue/white direction but replaces the generic blue-purple blobs with a restrained work-index motif. Profile and password forms use Field/InputGroup, connected labels, local errors, autocomplete attributes, and first-invalid-field focus. The base Label no longer blocks mouse text selection.
+- Tags retain search, popular/random modes, the animated index, grid mode, throttled infinite loading, and URL navigation. Reduced-motion users receive a static wrapping index. The obsolete local Tabs implementation was removed in favor of the official shadcn Tabs composition.
+- Browser checks covered `1440x900`, `1024x768`, `390x844`, and `1440x720` across `/artists`, `/artists/4`, `/tags`, `/tags/33`, `/series`, `/settings/profile`, `/settings/preferences`, `/change-password`, `/login`, and a real not-found route. Each checked route had one `main`, one `h1`, no nested interactive controls, and no horizontal overflow. A real 1px mobile overflow in the artist sort trigger was fixed and rechecked with zero offending elements.
+- The local series fixture is empty, so the browser run verified the shared series empty state; separate component coverage verifies populated series-card link and selectable metadata structure. Tag search returned real results without changing the page landmark or interaction structure, and focused coverage verifies recoverable error plus successful-empty states. Empty password submission focused `currentPassword` and connected its visible error through `aria-describedby`.
+- Global loading, error, and not-found entries already use `PageContainer` plus `PageState`; the real 404 route was checked on mobile. The review gate additionally removed new `space-y-*`, moved series counts outside navigation, added Field disabled state, normalized Button icons and semantic overlay colors, and expressed password strength through a Progress variant. `pnpm --filter @pixishelf/next lint` completed with zero warnings/errors, TypeScript typecheck passed, and the final full unit suite passed all `164` files / `856` tests.
+
 ## 11. Stage 6 — Admin Workbenches
 
 Migrate admin modules in functional groups:

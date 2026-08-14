@@ -1,18 +1,15 @@
 'use client'
 
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeftIcon } from 'lucide-react'
 import { useSafeBack } from '@/hooks/use-safe-back'
+import { Button } from '@/components/ui/button'
 
 export function NavBack() {
   const safeBack = useSafeBack('/tags')
 
   return (
-    <button
-      onClick={safeBack}
-      className="p-2 -ml-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer"
-      aria-label="返回上一页"
-    >
-      <ArrowLeft className="w-5 h-5" />
-    </button>
+    <Button type="button" variant="ghost" size="icon" onClick={safeBack} aria-label="返回标签列表">
+      <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
+    </Button>
   )
 }

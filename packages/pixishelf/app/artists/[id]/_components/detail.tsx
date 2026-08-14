@@ -13,6 +13,8 @@ import { SearchBox } from '@/app/artworks/_components/search-box'
 import InfiniteArtworkList from '@/components/artwork/infinite-artwork-list'
 import dayjs from 'dayjs'
 import { useSafeBack } from '@/hooks/use-safe-back'
+import { PageContainer } from '@/components/layout/page-container'
+import { SectionHeader } from '@/components/layout/section-header'
 
 const viewerQueryParsers = {
   source: parseAsString,
@@ -99,14 +101,15 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
   return (
     <div className="relative">
       <PageToolbar
+        containerSize="gallery"
         leading={
           <Button variant="ghost" size="icon" onClick={safeBack} aria-label="返回艺术家列表">
-            <ChevronLeft className="w-5 h-5 mr-0.5" />
+            <ChevronLeft data-icon="inline-start" aria-hidden="true" />
           </Button>
         }
         actions={
           <Button variant="outline" size="icon" onClick={() => setIsFilterOpen(true)} aria-label="筛选作品">
-            <SlidersHorizontal className="w-4 h-4" />
+            <SlidersHorizontal data-icon="inline-start" aria-hidden="true" />
           </Button>
         }
       >
@@ -115,7 +118,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
             value={search || ''}
             placeholder="搜索艺术家的作品"
             onSearch={(val) => setQuery({ search: val })}
-            className="w-full shadow-sm"
+            className="w-full"
           />
         </div>
       </PageToolbar>
@@ -132,13 +135,8 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
       />
 
       <HeadInfo artist={artist} immersiveHref={immersiveViewerHref} />
-      {/* 作品列表部分 */}
-      <div className="space-y-6 px-4 my-4">
-        {/* 作品列表标题和排序 */}
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900">作品集</h2>
-          <span className="text-gray-600">{`共 ${total} 件作品`}</span>
-        </div>
+      <PageContainer size="gallery" className="flex flex-col gap-6 py-8">
+        <SectionHeader title="作品" description={`共 ${total} 件作品`} />
 
         <InfiniteArtworkList
           artistId={id}
@@ -152,7 +150,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
           onClearFilters={clearAllFilters}
           emptyMessage="该艺术家还没有上传任何作品"
         />
-      </div>
+      </PageContainer>
     </div>
   )
 }

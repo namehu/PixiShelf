@@ -9,6 +9,8 @@ import { ArtworkList } from './_components/artwork-list'
 import { NavBack } from './_components/nav-back'
 import { Button } from '@/components/ui/button'
 import PageToolbar from '@/components/layout/page-toolbar'
+import { PageContainer } from '@/components/layout/page-container'
+import { PageHeader } from '@/components/layout/page-header'
 
 const serializeViewerQuery = createSerializer({
   source: parseAsString,
@@ -38,40 +40,37 @@ export default async function TagDetailPage({ params }: PageProps<'/tags/[id]'>)
   }
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 selection:bg-blue-100 flex flex-col">
+    <div className="min-h-dvh bg-background">
       <PageToolbar
+        containerSize="gallery"
         leading={<NavBack />}
-        title={<span className="line-clamp-1 text-lg font-bold tracking-tight text-slate-800">{tag.name}</span>}
+        title={<span className="line-clamp-1 text-sm font-semibold text-foreground">{tag.name}</span>}
       />
 
-      <main className="flex-1 w-full max-w-screen-xl mx-auto px-4 py-8">
-        {/* 标签信息 Hero 区域 */}
-        <div className="mb-10 flex flex-col md:flex-row items-start md:items-center gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <div className="relative group shrink-0">
-            <div className="w-24 h-24 rounded-2xl overflow-hidden shadow-xl shadow-blue-900/5 ring-4 ring-white bg-white">
-              <Avatar className="w-full h-full">
-                <AvatarImage src={tag.image ?? ''} className="object-cover" />
-                <AvatarFallback className="flex items-center justify-center w-full h-full bg-blue-50 text-blue-500">
-                  <TagIcon className="w-10 h-10" />
-                </AvatarFallback>
-              </Avatar>
-            </div>
-          </div>
-          <div className="flex-1 space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-3xl font-black text-slate-900 tracking-tight">{tag.name}</h1>
-              <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-xs font-bold border border-blue-100">
-                {getTranslateName(tag)}
-              </span>
-            </div>
+      <PageContainer as="main" size="gallery" className="flex flex-col gap-9 py-6 sm:py-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+          <Avatar className="size-20 rounded-lg bg-muted sm:size-24">
+            <AvatarImage src={tag.image ?? ''} alt="" className="object-cover" />
+            <AvatarFallback className="rounded-lg bg-primary/10 text-primary">
+              <TagIcon className="size-9" aria-hidden="true" />
+            </AvatarFallback>
+          </Avatar>
 
-            {tag.description && <p className="text-slate-500 max-w-2xl leading-relaxed">{tag.description}</p>}
-
-            <div className="flex items-center gap-4 pt-1">
-              <div className="flex items-center gap-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-200/60 px-3 py-1 rounded-full shadow-sm">
-                <WallpaperIcon className="w-4 h-4 text-slate-400" />
-                <span>{tag.artworkCount} 作品</span>
+          <PageHeader
+            className="min-w-0 flex-1"
+            eyebrow="标签档案"
+            title={tag.name}
+            description={tag.description || undefined}
+            metadata={
+              <div className="flex flex-wrap gap-x-5 gap-y-2">
+                {getTranslateName(tag) && <span>{getTranslateName(tag)}</span>}
+                <span className="inline-flex items-center gap-1.5">
+                  <WallpaperIcon className="size-3.5" aria-hidden="true" />
+                  {tag.artworkCount} 件作品
+                </span>
               </div>
+            }
+            actions={
               <Button asChild>
                 <Link
                   href={serializeViewerQuery('/viewer', {
@@ -84,17 +83,16 @@ export default async function TagDetailPage({ params }: PageProps<'/tags/[id]'>)
                     mediaType: 'all'
                   })}
                 >
-                  <ImageUpIcon className="w-4 h-4" />
+                  <ImageUpIcon data-icon="inline-start" aria-hidden="true" />
                   沉浸浏览
                 </Link>
               </Button>
-            </div>
-          </div>
+            }
+          />
         </div>
 
-        {/* 作品列表 */}
         <ArtworkList tagId={tagId} />
-      </main>
+      </PageContainer>
     </div>
   )
 }

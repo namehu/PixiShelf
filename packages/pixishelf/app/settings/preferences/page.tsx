@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Field, FieldLabel } from '@/components/ui/field'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { updateUserSettingAction } from '@/actions/user-setting-action'
 import { PreferenceItem } from '../_components/preference-item'
@@ -179,20 +180,21 @@ export default function SettingsPreferencesPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div>
       <PreferenceItem
         title="媒体隐私模式"
         description="开启后模糊全站媒体；关闭后，进入非管理后台时需先确认 R18 内容警告。此功能仅改变显示，不阻止媒体加载或访问"
       >
-        <div className="flex items-center gap-3">
+        <Field orientation="horizontal" data-disabled={isExecuting || undefined} className="min-h-9 w-auto gap-3">
+          <FieldLabel htmlFor="media-privacy-mode">{mediaPrivacyMode ? '已开启' : '已关闭'}</FieldLabel>
           <Switch
+            id="media-privacy-mode"
             checked={mediaPrivacyMode}
             onCheckedChange={onMediaPrivacyModeChange}
             disabled={isExecuting}
             aria-label="媒体隐私模式"
           />
-          <span className="text-sm text-slate-600">{mediaPrivacyMode ? '已开启' : '已关闭'}</span>
-        </div>
+        </Field>
       </PreferenceItem>
 
       <PreferenceItem
@@ -204,7 +206,7 @@ export default function SettingsPreferencesPage() {
           onValueChange={(value) => onDisplayModeChange(value as ArtworkDisplayMode)}
           disabled={isExecuting}
         >
-          <SelectTrigger className="w-full sm:w-[420px]">
+          <SelectTrigger className="w-full sm:w-[420px]" aria-label="作品列表显示模式">
             <SelectValue placeholder="选择展示模式" />
           </SelectTrigger>
           <SelectContent>
@@ -263,7 +265,7 @@ export default function SettingsPreferencesPage() {
         description="大量图片作品在右侧显示快捷刻度；设置数字表示每隔多少张生成一个节点"
       >
         <Select value={String(mediaAnchorInterval)} onValueChange={onMediaAnchorIntervalChange} disabled={isExecuting}>
-          <SelectTrigger className="w-full sm:w-[420px]">
+          <SelectTrigger className="w-full sm:w-[420px]" aria-label="作品媒体快捷导航间隔">
             <SelectValue placeholder="选择节点间隔" />
           </SelectTrigger>
           <SelectContent>
@@ -284,9 +286,9 @@ export default function SettingsPreferencesPage() {
           <MultipleSelector
             value={selectedTagOptions}
             options={tagOptions}
-            placeholder="选择标签..."
+            placeholder="选择标签…"
             onChange={onPreferredTagsChange}
-            emptyIndicator={<p className="text-center text-sm text-slate-500 py-4">暂无可选标签</p>}
+            emptyIndicator={<p className="py-4 text-center text-sm text-muted-foreground">暂无可选标签</p>}
           />
         </div>
       </PreferenceItem>
