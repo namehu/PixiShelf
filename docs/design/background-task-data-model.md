@@ -205,7 +205,7 @@ erDiagram
 | payload | Json | 是 | null | 经任务 Schema 校验后的不可变输入快照 |
 | queuePriority | Int | 否 | 100 | 基础优先级，越小越优先 |
 | effectivePriority | Int | 否 | 100 | 包含等待老化的缓存优先级 |
-| availableAt | DateTime | 否 | now | 最早可领取时间，也承载重试退避 |
+| availableAt | DateTime | 兼容期是 | now | 最早可领取时间，也承载重试退避；旧关键帧入口迁走前允许 null（旧语义为立即可领取），迁移完成后收紧为非空 |
 | deadlineAt | DateTime | 是 | null | 自动任务窗口截止；手动任务为空 |
 | status | JobStatus | 否 | PENDING | 统一状态机 |
 | maxAttempts | Int | 否 | 3 | 最大领取次数，按任务定义覆盖 |
@@ -494,7 +494,7 @@ model SystemJob {
   payload              Json?
   queuePriority        Int               @default(100)
   effectivePriority    Int               @default(100)
-  availableAt          DateTime          @default(now())
+  availableAt          DateTime?         @default(now())
   deadlineAt           DateTime?
   workerId             String?           @db.VarChar(120)
   leaseToken           String?           @db.Uuid
@@ -650,4 +650,5 @@ PENDING 的媒体探测、封面或章节领域记录只表示待处理数据，
 8. 部署新的 @pixishelf/next、@pixishelf/worker 和共享包；不存在新旧 Worker 重叠运行。
 9. scheduler 保持 disabled，执行数据库读取、文件抽样和一个低风险手动任务。
 10. 验证通过后开启 scheduler；首次 GC 对账保持 dry-run。
-11. 至少稳定运行一个发布周期后，再单独 migration 删除废弃字段和旧内存消费者。
+11. 至少稳定运行一个发布周期、旧关键帧等执行入口全部迁走后，再单独 migration 将 availableAt 收紧为非空，并加入租约全有/全空、SKIPPED 一致性和 scheduledTaskId/scheduledForDate 成对约束。
+12. 最后再删除废弃字段和旧内存消费者。

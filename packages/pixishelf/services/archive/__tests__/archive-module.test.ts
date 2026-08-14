@@ -356,6 +356,8 @@ describe('archive module', () => {
         data: expect.objectContaining({ cleanupRequestedAt: expect.any(Date) })
       })
     )
+    const jobUpdate = prismaMock.systemJob.updateMany.mock.calls[0]?.[0]
+    expect(jobUpdate?.data).not.toHaveProperty('status')
     expect(prismaMock.archiveImportItem.updateMany).not.toHaveBeenCalled()
   })
 

@@ -85,14 +85,39 @@
 - (`artworkId`, `mediaType`) 与 (`artworkId`, `sortOrder`, `id`) 目前仅为候选索引。只有生产执行计划证明现有单列/唯一索引不足时才创建，避免增加无依据的写入和存储成本。
 - 历史字段 `Image.webpAnimationStatus` 继续作为动画内容探测状态使用，现覆盖 WebP、GIF、PNG/APNG；探测任务同时把 `mediaType` 纠正为 `IMAGE` 或 `ANIMATION`。
 
+### 3.5 后台任务队列索引
+
+- `system_jobs(status, effectivePriority, availableAt, createdAt)` 是单 Worker dispatcher 的领取索引；优先级越小越先执行。
+- `system_jobs(status, deadlineAt)` 用于自动窗口过期，`system_jobs(status, leaseExpiresAt)` 用于崩溃租约恢复。
+- `system_jobs(scheduledTaskId, scheduledForDate)` 唯一约束防止每日计划重复物化；`system_jobs(idempotencyKey)` 为可空 API 幂等键。
+- `system_job_events(jobId, id)` 支持按全局递增游标读取单任务时间线。
+- `derived_media_gc_entries(status, notBefore, createdAt)` 支持延迟、小批量领取删除意图；`(mediaKind, relativePath)` 唯一约束用于安全 upsert。
+- 未增加 `targetImageId` 新索引。兼容列的查询收益需要生产执行计划证明后再单独处理，避免无依据增加写放大。
+
 ## 4. 审计与维护 (Audit & Maintenance)
 
-### 4.1 触发器日志 (`TriggerLog`)
+### 4.1 后台任务切换守卫与手写约束
+
+`20260814091000_add_background_task_queue_schema` 使用显式事务，事务内第一条业务语句是只读 `DO` 守卫。它在任何 DDL、回填或索引创建前检查旧任务、归档导入、扫描、批量替换、视频探测/封面/章节/关键帧和归档生命周期共 12 类活动状态。关键帧 `STAGING` 集合在任务引用为空、关联任务缺失或关联任务非终态时也会阻断。发现阻断项时 migration 只报错并退出，不会替业务数据“收口”。该守卫是停机流程的第二道防线，不是并发写屏障；执行 migration 前仍必须按 Runbook 停止全部旧写入者。
+
+该 migration 不更新或删除 Artwork、Image、媒体、归档、扫描、替换等领域记录；只回填旧 `system_jobs` 和 `scheduled_tasks` 的队列兼容字段。旧任务被标记为 `definitionVersion=0`、`triggerSource=LEGACY`，不补造事件或 GC 删除意图。
+
+以下数据库约束由 migration 手写，因为 Prisma schema 不能表达 `CHECK`：
+
+- `system_jobs.progress` 必须为 0–100，`attempt >= 0`、`maxAttempts >= 1`、`definitionVersion >= 0`。
+- `system_job_events.progress` 为空或为 0–100。
+- `derived_media_gc_entries.attempt >= 0` 且 `maxAttempts >= 1`。
+
+`system_jobs` 是历史表，切换审计并不读取每条旧记录的 progress/attempt。它的四个 CHECK 首次以 `NOT VALID` 创建：创建时不扫描未触碰的历史行，但会立即约束新插入，也会校验之后被更新的旧行（即使只更新无关字段）。这样可避免未知旧历史值在创建约束时扩大停机风险。部署后的兼容审计应先报告并修复异常旧值，再在独立 migration 中执行 `VALIDATE CONSTRAINT`。新建的事件和 GC 表为空，因此其 CHECK 在创建时直接验证。
+
+本兼容阶段为 `system_jobs.availableAt` 回填值并增加 `CURRENT_TIMESTAMP` 默认值，但暂不设置 `NOT NULL`：旧关键帧入口仍会显式写 `NULL`，并把它解释为“立即可领取”。严格租约全有/全空、`SKIPPED` 字段一致性、计划字段成对约束及 `availableAt NOT NULL`，统一延后到旧执行入口完全迁走后的清理 migration，避免破坏停机升级后的回滚能力。
+
+### 4.2 触发器日志 (`TriggerLog`)
 - **用途**: 记录人工一致性修复等维护摘要；不再记录每条成功的 `ArtworkTag` 变更。
 - **表结构**: 包含 `operation` (INSERT/UPDATE/DELETE), `table_name`, `old_value`, `new_value`, `error_message` 等字段。
 - **保留策略**: 默认保留 30 天，由 `trigger_log_retention_cleanup` 每日计划任务清理；该任务首次创建时默认启用。
 
-### 4.2 维护函数
+### 4.3 维护函数
 数据库内置了以下维护函数，可在必要时（如直接操作数据库导致计数偏差后）手动调用：
 
 | 函数名 | 描述 |
@@ -113,3 +138,5 @@
 | `20260203000000` | 添加作品图片计数触发器 (`Artwork.imageCount`, 语句级优化) |
 | `20260227003621` | 重构认证系统 (BetterAuth)，User -> UserBA，并清理无效 ArtworkLike 数据 |
 | `20260808000000` | 添加 `ArtworkTag(tagId, artworkId)` 索引，将标签计数改为语句级集合更新，并清理重复日志索引 |
+| `20260814090000` | 独立新增后台任务来源/跳过/事件/GC 枚举，并扩展 `JobStatus`，避免同事务使用新枚举值 |
+| `20260814091000` | 先执行只读切换守卫，再新增持久队列字段、事件/资源租约/派生媒体 GC 表、索引、外键和安全 CHECK，并回填旧任务兼容标记 |

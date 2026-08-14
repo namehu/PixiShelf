@@ -564,15 +564,27 @@ flowchart TD
 2. 在所有写入者停止后执行最终 cutover audit；发现阻断则终止升级并回到旧服务处理。
 3. audit 通过后确认数据库与媒体卷备份。
 4. 应用 additive migration；不删除旧列，不修改媒体路径。
+   本阶段会回填 `availableAt` 并设置新记录默认值，但仍允许旧关键帧入口写入 `NULL`；不要在本次切换中手工收紧为 `NOT NULL`。
 5. 旧终态 SystemJob 标记为 LEGACY/version 0。
 6. 部署新 App 和新 Worker，scheduler 继续关闭。
 7. 新 Worker启动时验证 Schema 版本、数据库、FFmpeg/FFprobe 和两个媒体挂载。
 8. 运行只读 post-migration audit，比较迁移前后核心表计数和已发布引用。
+   同时检查旧 `system_jobs` 的 progress、attempt、maxAttempts 和 definitionVersion；本次 migration 的四个历史表 CHECK 使用 `NOT VALID`，创建时不会扫描未触碰的历史行，但会拒绝非法的新插入，也会拒绝任何仍不满足约束的旧行更新。旧值审计通过后通过独立 migration 执行 `VALIDATE CONSTRAINT`。
 9. 抽样读取原图、封面、章节预览、代表帧和归档 manifest。
 10. 手动提交一个低风险清理或只读扫描任务，验证入队、claim、事件、日志和终态。
 11. 再验证一个小范围媒体任务，不做全量扫描。
 12. 在下一个 00:00–08:00 窗口前显式开启 scheduler。
-11. 第一次 GC reconciliation 保持 dry-run，人工确认后才开启增量删除。
+13. 第一次 GC reconciliation 保持 dry-run，人工确认后才开启增量删除。
+
+如果第 4 步由 `prisma migrate deploy` 执行，且 `20260814091000_add_background_task_queue_schema` 的 guard 意外失败，显式事务会回滚全部 0910 DDL 和回填，但 Prisma 会保留一条 failed migration，后续直接重跑会报 `P3009`。先保持全部写入者停止完成第 1 步；如阻断项必须由旧服务处理，可恢复旧版本，处理完成后再次停止全部写入者，再执行后续步骤：
+
+1. 先用只读 SQL 确认 `system_jobs.definitionVersion`、`system_job_events`、`job_resource_leases` 和 `derived_media_gc_entries` 均不存在；任一对象存在都不得执行 `resolve`，应先按事故流程核对实际迁移边界。
+2. 排空或恢复 guard 报告的阻断项，再重新运行最终 cutover audit。
+3. audit 通过后执行：
+   `pnpm --filter @pixishelf/next exec prisma migrate resolve --rolled-back 20260814091000_add_background_task_queue_schema --schema prisma/schema.prisma`
+4. 再执行 `prisma migrate deploy`。不得将失败记录标记为 `--applied`，也不得绕过 guard 手工补列。
+
+严格的 `availableAt NOT NULL`、任务租约字段全有/全空、`SKIPPED` 字段一致性和计划字段成对约束属于兼容清理阶段。只有旧执行入口全部迁走、完成一个稳定发布周期并确认无需回滚后，才能通过独立 migration 加入这些约束。
 
 ### 11.5 新 Worker 的旧数据规则
 

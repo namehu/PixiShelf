@@ -442,40 +442,127 @@ enum TranslateType {
 }
 
 model SystemJob {
-  id                  String                 @id @default(cuid())
-  type                String                 @db.VarChar(50)
-  status              JobStatus              @default(PENDING)
-  progress            Int                    @default(0)
-  message             String?                @db.Text
-  result              Json?
-  error               String?                @db.Text
-  targetImageId       Int?
-  targetPath          String?                @db.Text
-  mode                String?                @db.VarChar(50)
-  startedAt           DateTime?
-  heartbeatAt         DateTime?
-  finishedAt          DateTime?
-  attempt             Int                    @default(0)
-  parentJobId         String?
-  parentJob           SystemJob?             @relation("SystemJobChildren", fields: [parentJobId], references: [id], onDelete: SetNull)
-  childJobs           SystemJob[]            @relation("SystemJobChildren")
-  queuePriority       Int                    @default(100)
-  availableAt         DateTime?
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
-  scanRuns            ScanRun[]
-  pendingReplaceBatch PendingReplaceBatch?
-  archiveImport       ArchiveImport?
-  keyframeSet         MediaVideoKeyframeSet?
+  id                   String                 @id @default(cuid())
+  type                 String                 @db.VarChar(80)
+  definitionVersion    Int                    @default(1)
+  status               JobStatus              @default(PENDING)
+  triggerSource        JobTriggerSource       @default(SYSTEM)
+  requestedByUserId    String?
+  scheduledTaskId      String?
+  scheduledForDate     String?                @db.VarChar(10)
+  idempotencyKey       String?                @unique @db.VarChar(180)
+  payload              Json?
+  progress             Int                    @default(0)
+  stage                String?                @db.VarChar(80)
+  message              String?                @db.Text
+  result               Json?
+  errorCode            String?                @db.VarChar(80)
+  error                String?                @db.Text
+  skipReason           JobSkipReason?
+  skippedAt            DateTime?
+  targetImageId        Int?
+  targetPath           String?                @db.Text
+  mode                 String?                @db.VarChar(50)
+  startedAt            DateTime?
+  lastAttemptStartedAt DateTime?
+  heartbeatAt          DateTime?
+  finishedAt           DateTime?
+  cancelRequestedAt    DateTime?
+  pauseRequestedAt     DateTime?
+  attempt              Int                    @default(0)
+  maxAttempts          Int                    @default(3)
+  parentJobId          String?
+  parentJob            SystemJob?             @relation("SystemJobChildren", fields: [parentJobId], references: [id], onDelete: SetNull)
+  childJobs            SystemJob[]            @relation("SystemJobChildren")
+  queuePriority        Int                    @default(100)
+  effectivePriority    Int                    @default(100)
+  availableAt          DateTime?              @default(now())
+  deadlineAt           DateTime?
+  workerId             String?                @db.VarChar(120)
+  leaseToken           String?                @db.Uuid
+  leaseExpiresAt       DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  scheduledTask        ScheduledTask?         @relation(fields: [scheduledTaskId], references: [id], onDelete: SetNull)
+  events               SystemJobEvent[]
+  resourceLeases       JobResourceLease[]
+  gcEntries            DerivedMediaGcEntry[]
+  scanRuns             ScanRun[]
+  pendingReplaceBatch  PendingReplaceBatch?
+  archiveImport        ArchiveImport?
+  keyframeSet          MediaVideoKeyframeSet?
 
+  @@unique([scheduledTaskId, scheduledForDate])
   @@index([type, status])
   @@index([type, status, createdAt])
   @@index([type, status, finishedAt])
   @@index([type, targetImageId, createdAt])
   @@index([parentJobId, status])
   @@index([type, status, queuePriority, availableAt, createdAt])
+  @@index([status, effectivePriority, availableAt, createdAt])
+  @@index([status, deadlineAt])
+  @@index([status, leaseExpiresAt])
+  @@index([scheduledTaskId, createdAt])
   @@index([createdAt])
   @@map("system_jobs")
+}
+
+model SystemJobEvent {
+  id        BigInt        @id @default(autoincrement())
+  jobId     String
+  type      String        @db.VarChar(50)
+  level     JobEventLevel @default(INFO)
+  attempt   Int           @default(0)
+  workerId  String?       @db.VarChar(120)
+  stage     String?       @db.VarChar(80)
+  progress  Int?
+  message   String?       @db.Text
+  data      Json?
+  createdAt DateTime      @default(now())
+  job       SystemJob     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, id])
+  @@index([createdAt])
+  @@map("system_job_events")
+}
+
+model JobResourceLease {
+  resourceKey String    @id @db.VarChar(180)
+  ownerJobId  String
+  workerId    String    @db.VarChar(120)
+  leaseToken  String    @db.Uuid
+  expiresAt   DateTime
+  heartbeatAt DateTime
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  ownerJob    SystemJob @relation(fields: [ownerJobId], references: [id], onDelete: Cascade)
+
+  @@index([ownerJobId])
+  @@map("job_resource_leases")
+}
+
+model DerivedMediaGcEntry {
+  id              String        @id @default(cuid())
+  mediaKind       String        @db.VarChar(50)
+  relativePath    String        @db.Text
+  referenceType   String?       @db.VarChar(50)
+  referenceId     String?       @db.VarChar(120)
+  reason          String        @db.VarChar(80)
+  status          GcEntryStatus @default(PENDING)
+  notBefore       DateTime
+  attempt         Int           @default(0)
+  maxAttempts     Int           @default(3)
+  lastSystemJobId String?
+  error           String?       @db.Text
+  deletedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  lastSystemJob   SystemJob?    @relation(fields: [lastSystemJobId], references: [id], onDelete: SetNull)
+
+  @@unique([mediaKind, relativePath])
+  @@index([status, notBefore, createdAt])
+  @@index([lastSystemJobId])
+  @@map("derived_media_gc_entries")
 }
 
 model ArchiveImport {
@@ -793,21 +880,24 @@ enum ScanRunItemAction {
 }
 
 model ScheduledTask {
-  id                String       @id @default(cuid())
-  key               String       @unique @db.VarChar(80)
-  type              String       @db.VarChar(50)
-  enabled           Boolean      @default(false)
-  scheduleMode      ScheduleMode @default(DAILY)
-  time              String       @db.VarChar(5)
-  timezone          String       @default("Asia/Shanghai") @db.VarChar(50)
-  priority          Int          @default(100)
-  mutexKey          String?      @db.VarChar(80)
-  lastTriggeredAt   DateTime?
-  lastTriggeredDate String?      @db.VarChar(10)
-  lastJobId         String?
-  config            Json?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  id                   String       @id @default(cuid())
+  key                  String       @unique @db.VarChar(80)
+  type                 String       @db.VarChar(80)
+  enabled              Boolean      @default(false)
+  scheduleMode         ScheduleMode @default(DAILY)
+  time                 String       @db.VarChar(5)
+  timezone             String       @default("Asia/Shanghai") @db.VarChar(50)
+  priority             Int          @default(100)
+  mutexKey             String?      @db.VarChar(80)
+  lastTriggeredAt      DateTime?
+  lastTriggeredDate    String?      @db.VarChar(10)
+  lastMaterializedAt   DateTime?
+  lastMaterializedDate String?      @db.VarChar(10)
+  lastJobId            String?
+  config               Json?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  jobs                 SystemJob[]
 
   @@index([enabled, priority])
   @@index([type])
@@ -824,10 +914,41 @@ enum JobStatus {
   RUNNING
   PAUSING
   PAUSED
+  RETRY_WAIT
   COMPLETED
   FAILED
   CANCELLED
   CANCELLING
+  SKIPPED
+}
+
+enum JobTriggerSource {
+  MANUAL
+  SCHEDULE
+  SYSTEM
+  RETRY
+  LEGACY
+}
+
+enum JobSkipReason {
+  WINDOW_EXPIRED
+  DISABLED_BEFORE_START
+  SUPERSEDED
+  PRECONDITION_NOT_MET
+}
+
+enum JobEventLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+enum GcEntryStatus {
+  PENDING
+  PROCESSING
+  DELETED
+  SKIPPED_REFERENCED
+  FAILED
 }
 
 enum VideoKeyframeSetStatus {

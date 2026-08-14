@@ -22,6 +22,29 @@ const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const PARTIAL_FAILED_STAGING_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 const ARCHIVE_IMPORT_JOB_TYPE = 'ARCHIVE_IMPORT'
 
+type ArchiveWorkflowStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'PAUSED'
+  | 'CANCELLING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED'
+
+type ArchiveTransitionInput = {
+  importStatus: ArchiveWorkflowStatus
+  message: string
+  finishedAt?: Date
+  retainUntil?: Date
+  importData?: Omit<Prisma.ArchiveImportUpdateManyMutationInput, 'status'>
+  jobData?: Omit<Prisma.SystemJobUpdateManyMutationInput, 'status'>
+  mutate?: (tx: ArchiveTransactionClient) => Promise<void>
+} &
+  (
+    | { jobStatus: ArchiveWorkflowStatus; preserveJobStatus?: false }
+    | { jobStatus?: never; preserveJobStatus: true }
+  )
+
 type ArchiveTaskSummaryRecord = Prisma.ArchiveImportGetPayload<{
   include: {
     systemJob: true
@@ -482,7 +505,7 @@ export class ArchiveModule {
         assertActionStatus(action, task.status, ['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'])
         await transitionTaskAndJob(task, {
           importStatus: task.status,
-          jobStatus: task.systemJob.status,
+          preserveJobStatus: true,
           message: '等待归档 Worker 清理暂存目录...',
           importData: { cleanupRequestedAt: now }
         })
@@ -518,16 +541,7 @@ async function transitionTaskAndJob(
     status: ArchiveImportStatus
     systemJob: { status: JobStatus }
   },
-  input: {
-    importStatus: 'PENDING' | 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
-    jobStatus: 'PENDING' | 'RUNNING' | 'PAUSING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
-    message: string
-    finishedAt?: Date
-    retainUntil?: Date
-    importData?: Prisma.ArchiveImportUpdateManyMutationInput
-    jobData?: Prisma.SystemJobUpdateManyMutationInput
-    mutate?: (tx: ArchiveTransactionClient) => Promise<void>
-  }
+  input: ArchiveTransitionInput
 ) {
   await prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
@@ -535,7 +549,7 @@ async function transitionTaskAndJob(
       where: { id: task.systemJobId, status: task.systemJob.status },
       data: {
         ...input.jobData,
-        status: input.jobStatus,
+        ...(input.preserveJobStatus ? {} : { status: input.jobStatus }),
         message: input.message,
         ...(input.finishedAt ? { finishedAt: input.finishedAt } : {})
       }
