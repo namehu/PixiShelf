@@ -462,7 +462,7 @@ describe('video-media-probe-service', () => {
     })
   })
 
-  it('does not reselect failures produced during the same run', async () => {
+  it('does not reset historical failures during a normal scheduled run', async () => {
     mediaVideoMetadataUpdateManyMock.mockResolvedValueOnce({ count: 1 })
     mediaVideoMetadataCountMock.mockResolvedValueOnce(1).mockResolvedValueOnce(0)
     mediaVideoMetadataFindManyMock
@@ -474,7 +474,7 @@ describe('video-media-probe-service', () => {
 
     const result = await runVideoMediaProbeJob({ scanPath: '/scan-root' })
 
-    expect(mediaVideoMetadataUpdateManyMock).toHaveBeenCalledWith({
+    expect(mediaVideoMetadataUpdateManyMock).not.toHaveBeenCalledWith({
       where: { probeStatus: 'FAILED' },
       data: { probeStatus: 'PENDING' }
     })
@@ -487,6 +487,15 @@ describe('video-media-probe-service', () => {
       processed: 0,
       failed: 1,
       remainingPending: 0
+    })
+  })
+
+  it('only resets historical failures when force is explicit', async () => {
+    await runVideoMediaProbeJob({ scanPath: '/scan-root', force: true })
+
+    expect(mediaVideoMetadataUpdateManyMock).toHaveBeenCalledWith({
+      where: { probeStatus: 'FAILED' },
+      data: { probeStatus: 'PENDING' }
     })
   })
 

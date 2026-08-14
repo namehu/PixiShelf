@@ -28,6 +28,12 @@ export interface WebpAnimationScanProgress {
 export interface WebpAnimationScanFailedSample {
   id: number
   path: string
+  errorCode:
+    | 'PATH_OUTSIDE_SCAN_ROOT'
+    | 'MEDIA_FILE_NOT_FOUND'
+    | 'MEDIA_FILE_UNREADABLE'
+    | 'INVALID_ANIMATION_MEDIA'
+    | 'ANIMATION_PROBE_FAILED'
   error: string
 }
 
@@ -210,10 +216,12 @@ export async function runWebpAnimationScanJob(options: {
       } catch (error) {
         result.failed += 1
         if (result.failedSamples.length < FAILED_SAMPLE_LIMIT) {
+          const failure = classifyAnimationFailure(error)
           result.failedSamples.push({
             id: image.id,
-            path: image.path,
-            error: error instanceof Error ? error.message : 'Unknown error'
+            path: safeMediaReference(image.path, image.id),
+            errorCode: failure.code,
+            error: failure.summary
           })
         }
       }
@@ -300,4 +308,33 @@ function resolvePathWithinScanRoot(scanRoot: string, relativePath: string): stri
   }
 
   return resolvedPath
+}
+
+function safeMediaReference(mediaPath: string, imageId: number): string {
+  const source = mediaPath.replace(/\\/g, '/')
+  const normalized = source.replace(/^\/+/, '')
+  if (source.startsWith('//') || /^[a-z]:\//i.test(source) || normalized.split('/').includes('..')) {
+    return `image:${imageId}`
+  }
+  return normalized.slice(0, 240) || `image:${imageId}`
+}
+
+function classifyAnimationFailure(error: unknown): {
+  code: WebpAnimationScanFailedSample['errorCode']
+  summary: string
+} {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' ? error.code : null
+  const message = error instanceof Error ? error.message : ''
+  if (/escapes scan root|outside the configured scan root/i.test(message)) {
+    return { code: 'PATH_OUTSIDE_SCAN_ROOT', summary: 'Media path is outside the configured scan root' }
+  }
+  if (code === 'ENOENT') return { code: 'MEDIA_FILE_NOT_FOUND', summary: 'Media file was not found' }
+  if (code === 'EACCES' || code === 'EPERM') {
+    return { code: 'MEDIA_FILE_UNREADABLE', summary: 'Media file could not be read' }
+  }
+  if (/Invalid PNG|PNG chunk|acTL|unsupported animation probe format/i.test(message)) {
+    return { code: 'INVALID_ANIMATION_MEDIA', summary: 'Media file is not a valid supported animation image' }
+  }
+  return { code: 'ANIMATION_PROBE_FAILED', summary: 'Animation detection failed' }
 }

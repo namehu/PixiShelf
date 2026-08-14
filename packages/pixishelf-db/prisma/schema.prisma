@@ -243,6 +243,7 @@ model MediaVideoMetadata {
   posterPath                String?
   posterUpdatedAt           DateTime?
   posterError               String?           @db.Text
+  posterBacklogCheckedAt    DateTime?
   manualPosterTimestamp     Float?
   manualPosterSourceSize    BigInt?
   manualPosterSourceMtimeMs BigInt?
@@ -251,6 +252,8 @@ model MediaVideoMetadata {
   updatedAt                 DateTime          @updatedAt
 
   @@index([probeStatus])
+  @@index([probeStatus, imageId])
+  @@index([probeStatus, manualPosterTimestamp, posterBacklogCheckedAt, imageId], map: "MediaVideoMetadata_poster_backlog_idx")
   @@index([posterStatus])
   @@index([hasAudio])
 }

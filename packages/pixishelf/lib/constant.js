@@ -1,21 +1,22 @@
+import { IMAGE_FILE_EXTENSIONS, MEDIA_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
+
 /**
  * 支持的图片格式
+ * @type {string[]}
  */
-export const IMAGE_EXTENSIONS = [
-  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff', '.tif', '.apng'
-]
+export const IMAGE_EXTENSIONS = [...IMAGE_FILE_EXTENSIONS]
 
 /**
  * 支持的视频格式
+ * @type {string[]}
  */
-export const VIDEO_EXTENSIONS = [
-  '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv'
-]
+export const VIDEO_EXTENSIONS = [...VIDEO_FILE_EXTENSIONS]
 
 /**
  * 所有支持的媒体格式
+ * @type {string[]}
  */
-export const MEDIA_EXTENSIONS = [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS]
+export const MEDIA_EXTENSIONS = [...MEDIA_FILE_EXTENSIONS]
 
 /**
  * API 图片资源前缀

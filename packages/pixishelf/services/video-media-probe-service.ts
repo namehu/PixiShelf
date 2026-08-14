@@ -216,18 +216,7 @@ export async function probeVideoFile(absolutePath: string): Promise<VideoProbeMe
 }
 
 export async function reprobeVideoMediaByImageId(imageId: number, scanPath: string): Promise<VideoMediaReprobeResult> {
-  const image = await prisma.image.findUnique({
-    where: { id: imageId },
-    select: { id: true, path: true, mediaType: true }
-  })
-
-  if (!image) {
-    throw new Error('Image not found')
-  }
-
-  if (!isVideoImageForProbe(image)) {
-    throw new Error('Image is not a video')
-  }
+  const image = await findVideoImageForReprobeId(imageId)
 
   const now = new Date()
   await prisma.mediaVideoMetadata.upsert({
@@ -281,6 +270,28 @@ export async function reprobeVideoMediaByImageId(imageId: number, scanPath: stri
   }
 }
 
+export async function resolveVideoImageForReprobeId(imageId: number, scanPath: string): Promise<ReprobeVideoImage> {
+  const image = await findVideoImageForReprobeId(imageId)
+  resolvePathWithinScanRoot(scanPath, image.path)
+  return image
+}
+
+async function findVideoImageForReprobeId(imageId: number): Promise<ReprobeVideoImage> {
+  const image = await prisma.image.findUnique({
+    where: { id: imageId },
+    select: { id: true, path: true, mediaType: true }
+  })
+
+  if (!image) {
+    throw new Error('Image not found')
+  }
+
+  if (!isVideoImageForProbe(image)) {
+    throw new Error('Image is not a video')
+  }
+  return image
+}
+
 export async function resolveVideoImageForReprobePath(inputPath: string, scanPath: string): Promise<ReprobeVideoImage> {
   const trimmedPath = inputPath.trim()
   if (!trimmedPath) {
@@ -313,6 +324,7 @@ export async function resolveVideoImageForReprobePath(inputPath: string, scanPat
 
 export async function runVideoMediaProbeJob(options: {
   scanPath: string
+  force?: boolean
   onProgress?: (progress: VideoMediaProbeProgress) => Promise<void> | void
   checkCancelled?: () => Promise<boolean> | boolean
 }): Promise<VideoMediaProbeResult> {
@@ -354,10 +366,14 @@ export async function runVideoMediaProbeJob(options: {
     })
   }
 
-  await prisma.mediaVideoMetadata.updateMany({
-    where: { probeStatus: 'FAILED' },
-    data: { probeStatus: 'PENDING' }
-  })
+  // Failed probes are deliberately sticky. Reprocessing every failure on each scheduled run creates
+  // an unbounded failure storm; only an explicit force run may make them pending again.
+  if (options.force) {
+    await prisma.mediaVideoMetadata.updateMany({
+      where: { probeStatus: 'FAILED' },
+      data: { probeStatus: 'PENDING' }
+    })
+  }
 
   await ensureNotCancelled()
   const totalPending = await prisma.mediaVideoMetadata.count({

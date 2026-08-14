@@ -3,7 +3,7 @@ import 'server-only'
 import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
 import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
-import { enqueueJob } from '@/services/background-task/job-command-service'
+import { enqueueSingletonManualJob } from '@/services/background-task/manual-job-singleton'
 import {
   CENTRAL_SCHEDULE_TIMEZONE,
   getCurrentOrNextShanghaiScheduleWindow
@@ -181,17 +181,23 @@ export async function triggerScheduledTaskNow(
       taskConfig: task.config,
       chapterPreviewMode: options.chapterPreviewMode
     })
-    const job = await enqueueJob({
-      type: definition.type,
-      triggerSource: 'MANUAL',
-      requestedByUserId: options.requestedByUserId,
-      payload: definition.payload,
-      priority: Math.min(99, Math.max(0, task.priority))
-    })
-    await prisma.scheduledTask.update({
-      where: { key },
-      data: { lastJobId: job.id }
-    })
+    const job = await enqueueSingletonManualJob(
+      {
+        type: definition.type,
+        triggerSource: 'MANUAL',
+        requestedByUserId: options.requestedByUserId,
+        payload: definition.payload,
+        priority: Math.min(99, Math.max(0, task.priority))
+      },
+      {
+        afterEnqueue: async ({ transaction, job: enqueuedJob }) => {
+          await transaction.scheduledTask.update({
+            where: { key },
+            data: { lastJobId: enqueuedJob.id }
+          })
+        }
+      }
+    )
     return { jobId: job.id }
   }
 

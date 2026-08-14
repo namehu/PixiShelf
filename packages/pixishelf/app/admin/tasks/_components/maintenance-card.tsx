@@ -313,7 +313,13 @@ export function MaintenanceCard() {
   const reprobeVideoByPathMutation = useMutation(
     trpc.job.reprobeVideoMediaByPath.mutationOptions({
       onSuccess: (result) => {
-        toast.success(`视频重新探测完成：${result.hasAudio ? '有音频' : '无音频'}，状态 ${result.probeStatus}`)
+        if (result.mode === 'QUEUED') {
+          toast.success(result.reused ? '已复用队列中的视频重探测任务' : '视频重探测任务已加入队列')
+        } else {
+          toast.success(
+            `视频重新探测完成：${result.metadata.hasAudio ? '有音频' : '无音频'}，状态 ${result.metadata.probeStatus}`
+          )
+        }
         setVideoReprobePath('')
         refetchVideoProbeJob()
       },

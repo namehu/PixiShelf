@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
-import { VIDEO_EXTENSIONS } from '@/lib/constant'
 import { isVideoFile, isWebpFile } from '@/lib/media'
+import { VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
 
 export const MEDIA_DERIVED_TAGS = {
   webp: { systemKey: 'media:webp', name: 'webp' },
@@ -9,6 +9,14 @@ export const MEDIA_DERIVED_TAGS = {
 } as const
 
 const MEDIA_TAG_SYNC_BATCH_SIZE = 1000
+const MEDIA_TAG_ARTWORK_PAGE_SIZE = 500
+export const MEDIA_TAG_IMAGE_PAGE_SIZE = 1000
+const MEDIA_TAG_IMAGE_PATH_FILTERS = [
+  { path: { endsWith: '.webp', mode: 'insensitive' as const } },
+  ...VIDEO_FILE_EXTENSIONS.map((extension) => ({
+    path: { endsWith: extension, mode: 'insensitive' as const }
+  }))
+]
 
 type MediaDerivedTagKey = keyof typeof MEDIA_DERIVED_TAGS
 
@@ -19,7 +27,7 @@ type MediaDerivedTagTx = {
     update(args: any): Promise<{ id: number }>
   }
   image: {
-    findMany(args: any): Promise<Array<{ artworkId: number | null; path?: string }>>
+    findMany(args: any): Promise<Array<{ id: number; artworkId: number | null; path: string }>>
   }
   artworkTag: {
     createMany(args: any): Promise<{ count: number } | unknown>
@@ -77,27 +85,45 @@ async function getOrCreateMediaDerivedTags(tx: MediaDerivedTagTx): Promise<Recor
   return tagIds
 }
 
-function buildExpectedTagArtworkIds(artworkIds: number[], images: Array<{ artworkId: number | null; path?: string }>) {
-  const idsWithVideo = new Set<number>()
-  const idsWithWebp = new Set<number>()
-
-  for (const image of images) {
-    if (typeof image.artworkId !== 'number' || !image.path) continue
-
-    if (isVideoFile(image.path)) {
-      idsWithVideo.add(image.artworkId)
-    }
-
-    if (isWebpFile(image.path)) {
-      idsWithWebp.add(image.artworkId)
-    }
-  }
-
+function buildExpectedTagArtworkIds(
+  artworkIds: number[],
+  idsWithVideo: ReadonlySet<number>,
+  idsWithWebp: ReadonlySet<number>
+) {
   return {
     webp: artworkIds.filter((id) => idsWithWebp.has(id)),
     video: artworkIds.filter((id) => idsWithVideo.has(id)),
     image: artworkIds.filter((id) => !idsWithVideo.has(id))
   } satisfies Record<MediaDerivedTagKey, number[]>
+}
+
+async function loadExpectedTagArtworkIds(tx: MediaDerivedTagTx, artworkIds: number[]) {
+  const idsWithVideo = new Set<number>()
+  const idsWithWebp = new Set<number>()
+  let cursor = 0
+
+  while (true) {
+    const page = await tx.image.findMany({
+      where: {
+        artworkId: { in: artworkIds },
+        id: { gt: cursor },
+        OR: MEDIA_TAG_IMAGE_PATH_FILTERS
+      },
+      orderBy: { id: 'asc' },
+      take: MEDIA_TAG_IMAGE_PAGE_SIZE,
+      select: { id: true, artworkId: true, path: true }
+    })
+    if (page.length === 0) break
+    cursor = page.at(-1)!.id
+    for (const image of page) {
+      if (typeof image.artworkId !== 'number') continue
+      if (isVideoFile(image.path)) idsWithVideo.add(image.artworkId)
+      if (isWebpFile(image.path)) idsWithWebp.add(image.artworkId)
+    }
+    if (page.length < MEDIA_TAG_IMAGE_PAGE_SIZE) break
+  }
+
+  return buildExpectedTagArtworkIds(artworkIds, idsWithVideo, idsWithWebp)
 }
 
 export async function syncMediaDerivedTagForArtwork(tx: MediaDerivedTagTx, artworkId: number) {
@@ -109,11 +135,7 @@ export async function syncMediaDerivedTagsForArtworks(tx: MediaDerivedTagTx, art
   if (uniqueArtworkIds.length === 0) return
 
   const tagIds = await getOrCreateMediaDerivedTags(tx)
-  const images = await tx.image.findMany({
-    where: { artworkId: { in: uniqueArtworkIds } },
-    select: { artworkId: true, path: true }
-  })
-  const expected = buildExpectedTagArtworkIds(uniqueArtworkIds, images)
+  const expected = await loadExpectedTagArtworkIds(tx, uniqueArtworkIds)
 
   const createData = (Object.keys(expected) as MediaDerivedTagKey[]).flatMap((key) =>
     expected[key].map((artworkId) => ({
@@ -166,7 +188,7 @@ async function syncTagRelations(
     currentRelations: Array<{ artworkId: number; tagId: number }>
     onBatch?: (added: number, removed: number) => Promise<void>
   }
-): Promise<MediaDerivedTagSyncStats> {
+): Promise<{ expected: number; existing: number; added: number; removed: number }> {
   const currentArtworkIds = new Set(
     options.currentRelations.filter((relation) => relation.tagId === tagId).map((relation) => relation.artworkId)
   )
@@ -197,20 +219,20 @@ async function syncTagRelations(
     await options.onBatch?.(added, removed)
   }
 
-  const finalRelations = await prisma.artworkTag.count({ where: { tagId } })
-
   return {
-    expectedArtworks: expectedArtworkIds.length,
-    existingRelationsBeforeSync: currentArtworkIds.size,
-    addedRelations: added,
-    removedStaleRelations: removed,
-    finalRelations
+    expected: expectedArtworkIds.length,
+    existing: currentArtworkIds.size,
+    added,
+    removed
   }
 }
 
-export async function syncAllMediaDerivedTags(options: {
-  onProgress?: (progress: SyncAllMediaDerivedTagsProgress) => Promise<void> | void
-} = {}): Promise<SyncAllMediaDerivedTagsResult> {
+export async function syncAllMediaDerivedTags(
+  options: {
+    onProgress?: (progress: SyncAllMediaDerivedTagsProgress) => Promise<void> | void
+    checkCancelled?: () => Promise<boolean> | boolean
+  } = {}
+): Promise<SyncAllMediaDerivedTagsResult> {
   const reportProgress = async (percentage: number, message: string) => {
     await options.onProgress?.({ percentage, message })
   }
@@ -219,70 +241,68 @@ export async function syncAllMediaDerivedTags(options: {
   const tagIds = await getOrCreateMediaDerivedTags(prisma as unknown as MediaDerivedTagTx)
 
   await reportProgress(15, '统计作品和媒体文件...')
-  const [artworks, webpImages, videoImages, currentRelations] = await Promise.all([
-    prisma.artwork.findMany({ select: { id: true } }),
-    prisma.image.findMany({
-      where: {
-        artworkId: { not: null },
-        path: { endsWith: '.webp', mode: 'insensitive' }
-      },
-      select: { artworkId: true },
-      distinct: ['artworkId']
-    }),
-    prisma.image.findMany({
-      where: {
-        artworkId: { not: null },
-        OR: VIDEO_EXTENSIONS.map((ext) => ({ path: { endsWith: ext, mode: 'insensitive' as const } }))
-      },
-      select: { artworkId: true },
-      distinct: ['artworkId']
-    }),
-    prisma.artworkTag.findMany({
-      where: { tagId: { in: Object.values(tagIds) } },
-      select: { artworkId: true, tagId: true }
-    })
-  ])
-
-  const allArtworkIds = artworks.map((artwork) => artwork.id)
-  const webpArtworkIds = Array.from(
-    new Set(webpImages.map((image) => image.artworkId).filter((id): id is number => typeof id === 'number'))
+  const totalArtworks = await prisma.artwork.count()
+  const existingCounts = await Promise.all(
+    (Object.keys(tagIds) as MediaDerivedTagKey[]).map((key) =>
+      prisma.artworkTag.count({ where: { tagId: tagIds[key] } })
+    )
   )
-  const videoArtworkIdSet = new Set(
-    videoImages.map((image) => image.artworkId).filter((id): id is number => typeof id === 'number')
-  )
-  const videoArtworkIds = allArtworkIds.filter((id) => videoArtworkIdSet.has(id))
-  const imageArtworkIds = allArtworkIds.filter((id) => !videoArtworkIdSet.has(id))
-
-  const expected = {
-    webp: webpArtworkIds,
-    video: videoArtworkIds,
-    image: imageArtworkIds
-  } satisfies Record<MediaDerivedTagKey, number[]>
-
-  let completedTags = 0
-  let totalAdded = 0
-  let totalRemoved = 0
-  const result = {} as SyncAllMediaDerivedTagsResult
-
-  for (const key of Object.keys(expected) as MediaDerivedTagKey[]) {
-    await reportProgress(20 + completedTags * 25, `同步 ${MEDIA_DERIVED_TAGS[key].name} 标签...`)
-    const beforeAdded = totalAdded
-    const beforeRemoved = totalRemoved
-    result[key] = await syncTagRelations(tagIds[key], expected[key], {
-      currentRelations,
-      onBatch: async (added, removed) => {
-        totalAdded = beforeAdded + added
-        totalRemoved = beforeRemoved + removed
-        await reportProgress(
-          Math.min(95, 20 + completedTags * 25),
-          `已新增 ${totalAdded} 个关联，已移除 ${totalRemoved} 个过期关联`
-        )
+  const result = Object.fromEntries(
+    (Object.keys(tagIds) as MediaDerivedTagKey[]).map((key, index) => [
+      key,
+      {
+        expectedArtworks: 0,
+        existingRelationsBeforeSync: existingCounts[index] ?? 0,
+        addedRelations: 0,
+        removedStaleRelations: 0,
+        finalRelations: 0
       }
+    ])
+  ) as SyncAllMediaDerivedTagsResult
+  let lastSeenId = 0
+  let processed = 0
+
+  while (true) {
+    if (await options.checkCancelled?.()) throw new Error('Task cancelled')
+    const artworks = await prisma.artwork.findMany({
+      where: { id: { gt: lastSeenId } },
+      orderBy: { id: 'asc' },
+      take: MEDIA_TAG_ARTWORK_PAGE_SIZE,
+      select: { id: true }
     })
-    totalAdded += result[key].addedRelations - (totalAdded - beforeAdded)
-    totalRemoved += result[key].removedStaleRelations - (totalRemoved - beforeRemoved)
-    completedTags++
+    if (artworks.length === 0) break
+    lastSeenId = artworks.at(-1)!.id
+    const artworkIds = artworks.map(({ id }) => id)
+    const [expected, currentRelations] = await Promise.all([
+      loadExpectedTagArtworkIds(prisma as unknown as MediaDerivedTagTx, artworkIds),
+      prisma.artworkTag.findMany({
+        where: { tagId: { in: Object.values(tagIds) }, artworkId: { in: artworkIds } },
+        select: { artworkId: true, tagId: true }
+      })
+    ])
+    for (const key of Object.keys(expected) as MediaDerivedTagKey[]) {
+      const changes = await syncTagRelations(tagIds[key], expected[key], { currentRelations })
+      result[key].expectedArtworks += changes.expected
+      result[key].addedRelations += changes.added
+      result[key].removedStaleRelations += changes.removed
+    }
+    processed += artworks.length
+    const totalAdded = Object.values(result).reduce((sum, item) => sum + item.addedRelations, 0)
+    const totalRemoved = Object.values(result).reduce((sum, item) => sum + item.removedStaleRelations, 0)
+    await reportProgress(
+      Math.min(95, 15 + Math.floor((processed / Math.max(1, totalArtworks)) * 80)),
+      `已同步 ${processed}/${totalArtworks} 个作品，新增 ${totalAdded} 个关联，移除 ${totalRemoved} 个`
+    )
   }
+
+  const finalCounts = await Promise.all(
+    (Object.keys(tagIds) as MediaDerivedTagKey[]).map((key) =>
+      prisma.artworkTag.count({ where: { tagId: tagIds[key] } })
+    )
+  )
+  ;(Object.keys(tagIds) as MediaDerivedTagKey[]).forEach((key, index) => {
+    result[key].finalRelations = finalCounts[index] ?? 0
+  })
 
   await reportProgress(100, '媒体标签同步完成')
   return result

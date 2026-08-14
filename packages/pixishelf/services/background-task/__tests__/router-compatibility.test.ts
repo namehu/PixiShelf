@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 const serviceRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const routerSource = readFileSync(join(serviceRoot, '..', '..', 'server', 'routers', 'job.ts'), 'utf8')
+const artworkRouterSource = readFileSync(join(serviceRoot, '..', '..', 'server', 'routers', 'artwork.ts'), 'utf8')
 const localImportRouterSource = readFileSync(
   join(serviceRoot, '..', '..', 'server', 'routers', 'local-import.ts'),
   'utf8'
@@ -61,6 +62,7 @@ describe('unified background task router integration', () => {
     for (const name of ['saveMappings', 'start', 'cancel']) {
       expect(localImportRouterSource).toMatch(new RegExp(`${name}: adminProcedure`))
     }
+    expect(artworkRouterSource).toMatch(/reprobeVideoMedia: adminProcedure/)
   })
 
   it('passes the authenticated administrator to every scheduled-task manual enqueue path', () => {
@@ -93,7 +95,6 @@ describe('unified background task router integration', () => {
       'CANCEL_VIDEO_MEDIA_PROBE',
       'CANCEL_VIDEO_CHAPTER_PREVIEW_GENERATION',
       'VIDEO_MEDIA_REPROBE',
-      'VIDEO_STREAMING_OPTIMIZATION',
       'VIDEO_KEYFRAME_GENERATION',
       'VIDEO_KEYFRAME_BATCH',
       'VIDEO_KEYFRAME_CONTROL',
@@ -113,8 +114,23 @@ describe('unified background task router integration', () => {
     expect(
       videoOptimizationQueueSource.match(/assertLegacyBackgroundExecutionAllowed\('VIDEO_STREAMING_OPTIMIZATION'\)/g)
     ).toHaveLength(4)
+    expect(routerSource).toContain('enqueueVideoOptimization(input.imageId, ctx.userId)')
+    expect(routerSource).toContain('cancelVideoOptimization(input.jobId)')
     expect(
       pendingReplaceServiceSource.match(/assertLegacyBackgroundExecutionAllowed\('PENDING_REPLACE'\)/g)
     ).toHaveLength(4)
+  })
+
+  it('uses durable manual enqueue for migrated maintenance tasks after central cutover', () => {
+    for (const type of ['REFILL_META_SOURCE', 'MEDIA_DERIVED_TAG_SYNC']) {
+      expect(routerSource).toContain(`type: '${type}'`)
+    }
+    expect(routerSource).toMatch(
+      /if \(isCentralDispatcherCutoverEnabled\(\)\)[\s\S]*?type: 'REFILL_META_SOURCE'[\s\S]*?requestedByUserId: ctx\.userId/
+    )
+    expect(routerSource).toMatch(
+      /if \(isCentralDispatcherCutoverEnabled\(\)\)[\s\S]*?type: 'MEDIA_DERIVED_TAG_SYNC'[\s\S]*?requestedByUserId: ctx\.userId/
+    )
+    expect(routerSource).toContain("triggerScheduledTaskNow('webp_animation_scan', { requestedByUserId: ctx.userId })")
   })
 })

@@ -54,7 +54,7 @@ describe('media-derived-tag-service', () => {
   })
 
   it('adds webp and image tags when artwork has a webp image without video', async () => {
-    imageFindManyMock.mockResolvedValue([{ artworkId: 1, path: '/a/cover.WEBP' }])
+    imageFindManyMock.mockResolvedValue([{ id: 1, artworkId: 1, path: '/a/cover.WEBP' }])
 
     await syncMediaDerivedTagForArtwork(createTx(), 1)
 
@@ -83,7 +83,7 @@ describe('media-derived-tag-service', () => {
   })
 
   it('adds video tag and removes stale image tag when artwork has video', async () => {
-    imageFindManyMock.mockResolvedValue([{ artworkId: 1, path: '/a/movie.MP4' }])
+    imageFindManyMock.mockResolvedValue([{ id: 1, artworkId: 1, path: '/a/movie.M4V' }])
 
     await syncMediaDerivedTagForArtwork(createTx(), 1)
 
@@ -101,9 +101,8 @@ describe('media-derived-tag-service', () => {
 
   it('syncs mixed batches and ignores duplicate artwork ids', async () => {
     imageFindManyMock.mockResolvedValue([
-      { artworkId: 1, path: '/a/1.webp' },
-      { artworkId: 2, path: '/b/2.mp4' },
-      { artworkId: 3, path: '/c/3.jpg' }
+      { id: 1, artworkId: 1, path: '/a/1.webp' },
+      { id: 2, artworkId: 2, path: '/b/2.mp4' }
     ])
 
     await syncMediaDerivedTagsForArtworks(createTx(), [1, 1, 2, 3])

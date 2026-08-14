@@ -31,6 +31,12 @@ describe('Worker deployment boundary', () => {
     expect(workflow).not.toContain('worker-preview')
   })
 
+  it('installs FFmpeg and FFprobe in the production Worker image', () => {
+    const dockerfile = readFileSync(new URL('build/worker.Dockerfile', repositoryRoot), 'utf8')
+    const productionStage = dockerfile.slice(dockerfile.indexOf('FROM node:20-alpine AS production'))
+    expect(productionStage).toContain('apk add --no-cache openssl ffmpeg tini')
+  })
+
   it('packages the shared job contracts required by the transitional archive worker', () => {
     const dockerfile = readFileSync(new URL('build/archive-worker.Dockerfile', repositoryRoot), 'utf8')
     expect(dockerfile).toContain('COPY packages/pixishelf-job-contracts/package.json')

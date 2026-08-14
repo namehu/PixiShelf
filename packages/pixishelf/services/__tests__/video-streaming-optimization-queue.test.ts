@@ -1,103 +1,94 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  enqueueCentral: vi.fn(),
+  control: vi.fn(),
   getScanPath: vi.fn(),
+  resolveTarget: vi.fn(),
+  enqueueLegacy: vi.fn(),
+  cancelLegacy: vi.fn(),
   claimNext: vi.fn(),
   recoverStale: vi.fn(),
   deleteExpired: vi.fn(),
-  touchHeartbeat: vi.fn(),
-  updateProgress: vi.fn(),
-  completeJob: vi.fn(),
-  failJob: vi.fn(),
-  markAsCancelled: vi.fn(),
-  getJob: vi.fn(),
   optimize: vi.fn(),
-  recoverArtifacts: vi.fn()
+  recover: vi.fn(),
+  getJob: vi.fn(),
+  touch: vi.fn(),
+  progress: vi.fn(),
+  complete: vi.fn(),
+  fail: vi.fn(),
+  cancelled: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
-vi.mock('@/lib/logger', () => ({
-  default: { error: vi.fn(), info: vi.fn(), warn: vi.fn() }
-}))
+vi.mock('@/lib/logger', () => ({ default: { error: vi.fn(), warn: vi.fn() } }))
 vi.mock('@/services/setting.service', () => ({ getScanPath: mocks.getScanPath }))
+vi.mock('@/services/video-processing-central-service', () => ({
+  enqueueCentralVideoStreamingOptimization: mocks.enqueueCentral,
+  controlCentralVideoProcessingJob: mocks.control
+}))
+vi.mock('@/services/video-streaming-optimization-service', () => ({
+  resolveVideoStreamingOptimizationTarget: mocks.resolveTarget,
+  optimizeVideoForStreaming: mocks.optimize,
+  recoverInterruptedVideoOptimization: mocks.recover
+}))
 vi.mock('@/services/job-service', () => ({
+  enqueueVideoStreamingOptimizationJob: mocks.enqueueLegacy,
+  cancelVideoStreamingOptimizationJob: mocks.cancelLegacy,
   claimNextVideoStreamingOptimizationJob: mocks.claimNext,
   recoverStaleVideoStreamingOptimizationJobs: mocks.recoverStale,
   deleteExpiredVideoStreamingOptimizationJobs: mocks.deleteExpired,
-  touchJobHeartbeat: mocks.touchHeartbeat,
-  updateProgress: mocks.updateProgress,
-  completeJob: mocks.completeJob,
-  failJob: mocks.failJob,
-  markAsCancelled: mocks.markAsCancelled,
-  getJob: mocks.getJob
-}))
-vi.mock('@/services/video-streaming-optimization-service', () => ({
-  optimizeVideoForStreaming: mocks.optimize,
-  recoverInterruptedVideoOptimization: mocks.recoverArtifacts,
-  resolveVideoStreamingOptimizationTarget: vi.fn()
+  getJob: mocks.getJob,
+  touchJobHeartbeat: mocks.touch,
+  updateProgress: mocks.progress,
+  completeJob: mocks.complete,
+  failJob: mocks.fail,
+  markAsCancelled: mocks.cancelled
 }))
 
-import { drainVideoOptimizationQueue } from '../video-streaming-optimization-queue'
+import { enqueueVideoOptimization } from '../video-streaming-optimization-queue'
 
-describe('video streaming optimization queue processor', () => {
+describe('video streaming queue cutover adapter', () => {
   beforeEach(() => {
-    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
     vi.clearAllMocks()
-    mocks.getScanPath.mockResolvedValue('/scan-root')
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
+    mocks.getScanPath.mockResolvedValue('/scan')
+    mocks.resolveTarget.mockResolvedValue({ id: 7, path: 'video.mp4', sourcePath: '/scan/video.mp4' })
+    mocks.enqueueLegacy.mockResolvedValue({
+      job: { id: 'legacy-job', status: 'PENDING' },
+      queuePosition: 1,
+      reused: false
+    })
+    mocks.claimNext.mockResolvedValue(null)
     mocks.recoverStale.mockResolvedValue([])
     mocks.deleteExpired.mockResolvedValue({ count: 0 })
-    mocks.touchHeartbeat.mockResolvedValue(undefined)
-    mocks.updateProgress.mockResolvedValue(undefined)
-    mocks.completeJob.mockResolvedValue(undefined)
-    mocks.failJob.mockResolvedValue(undefined)
-    mocks.markAsCancelled.mockResolvedValue(undefined)
-    mocks.getJob.mockResolvedValue(null)
-    mocks.recoverArtifacts.mockResolvedValue(undefined)
   })
 
-  it('rejects the legacy processor before claiming work after central cutover', async () => {
-    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
-
-    await expect(drainVideoOptimizationQueue()).rejects.toThrow('Legacy background execution is disabled')
-    expect(mocks.getScanPath).not.toHaveBeenCalled()
-    expect(mocks.claimNext).not.toHaveBeenCalled()
-  })
-
-  it('continues FIFO processing after one video fails', async () => {
-    const first = { id: 'job-1', targetImageId: 1, targetPath: '/one.mp4' }
-    const second = { id: 'job-2', targetImageId: 2, targetPath: '/two.mp4' }
-    mocks.claimNext.mockResolvedValueOnce(first).mockResolvedValueOnce(second).mockResolvedValueOnce(null)
-    mocks.optimize
-      .mockRejectedValueOnce(new Error('broken container'))
-      .mockResolvedValueOnce({ imageId: 2, path: '/two.mp4' })
-
-    await drainVideoOptimizationQueue()
-
-    expect(mocks.optimize).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ imageId: 1, scanPath: '/scan-root', operationId: 'job-1' })
-    )
-    expect(mocks.optimize).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ imageId: 2, scanPath: '/scan-root', operationId: 'job-2' })
-    )
-    expect(mocks.failJob).toHaveBeenCalledWith('job-1', 'broken container')
-    expect(mocks.completeJob).toHaveBeenCalledWith('job-2', { imageId: 2, path: '/two.mp4' })
-  })
-
-  it('recovers stale artifacts before claiming the next queued video', async () => {
-    mocks.recoverStale.mockResolvedValueOnce([{ id: 'stale-job', targetImageId: 7, targetPath: '/stale.mp4' }])
-    mocks.claimNext.mockResolvedValueOnce(null)
-
-    await drainVideoOptimizationQueue()
-
-    expect(mocks.recoverArtifacts).toHaveBeenCalledWith({
-      imageId: 7,
-      scanPath: '/scan-root',
-      operationId: 'stale-job'
+  it('preserves the legacy consumer while cutover is false', async () => {
+    await expect(enqueueVideoOptimization(7, 'admin-1')).resolves.toMatchObject({
+      jobId: 'legacy-job',
+      status: 'PENDING'
     })
-    expect(mocks.claimNext.mock.invocationCallOrder[0]).toBeGreaterThan(
-      mocks.recoverArtifacts.mock.invocationCallOrder[0]!
-    )
+    expect(mocks.enqueueLegacy).toHaveBeenCalledWith({ imageId: 7, path: 'video.mp4' })
+    expect(mocks.enqueueCentral).not.toHaveBeenCalled()
+  })
+
+  it('only enqueues central work when cutover is true', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    mocks.enqueueCentral.mockResolvedValue({
+      jobId: 'central-job',
+      imageId: 7,
+      path: 'video.mp4',
+      status: 'PENDING',
+      reused: false
+    })
+    await expect(enqueueVideoOptimization(7, 'admin-1')).resolves.toMatchObject({
+      jobId: 'central-job',
+      status: 'PENDING',
+      queuePosition: null
+    })
+    expect(mocks.enqueueCentral).toHaveBeenCalledWith({ imageId: 7, requestedByUserId: 'admin-1' })
+    expect(mocks.enqueueLegacy).not.toHaveBeenCalled()
+    expect(mocks.claimNext).not.toHaveBeenCalled()
   })
 })

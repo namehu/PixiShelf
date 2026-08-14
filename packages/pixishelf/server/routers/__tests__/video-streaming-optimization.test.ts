@@ -6,7 +6,10 @@ const mocks = vi.hoisted(() => ({
   getLatestJob: vi.fn(),
   getLatestJobsByImageIds: vi.fn(),
   listQueue: vi.fn(),
-  resolveProbePath: vi.fn()
+  resolveProbePath: vi.fn(),
+  cancelCentralChapter: vi.fn(),
+  getActiveJobByType: vi.fn(),
+  cancelLegacyJob: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
@@ -29,10 +32,16 @@ vi.mock('@/services/video-streaming-optimization-queue', () => ({
   cancelVideoOptimization: mocks.cancel
 }))
 
+vi.mock('@/services/video-processing-central-service', () => ({
+  cancelActiveCentralVideoChapterPreview: mocks.cancelCentralChapter
+}))
+
 vi.mock('@/services/job-service', () => ({
   getLatestVideoStreamingOptimizationJob: mocks.getLatestJob,
   getLatestVideoStreamingOptimizationJobsByImageIds: mocks.getLatestJobsByImageIds,
-  listVideoStreamingOptimizationQueue: mocks.listQueue
+  listVideoStreamingOptimizationQueue: mocks.listQueue,
+  getActiveJobByType: mocks.getActiveJobByType,
+  cancelJob: mocks.cancelLegacyJob
 }))
 
 vi.mock('@/services/scan-service/refill-meta-source', () => ({ refillMetaSource: vi.fn() }))
@@ -55,6 +64,7 @@ const ctx = {
 describe('video streaming optimization job router', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
     mocks.enqueue.mockResolvedValue({
       jobId: 'job-7',
       imageId: 9,
@@ -78,7 +88,7 @@ describe('video streaming optimization job router', () => {
       queuePosition: 2,
       reused: false
     })
-    expect(mocks.enqueue).toHaveBeenCalledWith(9)
+    expect(mocks.enqueue).toHaveBeenCalledWith(9, 'user-1')
   })
 
   it('returns the existing job when the image is already queued', async () => {
@@ -106,6 +116,33 @@ describe('video streaming optimization job router', () => {
       status: 'CANCELLED'
     })
     expect(mocks.cancel).toHaveBeenCalledWith('job-7')
+  })
+
+  it('routes central streaming start/cancel without tripping the legacy guard', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    const caller = jobRouter.createCaller(ctx)
+
+    await expect(caller.startVideoStreamingOptimization({ imageId: 9 })).resolves.toMatchObject({ jobId: 'job-7' })
+    await expect(caller.cancelVideoStreamingOptimization({ jobId: 'job-7' })).resolves.toEqual({
+      success: true,
+      status: 'CANCELLED'
+    })
+    expect(mocks.enqueue).toHaveBeenCalledWith(9, 'user-1')
+    expect(mocks.cancel).toHaveBeenCalledWith('job-7')
+  })
+
+  it('uses central chapter cancellation after cutover and keeps the legacy path before cutover', async () => {
+    mocks.cancelCentralChapter.mockResolvedValue({ id: 'chapter-central', status: 'CANCELLING' })
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    const caller = jobRouter.createCaller(ctx)
+    await expect(caller.cancelVideoChapterPreviewGeneration()).resolves.toEqual({ success: true })
+    expect(mocks.cancelCentralChapter).toHaveBeenCalledOnce()
+    expect(mocks.getActiveJobByType).not.toHaveBeenCalled()
+
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
+    mocks.getActiveJobByType.mockResolvedValue({ id: 'chapter-legacy' })
+    await expect(caller.cancelVideoChapterPreviewGeneration()).resolves.toEqual({ success: true })
+    expect(mocks.cancelLegacyJob).toHaveBeenCalledWith('chapter-legacy')
   })
 
   it('returns the latest row-level status for requested media ids', async () => {

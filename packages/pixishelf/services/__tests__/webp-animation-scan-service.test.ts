@@ -80,10 +80,7 @@ describe('webp-animation-scan-service', () => {
       .mockResolvedValueOnce(firstBatch)
       .mockResolvedValueOnce(secondBatch)
       .mockResolvedValueOnce([])
-    metadataMock
-      .mockResolvedValueOnce({ pages: 2 })
-      .mockResolvedValueOnce({ pages: 1 })
-      .mockResolvedValue({ pages: 1 })
+    metadataMock.mockResolvedValueOnce({ pages: 2 }).mockResolvedValueOnce({ pages: 1 }).mockResolvedValue({ pages: 1 })
 
     const result = await runWebpAnimationScanJob({ scanPath: 'D:/scan-root' })
 
@@ -145,7 +142,9 @@ describe('webp-animation-scan-service', () => {
         { id: 2, path: '/artist/artwork/broken.webp' }
       ])
       .mockResolvedValueOnce([])
-    metadataMock.mockResolvedValueOnce({ pages: 1 }).mockRejectedValueOnce(new Error('bad webp'))
+    metadataMock
+      .mockResolvedValueOnce({ pages: 1 })
+      .mockRejectedValueOnce(new Error('bad webp at D:/private/scan-root/artist/broken.webp'))
 
     const result = await runWebpAnimationScanJob({ scanPath: 'D:/scan-root' })
 
@@ -162,8 +161,16 @@ describe('webp-animation-scan-service', () => {
       static: 1,
       failed: 1,
       remainingPending: 1,
-      failedSamples: [{ id: 2, path: '/artist/artwork/broken.webp', error: 'bad webp' }]
+      failedSamples: [
+        {
+          id: 2,
+          path: 'artist/artwork/broken.webp',
+          errorCode: 'ANIMATION_PROBE_FAILED',
+          error: 'Animation detection failed'
+        }
+      ]
     })
+    expect(JSON.stringify(result.failedSamples)).not.toContain('private/scan-root')
   })
 
   it('uses frame count to distinguish static and animated GIF files', async () => {

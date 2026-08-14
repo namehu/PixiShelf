@@ -181,6 +181,16 @@ erDiagram
     string lastError
   }
 
+  MEDIA_VIDEO_METADATA {
+    int imageId PK,FK
+    MediaProbeStatus probeStatus
+    datetime probeUpdatedAt
+    VideoPosterStatus posterStatus
+    string posterPath
+    datetime posterUpdatedAt
+    datetime posterBacklogCheckedAt
+  }
+
   DERIVED_MEDIA_GC_ENTRY {
     string id PK
     string mediaKind
@@ -343,24 +353,37 @@ erDiagram
 
 `SystemJob.workerId` 与 `WorkerInstance.workerId` 是有意不建立外键的逻辑关联：任务历史必须在清理过期 WorkerInstance 后继续可读。WorkerInstance 只说明进程是否在线；真正允许执行和提交任务结果的仍是 `SystemJob + JobResourceLease + leaseToken` 栅栏。
 
+### 7.2 MediaVideoMetadata Worker 增量字段
+
+| 字段                   | 类型     | 空值 | 说明                                                                            |
+| ---------------------- | -------- | ---- | ------------------------------------------------------------------------------- |
+| probeStatus            | Enum     | 否   | 普通计划只消费 PENDING/PROBING；FAILED 仅由显式 force 重试                      |
+| probeUpdatedAt         | DateTime | 是   | 最近探测状态变更                                                                |
+| posterStatus           | Enum     | 否   | 封面领域 checkpoint                                                             |
+| posterPath             | String   | 是   | 当前已发布封面的规范相对路径                                                    |
+| posterUpdatedAt        | DateTime | 是   | 封面领域状态版本；用于子任务幂等键，不能由 backlog 游标写入改变                 |
+| posterBacklogCheckedAt | DateTime | 是   | 最近一次检查或尝试物化时间；可空升级，按 null-first/最旧优先推进每批最多 100 条 |
+
+`posterBacklogCheckedAt` 只控制有界发现进度，不代表封面生成成功。健康封面、成功创建/复用子任务，以及子任务入队失败的 poison 行都会按批次推进游标；失败会同时令父任务进入 retry。这样失败行不会永久阻塞后面的 backlog，队列轮转后又会重新访问它，不会被静默丢弃。
+
 ## 8. DerivedMediaGcEntry 字段字典
 
-| 字段                | 类型          | 空值 | 说明                                                           |
-| ------------------- | ------------- | ---- | -------------------------------------------------------------- |
-| id                  | String/cuid   | 否   | 主键                                                           |
-| mediaKind           | VarChar(50)   | 否   | VIDEO_POSTER、CHAPTER_PREVIEW、VIDEO_KEYFRAME 等               |
-| relativePath        | Text          | 否   | 派生媒体根目录下的规范相对路径                                 |
-| referenceType       | VarChar(50)   | 是   | 原引用模型                                                     |
-| referenceId         | VarChar(120)  | 是   | 原引用记录 ID                                                  |
-| reason              | VarChar(80)   | 否   | REPLACED、SOURCE_DELETED、GENERATION_DISCARDED、RECONCILIATION |
-| status              | GcEntryStatus | 否   | PENDING、PROCESSING、DELETED、SKIPPED_REFERENCED、FAILED       |
-| notBefore           | DateTime      | 否   | 最早允许删除时间                                               |
-| attempt             | Int           | 否   | 已处理次数                                                     |
-| maxAttempts         | Int           | 否   | 默认 3                                                         |
-| lastSystemJobId     | String        | 是   | 最近执行它的 GC 批次                                           |
-| error               | Text          | 是   | 最后错误摘要                                                   |
-| deletedAt           | DateTime      | 是   | 成功删除时间                                                   |
-| createdAt/updatedAt | DateTime      | 否   | 审计字段                                                       |
+| 字段                | 类型          | 空值 | 说明                                                          |
+| ------------------- | ------------- | ---- | ------------------------------------------------------------- |
+| id                  | String/cuid   | 否   | 主键                                                          |
+| mediaKind           | VarChar(50)   | 否   | VIDEO_POSTER、VIDEO_CHAPTER_PREVIEW、VIDEO_STREAMING_ARTIFACT |
+| relativePath        | Text          | 否   | 派生媒体根目录下的规范相对路径                                |
+| referenceType       | VarChar(50)   | 是   | 原引用模型                                                    |
+| referenceId         | VarChar(120)  | 是   | 原引用记录 ID                                                 |
+| reason              | VarChar(80)   | 否   | POSTER_REPLACED、CHAPTER_REMOVED、STREAMING_REMUX_BACKUP 等   |
+| status              | GcEntryStatus | 否   | PENDING、PROCESSING、DELETED、SKIPPED_REFERENCED、FAILED      |
+| notBefore           | DateTime      | 否   | 最早允许删除时间                                              |
+| attempt             | Int           | 否   | 已处理次数                                                    |
+| maxAttempts         | Int           | 否   | 默认 3                                                        |
+| lastSystemJobId     | String        | 是   | 最近执行它的 GC 批次                                          |
+| error               | Text          | 是   | 最后错误摘要                                                  |
+| deletedAt           | DateTime      | 是   | 成功删除时间                                                  |
+| createdAt/updatedAt | DateTime      | 否   | 审计字段                                                      |
 
 mediaKind + relativePath 建唯一约束。再次出现同一路径的删除意图时使用 upsert 重置为 PENDING，并重新设置 notBefore；实际删除前始终查询当前数据库引用。
 
@@ -476,6 +499,12 @@ max concurrency 不作为可编辑 Setting 暴露；v1 固定为 1，避免界�
 
 - index(status, heartbeatAt) 用于后台页筛选可用和过期实例。
 - 在线判定要求 `status=READY` 且 heartbeatAt 未超过两个心跳周期；不能用 Docker 副本数替代数据库执行栅栏。
+
+### 11.6 MediaVideoMetadata Worker 查询
+
+- probeStatus + imageId：支持探测任务按主键游标有界分页。
+- probeStatus + manualPosterTimestamp + posterBacklogCheckedAt + imageId：由 `MediaVideoMetadata_poster_backlog_idx` 支持封面 backlog 的 null-first、最旧优先有界推进；显式短名称避免 PostgreSQL 63 字节标识符截断。
+- 新增字段为可空且不回填；旧封面和图库引用保持不变，升级后由 Worker 逐批建立检查游标。
 
 ## 12. 原子操作
 

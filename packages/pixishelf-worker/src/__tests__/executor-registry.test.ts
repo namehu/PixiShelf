@@ -1,7 +1,8 @@
+import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import type { PrismaClient } from '@pixishelf/db'
-import { createWorkerExecutorRegistry } from '../create-worker-executor-registry.js'
+import { createWorkerExecutorRegistry, resolveExecutorWorkerConfiguration } from '../create-worker-executor-registry.js'
 import { ExecutorRegistry } from '../executor-registry.js'
 
 describe('ExecutorRegistry', () => {
@@ -75,7 +76,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('requires an explicit payload parser')
   })
 
-  it('registers the three initial production executor capabilities', () => {
+  it('registers every production executor capability migrated through phase four', () => {
     const registry = createWorkerExecutorRegistry({
       database: {} as PrismaClient,
       config: {
@@ -91,8 +92,42 @@ describe('ExecutorRegistry', () => {
 
     expect(registry.capabilities()).toEqual([
       { jobType: 'ARCHIVE_IMPORT', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'DERIVED_MEDIA_GC', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'MEDIA_DERIVED_TAG_SYNC', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'REFILL_META_SOURCE', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'SCAN_RUN_RETENTION_CLEANUP', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'TRIGGER_LOG_RETENTION_CLEANUP', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'VIDEO_CHAPTER_PREVIEW_GENERATION', definitionVersions: [JOB_DEFINITION_VERSION] },
       { jobType: 'VIDEO_KEYFRAME_DISCOVERY', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'VIDEO_KEYFRAME_GENERATION', definitionVersions: [JOB_DEFINITION_VERSION] }
+      { jobType: 'VIDEO_KEYFRAME_GENERATION', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'VIDEO_MEDIA_PROBE', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'VIDEO_POSTER_GENERATION', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'VIDEO_STREAMING_OPTIMIZATION', definitionVersions: [JOB_DEFINITION_VERSION] },
+      { jobType: 'WEBP_ANIMATION_SCAN', definitionVersions: [JOB_DEFINITION_VERSION] }
     ])
+  })
+
+  it('maps Worker roots and process configuration into executor domains', () => {
+    expect(
+      resolveExecutorWorkerConfiguration({
+        archiveRoot: '/media/archive',
+        sourceMediaRoot: '/media/source',
+        derivedMediaRoot: '/media/derived',
+        archiveMaxMediaBytes: 512 * 1024 * 1024,
+        ffmpegPath: '/usr/bin/ffmpeg',
+        ffprobePath: '/usr/bin/ffprobe',
+        keyframeFfmpegThreads: 3
+      })
+    ).toEqual({
+      sourceMediaRoot: '/media/source',
+      archiveRoot: '/media/archive',
+      archiveMaxMediaBytes: 512 * 1024 * 1024,
+      posterStorageRoot: path.join('/media/derived', 'video', 'posters'),
+      chapterPreviewRoot: path.join('/media/derived', 'video', 'chapters'),
+      keyframeStorageRoot: path.join('/media/derived', 'video', 'keyframes'),
+      ffmpegPath: '/usr/bin/ffmpeg',
+      ffprobePath: '/usr/bin/ffprobe',
+      ffmpegThreads: 3
+    })
   })
 })

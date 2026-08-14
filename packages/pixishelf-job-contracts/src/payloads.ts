@@ -39,10 +39,17 @@ export const targetImagePayloadSchema = z.object({
   relativePath: relativePathSchema
 })
 
-export const videoMediaProbePayloadSchema = z.object({
-  force: z.boolean().default(false),
-  enqueueMissingPosters: z.boolean().default(true)
-})
+export const videoMediaProbePayloadSchema = z
+  .object({
+    force: z.boolean().default(false),
+    enqueueMissingPosters: z.boolean().default(true),
+    imageId: z.number().int().positive().optional()
+  })
+  .superRefine((payload, context) => {
+    if (payload.imageId !== undefined && !payload.force) {
+      context.addIssue({ code: 'custom', path: ['force'], message: 'A targeted video reprobe must set force=true' })
+    }
+  })
 
 export const videoChapterPreviewPayloadSchema = z.object({
   mode: z.enum(['FULL', 'INCREMENTAL']).default('INCREMENTAL')
@@ -82,7 +89,8 @@ export const archiveImportPayloadSchema = z.object({
 
 export const derivedMediaGcPayloadSchema = z.object({
   entryIds: z.array(z.string().min(1)).max(1_000).optional(),
-  dryRun: z.boolean().default(false)
+  dryRun: z.boolean().default(false),
+  reconcile: z.boolean().default(false)
 })
 
 export const JOB_PAYLOAD_SCHEMAS = {

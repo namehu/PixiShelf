@@ -1,3 +1,6 @@
 export * from './archive/index.js'
+export * from './maintenance/index.js'
 export * from './shared/index.js'
 export * from './video-keyframe/index.js'
+export * from './video-media/index.js'
+export * from './video-processing/index.js'

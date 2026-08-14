@@ -40,8 +40,8 @@ vi.mock('@/services/job-service', () => ({
   getActiveJobsByTypes: getActiveJobsByTypesMock
 }))
 
-vi.mock('@/services/background-task/job-command-service', () => ({
-  enqueueJob: enqueueJobMock
+vi.mock('@/services/background-task/manual-job-singleton', () => ({
+  enqueueSingletonManualJob: enqueueJobMock
 }))
 
 vi.mock('@/services/scheduled-task-registry', () => ({
@@ -161,7 +161,17 @@ describe('scheduled-task-service', () => {
   beforeEach(() => {
     vi.useRealTimers()
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
-    enqueueJobMock.mockReset().mockResolvedValue({ id: 'queued-job-1' })
+    enqueueJobMock
+      .mockReset()
+      .mockImplementation(async (_input: unknown, options?: { afterEnqueue?: (input: unknown) => Promise<void> }) => {
+        const job = { id: 'queued-job-1' }
+        await options?.afterEnqueue?.({
+          transaction: { scheduledTask: { update: scheduledTaskUpdateMock } },
+          job,
+          reused: false
+        })
+        return job
+      })
     scheduledTaskUpsertMock.mockReset().mockResolvedValue({})
     scheduledTaskUpdateMock.mockReset().mockResolvedValue({})
     scheduledTaskFindUniqueMock.mockReset()
@@ -332,13 +342,16 @@ describe('scheduled-task-service', () => {
       requestedByUserId: 'admin-1'
     })
 
-    expect(enqueueJobMock).toHaveBeenCalledWith({
-      type: 'SCAN_RUN_RETENTION_CLEANUP',
-      triggerSource: 'MANUAL',
-      requestedByUserId: 'admin-1',
-      payload: {},
-      priority: 20
-    })
+    expect(enqueueJobMock).toHaveBeenCalledWith(
+      {
+        type: 'SCAN_RUN_RETENTION_CLEANUP',
+        triggerSource: 'MANUAL',
+        requestedByUserId: 'admin-1',
+        payload: {},
+        priority: 20
+      },
+      { afterEnqueue: expect.any(Function) }
+    )
     expect(handlerStartMock).not.toHaveBeenCalled()
     expect(getActiveJobsByTypesMock).not.toHaveBeenCalled()
     expect(scheduledTaskUpdateMock).toHaveBeenCalledWith({
@@ -346,6 +359,18 @@ describe('scheduled-task-service', () => {
       data: { lastJobId: 'queued-job-1' }
     })
     expect(result).toEqual({ jobId: 'queued-job-1' })
+  })
+
+  it('does not report success when the transactional scheduled-task metadata write fails', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    scheduledTaskFindUniqueMock.mockResolvedValueOnce(createCleanupTask())
+    scheduledTaskUpdateMock.mockRejectedValueOnce(new Error('scheduled task metadata update failed'))
+
+    await expect(
+      triggerScheduledTaskNow('scan_run_retention_cleanup', { requestedByUserId: 'admin-1' })
+    ).rejects.toThrow('scheduled task metadata update failed')
+    expect(enqueueJobMock).toHaveBeenCalledOnce()
+    expect(handlerStartMock).not.toHaveBeenCalled()
   })
 
   it('forwards an explicit incremental chapter preview mode for manual execution', async () => {

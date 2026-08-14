@@ -5,9 +5,12 @@ import {
   JOB_DEFINITION_VERSION,
   JOB_PAYLOAD_SCHEMAS,
   JOB_TYPE_VALUES,
+  MEDIA_FILE_EXTENSIONS,
   TERMINAL_JOB_STATUSES,
+  VIDEO_FILE_EXTENSIONS,
   bigintStringSchema,
   jobEventDtoSchema,
+  parseJobPayload,
   relativePathSchema,
   workerHealthDtoSchema
 } from '../index.js'
@@ -32,11 +35,38 @@ describe('job wire contracts', () => {
     expect(JOB_DEFINITION_VERSION).toBe(1)
   })
 
+  it('publishes one immutable media extension vocabulary including m4v', () => {
+    expect(VIDEO_FILE_EXTENSIONS).toContain('.m4v')
+    expect(MEDIA_FILE_EXTENSIONS).toEqual(expect.arrayContaining([...VIDEO_FILE_EXTENSIONS]))
+    expect(Object.isFrozen(VIDEO_FILE_EXTENSIONS)).toBe(true)
+    expect(Object.isFrozen(MEDIA_FILE_EXTENSIONS)).toBe(true)
+  })
+
   it('rejects absolute and traversing payload paths', () => {
     expect(relativePathSchema.parse('artist/work/video.mp4')).toBe('artist/work/video.mp4')
     expect(() => relativePathSchema.parse('../outside.mp4')).toThrow()
     expect(() => relativePathSchema.parse('/absolute/video.mp4')).toThrow()
     expect(() => relativePathSchema.parse('C:\\media\\video.mp4')).toThrow()
+  })
+
+  it('requires force for durable single-image reprobe and bounds explicit GC batches', () => {
+    expect(parseJobPayload('VIDEO_MEDIA_PROBE', { imageId: 7, force: true })).toEqual({
+      imageId: 7,
+      force: true,
+      enqueueMissingPosters: true
+    })
+    expect(() => parseJobPayload('VIDEO_MEDIA_PROBE', { imageId: 7, force: false })).toThrow()
+    expect(
+      parseJobPayload('DERIVED_MEDIA_GC', {
+        entryIds: Array.from({ length: 1_000 }, (_, index) => `gc-${index}`),
+        dryRun: false
+      })
+    ).toMatchObject({ dryRun: false, reconcile: false })
+    expect(() =>
+      parseJobPayload('DERIVED_MEDIA_GC', {
+        entryIds: Array.from({ length: 1_001 }, (_, index) => `gc-${index}`)
+      })
+    ).toThrow()
   })
 
   it('keeps bigint and timestamps in JSON-safe string form', () => {

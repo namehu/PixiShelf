@@ -10,6 +10,7 @@ const {
   txMetadataFindFirstMock,
   txMetadataFindUniqueMock,
   txMetadataUpdateManyMock,
+  txGcUpsertMock,
   imageFindManyMock,
   imageUpdateManyMock,
   readdirMock,
@@ -29,6 +30,7 @@ const {
   txMetadataFindFirstMock: vi.fn(),
   txMetadataFindUniqueMock: vi.fn(),
   txMetadataUpdateManyMock: vi.fn(),
+  txGcUpsertMock: vi.fn(),
   imageFindManyMock: vi.fn(),
   imageUpdateManyMock: vi.fn(),
   readdirMock: vi.fn(),
@@ -64,7 +66,8 @@ const tx = {
     findFirst: txMetadataFindFirstMock,
     findUnique: txMetadataFindUniqueMock,
     updateMany: txMetadataUpdateManyMock
-  }
+  },
+  derivedMediaGcEntry: { upsert: txGcUpsertMock }
 }
 
 vi.mock('@/lib/prisma', () => ({
@@ -80,7 +83,7 @@ vi.mock('@/lib/prisma', () => ({
   }
 }))
 
-import { cleanupOrphanedPosters, runVideoPosterGenerationJob } from '../video-poster-service'
+import { runVideoPosterGenerationJob } from '../video-poster-service'
 
 describe('video poster publication coordination', () => {
   beforeEach(() => {
@@ -93,6 +96,7 @@ describe('video poster publication coordination', () => {
     txMetadataFindFirstMock.mockReset().mockResolvedValue(null)
     txMetadataFindUniqueMock.mockReset().mockResolvedValue(null)
     txMetadataUpdateManyMock.mockReset().mockResolvedValue({ count: 1 })
+    txGcUpsertMock.mockReset().mockResolvedValue({})
     imageFindManyMock.mockReset().mockResolvedValue([])
     imageUpdateManyMock.mockReset().mockResolvedValue({ count: 0 })
     readdirMock.mockReset().mockResolvedValue([])
@@ -104,14 +108,10 @@ describe('video poster publication coordination', () => {
     execFileMock.mockReset().mockImplementation((_command, _args, _options, callback) => callback(null, '', ''))
   })
 
-  it('rechecks the poster reference under the image lock and ignores live temporary files', async () => {
-    readdirMock.mockResolvedValueOnce([file('1-manual-new.webp'), file('1-manual-writing.webp.tmp.webp')])
-    txMetadataFindFirstMock.mockResolvedValueOnce({ imageId: 1 })
+  it('never enumerates the poster directory as part of a generation run', async () => {
+    await runVideoPosterGenerationJob({ scanPath: '/scan' })
 
-    await expect(cleanupOrphanedPosters()).resolves.toBe(0)
-
-    expect(transactionMock).toHaveBeenCalledTimes(1)
-    expect(queryRawMock).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock($1, $2)::text', expect.any(Number), 1)
+    expect(readdirMock).not.toHaveBeenCalled()
     expect(unlinkMock).not.toHaveBeenCalled()
   })
 
@@ -167,8 +167,23 @@ describe('video poster publication coordination', () => {
     expect(renameMock).toHaveBeenCalledTimes(1)
     expect(rmMock.mock.calls.some(([target]) => target === '/posters/1-old.webp')).toBe(false)
   })
-})
 
-function file(name: string) {
-  return { name, isFile: () => true }
-}
+  it('registers a replaced poster for delayed GC instead of deleting it inline', async () => {
+    metadataCountMock.mockResolvedValueOnce(1)
+    metadataFindManyMock.mockResolvedValueOnce([]).mockResolvedValueOnce([{ imageId: 1, image: { path: 'video.mp4' } }])
+    txMetadataFindUniqueMock.mockResolvedValueOnce({
+      posterStatus: 'GENERATING',
+      posterPath: '1-old.webp',
+      manualPosterTimestamp: null
+    })
+
+    await runVideoPosterGenerationJob({ scanPath: '/scan' })
+
+    expect(txGcUpsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ relativePath: '1-old.webp', reason: 'POSTER_REPLACED' })
+      })
+    )
+    expect(rmMock).not.toHaveBeenCalledWith('/posters/1-old.webp', { force: true })
+  })
+})

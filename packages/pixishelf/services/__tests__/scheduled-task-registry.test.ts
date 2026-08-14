@@ -167,6 +167,29 @@ describe('scheduled-task-registry', () => {
     )
   })
 
+  it('registers daily derived-media intent GC after media jobs and disabled until central cutover', () => {
+    expect(SCHEDULED_TASK_DEFINITIONS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'derived_media_gc',
+          type: SCHEDULED_TASK_TYPES.DERIVED_MEDIA_GC,
+          defaultTime: '05:30',
+          defaultPriority: 70,
+          defaultEnabled: false,
+          mutexKey: 'media-maintenance'
+        })
+      ])
+    )
+  })
+
+  it('refuses to run derived-media GC through the detached legacy handler', async () => {
+    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.DERIVED_MEDIA_GC)
+
+    await expect(handler?.start({ trigger: 'manual' })).rejects.toThrow(
+      'Derived media GC requires central dispatcher cutover'
+    )
+  })
+
   it('runs keyframe discovery with the scheduled task filter', async () => {
     const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.VIDEO_KEYFRAME_DISCOVERY)
     const config = { minDuration: 600, maxDuration: null, includePaths: [], excludePaths: [] }

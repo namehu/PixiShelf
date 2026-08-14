@@ -19,6 +19,7 @@ export const SCHEDULED_TASK_TYPES = {
   VIDEO_MEDIA_PROBE: 'VIDEO_MEDIA_PROBE',
   VIDEO_CHAPTER_PREVIEW_GENERATION: 'VIDEO_CHAPTER_PREVIEW_GENERATION',
   VIDEO_KEYFRAME_DISCOVERY: 'VIDEO_KEYFRAME_DISCOVERY',
+  DERIVED_MEDIA_GC: 'DERIVED_MEDIA_GC',
   SCAN_RUN_RETENTION_CLEANUP: 'SCAN_RUN_RETENTION_CLEANUP',
   TRIGGER_LOG_RETENTION_CLEANUP: 'TRIGGER_LOG_RETENTION_CLEANUP'
 } as const
@@ -111,6 +112,17 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
       excludePaths: [],
       statuses: ['MISSING', 'STALE', 'FAILED']
     }
+  },
+  {
+    key: 'derived_media_gc',
+    type: SCHEDULED_TASK_TYPES.DERIVED_MEDIA_GC,
+    name: '清理派生媒体',
+    description: '每日删除已登记且到期的派生媒体；人工首次执行仅做有界目录 reconciliation dry-run。',
+    defaultTime: '05:30',
+    defaultTimezone: 'Asia/Shanghai',
+    defaultPriority: 70,
+    defaultEnabled: false,
+    mutexKey: 'media-maintenance'
   }
 ]
 
@@ -146,7 +158,14 @@ export const SCHEDULED_TASK_HANDLERS: Record<ScheduledTaskType, ScheduledTaskHan
   },
   [SCHEDULED_TASK_TYPES.VIDEO_KEYFRAME_DISCOVERY]: {
     start: startVideoKeyframeDiscoveryTask
+  },
+  [SCHEDULED_TASK_TYPES.DERIVED_MEDIA_GC]: {
+    start: startDerivedMediaGcTask
   }
+}
+
+async function startDerivedMediaGcTask(): Promise<StartScheduledTaskResult> {
+  throw new Error('Derived media GC requires central dispatcher cutover')
 }
 
 async function startTriggerLogRetentionCleanupTask(

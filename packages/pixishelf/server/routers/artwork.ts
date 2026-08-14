@@ -1,6 +1,6 @@
 import 'server-only'
 import { revalidatePath } from 'next/cache'
-import { authProcedure, router } from '@/server/trpc'
+import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import path from 'path'
 import { z } from 'zod'
 import {
@@ -31,7 +31,10 @@ import {
   reorderArtworkImages
 } from '@/services/artwork-service/image-manager'
 import { getScanPath } from '@/services/setting.service'
-import { reprobeVideoMediaByImageId } from '@/services/video-media-probe-service'
+import { reprobeVideoMediaByImageId, resolveVideoImageForReprobeId } from '@/services/video-media-probe-service'
+import { enqueueCentralVideoMediaReprobe } from '@/services/video-media-central-service'
+import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
+import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
 import { ArtworkSourceEnum } from '@/schemas/models'
 
@@ -194,19 +197,31 @@ export const artworkRouter = router({
 
   // 仅在有扫描根目录时才能重探测视频元信息；服务内部不允许越权访问 scan root 外路径，
   // 所以此处把“路径逃逸/非视频文件”等错误统一转为 BAD_REQUEST。
-  reprobeVideoMedia: authProcedure
+  reprobeVideoMedia: adminProcedure
     .input(z.object({ imageId: z.number().int().positive() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const scanPath = await getScanPath()
       if (!scanPath) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
       }
 
       try {
-        return await reprobeVideoMediaByImageId(input.imageId, scanPath)
+        if (isCentralDispatcherCutoverEnabled()) {
+          const image = await resolveVideoImageForReprobeId(input.imageId, scanPath)
+          const queued = await enqueueCentralVideoMediaReprobe({
+            imageId: image.id,
+            requestedByUserId: ctx.userId
+          })
+          return { mode: 'QUEUED' as const, ...queued }
+        }
+        const metadata = await reprobeVideoMediaByImageId(input.imageId, scanPath)
+        return { mode: 'COMPLETED' as const, metadata }
       } catch (error) {
+        if (error instanceof BackgroundTaskError && error.code === 'ACTIVE_JOB_CONFLICT') {
+          throw new TRPCError({ code: 'CONFLICT', message: error.message })
+        }
         const message = error instanceof Error ? error.message : 'Unknown error'
-        if (message === 'Image not found') {
+        if (message === 'Image not found' || message === 'Video image not found') {
           throw new TRPCError({ code: 'NOT_FOUND', message })
         }
         if (message === 'Image is not a video' || message.startsWith('Path escapes scan root')) {

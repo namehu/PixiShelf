@@ -27,6 +27,12 @@ export function buildScheduledTaskJobDefinition(
     case 'VIDEO_MEDIA_PROBE':
       candidate = { force: false, enqueueMissingPosters: true }
       break
+    case 'DERIVED_MEDIA_GC':
+      candidate =
+        options.trigger === 'schedule'
+          ? { dryRun: false, reconcile: false }
+          : { dryRun: true, reconcile: true }
+      break
     case 'VIDEO_CHAPTER_PREVIEW_GENERATION':
       candidate = {
         mode: options.chapterPreviewMode ?? (options.trigger === 'schedule' ? 'INCREMENTAL' : 'FULL')

@@ -13,6 +13,7 @@
 为了保证数据一致性并减少应用层逻辑复杂度，部分统计字段由数据库触发器自动维护。**应用层代码无需（也不应）手动更新这些字段。**
 
 ### 2.1 标签作品计数 (`Tag.artworkCount`)
+
 **机制**: 当 `ArtworkTag` 表发生记录插入、删除或标签变更时，数据库自动更新对应 `Tag` 的 `artworkCount` 字段。
 
 - **触发器**:
@@ -25,6 +26,7 @@
   - 正常成功操作不写 `TriggerLog`；触发器异常会中止关联写入，交由 PostgreSQL 和应用日志记录。
 
 ### 2.2 作品点赞计数 (`Artwork.likeCount`)
+
 **机制**: 当 `ArtworkLike` 表发生变化时，自动更新 `Artwork` 的 `likeCount`。
 
 - **触发器**: `artwork_like_count_trigger` (监听 INSERT 和 DELETE 事件)。
@@ -32,6 +34,7 @@
 - **初始化**: Migration 脚本中包含了一次性 SQL 用于校准现有数据的计数。
 
 ### 2.3 标签全文搜索 (`Tag.search_vector`)
+
 **机制**: 为了支持高性能的多语言标签搜索，`Tag` 表维护了一个 `tsvector` 类型的列 `search_vector`（Schema 中定义为 `Unsupported("tsvector")`）。
 
 - **触发器**: `tag_search_vector_update` (监听 BEFORE INSERT OR UPDATE)。
@@ -46,6 +49,7 @@
   使用 `simple` 配置以避免语言特定的词干提取（Stemming），适合中英文混合环境及精确匹配需求。
 
 ### 2.4 作品图片计数 (`Artwork.imageCount`)
+
 **机制**: 当 `Image` 表发生记录插入、删除或更新（修改归属作品）时，数据库自动更新对应 `Artwork` 的 `imageCount` 字段。
 
 - **触发器**:
@@ -62,17 +66,20 @@
 部分复杂索引无法在 Prisma Schema 中直接定义，或需要通过 Raw SQL 优化以获得最佳性能。
 
 ### 3.1 作品混合模糊搜索
+
 - **索引名**: `artwork_title_description_trgm_idx`
 - **定义**: `GIN ((title || ' ' || COALESCE(description, '')) gin_trgm_ops)`
 - **用途**: 允许用户在一个搜索框中同时搜索标题和描述，且走索引查询。
 - **注意**: Prisma Schema 中可能存在单独的 title/description 索引定义，但数据库层面实际生效且最高效的是这个复合 GIN 索引。
 
 ### 3.2 艺术家模糊搜索
+
 - **索引名**: `Artist_name_idx`
 - **定义**: `GIN (name gin_trgm_ops)`
 - **用途**: 加速艺术家名字的模糊匹配查询。
 
 ### 3.3 标签反查作品
+
 - **索引名**: `ArtworkTag_tagId_artworkId_idx`
 - **定义**: B-tree (`tagId`, `artworkId`)
 - **用途**: 加速按标签反查作品、标签计数和删除标签关联；与现有 (`artworkId`, `tagId`) 唯一索引互补。
@@ -114,32 +121,35 @@
 本兼容阶段为 `system_jobs.availableAt` 回填值并增加 `CURRENT_TIMESTAMP` 默认值，但暂不设置 `NOT NULL`：旧关键帧入口仍会显式写 `NULL`，并把它解释为“立即可领取”。严格租约全有/全空、`SKIPPED` 字段一致性、计划字段成对约束及 `availableAt NOT NULL`，统一延后到旧执行入口完全迁走后的清理 migration，避免破坏停机升级后的回滚能力。
 
 ### 4.2 触发器日志 (`TriggerLog`)
+
 - **用途**: 记录人工一致性修复等维护摘要；不再记录每条成功的 `ArtworkTag` 变更。
 - **表结构**: 包含 `operation` (INSERT/UPDATE/DELETE), `table_name`, `old_value`, `new_value`, `error_message` 等字段。
 - **保留策略**: 默认保留 30 天，由 `trigger_log_retention_cleanup` 每日计划任务清理；该任务首次创建时默认启用。
 
 ### 4.3 维护函数
+
 数据库内置了以下维护函数，可在必要时（如直接操作数据库导致计数偏差后）手动调用：
 
-| 函数名 | 描述 |
-| :--- | :--- |
-| `check_tag_count_consistency()` | 检查所有标签的 `artworkCount` 与实际 `ArtworkTag` 数量是否一致。返回不一致的 Tag 列表及预期值。 |
-| `fix_tag_count_inconsistencies()` | 一次聚合并集合式修复所有不一致的标签计数，只写一条维护摘要日志。 |
-| `cleanup_trigger_logs()` | 清理 30 天前的触发器日志，防止日志表无限膨胀。 |
+| 函数名                            | 描述                                                                                            |
+| :-------------------------------- | :---------------------------------------------------------------------------------------------- |
+| `check_tag_count_consistency()`   | 检查所有标签的 `artworkCount` 与实际 `ArtworkTag` 数量是否一致。返回不一致的 Tag 列表及预期值。 |
+| `fix_tag_count_inconsistencies()` | 一次聚合并集合式修复所有不一致的标签计数，只写一条维护摘要日志。                                |
+| `cleanup_trigger_logs()`          | 清理 30 天前的触发器日志，防止日志表无限膨胀。                                                  |
 
 ## 5. Migration 文件对照参考
 
-| Migration ID | 关键内容 |
-| :--- | :--- |
-| `20250906135951` | 开启 `pg_trgm`，创建 Artwork Title+Description 混合 GIN 索引 |
-| `20250929092056` | 创建 `TriggerLog` 表，添加 Tag 计数触发器 (`ArtworkTag`) 与维护函数 |
-| `20250929103727` | 添加 Tag 搜索向量列 (`search_vector`) 及基础更新触发器 |
-| `20251001054605` | 更新 Tag 搜索触发器以支持 `name_en` (多语言搜索) |
-| `20251003034237` | 添加作品点赞计数触发器 (`ArtworkLike`) |
-| `20260203000000` | 添加作品图片计数触发器 (`Artwork.imageCount`, 语句级优化) |
-| `20260227003621` | 重构认证系统 (BetterAuth)，User -> UserBA，并清理无效 ArtworkLike 数据 |
-| `20260808000000` | 添加 `ArtworkTag(tagId, artworkId)` 索引，将标签计数改为语句级集合更新，并清理重复日志索引 |
-| `20260814090000` | 独立新增后台任务来源/跳过/事件/GC 枚举，并扩展 `JobStatus`，避免同事务使用新枚举值 |
-| `20260814091000` | 先执行只读切换守卫，再新增持久队列字段、事件/资源租约/派生媒体 GC 表、索引、外键和安全 CHECK，并回填旧任务兼容标记 |
-| `20260814100000` | 新增独立 Worker 实例状态枚举、心跳表及状态/心跳索引；纯增量建表，不改写旧数据 |
-| `20260814110000` | 在确认无旧执行态任务后，新增执行态部分唯一表达式索引，作为全局单并发的数据库最终栅栏 |
+| Migration ID     | 关键内容                                                                                                                                        |
+| :--------------- | :---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20250906135951` | 开启 `pg_trgm`，创建 Artwork Title+Description 混合 GIN 索引                                                                                    |
+| `20250929092056` | 创建 `TriggerLog` 表，添加 Tag 计数触发器 (`ArtworkTag`) 与维护函数                                                                             |
+| `20250929103727` | 添加 Tag 搜索向量列 (`search_vector`) 及基础更新触发器                                                                                          |
+| `20251001054605` | 更新 Tag 搜索触发器以支持 `name_en` (多语言搜索)                                                                                                |
+| `20251003034237` | 添加作品点赞计数触发器 (`ArtworkLike`)                                                                                                          |
+| `20260203000000` | 添加作品图片计数触发器 (`Artwork.imageCount`, 语句级优化)                                                                                       |
+| `20260227003621` | 重构认证系统 (BetterAuth)，User -> UserBA，并清理无效 ArtworkLike 数据                                                                          |
+| `20260808000000` | 添加 `ArtworkTag(tagId, artworkId)` 索引，将标签计数改为语句级集合更新，并清理重复日志索引                                                      |
+| `20260814090000` | 独立新增后台任务来源/跳过/事件/GC 枚举，并扩展 `JobStatus`，避免同事务使用新枚举值                                                              |
+| `20260814091000` | 先执行只读切换守卫，再新增持久队列字段、事件/资源租约/派生媒体 GC 表、索引、外键和安全 CHECK，并回填旧任务兼容标记                              |
+| `20260814100000` | 新增独立 Worker 实例状态枚举、心跳表及状态/心跳索引；纯增量建表，不改写旧数据                                                                   |
+| `20260814110000` | 在确认无旧执行态任务后，新增执行态部分唯一表达式索引，作为全局单并发的数据库最终栅栏                                                            |
+| `20260815001000` | 新增视频封面 backlog 公平游标及探测/封面复合索引；复合索引显式映射为 `MediaVideoMetadata_poster_backlog_idx`，避免 PostgreSQL 63 字节标识符截断 |

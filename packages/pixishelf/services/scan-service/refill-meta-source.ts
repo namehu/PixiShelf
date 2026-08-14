@@ -17,17 +17,13 @@ export async function refillMetaSource(options: RefillOptions) {
 
   if (onProgress) await onProgress({ message: '正在计算待处理作品...', percentage: 0 })
 
-  // 1. 获取所有待处理 ID
-  // 我们只关心那些 metaSource 为空 且 externalId 不为空 的作品
-  const allIds = await prisma.artwork.findMany({
+  const canonicalScanPath = await fs.realpath(scanPath)
+  const totalIds = await prisma.artwork.count({
     where: {
       metaSource: null,
       externalId: { not: null }
-    },
-    select: { id: true }
+    }
   })
-
-  const totalIds = allIds.length
   logger.info(`Found ${totalIds} artworks missing metaSource`)
 
   if (totalIds === 0) {
@@ -38,18 +34,21 @@ export async function refillMetaSource(options: RefillOptions) {
   let processedCount = 0
   let updatedCount = 0
   const BATCH_SIZE = 50
+  let lastSeenId = 0
 
-  // 2. 分批处理
-  for (let i = 0; i < totalIds; i += BATCH_SIZE) {
+  while (true) {
     if (checkCancelled && (await checkCancelled())) {
       throw new Error('Task cancelled')
     }
 
-    const batchIds = allIds.slice(i, i + BATCH_SIZE).map((item) => item.id)
-
-    // 查询详情
     const artworks = await prisma.artwork.findMany({
-      where: { id: { in: batchIds } },
+      where: {
+        id: { gt: lastSeenId },
+        metaSource: null,
+        externalId: { not: null }
+      },
+      orderBy: { id: 'asc' },
+      take: BATCH_SIZE,
       select: {
         id: true,
         externalId: true,
@@ -60,6 +59,8 @@ export async function refillMetaSource(options: RefillOptions) {
         }
       }
     })
+    if (artworks.length === 0) break
+    lastSeenId = artworks.at(-1)!.id
 
     const updates = []
 
@@ -71,24 +72,30 @@ export async function refillMetaSource(options: RefillOptions) {
         const imageRelativePath = artwork.images[0].path
 
         // 1. 处理路径前缀：移除可能的开头的 '/' 或 '\'
-        const cleanRelativePath = imageRelativePath.replace(/^[/\\]/, '')
+        const cleanRelativePath = imageRelativePath.replace(/^[/\\]+/, '')
 
         // 2. 拼接完整的绝对路径：scanPath + relativePath
-        const fullImagePath = path.join(scanPath, cleanRelativePath)
+        const fullImagePath = path.resolve(canonicalScanPath, cleanRelativePath)
+        if (!isPathWithinRoot(canonicalScanPath, fullImagePath)) continue
 
         // 3. 获取目录并拼接 meta 文件名
         const dir = path.dirname(fullImagePath)
-        const candidatePath = path.join(dir, `${artwork.externalId}-meta.txt`)
+        const metadataFilename = `${artwork.externalId}-meta.txt`
+        if (path.basename(metadataFilename) !== metadataFilename || metadataFilename.includes('\0')) continue
+        const candidatePath = path.join(dir, metadataFilename)
 
         try {
           // 4. 检查文件是否存在
-          await fs.access(candidatePath)
+          const canonicalCandidate = await fs.realpath(candidatePath)
+          if (!isPathWithinRoot(canonicalScanPath, canonicalCandidate)) continue
+          const candidateStat = await fs.stat(canonicalCandidate)
+          if (!candidateStat.isFile()) continue
 
           // 5. 如果存在，记录下相对路径
-          const metaSource = path.relative(scanPath, candidatePath).replace(/\\/g, path.posix.sep)
+          const metaSource = path.relative(canonicalScanPath, canonicalCandidate).replace(/\\/g, path.posix.sep)
           updates.push(
-            prisma.artwork.update({
-              where: { id: artwork.id },
+            prisma.artwork.updateMany({
+              where: { id: artwork.id, metaSource: null },
               data: { metaSource }
             })
           )
@@ -100,14 +107,14 @@ export async function refillMetaSource(options: RefillOptions) {
 
     if (updates.length > 0) {
       try {
-        await prisma.$transaction(updates)
-        updatedCount += updates.length
+        const results = await prisma.$transaction(updates)
+        updatedCount += results.reduce((sum, result) => sum + result.count, 0)
       } catch (error) {
         logger.error('Failed to update batch', { error })
       }
     }
 
-    processedCount += batchIds.length
+    processedCount += artworks.length
     const percentage = Math.round((processedCount / totalIds) * 100)
 
     if (onProgress) {
@@ -123,4 +130,9 @@ export async function refillMetaSource(options: RefillOptions) {
   if (onProgress) await onProgress({ message: '完成', percentage: 100 })
   logger.info('Refill meta source task completed', { updatedCount, totalProcessed: totalIds })
   return { updatedCount, totalFiles: totalIds }
+}
+
+function isPathWithinRoot(root: string, candidate: string) {
+  const relative = path.relative(root, candidate)
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
 }

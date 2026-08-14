@@ -2,7 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
 
-const latestRequiredMigration = '20260814110000_add_single_dispatcher_execution_fence'
+const latestRequiredMigration = '20260815001000_add_video_media_queue_indexes'
 
 const requiredQueueObjects = [
   'derived_media_gc_entries',

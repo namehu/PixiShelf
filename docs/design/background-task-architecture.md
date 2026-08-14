@@ -1,6 +1,6 @@
 # PixiShelf 后台任务架构设计
 
-> 状态：已确认，待分阶段实施
+> 状态：分阶段实施中；Phase 4 已暗装 13 个 Executor，全局切换仍关闭
 > 决策日期：2026-08-14
 > 关联文档：[数据模型](./background-task-data-model.md) · [运行手册](./background-task-runbook.md) · [ADR-0003](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)
 
@@ -358,30 +358,62 @@ stateDiagram-v2
 
 ### 6.1 不做通用 DAG 的原因
 
-当前关系主要是固定领域流水线，而不是用户自定义工作流。第一阶段在代码 Registry 中声明 prerequisites、produces、resourceScope 和 defaultRetryPolicy；运行时通过 parentJobId 表示流水线归属。只有前置步骤成功后，父 Executor 才创建下一子任务。这样能明确关系，又避免过早引入通用依赖图引擎。
+当前关系主要是固定领域流水线，而不是用户自定义工作流。v1 `ExecutorDefinition` 只声明 jobType、definitionVersion、payload 解析器和 execute；依赖关系由领域 Executor 在成功 checkpoint 后显式调用 `enqueueChild`，用 parentJobId 和稳定 idempotencyKey 表示归属并防止重复物化。资源影响和默认重试策略记录在本文及领域策略代码中，尚未伪装成 Registry 的可执行元数据。只有未来需要多槽并行或用户编排时，才评估加入 prerequisites、produces、resourceScope 等声明式字段。
 
 ### 6.2 视频维护流水线
 
 ```mermaid
-flowchart LR
-  Parent["VIDEO_MEDIA_MAINTENANCE<br/>parent job"] --> Classify["CLASSIFY_UNKNOWN_MEDIA"]
-  Classify --> Probe["VIDEO_MEDIA_PROBE"]
+flowchart TB
+  Probe["VIDEO_MEDIA_PROBE"]
   Probe --> Poster["VIDEO_POSTER_GENERATION"]
-  Probe --> Discovery["VIDEO_KEYFRAME_DISCOVERY"]
-  Discovery --> Keyframes["VIDEO_KEYFRAME_GENERATION"]
-  Poster -. old reference .-> GC["DERIVED_MEDIA_GC"]
-  Keyframes -. old generation .-> GC
+  Discovery["VIDEO_KEYFRAME_DISCOVERY"] --> Keyframes["VIDEO_KEYFRAME_GENERATION"]
+  Chapter["VIDEO_CHAPTER_PREVIEW_GENERATION"]
+  Streaming["VIDEO_STREAMING_OPTIMIZATION"]
+  GC["DERIVED_MEDIA_GC"]
+
+  Poster -. "替换/失败产物 intent" .-> GC
+  Chapter -. "旧预览 intent" .-> GC
+  Streaming -. "临时/备份 intent" .-> GC
 ```
 
 规则：
 
 - VIDEO_MEDIA_PROBE 不再隐式执行目录级孤儿清理。
-- `enqueueMissingPosters` 只控制是否另行入队 VIDEO_POSTER_GENERATION 子任务；Probe Executor 本身不生成封面。
+- `enqueueMissingPosters` 只控制是否另行入队 VIDEO_POSTER_GENERATION 子任务；Probe Executor 本身不生成封面，也不直接创建关键帧发现任务。
 - 默认封面生成作为独立子任务，失败不会抹掉探测结果。
-- 代表帧发现依赖可用的 duration/source fingerprint；缺少时可以创建明确的探测前置任务。
-- 领域子任务的结果分别保存，父任务汇总成功、部分失败和告警。
+- 代表帧发现/生成是独立流水线；当前不会隐式补建 Probe 前置任务，缺少 duration/source fingerprint 时按明确错误或重试策略收口。
+- 封面、章节和流媒体优化登记确定路径的 GC intent；关键帧仍保留自身 staging/published 清理语义，尚未接入通用 GC。
 
-### 6.3 资源影响矩阵
+### 6.3 Phase 4 实际 Registry 与暗发布边界
+
+截至 2026-08-15，通用 Worker 已注册 13 个 v1 Executor，但两个全局切换开关仍保持 false。下面是已经落地的执行关系，不表示此时生产环境已经开始 claim：
+
+```mermaid
+flowchart TB
+  Queue["SystemJob 持久队列"] --> Slot["global/background-worker<br/>数据库单执行槽"]
+  Slot --> Registry["Worker Executor Registry<br/>13 capabilities"]
+
+  Registry --> Archive["ARCHIVE_IMPORT"]
+  Registry --> KeyframeDiscovery["VIDEO_KEYFRAME_DISCOVERY"]
+  KeyframeDiscovery --> KeyframeGeneration["VIDEO_KEYFRAME_GENERATION"]
+
+  Registry --> Maintenance["五类维护任务<br/>清理 / 元数据补全 / 标签同步 / WebP"]
+  Registry --> Probe["VIDEO_MEDIA_PROBE"]
+  Probe --> Poster["VIDEO_POSTER_GENERATION child"]
+  Registry --> Chapter["VIDEO_CHAPTER_PREVIEW_GENERATION"]
+  Registry --> Streaming["VIDEO_STREAMING_OPTIMIZATION"]
+  Registry --> GC["DERIVED_MEDIA_GC"]
+
+  Poster -. "替换或失败产物 intent" .-> GC
+  Chapter -. "旧预览 intent" .-> GC
+  Streaming -. "临时/备份 intent" .-> GC
+
+  Pending["尚未迁移<br/>SCAN / LOCAL_DIRECTORY_IMPORT<br/>MIGRATION / PENDING_REPLACE"] -. "阻止全局切换" .-> Queue
+```
+
+视频探测只按有界页物化封面子任务；封面、章节和流媒体优化只登记确定的 GC intent，不在任务启动时遍历目录。`DERIVED_MEDIA_GC` 的每日模式只消费到期 intent；目录 reconciliation 是独立的管理员 dry-run。四个高风险任务完成迁移以前，`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 与 `WORKER_DISPATCH_ENABLED` 必须同时保持 false，旧执行路径继续承担生产流量。
+
+### 6.4 资源影响矩阵
 
 全局并发 1 已阻止后台任务相互并行，但仍记录资源范围，作为审计、未来扩容和 API 直接写入保护。
 
@@ -402,12 +434,12 @@ flowchart LR
 
 ### 7.1 为什么不能每次视频探测都全量清理
 
-当前 runVideoPosterGenerationJob 在每次执行开始时调用 cleanupOrphanedPosters，遍历整个封面目录并逐个查询引用。媒体量增加后，这会让一次增量探测承担与总目录规模相关的成本。
+改造前的 `runVideoPosterGenerationJob` 会在每次执行开始时遍历整个封面目录并逐个查询引用，媒体量增加后会让一次增量探测承担与总目录规模相关的成本。Phase 4 的 legacy 适配和新 Executor 都已移除该启动时扫描；以下策略说明替代它的持久化 GC 设计。
 
 目标采用两级策略：
 
-1. **增量 GC**：封面、章节或关键帧引用被替换/删除时，在同一数据库事务中写入 DerivedMediaGcEntry。GC Executor 小批量删除，并在删除前再次验证没有任何有效引用。
-2. **周期对账**：每周执行一次 reconciliation，默认 dry-run，比较数据库引用和派生目录。只有管理员确认或配置开启后才删除发现的额外孤儿文件。
+1. **增量 GC**：封面/章节引用被替换或流媒体优化产生临时/备份文件时，登记确定路径的 DerivedMediaGcEntry。GC Executor 小批量删除，并在删除前再次验证没有任何有效引用。关键帧当前继续使用自身 staging/published 清理语义。
+2. **按需对账**：管理员手动发起 reconciliation，固定使用 dry-run 比较数据库引用和派生目录；当前没有每周自动 reconciliation，也不会在每日 GC 中删除对账发现的额外孤儿文件。
 
 删除必须满足：
 

@@ -8,14 +8,11 @@ import { prisma } from '@/lib/prisma'
 import { VIDEO_EXTENSIONS } from '@/lib/constant'
 import { resolveDerivedMediaStoragePath, VIDEO_POSTER_STORAGE_ROOT } from '@/services/derived-media-storage'
 import { resolvePathWithinScanRoot } from '@/services/video-media-probe-service'
-import {
-  getVideoPosterImageIdFromFileName,
-  isTemporaryVideoPosterFile,
-  VIDEO_POSTER_LOCK_NAMESPACE
-} from '@/services/video-poster-lock'
+import { VIDEO_POSTER_LOCK_NAMESPACE } from '@/services/video-poster-lock'
 
 const POSTER_ROOT = VIDEO_POSTER_STORAGE_ROOT
 const FAILED_SAMPLE_LIMIT = 20
+const POSTER_GC_DELAY_MS = 60 * 60 * 1000
 
 export interface VideoPosterGenerationResult {
   processed: number
@@ -42,10 +39,12 @@ export async function runVideoPosterGenerationJob(options: {
   }
 
   await fs.mkdir(POSTER_ROOT, { recursive: true })
-  await report(1, '正在清理孤儿视频封面...')
+  await report(1, '正在准备视频封面任务...')
   await ensureVideoMetadataRows()
   await markMissingPostersPending()
-  const orphanedFilesDeleted = await cleanupOrphanedPosters()
+  // Orphan cleanup is a separate DERIVED_MEDIA_GC responsibility. Poster generation must never
+  // enumerate the whole directory or add an unrelated cleanup cost to every probe run.
+  const orphanedFilesDeleted = 0
   await ensureNotCancelled()
 
   const total = await prisma.mediaVideoMetadata.count({
@@ -60,7 +59,7 @@ export async function runVideoPosterGenerationJob(options: {
     failedSamples: []
   }
   if (total === 0) {
-    await report(100, `没有待生成视频封面，已清理 ${orphanedFilesDeleted} 个孤儿文件`)
+    await report(100, '没有待生成视频封面')
     return result
   }
 
@@ -123,15 +122,35 @@ export async function runVideoPosterGenerationJob(options: {
             }
           })
           if (updated.count !== 1) throw new Error('Default poster ownership was lost')
+          if (previousPosterPath && previousPosterPath !== relativePosterPath) {
+            await tx.derivedMediaGcEntry.upsert({
+              where: {
+                mediaKind_relativePath: { mediaKind: 'VIDEO_POSTER', relativePath: previousPosterPath }
+              },
+              create: {
+                mediaKind: 'VIDEO_POSTER',
+                relativePath: previousPosterPath,
+                referenceType: 'MEDIA_VIDEO_METADATA_POSTER',
+                referenceId: String(item.imageId),
+                reason: 'POSTER_REPLACED',
+                status: 'PENDING',
+                notBefore: new Date(Date.now() + POSTER_GC_DELAY_MS)
+              },
+              update: {
+                referenceType: 'MEDIA_VIDEO_METADATA_POSTER',
+                referenceId: String(item.imageId),
+                reason: 'POSTER_REPLACED',
+                status: 'PENDING',
+                notBefore: new Date(Date.now() + POSTER_GC_DELAY_MS),
+                error: null,
+                deletedAt: null
+              }
+            })
+          }
           return true
         })
         if (published) {
           result.generated += 1
-          if (previousPosterPath && previousPosterPath !== relativePosterPath) {
-            await fs
-              .rm(resolveDerivedMediaStoragePath(POSTER_ROOT, previousPosterPath), { force: true })
-              .catch(() => undefined)
-          }
         } else {
           await fs.rm(temporaryPath, { force: true }).catch(() => undefined)
           result.skipped += 1
@@ -152,10 +171,7 @@ export async function runVideoPosterGenerationJob(options: {
       await report(percentage, `已处理 ${result.processed}/${total}：成功 ${result.generated}，失败 ${result.failed}`)
     }
   }
-  await report(
-    100,
-    `视频封面生成完成：成功 ${result.generated}，失败 ${result.failed}，清理孤儿 ${orphanedFilesDeleted}`
-  )
+  await report(100, `视频封面生成完成：成功 ${result.generated}，失败 ${result.failed}`)
   return result
 }
 
@@ -181,28 +197,6 @@ async function generatePoster(sourcePath: string, temporaryPath: string) {
     '80',
     temporaryPath
   ])
-}
-
-export async function cleanupOrphanedPosters() {
-  let deleted = 0
-  const entries = await fs.readdir(POSTER_ROOT, { withFileTypes: true }).catch(() => [])
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.webp') || isTemporaryVideoPosterFile(entry.name)) continue
-    const imageId = getVideoPosterImageIdFromFileName(entry.name)
-    if (imageId === null) continue
-    const removed = await prisma.$transaction(async (tx) => {
-      await lockVideoPoster(tx, imageId)
-      const referenced = await tx.mediaVideoMetadata.findFirst({
-        where: { imageId, posterPath: entry.name },
-        select: { imageId: true }
-      })
-      if (referenced) return false
-      await fs.unlink(resolveDerivedMediaStoragePath(POSTER_ROOT, entry.name))
-      return true
-    })
-    if (removed) deleted += 1
-  }
-  return deleted
 }
 
 async function lockVideoPoster(

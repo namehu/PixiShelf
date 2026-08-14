@@ -24,6 +24,17 @@ describe('scheduled task payload mapping', () => {
     })
   })
 
+  it('runs registered GC intents daily and makes first manual reconciliation a dry-run', () => {
+    expect(buildScheduledTaskJobDefinition('DERIVED_MEDIA_GC', { trigger: 'schedule' }).payload).toEqual({
+      dryRun: false,
+      reconcile: false
+    })
+    expect(buildScheduledTaskJobDefinition('DERIVED_MEDIA_GC', { trigger: 'manual' }).payload).toEqual({
+      dryRun: true,
+      reconcile: true
+    })
+  })
+
   it('validates keyframe filters through the shared contract', () => {
     expect(
       buildScheduledTaskJobDefinition('VIDEO_KEYFRAME_DISCOVERY', {

@@ -350,24 +350,42 @@ Phase 3 先以默认关闭的双开关交付内核：`CENTRAL_DISPATCHER_CUTOVER
 
 验收：取消/完成竞争、租约丢失、事件事务测试通过；误启动两个通用 Worker 时仍只有一个有效 RUNNING；暗启动阶段旧 archive-worker 继续消费且通用 Worker 不 claim，最终全量切换提交再从生产 compose/CI 停用旧 archive-worker。
 
-### Phase 4：迁移维护任务
+### Phase 4：迁移维护与媒体任务
 
 建议顺序：
 
-1. 历史清理任务。
-2. 元数据补全和标签同步。
-3. WebP 动画识别。
-4. 视频探测和封面。
-5. 章节预览。
-6. MP4 优化。
-7. 扫描、迁移和批量替换。
+1. 历史清理任务（已暗装）。
+2. 元数据补全和标签同步（已暗装）。
+3. WebP 动画识别（已暗装）。
+4. 视频探测、独立封面和派生媒体 GC（已暗装）。
+5. 章节预览（已暗装）。
+6. MP4 优化（已暗装）。
+7. 扫描、本地导入、迁移和批量替换（待迁移，仍阻止全局切换）。
 
 每迁移一个任务：
 
 - enqueue 只创建 PENDING。
 - 添加 Executor 适配器。
-- 删除旧 IIFE/内存消费者入口。
+- central=true 的路由和队列适配不得进入旧 IIFE/内存消费者；暗发布阶段保留 central=false 的 legacy 实现用于生产和回滚，最终原子切换稳定后再删除。
 - 增加重启恢复、取消和终态 CAS 测试。
+
+“已暗装”表示代码、Registry、镜像依赖和测试已经交付，不表示生产流量已经切到新 Worker。Phase 4 提交仍保持两个全局开关为 false；13 个 capability 与剩余 4 个任务必须在最终原子切换前一起通过发布门禁。
+
+#### 视频探测、封面与派生媒体 GC 切换门禁
+
+- `derived_media_gc` 定义默认关闭；只能在全局切换同时启用
+  `CENTRAL_DISPATCHER_CUTOVER_ENABLED=true` 与 `WORKER_DISPATCH_ENABLED=true` 后，再由管理员启用该计划。
+- 每日计划 payload 固定为 `{dryRun:false,reconcile:false}`，只消费已经登记且到期的
+  `DerivedMediaGcEntry`，不会扫描整个封面目录。
+- 首次目录 reconciliation 由管理员手动触发，payload 固定为 `{dryRun:true,reconcile:true}`；先核对
+  `reconciliationScanned` 与 `untrackedCandidates`，不得把 reconciliation 与每日实际删除混为同一模式。
+- 单图重探测在切换后必须落成带 `imageId`、`force=true` 的 `VIDEO_MEDIA_PROBE`；切换前仍走旧同步服务。
+  禁止只开启 Worker 或只开启 Next 控制面，否则会形成旧请求执行与新队列执行重叠、或任务无人消费的窗口。
+- 视频探测每次最多检查 100 条最旧封面状态；全库缺文件发现只允许走显式、有界、默认 dry-run 的
+  reconciliation，不能恢复“每次 probe 遍历整个派生目录”的旧行为。
+
+验收：central/legacy 路由反例通过；GC 引用胜出、取消恢复、stale fence、101--1000 显式 ID 分块测试通过；
+启用计划前确认不存在旧 `VIDEO_MEDIA_PROBE` 活动任务，启用后首个每日任务必须为非 dry-run 且不执行 reconciliation。
 
 ### Phase 5：调度窗口
 

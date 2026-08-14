@@ -31,6 +31,7 @@ import { ImageManagerDragOverlay } from './drag-overlay'
 import { ImageManagerThumbnailList } from './thumbnail-list'
 import { isActiveVideoOptimization, type VideoOptimizationJob } from './video-optimization'
 import type { ArtworkMediaApiErrorResponse, MediaChapterUploadResponse } from '@/types/artwork-media-api'
+import { describeVideoReprobeResult } from './reprobe-result'
 
 interface ImageManagerContentProps {
   data: any
@@ -386,8 +387,9 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     try {
       setReprobingImageId(image.id)
       const result = await trpcClient.artwork.reprobeVideoMedia.mutate({ imageId: image.id })
-      toast.success(`视频重新探测完成：${result.hasAudio ? '有音频' : '无音频'}`)
-      refreshMediaList()
+      const presentation = describeVideoReprobeResult(result)
+      toast.success(presentation.message)
+      if (presentation.refreshMedia) refreshMediaList()
     } catch (error: any) {
       toast.error(`重新探测失败: ${error.message}`)
     } finally {

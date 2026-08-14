@@ -7,8 +7,9 @@
 ## 文件边界
 
 - `Dockerfile`：Web/API 的 Next.js standalone 镜像，负责启动前执行数据库迁移。
-- `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和
-  `ARCHIVE_IMPORT`、`VIDEO_KEYFRAME_DISCOVERY`、`VIDEO_KEYFRAME_GENERATION` Executor。
+- `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和 Phase 4
+  已迁移的 13 个 Executor：Archive/Keyframe、五类维护任务、视频探测/封面/派生媒体 GC，以及
+  章节预览/流媒体优化。
 - `docker-compose.dev.yml`：本地构建与开发环境。
 - `docker-compose.deploy.yml`：使用预构建镜像的生产环境。
 - `.env.example`：部署变量模板，所有 Central Dispatcher 开关默认关闭。
@@ -86,7 +87,7 @@ cd build
 cp .env.example .env
 ```
 
-升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH` 和 `DERIVED_MEDIA_HOST_PATH`。Phase 3B 部署必须保持：
+升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH` 和 `DERIVED_MEDIA_HOST_PATH`。Phase 4 暗发布必须保持：
 
 ```dotenv
 CENTRAL_DISPATCHER_CUTOVER_ENABLED=false
@@ -109,7 +110,9 @@ docker compose -f docker-compose.deploy.yml exec worker \
 
 两个开关用途不同：`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 让 Next.js 只创建/控制统一队列任务；
 `WORKER_DISPATCH_ENABLED` 才允许通用 Worker claim。开关默认 false，避免镜像升级时意外开始消费。
-当前通用 Registry 只覆盖首批任务类型，不能打开全局开关，否则尚未迁移的任务会积压。
+当前通用 Registry 覆盖 13 种任务，但 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、
+`PENDING_REPLACE` 四类高风险任务仍未切换。此阶段不能打开全局开关，否则这些任务会被中央入口
+拒绝或积压。只有全部 17 类任务完成迁移和最终回归后，才允许执行下述原子切换。
 
 最终切换必须在所有 Executor 迁移、回归和发布门禁完成后一次完成：停止新任务、排空并停止旧
 `archive-worker`，确认无 RUNNING/PAUSING/CANCELLING 旧任务，再同时启用 Next 切换与通用 Worker

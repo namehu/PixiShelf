@@ -1,611 +1,72 @@
 import 'server-only'
 
-import * as childProcess from 'node:child_process'
-import * as fs from 'node:fs/promises'
-import path from 'node:path'
-import sharp from 'sharp'
 import { prisma } from '@/lib/prisma'
+import { assertLegacyBackgroundExecutionAllowed } from '@/services/background-task/dispatcher-cutover'
+import { VIDEO_CHAPTER_PREVIEW_STORAGE_ROOT } from '@/services/derived-media-storage'
 import {
-  createChapterManifestHash,
-  readChapterManifestByStoredPath,
-  type VideoChapter,
-  type VideoChapterManifest
-} from '@/services/artwork-service/video-chapters'
-import { resolveDerivedMediaStoragePath, VIDEO_CHAPTER_PREVIEW_STORAGE_ROOT } from '@/services/derived-media-storage'
-import { resolvePathWithinScanRoot } from '@/services/video-media-probe-service'
+  generateVideoChapterPreviews,
+  runVideoProcess,
+  type VideoChapterPreviewGenerationMode,
+  type VideoChapterPreviewGenerationResult,
+  type VideoProcessingDatabase,
+  type VideoProcessingTransaction
+} from '@pixishelf/job-executors'
 
-const PREVIEW_ROOT = VIDEO_CHAPTER_PREVIEW_STORAGE_ROOT
-const FAILED_SAMPLE_LIMIT = 20
-const BLACK_FRAME_LUMA_THRESHOLD = 16
-const CAPTURE_EPSILON_SECONDS = 0.05
-const FFMPEG_TIMEOUT_MS = 2 * 60 * 1000
-const CANCELLATION_POLL_INTERVAL_MS = 1000
-const PROCESS_TERMINATION_GRACE_MS = 5000
-const FILE_LOCK_RETRY_DELAYS_MS = [50, 100, 250, 500, 1000]
+export type { VideoChapterPreviewGenerationMode, VideoChapterPreviewGenerationResult }
 
-type CancellationCheck = () => Promise<boolean> | boolean
-
-export type VideoChapterPreviewGenerationMode = 'FULL' | 'INCREMENTAL'
-
-export interface VideoChapterPreviewGenerationResult {
-  mode: VideoChapterPreviewGenerationMode
-  pending: number
-  processed: number
-  reused: number
-  generated: number
-  failed: number
-  orphanedFilesDeleted: number
-  failedSamples: Array<{ imageId: number; path: string; chapterOrder: number | null; error: string }>
-}
-
-export interface VideoChapterPreviewProgress {
-  percentage: number
-  message: string
-}
-
-interface ChapterWorkItem {
-  imageId: number
-  videoPath: string
-  chaptersHash: string
-  chapterOrder: number
-  chapter: VideoChapter
-  expectedPath: string
-  captureTimes: number[]
-  reusable: boolean
-}
-
+/**
+ * Compatibility adapter for the dark-launch period. Once the central cutover flag
+ * is true this path is a hard error, so Next and pixishelf-worker cannot consume the
+ * same logical work. The final cutover removes this adapter entirely.
+ */
 export async function runVideoChapterPreviewGenerationJob(options: {
   scanPath: string
   mode?: VideoChapterPreviewGenerationMode
-  onProgress?: (progress: VideoChapterPreviewProgress) => Promise<void> | void
+  onProgress?: (progress: { percentage: number; message: string }) => Promise<void> | void
   checkCancelled?: () => Promise<boolean> | boolean
 }): Promise<VideoChapterPreviewGenerationResult> {
-  const mode = options.mode ?? 'FULL'
-  const report = (percentage: number, message: string) => options.onProgress?.({ percentage, message })
-  const ensureNotCancelled = async () => {
-    if (await options.checkCancelled?.()) throw new Error('Task cancelled')
-  }
-
-  await fs.mkdir(PREVIEW_ROOT, { recursive: true })
-  await report(1, mode === 'FULL' ? '正在全量校验章节清单并计算待生成截图...' : '正在查询尚未完成的章节截图...')
-
-  const result: VideoChapterPreviewGenerationResult = {
-    mode,
-    pending: 0,
-    processed: 0,
-    reused: 0,
-    generated: 0,
-    failed: 0,
-    orphanedFilesDeleted: 0,
-    failedSamples: []
-  }
-  const workItems: ChapterWorkItem[] = []
-  const videos = await findVideosForGeneration(mode)
-  if (mode === 'FULL') {
-    // 全量模式以当前仍有章节清单的视频为基线，先删除其他图片的预览记录；
-    // 这样章节清单被移除后，不会留下失去来源的历史记录。
-    const activeImageIds = videos.map((video) => video.id)
-    await prisma.mediaChapterPreview.deleteMany({
-      where: activeImageIds.length > 0 ? { imageId: { notIn: activeImageIds } } : {}
-    })
-  }
-
-  for (const video of videos) {
-    await ensureNotCancelled()
-    try {
-      const manifest = await readChapterManifestByStoredPath(video.chaptersPath!)
-      if (!manifest) throw new Error('Chapter manifest not found')
-
-      const chaptersHash = createChapterManifestHash(manifest)
-      await syncImageChapterSummary(video, manifest, chaptersHash)
-      const existingByOrder = new Map(video.chapterPreviews.map((preview) => [preview.chapterOrder, preview]))
-
-      const obsolete = video.chapterPreviews.filter((preview) => preview.chapterOrder >= manifest.chapters.length)
-      if (obsolete.length > 0) {
-        await prisma.mediaChapterPreview.deleteMany({ where: { id: { in: obsolete.map((preview) => preview.id) } } })
-      }
-
-      for (const [chapterOrder, chapter] of manifest.chapters.entries()) {
-        const expectedPath = buildPreviewRelativePath(video.id, chaptersHash, chapterOrder)
-        const current = existingByOrder.get(chapterOrder)
-        // 可复用要求同时满足四件事：状态为 COMPLETED、章节哈希匹配、约定路径一致、物理文件存在。
-        // 仅数据库标记为完成不足以复用，已删除或过期的文件必须再次生成。
-        const reusable = Boolean(
-          current &&
-            current.status === 'COMPLETED' &&
-            current.chaptersHash === chaptersHash &&
-            current.previewPath === expectedPath &&
-            (await isFile(resolveDerivedMediaStoragePath(PREVIEW_ROOT, expectedPath)))
-        )
-
-        workItems.push({
-          imageId: video.id,
-          videoPath: video.path,
-          chaptersHash,
-          chapterOrder,
-          chapter,
-          expectedPath,
-          captureTimes: buildChapterCaptureTimes(chapter.start, chapter.end),
-          reusable
-        })
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
-      result.failed += 1
-      pushFailedSample(result, { imageId: video.id, path: video.path, chapterOrder: null, error: message })
-      await prisma.mediaChapterPreview.updateMany({
-        where: { imageId: video.id },
-        data: { status: 'FAILED', error: message, previewPath: null, previewUpdatedAt: null }
-      })
-    }
-  }
-
-  result.reused = workItems.filter((item) => item.reusable).length
-  const pendingItems = workItems.filter((item) => !item.reusable)
-  result.pending = pendingItems.length
-
-  if (pendingItems.length === 0) {
-    if (mode === 'FULL') {
-      result.orphanedFilesDeleted = await cleanupOrphanedPreviews()
-      await report(100, `全量校验完成：复用 ${result.reused} 张，清理孤儿 ${result.orphanedFilesDeleted} 张`)
-    } else {
-      await report(100, '增量补齐完成：没有待生成章节截图')
-    }
-    return result
-  }
-
-  await report(2, `待生成章节截图 ${pendingItems.length} 张，复用 ${result.reused} 张`)
-  for (const item of pendingItems) {
-    await ensureNotCancelled()
-    result.processed += 1
-    const initialCaptureTime = item.captureTimes[0] ?? item.chapter.start
-
-    await prisma.mediaChapterPreview.upsert({
-      where: { imageId_chapterOrder: { imageId: item.imageId, chapterOrder: item.chapterOrder } },
-      create: {
-        imageId: item.imageId,
-        chapterOrder: item.chapterOrder,
-        chapterIndex: item.chapter.index,
-        chaptersHash: item.chaptersHash,
-        chapterStart: item.chapter.start,
-        captureTime: initialCaptureTime,
-        status: 'GENERATING'
-      },
-      update: {
-        chapterIndex: item.chapter.index,
-        chaptersHash: item.chaptersHash,
-        chapterStart: item.chapter.start,
-        captureTime: initialCaptureTime,
-        status: 'GENERATING',
-        previewPath: null,
-        previewUpdatedAt: null,
-        error: null
-      }
-    })
-
-    try {
-      const outputPath = resolveDerivedMediaStoragePath(PREVIEW_ROOT, item.expectedPath)
-      const sourcePath = resolvePathWithinScanRoot(options.scanPath, item.videoPath)
-      const capture = await generateRepresentativePreview(sourcePath, outputPath, item.captureTimes, {
-        checkCancelled: options.checkCancelled,
-        ensureNotCancelled
-      })
-      const now = new Date()
-
-      await prisma.mediaChapterPreview.update({
-        where: { imageId_chapterOrder: { imageId: item.imageId, chapterOrder: item.chapterOrder } },
-        data: {
-          status: 'COMPLETED',
-          previewPath: item.expectedPath,
-          captureTime: capture.captureTime,
-          previewUpdatedAt: now,
-          error: null
-        }
-      })
-      result.generated += 1
-    } catch (error) {
-      if (isTaskCancelledError(error)) {
-        // 取消时仅回退到 PENDING，保留可重试语义；不污染失败路径，避免误计失败率与误触发告警。
-        await prisma.mediaChapterPreview.update({
-          where: { imageId_chapterOrder: { imageId: item.imageId, chapterOrder: item.chapterOrder } },
-          data: { status: 'PENDING', previewPath: null, previewUpdatedAt: null, error: null }
-        })
-        throw error
-      }
-
-      const message = error instanceof Error ? error.message : 'Unknown error'
-      result.failed += 1
-      pushFailedSample(result, {
-        imageId: item.imageId,
-        path: item.videoPath,
-        chapterOrder: item.chapterOrder,
-        error: message
-      })
-      await prisma.mediaChapterPreview.update({
-        where: { imageId_chapterOrder: { imageId: item.imageId, chapterOrder: item.chapterOrder } },
-        data: { status: 'FAILED', previewPath: null, previewUpdatedAt: null, error: message }
-      })
-    }
-
-    const percentage = Math.min(99, 2 + Math.floor((result.processed / pendingItems.length) * 97))
-    await report(
-      percentage,
-      `已处理 ${result.processed}/${pendingItems.length}：生成 ${result.generated}，失败 ${result.failed}，复用 ${result.reused}`
-    )
-  }
-
-  if (mode === 'FULL') {
-    result.orphanedFilesDeleted = await cleanupOrphanedPreviews()
-  }
-  await report(
-    100,
-    `${mode === 'FULL' ? '全量生成' : '增量补齐'}完成：生成 ${result.generated}，失败 ${result.failed}，复用 ${result.reused}${
-      mode === 'FULL' ? `，清理孤儿 ${result.orphanedFilesDeleted}` : ''
-    }`
-  )
-  return result
-}
-
-const VIDEO_GENERATION_SELECT = {
-  id: true,
-  path: true,
-  chaptersPath: true,
-  chaptersHash: true,
-  chaptersCount: true,
-  chaptersDuration: true,
-  chapterPreviews: {
-    orderBy: { chapterOrder: 'asc' as const },
-    select: {
-      id: true,
-      chapterOrder: true,
-      chaptersHash: true,
-      status: true,
-      previewPath: true
-    }
-  }
-} as const
-
-async function findVideosForGeneration(mode: VideoChapterPreviewGenerationMode) {
-  if (mode === 'FULL') {
-    return prisma.image.findMany({
-      where: { chaptersPath: { not: null } },
-      orderBy: { id: 'asc' },
-      select: VIDEO_GENERATION_SELECT
-    })
-  }
-
-  const candidates = await prisma.$queryRaw<Array<{ id: number }>>`
-    SELECT image."id"
-    FROM "Image" AS image
-    WHERE image."chaptersPath" IS NOT NULL
-      AND (
-        SELECT COUNT(*)
-        FROM "MediaChapterPreview" AS preview
-        WHERE preview."imageId" = image."id"
-          AND preview."status" = 'COMPLETED'
-          AND preview."chaptersHash" = image."chaptersHash"
-          AND preview."previewPath" IS NOT NULL
-      ) < image."chaptersCount"
-    ORDER BY image."id" ASC
-  `
-
-  if (candidates.length === 0) return []
-
-  return prisma.image.findMany({
-    where: { id: { in: candidates.map((candidate) => candidate.id) } },
-    orderBy: { id: 'asc' },
-    select: VIDEO_GENERATION_SELECT
-  })
-}
-
-export function buildChapterCaptureTimes(start: number, end: number): number[] {
-  const duration = Math.max(0, end - start)
-  // 优先尝试章节开始后 1 秒（短章节取中点），再尝试 3 秒处，最后回退到中点；
-  // 所有候选都限制在章节边界内，并按 CAPTURE_EPSILON_SECONDS 去重，避免重复采样边界过渡帧。
-  const midpoint = start + duration / 2
-  if (duration <= 0) return [Math.max(start, 0)]
-
-  const inset = Math.min(0.1, duration / 4)
-  const minimum = start + inset
-  const maximum = Math.max(minimum, end - inset)
-  const clamp = (value: number) => Math.min(Math.max(value, minimum), maximum)
-  const candidates = [duration >= 1.2 ? clamp(start + 1) : midpoint, clamp(start + 3), midpoint]
-
-  return candidates.filter(
-    (candidate, index) =>
-      candidates.findIndex((other) => Math.abs(other - candidate) < CAPTURE_EPSILON_SECONDS) === index
-  )
-}
-
-export function calculateFrameLuma(channels: Array<{ mean: number }>): number {
-  if (channels.length === 0) return 0
-  if (channels.length < 3) return channels[0]?.mean ?? 0
-  return 0.2126 * channels[0]!.mean + 0.7152 * channels[1]!.mean + 0.0722 * channels[2]!.mean
-}
-
-function buildPreviewRelativePath(imageId: number, chaptersHash: string, chapterOrder: number) {
-  return `${imageId}/${chaptersHash}/${chapterOrder}.webp`
-}
-
-async function syncImageChapterSummary(
-  video: { id: number; chaptersHash: string | null; chaptersCount: number; chaptersDuration: number | null },
-  manifest: VideoChapterManifest,
-  chaptersHash: string
-) {
-  if (
-    video.chaptersHash === chaptersHash &&
-    video.chaptersCount === manifest.chapters.length &&
-    video.chaptersDuration === manifest.duration
-  ) {
-    return
-  }
-
-  await prisma.image.update({
-    where: { id: video.id },
-    data: {
-      chaptersHash,
-      chaptersCount: manifest.chapters.length,
-      chaptersDuration: manifest.duration,
-      chaptersUpdatedAt: new Date()
-    }
-  })
-}
-
-async function generateRepresentativePreview(
-  sourcePath: string,
-  outputPath: string,
-  captureTimes: number[],
-  options: {
-    checkCancelled?: CancellationCheck
-    ensureNotCancelled: () => Promise<void>
-  }
-) {
-  if (captureTimes.length === 0) throw new Error('No valid chapter capture time')
-  await fs.mkdir(path.dirname(outputPath), { recursive: true })
-
-  const candidates: Array<{ path: string; captureTime: number; luma: number }> = []
-  const candidatePaths: string[] = []
-  let selected: (typeof candidates)[number] | undefined
-
+  assertLegacyBackgroundExecutionAllowed('VIDEO_CHAPTER_PREVIEW_GENERATION')
+  const controller = new AbortController()
+  const poll = options.checkCancelled
+    ? setInterval(() => {
+        void Promise.resolve(options.checkCancelled?.())
+          .then((cancelled) => {
+            if (cancelled && !controller.signal.aborted) controller.abort(new Error('Task cancelled'))
+          })
+          .catch((error) => {
+            if (!controller.signal.aborted) {
+              controller.abort(error instanceof Error ? error : new Error('Cancellation check failed'))
+            }
+          })
+      }, 250)
+    : undefined
+  poll?.unref()
   try {
-    for (const [index, captureTime] of captureTimes.entries()) {
-      await options.ensureNotCancelled()
-      const candidatePath = `${outputPath}.${process.pid}.${Date.now()}.${index}.tmp.webp`
-      candidatePaths.push(candidatePath)
-      await extractFrame(sourcePath, candidatePath, captureTime, options.checkCancelled)
-      await options.ensureNotCancelled()
-      // Sharp/libvips 在 Windows 上可能会短暂保留基于路径的文件句柄，导致候选文件无法重命名。
-      // 先读取文件可在 Sharp 执行前关闭该文件句柄。
-      const candidateBuffer = await fs.readFile(candidatePath)
-      const stats = await sharp(candidateBuffer).stats()
-      const candidate = { path: candidatePath, captureTime, luma: calculateFrameLuma(stats.channels) }
-      candidates.push(candidate)
-
-      // 亮度超过阈值即认为是可见代表帧，可提前返回；若都偏暗（黑场等），退化为“最亮帧”以保留可视性。
-      if (candidate.luma >= BLACK_FRAME_LUMA_THRESHOLD) {
-        selected = candidate
-        break
-      }
-    }
-
-    selected ??= candidates.reduce((brightest, candidate) => (candidate.luma > brightest.luma ? candidate : brightest))
-    await options.ensureNotCancelled()
-    await removeFileWithRetry(outputPath)
-    await renameFileWithRetry(selected.path, outputPath)
-    return { captureTime: selected.captureTime, luma: selected.luma }
-  } finally {
-    await Promise.all(candidatePaths.map((candidatePath) => removeFileWithRetry(candidatePath).catch(() => undefined)))
-  }
-}
-
-async function extractFrame(
-  sourcePath: string,
-  outputPath: string,
-  captureTime: number,
-  checkCancelled?: CancellationCheck
-) {
-  await execFfmpeg(
-    [
-      '-y',
-      '-ss',
-      captureTime.toFixed(3),
-      '-i',
-      sourcePath,
-      '-frames:v',
-      '1',
-      '-vf',
-      "scale='min(640,iw)':-2",
-      '-c:v',
-      'libwebp',
-      '-q:v',
-      '80',
-      outputPath
-    ],
-    checkCancelled
-  )
-}
-
-async function cleanupOrphanedPreviews() {
-  const rows = await prisma.mediaChapterPreview.findMany({
-    where: { previewPath: { not: null } },
-    select: { previewPath: true }
-  })
-  const referenced = new Set(rows.flatMap((row) => (row.previewPath ? [row.previewPath] : [])))
-  const { files, directories } = await collectPreviewStorageEntries()
-  let deleted = 0
-
-  for (const relativePath of files) {
-    if (!relativePath.endsWith('.webp') || referenced.has(relativePath)) continue
-    try {
-      await removeFileWithRetry(resolveDerivedMediaStoragePath(PREVIEW_ROOT, relativePath))
-      deleted += 1
-    } catch (error) {
-      // 孤儿清理只删除数据库已不引用的文件；Windows 上刚释放的 FFmpeg/Sharp 句柄可能仍短暂占用文件。
-      // 此时留给下一轮继续清理，避免清理失败推翻已经完成的生成任务。
-      if (!isRetryableFileLockError(error)) throw error
-    }
-  }
-
-  for (const relativePath of directories) {
-    try {
-      await retryFileOperation(() => fs.rmdir(resolveDerivedMediaStoragePath(PREVIEW_ROOT, relativePath)))
-    } catch (error) {
-      if (!isIgnorableDirectoryCleanupError(error)) throw error
-    }
-  }
-
-  return deleted
-}
-
-async function collectPreviewStorageEntries() {
-  const files: string[] = []
-  const directories: string[] = []
-
-  const visit = async (relativeDirectory = ''): Promise<void> => {
-    const directoryPath = relativeDirectory
-      ? resolveDerivedMediaStoragePath(PREVIEW_ROOT, relativeDirectory)
-      : PREVIEW_ROOT
-    const entries = await fs.readdir(directoryPath, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return []
-      throw error
-    })
-
-    for (const entry of entries) {
-      const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name
-      if (entry.isDirectory()) {
-        await visit(relativePath)
-        directories.push(relativePath)
-      } else if (entry.isFile()) {
-        files.push(relativePath)
-      }
-    }
-  }
-
-  await visit()
-  return { files, directories }
-}
-
-async function removeFileWithRetry(filePath: string) {
-  return retryFileOperation(() => fs.rm(filePath, { force: true }))
-}
-
-async function renameFileWithRetry(sourcePath: string, destinationPath: string) {
-  return retryFileOperation(() => fs.rename(sourcePath, destinationPath))
-}
-
-async function retryFileOperation<T>(operation: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await operation()
-    } catch (error) {
-      const retryDelay = FILE_LOCK_RETRY_DELAYS_MS[attempt]
-      if (retryDelay === undefined || !isRetryableFileLockError(error)) throw error
-      await wait(retryDelay)
-    }
-  }
-}
-
-function isRetryableFileLockError(error: unknown) {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code
-  return code === 'EBUSY' || code === 'EPERM' || code === 'EACCES'
-}
-
-function isIgnorableDirectoryCleanupError(error: unknown) {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code
-  return code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST' || isRetryableFileLockError(error)
-}
-
-function wait(milliseconds: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
-}
-
-async function isFile(filePath: string) {
-  return fs
-    .stat(filePath)
-    .then((stat) => stat.isFile())
-    .catch(() => false)
-}
-
-function pushFailedSample(
-  result: VideoChapterPreviewGenerationResult,
-  sample: VideoChapterPreviewGenerationResult['failedSamples'][number]
-) {
-  if (result.failedSamples.length < FAILED_SAMPLE_LIMIT) result.failedSamples.push(sample)
-}
-
-function execFfmpeg(args: string[], checkCancelled?: CancellationCheck) {
-  return new Promise<void>((resolve, reject) => {
-    // 子进程回调、取消轮询和终止兜底可能竞争完成同一个 Promise，settled 保证只结算一次。
-    // 取消后主动终止 FFmpeg；若退出回调未及时返回，宽限计时器负责结束等待。
-    let settled = false
-    let cancellationTimer: ReturnType<typeof setTimeout> | undefined
-    let terminationTimer: ReturnType<typeof setTimeout> | undefined
-    let terminationError: Error | undefined
-    let child: ReturnType<typeof childProcess.execFile> | undefined
-
-    const finish = (error?: Error) => {
-      if (settled) return
-      settled = true
-      if (cancellationTimer) clearTimeout(cancellationTimer)
-      if (terminationTimer) clearTimeout(terminationTimer)
-      if (error) reject(error)
-      else resolve()
-    }
-
-    const terminate = (error: Error) => {
-      if (settled || terminationError) return
-      terminationError = error
-      if (!child?.kill('SIGKILL')) {
-        finish(error)
-        return
-      }
-      terminationTimer = setTimeout(() => finish(error), PROCESS_TERMINATION_GRACE_MS)
-    }
-
-    const pollCancellation = async () => {
-      if (settled || !checkCancelled) return
-      try {
-        if (await checkCancelled()) {
-          terminate(new Error('Task cancelled'))
-          return
-        }
-      } catch (error) {
-        terminate(error instanceof Error ? error : new Error('Failed to check task cancellation'))
-        return
-      }
-      if (!settled) {
-        cancellationTimer = setTimeout(() => void pollCancellation(), CANCELLATION_POLL_INTERVAL_MS)
-      }
-    }
-
-    child = childProcess.execFile(
-      'ffmpeg',
-      args,
-      {
-        maxBuffer: 1024 * 1024 * 10,
-        timeout: FFMPEG_TIMEOUT_MS,
-        killSignal: 'SIGKILL'
+    if (await options.checkCancelled?.()) controller.abort(new Error('Task cancelled'))
+    return await generateVideoChapterPreviews({
+      jobId: 'legacy-chapter-compat',
+      attempt: 1,
+      mode: options.mode ?? 'FULL',
+      database: prisma as unknown as VideoProcessingDatabase,
+      config: {
+        scanRoot: options.scanPath,
+        chapterPreviewRoot: VIDEO_CHAPTER_PREVIEW_STORAGE_ROOT,
+        ffmpegThreads: readPositiveInteger(process.env.FFMPEG_THREADS, 1)
       },
-      (error, _stdout, stderr) => {
-        if (terminationError) {
-          finish(terminationError)
-        } else if (error) {
-          const processError = error as Error & { killed?: boolean }
-          finish(
-            processError.killed
-              ? new Error(`FFmpeg timed out after ${FFMPEG_TIMEOUT_MS}ms`)
-              : new Error(String(stderr || error.message).trim())
-          )
-        } else {
-          finish()
-        }
-      }
-    )
-
-    void pollCancellation()
-  })
+      processRunner: runVideoProcess,
+      signal: controller.signal,
+      progress: async (progress) => {
+        await options.onProgress?.({ percentage: progress.percentage, message: progress.message })
+      },
+      mutate: <T>(operation: (transaction: VideoProcessingTransaction) => Promise<T>) =>
+        prisma.$transaction((transaction) => operation(transaction as unknown as VideoProcessingTransaction))
+    })
+  } finally {
+    if (poll) clearInterval(poll)
+  }
 }
 
-function isTaskCancelledError(error: unknown): error is Error {
-  return error instanceof Error && error.message === 'Task cancelled'
+function readPositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
 }
