@@ -2,8 +2,8 @@
 
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 
-export type ScanRunStatus = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
-export type ScanRunItemStatus = 'SUCCESS' | 'SKIPPED' | 'FAILED'
+export type ScanRunStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'RETRY_WAIT' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+export type ScanRunItemStatus = 'PENDING' | 'PROCESSING' | 'RETRY_WAIT' | 'SUCCESS' | 'SKIPPED' | 'FAILED'
 
 export function StatusBadge({ status }: { status: ScanRunStatus }) {
   return (
@@ -15,16 +15,15 @@ export function StatusBadge({ status }: { status: ScanRunStatus }) {
 }
 
 export function ItemStatusBadge({ status }: { status: ScanRunItemStatus }) {
-  return (
-    <AdminStatusBadge status={status}>
-      {formatItemStatus(status)}
-    </AdminStatusBadge>
-  )
+  return <AdminStatusBadge status={status}>{formatItemStatus(status)}</AdminStatusBadge>
 }
 
 export function formatStatus(status: ScanRunStatus) {
   return {
+    PENDING: '等待执行',
     RUNNING: '运行中',
+    PAUSED: '已暂停',
+    RETRY_WAIT: '等待重试',
     COMPLETED: '完成',
     FAILED: '失败',
     CANCELLED: '已取消'
@@ -33,6 +32,9 @@ export function formatStatus(status: ScanRunStatus) {
 
 export function formatItemStatus(status: ScanRunItemStatus) {
   return {
+    PENDING: '等待处理',
+    PROCESSING: '处理中',
+    RETRY_WAIT: '等待重试',
     SUCCESS: '成功',
     SKIPPED: '跳过',
     FAILED: '失败'
@@ -81,7 +83,8 @@ export function formatAction(action: string) {
   )
 }
 
-export function formatDate(value: Date | string) {
+export function formatDate(value: Date | string | null) {
+  if (!value) return '等待执行'
   return new Date(value).toLocaleString('zh-CN', {
     month: '2-digit',
     day: '2-digit',
@@ -90,7 +93,8 @@ export function formatDate(value: Date | string) {
   })
 }
 
-export function formatFullDate(value: Date | string) {
+export function formatFullDate(value: Date | string | null) {
+  if (!value) return '等待执行'
   return new Date(value).toLocaleString('zh-CN', {
     year: 'numeric',
     month: '2-digit',

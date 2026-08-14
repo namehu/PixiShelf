@@ -46,7 +46,13 @@ describe('enqueueJob', () => {
     harness.create.mockResolvedValue(created)
 
     const result = await enqueueJob(
-      { type: 'SCAN', triggerSource: 'MANUAL', requestedByUserId: 'user-1', priority: 10 },
+      {
+        type: 'SCAN',
+        triggerSource: 'MANUAL',
+        requestedByUserId: 'user-1',
+        priority: 10,
+        payload: { mode: 'INCREMENTAL' }
+      },
       harness.client,
       () => new Date('2026-08-14T10:00:00.000Z')
     )
@@ -242,7 +248,8 @@ describe('enqueueJob', () => {
       triggerSource: 'MANUAL' as const,
       requestedByUserId: 'user-1',
       idempotencyKey: 'concurrent-manual-1',
-      priority: 10
+      priority: 10,
+      payload: { mode: 'INCREMENTAL' as const }
     }
 
     const results = await Promise.all([enqueueJob(request, client), enqueueJob(request, client)])
@@ -260,7 +267,7 @@ describe('enqueueJob', () => {
       triggerSource: 'MANUAL',
       requestedByUserId: 'user-1',
       idempotencyKey,
-      payload: {},
+      payload: { mode: 'INCREMENTAL' },
       queuePriority: 10,
       effectivePriority: 10
     })
@@ -289,7 +296,8 @@ describe('enqueueJob', () => {
           triggerSource: 'MANUAL',
           requestedByUserId: 'user-1',
           idempotencyKey,
-          priority: 10
+          priority: 10,
+          payload: { mode: 'INCREMENTAL' }
         },
         client
       )
@@ -337,6 +345,7 @@ describe('job commands', () => {
   it('retries a terminal failure as a new linked instance without mutating history', async () => {
     const failed = jobRecord({
       status: 'FAILED',
+      payload: { mode: 'INCREMENTAL' },
       attempt: 3,
       maxAttempts: 3,
       workerId: 'worker-old',
@@ -408,6 +417,58 @@ describe('job commands', () => {
         })
       })
     )
+  })
+
+  it('canonicalizes a valid high-risk payload before creating a retry', async () => {
+    const failed = jobRecord({
+      type: 'MIGRATION',
+      status: 'FAILED',
+      payload: { selection: { mode: 'ARTWORK_IDS', artworkIds: [9, 3, 9] } },
+      finishedAt: new Date()
+    })
+    const retried = jobRecord({ id: 'job-migration-retry-1', type: 'MIGRATION', status: 'PENDING' })
+    const harness = commandHarness([failed, retried])
+    harness.create.mockResolvedValue(retried)
+
+    await retryJobCommand({ jobId: failed.id, requestedByUserId: 'admin-1' }, harness.client)
+
+    expect(harness.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          payload: {
+            selection: { mode: 'ARTWORK_IDS', artworkIds: [3, 9] },
+            safety: { transferMode: 'move', verifyAfterCopy: true, cleanupSource: true }
+          }
+        })
+      })
+    )
+  })
+
+  it('rejects retrying a historical v1 job whose payload no longer matches the strict contract', async () => {
+    const historical = jobRecord({ status: 'FAILED', payload: {}, finishedAt: new Date() })
+    const harness = commandHarness([historical])
+
+    const error = await retryJobCommand({ jobId: historical.id, requestedByUserId: 'admin-1' }, harness.client).catch(
+      (caught: unknown) => caught
+    )
+
+    expect(error).toBeInstanceOf(BackgroundTaskError)
+    expect(error).toMatchObject({ code: 'INVALID_STATE_TRANSITION' })
+    expect(harness.create).not.toHaveBeenCalled()
+    expect(harness.eventCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects retrying a future definition version that the current Worker cannot consume', async () => {
+    const future = jobRecord({ definitionVersion: 2, status: 'FAILED', finishedAt: new Date() })
+    const harness = commandHarness([future])
+
+    const error = await retryJobCommand({ jobId: future.id, requestedByUserId: 'admin-1' }, harness.client).catch(
+      (caught: unknown) => caught
+    )
+
+    expect(error).toBeInstanceOf(BackgroundTaskError)
+    expect(error).toMatchObject({ code: 'INVALID_STATE_TRANSITION' })
+    expect(harness.create).not.toHaveBeenCalled()
   })
 
   it('rejects invalid transitions without writing an event', async () => {

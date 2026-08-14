@@ -104,25 +104,28 @@ model Artwork {
 }
 
 model ArtworkExternalRef {
-  id               String                  @id @default(cuid())
-  artworkId        Int
-  providerKey      String                  @db.VarChar(50)
-  externalId       String
-  canonicalUrl     String                  @db.Text
-  locator          Json
-  metadataHash     String?
-  fetchedAt        DateTime?
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-  artwork          Artwork                 @relation(fields: [artworkId], references: [id], onDelete: Cascade)
-  snapshots        ArtworkSourceSnapshot[]
-  sourceTags       ArtworkTag[]
-  archiveImports   ArchiveImport[]
-  archiveRevisions ArchiveRevision[]
+  id                String                  @id @default(cuid())
+  artworkId         Int
+  providerKey       String                  @db.VarChar(50)
+  externalId        String
+  canonicalUrl      String                  @db.Text
+  locator           Json
+  metadataHash      String?
+  lastSeenScanRunId String?                 @db.VarChar(30)
+  fetchedAt         DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  artwork           Artwork                 @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  snapshots         ArtworkSourceSnapshot[]
+  sourceTags        ArtworkTag[]
+  archiveImports    ArchiveImport[]
+  archiveRevisions  ArchiveRevision[]
 
   @@unique([providerKey, externalId])
   @@index([artworkId])
   @@index([providerKey, fetchedAt])
+  @@index([lastSeenScanRunId])
+  @@index([providerKey, createdAt, lastSeenScanRunId], map: "artwork_external_refs_reconcile_sweep_idx")
   @@map("artwork_external_refs")
 }
 
@@ -445,55 +448,57 @@ enum TranslateType {
 }
 
 model SystemJob {
-  id                   String                 @id @default(cuid())
-  type                 String                 @db.VarChar(80)
-  definitionVersion    Int                    @default(1)
-  status               JobStatus              @default(PENDING)
-  triggerSource        JobTriggerSource       @default(SYSTEM)
-  requestedByUserId    String?
-  scheduledTaskId      String?
-  scheduledForDate     String?                @db.VarChar(10)
-  idempotencyKey       String?                @unique @db.VarChar(180)
-  payload              Json?
-  progress             Int                    @default(0)
-  stage                String?                @db.VarChar(80)
-  message              String?                @db.Text
-  result               Json?
-  errorCode            String?                @db.VarChar(80)
-  error                String?                @db.Text
-  skipReason           JobSkipReason?
-  skippedAt            DateTime?
-  targetImageId        Int?
-  targetPath           String?                @db.Text
-  mode                 String?                @db.VarChar(50)
-  startedAt            DateTime?
-  lastAttemptStartedAt DateTime?
-  heartbeatAt          DateTime?
-  finishedAt           DateTime?
-  cancelRequestedAt    DateTime?
-  pauseRequestedAt     DateTime?
-  attempt              Int                    @default(0)
-  maxAttempts          Int                    @default(3)
-  parentJobId          String?
-  parentJob            SystemJob?             @relation("SystemJobChildren", fields: [parentJobId], references: [id], onDelete: SetNull)
-  childJobs            SystemJob[]            @relation("SystemJobChildren")
-  queuePriority        Int                    @default(100)
-  effectivePriority    Int                    @default(100)
-  availableAt          DateTime?              @default(now())
-  deadlineAt           DateTime?
-  workerId             String?                @db.VarChar(120)
-  leaseToken           String?                @db.Uuid
-  leaseExpiresAt       DateTime?
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
-  scheduledTask        ScheduledTask?         @relation(fields: [scheduledTaskId], references: [id], onDelete: SetNull)
-  events               SystemJobEvent[]
-  resourceLeases       JobResourceLease[]
-  gcEntries            DerivedMediaGcEntry[]
-  scanRuns             ScanRun[]
-  pendingReplaceBatch  PendingReplaceBatch?
-  archiveImport        ArchiveImport?
-  keyframeSet          MediaVideoKeyframeSet?
+  id                      String                   @id @default(cuid())
+  type                    String                   @db.VarChar(80)
+  definitionVersion       Int                      @default(1)
+  status                  JobStatus                @default(PENDING)
+  triggerSource           JobTriggerSource         @default(SYSTEM)
+  requestedByUserId       String?
+  scheduledTaskId         String?
+  scheduledForDate        String?                  @db.VarChar(10)
+  idempotencyKey          String?                  @unique @db.VarChar(180)
+  payload                 Json?
+  progress                Int                      @default(0)
+  stage                   String?                  @db.VarChar(80)
+  message                 String?                  @db.Text
+  result                  Json?
+  errorCode               String?                  @db.VarChar(80)
+  error                   String?                  @db.Text
+  skipReason              JobSkipReason?
+  skippedAt               DateTime?
+  targetImageId           Int?
+  targetPath              String?                  @db.Text
+  mode                    String?                  @db.VarChar(50)
+  startedAt               DateTime?
+  lastAttemptStartedAt    DateTime?
+  heartbeatAt             DateTime?
+  finishedAt              DateTime?
+  cancelRequestedAt       DateTime?
+  pauseRequestedAt        DateTime?
+  attempt                 Int                      @default(0)
+  maxAttempts             Int                      @default(3)
+  parentJobId             String?
+  parentJob               SystemJob?               @relation("SystemJobChildren", fields: [parentJobId], references: [id], onDelete: SetNull)
+  childJobs               SystemJob[]              @relation("SystemJobChildren")
+  queuePriority           Int                      @default(100)
+  effectivePriority       Int                      @default(100)
+  availableAt             DateTime?                @default(now())
+  deadlineAt              DateTime?
+  workerId                String?                  @db.VarChar(120)
+  leaseToken              String?                  @db.Uuid
+  leaseExpiresAt          DateTime?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  scheduledTask           ScheduledTask?           @relation(fields: [scheduledTaskId], references: [id], onDelete: SetNull)
+  events                  SystemJobEvent[]
+  resourceLeases          JobResourceLease[]
+  gcEntries               DerivedMediaGcEntry[]
+  scanRun                 ScanRun?
+  pendingReplaceBatch     PendingReplaceBatch?
+  pendingReplaceOperation PendingReplaceOperation?
+  migrationItems          MigrationJobItem[]
+  archiveImport           ArchiveImport?
+  keyframeSet             MediaVideoKeyframeSet?
 
   @@unique([scheduledTaskId, scheduledForDate])
   @@index([type, status])
@@ -733,6 +738,7 @@ model PendingReplaceBatch {
   createdAt      DateTime                  @default(now())
   updatedAt      DateTime                  @updatedAt
   items          PendingReplaceItem[]
+  operations     PendingReplaceOperation[]
 
   @@index([status, createdAt])
   @@index([createdAt])
@@ -740,32 +746,35 @@ model PendingReplaceBatch {
 }
 
 model PendingReplaceItem {
-  id                  String                   @id @default(cuid())
+  id                  String                    @id @default(cuid())
   batchId             String
-  batch               PendingReplaceBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  batch               PendingReplaceBatch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
   artworkId           Int?
   externalId          String?
   artworkTitle        String?
   artistName          String?
-  sourceDirectory     String                   @db.Text
+  sourceDirectory     String                    @db.Text
   sourceDirectoryName String
-  targetDirectory     String?                  @db.Text
+  targetDirectory     String?                   @db.Text
   status              PendingReplaceItemStatus
-  included            Boolean                  @default(true)
+  included            Boolean                   @default(true)
   fingerprint         String?
   sourceManifest      Json
   oldMediaSnapshot    Json
   newMediaSnapshot    Json
   targetFileSnapshot  Json
   warnings            Json
-  error               String?                  @db.Text
-  backupDirectory     String?                  @db.Text
-  completedDirectory  String?                  @db.Text
+  error               String?                   @db.Text
+  backupDirectory     String?                   @db.Text
+  completedDirectory  String?                   @db.Text
   startedAt           DateTime?
   finishedAt          DateTime?
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  operations          PendingReplaceOperation[]
 
+  @@unique([batchId, sourceDirectoryName], map: "pending_replace_items_batch_source_directory_key")
+  @@unique([id, batchId], map: "pending_replace_items_id_batch_key")
   @@index([batchId, status])
   @@index([artworkId])
   @@index([externalId])
@@ -774,10 +783,12 @@ model PendingReplaceItem {
 
 enum PendingReplaceBatchStatus {
   PREVIEWED
+  DISCOVERING
   RUNNING
   CANCELLING
   COMPLETED
   PARTIAL_FAILED
+  FAILED
   CANCELLED
 }
 
@@ -789,43 +800,75 @@ enum PendingReplaceItemStatus {
   BACKING_UP
   SWAPPING
   COMMITTING
+  ARCHIVING
   SUCCESS
   ROLLING_BACK
   RESTORING
   RESTORE_SWAPPING
+  RESTORE_COMMITTED
+  CLEANING_BACKUP
   FAILED
   RESTORED
   BACKUP_CLEANED
 }
 
+enum PendingReplaceOperationMode {
+  DISCOVER
+  BATCH
+  RESTORE
+  CLEANUP
+}
+
+model PendingReplaceOperation {
+  systemJobId String                      @id
+  batchId     String
+  itemId      String?
+  mode        PendingReplaceOperationMode
+  createdAt   DateTime                    @default(now())
+  systemJob   SystemJob                   @relation(fields: [systemJobId], references: [id], onDelete: Cascade)
+  batch       PendingReplaceBatch         @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  item        PendingReplaceItem?         @relation(fields: [itemId, batchId], references: [id, batchId], onDelete: Restrict)
+
+  @@index([batchId])
+  @@index([itemId])
+  @@map("pending_replace_operations")
+}
+
 model ScanRun {
-  id                String        @id @default(cuid())
-  systemJobId       String?
-  systemJob         SystemJob?    @relation(fields: [systemJobId], references: [id], onDelete: SetNull)
-  type              ScanRunType
-  mode              ScanRunMode
-  status            ScanRunStatus @default(RUNNING)
-  startedAt         DateTime      @default(now())
-  finishedAt        DateTime?
-  durationMs        Int?
-  totalArtworks     Int           @default(0)
-  processedArtworks Int           @default(0)
-  succeededArtworks Int           @default(0)
-  skippedArtworks   Int           @default(0)
-  failedArtworks    Int           @default(0)
-  newArtists        Int           @default(0)
-  newTags           Int           @default(0)
-  newImages         Int           @default(0)
-  errorMessage      String?       @db.Text
-  logRef            String?       @db.Text
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  items             ScanRunItem[]
+  id                       String                           @id @default(cuid())
+  systemJobId              String?                          @unique
+  systemJob                SystemJob?                       @relation(fields: [systemJobId], references: [id], onDelete: SetNull)
+  type                     ScanRunType
+  mode                     ScanRunMode
+  status                   ScanRunStatus                    @default(RUNNING)
+  startedAt                DateTime?
+  finishedAt               DateTime?
+  durationMs               Int?
+  inputDigest              String?                          @db.VarChar(64)
+  inputCount               Int                              @default(0)
+  inputFrozenAt            DateTime?
+  checkpointStage          String?                          @db.VarChar(80)
+  checkpointOrdinal        Int                              @default(0)
+  totalArtworks            Int                              @default(0)
+  processedArtworks        Int                              @default(0)
+  succeededArtworks        Int                              @default(0)
+  skippedArtworks          Int                              @default(0)
+  failedArtworks           Int                              @default(0)
+  newArtists               Int                              @default(0)
+  newTags                  Int                              @default(0)
+  newImages                Int                              @default(0)
+  errorMessage             String?                          @db.Text
+  logRef                   String?                          @db.Text
+  createdAt                DateTime                         @default(now())
+  updatedAt                DateTime                         @updatedAt
+  items                    ScanRunItem[]
+  metadataInputs           ScanRunMetadataInput[]
+  localWorkInputs          ScanRunLocalWorkInput[]
+  localArtistMappingInputs ScanRunLocalArtistMappingInput[]
 
   @@index([startedAt])
   @@index([status, startedAt])
   @@index([type, mode, startedAt])
-  @@index([systemJobId])
   @@map("scan_runs")
 }
 
@@ -840,6 +883,8 @@ model ScanRunItem {
   metadataRelativePath String?           @db.Text
   status               ScanRunItemStatus
   action               ScanRunItemAction
+  checkpointKey        String?           @db.VarChar(180)
+  attempt              Int               @default(0)
   mediaCount           Int               @default(0)
   newImageCount        Int               @default(0)
   errorMessage         String?           @db.Text
@@ -849,10 +894,59 @@ model ScanRunItem {
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
 
+  @@unique([scanRunId, checkpointKey], map: "scan_run_items_run_checkpoint_key")
   @@index([scanRunId, status])
   @@index([scanRunId, action])
   @@index([externalId])
   @@map("scan_run_items")
+}
+
+model ScanRunMetadataInput {
+  id           String   @id @default(cuid())
+  scanRunId    String
+  ordinal      Int
+  relativePath String   @db.Text
+  contentHash  String?  @db.VarChar(64)
+  createdAt    DateTime @default(now())
+  scanRun      ScanRun  @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+
+  @@unique([scanRunId, ordinal], map: "scan_metadata_inputs_run_ordinal_key")
+  @@unique([scanRunId, relativePath], map: "scan_metadata_inputs_run_path_key")
+  @@map("scan_run_metadata_inputs")
+}
+
+model ScanRunLocalWorkInput {
+  id           String                    @id @default(cuid())
+  scanRunId    String
+  ordinal      Int
+  kind         ScanRunLocalWorkInputKind
+  relativePath String                    @db.Text
+  fingerprint  String?                   @db.VarChar(128)
+  createdAt    DateTime                  @default(now())
+  scanRun      ScanRun                   @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+
+  @@unique([scanRunId, ordinal], map: "scan_local_work_inputs_run_ordinal_key")
+  @@unique([scanRunId, kind, relativePath], map: "scan_local_work_inputs_run_kind_path_key")
+  @@map("scan_run_local_work_inputs")
+}
+
+model ScanRunLocalArtistMappingInput {
+  id              String   @id @default(cuid())
+  scanRunId       String
+  ordinal         Int
+  artistDirectory String   @db.Text
+  artistId        Int
+  createdAt       DateTime @default(now())
+  scanRun         ScanRun  @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+
+  @@unique([scanRunId, ordinal], map: "scan_local_artist_inputs_run_ordinal_key")
+  @@unique([scanRunId, artistDirectory], map: "scan_local_artist_inputs_run_directory_key")
+  @@map("scan_run_local_artist_mapping_inputs")
+}
+
+enum ScanRunLocalWorkInputKind {
+  MEDIA_DIRECTORY
+  ARCHIVE_MANIFEST
 }
 
 enum ScanRunType {
@@ -875,13 +969,19 @@ enum ScanRunMode {
 }
 
 enum ScanRunStatus {
+  PENDING
   RUNNING
+  PAUSED
+  RETRY_WAIT
   COMPLETED
   FAILED
   CANCELLED
 }
 
 enum ScanRunItemStatus {
+  PENDING
+  PROCESSING
+  RETRY_WAIT
   SUCCESS
   SKIPPED
   FAILED
@@ -896,6 +996,95 @@ enum ScanRunItemAction {
   FAILED_PARSE
   FAILED_COLLECT
   FAILED_WRITE
+}
+
+enum MigrationItemStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  RETRY_WAIT
+  COMPLETED
+  SKIPPED
+  FAILED
+  ACTION_REQUIRED
+  CANCELLED
+}
+
+enum MigrationItemPhase {
+  DISCOVERING
+  STAGING_FILES
+  VERIFYING_FILES
+  PUBLISHING_DATABASE
+  CLEANING_SOURCE
+  FINALIZING
+}
+
+enum MigrationFileStatus {
+  PENDING
+  STAGING
+  STAGED
+  PUBLISHED
+  SOURCE_CLEANUP_PENDING
+  COMPLETED
+  ACTION_REQUIRED
+  FAILED
+}
+
+model MigrationJobItem {
+  id                String               @id @default(cuid())
+  systemJobId       String
+  artworkIdSnapshot Int
+  selectionOrdinal  Int?
+  status            MigrationItemStatus  @default(PENDING)
+  phase             MigrationItemPhase   @default(DISCOVERING)
+  attempt           Int                  @default(0)
+  sourceDirectory   String?              @db.Text
+  targetDirectory   String?              @db.Text
+  sourceFingerprint String?              @db.VarChar(128)
+  targetFingerprint String?              @db.VarChar(128)
+  errorCode         String?              @db.VarChar(80)
+  errorSummary      String?              @db.Text
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  systemJob         SystemJob            @relation(fields: [systemJobId], references: [id], onDelete: Cascade)
+  files             MigrationFileEntry[]
+
+  @@unique([systemJobId, artworkIdSnapshot])
+  @@index([systemJobId, status, artworkIdSnapshot])
+  @@index([status, updatedAt])
+  @@map("migration_job_items")
+}
+
+model MigrationFileEntry {
+  id                 String              @id @default(cuid())
+  itemId             String
+  ordinal            Int
+  imageId            Int?
+  sourceRelativePath String              @db.Text
+  targetRelativePath String              @db.Text
+  stagedRelativePath String?             @db.Text
+  status             MigrationFileStatus @default(PENDING)
+  attempt            Int                 @default(0)
+  sourceSize         BigInt?
+  sourceMtimeMs      BigInt?
+  sourceSha256       String?             @db.VarChar(64)
+  stagedSha256       String?             @db.VarChar(64)
+  transferredAt      DateTime?
+  publishedAt        DateTime?
+  cleanedAt          DateTime?
+  errorCode          String?             @db.VarChar(80)
+  errorSummary       String?             @db.Text
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  item               MigrationJobItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, ordinal])
+  @@unique([itemId, sourceRelativePath])
+  @@unique([itemId, targetRelativePath], map: "migration_file_entries_item_target_path_key")
+  @@index([itemId, status, ordinal])
+  @@map("migration_file_entries")
 }
 
 model ScheduledTask {

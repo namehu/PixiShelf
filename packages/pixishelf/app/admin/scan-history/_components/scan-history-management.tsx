@@ -20,6 +20,9 @@ import {
 
 const ITEM_STATUS_FILTERS: Array<{ value: ScanRunItemStatus | 'ALL'; label: string }> = [
   { value: 'ALL', label: '全部' },
+  { value: 'PENDING', label: '等待处理' },
+  { value: 'PROCESSING', label: '处理中' },
+  { value: 'RETRY_WAIT', label: '等待重试' },
   { value: 'SUCCESS', label: '成功' },
   { value: 'SKIPPED', label: '跳过' },
   { value: 'FAILED', label: '失败' }
@@ -28,7 +31,14 @@ const ITEM_STATUS_FILTERS: Array<{ value: ScanRunItemStatus | 'ALL'; label: stri
 const numberFormatter = new Intl.NumberFormat('zh-CN')
 
 function parseStatusFilter(value: string | null): ScanRunItemStatus | 'ALL' {
-  return value === 'SUCCESS' || value === 'SKIPPED' || value === 'FAILED' ? value : 'ALL'
+  return value === 'PENDING' ||
+    value === 'PROCESSING' ||
+    value === 'RETRY_WAIT' ||
+    value === 'SUCCESS' ||
+    value === 'SKIPPED' ||
+    value === 'FAILED'
+    ? value
+    : 'ALL'
 }
 
 export function ScanHistoryManagement() {
@@ -42,7 +52,7 @@ export function ScanHistoryManagement() {
       { limit: 50 },
       {
         refetchInterval: (query) => {
-          const hasRunning = query.state.data?.some((run) => run.status === 'RUNNING')
+          const hasRunning = query.state.data?.some((run) => ['PENDING', 'RUNNING', 'RETRY_WAIT'].includes(run.status))
           return hasRunning ? 2000 : 12000
         }
       }
@@ -81,115 +91,79 @@ export function ScanHistoryManagement() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => historyQuery.refetch()}
-            disabled={historyQuery.isFetching}
-            className="self-start"
-          >
-            <RefreshCw
-              className={cn('size-4 motion-reduce:animate-none', historyQuery.isFetching && 'animate-spin')}
-              aria-hidden="true"
-            />
-            {historyQuery.isFetching ? '刷新中…' : '刷新记录'}
-          </Button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y py-3 text-sm text-muted-foreground">
-          <span>{historyQuery.isPending ? '正在读取记录…' : `最近 ${runs.length} 次运行`}</span>
-          <span>运行中的任务每 2 秒更新</span>
-          <span className="ml-auto hidden text-xs sm:inline">点击记录展开或收起明细</span>
-        </div>
-
-        {historyQuery.isError ? (
-          <QueryError
-            title="无法加载扫描记录"
-            description="请检查服务连接后重新加载。"
-            onRetry={() => historyQuery.refetch()}
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => historyQuery.refetch()}
+          disabled={historyQuery.isFetching}
+          className="self-start"
+        >
+          <RefreshCw
+            className={cn('size-4 motion-reduce:animate-none', historyQuery.isFetching && 'animate-spin')}
+            aria-hidden="true"
           />
-        ) : historyQuery.isPending ? (
-          <RunListSkeleton />
-        ) : runs.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <section aria-label="扫描运行记录" className="flex flex-col gap-2">
-            {runs.map((run, index) => {
-              const expanded = run.id === selectedRunId
-              const panelId = `scan-run-${run.id}-panel`
+          {historyQuery.isFetching ? '刷新中…' : '刷新记录'}
+        </Button>
+      </div>
 
-              return (
-                <article
-                  key={run.id}
-                  className={cn(
-                    'relative overflow-hidden rounded-xl border bg-card shadow-sm transition-[border-color,box-shadow]',
-                    expanded && 'border-primary/30 shadow-surface'
-                  )}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y py-3 text-sm text-muted-foreground">
+        <span>{historyQuery.isPending ? '正在读取记录…' : `最近 ${runs.length} 次运行`}</span>
+        <span>运行中的任务每 2 秒更新</span>
+        <span className="ml-auto hidden text-xs sm:inline">点击记录展开或收起明细</span>
+      </div>
+
+      {historyQuery.isError ? (
+        <QueryError
+          title="无法加载扫描记录"
+          description="请检查服务连接后重新加载。"
+          onRetry={() => historyQuery.refetch()}
+        />
+      ) : historyQuery.isPending ? (
+        <RunListSkeleton />
+      ) : runs.length === 0 ? (
+        <EmptyState />
+      ) : (
+        <section aria-label="扫描运行记录" className="flex flex-col gap-2">
+          {runs.map((run, index) => {
+            const expanded = run.id === selectedRunId
+            const panelId = `scan-run-${run.id}-panel`
+
+            return (
+              <article
+                key={run.id}
+                className={cn(
+                  'relative overflow-hidden rounded-xl border bg-card shadow-sm transition-[border-color,box-shadow]',
+                  expanded && 'border-primary/30 shadow-surface'
+                )}
+              >
+                <span
+                  className={cn('absolute inset-y-0 left-0 w-1', getStatusRailClass(run.status))}
+                  aria-hidden="true"
+                />
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-controls={panelId}
+                  onClick={() => updateView(expanded ? null : run.id)}
+                  className="w-full py-4 pr-4 pl-5 text-left transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 sm:pl-6"
                 >
-                  <span
-                    className={cn('absolute inset-y-0 left-0 w-1', getStatusRailClass(run.status))}
-                    aria-hidden="true"
-                  />
-                  <button
-                    type="button"
-                    aria-expanded={expanded}
-                    aria-controls={panelId}
-                    onClick={() => updateView(expanded ? null : run.id)}
-                    className="w-full py-4 pr-4 pl-5 text-left transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 sm:pl-6"
-                  >
-                    <div className="grid items-center gap-3 sm:grid-cols-[112px_minmax(0,1fr)_auto_auto] sm:gap-5">
-                      <div className="flex items-center justify-between gap-3 sm:block">
+                  <div className="grid items-center gap-3 sm:grid-cols-[112px_minmax(0,1fr)_auto_auto] sm:gap-5">
+                    <div className="flex items-center justify-between gap-3 sm:block">
+                      {run.startedAt ? (
                         <time
                           className="text-sm font-medium tabular-nums text-foreground"
                           dateTime={new Date(run.startedAt).toISOString()}
                         >
                           {formatDate(run.startedAt)}
                         </time>
-                        {index === 0 ? (
-                          <span className="hidden text-xs font-medium text-primary sm:mt-1 sm:block">最近运行</span>
-                        ) : null}
-                        <div className="flex items-center gap-2 sm:hidden">
-                          <StatusBadge status={run.status as ScanRunStatus} />
-                          <ChevronDown
-                            className={cn(
-                              'size-4 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
-                              expanded && 'rotate-180'
-                            )}
-                            aria-hidden="true"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            role="heading"
-                            aria-level={2}
-                            className="truncate text-sm font-semibold text-foreground sm:text-base"
-                          >
-                            {formatType(run.type)}
-                          </span>
-                          <span className="text-xs text-muted-foreground">{formatMode(run.mode)}</span>
-                        </div>
-                        <RunMetrics
-                          succeeded={run.succeededArtworks}
-                          skipped={run.skippedArtworks}
-                          failed={run.failedArtworks}
-                          media={run.newImages}
-                          className="mt-2 sm:hidden"
-                        />
-                      </div>
-
-                      <RunMetrics
-                        succeeded={run.succeededArtworks}
-                        skipped={run.skippedArtworks}
-                        failed={run.failedArtworks}
-                        media={run.newImages}
-                        className="hidden sm:flex"
-                      />
-
-                      <div className="hidden items-center gap-3 sm:flex">
+                      ) : (
+                        <span className="text-sm font-medium text-muted-foreground">等待执行</span>
+                      )}
+                      {index === 0 ? (
+                        <span className="hidden text-xs font-medium text-primary sm:mt-1 sm:block">最近运行</span>
+                      ) : null}
+                      <div className="flex items-center gap-2 sm:hidden">
                         <StatusBadge status={run.status as ScanRunStatus} />
                         <ChevronDown
                           className={cn(
@@ -200,88 +174,126 @@ export function ScanHistoryManagement() {
                         />
                       </div>
                     </div>
-                  </button>
 
-                  {expanded && selectedRun ? (
-                    <div id={panelId} className="border-t bg-muted/10 px-4 py-5 sm:px-6">
-                      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <dl className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-                          <div className="flex items-baseline gap-1.5">
-                            <dt className="text-muted-foreground">发现</dt>
-                            <dd className="font-semibold tabular-nums">
-                              {numberFormatter.format(selectedRun.totalArtworks)}
-                            </dd>
-                          </div>
-                          <div className="flex items-baseline gap-1.5">
-                            <dt className="text-muted-foreground">耗时</dt>
-                            <dd className="font-medium tabular-nums">{formatDuration(selectedRun.durationMs)}</dd>
-                          </div>
-                          <div className="flex items-baseline gap-1.5">
-                            <dt className="text-muted-foreground">明细</dt>
-                            <dd className="font-medium tabular-nums">
-                              {numberFormatter.format(detailItems.length)} 条
-                            </dd>
-                          </div>
-                          <div className="hidden text-xs text-muted-foreground md:block">
-                            {formatFullDate(selectedRun.startedAt)}
-                          </div>
-                        </dl>
-
-                        <div
-                          className="inline-flex w-fit rounded-lg bg-muted p-1"
-                          role="group"
-                          aria-label="按处理状态筛选"
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          role="heading"
+                          aria-level={2}
+                          className="truncate text-sm font-semibold text-foreground sm:text-base"
                         >
-                          {ITEM_STATUS_FILTERS.map((filter) => (
-                            <button
-                              key={filter.value}
-                              type="button"
-                              aria-pressed={statusFilter === filter.value}
-                              onClick={() => updateView(selectedRunId, filter.value)}
-                              className={cn(
-                                'min-h-8 rounded-md px-3 text-sm font-medium text-muted-foreground transition-[color,background-color,box-shadow] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                                statusFilter === filter.value && 'bg-background text-foreground shadow-sm'
-                              )}
-                            >
-                              {filter.label}
-                            </button>
-                          ))}
-                        </div>
+                          {formatType(run.type)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{formatMode(run.mode)}</span>
                       </div>
-
-                      {selectedRun.errorMessage ? (
-                        <div
-                          className="mb-4 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"
-                          role="alert"
-                        >
-                          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                          <p className="break-words">{selectedRun.errorMessage}</p>
-                        </div>
-                      ) : null}
-
-                      {detailQuery.isError ? (
-                        <QueryError
-                          title="无法加载作品明细"
-                          description="本次运行记录仍然保留，请重新加载明细。"
-                          onRetry={() => detailQuery.refetch()}
-                        />
-                      ) : (
-                        <ScanHistoryDetailTable items={detailItems} isFetching={detailQuery.isFetching} />
-                      )}
-
-                      {detailQuery.data?.nextCursor ? (
-                        <div className="mt-4 flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2.5 text-sm text-warning">
-                          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                          当前显示前 500 条明细。使用状态筛选可以缩小结果范围。
-                        </div>
-                      ) : null}
+                      <RunMetrics
+                        succeeded={run.succeededArtworks}
+                        skipped={run.skippedArtworks}
+                        failed={run.failedArtworks}
+                        media={run.newImages}
+                        className="mt-2 sm:hidden"
+                      />
                     </div>
-                  ) : null}
-                </article>
-              )
-            })}
-          </section>
-        )}
+
+                    <RunMetrics
+                      succeeded={run.succeededArtworks}
+                      skipped={run.skippedArtworks}
+                      failed={run.failedArtworks}
+                      media={run.newImages}
+                      className="hidden sm:flex"
+                    />
+
+                    <div className="hidden items-center gap-3 sm:flex">
+                      <StatusBadge status={run.status as ScanRunStatus} />
+                      <ChevronDown
+                        className={cn(
+                          'size-4 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                          expanded && 'rotate-180'
+                        )}
+                        aria-hidden="true"
+                      />
+                    </div>
+                  </div>
+                </button>
+
+                {expanded && selectedRun ? (
+                  <div id={panelId} className="border-t bg-muted/10 px-4 py-5 sm:px-6">
+                    <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <dl className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                        <div className="flex items-baseline gap-1.5">
+                          <dt className="text-muted-foreground">发现</dt>
+                          <dd className="font-semibold tabular-nums">
+                            {numberFormatter.format(selectedRun.totalArtworks)}
+                          </dd>
+                        </div>
+                        <div className="flex items-baseline gap-1.5">
+                          <dt className="text-muted-foreground">耗时</dt>
+                          <dd className="font-medium tabular-nums">{formatDuration(selectedRun.durationMs)}</dd>
+                        </div>
+                        <div className="flex items-baseline gap-1.5">
+                          <dt className="text-muted-foreground">明细</dt>
+                          <dd className="font-medium tabular-nums">{numberFormatter.format(detailItems.length)} 条</dd>
+                        </div>
+                        <div className="hidden text-xs text-muted-foreground md:block">
+                          {formatFullDate(selectedRun.startedAt)}
+                        </div>
+                      </dl>
+
+                      <div
+                        className="inline-flex w-fit rounded-lg bg-muted p-1"
+                        role="group"
+                        aria-label="按处理状态筛选"
+                      >
+                        {ITEM_STATUS_FILTERS.map((filter) => (
+                          <button
+                            key={filter.value}
+                            type="button"
+                            aria-pressed={statusFilter === filter.value}
+                            onClick={() => updateView(selectedRunId, filter.value)}
+                            className={cn(
+                              'min-h-8 rounded-md px-3 text-sm font-medium text-muted-foreground transition-[color,background-color,box-shadow] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              statusFilter === filter.value && 'bg-background text-foreground shadow-sm'
+                            )}
+                          >
+                            {filter.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {selectedRun.errorMessage ? (
+                      <div
+                        className="mb-4 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"
+                        role="alert"
+                      >
+                        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                        <p className="break-words">{selectedRun.errorMessage}</p>
+                      </div>
+                    ) : null}
+
+                    {detailQuery.isError ? (
+                      <QueryError
+                        title="无法加载作品明细"
+                        description="本次运行记录仍然保留，请重新加载明细。"
+                        onRetry={() => detailQuery.refetch()}
+                      />
+                    ) : (
+                      <ScanHistoryDetailTable items={detailItems} isFetching={detailQuery.isFetching} />
+                    )}
+
+                    {detailQuery.data?.nextCursor ? (
+                      <div className="mt-4 flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2.5 text-sm text-warning">
+                        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                        当前显示前 500 条明细。使用状态筛选可以缩小结果范围。
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </article>
+            )
+          })}
+        </section>
+      )}
     </div>
   )
 }

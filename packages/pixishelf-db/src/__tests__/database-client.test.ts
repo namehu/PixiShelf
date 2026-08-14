@@ -31,7 +31,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260815001000_add_video_media_queue_indexes' }],
+      [{ migrationName: '20260815011000_add_high_risk_job_checkpoints' }],
       [expectedIndex]
     ])
 
@@ -42,7 +42,7 @@ describe('database package', () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing system_jobs.definitionVersion, derived_media_gc_entries, job_resource_leases, system_job_events, worker_instances, migration:20260815001000_add_video_media_queue_indexes, index:system_jobs_single_executing_job_idx'
+      'Background queue schema is not ready: missing system_jobs.definitionVersion, derived_media_gc_entries, job_resource_leases, system_job_events, worker_instances, migration:20260815011000_add_high_risk_job_checkpoints, index:system_jobs_single_executing_job_idx'
     )
   })
 
@@ -55,7 +55,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260815001000_add_video_media_queue_indexes' }],
+      [{ migrationName: '20260815011000_add_high_risk_job_checkpoints' }],
       []
     ])
 
@@ -73,7 +73,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260815001000_add_video_media_queue_indexes' }],
+      [{ migrationName: '20260815011000_add_high_risk_job_checkpoints' }],
       [
         {
           ...expectedIndex,
@@ -96,7 +96,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260815001000_add_video_media_queue_indexes' }],
+      [{ migrationName: '20260815011000_add_high_risk_job_checkpoints' }],
       [{ ...expectedIndex, indexExpression: 'id' }]
     ])
 

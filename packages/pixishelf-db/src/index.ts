@@ -2,7 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
 
-const latestRequiredMigration = '20260815001000_add_video_media_queue_indexes'
+const latestRequiredMigration = '20260815011000_add_high_risk_job_checkpoints'
 
 const requiredQueueObjects = [
   'derived_media_gc_entries',

@@ -36,10 +36,10 @@ describe('RuntimeDispatcherQueue', () => {
     const repository = createRepository()
     const queue = new RuntimeDispatcherQueue(repository)
 
-    await queue.enqueueChild(executionFence(), { type: 'SCAN', payload: {} })
+    await queue.enqueueChild(executionFence(), { type: 'SCAN', payload: { mode: 'INCREMENTAL' } })
     expect(repository.enqueueChild).toHaveBeenCalledWith(
       expect.objectContaining({ jobId: 'job-1' }),
-      expect.objectContaining({ type: 'SCAN', payload: {} })
+      expect.objectContaining({ type: 'SCAN', payload: { mode: 'INCREMENTAL' } })
     )
     expect(() => queue.enqueueChild(executionFence(), { type: 'UNKNOWN_JOB', payload: {} })).toThrow()
   })

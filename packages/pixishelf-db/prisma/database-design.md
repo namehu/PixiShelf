@@ -102,6 +102,24 @@
 - `worker_instances(status, heartbeatAt)` 支持在没有任务运行时仍判断独立 Worker 的就绪状态与心跳新鲜度；它不依赖 `system_jobs.workerId`，因此空闲 Worker 也有可观测记录。
 - 未增加 `targetImageId` 新索引。兼容列的查询收益需要生产执行计划证明后再单独处理，避免无依据增加写放大。
 
+### 3.6 高风险任务的冻结输入与增量检查点
+
+扫描、本地目录导入、目录迁移和批量替换会同时修改数据库与媒体目录。它们不能依赖内存游标恢复，也不能把数千条输入直接塞入 `system_jobs.payload`。`20260815010000` 先提交旧枚举扩展，`20260815011000` 再建立以下纯增量结构：
+
+| 领域           | 持久结构                                                             | 关键字段/约束                                                                                                                             | 恢复语义                                                                                                    |
+| :------------- | :------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------- |
+| 扫描主记录     | `scan_runs`                                                          | `systemJobId` 可空唯一；`inputDigest/inputCount/inputFrozenAt`；`checkpointStage/checkpointOrdinal`；`startedAt` 可空                     | payload 只保存模式与输入摘要；Worker 从冻结表和 ordinal 恢复，不重新读取请求输入                            |
+| 扫描单项       | `scan_run_items`                                                     | 可空 `checkpointKey` 与 `(scanRunId, checkpointKey)` 唯一；`attempt >= 0`                                                                 | 历史项允许 key 为 null；新 Executor 用稳定 key 对终态 upsert，PostgreSQL 允许唯一索引中存在多个 null        |
+| 客户端列表输入 | `scan_run_metadata_inputs`                                           | `(scanRunId, ordinal)`、`(scanRunId, relativePath)` 双唯一；可选内容 SHA-256                                                              | CLIENT_LIST 在领取前冻结相对路径和内容指纹                                                                  |
+| 本地导入输入   | `scan_run_local_work_inputs`、`scan_run_local_artist_mapping_inputs` | 稳定 ordinal；work 的 kind/path 唯一；artistDirectory 唯一                                                                                | 冻结发现结果和当时的 artistId 映射；artistId 是快照，故意不建 Artist FK，避免后续删改改变原任务含义         |
+| 批量替换操作   | `pending_replace_operations`                                         | `systemJobId` 主键；batch/item 外键为 `RESTRICT`；RESTORE 必须有 itemId；复合 FK `(itemId,batchId)` 保证 item 属于同一 batch              | 一个中央任务只绑定一个明确操作；领域记录不能在任务仍引用时被级联删除                                        |
+| 目录迁移项     | `migration_job_items`                                                | `(systemJobId, artworkIdSnapshot)` 唯一；状态、阶段、attempt、源/目标 fingerprint                                                         | 每个作品独立恢复；`artworkIdSnapshot` 是冻结选择，不建 Artwork FK，不因作品后续删除而抹掉审计               |
+| 目录迁移文件   | `migration_file_entries`                                             | `(itemId, ordinal)`、`(itemId, sourceRelativePath)`、`(itemId, targetRelativePath)` 三重唯一；源/staging hash、size、mtime 和三个提交时间 | 文件先进入 attempt staging，校验后发布数据库，最后按 fingerprint 清理源；`ACTION_REQUIRED` 保留人工恢复证据 |
+
+`SCAN` payload 的 `FULL_RECONCILE` 映射到既有 `ScanRunMode.FULL`，而不是再增加一组含义重复的数据库枚举。Executor 在领取前记录 `inputFrozenAt`，处理每个 provider reference 时写 `ArtworkExternalRef.lastSeenScanRunId`。只有所有冻结输入都成功后，才允许按 `providerKey + createdAt <= inputFrozenAt + (lastSeenScanRunId IS NULL OR lastSeenScanRunId <> currentRun)` 清扫旧引用；显式包含 `NULL` 是为了让升级前从未写入 marker 的历史引用也能被正确对账。失败、暂停或重试不得执行 sweep。`artwork_external_refs_reconcile_sweep_idx(providerKey, createdAt, lastSeenScanRunId)` 与该有界查询一致，单列 marker 索引则保留用于诊断。
+
+两条新 migration 都使用显式事务。结构 migration 的第一项业务语句是只读 guard：若旧 `scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
+
 ## 4. 审计与维护 (Audit & Maintenance)
 
 ### 4.1 后台任务切换守卫与手写约束
@@ -153,3 +171,5 @@
 | `20260814100000` | 新增独立 Worker 实例状态枚举、心跳表及状态/心跳索引；纯增量建表，不改写旧数据                                                                   |
 | `20260814110000` | 在确认无旧执行态任务后，新增执行态部分唯一表达式索引，作为全局单并发的数据库最终栅栏                                                            |
 | `20260815001000` | 新增视频封面 backlog 公平游标及探测/封面复合索引；复合索引显式映射为 `MediaVideoMetadata_poster_backlog_idx`，避免 PostgreSQL 63 字节标识符截断 |
+| `20260815010000` | 在独立事务中扩展扫描运行、扫描单项、批量替换 batch/item 的暂停、重试和恢复状态；不混入结构 DDL                                                  |
+| `20260815011000` | 为四类高风险任务新增冻结输入、单项/文件检查点、批量替换操作绑定、迁移阶段状态、约束和恢复索引；部署前拒绝重复旧 ownership 数据                  |

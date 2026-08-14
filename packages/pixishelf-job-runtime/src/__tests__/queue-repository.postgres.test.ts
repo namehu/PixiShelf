@@ -358,7 +358,7 @@ describePostgres('PostgresQueueRepository integration', () => {
     await expect(
       repository.enqueueChild(parentFence, {
         type: 'SCAN',
-        payload: {},
+        payload: { mode: 'INCREMENTAL' },
         idempotencyKey
       })
     ).rejects.toThrow(conflictMessage)
@@ -420,7 +420,7 @@ describePostgres('PostgresQueueRepository integration', () => {
     await expect(
       repository.enqueueChild(parentFence, {
         type: 'SCAN',
-        payload: {},
+        payload: { mode: 'INCREMENTAL' },
         availableAt: clock.now(),
         deadlineAt: clock.now()
       })

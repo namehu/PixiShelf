@@ -273,7 +273,9 @@ export async function getScanRunDetail(input: GetScanRunDetailInput) {
 }
 
 /** 清理 ScanRun 审计历史：只删除终态记录，包含默认历史列表隐藏的 LOCAL_CREATE，明细依赖数据库级联删除 */
-export async function cleanupScanRunHistory(input: CleanupScanRunHistoryInput = {}): Promise<CleanupScanRunHistoryResult> {
+export async function cleanupScanRunHistory(
+  input: CleanupScanRunHistoryInput = {}
+): Promise<CleanupScanRunHistoryResult> {
   const now = input.now ?? new Date()
   const maxAgeDays = input.maxAgeDays ?? DEFAULT_RETENTION_MAX_AGE_DAYS
   const maxRunsPerType = input.maxRunsPerType ?? DEFAULT_RETENTION_MAX_RUNS_PER_TYPE
@@ -367,7 +369,7 @@ async function updateTerminalScanRun(
     data: {
       status,
       finishedAt,
-      durationMs: result?.processingTime ?? (run ? finishedAt.getTime() - run.startedAt.getTime() : null),
+      durationMs: result?.processingTime ?? (run?.startedAt ? finishedAt.getTime() - run.startedAt.getTime() : null),
       totalArtworks: result?.totalArtworks,
       processedArtworks: counts.processedArtworks,
       succeededArtworks: counts.succeededArtworks,

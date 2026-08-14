@@ -354,11 +354,23 @@ export async function retryJobCommand(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
     assertStatus(job, ['FAILED', 'CANCELLED', 'SKIPPED'], 'retry')
-    if (job.definitionVersion < 1) {
-      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Legacy definition version 0 jobs cannot be retried')
+    if (job.definitionVersion !== JOB_DEFINITION_VERSION) {
+      throw new BackgroundTaskError(
+        'INVALID_STATE_TRANSITION',
+        `Only definition version ${JOB_DEFINITION_VERSION} jobs can be retried; create a new task instead`
+      )
+    }
+    let retryPayload
+    try {
+      retryPayload = parseJobPayload(jobTypeSchema.parse(job.type), job.payload ?? {})
+    } catch {
+      throw new BackgroundTaskError(
+        'INVALID_STATE_TRANSITION',
+        'This historical job does not contain a valid v1 payload; create a new task instead'
+      )
     }
     const priority = Math.min(job.queuePriority, 99)
-    const legacyProjection = deriveLegacyJobProjection(job.type, job.definitionVersion, job.payload)
+    const legacyProjection = deriveLegacyJobProjection(job.type, job.definitionVersion, retryPayload)
     const retried = await transaction.systemJob.create({
       data: {
         type: job.type,
@@ -366,7 +378,7 @@ export async function retryJobCommand(
         status: 'PENDING',
         triggerSource: 'RETRY',
         requestedByUserId: requestedByUserId ?? job.requestedByUserId,
-        payload: job.payload === null ? Prisma.JsonNull : (job.payload as Prisma.InputJsonValue),
+        payload: retryPayload === null ? Prisma.JsonNull : (retryPayload as Prisma.InputJsonValue),
         parentJobId: job.id,
         queuePriority: priority,
         effectivePriority: priority,

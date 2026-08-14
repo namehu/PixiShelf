@@ -69,6 +69,133 @@ describe('job wire contracts', () => {
     ).toThrow()
   })
 
+  it('freezes strict scan and local-import inputs instead of carrying unbounded work lists', () => {
+    const digest = 'a'.repeat(64)
+    expect(
+      parseJobPayload('SCAN', {
+        mode: 'CLIENT_LIST',
+        existingPolicy: 'REFRESH',
+        inputCount: 10_000,
+        inputDigest: digest
+      })
+    ).toEqual({ mode: 'CLIENT_LIST', existingPolicy: 'REFRESH', inputCount: 10_000, inputDigest: digest })
+    expect(parseJobPayload('SCAN', { mode: 'ARTWORK_RESCAN', artworkId: 42 })).toEqual({
+      mode: 'ARTWORK_RESCAN',
+      artworkId: 42
+    })
+    expect(() => parseJobPayload('SCAN', { mode: 'INCREMENTAL', metadataList: ['unbounded'] })).toThrow()
+    expect(() =>
+      parseJobPayload('SCAN', { mode: 'CLIENT_LIST', existingPolicy: 'SKIP', inputCount: 0, inputDigest: digest })
+    ).toThrow()
+
+    expect(parseJobPayload('LOCAL_DIRECTORY_IMPORT', { mappingCount: 0, mappingDigest: digest })).toEqual({
+      defaultTagIds: [],
+      mappingCount: 0,
+      mappingDigest: digest
+    })
+    expect(
+      parseJobPayload('LOCAL_DIRECTORY_IMPORT', {
+        defaultTagIds: [9, 2, 5],
+        mappingCount: 0,
+        mappingDigest: digest
+      })
+    ).toMatchObject({ defaultTagIds: [2, 5, 9] })
+    expect(() =>
+      parseJobPayload('LOCAL_DIRECTORY_IMPORT', {
+        defaultTagIds: [2, 2],
+        mappingCount: 1,
+        mappingDigest: digest
+      })
+    ).toThrow()
+  })
+
+  it('canonicalizes migration selection while keeping operational tuning out of durable payloads', () => {
+    const safety = { transferMode: 'copy', verifyAfterCopy: true, cleanupSource: false }
+    const first = parseJobPayload('MIGRATION', {
+      selection: { mode: 'ARTWORK_IDS', artworkIds: [9, 3, 9, 5] },
+      safety
+    })
+    const second = parseJobPayload('MIGRATION', {
+      selection: { mode: 'ARTWORK_IDS', artworkIds: [5, 9, 3] },
+      safety
+    })
+    expect(first).toEqual(second)
+    expect(first).toMatchObject({ selection: { mode: 'ARTWORK_IDS', artworkIds: [3, 5, 9] } })
+    expect(() =>
+      parseJobPayload('MIGRATION', {
+        selection: { mode: 'ARTWORK_IDS', artworkIds: [3] },
+        safety,
+        batchSize: 100
+      })
+    ).toThrow()
+  })
+
+  it('validates frozen migration query bounds, media vocabulary, and calendar dates', () => {
+    expect(
+      parseJobPayload('MIGRATION', {
+        selection: {
+          mode: 'QUERY',
+          upperArtworkId: 900,
+          filters: {
+            search: 'landscape',
+            startDate: '2026-08-01',
+            endDate: '2026-08-31',
+            mediaTypes: ['.m4v', '.jpg']
+          }
+        }
+      })
+    ).toMatchObject({
+      selection: {
+        mode: 'QUERY',
+        upperArtworkId: 900,
+        filters: { exactMatch: false, mediaTypes: ['.jpg', '.m4v'] }
+      },
+      safety: { transferMode: 'move', verifyAfterCopy: true, cleanupSource: true }
+    })
+    expect(() =>
+      parseJobPayload('MIGRATION', {
+        selection: {
+          mode: 'QUERY',
+          upperArtworkId: 1,
+          filters: { startDate: '2026-02-30', mediaTypes: ['.exe'] }
+        }
+      })
+    ).toThrow()
+  })
+
+  it('uses strict bounded pending-replace operation payloads', () => {
+    expect(
+      parseJobPayload('PENDING_REPLACE', {
+        mode: 'DISCOVER',
+        batchId: 'batch-1',
+        sourceRoot: 'pending-replaces'
+      })
+    ).toEqual({ mode: 'DISCOVER', batchId: 'batch-1', sourceRoot: 'pending-replaces' })
+    expect(
+      parseJobPayload('PENDING_REPLACE', {
+        mode: 'BATCH',
+        batchId: 'batch-1',
+        itemIds: ['item-2', 'item-1'],
+        appendTagIds: [5, 2]
+      })
+    ).toMatchObject({ mode: 'BATCH', itemIds: ['item-1', 'item-2'], appendTagIds: [2, 5] })
+    expect(() =>
+      parseJobPayload('PENDING_REPLACE', {
+        mode: 'BATCH',
+        batchId: 'batch-1',
+        itemIds: ['item-1', 'item-1'],
+        appendTagIds: []
+      })
+    ).toThrow()
+    expect(() =>
+      parseJobPayload('PENDING_REPLACE', {
+        mode: 'DISCOVER',
+        batchId: 'batch-1',
+        sourceRoot: 'somewhere-else'
+      })
+    ).toThrow()
+  })
+
   it('keeps bigint and timestamps in JSON-safe string form', () => {
     expect(bigintStringSchema.parse('9223372036854775807')).toBe('9223372036854775807')
     expect(() => bigintStringSchema.parse(1n)).toThrow()

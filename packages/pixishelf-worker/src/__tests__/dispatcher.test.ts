@@ -85,7 +85,7 @@ describe('CentralDispatcher', () => {
       execute: async (context) => {
         expect(context.signal.aborted).toBe(false)
         await context.progress({ progress: 42, stage: 'INDEXING', message: 'Working' })
-        await context.enqueueChild({ type: 'SCAN', payload: {}, idempotencyKey: 'child-1' })
+        await context.enqueueChild({ type: 'SCAN', payload: { mode: 'INCREMENTAL' }, idempotencyKey: 'child-1' })
         context.logger.info('domain-step', { count: 3 })
         return { kind: 'completed', result: { indexed: 3 } }
       }
@@ -718,7 +718,7 @@ function claimedJob(id: string): ClaimedJob {
     definitionVersion: JOB_DEFINITION_VERSION,
     status: 'RUNNING',
     triggerSource: 'MANUAL',
-    payload: {},
+    payload: { mode: 'INCREMENTAL' },
     attempt: 1,
     maxAttempts: 3,
     effectivePriority: 10,

@@ -235,7 +235,7 @@ describe('manual background job singleton', () => {
           triggerSource: 'MANUAL',
           requestedByUserId: 'admin-1',
           priority: 10,
-          payload: {}
+          payload: { mode: 'INCREMENTAL' }
         },
         {
           client: state.client,

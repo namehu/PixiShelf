@@ -40,16 +40,26 @@ describe('ExecutorRegistry', () => {
       execute
     })
 
-    expect(registry.resolve({ type: 'SCAN', definitionVersion: JOB_DEFINITION_VERSION, payload: {} })).toMatchObject({
+    expect(
+      registry.resolve({
+        type: 'SCAN',
+        definitionVersion: JOB_DEFINITION_VERSION,
+        payload: { mode: 'INCREMENTAL' }
+      })
+    ).toMatchObject({
       jobType: 'SCAN',
       definitionVersion: JOB_DEFINITION_VERSION,
-      payload: {},
+      payload: { mode: 'INCREMENTAL' },
       execute
     })
     expect(registry.resolve({ type: 'SCAN', definitionVersion: 2, payload: {} })).toBeNull()
     expect(registry.resolve({ type: 'NOT_A_JOB', definitionVersion: 1, payload: {} })).toBeNull()
     expect(() =>
-      registry.resolve({ type: 'SCAN', definitionVersion: JOB_DEFINITION_VERSION, payload: { unexpected: true } })
+      registry.resolve({
+        type: 'SCAN',
+        definitionVersion: JOB_DEFINITION_VERSION,
+        payload: { mode: 'INCREMENTAL', unexpected: true }
+      })
     ).toThrow()
   })
 
