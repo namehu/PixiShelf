@@ -6,7 +6,7 @@ set -e
 
 # The Web process owns schema deployment. Other runtime images never run this entrypoint.
 echo "Running database migrations..."
-prisma migrate deploy --schema=packages/pixishelf/prisma/schema.prisma
+prisma migrate deploy --schema=packages/pixishelf-db/prisma/schema.prisma
 
 # ==================== MODIFICATION START ====================
 echo "Searching for files with placeholders..."

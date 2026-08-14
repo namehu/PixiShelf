@@ -10,6 +10,7 @@ build/
 ├── .env.example                 # 环境变量配置模板
 ├── Dockerfile                   # Web + API standalone 镜像
 ├── archive-worker.Dockerfile    # 独立归档 Worker 镜像
+├── worker.Dockerfile            # 新通用 Worker 独立镜像（Phase 2 preview）
 ├── docker-compose.dev.yml       # 开发/本地构建用 Docker Compose
 └── docker-compose.deploy.yml    # 生产部署用 Docker Compose (使用预构建镜像)
 ```
@@ -25,6 +26,12 @@ build/
 - **用途**: 构建独立的 URL 归档 Worker 运行时
 - **包含**: 编译后的 Worker JavaScript、生成后的 Prisma Client 和媒体处理依赖
 - **不包含**: Next.js standalone、`tsx`、Prisma CLI 或应用源码目录
+
+### worker.Dockerfile
+- **用途**: 构建新的通用后台 Worker 运行时
+- **包含**: `@pixishelf/db`、`@pixishelf/job-contracts`、`@pixishelf/job-runtime` 和 `@pixishelf/worker` 的编译产物
+- **不包含**: `@pixishelf/next` 源码、Next.js、React、认证模块或 Web 路径别名
+- **健康检查**: Docker 使用本地 `/livez`；部署冒烟额外检查 `/readyz`
 
 
 ### docker-compose.dev.yml
@@ -81,9 +88,11 @@ cp .env.example .env
 docker-compose -f docker-compose.deploy.yml up -d
 ```
 
-`app` 保留原有的数据库迁移职责：它的 entrypoint 会先执行 `prisma migrate deploy`，成功后才启动 Next.js standalone 服务。`archive-worker` 使用独立镜像，并等待 `app` 健康后启动，因此不会与 Web 进程竞争迁移。
+`app` 保留数据库迁移职责，但 Prisma schema 与完整 migration 历史由 `@pixishelf/db` workspace 包拥有。entrypoint 会先执行 `prisma migrate deploy`，成功后才启动 Next.js standalone 服务。Worker 镜像绝不执行 migration。
 
 当前业务实现仍复用 `packages/pixishelf/services/archive`，独立 workspace 包 `packages/pixishelf-archive-worker` 只提供进程入口和构建边界；Docker 构建时将依赖打包成 JavaScript，生产 Worker 镜像不会携带整个 Web 工程。
+
+新的 `worker` 服务在 Phase 2 使用 `worker-preview` profile：它只验证独立包、启动预检、空闲心跳、健康端点和停机语义，不领取领域任务。完成 Central Dispatcher 与首批 Executor 迁移前，不能与 `archive-worker` 同时作为生产消费者启用。
 
 ### 生产升级与回滚准备
 
@@ -128,9 +137,17 @@ docker-compose -f docker-compose.deploy.yml up -d archive-worker scheduler imgpr
 # 查看 Worker 日志
 docker-compose -f docker-compose.deploy.yml logs -f archive-worker
 
-# 本地容器化调试；数据库 Schema 仍使用现有 pnpm db:migrate/db:push 流程维护
+# 本地容器化调试；数据库 Schema 仍由 @pixishelf/db 维护
 docker-compose -f docker-compose.dev.yml --profile archive-worker up -d --build archive-worker
+
+# 仅验证新通用 Worker 的独立镜像/健康/心跳边界；当前不领取任务
+# 必须先执行 pnpm --filter @pixishelf/db db:deploy（或 db:migrate）。
+# db:push 不写 _prisma_migrations，不能单独满足 Worker 的版本预检。
+docker-compose -f docker-compose.dev.yml --profile worker-preview up -d --build worker
+docker-compose -f docker-compose.dev.yml exec worker node dist/healthcheck.cjs --mode=ready
 ```
+
+通用 Worker 以非 root 的 UID/GID `1001` 运行。镜像内默认目录已预创建并授权；若使用 bind mount，部署前仍需保证 `PIXISHELF_DATA_PATH` 和 `DERIVED_MEDIA_HOST_PATH` 已存在，且 UID/GID `1001` 对需要写入的目录具有读写权限。启动预检会在权限不满足时拒绝进入 READY，不会带病领取任务。
 
 媒体根目录下的 `.archive-staging`、`.archive-publish` 和 `.trash` 是内部生命周期目录，不会通过图片 API 暴露。失败/取消暂存保留 7 天，暂停任务无限期保留，软删除作品在回收站保留 7 天。
 
@@ -142,6 +159,9 @@ docker build -f build/Dockerfile --target production -t pixishelf .
 
 # 构建独立的归档 Worker 镜像
 docker build -f build/archive-worker.Dockerfile --target production -t pixishelf-archive-worker .
+
+# 构建不复制 Next 源码的通用 Worker preview 镜像
+docker build -f build/worker.Dockerfile --target production -t pixishelf-worker .
 
 # Web 镜像也可以省略默认的 production target
 docker build -f build/Dockerfile -t pixishelf .
@@ -164,6 +184,7 @@ Clash Verge 的 TUN/Fake-IP 模式可以直接使用；本机 `pnpm dev` 通常�
 GitHub Actions 工作流会自动使用这些配置文件：
 - 使用 `build/Dockerfile` 构建 Web 镜像
 - 使用 `build/archive-worker.Dockerfile` 构建独立的归档 Worker 镜像
+- 使用 `build/worker.Dockerfile` 构建独立的通用 Worker preview 镜像
 - 将 `build/docker-compose.deploy.yml` 发布到 Release
 
 ## 🛠️ 自定义配置

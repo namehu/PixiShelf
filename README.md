@@ -227,10 +227,11 @@ PixiShelf/
 │   │   ├── types/              # TypeScript类型
 │   │   ├── hooks/              # React Hooks
 │   │   └── utils/              # 工具函数
-│   ├── prisma/                 # 数据库模式
-│   │   ├── schema.prisma       # 数据模型
-│   │   └── migrations/         # 数据库迁移
 │   └── public/                 # 静态资源
+├── packages/pixishelf-db/      # Prisma schema、完整迁移历史和数据库客户端
+├── packages/pixishelf-job-contracts/ # 后台任务 wire contracts 和 Zod payload
+├── packages/pixishelf-job-runtime/   # 通用生命周期、心跳和运行时协议
+├── packages/pixishelf-worker/ # 可独立构建/部署的后台 Worker
 ├── build/                      # Docker配置
 │   ├── docker-compose.dev.yml # 开发环境
 │   ├── docker-compose.deploy.yml # 生产环境
@@ -343,7 +344,7 @@ pnpm dlx shadcn@canary add [COMPONENT]
 2. **数据库变更**
 
    ```bash
-   # 修改 prisma/schema.prisma
+   # 修改 ../pixishelf-db/prisma/schema.prisma
    pnpm db:generate  # 生成客户端
    pnpm db:push      # 推送到开发数据库
 

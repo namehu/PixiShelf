@@ -2,17 +2,33 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*.*.*' # 触发条件：推送版本标签
+  pull_request:
   workflow_dispatch: # 手动触发
 
 jobs:
   test:
     runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: ./packages/pixishelf
+    env:
+      # Prisma commands and the migration gate connect to the PostgreSQL service below.
+      DATABASE_URL: postgresql://pixishelf:pixishelf@127.0.0.1:5432/pixishelf
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: pixishelf
+          POSTGRES_PASSWORD: pixishelf
+          POSTGRES_DB: pixishelf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pixishelf -d pixishelf"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
 
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +36,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 8.15.1
 
       - name: Use Node.js
         uses: actions/setup-node@v4
@@ -29,10 +45,26 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma Client
-        run: pnpm db:generate
+        run: pnpm --filter @pixishelf/db db:generate
 
-      - name: Run Unit Tests
-        run: pnpm test
+      - name: Validate database and Worker package boundaries
+        run: |
+          pnpm --filter @pixishelf/db db:validate
+          pnpm --filter @pixishelf/worker... typecheck
+
+      - name: Deploy and verify the complete PostgreSQL migration chain
+        run: |
+          pnpm --filter @pixishelf/db db:deploy
+          pnpm --filter @pixishelf/db exec prisma migrate status --schema prisma/schema.prisma
+
+      - name: Run database and Worker unit tests
+        run: pnpm --filter @pixishelf/worker... test
+
+      - name: Build standalone Worker
+        run: pnpm --filter @pixishelf/worker... build
+
+      - name: Run Web unit tests
+        run: pnpm --filter @pixishelf/next test

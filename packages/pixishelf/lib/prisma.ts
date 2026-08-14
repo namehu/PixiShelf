@@ -1,5 +1,5 @@
 // oxlint-disable no-console
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@pixishelf/db'
 
 // 1. 定义一个可复用的函数，来生成我们需要的转换逻辑
 // 这个函数是纯粹的，返回一个定义好的对象

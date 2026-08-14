@@ -8,6 +8,7 @@
     "dev": "tsx --tsconfig ../pixishelf/tsconfig.json src/archive-worker.ts"
   },
   "dependencies": {
+    "@pixishelf/db": "workspace:*",
     "@prisma/client": "^5.17.0",
     "sharp": "^0.33.5"
   },

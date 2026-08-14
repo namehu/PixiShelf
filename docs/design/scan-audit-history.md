@@ -162,9 +162,9 @@ PixiShelf 原本主要通过 `system_jobs` 记录扫描、导入等任务的运�
 
 数据模型与迁移：
 
-- `packages/pixishelf/prisma/schema.prisma`
-- `packages/pixishelf/prisma/migrations/20260624000000_add_scan_audit`
-- `packages/pixishelf/prisma/migrations/20260624001000_extend_scan_audit_import_types`
+- `packages/pixishelf-db/prisma/schema.prisma`
+- `packages/pixishelf-db/prisma/migrations/20260624000000_add_scan_audit`
+- `packages/pixishelf-db/prisma/migrations/20260624001000_extend_scan_audit_import_types`
 
 审计服务：
 

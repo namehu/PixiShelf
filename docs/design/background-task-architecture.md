@@ -147,6 +147,7 @@ flowchart TB
     Jobs["SystemJob"]
     Events["SystemJobEvent"]
     Lease["JobResourceLease<br/>global/background-worker"]
+    Presence["WorkerInstance<br/>idle process heartbeat"]
     GC["DerivedMediaGcEntry"]
     Domain["领域检查点表"]
   end
@@ -167,8 +168,10 @@ flowchart TB
   Enqueue --> Jobs
   Query --> Jobs
   Query --> Events
+  Query --> Presence
   Dispatcher --> Lease
   Dispatcher --> Jobs
+  Lifecycle --> Presence
   Dispatcher --> Lifecycle
   Lifecycle --> Events
   Lifecycle --> Executors
@@ -187,6 +190,7 @@ flowchart TB
 | Schedule Materializer | 在每日窗口开始时幂等创建任务实例、窗口结束时跳过未开始任务 | 调用业务 Executor |
 | Job Command Service | 入队、取消、暂停、恢复、重试 | 执行业务 |
 | Job Query Service | 列表、详情、事件、统计和 Worker 健康状态 | 修改任务 |
+| Worker Presence | 进程启动/就绪/降级/停机状态与空闲心跳 | 代替任务租约或允许任务提交 |
 | Central Dispatcher | 领取一个任务、持有全局租约、调用 Executor | 包含具体业务逻辑 |
 | Job Lifecycle | 心跳、事件、进度节流、状态机、CAS 终态、重试恢复 | 领域数据处理 |
 | Executor | 一个任务类型的薄适配器 | 重复实现队列和日志框架 |
@@ -235,6 +239,8 @@ flowchart TB
 | @pixishelf/next | UI、adminProcedure、任务入队和查询 | 不直接访问媒体写目录或启动长进程 |
 
 拆分采用同一 pnpm monorepo，不拆成独立 Git 仓库。这样既能独立部署，又能原子修改数据库契约、任务协议和调用方。
+
+Phase 2 先完成四个 package、Prisma ownership、WorkerInstance 心跳、启动预检、健康端点和独立镜像。此时新 Worker 以 `worker-preview` profile 运行，明确不 claim 领域任务；归档/关键帧和其他 Executor 在 Central Dispatcher 阶段迁入后，才替换旧 archive-worker。这样 package/容器边界变更不会悄悄改变任务执行行为。
 
 语言选型：
 
@@ -363,6 +369,7 @@ flowchart LR
 规则：
 
 - VIDEO_MEDIA_PROBE 不再隐式执行目录级孤儿清理。
+- `enqueueMissingPosters` 只控制是否另行入队 VIDEO_POSTER_GENERATION 子任务；Probe Executor 本身不生成封面。
 - 默认封面生成作为独立子任务，失败不会抹掉探测结果。
 - 代表帧发现依赖可用的 duration/source fingerprint；缺少时可以创建明确的探测前置任务。
 - 领域子任务的结果分别保存，父任务汇总成功、部分失败和告警。

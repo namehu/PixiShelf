@@ -245,8 +245,9 @@ app、pixishelf-worker 和 scheduler 使用相同上限。默认 Logger 在生�
 
 判断：
 
-- 没有 RUNNING 任务时，看 Worker 最近健康心跳。
+- 没有 RUNNING 任务时，读取 WorkerInstance：必须为 READY 且 heartbeatAt 不早于 60 秒前。
 - 有 RUNNING 任务时，看 heartbeatAt 和 JobResourceLease.expiresAt。
+- `/livez` 只证明进程事件循环存活；`/readyz`、WorkerInstance 和任务租约分别表示就绪、进程心跳与执行所有权，三者不能混用。
 
 处理：
 
@@ -324,26 +325,28 @@ app、pixishelf-worker 和 scheduler 使用相同上限。默认 Logger 在生�
 
 验收：迁移可在生产数据副本上完成；Prisma validate/generate 通过；媒体表计数和关键引用迁移前后相同。
 
-### Phase 2：统一 Lifecycle 和 API
-
-- 实现 job-command-service、job-query-service、job-lifecycle 和事件服务。
-- 所有新状态变更使用 CAS。
-- 新 Router 使用 adminProcedure 和 Zod payload。
-- 保持 UI 读取旧汇总字段，同时开始写事件。
-
-验收：取消/完成竞争测试、租约丢失测试、事件事务测试通过。
-
-### Phase 3：通用 Worker
+### Phase 2：独立运行时边界
 
 - 新建独立 @pixishelf/db、@pixishelf/job-contracts、@pixishelf/job-runtime 和 @pixishelf/worker workspace 边界。
+- 将完整 Prisma schema/migrations 历史原样移动到 @pixishelf/db，不创建新库、不重置 `_prisma_migrations`。
 - @pixishelf/worker 拥有自己的 package.json、tsconfig、测试和 Dockerfile。
 - 删除 Worker 对 packages/pixishelf 源码、tsconfig 和路径别名的依赖。
+- 增加 WorkerInstance 空闲心跳、启动预检、`/livez`、`/readyz` 和 SIGTERM drain 骨架。
+- 新 Worker 先以 `worker-preview` profile 启动，不领取任务，不与旧 archive-worker 争抢领域状态。
+
+验收：不改变任务执行行为；Worker 镜像不复制 Next.js 包；DB 包可独立 generate/validate/typecheck/test，Contracts/Runtime/Worker 可独立 typecheck/test/build；数据库 migration status 无漂移；空闲心跳与停机状态可验证。
+
+### Phase 3：统一 Lifecycle、API 和 Central Worker
+
+- 实现 job-command-service、job-query-service、job-lifecycle 和事件服务。
+- 所有新状态变更使用 workerId + attempt + leaseToken CAS。
+- 新 Router 使用 adminProcedure 和共享 Zod payload，UI 兼容读取旧汇总字段并开始写事件。
 - 将 archive-worker 主入口演进为 pixishelf-worker。
 - 引入 Central Dispatcher 和 global/background-worker 租约。
 - 归档、关键帧先接入统一 claim，不再 Promise.all 启动独立消费者。
 - 部署副本数保持 1。
 
-验收：Worker 镜像不复制 Next.js 包；可独立 build/test；误启动两个 Worker 时仍只有一个有效 RUNNING。
+验收：取消/完成竞争、租约丢失、事件事务测试通过；误启动两个 Worker 时仍只有一个有效 RUNNING；生产 compose 停用旧 archive-worker。
 
 ### Phase 4：迁移维护任务
 
@@ -389,6 +392,7 @@ app、pixishelf-worker 和 scheduler 使用相同上限。默认 Logger 在生�
 - 增加每周 reconciliation dry-run。
 - Logger 改为生产 JSON stdout。
 - Docker 日志统一 10 MB × 5，修复 migration.log 无界增长。
+- 增加 WorkerInstance 保留清理：STOPPING 超过 24 小时、READY/DEGRADED 心跳超过 7 天后分批删除。
 
 验收：替换/删除/重新引用竞态测试、路径穿越测试、日志轮转配置检查通过。
 
@@ -441,19 +445,24 @@ app、pixishelf-worker 和 scheduler 使用相同上限。默认 Logger 在生�
 
 ### 10.5 建议命令
 
-在 packages/pixishelf 中从窄到宽执行：
+数据库与 Web 包从窄到宽执行：
 
 ~~~powershell
-pnpm db:generate
-pnpm lint
-pnpm test
-pnpm build
+pnpm --filter @pixishelf/db db:generate
+pnpm --filter @pixishelf/db db:validate
+pnpm --filter @pixishelf/db test
+pnpm --filter @pixishelf/next lint
+pnpm --filter @pixishelf/next test
+pnpm --filter @pixishelf/next build
 ~~~
 
 Worker 包执行：
 
 ~~~powershell
-pnpm --filter @pixishelf/worker build
+pnpm --filter @pixishelf/worker... typecheck
+pnpm --filter @pixishelf/worker... test
+pnpm --filter @pixishelf/worker... build
+docker build -f build/worker.Dockerfile --target production -t pixishelf-worker .
 ~~~
 
 生产 build 按仓库约定使用允许文件系统/子进程的执行环境。最后执行：
@@ -581,7 +590,7 @@ flowchart TD
 1. 先用只读 SQL 确认 `system_jobs.definitionVersion`、`system_job_events`、`job_resource_leases` 和 `derived_media_gc_entries` 均不存在；任一对象存在都不得执行 `resolve`，应先按事故流程核对实际迁移边界。
 2. 排空或恢复 guard 报告的阻断项，再重新运行最终 cutover audit。
 3. audit 通过后执行：
-   `pnpm --filter @pixishelf/next exec prisma migrate resolve --rolled-back 20260814091000_add_background_task_queue_schema --schema prisma/schema.prisma`
+   `pnpm --filter @pixishelf/db exec prisma migrate resolve --rolled-back 20260814091000_add_background_task_queue_schema --schema prisma/schema.prisma`
 4. 再执行 `prisma migrate deploy`。不得将失败记录标记为 `--applied`，也不得绕过 guard 手工补列。
 
 严格的 `availableAt NOT NULL`、任务租约字段全有/全空、`SKIPPED` 字段一致性和计划字段成对约束属于兼容清理阶段。只有旧执行入口全部迁走、完成一个稳定发布周期并确认无需回滚后，才能通过独立 migration 加入这些约束。

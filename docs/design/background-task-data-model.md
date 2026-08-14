@@ -13,6 +13,7 @@
 6. payload 和 result 只保存任务边界输入/摘要，不保存大量逐条结果。
 7. 所有文件删除先写 DerivedMediaGcEntry，再由 Worker 复核引用后执行。
 8. 采用计划停机切换：旧任务全部进入终态后才升级。Schema 仍使用 additive migration，并保留旧列至少一个回滚周期，但不要求旧 Worker 与新 Worker 同时运行。
+9. WorkerInstance 记录进程级在线状态；不能用“当前没有 RUNNING 任务”推断 Worker 健康，也不能把进程心跳当作任务执行租约。
 
 ## 2. 当前 ER
 
@@ -93,6 +94,7 @@ erDiagram
   SYSTEM_JOB ||--o{ SYSTEM_JOB_EVENT : emits
   SYSTEM_JOB ||--o{ JOB_RESOURCE_LEASE : owns
   SYSTEM_JOB o|--o{ DERIVED_MEDIA_GC_ENTRY : processes
+  WORKER_INSTANCE o|--o{ SYSTEM_JOB : logical_owner
 
   SYSTEM_JOB ||--o| ARCHIVE_IMPORT : owns
   SYSTEM_JOB o|--o{ SCAN_RUN : records
@@ -165,6 +167,18 @@ erDiagram
     uuid leaseToken
     datetime expiresAt
     datetime heartbeatAt
+  }
+
+  WORKER_INSTANCE {
+    string workerId PK
+    WorkerInstanceStatus status
+    string serviceVersion
+    string hostname
+    int processId
+    json capabilities
+    datetime startedAt
+    datetime heartbeatAt
+    string lastError
   }
 
   DERIVED_MEDIA_GC_ENTRY {
@@ -312,6 +326,23 @@ erDiagram
 
 未来如恢复安全并行，可增加 media-root/write、derived-media/write 或 image/{id} 等资源键，而不改变 SystemJob 生命周期。但 v1 不开放并发配置，max concurrency 固定为 1。
 
+### 7.1 WorkerInstance 字段字典
+
+| 字段 | 类型 | 空值 | 说明 |
+| --- | --- | --- | --- |
+| workerId | VarChar(120) | 否 | 进程实例主键；同一进程生命周期内稳定 |
+| status | WorkerInstanceStatus | 否 | STARTING、READY、DEGRADED、STOPPING |
+| serviceVersion | VarChar(50) | 否 | Worker 镜像/发布版本，用于兼容诊断 |
+| hostname | VarChar(255) | 否 | 容器或主机名，不承担唯一性 |
+| processId | Int | 否 | 进程 PID，仅用于诊断 |
+| capabilities | Json | 是 | 已注册能力数组：`{ jobType, definitionVersions: number[] }[]`；不保存任意环境变量 |
+| startedAt | DateTime | 否 | 本进程启动时间 |
+| heartbeatAt | DateTime | 否 | 最近一次进程级心跳，默认每 30 秒更新 |
+| lastError | Text | 是 | 最近一次降级原因的截断摘要，不保存 Token/URL 凭据 |
+| updatedAt | DateTime | 否 | 最近更新 |
+
+`SystemJob.workerId` 与 `WorkerInstance.workerId` 是有意不建立外键的逻辑关联：任务历史必须在清理过期 WorkerInstance 后继续可读。WorkerInstance 只说明进程是否在线；真正允许执行和提交任务结果的仍是 `SystemJob + JobResourceLease + leaseToken` 栅栏。
+
 ## 8. DerivedMediaGcEntry 字段字典
 
 | 字段 | 类型 | 空值 | 说明 |
@@ -379,6 +410,13 @@ mediaKind + relativePath 建唯一约束。再次出现同一路径的删除意�
 - SKIPPED_REFERENCED
 - FAILED
 
+### 9.6 WorkerInstanceStatus
+
+- STARTING：进程已注册，启动预检尚未完成。
+- READY：预检通过，可参与 Dispatcher；Phase 2 preview 仅表示边界健康，不领取任务。
+- DEGRADED：进程仍存活，但数据库、工具或挂载检查失败，不得 claim。
+- STOPPING：已收到停机信号，readiness 立即关闭且不再 claim。
+
 ## 10. 全局运行策略配置
 
 第一阶段复用现有 Setting 表，并通过 Zod DTO 提供强类型默认值。不要在业务代码中散落字符串读取。
@@ -432,6 +470,11 @@ max concurrency 不作为可编辑 Setting 暴露；v1 固定为 1，避免界�
 - unique(mediaKind, relativePath) 用于 upsert 去重。
 - index(status, notBefore, createdAt) 支持批量 claim。
 - index(lastSystemJobId) 支持 GC 批次追踪。
+
+### 11.5 WorkerInstance
+
+- index(status, heartbeatAt) 用于后台页筛选可用和过期实例。
+- 在线判定要求 `status=READY` 且 heartbeatAt 未超过两个心跳周期；不能用 Docker 副本数替代数据库执行栅栏。
 
 ## 12. 原子操作
 
@@ -560,6 +603,22 @@ model JobResourceLease {
 
   @@index([ownerJobId])
 }
+
+model WorkerInstance {
+  workerId       String               @id @db.VarChar(120)
+  status         WorkerInstanceStatus @default(STARTING)
+  serviceVersion String               @db.VarChar(50)
+  hostname       String               @db.VarChar(255)
+  processId      Int
+  capabilities   Json?
+  startedAt      DateTime             @default(now())
+  heartbeatAt    DateTime             @default(now())
+  lastError      String?              @db.Text
+  updatedAt      DateTime             @updatedAt
+
+  @@index([status, heartbeatAt])
+  @@map("worker_instances")
+}
 ~~~
 
 ## 14. 数据保留
@@ -572,6 +631,7 @@ model JobResourceLease {
 | FAILED 任务摘要 | 与 SystemJob 一致，不因事件清理而丢失 errorCode/error |
 | DerivedMediaGcEntry DELETED/SKIPPED | 保留 30 天 |
 | DerivedMediaGcEntry FAILED | 保留至人工处理或 180 天 |
+| WorkerInstance | READY/DEGRADED 过期 7 天后清理；STOPPING 保留 24 小时用于诊断 |
 | Docker stdout 日志 | 10 MB × 5/容器 |
 
 清理任务采用稳定主键游标和小批量删除，每批建议不超过 500 条，批次之间释放事务。

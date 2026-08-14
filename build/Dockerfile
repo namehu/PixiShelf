@@ -37,19 +37,21 @@ RUN pnpm config set registry ${REGISTRY_URL} && \
 # 优化缓存：只复制构建依赖所需的文件
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/pixishelf/package.json ./packages/pixishelf/package.json
+COPY packages/pixishelf-db/package.json ./packages/pixishelf-db/package.json
 
 # 安装所有依赖（包括 devDependencies 用于构建）
 # 使用 --frozen-lockfile 确保CI/CD环境的一致性
 # 使用缓存挂载加速 pnpm install
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --filter @pixishelf/next...
 
 # 复制所有源代码 (利用 .dockerignore 避免复制无关文件)
 COPY packages/pixishelf/ ./packages/pixishelf/
+COPY packages/pixishelf-db/ ./packages/pixishelf-db/
 
 # 按依赖顺序构建项目
 # 1. 生成 Prisma Client
-RUN pnpm --filter="@pixishelf/next" db:generate
+RUN pnpm --filter="@pixishelf/db" db:generate
 # 3. 构建主应用
 # 使用缓存挂载加速 Next.js 构建
 RUN --mount=type=cache,target=/app/packages/pixishelf/.next/cache \
@@ -81,7 +83,7 @@ RUN apk add --no-cache curl ffmpeg openssl \
     && chown -R nextjs:nodejs /usr/local/lib/node_modules/prisma
 
 # 复制 Prisma Schema (用于迁移)
-COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/prisma ./packages/pixishelf/prisma
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf-db/prisma ./packages/pixishelf-db/prisma
 
 # 复制 public 文件夹 (注意 monorepo 路径)
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/public ./packages/pixishelf/public

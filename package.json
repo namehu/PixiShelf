@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "pnpm -r --parallel dev",
     "build": "pnpm --r build",
+    "db:generate": "pnpm --filter @pixishelf/db db:generate",
+    "worker:build": "pnpm --filter @pixishelf/worker... build",
+    "worker:test": "pnpm --filter @pixishelf/worker... test",
+    "worker:typecheck": "pnpm --filter @pixishelf/worker... typecheck",
     "check:quick": "pnpm --filter @pixishelf/next check:quick",
     "check:full": "pnpm --filter @pixishelf/next check:full",
     "format": "prettier --write ."
@@ -19,6 +23,7 @@
   ],
   "author": "PixiShelf Team",
   "license": "MIT",
+  "packageManager": "pnpm@8.15.1",
   "devDependencies": {
     "@types/node": "^20.8.0",
     "lint-staged": "^15.0.2",

@@ -89,6 +89,42 @@ services:
       - pixishelf-network
     restart: unless-stopped
 
+  # Phase 2 boundary preview. It validates the independent Worker image and
+  # heartbeat contract but does not claim domain jobs until the dispatcher phase.
+  worker:
+    profiles:
+      - worker-preview
+    build:
+      context: ..
+      dockerfile: build/worker.Dockerfile
+      target: production
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=5&pool_timeout=20
+      WORKER_SERVICE_VERSION: ${IMAGE_TAG:-dev}
+      WORKER_HEALTH_HOST: 0.0.0.0
+      WORKER_HEALTH_PORT: 3011
+      ARCHIVE_STORAGE_PATH: /app/data
+      SCAN_PATH: /app/data
+      DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
+    volumes:
+      - "${PIXISHELF_DATA_PATH}:/app/data:rw"
+      - "${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media:rw"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pixishelf-network
+    restart: unless-stopped
+    stop_grace_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   scheduler:
     profiles:
       - scheduler

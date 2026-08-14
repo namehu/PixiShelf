@@ -11,10 +11,27 @@ env:
   REGISTRY_DOCKERHUB: docker.io
   IMAGE_NAME: pixishelf
   WORKER_IMAGE_NAME: pixishelf-archive-worker
+  NEXT_WORKER_IMAGE_NAME: pixishelf-worker
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://pixishelf:pixishelf@127.0.0.1:5432/pixishelf
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: pixishelf
+          POSTGRES_PASSWORD: pixishelf
+          POSTGRES_DB: pixishelf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pixishelf -d pixishelf"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     permissions:
       contents: read
       packages: write
@@ -22,6 +39,28 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.1
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Verify database migrations and Worker release boundary
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @pixishelf/db db:generate
+          pnpm --filter @pixishelf/db db:validate
+          pnpm --filter @pixishelf/db db:deploy
+          pnpm --filter @pixishelf/db exec prisma migrate status --schema prisma/schema.prisma
+          pnpm --filter @pixishelf/worker... typecheck
+          pnpm --filter @pixishelf/worker... test
+          pnpm --filter @pixishelf/worker... build
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -93,6 +132,31 @@ jobs:
           cache-to: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.WORKER_IMAGE_NAME }}:cache,mode=max
           platforms: linux/amd64
 
+      - name: Extract metadata for PixiShelf general worker preview
+        id: next-worker-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.NEXT_WORKER_IMAGE_NAME }}
+            ${{ env.REGISTRY_DOCKERHUB }}/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.NEXT_WORKER_IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=sha-
+
+      - name: Build and push PixiShelf general worker preview image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./build/worker.Dockerfile
+          target: production
+          push: true
+          tags: ${{ steps.next-worker-meta.outputs.tags }}
+          labels: ${{ steps.next-worker-meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.NEXT_WORKER_IMAGE_NAME }}:cache
+          cache-to: type=registry,ref=${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.NEXT_WORKER_IMAGE_NAME }}:cache,mode=max
+          platforms: linux/amd64
+
   # 创建 GitHub Release (只在第一个job完成后执行)
   create-release:
     runs-on: ubuntu-latest
@@ -160,3 +224,16 @@ jobs:
         with:
           sarif_file: 'trivy-worker-results.sarif'
           category: 'pixishelf-archive-worker'
+
+      - name: Run Trivy vulnerability scanner for general worker preview
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.REGISTRY_GITHUB }}/${{ github.repository_owner }}/${{ env.NEXT_WORKER_IMAGE_NAME }}:${{ github.ref_name }}'
+          format: 'sarif'
+          output: 'trivy-next-worker-results.sarif'
+
+      - name: Upload general worker preview scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-next-worker-results.sarif'
+          category: 'pixishelf-worker-preview'

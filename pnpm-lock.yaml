@@ -41,6 +41,9 @@ importers:
       '@microsoft/fetch-event-source':
         specifier: ^2.0.1
         version: 2.0.1
+      '@pixishelf/db':
+        specifier: workspace:*
+        version: link:../pixishelf-db
       '@prisma/client':
         specifier: ^5.17.0
         version: 5.22.0(prisma@5.22.0)
@@ -300,6 +303,9 @@ importers:
 
   packages/pixishelf-archive-worker:
     dependencies:
+      '@pixishelf/db':
+        specifier: workspace:*
+        version: link:../pixishelf-db
       '@prisma/client':
         specifier: ^5.17.0
         version: 5.22.0(prisma@5.22.0)
@@ -316,6 +322,25 @@ importers:
       tsx:
         specifier: ^4.20.6
         version: 4.23.12
+
+  packages/pixishelf-db:
+    dependencies:
+      '@prisma/client':
+        specifier: ^5.17.0
+        version: 5.22.0(prisma@5.22.0)
+    devDependencies:
+      '@types/node':
+        specifier: ^20
+        version: 20.19.17
+      prisma:
+        specifier: ^5.17.0
+        version: 5.22.0
+      typescript:
+        specifier: ^5
+        version: 5.9.2
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@20.19.17)
 
   packages/pixishelf-extension:
     dependencies:
@@ -423,6 +448,72 @@ importers:
         specifier: ^0.20.6
         version: 0.20.11(@types/node@20.19.17)
 
+  packages/pixishelf-job-contracts:
+    dependencies:
+      zod:
+        specifier: ^4.1.11
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.0
+        version: 20.19.17
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.2
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@20.19.17)
+
+  packages/pixishelf-job-runtime:
+    dependencies:
+      '@pixishelf/job-contracts':
+        specifier: workspace:*
+        version: link:../pixishelf-job-contracts
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.0
+        version: 20.19.17
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.2
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@20.19.17)
+
+  packages/pixishelf-worker:
+    dependencies:
+      '@pixishelf/db':
+        specifier: workspace:*
+        version: link:../pixishelf-db
+      '@pixishelf/job-contracts':
+        specifier: workspace:*
+        version: link:../pixishelf-job-contracts
+      '@pixishelf/job-runtime':
+        specifier: workspace:*
+        version: link:../pixishelf-job-runtime
+      '@prisma/client':
+        specifier: ^5.17.0
+        version: 5.22.0(prisma@5.22.0)
+      zod:
+        specifier: ^4.1.11
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.0
+        version: 20.19.17
+      esbuild:
+        specifier: ^0.25.10
+        version: 0.25.10
+      tsx:
+        specifier: ^4.20.6
+        version: 4.23.12
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.2
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@20.19.17)(jsdom@27.4.0)(tsx@4.23.12)
+
   packages/pixiv-standalone-scanner:
     dependencies:
       express:
@@ -484,7 +575,7 @@ packages:
       ansis: 4.1.0
       fzf: 0.5.2
       package-manager-detector: 1.3.0
-      tinyexec: 1.0.1
+      tinyexec: 1.0.2
     dev: true
 
   /@asamuzakjp/css-color@4.1.1:
@@ -7576,8 +7667,8 @@ packages:
       '@babel/parser': 7.28.4
       eslint: 9.35.0
       hermes-parser: 0.25.1
-      zod: 4.1.11
-      zod-validation-error: 4.0.2(zod@4.1.11)
+      zod: 4.3.6
+      zod-validation-error: 4.0.2(zod@4.3.6)
     transitivePeerDependencies:
       - supports-color
     dev: true
@@ -12538,6 +12629,75 @@ packages:
     optionalDependencies:
       fsevents: 2.3.3
 
+  /vitest@4.0.18(@types/node@20.19.17):
+    resolution: {integrity: sha512-hOQuK7h0FGKgBAas7v0mSAsnvrIgAvWmRFjmzpJ7SwFHH3g1k2u37JtYwOwmEKhK6ZO3v9ggDBBm0La1LCK4uQ==}
+    engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
+    hasBin: true
+    peerDependencies:
+      '@edge-runtime/vm': '*'
+      '@opentelemetry/api': ^1.9.0
+      '@types/node': ^20.0.0 || ^22.0.0 || >=24.0.0
+      '@vitest/browser-playwright': 4.0.18
+      '@vitest/browser-preview': 4.0.18
+      '@vitest/browser-webdriverio': 4.0.18
+      '@vitest/ui': 4.0.18
+      happy-dom: '*'
+      jsdom: '*'
+    peerDependenciesMeta:
+      '@edge-runtime/vm':
+        optional: true
+      '@opentelemetry/api':
+        optional: true
+      '@types/node':
+        optional: true
+      '@vitest/browser-playwright':
+        optional: true
+      '@vitest/browser-preview':
+        optional: true
+      '@vitest/browser-webdriverio':
+        optional: true
+      '@vitest/ui':
+        optional: true
+      happy-dom:
+        optional: true
+      jsdom:
+        optional: true
+    dependencies:
+      '@types/node': 20.19.17
+      '@vitest/expect': 4.0.18
+      '@vitest/mocker': 4.0.18(vite@7.1.9)
+      '@vitest/pretty-format': 4.0.18
+      '@vitest/runner': 4.0.18
+      '@vitest/snapshot': 4.0.18
+      '@vitest/spy': 4.0.18
+      '@vitest/utils': 4.0.18
+      es-module-lexer: 1.7.0
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.1.1
+      pathe: 2.0.3
+      picomatch: 4.0.3
+      std-env: 3.10.0
+      tinybench: 2.9.0
+      tinyexec: 1.0.2
+      tinyglobby: 0.2.15
+      tinyrainbow: 3.0.3
+      vite: 7.1.9(@types/node@20.19.17)(tsx@4.23.12)
+      why-is-node-running: 2.3.0
+    transitivePeerDependencies:
+      - jiti
+      - less
+      - lightningcss
+      - msw
+      - sass
+      - sass-embedded
+      - stylus
+      - sugarss
+      - terser
+      - tsx
+      - yaml
+    dev: true
+
   /vitest@4.0.18(@types/node@20.19.17)(jsdom@27.4.0)(tsx@4.23.12):
     resolution: {integrity: sha512-hOQuK7h0FGKgBAas7v0mSAsnvrIgAvWmRFjmzpJ7SwFHH3g1k2u37JtYwOwmEKhK6ZO3v9ggDBBm0La1LCK4uQ==}
     engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
@@ -13048,13 +13208,13 @@ packages:
       zod: 3.25.76
     dev: true
 
-  /zod-validation-error@4.0.2(zod@4.1.11):
+  /zod-validation-error@4.0.2(zod@4.3.6):
     resolution: {integrity: sha512-Q6/nZLe6jxuU80qb/4uJ4t5v2VEZ44lzQjPDhYJNztRQ4wyWc6VF3D3Kb/fAuPetZQnhS3hnajCf9CsWesghLQ==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
     dependencies:
-      zod: 4.1.11
+      zod: 4.3.6
     dev: true
 
   /zod@3.25.76:
@@ -13063,10 +13223,10 @@ packages:
 
   /zod@4.1.11:
     resolution: {integrity: sha512-WPsqwxITS2tzx1bzhIKsEs19ABD5vmCVa4xBo2tq/SrV4RNZtfws1EnCWQXM6yh8bD08a1idvkB5MZSBiZsjwg==}
+    dev: false
 
   /zod@4.3.6:
     resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
-    dev: false
 
   /zustand@5.0.8(@types/react@19.1.13)(react@19.2.0):
     resolution: {integrity: sha512-gyPKpIaxY9XcO2vSMrLbiER7QMAMGOQZVRdJ6Zi782jkbzZygq5GI9nG8g+sMgitRtndwaBSl7uiqC49o1SSiw==}

@@ -541,6 +541,22 @@ model JobResourceLease {
   @@map("job_resource_leases")
 }
 
+model WorkerInstance {
+  workerId       String               @id @db.VarChar(120)
+  status         WorkerInstanceStatus @default(STARTING)
+  serviceVersion String               @db.VarChar(50)
+  hostname       String               @db.VarChar(255)
+  processId      Int
+  capabilities   Json?
+  startedAt      DateTime             @default(now())
+  heartbeatAt    DateTime             @default(now())
+  lastError      String?              @db.Text
+  updatedAt      DateTime             @updatedAt
+
+  @@index([status, heartbeatAt])
+  @@map("worker_instances")
+}
+
 model DerivedMediaGcEntry {
   id              String        @id @default(cuid())
   mediaKind       String        @db.VarChar(50)
@@ -941,6 +957,13 @@ enum JobEventLevel {
   INFO
   WARN
   ERROR
+}
+
+enum WorkerInstanceStatus {
+  STARTING
+  READY
+  DEGRADED
+  STOPPING
 }
 
 enum GcEntryStatus {
