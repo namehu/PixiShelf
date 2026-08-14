@@ -1,14 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { Copy, Edit, ExternalLink, InfoIcon, Trash } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ProColumnDef } from '@/components/shared/pro-table'
 import { usePreferredTags } from '@/components/user-setting'
 import { getPreferredTagName } from '@/components/artwork/preferred-tag'
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
-import { ArtworkRescanButton } from './artwork-rescan-button'
+import { ArtworkRowActions } from './artwork-row-actions'
 import { Badge } from '@/components/ui/badge'
 
 function PreferredTagCell({ artwork }: { artwork: ArtworkResponseDto }) {
@@ -28,7 +28,6 @@ function PreferredTagCell({ artwork }: { artwork: ArtworkResponseDto }) {
 
 interface ArtworkManagementColumnHandlers {
   pendingReplaceCopyMode: boolean
-  onOpenInfo: (item: ArtworkResponseDto) => void
   onEdit: (item: ArtworkResponseDto) => void
   onCopy: (item: ArtworkResponseDto) => void
   onOpenImageManager: (item: ArtworkResponseDto) => void
@@ -38,7 +37,6 @@ interface ArtworkManagementColumnHandlers {
 
 export function createArtworkManagementColumns({
   pendingReplaceCopyMode,
-  onOpenInfo,
   onEdit,
   onCopy,
   onOpenImageManager,
@@ -72,6 +70,8 @@ export function createArtworkManagementColumns({
       accessorKey: 'id',
       size: 100,
       copyable: true,
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden sm:table-cell',
       cell: ({ row }) => <span className="font-mono">{row.original.id}</span>
     },
     {
@@ -79,6 +79,8 @@ export function createArtworkManagementColumns({
       accessorKey: 'externalId',
       size: 180,
       copyable: true,
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden sm:table-cell',
       copyValue: (artwork) => {
         const identity = artwork.storageKey ?? artwork.externalId
         return identity ? (pendingReplaceCopyMode ? `__ext-${identity}` : identity) : null
@@ -89,6 +91,8 @@ export function createArtworkManagementColumns({
       header: '偏好',
       id: 'preferredTag',
       size: 120,
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden sm:table-cell',
       cell: ({ row }) => <PreferredTagCell artwork={row.original} />
     },
     {
@@ -100,27 +104,17 @@ export function createArtworkManagementColumns({
       cell: ({ row: { original } }) => {
         const { title } = original
         return (
-          <div className="flex min-w-0 items-center gap-1">
-            <span className="min-w-0 flex-1 truncate font-medium" title={title}>
-              {title}
-            </span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-7 shrink-0"
-              onClick={() => onOpenInfo(original)}
-              aria-label={`查看作品 ${title} 的信息`}
-            >
-              <InfoIcon aria-hidden="true" />
-            </Button>
-          </div>
+          <span className="block min-w-0 truncate font-medium" title={title}>
+            {title}
+          </span>
         )
       }
     },
     {
       header: '作者',
       accessorKey: 'artist',
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden sm:table-cell',
       cell: ({ row }) => {
         const artist = row.original.artist
 
@@ -153,6 +147,8 @@ export function createArtworkManagementColumns({
       header: '媒体数',
       accessorKey: 'mediaCount',
       size: 100,
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden sm:table-cell',
       cell: ({ row }) => (
         <Button
           variant="link"
@@ -166,54 +162,25 @@ export function createArtworkManagementColumns({
     },
     {
       header: '发布日期',
-      accessorKey: 'sourceDate'
+      accessorKey: 'sourceDate',
+      headerClassName: 'hidden sm:table-cell',
+      cellClassName: 'hidden sm:table-cell'
     },
 
     {
       id: 'actions',
       header: '操作',
-      size: 160,
-      headerClassName: 'sticky right-0 z-20 border-l border-border bg-background',
-      cellClassName: 'sticky right-0 z-10 border-l border-border bg-background',
+      size: 56,
+      headerClassName: 'sticky right-0 z-20 w-14 border-l border-border bg-background text-center',
+      cellClassName: 'sticky right-0 z-10 w-14 border-l border-border bg-background text-center',
       cell: ({ row }) => (
-        <div className="flex gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onEdit(row.original)}
-            aria-label={`编辑作品 ${row.original.title}`}
-          >
-            <Edit aria-hidden="true" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onCopy(row.original)}
-            aria-label={`复制作品 ${row.original.title}`}
-          >
-            <Copy aria-hidden="true" />
-          </Button>
-          <ArtworkRescanButton artwork={row.original} onComplete={onRefresh} />
-          <Button asChild variant="ghost" size="icon">
-            <Link
-              href={`/artworks/${row.original.id}`}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={`在新标签页打开作品 ${row.original.title}`}
-            >
-              <ExternalLink aria-hidden="true" />
-            </Link>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-destructive"
-            onClick={() => onDelete(row.original.id)}
-            aria-label={`删除作品 ${row.original.title}`}
-          >
-            <Trash aria-hidden="true" />
-          </Button>
-        </div>
+        <ArtworkRowActions
+          artwork={row.original}
+          onEdit={() => onEdit(row.original)}
+          onCopy={() => onCopy(row.original)}
+          onDelete={() => onDelete(row.original.id)}
+          onRescanComplete={onRefresh}
+        />
       )
     }
   ]

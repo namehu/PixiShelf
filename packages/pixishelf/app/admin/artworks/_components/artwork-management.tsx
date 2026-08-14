@@ -191,10 +191,6 @@ export default function ArtworkManagement() {
     setEditorConfig({ id: item.id, tab: 'info' })
   }
 
-  const handleOpenInfo = (item: ArtworkResponseDto) => {
-    setEditorConfig({ id: item.id, tab: 'info' })
-  }
-
   const handleOpenImageManager = (item: ArtworkResponseDto) => {
     setCopyInitialData(null)
     setEditorConfig({ id: item.id, tab: 'media' })
@@ -296,7 +292,6 @@ export default function ArtworkManagement() {
 
   const columns = createArtworkManagementColumns({
     pendingReplaceCopyMode: searchState.copyMode === 'pending-replace',
-    onOpenInfo: handleOpenInfo,
     onEdit: handleEdit,
     onCopy: handleCopy,
     onOpenImageManager: handleOpenImageManager,

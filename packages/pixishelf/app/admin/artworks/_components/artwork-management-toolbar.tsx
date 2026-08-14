@@ -3,10 +3,22 @@
 import { Dispatch, SetStateAction } from 'react'
 import { ChevronDown, Copy, Download, FileText, FolderInput, FolderSync, Plus, Sliders } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { SDropdown } from '@/components/shared/s-dropdown'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { Spinner } from '@/components/ui/spinner'
 import type { MigrationSafety } from './artwork-management-types'
 
 interface ArtworkManagementToolbarProps {
@@ -44,138 +56,125 @@ export function ArtworkManagementToolbar({
   onOpenLogs,
   onTogglePendingReplaceCopyMode
 }: ArtworkManagementToolbarProps) {
-  return (
-    <div className="flex w-full flex-wrap justify-end gap-2 border-b border-border pb-4" role="toolbar" aria-label="作品管理操作">
-        <Button
-          variant={pendingReplaceCopyMode ? 'secondary' : 'outline'}
-          size="sm"
-          className="min-w-0 flex-1 gap-2 sm:flex-none"
-          onClick={onTogglePendingReplaceCopyMode}
-          title="开启后复制作品 externalId 将得到 __ext-{externalId}"
-          aria-pressed={pendingReplaceCopyMode}
-        >
-          <Copy data-icon="inline-start" aria-hidden="true" />
-          {pendingReplaceCopyMode ? '替换后缀复制中' : '复制替换后缀'}
-        </Button>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="flex flex-1 items-center gap-2 sm:flex-none">
-              <Sliders data-icon="inline-start" aria-hidden="true" />
-              迁移策略
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-64" align="end">
-            <div className="flex flex-col gap-3">
-              <div className="text-sm font-medium text-foreground">传输方式</div>
-              <Select
-                value={migrationSafety.transferMode}
-                onValueChange={(value) =>
-                  setMigrationSafety((prev) => ({
-                    ...prev,
-                    transferMode: value as 'move' | 'copy'
-                  }))
-                }
-              >
-                <SelectTrigger className="h-8" aria-label="迁移传输方式">
-                  <SelectValue placeholder="选择方式" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="move">移动</SelectItem>
-                    <SelectItem value="copy">复制</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <label className="flex cursor-pointer items-center gap-2">
-                <Checkbox
-                  checked={migrationSafety.verifyAfterCopy}
-                  onCheckedChange={(value) =>
-                    setMigrationSafety((prev) => ({
-                      ...prev,
-                      verifyAfterCopy: !!value
-                    }))
-                  }
-                  disabled={migrationSafety.transferMode !== 'copy'}
-                />
-                <span className="text-sm text-foreground">复制后校验</span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <Checkbox
-                  checked={migrationSafety.cleanupSource}
-                  onCheckedChange={(value) =>
-                    setMigrationSafety((prev) => ({
-                      ...prev,
-                      cleanupSource: !!value
-                    }))
-                  }
-                />
-                <span className="text-sm text-foreground">清理源文件</span>
-              </label>
-            </div>
-          </PopoverContent>
-        </Popover>
-        <Button key="create" variant="default" size="sm" className="flex-1 gap-2 sm:flex-none" onClick={onCreate}>
-          <Plus className="w-4 h-4" />
-          新增作品
-        </Button>
+  const transferModeLabel = migrationSafety.transferMode === 'move' ? '移动' : '复制'
 
-        <SDropdown
-          menu={{
-            items: [
-              {
-                key: 'batchImport',
-                icon: <Plus className="w-4 h-4" />,
-                label: '批量导入',
-                onClick: onBatchImport
-              },
-              {
-                key: 'batchReplace',
-                icon: <FolderSync className="w-4 h-4" />,
-                label: '批量替换媒体',
-                onClick: onBatchReplace
-              },
-              {
-                key: 'export',
-                icon: <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />,
-                label: isExporting ? '导出中…' : '导出无系列 ID',
-                disabled: isExporting,
-                onClick: onExportNoSeries
-              },
-              {
-                key: 'migrate',
-                icon: migrationState.migrating ? (
-                  <span className="size-2 animate-pulse rounded-full bg-success" />
-                ) : (
-                  <FolderInput className="w-4 h-4" />
-                ),
-                label: migrationState.migrating
-                  ? '迁移中…'
-                  : selectedCount > 0
-                    ? `批量迁移 (${selectedCount})`
-                    : '目录迁移',
-                disabled: migrationState.migrating,
-                onClick: onMigrationClick
-              },
-              {
-                key: 'log-separator',
-                type: 'divider',
-                hidden: !(migrationState.migrating || hasMigrationLogs)
-              },
-              {
-                key: 'logs',
-                icon: <FileText className="w-4 h-4" />,
-                label: '查看日志',
-                hidden: !(migrationState.migrating || hasMigrationLogs),
-                onClick: onOpenLogs
-              }
-            ]
-          }}
-        >
-          <Button variant="outline" size="sm" className="flex flex-1 items-center gap-2 sm:flex-none">
+  return (
+    <div className="flex w-full justify-end gap-2 border-b border-border pb-4" role="toolbar" aria-label="作品管理操作">
+      <Button variant="default" size="sm" className="flex-1 sm:flex-none" onClick={onCreate}>
+        <Plus data-icon="inline-start" aria-hidden="true" />
+        新增作品
+      </Button>
+
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="flex-1 sm:flex-none">
             更多操作
-            <ChevronDown className="w-4 h-4" />
+            <ChevronDown data-icon="inline-end" aria-hidden="true" />
           </Button>
-        </SDropdown>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>内容维护</DropdownMenuLabel>
+            <DropdownMenuItem onSelect={onBatchImport}>
+              <Plus aria-hidden="true" />
+              批量导入
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onBatchReplace}>
+              <FolderSync aria-hidden="true" />
+              批量替换媒体
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={isExporting} onSelect={onExportNoSeries}>
+              {isExporting ? <Spinner aria-hidden="true" /> : <Download aria-hidden="true" />}
+              {isExporting ? '导出中…' : '导出无系列 ID'}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+
+          <DropdownMenuSeparator />
+
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>目录迁移</DropdownMenuLabel>
+            <DropdownMenuItem disabled={migrationState.migrating} onSelect={onMigrationClick}>
+              {migrationState.migrating ? <Spinner aria-hidden="true" /> : <FolderInput aria-hidden="true" />}
+              {migrationState.migrating
+                ? '迁移中…'
+                : selectedCount > 0
+                  ? `迁移已选作品（${selectedCount}）`
+                  : '开始目录迁移'}
+            </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Sliders aria-hidden="true" />
+                迁移策略：{transferModeLabel}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-52">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>传输方式</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={migrationSafety.transferMode}
+                    onValueChange={(value) =>
+                      setMigrationSafety((previous) => ({
+                        ...previous,
+                        transferMode: value as 'move' | 'copy'
+                      }))
+                    }
+                  >
+                    <DropdownMenuRadioItem value="move">移动文件</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="copy">复制文件</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuCheckboxItem
+                    checked={migrationSafety.verifyAfterCopy}
+                    disabled={migrationSafety.transferMode !== 'copy'}
+                    onCheckedChange={(checked) =>
+                      setMigrationSafety((previous) => ({
+                        ...previous,
+                        verifyAfterCopy: checked
+                      }))
+                    }
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    复制后校验
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={migrationSafety.cleanupSource}
+                    onCheckedChange={(checked) =>
+                      setMigrationSafety((previous) => ({
+                        ...previous,
+                        cleanupSource: checked
+                      }))
+                    }
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    清理源文件
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            {(migrationState.migrating || hasMigrationLogs) && (
+              <DropdownMenuItem onSelect={onOpenLogs}>
+                <FileText aria-hidden="true" />
+                查看迁移日志
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuGroup>
+
+          <DropdownMenuSeparator />
+
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>复制设置</DropdownMenuLabel>
+            <DropdownMenuCheckboxItem
+              checked={pendingReplaceCopyMode}
+              onCheckedChange={onTogglePendingReplaceCopyMode}
+              onSelect={(event) => event.preventDefault()}
+            >
+              <Copy aria-hidden="true" />
+              复制 ID 时添加替换后缀
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 }
