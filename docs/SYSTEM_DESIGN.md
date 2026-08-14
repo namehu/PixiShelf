@@ -41,6 +41,13 @@ graph TD
     end
 ```
 
+### 1.3 专项设计
+
+- [后台任务架构设计](./design/background-task-architecture.md)：任务模块现状、独立 Worker 边界、目标架构、调度状态机、任务关系与视频流水线。
+- [后台任务数据模型](./design/background-task-data-model.md)：当前/目标 ER、字段字典、旧数据兼容和迁移顺序。
+- [后台任务实施与运行手册](./design/background-task-runbook.md)：停机迁移门禁、日志轮转、故障恢复、上线回滚与验收清单。
+- [ADR-0003](./adr/0003-unify-background-jobs-under-a-durable-single-worker.md)：单通用 Worker、TypeScript 选型和 PostgreSQL 持久队列的已接受决策。
+
 ## 2. 目录结构规范
 
 ### 2.1 整体目录结构

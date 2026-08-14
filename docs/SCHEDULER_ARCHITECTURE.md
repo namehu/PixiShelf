@@ -1,5 +1,10 @@
 # PixiShelf 通用计划任务系统架构
 
+> 本文描述当前已实现的调度架构。已确认但尚未完成的目标架构见
+> [后台任务架构设计](./design/background-task-architecture.md)、
+> [后台任务数据模型](./design/background-task-data-model.md)和
+> [ADR-0003](./adr/0003-unify-background-jobs-under-a-durable-single-worker.md)。
+
 本文说明 scheduler 容器、Next.js App、`ScheduledTask`、`SystemJob` 之间的职责边界和运行流转。
 
 ## 设计目标
