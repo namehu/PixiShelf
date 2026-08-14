@@ -51,6 +51,7 @@ describe('ContentWarningGate', () => {
     render(<ContentWarningGate />)
 
     expect(screen.getByRole('alertdialog', { name: '浏览前的小提示' })).toBeTruthy()
+    expect(screen.queryByRole('main')).toBeNull()
     expect(document.documentElement.dataset.contentWarning).toBe('pending')
     expect(protectedContent.inert).toBe(true)
     expect(protectedContent.getAttribute('aria-hidden')).toBe('true')

@@ -23,6 +23,8 @@ import {
 
 // 定义 Antd 风格的 Props
 interface DatePickerRangeProps {
+  id?: string
+  'aria-label'?: string
   className?: string
   // 核心：接收数组 [开始时间, 结束时间]
   value?: [Date | undefined, Date | undefined]
@@ -31,7 +33,14 @@ interface DatePickerRangeProps {
   placeholder?: string
 }
 
-export function DatePickerRange({ className, value, onChange, placeholder = '请选择日期范围' }: DatePickerRangeProps) {
+export function DatePickerRange({
+  id,
+  'aria-label': ariaLabel,
+  className,
+  value,
+  onChange,
+  placeholder = '请选择日期范围'
+}: DatePickerRangeProps) {
   const [open, setOpen] = React.useState(false)
   const isDesktop = useMediaQuery('(min-width: 768px)')
 
@@ -87,7 +96,8 @@ export function DatePickerRange({ className, value, onChange, placeholder = '请
   // 渲染触发器按钮 (PC/Mobile 通用)
   const TriggerButton = (
     <Button
-      id="date"
+      id={id}
+      aria-label={ariaLabel}
       variant={'outline'}
       className={cn(
         'w-full justify-start text-left font-normal', // w-full 适配移动端宽度
@@ -95,7 +105,7 @@ export function DatePickerRange({ className, value, onChange, placeholder = '请
         className
       )}
     >
-      <CalendarIcon className="mr-2 h-4 w-4" />
+      <CalendarIcon data-icon="inline-start" />
       {displayText}
     </Button>
   )

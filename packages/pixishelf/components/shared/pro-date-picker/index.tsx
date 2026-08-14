@@ -44,6 +44,12 @@ export interface ProDatePickerPreset {
 }
 
 export interface ProDatePickerProps {
+  /** 触发按钮 id，用于关联可见标签 */
+  id?: string
+  /** 触发按钮的可访问名称 */
+  'aria-label'?: string
+  /** 触发按钮关联的标签 id */
+  'aria-labelledby'?: string
   /** 组件模式 */
   mode?: ProDatePickerMode
   /** * 受控值
@@ -141,6 +147,9 @@ const transformValueToRange = (value: DatePickerValue): DateRange | undefined =>
 // ----------------------------------------------------------------------
 
 export function ProDatePicker({
+  id,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
   mode = 'single',
   value: valueProp,
   defaultValue,
@@ -299,34 +308,38 @@ export function ProDatePicker({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant={'outline'}
-          disabled={disabled}
-          className={cn(
-            'flex w-full justify-start text-left font-normal relative',
-            !hasValue && 'text-muted-foreground',
-            error && 'border-destructive text-destructive hover:bg-destructive/5 focus-visible:ring-destructive/20',
-            clearable && hasValue ? 'pr-8' : 'pr-3',
-            className
-          )}
-        >
-          <CalendarIcon className="mr-2 h-4 w-4 opacity-50" />
-          <span className="truncate">{displayValue}</span>
+      <div className="relative w-full">
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabelledBy}
+            variant="outline"
+            disabled={disabled}
+            className={cn(
+              'flex w-full justify-start text-left font-normal',
+              !hasValue && 'text-muted-foreground',
+              error && 'border-destructive text-destructive hover:bg-destructive/5 focus-visible:ring-destructive/20',
+              clearable && hasValue ? 'pr-10' : 'pr-3',
+              className
+            )}
+          >
+            <CalendarIcon data-icon="inline-start" />
+            <span className="truncate">{displayValue}</span>
+          </Button>
+        </PopoverTrigger>
 
-          {clearable && hasValue && !disabled && (
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={handleClear}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-accent rounded-full text-muted-foreground hover:text-foreground transition-colors z-10 cursor-pointer"
-            >
-              <X className="h-3 w-3" />
-              <span className="sr-only">Clear date</span>
-            </div>
-          )}
-        </Button>
-      </PopoverTrigger>
+        {clearable && hasValue && !disabled && (
+          <button
+            type="button"
+            aria-label="清除日期"
+            onClick={handleClear}
+            className="absolute right-1 top-1/2 z-10 flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X className="size-4" />
+          </button>
+        )}
+      </div>
 
       <PopoverContent className="w-auto p-0" align="start" {...popoverProps}>
         <div className="flex h-full w-full">

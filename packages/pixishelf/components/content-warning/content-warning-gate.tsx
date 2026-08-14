@@ -76,7 +76,7 @@ export function ContentWarningGate() {
             </div>
           </header>
 
-          <main className="flex flex-1 items-center justify-center px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-8 sm:px-6 sm:py-12">
+          <div className="flex flex-1 items-center justify-center px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-8 sm:px-6 sm:py-12">
             <section className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-background p-6 shadow-floating sm:p-8">
               <div className="absolute inset-x-0 top-0 h-1 bg-primary" aria-hidden="true" />
 
@@ -120,7 +120,7 @@ export function ContentWarningGate() {
                 未满 18 岁时，请不要继续浏览此区域。
               </p>
             </section>
-          </main>
+          </div>
         </div>
       </AlertDialogContent>
     </AlertDialog>

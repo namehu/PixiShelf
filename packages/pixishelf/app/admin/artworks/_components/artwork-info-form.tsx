@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
@@ -187,11 +187,11 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-1 py-2">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="artwork-title">
+      <FieldGroup className="flex-1 gap-4 overflow-y-auto px-1 py-2">
+        <Field className="gap-2">
+          <FieldLabel htmlFor="artwork-title">
             标题 <span className="text-destructive">*</span>
-          </Label>
+          </FieldLabel>
           <Input
             ref={titleInputRef}
             id="artwork-title"
@@ -201,13 +201,19 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
             onChange={(e) => setFormData({ ...formData, title: e.target.value })}
             placeholder="请输入作品标题"
           />
-        </div>
+        </Field>
 
-        <div className="flex flex-col gap-2">
-          <Label>
+        <Field className="gap-2">
+          <FieldLabel htmlFor="artwork-artist">
             艺术家 <span className="text-destructive">*</span>
-          </Label>
+          </FieldLabel>
           <MultipleSelector
+            inputProps={{
+              id: 'artwork-artist',
+              name: 'artwork-artist',
+              autoComplete: 'off',
+              'aria-label': '搜索并选择艺术家'
+            }}
             placeholder="搜索并选择艺术家…"
             defaultOptions={
               formData.artist?.id ? [{ value: formData.artist.id.toString(), label: formData.artist.name }] : []
@@ -224,22 +230,30 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
             maxSelected={1}
             triggerSearchOnFocus
           />
-        </div>
+        </Field>
 
-        <div className="flex flex-col gap-2">
-          <Label>发布日期</Label>
+        <Field className="gap-2">
+          <FieldLabel htmlFor="artwork-source-date">发布日期</FieldLabel>
           <ProDatePicker
+            id="artwork-source-date"
+            aria-label="发布日期"
             mode="single"
             value={formData.sourceDate}
             onChange={(date) => setFormData({ ...formData, sourceDate: date as Date })}
             placeholder="选择发布日期"
             clearable={false}
           />
-        </div>
+        </Field>
 
-        <div className="flex flex-col gap-2">
-          <Label>标签</Label>
+        <Field className="gap-2">
+          <FieldLabel htmlFor="artwork-tags">标签</FieldLabel>
           <MultipleSelector
+            inputProps={{
+              id: 'artwork-tags',
+              name: 'artwork-tags',
+              autoComplete: 'off',
+              'aria-label': '搜索并添加标签'
+            }}
             placeholder="搜索并添加标签…"
             defaultOptions={formData.tags.map((t) => ({
               value: t.id.toString(),
@@ -276,10 +290,10 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
               })
             }}
           />
-        </div>
+        </Field>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="artwork-description">描述</Label>
+        <Field className="gap-2">
+          <FieldLabel htmlFor="artwork-description">描述</FieldLabel>
           <Textarea
             id="artwork-description"
             name="artwork-description"
@@ -290,8 +304,8 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
             placeholder="作品描述…"
             className="[field-sizing:fixed] min-h-[120px] max-h-[400px] break-all whitespace-pre-wrap"
           />
-        </div>
-      </div>
+        </Field>
+      </FieldGroup>
 
       <div className="pt-4 mt-auto border-t">
         <Button onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto">

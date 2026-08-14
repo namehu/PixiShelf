@@ -17,7 +17,7 @@ export default function PageNoData({ hasActiveFilters, onAdjustFilters, onClearF
     <div className="flex h-full w-full items-center justify-center bg-black px-6 text-white">
       <div className="max-w-sm text-center">
         <ImageOffIcon className="mx-auto mb-4 size-10 opacity-60" aria-hidden="true" />
-        <h1 className="text-xl font-semibold">暂无可浏览作品</h1>
+        <h2 className="text-xl font-semibold">暂无可浏览作品</h2>
         <p className="mt-2 text-sm leading-6 text-white/60">
           {hasActiveFilters ? '没有作品符合当前筛选条件。' : '当前收藏中没有可用于沉浸浏览的媒体。'}
         </p>

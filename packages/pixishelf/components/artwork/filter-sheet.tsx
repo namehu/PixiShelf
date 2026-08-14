@@ -15,6 +15,8 @@ import type { ArtworkSource } from '@/schemas/models'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 import { SearchBox } from '@/app/artworks/_components/search-box'
+import { Field, FieldGroup, FieldLabel, FieldTitle } from '@/components/ui/field'
+import { useMediaQuery } from '@/hooks/use-media-query'
 
 interface FilterSheetProps {
   open: boolean
@@ -56,6 +58,7 @@ const EMPTY_OPTIONS: Option[] = []
 const EMPTY_SOURCES: ArtworkSource[] = []
 
 export function FilterSheet(props: FilterSheetProps) {
+  const isDesktop = useMediaQuery('(min-width: 640px)')
   const {
     open,
     onOpenChange,
@@ -204,8 +207,8 @@ export function FilterSheet(props: FilterSheetProps) {
     <SSheet
       open={open}
       onOpenChange={onOpenChange}
-      side="bottom"
-      className="rounded-t-[20px] sm:max-w-md sm:rounded-none sm:side-right max-h-[85vh] h-auto sm:h-full sm:max-h-screen"
+      side={isDesktop ? 'right' : 'bottom'}
+      className="h-auto max-h-[85vh] rounded-t-[20px] sm:h-full sm:max-h-screen sm:max-w-md sm:rounded-none"
       preventOpenAutoFocus
       title="筛选"
       footer={
@@ -220,11 +223,14 @@ export function FilterSheet(props: FilterSheetProps) {
       }
     >
       {/* 5. 中间主要内容区域 (会自动处理滚动) */}
-      <div className="space-y-8">
+      <FieldGroup className="gap-8">
         {currentSearch !== undefined && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">关键词</h3>
+          <Field className="gap-3">
+            <FieldLabel htmlFor="filter-search">关键词</FieldLabel>
             <SearchBox
+              inputId="filter-search"
+              inputName="filter-search"
+              ariaLabel="搜索作品、艺术家或标签"
               value={localSearch}
               onValueChange={setLocalSearch}
               onSearch={setLocalSearch}
@@ -232,14 +238,20 @@ export function FilterSheet(props: FilterSheetProps) {
               placeholder="搜索作品、艺术家或标签"
               className="w-full"
             />
-          </div>
+          </Field>
         )}
 
         {/* 艺术家 */}
         {onSearchArtist && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">艺术家</h3>
+          <Field className="gap-3">
+            <FieldLabel htmlFor="filter-artist">艺术家</FieldLabel>
             <MultipleSelector
+              inputProps={{
+                id: 'filter-artist',
+                name: 'filter-artist',
+                autoComplete: 'off',
+                'aria-label': '搜索艺术家'
+              }}
               value={localArtist}
               defaultOptions={localArtist}
               onChange={setLocalArtist}
@@ -249,14 +261,20 @@ export function FilterSheet(props: FilterSheetProps) {
               emptyIndicator="没有找到艺术家"
               className="min-h-10"
             />
-          </div>
+          </Field>
         )}
 
         {/* 标签 */}
         {onSearchTag && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">标签</h3>
+          <Field className="gap-3">
+            <FieldLabel htmlFor="filter-tags">标签</FieldLabel>
             <MultipleSelector
+              inputProps={{
+                id: 'filter-tags',
+                name: 'filter-tags',
+                autoComplete: 'off',
+                'aria-label': '搜索并添加标签'
+              }}
               value={localTags}
               defaultOptions={localTags}
               onChange={setLocalTags}
@@ -265,13 +283,19 @@ export function FilterSheet(props: FilterSheetProps) {
               emptyIndicator="没有找到标签"
               className="min-h-10"
             />
-          </div>
+          </Field>
         )}
 
         {showExtendedFilters && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">创建类型</h3>
+          <Field className="gap-3">
+            <FieldLabel htmlFor="filter-sources">创建类型</FieldLabel>
             <MultipleSelector
+              inputProps={{
+                id: 'filter-sources',
+                name: 'filter-sources',
+                autoComplete: 'off',
+                'aria-label': '选择创建类型'
+              }}
               value={localSources}
               options={OSource}
               onChange={setLocalSources}
@@ -280,53 +304,65 @@ export function FilterSheet(props: FilterSheetProps) {
               className="min-h-10"
               selectFirstItem={false}
             />
-          </div>
+          </Field>
         )}
 
         {/* 作品原始时间范围 */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">作品原始时间</h3>
+        <Field className="gap-3">
+          <FieldLabel htmlFor="filter-source-date">作品原始时间</FieldLabel>
           <DatePickerRange
+            id="filter-source-date"
+            aria-label="作品原始时间范围"
             value={localDateRange}
             onChange={setLocalDateRange}
             className="w-full sm:w-[240px]"
             placeholder="选择原始时间范围"
           />
-        </div>
+        </Field>
 
         {showExtendedFilters && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">入库创建时间</h3>
+          <Field className="gap-3">
+            <FieldLabel htmlFor="filter-created-date">入库创建时间</FieldLabel>
             <DatePickerRange
+              id="filter-created-date"
+              aria-label="入库创建时间范围"
               value={localCreatedDateRange}
               onChange={setLocalCreatedDateRange}
               className="w-full sm:w-[240px]"
               placeholder="选择入库时间范围"
             />
-          </div>
+          </Field>
         )}
 
         {/* 排序控制 */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">排序方式</h3>
-          <SortControl value={localSortBy} onChange={setLocalSortBy} className="w-full" />
-        </div>
+        <Field className="gap-3">
+          <FieldLabel htmlFor="filter-sort">排序方式</FieldLabel>
+          <SortControl
+            id="filter-sort"
+            aria-label="排序方式"
+            value={localSortBy}
+            onChange={setLocalSortBy}
+            className="w-full"
+          />
+        </Field>
 
         {/* 媒体类型 */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">媒体类型</h3>
+        <Field className="gap-3">
+          <FieldLabel htmlFor="filter-media-type">媒体类型</FieldLabel>
           <MediaTypeFilterComponent
+            id="filter-media-type"
+            aria-label="媒体类型"
             value={localMediaType}
             onChange={setLocalMediaType}
             className="w-full justify-start"
           />
-        </div>
+        </Field>
 
         {showExtendedFilters && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">视频音频</h3>
+          <Field className="gap-3">
+            <FieldLabel htmlFor="filter-audio">视频音频</FieldLabel>
             <Select value={localHasAudio} onValueChange={(value) => setLocalHasAudio(value as AudioFilter)}>
-              <SelectTrigger className="w-full">
+              <SelectTrigger id="filter-audio" className="w-full" aria-label="视频音频筛选">
                 <SelectValue placeholder="全部" />
               </SelectTrigger>
               <SelectContent>
@@ -337,25 +373,26 @@ export function FilterSheet(props: FilterSheetProps) {
                 </SelectGroup>
               </SelectContent>
             </Select>
-          </div>
+          </Field>
         )}
 
         {currentMaxMediaCount !== undefined && (
-          <div className="space-y-3">
+          <Field className="gap-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider">单个作品最多媒体数</h3>
+              <FieldTitle>单个作品最多媒体数</FieldTitle>
               <span className="text-sm text-muted-foreground">{localMaxMediaCount}</span>
             </div>
             <Slider
+              aria-label="单个作品最多媒体数"
               value={[localMaxMediaCount]}
               onValueChange={(value) => setLocalMaxMediaCount(value[0] ?? 8)}
               min={1}
               max={100}
               step={1}
             />
-          </div>
+          </Field>
         )}
-      </div>
+      </FieldGroup>
     </SSheet>
   )
 }

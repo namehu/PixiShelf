@@ -4,11 +4,15 @@ export function useMediaQuery(query: string) {
   const [value, setValue] = React.useState(false)
 
   React.useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return
+    }
+
     function onChange(event: MediaQueryListEvent) {
       setValue(event.matches)
     }
 
-    const result = matchMedia(query)
+    const result = window.matchMedia(query)
     result.addEventListener('change', onChange)
     setValue(result.matches)
 

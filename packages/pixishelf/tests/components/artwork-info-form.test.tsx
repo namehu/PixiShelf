@@ -48,19 +48,20 @@ vi.mock('@/components/ui/button', () => ({
 }))
 
 vi.mock('@/components/shared/pro-date-picker', () => ({
-  ProDatePicker: ({ value }: any) => {
+  ProDatePicker: ({ value, id, 'aria-label': ariaLabel }: any) => {
     const displayValue =
       value instanceof Date
         ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
         : ''
 
-    return <input aria-label="发布日期" readOnly value={displayValue} />
+    return <input id={id} aria-label={ariaLabel} readOnly value={displayValue} />
   }
 }))
 
 vi.mock('@/components/shared/multiple-selector', () => ({
-  default: ({ value, placeholder }: any) => (
+  default: ({ value, placeholder, inputProps }: any) => (
     <div data-testid={placeholder}>
+      <input {...inputProps} />
       {(value || []).map((item: any) => (
         <span key={item.value}>{item.label}</span>
       ))}
@@ -155,6 +156,9 @@ describe('ArtworkInfoForm', () => {
     expect(screen.getByDisplayValue('复制源作品')).toBeTruthy()
     expect(screen.getByDisplayValue('复制源描述')).toBeTruthy()
     expect(screen.getByDisplayValue('2026-06-05')).toBeTruthy()
+    expect(screen.getByLabelText('搜索并选择艺术家').getAttribute('name')).toBe('artwork-artist')
+    expect(screen.getByLabelText('发布日期').getAttribute('id')).toBe('artwork-source-date')
+    expect(screen.getByLabelText('搜索并添加标签').getAttribute('name')).toBe('artwork-tags')
     expect(screen.getByText('源艺术家')).toBeTruthy()
     expect(screen.getByText('tag-a')).toBeTruthy()
     expect(screen.getByText('tag-b')).toBeTruthy()

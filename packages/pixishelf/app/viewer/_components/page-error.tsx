@@ -11,7 +11,7 @@ export default function PageError({ content }: { content?: string }) {
     <div className="flex h-full w-full items-center justify-center bg-black px-6 text-white">
       <div className="max-w-sm text-center">
         <CircleAlertIcon className="mx-auto mb-4 size-10 opacity-60" aria-hidden="true" />
-        <h1 className="text-xl font-semibold">沉浸浏览加载失败</h1>
+        <h2 className="text-xl font-semibold">沉浸浏览加载失败</h2>
         <p className="mt-2 text-sm leading-6 text-white/60">{content || '无法加载数据，请检查网络连接'}</p>
         <div className="mt-5 flex justify-center gap-2">
           <Button variant="secondary" onClick={() => window.location.reload()}>

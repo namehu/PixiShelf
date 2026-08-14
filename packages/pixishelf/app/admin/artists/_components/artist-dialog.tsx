@@ -1,8 +1,8 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { toast } from 'sonner'
 import { useTRPC } from '@/lib/trpc'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -138,12 +138,12 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
           <Spinner className="size-8 text-muted-foreground" aria-label="正在加载艺术家信息" />
         </div>
       ) : (
-        <div className="flex flex-col gap-4 py-2">
+        <FieldGroup className="gap-4 py-2">
           {/* Name */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="artist-name">
+          <Field className="gap-2">
+            <FieldLabel htmlFor="artist-name">
               姓名 <span className="text-destructive">*</span>
-            </Label>
+            </FieldLabel>
             <Input
               ref={nameInputRef}
               id="artist-name"
@@ -153,11 +153,11 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="请输入艺术家姓名"
             />
-          </div>
+          </Field>
 
           {/* UserID (Pixiv) */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="artist-pixiv-user-id">Pixiv UserID</Label>
+          <Field className="gap-2">
+            <FieldLabel htmlFor="artist-pixiv-user-id">Pixiv UserID</FieldLabel>
             <Input
               id="artist-pixiv-user-id"
               name="artist-pixiv-user-id"
@@ -166,12 +166,12 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
               onChange={(e) => setFormData({ ...formData, userId: e.target.value })}
               placeholder="请输入 Pixiv UserID（可选，不填将自动生成）"
             />
-            <p className="text-xs text-muted-foreground">如果不填写，系统将自动生成格式为 p_{'{id}'} 的 ID</p>
-          </div>
+            <FieldDescription className="text-xs">如果不填写，系统将自动生成格式为 p_{'{id}'} 的 ID</FieldDescription>
+          </Field>
 
           {/* Bio */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="artist-bio">简介</Label>
+          <Field className="gap-2">
+            <FieldLabel htmlFor="artist-bio">简介</FieldLabel>
             <Textarea
               id="artist-bio"
               name="artist-bio"
@@ -181,11 +181,11 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
               placeholder="请输入艺术家简介（可选）"
               rows={3}
             />
-          </div>
+          </Field>
 
           {/* Avatar URL (Temporary text input until upload is ready) */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="artist-avatar-url">头像 URL</Label>
+          <Field className="gap-2">
+            <FieldLabel htmlFor="artist-avatar-url">头像 URL</FieldLabel>
             <Input
               id="artist-avatar-url"
               name="artist-avatar-url"
@@ -195,11 +195,11 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
               onChange={(e) => setFormData({ ...formData, avatar: e.target.value })}
               placeholder="请输入头像 URL（可选）"
             />
-          </div>
+          </Field>
 
           {/* Background URL */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="artist-background-url">背景图 URL</Label>
+          <Field className="gap-2">
+            <FieldLabel htmlFor="artist-background-url">背景图 URL</FieldLabel>
             <Input
               id="artist-background-url"
               name="artist-background-url"
@@ -209,8 +209,8 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
               onChange={(e) => setFormData({ ...formData, backgroundImg: e.target.value })}
               placeholder="请输入背景图 URL（可选）"
             />
-          </div>
-        </div>
+          </Field>
+        </FieldGroup>
       )}
     </ProDialog>
   )

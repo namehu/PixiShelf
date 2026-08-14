@@ -10,6 +10,10 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 // ============================================================================
 
 export interface SortControlProps {
+  /** 触发器 id，用于关联可见标签 */
+  id?: string
+  /** 触发器的可访问名称 */
+  'aria-label'?: string
   /** 当前排序值 */
   value: SortOption
   /** 排序变化回调 */
@@ -43,6 +47,8 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
  * 排序控制组件
  */
 export const SortControl: React.FC<SortControlProps> = ({
+  id,
+  'aria-label': ariaLabel,
   value,
   onChange,
   size = 'md',
@@ -56,7 +62,7 @@ export const SortControl: React.FC<SortControlProps> = ({
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger className={cn('w-fit min-w-[140px]', className)} size={selectSize}>
+      <SelectTrigger id={id} aria-label={ariaLabel} className={cn('w-fit min-w-[140px]', className)} size={selectSize}>
         <SelectValue>{currentOption?.label || '请选择排序'}</SelectValue>
       </SelectTrigger>
       <SelectContent>

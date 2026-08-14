@@ -10,6 +10,10 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 // ============================================================================
 
 export interface MediaTypeFilterProps {
+  /** 触发器 id，用于关联可见标签 */
+  id?: string
+  /** 触发器的可访问名称 */
+  'aria-label'?: string
   /** 当前媒体类型筛选值 */
   value: MediaTypeFilterType
   /** 媒体类型变化回调 */
@@ -35,6 +39,8 @@ const MEDIA_TYPE_OPTIONS: { value: MediaTypeFilterType; label: string; icon: str
  * 媒体类型筛选控制组件
  */
 export const MediaTypeFilter: React.FC<MediaTypeFilterProps> = ({
+  id,
+  'aria-label': ariaLabel,
   value,
   onChange,
   size = 'md',
@@ -48,7 +54,7 @@ export const MediaTypeFilter: React.FC<MediaTypeFilterProps> = ({
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger className={cn('w-fit min-w-[120px]', className)} size={selectSize}>
+      <SelectTrigger id={id} aria-label={ariaLabel} className={cn('w-fit min-w-[120px]', className)} size={selectSize}>
         <SelectValue>
           {currentOption ? (
             <span className="flex items-center gap-2">

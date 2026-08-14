@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { toast } from 'sonner'
 import { useTRPC } from '@/lib/trpc'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -123,12 +123,12 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
       confirmLoading={isSubmitting}
       onOk={handleSubmit}
     >
-      <div className="flex flex-col gap-4 py-2">
+      <FieldGroup className="gap-4 py-2">
         {/* Name */}
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="tag-name">
+        <Field className="gap-2" data-disabled={tag?.isSystem || undefined}>
+          <FieldLabel htmlFor="tag-name">
             标签名称 <span className="text-destructive">*</span>
-          </Label>
+          </FieldLabel>
           <Input
             ref={nameInputRef}
             id="tag-name"
@@ -139,12 +139,12 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
             placeholder="请输入标签名称"
             disabled={Boolean(tag?.isSystem)}
           />
-          {tag?.isSystem && <p className="text-xs text-muted-foreground">系统标签名称由程序维护，不允许修改。</p>}
-        </div>
+          {tag?.isSystem && <FieldDescription className="text-xs">系统标签名称由程序维护，不允许修改。</FieldDescription>}
+        </Field>
 
         {/* Chinese Name */}
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="tag-name-zh">中文翻译</Label>
+        <Field className="gap-2">
+          <FieldLabel htmlFor="tag-name-zh">中文翻译</FieldLabel>
           <Input
             id="tag-name-zh"
             name="tag-name-zh"
@@ -153,11 +153,11 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
             onChange={(e) => setFormData({ ...formData, name_zh: e.target.value })}
             placeholder="请输入中文翻译（可选）"
           />
-        </div>
+        </Field>
 
         {/* English Name */}
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="tag-name-en">英文翻译</Label>
+        <Field className="gap-2">
+          <FieldLabel htmlFor="tag-name-en">英文翻译</FieldLabel>
           <Input
             id="tag-name-en"
             name="tag-name-en"
@@ -166,11 +166,11 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
             onChange={(e) => setFormData({ ...formData, name_en: e.target.value })}
             placeholder="请输入英文翻译（可选）"
           />
-        </div>
+        </Field>
 
         {/* Description */}
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="tag-description">描述</Label>
+        <Field className="gap-2">
+          <FieldLabel htmlFor="tag-description">描述</FieldLabel>
           <Textarea
             id="tag-description"
             name="tag-description"
@@ -180,8 +180,8 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
             placeholder="请输入标签描述（可选）"
             rows={3}
           />
-        </div>
-      </div>
+        </Field>
+      </FieldGroup>
     </ProDialog>
   )
 }

@@ -479,6 +479,14 @@ Each remaining match must be justified as an intentional control behavior or mig
 - All stage commits remain scoped and reviewable.
 - The final worktree is clean.
 
+### Stage 7 execution record
+
+- Final cleanup migrated the remaining touched admin dialogs to `FieldGroup` / `Field`, replaced production `space-x/y` and `transition-all` usage with explicit flex gaps and property-scoped transitions, named the remaining business inputs, and kept `select-none` only on shadcn menu/calendar/slider primitives plus genuine drag, long-press, and button controls. Ordinary titles, paths, table values, logs, and metadata remain mouse-selectable.
+- The final review cycle also converted artwork search suggestions and preview pagination to named native controls, connected the filter Sheet and artwork editor's composite fields to visible labels, separated the date clear action from its trigger button, switched the Sheet between bottom and right placement at the real breakpoint, and removed the media-order dialog's nested `main`. Focused regression coverage now locks those semantics in place.
+- Browser regression covered `1440x900`, `1024x768`, `390x844`, and `1440x720` across Dashboard, artworks, a real multi-image detail (`/artworks/50`), artists, tags, settings, Viewer, and the main admin workbenches. Every checked route used a white body background, one `main`, one `h1`, and no document-level horizontal overflow. The run additionally opened the artwork filter Sheet, verified active-filter clearing, exercised a real Viewer item containing image/video media, opened and cancelled a destructive artist deletion, verified the admin dialog Field structure, and received the `已复制` toast from a table ID copy action.
+- The configured local account makes first-admin initialization and the unauthenticated login screen unavailable in this signed-in browser session; the focused login/initialization form suite and the final full unit suite cover those states. The local catalog supplied populated/empty lists, long Chinese/Latin titles and identifiers, multi-image and video media, but no confirmed APNG fixture. Browser-driver history-back was unavailable, so scroll restoration could not be repeated end-to-end; the existing restoration implementation was left unchanged and its surrounding list suite passed.
+- `pnpm --filter @pixishelf/next lint` completed with zero warnings/errors, TypeScript typecheck passed, all `166` unit-test files / `869` tests passed, uppercase-path and diff checks were clean, and a production `next build` completed successfully with the expanded local environment and no database authentication errors.
+
 ## 13. Non-goals
 
 - Database, Prisma schema, API, TRPC, scanner, archive worker, or media pipeline redesign.

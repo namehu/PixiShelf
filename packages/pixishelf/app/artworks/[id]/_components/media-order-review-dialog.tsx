@@ -83,9 +83,7 @@ interface MediaOrderReviewDialogProps {
 }
 
 function asHistoryRecord(state: unknown): Record<string, unknown> {
-  return typeof state === 'object' && state !== null && !Array.isArray(state)
-    ? (state as Record<string, unknown>)
-    : {}
+  return typeof state === 'object' && state !== null && !Array.isArray(state) ? (state as Record<string, unknown>) : {}
 }
 
 function createHistoryToken() {
@@ -120,12 +118,7 @@ function idsOf(images: ArtworkImageResponseDto[]) {
   return images.map((image) => image.id)
 }
 
-export default function MediaOrderReviewDialog({
-  artworkId,
-  images,
-  onClose,
-  onSaved
-}: MediaOrderReviewDialogProps) {
+export default function MediaOrderReviewDialog({ artworkId, images, onClose, onSaved }: MediaOrderReviewDialogProps) {
   const router = useRouter()
   const trpcClient = useTRPCClient()
   const mediaById = useMemo(() => new Map(images.map((image) => [image.id, image])), [images])
@@ -240,10 +233,7 @@ export default function MediaOrderReviewDialog({
 
   const naturalRanks = useMemo(() => getNaturalOrderRanks(draft), [draft])
   const mismatchCount = useMemo(() => countNaturalOrderMismatches(draft), [draft])
-  const selectedIndex = Math.max(
-    0,
-    selectedId === null ? 0 : draft.findIndex((image) => image.id === selectedId)
-  )
+  const selectedIndex = Math.max(0, selectedId === null ? 0 : draft.findIndex((image) => image.id === selectedId))
   const pairStartIndex = Math.min(selectedIndex, Math.max(0, draft.length - 2))
   const selectedMedia = draft[selectedIndex]
 
@@ -334,7 +324,9 @@ export default function MediaOrderReviewDialog({
           onPointerDownOutside={(event) => event.preventDefault()}
         >
           <DialogTitle className="sr-only">作品媒体顺序校对台</DialogTitle>
-          <DialogDescription className="sr-only">通过缩略图、名称列表或相邻媒体对比检查并调整作品媒体顺序。</DialogDescription>
+          <DialogDescription className="sr-only">
+            通过缩略图、名称列表或相邻媒体对比检查并调整作品媒体顺序。
+          </DialogDescription>
 
           <header className="shrink-0 border-b border-white/10 bg-neutral-950/95 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] backdrop-blur-xl sm:px-5">
             <div className="flex items-center gap-3">
@@ -394,7 +386,10 @@ export default function MediaOrderReviewDialog({
                 <RotateCcw />
               </ToolButton>
               <div className="mx-1 hidden h-5 w-px shrink-0 bg-white/15 md:block" />
-              <div className="hidden shrink-0 items-center rounded-lg bg-white/[0.04] p-0.5 md:flex" aria-label="联系表展示模式">
+              <div
+                className="hidden shrink-0 items-center rounded-lg bg-white/[0.04] p-0.5 md:flex"
+                aria-label="联系表展示模式"
+              >
                 <CollectionViewButton
                   label="缩略图"
                   active={collectionView === 'contact'}
@@ -456,7 +451,7 @@ export default function MediaOrderReviewDialog({
             </div>
           </header>
 
-          <main className="flex min-h-0 flex-1 flex-col md:flex-row">
+          <div className="flex min-h-0 flex-1 flex-col md:flex-row">
             <section
               className={cn(
                 'min-h-0 flex-1 overflow-y-auto overscroll-contain bg-neutral-950 px-3 py-4 sm:px-5 md:block md:w-[58%] md:border-r md:border-white/10',
@@ -476,7 +471,7 @@ export default function MediaOrderReviewDialog({
                   strategy={collectionView === 'names' ? verticalListSortingStrategy : rectSortingStrategy}
                 >
                   {collectionView === 'names' ? (
-                    <div className="space-y-1.5" data-testid="media-name-list">
+                    <div className="flex flex-col gap-1.5" data-testid="media-name-list">
                       {draft.map((media, index) => (
                         <SortableMediaNameRow
                           key={media.id}
@@ -549,12 +544,14 @@ export default function MediaOrderReviewDialog({
                 }}
               />
             </section>
-          </main>
+          </div>
 
           <footer className="shrink-0 border-t border-white/10 bg-neutral-950 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5">
             <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <div className="mr-1 min-w-24 shrink-0">
-                <div className="truncate text-xs font-medium text-white">{selectedMedia ? getFileName(selectedMedia.path) : '-'}</div>
+                <div className="truncate text-xs font-medium text-white">
+                  {selectedMedia ? getFileName(selectedMedia.path) : '-'}
+                </div>
                 <div className="text-[11px] text-neutral-500">当前第 {selectedIndex + 1} 项</div>
               </div>
               <MoveButton label="移到开头" disabled={selectedIndex === 0} onClick={() => moveSelectedTo(0)}>
@@ -581,6 +578,8 @@ export default function MediaOrderReviewDialog({
                 <span className="text-xs text-neutral-400">移到</span>
                 <Input
                   type="number"
+                  name="target-media-position"
+                  autoComplete="off"
                   min={1}
                   max={draft.length}
                   value={targetPosition}
@@ -814,9 +813,7 @@ function MediaNameRowVisual({
         onClick={onSelect}
         aria-label={`选择第 ${index + 1} 项 ${fileName}`}
       >
-        <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-neutral-500">
-          {index + 1}
-        </span>
+        <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-neutral-500">{index + 1}</span>
         <span className="min-w-0 break-all text-sm leading-5 text-neutral-100">{fileName}</span>
       </button>
       {dragHandleProps && (
@@ -868,7 +865,12 @@ function MediaCardVisual({
         dragging && 'w-36 rotate-2 shadow-2xl sm:w-44'
       )}
     >
-      <button type="button" className="block w-full text-left" onClick={onSelect} aria-label={`选择第 ${index + 1} 项 ${fileName}`}>
+      <button
+        type="button"
+        className="block w-full text-left"
+        onClick={onSelect}
+        aria-label={`选择第 ${index + 1} 项 ${fileName}`}
+      >
         <div className="relative aspect-square bg-black/35">
           <MediaThumbnail
             media={media}
@@ -886,8 +888,10 @@ function MediaCardVisual({
             )}
           </div>
         </div>
-        <div className="space-y-0.5 px-2 pb-2 pt-1.5">
-          <div className="truncate text-[11px] font-medium text-neutral-100" title={fileName}>{fileName}</div>
+        <div className="flex flex-col gap-0.5 px-2 pb-2 pt-1.5">
+          <div className="truncate text-[11px] font-medium text-neutral-100" title={fileName}>
+            {fileName}
+          </div>
           <div className="flex items-center justify-between gap-1 text-[10px] text-neutral-500">
             <span>{media.width && media.height ? `${media.width}×${media.height}` : '未知尺寸'}</span>
             {naturalMismatch && <span className="text-amber-300">文件名 #{naturalIndex + 1}</span>}
@@ -1006,7 +1010,9 @@ function ComparisonMedia({
         </span>
       </div>
       <div className="w-full shrink-0 border-t border-white/10 p-2.5">
-        <div className="truncate text-xs font-medium text-white" title={fileName}>{fileName}</div>
+        <div className="truncate text-xs font-medium text-white" title={fileName}>
+          {fileName}
+        </div>
         <div className="mt-1 text-[11px] text-neutral-500">
           {getMediaLabel(media)} · {media.width && media.height ? `${media.width} × ${media.height}` : '未知尺寸'}
         </div>

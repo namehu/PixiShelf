@@ -72,11 +72,11 @@ export function ArtworkVideoOptimizationProvider({ imageIds, children }: { image
       confirm({
         title: '确认执行 MP4 无损播放优化？',
         description: (
-          <div className="mt-2 space-y-2 text-sm">
+          <div className="mt-2 flex flex-col gap-2 text-sm">
             <p className="break-all font-mono text-xs">{media.path}</p>
             <p>任务会进入持久化队列，按提交顺序串行处理。执行时播放器将暂停，成功后刷新整个作品页。</p>
             <p>处理只移动 moov 并重建容器索引，不重新编码，也不会增加关键帧。</p>
-            <p className="text-amber-600">成功后会原位替换文件；执行期间请勿从外部修改或移动该视频。</p>
+            <p className="text-warning">成功后会原位替换文件；执行期间请勿从外部修改或移动该视频。</p>
           </div>
         ),
         confirmText: '加入优化队列',

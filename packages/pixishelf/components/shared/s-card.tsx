@@ -62,9 +62,8 @@ export function SCard({
         <CardHeader
           // 核心优化：
           // 1. 强制使用 flex 覆盖默认的 grid
-          // 2. space-y-0 去除默认可能的垂直间距
-          // 3. justify-between 撑开左右
-          className={cn('flex flex-row justify-between space-y-0 pb-4', alignClass)}
+          // 2. justify-between 撑开左右
+          className={cn('flex flex-row justify-between pb-4', alignClass)}
         >
           {/* 左侧：标题 + 描述 的容器 */}
           <div className="flex flex-col gap-1.5">
@@ -84,7 +83,7 @@ export function SCard({
 
       {/* 底部区域 */}
       {footer && (
-        <CardFooter className="bg-neutral-50/50 border-t pt-3 flex items-center justify-end">{footer}</CardFooter>
+        <CardFooter className="flex items-center justify-end border-t bg-muted/30 pt-3">{footer}</CardFooter>
       )}
     </Card>
   )

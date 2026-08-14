@@ -263,19 +263,19 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
               type="button"
               onClick={() => swiperRef.current?.slidePrev()}
               disabled={currentIndex === 0 || zoomScale > 1.01}
-              className="pointer-events-auto flex size-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-white/20 disabled:pointer-events-none disabled:opacity-25"
+              className="pointer-events-auto flex size-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-25"
               aria-label="上一张媒体"
             >
-              <ChevronLeft className="size-7" />
+              <ChevronLeft className="size-7" aria-hidden="true" />
             </button>
             <button
               type="button"
               onClick={() => swiperRef.current?.slideNext()}
               disabled={currentIndex === images.length - 1 || zoomScale > 1.01}
-              className="pointer-events-auto flex size-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-white/20 disabled:pointer-events-none disabled:opacity-25"
+              className="pointer-events-auto flex size-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-25"
               aria-label="下一张媒体"
             >
-              <ChevronRight className="size-7" />
+              <ChevronRight className="size-7" aria-hidden="true" />
             </button>
           </div>
         )}

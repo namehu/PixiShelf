@@ -150,4 +150,17 @@ describe('ProDatePicker range mode', () => {
     expect(onChange).toHaveBeenLastCalledWith([startOfDay(restartRangeStart), endOfDay(restartRangeEnd)])
     expect(screen.queryByTestId('popover-content')).toBeNull()
   })
+
+  it('renders the clear action as a named sibling button', () => {
+    const onChange = vi.fn()
+
+    render(<ProDatePicker aria-label="发布日期" value={new Date(2026, 0, 10)} onChange={onChange} clearable />)
+
+    const trigger = screen.getByRole('button', { name: '发布日期' })
+    const clear = screen.getByRole('button', { name: '清除日期' })
+
+    expect(trigger.contains(clear)).toBe(false)
+    fireEvent.click(clear)
+    expect(onChange).toHaveBeenCalledWith(undefined)
+  })
 })

@@ -75,7 +75,9 @@ vi.mock('@/components/ui/alert-dialog', () => ({
   AlertDialogDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>,
   AlertDialogCancel: ({ children }: { children: React.ReactNode }) => <button type="button">{children}</button>,
   AlertDialogAction: ({ children, onClick }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" onClick={onClick}>{children}</button>
+    <button type="button" onClick={onClick}>
+      {children}
+    </button>
   )
 }))
 
@@ -102,13 +104,15 @@ function media(id: number, path: string, sortOrder: number): ArtworkImageRespons
   }
 }
 
-const images = [
-  media(3, '/work/page-10.jpg', 0),
-  media(1, '/work/page-1.jpg', 1),
-  media(2, '/work/page-2.jpg', 2)
-]
+const images = [media(3, '/work/page-10.jpg', 0), media(1, '/work/page-1.jpg', 1), media(2, '/work/page-2.jpg', 2)]
 
 describe('MediaOrderReviewDialog', () => {
+  it('does not add a second main landmark inside the full-screen dialog', () => {
+    render(<MediaOrderReviewDialog artworkId={8} images={images} onClose={vi.fn()} />)
+
+    expect(document.body.querySelector('main')).toBeNull()
+  })
+
   beforeEach(() => {
     mocks.mutate.mockReset().mockResolvedValue({ success: true })
     mocks.refresh.mockReset()

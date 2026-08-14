@@ -74,7 +74,7 @@ export default function ArtworkPreviewPage() {
       <div className="flex h-screen w-screen items-center justify-center bg-black text-white">
         <div className="text-center">
           <p className="mb-4">没有可预览的图片</p>
-          <button onClick={safeBack} className="rounded bg-white/10 px-4 py-2 hover:bg-white/20">
+          <button type="button" onClick={safeBack} className="rounded bg-white/10 px-4 py-2 hover:bg-white/20">
             返回
           </button>
         </div>
@@ -148,7 +148,14 @@ export default function ArtworkPreviewPage() {
           <div className="flex items-center">
             {isJumping ? (
               <form onSubmit={handleJumpSubmit} className="flex items-center">
+                <label htmlFor="preview-page-jump" className="sr-only">
+                  跳转到作品页码
+                </label>
                 <input
+                  id="preview-page-jump"
+                  name="preview-page-jump"
+                  autoComplete="off"
+                  aria-label="跳转到作品页码"
                   autoFocus
                   type="number"
                   min={1}
@@ -161,23 +168,27 @@ export default function ArtworkPreviewPage() {
                 <span className="ml-2 text-sm font-medium">/ {images.length}</span>
               </form>
             ) : (
-              <div
-                className="cursor-pointer rounded px-2 py-0.5 text-sm font-medium hover:bg-white/10"
+              <button
+                type="button"
+                aria-label={`跳转页码，当前第 ${currentIndex + 1} 页，共 ${images.length} 页`}
+                className="rounded px-2 py-0.5 text-sm font-medium hover:bg-white/10"
                 onClick={() => {
                   setJumpValue((currentIndex + 1).toString())
                   setIsJumping(true)
                 }}
               >
                 {currentIndex + 1} / {images.length}
-              </div>
+              </button>
             )}
           </div>
         </div>
         <button
+          type="button"
+          aria-label="关闭作品预览"
           onClick={safeBack}
           className="flex h-10 w-10 items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-colors hover:bg-black/40"
         >
-          <X size={24} />
+          <X aria-hidden="true" size={24} />
         </button>
       </div>
 
@@ -208,12 +219,20 @@ export default function ArtworkPreviewPage() {
 
         {/* Custom Navigation Buttons (Desktop) - Vertical Layout */}
         <div className="absolute bottom-8 right-8 z-10 hidden flex-col gap-4 sm:flex">
-          <div className="swiper-button-prev-custom flex h-12 w-12 cursor-pointer items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-all hover:bg-black/40">
-            <ChevronUp size={24} />
-          </div>
-          <div className="swiper-button-next-custom flex h-12 w-12 cursor-pointer items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-all hover:bg-black/40">
-            <ChevronDown size={24} />
-          </div>
+          <button
+            type="button"
+            aria-label="上一张媒体"
+            className="swiper-button-prev-custom flex size-12 items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-colors hover:bg-black/40"
+          >
+            <ChevronUp size={24} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="下一张媒体"
+            className="swiper-button-next-custom flex size-12 items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-colors hover:bg-black/40"
+          >
+            <ChevronDown size={24} aria-hidden="true" />
+          </button>
         </div>
       </Swiper>
     </div>

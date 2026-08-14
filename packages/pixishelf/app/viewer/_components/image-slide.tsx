@@ -28,6 +28,7 @@ import { readMediaPreloadEnvironment, type MediaPreloadEnvironment } from '@/lib
 import { withMediaVersion } from '@/lib/media-url'
 import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
 import { Loader2Icon, PauseIcon, PlayIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 // 导入 Swiper 样式
 import 'swiper/css'
@@ -766,9 +767,10 @@ export default function ImageSlide({
               {mediaItems.map((media, index) => (
                 <div
                   key={media.key}
-                  className={`h-1 flex-1 rounded-full transition-all duration-300 ease-out ${
+                  className={cn(
+                    'h-1 flex-1 rounded-full transition-colors duration-300 ease-out',
                     index <= currentImageIndex ? 'bg-white' : 'bg-white/20'
-                  }`}
+                  )}
                 />
               ))}
             </div>

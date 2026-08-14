@@ -289,6 +289,7 @@ export default function ViewerPage() {
 
   return (
     <main className="relative h-dvh w-screen overflow-hidden bg-black">
+      <h1 className="sr-only">沉浸浏览</h1>
       {!isChromeHidden && (
         <>
           <Button
