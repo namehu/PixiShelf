@@ -20,7 +20,7 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
         _count: {
           select: { seriesArtworks: { where: { artwork: { deletedAt: null } } } }
         },
-        // Get the first artwork in series order to use as cover fallback
+        // 获取系列顺序中的第一张作品作为封面兜底
         seriesArtworks: {
           where: { artwork: { deletedAt: null } },
           take: 1,
@@ -43,7 +43,7 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
     prisma.series.count({ where })
   ])
 
-  // Enhance items with derived cover
+  // 用推导出的封面增强条目
   const enhancedItems = items.map((item) => {
     let derivedCover = null
     const firstSeriesArtwork = item.seriesArtworks[0]
@@ -98,7 +98,7 @@ export async function getSeriesDetail(id: number) {
   if (!series) return null
   const { seriesArtworks, ...seriesFields } = series
 
-  // Transform to flat artworks list with order
+  // 将条目展平成有序作品列表
   const artworks = seriesArtworks.map((sa) => {
     const transformed = transformSingleArtwork({
       ...sa.artwork,
@@ -111,7 +111,7 @@ export async function getSeriesDetail(id: number) {
     }
   })
 
-  // Handle Cover Fallback
+  // 处理封面兜底
   let coverImageUrl = resolveMediaCoverUrl(series.coverImageUrl ? { path: series.coverImageUrl } : null)
   if (!coverImageUrl && artworks.length > 0) {
     const firstArtwork = artworks[0]
@@ -146,8 +146,8 @@ export async function updateSeries(id: number, data: { title?: string; descripti
 
 export async function deleteSeries(id: number) {
   return prisma.$transaction(async (tx) => {
-    // Unlink artworks (set seriesId to null)
-    // Note: SeriesArtwork will be auto-deleted due to Cascade, but Artwork.seriesId needs manual update if we want to keep artworks
+    // 取消作品关联（将 seriesId 置为 null）
+    // 注意：SeriesArtwork 会因级联关系自动删除；若要保留作品本身，需手动更新 Artwork.seriesId
     await tx.artwork.updateMany({
       where: { seriesId: id },
       data: { seriesId: null }
@@ -158,20 +158,20 @@ export async function deleteSeries(id: number) {
 
 export async function addArtworkToSeries(seriesId: number, artworkId: number) {
   return prisma.$transaction(async (tx) => {
-    // Check if already exists
+    // 检查是否已存在
     const exists = await tx.seriesArtwork.findUnique({
       where: { seriesId_artworkId: { seriesId, artworkId } }
     })
     if (exists) return exists
 
-    // Get max order
+    // 获取当前最大排序值
     const maxOrder = await tx.seriesArtwork.aggregate({
       where: { seriesId },
       _max: { sortOrder: true }
     })
     const nextOrder = (maxOrder._max.sortOrder ?? 0) + 1
 
-    // Create relation
+    // 创建关系
     const sa = await tx.seriesArtwork.create({
       data: {
         seriesId,
@@ -180,7 +180,7 @@ export async function addArtworkToSeries(seriesId: number, artworkId: number) {
       }
     })
 
-    // Update artwork denormalized field
+    // 更新作品反范式字段
     await tx.artwork.update({
       where: { id: artworkId },
       data: { seriesId }
@@ -197,7 +197,7 @@ export async function removeArtworkFromSeries(seriesId: number, artworkId: numbe
         where: { seriesId_artworkId: { seriesId, artworkId } }
       })
     } catch (_e) {
-      // Ignore if not found
+      // 未找到则跳过
     }
     await tx.artwork.update({
       where: { id: artworkId },
@@ -207,7 +207,7 @@ export async function removeArtworkFromSeries(seriesId: number, artworkId: numbe
 }
 
 export async function reorderArtworks(seriesId: number, artworkIds: number[]) {
-  // artworkIds is the new order
+  // artworkIds 为新的排序顺序
   return prisma.$transaction(
     artworkIds.map((id, index) =>
       prisma.seriesArtwork.update({

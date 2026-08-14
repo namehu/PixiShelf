@@ -45,6 +45,7 @@ export interface SchedulerTickResult {
 }
 
 export async function ensureDefaultScheduledTasks() {
+  // 先幂等恢复任务定义：配置/时区/互斥键来自 registry 定义，任务项按 key 进行 upsert，避免用户删除后启动时丢失任务。
   for (const definition of SCHEDULED_TASK_DEFINITIONS) {
     await prisma.scheduledTask.upsert({
       where: { key: definition.key },
@@ -72,6 +73,7 @@ export async function ensureDefaultScheduledTasks() {
 }
 
 export async function listScheduledTasks(): Promise<ScheduledTaskView[]> {
+  // 列表返回时注入最近状态与 nextRunAt 预估值，用于界面展示“上次触发/下次触发”而不强制触发执行。
   await ensureDefaultScheduledTasks()
   const tasks = await prisma.scheduledTask.findMany({
     orderBy: [{ priority: 'asc' }, { key: 'asc' }]
@@ -179,6 +181,7 @@ export async function triggerScheduledTaskNow(
 }
 
 export async function runSchedulerTick(now = new Date()): Promise<SchedulerTickResult> {
+  // 调度 Tick 按“当天已触发一次即跳过”去重，再按互斥键和活动任务阻断并行，最后仅记录 decision 便于幂等化重试。
   await ensureDefaultScheduledTasks()
   const tasks = await prisma.scheduledTask.findMany({
     where: { enabled: true },

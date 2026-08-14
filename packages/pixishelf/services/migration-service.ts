@@ -411,7 +411,7 @@ export async function migrateArtwork(
       await rollbackCopies()
     }
     log(`[Migrate] ID:${artworkId} Failed: ${error.message}`, 'error')
-    return { artworkId, status: 'FAILED', msg: logs } // Return collected logs even on failure
+    return { artworkId, status: 'FAILED', msg: logs } // 即使失败也返回已收集的日志
   }
 }
 

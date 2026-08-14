@@ -23,9 +23,8 @@ export interface PublishedVideoKeyframeManifest {
 }
 
 /**
- * Returns only a published keyframe set that still belongs to the current source
- * video. Policy-version drift is intentionally ignored: old frames remain valid
- * while a quality-policy refresh is being generated.
+ * 仅返回仍属于当前源视频且已发布的关键帧集合。
+ * 策略版本漂移被有意忽略：在生成新质量策略的过程中，旧关键帧仍有效。
  */
 export async function getPlayableVideoKeyframesByImageId(
   imageId: number
@@ -86,6 +85,7 @@ export async function getPlayableVideoKeyframesByImageId(
 
   if (!sourceStat.isFile()) return null
   const fingerprint = sourceFingerprintFromStat(sourceStat)
+  // 只有源视频文件大小与 mtime 与已发布 keyframe 集一致时，才认为当前文件仍可直接使用旧帧集。
   if (published.sourceSize !== fingerprint.size || published.sourceMtimeMs !== fingerprint.mtimeMs) return null
   if (!(await publishedVideoKeyframeFilesExist(published))) return null
 

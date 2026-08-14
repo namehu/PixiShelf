@@ -144,7 +144,7 @@ export class EHentaiProvider implements ArchiveProvider {
     let selectedQuality: 'ORIGINAL' | 'DISPLAY' = context.quality
 
     if (context.quality === 'ORIGINAL') {
-      // When no fullimg link exists, E-Hentai is already displaying the original file.
+      // 若不存在 fullimg 链接，则 E-Hentai 已在展示原始文件。
       selectedUrl = originalUrl ?? displayUrl
       selectedQuality = 'ORIGINAL'
     } else {
@@ -348,7 +348,7 @@ function safeNamespace(value: string): string {
 function safeSegment(value: string): string {
   const normalized = value.normalize('NFKC').trim().toLowerCase()
   const safe = normalized
-    // oxlint-disable-next-line no-control-regex -- filesystem segments must drop C0 controls
+    // oxlint-disable-next-line no-control-regex -- 文件路径片段必须去除 C0 控制字符
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
@@ -364,7 +364,7 @@ function findAllLinks(html: string, baseUrl: string): string[] {
     try {
       values.push(new URL(decodeHtml(match[2]!), baseUrl).toString())
     } catch {
-      // Ignore malformed links from remote markup.
+      // 忽略来自远端标记中的格式错误链接。
     }
   }
   return values

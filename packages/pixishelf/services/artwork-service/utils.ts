@@ -194,7 +194,7 @@ export const generateLocalStorageKey = (artworkId: number) => {
   return `e_${artworkId}_${randomSuffix}`
 }
 
-/** @deprecated Use generateLocalStorageKey. Kept for one compatibility release. */
+/** @deprecated 使用 generateLocalStorageKey。仅为兼容性发布保留。 */
 export const generateLocalExternalId = generateLocalStorageKey
 
 /**

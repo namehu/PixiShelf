@@ -4,7 +4,7 @@ import { buildArtworkWhereClause } from '../query-builder'
 import { ArtworksInfiniteQuerySchema } from '../../../schemas/artwork.dto'
 import { ESource } from '@/enums/e-source'
 
-// Mock server-only to avoid errors in test environment
+// 在测试环境中仅 mock server-only，以避免报错
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -242,8 +242,8 @@ describe('buildArtworkWhereClause', () => {
     expect(whereSQL).toContain('AND EXISTS')
     expect(whereSQL).toContain('AND NOT EXISTS')
 
-    // Check param order
-    // Included tags first ($1), then Excluded tags ($2) based on implementation order
+    // 检查参数顺序
+    // 按实现顺序，先包含标签（$1），再排除标签（$2）
     expect(whereSQL).toContain('t2.name = ANY($1)')
     expect(whereSQL).toContain('t_ex.name = ANY($2)')
 
@@ -252,7 +252,7 @@ describe('buildArtworkWhereClause', () => {
   })
 
   it('should handle empty arrays gracefully', () => {
-    // Schema transform handles empty string -> empty array
+    // 参数模式转换会将空字符串处理为数组
     const params = ArtworksInfiniteQuerySchema.parse({
       tags: '',
       excludeTags: ''
@@ -264,8 +264,8 @@ describe('buildArtworkWhereClause', () => {
   })
 
   it('should prioritize excludeTags over tags logic conflict if any (logic is AND)', () => {
-    // The current logic is AND: must have included AND must not have excluded.
-    // If a tag is in both, result is empty set (correct behavior).
+    // 当前逻辑是 AND：必须满足包含条件，且不满足排除条件。
+    // 如果一个标签同时在包含与排除列表中，结果应为空集合（这是预期行为）。
     const params = ArtworksInfiniteQuerySchema.parse({
       tags: 'common',
       excludeTags: 'common'

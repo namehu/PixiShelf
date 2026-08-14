@@ -11,10 +11,7 @@ import {
   type VideoChapter,
   type VideoChapterManifest
 } from '@/services/artwork-service/video-chapters'
-import {
-  resolveDerivedMediaStoragePath,
-  VIDEO_CHAPTER_PREVIEW_STORAGE_ROOT
-} from '@/services/derived-media-storage'
+import { resolveDerivedMediaStoragePath, VIDEO_CHAPTER_PREVIEW_STORAGE_ROOT } from '@/services/derived-media-storage'
 import { resolvePathWithinScanRoot } from '@/services/video-media-probe-service'
 
 const PREVIEW_ROOT = VIDEO_CHAPTER_PREVIEW_STORAGE_ROOT
@@ -85,6 +82,8 @@ export async function runVideoChapterPreviewGenerationJob(options: {
   const workItems: ChapterWorkItem[] = []
   const videos = await findVideosForGeneration(mode)
   if (mode === 'FULL') {
+    // 全量模式以当前仍有章节清单的视频为基线，先删除其他图片的预览记录；
+    // 这样章节清单被移除后，不会留下失去来源的历史记录。
     const activeImageIds = videos.map((video) => video.id)
     await prisma.mediaChapterPreview.deleteMany({
       where: activeImageIds.length > 0 ? { imageId: { notIn: activeImageIds } } : {}
@@ -109,6 +108,8 @@ export async function runVideoChapterPreviewGenerationJob(options: {
       for (const [chapterOrder, chapter] of manifest.chapters.entries()) {
         const expectedPath = buildPreviewRelativePath(video.id, chaptersHash, chapterOrder)
         const current = existingByOrder.get(chapterOrder)
+        // 可复用要求同时满足四件事：状态为 COMPLETED、章节哈希匹配、约定路径一致、物理文件存在。
+        // 仅数据库标记为完成不足以复用，已删除或过期的文件必须再次生成。
         const reusable = Boolean(
           current &&
             current.status === 'COMPLETED' &&
@@ -204,6 +205,7 @@ export async function runVideoChapterPreviewGenerationJob(options: {
       result.generated += 1
     } catch (error) {
       if (isTaskCancelledError(error)) {
+        // 取消时仅回退到 PENDING，保留可重试语义；不污染失败路径，避免误计失败率与误触发告警。
         await prisma.mediaChapterPreview.update({
           where: { imageId_chapterOrder: { imageId: item.imageId, chapterOrder: item.chapterOrder } },
           data: { status: 'PENDING', previewPath: null, previewUpdatedAt: null, error: null }
@@ -298,6 +300,8 @@ async function findVideosForGeneration(mode: VideoChapterPreviewGenerationMode) 
 
 export function buildChapterCaptureTimes(start: number, end: number): number[] {
   const duration = Math.max(0, end - start)
+  // 优先尝试章节开始后 1 秒（短章节取中点），再尝试 3 秒处，最后回退到中点；
+  // 所有候选都限制在章节边界内，并按 CAPTURE_EPSILON_SECONDS 去重，避免重复采样边界过渡帧。
   const midpoint = start + duration / 2
   if (duration <= 0) return [Math.max(start, 0)]
 
@@ -370,13 +374,14 @@ async function generateRepresentativePreview(
       candidatePaths.push(candidatePath)
       await extractFrame(sourcePath, candidatePath, captureTime, options.checkCancelled)
       await options.ensureNotCancelled()
-      // Sharp/libvips may retain a path-backed file handle briefly on Windows, which prevents
-      // the candidate from being renamed. Reading first closes the filesystem handle before Sharp runs.
+      // Sharp/libvips 在 Windows 上可能会短暂保留基于路径的文件句柄，导致候选文件无法重命名。
+      // 先读取文件可在 Sharp 执行前关闭该文件句柄。
       const candidateBuffer = await fs.readFile(candidatePath)
       const stats = await sharp(candidateBuffer).stats()
       const candidate = { path: candidatePath, captureTime, luma: calculateFrameLuma(stats.channels) }
       candidates.push(candidate)
 
+      // 亮度超过阈值即认为是可见代表帧，可提前返回；若都偏暗（黑场等），退化为“最亮帧”以保留可视性。
       if (candidate.luma >= BLACK_FRAME_LUMA_THRESHOLD) {
         selected = candidate
         break
@@ -435,8 +440,8 @@ async function cleanupOrphanedPreviews() {
       await removeFileWithRetry(resolveDerivedMediaStoragePath(PREVIEW_ROOT, relativePath))
       deleted += 1
     } catch (error) {
-      // A recently released FFmpeg/Sharp handle can remain busy briefly on Windows. Leave the
-      // orphan for the next run instead of failing an otherwise completed generation task.
+      // 孤儿清理只删除数据库已不引用的文件；Windows 上刚释放的 FFmpeg/Sharp 句柄可能仍短暂占用文件。
+      // 此时留给下一轮继续清理，避免清理失败推翻已经完成的生成任务。
       if (!isRetryableFileLockError(error)) throw error
     }
   }
@@ -530,6 +535,8 @@ function pushFailedSample(
 
 function execFfmpeg(args: string[], checkCancelled?: CancellationCheck) {
   return new Promise<void>((resolve, reject) => {
+    // 子进程回调、取消轮询和终止兜底可能竞争完成同一个 Promise，settled 保证只结算一次。
+    // 取消后主动终止 FFmpeg；若退出回调未及时返回，宽限计时器负责结束等待。
     let settled = false
     let cancellationTimer: ReturnType<typeof setTimeout> | undefined
     let terminationTimer: ReturnType<typeof setTimeout> | undefined

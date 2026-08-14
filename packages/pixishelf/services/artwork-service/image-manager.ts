@@ -67,8 +67,7 @@ function normalizeMediaPath(mediaPath: string) {
 }
 
 /**
- * Keeps media that still exists in its database order and appends newly discovered media
- * in the order supplied by the scanner.
+ * 保留数据库里仍存在的媒体项，并按扫描器提供的顺序追加新发现的媒体。
  */
 export function preserveExistingMediaPathOrder<T extends { path: string }>(
   incoming: T[],
@@ -192,8 +191,7 @@ export async function updateArtworkImagesWithTransactionClient(
 }
 
 /**
- * Reorders every media item in an artwork atomically. The expected order prevents
- * a stale editor from overwriting changes made in another tab.
+ * 原子性地重排作品的全部媒体项。固定的顺序可避免过时编辑器覆盖其他标签页所做的修改。
  */
 export async function reorderArtworkImages(input: {
   artworkId: number
@@ -232,7 +230,10 @@ export async function reorderArtworkImages(input: {
       uniqueIds.size !== imageIds.length ||
       imageIds.some((id) => !currentIdSet.has(id))
     ) {
-      throw new ArtworkImageOrderError('INVALID_ORDER', 'Media order must contain every artwork media item exactly once')
+      throw new ArtworkImageOrderError(
+        'INVALID_ORDER',
+        'Media order must contain every artwork media item exactly once'
+      )
     }
 
     for (let sortOrder = 0; sortOrder < imageIds.length; sortOrder += 1) {

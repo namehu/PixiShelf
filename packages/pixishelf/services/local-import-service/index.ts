@@ -53,6 +53,7 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
   const startTime = Date.now()
   const { scanPath } = localImportDiscoveryInputSchema.parse(input)
   await throwIfCancelled(input.checkCancelled)
+  // 先扫描本地导入目录并构建候选目录，再基于映射与去重结果做顺序入库，确保单次运行可重入。
   const discovery = await discoverLocalImports({ scanPath })
   const mappings = await getLocalImportArtistMappings()
   const mappingByDirectory = new Map(
@@ -103,6 +104,8 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
     await input.audit?.recordItems?.(invalidAuditItems)
   }
 
+  // 对每个候选“按条处理”：归档 Manifest 与普通目录走不同路径；
+  // 单条失败累积到错误列表与审计，不中断其他候选，除非任务被取消或抛出不可恢复错误。
   for (let index = 0; index < candidates.length; index += 1) {
     await throwIfCancelled(input.checkCancelled)
     const candidate = candidates[index]!
@@ -152,7 +155,14 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
           errorMessage: 'Artist is not mapped'
         })
       ])
-      await reportProgress({ input, candidate, index, total: candidates.length, status: 'failed', message: 'Artist is not mapped' })
+      await reportProgress({
+        input,
+        candidate,
+        index,
+        total: candidates.length,
+        status: 'failed',
+        message: 'Artist is not mapped'
+      })
       continue
     }
 
@@ -163,7 +173,14 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
     })
     if (existing) {
       result.skipped += 1
-      await reportProgress({ input, candidate, index, total: candidates.length, status: 'skipped', message: 'Artwork already exists' })
+      await reportProgress({
+        input,
+        candidate,
+        index,
+        total: candidates.length,
+        status: 'skipped',
+        message: 'Artwork already exists'
+      })
       continue
     }
 
@@ -177,6 +194,7 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
         throw new Error('No valid media files found')
       }
 
+      // 事务边界覆盖 artwork 与其 media 的写入，避免中间态；生成 storageKey 后立即回写到 artwork，确保读路径一致。
       let createdExternalId: string | null = null
       await db.$transaction(async (tx: any) => {
         const artwork = await tx.artwork.create({
@@ -193,13 +211,9 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
         const storageKey = generateLocalStorageKey(artwork.id)
         createdExternalId = storageKey
         await tx.artwork.update({ where: { id: artwork.id }, data: { storageKey } })
-        await updateArtworkImagesWithTransactionClient(
-          tx,
-          artwork.id,
-          media.filesMeta,
-          media.chaptersMeta,
-          { appendTagIds: input.defaultTagIds }
-        )
+        await updateArtworkImagesWithTransactionClient(tx, artwork.id, media.filesMeta, media.chaptersMeta, {
+          appendTagIds: input.defaultTagIds
+        })
       })
       result.imported += 1
       result.newImages += media.filesMeta.length
@@ -218,7 +232,14 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
       if (isCancellationError(error)) throw new Error('Task cancelled')
       if (isStoragePathUniqueRace(error)) {
         result.skipped += 1
-        await reportProgress({ input, candidate, index, total: candidates.length, status: 'skipped', message: 'Artwork already exists' })
+        await reportProgress({
+          input,
+          candidate,
+          index,
+          total: candidates.length,
+          status: 'skipped',
+          message: 'Artwork already exists'
+        })
         continue
       }
       result.failed += 1

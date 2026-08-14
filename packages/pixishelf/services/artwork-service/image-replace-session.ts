@@ -68,7 +68,7 @@ export async function handleImageReplaceSession(input: ImageReplaceSessionInput)
   const { targetRelDir, targetDir, backupDir } = createImageReplaceSessionPaths(input.scanRoot, input.artwork)
 
   // ==========================================
-  // Phase 1: 初始化 (备份旧文件)
+  // 阶段 1：初始化（备份旧文件）
   // ==========================================
   if (input.action === 'init') {
     if (!fs.existsSync(targetDir)) {
@@ -99,7 +99,7 @@ export async function handleImageReplaceSession(input: ImageReplaceSessionInput)
   }
 
   // ==========================================
-  // Phase 2: 提交 (数据库更新 & 清理)
+  // 阶段 2：提交（数据库更新与清理）
   // ==========================================
   if (input.action === 'commit') {
     const body = input.readBody ? await input.readBody() : {}
@@ -155,7 +155,7 @@ export async function handleImageReplaceSession(input: ImageReplaceSessionInput)
   }
 
   // ==========================================
-  // Phase 3: 回滚 (恢复备份)
+  // 阶段 3：回滚（恢复备份）
   // ==========================================
   if (input.action === 'rollback') {
     // [安全检查] 必须存在备份目录才能回滚，否则可能误删文件

@@ -24,20 +24,22 @@ const manifestSchema = z.object({
     raw: z.record(z.string(), z.unknown())
   }),
   relationships: z.array(z.record(z.string(), z.unknown())).optional(),
-  media: z.array(
-    z.object({
-      index: z.number().int().nonnegative(),
-      path: z.string().min(1),
-      quality: z.enum(['ORIGINAL', 'DISPLAY']).nullable().optional(),
-      mimeType: z.string().nullable().optional(),
-      width: z.number().int().positive(),
-      height: z.number().int().positive(),
-      bytes: z.string().regex(/^\d+$/),
-      sha256: z.string().length(64),
-      sourcePageUrl: z.string().optional(),
-      sourcePageLocator: z.unknown().optional()
-    })
-  ).min(1),
+  media: z
+    .array(
+      z.object({
+        index: z.number().int().nonnegative(),
+        path: z.string().min(1),
+        quality: z.enum(['ORIGINAL', 'DISPLAY']).nullable().optional(),
+        mimeType: z.string().nullable().optional(),
+        width: z.number().int().positive(),
+        height: z.number().int().positive(),
+        bytes: z.string().regex(/^\d+$/),
+        sha256: z.string().length(64),
+        sourcePageUrl: z.string().optional(),
+        sourcePageLocator: z.unknown().optional()
+      })
+    )
+    .min(1),
   createdAt: z.string().optional()
 })
 
@@ -54,6 +56,7 @@ export async function readArchiveManifest(directory: string): Promise<ArchiveMan
 }
 
 export async function importArchiveManifest(input: { scanRoot: string; storagePath: string }) {
+  // 按 providerKey+externalId 做幂等性判断：若对应外部作品已存在则直接返回 SKIP，避免重复建模重复计数。
   const archiveDirectory = await resolveExistingPathWithinRoot(input.scanRoot, input.storagePath)
   const manifest = await readArchiveManifest(archiveDirectory)
   const existing = await prisma.artworkExternalRef.findUnique({
@@ -67,6 +70,7 @@ export async function importArchiveManifest(input: { scanRoot: string; storagePa
   })
   if (existing) return { imported: false, artworkId: existing.artworkId, imageCount: 0 }
 
+  // 读取 manifest 指定文件时逐项校验长度与 SHA-256，防止目录内容与清单不一致导致脏数据注入。
   const media = await Promise.all(
     manifest.media
       .slice()
@@ -74,7 +78,10 @@ export async function importArchiveManifest(input: { scanRoot: string; storagePa
       .map(async (item) => {
         const file = await resolveExistingPathWithinRoot(archiveDirectory, item.path)
         const bytes = await readFile(file)
-        if (BigInt(bytes.length) !== BigInt(item.bytes) || createHash('sha256').update(bytes).digest('hex') !== item.sha256) {
+        if (
+          BigInt(bytes.length) !== BigInt(item.bytes) ||
+          createHash('sha256').update(bytes).digest('hex') !== item.sha256
+        ) {
           throw new ArchiveError('MEDIA_INVALID', `Manifest 媒体校验失败: ${item.path}`)
         }
         return {
@@ -89,6 +96,7 @@ export async function importArchiveManifest(input: { scanRoot: string; storagePa
   const postedAt = nullableString(metadata.postedAt)
 
   return prisma.$transaction(async (tx) => {
+    // 所有元数据与媒体记录在同一事务内落盘；如果任一步骤失败，将整批回滚，保证艺术家-标签-关系三方状态一致。
     const artwork = await tx.artwork.create({
       data: {
         title,

@@ -37,9 +37,8 @@ export function buildArchiveStoragePaths(input: {
   const externalId = safePathSegment(input.externalId)
   const importId = safePathSegment(input.importId)
   const stagingRelativePath = normalizeRelativePath(path.join('.archive-staging', importId))
-  // Every published revision has an immutable, import-specific directory. This
-  // makes filesystem publication retryable: a crash can leave an unreferenced
-  // prepared directory, but it can never replace the currently published one.
+  // 每个已发布修订都有一个不可变的、按导入固定的目录。
+  // 这使文件系统发布可重试：崩溃可能留下未被引用的待发布目录，但它永远不会替换当前已发布目录。
   const finalRelativePath = normalizeRelativePath(
     path.join('sources', provider, bucket, externalId, 'revisions', importId)
   )
@@ -129,8 +128,8 @@ export async function storeRemoteMedia(input: {
   try {
     await handle.close()
   } catch (error) {
-    // close() can surface delayed write failures such as ENOSPC/EIO. A storage
-    // failure must stop the task even when the remote stream also failed.
+    // close() 可能暴露延迟写入失败，如 ENOSPC/EIO。
+    // 即使远端流也失败了，存储失败仍必须中止本任务。
     transferError = withStorageContext(error)
   }
   if (transferError) throw transferError
@@ -171,8 +170,8 @@ export async function storeRemoteMedia(input: {
       remoteHost: input.remote.remoteHost
     })
   }
-  // A worker can crash after the atomic rename but before persisting the
-  // checkpoint. In that case this item is intentionally re-downloaded.
+  // 工作线程可能在原子改名后、持久化检查点前崩溃。
+  // 此时该条目将按设计重新下载。
   if (input.commitFile) {
     await input.commitFile({ partial, target })
   } else {
@@ -274,7 +273,7 @@ function safePathSegment(value: string): string {
   const safe = value
     .normalize('NFKC')
     .trim()
-    // oxlint-disable-next-line no-control-regex -- filesystem segments must drop C0 controls
+    // oxlint-disable-next-line no-control-regex -- 文件路径片段必须去除 C0 控制字符
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')

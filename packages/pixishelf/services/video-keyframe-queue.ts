@@ -91,6 +91,7 @@ export interface VideoKeyframeDiscoveryRequest {
 const VIDEO_KEYFRAME_PREVIEW_LIMIT = 1_000
 
 export async function requireVideoKeyframeScanPath() {
+  // 工作进程允许通过环境变量覆盖 scanPath；未配置时回退到 DB 设置，避免 worker 容器与 API 容器路径源不一致。
   const configured = (await getScanPath())?.trim()
   const workerMountedPath = process.env.SCAN_PATH?.trim() || process.env.ARCHIVE_STORAGE_PATH?.trim()
   const scanPath = workerMountedPath || configured
@@ -257,6 +258,7 @@ export async function processVideoKeyframeDiscoveryJob(input: {
 
   const scanPath = await requireVideoKeyframeScanPath()
   throwIfDiscoveryAborted(input.signal)
+  // 发现阶段按 imageId 正序扫描，允许带 afterImageId 续跑；容量不足时会将 job 标记回 PENDING 并持久化累计状态。
   const images = await prisma.image.findMany({
     where: {
       AND: [
@@ -1148,9 +1150,8 @@ async function cleanupVideoKeyframeSetDirectory(imageId: number, setId: string) 
           deferred += 1
           continue
         }
-        // Do not catch a transaction-expiry error here: it must abort this
-        // candidate immediately so no later filesystem action runs without
-        // the advisory transaction lock.
+        // 这里不要捕获事务过期错误：必须立即终止该候选，
+        // 否则后续文件系统动作可能在未持有 advisory 锁的情况下继续执行。
         await tx.mediaVideoKeyframe.updateMany({
           where: { setId, path: relativePath, selectedOrder: null },
           data: { path: null }

@@ -50,11 +50,7 @@ export async function createPendingReplacePreview(scanPath: string) {
   return serializePendingReplaceBatch(await previewPendingReplacements(scanPath))
 }
 
-export async function bindPendingReplaceItem(input: {
-  scanPath: string
-  itemId: string
-  artworkId: number
-}) {
+export async function bindPendingReplaceItem(input: { scanPath: string; itemId: string; artworkId: number }) {
   const bindableStatuses = new Set<PendingReplaceItemStatus>([
     PendingReplaceItemStatus.INVALID,
     PendingReplaceItemStatus.READY,
@@ -78,55 +74,54 @@ export async function bindPendingReplaceItem(input: {
     artworkId: input.artworkId
   })
 
-  await prisma.$transaction(async (tx) => {
-    const locked = await tx.pendingReplaceBatch.updateMany({
-      where: { id: item.batchId, status: PendingReplaceBatchStatus.PREVIEWED },
-      data: { updatedAt: new Date() }
-    })
-    if (locked.count !== 1) throw new Error('批次已开始，不能调整目录配对')
-    const duplicate = await tx.pendingReplaceItem.findFirst({
-      where: {
-        batchId: item.batchId,
-        artworkId: prepared.artworkId,
-        id: { not: item.id }
-      },
-      select: { sourceDirectoryName: true }
-    })
-    if (duplicate) {
-      throw new Error(`该作品已绑定目录：${duplicate.sourceDirectoryName}`)
-    }
-    const updated = await tx.pendingReplaceItem.updateMany({
-      where: {
-        id: item.id,
-        batchId: item.batchId,
-        status: {
-          in: [
-            PendingReplaceItemStatus.INVALID,
-            PendingReplaceItemStatus.READY,
-            PendingReplaceItemStatus.EXCLUDED
-          ]
-        }
-      },
-      data: {
-        artworkId: prepared.artworkId,
-        externalId: prepared.externalId,
-        artworkTitle: prepared.artworkTitle,
-        artistName: prepared.artistName,
-        targetDirectory: prepared.targetDirectory,
-        status: PendingReplaceItemStatus.READY,
-        included: true,
-        fingerprint: prepared.fingerprint,
-        sourceManifest: prepared.sourceManifest as unknown as Prisma.InputJsonValue,
-        oldMediaSnapshot: prepared.oldMediaSnapshot as unknown as Prisma.InputJsonValue,
-        newMediaSnapshot: prepared.newMediaSnapshot as unknown as Prisma.InputJsonValue,
-        targetFileSnapshot: prepared.targetFileSnapshot as unknown as Prisma.InputJsonValue,
-        warnings: prepared.warnings as unknown as Prisma.InputJsonValue,
-        error: null,
-        finishedAt: null
+  await prisma.$transaction(
+    async (tx) => {
+      const locked = await tx.pendingReplaceBatch.updateMany({
+        where: { id: item.batchId, status: PendingReplaceBatchStatus.PREVIEWED },
+        data: { updatedAt: new Date() }
+      })
+      if (locked.count !== 1) throw new Error('批次已开始，不能调整目录配对')
+      const duplicate = await tx.pendingReplaceItem.findFirst({
+        where: {
+          batchId: item.batchId,
+          artworkId: prepared.artworkId,
+          id: { not: item.id }
+        },
+        select: { sourceDirectoryName: true }
+      })
+      if (duplicate) {
+        throw new Error(`该作品已绑定目录：${duplicate.sourceDirectoryName}`)
       }
-    })
-    if (updated.count !== 1) throw new Error('目录配对状态已经变化，请刷新后重试')
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      const updated = await tx.pendingReplaceItem.updateMany({
+        where: {
+          id: item.id,
+          batchId: item.batchId,
+          status: {
+            in: [PendingReplaceItemStatus.INVALID, PendingReplaceItemStatus.READY, PendingReplaceItemStatus.EXCLUDED]
+          }
+        },
+        data: {
+          artworkId: prepared.artworkId,
+          externalId: prepared.externalId,
+          artworkTitle: prepared.artworkTitle,
+          artistName: prepared.artistName,
+          targetDirectory: prepared.targetDirectory,
+          status: PendingReplaceItemStatus.READY,
+          included: true,
+          fingerprint: prepared.fingerprint,
+          sourceManifest: prepared.sourceManifest as unknown as Prisma.InputJsonValue,
+          oldMediaSnapshot: prepared.oldMediaSnapshot as unknown as Prisma.InputJsonValue,
+          newMediaSnapshot: prepared.newMediaSnapshot as unknown as Prisma.InputJsonValue,
+          targetFileSnapshot: prepared.targetFileSnapshot as unknown as Prisma.InputJsonValue,
+          warnings: prepared.warnings as unknown as Prisma.InputJsonValue,
+          error: null,
+          finishedAt: null
+        }
+      })
+      if (updated.count !== 1) throw new Error('目录配对状态已经变化，请刷新后重试')
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+  )
   await syncPendingReplaceBatchCounters(item.batchId)
   return { success: true, batchId: item.batchId, itemId: item.id }
 }
@@ -150,41 +145,44 @@ export async function unbindPendingReplaceItem(input: { itemId: string }) {
   }
   if (!item.artworkId) throw new Error('该目录尚未绑定作品')
 
-  await prisma.$transaction(async (tx) => {
-    const locked = await tx.pendingReplaceBatch.updateMany({
-      where: { id: item.batchId, status: PendingReplaceBatchStatus.PREVIEWED },
-      data: { updatedAt: new Date() }
-    })
-    if (locked.count !== 1) throw new Error('批次已开始，不能解除目录配对')
+  await prisma.$transaction(
+    async (tx) => {
+      const locked = await tx.pendingReplaceBatch.updateMany({
+        where: { id: item.batchId, status: PendingReplaceBatchStatus.PREVIEWED },
+        data: { updatedAt: new Date() }
+      })
+      if (locked.count !== 1) throw new Error('批次已开始，不能解除目录配对')
 
-    const updated = await tx.pendingReplaceItem.updateMany({
-      where: {
-        id: item.id,
-        batchId: item.batchId,
-        artworkId: item.artworkId,
-        status: { in: bindableStatuses }
-      },
-      data: {
-        artworkId: null,
-        externalId: null,
-        artworkTitle: null,
-        artistName: null,
-        targetDirectory: null,
-        status: PendingReplaceItemStatus.INVALID,
-        included: false,
-        fingerprint: null,
-        oldMediaSnapshot: [] as unknown as Prisma.InputJsonValue,
-        targetFileSnapshot: [] as unknown as Prisma.InputJsonValue,
-        warnings: [] as unknown as Prisma.InputJsonValue,
-        error: '尚未绑定作品，请在快速配对区选择目标作品',
-        backupDirectory: null,
-        completedDirectory: null,
-        startedAt: null,
-        finishedAt: null
-      }
-    })
-    if (updated.count !== 1) throw new Error('目录配对状态已经变化，请刷新后重试')
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      const updated = await tx.pendingReplaceItem.updateMany({
+        where: {
+          id: item.id,
+          batchId: item.batchId,
+          artworkId: item.artworkId,
+          status: { in: bindableStatuses }
+        },
+        data: {
+          artworkId: null,
+          externalId: null,
+          artworkTitle: null,
+          artistName: null,
+          targetDirectory: null,
+          status: PendingReplaceItemStatus.INVALID,
+          included: false,
+          fingerprint: null,
+          oldMediaSnapshot: [] as unknown as Prisma.InputJsonValue,
+          targetFileSnapshot: [] as unknown as Prisma.InputJsonValue,
+          warnings: [] as unknown as Prisma.InputJsonValue,
+          error: '尚未绑定作品，请在快速配对区选择目标作品',
+          backupDirectory: null,
+          completedDirectory: null,
+          startedAt: null,
+          finishedAt: null
+        }
+      })
+      if (updated.count !== 1) throw new Error('目录配对状态已经变化，请刷新后重试')
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+  )
 
   await syncPendingReplaceBatchCounters(item.batchId)
   return { success: true, batchId: item.batchId, itemId: item.id }
@@ -200,9 +198,7 @@ export async function reorderPendingReplaceItem(input: { itemId: string; ordered
   if (!item.externalId) throw new Error('替换项目缺少 externalId')
 
   const manifest = asManifest(item.sourceManifest)
-  const mediaByName = new Map(
-    asMediaSnapshot(item.newMediaSnapshot).map((media) => [media.sourceName, media])
-  )
+  const mediaByName = new Map(asMediaSnapshot(item.newMediaSnapshot).map((media) => [media.sourceName, media]))
   const expectedNames = manifest.filter((file) => file.kind === 'media').map((file) => file.name)
   if (
     input.orderedSourceNames.length !== expectedNames.length ||
@@ -244,11 +240,7 @@ export async function reorderPendingReplaceItem(input: { itemId: string; ordered
   return getPendingReplaceBatch(item.batchId)
 }
 
-export async function startPendingReplaceBatch(input: {
-  scanPath: string
-  batchId: string
-  itemIds?: string[]
-}) {
+export async function startPendingReplaceBatch(input: { scanPath: string; batchId: string; itemIds?: string[] }) {
   const batch = await prisma.pendingReplaceBatch.findUnique({
     where: { id: input.batchId },
     include: { items: true }
@@ -268,34 +260,33 @@ export async function startPendingReplaceBatch(input: {
   const selectedItems = selectableItems.filter((item) => !requestedIds || requestedIds.has(item.id))
   if (selectedItems.length === 0) throw new Error('没有可执行的替换项目')
 
-  // Freeze the configured default tags for this execution attempt so every
-  // selected artwork receives the same tag set.
+  // 固定当前执行轮次的默认标签配置，确保每个被选中的作品都使用同一套标签。
   const systemSettings = await getSystemSettings()
   const appendTagIds = [...systemSettings.replace_default_tag_ids]
 
   const job = await JobService.createPendingReplaceJob(batch.id, 'BATCH', async (tx, createdJob) => {
-      await tx.pendingReplaceItem.updateMany({
-        where: { batchId: batch.id, id: { in: selectedItems.map((item) => item.id) } },
-        data: { status: PendingReplaceItemStatus.READY, included: true, error: null, finishedAt: null }
-      })
-      await tx.pendingReplaceItem.updateMany({
-        where: {
-          batchId: batch.id,
-          status: PendingReplaceItemStatus.READY,
-          id: { notIn: selectedItems.map((item) => item.id) }
-        },
-        data: { status: PendingReplaceItemStatus.EXCLUDED, included: false }
-      })
-      await tx.pendingReplaceBatch.update({
-        where: { id: batch.id },
-        data: {
-          systemJobId: createdJob.id,
-          status: PendingReplaceBatchStatus.RUNNING,
-          startedAt: new Date(),
-          finishedAt: null
-        }
-      })
+    await tx.pendingReplaceItem.updateMany({
+      where: { batchId: batch.id, id: { in: selectedItems.map((item) => item.id) } },
+      data: { status: PendingReplaceItemStatus.READY, included: true, error: null, finishedAt: null }
     })
+    await tx.pendingReplaceItem.updateMany({
+      where: {
+        batchId: batch.id,
+        status: PendingReplaceItemStatus.READY,
+        id: { notIn: selectedItems.map((item) => item.id) }
+      },
+      data: { status: PendingReplaceItemStatus.EXCLUDED, included: false }
+    })
+    await tx.pendingReplaceBatch.update({
+      where: { id: batch.id },
+      data: {
+        systemJobId: createdJob.id,
+        status: PendingReplaceBatchStatus.RUNNING,
+        startedAt: new Date(),
+        finishedAt: null
+      }
+    })
+  })
   await syncPendingReplaceBatchCounters(batch.id)
 
   void (async () => {
@@ -320,10 +311,7 @@ export async function startPendingReplaceBatch(input: {
         result.cancelled ? { status: 'CANCELLED' } : { status: 'COMPLETED', result }
       )
     } catch (error) {
-      if (
-        error instanceof PendingReplaceLeaseLostError ||
-        error instanceof PendingReplaceCommitOutcomeUnknownError
-      ) {
+      if (error instanceof PendingReplaceLeaseLostError || error instanceof PendingReplaceCommitOutcomeUnknownError) {
         return
       }
       const message = error instanceof Error ? error.message : 'Unknown error'
@@ -331,17 +319,12 @@ export async function startPendingReplaceBatch(input: {
       if (!(await JobService.hasPendingReplaceJobLease(job.id, job.attempt))) return
       const currentJob = await JobService.getJob(job.id)
       if (currentJob?.status === 'CANCELLING') {
-        await JobService.finalizePendingReplaceJob(
-          job.id,
-          job.attempt,
-          { status: 'CANCELLED' },
-          async (tx) => {
-            await tx.pendingReplaceBatch.update({
-              where: { id: batch.id },
-              data: { status: PendingReplaceBatchStatus.CANCELLED, finishedAt: new Date() }
-            })
-          }
-        )
+        await JobService.finalizePendingReplaceJob(job.id, job.attempt, { status: 'CANCELLED' }, async (tx) => {
+          await tx.pendingReplaceBatch.update({
+            where: { id: batch.id },
+            data: { status: PendingReplaceBatchStatus.CANCELLED, finishedAt: new Date() }
+          })
+        })
       } else {
         await JobService.finalizePendingReplaceJob(
           job.id,
@@ -396,21 +379,21 @@ export async function restorePendingReplaceItemById(scanPath: string, itemId: st
     throw new Error('该作品没有可恢复的旧媒体备份')
   }
   const job = await JobService.createPendingReplaceJob(itemId, 'RESTORE', async (tx, createdJob) => {
-      const claimed = await tx.pendingReplaceItem.updateMany({
-        where: { id: itemId, status: PendingReplaceItemStatus.SUCCESS },
-        data: { status: PendingReplaceItemStatus.RESTORING, error: null, finishedAt: null }
-      })
-      if (claimed.count !== 1) throw new Error('该作品恢复状态已经变化')
-      await tx.pendingReplaceBatch.update({
-        where: { id: item.batchId },
-        data: {
-          systemJobId: createdJob.id,
-          status: PendingReplaceBatchStatus.RUNNING,
-          startedAt: new Date(),
-          finishedAt: null
-        }
-      })
+    const claimed = await tx.pendingReplaceItem.updateMany({
+      where: { id: itemId, status: PendingReplaceItemStatus.SUCCESS },
+      data: { status: PendingReplaceItemStatus.RESTORING, error: null, finishedAt: null }
     })
+    if (claimed.count !== 1) throw new Error('该作品恢复状态已经变化')
+    await tx.pendingReplaceBatch.update({
+      where: { id: item.batchId },
+      data: {
+        systemJobId: createdJob.id,
+        status: PendingReplaceBatchStatus.RUNNING,
+        startedAt: new Date(),
+        finishedAt: null
+      }
+    })
+  })
   const heartbeat = startPendingReplaceHeartbeat(job, { itemId, action: 'RESTORE' })
   try {
     await JobService.touchJobHeartbeat(job.id, job.attempt)
@@ -434,10 +417,7 @@ export async function restorePendingReplaceItemById(scanPath: string, itemId: st
     )
     return result
   } catch (error) {
-    if (
-      error instanceof PendingReplaceLeaseLostError ||
-      error instanceof PendingReplaceCommitOutcomeUnknownError
-    ) {
+    if (error instanceof PendingReplaceLeaseLostError || error instanceof PendingReplaceCommitOutcomeUnknownError) {
       throw error
     }
     if (!(await JobService.hasPendingReplaceJobLease(job.id, job.attempt))) {
@@ -532,10 +512,7 @@ export async function cleanupPendingReplaceBatchBackups(scanPath: string, batchI
   }
 }
 
-function startPendingReplaceHeartbeat(
-  job: { id: string; attempt: number },
-  context: Record<string, string>
-) {
+function startPendingReplaceHeartbeat(job: { id: string; attempt: number }, context: Record<string, string>) {
   const heartbeat = setInterval(() => {
     void JobService.touchJobHeartbeat(job.id, job.attempt).catch((error) => {
       logger.warn('Failed to update pending replacement maintenance heartbeat', {
@@ -551,9 +528,7 @@ function startPendingReplaceHeartbeat(
 
 async function getPendingReplaceMaintenanceBatchStatus(batchId: string) {
   const counters = await syncPendingReplaceBatchCounters(batchId)
-  return counters.failedItems > 0
-    ? PendingReplaceBatchStatus.PARTIAL_FAILED
-    : PendingReplaceBatchStatus.COMPLETED
+  return counters.failedItems > 0 ? PendingReplaceBatchStatus.PARTIAL_FAILED : PendingReplaceBatchStatus.COMPLETED
 }
 
 interface SerializablePendingReplaceItem {
@@ -564,9 +539,9 @@ interface SerializablePendingReplaceItem {
   warnings: Prisma.JsonValue
 }
 
-function serializePendingReplaceBatch<
-  T extends { backupBytes: bigint; items: SerializablePendingReplaceItem[] }
->(batch: T) {
+function serializePendingReplaceBatch<T extends { backupBytes: bigint; items: SerializablePendingReplaceItem[] }>(
+  batch: T
+) {
   return {
     ...batch,
     backupBytes: Number(batch.backupBytes),

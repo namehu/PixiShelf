@@ -38,192 +38,183 @@ export async function publishArchiveImport(importId: string, scanRoot: string, l
   })
 
   const result = await prisma.$transaction(
-      async (tx) => {
-        await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
-        await assertPublishLease(tx, archiveImport.id, archiveImport.systemJobId, leaseAttempt)
-        const existingRef = await tx.artworkExternalRef.findUnique({
-          where: {
-            providerKey_externalId: {
-              providerKey: archiveImport.providerKey,
-              externalId: archiveImport.externalId
-            }
-          },
-          include: {
-            artwork: true,
-            archiveRevisions: { where: { isCurrent: true }, take: 1 }
-          }
-        })
-        const previousRevision = existingRef?.archiveRevisions[0] ?? null
-        if (
-          existingRef &&
-          (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')
-        ) {
-          throw stateConflict('该作品已在归档回收站中，请先显式恢复后再更新')
-        }
-
-        const metadata = archiveImport.normalizedMetadata as Prisma.JsonObject
-        const title = stringValue(metadata, ['titles', 'display']) || `Archive ${archiveImport.externalId}`
-        const description = nullableString(metadata.description)
-        const postedAtValue = nullableString(metadata.postedAt)
-        const postedAt = postedAtValue ? new Date(postedAtValue) : null
-        const artwork = existingRef
-          ? await tx.artwork.update({
-              where: { id: existingRef.artworkId },
-              data: {
-                ...(existingRef.artwork.titleOverridden ? {} : { title }),
-                ...(existingRef.artwork.descriptionOverridden ? {} : { description }),
-                sourceDate: postedAt,
-                sourceUrl: archiveImport.canonicalUrl,
-                originalUrl: archiveImport.canonicalUrl,
-                storagePath: paths.finalRelativePath,
-                createdVia: 'URL_ARCHIVE',
-                source: 'URL_ARCHIVE'
-              }
-            })
-          : await tx.artwork.create({
-              data: {
-                title,
-                description,
-                sourceDate: postedAt,
-                sourceUrl: archiveImport.canonicalUrl,
-                originalUrl: archiveImport.canonicalUrl,
-                thumbnailUrl: nullableString(metadata.thumbnailUrl),
-                storagePath: paths.finalRelativePath,
-                createdVia: 'URL_ARCHIVE',
-                source: 'URL_ARCHIVE'
-              }
-            })
-
-        const externalRef = await tx.artworkExternalRef.upsert({
-          where: {
-            providerKey_externalId: {
-              providerKey: archiveImport.providerKey,
-              externalId: archiveImport.externalId
-            }
-          },
-          create: {
-            artworkId: artwork.id,
+    async (tx) => {
+      await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+      await assertPublishLease(tx, archiveImport.id, archiveImport.systemJobId, leaseAttempt)
+      const existingRef = await tx.artworkExternalRef.findUnique({
+        where: {
+          providerKey_externalId: {
             providerKey: archiveImport.providerKey,
-            externalId: archiveImport.externalId,
-            canonicalUrl: archiveImport.canonicalUrl,
-            locator: toInputJson(archiveImport.locator),
-            metadataHash: archiveImport.metadataHash,
-            fetchedAt: new Date()
-          },
-          update: {
-            canonicalUrl: archiveImport.canonicalUrl,
-            locator: toInputJson(archiveImport.locator),
-            metadataHash: archiveImport.metadataHash,
-            fetchedAt: new Date()
+            externalId: archiveImport.externalId
           }
-        })
-
-        await tx.artworkSourceSnapshot.upsert({
-          where: {
-            externalRefId_metadataHash: {
-              externalRefId: externalRef.id,
-              metadataHash: archiveImport.metadataHash
-            }
-          },
-          create: {
-            externalRefId: externalRef.id,
-            providerSchemaVersion: 1,
-            normalizedMetadata: toInputJson(archiveImport.normalizedMetadata),
-            rawMetadata: toInputJson(archiveImport.rawMetadata),
-            metadataHash: archiveImport.metadataHash,
-            fetchedAt: new Date()
-          },
-          update: { fetchedAt: new Date() }
-        })
-        await tx.artworkRawMetadata.upsert({
-          where: { artworkId: artwork.id },
-          create: { artworkId: artwork.id, rawMetadataJson: toInputJson(archiveImport.rawMetadata) },
-          update: { rawMetadataJson: toInputJson(archiveImport.rawMetadata) }
-        })
-
-        await replaceSourceTags(tx, artwork.id, externalRef.id, metadata)
-        await syncArtworkRelationships(
-          tx,
-          artwork.id,
-          archiveImport.providerKey,
-          metadata.relationships
-        )
-        await tx.image.deleteMany({ where: { artworkId: artwork.id } })
-        await tx.image.createMany({
-          data: archiveImport.items.map((item) => ({
-            artworkId: artwork.id,
-            path: normalizeRelativePath(path.join(paths.finalRelativePath, item.stagedPath!)),
-            width: item.width,
-            height: item.height,
-            size: item.byteCount,
-            sortOrder: item.pageIndex,
-            mediaType: 'IMAGE'
-          }))
-        })
-
-        if (previousRevision) {
-          await tx.archiveRevision.update({
-            where: { id: previousRevision.id },
-            data: { isCurrent: false }
-          })
+        },
+        include: {
+          artwork: true,
+          archiveRevisions: { where: { isCurrent: true }, take: 1 }
         }
-        const mediaSnapshot = archiveImport.items.map((item) => ({
-          index: item.pageIndex,
-          path: item.stagedPath,
-          size: item.byteCount?.toString() ?? null,
+      })
+      const previousRevision = existingRef?.archiveRevisions[0] ?? null
+      if (existingRef && (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')) {
+        throw stateConflict('该作品已在归档回收站中，请先显式恢复后再更新')
+      }
+
+      const metadata = archiveImport.normalizedMetadata as Prisma.JsonObject
+      const title = stringValue(metadata, ['titles', 'display']) || `Archive ${archiveImport.externalId}`
+      const description = nullableString(metadata.description)
+      const postedAtValue = nullableString(metadata.postedAt)
+      const postedAt = postedAtValue ? new Date(postedAtValue) : null
+      const artwork = existingRef
+        ? await tx.artwork.update({
+            where: { id: existingRef.artworkId },
+            data: {
+              ...(existingRef.artwork.titleOverridden ? {} : { title }),
+              ...(existingRef.artwork.descriptionOverridden ? {} : { description }),
+              sourceDate: postedAt,
+              sourceUrl: archiveImport.canonicalUrl,
+              originalUrl: archiveImport.canonicalUrl,
+              storagePath: paths.finalRelativePath,
+              createdVia: 'URL_ARCHIVE',
+              source: 'URL_ARCHIVE'
+            }
+          })
+        : await tx.artwork.create({
+            data: {
+              title,
+              description,
+              sourceDate: postedAt,
+              sourceUrl: archiveImport.canonicalUrl,
+              originalUrl: archiveImport.canonicalUrl,
+              thumbnailUrl: nullableString(metadata.thumbnailUrl),
+              storagePath: paths.finalRelativePath,
+              createdVia: 'URL_ARCHIVE',
+              source: 'URL_ARCHIVE'
+            }
+          })
+
+      const externalRef = await tx.artworkExternalRef.upsert({
+        where: {
+          providerKey_externalId: {
+            providerKey: archiveImport.providerKey,
+            externalId: archiveImport.externalId
+          }
+        },
+        create: {
+          artworkId: artwork.id,
+          providerKey: archiveImport.providerKey,
+          externalId: archiveImport.externalId,
+          canonicalUrl: archiveImport.canonicalUrl,
+          locator: toInputJson(archiveImport.locator),
+          metadataHash: archiveImport.metadataHash,
+          fetchedAt: new Date()
+        },
+        update: {
+          canonicalUrl: archiveImport.canonicalUrl,
+          locator: toInputJson(archiveImport.locator),
+          metadataHash: archiveImport.metadataHash,
+          fetchedAt: new Date()
+        }
+      })
+
+      await tx.artworkSourceSnapshot.upsert({
+        where: {
+          externalRefId_metadataHash: {
+            externalRefId: externalRef.id,
+            metadataHash: archiveImport.metadataHash
+          }
+        },
+        create: {
+          externalRefId: externalRef.id,
+          providerSchemaVersion: 1,
+          normalizedMetadata: toInputJson(archiveImport.normalizedMetadata),
+          rawMetadata: toInputJson(archiveImport.rawMetadata),
+          metadataHash: archiveImport.metadataHash,
+          fetchedAt: new Date()
+        },
+        update: { fetchedAt: new Date() }
+      })
+      await tx.artworkRawMetadata.upsert({
+        where: { artworkId: artwork.id },
+        create: { artworkId: artwork.id, rawMetadataJson: toInputJson(archiveImport.rawMetadata) },
+        update: { rawMetadataJson: toInputJson(archiveImport.rawMetadata) }
+      })
+
+      await replaceSourceTags(tx, artwork.id, externalRef.id, metadata)
+      await syncArtworkRelationships(tx, artwork.id, archiveImport.providerKey, metadata.relationships)
+      await tx.image.deleteMany({ where: { artworkId: artwork.id } })
+      await tx.image.createMany({
+        data: archiveImport.items.map((item) => ({
+          artworkId: artwork.id,
+          path: normalizeRelativePath(path.join(paths.finalRelativePath, item.stagedPath!)),
           width: item.width,
           height: item.height,
-          sha256: item.sha256,
-          mimeType: item.mimeType
+          size: item.byteCount,
+          sortOrder: item.pageIndex,
+          mediaType: 'IMAGE'
         }))
-        const revision = await tx.archiveRevision.create({
-          data: {
-            id: archiveImport.id,
-            artworkId: artwork.id,
-            externalRefId: externalRef.id,
-            archiveImportId: archiveImport.id,
-            archivePath: paths.finalRelativePath,
-            manifestPath: normalizeRelativePath(path.join(paths.finalRelativePath, 'manifest.json')),
-            mediaSnapshot,
-            metadataHash: archiveImport.metadataHash,
-            isCurrent: true
-          }
+      })
+
+      if (previousRevision) {
+        await tx.archiveRevision.update({
+          where: { id: previousRevision.id },
+          data: { isCurrent: false }
         })
-        const importResult = await tx.archiveImport.updateMany({
-          where: { id: archiveImport.id, status: 'RUNNING' },
-          data: {
-            status: 'COMPLETED',
-            externalRefId: externalRef.id,
-            publishedArtworkId: artwork.id,
-            completedItems: archiveImport.items.length,
-            failedItems: 0,
-            finishedAt: new Date(),
-            retainUntil: null,
-            errorCode: null,
-            errorMessage: null,
-            decisionCode: null
-          }
-        })
-        if (importResult.count !== 1) throw stateConflict('归档任务已不再允许发布')
-        const jobResult = await tx.systemJob.updateMany({
-          where: { id: archiveImport.systemJobId, attempt: leaseAttempt, status: 'RUNNING' },
-          data: {
-            status: 'COMPLETED',
-            progress: 100,
-            message: '归档发布完成',
-            result: { artworkId: artwork.id, revisionId: revision.id },
-            error: null,
-            finishedAt: new Date(),
-            heartbeatAt: new Date()
-          }
-        })
-        if (jobResult.count !== 1) throw new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效')
-        return { artworkId: artwork.id, revisionId: revision.id, archivePath: paths.finalRelativePath }
-      },
-      { maxWait: 10_000, timeout: 120_000 }
-    )
-  // A crash before this cleanup is harmless: publication is already committed
-  // and the deterministic staging directory is internal and collectible.
+      }
+      const mediaSnapshot = archiveImport.items.map((item) => ({
+        index: item.pageIndex,
+        path: item.stagedPath,
+        size: item.byteCount?.toString() ?? null,
+        width: item.width,
+        height: item.height,
+        sha256: item.sha256,
+        mimeType: item.mimeType
+      }))
+      const revision = await tx.archiveRevision.create({
+        data: {
+          id: archiveImport.id,
+          artworkId: artwork.id,
+          externalRefId: externalRef.id,
+          archiveImportId: archiveImport.id,
+          archivePath: paths.finalRelativePath,
+          manifestPath: normalizeRelativePath(path.join(paths.finalRelativePath, 'manifest.json')),
+          mediaSnapshot,
+          metadataHash: archiveImport.metadataHash,
+          isCurrent: true
+        }
+      })
+      const importResult = await tx.archiveImport.updateMany({
+        where: { id: archiveImport.id, status: 'RUNNING' },
+        data: {
+          status: 'COMPLETED',
+          externalRefId: externalRef.id,
+          publishedArtworkId: artwork.id,
+          completedItems: archiveImport.items.length,
+          failedItems: 0,
+          finishedAt: new Date(),
+          retainUntil: null,
+          errorCode: null,
+          errorMessage: null,
+          decisionCode: null
+        }
+      })
+      if (importResult.count !== 1) throw stateConflict('归档任务已不再允许发布')
+      const jobResult = await tx.systemJob.updateMany({
+        where: { id: archiveImport.systemJobId, attempt: leaseAttempt, status: 'RUNNING' },
+        data: {
+          status: 'COMPLETED',
+          progress: 100,
+          message: '归档发布完成',
+          result: { artworkId: artwork.id, revisionId: revision.id },
+          error: null,
+          finishedAt: new Date(),
+          heartbeatAt: new Date()
+        }
+      })
+      if (jobResult.count !== 1) throw new ArchiveError('LEASE_LOST', '归档 Worker 租约已失效')
+      return { artworkId: artwork.id, revisionId: revision.id, archivePath: paths.finalRelativePath }
+    },
+    { maxWait: 10_000, timeout: 120_000 }
+  )
+  // 此清理前发生崩溃是无害的：发布已提交，且路径确定的暂存目录属于内部目录，可安全回收。
   if (paths.stagingAbsolutePath !== paths.finalAbsolutePath) {
     await rm(paths.stagingAbsolutePath, { recursive: true, force: true })
   }
@@ -231,84 +222,90 @@ export async function publishArchiveImport(importId: string, scanRoot: string, l
 }
 
 export async function trashPublishedArchive(artworkId: number) {
-  const intent = await prisma.$transaction(async (tx) => {
-    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
-    const artwork = await tx.artwork.findUnique({
-      where: { id: artworkId },
-      include: { archiveRevisions: { include: { externalRef: true } } }
-    })
-    if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') {
-      throw new ArchiveError('INTERNAL', '只能通过归档任务删除 URL 归档作品')
-    }
-    if (artwork.archiveLifecycleState === 'RESTORING') {
-      throw stateConflict('作品正在恢复，请稍后再删除')
-    }
-    if (artwork.archiveLifecycleState === 'TRASHED') {
-      if (!artwork.deletedAt) throw stateConflict('作品回收站状态不一致')
-      return { artworkId, deletedAt: artwork.deletedAt }
-    }
-    if (artwork.archiveLifecycleState === 'TRASHING') {
-      if (!artwork.deletedAt) throw stateConflict('作品回收站状态不一致')
-      return { artworkId, deletedAt: artwork.deletedAt }
-    }
-    if (artwork.deletedAt) throw stateConflict('作品删除状态不一致')
-    if (artwork.archiveRevisions.length === 0) throw new ArchiveError('INTERNAL', '作品缺少归档版本')
-    for (const identity of uniqueRevisionIdentities(artwork.archiveRevisions)) {
-      await assertNoActiveIdentityImport(tx, identity.providerKey, identity.externalId)
-    }
-    const deletedAt = new Date()
-    for (const revision of artwork.archiveRevisions) {
-      await tx.archiveRevision.update({
-        where: { id: revision.id },
+  const intent = await prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+      const artwork = await tx.artwork.findUnique({
+        where: { id: artworkId },
+        include: { archiveRevisions: { include: { externalRef: true } } }
+      })
+      if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') {
+        throw new ArchiveError('INTERNAL', '只能通过归档任务删除 URL 归档作品')
+      }
+      if (artwork.archiveLifecycleState === 'RESTORING') {
+        throw stateConflict('作品正在恢复，请稍后再删除')
+      }
+      if (artwork.archiveLifecycleState === 'TRASHED') {
+        if (!artwork.deletedAt) throw stateConflict('作品回收站状态不一致')
+        return { artworkId, deletedAt: artwork.deletedAt }
+      }
+      if (artwork.archiveLifecycleState === 'TRASHING') {
+        if (!artwork.deletedAt) throw stateConflict('作品回收站状态不一致')
+        return { artworkId, deletedAt: artwork.deletedAt }
+      }
+      if (artwork.deletedAt) throw stateConflict('作品删除状态不一致')
+      if (artwork.archiveRevisions.length === 0) throw new ArchiveError('INTERNAL', '作品缺少归档版本')
+      for (const identity of uniqueRevisionIdentities(artwork.archiveRevisions)) {
+        await assertNoActiveIdentityImport(tx, identity.providerKey, identity.externalId)
+      }
+      const deletedAt = new Date()
+      for (const revision of artwork.archiveRevisions) {
+        await tx.archiveRevision.update({
+          where: { id: revision.id },
+          data: {
+            trashPath: revision.trashPath ?? buildRevisionTrashPath(artworkId, revision.id),
+            trashedAt: deletedAt,
+            purgeAfter: new Date(deletedAt.getTime() + TRASH_RETENTION_MS)
+          }
+        })
+      }
+      const changed = await tx.artwork.updateMany({
+        where: { id: artworkId, archiveLifecycleState: 'ACTIVE', deletedAt: null },
         data: {
-          trashPath: revision.trashPath ?? buildRevisionTrashPath(artworkId, revision.id),
-          trashedAt: deletedAt,
-          purgeAfter: new Date(deletedAt.getTime() + TRASH_RETENTION_MS)
+          deletedAt,
+          archiveLifecycleState: 'TRASHING'
         }
       })
-    }
-    const changed = await tx.artwork.updateMany({
-      where: { id: artworkId, archiveLifecycleState: 'ACTIVE', deletedAt: null },
-      data: {
-        deletedAt,
-        archiveLifecycleState: 'TRASHING'
-      }
-    })
-    if (changed.count !== 1) throw stateConflict('作品状态已改变，未能开始删除')
-    return { artworkId, deletedAt }
-  }, { maxWait: 10_000, timeout: 30_000 })
+      if (changed.count !== 1) throw stateConflict('作品状态已改变，未能开始删除')
+      return { artworkId, deletedAt }
+    },
+    { maxWait: 10_000, timeout: 30_000 }
+  )
   return intent
 }
 
 export async function restorePublishedArchive(artworkId: number) {
-  await prisma.$transaction(async (tx) => {
-    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
-    const artwork = await tx.artwork.findUnique({
-      where: { id: artworkId },
-      include: { archiveRevisions: { include: { externalRef: true } } }
-    })
-    if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') {
-      throw new ArchiveError('INTERNAL', '只能恢复 URL 归档作品')
-    }
-    if (artwork.archiveLifecycleState === 'ACTIVE') {
-      throw new ArchiveError('INTERNAL', '作品不在归档回收站中')
-    }
-    if (artwork.archiveLifecycleState === 'TRASHING') {
-      throw stateConflict('作品仍在移入回收站，请稍后再恢复')
-    }
-    if (!artwork.deletedAt || artwork.archiveRevisions.some((revision) => !revision.trashPath)) {
-      throw stateConflict('作品回收站状态不完整，暂时不能恢复')
-    }
-    if (artwork.archiveLifecycleState === 'RESTORING') return
-    for (const identity of uniqueRevisionIdentities(artwork.archiveRevisions)) {
-      await assertNoActiveIdentityImport(tx, identity.providerKey, identity.externalId)
-    }
-    const changed = await tx.artwork.updateMany({
-      where: { id: artworkId, archiveLifecycleState: 'TRASHED', deletedAt: { not: null } },
-      data: { archiveLifecycleState: 'RESTORING' }
-    })
-    if (changed.count !== 1) throw stateConflict('作品状态已改变，未能开始恢复')
-  }, { maxWait: 10_000, timeout: 30_000 })
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+      const artwork = await tx.artwork.findUnique({
+        where: { id: artworkId },
+        include: { archiveRevisions: { include: { externalRef: true } } }
+      })
+      if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') {
+        throw new ArchiveError('INTERNAL', '只能恢复 URL 归档作品')
+      }
+      if (artwork.archiveLifecycleState === 'ACTIVE') {
+        throw new ArchiveError('INTERNAL', '作品不在归档回收站中')
+      }
+      if (artwork.archiveLifecycleState === 'TRASHING') {
+        throw stateConflict('作品仍在移入回收站，请稍后再恢复')
+      }
+      if (!artwork.deletedAt || artwork.archiveRevisions.some((revision) => !revision.trashPath)) {
+        throw stateConflict('作品回收站状态不完整，暂时不能恢复')
+      }
+      if (artwork.archiveLifecycleState === 'RESTORING') return
+      for (const identity of uniqueRevisionIdentities(artwork.archiveRevisions)) {
+        await assertNoActiveIdentityImport(tx, identity.providerKey, identity.externalId)
+      }
+      const changed = await tx.artwork.updateMany({
+        where: { id: artworkId, archiveLifecycleState: 'TRASHED', deletedAt: { not: null } },
+        data: { archiveLifecycleState: 'RESTORING' }
+      })
+      if (changed.count !== 1) throw stateConflict('作品状态已改变，未能开始恢复')
+    },
+    { maxWait: 10_000, timeout: 30_000 }
+  )
   return { artworkId }
 }
 
@@ -348,62 +345,65 @@ export async function reconcilePendingArchiveCleanups(scanRoot: string): Promise
   const failures: Array<{ importId: string; error: unknown }> = []
   for (const candidate of pending) {
     try {
-      const didReconcile = await prisma.$transaction(async (tx) => {
-        await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
-        const archiveImport = await tx.archiveImport.findFirst({
-          where: {
-            id: candidate.id,
-            cleanupRequestedAt: { not: null },
-            status: { in: ['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'] }
-          },
-          include: { systemJob: true }
-        })
-        if (!archiveImport) return false
-        const preparedPath = buildArchiveStoragePaths({
-          scanRoot,
-          importId: archiveImport.id,
-          providerKey: archiveImport.providerKey,
-          creatorBucket: archiveImport.creatorBucket,
-          externalId: archiveImport.externalId
-        }).finalRelativePath
-        await removeArchivePathIfExists(scanRoot, archiveImport.stagingPath)
-        await removeArchivePathIfExists(scanRoot, preparedPath)
-        await tx.archiveImportItem.updateMany({
-          where: { archiveImportId: archiveImport.id },
-          data: {
-            status: 'PENDING',
-            attempts: 0,
-            stagedPath: null,
-            byteCount: null,
-            mimeType: null,
-            quality: null,
-            width: null,
-            height: null,
-            sha256: null,
-            errorCode: null,
-            errorMessage: null,
-            errorStage: null,
-            remoteHost: null,
-            startedAt: null,
-            finishedAt: null
-          }
-        })
-        const task = await tx.archiveImport.updateMany({
-          where: {
-            id: archiveImport.id,
-            cleanupRequestedAt: { not: null },
-            status: archiveImport.status
-          },
-          data: { cleanupRequestedAt: null, completedItems: 0, failedItems: 0, retainUntil: null }
-        })
-        if (task.count !== 1) throw stateConflict('暂存清理任务状态已改变')
-        const job = await tx.systemJob.updateMany({
-          where: { id: archiveImport.systemJobId, status: archiveImport.systemJob.status },
-          data: { message: '暂存目录已清理' }
-        })
-        if (job.count !== 1) throw stateConflict('暂存清理对应任务状态已改变')
-        return true
-      }, { maxWait: 10_000, timeout: 120_000 })
+      const didReconcile = await prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+          const archiveImport = await tx.archiveImport.findFirst({
+            where: {
+              id: candidate.id,
+              cleanupRequestedAt: { not: null },
+              status: { in: ['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'] }
+            },
+            include: { systemJob: true }
+          })
+          if (!archiveImport) return false
+          const preparedPath = buildArchiveStoragePaths({
+            scanRoot,
+            importId: archiveImport.id,
+            providerKey: archiveImport.providerKey,
+            creatorBucket: archiveImport.creatorBucket,
+            externalId: archiveImport.externalId
+          }).finalRelativePath
+          await removeArchivePathIfExists(scanRoot, archiveImport.stagingPath)
+          await removeArchivePathIfExists(scanRoot, preparedPath)
+          await tx.archiveImportItem.updateMany({
+            where: { archiveImportId: archiveImport.id },
+            data: {
+              status: 'PENDING',
+              attempts: 0,
+              stagedPath: null,
+              byteCount: null,
+              mimeType: null,
+              quality: null,
+              width: null,
+              height: null,
+              sha256: null,
+              errorCode: null,
+              errorMessage: null,
+              errorStage: null,
+              remoteHost: null,
+              startedAt: null,
+              finishedAt: null
+            }
+          })
+          const task = await tx.archiveImport.updateMany({
+            where: {
+              id: archiveImport.id,
+              cleanupRequestedAt: { not: null },
+              status: archiveImport.status
+            },
+            data: { cleanupRequestedAt: null, completedItems: 0, failedItems: 0, retainUntil: null }
+          })
+          if (task.count !== 1) throw stateConflict('暂存清理任务状态已改变')
+          const job = await tx.systemJob.updateMany({
+            where: { id: archiveImport.systemJobId, status: archiveImport.systemJob.status },
+            data: { message: '暂存目录已清理' }
+          })
+          if (job.count !== 1) throw stateConflict('暂存清理对应任务状态已改变')
+          return true
+        },
+        { maxWait: 10_000, timeout: 120_000 }
+      )
       if (didReconcile) reconciled += 1
     } catch (error) {
       failures.push({ importId: candidate.id, error })
@@ -447,52 +447,55 @@ export async function requestExpiredArchiveCleanups(now = new Date()): Promise<n
 }
 
 export async function reconcileArchiveLifecycle(artworkId: number, scanRoot: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
-    const artwork = await tx.artwork.findUnique({
-      where: { id: artworkId },
-      include: { archiveRevisions: true }
-    })
-    if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') return
-    if (artwork.archiveLifecycleState === 'ACTIVE' || artwork.archiveLifecycleState === 'TRASHED') return
-    if (!artwork.deletedAt) throw stateConflict('归档生命周期状态缺少删除时间')
-    if (artwork.archiveRevisions.length === 0) throw new ArchiveError('INTERNAL', '作品缺少归档版本')
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+      const artwork = await tx.artwork.findUnique({
+        where: { id: artworkId },
+        include: { archiveRevisions: true }
+      })
+      if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') return
+      if (artwork.archiveLifecycleState === 'ACTIVE' || artwork.archiveLifecycleState === 'TRASHED') return
+      if (!artwork.deletedAt) throw stateConflict('归档生命周期状态缺少删除时间')
+      if (artwork.archiveRevisions.length === 0) throw new ArchiveError('INTERNAL', '作品缺少归档版本')
 
-    if (artwork.archiveLifecycleState === 'TRASHING') {
+      if (artwork.archiveLifecycleState === 'TRASHING') {
+        for (const revision of artwork.archiveRevisions) {
+          if (!revision.trashPath) throw stateConflict('归档版本缺少回收站目标路径')
+          await moveArchiveDirectory(
+            archiveAbsolutePath(scanRoot, revision.archivePath),
+            archiveAbsolutePath(scanRoot, revision.trashPath),
+            '归档媒体目录不存在'
+          )
+        }
+        const changed = await tx.artwork.updateMany({
+          where: { id: artwork.id, archiveLifecycleState: 'TRASHING', deletedAt: { not: null } },
+          data: { archiveLifecycleState: 'TRASHED' }
+        })
+        if (changed.count !== 1) throw stateConflict('作品删除状态已改变')
+        return
+      }
+
       for (const revision of artwork.archiveRevisions) {
-        if (!revision.trashPath) throw stateConflict('归档版本缺少回收站目标路径')
+        if (!revision.trashPath) throw stateConflict('归档版本缺少回收站来源路径')
         await moveArchiveDirectory(
-          archiveAbsolutePath(scanRoot, revision.archivePath),
           archiveAbsolutePath(scanRoot, revision.trashPath),
-          '归档媒体目录不存在'
+          archiveAbsolutePath(scanRoot, revision.archivePath),
+          '回收站媒体目录不存在'
         )
       }
-      const changed = await tx.artwork.updateMany({
-        where: { id: artwork.id, archiveLifecycleState: 'TRASHING', deletedAt: { not: null } },
-        data: { archiveLifecycleState: 'TRASHED' }
+      await tx.archiveRevision.updateMany({
+        where: { artworkId: artwork.id },
+        data: { trashPath: null, trashedAt: null, purgeAfter: null }
       })
-      if (changed.count !== 1) throw stateConflict('作品删除状态已改变')
-      return
-    }
-
-    for (const revision of artwork.archiveRevisions) {
-      if (!revision.trashPath) throw stateConflict('归档版本缺少回收站来源路径')
-      await moveArchiveDirectory(
-        archiveAbsolutePath(scanRoot, revision.trashPath),
-        archiveAbsolutePath(scanRoot, revision.archivePath),
-        '回收站媒体目录不存在'
-      )
-    }
-    await tx.archiveRevision.updateMany({
-      where: { artworkId: artwork.id },
-      data: { trashPath: null, trashedAt: null, purgeAfter: null }
-    })
-    const changed = await tx.artwork.updateMany({
-      where: { id: artwork.id, archiveLifecycleState: 'RESTORING', deletedAt: { not: null } },
-      data: { deletedAt: null, archiveLifecycleState: 'ACTIVE' }
-    })
-    if (changed.count !== 1) throw stateConflict('作品恢复状态已改变')
-  }, { maxWait: 10_000, timeout: 120_000 })
+      const changed = await tx.artwork.updateMany({
+        where: { id: artwork.id, archiveLifecycleState: 'RESTORING', deletedAt: { not: null } },
+        data: { deletedAt: null, archiveLifecycleState: 'ACTIVE' }
+      })
+      if (changed.count !== 1) throw stateConflict('作品恢复状态已改变')
+    },
+    { maxWait: 10_000, timeout: 120_000 }
+  )
 }
 
 export async function purgeExpiredArchiveTrash(scanRoot: string, now = new Date()): Promise<number> {
@@ -507,35 +510,38 @@ export async function purgeExpiredArchiveTrash(scanRoot: string, now = new Date(
   })
   let purged = 0
   for (const candidate of artworks) {
-    const removed = await prisma.$transaction(async (tx) => {
-      await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
-      const artwork = await tx.artwork.findFirst({
-        where: {
-          id: candidate.id,
-          createdVia: 'URL_ARCHIVE',
-          archiveLifecycleState: 'TRASHED',
-          deletedAt: { not: null },
-          archiveRevisions: { some: { purgeAfter: { lte: now } } }
-        },
-        include: { archiveRevisions: true }
-      })
-      if (!artwork) return false
-      for (const revision of artwork.archiveRevisions) {
-        if (revision.trashPath) {
-          await rm(archiveAbsolutePath(scanRoot, revision.trashPath), { recursive: true, force: true })
+    const removed = await prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+        const artwork = await tx.artwork.findFirst({
+          where: {
+            id: candidate.id,
+            createdVia: 'URL_ARCHIVE',
+            archiveLifecycleState: 'TRASHED',
+            deletedAt: { not: null },
+            archiveRevisions: { some: { purgeAfter: { lte: now } } }
+          },
+          include: { archiveRevisions: true }
+        })
+        if (!artwork) return false
+        for (const revision of artwork.archiveRevisions) {
+          if (revision.trashPath) {
+            await rm(archiveAbsolutePath(scanRoot, revision.trashPath), { recursive: true, force: true })
+          }
+          await rm(archiveAbsolutePath(scanRoot, revision.archivePath), { recursive: true, force: true })
         }
-        await rm(archiveAbsolutePath(scanRoot, revision.archivePath), { recursive: true, force: true })
-      }
-      const result = await tx.artwork.deleteMany({
-        where: {
-          id: artwork.id,
-          createdVia: 'URL_ARCHIVE',
-          archiveLifecycleState: 'TRASHED',
-          deletedAt: { not: null }
-        }
-      })
-      return result.count === 1
-    }, { maxWait: 10_000, timeout: 120_000 })
+        const result = await tx.artwork.deleteMany({
+          where: {
+            id: artwork.id,
+            createdVia: 'URL_ARCHIVE',
+            archiveLifecycleState: 'TRASHED',
+            deletedAt: { not: null }
+          }
+        })
+        return result.count === 1
+      },
+      { maxWait: 10_000, timeout: 120_000 }
+    )
     if (removed) purged += 1
   }
   return purged

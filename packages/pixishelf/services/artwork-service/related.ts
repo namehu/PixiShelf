@@ -24,7 +24,7 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
   const cursorDate = cursorArtwork.sourceDate
   const cursorId = cursorArtwork.id
 
-  // 公共 include
+  // 公共关联查询配置
   const commonInclude = {
     images: {
       take: 2,
@@ -50,13 +50,7 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
       take: limit,
       include: commonInclude
     })
-    // 结果需要 reverse，使其符合 DESC 顺序（[最远新...最近新] -> [最近新...最远新] wait..
-    // UI 需要拼接到头部。
-    // 查询结果：[New1(近), New2(远), New3(更远)]
-    // 如果直接返回这个数组，前端 prepend: [New1, New2, New3, Current...] -> 顺序变成了 升序 (New1 < New2 < New3) 错误。
-    // 前端列表期望：[New3, New2, New1, Current...] (降序)
-    // 所以我们需要 reverse 吗？
-    // [New1, New2, New3].reverse() -> [New3, New2, New1]. Correct.
+    // 查询结果按“由近到远”返回，前端会把整批数据插到列表头部，因此需要反转后再返回，才能保持全局降序。
     return items.reverse().map(transformSingleArtwork)
   }
 
@@ -74,12 +68,11 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
       take: limit,
       include: commonInclude
     })
-    // 查询结果：[Old1(近), Old2(远)]
-    // 前端 append: [Current, Old1, Old2...] (降序). Correct.
+    // 查询结果已经按“由近到远”排列，直接追加到列表尾部即可保持全局降序。
     return items.map(transformSingleArtwork)
   }
 
-  // default: 'both' (Initial load)
+  // 默认分支为 both，用于首次加载。
   // 3. 获取“前”（Newer/Previous）的作品
   const prevItems = await prisma.artwork.findMany({
     where: {

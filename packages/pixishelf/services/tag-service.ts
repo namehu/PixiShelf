@@ -229,7 +229,7 @@ export async function createTag(data: {
   name_en?: string | null
   description?: string | null
 }) {
-  // Check if tag exists
+  // 检查标签是否存在
   const existing = await prisma.tag.findUnique({ where: { namespace_name: { namespace: 'general', name: data.name } } })
   if (existing) {
     throw new Error('Tag already exists')
@@ -256,7 +256,7 @@ export async function updateTag(
     throw new Error('System tag name cannot be changed')
   }
 
-  // If name is updated, check for duplicate
+  // 若名称已更新，需检查重复
   if (data.name) {
     const existing = await prisma.tag.findFirst({
       where: {

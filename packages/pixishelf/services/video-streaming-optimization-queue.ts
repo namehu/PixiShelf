@@ -19,6 +19,7 @@ let rerunRequested = false
 let lastMaintenanceAt = 0
 
 export async function enqueueVideoOptimization(imageId: number) {
+  // 保证同一 scanPath 下的优化任务不会重复提交超额；入队结果由底层 Queue service 决定复用或排队。
   const scanPath = await requireScanPath()
   const target = await resolveVideoStreamingOptimizationTarget(imageId, scanPath)
   const queued = await JobService.enqueueVideoStreamingOptimizationJob({ imageId: target.id, path: target.path })
@@ -41,6 +42,7 @@ export async function cancelVideoOptimization(jobId: string) {
 }
 
 export function wakeVideoOptimizationQueue() {
+  // 以单飞方式驱动队列处理：重复唤醒只保留一个活跃的队列排空过程，避免并发领取任务产生争用。
   if (processorPromise) {
     rerunRequested = true
     return

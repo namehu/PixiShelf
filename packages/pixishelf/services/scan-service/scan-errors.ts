@@ -69,7 +69,7 @@ export function formatScanHttpErrorText(responseText: string): string {
       return formatScanUserError(parsedMessage)
     }
   } catch {
-    // Non-JSON response body; fall back to direct formatting below.
+    // 响应体非 JSON；下面改为直接格式化。
   }
 
   return formatScanUserError(responseText)

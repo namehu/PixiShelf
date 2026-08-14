@@ -23,6 +23,8 @@ export async function discoverLocalImports(input: LocalImportDiscoveryInput): Pr
   const { scanPath } = localImportDiscoveryInputSchema.parse(input)
   const importRoot = path.resolve(scanPath, LOCAL_IMPORT_DIRECTORY)
   const db = prisma as any
+  // 先并行拉取现有 artwork 路径和人工映射：
+  // existingPaths 用于把“已导入目录”直接标记为 existing，避免扫描后重复写入。
   const [existingRows, mappingRows] = await Promise.all([
     db.artwork.findMany({
       where: { storagePath: { not: null } },
@@ -38,7 +40,7 @@ export async function discoverLocalImports(input: LocalImportDiscoveryInput): Pr
     try {
       existingPaths.add(canonicalizeLocalImportStoragePath(row.storagePath))
     } catch {
-      // Ignore legacy invalid paths; they cannot match a canonical candidate.
+      // 忽略旧版无效路径：它们无法匹配标准化的候选路径。
     }
   }
   const mappings = new Map(
@@ -105,14 +107,14 @@ async function visitWorkDirectory(input: {
 }) {
   const { artistDirectory, artistPath, relativeDirectorySegments, existingPaths, works } = input
   const currentPath = path.join(artistPath, ...relativeDirectorySegments)
-  let currentWork:
-    | {
-        workDirectory: string
-        relativeDirectory: string
-        storagePath: string
-      }
-    | null = null
+  let currentWork: {
+    workDirectory: string
+    relativeDirectory: string
+    storagePath: string
+  } | null = null
 
+  // 深度优先遍历子目录：只要能推导出相对路径就形成一条作品候选；
+  // 该路径一旦被 existingPaths 命中即判定为 existing 并不继续深入媒体扫描，以减少重复 IO。
   if (relativeDirectorySegments.length > 0) {
     const relativeDirectory = relativeDirectorySegments.join('/')
     const workDirectory = relativeDirectorySegments[relativeDirectorySegments.length - 1]!
@@ -141,6 +143,7 @@ async function visitWorkDirectory(input: {
     .sort((a, b) => a.name.localeCompare(b.name))
 
   if (currentWork) {
+    // manifest 优先：有 manifest.json 的目录直接走归档导入；否则尝试读取图片媒体文件并构建“new”候选。
     const manifestEntry = entries.find((entry) => entry.isFile() && entry.name === 'manifest.json')
     if (manifestEntry) {
       try {

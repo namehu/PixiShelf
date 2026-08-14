@@ -55,10 +55,7 @@ import {
 import { rollbackFailedItem } from './executor-rollback'
 import { readMovedSourceManifest } from './executor-source-manifest'
 
-export {
-  PendingReplaceCommitOutcomeUnknownError,
-  PendingReplaceLeaseLostError
-} from './executor-lease'
+export { PendingReplaceCommitOutcomeUnknownError, PendingReplaceLeaseLostError } from './executor-lease'
 
 const restorableItemStatuses = new Set<PendingReplaceItemStatus>([
   PendingReplaceItemStatus.SUCCESS,
@@ -100,6 +97,8 @@ export async function runPendingReplaceBatch(input: {
   leaseAttempt: number
   appendTagIds: number[]
 }): Promise<PendingReplaceBatchResult> {
+  // 批量执行器以 included 且状态为 READY 的项目为处理集合，边执行边更新整体进度与单项状态；
+  // 失败项记为 FAILED，不中断剩余任务；但 lease 丢失或提交不确定会抛错交由上层进行恢复。
   const startedAt = Date.now()
   const batch = await prisma.pendingReplaceBatch.findUnique({
     where: { id: input.batchId },
@@ -133,10 +132,7 @@ export async function runPendingReplaceBatch(input: {
         appendTagIds: input.appendTagIds
       })
     } catch (error) {
-      if (
-        error instanceof PendingReplaceLeaseLostError ||
-        error instanceof PendingReplaceCommitOutcomeUnknownError
-      ) {
+      if (error instanceof PendingReplaceLeaseLostError || error instanceof PendingReplaceCommitOutcomeUnknownError) {
         throw error
       }
       await updatePendingReplaceItemsWithLease(input, {
@@ -195,6 +191,8 @@ export async function runPendingReplaceItem(input: {
   leaseAttempt?: number
   appendTagIds: number[]
 }) {
+  // 单项替换遵循“预检一致性 -> 暂存 -> 提交 -> 兜底清理或回滚”状态链；
+  // 所有路径和状态更新都挂在租约检查下，防止在多实例抢占时发生错位提交。
   const item = await prisma.pendingReplaceItem.findUnique({ where: { id: input.itemId } })
   if (!item || !item.externalId || !item.artworkId || !item.targetDirectory || !item.fingerprint) {
     throw new Error('Pending replacement item is incomplete')
@@ -365,31 +363,34 @@ export async function runPendingReplaceItem(input: {
     }
     await assertPendingReplaceLease(input)
 
-    await prisma.$transaction(async (tx) => {
-      await assertPendingReplaceTransactionLease(tx, input)
-      await assertArtworkDatabaseSnapshot(tx, item.artworkId!, oldMedia)
-      await updateArtworkImagesWithTransactionClient(
-        tx,
-        item.artworkId!,
-        scannedMedia.filesMeta,
-        scannedMedia.chaptersMeta,
-        { appendTagIds: input.appendTagIds }
-      )
-      await tx.pendingReplaceItem.update({
-        where: { id: item.id },
-        data: {
-          status: PendingReplaceItemStatus.SUCCESS,
-          backupDirectory: toStoredPath(backupRelative),
-          completedDirectory: toStoredPath(completedRelative),
-          error: scannedMedia.warnings.length > 0 ? scannedMedia.warnings.join('\n') : null,
-          finishedAt: new Date()
-        }
-      })
-      await tx.pendingReplaceBatch.update({
-        where: { id: item.batchId },
-        data: { backupBytes: { increment: backupBytes } }
-      })
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    await prisma.$transaction(
+      async (tx) => {
+        await assertPendingReplaceTransactionLease(tx, input)
+        await assertArtworkDatabaseSnapshot(tx, item.artworkId!, oldMedia)
+        await updateArtworkImagesWithTransactionClient(
+          tx,
+          item.artworkId!,
+          scannedMedia.filesMeta,
+          scannedMedia.chaptersMeta,
+          { appendTagIds: input.appendTagIds }
+        )
+        await tx.pendingReplaceItem.update({
+          where: { id: item.id },
+          data: {
+            status: PendingReplaceItemStatus.SUCCESS,
+            backupDirectory: toStoredPath(backupRelative),
+            completedDirectory: toStoredPath(completedRelative),
+            error: scannedMedia.warnings.length > 0 ? scannedMedia.warnings.join('\n') : null,
+            finishedAt: new Date()
+          }
+        })
+        await tx.pendingReplaceBatch.update({
+          where: { id: item.batchId },
+          data: { backupBytes: { increment: backupBytes } }
+        })
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    )
     databaseCommitted = true
 
     try {
@@ -401,10 +402,7 @@ export async function runPendingReplaceItem(input: {
 
     await archiveCommittedSource()
   } catch (error) {
-    if (
-      error instanceof PendingReplaceLeaseLostError ||
-      error instanceof PendingReplaceCommitOutcomeUnknownError
-    ) {
+    if (error instanceof PendingReplaceLeaseLostError || error instanceof PendingReplaceCommitOutcomeUnknownError) {
       throw error
     }
     if (databaseCommitted) {
@@ -440,13 +438,10 @@ export async function runPendingReplaceItem(input: {
     const stateWriteErrors: string[] = []
     await updatePendingReplaceItemWithLease(input, item.id, {
       status: PendingReplaceItemStatus.ROLLING_BACK
+    }).catch((writeError) => {
+      if (writeError instanceof PendingReplaceLeaseLostError) throw writeError
+      stateWriteErrors.push(`记录回滚状态失败: ${writeError instanceof Error ? writeError.message : '未知错误'}`)
     })
-      .catch((writeError) => {
-        if (writeError instanceof PendingReplaceLeaseLostError) throw writeError
-        stateWriteErrors.push(
-          `记录回滚状态失败: ${writeError instanceof Error ? writeError.message : '未知错误'}`
-        )
-      })
     const rollbackErrors = await rollbackFailedItem({
       pendingRoot,
       sourceDirectoryName: item.sourceDirectoryName,
@@ -469,16 +464,15 @@ export async function runPendingReplaceItem(input: {
       error: [message, ...stateWriteErrors, ...rollbackErrors].join('\n'),
       backupDirectory: rollbackErrors.length === 0 ? null : toStoredPath(backupRelative),
       finishedAt: new Date()
-    })
-      .catch((writeError) => {
-        if (writeError instanceof PendingReplaceLeaseLostError) throw writeError
-        logger.error('Failed to persist pending replacement rollback result', {
-          error: writeError,
-          itemId: item.id,
-          originalError: message,
-          rollbackErrors
-        })
+    }).catch((writeError) => {
+      if (writeError instanceof PendingReplaceLeaseLostError) throw writeError
+      logger.error('Failed to persist pending replacement rollback result', {
+        error: writeError,
+        itemId: item.id,
+        originalError: message,
+        rollbackErrors
       })
+    })
   }
 }
 
@@ -509,189 +503,162 @@ export async function recoverInterruptedPendingReplaceBatch(input: {
   heartbeat.unref()
 
   try {
-  await touchPendingReplaceLease(claimed.id, claimed.attempt)
-  const batch = await prisma.pendingReplaceBatch.findUnique({
-    where: { id: input.batchId },
-    include: { items: true, systemJob: true }
-  })
-  if (
-    !batch?.systemJob ||
-    batch.systemJob.id !== claimed.id ||
-    batch.systemJob.attempt !== claimed.attempt
-  ) {
-    throw new PendingReplaceLeaseLostError()
-  }
-
-  if (batch.systemJob.mode === 'CLEANUP') {
-    await cleanupPendingReplaceBackups({
-      scanPath: input.scanPath,
-      batchId: batch.id,
-      jobId: claimed.id,
-      leaseAttempt: claimed.attempt
+    await touchPendingReplaceLease(claimed.id, claimed.attempt)
+    const batch = await prisma.pendingReplaceBatch.findUnique({
+      where: { id: input.batchId },
+      include: { items: true, systemJob: true }
     })
+    if (!batch?.systemJob || batch.systemJob.id !== claimed.id || batch.systemJob.attempt !== claimed.attempt) {
+      throw new PendingReplaceLeaseLostError()
+    }
+
+    if (batch.systemJob.mode === 'CLEANUP') {
+      await cleanupPendingReplaceBackups({
+        scanPath: input.scanPath,
+        batchId: batch.id,
+        jobId: claimed.id,
+        leaseAttempt: claimed.attempt
+      })
+      const counters = await syncPendingReplaceBatchCounters(batch.id)
+      const finalized = await JobService.finalizePendingReplaceJob(
+        claimed.id,
+        claimed.attempt,
+        { status: 'COMPLETED', result: { batchId: batch.id, recoveredAction: 'CLEANUP' } },
+        async (tx) => {
+          await tx.pendingReplaceBatch.update({
+            where: { id: batch.id },
+            data: {
+              status:
+                counters.failedItems > 0
+                  ? PendingReplaceBatchStatus.PARTIAL_FAILED
+                  : PendingReplaceBatchStatus.COMPLETED,
+              finishedAt: new Date()
+            }
+          })
+        }
+      )
+      if (!finalized) throw new PendingReplaceLeaseLostError()
+      return { success: true, recoveredItems: 0 }
+    }
+
+    const activeStatuses: PendingReplaceItemStatus[] = [
+      PendingReplaceItemStatus.STAGING,
+      PendingReplaceItemStatus.BACKING_UP,
+      PendingReplaceItemStatus.SWAPPING,
+      PendingReplaceItemStatus.COMMITTING,
+      PendingReplaceItemStatus.ROLLING_BACK
+    ]
+    const restoreStatuses: PendingReplaceItemStatus[] = [
+      PendingReplaceItemStatus.RESTORING,
+      PendingReplaceItemStatus.RESTORE_SWAPPING
+    ]
+    const activeItems = batch.items.filter((item) =>
+      batch.systemJob!.mode === 'RESTORE' ? restoreStatuses.includes(item.status) : activeStatuses.includes(item.status)
+    )
+    const pendingRoot = path.resolve(input.scanPath, PENDING_REPLACE_DIRECTORY)
+    await withPendingReplaceMutationLease({ jobId: claimed.id, leaseAttempt: claimed.attempt }, () =>
+      fs.mkdir(pendingRoot, { recursive: true })
+    )
+
+    for (const item of activeItems) {
+      await touchPendingReplaceLease(claimed.id, claimed.attempt)
+      if (restoreStatuses.includes(item.status)) {
+        await recoverInterruptedRestoreItem(input.scanPath, item, {
+          jobId: claimed.id,
+          leaseAttempt: claimed.attempt
+        })
+        continue
+      }
+      if (!item.externalId || !item.targetDirectory) {
+        await updatePendingReplaceItemWithLease({ jobId: claimed.id, leaseAttempt: claimed.attempt }, item.id, {
+          status: PendingReplaceItemStatus.FAILED,
+          error: '服务中断，且项目缺少恢复所需路径，请人工检查',
+          finishedAt: new Date()
+        })
+        continue
+      }
+      const externalId = pendingReplaceExternalIdSchema.parse(item.externalId)
+      const workRelative = path.posix.join(PENDING_REPLACE_WORK_DIRECTORY, item.batchId, item.id)
+      const workAbsolute = await resolveCreatablePathWithinRoot(input.scanPath, workRelative)
+      const workSourceAbsolute = path.join(workAbsolute, 'source')
+      const normalizedAbsolute = path.join(workAbsolute, 'normalized')
+      const backupRelative = path.posix.join(PENDING_REPLACE_BACKUP_DIRECTORY, item.batchId, externalId)
+      const backupAbsolute = await resolveCreatablePathWithinRoot(input.scanPath, backupRelative)
+      const targetAbsolute = await resolveCreatablePathWithinRoot(
+        input.scanPath,
+        stripLeadingSlash(item.targetDirectory)
+      )
+      await updatePendingReplaceItemWithLease({ jobId: claimed.id, leaseAttempt: claimed.attempt }, item.id, {
+        status: PendingReplaceItemStatus.ROLLING_BACK
+      })
+      const rollbackErrors = await rollbackFailedItem({
+        pendingRoot,
+        sourceDirectoryName: item.sourceDirectoryName,
+        workAbsolute,
+        workSourceAbsolute,
+        normalizedAbsolute,
+        targetAbsolute,
+        backupAbsolute,
+        manifest: asManifest(item.sourceManifest),
+        newMedia: asMediaSnapshot(item.newMediaSnapshot),
+        targetFiles: asTargetFileSnapshot(item.targetFileSnapshot),
+        sourceMovedToWork: await pathExists(workSourceAbsolute),
+        newFilesMayBeInTarget:
+          item.status === PendingReplaceItemStatus.SWAPPING ||
+          item.status === PendingReplaceItemStatus.COMMITTING ||
+          (item.status === PendingReplaceItemStatus.ROLLING_BACK && Boolean(item.backupDirectory)),
+        assertLease: () => assertPendingReplaceLease({ jobId: claimed.id, leaseAttempt: claimed.attempt }),
+        mutate: (mutation) =>
+          withPendingReplaceMutationLease({ jobId: claimed.id, leaseAttempt: claimed.attempt }, mutation)
+      })
+      const backupRemains = await pathExists(backupAbsolute)
+      await updatePendingReplaceItemWithLease({ jobId: claimed.id, leaseAttempt: claimed.attempt }, item.id, {
+        status: PendingReplaceItemStatus.FAILED,
+        error: ['服务中断，未完成的文件操作已回滚', ...rollbackErrors].join('\n'),
+        backupDirectory: rollbackErrors.length > 0 && backupRemains ? toStoredPath(backupRelative) : null,
+        finishedAt: new Date()
+      })
+    }
+
+    let archiveRepairFailed = false
+    if (batch.systemJob.mode !== 'RESTORE') {
+      for (const item of batch.items.filter((candidate) => candidate.status === PendingReplaceItemStatus.SUCCESS)) {
+        await assertPendingReplaceLease({ jobId: claimed.id, leaseAttempt: claimed.attempt })
+        if (
+          !(await repairSuccessfulReplacementArchive(input.scanPath, item, {
+            jobId: claimed.id,
+            leaseAttempt: claimed.attempt
+          }))
+        ) {
+          archiveRepairFailed = true
+        }
+      }
+    }
+
     const counters = await syncPendingReplaceBatchCounters(batch.id)
+    const interrupted = counters.failedItems > 0 || counters.readyItems > 0 || archiveRepairFailed
+    const restoreTarget =
+      batch.systemJob.mode === 'RESTORE' ? batch.items.find((item) => item.id === batch.systemJob?.targetPath) : null
+    const recoveryFailed =
+      batch.systemJob.mode === 'RESTORE' ? restoreTarget?.status !== PendingReplaceItemStatus.RESTORED : interrupted
     const finalized = await JobService.finalizePendingReplaceJob(
       claimed.id,
       claimed.attempt,
-      { status: 'COMPLETED', result: { batchId: batch.id, recoveredAction: 'CLEANUP' } },
+      recoveryFailed
+        ? { status: 'FAILED', error: '服务中断，未完成的文件操作已恢复到安全状态' }
+        : { status: 'COMPLETED', result: { batchId: batch.id, recovered: true } },
       async (tx) => {
         await tx.pendingReplaceBatch.update({
           where: { id: batch.id },
           data: {
-            status:
-              counters.failedItems > 0
-                ? PendingReplaceBatchStatus.PARTIAL_FAILED
-                : PendingReplaceBatchStatus.COMPLETED,
+            status: interrupted ? PendingReplaceBatchStatus.PARTIAL_FAILED : PendingReplaceBatchStatus.COMPLETED,
             finishedAt: new Date()
           }
         })
       }
     )
     if (!finalized) throw new PendingReplaceLeaseLostError()
-    return { success: true, recoveredItems: 0 }
-  }
-
-  const activeStatuses: PendingReplaceItemStatus[] = [
-    PendingReplaceItemStatus.STAGING,
-    PendingReplaceItemStatus.BACKING_UP,
-    PendingReplaceItemStatus.SWAPPING,
-    PendingReplaceItemStatus.COMMITTING,
-    PendingReplaceItemStatus.ROLLING_BACK
-  ]
-  const restoreStatuses: PendingReplaceItemStatus[] = [
-    PendingReplaceItemStatus.RESTORING,
-    PendingReplaceItemStatus.RESTORE_SWAPPING
-  ]
-  const activeItems = batch.items.filter((item) =>
-    batch.systemJob!.mode === 'RESTORE'
-      ? restoreStatuses.includes(item.status)
-      : activeStatuses.includes(item.status)
-  )
-  const pendingRoot = path.resolve(input.scanPath, PENDING_REPLACE_DIRECTORY)
-  await withPendingReplaceMutationLease(
-    { jobId: claimed.id, leaseAttempt: claimed.attempt },
-    () => fs.mkdir(pendingRoot, { recursive: true })
-  )
-
-  for (const item of activeItems) {
-    await touchPendingReplaceLease(claimed.id, claimed.attempt)
-    if (restoreStatuses.includes(item.status)) {
-      await recoverInterruptedRestoreItem(input.scanPath, item, {
-        jobId: claimed.id,
-        leaseAttempt: claimed.attempt
-      })
-      continue
-    }
-    if (!item.externalId || !item.targetDirectory) {
-      await updatePendingReplaceItemWithLease(
-        { jobId: claimed.id, leaseAttempt: claimed.attempt },
-        item.id,
-        {
-          status: PendingReplaceItemStatus.FAILED,
-          error: '服务中断，且项目缺少恢复所需路径，请人工检查',
-          finishedAt: new Date()
-        }
-      )
-      continue
-    }
-    const externalId = pendingReplaceExternalIdSchema.parse(item.externalId)
-    const workRelative = path.posix.join(PENDING_REPLACE_WORK_DIRECTORY, item.batchId, item.id)
-    const workAbsolute = await resolveCreatablePathWithinRoot(input.scanPath, workRelative)
-    const workSourceAbsolute = path.join(workAbsolute, 'source')
-    const normalizedAbsolute = path.join(workAbsolute, 'normalized')
-    const backupRelative = path.posix.join(PENDING_REPLACE_BACKUP_DIRECTORY, item.batchId, externalId)
-    const backupAbsolute = await resolveCreatablePathWithinRoot(input.scanPath, backupRelative)
-    const targetAbsolute = await resolveCreatablePathWithinRoot(
-      input.scanPath,
-      stripLeadingSlash(item.targetDirectory)
-    )
-    await updatePendingReplaceItemWithLease(
-      { jobId: claimed.id, leaseAttempt: claimed.attempt },
-      item.id,
-      { status: PendingReplaceItemStatus.ROLLING_BACK }
-    )
-    const rollbackErrors = await rollbackFailedItem({
-      pendingRoot,
-      sourceDirectoryName: item.sourceDirectoryName,
-      workAbsolute,
-      workSourceAbsolute,
-      normalizedAbsolute,
-      targetAbsolute,
-      backupAbsolute,
-      manifest: asManifest(item.sourceManifest),
-      newMedia: asMediaSnapshot(item.newMediaSnapshot),
-      targetFiles: asTargetFileSnapshot(item.targetFileSnapshot),
-      sourceMovedToWork: await pathExists(workSourceAbsolute),
-      newFilesMayBeInTarget:
-        item.status === PendingReplaceItemStatus.SWAPPING ||
-        item.status === PendingReplaceItemStatus.COMMITTING ||
-        (item.status === PendingReplaceItemStatus.ROLLING_BACK && Boolean(item.backupDirectory)),
-      assertLease: () => assertPendingReplaceLease({ jobId: claimed.id, leaseAttempt: claimed.attempt }),
-      mutate: (mutation) =>
-        withPendingReplaceMutationLease(
-          { jobId: claimed.id, leaseAttempt: claimed.attempt },
-          mutation
-        )
-    })
-    const backupRemains = await pathExists(backupAbsolute)
-    await updatePendingReplaceItemWithLease(
-      { jobId: claimed.id, leaseAttempt: claimed.attempt },
-      item.id,
-      {
-        status: PendingReplaceItemStatus.FAILED,
-        error: ['服务中断，未完成的文件操作已回滚', ...rollbackErrors].join('\n'),
-        backupDirectory:
-          rollbackErrors.length > 0 && backupRemains ? toStoredPath(backupRelative) : null,
-        finishedAt: new Date()
-      }
-    )
-  }
-
-  let archiveRepairFailed = false
-  if (batch.systemJob.mode !== 'RESTORE') {
-    for (const item of batch.items.filter((candidate) => candidate.status === PendingReplaceItemStatus.SUCCESS)) {
-      await assertPendingReplaceLease({ jobId: claimed.id, leaseAttempt: claimed.attempt })
-      if (
-        !(await repairSuccessfulReplacementArchive(input.scanPath, item, {
-          jobId: claimed.id,
-          leaseAttempt: claimed.attempt
-        }))
-      ) {
-        archiveRepairFailed = true
-      }
-    }
-  }
-
-  const counters = await syncPendingReplaceBatchCounters(batch.id)
-  const interrupted = counters.failedItems > 0 || counters.readyItems > 0 || archiveRepairFailed
-  const restoreTarget =
-    batch.systemJob.mode === 'RESTORE'
-      ? batch.items.find((item) => item.id === batch.systemJob?.targetPath)
-      : null
-  const recoveryFailed =
-    batch.systemJob.mode === 'RESTORE'
-      ? restoreTarget?.status !== PendingReplaceItemStatus.RESTORED
-      : interrupted
-  const finalized = await JobService.finalizePendingReplaceJob(
-    claimed.id,
-    claimed.attempt,
-    recoveryFailed
-      ? { status: 'FAILED', error: '服务中断，未完成的文件操作已恢复到安全状态' }
-      : { status: 'COMPLETED', result: { batchId: batch.id, recovered: true } },
-    async (tx) => {
-      await tx.pendingReplaceBatch.update({
-        where: { id: batch.id },
-        data: {
-          status: interrupted
-            ? PendingReplaceBatchStatus.PARTIAL_FAILED
-            : PendingReplaceBatchStatus.COMPLETED,
-          finishedAt: new Date()
-        }
-      })
-    }
-  )
-  if (!finalized) throw new PendingReplaceLeaseLostError()
-  return { success: true, recoveredItems: activeItems.length }
+    return { success: true, recoveredItems: activeItems.length }
   } finally {
     clearInterval(heartbeat)
   }
@@ -707,10 +674,7 @@ async function repairSuccessfulReplacementArchive(
   const workAbsolute = await resolveCreatablePathWithinRoot(scanPath, workRelative)
   const workSourceAbsolute = path.join(workAbsolute, 'source')
   const normalizedAbsolute = path.join(workAbsolute, 'normalized')
-  const completedAbsolute = await resolveCreatablePathWithinRoot(
-    scanPath,
-    stripLeadingSlash(item.completedDirectory)
-  )
+  const completedAbsolute = await resolveCreatablePathWithinRoot(scanPath, stripLeadingSlash(item.completedDirectory))
   try {
     await withPendingReplaceMutationLease(lease, () =>
       archiveSuccessfulReplacement({
@@ -726,7 +690,7 @@ async function repairSuccessfulReplacementArchive(
   } catch (error) {
     if (error instanceof PendingReplaceLeaseLostError) throw error
     await updatePendingReplaceItemWithLease(lease, item.id, {
-        error: `服务中断后修复完成归档失败: ${error instanceof Error ? error.message : '未知错误'}`
+      error: `服务中断后修复完成归档失败: ${error instanceof Error ? error.message : '未知错误'}`
     })
     return false
   }
@@ -739,18 +703,15 @@ async function recoverInterruptedRestoreItem(
 ) {
   if (!item.targetDirectory || !item.backupDirectory) {
     await updatePendingReplaceItemWithLease(lease, item.id, {
-        status: PendingReplaceItemStatus.FAILED,
-        error: '服务中断，恢复项目缺少目标或备份路径',
-        finishedAt: new Date()
+      status: PendingReplaceItemStatus.FAILED,
+      error: '服务中断，恢复项目缺少目标或备份路径',
+      finishedAt: new Date()
     })
     return
   }
   const pendingRoot = path.resolve(scanPath, PENDING_REPLACE_DIRECTORY)
   const pendingAbsolute = await resolveCreatablePathWithinRoot(pendingRoot, item.sourceDirectoryName)
-  const targetAbsolute = await resolveCreatablePathWithinRoot(
-    scanPath,
-    stripLeadingSlash(item.targetDirectory)
-  )
+  const targetAbsolute = await resolveCreatablePathWithinRoot(scanPath, stripLeadingSlash(item.targetDirectory))
   const backupAbsolute = await resolveExpectedBackupDirectory(scanPath, item)
   const completedAbsolute = item.completedDirectory
     ? await resolveCreatablePathWithinRoot(scanPath, stripLeadingSlash(item.completedDirectory))
@@ -767,10 +728,7 @@ async function recoverInterruptedRestoreItem(
       for (const targetFile of targetFiles) {
         await assertPendingReplaceLease(lease)
         await mutate(() =>
-          moveIfExists(
-            path.join(targetAbsolute, targetFile.name),
-            path.join(backupAbsolute, targetFile.name)
-          )
+          moveIfExists(path.join(targetAbsolute, targetFile.name), path.join(backupAbsolute, targetFile.name))
         )
       }
     }
@@ -807,9 +765,9 @@ async function recoverInterruptedRestoreItem(
   }
 
   await updatePendingReplaceItemWithLease(lease, item.id, {
-      status: errors.length > 0 ? PendingReplaceItemStatus.FAILED : PendingReplaceItemStatus.SUCCESS,
-      error: errors.length > 0 ? `服务中断恢复回滚失败: ${errors.join('\n')}` : null,
-      finishedAt: new Date()
+    status: errors.length > 0 ? PendingReplaceItemStatus.FAILED : PendingReplaceItemStatus.SUCCESS,
+    error: errors.length > 0 ? `服务中断恢复回滚失败: ${errors.join('\n')}` : null,
+    finishedAt: new Date()
   })
 }
 
@@ -836,12 +794,7 @@ export async function restorePendingReplaceItem(input: {
     where: { id: input.itemId },
     include: { batch: true }
   })
-  if (
-    !item ||
-    !restorableItemStatuses.has(item.status) ||
-    !item.backupDirectory ||
-    !item.targetDirectory
-  ) {
+  if (!item || !restorableItemStatuses.has(item.status) || !item.backupDirectory || !item.targetDirectory) {
     throw new Error('该作品没有可恢复的旧媒体备份')
   }
 
@@ -955,41 +908,34 @@ export async function restorePendingReplaceItem(input: {
       media.order = order
     })
     const restoredFileNames = new Set(restoredFiles.map((media) => media.fileName))
-    const restoredChapters = scannedMedia.chaptersMeta.filter((chapter) =>
-      restoredFileNames.has(chapter.videoFileName)
-    )
+    const restoredChapters = scannedMedia.chaptersMeta.filter((chapter) => restoredFileNames.has(chapter.videoFileName))
 
-    await prisma.$transaction(async (tx) => {
-      await assertPendingReplaceTransactionLease(tx, input)
-      await assertArtworkDatabaseSnapshot(tx, item.artworkId!, installedNewMedia)
-      await updateArtworkImagesWithTransactionClient(
-        tx,
-        item.artworkId!,
-        restoredFiles,
-        restoredChapters
-      )
-      await tx.pendingReplaceItem.update({
-        where: { id: item.id },
-        data: {
-          status: PendingReplaceItemStatus.RESTORED,
-          backupDirectory: null,
-          completedDirectory: null,
-          finishedAt: new Date()
-        }
-      })
-      await tx.pendingReplaceBatch.update({
-        where: { id: item.batchId },
-        data: { backupBytes: { decrement: backupBytes }, restoredItems: { increment: 1 } }
-      })
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    await prisma.$transaction(
+      async (tx) => {
+        await assertPendingReplaceTransactionLease(tx, input)
+        await assertArtworkDatabaseSnapshot(tx, item.artworkId!, installedNewMedia)
+        await updateArtworkImagesWithTransactionClient(tx, item.artworkId!, restoredFiles, restoredChapters)
+        await tx.pendingReplaceItem.update({
+          where: { id: item.id },
+          data: {
+            status: PendingReplaceItemStatus.RESTORED,
+            backupDirectory: null,
+            completedDirectory: null,
+            finishedAt: new Date()
+          }
+        })
+        await tx.pendingReplaceBatch.update({
+          where: { id: item.batchId },
+          data: { backupBytes: { decrement: backupBytes }, restoredItems: { increment: 1 } }
+        })
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    )
     databaseCommitted = true
     await cleanupCommittedRestoreBackup()
     return { success: true }
   } catch (error) {
-    if (
-      error instanceof PendingReplaceLeaseLostError ||
-      error instanceof PendingReplaceCommitOutcomeUnknownError
-    ) {
+    if (error instanceof PendingReplaceLeaseLostError || error instanceof PendingReplaceCommitOutcomeUnknownError) {
       throw error
     }
     if (databaseCommitted) {
@@ -1033,10 +979,7 @@ export async function restorePendingReplaceItem(input: {
         for (const targetFile of targetFiles) {
           await assertPendingReplaceLease(input)
           await mutate(() =>
-            moveIfExists(
-              path.join(targetAbsolute, targetFile.name),
-              path.join(backupAbsolute, targetFile.name)
-            )
+            moveIfExists(path.join(targetAbsolute, targetFile.name), path.join(backupAbsolute, targetFile.name))
           )
         }
       }
@@ -1070,10 +1013,7 @@ export async function restorePendingReplaceItem(input: {
       rollbackErrors.push(`恢复操作回滚失败: ${rollbackError instanceof Error ? rollbackError.message : '未知错误'}`)
     }
     await updatePendingReplaceItemWithLease(input, item.id, {
-      status:
-        rollbackErrors.length > 0
-          ? PendingReplaceItemStatus.FAILED
-          : PendingReplaceItemStatus.SUCCESS,
+      status: rollbackErrors.length > 0 ? PendingReplaceItemStatus.FAILED : PendingReplaceItemStatus.SUCCESS,
       error: rollbackErrors.length > 0 ? rollbackErrors.join('\n') : null,
       finishedAt: new Date()
     })

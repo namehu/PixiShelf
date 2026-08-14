@@ -368,7 +368,7 @@ describe('video keyframe queue', () => {
     findManyMock.mockResolvedValueOnce([
       { id: 'job-healthy', type: 'VIDEO_KEYFRAME_GENERATION', status: 'RUNNING', attempt: 1 }
     ])
-    // The ownership recheck under the queue lock no longer matches the stale predicate.
+    // 队列锁下的所有权重检与过期谓词不再一致。
     findFirstMock.mockResolvedValueOnce(null)
 
     await expect(recoverStaleVideoKeyframeJobs(new Date())).resolves.toBe(1)

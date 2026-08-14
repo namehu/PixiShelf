@@ -9,7 +9,12 @@ import { clearPixivImportedData } from './force-reset'
 import type { ArtworkData, GlobMetadataFile, ScanAuditItemInput, ScanContext, ScanOptions } from './types'
 
 /**
- * 扫描方法
+ * 统一扫描入口，按配置决定扫描来源、是否全量重扫及失败处理策略。
+ *
+ * - metadataList 模式：只扫描客户端上报的文件列表，并验证路径是否在 scanPath 内；
+ * - forceUpdate 模式：在扫描前清空 Pixiv 入库快照并重建，未成功重建项将失败整个流程；
+ * - 运行期错误区分取消与非取消错误，前者返回部分结果，后者向上抛出。
+ *
  * @param options 扫描选项
  * @returns 扫描结果
  */
@@ -124,12 +129,7 @@ async function discoverMetadataFiles(context: ScanContext): Promise<GlobMetadata
 
   const discoveryStartTime = Date.now()
   const metadataFiles = isMetadataListScan(options)
-    ? await prepareMetadataFilesFromList(
-        options.scanPath,
-        options.metadataRelativePaths!,
-        context,
-        options.forceUpdate
-      )
+    ? await prepareMetadataFilesFromList(options.scanPath, options.metadataRelativePaths!, context, options.forceUpdate)
     : await globMetadataFiles(options.scanPath, context, options.forceUpdate)
 
   logger.info('Scan performance checkpoint:', {
@@ -145,11 +145,8 @@ async function discoverMetadataFiles(context: ScanContext): Promise<GlobMetadata
   return metadataFiles
 }
 
-/**
- * 流式处理作品，取代原来的发现+处理模式
- * 边发现边处理，降低内存峰值
- * @param context 扫描上下文
- */
+// 将“发现”与“处理”拼接成单次流式循环，可在批大小可控时降低内存峰值；
+// 每批成功才继续推进，Force 重扫下只要存在失败批次则中止以避免状态不一致。
 async function streamProcessArtworks(context: ScanContext, metadataFiles: GlobMetadataFile[]): Promise<void> {
   const { options } = context
   const BATCH_SIZE = process.env.NODE_ENV === 'development' ? 5 : 100 // 定义处理批次的大小
@@ -219,7 +216,9 @@ async function streamProcessArtworks(context: ScanContext, metadataFiles: GlobMe
         logger.error('Failed to process batch:', { error, batchNumber, batchSize: artworkBatch.length })
         const rawErrorMessage = `Failed to process batch ${batchNumber}: ${getRawErrorMessage(error)}`
         context.scanResult.errors.push(formatScanUserError(rawErrorMessage))
-        await context.options.audit?.recordItems?.(buildFailedWriteAuditItems(artworkBatch, context.options.scanPath, rawErrorMessage))
+        await context.options.audit?.recordItems?.(
+          buildFailedWriteAuditItems(artworkBatch, context.options.scanPath, rawErrorMessage)
+        )
         if (shouldResetPixivImportedData(options)) {
           fatalBatchError = new Error(rawErrorMessage)
         }
@@ -268,7 +267,11 @@ async function streamProcessArtworks(context: ScanContext, metadataFiles: GlobMe
   }
 }
 
-function buildFailedWriteAuditItems(batch: ArtworkData[], scanPath: string, errorMessage: string): ScanAuditItemInput[] {
+function buildFailedWriteAuditItems(
+  batch: ArtworkData[],
+  scanPath: string,
+  errorMessage: string
+): ScanAuditItemInput[] {
   const finishedAt = new Date()
   return batch.map((artworkData) => ({
     externalId: artworkData.metadata.id,

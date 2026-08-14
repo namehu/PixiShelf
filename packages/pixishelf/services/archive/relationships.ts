@@ -13,9 +13,8 @@ interface RelationshipValue {
 }
 
 /**
- * Materialize provider-owned relationships when both source identities have
- * already been archived. Version edges are historical facts, so a later source
- * response that omits an old edge does not erase it.
+ * 当双方来源身份均已归档时，物化提供方持有的关系。
+ * 版本边是历史事实，因此后续响应若不再包含旧关系，也不能将其抹除。
  */
 export async function syncArtworkRelationships(
   tx: ArchiveTransactionClient,

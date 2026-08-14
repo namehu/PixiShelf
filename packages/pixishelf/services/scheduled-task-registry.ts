@@ -159,6 +159,7 @@ async function startTriggerLogRetentionCleanupTask(
 
   const job = await JobService.createTriggerLogRetentionCleanupJob()
 
+  // 处理器在事务外异步执行，避免界面请求在清理期间阻塞；失败分支统一写入失败或已取消状态。
   ;(async () => {
     try {
       await JobService.updateProgress(job.id, 10, '正在清理过期触发器日志...')
@@ -194,6 +195,7 @@ async function startScanRunRetentionCleanupTask(options: StartScheduledTaskOptio
 
   const job = await JobService.createScanRunRetentionCleanupJob()
 
+  // 注意：扫描历史清理返回可复用进度事件；该任务不持有扫描路径配置依赖，可在未配置 scan path 时仍能运行。
   ;(async () => {
     try {
       await JobService.updateProgress(job.id, 10, '正在计算需要清理的扫描历史...')
@@ -222,6 +224,7 @@ async function startWebpAnimationScanTask(options: StartScheduledTaskOptions): P
 
   const job = await JobService.createWebpAnimationScanJob()
 
+  // 与多数任务不同，图片动图识别与封面重建需要 checkCancelled 钩子；当前 handler 以“运行中立即返回 jobId”为设计，便于调用方轮询状态。
   ;(async () => {
     try {
       const result = await runWebpAnimationScanJob({
@@ -263,6 +266,7 @@ async function startVideoMediaProbeTask(options: StartScheduledTaskOptions): Pro
 
   const job = await JobService.createVideoMediaProbeJob()
 
+  // 媒体探测任务在完成探测后会链式执行封面生成，若运行中被取消则标记为 CANCELLED，避免将部分进度误记为 FAILED。
   ;(async () => {
     try {
       const result = await runVideoMediaProbeJob({

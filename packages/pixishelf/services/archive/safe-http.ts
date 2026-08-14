@@ -224,7 +224,7 @@ export function resolveArchiveProxyUrl(target: URL, environment: ArchiveProxyEnv
   try {
     proxyUrl = new URL(rawProxy)
   } catch {
-    // URL parse errors may echo proxy credentials in their cause; do not retain it.
+    // URL 解析错误可能会在原因中回显代理凭据，不应保留该信息。
     throw new ArchiveError('INTERNAL', '归档代理地址格式无效')
   }
   if (!['http:', 'https:'].includes(proxyUrl.protocol)) {
@@ -330,9 +330,8 @@ function sendProxiedRequest(
       upstreamRequest?.destroy(error)
       responseStream?.destroy(error)
       tunnelSocket?.destroy(error)
-      // The raw CONNECT socket has no independent error consumer. Passing an
-      // error to destroy() can surface as an uncaught socket error after the
-      // request promise has already been rejected.
+      // 原始 CONNECT 套接字没有独立的错误消费通道。将错误传给 destroy() 可能会在
+      // 请求 Promise 已被拒绝后，以未捕获套接字错误的形式冒泡。
       proxySocket?.destroy()
       proxyRequest.destroy(error)
     }
@@ -367,8 +366,8 @@ function sendProxiedRequest(
       headers: {
         host: targetHost,
         connection: 'keep-alive',
-        // Some older HTTP proxies use this de-facto header to decide whether the
-        // CONNECT socket may remain open for the subsequent TLS handshake.
+        // 一些旧版 HTTP 代理使用该请求头决定是否保留连接。
+        // CONNECT 套接字可能会在后续 TLS 握手期间保持打开。
         'proxy-connection': 'keep-alive'
       },
       agent: false

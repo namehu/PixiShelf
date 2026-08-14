@@ -167,8 +167,8 @@ export async function generateVideoKeyframes(options: {
     const outputPath = resolveDerivedMediaStoragePath(VIDEO_KEYFRAME_STORAGE_ROOT, relativePath)
     const temporaryPath = `${outputPath}.tmp.webp`
 
-    // A worker may have stopped after publishing the file but before saving the
-    // candidate checkpoint. The staging file is not public, so regenerate it.
+    // 工作进程可能在文件落盘后、保存候选检查点前中断。
+    // 暂存文件未对外发布，因此需要重新生成。
     await fs.rm(outputPath, { force: true }).catch(() => undefined)
 
     await prisma.mediaVideoKeyframe.update({
@@ -806,10 +806,9 @@ async function calculateFrameMetrics(filePath: string) {
 }
 
 export async function finalizeExtractedVideoKeyframeCandidate(temporaryPath: string, outputPath: string) {
-  // Docker Desktop bind mounts backed by Windows can report rename() success
-  // while the destination remains temporarily missing or undecodable. Inspect
-  // the fully-written temporary file first, then copy accepted bytes to the
-  // unpublished final path and verify that copy before saving its DB checkpoint.
+  // Docker Desktop 在 Windows 的绑定挂载场景可能返回重命名成功，
+  // 但目标路径可能暂时缺失或暂不可解码。应先检查已完整写入的临时文件，
+  // 再将接收的字节复制到未发布的最终路径，并在保存 DB 检查点前校验该副本。
   await validateWebp(temporaryPath)
   const metrics = await calculateFrameMetrics(temporaryPath)
   const rejectionReason = classifyQualityRejection(metrics)

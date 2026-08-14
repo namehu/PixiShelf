@@ -868,7 +868,7 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
     }
   })
 
-  // Service 层返回 null，由 Controller 决定是 404 还是其他
+  // 服务层返回 null，由控制器决定响应 404 还是其他状态。
   if (!artwork) {
     return null
   }
@@ -907,7 +907,7 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
 }
 
 // ==========================================
-// Data Access Helpers (内部私有函数 - 相当于 Repository)
+// 数据访问辅助函数（内部私有函数，等同于 Repository）
 // ==========================================
 
 const artworkCardSelect = {

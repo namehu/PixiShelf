@@ -29,6 +29,7 @@ async function createMutexJob(input: {
   targetPath?: string
   mode?: string
 }) {
+  // 使用事务内的会话级咨询锁保证“状态检查+创建”是原子操作，避免并发工作进程重复获取同一互斥队列。
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', input.advisoryLockId)
 
@@ -78,6 +79,7 @@ async function createMediaRootWriteJob(input: {
   mode?: string
   onCreated?: (tx: PendingReplaceJobSetupClient, job: { id: string }) => Promise<void>
 }) {
+  // 媒体根目录写操作互斥在同一锁下，覆盖扫描、导入、迁移、替换四类高危写任务，防止磁盘路径并发冲突与快照不一致。
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', MEDIA_SCAN_ADVISORY_LOCK_ID)
 
@@ -148,11 +150,7 @@ export async function createPendingReplaceJob(
   return createMediaRootWriteJob({
     type: 'PENDING_REPLACE',
     message:
-      mode === 'RESTORE'
-        ? '正在恢复旧媒体...'
-        : mode === 'CLEANUP'
-          ? '正在清理替换备份...'
-          : '正在准备批量替换...',
+      mode === 'RESTORE' ? '正在恢复旧媒体...' : mode === 'CLEANUP' ? '正在清理替换备份...' : '正在准备批量替换...',
     conflictMessage: 'Media root write job already in progress',
     targetPath,
     mode,
