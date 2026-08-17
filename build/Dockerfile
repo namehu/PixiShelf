@@ -38,6 +38,9 @@ RUN pnpm config set registry ${REGISTRY_URL} && \
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/pixishelf/package.json ./packages/pixishelf/package.json
 COPY packages/pixishelf-db/package.json ./packages/pixishelf-db/package.json
+COPY packages/pixishelf-job-contracts/package.json ./packages/pixishelf-job-contracts/package.json
+COPY packages/pixishelf-job-runtime/package.json ./packages/pixishelf-job-runtime/package.json
+COPY packages/pixishelf-job-executors/package.json ./packages/pixishelf-job-executors/package.json
 
 # 安装所有依赖（包括 devDependencies 用于构建）
 # 使用 --frozen-lockfile 确保CI/CD环境的一致性
@@ -48,10 +51,17 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 # 复制所有源代码 (利用 .dockerignore 避免复制无关文件)
 COPY packages/pixishelf/ ./packages/pixishelf/
 COPY packages/pixishelf-db/ ./packages/pixishelf-db/
+COPY packages/pixishelf-job-contracts/ ./packages/pixishelf-job-contracts/
+COPY packages/pixishelf-job-runtime/ ./packages/pixishelf-job-runtime/
+COPY packages/pixishelf-job-executors/ ./packages/pixishelf-job-executors/
 
 # 按依赖顺序构建项目
 # 1. 生成 Prisma Client
 RUN pnpm --filter="@pixishelf/db" db:generate
+# 2. 构建后台任务共享包
+RUN pnpm --filter="@pixishelf/job-contracts" build && \
+    pnpm --filter="@pixishelf/job-runtime" build && \
+    pnpm --filter="@pixishelf/job-executors" build
 # 3. 构建主应用
 # 使用缓存挂载加速 Next.js 构建
 RUN --mount=type=cache,target=/app/packages/pixishelf/.next/cache \
