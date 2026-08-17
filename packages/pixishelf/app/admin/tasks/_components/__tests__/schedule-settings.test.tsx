@@ -63,6 +63,22 @@ describe('ScheduleSettings cutover semantics', () => {
     expect(getScheduledTaskUpdate(task, draft)).toMatchObject({ time: '06:30' })
   })
 
+  it('does not let the enabled field occupy the full desktop settings row', () => {
+    render(
+      <ScheduleSettings
+        task={task}
+        draft={{ ...draft, enabled: false }}
+        onDraftChange={vi.fn()}
+        onSave={vi.fn()}
+        isSaving={false}
+      />
+    )
+
+    const enabledField = screen.getByRole('switch').closest('[data-slot="field"]')
+    expect(enabledField?.className).toContain('sm:w-auto')
+    expect((screen.getByRole('button', { name: '保存计划' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
   it('accepts persisted priority 70 without an initial validation error', () => {
     const centralTask: ScheduledTaskView = {
       ...task,

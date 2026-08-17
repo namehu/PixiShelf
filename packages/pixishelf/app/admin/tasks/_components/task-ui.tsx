@@ -350,7 +350,10 @@ export function ScheduleSettings({
         </dl>
 
         <FieldGroup className="gap-4 border-t border-dashed pt-4 sm:flex-row sm:items-end">
-          <Field orientation="horizontal" className="min-h-9 shrink-0 rounded-md border bg-muted/25 px-3">
+          <Field
+            orientation="horizontal"
+            className="min-h-9 w-full shrink-0 rounded-md border bg-muted/25 px-3 sm:w-auto"
+          >
             <Switch
               id={enabledId}
               checked={draft.enabled}
