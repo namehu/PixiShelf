@@ -59,7 +59,11 @@ export async function enqueueCentralVideoPoster(input: { imageId: number; reques
   if (!image) throw new Error('Image not found')
   if (image.mediaType !== 'VIDEO' && !isVideoPath(image.path)) throw new Error('Image is not a video')
   return prisma.$transaction(async (transaction) => {
-    await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1, $2)::text', CENTRAL_VIDEO_MEDIA_ENQUEUE_LOCK, image.id)
+    await transaction.$queryRawUnsafe(
+      'SELECT pg_advisory_xact_lock($1::integer, $2::integer)::text',
+      CENTRAL_VIDEO_MEDIA_ENQUEUE_LOCK,
+      image.id
+    )
     const existing = await transaction.systemJob.findFirst({
       where: {
         type: 'VIDEO_POSTER_GENERATION',

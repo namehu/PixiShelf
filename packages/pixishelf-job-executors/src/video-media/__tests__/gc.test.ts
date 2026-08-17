@@ -52,7 +52,11 @@ describe('derived media GC executor', () => {
     const outcome = await executeDerivedMediaGc(fixture.context, fixture.dependencies)
 
     expect(outcome).toMatchObject({ kind: 'completed', result: { referenced: 1, deleted: 0 } })
-    expect(fixture.queryRaw).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock($1, $2)::text', expect.any(Number), 1)
+    expect(fixture.queryRaw).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock($1::integer, $2::integer)::text',
+      expect.any(Number),
+      1
+    )
     expect(mocks.rename).not.toHaveBeenCalled()
     expect(mocks.rm).not.toHaveBeenCalled()
   })

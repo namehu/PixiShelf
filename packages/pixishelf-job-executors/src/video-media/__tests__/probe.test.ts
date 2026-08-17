@@ -42,7 +42,7 @@ describe('video media probe executor policy', () => {
     expect(context.enqueueChild).toHaveBeenCalledWith({
       type: 'VIDEO_POSTER_GENERATION',
       payload: { imageId: 1, relativePath: 'videos/1.mp4' },
-      idempotencyKey: `video-poster:1:PENDING:${UPDATED_AT.getTime()}:none`
+      idempotencyKey: expect.stringMatching(/^video-poster:1:[a-f0-9]{64}$/)
     })
     expect(outcome).toMatchObject({
       kind: 'completed',
@@ -66,6 +66,39 @@ describe('video media probe executor policy', () => {
       errorCode: 'INTERNAL_ERROR',
       error: 'Failed to durably enqueue 1 video poster jobs'
     })
+  })
+
+  it('keeps poster child idempotency stable for parent retries and isolates different parents', async () => {
+    const longStatePath = `${'nested/'.repeat(40)}poster.webp`
+    const firstFixture = probeFixture({
+      probeRows: [],
+      posterRows: [posterRow({ posterPath: longStatePath })]
+    })
+    const retryFixture = probeFixture({
+      probeRows: [],
+      posterRows: [posterRow({ posterPath: longStatePath })]
+    })
+    const otherParentFixture = probeFixture({
+      probeRows: [],
+      posterRows: [posterRow({ posterPath: longStatePath })]
+    })
+    const firstContext = firstFixture.context({ force: false, enqueueMissingPosters: true }, 'probe-parent-a')
+    const retryContext = retryFixture.context({ force: false, enqueueMissingPosters: true }, 'probe-parent-a')
+    const otherParentContext = otherParentFixture.context(
+      { force: false, enqueueMissingPosters: true },
+      'probe-parent-b'
+    )
+
+    await executeVideoMediaProbe(firstContext, firstFixture.dependencies)
+    await executeVideoMediaProbe(retryContext, retryFixture.dependencies)
+    await executeVideoMediaProbe(otherParentContext, otherParentFixture.dependencies)
+
+    const firstKey = vi.mocked(firstContext.enqueueChild).mock.calls[0]?.[0].idempotencyKey
+    const retryKey = vi.mocked(retryContext.enqueueChild).mock.calls[0]?.[0].idempotencyKey
+    const otherParentKey = vi.mocked(otherParentContext.enqueueChild).mock.calls[0]?.[0].idempotencyKey
+    expect(firstKey).toBe(retryKey)
+    expect(firstKey).not.toBe(otherParentKey)
+    expect(firstKey?.length).toBeLessThanOrEqual(180)
   })
 
   it('repairs a completed poster row whose file is absent without scanning beyond the bounded page', async () => {
@@ -294,10 +327,10 @@ function probeFixture(options: {
       metadataFindMany.mock.calls
         .map(([query]) => query)
         .filter((query) => query.where?.posterStatus !== undefined),
-    context(payload: VideoMediaProbePayload) {
+    context(payload: VideoMediaProbePayload, jobId = 'probe-job') {
       return {
         job: {
-          id: 'probe-job',
+          id: jobId,
           executionToken: '00000000-0000-4000-8000-000000000001',
           attempt: 1,
           maxAttempts: 3

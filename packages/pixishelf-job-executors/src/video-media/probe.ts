@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import type { VideoMediaProbePayload } from './executors.js'
 import { probeVideoMetadata } from './media-process.js'
@@ -199,7 +200,7 @@ async function enqueuePosterChild(
     const child = await context.enqueueChild({
       type: 'VIDEO_POSTER_GENERATION',
       payload: { imageId, relativePath: normalizeRelativePath(relativePath) },
-      idempotencyKey: `video-poster:${imageId}:${stateVersion}`
+      idempotencyKey: posterChildIdempotencyKey(context.job.id, imageId, stateVersion)
     })
     if (child.created) result.posterChildrenEnqueued += 1
     else result.posterChildrenReused += 1
@@ -212,6 +213,15 @@ async function enqueuePosterChild(
     })
     return false
   }
+}
+
+function posterChildIdempotencyKey(parentJobId: string, imageId: number, stateVersion: string) {
+  const parentStateDigest = createHash('sha256')
+    .update(parentJobId)
+    .update('\0')
+    .update(stateVersion)
+    .digest('hex')
+  return `video-poster:${imageId}:${parentStateDigest}`
 }
 
 async function materializePosterBacklog(

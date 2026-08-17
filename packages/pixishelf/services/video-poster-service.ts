@@ -203,7 +203,11 @@ async function lockVideoPoster(
   tx: { $queryRawUnsafe: (query: string, ...values: unknown[]) => Promise<unknown> },
   imageId: number
 ) {
-  await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1, $2)::text', VIDEO_POSTER_LOCK_NAMESPACE, imageId)
+  await tx.$queryRawUnsafe(
+    'SELECT pg_advisory_xact_lock($1::integer, $2::integer)::text',
+    VIDEO_POSTER_LOCK_NAMESPACE,
+    imageId
+  )
 }
 
 async function ensureVideoMetadataRows() {

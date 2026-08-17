@@ -386,7 +386,7 @@ export async function regenerateManualVideoPoster(options: {
 }) {
   const target = await resolveVideoKeyframeTarget(options.imageId, options.scanPath)
   const ownsSelection = await prisma.$transaction(async (tx) => {
-    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1, $2)::text', VIDEO_POSTER_LOCK_NAMESPACE, target.id)
+    await lockVideoPosterForKeyframe(tx, target.id)
     if (options.expectedManualPosterTimestamp !== undefined) {
       const current = await tx.mediaVideoMetadata.findUnique({
         where: { imageId: target.id },
@@ -452,7 +452,7 @@ export async function regenerateManualVideoPoster(options: {
     }
     let previousPosterPath: string | null = null
     const published = await prisma.$transaction(async (tx) => {
-      await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1, $2)::text', VIDEO_POSTER_LOCK_NAMESPACE, target.id)
+      await lockVideoPosterForKeyframe(tx, target.id)
       const current = await tx.mediaVideoMetadata.findUnique({
         where: { imageId: target.id },
         select: { posterPath: true, manualPosterTimestamp: true }
@@ -486,6 +486,17 @@ export async function regenerateManualVideoPoster(options: {
     })
     throw error
   }
+}
+
+export async function lockVideoPosterForKeyframe(
+  transaction: { $queryRawUnsafe(query: string, ...values: unknown[]): Promise<unknown> },
+  imageId: number
+) {
+  await transaction.$queryRawUnsafe(
+    'SELECT pg_advisory_xact_lock($1::integer, $2::integer)::text',
+    VIDEO_POSTER_LOCK_NAMESPACE,
+    imageId
+  )
 }
 
 export async function removeJobStagingSet(jobId: string) {

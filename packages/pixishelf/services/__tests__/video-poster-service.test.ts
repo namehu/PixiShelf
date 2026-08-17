@@ -130,6 +130,11 @@ describe('video poster publication coordination', () => {
     const result = await runVideoPosterGenerationJob({ scanPath: '/scan' })
 
     expect(result).toMatchObject({ processed: 1, generated: 0, failed: 0, skipped: 1 })
+    expect(queryRawMock).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock($1::integer, $2::integer)::text',
+      expect.any(Number),
+      1
+    )
     expect(renameMock).not.toHaveBeenCalled()
     expect(txMetadataUpdateManyMock).not.toHaveBeenCalled()
     expect(metadataUpdateManyMock).toHaveBeenCalledTimes(1)

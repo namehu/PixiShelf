@@ -22,6 +22,7 @@ import {
   buildVideoFrameExtractionArgs,
   finalizeExtractedVideoKeyframeCandidate,
   getVideoKeyframeSelectionWarning,
+  lockVideoPosterForKeyframe,
   parseProbedVideoDuration,
   VideoKeyframePermanentError
 } from '../video-keyframe-service'
@@ -73,6 +74,18 @@ describe('video keyframe FFmpeg arguments', () => {
     expect(args[args.indexOf('-filter_threads') + 1]).toBe('2')
     expect(args.indexOf('-threads')).toBeLessThan(args.indexOf('-i'))
     expect(args.at(-1)).toBe('/derived/frame.webp')
+  })
+
+  it('uses the PostgreSQL integer pair signature for poster advisory locks', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([])
+
+    await lockVideoPosterForKeyframe({ $queryRawUnsafe: queryRaw }, 42)
+
+    expect(queryRaw).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock($1::integer, $2::integer)::text',
+      expect.any(Number),
+      42
+    )
   })
 
   it.each(['', 'N/A', '0', '-1'])(

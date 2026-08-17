@@ -72,6 +72,11 @@ describe('central video media enqueue helpers', () => {
 
   it('validates and enqueues only one target poster payload', async () => {
     await enqueueCentralVideoPoster({ imageId: 42, requestedByUserId: 'admin-1' })
+    expect(mocks.query).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock($1::integer, $2::integer)::text',
+      expect.any(Number),
+      42
+    )
     expect(mocks.enqueueJob).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'VIDEO_POSTER_GENERATION',

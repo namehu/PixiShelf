@@ -95,7 +95,11 @@ export async function enqueueCentralVideoStreamingOptimization(input: { imageId:
   })
 
   return prisma.$transaction(async (transaction) => {
-    await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1, $2)::text', STREAMING_ENQUEUE_LOCK, image.id)
+    await transaction.$queryRawUnsafe(
+      'SELECT pg_advisory_xact_lock($1::integer, $2::integer)::text',
+      STREAMING_ENQUEUE_LOCK,
+      image.id
+    )
     const existing = await transaction.systemJob.findFirst({
       where: {
         type: 'VIDEO_STREAMING_OPTIMIZATION',

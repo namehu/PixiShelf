@@ -117,6 +117,11 @@ describe('video processing central enqueue', () => {
     await expect(
       enqueueCentralVideoStreamingOptimization({ imageId: 7, requestedByUserId: 'admin-1' })
     ).resolves.toMatchObject({ jobId: 'job-new', status: 'PENDING', reused: false })
+    expect(mocks.queryRaw).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock($1::integer, $2::integer)::text',
+      expect.any(Number),
+      7
+    )
     expect(mocks.enqueueJob).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'VIDEO_STREAMING_OPTIMIZATION',
