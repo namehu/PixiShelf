@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   collectArtworkMedia,
+  collectLocalMedia,
   discoverLocalWorkPages,
   discoverMetadataCandidatePages,
   type ScanDiscoveryLimits
@@ -66,7 +67,83 @@ describe('scan discovery', () => {
       { kind: 'MEDIA_DIRECTORY', artistDirectory: 'artist-b', relativePath: 'local/artist-b/work-3' }
     ])
   })
+
+  it('discovers the canonical Pixiv chapter manifest beside a real page-style video name', async () => {
+    const directory = await fixtureRoot()
+    const artworkDirectory = path.join(directory, '11', '140998595')
+    await fs.mkdir(artworkDirectory, { recursive: true })
+    await fs.writeFile(path.join(artworkDirectory, '140998595-meta.json'), '{}')
+    await fs.writeFile(path.join(artworkDirectory, '140998595_p4.mp4'), 'video')
+    await fs.writeFile(
+      path.join(artworkDirectory, '140998595_p4.chapters.json'),
+      JSON.stringify(chapterManifest(60, 6))
+    )
+    const root = await resolveSafeScanRoot(directory)
+    const candidates = (
+      await collectPages(discoverMetadataCandidatePages(root, limits, new AbortController().signal))
+    ).flat()
+
+    await expect(
+      collectArtworkMedia(root, candidates[0]!, limits, new AbortController().signal)
+    ).resolves.toMatchObject([
+      {
+        relativePath: '11/140998595/140998595_p4.mp4',
+        chaptersPath: '11/140998595/140998595_p4.chapters.json',
+        chaptersCount: 6,
+        chaptersDuration: 60,
+        chaptersHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+      }
+    ])
+  })
+
+  it('prefers canonical, then full-filename, then legacy double-dot chapter manifests', async () => {
+    const directory = await fixtureRoot()
+    const work = path.join(directory, 'local', 'artist', 'work')
+    await fs.mkdir(work, { recursive: true })
+    await fs.writeFile(path.join(work, 'clip.mp4'), 'video')
+    await fs.writeFile(path.join(work, 'clip.chapters.json'), JSON.stringify(chapterManifest(10)))
+    await fs.writeFile(path.join(work, 'clip.mp4.chapters.json'), JSON.stringify(chapterManifest(20)))
+    await fs.writeFile(path.join(work, 'clip..chapters.json'), JSON.stringify(chapterManifest(30)))
+    const root = await resolveSafeScanRoot(directory)
+    const collect = () =>
+      collectLocalMedia(root, 'local/artist/work', limits, new AbortController().signal).then((items) => items[0]!)
+
+    await expect(collect()).resolves.toMatchObject({ chaptersPath: 'local/artist/work/clip.chapters.json', chaptersDuration: 10 })
+    await fs.unlink(path.join(work, 'clip.chapters.json'))
+    await expect(collect()).resolves.toMatchObject({ chaptersPath: 'local/artist/work/clip.mp4.chapters.json', chaptersDuration: 20 })
+    await fs.unlink(path.join(work, 'clip.mp4.chapters.json'))
+    await expect(collect()).resolves.toMatchObject({ chaptersPath: 'local/artist/work/clip..chapters.json', chaptersDuration: 30 })
+  })
+
+  it('fails scanning when the preferred chapter manifest is corrupt instead of hiding it as absent', async () => {
+    const directory = await fixtureRoot()
+    const work = path.join(directory, 'local', 'artist', 'work')
+    await fs.mkdir(work, { recursive: true })
+    await fs.writeFile(path.join(work, 'clip.mp4'), 'video')
+    await fs.writeFile(path.join(work, 'clip.chapters.json'), '{broken')
+    await fs.writeFile(path.join(work, 'clip.mp4.chapters.json'), JSON.stringify(chapterManifest(20)))
+    const root = await resolveSafeScanRoot(directory)
+
+    await expect(
+      collectLocalMedia(root, 'local/artist/work', limits, new AbortController().signal)
+    ).rejects.toMatchObject({ code: 'INPUT_SNAPSHOT_INVALID' })
+  })
 })
+
+function chapterManifest(duration: number, count = 1) {
+  const chapterDuration = duration / count
+  return {
+    version: 1,
+    duration,
+    chapters: Array.from({ length: count }, (_, index) => ({
+      index: index + 1,
+      title: `Chapter ${index + 1}`,
+      start: index * chapterDuration,
+      end: (index + 1) * chapterDuration,
+      duration: chapterDuration
+    }))
+  }
+}
 
 async function fixtureRoot() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pixishelf-scan-discovery-'))

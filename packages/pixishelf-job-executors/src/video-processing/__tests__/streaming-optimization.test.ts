@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { prepareVideoStreamingOptimization } from '../streaming-optimization.js'
+import { buildStreamingRemuxArgs, prepareVideoStreamingOptimization } from '../streaming-optimization.js'
 import type { VideoProcessingDatabase, VideoProcessingTransaction, VideoProcessRunner } from '../types.js'
 
 const roots: string[] = []
@@ -16,6 +16,47 @@ afterEach(async () => {
 })
 
 describe('streaming optimization central executor core', () => {
+  it('excludes the detected native MP4 chapter data track before remapping chapters', () => {
+    const args = buildStreamingRemuxArgs('source.mp4', 'temporary.mp4', {
+      streams: [
+        { index: 0, codec_type: 'video', codec_name: 'h264' },
+        { index: 1, codec_type: 'audio', codec_name: 'aac' },
+        { index: 2, codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'gpmd', nb_frames: '2' },
+        { index: 3, codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'text', nb_frames: '2' }
+      ],
+      chapters: [{ id: 0 }, { id: 1 }]
+    })
+
+    expect(args).toEqual(
+      expect.arrayContaining(['-map', '0', '-map', '-0:3', '-map_metadata', '0', '-map_chapters', '0'])
+    )
+    expect(args).not.toContain('-0:2')
+  })
+
+  it('does not exclude text data streams when there are no matching chapters', () => {
+    const args = buildStreamingRemuxArgs('source.mp4', 'temporary.mp4', {
+      streams: [
+        { index: 3, codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'text', nb_frames: '2' }
+      ],
+      chapters: []
+    })
+
+    expect(args).not.toContain('-0:3')
+  })
+
+  it('does not remove any data stream when chapter-track detection is ambiguous', () => {
+    const args = buildStreamingRemuxArgs('source.mp4', 'temporary.mp4', {
+      streams: [
+        { index: 2, codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'text', nb_frames: '2' },
+        { index: 3, codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'text', nb_frames: '2' }
+      ],
+      chapters: [{ id: 0 }, { id: 1 }]
+    })
+
+    expect(args).not.toContain('-0:2')
+    expect(args).not.toContain('-0:3')
+  })
+
   it('rejects a path traversal before invoking FFmpeg', async () => {
     const root = await createVideoRoot()
     const runner = vi.fn()
@@ -97,6 +138,40 @@ describe('streaming optimization central executor core', () => {
     expect(percentages).toEqual([...percentages].sort((left, right) => left - right))
     expect(percentages.some((percentage) => percentage > 15 && percentage < 82)).toBe(true)
     await prepared.discard()
+  })
+
+  it('probes stream identity and chapters and rejects chapter loss after remux', async () => {
+    const root = await createVideoRoot()
+    const sourceFingerprint = JSON.stringify({
+      streams: [
+        { index: 0, codec_type: 'video', codec_name: 'h264', codec_tag_string: 'avc1', width: 1920, height: 1080 },
+        { index: 1, codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'text', nb_frames: '1' }
+      ],
+      chapters: [{ id: 0, start_time: '0.000000', end_time: '10.000000', tags: { title: 'Chapter 1' } }],
+      format: { duration: '10' }
+    })
+    const optimizedFingerprint = JSON.stringify({
+      streams: [
+        { index: 0, codec_type: 'video', codec_name: 'h264', codec_tag_string: 'avc1', width: 1920, height: 1080 },
+        { index: 1, codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'text', nb_frames: '1' }
+      ],
+      chapters: [],
+      format: { duration: '10' }
+    })
+    let probeCount = 0
+    const runner: VideoProcessRunner = async (request) => {
+      if (request.command === 'ffprobe') {
+        expect(request.args).toContain(
+          'format=duration:stream=index,codec_type,codec_name,codec_tag_string,nb_frames,width,height,channels:chapter'
+        )
+        return { stdout: probeCount++ === 0 ? sourceFingerprint : optimizedFingerprint, stderr: '' }
+      }
+      expect(request.args).toEqual(expect.arrayContaining(['-map', '0', '-map', '-0:1', '-map_chapters', '0']))
+      await fs.copyFile(request.args[request.args.indexOf('-i') + 1]!, request.args.at(-1)!)
+      return { stdout: '', stderr: '' }
+    }
+
+    await expect(prepare(root, { runner })).rejects.toThrow('chapters differ from the source')
   })
 
   it('recovers a prior-attempt backup without scanning when the source is missing', async () => {

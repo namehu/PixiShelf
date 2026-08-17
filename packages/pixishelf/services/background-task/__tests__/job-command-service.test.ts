@@ -99,6 +99,37 @@ describe('enqueueJob', () => {
     )
   })
 
+  it('projects canonical streaming optimization payload fields into legacy columns', async () => {
+    const created = jobRecord({ type: 'VIDEO_STREAMING_OPTIMIZATION' })
+    const harness = commandHarness([created])
+    harness.create.mockResolvedValue(created)
+
+    await enqueueJob(
+      {
+        type: 'VIDEO_STREAMING_OPTIMIZATION',
+        triggerSource: 'MANUAL',
+        requestedByUserId: 'user-1',
+        priority: 10,
+        payload: {
+          imageId: 43,
+          relativePath: 'videos/streaming.mp4',
+          mode: 'REMUX_FASTSTART'
+        }
+      },
+      harness.client
+    )
+
+    expect(harness.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          targetImageId: 43,
+          targetPath: 'videos/streaming.mp4',
+          mode: 'REMUX_FASTSTART'
+        })
+      })
+    )
+  })
+
   it('enforces separate manual and scheduled priority bands', async () => {
     const harness = commandHarness([])
     await expect(

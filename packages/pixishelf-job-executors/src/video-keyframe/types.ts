@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from '@pixishelf/db'
+import type { VideoKeyframeFilter } from './policy.js'
 
 export type VideoKeyframeDatabase = Pick<
   PrismaClient,
@@ -36,7 +37,7 @@ export interface VideoKeyframeGenerationResult {
   posterRegeneration: 'NOT_REQUESTED'
 }
 
-export interface VideoKeyframeDiscoveryResult {
+export interface VideoKeyframeDiscoveryBaseResult {
   discovered: number
   matched: number
   enqueued: number
@@ -46,6 +47,24 @@ export interface VideoKeyframeDiscoveryResult {
   inaccessible: number
   failedSamples: Array<{ imageId: number; path: string; error: string }>
 }
+
+export interface VideoKeyframePreviewCandidate {
+  imageId: number
+  path: string
+  duration: number | null
+  status: 'MISSING' | 'STALE' | 'FAILED' | 'CURRENT'
+  publishedCount: number
+}
+
+export type VideoKeyframeDiscoveryResult =
+  | VideoKeyframeDiscoveryBaseResult
+  | (VideoKeyframeDiscoveryBaseResult & {
+      previewOnly: true
+      previewTruncated: boolean
+      candidates: VideoKeyframePreviewCandidate[]
+      force: boolean
+      filter: VideoKeyframeFilter
+    })
 
 export type RunFencedMutation = <T>(operation: (transaction: VideoKeyframeTransaction) => Promise<T>) => Promise<T>
 

@@ -116,11 +116,15 @@ describe('scan item checkpoints', () => {
         artistId: 7,
         media: [
           {
-            relativePath: 'local-imports/Artist/Work/1.jpg',
+            relativePath: 'local-imports/Artist/Work/1.mp4',
             size: 5n,
             sortOrder: 0,
-            mediaType: 'IMAGE',
-            webpAnimationStatus: null
+            mediaType: 'VIDEO',
+            webpAnimationStatus: null,
+            chaptersPath: 'local-imports/Artist/Work/1.chapters.json',
+            chaptersCount: 2,
+            chaptersDuration: 20,
+            chaptersHash: 'chapter-hash'
           }
         ],
         defaultTagIds: [3, 4]
@@ -133,7 +137,91 @@ describe('scan item checkpoints', () => {
       ],
       skipDuplicates: true
     })
+    expect(transaction.image.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          path: 'local-imports/Artist/Work/1.mp4',
+          chaptersPath: 'local-imports/Artist/Work/1.chapters.json',
+          chaptersCount: 2,
+          chaptersDuration: 20,
+          chaptersUpdatedAt: now,
+          chaptersHash: 'chapter-hash'
+        })
+      ]
+    })
     expect(transaction.scanRunItem.upsert).toHaveBeenCalledOnce()
+  })
+
+  it('publishes Pixiv chapter summaries when creating a new image', async () => {
+    const fixture = pixivTransaction([])
+    await publishPixivArtwork({
+      transaction: fixture.transaction,
+      runId: 'run-1',
+      checkpointOrdinal: 0,
+      checkpointKey: 'metadata:0:pixiv',
+      metadataRelativePath: '11/42/42-meta.json',
+      metadata: pixivMetadata(),
+      media: [pixivMedia('11/42/42_p0.mp4')],
+      existingPolicy: 'REFRESH',
+      now
+    })
+
+    expect(fixture.imageCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        artworkId: 42,
+        path: '11/42/42_p0.mp4',
+        chaptersPath: '11/42/42_p0.chapters.json',
+        chaptersUpdatedAt: now
+      })
+    })
+    expect(fixture.imageUpdate).not.toHaveBeenCalled()
+  })
+
+  it('updates a legacy leading-slash Pixiv image in place and preserves its id', async () => {
+    const fixture = pixivTransaction([{ id: 99, path: '/11/42/42_p0.mp4' }])
+
+    await expect(
+      publishPixivArtwork({
+        transaction: fixture.transaction,
+        runId: 'run-1',
+        checkpointOrdinal: 0,
+        checkpointKey: 'metadata:0:legacy',
+        metadataRelativePath: '11/42/42-meta.json',
+        metadata: pixivMetadata(),
+        media: [pixivMedia('11/42/42_p0.mp4')],
+        existingPolicy: 'REFRESH',
+        now
+      })
+    ).resolves.toMatchObject({ status: 'SUCCESS', newImages: 0 })
+
+    expect(fixture.imageUpdate).toHaveBeenCalledWith({
+      where: { id: 99 },
+      data: expect.objectContaining({ path: '11/42/42_p0.mp4', chaptersUpdatedAt: now })
+    })
+    expect(fixture.imageCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects conflicting normalized Pixiv image identities instead of choosing one', async () => {
+    const fixture = pixivTransaction([
+      { id: 98, path: '/11/42/42_p0.mp4' },
+      { id: 99, path: '11/42/42_p0.mp4' }
+    ])
+
+    await expect(
+      publishPixivArtwork({
+        transaction: fixture.transaction,
+        runId: 'run-1',
+        checkpointOrdinal: 0,
+        checkpointKey: 'metadata:0:conflict',
+        metadataRelativePath: '11/42/42-meta.json',
+        metadata: pixivMetadata(),
+        media: [pixivMedia('11/42/42_p0.mp4')],
+        existingPolicy: 'REFRESH',
+        now
+      })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    expect(fixture.imageUpdate).not.toHaveBeenCalled()
+    expect(fixture.imageCreate).not.toHaveBeenCalled()
   })
 })
 
@@ -147,4 +235,64 @@ function localWork(): Prisma.ScanRunLocalWorkInputGetPayload<Record<string, neve
     fingerprint: 'a'.repeat(64),
     createdAt: now
   }
+}
+
+function pixivMetadata() {
+  return {
+    id: '42',
+    user: 'Artist',
+    userId: '7',
+    title: 'Title',
+    description: null,
+    tags: [],
+    url: null,
+    original: null,
+    thumbnail: null,
+    xRestrict: null,
+    isAiGenerated: null,
+    size: null,
+    bookmarkCount: null,
+    sourceDate: null,
+    metadataFormat: 'json' as const,
+    rawMetadataJson: null,
+    pixivAiType: null,
+    pixivType: null,
+    sanityLevel: null
+  }
+}
+
+function pixivMedia(relativePath: string) {
+  return {
+    relativePath,
+    size: 5n,
+    sortOrder: 0,
+    mediaType: 'VIDEO' as const,
+    webpAnimationStatus: null,
+    chaptersPath: '11/42/42_p0.chapters.json',
+    chaptersCount: 2,
+    chaptersDuration: 20,
+    chaptersHash: 'chapter-hash'
+  }
+}
+
+function pixivTransaction(existingImages: Array<{ id: number; path: string }>) {
+  const imageCreate = vi.fn(async () => ({}))
+  const imageUpdate = vi.fn(async () => ({}))
+  const transaction = {
+    scanRunItem: { findUnique: vi.fn(async () => null), upsert: vi.fn(async () => ({})) },
+    artworkExternalRef: {
+      findUnique: vi.fn(async () => null),
+      upsert: vi.fn(async () => ({ id: 'ref-1' }))
+    },
+    artwork: { findUnique: vi.fn(async () => null), create: vi.fn(async () => ({ id: 42 })) },
+    artist: { upsert: vi.fn(async () => ({ id: 7 })) },
+    artworkTag: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    image: {
+      findMany: vi.fn(async () => existingImages),
+      create: imageCreate,
+      update: imageUpdate
+    },
+    scanRun: { updateMany: vi.fn(async () => ({ count: 1 })) }
+  } as unknown as ScanTransaction
+  return { transaction, imageCreate, imageUpdate }
 }

@@ -126,7 +126,7 @@ function isUniqueConstraintError(error: unknown) {
 function deriveLegacyJobProjection(type: string, definitionVersion: number, payload: unknown) {
   if (
     definitionVersion !== JOB_DEFINITION_VERSION ||
-    type !== 'VIDEO_KEYFRAME_GENERATION' ||
+    (type !== 'VIDEO_KEYFRAME_GENERATION' && type !== 'VIDEO_STREAMING_OPTIMIZATION') ||
     payload === null ||
     typeof payload !== 'object'
   ) {

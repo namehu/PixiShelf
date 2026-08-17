@@ -122,41 +122,74 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     })
   }
   await replaceSourceTags(transaction, artworkId, ref.id, metadata.tags)
-  const existingPaths = await transaction.image.findMany({
-    where: { artworkId, path: { in: input.media.map((item) => item.relativePath) } },
-    select: { path: true }
-  })
-  const existingPathSet = new Set(existingPaths.map((item) => item.path))
+  const incomingIdentities = new Set<string>()
   for (const item of input.media) {
-    await transaction.image.upsert({
-      where: { unique_artwork_path: { artworkId, path: item.relativePath } },
-      create: {
-        artworkId,
-        path: item.relativePath,
-        size: item.size,
-        sortOrder: item.sortOrder,
-        mediaType: item.mediaType,
-        webpAnimationStatus: item.webpAnimationStatus
-      },
-      update: {
-        size: item.size,
-        sortOrder: item.sortOrder,
-        mediaType: item.mediaType,
-        webpAnimationStatus: item.webpAnimationStatus
-      }
-    })
+    const identity = normalizeMediaIdentity(item.relativePath)
+    if (incomingIdentities.has(identity)) {
+      throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Pixiv media paths collide after safe normalization')
+    }
+    incomingIdentities.add(identity)
+  }
+  const existingImages = await transaction.image.findMany({
+    where: { artworkId },
+    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+    select: { id: true, path: true }
+  })
+  const existingByIdentity = new Map<string, (typeof existingImages)[number]>()
+  for (const image of existingImages) {
+    const identity = normalizeMediaIdentity(image.path)
+    if (existingByIdentity.has(identity)) {
+      throw new ScanExecutorError('STATE_CONFLICT', 'Artwork database contains normalized Pixiv media path conflicts')
+    }
+    existingByIdentity.set(identity, image)
+  }
+  let newImageCount = 0
+  for (const item of input.media) {
+    const data = {
+      path: item.relativePath,
+      size: item.size,
+      sortOrder: item.sortOrder,
+      mediaType: item.mediaType,
+      webpAnimationStatus: item.webpAnimationStatus,
+      chaptersPath: item.chaptersPath,
+      chaptersCount: item.chaptersCount,
+      chaptersDuration: item.chaptersDuration,
+      chaptersUpdatedAt: item.chaptersPath ? input.now : null,
+      chaptersHash: item.chaptersHash
+    }
+    const existing = existingByIdentity.get(normalizeMediaIdentity(item.relativePath))
+    if (existing) {
+      await transaction.image.update({ where: { id: existing.id }, data })
+    } else {
+      await transaction.image.create({
+        data: {
+          artworkId,
+          ...data
+        }
+      })
+      newImageCount += 1
+    }
   }
   await writeItem(input, {
     artworkId,
     status: 'SUCCESS',
     action: sourceRef ? 'UPDATE' : 'CREATE',
-    newImageCount: input.media.filter((item) => !existingPathSet.has(item.relativePath)).length
+    newImageCount
   })
   return {
     status: 'SUCCESS' as const,
-    newImages: input.media.filter((item) => !existingPathSet.has(item.relativePath)).length,
+    newImages: newImageCount,
     artworkId
   }
+}
+
+function normalizeMediaIdentity(value: string) {
+  return value
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/^\/+/, '')
+    .normalize('NFC')
+    .toLocaleLowerCase('und')
 }
 
 async function replaceSourceTags(

@@ -1086,6 +1086,8 @@ export class PostgresQueueRepository {
     transition: OwnedJobTransition
   ): Promise<void> {
     const offsetValues = transition.values
+    const messageParameter = `$${6 + offsetValues.length}`
+    const persistedMessage = truncate(redactSensitiveText(transition.message), 4_096)
     const updatedRows = await transaction.$queryRawUnsafe<Array<{ id: string; attempt: number }>>(
       `UPDATE "system_jobs"
        SET
@@ -1099,7 +1101,8 @@ export class PostgresQueueRepository {
          "leaseExpiresAt" = NULL,
          "heartbeatAt" = $5,
          "updatedAt" = $5,
-         ${transition.assignments}
+         ${transition.assignments},
+         "message" = ${messageParameter}
        WHERE "id" = $1
          AND "workerId" = $2
          AND "leaseToken" = $3::uuid
@@ -1113,7 +1116,8 @@ export class PostgresQueueRepository {
       input.executionToken,
       input.attempt,
       now,
-      ...offsetValues
+      ...offsetValues,
+      persistedMessage
     )
     if (updatedRows.length !== 1) {
       throw new JobExecutionFenceError(input.jobId)
@@ -1588,7 +1592,7 @@ function deriveLegacyJobProjection(
 ): { targetImageId: number | null; targetPath: string | null; mode: string | null } {
   if (
     definitionVersion !== JOB_DEFINITION_VERSION ||
-    type !== 'VIDEO_KEYFRAME_GENERATION' ||
+    (type !== 'VIDEO_KEYFRAME_GENERATION' && type !== 'VIDEO_STREAMING_OPTIMIZATION') ||
     payload === null ||
     typeof payload !== 'object'
   ) {

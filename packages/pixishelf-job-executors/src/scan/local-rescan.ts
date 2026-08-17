@@ -60,7 +60,7 @@ export async function executeLocalArtworkRescan(input: {
     if (checkpoint?.status === 'SUCCESS') {
       return { status: 'SUCCESS' as const, newImages: checkpoint.newImageCount }
     }
-    const ordered = await reconcileLocalArtworkImages(transaction, artwork.id, media)
+    const ordered = await reconcileLocalArtworkImages(transaction, artwork.id, media, input.now)
     await transaction.scanRunItem.upsert({
       where: { scanRunId_checkpointKey: { scanRunId: input.run.id, checkpointKey } },
       create: {
@@ -96,7 +96,8 @@ export async function executeLocalArtworkRescan(input: {
 export async function reconcileLocalArtworkImages(
   transaction: ScanTransaction,
   artworkId: number,
-  media: readonly Awaited<ReturnType<typeof collectLocalMedia>>[number][]
+  media: readonly Awaited<ReturnType<typeof collectLocalMedia>>[number][],
+  now: Date
 ) {
   const incomingIdentities = new Set<string>()
   for (const item of media) {
@@ -141,6 +142,11 @@ export async function reconcileLocalArtworkImages(
     sortOrder: number
     mediaType: 'IMAGE' | 'ANIMATION' | 'VIDEO'
     webpAnimationStatus: number | null
+    chaptersPath: string | null
+    chaptersCount: number
+    chaptersDuration: number | null
+    chaptersUpdatedAt: Date | null
+    chaptersHash: string | null
   }> = []
   for (const [sortOrder, item] of ordered.entries()) {
     const previous = existingByPath.get(normalizePath(item.relativePath))
@@ -149,7 +155,12 @@ export async function reconcileLocalArtworkImages(
       size: item.size,
       sortOrder,
       mediaType: item.mediaType,
-      webpAnimationStatus: item.webpAnimationStatus
+      webpAnimationStatus: item.webpAnimationStatus,
+      chaptersPath: item.chaptersPath,
+      chaptersCount: item.chaptersCount,
+      chaptersDuration: item.chaptersDuration,
+      chaptersUpdatedAt: item.chaptersPath ? now : null,
+      chaptersHash: item.chaptersHash
     }
     if (previous) {
       retainedIds.push(previous.id)
@@ -158,7 +169,12 @@ export async function reconcileLocalArtworkImages(
         previous.size !== data.size ||
         previous.sortOrder !== data.sortOrder ||
         previous.mediaType !== data.mediaType ||
-        previous.webpAnimationStatus !== data.webpAnimationStatus
+        previous.webpAnimationStatus !== data.webpAnimationStatus ||
+        (previous.chaptersPath ?? null) !== data.chaptersPath ||
+        (previous.chaptersCount ?? 0) !== data.chaptersCount ||
+        (previous.chaptersDuration ?? null) !== data.chaptersDuration ||
+        (previous.chaptersUpdatedAt?.getTime() ?? null) !== (data.chaptersUpdatedAt?.getTime() ?? null) ||
+        (previous.chaptersHash ?? null) !== data.chaptersHash
       ) {
         await transaction.image.update({ where: { id: previous.id }, data })
       }
@@ -199,7 +215,12 @@ async function loadFrozenWork(dependencies: ScanExecutorDependencies, run: ScanR
 }
 
 function normalizePath(value: string) {
-  return value.replace(/\\/g, '/').replace(/\/+/g, '/').normalize('NFC').toLocaleLowerCase('und')
+  return value
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/^\/+/, '')
+    .normalize('NFC')
+    .toLocaleLowerCase('und')
 }
 
 function localRescanCheckpointKey(artworkId: number, relativePath: string) {

@@ -14,15 +14,29 @@ import type {
 import { VideoProcessingPermanentError, VideoProcessingRecoveryError } from './types.js'
 
 interface MediaStreamFingerprint {
+  index?: number
   codec_type?: string
   codec_name?: string
+  codec_tag_string?: string
+  nb_frames?: string
   width?: number
   height?: number
   channels?: number
 }
 
+interface MediaChapterFingerprint {
+  id?: number
+  time_base?: string
+  start?: number
+  start_time?: string
+  end?: number
+  end_time?: string
+  tags?: Record<string, string>
+}
+
 interface MediaFingerprint {
   streams?: MediaStreamFingerprint[]
+  chapters?: MediaChapterFingerprint[]
   format?: { duration?: string }
 }
 
@@ -117,7 +131,7 @@ export async function prepareVideoStreamingOptimization(input: {
   await input.progress({ percentage: 15, stage: 'REMUX', message: '正在无损重新封装 MP4' })
   await input.processRunner({
     command: input.config.ffmpegPath ?? 'ffmpeg',
-    args: buildStreamingRemuxArgs(sourcePath, artifacts.temporaryPath),
+    args: buildStreamingRemuxArgs(sourcePath, artifacts.temporaryPath, sourceFingerprint),
     timeoutMs: input.config.streamingProcessTimeoutMs ?? 2 * 60 * 60_000,
     signal: input.signal,
     onStdout: (chunk) => {
@@ -218,7 +232,15 @@ export async function prepareVideoStreamingOptimization(input: {
   }
 }
 
-export function buildStreamingRemuxArgs(sourcePath: string, temporaryPath: string) {
+export function buildStreamingRemuxArgs(
+  sourcePath: string,
+  temporaryPath: string,
+  sourceFingerprint?: MediaFingerprint
+) {
+  const chapterTrackMaps = findNativeMp4ChapterTrackIndexes(sourceFingerprint).flatMap((index) => [
+    '-map',
+    `-0:${index}`
+  ])
   return [
     '-nostdin',
     '-y',
@@ -229,6 +251,7 @@ export function buildStreamingRemuxArgs(sourcePath: string, temporaryPath: strin
     sourcePath,
     '-map',
     '0',
+    ...chapterTrackMaps,
     '-map_metadata',
     '0',
     '-map_chapters',
@@ -312,7 +335,7 @@ async function probeMediaFingerprint(input: {
       '-print_format',
       'json',
       '-show_entries',
-      'format=duration:stream=codec_type,codec_name,width,height,channels',
+      'format=duration:stream=index,codec_type,codec_name,codec_tag_string,nb_frames,width,height,channels:chapter',
       input.filePath
     ],
     timeoutMs: input.timeoutMs,
@@ -334,8 +357,11 @@ function assertContainsVideoStream(fingerprint: MediaFingerprint, label: string)
 function assertCompatibleFingerprints(source: MediaFingerprint, optimized: MediaFingerprint) {
   assertContainsVideoStream(optimized, 'Optimized file')
   const normalize = (stream: MediaStreamFingerprint) => ({
+    index: stream.index ?? null,
     codec_type: stream.codec_type ?? null,
     codec_name: stream.codec_name ?? null,
+    codec_tag_string: stream.codec_tag_string ?? null,
+    nb_frames: stream.nb_frames ?? null,
     width: stream.width ?? null,
     height: stream.height ?? null,
     channels: stream.channels ?? null
@@ -345,6 +371,27 @@ function assertCompatibleFingerprints(source: MediaFingerprint, optimized: Media
   if (JSON.stringify(sourceStreams) !== JSON.stringify(optimizedStreams)) {
     throw new Error('Optimized media streams differ from the source')
   }
+  if (JSON.stringify(source.chapters ?? []) !== JSON.stringify(optimized.chapters ?? [])) {
+    throw new Error('Optimized media chapters differ from the source')
+  }
+}
+
+function findNativeMp4ChapterTrackIndexes(fingerprint: MediaFingerprint | undefined): number[] {
+  const chapterCount = fingerprint?.chapters?.length ?? 0
+  if (chapterCount === 0) return []
+
+  const candidates = (fingerprint?.streams ?? []).flatMap((stream) => {
+    const frameCount = Number(stream.nb_frames)
+    const isNativeChapterTrack =
+      Number.isInteger(stream.index) &&
+      stream.codec_type === 'data' &&
+      stream.codec_name === 'bin_data' &&
+      stream.codec_tag_string?.toLowerCase() === 'text' &&
+      Number.isSafeInteger(frameCount) &&
+      frameCount === chapterCount
+    return isNativeChapterTrack ? [stream.index!] : []
+  })
+  return candidates.length === 1 ? candidates : []
 }
 
 async function assertSourceUnchanged(sourcePath: string, before: { size: number; mtimeMs: number }) {

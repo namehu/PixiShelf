@@ -65,7 +65,12 @@ export async function publishLocalMediaWork(
       size: item.size,
       sortOrder: item.sortOrder,
       mediaType: item.mediaType,
-      webpAnimationStatus: item.webpAnimationStatus
+      webpAnimationStatus: item.webpAnimationStatus,
+      chaptersPath: item.chaptersPath,
+      chaptersCount: item.chaptersCount,
+      chaptersDuration: item.chaptersDuration,
+      chaptersUpdatedAt: item.chaptersPath ? input.now : null,
+      chaptersHash: item.chaptersHash
     }))
   })
   if (tags.length > 0) {

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
-import { MEDIA_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
+import { MEDIA_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
 import { throwIfAborted } from './bounded.js'
 import { hashStableFile } from './content-reader.js'
 import { ScanExecutorError } from './errors.js'
@@ -9,6 +9,8 @@ import { resolveSafeExistingPath, resolveSafeScanRoot, type SafeScanRoot } from 
 import { compareCodePoints } from './stable-order.js'
 
 const mediaExtensions = new Set<string>(MEDIA_FILE_EXTENSIONS)
+const videoExtensions = new Set<string>(VIDEO_FILE_EXTENSIONS)
+const maxChapterManifestBytes = 5 * 1024 * 1024
 
 export interface LocalWorkFingerprintInput {
   scanRoot: string
@@ -36,7 +38,7 @@ export async function computeLocalWorkContentFingerprintWithinRoot(input: {
 }): Promise<string> {
   validateLimits(input)
   const directory = await resolveSafeExistingPath(input.root, input.relativeDirectory, 'directory')
-  const files: Array<{ name: string; absolutePath: string }> = []
+  const directoryFiles: Array<{ name: string; absolutePath: string }> = []
   let entries = 0
   const handle = await fs.opendir(directory.absolutePath)
   try {
@@ -52,18 +54,19 @@ export async function computeLocalWorkContentFingerprintWithinRoot(input: {
         throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Local work contains a symbolic link')
       }
       if (!metadata.isFile()) continue
-      const selected =
-        input.kind === 'ARCHIVE_MANIFEST'
-          ? entry.name === 'manifest.json'
-          : mediaExtensions.has(path.extname(entry.name).toLowerCase())
-      if (selected) files.push({ name: entry.name, absolutePath })
-      if (files.length > input.maxFiles) {
-        throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local work exceeds the configured file limit')
-      }
+      directoryFiles.push({ name: entry.name, absolutePath })
     }
   } finally {
     await handle.close().catch(() => undefined)
   }
+  const mediaFiles = directoryFiles.filter((file) => mediaExtensions.has(path.extname(file.name).toLowerCase()))
+  if (input.kind === 'MEDIA_DIRECTORY' && mediaFiles.length > input.maxFiles) {
+    throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local work exceeds the configured file limit')
+  }
+  const files =
+    input.kind === 'ARCHIVE_MANIFEST'
+      ? directoryFiles.filter((file) => file.name === 'manifest.json')
+      : [...mediaFiles, ...compatibleChapterManifestFiles(directoryFiles, mediaFiles)]
   if (input.kind === 'ARCHIVE_MANIFEST' && files.length !== 1) {
     throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Archive work must contain exactly one manifest.json')
   }
@@ -72,12 +75,35 @@ export async function computeLocalWorkContentFingerprintWithinRoot(input: {
   for (const file of files) {
     const content = await hashStableFile({
       absolutePath: file.absolutePath,
-      maxBytes: input.maxFileBytes,
+      maxBytes: isChapterManifestName(file.name) ? Math.min(input.maxFileBytes, maxChapterManifestBytes) : input.maxFileBytes,
       signal: input.signal
     })
     hashedFiles.push({ name: file.name, size: content.size, sha256: content.sha256 })
   }
   return buildLocalWorkContentFingerprint(input.kind, hashedFiles)
+}
+
+function compatibleChapterManifestFiles(
+  directoryFiles: Array<{ name: string; absolutePath: string }>,
+  mediaFiles: Array<{ name: string; absolutePath: string }>
+) {
+  const compatibleNames = new Set(
+    mediaFiles.flatMap((file) => {
+      if (!videoExtensions.has(path.extname(file.name).toLowerCase())) return []
+      const parsed = path.parse(file.name)
+      return [`${parsed.name}.chapters.json`, `${parsed.base}.chapters.json`, `${parsed.name}..chapters.json`].map((name) =>
+        name.toLowerCase()
+      )
+    })
+  )
+  const mediaNames = new Set(mediaFiles.map((file) => file.name))
+  return directoryFiles.filter(
+    (file) => !mediaNames.has(file.name) && compatibleNames.has(file.name.toLowerCase())
+  )
+}
+
+function isChapterManifestName(name: string) {
+  return name.toLowerCase().endsWith('.chapters.json')
 }
 
 export function buildLocalWorkContentFingerprint(

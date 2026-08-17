@@ -15,6 +15,8 @@ import {
 } from './paths.js'
 import { metadataCandidateFromPath, selectPreferredMetadataCandidates, type MetadataCandidate } from './metadata.js'
 import { compareCodePoints, compareNaturalCodePoints } from './stable-order.js'
+import { createChapterManifestHash, readChapterManifest } from '../video-processing/chapter-manifest.js'
+import { VideoProcessingPermanentError } from '../video-processing/types.js'
 
 const metadataSuffix = /-meta\.(?:json|txt)$/i
 const mediaExtensions = new Set<string>(MEDIA_FILE_EXTENSIONS)
@@ -43,6 +45,10 @@ export interface DiscoveredMediaFile {
   sortOrder: number
   mediaType: 'IMAGE' | 'ANIMATION' | 'VIDEO'
   webpAnimationStatus: number | null
+  chaptersPath: string | null
+  chaptersCount: number
+  chaptersDuration: number | null
+  chaptersHash: string | null
 }
 
 export interface LocalWorkCandidate {
@@ -149,6 +155,10 @@ export async function collectArtworkMedia(
         sortOrder: pageIndex,
         mediaType: inferMediaType(extension),
         webpAnimationStatus: contentScannedAnimationExtensions.has(extension) ? 0 : null,
+        chaptersPath: null,
+        chaptersCount: 0,
+        chaptersDuration: null,
+        chaptersHash: null,
         filename: entry.name
       })
       if (media.length > limits.maxMediaPerArtwork) {
@@ -158,9 +168,10 @@ export async function collectArtworkMedia(
   } finally {
     await handle.close().catch(() => undefined)
   }
-  return media
+  const ordered = media
     .sort((left, right) => left.sortOrder - right.sortOrder || compareCodePoints(left.filename, right.filename))
     .map((item, sortOrder) => withoutFilename(item, sortOrder))
+  return attachChapterManifests(root, ordered, signal)
 }
 
 export async function* discoverLocalWorkPages(
@@ -307,6 +318,10 @@ export async function collectLocalMedia(
         sortOrder: 0,
         mediaType: inferMediaType(extension),
         webpAnimationStatus: contentScannedAnimationExtensions.has(extension) ? 0 : null,
+        chaptersPath: null,
+        chaptersCount: 0,
+        chaptersDuration: null,
+        chaptersHash: null,
         filename: entry.name
       })
       if (media.length > limits.maxMediaPerArtwork) {
@@ -316,9 +331,10 @@ export async function collectLocalMedia(
   } finally {
     await handle.close().catch(() => undefined)
   }
-  return media
+  const ordered = media
     .sort((left, right) => naturalNameCompare(left.filename, right.filename))
     .map((item, sortOrder) => withoutFilename(item, sortOrder))
+  return attachChapterManifests(root, ordered, signal)
 }
 
 export async function verifyLocalWorkFingerprint(input: {
@@ -395,6 +411,61 @@ function withoutFilename(item: DiscoveredMediaFile & { filename: string }, sortO
     size: item.size,
     sortOrder,
     mediaType: item.mediaType,
-    webpAnimationStatus: item.webpAnimationStatus
+    webpAnimationStatus: item.webpAnimationStatus,
+    chaptersPath: item.chaptersPath,
+    chaptersCount: item.chaptersCount,
+    chaptersDuration: item.chaptersDuration,
+    chaptersHash: item.chaptersHash
   }
+}
+
+async function attachChapterManifests(
+  root: SafeScanRoot,
+  media: DiscoveredMediaFile[],
+  signal: AbortSignal
+): Promise<DiscoveredMediaFile[]> {
+  const result: DiscoveredMediaFile[] = []
+  for (const item of media) {
+    throwIfAborted(signal)
+    result.push(item.mediaType === 'VIDEO' ? await attachChapterManifest(root, item) : item)
+  }
+  return result
+}
+
+async function attachChapterManifest(root: SafeScanRoot, media: DiscoveredMediaFile): Promise<DiscoveredMediaFile> {
+  const parsed = path.posix.parse(media.relativePath)
+  const names = [
+    `${parsed.name}.chapters.json`,
+    `${parsed.base}.chapters.json`,
+    `${parsed.name}..chapters.json`
+  ]
+  for (const name of names) {
+    const relativePath = parsed.dir ? `${parsed.dir}/${name}` : name
+    let resolved: SafeScanPath
+    try {
+      resolved = await resolveSafeExistingPath(root, relativePath, 'file')
+    } catch (error) {
+      if (error instanceof ScanExecutorError && error.code === 'SOURCE_NOT_FOUND') continue
+      throw error
+    }
+    try {
+      const manifest = await readChapterManifest(root.absolutePath, resolved.relativePath)
+      return {
+        ...media,
+        chaptersPath: resolved.relativePath,
+        chaptersCount: manifest.chapters.length,
+        chaptersDuration: manifest.duration,
+        chaptersHash: createChapterManifestHash(manifest)
+      }
+    } catch (error) {
+      if (error instanceof VideoProcessingPermanentError) {
+        throw new ScanExecutorError(
+          error.code === 'PATH_OUTSIDE_ALLOWED_ROOT' ? 'PATH_OUTSIDE_SCAN_ROOT' : 'INPUT_SNAPSHOT_INVALID',
+          `Video chapter manifest is invalid: ${resolved.relativePath}`
+        )
+      }
+      throw new ScanExecutorError('SOURCE_NOT_READABLE', `Video chapter manifest cannot be read: ${resolved.relativePath}`)
+    }
+  }
+  return media
 }

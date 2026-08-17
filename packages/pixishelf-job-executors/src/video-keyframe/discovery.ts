@@ -4,12 +4,15 @@ import { resolveKeyframePath, resolveSourceFile } from './paths.js'
 import { matchesVideoKeyframeFilter, type VideoKeyframeFilter } from './policy.js'
 import type {
   VideoKeyframeDatabase,
+  VideoKeyframeDiscoveryBaseResult,
   VideoKeyframeDiscoveryResult,
+  VideoKeyframePreviewCandidate,
   VideoKeyframeProgress,
   VideoKeyframeRuntimeConfig
 } from './types.js'
 
 const DISCOVERY_PAGE_SIZE = 200
+const PREVIEW_CANDIDATE_LIMIT = 1_000
 const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mkv', '.mov', '.avi', '.m4v', '.wmv', '.flv']
 
 export type VideoKeyframeDiscoveryPayload = ReturnType<typeof videoKeyframeDiscoveryPayloadSchema.parse>
@@ -30,7 +33,7 @@ export async function discoverVideoKeyframes(input: {
   progress(update: VideoKeyframeProgress): Promise<void>
   enqueueChild(request: VideoKeyframeChildRequest): Promise<{ id: string; created: boolean }>
 }): Promise<VideoKeyframeDiscoveryResult> {
-  const result: VideoKeyframeDiscoveryResult = {
+  const result: VideoKeyframeDiscoveryBaseResult = {
     discovered: 0,
     matched: 0,
     enqueued: 0,
@@ -40,6 +43,8 @@ export async function discoverVideoKeyframes(input: {
     inaccessible: 0,
     failedSamples: []
   }
+  const previewCandidates: VideoKeyframePreviewCandidate[] = []
+  let previewTruncated = false
   const requestedIds = input.payload.imageIds ? [...new Set(input.payload.imageIds)].sort((a, b) => a - b) : undefined
   let cursor = input.payload.afterImageId ?? 0
   let exhausted = false
@@ -122,6 +127,19 @@ export async function discoverVideoKeyframes(input: {
           continue
         }
         result.matched += 1
+        if (input.payload.previewOnly) {
+          if (previewCandidates.length < PREVIEW_CANDIDATE_LIMIT) {
+            previewCandidates.push({
+              imageId: image.id,
+              path: image.path,
+              duration: image.videoMetadata?.duration ?? null,
+              status: state,
+              publishedCount: published?.publishedCount ?? 0
+            })
+          } else {
+            previewTruncated = true
+          }
+        }
         shouldEnqueue = !input.payload.previewOnly
       } catch (error) {
         result.inaccessible += 1
@@ -168,7 +186,21 @@ export async function discoverVideoKeyframes(input: {
       data: { matched: result.matched, enqueued: result.enqueued, inaccessible: result.inaccessible }
     })
   }
-  return result
+  if (!input.payload.previewOnly) return result
+  return {
+    ...result,
+    previewOnly: true,
+    previewTruncated,
+    candidates: previewCandidates,
+    force: input.payload.force,
+    filter: {
+      minDuration: input.payload.filter.minDuration,
+      maxDuration: input.payload.filter.maxDuration,
+      includePaths: [...input.payload.filter.includePaths],
+      excludePaths: [...input.payload.filter.excludePaths],
+      statuses: [...input.payload.filter.statuses]
+    }
+  }
 }
 
 async function resolveDiscoveryState(input: {

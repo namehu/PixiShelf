@@ -355,6 +355,31 @@ describePostgres('PostgresQueueRepository integration', () => {
       }
     })
 
+    const streamingChild = await repository.enqueueChild(parentFence, {
+      type: 'VIDEO_STREAMING_OPTIMIZATION',
+      payload: {
+        imageId: 43,
+        relativePath: 'videos/streaming.mp4',
+        mode: 'REMUX_FASTSTART'
+      },
+      idempotencyKey: `${testPrefix}-streaming-child`
+    })
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: streamingChild.id },
+        select: { targetImageId: true, targetPath: true, mode: true, payload: true }
+      })
+    ).toEqual({
+      targetImageId: 43,
+      targetPath: 'videos/streaming.mp4',
+      mode: 'REMUX_FASTSTART',
+      payload: {
+        imageId: 43,
+        relativePath: 'videos/streaming.mp4',
+        mode: 'REMUX_FASTSTART'
+      }
+    })
+
     await expect(
       repository.enqueueChild(parentFence, {
         type: 'SCAN',
@@ -807,7 +832,7 @@ describePostgres('PostgresQueueRepository integration', () => {
         jobId,
         'domain mutation committed'
       )
-      await scope.complete({ result: { published: true } })
+      await scope.complete({ result: { published: true }, message: 'completed atomically' })
     })
 
     expect(
@@ -817,7 +842,7 @@ describePostgres('PostgresQueueRepository integration', () => {
       })
     ).toEqual({
       status: 'COMPLETED',
-      message: 'domain mutation committed',
+      message: 'completed atomically',
       result: { published: true }
     })
   })
@@ -850,9 +875,10 @@ describePostgres('PostgresQueueRepository integration', () => {
           jobId,
           `handled ${executionStatus}`
         )
-        if (operation === 'complete') await scope.complete()
-        else if (operation === 'pause') await scope.pause({ reason: 'USER_REQUESTED' })
-        else await scope.cancel()
+        if (operation === 'complete') await scope.complete({ message: `settled ${executionStatus}` })
+        else if (operation === 'pause') {
+          await scope.pause({ reason: 'USER_REQUESTED', message: `settled ${executionStatus}` })
+        } else await scope.cancel(`settled ${executionStatus}`)
       })
 
       expect(
@@ -860,7 +886,7 @@ describePostgres('PostgresQueueRepository integration', () => {
           where: { id: jobId },
           select: { status: true, message: true }
         })
-      ).toEqual({ status: terminalStatus, message: `handled ${executionStatus}` })
+      ).toEqual({ status: terminalStatus, message: `settled ${executionStatus}` })
     }
   )
 
@@ -1132,7 +1158,7 @@ describePostgres('PostgresQueueRepository integration', () => {
       })
     ).toEqual({
       status,
-      message: `${operation} domain state committed`,
+      message: operation === 'pause' ? 'paused atomically' : 'released atomically',
       finishedAt: null,
       workerId: null,
       leaseToken: null

@@ -52,15 +52,35 @@ describe('bounded stable content reads', () => {
     expect(first).not.toBe(second)
     expect(first).toMatch(/^[a-f0-9]{64}$/)
   })
+
+  it.each(['clip.chapters.json', 'clip.mp4.chapters.json', 'clip..chapters.json'])(
+    'includes compatible chapter sidecar %s without consuming the media file limit',
+    async (manifestName) => {
+      const root = await fixtureRoot()
+      const work = path.join(root, 'local-imports', 'Artist', 'Work')
+      await fs.mkdir(work, { recursive: true })
+      await fs.writeFile(path.join(work, 'clip.mp4'), 'video')
+      const manifest = path.join(work, manifestName)
+      await fs.writeFile(manifest, 'AAAA')
+      const originalStat = await fs.stat(manifest)
+      const first = await fingerprint(root, 'local-imports/Artist/Work', 1)
+
+      await fs.writeFile(manifest, 'BBBB')
+      await fs.utimes(manifest, originalStat.atime, originalStat.mtime)
+      const second = await fingerprint(root, 'local-imports/Artist/Work', 1)
+
+      expect(first).not.toBe(second)
+    }
+  )
 })
 
-async function fingerprint(scanRoot: string, relativeDirectory: string) {
+async function fingerprint(scanRoot: string, relativeDirectory: string, maxFiles = 10) {
   return computeLocalWorkContentFingerprint({
     scanRoot,
     relativeDirectory,
     kind: 'MEDIA_DIRECTORY',
     maxEntries: 10,
-    maxFiles: 10,
+    maxFiles,
     maxFileBytes: 1024,
     signal: new AbortController().signal
   })
