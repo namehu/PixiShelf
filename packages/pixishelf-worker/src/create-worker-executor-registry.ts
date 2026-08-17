@@ -4,12 +4,20 @@ import {
   createArchiveExecutorRegistrations,
   createDefaultArchiveMediaProviderRegistry,
   createMaintenanceExecutorRegistrations,
+  createMigrationExecutorRegistrations,
+  createNodeMigrationFileSystem,
+  createNodePendingReplaceFileSystem,
+  createPendingReplaceExecutorRegistrations,
+  createPrismaMigrationDatabase,
+  createPrismaPendingReplaceDatabase,
+  createScanExecutorRegistrations,
   createVideoMediaExecutorRegistrations,
   createVideoProcessingExecutorRegistrations,
   createVideoKeyframeExecutorRegistrations
 } from '@pixishelf/job-executors'
 import type { WorkerConfig } from './config.js'
 import { ExecutorRegistry } from './executor-registry.js'
+import { assertProductionWorkerCapabilities } from './production-capabilities.js'
 
 type ExecutorWorkerConfig = Pick<
   WorkerConfig,
@@ -38,6 +46,26 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
   for (const definition of createMaintenanceExecutorRegistrations({
     database: input.database,
     scanRoot: resolved.sourceMediaRoot
+  })) {
+    registry.register(definition)
+  }
+  for (const definition of createScanExecutorRegistrations({
+    database: input.database,
+    config: { scanRoot: resolved.sourceMediaRoot }
+  })) {
+    registry.register(definition)
+  }
+  for (const definition of createMigrationExecutorRegistrations({
+    database: createPrismaMigrationDatabase(input.database),
+    fileSystem: createNodeMigrationFileSystem(),
+    config: { scanRoot: resolved.sourceMediaRoot }
+  })) {
+    registry.register(definition)
+  }
+  for (const definition of createPendingReplaceExecutorRegistrations({
+    database: createPrismaPendingReplaceDatabase(input.database),
+    fileSystem: createNodePendingReplaceFileSystem(),
+    config: { scanRoot: resolved.sourceMediaRoot }
   })) {
     registry.register(definition)
   }
@@ -77,6 +105,7 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
   })) {
     registry.register(definition)
   }
+  assertProductionWorkerCapabilities(registry.capabilities())
   return registry
 }
 

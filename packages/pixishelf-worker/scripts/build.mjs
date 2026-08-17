@@ -3,7 +3,8 @@ import { build } from 'esbuild'
 await build({
   entryPoints: {
     main: 'src/main.ts',
-    healthcheck: 'src/healthcheck.ts'
+    healthcheck: 'src/healthcheck.ts',
+    'capability-audit': 'src/capability-audit.ts'
   },
   absWorkingDir: new URL('..', import.meta.url).pathname.replace(/^\/(?:([A-Za-z]):)/, '$1:'),
   bundle: true,

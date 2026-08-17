@@ -19,6 +19,11 @@ import {
   getScanRunTypeForArtworkSource,
   startScanRun
 } from '@/services/scan-run-service'
+import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
+import { requireAdminRequest } from '@/services/background-task/request-auth'
+import { enqueueCentralArtworkRescan } from '@/services/media-root-central-service'
+import { queuedSseResponse } from '@/services/background-task/queued-sse-response'
+import { runBackgroundTaskApi } from '@/services/background-task/api-error-mapping'
 
 /**
  * SSE 事件发送器：统一封装 heartbeat 与连接关闭后的失败判定
@@ -52,6 +57,19 @@ function createEventSender(
  */
 export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
   const { artworkId, externalId } = data
+  const { userId } = await requireAdminRequest(req)
+
+  if (isCentralDispatcherCutoverEnabled()) {
+    const target = await prisma.artwork.findUnique({
+      where: artworkId !== undefined ? { id: artworkId } : { externalId: externalId! },
+      select: { id: true }
+    })
+    if (!target) return NextResponse.json({ error: 'Artwork not found' }, { status: 404 })
+    const queued = await runBackgroundTaskApi(() =>
+      enqueueCentralArtworkRescan({ artworkId: target.id, requestedByUserId: userId })
+    )
+    return queuedSseResponse(queued)
+  }
 
   const scanPath = await getScanPath()
   if (!scanPath) {

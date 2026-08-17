@@ -34,6 +34,8 @@ interface SseScanState {
   progress: ScanProgress | null
   streamResult: ScanResult | null
   streamError: string | null
+  jobId: string | null
+  scanRunId: string | null
   elapsed: number
   retryCount: number
 }
@@ -67,6 +69,8 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
 
   // 3. 本地状态（扫描过程 UI 视图）
   const [progress, setProgress] = React.useState<ScanProgress | null>(null)
+  const [jobId, setJobId] = React.useState<string | null>(null)
+  const [scanRunId, setScanRunId] = React.useState<string | null>(null)
   const [elapsed, setElapsed] = React.useState(0)
   const [retryCount] = React.useState(0)
 
@@ -115,6 +119,21 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
           logger.addLog(`进度: ${progressData.message} (${progressData.percentage || 0}%)`, 'progress', progressData)
           break
 
+        case 'queued':
+          const queuedScan = data?.queued as { jobId?: unknown; scanRunId?: unknown } | undefined
+          const queuedJobId = typeof queuedScan?.jobId === 'string' ? queuedScan.jobId : null
+          const queuedRunId = typeof queuedScan?.scanRunId === 'string' ? queuedScan.scanRunId : null
+          setJobId(queuedJobId)
+          setScanRunId(queuedRunId)
+          setIsScanning(false)
+          setError(null)
+          setResult(null)
+          logger.addLog('扫描任务已加入后台队列', 'connection', queuedScan)
+          toast.info('扫描任务已加入后台队列', {
+            description: queuedJobId ? `任务 ID: ${queuedJobId}` : undefined
+          })
+          break
+
         case 'complete':
           const completeData = data as { success: boolean; result: ScanResult }
           setIsScanning(false)
@@ -146,7 +165,7 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
       }
 
       // 到达终态事件时关闭流，防止回调继续触发
-      if (['complete', 'error', 'cancelled'].includes(eventName)) {
+      if (['queued', 'complete', 'error', 'cancelled'].includes(eventName)) {
         fetchControllerRef.current?.abort()
         fetchControllerRef.current = null
       }
@@ -174,6 +193,8 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
 
       const controller = new AbortController()
       fetchControllerRef.current = controller
+      setJobId(null)
+      setScanRunId(null)
 
       try {
         await fetchEventSource(url, {
@@ -184,11 +205,11 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
           body: JSON.stringify(body),
           signal: controller.signal,
 
-      async onopen(response) {
-        if (response.ok) {
-          setIsScanning(true)
-          setError(null)
-          setResult(null)
+          async onopen(response) {
+            if (response.ok) {
+              setIsScanning(true)
+              setError(null)
+              setResult(null)
               retryCountRef.current = 0 // 成功建立连接后重置重试计数
               return
             } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
@@ -216,7 +237,7 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
           },
 
           onerror(err) {
-        if (err instanceof FatalError) {
+            if (err instanceof FatalError) {
               logger.error(`Fatal Error: ${err.message}`)
               throw err // 停止重试并上抛致命错误
             }
@@ -257,6 +278,8 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
   const clearLogs = React.useCallback(() => {
     logger.clearLogs()
     storeClearLogs()
+    setJobId(null)
+    setScanRunId(null)
   }, [logger, storeClearLogs])
 
   return {
@@ -265,6 +288,8 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
       progress,
       streamResult: result,
       streamError: error,
+      jobId,
+      scanRunId,
       elapsed,
       retryCount
     },

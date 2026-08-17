@@ -17,6 +17,7 @@ describe('Worker deployment boundary', () => {
       expect(worker).toContain('WORKER_DISPATCH_ENABLED: ${WORKER_DISPATCH_ENABLED:-false}')
       expect(worker).toContain('WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS: ${WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS:-5000}')
       expect(worker).toContain('WORKER_QUEUE_TRANSACTION_TIMEOUT_MS: ${WORKER_QUEUE_TRANSACTION_TIMEOUT_MS:-30000}')
+      expect(worker).toContain(':/app/data:rw')
       expect(worker).toContain('stop_grace_period: 45s')
       expect(worker).toMatch(/max-size: ['"]10m['"]/)
       expect(worker).toMatch(/max-file: ['"]5['"]/)
@@ -33,6 +34,7 @@ describe('Worker deployment boundary', () => {
 
   it('installs FFmpeg and FFprobe in the production Worker image', () => {
     const dockerfile = readFileSync(new URL('build/worker.Dockerfile', repositoryRoot), 'utf8')
+    expect(dockerfile).toContain('COPY packages/pixishelf-job-executors')
     const productionStage = dockerfile.slice(dockerfile.indexOf('FROM node:20-alpine AS production'))
     expect(productionStage).toContain('apk add --no-cache openssl ffmpeg tini')
   })
@@ -42,5 +44,12 @@ describe('Worker deployment boundary', () => {
     expect(dockerfile).toContain('COPY packages/pixishelf-job-contracts/package.json')
     expect(dockerfile).toContain('COPY packages/pixishelf-job-contracts ./packages/pixishelf-job-contracts')
     expect(dockerfile).toContain('pnpm --filter @pixishelf/job-contracts build')
+  })
+
+  it('ships the read-only 17-capability release audit and documents it as a deployment gate', () => {
+    const buildScript = readFileSync(new URL('packages/pixishelf-worker/scripts/build.mjs', repositoryRoot), 'utf8')
+    const runbook = readFileSync(new URL('docs/design/background-task-runbook.md', repositoryRoot), 'utf8')
+    expect(buildScript).toContain("'capability-audit': 'src/capability-audit.ts'")
+    expect(runbook).toContain('node dist/capability-audit.cjs')
   })
 })

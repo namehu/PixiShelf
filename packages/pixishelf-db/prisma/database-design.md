@@ -120,6 +120,8 @@
 
 两条新 migration 都使用显式事务。结构 migration 的第一项业务语句是只读 guard：若旧 `scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
 
+Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 共 17 项 v1 capability。本阶段不需要额外 schema migration：`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁将其与 17 项期望清单精确比较；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
+
 ## 4. 审计与维护 (Audit & Maintenance)
 
 ### 4.1 后台任务切换守卫与手写约束

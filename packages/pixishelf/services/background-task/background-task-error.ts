@@ -4,6 +4,7 @@ export type BackgroundTaskErrorCode =
   | 'CONCURRENT_MODIFICATION'
   | 'ACTIVE_JOB_CONFLICT'
   | 'IDEMPOTENCY_CONFLICT'
+  | 'PRECONDITION_FAILED'
 
 export class BackgroundTaskError extends Error {
   constructor(

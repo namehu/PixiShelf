@@ -16,6 +16,9 @@ import {
   failScanRun,
   startScanRun
 } from '@/services/scan-run-service'
+import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
+import { enqueueCentralScan } from '@/services/media-root-central-service'
+import { runBackgroundTaskApi } from '@/services/background-task/api-error-mapping'
 
 function validateWebhookAuth(req: Request) {
   const authHeader = req.headers.get('Authorization')
@@ -64,6 +67,18 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
   if (authError) return authError
 
   const { type, force, metadataList } = data
+
+  if (isCentralDispatcherCutoverEnabled()) {
+    const queued = await runBackgroundTaskApi(() =>
+      enqueueCentralScan({
+        triggerSource: 'SYSTEM',
+        type: type === 'list' ? 'list' : 'all',
+        force,
+        metadataList
+      })
+    )
+    return NextResponse.json({ success: true, queued: true, ...queued }, { status: 202 })
+  }
 
   const scanPath = await getScanPath()
   if (!scanPath) {

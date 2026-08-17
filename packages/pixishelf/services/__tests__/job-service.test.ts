@@ -18,6 +18,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     $transaction: mocks.transaction,
     systemJob: {
+      findFirst: mocks.findFirst,
       findMany: mocks.globalFindMany,
       groupBy: mocks.groupBy
     }
@@ -40,6 +41,11 @@ import {
   createWebpAnimationScanJob,
   enqueueVideoStreamingOptimizationJob,
   getLatestVideoStreamingOptimizationJobsByImageIds,
+  getActiveJobByType,
+  getActiveJobsByTypes,
+  getActiveLocalDirectoryImportJob,
+  getActiveMigrationJob,
+  getActiveScanJob,
   finalizePendingReplaceJob
 } from '../job-service'
 
@@ -100,6 +106,27 @@ describe('job locking and video optimization queue', () => {
     expect(mocks.queryRaw).toHaveBeenCalledTimes(2)
     expect(mocks.queryRaw.mock.calls[0]?.[0]).toContain('pg_advisory_xact_lock($1)::text')
     expect(mocks.queryRaw.mock.calls[0]?.[1]).toBe(mocks.queryRaw.mock.calls[1]?.[1])
+  })
+
+  it('uses the contract active statuses for all central control lookups', async () => {
+    const expected = ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING']
+
+    await getActiveMigrationJob()
+    await getActiveScanJob()
+    await getActiveLocalDirectoryImportJob()
+    await getActiveJobByType('PENDING_REPLACE')
+    await getActiveJobsByTypes(['SCAN', 'LOCAL_DIRECTORY_IMPORT'])
+
+    for (const call of mocks.findFirst.mock.calls.slice(-4)) {
+      expect(call[0].where.status.in).toEqual(expected)
+    }
+    expect(mocks.globalFindMany).toHaveBeenLastCalledWith({
+      where: {
+        type: { in: ['SCAN', 'LOCAL_DIRECTORY_IMPORT'] },
+        status: { in: expected }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
   })
 
   it('rejects a local import while any media scan job is active', async () => {

@@ -4,6 +4,7 @@ import { JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import type { PrismaClient } from '@pixishelf/db'
 import { createWorkerExecutorRegistry, resolveExecutorWorkerConfiguration } from '../create-worker-executor-registry.js'
 import { ExecutorRegistry } from '../executor-registry.js'
+import { assertProductionWorkerCapabilities, PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
 
 describe('ExecutorRegistry', () => {
   it('publishes only registered job type and definition version capabilities', () => {
@@ -86,7 +87,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('requires an explicit payload parser')
   })
 
-  it('registers every production executor capability migrated through phase four', () => {
+  it('locks the phase-five production Worker to all 17 executor capabilities', () => {
     const registry = createWorkerExecutorRegistry({
       database: {} as PrismaClient,
       config: {
@@ -100,21 +101,9 @@ describe('ExecutorRegistry', () => {
       }
     })
 
-    expect(registry.capabilities()).toEqual([
-      { jobType: 'ARCHIVE_IMPORT', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'DERIVED_MEDIA_GC', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'MEDIA_DERIVED_TAG_SYNC', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'REFILL_META_SOURCE', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'SCAN_RUN_RETENTION_CLEANUP', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'TRIGGER_LOG_RETENTION_CLEANUP', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'VIDEO_CHAPTER_PREVIEW_GENERATION', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'VIDEO_KEYFRAME_DISCOVERY', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'VIDEO_KEYFRAME_GENERATION', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'VIDEO_MEDIA_PROBE', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'VIDEO_POSTER_GENERATION', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'VIDEO_STREAMING_OPTIMIZATION', definitionVersions: [JOB_DEFINITION_VERSION] },
-      { jobType: 'WEBP_ANIMATION_SCAN', definitionVersions: [JOB_DEFINITION_VERSION] }
-    ])
+    const capabilities = registry.capabilities()
+    expect(capabilities).toHaveLength(17)
+    expect(capabilities).toEqual(PRODUCTION_WORKER_CAPABILITIES)
   })
 
   it('maps Worker roots and process configuration into executor domains', () => {
@@ -139,5 +128,11 @@ describe('ExecutorRegistry', () => {
       ffprobePath: '/usr/bin/ffprobe',
       ffmpegThreads: 3
     })
+  })
+
+  it('fails the production runtime assertion when a Registry capability drifts', () => {
+    expect(() => assertProductionWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES.slice(0, 16))).toThrow(
+      'Production Worker capability inventory drifted'
+    )
   })
 })

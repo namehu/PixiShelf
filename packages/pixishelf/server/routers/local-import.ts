@@ -17,6 +17,10 @@ import {
   failScanRun,
   startScanRun
 } from '@/services/scan-run-service'
+import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
+import { enqueueCentralLocalDirectoryImport } from '@/services/media-root-central-service'
+import { cancelJobCommand } from '@/services/background-task/job-command-service'
+import { classifyBackgroundTaskTransportError } from '@/services/background-task/transport-error'
 
 async function requireScanPath() {
   // 本地导入要求必须先有可用扫描根路径；未配置时直接阻断整个流程，避免写入到未知目录。
@@ -54,7 +58,17 @@ export const localImportRouter = router({
     return saveLocalImportArtistMappings(input)
   }),
 
-  start: adminProcedure.mutation(async () => {
+  start: adminProcedure.mutation(async ({ ctx }) => {
+    if (isCentralDispatcherCutoverEnabled()) {
+      try {
+        const queued = await enqueueCentralLocalDirectoryImport(ctx.userId!)
+        return { jobId: queued.jobId, queued: true, scanRunId: queued.scanRunId }
+      } catch (error) {
+        const classified = classifyBackgroundTaskTransportError(error)
+        if (classified) throw new TRPCError({ code: classified.trpcCode, message: classified.message })
+        throw error
+      }
+    }
     assertLegacyLocalImportAllowed()
     const scanPath = await requireScanPath()
     const systemSettings = await getSystemSettings()
@@ -129,9 +143,13 @@ export const localImportRouter = router({
   }),
 
   cancel: adminProcedure.mutation(async () => {
-    assertLegacyLocalImportAllowed()
     const job = await JobService.getActiveLocalDirectoryImportJob()
     if (!job) return { success: false }
+    if (isCentralDispatcherCutoverEnabled()) {
+      await cancelJobCommand({ jobId: job.id })
+      return { success: true }
+    }
+    assertLegacyLocalImportAllowed()
     await JobService.cancelJob(job.id)
     return { success: true }
   })

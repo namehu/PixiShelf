@@ -5,6 +5,7 @@
   "type": "module",
   "main": "./dist/main.cjs",
   "scripts": {
+    "audit:capabilities": "node dist/capability-audit.cjs",
     "build": "pnpm run clean && node scripts/build.mjs",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "dev": "tsx src/main.ts",

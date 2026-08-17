@@ -25,7 +25,8 @@
     "@pixishelf/db": "workspace:*",
     "@pixishelf/job-contracts": "workspace:*",
     "@pixishelf/job-runtime": "workspace:*",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "zod": "^4.1.11"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",

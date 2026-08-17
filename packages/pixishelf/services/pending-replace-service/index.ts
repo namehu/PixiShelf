@@ -3,7 +3,10 @@ import 'server-only'
 import path from 'path'
 import { PendingReplaceBatchStatus, PendingReplaceItemStatus, Prisma } from '@prisma/client'
 import logger from '@/lib/logger'
-import { assertLegacyBackgroundExecutionAllowed } from '@/services/background-task/dispatcher-cutover'
+import {
+  assertLegacyBackgroundExecutionAllowed,
+  isCentralDispatcherCutoverEnabled
+} from '@/services/background-task/dispatcher-cutover'
 import { prisma } from '@/lib/prisma'
 import {
   PENDING_REPLACE_HEARTBEAT_INTERVAL_MS,
@@ -18,6 +21,15 @@ import {
 import { resolveCanonicalChapterPath } from '@/services/artwork-service/video-chapters'
 import * as JobService from '@/services/job-service'
 import { getSystemSettings } from '@/services/setting.service'
+import {
+  cancelCentralPendingReplaceBatch,
+  enqueueCentralPendingReplaceBatch,
+  enqueueCentralPendingReplaceCleanup,
+  enqueueCentralPendingReplacePreview,
+  enqueueCentralPendingReplaceRestore,
+  lockCentralPendingReplacePreviewMutation,
+  recoverCentralPendingReplaceBatch
+} from '@/services/pending-replace-central-service'
 import { preparePendingReplaceBinding, previewPendingReplacements } from './discovery'
 import {
   cleanupPendingReplaceBackups,
@@ -45,7 +57,11 @@ export async function getPendingReplaceBatch(batchId?: string) {
   return batch ? serializePendingReplaceBatch(batch) : null
 }
 
-export async function createPendingReplacePreview(scanPath: string) {
+export async function createPendingReplacePreview(scanPath: string, requestedByUserId?: string) {
+  if (isCentralDispatcherCutoverEnabled()) {
+    if (!requestedByUserId) throw new Error('Central pending replacement requires an authenticated administrator')
+    return enqueueCentralPendingReplacePreview(requestedByUserId)
+  }
   const activeJob = await JobService.getActivePendingReplaceJob()
   if (activeJob) throw new Error('Pending replacement job already in progress')
   return serializePendingReplaceBatch(await previewPendingReplacements(scanPath))
@@ -77,6 +93,9 @@ export async function bindPendingReplaceItem(input: { scanPath: string; itemId: 
 
   await prisma.$transaction(
     async (tx) => {
+      if (isCentralDispatcherCutoverEnabled()) {
+        await lockCentralPendingReplacePreviewMutation(tx as unknown as Prisma.TransactionClient, item.batchId)
+      }
       const locked = await tx.pendingReplaceBatch.updateMany({
         where: { id: item.batchId, status: PendingReplaceBatchStatus.PREVIEWED },
         data: { updatedAt: new Date() }
@@ -148,6 +167,9 @@ export async function unbindPendingReplaceItem(input: { itemId: string }) {
 
   await prisma.$transaction(
     async (tx) => {
+      if (isCentralDispatcherCutoverEnabled()) {
+        await lockCentralPendingReplacePreviewMutation(tx as unknown as Prisma.TransactionClient, item.batchId)
+      }
       const locked = await tx.pendingReplaceBatch.updateMany({
         where: { id: item.batchId, status: PendingReplaceBatchStatus.PREVIEWED },
         data: { updatedAt: new Date() }
@@ -225,6 +247,9 @@ export async function reorderPendingReplaceItem(input: { itemId: string; ordered
   })
 
   await prisma.$transaction(async (tx) => {
+    if (isCentralDispatcherCutoverEnabled()) {
+      await lockCentralPendingReplacePreviewMutation(tx as unknown as Prisma.TransactionClient, item.batchId)
+    }
     const updated = await tx.pendingReplaceItem.updateMany({
       where: {
         id: item.id,
@@ -241,7 +266,20 @@ export async function reorderPendingReplaceItem(input: { itemId: string; ordered
   return getPendingReplaceBatch(item.batchId)
 }
 
-export async function startPendingReplaceBatch(input: { scanPath: string; batchId: string; itemIds?: string[] }) {
+export async function startPendingReplaceBatch(input: {
+  scanPath: string
+  batchId: string
+  itemIds?: string[]
+  requestedByUserId?: string
+}) {
+  if (isCentralDispatcherCutoverEnabled()) {
+    if (!input.requestedByUserId) throw new Error('Central pending replacement requires an authenticated administrator')
+    return enqueueCentralPendingReplaceBatch({
+      batchId: input.batchId,
+      ...(input.itemIds ? { itemIds: input.itemIds } : {}),
+      requestedByUserId: input.requestedByUserId
+    })
+  }
   assertLegacyBackgroundExecutionAllowed('PENDING_REPLACE')
   const batch = await prisma.pendingReplaceBatch.findUnique({
     where: { id: input.batchId },
@@ -354,7 +392,16 @@ export async function startPendingReplaceBatch(input: { scanPath: string; batchI
   return { batchId: batch.id, jobId: job.id }
 }
 
-export async function recoverInterruptedPendingReplaceBatchById(scanPath: string, batchId: string) {
+export async function recoverInterruptedPendingReplaceBatchById(
+  scanPath: string,
+  batchId: string,
+  requestedByUserId?: string
+) {
+  if (isCentralDispatcherCutoverEnabled()) {
+    if (!requestedByUserId) throw new Error('Central pending replacement requires an authenticated administrator')
+    const result = await recoverCentralPendingReplaceBatch({ batchId, requestedByUserId })
+    return { ...result, success: true, recoveredItems: 0 }
+  }
   assertLegacyBackgroundExecutionAllowed('PENDING_REPLACE')
   return recoverInterruptedPendingReplaceBatch({
     scanPath,
@@ -364,6 +411,7 @@ export async function recoverInterruptedPendingReplaceBatchById(scanPath: string
 }
 
 export async function cancelPendingReplaceBatch(batchId: string) {
+  if (isCentralDispatcherCutoverEnabled()) return cancelCentralPendingReplaceBatch(batchId)
   const batch = await prisma.pendingReplaceBatch.findUnique({ where: { id: batchId }, include: { systemJob: true } })
   if (!batch?.systemJob || !['PENDING', 'RUNNING', 'PAUSED'].includes(batch.systemJob.status)) {
     return { success: false }
@@ -376,7 +424,11 @@ export async function cancelPendingReplaceBatch(batchId: string) {
   return { success: true }
 }
 
-export async function restorePendingReplaceItemById(scanPath: string, itemId: string) {
+export async function restorePendingReplaceItemById(scanPath: string, itemId: string, requestedByUserId?: string) {
+  if (isCentralDispatcherCutoverEnabled()) {
+    if (!requestedByUserId) throw new Error('Central pending replacement requires an authenticated administrator')
+    return enqueueCentralPendingReplaceRestore({ itemId, requestedByUserId })
+  }
   assertLegacyBackgroundExecutionAllowed('PENDING_REPLACE')
   const item = await prisma.pendingReplaceItem.findUnique({ where: { id: itemId } })
   if (!item || item.status !== PendingReplaceItemStatus.SUCCESS) {
@@ -454,7 +506,11 @@ export async function restorePendingReplaceItemById(scanPath: string, itemId: st
   }
 }
 
-export async function cleanupPendingReplaceBatchBackups(scanPath: string, batchId: string) {
+export async function cleanupPendingReplaceBatchBackups(scanPath: string, batchId: string, requestedByUserId?: string) {
+  if (isCentralDispatcherCutoverEnabled()) {
+    if (!requestedByUserId) throw new Error('Central pending replacement requires an authenticated administrator')
+    return enqueueCentralPendingReplaceCleanup({ batchId, requestedByUserId })
+  }
   assertLegacyBackgroundExecutionAllowed('PENDING_REPLACE')
   const batch = await prisma.pendingReplaceBatch.findUnique({ where: { id: batchId } })
   if (!batch) throw new Error('Pending replacement batch not found')

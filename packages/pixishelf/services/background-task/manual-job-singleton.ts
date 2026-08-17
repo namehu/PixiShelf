@@ -15,6 +15,10 @@ import { systemJobWireSelect, toJobDto, type SystemJobWireRecord } from './job-s
 const singletonManualJobInputSchema = manualEnqueueJobRequestSchema.extend({
   requestedByUserId: z.string().min(1)
 })
+const singletonSystemJobInputSchema = manualEnqueueJobRequestSchema.extend({
+  triggerSource: z.literal('SYSTEM'),
+  priority: z.number().int().min(100).max(999)
+})
 
 const SINGLETON_MANUAL_JOB_LOCK_NAMESPACE = 80_432_028
 
@@ -45,14 +49,16 @@ function optionalDateMatches(actual: Date | null, expected: Date | undefined): b
   return actual?.toISOString() === expected?.toISOString() || (actual === null && expected === undefined)
 }
 
-function hasSameManualSemantics(
+type SingletonJobInput = z.output<typeof singletonManualJobInputSchema> | z.output<typeof singletonSystemJobInputSchema>
+
+function hasSameSingletonSemantics(
   existing: SystemJobWireRecord,
-  input: z.output<typeof singletonManualJobInputSchema>,
+  input: SingletonJobInput,
   payload: JsonValue
 ): boolean {
   return (
     existing.definitionVersion === JOB_DEFINITION_VERSION &&
-    existing.triggerSource === 'MANUAL' &&
+    existing.triggerSource === input.triggerSource &&
     existing.idempotencyKey === (input.idempotencyKey ?? null) &&
     existing.parentJobId === (input.parentJobId ?? null) &&
     existing.queuePriority === input.priority &&
@@ -80,6 +86,21 @@ export async function enqueueSingletonManualJobWithResult(
   options: EnqueueSingletonManualJobOptions = {}
 ): Promise<EnqueueSingletonManualJobResult> {
   const parsed = singletonManualJobInputSchema.parse(input)
+  return enqueueSingletonJobWithResult(parsed, options)
+}
+
+export async function enqueueSingletonSystemJobWithResult(
+  input: z.input<typeof singletonSystemJobInputSchema>,
+  options: EnqueueSingletonManualJobOptions = {}
+): Promise<EnqueueSingletonManualJobResult> {
+  const parsed = singletonSystemJobInputSchema.parse(input)
+  return enqueueSingletonJobWithResult(parsed, options)
+}
+
+async function enqueueSingletonJobWithResult(
+  parsed: SingletonJobInput,
+  options: EnqueueSingletonManualJobOptions
+): Promise<EnqueueSingletonManualJobResult> {
   const payload = parseJobPayload(parsed.type, parsed.payload ?? {}) as JsonValue
   const database = options.client ?? (prisma as unknown as SingletonCommandDatabaseClient)
 
@@ -94,7 +115,7 @@ export async function enqueueSingletonManualJobWithResult(
     })
 
     if (existing) {
-      if (!hasSameManualSemantics(existing, parsed, payload)) {
+      if (!hasSameSingletonSemantics(existing, parsed, payload)) {
         throw new BackgroundTaskError(
           'ACTIVE_JOB_CONFLICT',
           `Active background job ${existing.id} has different request semantics`

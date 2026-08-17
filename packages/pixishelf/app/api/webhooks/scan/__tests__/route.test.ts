@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => ({
   createScanRunItemBuffer: vi.fn(),
   completeScanRun: vi.fn(),
   cancelScanRun: vi.fn(),
-  failScanRun: vi.fn()
+  failScanRun: vi.fn(),
+  central: false,
+  enqueueCentralScan: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
@@ -43,6 +45,10 @@ vi.mock('@/services/scan-run-service', () => ({
   cancelScanRun: mocks.cancelScanRun,
   failScanRun: mocks.failScanRun
 }))
+vi.mock('@/services/background-task/dispatcher-cutover', () => ({
+  isCentralDispatcherCutoverEnabled: () => mocks.central
+}))
+vi.mock('@/services/media-root-central-service', () => ({ enqueueCentralScan: mocks.enqueueCentralScan }))
 
 import { POST } from '../route'
 
@@ -51,6 +57,7 @@ const post = POST
 describe('webhook scan audit integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.central = false
     process.env.SCAN_WEBHOOK_TOKEN = 'token'
     mocks.getScanPath.mockResolvedValue('D:/scan')
     mocks.createScanJob.mockResolvedValue({ id: 'job-1' })
@@ -77,6 +84,29 @@ describe('webhook scan audit integration', () => {
     })
   })
 
+  it('returns 202 queued without executing scan after central cutover', async () => {
+    mocks.central = true
+    mocks.enqueueCentralScan.mockResolvedValue({ jobId: 'job-central', status: 'PENDING', reused: false })
+    const request = new NextRequest('http://localhost/api/webhooks/scan', {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'full', force: false })
+    })
+
+    const response = await post(request, { params: Promise.resolve({}) })
+
+    expect(response.status).toBe(202)
+    await expect(response.json()).resolves.toMatchObject({ queued: true, jobId: 'job-central' })
+    expect(mocks.enqueueCentralScan).toHaveBeenCalledWith({
+      triggerSource: 'SYSTEM',
+      type: 'all',
+      force: false,
+      metadataList: []
+    })
+    expect(mocks.scan).not.toHaveBeenCalled()
+    expect(mocks.createScanJob).not.toHaveBeenCalled()
+  })
+
   it('creates CLIENT_LIST audit runs for webhook list scans', async () => {
     const request = new NextRequest('http://localhost/api/webhooks/scan', {
       method: 'POST',
@@ -98,9 +128,11 @@ describe('webhook scan audit integration', () => {
       type: 'PIXIV',
       mode: 'CLIENT_LIST'
     })
-    expect(mocks.scan).toHaveBeenCalledWith(expect.objectContaining({
-      metadataRelativePaths: ['artist/100-meta.json']
-    }))
+    expect(mocks.scan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadataRelativePaths: ['artist/100-meta.json']
+      })
+    )
   })
 
   it('marks the job and scan run as failed when a force rebuild rejects', async () => {

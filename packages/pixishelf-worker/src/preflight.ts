@@ -48,7 +48,7 @@ export async function runStartupPreflight(
 ) {
   await abortable(dependencies.checkDatabaseSchema(), signal)
   await Promise.all([
-    abortable(dependencies.checkPath(config.sourceMediaRoot, 'read'), signal),
+    abortable(dependencies.checkPath(config.sourceMediaRoot, 'read-write'), signal),
     abortable(dependencies.checkPath(config.derivedMediaRoot, 'read-write'), signal),
     abortable(dependencies.checkPath(config.archiveRoot, 'read-write'), signal),
     abortable(dependencies.checkExecutable(config.ffmpegPath, config.preflightTimeoutMs, signal), signal),

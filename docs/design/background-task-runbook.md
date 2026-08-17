@@ -360,7 +360,7 @@ Phase 3 先以默认关闭的双开关交付内核：`CENTRAL_DISPATCHER_CUTOVER
 4. 视频探测、独立封面和派生媒体 GC（已暗装）。
 5. 章节预览（已暗装）。
 6. MP4 优化（已暗装）。
-7. 扫描、本地导入、迁移和批量替换（待迁移，仍阻止全局切换）。
+7. 扫描、本地导入、迁移和批量替换（Phase 5 已暗装）。
 
 每迁移一个任务：
 
@@ -369,7 +369,22 @@ Phase 3 先以默认关闭的双开关交付内核：`CENTRAL_DISPATCHER_CUTOVER
 - central=true 的路由和队列适配不得进入旧 IIFE/内存消费者；暗发布阶段保留 central=false 的 legacy 实现用于生产和回滚，最终原子切换稳定后再删除。
 - 增加重启恢复、取消和终态 CAS 测试。
 
-“已暗装”表示代码、Registry、镜像依赖和测试已经交付，不表示生产流量已经切到新 Worker。Phase 4 提交仍保持两个全局开关为 false；13 个 capability 与剩余 4 个任务必须在最终原子切换前一起通过发布门禁。
+“已暗装”表示代码、Registry、镜像依赖和测试已经交付，不表示生产流量已经切到新 Worker。Phase 5 的 Registry 已精确锁定 17 个 v1 capability，两个全局开关仍保持 false；全部 capability 必须在最终原子切换前一起通过发布门禁。
+
+#### 扫描、迁移与批量替换切换门禁
+
+- `/app/data` 必须以读写方式挂载，启动 preflight 必须拒绝只读原始媒体目录。
+- Worker READY 后执行只读审计；命令会只查询最近 60 秒心跳的 READY 实例，并精确比较 17 项 v1
+  capability。实例缺失、重复、字段非法或清单错配都会脱敏报错并以非零状态退出：
+
+  ```powershell
+  docker compose -f docker-compose.deploy.yml exec worker node dist/capability-audit.cjs
+  if ($LASTEXITCODE -ne 0) { throw 'Worker capability audit failed' }
+  ```
+
+- 扫描和本地导入只读取冻结输入；迁移和批量替换只从持久阶段检查点恢复，不从请求现场重新推断。
+- 批量替换恢复/清理只接受 producer 生成的备份与 pending 目录身份，并在任何文件操作前执行 case-fold 路径互异检查。
+- 高风险 PostgreSQL 集成测试必须与其他 Executor 使用同一个测试库 URL 串行执行，避免全局执行槽测试互相争用。
 
 #### 视频探测、封面与派生媒体 GC 切换门禁
 
@@ -596,7 +611,7 @@ flowchart TD
    本阶段会回填 `availableAt` 并设置新记录默认值，但仍允许旧关键帧入口写入 `NULL`；不要在本次切换中手工收紧为 `NOT NULL`。
 5. 旧终态 SystemJob 标记为 LEGACY/version 0。
 6. 部署新 App 和新 Worker，scheduler 继续关闭。
-7. 新 Worker启动时验证 Schema 版本、数据库、FFmpeg/FFprobe 和两个媒体挂载。
+7. 新 Worker启动时验证 Schema 版本、数据库、FFmpeg/FFprobe 和三个可读写媒体目录。
 8. 运行只读 post-migration audit，比较迁移前后核心表计数和已发布引用。
    同时检查旧 `system_jobs` 的 progress、attempt、maxAttempts 和 definitionVersion；本次 migration 的四个历史表 CHECK 使用 `NOT VALID`，创建时不会扫描未触碰的历史行，但会拒绝非法的新插入，也会拒绝任何仍不满足约束的旧行更新。旧值审计通过后通过独立 migration 执行 `VALIDATE CONSTRAINT`。
 9. 抽样读取原图、封面、章节预览、代表帧和归档 manifest。

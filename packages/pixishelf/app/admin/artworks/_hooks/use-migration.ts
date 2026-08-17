@@ -56,10 +56,13 @@ interface MigrationStore {
   paused: boolean
   stats: MigrationStats | null
   error: string | null
+  jobId: string | null
+  scanRunId: string | null
   setIsMigrating: (v: boolean) => void
   setPaused: (v: boolean) => void
   setStats: (v: MigrationStats | null) => void
   setError: (v: string | null) => void
+  setQueuedJob: (jobId: string | null, scanRunId: string | null) => void
   reset: () => void
 }
 
@@ -68,11 +71,14 @@ export const useMigrationStore = create<MigrationStore>((set) => ({
   paused: false,
   stats: null,
   error: null,
+  jobId: null,
+  scanRunId: null,
   setIsMigrating: (v) => set({ isMigrating: v }),
   setPaused: (v) => set({ paused: v }),
   setStats: (v) => set({ stats: v }),
   setError: (v) => set({ error: v }),
-  reset: () => set({ isMigrating: false, paused: false, stats: null, error: null })
+  setQueuedJob: (jobId, scanRunId) => set({ jobId, scanRunId }),
+  reset: () => set({ isMigrating: false, paused: false, stats: null, error: null, jobId: null, scanRunId: null })
 }))
 
 /**
@@ -93,6 +99,8 @@ interface SseMigrationState {
   paused: boolean
   stats: MigrationStats | null
   error: string | null
+  jobId: string | null
+  scanRunId: string | null
   currentMessage: string
   elapsed: number
 }
@@ -119,8 +127,20 @@ export function useMigration(): {
   logger: ReturnType<typeof useLogger>
 } {
   // 1. 全局状态（跨组件共享）
-  const { isMigrating, paused, stats, error, setIsMigrating, setPaused, setStats, setError, reset } =
-    useMigrationStore()
+  const {
+    isMigrating,
+    paused,
+    stats,
+    error,
+    jobId,
+    scanRunId,
+    setIsMigrating,
+    setPaused,
+    setStats,
+    setError,
+    setQueuedJob,
+    reset
+  } = useMigrationStore()
   const trpcClient = useTRPCClient()
 
   // 2. 独立日志器（避免与其他流日志混淆）
@@ -182,6 +202,20 @@ export function useMigration(): {
           })
           break
 
+        case 'queued':
+          const queuedMigration = data?.queued as { jobId?: unknown; scanRunId?: unknown } | undefined
+          const queuedJobId = typeof queuedMigration?.jobId === 'string' ? queuedMigration.jobId : null
+          const queuedRunId = typeof queuedMigration?.scanRunId === 'string' ? queuedMigration.scanRunId : null
+          setQueuedJob(queuedJobId, queuedRunId)
+          setIsMigrating(false)
+          setPaused(false)
+          setError(null)
+          logger.addLog('迁移任务已加入后台队列', 'connection', queuedMigration)
+          toast.info('迁移任务已加入后台队列', {
+            description: queuedJobId ? `任务 ID: ${queuedJobId}` : undefined
+          })
+          break
+
         case 'complete':
           const completeData = data as { success: boolean; result: MigrationStats }
           setIsMigrating(false)
@@ -226,13 +260,13 @@ export function useMigration(): {
           break
       }
 
-    // 命中终态事件时关闭 SSE，停止后续事件处理
-      if (['complete', 'error', 'cancelled'].includes(eventName)) {
+      // 命中终态事件时关闭 SSE，停止后续事件处理
+      if (['queued', 'complete', 'error', 'cancelled'].includes(eventName)) {
         fetchControllerRef.current?.abort()
         fetchControllerRef.current = null
       }
     },
-    [logger, setError, setIsMigrating, setStats]
+    [logger, setError, setIsMigrating, setQueuedJob, setStats]
   )
 
   // --- 核心流程 ---
@@ -395,6 +429,8 @@ export function useMigration(): {
       paused,
       stats,
       error,
+      jobId,
+      scanRunId,
       currentMessage,
       elapsed
     },

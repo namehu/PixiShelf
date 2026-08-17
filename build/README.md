@@ -7,9 +7,9 @@
 ## 文件边界
 
 - `Dockerfile`：Web/API 的 Next.js standalone 镜像，负责启动前执行数据库迁移。
-- `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和 Phase 4
-  已迁移的 13 个 Executor：Archive/Keyframe、五类维护任务、视频探测/封面/派生媒体 GC，以及
-  章节预览/流媒体优化。
+- `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和 Phase 5
+  已迁移的全部 17 个 Executor capability：Archive/Keyframe、五类维护任务、视频媒体任务，以及
+  扫描/本地导入、迁移和批量替换。
 - `docker-compose.dev.yml`：本地构建与开发环境。
 - `docker-compose.deploy.yml`：使用预构建镜像的生产环境。
 - `.env.example`：部署变量模板，所有 Central Dispatcher 开关默认关闭。
@@ -31,7 +31,8 @@ Worker 需要以下挂载：
 - `DERIVED_MEDIA_HOST_PATH` → `/app/.local-data/derived-media:rw`：视频代表帧等派生媒体；
 - PostgreSQL：任务队列、租约、事件、领域检查点与最终发布状态。
 
-启动预检会验证数据库版本、目录权限、FFmpeg 与 FFprobe。任一条件不满足时 Worker 不进入
+启动预检会验证数据库版本、三个媒体目录的读写权限、FFmpeg 与 FFprobe。原始媒体目录必须可写，
+因为扫描、本地导入、迁移和批量替换会在其中执行有检查点的文件操作。任一条件不满足时 Worker 不进入
 READY，也不会领取任务。镜像内健康检查使用 `/livez`；部署确认使用：
 
 ```bash
@@ -87,7 +88,7 @@ cd build
 cp .env.example .env
 ```
 
-升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH` 和 `DERIVED_MEDIA_HOST_PATH`。Phase 4 暗发布必须保持：
+升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH` 和 `DERIVED_MEDIA_HOST_PATH`。Phase 5 暗发布必须保持：
 
 ```dotenv
 CENTRAL_DISPATCHER_CUTOVER_ENABLED=false
@@ -110,9 +111,9 @@ docker compose -f docker-compose.deploy.yml exec worker \
 
 两个开关用途不同：`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 让 Next.js 只创建/控制统一队列任务；
 `WORKER_DISPATCH_ENABLED` 才允许通用 Worker claim。开关默认 false，避免镜像升级时意外开始消费。
-当前通用 Registry 覆盖 13 种任务，但 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、
-`PENDING_REPLACE` 四类高风险任务仍未切换。此阶段不能打开全局开关，否则这些任务会被中央入口
-拒绝或积压。只有全部 17 类任务完成迁移和最终回归后，才允许执行下述原子切换。
+当前通用 Registry 已锁定全部 17 种 v1 capability，其中包括 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、
+`MIGRATION`、`PENDING_REPLACE` 四类高风险任务。它们已经随镜像暗装，但生产流量仍走旧路径；只有
+17 类任务一起通过最终回归、兼容审计和原子切换门禁后，才允许同时打开两个全局开关。
 
 最终切换必须在所有 Executor 迁移、回归和发布门禁完成后一次完成：停止新任务、排空并停止旧
 `archive-worker`，确认无 RUNNING/PAUSING/CANCELLING 旧任务，再同时启用 Next 切换与通用 Worker

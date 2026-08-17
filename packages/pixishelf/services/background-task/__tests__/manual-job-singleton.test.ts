@@ -9,7 +9,11 @@ vi.mock('../job-command-service', async (importOriginal) => ({
   enqueueJob: enqueueJobMock
 }))
 
-import { enqueueSingletonManualJob, enqueueSingletonManualJobWithResult } from '../manual-job-singleton'
+import {
+  enqueueSingletonManualJob,
+  enqueueSingletonManualJobWithResult,
+  enqueueSingletonSystemJobWithResult
+} from '../manual-job-singleton'
 
 function harness(existing: ReturnType<typeof jobRecord> | null) {
   const order: string[] = []
@@ -189,6 +193,35 @@ describe('manual background job singleton', () => {
       'scheduled-task-update',
       'transaction-commit'
     ])
+  })
+
+  it('creates an internal singleton as SYSTEM without a requested user', async () => {
+    const state = harness(null)
+    enqueueJobMock.mockResolvedValueOnce(
+      jobRecord({ id: 'system-scan', type: 'SCAN', triggerSource: 'SYSTEM', requestedByUserId: null })
+    )
+
+    await expect(
+      enqueueSingletonSystemJobWithResult(
+        {
+          type: 'SCAN',
+          triggerSource: 'SYSTEM',
+          priority: 110,
+          payload: { mode: 'INCREMENTAL' }
+        },
+        { client: state.client }
+      )
+    ).resolves.toMatchObject({ job: { id: 'system-scan' }, reused: false })
+    expect(enqueueJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'SCAN',
+        triggerSource: 'SYSTEM',
+        priority: 110,
+        payload: { mode: 'INCREMENTAL' }
+      }),
+      expect.anything()
+    )
+    expect(enqueueJobMock.mock.calls[0]?.[0]).not.toHaveProperty('requestedByUserId')
   })
 
   it('reports created versus reused without changing the legacy return API', async () => {

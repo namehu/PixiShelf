@@ -1,0 +1,8 @@
+export { createScanExecutorRegistrations } from './executors.js'
+export { artistMappingInputDigest, localWorkInputDigest, metadataInputDigest } from './digests.js'
+export { computeLocalWorkContentFingerprint } from './fingerprint.js'
+export { discoverBoundedLocalWorkCandidates } from './control-plane-discovery.js'
+export { ScanExecutorError } from './errors.js'
+export type { BoundedLocalWorkDiscoveryInput } from './control-plane-discovery.js'
+export type { LocalWorkCandidate, ScanDiscoveryLimits } from './discovery.js'
+export type { ScanExecutorConfig, ScanExecutorDependencies, ScanExecutionResult } from './types.js'

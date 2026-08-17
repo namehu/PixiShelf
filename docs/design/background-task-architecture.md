@@ -1,6 +1,6 @@
 # PixiShelf 后台任务架构设计
 
-> 状态：分阶段实施中；Phase 4 已暗装 13 个 Executor，全局切换仍关闭
+> 状态：分阶段实施中；Phase 5 已暗装全部 17 个 Executor capability，全局切换仍关闭
 > 决策日期：2026-08-14
 > 关联文档：[数据模型](./background-task-data-model.md) · [运行手册](./background-task-runbook.md) · [ADR-0003](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)
 
@@ -246,7 +246,7 @@ flowchart TB
 
 拆分采用同一 pnpm monorepo，不拆成独立 Git 仓库。这样既能独立部署，又能原子修改数据库契约、任务协议和调用方。
 
-Phase 2 先完成四个基础 package、Prisma ownership、WorkerInstance 心跳、启动预检、健康端点和独立镜像。Phase 3 增加 `@pixishelf/job-executors`，先暗装归档与关键帧 Executor。因为控制面和 Worker 使用全局切换开关，在所有旧入口迁完前，新 Worker 保持 `WORKER_DISPATCH_ENABLED=false`，旧 archive-worker 继续消费；最终切换才同时停止旧 Worker、开启中央物化和 Dispatcher，避免中间版本双消费或无人消费。
+Phase 2 先完成四个基础 package、Prisma ownership、WorkerInstance 心跳、启动预检、健康端点和独立镜像。Phase 3 增加 `@pixishelf/job-executors`，先暗装归档与关键帧 Executor；Phase 4 迁移维护与媒体任务；Phase 5 将扫描/本地导入、迁移和批量替换接入同一 Registry。因为控制面和 Worker 使用全局切换开关，新 Worker 仍保持 `WORKER_DISPATCH_ENABLED=false`，旧 archive-worker 继续消费；最终切换才同时停止旧 Worker、开启中央物化和 Dispatcher，避免中间版本双消费或无人消费。
 
 语言选型：
 
@@ -384,14 +384,14 @@ flowchart TB
 - 代表帧发现/生成是独立流水线；当前不会隐式补建 Probe 前置任务，缺少 duration/source fingerprint 时按明确错误或重试策略收口。
 - 封面、章节和流媒体优化登记确定路径的 GC intent；关键帧仍保留自身 staging/published 清理语义，尚未接入通用 GC。
 
-### 6.3 Phase 4 实际 Registry 与暗发布边界
+### 6.3 Phase 5 实际 Registry 与暗发布边界
 
-截至 2026-08-15，通用 Worker 已注册 13 个 v1 Executor，但两个全局切换开关仍保持 false。下面是已经落地的执行关系，不表示此时生产环境已经开始 claim：
+截至 2026-08-17，通用 Worker 已锁定全部 17 个 v1 capability，但两个全局切换开关仍保持 false。下面是已经落地的执行关系，不表示此时生产环境已经开始 claim：
 
 ```mermaid
 flowchart TB
   Queue["SystemJob 持久队列"] --> Slot["global/background-worker<br/>数据库单执行槽"]
-  Slot --> Registry["Worker Executor Registry<br/>13 capabilities"]
+  Slot --> Registry["Worker Executor Registry<br/>17 capabilities"]
 
   Registry --> Archive["ARCHIVE_IMPORT"]
   Registry --> KeyframeDiscovery["VIDEO_KEYFRAME_DISCOVERY"]
@@ -403,15 +403,17 @@ flowchart TB
   Registry --> Chapter["VIDEO_CHAPTER_PREVIEW_GENERATION"]
   Registry --> Streaming["VIDEO_STREAMING_OPTIMIZATION"]
   Registry --> GC["DERIVED_MEDIA_GC"]
+  Registry --> Scan["SCAN / LOCAL_DIRECTORY_IMPORT"]
+  Registry --> Migration["MIGRATION"]
+  Registry --> PendingReplace["PENDING_REPLACE"]
 
   Poster -. "替换或失败产物 intent" .-> GC
   Chapter -. "旧预览 intent" .-> GC
   Streaming -. "临时/备份 intent" .-> GC
 
-  Pending["尚未迁移<br/>SCAN / LOCAL_DIRECTORY_IMPORT<br/>MIGRATION / PENDING_REPLACE"] -. "阻止全局切换" .-> Queue
 ```
 
-视频探测只按有界页物化封面子任务；封面、章节和流媒体优化只登记确定的 GC intent，不在任务启动时遍历目录。`DERIVED_MEDIA_GC` 的每日模式只消费到期 intent；目录 reconciliation 是独立的管理员 dry-run。四个高风险任务完成迁移以前，`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 与 `WORKER_DISPATCH_ENABLED` 必须同时保持 false，旧执行路径继续承担生产流量。
+视频探测只按有界页物化封面子任务；封面、章节和流媒体优化只登记确定的 GC intent，不在任务启动时遍历目录。`DERIVED_MEDIA_GC` 的每日模式只消费到期 intent；目录 reconciliation 是独立的管理员 dry-run。四个高风险 Executor 使用冻结输入、阶段检查点和栅栏终态，且要求原始媒体挂载可读写。最终原子切换以前，`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 与 `WORKER_DISPATCH_ENABLED` 必须同时保持 false，旧执行路径继续承担生产流量。
 
 ### 6.4 资源影响矩阵
 
@@ -428,6 +430,8 @@ flowchart TB
 | MP4 优化            | 读写   | 读写         | 不访问       | 否   | ffmpeg         | 必须使用临时文件和原子替换  |
 | 归档导入            | 读写   | 读写         | 可选         | 是   | 可选           | 保留 staging/revision 发布  |
 | 扫描/本地导入       | 读写   | 读写         | 不访问       | 否   | 可选           | 与媒体根写操作互斥          |
+| 目录迁移            | 读写   | 读写         | 不访问       | 否   | 否             | 分阶段发布并按指纹恢复      |
+| 批量替换/恢复       | 读写   | 读写         | 不访问       | 否   | 否             | 备份身份和目标必须互异      |
 | GC                  | 读写   | 不访问       | 删除         | 否   | 否             | 删除前再次验证无引用        |
 
 ## 7. 派生媒体 GC

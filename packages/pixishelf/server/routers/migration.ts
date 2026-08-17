@@ -1,8 +1,17 @@
 import { z } from 'zod'
-import { authProcedure, router } from '@/server/trpc'
+import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import { TRPCError } from '@trpc/server'
 import { precheckMigration } from '@/services/migration-service'
 import * as JobService from '@/services/job-service'
+import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
+import {
+  cancelJobCommand,
+  pauseJobCommand,
+  resumeJobCommand,
+  retryJobCommand
+} from '@/services/background-task/job-command-service'
+import { BackgroundTaskError } from '@/services/background-task/background-task-error'
+import { JOB_DEFINITION_VERSION, parseJobPayload } from '@pixishelf/job-contracts'
 
 const MigrationPrecheckSchema = z.object({
   targetIds: z.array(z.number()).optional(),
@@ -25,7 +34,7 @@ const MigrationPrecheckSchema = z.object({
 })
 
 const MigrationControlSchema = z.object({
-  action: z.enum(['pause', 'resume', 'cancel']),
+  action: z.enum(['pause', 'resume', 'cancel', 'retry']),
   jobId: z.string().optional()
 })
 
@@ -56,16 +65,51 @@ export const migrationRouter = router({
    * 控制路由用于对当前活跃迁移执行 pause / resume / cancel。
    * 若未显式传入 jobId，则默认操作最近一条活跃任务；找不到任务时返回 404。
    */
-  control: authProcedure.input(MigrationControlSchema).mutation(async ({ input }) => {
+  control: adminProcedure.input(MigrationControlSchema).mutation(async ({ input, ctx }) => {
     const job = input.jobId ? await JobService.getJob(input.jobId) : await JobService.getActiveMigrationJob()
     if (!job) {
       throw new TRPCError({ code: 'NOT_FOUND', message: '没有可控制的迁移任务' })
+    }
+
+    if (isCentralDispatcherCutoverEnabled()) {
+      if (job.type !== 'MIGRATION') {
+        throw new TRPCError({ code: 'NOT_FOUND', message: '指定任务不是迁移任务' })
+      }
+      if (job.definitionVersion !== JOB_DEFINITION_VERSION) {
+        throw new TRPCError({ code: 'CONFLICT', message: '迁移任务定义版本不受支持' })
+      }
+      try {
+        parseJobPayload('MIGRATION', job.payload ?? {})
+      } catch {
+        throw new TRPCError({ code: 'CONFLICT', message: '迁移任务载荷无效' })
+      }
+      try {
+        const updated =
+          input.action === 'pause'
+            ? await pauseJobCommand({ jobId: job.id })
+            : input.action === 'resume'
+              ? await resumeJobCommand({ jobId: job.id })
+              : input.action === 'retry'
+                ? await retryJobCommand({ jobId: job.id, requestedByUserId: ctx.userId })
+                : await cancelJobCommand({ jobId: job.id })
+        return { jobId: updated.id, status: updated.status }
+      } catch (error) {
+        if (error instanceof BackgroundTaskError) {
+          throw new TRPCError({
+            code: error.code === 'JOB_NOT_FOUND' ? 'NOT_FOUND' : 'CONFLICT',
+            message: error.message
+          })
+        }
+        throw error
+      }
     }
 
     if (input.action === 'pause') {
       await JobService.pauseJob(job.id)
     } else if (input.action === 'resume') {
       await JobService.resumeJob(job.id)
+    } else if (input.action === 'retry') {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Retry requires the central dispatcher' })
     } else {
       await JobService.cancelJob(job.id)
     }

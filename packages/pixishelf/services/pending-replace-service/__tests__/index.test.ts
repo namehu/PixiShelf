@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => ({
   prepareBinding: vi.fn(),
   item: null as any,
   batchLock: vi.fn(),
-  duplicateBinding: null as any
+  duplicateBinding: null as any,
+  centralCutover: false,
+  centralPreviewLock: vi.fn()
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -42,6 +44,15 @@ vi.mock('@/services/job-service', () => ({
 
 vi.mock('@/services/setting.service', () => ({
   getSystemSettings: mocks.getSystemSettings
+}))
+
+vi.mock('@/services/background-task/dispatcher-cutover', () => ({
+  isCentralDispatcherCutoverEnabled: () => mocks.centralCutover,
+  assertLegacyBackgroundExecutionAllowed: vi.fn()
+}))
+
+vi.mock('@/services/pending-replace-central-service', () => ({
+  lockCentralPendingReplacePreviewMutation: mocks.centralPreviewLock
 }))
 
 vi.mock('../discovery', () => ({
@@ -74,7 +85,9 @@ beforeEach(() => {
   }
   mocks.item = null
   mocks.duplicateBinding = null
+  mocks.centralCutover = false
   mocks.batchLock.mockResolvedValue({ count: 1 })
+  mocks.centralPreviewLock.mockResolvedValue(undefined)
   mocks.prepareBinding.mockResolvedValue({
     artworkId: 42,
     externalId: 'external-42',
@@ -182,9 +195,11 @@ describe('bindPendingReplaceItem', () => {
       batch: { status: PendingReplaceBatchStatus.PREVIEWED }
     }
 
-    await expect(
-      bindPendingReplaceItem({ scanPath: 'D:/media', itemId: 'item-1', artworkId: 42 })
-    ).resolves.toEqual({ success: true, batchId: 'batch-1', itemId: 'item-1' })
+    await expect(bindPendingReplaceItem({ scanPath: 'D:/media', itemId: 'item-1', artworkId: 42 })).resolves.toEqual({
+      success: true,
+      batchId: 'batch-1',
+      itemId: 'item-1'
+    })
 
     expect(mocks.prepareBinding).toHaveBeenCalledWith({
       scanPath: 'D:/media',
@@ -203,6 +218,22 @@ describe('bindPendingReplaceItem', () => {
         })
       })
     )
+  })
+
+  it('takes the central enqueue lock before changing a frozen preview snapshot', async () => {
+    mocks.centralCutover = true
+    mocks.item = {
+      id: 'item-1',
+      batchId: 'batch-1',
+      sourceDirectoryName: 'original-folder',
+      status: PendingReplaceItemStatus.INVALID,
+      batch: { status: PendingReplaceBatchStatus.PREVIEWED }
+    }
+
+    await bindPendingReplaceItem({ scanPath: 'D:/media', itemId: 'item-1', artworkId: 42 })
+
+    expect(mocks.centralPreviewLock).toHaveBeenCalledWith(expect.anything(), 'batch-1')
+    expect(mocks.centralPreviewLock).toHaveBeenCalledBefore(mocks.batchLock)
   })
 })
 

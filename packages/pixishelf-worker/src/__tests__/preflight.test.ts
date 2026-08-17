@@ -36,7 +36,7 @@ describe('startup preflight', () => {
     expect(checkDatabaseSchema).toHaveBeenCalledOnce()
     expect(checkPath.mock.calls).toEqual(
       expect.arrayContaining([
-        ['/media/source', 'read'],
+        ['/media/source', 'read-write'],
         ['/media/derived', 'read-write'],
         ['/media/archive', 'read-write']
       ])

@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server'
-import { authProcedure, router } from '@/server/trpc'
+import { adminProcedure, router } from '@/server/trpc'
 import {
   bindPendingReplaceItemSchema,
   pendingReplaceBatchIdSchema,
@@ -8,6 +8,7 @@ import {
   startPendingReplaceSchema
 } from '@/schemas/pending-replace.dto'
 import { getScanPath } from '@/services/setting.service'
+import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
 import {
   bindPendingReplaceItem,
   cancelPendingReplaceBatch,
@@ -28,6 +29,10 @@ async function requireScanPath() {
   return scanPath
 }
 
+async function scanPathForExecution() {
+  return isCentralDispatcherCutoverEnabled() ? '' : requireScanPath()
+}
+
 function wrapPendingReplaceError(error: unknown): never {
   // 服务抛错并非结构化时，按字符串规则进行分类映射：
   // - 已存在进行中/未找到/状态不允许 -> 对应 CONFLICT/NOT_FOUND/PRECONDITION_FAILED
@@ -42,19 +47,19 @@ function wrapPendingReplaceError(error: unknown): never {
 }
 
 export const pendingReplaceRouter = router({
-  preview: authProcedure.mutation(async () => {
+  preview: adminProcedure.mutation(async ({ ctx }) => {
     try {
-      return await createPendingReplacePreview(await requireScanPath())
+      return await createPendingReplacePreview(await scanPathForExecution(), ctx.userId)
     } catch (error) {
       wrapPendingReplaceError(error)
     }
   }),
 
-  status: authProcedure.input(pendingReplaceBatchIdSchema.partial()).query(async ({ input }) => {
+  status: adminProcedure.input(pendingReplaceBatchIdSchema.partial()).query(async ({ input }) => {
     return getPendingReplaceBatch(input.batchId)
   }),
 
-  reorder: authProcedure.input(reorderPendingReplaceItemSchema).mutation(async ({ input }) => {
+  reorder: adminProcedure.input(reorderPendingReplaceItemSchema).mutation(async ({ input }) => {
     try {
       return await reorderPendingReplaceItem(input)
     } catch (error) {
@@ -62,7 +67,7 @@ export const pendingReplaceRouter = router({
     }
   }),
 
-  bind: authProcedure.input(bindPendingReplaceItemSchema).mutation(async ({ input }) => {
+  bind: adminProcedure.input(bindPendingReplaceItemSchema).mutation(async ({ input }) => {
     try {
       return await bindPendingReplaceItem({
         scanPath: await requireScanPath(),
@@ -74,7 +79,7 @@ export const pendingReplaceRouter = router({
     }
   }),
 
-  unbind: authProcedure.input(pendingReplaceItemIdSchema).mutation(async ({ input }) => {
+  unbind: adminProcedure.input(pendingReplaceItemIdSchema).mutation(async ({ input }) => {
     try {
       return await unbindPendingReplaceItem(input)
     } catch (error) {
@@ -82,41 +87,42 @@ export const pendingReplaceRouter = router({
     }
   }),
 
-  start: authProcedure.input(startPendingReplaceSchema).mutation(async ({ input }) => {
+  start: adminProcedure.input(startPendingReplaceSchema).mutation(async ({ input, ctx }) => {
     try {
       return await startPendingReplaceBatch({
-        scanPath: await requireScanPath(),
+        scanPath: await scanPathForExecution(),
         batchId: input.batchId,
-        itemIds: input.itemIds
+        itemIds: input.itemIds,
+        requestedByUserId: ctx.userId
       })
     } catch (error) {
       wrapPendingReplaceError(error)
     }
   }),
 
-  cancel: authProcedure.input(pendingReplaceBatchIdSchema).mutation(async ({ input }) => {
+  cancel: adminProcedure.input(pendingReplaceBatchIdSchema).mutation(async ({ input }) => {
     return cancelPendingReplaceBatch(input.batchId)
   }),
 
-  recover: authProcedure.input(pendingReplaceBatchIdSchema).mutation(async ({ input }) => {
+  recover: adminProcedure.input(pendingReplaceBatchIdSchema).mutation(async ({ input, ctx }) => {
     try {
-      return await recoverInterruptedPendingReplaceBatchById(await requireScanPath(), input.batchId)
+      return await recoverInterruptedPendingReplaceBatchById(await scanPathForExecution(), input.batchId, ctx.userId)
     } catch (error) {
       wrapPendingReplaceError(error)
     }
   }),
 
-  restore: authProcedure.input(pendingReplaceItemIdSchema).mutation(async ({ input }) => {
+  restore: adminProcedure.input(pendingReplaceItemIdSchema).mutation(async ({ input, ctx }) => {
     try {
-      return await restorePendingReplaceItemById(await requireScanPath(), input.itemId)
+      return await restorePendingReplaceItemById(await scanPathForExecution(), input.itemId, ctx.userId)
     } catch (error) {
       wrapPendingReplaceError(error)
     }
   }),
 
-  cleanupBackups: authProcedure.input(pendingReplaceBatchIdSchema).mutation(async ({ input }) => {
+  cleanupBackups: adminProcedure.input(pendingReplaceBatchIdSchema).mutation(async ({ input, ctx }) => {
     try {
-      return await cleanupPendingReplaceBatchBackups(await requireScanPath(), input.batchId)
+      return await cleanupPendingReplaceBatchBackups(await scanPathForExecution(), input.batchId, ctx.userId)
     } catch (error) {
       wrapPendingReplaceError(error)
     }

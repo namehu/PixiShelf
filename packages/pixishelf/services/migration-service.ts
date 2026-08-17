@@ -5,7 +5,8 @@ import { prisma } from '@/lib/prisma'
 import { migrationLogger } from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
 import { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
-import { buildArtworkWhereClause } from '@/services/artwork-service/query-builder'
+import { migrationFilterSchema, migrationSelectionSchema, type MigrationSelection } from '@pixishelf/job-contracts'
+import { buildMigrationArtworkWhere, createPrismaMigrationSelectionPort } from '@pixishelf/job-executors'
 
 // 状态定义
 export type MigrationStatus = 'PENDING' | 'SKIPPED' | 'SUCCESS' | 'FAILED'
@@ -63,6 +64,7 @@ export interface MigrationFilters {
 export interface MigrationPrecheckInput {
   targetIds?: number[]
   filters?: MigrationFilters
+  selection?: MigrationSelection
 }
 
 export interface MigrationPrecheckResult {
@@ -71,74 +73,6 @@ export interface MigrationPrecheckResult {
   missingArtist: number
   missingExternalId: number
   missingImages: number
-}
-
-const toUtcDate = (dateStr: string) => new Date(`${dateStr}T00:00:00.000Z`)
-
-const addUtcDays = (dateStr: string, days: number) => {
-  const date = toUtcDate(dateStr)
-  date.setUTCDate(date.getUTCDate() + days)
-  return date
-}
-
-const buildMigrationWhere = (filters?: MigrationFilters) => {
-  const where: any = {
-    artist: { isNot: null },
-    externalId: { not: null }
-  }
-
-  if (filters?.id) {
-    where.id = filters.id
-  }
-
-  if (filters?.externalId) {
-    where.externalId = filters.externalId
-  }
-
-  if (filters?.artistName) {
-    where.artist = {
-      isNot: null,
-      is: {
-        OR: [
-          { name: filters.exactMatch ? filters.artistName : { contains: filters.artistName, mode: 'insensitive' } },
-          { userId: filters.exactMatch ? filters.artistName : { contains: filters.artistName, mode: 'insensitive' } }
-        ]
-      }
-    }
-  }
-
-  if (filters?.search) {
-    if (filters.exactMatch) {
-      where.title = filters.search
-    } else {
-      where.OR = [
-        { title: { contains: filters.search, mode: 'insensitive' } },
-        { description: { contains: filters.search, mode: 'insensitive' } },
-        { artist: { is: { name: { contains: filters.search, mode: 'insensitive' } } } },
-        { artist: { is: { userId: { contains: filters.search, mode: 'insensitive' } } } }
-      ]
-    }
-  }
-
-  const mediaTypes = ArtworksInfiniteQuerySchema.shape.mediaTypes.parse(filters?.mediaTypes)
-  if (mediaTypes.length > 0) {
-    where.images = {
-      some: {
-        OR: mediaTypes.map((ext) => ({
-          path: { endsWith: ext, mode: 'insensitive' }
-        }))
-      }
-    }
-  }
-
-  if (filters?.startDate || filters?.endDate) {
-    const sourceDate: any = {}
-    if (filters.startDate) sourceDate.gte = toUtcDate(filters.startDate)
-    if (filters.endDate) sourceDate.lt = addUtcDays(filters.endDate, 1)
-    where.sourceDate = sourceDate
-  }
-
-  return where
 }
 
 const resolveSafetyOptions = (options?: MigrationSafetyOptions) => {
@@ -150,52 +84,36 @@ const resolveSafetyOptions = (options?: MigrationSafetyOptions) => {
 }
 
 export async function precheckMigration(input: MigrationPrecheckInput): Promise<MigrationPrecheckResult> {
-  const parsedFilters = ArtworksInfiniteQuerySchema.parse({
-    cursor: 1,
-    pageSize: 1,
-    id: input.filters?.id ?? undefined,
-    search: input.filters?.search ?? undefined,
-    artistName: input.filters?.artistName ?? undefined,
-    startDate: input.filters?.startDate ?? undefined,
-    endDate: input.filters?.endDate ?? undefined,
-    externalId: input.filters?.externalId ?? undefined,
-    mediaTypes: input.filters?.mediaTypes ?? undefined,
-    exactMatch: input.filters?.exactMatch ?? undefined
-  })
+  const selection = input.selection ?? (await buildMigrationSelection(input))
+  const selectionPort = createPrismaMigrationSelectionPort(
+    prisma as unknown as Parameters<typeof createPrismaMigrationSelectionPort>[0]
+  )
+  return selectionPort.precheck(migrationSelectionSchema.parse(selection))
+}
 
-  let { whereSQL, sqlParams, paramIndex } = buildArtworkWhereClause(parsedFilters)
-
+export async function buildMigrationSelection(input: MigrationPrecheckInput): Promise<MigrationSelection> {
   if (input.targetIds?.length) {
-    whereSQL += ` AND a.id = ANY($${paramIndex})`
-    sqlParams.push(input.targetIds)
-    paramIndex++
+    return migrationSelectionSchema.parse({ mode: 'ARTWORK_IDS', artworkIds: input.targetIds })
   }
+  const upper = await prisma.artwork.aggregate({ _max: { id: true } })
+  return migrationSelectionSchema.parse({
+    mode: 'QUERY',
+    filters: canonicalMigrationFilters(input.filters),
+    upperArtworkId: upper._max.id ?? 0
+  })
+}
 
-  const runCount = async (extraCondition: string) => {
-    const query = `
-      SELECT COUNT(*) as count
-      FROM "Artwork" a
-      LEFT JOIN "Artist" artist ON a."artistId" = artist.id
-      ${whereSQL}
-      ${extraCondition}
-    `
-    const result = await prisma.$queryRawUnsafe<{ count: bigint }[]>(query, ...sqlParams)
-    return Number(result[0]?.count || 0)
-  }
-
-  const total = await runCount('')
-  const eligible = await runCount(' AND a."artistId" IS NOT NULL AND a."externalId" IS NOT NULL AND a."imageCount" > 0')
-  const missingArtist = await runCount(' AND a."artistId" IS NULL')
-  const missingExternalId = await runCount(' AND a."externalId" IS NULL')
-  const missingImages = await runCount(' AND a."imageCount" <= 0')
-
-  return {
-    total,
-    eligible,
-    missingArtist,
-    missingExternalId,
-    missingImages
-  }
+function canonicalMigrationFilters(filters?: MigrationFilters) {
+  return migrationFilterSchema.parse({
+    ...(filters?.id != null ? { id: filters.id } : {}),
+    ...(filters?.search ? { search: filters.search } : {}),
+    ...(filters?.artistName ? { artistName: filters.artistName } : {}),
+    ...(filters?.startDate ? { startDate: filters.startDate } : {}),
+    ...(filters?.endDate ? { endDate: filters.endDate } : {}),
+    ...(filters?.externalId ? { externalId: filters.externalId } : {}),
+    mediaTypes: ArtworksInfiniteQuerySchema.shape.mediaTypes.parse(filters?.mediaTypes),
+    exactMatch: filters?.exactMatch ?? false
+  })
 }
 
 /**
@@ -442,7 +360,21 @@ export async function runMigrationJob(
   }
 
   const failedItems: MigrationFailedItem[] = []
-  const where: any = buildMigrationWhere(options?.filters)
+  const upper = await prisma.artwork.aggregate({ _max: { id: true } })
+  const canonicalWhere = buildMigrationArtworkWhere(
+    {
+      mode: 'QUERY',
+      filters: canonicalMigrationFilters(options?.filters),
+      upperArtworkId: upper._max.id ?? 0
+    },
+    0
+  )
+  const where: any = {
+    AND: [
+      canonicalWhere,
+      { artist: { is: { userId: { not: null } } }, externalId: { not: null }, images: { some: {} } }
+    ]
+  }
 
   let cancelled = false
   let paused = false

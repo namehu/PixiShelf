@@ -32,12 +32,14 @@ export function ArtworkRowActions({ artwork, onEdit, onCopy, onDelete, onRescanC
   const [scanning, setScanning] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [queuedJob, setQueuedJob] = useState<{ jobId: string | null; scanRunId: string | null } | null>(null)
   const controllerRef = useRef<AbortController | null>(null)
 
   const startScan = async () => {
     setScanning(true)
     setProgress(0)
     setError(null)
+    setQueuedJob(null)
     controllerRef.current = new AbortController()
 
     try {
@@ -60,6 +62,23 @@ export function ArtworkRowActions({ artwork, onEdit, onCopy, onDelete, onRescanC
             if (data.percentage) {
               setProgress(data.percentage)
             }
+          } else if (message.event === 'queued') {
+            const data = JSON.parse(message.data) as {
+              queued?: { jobId?: unknown; scanRunId?: unknown }
+            }
+            const queued = {
+              jobId: typeof data.queued?.jobId === 'string' ? data.queued.jobId : null,
+              scanRunId: typeof data.queued?.scanRunId === 'string' ? data.queued.scanRunId : null
+            }
+            setQueuedJob(queued)
+            setScanning(false)
+            setError(null)
+            toast.info('重新扫描任务已加入后台队列', {
+              description: queued.jobId ? `任务 ID: ${queued.jobId}` : undefined
+            })
+            const controller = controllerRef.current
+            controllerRef.current = null
+            controller?.abort()
           } else if (message.event === 'complete') {
             toast.success('重新扫描完成')
             setScanning(false)
@@ -76,6 +95,7 @@ export function ArtworkRowActions({ artwork, onEdit, onCopy, onDelete, onRescanC
         }
       })
     } catch (scanError) {
+      if (scanError instanceof Error && scanError.name === 'AbortError') return
       if (controllerRef.current?.signal.aborted) return
 
       const message = scanError instanceof Error ? scanError.message : 'Unknown error'
@@ -135,7 +155,13 @@ export function ArtworkRowActions({ artwork, onEdit, onCopy, onDelete, onRescanC
           </DropdownMenuItem>
           <DropdownMenuItem disabled={scanning} onSelect={handleRescan}>
             {scanning ? <Spinner aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
-            {scanning ? `正在重新扫描（${progress}%）` : error ? '重新扫描（上次失败）' : '重新扫描'}
+            {scanning
+              ? `正在重新扫描（${progress}%）`
+              : error
+                ? '重新扫描（上次失败）'
+                : queuedJob
+                  ? '重新扫描（已入队）'
+                  : '重新扫描'}
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link href={`/artworks/${artwork.id}`} target="_blank" rel="noreferrer">
@@ -153,7 +179,11 @@ export function ArtworkRowActions({ artwork, onEdit, onCopy, onDelete, onRescanC
         </DropdownMenuGroup>
       </DropdownMenuContent>
       <span className="sr-only" role="status" aria-live="polite">
-        {scanning ? `正在扫描 ${artwork.title}，${progress}%` : ''}
+        {scanning
+          ? `正在扫描 ${artwork.title}，${progress}%`
+          : queuedJob?.jobId
+            ? `作品 ${artwork.title} 的重新扫描任务 ${queuedJob.jobId} 已入队${queuedJob.scanRunId ? `，扫描批次 ${queuedJob.scanRunId}` : ''}`
+            : ''}
       </span>
     </DropdownMenu>
   )

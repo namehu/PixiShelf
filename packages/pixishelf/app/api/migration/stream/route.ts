@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { apiHandler } from '@/lib/api-handler'
+import { ApiError, apiHandler } from '@/lib/api-handler'
 import { runMigrationJob, MigrationStats } from '@/services/migration-service'
 import { migrationLogger } from '@/lib/logger'
 import * as JobService from '@/services/job-service'
 import { JobStatus } from '@prisma/client'
+import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
+import { requireAdminRequest } from '@/services/background-task/request-auth'
+import { enqueueCentralMigration } from '@/services/media-root-central-service'
+import { queuedSseResponse } from '@/services/background-task/queued-sse-response'
+import { runBackgroundTaskApi } from '@/services/background-task/api-error-mapping'
 
 // 定义 Schema，支持 targetIds
 const MigrationSchema = z.object({
@@ -42,6 +47,36 @@ function createEventSender(controller: ReadableStreamDefaultController, encoder:
 
 export const POST = apiHandler(MigrationSchema, async (req, data) => {
   const { targetIds, batchSize, concurrency } = data
+  const { userId } = await requireAdminRequest(req)
+  if (isCentralDispatcherCutoverEnabled()) {
+    if (batchSize !== undefined || concurrency !== undefined) {
+      throw new ApiError('batchSize and concurrency overrides are not supported by the central dispatcher', 400)
+    }
+    const queued = await runBackgroundTaskApi(() =>
+      enqueueCentralMigration({
+        requestedByUserId: userId,
+        selectionInput: {
+          targetIds,
+          filters: {
+            id: data.id ?? null,
+            search: data.search ?? null,
+            artistName: data.artistName ?? null,
+            startDate: data.startDate ?? null,
+            endDate: data.endDate ?? null,
+            externalId: data.externalId ?? null,
+            mediaTypes: data.mediaTypes ?? null,
+            exactMatch: data.exactMatch ?? false
+          }
+        },
+        safety: {
+          transferMode: data.transferMode,
+          verifyAfterCopy: data.verifyAfterCopy,
+          cleanupSource: data.cleanupSource
+        }
+      })
+    )
+    return queuedSseResponse(queued)
+  }
   const encoder = new TextEncoder()
 
   const stream = new ReadableStream({

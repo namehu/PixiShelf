@@ -1,6 +1,9 @@
 import { prisma } from '@/lib/prisma'
 import { assertLegacyBackgroundExecutionAllowed } from '@/services/background-task/dispatcher-cutover'
 import { JobStatus, Prisma } from '@prisma/client'
+import { ACTIVE_JOB_STATUSES } from '@pixishelf/job-contracts'
+
+const ALL_ACTIVE_JOB_STATUSES = [...ACTIVE_JOB_STATUSES] as JobStatus[]
 
 const MEDIA_SCAN_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT']
 const MEDIA_ROOT_WRITE_JOB_TYPES = ['SCAN', 'LOCAL_DIRECTORY_IMPORT', 'MIGRATION', 'PENDING_REPLACE']
@@ -179,7 +182,7 @@ export async function getActiveMigrationJob() {
   return await prisma.systemJob.findFirst({
     where: {
       type: 'MIGRATION',
-      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED, JobStatus.CANCELLING] }
+      status: { in: ALL_ACTIVE_JOB_STATUSES }
     },
     orderBy: { createdAt: 'desc' }
   })
@@ -201,7 +204,7 @@ export async function getActiveScanJob() {
   return await prisma.systemJob.findFirst({
     where: {
       type: 'SCAN',
-      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+      status: { in: ALL_ACTIVE_JOB_STATUSES }
     },
     orderBy: { createdAt: 'desc' }
   })
@@ -211,7 +214,7 @@ export async function getActiveLocalDirectoryImportJob() {
   return prisma.systemJob.findFirst({
     where: {
       type: 'LOCAL_DIRECTORY_IMPORT',
-      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING] }
+      status: { in: ALL_ACTIVE_JOB_STATUSES }
     },
     orderBy: { createdAt: 'desc' }
   })
@@ -782,7 +785,7 @@ export async function getActiveJobByType(type: string) {
   return await prisma.systemJob.findFirst({
     where: {
       type,
-      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED, JobStatus.CANCELLING] }
+      status: { in: ALL_ACTIVE_JOB_STATUSES }
     },
     orderBy: { createdAt: 'desc' }
   })
@@ -794,7 +797,7 @@ export async function getActiveJobsByTypes(types: string[]) {
   return await prisma.systemJob.findMany({
     where: {
       type: { in: types },
-      status: { in: [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED, JobStatus.CANCELLING] }
+      status: { in: ALL_ACTIVE_JOB_STATUSES }
     },
     orderBy: { createdAt: 'desc' }
   })

@@ -353,6 +353,8 @@ erDiagram
 
 `SystemJob.workerId` 与 `WorkerInstance.workerId` 是有意不建立外键的逻辑关联：任务历史必须在清理过期 WorkerInstance 后继续可读。WorkerInstance 只说明进程是否在线；真正允许执行和提交任务结果的仍是 `SystemJob + JobResourceLease + leaseToken` 栅栏。
 
+Phase 5 的生产 Worker 将 `capabilities` 锁定为 17 项 v1 清单：既有 13 项归档、关键帧、维护和视频能力，加上 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE`。该 JSON 是进程实际 Registry 的观测快照；发布预检要求与期望清单精确一致，不能把它当作可编辑配置或数据库授权来源。
+
 ### 7.2 MediaVideoMetadata Worker 增量字段
 
 | 字段                   | 类型     | 空值 | 说明                                                                            |
