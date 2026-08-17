@@ -2,17 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import {
-  ChevronLeft,
-  ChevronRight,
-  ListChecks,
-  Pause,
-  Play,
-  RotateCcw,
-  Search,
-  Sparkles,
-  X
-} from 'lucide-react'
+import { ChevronLeft, ChevronRight, ListChecks, Pause, Play, RotateCcw, Search, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -35,6 +25,7 @@ import { TaskSection } from './task-ui'
 import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { confirm } from '@/components/shared/global-confirm'
+import { useTaskPolling } from './use-task-polling'
 
 interface FilterDraft {
   minMinutes: string
@@ -56,24 +47,20 @@ const PREVIEW_PAGE_SIZE = 20
 
 export function VideoKeyframeSection() {
   const trpc = useTRPC()
-  const [pollInterval, setPollInterval] = useState<number | false>(false)
   const [filter, setFilter] = useState<FilterDraft>(EMPTY_FILTER)
   const [previewSelection, setPreviewSelection] = useState<{ jobId: string | null; imageIds: number[] }>({
     jobId: null,
     imageIds: []
   })
   const [previewPage, setPreviewPage] = useState(1)
-  const queueQuery = useQuery(trpc.job.getVideoKeyframeQueue.queryOptions(undefined, { refetchInterval: pollInterval }))
+  const pollQueue = useTaskPolling<VideoKeyframeQueueView>((value) => shouldPollVideoKeyframeQueue(value))
+  const queueQuery = useQuery(trpc.job.getVideoKeyframeQueue.queryOptions(undefined, { refetchInterval: pollQueue }))
   const scheduledTasksQuery = useQuery(trpc.job.listScheduledTasks.queryOptions())
   const queue = queueQuery.data as VideoKeyframeQueueView | undefined
   const scheduledTask = useMemo(
     () => scheduledTasksQuery.data?.find((task) => task.key === 'video_keyframe_generation'),
     [scheduledTasksQuery.data]
   )
-
-  useEffect(() => {
-    setPollInterval(shouldPollVideoKeyframeQueue(queue) ? 1000 : false)
-  }, [queue])
 
   useEffect(() => {
     const config = scheduledTask?.config
@@ -104,7 +91,6 @@ export function VideoKeyframeSection() {
         toast.success(`筛选任务已提交（${data.status}）`)
         setPreviewSelection({ jobId: null, imageIds: [] })
         setPreviewPage(1)
-        setPollInterval(1000)
         void queueQuery.refetch()
       },
       onError: (error) => toast.error(`筛选失败: ${error.message}`)
@@ -115,7 +101,6 @@ export function VideoKeyframeSection() {
       onSuccess: (data) => {
         toast.success(`已确认所选视频，批量任务已提交（${data.status}）`)
         setPreviewSelection({ jobId: null, imageIds: [] })
-        setPollInterval(1000)
         void queueQuery.refetch()
       },
       onError: (error) => toast.error(`入队失败: ${error.message}`)
@@ -130,7 +115,6 @@ export function VideoKeyframeSection() {
   const retry = useMutation(
     trpc.job.retryVideoKeyframe.mutationOptions({
       onSuccess: () => {
-        setPollInterval(1000)
         void queueQuery.refetch()
       },
       onError: (error) => toast.error(`重试失败: ${error.message}`)
@@ -221,83 +205,83 @@ export function VideoKeyframeSection() {
           </div>
           <FieldGroup className="gap-3">
             <div className="grid gap-3 sm:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor="keyframe-min-duration">最小时长（分钟）</FieldLabel>
-              <Input
-                id="keyframe-min-duration"
-                name="keyframe-min-duration"
-                type="number"
-                inputMode="decimal"
-                autoComplete="off"
-                min="0"
-                value={filter.minMinutes}
-                onChange={(event) => setFilter((current) => ({ ...current, minMinutes: event.target.value }))}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="keyframe-max-duration">最大时长（分钟）</FieldLabel>
-              <Input
-                id="keyframe-max-duration"
-                name="keyframe-max-duration"
-                type="number"
-                inputMode="decimal"
-                autoComplete="off"
-                min="0"
-                value={filter.maxMinutes}
-                onChange={(event) => setFilter((current) => ({ ...current, maxMinutes: event.target.value }))}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="keyframe-include-paths">包含目录</FieldLabel>
-              <Textarea
-                id="keyframe-include-paths"
-                name="keyframe-include-paths"
-                autoComplete="off"
-                rows={3}
-                value={filter.includePaths}
-                onChange={(event) => setFilter((current) => ({ ...current, includePaths: event.target.value }))}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="keyframe-exclude-paths">排除目录</FieldLabel>
-              <Textarea
-                id="keyframe-exclude-paths"
-                name="keyframe-exclude-paths"
-                autoComplete="off"
-                rows={3}
-                value={filter.excludePaths}
-                onChange={(event) => setFilter((current) => ({ ...current, excludePaths: event.target.value }))}
-              />
-            </Field>
+              <Field>
+                <FieldLabel htmlFor="keyframe-min-duration">最小时长（分钟）</FieldLabel>
+                <Input
+                  id="keyframe-min-duration"
+                  name="keyframe-min-duration"
+                  type="number"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  min="0"
+                  value={filter.minMinutes}
+                  onChange={(event) => setFilter((current) => ({ ...current, minMinutes: event.target.value }))}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="keyframe-max-duration">最大时长（分钟）</FieldLabel>
+                <Input
+                  id="keyframe-max-duration"
+                  name="keyframe-max-duration"
+                  type="number"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  min="0"
+                  value={filter.maxMinutes}
+                  onChange={(event) => setFilter((current) => ({ ...current, maxMinutes: event.target.value }))}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="keyframe-include-paths">包含目录</FieldLabel>
+                <Textarea
+                  id="keyframe-include-paths"
+                  name="keyframe-include-paths"
+                  autoComplete="off"
+                  rows={3}
+                  value={filter.includePaths}
+                  onChange={(event) => setFilter((current) => ({ ...current, includePaths: event.target.value }))}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="keyframe-exclude-paths">排除目录</FieldLabel>
+                <Textarea
+                  id="keyframe-exclude-paths"
+                  name="keyframe-exclude-paths"
+                  autoComplete="off"
+                  rows={3}
+                  value={filter.excludePaths}
+                  onChange={(event) => setFilter((current) => ({ ...current, excludePaths: event.target.value }))}
+                />
+              </Field>
             </div>
-          <FieldSet>
-            <FieldLegend variant="label">处理状态</FieldLegend>
-            <FieldGroup className="flex-row flex-wrap gap-4">
-              {(
-                [
-                  ['MISSING', '缺失'],
-                  ['STALE', '源文件已变化'],
-                  ['FAILED', '失败']
-                ] as const
-              ).map(([value, label]) => (
-                <Field key={value} orientation="horizontal" className="w-auto">
-                  <Checkbox
-                    id={`keyframe-status-${value.toLowerCase()}`}
-                    checked={filter.statuses.includes(value)}
-                    onCheckedChange={(checked) =>
-                      setFilter((current) => ({
-                        ...current,
-                        statuses: checked
-                          ? [...new Set([...current.statuses, value])]
-                          : current.statuses.filter((status) => status !== value)
-                      }))
-                    }
-                  />
-                  <FieldLabel htmlFor={`keyframe-status-${value.toLowerCase()}`}>{label}</FieldLabel>
-                </Field>
-              ))}
-            </FieldGroup>
-          </FieldSet>
+            <FieldSet>
+              <FieldLegend variant="label">处理状态</FieldLegend>
+              <FieldGroup className="flex-row flex-wrap gap-4">
+                {(
+                  [
+                    ['MISSING', '缺失'],
+                    ['STALE', '源文件已变化'],
+                    ['FAILED', '失败']
+                  ] as const
+                ).map(([value, label]) => (
+                  <Field key={value} orientation="horizontal" className="w-auto">
+                    <Checkbox
+                      id={`keyframe-status-${value.toLowerCase()}`}
+                      checked={filter.statuses.includes(value)}
+                      onCheckedChange={(checked) =>
+                        setFilter((current) => ({
+                          ...current,
+                          statuses: checked
+                            ? [...new Set([...current.statuses, value])]
+                            : current.statuses.filter((status) => status !== value)
+                        }))
+                      }
+                    />
+                    <FieldLabel htmlFor={`keyframe-status-${value.toLowerCase()}`}>{label}</FieldLabel>
+                  </Field>
+                ))}
+              </FieldGroup>
+            </FieldSet>
           </FieldGroup>
           <div className="flex flex-wrap gap-2">
             <Button

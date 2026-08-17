@@ -6,22 +6,25 @@ import { useTRPC } from '@/lib/trpc'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Database, Film, ImagePlay, PlayCircle, Tags, Wrench } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { VideoKeyframeSection } from './video-keyframe-section'
 import { VideoStreamingOptimizationSection } from './video-streaming-optimization-section'
 import {
   getDraftForTask,
+  getScheduledTaskUpdate,
   JobStatus,
   ScheduleSettings,
   TaskAccordion,
   TaskGroup,
   TaskSection,
   type JobView,
-  type ScheduledTaskView,
-  type TaskDraft
+  type ScheduledTaskView
 } from './task-ui'
 import { Spinner } from '@/components/ui/spinner'
 import { confirm } from '@/components/shared/global-confirm'
+import { BackgroundTaskConsole } from './background-task-console'
+import { useScheduledTaskDrafts } from './use-scheduled-task-drafts'
+import { useTaskPolling } from './use-task-polling'
 
 interface MediaDerivedTagSyncStats {
   expectedArtworks?: number
@@ -114,12 +117,12 @@ function getJobTone(job: JobView | null | undefined, isRunning: boolean): 'idle'
 }
 
 function getScheduledSummary(task: ScheduledTaskView | undefined, job: JobView | null | undefined, isRunning: boolean) {
-  const schedule = task?.enabled ? `每日 ${task.time}` : '计划停用'
+  const schedule = task?.enabled ? (task.executionWindow ? '上海 00:00–08:00 窗口' : `每日 ${task.time}`) : '计划停用'
   return `${schedule} · ${getJobSummary(job, isRunning)}`
 }
 
 function getStandaloneSummary(task: ScheduledTaskView) {
-  const schedule = task.enabled ? `每日 ${task.time}` : '计划停用'
+  const schedule = task.enabled ? (task.executionWindow ? '上海 00:00–08:00 窗口' : `每日 ${task.time}`) : '计划停用'
   const status =
     task.lastJobStatus === 'COMPLETED' ? '上次完成' : task.lastJobStatus === 'FAILED' ? '上次失败' : '尚未执行'
   return `${schedule} · ${status}`
@@ -127,24 +130,28 @@ function getStandaloneSummary(task: ScheduledTaskView) {
 
 export function MaintenanceCard() {
   const trpc = useTRPC()
-  const [pollInterval, setPollInterval] = useState<number | false>(false)
-  const [mediaTagPollInterval, setMediaTagPollInterval] = useState<number | false>(false)
-  const [webpScanPollInterval, setWebpScanPollInterval] = useState<number | false>(false)
-  const [videoProbePollInterval, setVideoProbePollInterval] = useState<number | false>(false)
-  const [chapterPreviewPollInterval, setChapterPreviewPollInterval] = useState<number | false>(false)
-  const [taskDrafts, setTaskDrafts] = useState<Record<string, TaskDraft>>({})
   const [triggeringTaskKey, setTriggeringTaskKey] = useState<string | null>(null)
   const [videoReprobePath, setVideoReprobePath] = useState('')
 
+  const pollRefill = useTaskPolling<JobView | null>((job) =>
+    Boolean(job && ['PENDING', 'RUNNING', 'CANCELLING'].includes(job.status))
+  )
+  const pollMediaTags = useTaskPolling<JobView | null>((job) =>
+    Boolean(job && ['PENDING', 'RUNNING'].includes(job.status))
+  )
+  const pollCancellable = useTaskPolling<JobView | null>((job) =>
+    Boolean(job && ['PENDING', 'RUNNING', 'CANCELLING'].includes(job.status))
+  )
+
   const { data: activeJob, refetch } = useQuery(
     trpc.job.getRefillMetaSourceStatus.queryOptions(undefined, {
-      refetchInterval: pollInterval
+      refetchInterval: pollRefill
     })
   )
 
   const mediaTagJobQuery = useQuery(
     trpc.job.getMediaDerivedTagSyncStatus.queryOptions(undefined, {
-      refetchInterval: mediaTagPollInterval
+      refetchInterval: pollMediaTags
     })
   )
   const mediaTagJob = mediaTagJobQuery.data as JobView | null | undefined
@@ -152,7 +159,7 @@ export function MaintenanceCard() {
 
   const webpScanJobQuery = useQuery(
     trpc.job.getWebpAnimationScanStatus.queryOptions(undefined, {
-      refetchInterval: webpScanPollInterval
+      refetchInterval: pollCancellable
     })
   )
   const webpScanJob = webpScanJobQuery.data as JobView | null | undefined
@@ -160,7 +167,7 @@ export function MaintenanceCard() {
 
   const videoProbeJobQuery = useQuery(
     trpc.job.getVideoMediaProbeStatus.queryOptions(undefined, {
-      refetchInterval: videoProbePollInterval
+      refetchInterval: pollCancellable
     })
   )
   const videoProbeJob = videoProbeJobQuery.data as JobView | null | undefined
@@ -168,7 +175,7 @@ export function MaintenanceCard() {
 
   const chapterPreviewJobQuery = useQuery(
     trpc.job.getVideoChapterPreviewGenerationStatus.queryOptions(undefined, {
-      refetchInterval: chapterPreviewPollInterval
+      refetchInterval: pollCancellable
     })
   )
   const chapterPreviewJob = chapterPreviewJobQuery.data as JobView | null | undefined
@@ -176,6 +183,7 @@ export function MaintenanceCard() {
 
   const scheduledTasksQuery = useQuery(trpc.job.listScheduledTasks.queryOptions())
   const scheduledTasks = (scheduledTasksQuery.data ?? []) as ScheduledTaskView[]
+  const { drafts: taskDrafts, updateDraft: updateTaskDraft } = useScheduledTaskDrafts(scheduledTasks)
   const refetchScheduledTasks = scheduledTasksQuery.refetch
 
   const scheduledTasksByKey = useMemo(() => {
@@ -194,64 +202,7 @@ export function MaintenanceCard() {
         'video_keyframe_generation'
       ].includes(task.key)
   )
-
-  useEffect(() => {
-    if (activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)) {
-      setPollInterval(1000)
-    } else {
-      setPollInterval(false)
-    }
-  }, [activeJob?.status])
-
-  useEffect(() => {
-    if (mediaTagJob && ['PENDING', 'RUNNING'].includes(mediaTagJob.status)) {
-      setMediaTagPollInterval(1000)
-    } else {
-      setMediaTagPollInterval(false)
-    }
-  }, [mediaTagJob?.status])
-
-  useEffect(() => {
-    if (webpScanJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(webpScanJob.status)) {
-      setWebpScanPollInterval(1000)
-    } else {
-      setWebpScanPollInterval(false)
-    }
-  }, [webpScanJob?.status])
-
-  useEffect(() => {
-    if (videoProbeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(videoProbeJob.status)) {
-      setVideoProbePollInterval(1000)
-    } else {
-      setVideoProbePollInterval(false)
-    }
-  }, [videoProbeJob?.status])
-
-  useEffect(() => {
-    if (chapterPreviewJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(chapterPreviewJob.status)) {
-      setChapterPreviewPollInterval(1000)
-    } else {
-      setChapterPreviewPollInterval(false)
-    }
-  }, [chapterPreviewJob?.status])
-
-  useEffect(() => {
-    if (scheduledTasks.length === 0) return
-
-    setTaskDrafts((prev) => {
-      const next = { ...prev }
-      for (const task of scheduledTasks) {
-        if (!next[task.key]) {
-          next[task.key] = {
-            enabled: task.enabled,
-            time: task.time,
-            priority: String(task.priority)
-          }
-        }
-      }
-      return next
-    })
-  }, [scheduledTasks])
+  const centralExecutionWindow = scheduledTasks.find((task) => task.executionWindow)?.executionWindow
 
   const startMutation = useMutation(
     trpc.job.startRefillMetaSource.mutationOptions({
@@ -387,29 +338,11 @@ export function MaintenanceCard() {
     isChapterPreviewRunning
   ].filter(Boolean).length
 
-  const updateTaskDraft = (key: string, patch: Partial<TaskDraft>) => {
-    setTaskDrafts((prev) => ({
-      ...prev,
-      [key]: {
-        enabled: false,
-        time: '03:30',
-        priority: '100',
-        ...prev[key],
-        ...patch
-      }
-    }))
-  }
-
   const handleSaveScheduledTask = (task: ScheduledTaskView) => {
     const draft = taskDrafts[task.key]
     if (!draft) return
 
-    updateScheduledTaskMutation.mutate({
-      key: task.key,
-      enabled: draft.enabled,
-      time: draft.time,
-      priority: Number(draft.priority)
-    })
+    updateScheduledTaskMutation.mutate(getScheduledTaskUpdate(task, draft))
   }
 
   const handleTriggerScheduledTask = (task: ScheduledTaskView, chapterPreviewMode?: 'FULL' | 'INCREMENTAL') => {
@@ -443,10 +376,16 @@ export function MaintenanceCard() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div
-        className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y py-3 text-sm text-muted-foreground"
-        aria-live="polite"
-      >
+      <BackgroundTaskConsole />
+      {centralExecutionWindow ? (
+        <aside className="flex flex-col gap-1 rounded-lg border border-primary/20 bg-primary/[0.035] px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <span className="font-medium text-foreground">中央自动执行窗口 · 上海时间 00:00–08:00</span>
+          <span className="text-xs text-muted-foreground">
+            单 Worker 按优先级串行领取；每任务时间在中央模式下不参与调度。
+          </span>
+        </aside>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y py-3 text-sm text-muted-foreground">
         <span>{scheduledTasksQuery.isPending ? '正在读取任务…' : `${scheduledTasks.length + 3} 项后台任务`}</span>
         <span>{enabledScheduleCount} 个自动计划已启用</span>
         <span className={runningTaskCount > 0 ? 'font-medium text-primary' : undefined}>
@@ -678,9 +617,7 @@ export function MaintenanceCard() {
                   disabled={!videoReprobePath.trim() || reprobeVideoByPathMutation.isPending}
                   className="h-9 shrink-0 w-full sm:w-auto"
                 >
-                  {reprobeVideoByPathMutation.isPending && (
-                    <Spinner data-icon="inline-start" aria-hidden="true" />
-                  )}
+                  {reprobeVideoByPathMutation.isPending && <Spinner data-icon="inline-start" aria-hidden="true" />}
                   {reprobeVideoByPathMutation.isPending ? '探测中…' : '重试探测'}
                 </Button>
               </div>

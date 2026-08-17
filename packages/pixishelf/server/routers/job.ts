@@ -7,10 +7,7 @@ import logger from '@/lib/logger'
 import { syncAllMediaDerivedTags } from '@/services/media-derived-tag-service'
 import { listScheduledTasks, triggerScheduledTaskNow, updateScheduledTask } from '@/services/scheduled-task-service'
 import { reprobeVideoMediaByImageId, resolveVideoImageForReprobePath } from '@/services/video-media-probe-service'
-import {
-  cancelCentralVideoMediaProbe,
-  enqueueCentralVideoMediaReprobe
-} from '@/services/video-media-central-service'
+import { cancelCentralVideoMediaProbe, enqueueCentralVideoMediaReprobe } from '@/services/video-media-central-service'
 import { cancelVideoOptimization, enqueueVideoOptimization } from '@/services/video-streaming-optimization-queue'
 import { cancelActiveCentralVideoChapterPreview } from '@/services/video-processing-central-service'
 import {
@@ -599,7 +596,7 @@ export const jobRouter = router({
           .string()
           .regex(/^\d{2}:\d{2}$/)
           .optional(),
-        priority: z.number().int().min(0).max(1000).optional(),
+        priority: z.number().int().min(0).max(999).optional(),
         config: videoKeyframeFilterSchema.optional()
       })
     )

@@ -29,6 +29,11 @@ export interface ScheduledTaskView {
   lastJobId: string | null
   lastJobStatus: string | null
   nextRunAt: string | null
+  executionWindow?: {
+    timezone: 'Asia/Shanghai'
+    startAt: string
+    endAt: string
+  }
 }
 
 export interface JobView {
@@ -45,6 +50,19 @@ export interface TaskDraft {
   priority: string
 }
 
+export const SCHEDULED_TASK_PRIORITY_MINIMUM = 0
+export const SCHEDULED_TASK_PRIORITY_MAXIMUM = 999
+
+export function isScheduledTaskPriorityValid(value: string) {
+  const priority = Number(value)
+  return (
+    value.trim() !== '' &&
+    Number.isInteger(priority) &&
+    priority >= SCHEDULED_TASK_PRIORITY_MINIMUM &&
+    priority <= SCHEDULED_TASK_PRIORITY_MAXIMUM
+  )
+}
+
 export function getDraftForTask(task: ScheduledTaskView, drafts: Record<string, TaskDraft>) {
   return (
     drafts[task.key] ?? {
@@ -53,6 +71,15 @@ export function getDraftForTask(task: ScheduledTaskView, drafts: Record<string, 
       priority: String(task.priority)
     }
   )
+}
+
+export function getScheduledTaskUpdate(task: ScheduledTaskView, draft: TaskDraft) {
+  return {
+    key: task.key,
+    enabled: draft.enabled,
+    ...(task.executionWindow ? {} : { time: draft.time }),
+    priority: Number(draft.priority)
+  }
 }
 
 const TaskAccordionContext = createContext<{
@@ -214,7 +241,11 @@ export function JobStatus({
       <div className="flex flex-col gap-3 p-4">
         <div className="flex items-center justify-between gap-3 text-sm">
           <div className="flex items-center gap-2 font-medium">
-            {isRunning ? <Spinner className="text-primary" aria-hidden="true" /> : <Activity className="size-4 text-muted-foreground" aria-hidden="true" />}
+            {isRunning ? (
+              <Spinner className="text-primary" aria-hidden="true" />
+            ) : (
+              <Activity className="size-4 text-muted-foreground" aria-hidden="true" />
+            )}
             <AdminStatusBadge status={job?.status || 'IDLE'}>{formatJobStatus(job?.status)}</AdminStatusBadge>
             {job?.message && (
               <span className="hidden font-normal text-muted-foreground sm:inline">· {job.message}</span>
@@ -253,8 +284,12 @@ export function ScheduleSettings({
   isSaving: boolean
 }) {
   const priority = Number(draft.priority)
-  const priorityInvalid = draft.priority.trim() === '' || Number.isNaN(priority)
-  const changed = draft.enabled !== task.enabled || draft.time !== task.time || priority !== task.priority
+  const centralScheduling = Boolean(task.executionWindow)
+  const priorityMinimum = SCHEDULED_TASK_PRIORITY_MINIMUM
+  const priorityMaximum = SCHEDULED_TASK_PRIORITY_MAXIMUM
+  const priorityInvalid = !isScheduledTaskPriorityValid(draft.priority)
+  const changed =
+    draft.enabled !== task.enabled || (!centralScheduling && draft.time !== task.time) || priority !== task.priority
   const enabledId = `schedule-${task.key}-enabled`
   const timeId = `schedule-${task.key}-time`
   const priorityId = `schedule-${task.key}-priority`
@@ -266,19 +301,29 @@ export function ScheduleSettings({
           <Clock className="size-4 text-muted-foreground" aria-hidden="true" />
           <h3 className="text-sm font-medium">定时计划</h3>
         </div>
-        <AdminStatusBadge status={task.enabled ? 'ACTIVE' : 'IDLE'}>{task.enabled ? '已启用' : '已停用'}</AdminStatusBadge>
+        <AdminStatusBadge status={task.enabled ? 'ACTIVE' : 'IDLE'}>
+          {task.enabled ? '已启用' : '已停用'}
+        </AdminStatusBadge>
       </div>
       <div className="flex flex-col gap-5 p-4">
+        {task.executionWindow ? (
+          <div className="rounded-md border border-primary/20 bg-primary/[0.04] px-3 py-2.5 text-sm">
+            <p className="font-medium text-foreground">中央串行窗口 · 上海时间 00:00–08:00</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              任务按全局队列优先级依次执行；这里不再使用每任务时间决定调度。
+            </p>
+          </div>
+        ) : null}
         <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-3 lg:grid-cols-4">
           <div className="flex flex-col gap-1">
             <dt className="text-xs text-muted-foreground">执行模式</dt>
             <dd className="font-medium text-foreground">
-              {task.scheduleMode === 'DAILY' ? '每日' : task.scheduleMode}
+              {task.executionWindow ? '中央串行窗口' : task.scheduleMode === 'DAILY' ? '每日' : task.scheduleMode}
             </dd>
           </div>
           <div className="flex flex-col gap-1">
             <dt className="text-xs text-muted-foreground">时区</dt>
-            <dd className="font-medium text-foreground">{task.timezone}</dd>
+            <dd className="font-medium text-foreground">{task.executionWindow?.timezone ?? task.timezone}</dd>
           </div>
           <div className="flex flex-col gap-1">
             <dt className="text-xs text-muted-foreground">下次计划执行</dt>
@@ -316,20 +361,26 @@ export function ScheduleSettings({
             </FieldLabel>
           </Field>
           <div className="flex flex-1 flex-wrap items-end gap-3">
-            <Field className="w-auto gap-1.5">
-              <FieldLabel htmlFor={timeId} className="text-xs text-muted-foreground">
-                执行时间
-              </FieldLabel>
-              <Input
-                id={timeId}
-                name={`${task.key}-time`}
-                type="time"
-                autoComplete="off"
-                value={draft.time}
-                onChange={(event) => onDraftChange({ time: event.target.value })}
-                className="h-9 w-[120px]"
-              />
-            </Field>
+            {task.executionWindow ? (
+              <div className="flex min-h-9 items-center rounded-md border bg-muted/25 px-3 text-sm text-muted-foreground">
+                全局窗口 00:00–08:00
+              </div>
+            ) : (
+              <Field className="w-auto gap-1.5">
+                <FieldLabel htmlFor={timeId} className="text-xs text-muted-foreground">
+                  执行时间
+                </FieldLabel>
+                <Input
+                  id={timeId}
+                  name={`${task.key}-time`}
+                  type="time"
+                  autoComplete="off"
+                  value={draft.time}
+                  onChange={(event) => onDraftChange({ time: event.target.value })}
+                  className="h-9 w-[120px]"
+                />
+              </Field>
+            )}
             <Field className="w-auto gap-1.5" data-invalid={priorityInvalid}>
               <FieldLabel htmlFor={priorityId} className="text-xs text-muted-foreground">
                 优先级
@@ -340,8 +391,8 @@ export function ScheduleSettings({
                 type="number"
                 inputMode="numeric"
                 autoComplete="off"
-                min={0}
-                max={1000}
+                min={priorityMinimum}
+                max={priorityMaximum}
                 value={draft.priority}
                 onChange={(event) => onDraftChange({ priority: event.target.value })}
                 className="h-9 w-[90px]"
@@ -349,7 +400,11 @@ export function ScheduleSettings({
                 aria-invalid={priorityInvalid}
                 aria-describedby={priorityInvalid ? `${priorityId}-error` : undefined}
               />
-              {priorityInvalid ? <FieldError id={`${priorityId}-error`}>请输入有效优先级。</FieldError> : null}
+              {priorityInvalid ? (
+                <FieldError id={`${priorityId}-error`}>
+                  请输入 {priorityMinimum}–{priorityMaximum} 的整数。
+                </FieldError>
+              ) : null}
             </Field>
           </div>
           <Button
