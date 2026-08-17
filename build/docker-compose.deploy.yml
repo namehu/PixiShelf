@@ -24,6 +24,11 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '5'
 
   # 统一的 Web + API 服务容器 - 使用预构建镜像
   app:
@@ -54,7 +59,7 @@ services:
       driver: 'json-file'
       options:
         max-size: '10m'
-        max-file: '3'
+        max-file: '5'
 
   # Transitional compatibility consumer. Keep this service active while the
   # general Worker remains in dark launch; remove it only at the final cutover.
@@ -83,7 +88,7 @@ services:
       driver: 'json-file'
       options:
         max-size: '10m'
-        max-file: '3'
+        max-file: '5'
 
   # New general Worker dark launch. It is safe to run beside archive-worker
   # only while WORKER_DISPATCH_ENABLED remains false.
@@ -143,6 +148,11 @@ services:
       done'
     networks:
       - pixishelf-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '5'
 
   imgproxy:
     image: ghcr.io/imgproxy/imgproxy:latest
@@ -175,6 +185,11 @@ services:
       - IMGPROXY_FREE_MEMORY_INTERVAL=10
     networks:
       - pixishelf-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '5'
 
   thumbor:
     # 给我们自己构建的镜像起个名字
@@ -202,6 +217,11 @@ services:
       - APP_CLASS=thumbor_video_engine.app.ThumborServiceApp
       - RESULT_STORAGE=thumbor_video_engine.result_storages.file_storage
       - FILTERS=['thumbor_video_engine.filters.format','thumbor_video_engine.filters.still']
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '5'
 volumes:
   postgres_data:
 

@@ -5,6 +5,23 @@ const repositoryRoot = new URL('../../../..', import.meta.url)
 
 describe('Worker deployment boundary', () => {
   it.each(['docker-compose.dev.yml', 'docker-compose.deploy.yml'])(
+    'caps every long-running service at 10 MB x 5 in %s',
+    (filename) => {
+      const compose = readFileSync(new URL(`build/${filename}`, repositoryRoot), 'utf8')
+      const services = ['postgres', 'app', 'archive-worker', 'worker', 'scheduler', 'imgproxy', 'thumbor']
+      for (const [index, service] of services.entries()) {
+        const nextService = services[index + 1]
+        const start = compose.indexOf(`  ${service}:`)
+        const end = nextService ? compose.indexOf(`  ${nextService}:`, start) : compose.indexOf('\nvolumes:', start)
+        const definition = compose.slice(start, end)
+        expect(definition, service).toMatch(/driver: ['"]json-file['"]/)
+        expect(definition, service).toMatch(/max-size: ['"]10m['"]/)
+        expect(definition, service).toMatch(/max-file: ['"]5['"]/)
+      }
+    }
+  )
+
+  it.each(['docker-compose.dev.yml', 'docker-compose.deploy.yml'])(
     'keeps the new Worker in safe dark launch beside the transitional archive consumer in %s',
     (filename) => {
       const compose = readFileSync(new URL(`build/${filename}`, repositoryRoot), 'utf8')

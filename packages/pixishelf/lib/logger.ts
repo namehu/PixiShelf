@@ -1,72 +1,100 @@
 import winston from 'winston'
-import path from 'path'
-import fs from 'fs'
 
-// --- 路径定义 ---
-// process.cwd() 返回的是执行 node 命令的目录。
-const logDirectory = path.join(process.cwd(), 'logs')
+const isProduction = process.env.NODE_ENV === 'production'
+const sensitiveField =
+  /(?:access[_-]?token|api[_-]?key|authorization|connection[_-]?string|cookie|credential|database[_-]?url|dsn|password|private[_-]?key|secret|token)/i
 
-// 确保日志目录存在
-if (!fs.existsSync(logDirectory)) {
-  try {
-    fs.mkdirSync(logDirectory, { recursive: true })
-  } catch (e) {
-    console.error('Could not create log directory', e)
-  }
+function redactSensitiveText(value: string) {
+  return (
+    value
+      // Authorization values can contain whitespace and comma-separated Digest parameters.
+      // Redact the complete header value first so the generic key rule cannot leave credentials behind.
+      .replace(
+        /(\bauthorization["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|(?:Bearer|Basic|Digest|Token)\s+[^\r\n]*)/gi,
+        '$1[REDACTED]'
+      )
+      .replace(/([a-z][a-z\d+.-]*:\/\/)[^\s/@]+@/gi, '$1[REDACTED]@')
+      .replace(/\b(Bearer|Basic|Digest|Token)\s+[^\s,;]+/gi, '$1 [REDACTED]')
+      .replace(
+        /([?&](?:access_token|accessToken|api_key|apiKey|authorization|databaseUrl|dsn|password|secret|token)=)[^&#\s]+/gi,
+        '$1[REDACTED]'
+      )
+      .replace(
+        /((?:access[_-]?token|api[_-]?key|authorization|connection[_-]?string|cookie|credential|database[_-]?url|dsn|password|private[_-]?key|secret|token)["']?\s*[:=]\s*["']?)[^\s,"';}\]]+/gi,
+        '$1[REDACTED]'
+      )
+  )
 }
 
-// 检查是否为生产环境
-const isProduction = process.env.NODE_ENV === 'production'
+export function serializeLogValue(value: unknown): unknown {
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: redactSensitiveText(value.message),
+      stack: value.stack ? redactSensitiveText(value.stack) : undefined
+    }
+  }
+  if (typeof value === 'bigint') return value.toString(10)
+  if (typeof value === 'string') return redactSensitiveText(value)
+  if (Array.isArray(value)) return value.map(serializeLogValue)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        sensitiveField.test(key) ? '[REDACTED]' : serializeLogValue(nested)
+      ])
+    )
+  }
+  return value
+}
 
-// --- Transports 定义 ---
-
-// 1. 控制台输出
-const consoleTransport = new winston.transports.Console({
-  level: isProduction ? 'info' : 'debug',
-  format: winston.format.combine(
-    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    winston.format.colorize(),
-    winston.format.printf(({ timestamp, level, message, ...meta }) => {
-      return `${timestamp} [${level}]: ${message} ${
-        Object.keys(meta).length ? JSON.stringify(meta) : ''
-      }`
+export function formatProductionLog(info: Record<string, unknown>, service = 'pixishelf') {
+  return JSON.stringify(
+    serializeLogValue({
+      timestamp: info.timestamp ?? new Date().toISOString(),
+      level: info.level,
+      service,
+      message: info.message,
+      ...Object.fromEntries(Object.entries(info).filter(([key]) => !['timestamp', 'level', 'message'].includes(key)))
     })
-  ),
-  handleExceptions: true
-})
+  )
+}
 
-// --- Logger 实例创建 ---
-
-const logger = winston.createLogger({
-  level: isProduction ? 'info' : 'debug',
-  transports: [
-    consoleTransport
-  ],
-  exitOnError: false
-})
-
-// --- Migration Logger ---
-// 专门用于迁移任务的 Logger，始终输出到文件
-export const migrationLogger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    winston.format.json()
-  ),
-  transports: [
-    // 同时也输出到控制台，方便调试
-    new winston.transports.Console({
-        format: winston.format.combine(
-            winston.format.colorize(),
-            winston.format.printf(({ timestamp, level, message }) => {
-                return `[Migration] ${timestamp} ${level}: ${message}`
-            })
+function createConsoleTransport(service: string, handleExceptions: boolean) {
+  return new winston.transports.Console({
+    level: isProduction ? 'info' : 'debug',
+    stderrLevels: [],
+    format: isProduction
+      ? winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.printf((info) => formatProductionLog(info, service))
         )
-    }),
-    new winston.transports.File({ 
-      filename: path.join(logDirectory, 'migration.log') 
-    })
-  ]
-})
+      : winston.format.combine(
+          winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+          winston.format.colorize(),
+          winston.format.printf(
+            ({ timestamp, level, message, ...meta }) =>
+              `${timestamp} [${level}]: ${redactSensitiveText(String(message))} ${
+                Object.keys(meta).length ? JSON.stringify(serializeLogValue(meta)) : ''
+              }`
+          )
+        ),
+    handleExceptions
+  })
+}
+
+function createLogger(service: string, handleExceptions = false) {
+  return winston.createLogger({
+    level: isProduction ? 'info' : 'debug',
+    transports: [createConsoleTransport(service, handleExceptions)],
+    exitOnError: false
+  })
+}
+
+const logger = createLogger('pixishelf', true)
+
+// Migration output follows the same bounded stdout path as every other production log.
+// Importing this module never creates a logs directory or migration.log file.
+export const migrationLogger = createLogger('pixishelf-migration')
 
 export default logger

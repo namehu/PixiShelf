@@ -28,7 +28,9 @@ export async function runWorkerMain(environment: NodeJS.ProcessEnv = process.env
   const healthState = new WorkerHealthState()
   const workerId = config.workerId ?? createDefaultWorkerId(hostname(), process.pid, randomUUID())
   const presenceReadinessGate = new PresenceReadinessGate(
-    new PrismaWorkerPresenceStore(database as unknown as WorkerPresenceDatabaseClient)
+    new PrismaWorkerPresenceStore(database as unknown as WorkerPresenceDatabaseClient, {
+      onRetentionError: (error) => logger.warn('worker.presence_retention_failed', { workerId, error })
+    })
   )
   const host = new WorkerHost({
     identity: {

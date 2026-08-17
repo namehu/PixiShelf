@@ -123,6 +123,17 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
     defaultPriority: 70,
     defaultEnabled: false,
     mutexKey: 'media-maintenance'
+  },
+  {
+    key: 'derived_media_gc_reconciliation',
+    type: SCHEDULED_TASK_TYPES.DERIVED_MEDIA_GC,
+    name: '核对派生媒体目录',
+    description: '每周一在上海调度窗口中有界扫描派生媒体目录，只输出 dry-run 差异，不删除文件。',
+    defaultTime: '05:45',
+    defaultTimezone: 'Asia/Shanghai',
+    defaultPriority: 71,
+    defaultEnabled: false,
+    mutexKey: 'media-maintenance'
   }
 ]
 

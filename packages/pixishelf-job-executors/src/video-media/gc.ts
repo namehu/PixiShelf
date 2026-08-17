@@ -46,6 +46,7 @@ export interface DerivedMediaGcResult {
   failed: number
   dryRun: boolean
   reconciliationScanned: number
+  reconciliationCandidates: number
   untrackedCandidates: number
 }
 
@@ -68,6 +69,7 @@ export async function executeDerivedMediaGc(
       failed: 0,
       dryRun: context.payload.dryRun,
       reconciliationScanned: 0,
+      reconciliationCandidates: 0,
       untrackedCandidates: 0
     }
     if (context.payload.dryRun) {
@@ -76,9 +78,13 @@ export async function executeDerivedMediaGc(
         const reconciliation = await dryRunPosterReconciliation(
           dependencies.database,
           dependencies.config.posterStorageRoot,
-          Math.min(dependencies.config.reconciliationLimit ?? DEFAULT_RECONCILIATION_LIMIT, DEFAULT_RECONCILIATION_LIMIT)
+          Math.min(
+            dependencies.config.reconciliationLimit ?? DEFAULT_RECONCILIATION_LIMIT,
+            DEFAULT_RECONCILIATION_LIMIT
+          )
         )
-        result.reconciliationScanned = reconciliation.scanned
+        result.reconciliationScanned = reconciliation.inspected
+        result.reconciliationCandidates = reconciliation.candidates
         result.untrackedCandidates = reconciliation.untracked
       }
       return { kind: 'completed', result, message: `派生媒体 GC dry-run 完成，检查 ${entries.length} 条记录` }
@@ -237,10 +243,9 @@ async function claimGcEntry(context: GcContext, entry: GcEntry) {
 
 async function stageGcCandidate(context: GcContext, config: VideoMediaRuntimeConfig, entry: GcEntry, timestamp: Date) {
   const target = resolveGcTarget(config, entry)
-  return context.mutateInTransaction<GcTransaction,
-    | { kind: 'referenced' }
-    | { kind: 'missing' }
-    | { kind: 'staged'; candidate: StagedGcCandidate }
+  return context.mutateInTransaction<
+    GcTransaction,
+    { kind: 'referenced' } | { kind: 'missing' } | { kind: 'staged'; candidate: StagedGcCandidate }
   >(async (transaction) => {
     await assertGcOwnership(transaction, context.job.id, entry.id)
     await lockGcReference(transaction, entry)
@@ -286,15 +291,10 @@ async function finalizeDeletedGcEntry(context: GcContext, candidate: StagedGcCan
     if (await isReferenced(transaction, candidate.entry)) {
       const originalExists = await safeInternalFileExists(candidate.originalPath)
       if (!originalExists) {
-        await transitionGcEntry(
-          transaction,
-          context.job.id,
-          candidate.entry.id,
-          {
-            status: 'FAILED',
-            error: 'A live reference appeared after staged deletion without publishing a replacement file'
-          }
-        )
+        await transitionGcEntry(transaction, context.job.id, candidate.entry.id, {
+          status: 'FAILED',
+          error: 'A live reference appeared after staged deletion without publishing a replacement file'
+        })
         return 'failed'
       }
       await transitionGcEntry(transaction, context.job.id, candidate.entry.id, { status: 'SKIPPED_REFERENCED' })
@@ -418,22 +418,42 @@ function resolveGcTarget(config: VideoMediaRuntimeConfig, entry: GcEntry) {
 }
 
 async function dryRunPosterReconciliation(database: VideoMediaDatabase, posterRoot: string, limit: number) {
-  await fs.mkdir(posterRoot, { recursive: true })
-  const directory = await fs.opendir(posterRoot)
-  const paths: string[] = []
+  let directory: Awaited<ReturnType<typeof fs.opendir>>
   try {
-    for await (const entry of directory) {
-      if (paths.length >= limit) break
+    directory = await fs.opendir(posterRoot)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { inspected: 0, candidates: 0, untracked: 0 }
+    }
+    throw error
+  }
+  const paths: string[] = []
+  let inspected = 0
+  try {
+    while (inspected < limit) {
+      const entry = await directory.read()
+      if (!entry) break
+      inspected += 1
       if (entry.isFile() && entry.name.endsWith('.webp') && !entry.name.endsWith('.tmp.webp')) paths.push(entry.name)
     }
   } finally {
     await directory.close().catch(() => undefined)
   }
-  if (paths.length === 0) return { scanned: 0, untracked: 0 }
+  if (paths.length === 0) return { inspected, candidates: 0, untracked: 0 }
   const [references, tracked] = await Promise.all([
     database.mediaVideoMetadata.findMany({ where: { posterPath: { in: paths } }, select: { posterPath: true } }),
     database.derivedMediaGcEntry.findMany({
-      where: { mediaKind: 'VIDEO_POSTER', relativePath: { in: paths } },
+      where: {
+        mediaKind: 'VIDEO_POSTER',
+        relativePath: { in: paths },
+        OR: [
+          { status: { in: ['PENDING', 'PROCESSING'] } },
+          {
+            status: 'FAILED',
+            attempt: { lt: database.derivedMediaGcEntry.fields.maxAttempts }
+          }
+        ]
+      },
       select: { relativePath: true }
     })
   ])
@@ -441,7 +461,11 @@ async function dryRunPosterReconciliation(database: VideoMediaDatabase, posterRo
     ...references.flatMap(({ posterPath }) => (posterPath ? [posterPath] : [])),
     ...tracked.map(({ relativePath }) => relativePath)
   ])
-  return { scanned: paths.length, untracked: paths.filter((candidate) => !known.has(candidate)).length }
+  return {
+    inspected,
+    candidates: paths.length,
+    untracked: paths.filter((candidate) => !known.has(candidate)).length
+  }
 }
 
 async function safeInternalFileExists(filePath: string) {
@@ -461,7 +485,9 @@ function quarantinePathFor(outputPath: string, entryId: string) {
 }
 
 function chunk<T>(values: T[], size: number) {
-  return Array.from({ length: Math.ceil(values.length / size) }, (_, index) => values.slice(index * size, (index + 1) * size))
+  return Array.from({ length: Math.ceil(values.length / size) }, (_, index) =>
+    values.slice(index * size, (index + 1) * size)
+  )
 }
 
 function positiveInteger(value: string | null) {

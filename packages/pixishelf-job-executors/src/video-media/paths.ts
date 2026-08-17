@@ -32,7 +32,20 @@ export async function resolvePosterOutput(posterRoot: string, relativePath: stri
 }
 
 export async function inspectGcCandidate(storageRoot: string, relativePath: string) {
-  const outputPath = await resolvePosterOutput(storageRoot, relativePath)
+  let root: string
+  try {
+    root = await fs.realpath(storageRoot)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    root = path.resolve(storageRoot)
+    const outputPath = path.resolve(root, relativePath.replace(/^[/\\]+/, ''))
+    assertWithinRoot(root, outputPath)
+    return { outputPath, exists: false as const }
+  }
+  const outputPath = path.resolve(root, relativePath.replace(/^[/\\]+/, ''))
+  assertWithinRoot(root, outputPath)
+  const ancestor = await nearestExistingAncestor(outputPath)
+  assertWithinRoot(root, await fs.realpath(ancestor))
   let metadata: Awaited<ReturnType<typeof fs.lstat>>
   try {
     metadata = await fs.lstat(outputPath)
@@ -43,7 +56,6 @@ export async function inspectGcCandidate(storageRoot: string, relativePath: stri
   if (metadata.isSymbolicLink()) {
     throw new VideoMediaPermanentError('PATH_OUTSIDE_ALLOWED_ROOT', 'GC refuses to follow a symbolic link')
   }
-  const root = await fs.realpath(storageRoot)
   const resolved = await fs.realpath(outputPath)
   assertWithinRoot(root, resolved)
   if (!metadata.isFile()) throw new VideoMediaPermanentError('PRECONDITION_FAILED', 'GC candidate is not a file')

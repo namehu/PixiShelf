@@ -420,6 +420,14 @@ Phase 3 先以默认关闭的双开关交付内核：`CENTRAL_DISPATCHER_CUTOVER
 
 验收：每种状态、键盘操作、错误、空队列和移动端布局都有组件测试。
 
+#### 实施记录（2026-08-17）
+
+- 管理页已收敛为单一后台任务工作台：dashboard、任务详情、事件时间线与 Worker 健康状态共用一套查询和轮询策略。
+- 任务事件与 cursor 按 `job.id` 隔离；终态任务会把剩余事件分页 drain 到空页，任务切换和迟到响应不会串数据。
+- detail 轮询由所选任务自身状态驱动，并保留 dashboard 的较新终态；详情或事件请求失败时会保留已有快照并提供显式重试。
+- 维护任务与视频关键帧入口只保留业务配置，统一复用提交、取消、状态、计划草稿和优先级校验逻辑。
+- 事件时间线每次只渲染最近 50 条并按需展开；桌面与 390 px 移动视口均无横向溢出。
+
 ### Phase 7：GC 与日志治理
 
 - 发布 DerivedMediaGcEntry 增量清理。
@@ -430,6 +438,14 @@ Phase 3 先以默认关闭的双开关交付内核：`CENTRAL_DISPATCHER_CUTOVER
 - 增加 WorkerInstance 保留清理：STOPPING 超过 24 小时、READY/DEGRADED 心跳超过 7 天后分批删除。
 
 验收：替换/删除/重新引用竞态测试、路径穿越测试、日志轮转配置检查通过。
+
+#### 实施记录（2026-08-17）
+
+- 每日 `derived_media_gc` 只消费 `DerivedMediaGcEntry`；另加默认关闭的每周 reconciliation，固定 `dryRun=true`，不会执行删除。
+- reconciliation 每次最多实际读取 500 个目录项，并分别报告读取数、候选文件数与未跟踪漂移数；已终结或重试耗尽的 GC 记录不再掩盖重新出现的文件。
+- WorkerInstance 清理挂在心跳写入后的 best-effort 路径上，每批最多 100 条；删除条件会在数据库中重新校验状态和时间阈值，避免刚刷新心跳的实例被竞态删除。
+- 生产 Logger 只向 stdout 输出 JSON，对嵌套对象、错误栈和完整 Authorization 值执行脱敏，不再创建 `migration.log` 或本地日志目录。
+- 开发和部署 Compose 中所有长期运行服务统一使用 `json-file`、`max-size=10m`、`max-file=5`。
 
 ### Phase 8：清理兼容代码
 

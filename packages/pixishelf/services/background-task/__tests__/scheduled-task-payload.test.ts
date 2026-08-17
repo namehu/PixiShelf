@@ -33,6 +33,12 @@ describe('scheduled task payload mapping', () => {
       dryRun: true,
       reconcile: true
     })
+    expect(
+      buildScheduledTaskJobDefinition('DERIVED_MEDIA_GC', {
+        trigger: 'schedule',
+        scheduleKey: 'derived_media_gc_reconciliation'
+      }).payload
+    ).toEqual({ dryRun: true, reconcile: true })
   })
 
   it('validates keyframe filters through the shared contract', () => {

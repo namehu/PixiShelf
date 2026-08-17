@@ -52,24 +52,15 @@ describe('derived media GC executor', () => {
     const outcome = await executeDerivedMediaGc(fixture.context, fixture.dependencies)
 
     expect(outcome).toMatchObject({ kind: 'completed', result: { referenced: 1, deleted: 0 } })
-    expect(fixture.queryRaw).toHaveBeenCalledWith(
-      'SELECT pg_advisory_xact_lock($1, $2)::text',
-      expect.any(Number),
-      1
-    )
+    expect(fixture.queryRaw).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock($1, $2)::text', expect.any(Number), 1)
     expect(mocks.rename).not.toHaveBeenCalled()
     expect(mocks.rm).not.toHaveBeenCalled()
   })
 
   it('bounds explicit reconciliation and never deletes during dry-run', async () => {
-    const directory = {
-      async *[Symbol.asyncIterator]() {
-        for (let index = 1; index <= 600; index += 1) {
-          yield { name: `${index}-poster.webp`, isFile: () => true }
-        }
-      },
-      close: vi.fn().mockResolvedValue(undefined)
-    }
+    const directory = createDirectory(
+      Array.from({ length: 600 }, (_, index) => ({ name: `${index + 1}-poster.webp`, isFile: () => true }))
+    )
     mocks.opendir.mockResolvedValue(directory)
     const fixture = gcFixture({ entries: [], payload: { dryRun: true, reconcile: true } })
     fixture.metadataFindMany.mockResolvedValue([])
@@ -78,8 +69,100 @@ describe('derived media GC executor', () => {
 
     expect(outcome).toMatchObject({
       kind: 'completed',
-      result: { dryRun: true, reconciliationScanned: 500, untrackedCandidates: 500 }
+      result: {
+        dryRun: true,
+        reconciliationScanned: 500,
+        reconciliationCandidates: 500,
+        untrackedCandidates: 500
+      }
     })
+    expect(directory.read).toHaveBeenCalledTimes(500)
+    expect(mocks.mkdir).not.toHaveBeenCalled()
+    expect(mocks.rm).not.toHaveBeenCalled()
+  })
+
+  it('caps inspected dirents even when non-candidates, symlinks, and temporary files come first', async () => {
+    const ignored = Array.from({ length: 10_000 }, (_, index) => {
+      if (index % 4 === 0) return { name: `${index}.webp`, isFile: () => false }
+      if (index % 4 === 1) return { name: `${index}.txt`, isFile: () => true }
+      if (index % 4 === 2) return { name: `${index}.tmp.webp`, isFile: () => true }
+      return { name: `${index}.directory`, isFile: () => false }
+    })
+    const directory = createDirectory([...ignored, { name: 'too-late.webp', isFile: () => true }])
+    mocks.opendir.mockResolvedValue(directory)
+    const fixture = gcFixture({ entries: [], payload: { dryRun: true, reconcile: true } })
+
+    const outcome = await executeDerivedMediaGc(fixture.context, fixture.dependencies)
+
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: {
+        reconciliationScanned: 500,
+        reconciliationCandidates: 0,
+        untrackedCandidates: 0
+      }
+    })
+    expect(directory.read).toHaveBeenCalledTimes(500)
+    expect(fixture.metadataFindMany).not.toHaveBeenCalled()
+    expect(mocks.mkdir).not.toHaveBeenCalled()
+    expect(mocks.rm).not.toHaveBeenCalled()
+  })
+
+  it('reports files that reappear after terminal GC history as drift', async () => {
+    const directory = createDirectory([
+      { name: 'pending.webp', isFile: () => true },
+      { name: 'retryable-failed.webp', isFile: () => true },
+      { name: 'exhausted-failed.webp', isFile: () => true },
+      { name: 'deleted-again.webp', isFile: () => true },
+      { name: 'reference-gone.webp', isFile: () => true }
+    ])
+    mocks.opendir.mockResolvedValue(directory)
+    const fixture = gcFixture({
+      entries: [],
+      payload: { dryRun: true, reconcile: true },
+      trackedEntries: [
+        { relativePath: 'pending.webp', status: 'PENDING', attempt: 0, maxAttempts: 3 },
+        { relativePath: 'retryable-failed.webp', status: 'FAILED', attempt: 2, maxAttempts: 3 },
+        { relativePath: 'exhausted-failed.webp', status: 'FAILED', attempt: 3, maxAttempts: 3 },
+        { relativePath: 'deleted-again.webp', status: 'DELETED' },
+        { relativePath: 'reference-gone.webp', status: 'SKIPPED_REFERENCED' }
+      ]
+    })
+
+    const outcome = await executeDerivedMediaGc(fixture.context, fixture.dependencies)
+
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: {
+        reconciliationScanned: 5,
+        reconciliationCandidates: 5,
+        untrackedCandidates: 3
+      }
+    })
+    expect(fixture.gcFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { status: { in: ['PENDING', 'PROCESSING'] } },
+            { status: 'FAILED', attempt: { lt: 'maxAttempts-field-reference' } }
+          ]
+        })
+      })
+    )
+  })
+
+  it('treats a missing reconciliation root as an empty read-only scan', async () => {
+    mocks.opendir.mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }))
+    const fixture = gcFixture({ entries: [], payload: { dryRun: true, reconcile: true } })
+
+    const outcome = await executeDerivedMediaGc(fixture.context, fixture.dependencies)
+
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: { reconciliationScanned: 0, untrackedCandidates: 0 }
+    })
+    expect(mocks.mkdir).not.toHaveBeenCalled()
+    expect(mocks.rename).not.toHaveBeenCalled()
     expect(mocks.rm).not.toHaveBeenCalled()
   })
 
@@ -187,7 +270,9 @@ describe('derived media GC executor', () => {
     expect(mocks.inspect).not.toHaveBeenCalled()
     expect(mocks.rename).not.toHaveBeenCalled()
     expect(fixture.gcUpdateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'FAILED', error: 'Invalid streaming artifact filename' }) })
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'FAILED', error: 'Invalid streaming artifact filename' })
+      })
     )
   })
 
@@ -195,7 +280,9 @@ describe('derived media GC executor', () => {
     const fixture = gcFixture({})
     vi.mocked(fixture.context.mutateInTransaction).mockRejectedValueOnce(new JobExecutionFenceError('gc-job'))
 
-    await expect(executeDerivedMediaGc(fixture.context, fixture.dependencies)).rejects.toBeInstanceOf(JobExecutionFenceError)
+    await expect(executeDerivedMediaGc(fixture.context, fixture.dependencies)).rejects.toBeInstanceOf(
+      JobExecutionFenceError
+    )
     expect(fixture.gcUpdateMany).not.toHaveBeenCalled()
   })
 })
@@ -219,6 +306,12 @@ function gcFixture(options: {
   explicitEntries?: boolean
   controller?: AbortController
   executionStatus?: 'RUNNING' | 'PAUSING' | 'CANCELLING'
+  trackedEntries?: Array<{
+    relativePath: string
+    status: 'PENDING' | 'PROCESSING' | 'DELETED' | 'FAILED' | 'SKIPPED_REFERENCED'
+    attempt?: number
+    maxAttempts?: number
+  }>
 }) {
   const baseEntry = {
     id: 'gc-1',
@@ -234,7 +327,16 @@ function gcFixture(options: {
   const references = [...(options.references ?? [false, false, false])]
   const nextReference = vi.fn(() => Promise.resolve(references.shift() ?? false))
   const gcFindMany = vi.fn().mockImplementation((query) => {
-    if (query.where.mediaKind) return []
+    if (query.where.mediaKind) {
+      return (options.trackedEntries ?? [])
+        .filter(
+          (entry) =>
+            entry.status === 'PENDING' ||
+            entry.status === 'PROCESSING' ||
+            (entry.status === 'FAILED' && (entry.attempt ?? 0) < (entry.maxAttempts ?? 3))
+        )
+        .map(({ relativePath }) => ({ relativePath }))
+    }
     if (options.explicitEntries) {
       return query.where.id.in.map((id: string) => ({ ...baseEntry, id, referenceId: id.replace('gc-', '') }))
     }
@@ -260,11 +362,12 @@ function gcFixture(options: {
   const scope = {
     transaction,
     executionStatus: options.executionStatus ?? 'RUNNING',
-    controlStatus: options.executionStatus === 'PAUSING'
-      ? 'PAUSE_REQUESTED'
-      : options.executionStatus === 'CANCELLING'
-        ? 'CANCEL_REQUESTED'
-        : 'CONTINUE',
+    controlStatus:
+      options.executionStatus === 'PAUSING'
+        ? 'PAUSE_REQUESTED'
+        : options.executionStatus === 'CANCELLING'
+          ? 'CANCEL_REQUESTED'
+          : 'CONTINUE',
     complete: vi.fn(),
     fail: vi.fn(),
     retry: vi.fn(),
@@ -303,6 +406,7 @@ function gcFixture(options: {
     context,
     scope,
     queryRaw,
+    gcFindMany,
     gcUpdateMany,
     chapterFindFirst,
     metadataFindMany,
@@ -315,5 +419,13 @@ function gcFixture(options: {
       config: { scanRoot: '/scan', posterStorageRoot: '/posters', chapterPreviewStorageRoot: '/chapters' },
       now: () => new Date('2026-08-14T00:00:00.000Z')
     } as never
+  }
+}
+
+function createDirectory(entries: Array<{ name: string; isFile: () => boolean }>) {
+  let index = 0
+  return {
+    read: vi.fn(async () => entries[index++] ?? null),
+    close: vi.fn().mockResolvedValue(undefined)
   }
 }

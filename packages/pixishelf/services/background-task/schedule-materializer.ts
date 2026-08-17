@@ -7,7 +7,11 @@ import { JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import { Prisma } from '@pixishelf/db'
 import { isCentralDispatcherCutoverEnabled } from './dispatcher-cutover'
 import { enqueueJob } from './job-command-service'
-import { getShanghaiScheduleWindow, type ShanghaiScheduleWindow } from './schedule-window'
+import {
+  getShanghaiScheduleWindow,
+  isShanghaiWeeklyReconciliationDate,
+  type ShanghaiScheduleWindow
+} from './schedule-window'
 import { buildScheduledTaskJobDefinition } from './scheduled-task-payload'
 
 const SCHEDULER_LOCK_NAMESPACE = 80_432_026
@@ -42,7 +46,7 @@ export interface ScheduleMaterializationDecision {
   type: string
   action: 'materialized' | 'existing' | 'skipped'
   jobId?: string
-  reason?: 'invalid_definition'
+  reason?: 'invalid_definition' | 'not_scheduled_today'
 }
 
 export interface ScheduleMaterializerTickResult {
@@ -78,6 +82,10 @@ async function materializeTask(
   window: ShanghaiScheduleWindow,
   now: Date
 ): Promise<ScheduleMaterializationDecision> {
+  if (task.key === 'derived_media_gc_reconciliation' && !isShanghaiWeeklyReconciliationDate(window.scheduledForDate)) {
+    return { key: task.key, type: task.type, action: 'skipped', reason: 'not_scheduled_today' }
+  }
+
   const existing = await transaction.systemJob.findFirst({
     where: {
       scheduledTaskId: task.id,
@@ -93,6 +101,7 @@ async function materializeTask(
   try {
     definition = buildScheduledTaskJobDefinition(task.type, {
       trigger: 'schedule',
+      scheduleKey: task.key,
       taskConfig: task.config
     })
   } catch {

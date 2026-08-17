@@ -188,6 +188,69 @@ describe('schedule materializer', () => {
     expect(second.decisions[0]?.action).toBe('existing')
   })
 
+  it('materializes weekly reconciliation only on Shanghai Monday and keeps it dry-run', async () => {
+    const task = {
+      id: 'task-weekly-gc',
+      key: 'derived_media_gc_reconciliation',
+      type: 'DERIVED_MEDIA_GC',
+      priority: 71,
+      config: null
+    }
+    const dailyTask = {
+      id: 'task-daily-gc',
+      key: 'derived_media_gc',
+      type: 'DERIVED_MEDIA_GC',
+      priority: 70,
+      config: null
+    }
+    const mondayHarness = createDatabase([dailyTask, task])
+    const monday = new Date('2026-06-07T16:01:00.000Z')
+
+    const first = await runScheduleMaterializerTick(monday, {
+      cutoverEnabled: true,
+      database: mondayHarness.database as never,
+      ensureDefaults: ensureDefaultsMock
+    })
+    const duplicate = await runScheduleMaterializerTick(monday, {
+      cutoverEnabled: true,
+      database: mondayHarness.database as never,
+      ensureDefaults: ensureDefaultsMock
+    })
+
+    expect(first).toMatchObject({ scheduledForDate: '2026-06-08' })
+    expect(first.decisions.map((decision) => decision.action)).toEqual(['materialized', 'materialized'])
+    expect(duplicate.decisions.map((decision) => decision.action)).toEqual(['existing', 'existing'])
+    expect(enqueueJobMock).toHaveBeenCalledTimes(2)
+    expect(enqueueJobMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ payload: { dryRun: false, reconcile: false } }),
+      expect.any(Object),
+      expect.any(Function)
+    )
+    expect(enqueueJobMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ payload: { dryRun: true, reconcile: true } }),
+      expect.any(Object),
+      expect.any(Function)
+    )
+
+    enqueueJobMock.mockClear()
+    const tuesdayHarness = createDatabase([task])
+    const ordinaryDay = await runScheduleMaterializerTick(new Date('2026-06-08T16:01:00.000Z'), {
+      cutoverEnabled: true,
+      database: tuesdayHarness.database as never,
+      ensureDefaults: ensureDefaultsMock
+    })
+    expect(ordinaryDay).toMatchObject({ scheduledForDate: '2026-06-09' })
+    expect(ordinaryDay.decisions[0]).toEqual({
+      key: task.key,
+      type: task.type,
+      action: 'skipped',
+      reason: 'not_scheduled_today'
+    })
+    expect(enqueueJobMock).not.toHaveBeenCalled()
+  })
+
   it('returns the dispatcher expiry boundary at and after 08:00 without enqueueing', async () => {
     const result = await runScheduleMaterializerTick(new Date('2026-06-02T00:00:00.000Z'), {
       cutoverEnabled: true

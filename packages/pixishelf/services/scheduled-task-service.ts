@@ -178,6 +178,7 @@ export async function triggerScheduledTaskNow(
     }
     const definition = buildScheduledTaskJobDefinition(task.type, {
       trigger: 'manual',
+      scheduleKey: task.key,
       taskConfig: task.config,
       chapterPreviewMode: options.chapterPreviewMode
     })

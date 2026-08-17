@@ -11,6 +11,11 @@ export interface ShanghaiScheduleWindow {
   isOpen: boolean
 }
 
+export function isShanghaiWeeklyReconciliationDate(scheduledForDate: string) {
+  // Date-only UTC parsing is deterministic; weekdays are identical in every timezone for this value.
+  return new Date(`${scheduledForDate}T00:00:00.000Z`).getUTCDay() === 1
+}
+
 export function getShanghaiScheduleWindow(now: Date): ShanghaiScheduleWindow {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: CENTRAL_SCHEDULE_TIMEZONE,

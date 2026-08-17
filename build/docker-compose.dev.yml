@@ -24,6 +24,11 @@ services:
       retries: 5
       start_period: 30s
     restart: always
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '5'
 
   # 可选：容器化运行 Next.js 应用。默认开发模式下不启动，通常直接在宿主机 pnpm dev。
   app:
@@ -59,8 +64,8 @@ services:
     logging:
       driver: 'json-file'
       options:
-        max-size: '20m' # 单个日志文件最大 20MB
-        max-file: '10' # 最多保留 10 个日志文件
+        max-size: '10m'
+        max-file: '5'
 
   archive-worker:
     profiles:
@@ -88,6 +93,11 @@ services:
     networks:
       - pixishelf-network
     restart: unless-stopped
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '5'
 
   # New general Worker dark launch. It stays present for health/preflight, but
   # claims no jobs until WORKER_DISPATCH_ENABLED is explicitly enabled.
@@ -151,6 +161,11 @@ services:
       done'
     networks:
       - pixishelf-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '5'
 
   # imgproxy 服务容器
   imgproxy:
@@ -174,6 +189,11 @@ services:
     networks:
       - pixishelf-network
     restart: always
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '5'
 
   thumbor:
     # 使用官方的 Thumbor 镜像
@@ -209,6 +229,11 @@ services:
       - RESULT_STORAGE_EXPIRATION_SECONDS=0
 
       - FILTERS=['thumbor_video_engine.filters.format','thumbor_video_engine.filters.still']
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '5'
 volumes:
   postgres_data:
 

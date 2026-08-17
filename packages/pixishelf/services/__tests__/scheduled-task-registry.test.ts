@@ -182,6 +182,20 @@ describe('scheduled-task-registry', () => {
     )
   })
 
+  it('registers an independent weekly reconciliation dry-run without a new schedule enum', () => {
+    expect(SCHEDULED_TASK_DEFINITIONS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'derived_media_gc_reconciliation',
+          type: SCHEDULED_TASK_TYPES.DERIVED_MEDIA_GC,
+          defaultPriority: 71,
+          defaultEnabled: false,
+          mutexKey: 'media-maintenance'
+        })
+      ])
+    )
+  })
+
   it('refuses to run derived-media GC through the detached legacy handler', async () => {
     const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.DERIVED_MEDIA_GC)
 
