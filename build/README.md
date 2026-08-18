@@ -1,8 +1,8 @@
 # Build 与部署
 
-本目录维护 PixiShelf 的容器构建、Compose 和发布配置。当前阶段采用兼容过渡：旧
-`archive-worker` 继续承担线上消费，新 `pixishelf-worker` 以
-`WORKER_DISPATCH_ENABLED=false` 暗启动并验证独立运行边界。
+本目录维护 PixiShelf 的容器构建、Compose 和发布配置。阶段 1–7 已完成生产切换：通用
+`pixishelf-worker` 是唯一正常消费者，旧 `archive-worker` 只作为应用级紧急回滚镜像保留，
+生产稳态不得同时运行两个消费者。
 
 ## 文件边界
 
@@ -12,12 +12,12 @@
   扫描/本地导入、迁移和批量替换。
 - `docker-compose.dev.yml`：本地构建与开发环境。
 - `docker-compose.deploy.yml`：使用预构建镜像的生产环境。
-- `.env.example`：部署变量模板，所有 Central Dispatcher 开关默认关闭。
-- `archive-worker.Dockerfile`：过渡期生产消费者；Compose 与 CI 继续构建、发布和扫描，直到
-  所有旧任务类型迁移完毕后，在最终原子切换提交中删除。
+- `.env.example`：部署变量模板；为防止新环境误消费，Central Dispatcher 开关仍安全地默认关闭。
+- `archive-worker.Dockerfile`：回滚期兼容消费者；不参与切换完成后的正常生产运行。
 
-两个 Worker 容器可以同时存在，但此阶段通用 Worker 的 Dispatcher 必须保持关闭。严禁让旧
-`archive-worker` 与 `WORKER_DISPATCH_ENABLED=true` 的通用 Worker 同时消费。
+暗启动时两个容器可以同时存在，但仅限通用 Worker 的 Dispatcher 为关闭状态。生产稳态中
+`CENTRAL_DISPATCHER_CUTOVER_ENABLED=true` 与 `WORKER_DISPATCH_ENABLED=true` 必须成对设置，
+并且旧 `archive-worker` 必须停止。严禁两个 Worker 同时消费。
 
 `worker.Dockerfile` 不复制 `packages/pixishelf`（Next.js 应用）源码。Worker 只从独立 workspace
 包构建，并以非 root UID/GID `1001` 运行。它不会执行 migration；数据库 schema 仍由 Web
@@ -75,11 +75,11 @@ docker compose -f docker-compose.dev.yml exec worker \
 docker compose -f docker-compose.dev.yml logs -f worker
 ```
 
-默认 `WORKER_DISPATCH_ENABLED=false`，所以启动通用 Worker 只进行预检、健康服务和进程心跳，
-不会领取任务；旧 `archive-worker` 仍是当前消费者。`db:push` 不写 `_prisma_migrations`，不能
-代替 migration deploy 满足 Worker 预检。
+开发模板默认 `WORKER_DISPATCH_ENABLED=false`，所以单独启动通用 Worker 只进行预检、健康服务和
+进程心跳，不会领取任务。只有需要验证旧路径时才显式启动 `archive-worker`；生产稳态不使用旧消费者。
+`db:push` 不写 `_prisma_migrations`，不能代替 migration deploy 满足 Worker 预检。
 
-## 生产部署与兼容过渡
+## 生产部署与回滚兼容
 
 首次复制配置：
 
@@ -88,36 +88,28 @@ cd build
 cp .env.example .env
 ```
 
-升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH` 和 `DERIVED_MEDIA_HOST_PATH`。Phase 5 暗发布必须保持：
+升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH` 和 `DERIVED_MEDIA_HOST_PATH`。新镜像暗启动阶段必须保持：
 
 ```dotenv
 CENTRAL_DISPATCHER_CUTOVER_ENABLED=false
 WORKER_DISPATCH_ENABLED=false
 ```
 
-按以下顺序部署：
-
-```bash
-# 1. 拉取镜像；先启动 Web，让 entrypoint 完成 migration。
-docker compose -f docker-compose.deploy.yml pull
-docker compose -f docker-compose.deploy.yml up -d postgres app
-docker compose -f docker-compose.deploy.yml logs --tail=200 app
-
-# 2. 继续运行旧消费者，同时启动通用 Worker 暗发布并确认 READY。
-docker compose -f docker-compose.deploy.yml up -d archive-worker worker
-docker compose -f docker-compose.deploy.yml exec worker \
-  node dist/healthcheck.cjs --mode=ready
-```
+生产部署必须先停止写入者、执行只读 cutover audit、创建数据库与媒体一致性备份，再启动 App 完成
+migration 和 Worker 暗启动。最终同时打开两枚开关并停止旧消费者。完整的纯 Docker 命令、Traefik
+部署边界和验收步骤见
+[最终部署文档](../docs/deployment/background-task-cutover-deployment.md)；事故处理见
+[回滚手册](../docs/deployment/background-task-cutover-rollback.md)。
 
 两个开关用途不同：`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 让 Next.js 只创建/控制统一队列任务；
 `WORKER_DISPATCH_ENABLED` 才允许通用 Worker claim。开关默认 false，避免镜像升级时意外开始消费。
 当前通用 Registry 已锁定全部 17 种 v1 capability，其中包括 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、
-`MIGRATION`、`PENDING_REPLACE` 四类高风险任务。它们已经随镜像暗装，但生产流量仍走旧路径；只有
-17 类任务一起通过最终回归、兼容审计和原子切换门禁后，才允许同时打开两个全局开关。
+`MIGRATION`、`PENDING_REPLACE` 四类高风险任务。阶段 1–7 的生产切换已完成；新部署仍须先以
+`false/false` 暗启动并通过 READY/capability 门禁，然后才能恢复生产稳态的 `true/true`。
 
-最终切换必须在所有 Executor 迁移、回归和发布门禁完成后一次完成：停止新任务、排空并停止旧
-`archive-worker`，确认无 RUNNING/PAUSING/CANCELLING 旧任务，再同时启用 Next 切换与通用 Worker
-Dispatcher。旧服务/镜像的移除也只能在这个最终提交发生，不能提前。任何时候都禁止双消费者。
+最终切换必须一次完成：停止新任务、排空并停止旧 `archive-worker`，确认不存在阻断状态，再同时
+启用 Next 控制面与通用 Worker Dispatcher。旧镜像在阶段 8 稳定完成前继续保留用于应用级回滚，
+但不能作为生产消费者运行。任何时候都禁止双消费者。
 
 发生问题时先把两个开关恢复为 false 并重建 `app`/`worker`，停止新入队与领取；不要在存在
 RUNNING、PAUSING 或 CANCELLING 任务时强制回滚 schema。数据库和媒体必须从同一时间点的已验证

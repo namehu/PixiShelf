@@ -5,6 +5,7 @@ import {
   Activity,
   AlertTriangle,
   Ban,
+  ChevronDown,
   Clock3,
   Cpu,
   ListOrdered,
@@ -303,6 +304,11 @@ function SummaryCell({ label, value, emphasized = false }: { label: string; valu
 }
 
 function WorkerPanel({ workers, label }: { workers: WorkerHealthDto[]; label: string }) {
+  const now = Date.now()
+  const workerEntries = workers.map((worker) => ({ worker, health: getWorkerHealth(worker, now) }))
+  const currentWorkers = workerEntries.filter(({ health }) => !health.stale)
+  const historicalWorkers = workerEntries.filter(({ health }) => health.stale)
+
   return (
     <section aria-labelledby="worker-health-title" className="min-w-0 bg-card p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3">
@@ -320,41 +326,79 @@ function WorkerPanel({ workers, label }: { workers: WorkerHealthDto[]; label: st
           <p className="mt-1 text-muted-foreground">队列可接收任务，但不会开始执行。请启动 pixishelf-worker。</p>
         </div>
       ) : (
-        <ul className="mt-3 flex flex-col gap-2">
-          {workers.map((worker) => {
-            const health = getWorkerHealth(worker)
-            return (
-              <li key={worker.workerId} className="min-w-0 rounded-lg border p-3 text-sm">
-                <div className="flex min-w-0 items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-center gap-2 font-medium">
-                    <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    <span className="truncate">{worker.workerId}</span>
-                  </span>
-                  <AdminStatusBadge status={health.stale ? 'FAILED' : worker.status}>
-                    {health.stale ? '心跳陈旧' : worker.status}
-                  </AdminStatusBadge>
-                </div>
-                <p className="mt-2 select-text break-all font-mono text-xs text-muted-foreground">
-                  {worker.hostname}:{worker.processId} · {worker.serviceVersion}
+        <>
+          {currentWorkers.length > 0 ? (
+            <ul className="mt-3 flex flex-col gap-2">
+              {currentWorkers.map(({ worker, health }) => (
+                <WorkerInstanceCard key={worker.workerId} worker={worker} ageMs={health.ageMs} />
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-4 rounded-lg border border-dashed border-destructive/30 bg-destructive/5 p-3 text-sm">
+              <p className="font-medium text-destructive">当前没有在线 Worker</p>
+              <p className="mt-1 text-muted-foreground">现有记录均已离线，队列中的任务暂时不会开始执行。</p>
+            </div>
+          )}
+
+          {historicalWorkers.length > 0 ? (
+            <details className="group mt-3 rounded-lg border border-dashed bg-muted/15 text-sm">
+              <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2.5 text-muted-foreground outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+                <Clock3 className="size-4 shrink-0" aria-hidden="true" />
+                <span className="font-medium text-foreground">历史实例</span>
+                <span className="text-xs">{historicalWorkers.length} 条 · 不参与任务执行</span>
+                <ChevronDown
+                  className="ml-auto size-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none"
+                  aria-hidden="true"
+                />
+              </summary>
+              <div className="border-t border-dashed px-3 pt-2 pb-3">
+                <p className="text-xs leading-5 text-muted-foreground">
+                  容器重启或重建后保留的诊断记录，不会领取任务，并会按保留策略自动清理。
                 </p>
-                <p
-                  className={cn(
-                    'mt-1 text-xs',
-                    health.stale ? 'font-medium text-destructive' : 'text-muted-foreground'
-                  )}
-                >
-                  心跳 {formatHeartbeatAge(health.ageMs)}
-                  {health.stale ? '，已超过 90 秒健康窗口' : ''}
-                </p>
-                {worker.lastError ? (
-                  <p className="mt-2 select-text break-words text-xs text-destructive">{worker.lastError}</p>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
+                <ul className="mt-2 flex flex-col gap-2">
+                  {historicalWorkers.map(({ worker, health }) => (
+                    <WorkerInstanceCard key={worker.workerId} worker={worker} ageMs={health.ageMs} historical />
+                  ))}
+                </ul>
+              </div>
+            </details>
+          ) : null}
+        </>
       )}
     </section>
+  )
+}
+
+function WorkerInstanceCard({
+  worker,
+  ageMs,
+  historical = false
+}: {
+  worker: WorkerHealthDto
+  ageMs: number
+  historical?: boolean
+}) {
+  return (
+    <li className={cn('min-w-0 rounded-lg border p-3 text-sm', historical && 'border-dashed bg-muted/15')}>
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2 font-medium">
+          <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="truncate">{worker.workerId}</span>
+        </span>
+        <AdminStatusBadge status={historical ? 'IDLE' : worker.status}>
+          {historical ? '历史记录' : worker.status}
+        </AdminStatusBadge>
+      </div>
+      <p className="mt-2 select-text break-all font-mono text-xs text-muted-foreground">
+        {worker.hostname}:{worker.processId} · {worker.serviceVersion}
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {historical ? '最后心跳' : '心跳'} {formatHeartbeatAge(ageMs)}
+      </p>
+      {worker.lastError ? (
+        <p className="mt-2 select-text break-words text-xs text-destructive">{worker.lastError}</p>
+      ) : null}
+    </li>
   )
 }
 

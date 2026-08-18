@@ -572,14 +572,19 @@ audit 必须确认以下阻断计数全部为 0：
 
 audit 输出每类数量和有限 ID/数据库记录中的路径样例，并以非零退出码阻止部署。路径字段可能是绝对路径，audit 输出必须按部署日志的敏感信息权限保存，不能公开分发。它只能读取，不能自动“修复”状态。
 
-从已安装 pnpm 依赖的部署 checkout 进入 `packages/pixishelf`，显式提供目标数据库的 `DATABASE_URL` 后执行（命令不会输出该 URL）：
+生产服务器采用纯 Docker 部署，不要求存在源码 checkout、Node.js 或 pnpm。停止所有写入者后，应直接通过
+PostgreSQL 容器执行与 migration guard 相同的 `RepeatableRead READ ONLY` 审查；完整命令和判定规则见
+[最终部署文档](../deployment/background-task-cutover-deployment.md#阶段-6停止所有旧写入者并执行纯-docker-数据库审查)。
+
+在开发机、预发布机或确实安装了 pnpm 依赖的部署 checkout 中，也可以进入 `packages/pixishelf`，显式提供
+目标数据库的 `DATABASE_URL` 后执行 CLI（命令不会输出该 URL）：
 
 ```bash
 pnpm background-task:cutover-audit
 pnpm background-task:cutover-audit --sample-limit 50
 ```
 
-当前生产 app stage 不包含 `tsx`，因此不要假设能直接在运行中的 app 容器内执行该命令。默认每类最多输出 20 个样例；`--sample-limit` 只接受 1 到 100 的整数。命令把全部 `count` 和 `findMany` 查询放在一个 PostgreSQL `RepeatableRead` 事务快照内，并输出带 `schemaVersion` 的 JSON。退出码 `0` 表示没有阻断记录，`2` 表示发现阻断记录，`1` 表示参数、配置或数据库错误。部署流程必须只接受退出码 `0`；事务快照不能替代停写要求，最终 audit 期间所有旧写入者必须保持停止。
+当前生产 App stage 不包含 `tsx`、pnpm 或完整开发依赖，因此不能在 App 容器内执行上述 CLI，也不得为了审查临时在生产服务器安装开发工具。CLI 默认每类最多输出 20 个样例；`--sample-limit` 只接受 1 到 100 的整数。命令把全部 `count` 和 `findMany` 查询放在一个 PostgreSQL `RepeatableRead` 事务快照内，并输出带 `schemaVersion` 的 JSON。退出码 `0` 表示没有阻断记录，`2` 表示发现阻断记录，`1` 表示参数、配置或数据库错误。无论使用 PostgreSQL 容器 SQL 还是源码环境 CLI，都只有全部阻断计数为 0 才能继续；事务快照不能替代停写要求，最终 audit 期间所有旧写入者必须保持停止。
 
 如果发现异常：
 

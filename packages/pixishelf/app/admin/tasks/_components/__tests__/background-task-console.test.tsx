@@ -227,6 +227,32 @@ describe('background task console', () => {
     expect(getWorkerHealth(createWorker('STOPPING', '2026-08-17T02:01:30.000Z'), now).healthy).toBe(false)
   })
 
+  it('keeps stale worker records in neutral collapsed history', () => {
+    const current = { ...createWorker('READY', new Date().toISOString()), workerId: 'worker-current' }
+    const historical = {
+      ...createWorker('READY', '2026-08-17T02:00:00.000Z'),
+      workerId: 'worker-historical'
+    }
+    render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard({ workers: [current, historical] })}
+        selectedJob={null}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={createControls()}
+      />
+    )
+
+    expect(screen.getByText('1 个可用')).toBeTruthy()
+    expect(screen.getByText('历史实例')).toBeTruthy()
+    expect(screen.getByText('1 条 · 不参与任务执行')).toBeTruthy()
+    expect(screen.queryByText('心跳陈旧')).toBeNull()
+    expect(screen.getByText(/不会领取任务，并会按保留策略自动清理/)).toBeTruthy()
+    expect(screen.getByText('历史实例').closest('details')?.open).toBe(false)
+  })
+
   it('merges incremental events in bigint order without duplicates and renders selectable event data', () => {
     const base = {
       jobId: 'job-running',
