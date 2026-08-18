@@ -761,7 +761,7 @@ describePostgres('PostgresQueueRepository integration', () => {
       })
     ).toEqual({
       status: 'PAUSED',
-      message: 'waiting for an operator decision',
+      message: 'Original media is unavailable',
       pauseRequestedAt: null,
       finishedAt: null
     })
