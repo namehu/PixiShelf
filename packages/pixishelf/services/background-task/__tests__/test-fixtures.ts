@@ -10,6 +10,7 @@ export function jobRecord(overrides: Partial<SystemJobWireRecord> = {}): SystemJ
   return {
     id: 'job-1',
     type: 'SCAN',
+    executionLane: 'BACKGROUND_WRITER',
     definitionVersion: 1,
     status: 'PENDING',
     triggerSource: 'MANUAL',

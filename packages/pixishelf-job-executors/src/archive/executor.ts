@@ -57,6 +57,7 @@ export function createArchiveExecutorRegistrations(
   return [
     {
       jobType: 'ARCHIVE_IMPORT',
+      executionLane: 'BACKGROUND_WRITER',
       definitionVersion: 1,
       parsePayload: (payload) => archiveImportPayloadSchema.parse(payload),
       execute: (context) => executeArchiveImport(context, dependencies)
@@ -274,17 +275,22 @@ async function downloadArchiveItem(input: {
       quality: input.archiveImport.selectedQuality,
       signal: input.signal
     })
-    const stored = await storeArchiveRemoteMedia({
-      remote,
-      stagingDirectory: input.stagingDirectory,
-      index: input.item.pageIndex,
-      expectedFilename: input.item.expectedFilename,
-      signal: input.signal,
-      ...(input.dependencies.config.maxMediaBytes === undefined
-        ? {}
-        : { maxBytes: input.dependencies.config.maxMediaBytes }),
-      partialKey: input.context.job.executionToken
-    })
+    let stored
+    try {
+      stored = await storeArchiveRemoteMedia({
+        remote,
+        stagingDirectory: input.stagingDirectory,
+        index: input.item.pageIndex,
+        expectedFilename: input.item.expectedFilename,
+        signal: input.signal,
+        ...(input.dependencies.config.maxMediaBytes === undefined
+          ? {}
+          : { maxBytes: input.dependencies.config.maxMediaBytes }),
+        partialKey: input.context.job.executionToken
+      })
+    } finally {
+      if (!remote.stream.destroyed) remote.stream.destroy()
+    }
     mediaStored = true
     const completedItems = await input.context.mutateInTransaction<ArchiveTransaction, number>(async (transaction) => {
       const completed = await transaction.archiveImportItem.updateMany({

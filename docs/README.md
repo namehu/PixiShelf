@@ -63,6 +63,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 | 文档                                                     | 状态         | 权威范围与后续处理                                         |
 | -------------------------------------------------------- | ------------ | ---------------------------------------------------------- |
+| [归档收件队列](./design/archive-intake-queue.md)         | `draft`      | 已确认的持续追加、持久解析、批量入队和任务批量控制设计     |
 | [多来源 URL 归档](./design/multi-source-url-archive.md)  | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
 | [视频代表帧生成](./design/video-keyframe-generation.md)  | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
 | [界面设计升级计划](./pixishelf-design-upgrade-plan.md)   | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
@@ -77,6 +78,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [ADR-0001](./adr/0001-separate-source-references-from-local-identity.md)      | `accepted` | 外部来源引用与本地作品身份分离   |
 | [ADR-0002](./adr/0002-use-a-durable-worker-and-atomic-archive-publication.md) | `accepted` | 持久 Worker 与原子归档发布       |
 | [ADR-0003](./adr/0003-unify-background-jobs-under-a-durable-single-worker.md) | `accepted` | PostgreSQL 队列上的单通用 Worker |
+| [ADR-0004](./adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)    | `accepted` | 单 Worker 内双资源执行通道       |
 
 ## 部署、发布与历史记录
 

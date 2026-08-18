@@ -29,12 +29,14 @@ export function createVideoKeyframeExecutorRegistrations(
   assertConfig(dependencies.config)
   const discovery: ExecutorDefinition<VideoKeyframeDiscoveryPayload> = {
     jobType: 'VIDEO_KEYFRAME_DISCOVERY',
+    executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
     parsePayload: (payload) => videoKeyframeDiscoveryPayloadSchema.parse(payload),
     execute: (context) => executeDiscovery(context, dependencies)
   }
   const generation: ExecutorDefinition<VideoKeyframeGenerationPayload> = {
     jobType: 'VIDEO_KEYFRAME_GENERATION',
+    executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
     parsePayload: (payload) => videoKeyframeGenerationPayloadSchema.parse(payload),
     execute: (context) => executeGeneration(context, dependencies)

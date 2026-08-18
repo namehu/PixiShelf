@@ -1,3 +1,4 @@
+import { PassThrough } from 'node:stream'
 import type { Prisma } from '@pixishelf/db'
 import {
   JobExecutionFenceError,
@@ -32,6 +33,12 @@ vi.mock('../publisher.js', () => ({ publishArchiveImportInTransaction: publishMo
 import { createArchiveExecutorRegistrations, executeArchiveImport } from '../executor.js'
 import { ArchiveExecutorError } from '../errors.js'
 import { DefaultArchiveMediaProviderRegistry } from '../provider-registry.js'
+import {
+  GovernedArchiveProviderRegistry,
+  type ArchiveProviderGovernor,
+  type ArchiveProviderPermit
+} from '../provider-governor.js'
+import type { ArchiveProvider } from '../types.js'
 
 const archiveImport = {
   id: 'import-1',
@@ -243,6 +250,60 @@ describe('archive executor', () => {
       }
     })
     expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
+  })
+
+  it('destroys an unconsumed remote stream so a local storage failure releases its provider permit', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({
+      ...archiveImport,
+      totalItems: 1,
+      items: [archiveItem]
+    })
+    transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    const context = createContext(transaction)
+    const stream = new PassThrough()
+    const permit: ArchiveProviderPermit = {
+      id: 'download-permit-1',
+      providerKey: 'test',
+      requestClass: 'DOWNLOAD',
+      renewAfterMs: 60_000
+    }
+    const governor = {
+      acquire: vi.fn(async () => permit),
+      renew: vi.fn(async () => undefined),
+      release: vi.fn(async () => undefined),
+      penalize: vi.fn(async () => undefined)
+    } satisfies ArchiveProviderGovernor
+    const provider: ArchiveProvider = {
+      key: 'test',
+      requestGovernance: 'PER_REQUEST',
+      accepts: () => true,
+      resolve: vi.fn(),
+      openMedia: vi.fn(async (_item, downloadContext) =>
+        downloadContext.runDownloadStreamRequest!(async () => ({
+          stream,
+          mimeType: 'image/jpeg',
+          contentLength: null,
+          originalFilename: '001.jpg',
+          quality: 'ORIGINAL' as const,
+          remoteHost: 'example.test'
+        }))
+      )
+    }
+    storageMocks.storeArchiveRemoteMedia.mockRejectedValueOnce(
+      new ArchiveExecutorError('STORAGE_FULL', 'local open failed', { recoverable: true, stage: 'STORAGE' })
+    )
+    const baseDependencies = dependencies(transaction)
+    const executorDependencies = {
+      ...baseDependencies,
+      config: { ...baseDependencies.config, maxMediaAttempts: 1 },
+      providers: new GovernedArchiveProviderRegistry(new DefaultArchiveMediaProviderRegistry([provider]), governor)
+    }
+
+    await executeArchiveImport(context, executorDependencies).catch(() => undefined)
+
+    expect(stream.destroyed).toBe(true)
+    await vi.waitFor(() => expect(governor.release).toHaveBeenCalledWith(permit))
   })
 
   it('performs no domain callback or terminal settlement after the execution fence is lost', async () => {

@@ -48,8 +48,8 @@ describe('PostgresQueueRepository legacy projections', () => {
       })
     ).resolves.toEqual({ id: 'streaming-child', created: true })
 
-    expect(insertValues[11]).toBe(43)
-    expect(insertValues[12]).toBe('videos/streaming.mp4')
-    expect(insertValues[13]).toBe('REMUX_FASTSTART')
+    expect(insertValues[12]).toBe(43)
+    expect(insertValues[13]).toBe('videos/streaming.mp4')
+    expect(insertValues[14]).toBe('REMUX_FASTSTART')
   })
 })

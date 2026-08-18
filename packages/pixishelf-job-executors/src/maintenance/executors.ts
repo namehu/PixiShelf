@@ -61,6 +61,7 @@ function definition<TResult>(
 ): ExecutorDefinition<EmptyPayload, TResult> {
   return {
     jobType,
+    executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
     parsePayload: (payload) => emptyJobPayloadSchema.parse(payload) as EmptyPayload,
     execute: async (context) => ({

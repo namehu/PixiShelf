@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ACTIVE_JOB_STATUSES,
   EXECUTING_JOB_STATUSES,
+  executionLaneForJobType,
   JOB_DEFINITION_VERSION,
   JOB_PAYLOAD_SCHEMAS,
   JOB_TYPE_VALUES,
@@ -24,6 +25,7 @@ describe('job wire contracts', () => {
         'VIDEO_MEDIA_PROBE',
         'VIDEO_KEYFRAME_DISCOVERY',
         'VIDEO_KEYFRAME_GENERATION',
+        'ARCHIVE_RESOLVE_ITEM',
         'ARCHIVE_IMPORT'
       ])
     )
@@ -33,6 +35,11 @@ describe('job wire contracts', () => {
     expect([...TERMINAL_JOB_STATUSES].some((status) => ACTIVE_JOB_STATUSES.has(status))).toBe(false)
     expect(Object.keys(JOB_PAYLOAD_SCHEMAS)).toHaveLength(JOB_TYPE_VALUES.length)
     expect(JOB_DEFINITION_VERSION).toBe(1)
+    expect(executionLaneForJobType('ARCHIVE_RESOLVE_ITEM')).toBe('ARCHIVE_RESOLVE')
+    expect(executionLaneForJobType('ARCHIVE_IMPORT')).toBe('BACKGROUND_WRITER')
+    expect(parseJobPayload('ARCHIVE_RESOLVE_ITEM', { intakeItemId: 'intake-1' })).toEqual({
+      intakeItemId: 'intake-1'
+    })
   })
 
   it('publishes one immutable media extension vocabulary including m4v', () => {
@@ -224,7 +231,7 @@ describe('job wire contracts', () => {
       serviceVersion: '1.0.0',
       hostname: 'worker-host',
       processId: 42,
-      capabilities: [{ jobType: 'VIDEO_MEDIA_PROBE', definitionVersions: [1] }],
+      capabilities: [{ jobType: 'VIDEO_MEDIA_PROBE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }],
       startedAt: '2026-08-14T10:00:00.000Z',
       heartbeatAt: '2026-08-14T10:00:30.000Z',
       lastError: null,
@@ -236,7 +243,7 @@ describe('job wire contracts', () => {
     expect(() =>
       workerHealthDtoSchema.parse({
         ...worker,
-        capabilities: [{ jobType: 'VIDEO_MEDIA_PROBE', definitionVersions: [1, 1] }]
+        capabilities: [{ jobType: 'VIDEO_MEDIA_PROBE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 1] }]
       })
     ).toThrow()
     expect(() => workerHealthDtoSchema.parse({ ...worker, lastError: 'x'.repeat(2049) })).toThrow()

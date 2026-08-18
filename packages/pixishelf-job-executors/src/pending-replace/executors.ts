@@ -13,6 +13,7 @@ export function createPendingReplaceExecutorRegistrations<TTransaction extends Q
   assertConfig(dependencies)
   const registration: ExecutorDefinition<PendingReplacePayload> = {
     jobType: 'PENDING_REPLACE',
+    executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
     parsePayload: (payload) => pendingReplacePayloadSchema.parse(payload),
     execute: (context) => executePendingReplace(context, dependencies)

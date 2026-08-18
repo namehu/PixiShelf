@@ -27,18 +27,21 @@ export function createVideoMediaExecutorRegistrations(
   return [
     {
       jobType: 'VIDEO_MEDIA_PROBE',
+      executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
       parsePayload: (payload) => videoMediaProbePayloadSchema.parse(payload),
       execute: (context) => executeVideoMediaProbe(context, dependencies)
     } as ExecutorDefinition<VideoMediaProbePayload>,
     {
       jobType: 'VIDEO_POSTER_GENERATION',
+      executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
       parsePayload: (payload) => targetImagePayloadSchema.parse(payload),
       execute: (context) => executeVideoPoster(context, dependencies)
     } as ExecutorDefinition<VideoPosterPayload>,
     {
       jobType: 'DERIVED_MEDIA_GC',
+      executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
       parsePayload: (payload) => derivedMediaGcPayloadSchema.parse(payload),
       execute: (context) => executeDerivedMediaGc(context, dependencies)

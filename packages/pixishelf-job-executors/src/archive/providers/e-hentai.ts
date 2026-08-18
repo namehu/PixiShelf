@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
+import type { Readable } from 'node:stream'
 import { ArchiveError, withArchiveErrorContext } from '../errors.js'
 import { SafeHttpClient, assertSuccessStatus, remoteHostForUrl } from '../safe-http.js'
 import type {
@@ -52,6 +53,7 @@ interface EhTokenResponse {
 
 export class EHentaiProvider implements ArchiveProvider {
   readonly key = PROVIDER_KEY
+  readonly requestGovernance = 'PER_REQUEST' as const
 
   constructor(
     private readonly http = new SafeHttpClient(['e-hentai.org', 'ehgt.org', HATH_NETWORK_SUFFIX], process.env, [
@@ -127,11 +129,13 @@ export class EHentaiProvider implements ArchiveProvider {
   async openMedia(item: ResolvedMedia, context: ArchiveDownloadContext): Promise<RemoteMedia> {
     let html: string
     try {
-      html = await this.http.text(item.sourcePageUrl, {
-        ...(context.signal ? { signal: context.signal } : {}),
-        maxBytes: 4 * 1024 * 1024,
-        headers: { referer: item.sourcePageUrl }
-      })
+      html = await runDownloadRequest(context, () =>
+        this.http.text(item.sourcePageUrl, {
+          ...(context.signal ? { signal: context.signal } : {}),
+          maxBytes: 4 * 1024 * 1024,
+          headers: { referer: item.sourcePageUrl }
+        })
+      )
     } catch (error) {
       throw withArchiveErrorContext(error, {
         stage: 'SOURCE_PAGE',
@@ -161,11 +165,14 @@ export class EHentaiProvider implements ArchiveProvider {
     }
 
     try {
-      const response = await this.http.request(selectedUrl, {
-        ...(context.signal ? { signal: context.signal } : {}),
-        headers: { referer: item.sourcePageUrl }
+      const response = await runDownloadStreamRequest(context, async () => {
+        const opened = await this.http.request(selectedUrl, {
+          ...(context.signal ? { signal: context.signal } : {}),
+          headers: { referer: item.sourcePageUrl }
+        })
+        assertSuccessStatus(opened)
+        return opened
       })
-      assertSuccessStatus(response)
       return {
         stream: response.stream,
         mimeType: headerValue(response.headers['content-type'])?.split(';')[0]?.trim() || null,
@@ -201,13 +208,15 @@ export class EHentaiProvider implements ArchiveProvider {
     if (!pageMatch) throw new ArchiveError('INVALID_URL', '不支持的 E-Hentai 链接格式')
     const gid = Number(pageMatch[2])
     const pageNumber = Number(pageMatch[3])
-    const response = await this.http.json<EhTokenResponse>(API_URL, {
-      method: 'POST',
-      ...(context.signal ? { signal: context.signal } : {}),
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ method: 'gtoken', pagelist: [[gid, pageMatch[1], pageNumber]] }),
-      maxBytes: 4 * 1024 * 1024
-    })
+    const response = await runResolveRequest(context, () =>
+      this.http.json<EhTokenResponse>(API_URL, {
+        method: 'POST',
+        ...(context.signal ? { signal: context.signal } : {}),
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'gtoken', pagelist: [[gid, pageMatch[1], pageNumber]] }),
+        maxBytes: 4 * 1024 * 1024
+      })
+    )
     if (response.error) throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai API: ${response.error}`)
     const token = response.tokenlist?.find((value) => Number(value.gid) === gid)?.token
     if (!token) throw new ArchiveError('REMOTE_NOT_FOUND', '无法从 E-Hentai API 定位图片所属画廊')
@@ -215,13 +224,15 @@ export class EHentaiProvider implements ArchiveProvider {
   }
 
   private async fetchMetadata(gid: number, token: string, context: ArchiveProviderContext) {
-    const response = await this.http.json<EhApiResponse>(API_URL, {
-      method: 'POST',
-      ...(context.signal ? { signal: context.signal } : {}),
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ method: 'gdata', gidlist: [[gid, token]], namespace: 1 }),
-      maxBytes: 4 * 1024 * 1024
-    })
+    const response = await runResolveRequest(context, () =>
+      this.http.json<EhApiResponse>(API_URL, {
+        method: 'POST',
+        ...(context.signal ? { signal: context.signal } : {}),
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'gdata', gidlist: [[gid, token]], namespace: 1 }),
+        maxBytes: 4 * 1024 * 1024
+      })
+    )
     if (response.error) throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai API: ${response.error}`)
     const metadata = response.gmetadata?.[0]
     if (!metadata || Number(metadata.gid) !== gid) {
@@ -242,10 +253,12 @@ export class EHentaiProvider implements ArchiveProvider {
     for (let page = 0; page < MAX_GALLERY_PAGES && pages.size < fileCount; page += 1) {
       const galleryPage = new URL(canonicalUrl)
       if (page > 0) galleryPage.searchParams.set('p', String(page))
-      const html = await this.http.text(galleryPage.toString(), {
-        ...(context.signal ? { signal: context.signal } : {}),
-        maxBytes: 8 * 1024 * 1024
-      })
+      const html = await runResolveRequest(context, () =>
+        this.http.text(galleryPage.toString(), {
+          ...(context.signal ? { signal: context.signal } : {}),
+          maxBytes: 8 * 1024 * 1024
+        })
+      )
       for (const href of findAllLinks(html, galleryPage.toString())) {
         const match = new URL(href).pathname.match(new RegExp(`^/s/[a-z0-9]+/${gid}-(\\d+)(?:/|$)`, 'i'))
         if (match) pages.set(Number(match[1]), href)
@@ -266,6 +279,29 @@ export class EHentaiProvider implements ArchiveProvider {
     }
     return ordered
   }
+}
+
+async function runResolveRequest<T>(context: ArchiveProviderContext, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await (context.runResolveRequest ? context.runResolveRequest(operation) : operation())
+  } catch (error) {
+    if (error instanceof ArchiveError) throw error
+    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+      throw new ArchiveError('CANCELLED', 'E-Hentai 解析已取消', { cause: error, recoverable: true })
+    }
+    throw error
+  }
+}
+
+function runDownloadRequest<T>(context: ArchiveDownloadContext, operation: () => Promise<T>): Promise<T> {
+  return context.runDownloadRequest ? context.runDownloadRequest(operation) : operation()
+}
+
+function runDownloadStreamRequest<T extends { stream: Readable }>(
+  context: ArchiveDownloadContext,
+  operation: () => Promise<T>
+): Promise<T> {
+  return context.runDownloadStreamRequest ? context.runDownloadStreamRequest(operation) : operation()
 }
 
 function normalizeRelationships(metadata: EhGalleryMetadata, selfGid: number) {

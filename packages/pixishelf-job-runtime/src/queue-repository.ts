@@ -1,11 +1,32 @@
 import { randomUUID } from 'node:crypto'
-import type { JobSkipReason, JobStatus, JobTriggerSource, JobType, WorkerCapability } from '@pixishelf/job-contracts'
-import { JOB_DEFINITION_VERSION, jobTypeSchema, jsonValueSchema, parseJobPayload } from '@pixishelf/job-contracts'
+import type {
+  ExecutionLane,
+  JobSkipReason,
+  JobStatus,
+  JobTriggerSource,
+  JobType,
+  WorkerCapability
+} from '@pixishelf/job-contracts'
+import {
+  executionLaneForJobType,
+  executionLaneSchema,
+  JOB_DEFINITION_VERSION,
+  jobTypeSchema,
+  jsonValueSchema,
+  parseJobPayload
+} from '@pixishelf/job-contracts'
 import { DispatchWindowPolicy } from './dispatch-window.js'
 import { type QueueClock, systemQueueClock } from './queue-clock.js'
 import { redactSensitiveText } from './worker-health-state.js'
 
-export const GLOBAL_BACKGROUND_WORKER_RESOURCE = 'global/background-worker'
+export const ARCHIVE_RESOLVE_LANE_RESOURCE = 'lane/archive-resolve'
+export const BACKGROUND_WRITER_LANE_RESOURCE = 'lane/background-writer'
+/** @deprecated Use BACKGROUND_WRITER_LANE_RESOURCE. */
+export const GLOBAL_BACKGROUND_WORKER_RESOURCE = BACKGROUND_WRITER_LANE_RESOURCE
+
+export function resourceKeyForExecutionLane(lane: ExecutionLane) {
+  return lane === 'ARCHIVE_RESOLVE' ? ARCHIVE_RESOLVE_LANE_RESOURCE : BACKGROUND_WRITER_LANE_RESOURCE
+}
 
 const EXECUTING_JOB_STATUSES = ['RUNNING', 'PAUSING', 'CANCELLING'] as const
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -39,6 +60,7 @@ export interface QueueRepositoryOptions {
 export interface QueueJobRecord {
   id: string
   type: string
+  executionLane: ExecutionLane
   definitionVersion: number
   status: JobStatus
   triggerSource: JobTriggerSource
@@ -154,6 +176,7 @@ export interface TransactionBoundFailInput {
 
 export interface TransactionBoundRetryInput extends TransactionBoundFailInput {
   availableAt: Date
+  preserveAttempt?: boolean
 }
 
 export interface TransactionBoundSkipInput {
@@ -248,25 +271,60 @@ export class PostgresQueueRepository {
     }
   }
 
-  async claim(workerId: string, supportedCapabilities: readonly WorkerCapability[]): Promise<ClaimedJob | null> {
+  async claim(workerId: string, supportedCapabilities: readonly WorkerCapability[]): Promise<ClaimedJob | null>
+  async claim(
+    workerId: string,
+    executionLane: ExecutionLane,
+    supportedCapabilities: readonly WorkerCapability[]
+  ): Promise<ClaimedJob | null>
+  async claim(
+    workerId: string,
+    executionLaneOrCapabilities: ExecutionLane | readonly WorkerCapability[],
+    capabilitiesInput?: readonly WorkerCapability[]
+  ): Promise<ClaimedJob | null> {
     assertWorkerId(workerId)
-    if (supportedCapabilities.length === 0) {
+    const supportedCapabilities = Array.isArray(executionLaneOrCapabilities)
+      ? executionLaneOrCapabilities
+      : (capabilitiesInput ?? [])
+    const capabilityLane = executionLaneFromCapabilities(supportedCapabilities)
+    const executionLane = Array.isArray(executionLaneOrCapabilities)
+      ? capabilityLane
+      : executionLaneSchema.parse(executionLaneOrCapabilities)
+    if (supportedCapabilities.length > 0 && capabilityLane !== executionLane) {
+      throw new Error(`Queue claim capabilities belong to ${capabilityLane}, not ${executionLane}`)
+    }
+    const laneCapabilities = supportedCapabilities.filter((capability) => capability.executionLane === executionLane)
+    if (laneCapabilities.length === 0) {
       return null
     }
+    const resourceKey = resourceKeyForExecutionLane(executionLane)
     const now = this.clock.now()
 
     return this.runTransaction(async (transaction) => {
-      await this.acquireDispatcherTransactionLock(transaction)
-      await this.recoverExpiredExecutionInTransaction(transaction, now)
+      await this.acquireDispatcherTransactionLock(transaction, executionLane)
+      await this.recoverExpiredExecutionInTransaction(transaction, now, executionLane)
       await this.skipExpiredScheduledJobsInTransaction(transaction, now)
+
+      if (executionLane === 'ARCHIVE_RESOLVE') {
+        const controls = await transaction.$queryRawUnsafe<Array<{ paused: boolean }>>(
+          `SELECT "paused"
+           FROM "archive_resolve_queue_control"
+           WHERE "id" = 'archive-resolve'
+           LIMIT 1
+           FOR SHARE`
+        )
+        if (controls[0]?.paused) return null
+      }
 
       const activeExecutions = await transaction.$queryRawUnsafe<Array<{ id: string }>>(
         `SELECT "id"
          FROM "system_jobs"
-         WHERE "status" IN ('RUNNING', 'PAUSING', 'CANCELLING')
+         WHERE "executionLane" = $1::"JobExecutionLane"
+           AND "status" IN ('RUNNING', 'PAUSING', 'CANCELLING')
          ORDER BY "startedAt" ASC NULLS FIRST, "createdAt" ASC
          LIMIT 1
-         FOR UPDATE`
+         FOR UPDATE`,
+        executionLane
       )
       if (activeExecutions.length > 0) {
         return null
@@ -283,7 +341,7 @@ export class PostgresQueueRepository {
            AND "expiresAt" > $2
          LIMIT 1
          FOR UPDATE`,
-        GLOBAL_BACKGROUND_WORKER_RESOURCE,
+        resourceKey,
         now
       )
       if (activeLeases.length > 0) {
@@ -294,21 +352,29 @@ export class PostgresQueueRepository {
         `DELETE FROM "job_resource_leases"
          WHERE "resourceKey" = $1
            AND "expiresAt" <= $2`,
-        GLOBAL_BACKGROUND_WORKER_RESOURCE,
+        resourceKey,
         now
       )
 
       const automaticWindowOpen = this.windowPolicy.isAutomaticWindowOpen(now)
-      await this.ageEligibleCandidatesInTransaction(transaction, now, automaticWindowOpen, supportedCapabilities)
+      await this.ageEligibleCandidatesInTransaction(
+        transaction,
+        now,
+        automaticWindowOpen,
+        executionLane,
+        laneCapabilities
+      )
       const candidates = await transaction.$queryRawUnsafe<Array<{ id: string; status: JobStatus }>>(
-        `SELECT "id", "status"
-         FROM "system_jobs"
+        `SELECT job."id", job."status"
+         FROM "system_jobs" AS job
          WHERE "definitionVersion" > 0
+           AND job."executionLane" = $4::"JobExecutionLane"
            AND EXISTS (
              SELECT 1
              FROM jsonb_array_elements($3::jsonb) AS capability
-             WHERE capability->>'jobType' = "system_jobs"."type"
-               AND "system_jobs"."definitionVersion" IN (
+             WHERE capability->>'jobType' = job."type"
+               AND capability->>'executionLane' = job."executionLane"::text
+               AND job."definitionVersion" IN (
                  SELECT jsonb_array_elements_text(capability->'definitionVersions')::integer
                )
            )
@@ -342,12 +408,19 @@ export class PostgresQueueRepository {
                AND "effectivePriority" BETWEEN 100 AND 999
              )
            )
-         ORDER BY "effectivePriority" ASC, "availableAt" ASC NULLS FIRST, "createdAt" ASC, "id" ASC
+         ORDER BY
+           CASE WHEN job."executionLane" = 'ARCHIVE_RESOLVE' THEN (
+             SELECT intake."queueOrder"
+             FROM "archive_intake_items" AS intake
+             WHERE intake."currentSystemJobId" = job."id"
+           ) END ASC NULLS LAST,
+           job."effectivePriority" ASC, job."availableAt" ASC NULLS FIRST, job."createdAt" ASC, job."id" ASC
          LIMIT 1
          FOR UPDATE SKIP LOCKED`,
         now,
         automaticWindowOpen,
-        toJsonParameter(supportedCapabilities)
+        toJsonParameter(laneCapabilities),
+        executionLane
       )
       const candidate = candidates[0]
       if (!candidate) {
@@ -377,7 +450,7 @@ export class PostgresQueueRepository {
            AND "status" = $6::"JobStatus"
            AND "definitionVersion" > 0
          RETURNING
-           "id", "type", "definitionVersion", "status", "triggerSource", "payload",
+           "id", "type", "executionLane", "definitionVersion", "status", "triggerSource", "payload",
            "attempt", "maxAttempts", "effectivePriority", "availableAt", "deadlineAt",
            "workerId", "leaseToken"::text AS "leaseToken", "leaseExpiresAt", "heartbeatAt",
            "startedAt", "createdAt", "updatedAt"`,
@@ -398,7 +471,7 @@ export class PostgresQueueRepository {
            "resourceKey", "ownerJobId", "workerId", "leaseToken",
            "expiresAt", "heartbeatAt", "createdAt", "updatedAt"
          ) VALUES ($1, $2, $3, $4::uuid, $5, $6, $6, $6)`,
-        GLOBAL_BACKGROUND_WORKER_RESOURCE,
+        resourceKey,
         claimed.id,
         workerId,
         executionToken,
@@ -412,7 +485,7 @@ export class PostgresQueueRepository {
         attempt: claimed.attempt,
         workerId,
         message: 'Job claimed by Central Dispatcher',
-        data: { leaseExpiresAt: leaseExpiresAt.toISOString() },
+        data: { executionLane, leaseExpiresAt: leaseExpiresAt.toISOString() },
         now
       })
 
@@ -435,14 +508,12 @@ export class PostgresQueueRepository {
     await this.runTransaction(async (transaction) => {
       const leaseRows = await transaction.$queryRawUnsafe<Array<{ resourceKey: string }>>(
         `UPDATE "job_resource_leases"
-         SET "expiresAt" = $5, "heartbeatAt" = $6, "updatedAt" = $6
-         WHERE "resourceKey" = $1
-           AND "ownerJobId" = $2
-           AND "workerId" = $3
-           AND "leaseToken" = $4::uuid
-           AND "expiresAt" > $6
+         SET "expiresAt" = $4, "heartbeatAt" = $5, "updatedAt" = $5
+         WHERE "ownerJobId" = $1
+           AND "workerId" = $2
+           AND "leaseToken" = $3::uuid
+           AND "expiresAt" > $5
          RETURNING "resourceKey"`,
-        GLOBAL_BACKGROUND_WORKER_RESOURCE,
         fence.jobId,
         fence.workerId,
         fence.executionToken,
@@ -541,6 +612,7 @@ export class PostgresQueueRepository {
   async enqueueChild(parentFence: ExecutionFence, input: EnqueueChildInput): Promise<EnqueuedChildJob> {
     assertFence(parentFence)
     const type = jobTypeSchema.parse(input.type)
+    const executionLane = executionLaneForJobType(type)
     const definitionVersion = input.definitionVersion ?? JOB_DEFINITION_VERSION
     const queuePriority = input.queuePriority ?? 100
     const effectivePriority = input.effectivePriority ?? queuePriority
@@ -583,18 +655,19 @@ export class PostgresQueueRepository {
       await this.lockOwnedExecution(transaction, parentFence, now)
       const insertedRows = await transaction.$queryRawUnsafe<Array<{ id: string }>>(
         `INSERT INTO "system_jobs" (
-           "id", "type", "definitionVersion", "status", "triggerSource", "idempotencyKey",
+           "id", "type", "executionLane", "definitionVersion", "status", "triggerSource", "idempotencyKey",
            "payload", "parentJobId", "queuePriority", "effectivePriority", "availableAt",
            "deadlineAt", "maxAttempts", "targetImageId", "targetPath", "mode", "createdAt", "updatedAt"
          ) VALUES (
-           $1, $2, $3, 'PENDING', 'SYSTEM', $4,
-           $5::jsonb, $6, $7, $8, $9,
-           $10, $11, $12, $13, $14, $15, $15
+           $1, $2, $3::"JobExecutionLane", $4, 'PENDING', 'SYSTEM', $5,
+           $6::jsonb, $7, $8, $9, $10,
+           $11, $12, $13, $14, $15, $16, $16
          )
          ON CONFLICT ("idempotencyKey") DO NOTHING
          RETURNING "id"`,
         childId,
         type,
+        executionLane,
         definitionVersion,
         input.idempotencyKey ?? null,
         toJsonParameter(normalizedPayload),
@@ -631,6 +704,7 @@ export class PostgresQueueRepository {
         Array<{
           id: string
           type: string
+          executionLane: ExecutionLane
           definitionVersion: number
           parentJobId: string | null
           payloadMatches: boolean
@@ -642,7 +716,7 @@ export class PostgresQueueRepository {
         }>
       >(
         `SELECT
-           "id", "type", "definitionVersion", "parentJobId",
+           "id", "type", "executionLane", "definitionVersion", "parentJobId",
            "payload" IS NOT DISTINCT FROM $2::jsonb AS "payloadMatches",
            "deadlineAt" IS NOT DISTINCT FROM $3 AS "deadlineMatches",
            (NOT $4::boolean OR "availableAt" IS NOT DISTINCT FROM $5) AS "availableMatches",
@@ -662,6 +736,7 @@ export class PostgresQueueRepository {
       }
       if (
         existing.type !== type ||
+        existing.executionLane !== executionLane ||
         existing.definitionVersion !== definitionVersion ||
         existing.parentJobId !== parentFence.jobId ||
         !existing.payloadMatches ||
@@ -816,11 +891,9 @@ export class PostgresQueueRepository {
       await transaction.$queryRawUnsafe(
         `SELECT "resourceKey"
          FROM "job_resource_leases"
-         WHERE "resourceKey" = $1
-           AND "ownerJobId" = $2
+         WHERE "ownerJobId" = $1
          LIMIT 1
          FOR UPDATE`,
-        GLOBAL_BACKGROUND_WORKER_RESOURCE,
         jobId
       )
       const rows = await transaction.$queryRawUnsafe<
@@ -864,9 +937,7 @@ export class PostgresQueueRepository {
       if (row.status === 'CANCELLED') {
         await transaction.$executeRawUnsafe(
           `DELETE FROM "job_resource_leases"
-           WHERE "resourceKey" = $1
-             AND "ownerJobId" = $2`,
-          GLOBAL_BACKGROUND_WORKER_RESOURCE,
+           WHERE "ownerJobId" = $1`,
           jobId
         )
       }
@@ -953,10 +1024,15 @@ export class PostgresQueueRepository {
             message: input.message ?? 'Job retry scheduled',
             assignments: `"availableAt" = $6,
                           "errorCode" = $7,
-                          "error" = $8`,
+                          "error" = $8${input.preserveAttempt ? ',\n                          "attempt" = "attempt" - 1' : ''}`,
             values: [input.availableAt, truncate(input.errorCode, 80), sanitizeError(input.error)],
-            extraPredicate: `AND "status" = 'RUNNING' AND "attempt" < "maxAttempts"`,
-            eventData: { availableAt: input.availableAt.toISOString() }
+            extraPredicate: input.preserveAttempt
+              ? `AND "status" = 'RUNNING' AND "attempt" > 0`
+              : `AND "status" = 'RUNNING' AND "attempt" < "maxAttempts"`,
+            eventData: {
+              availableAt: input.availableAt.toISOString(),
+              ...(input.preserveAttempt ? { attemptPreserved: true } : {})
+            }
           })
         },
         skip: (input) =>
@@ -1053,18 +1129,21 @@ export class PostgresQueueRepository {
     })
   }
 
-  async recoverExpiredExecution(): Promise<RecoveredExecution | null> {
+  async recoverExpiredExecution(
+    executionLaneInput: ExecutionLane = 'BACKGROUND_WRITER'
+  ): Promise<RecoveredExecution | null> {
+    const executionLane = executionLaneSchema.parse(executionLaneInput)
     const now = this.clock.now()
     return this.runTransaction(async (transaction) => {
-      await this.acquireDispatcherTransactionLock(transaction)
-      return this.recoverExpiredExecutionInTransaction(transaction, now)
+      await this.acquireDispatcherTransactionLock(transaction, executionLane)
+      return this.recoverExpiredExecutionInTransaction(transaction, now, executionLane)
     })
   }
 
   async skipExpiredScheduledJobs(): Promise<string[]> {
     const now = this.clock.now()
     return this.runTransaction(async (transaction) => {
-      await this.acquireDispatcherTransactionLock(transaction)
+      await this.acquireDispatcherTransactionLock(transaction, 'BACKGROUND_WRITER')
       return this.skipExpiredScheduledJobsInTransaction(transaction, now)
     })
   }
@@ -1125,11 +1204,9 @@ export class PostgresQueueRepository {
 
     const deleted = await transaction.$executeRawUnsafe(
       `DELETE FROM "job_resource_leases"
-       WHERE "resourceKey" = $1
-         AND "ownerJobId" = $2
-         AND "workerId" = $3
-         AND "leaseToken" = $4::uuid`,
-      GLOBAL_BACKGROUND_WORKER_RESOURCE,
+       WHERE "ownerJobId" = $1
+         AND "workerId" = $2
+         AND "leaseToken" = $3::uuid`,
       input.jobId,
       input.workerId,
       input.executionToken
@@ -1158,14 +1235,12 @@ export class PostgresQueueRepository {
     const leaseRows = await transaction.$queryRawUnsafe<Array<{ resourceKey: string }>>(
       `SELECT "resourceKey"
        FROM "job_resource_leases"
-       WHERE "resourceKey" = $1
-         AND "ownerJobId" = $2
-         AND "workerId" = $3
-         AND "leaseToken" = $4::uuid
-         AND "expiresAt" > $5
+       WHERE "ownerJobId" = $1
+         AND "workerId" = $2
+         AND "leaseToken" = $3::uuid
+         AND "expiresAt" > $4
        LIMIT 1
        FOR UPDATE`,
-      GLOBAL_BACKGROUND_WORKER_RESOURCE,
       input.jobId,
       input.workerId,
       input.executionToken,
@@ -1208,8 +1283,10 @@ export class PostgresQueueRepository {
 
   private async recoverExpiredExecutionInTransaction(
     transaction: QueueSqlExecutor,
-    now: Date
+    now: Date,
+    executionLane: ExecutionLane
   ): Promise<RecoveredExecution | null> {
+    const resourceKey = resourceKeyForExecutionLane(executionLane)
     const leases = await transaction.$queryRawUnsafe<JobResourceLeaseRow[]>(
       `SELECT
          "ownerJobId",
@@ -1220,7 +1297,7 @@ export class PostgresQueueRepository {
        WHERE "resourceKey" = $1
        LIMIT 1
        FOR UPDATE`,
-      GLOBAL_BACKGROUND_WORKER_RESOURCE
+      resourceKey
     )
     const lease = leases[0]
 
@@ -1230,10 +1307,12 @@ export class PostgresQueueRepository {
          "leaseExpiresAt", "attempt", "maxAttempts"
        FROM "system_jobs"
        WHERE "definitionVersion" > 0
+         AND "executionLane" = $1::"JobExecutionLane"
          AND "status" IN ('RUNNING', 'PAUSING', 'CANCELLING')
        ORDER BY "startedAt" ASC NULLS FIRST, "createdAt" ASC
        LIMIT 1
-       FOR UPDATE`
+       FOR UPDATE`,
+      executionLane
     )
     const executingJob = executingJobs[0]
 
@@ -1250,7 +1329,7 @@ export class PostgresQueueRepository {
           `DELETE FROM "job_resource_leases"
            WHERE "resourceKey" = $1
              AND "leaseToken" = $2::uuid`,
-          GLOBAL_BACKGROUND_WORKER_RESOURCE,
+          resourceKey,
           lease.leaseToken
         )
         const owner = ownerRows[0]
@@ -1261,8 +1340,8 @@ export class PostgresQueueRepository {
             level: 'WARN',
             attempt: owner.attempt,
             workerId: lease.workerId,
-            message: 'Removed an expired orphan global worker lease',
-            data: { cleanupOnly: true },
+            message: 'Removed an expired orphan lane lease',
+            data: { cleanupOnly: true, executionLane },
             now
           })
         }
@@ -1332,12 +1411,43 @@ export class PostgresQueueRepository {
       return null
     }
 
+    if (executionLane === 'ARCHIVE_RESOLVE') {
+      const intakeStatus =
+        recoveredStatus === 'CANCELLED' ? 'CANCELLED' : recoveredStatus === 'FAILED' ? 'FAILED' : 'RETRY_WAIT'
+      await transaction.$executeRawUnsafe(
+        `UPDATE "archive_intake_items"
+         SET "status" = $2::"ArchiveIntakeStatus",
+             "queueOrder" = CASE
+               WHEN $2 = 'RETRY_WAIT'
+                 THEN nextval(pg_get_serial_sequence('archive_intake_items', 'queueOrder'))
+               ELSE "queueOrder"
+             END,
+             "availableAt" = CASE WHEN $2 = 'RETRY_WAIT' THEN $3 ELSE "availableAt" END,
+             "finishedAt" = CASE WHEN $2 IN ('FAILED', 'CANCELLED') THEN $3 ELSE NULL END,
+             "errorCode" = CASE
+               WHEN $2 IN ('RETRY_WAIT', 'FAILED') THEN 'WORKER_LEASE_EXPIRED'
+               ELSE "errorCode"
+             END,
+             "errorMessage" = CASE
+               WHEN $2 IN ('RETRY_WAIT', 'FAILED') THEN 'The resolver worker lease expired before completion.'
+               ELSE "errorMessage"
+             END,
+             "retryable" = CASE WHEN $2 IN ('RETRY_WAIT', 'FAILED') THEN true ELSE "retryable" END,
+             "updatedAt" = $3
+         WHERE "currentSystemJobId" = $1
+           AND "status" IN ('QUEUED', 'RESOLVING')`,
+        executingJob.id,
+        intakeStatus,
+        now
+      )
+    }
+
     if (lease) {
       await transaction.$executeRawUnsafe(
         `DELETE FROM "job_resource_leases"
          WHERE "resourceKey" = $1
            AND "leaseToken" = $2::uuid`,
-        GLOBAL_BACKGROUND_WORKER_RESOURCE,
+        resourceKey,
         lease.leaseToken
       )
     }
@@ -1348,7 +1458,7 @@ export class PostgresQueueRepository {
       attempt: executingJob.attempt,
       workerId: executingJob.workerId,
       message: `Expired worker lease recovered to ${recoveredStatus}`,
-      data: { recoveredStatus },
+      data: { executionLane, recoveredStatus },
       now
     })
     const lifecycleEvent =
@@ -1439,6 +1549,7 @@ export class PostgresQueueRepository {
     transaction: QueueSqlExecutor,
     now: Date,
     automaticWindowOpen: boolean,
+    executionLane: ExecutionLane,
     supportedCapabilities: readonly WorkerCapability[]
   ): Promise<void> {
     await transaction.$executeRawUnsafe(
@@ -1458,10 +1569,12 @@ export class PostgresQueueRepository {
            "createdAt"
          FROM "system_jobs"
          WHERE "definitionVersion" > 0
+           AND "executionLane" = $4::"JobExecutionLane"
            AND EXISTS (
              SELECT 1
              FROM jsonb_array_elements($3::jsonb) AS capability
              WHERE capability->>'jobType' = "system_jobs"."type"
+               AND capability->>'executionLane' = "system_jobs"."executionLane"::text
                AND "system_jobs"."definitionVersion" IN (
                  SELECT jsonb_array_elements_text(capability->'definitionVersions')::integer
                )
@@ -1507,14 +1620,18 @@ export class PostgresQueueRepository {
          AND job."effectivePriority" IS DISTINCT FROM eligible."agedPriority"`,
       now,
       automaticWindowOpen,
-      toJsonParameter(supportedCapabilities)
+      toJsonParameter(supportedCapabilities),
+      executionLane
     )
   }
 
-  private async acquireDispatcherTransactionLock(transaction: QueueSqlExecutor): Promise<void> {
+  private async acquireDispatcherTransactionLock(
+    transaction: QueueSqlExecutor,
+    executionLane: ExecutionLane
+  ): Promise<void> {
     await transaction.$queryRawUnsafe(
       `SELECT pg_advisory_xact_lock(hashtextextended($1, 0)) IS NULL AS "locked"`,
-      GLOBAL_BACKGROUND_WORKER_RESOURCE
+      resourceKeyForExecutionLane(executionLane)
     )
   }
 
@@ -1566,6 +1683,21 @@ function assertWorkerId(workerId: string): void {
   if (workerId.length === 0 || workerId.length > 120) {
     throw new Error('workerId must contain 1-120 characters')
   }
+}
+
+function executionLaneFromCapabilities(capabilities: readonly WorkerCapability[]): ExecutionLane {
+  if (capabilities.length === 0) return 'BACKGROUND_WRITER'
+  const lanes = new Set(
+    capabilities.map((capability) => {
+      const lane = executionLaneSchema.parse(capability.executionLane)
+      if (lane !== executionLaneForJobType(capability.jobType)) {
+        throw new Error(`Capability ${capability.jobType} must use ${executionLaneForJobType(capability.jobType)}`)
+      }
+      return lane
+    })
+  )
+  if (lanes.size !== 1) throw new Error('A queue claim may contain capabilities from exactly one execution lane')
+  return [...lanes][0]!
 }
 
 function assertFence(fence: ExecutionFence): void {

@@ -2,9 +2,13 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
 
-const latestRequiredMigration = '20260815011000_add_high_risk_job_checkpoints'
+const latestRequiredMigration = '20260818120000_add_archive_intake_worker_lanes'
 
 const requiredQueueObjects = [
+  'archive_intake_items',
+  'archive_provider_request_leases',
+  'archive_provider_throttles',
+  'archive_resolve_queue_control',
   'derived_media_gc_entries',
   'job_resource_leases',
   'system_job_events',
@@ -39,7 +43,7 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
         FROM information_schema.columns
         WHERE table_schema = current_schema()
           AND table_name = 'system_jobs'
-          AND column_name = 'definitionVersion'
+          AND column_name IN ('definitionVersion', 'executionLane')
       `),
       client.$queryRaw<Array<{ tableName: string }>>(Prisma.sql`
         SELECT table_name AS "tableName"
@@ -58,7 +62,7 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
         SELECT
           index_class.relname AS "indexName",
           pg_get_expr(index_metadata.indpred, index_metadata.indrelid, true) AS "indexPredicate",
-          pg_get_expr(index_metadata.indexprs, index_metadata.indrelid, true) AS "indexExpression",
+          pg_get_indexdef(index_metadata.indexrelid, 1, true) AS "indexExpression",
           index_metadata.indnkeyatts::integer AS "keyCount"
         FROM pg_index AS index_metadata
         INNER JOIN pg_class AS index_class ON index_class.oid = index_metadata.indexrelid
@@ -66,12 +70,11 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
         INNER JOIN pg_namespace AS table_namespace ON table_namespace.oid = table_class.relnamespace
         WHERE table_namespace.nspname = current_schema()
           AND table_class.relname = 'system_jobs'
-          AND index_class.relname = 'system_jobs_single_executing_job_idx'
+          AND index_class.relname = 'system_jobs_single_executing_per_lane_idx'
           AND index_metadata.indisunique
           AND index_metadata.indisvalid
           AND index_metadata.indisready
           AND index_metadata.indpred IS NOT NULL
-          AND index_metadata.indexprs IS NOT NULL
       `)
     ])
   } catch {
@@ -81,6 +84,9 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
   const missingObjects: string[] = []
   if (!columnRows.some(({ columnName }) => columnName === 'definitionVersion')) {
     missingObjects.push('system_jobs.definitionVersion')
+  }
+  if (!columnRows.some(({ columnName }) => columnName === 'executionLane')) {
+    missingObjects.push('system_jobs.executionLane')
   }
 
   const existingTables = new Set(tableRows.map(({ tableName }) => tableName))
@@ -94,7 +100,7 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
     missingObjects.push(`migration:${latestRequiredMigration}`)
   }
   if (!indexRows.some(isExpectedSingleExecutionIndex)) {
-    missingObjects.push('index:system_jobs_single_executing_job_idx')
+    missingObjects.push('index:system_jobs_single_executing_per_lane_idx')
   }
 
   if (missingObjects.length > 0) {
@@ -104,9 +110,9 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
 
 function isExpectedSingleExecutionIndex(row: QueueFenceIndexRow): boolean {
   if (
-    row.indexName !== 'system_jobs_single_executing_job_idx' ||
+    row.indexName !== 'system_jobs_single_executing_per_lane_idx' ||
     row.keyCount !== 1 ||
-    normalizeIndexKeyExpression(row.indexExpression) !== '1'
+    normalizeIndexKeyExpression(row.indexExpression) !== 'executionLane'
   ) {
     return false
   }

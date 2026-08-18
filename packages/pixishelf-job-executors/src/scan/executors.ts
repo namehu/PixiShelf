@@ -15,12 +15,14 @@ export function createScanExecutorRegistrations(dependencies: ScanExecutorDepend
   return [
     {
       jobType: 'SCAN',
+      executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
       parsePayload: (payload) => scanPayloadSchema.parse(payload),
       execute: (context) => executeScan(context, dependencies)
     } as ExecutorDefinition<ScanPayload>,
     {
       jobType: 'LOCAL_DIRECTORY_IMPORT',
+      executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
       parsePayload: (payload) => localDirectoryImportPayloadSchema.parse(payload),
       execute: (context) => executeLocalDirectoryImport(context, dependencies)

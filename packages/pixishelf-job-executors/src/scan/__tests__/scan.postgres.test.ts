@@ -30,8 +30,8 @@ const prisma = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl }) : 
 const testPrefix = `scan-executor-${randomUUID()}`
 const clock = new MutableQueueClock(new Date('2026-08-14T18:00:00.000Z'))
 const capabilities: WorkerCapability[] = [
-  { jobType: 'SCAN', definitionVersions: [1] },
-  { jobType: 'LOCAL_DIRECTORY_IMPORT', definitionVersions: [1] }
+  { jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
+  { jobType: 'LOCAL_DIRECTORY_IMPORT', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
 ]
 const roots: string[] = []
 let numericId = 8_000_000

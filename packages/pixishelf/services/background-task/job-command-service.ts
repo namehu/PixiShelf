@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import {
+  executionLaneForJobType,
   JOB_DEFINITION_VERSION,
   jobTypeSchema,
   jsonValueSchema,
@@ -93,6 +94,7 @@ function assertIdempotencySemantics(existing: SystemJobWireRecord, input: Parsed
   const expectedScheduledForDate = input.triggerSource === 'SCHEDULE' ? input.scheduledForDate : null
   const semanticMatch =
     existing.type === input.type &&
+    existing.executionLane === executionLaneForJobType(input.type) &&
     existing.definitionVersion === input.definitionVersion &&
     existing.triggerSource === input.triggerSource &&
     existing.requestedByUserId === expectedRequestedByUserId &&
@@ -173,6 +175,12 @@ export async function enqueueJob(
   now: () => Date = () => new Date()
 ): Promise<JobDto> {
   const parsed = enqueueJobInputSchema.parse(input)
+  if (parsed.type === 'ARCHIVE_RESOLVE_ITEM') {
+    throw new BackgroundTaskError(
+      'INVALID_STATE_TRANSITION',
+      'Archive resolver jobs must be created through the archive intake workflow'
+    )
+  }
   const payload =
     parsed.definitionVersion === JOB_DEFINITION_VERSION
       ? parseJobPayload(parsed.type, parsed.payload ?? {})
@@ -188,10 +196,12 @@ export async function enqueueJob(
       }
 
       const timestamp = now()
+      const executionLane = executionLaneForJobType(parsed.type)
       const legacyProjection = deriveLegacyJobProjection(parsed.type, parsed.definitionVersion, payload)
       const record = await transaction.systemJob.create({
         data: {
           type: parsed.type,
+          executionLane,
           definitionVersion: parsed.definitionVersion,
           status: 'PENDING',
           triggerSource: parsed.triggerSource,
@@ -258,6 +268,18 @@ export async function cancelJobCommand(
           }
         : {})
     })
+    if (job.type === 'ARCHIVE_RESOLVE_ITEM') {
+      const item = await transaction.archiveIntakeItem.updateMany({
+        where: { currentSystemJobId: job.id },
+        data: {
+          cancelRequestedAt: timestamp,
+          ...(direct ? { status: 'CANCELLED', finishedAt: timestamp, retryable: false } : {})
+        }
+      })
+      if (item.count !== 1) {
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Archive resolver job is not bound to an intake item')
+      }
+    }
     await writeJobEvent(transaction, {
       jobId,
       type: 'job.cancel_requested',
@@ -361,12 +383,21 @@ export async function retryJobCommand(
       )
     }
     let retryPayload
+    let retryType
     try {
-      retryPayload = parseJobPayload(jobTypeSchema.parse(job.type), job.payload ?? {})
+      retryType = jobTypeSchema.parse(job.type)
+      retryPayload = parseJobPayload(retryType, job.payload ?? {})
     } catch {
       throw new BackgroundTaskError(
         'INVALID_STATE_TRANSITION',
         'This historical job does not contain a valid v1 payload; create a new task instead'
+      )
+    }
+    const executionLane = executionLaneForJobType(retryType)
+    if (job.executionLane !== executionLane) {
+      throw new BackgroundTaskError(
+        'INVALID_STATE_TRANSITION',
+        'This historical job has an invalid execution lane; repair it before retrying'
       )
     }
     const priority = Math.min(job.queuePriority, 99)
@@ -374,6 +405,7 @@ export async function retryJobCommand(
     const retried = await transaction.systemJob.create({
       data: {
         type: job.type,
+        executionLane,
         definitionVersion: job.definitionVersion,
         status: 'PENDING',
         triggerSource: 'RETRY',
@@ -388,6 +420,36 @@ export async function retryJobCommand(
       },
       select: systemJobWireSelect
     })
+    if (retryType === 'ARCHIVE_RESOLVE_ITEM') {
+      const reboundItems = await transaction.$queryRawUnsafe<Array<{ id: string }>>(
+        `UPDATE "archive_intake_items"
+         SET "currentSystemJobId" = $2,
+             "status" = 'QUEUED',
+             "queueOrder" = nextval(pg_get_serial_sequence('archive_intake_items', 'queueOrder')),
+             "attempts" = 0,
+             "availableAt" = $3,
+             "cancelRequestedAt" = NULL,
+             "startedAt" = NULL,
+             "finishedAt" = NULL,
+             "errorCode" = NULL,
+             "errorMessage" = NULL,
+             "errorStage" = NULL,
+             "retryable" = NULL,
+             "updatedAt" = $3
+         WHERE "currentSystemJobId" = $1
+           AND "status" IN ('FAILED', 'CANCELLED')
+         RETURNING "id"`,
+        job.id,
+        retried.id,
+        now()
+      )
+      if (reboundItems.length !== 1) {
+        throw new BackgroundTaskError(
+          'INVALID_STATE_TRANSITION',
+          'Archive resolver job is not bound to a retryable intake item'
+        )
+      }
+    }
     await writeJobEvent(transaction, {
       jobId: job.id,
       type: 'job.retry_scheduled',

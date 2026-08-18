@@ -14,7 +14,7 @@ describe('production Worker capability audit', () => {
         now: new Date('2026-08-17T01:00:00.000Z'),
         freshnessMs: 60_000
       })
-    ).resolves.toEqual({ readyWorkers: 1, capabilities: 17 })
+    ).resolves.toEqual({ readyWorkers: 1, capabilities: 18 })
     expect(findMany).toHaveBeenCalledWith({
       where: { status: 'READY', heartbeatAt: { gte: new Date('2026-08-17T00:59:00.000Z') } },
       orderBy: { workerId: 'asc' },
@@ -27,8 +27,12 @@ describe('production Worker capability audit', () => {
     const invalidInventories: Array<Array<{ capabilities: unknown }>> = [
       [],
       [{ capabilities: PRODUCTION_WORKER_CAPABILITIES }, { capabilities: PRODUCTION_WORKER_CAPABILITIES }],
-      [{ capabilities: PRODUCTION_WORKER_CAPABILITIES.slice(0, 16) }],
-      [{ capabilities: [{ jobType: 'SCAN', definitionVersions: [2] }] }],
+      [{ capabilities: PRODUCTION_WORKER_CAPABILITIES.slice(0, 17) }],
+      [
+        {
+          capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [2] }]
+        }
+      ],
       [
         {
           capabilities: PRODUCTION_WORKER_CAPABILITIES.map((capability, index) =>

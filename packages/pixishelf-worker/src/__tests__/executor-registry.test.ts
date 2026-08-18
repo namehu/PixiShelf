@@ -28,8 +28,8 @@ describe('ExecutorRegistry', () => {
       })
 
     expect(registry.capabilities()).toEqual([
-      { jobType: 'SCAN', definitionVersions: [2, 3] },
-      { jobType: 'VIDEO_MEDIA_PROBE', definitionVersions: [1] }
+      { jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [2, 3] },
+      { jobType: 'VIDEO_MEDIA_PROBE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
     ])
   })
 
@@ -87,7 +87,18 @@ describe('ExecutorRegistry', () => {
     ).toThrow('requires an explicit payload parser')
   })
 
-  it('locks the phase-five production Worker to all 17 executor capabilities', () => {
+  it('rejects an executor registered in a lane that does not match its job type', () => {
+    expect(() =>
+      new ExecutorRegistry().register({
+        jobType: 'ARCHIVE_RESOLVE_ITEM',
+        executionLane: 'BACKGROUND_WRITER',
+        definitionVersion: JOB_DEFINITION_VERSION,
+        execute: async () => ({ kind: 'completed' })
+      })
+    ).toThrow('must register in ARCHIVE_RESOLVE')
+  })
+
+  it('locks the production Worker to all 18 dual-lane executor capabilities', () => {
     const registry = createWorkerExecutorRegistry({
       database: {} as PrismaClient,
       config: {
@@ -102,7 +113,7 @@ describe('ExecutorRegistry', () => {
     })
 
     const capabilities = registry.capabilities()
-    expect(capabilities).toHaveLength(17)
+    expect(capabilities).toHaveLength(18)
     expect(capabilities).toEqual(PRODUCTION_WORKER_CAPABILITIES)
   })
 

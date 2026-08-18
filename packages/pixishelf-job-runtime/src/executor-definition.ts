@@ -2,6 +2,7 @@ import {
   jobErrorCodeSchema,
   jobSkipReasonSchema,
   type JobErrorCode,
+  type ExecutionLane,
   type JobSkipReason,
   type JobType
 } from '@pixishelf/job-contracts'
@@ -55,6 +56,7 @@ export type WorkerJobExecutor<TPayload = unknown, TResult = unknown> = (
 
 export interface ExecutorDefinition<TPayload = unknown, TResult = unknown> {
   jobType: JobType
+  executionLane?: ExecutionLane
   definitionVersion: number
   execute: WorkerJobExecutor<TPayload, TResult>
   parsePayload?(payload: unknown): TPayload

@@ -105,7 +105,7 @@ describe('WorkerApplication', () => {
         serviceVersion: '1.0.0',
         hostname: 'worker-host',
         processId: 42,
-        capabilities: [{ jobType: 'SCAN', definitionVersions: [1] }]
+        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }]
       },
       presenceStore: {
         write: async (record) => void order.push(`presence:${record.status}`)
@@ -146,6 +146,112 @@ describe('WorkerApplication', () => {
     expect(order.indexOf('dispatcher:stop')).toBeLessThan(order.indexOf('presence:STOPPING'))
   })
 
+  it('coordinates both execution lanes and drains both when either dispatcher reports fatal shutdown', async () => {
+    const state = new WorkerHealthState()
+    const order: string[] = []
+    const host = new WorkerHost({
+      identity: {
+        workerId: 'worker-dual-lane',
+        serviceVersion: '1.0.0',
+        hostname: 'worker-host',
+        processId: 42,
+        capabilities: [
+          { jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] },
+          { jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+        ]
+      },
+      presenceStore: { write: async (record) => void order.push(`presence:${record.status}`) },
+      healthState: state
+    })
+    const dispatcher = (lane: string) => ({
+      prepare: vi.fn(async () => void order.push(`${lane}:prepare`)),
+      activate: vi.fn(() => void order.push(`${lane}:activate`)),
+      stop: vi.fn(async (reason?: string) => void order.push(`${lane}:stop:${reason}`))
+    })
+    const resolver = dispatcher('resolver')
+    const writer = dispatcher('writer')
+    const application = new WorkerApplication({
+      healthState: state,
+      healthServer: {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        address: () => null
+      },
+      host,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      preflight: vi.fn().mockResolvedValue(undefined),
+      disconnectDatabase: vi.fn().mockResolvedValue(undefined),
+      dispatchers: [resolver, writer]
+    })
+
+    await application.start()
+    expect(resolver.prepare).toHaveBeenCalledOnce()
+    expect(writer.prepare).toHaveBeenCalledOnce()
+    expect(resolver.activate).toHaveBeenCalledOnce()
+    expect(writer.activate).toHaveBeenCalledOnce()
+
+    await application.shutdown('archive_resolve-dispatcher-fatal')
+
+    expect(resolver.stop).toHaveBeenCalledWith('archive_resolve-dispatcher-fatal')
+    expect(writer.stop).toHaveBeenCalledWith('archive_resolve-dispatcher-fatal')
+    expect(order.indexOf('resolver:stop:archive_resolve-dispatcher-fatal')).toBeLessThan(
+      order.indexOf('presence:STOPPING')
+    )
+    expect(order.indexOf('writer:stop:archive_resolve-dispatcher-fatal')).toBeLessThan(
+      order.indexOf('presence:STOPPING')
+    )
+  })
+
+  it('forces process termination when a fatal lane cannot finish draining within the bounded grace period', async () => {
+    vi.useFakeTimers()
+    const state = new WorkerHealthState()
+    const host = new WorkerHost({
+      identity: {
+        workerId: 'worker-stuck-lane',
+        serviceVersion: '1.0.0',
+        hostname: 'worker-host',
+        processId: 42,
+        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }]
+      },
+      presenceStore: { write: vi.fn().mockResolvedValue(undefined) },
+      healthState: state
+    })
+    const forceTerminate = vi.fn()
+    let releaseDrain: (() => void) | undefined
+    const drainGate = new Promise<void>((resolve) => {
+      releaseDrain = resolve
+    })
+    const application = new WorkerApplication({
+      healthState: state,
+      healthServer: {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        address: () => null
+      },
+      host,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      preflight: vi.fn().mockResolvedValue(undefined),
+      disconnectDatabase: vi.fn().mockResolvedValue(undefined),
+      forceTerminate,
+      dispatcher: {
+        prepare: vi.fn().mockResolvedValue(undefined),
+        activate: vi.fn(),
+        stop: vi.fn(() => drainGate)
+      }
+    })
+    await application.start()
+
+    const stopping = application.shutdown('background_writer-dispatcher-fatal', { forceAfterMs: 1_000 })
+    await vi.advanceTimersByTimeAsync(999)
+    expect(forceTerminate).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(forceTerminate).toHaveBeenCalledWith(1)
+    releaseDrain?.()
+    await stopping
+    vi.useRealTimers()
+  })
+
   it('never records READY when dispatcher preparation fails', async () => {
     const state = new WorkerHealthState()
     const records: WorkerPresenceRecord[] = []
@@ -155,7 +261,7 @@ describe('WorkerApplication', () => {
         serviceVersion: '1.0.0',
         hostname: 'worker-host',
         processId: 42,
-        capabilities: [{ jobType: 'SCAN', definitionVersions: [1] }]
+        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }]
       },
       presenceStore: { write: async (record) => void records.push(record) },
       healthState: state
@@ -196,7 +302,7 @@ describe('WorkerApplication', () => {
         serviceVersion: '1.0.0',
         hostname: 'worker-host',
         processId: 42,
-        capabilities: [{ jobType: 'SCAN', definitionVersions: [1] }]
+        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }]
       },
       presenceStore: { write: async (record) => void records.push(record) },
       healthState: state

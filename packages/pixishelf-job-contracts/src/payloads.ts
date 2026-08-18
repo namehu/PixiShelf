@@ -232,6 +232,13 @@ export const archiveImportPayloadSchema = z.object({
   archiveImportId: z.string().min(1)
 })
 
+export const archiveResolveItemPayloadSchema = z
+  .object({
+    intakeItemId: boundedIdSchema
+  })
+  .strict()
+export type ArchiveResolveItemPayload = z.infer<typeof archiveResolveItemPayloadSchema>
+
 export const derivedMediaGcPayloadSchema = z.object({
   entryIds: z.array(z.string().min(1)).max(1_000).optional(),
   dryRun: z.boolean().default(false),
@@ -252,6 +259,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   VIDEO_STREAMING_OPTIMIZATION: videoStreamingOptimizationPayloadSchema,
   VIDEO_KEYFRAME_DISCOVERY: videoKeyframeDiscoveryPayloadSchema,
   VIDEO_KEYFRAME_GENERATION: videoKeyframeGenerationPayloadSchema,
+  ARCHIVE_RESOLVE_ITEM: archiveResolveItemPayloadSchema,
   ARCHIVE_IMPORT: archiveImportPayloadSchema,
   SCAN_RUN_RETENTION_CLEANUP: emptyJobPayloadSchema,
   TRIGGER_LOG_RETENTION_CLEANUP: emptyJobPayloadSchema,

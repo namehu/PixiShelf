@@ -9,6 +9,7 @@ export function createMigrationExecutorRegistrations<TTransaction extends QueueS
   assertMigrationConfig(dependencies)
   const migration: ExecutorDefinition<MigrationPayload> = {
     jobType: 'MIGRATION',
+    executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
     parsePayload: (payload) => migrationPayloadSchema.parse(payload),
     execute: (context) => executeMigration(context, dependencies)

@@ -16,6 +16,7 @@ export const JOB_TYPE_VALUES = [
   'VIDEO_STREAMING_OPTIMIZATION',
   'VIDEO_KEYFRAME_DISCOVERY',
   'VIDEO_KEYFRAME_GENERATION',
+  'ARCHIVE_RESOLVE_ITEM',
   'ARCHIVE_IMPORT',
   'SCAN_RUN_RETENTION_CLEANUP',
   'TRIGGER_LOG_RETENTION_CLEANUP',
@@ -24,6 +25,33 @@ export const JOB_TYPE_VALUES = [
 
 export const jobTypeSchema = z.enum(JOB_TYPE_VALUES)
 export type JobType = z.infer<typeof jobTypeSchema>
+
+export const EXECUTION_LANE_VALUES = ['ARCHIVE_RESOLVE', 'BACKGROUND_WRITER'] as const
+export const executionLaneSchema = z.enum(EXECUTION_LANE_VALUES)
+export type ExecutionLane = z.infer<typeof executionLaneSchema>
+
+export const EXECUTION_LANES = Object.freeze({
+  ARCHIVE_RESOLVE: 'ARCHIVE_RESOLVE',
+  BACKGROUND_WRITER: 'BACKGROUND_WRITER'
+} satisfies { [K in ExecutionLane]: K })
+
+/**
+ * A job type has exactly one lane. Queue producers derive this value instead of
+ * accepting it from callers, so an I/O-only resolver cannot be promoted into
+ * the serialized writer lane (or vice versa) by payload input.
+ */
+export const JOB_EXECUTION_LANE = Object.freeze(
+  Object.fromEntries(
+    JOB_TYPE_VALUES.map((jobType) => [
+      jobType,
+      jobType === 'ARCHIVE_RESOLVE_ITEM' ? EXECUTION_LANES.ARCHIVE_RESOLVE : EXECUTION_LANES.BACKGROUND_WRITER
+    ])
+  ) as { [K in JobType]: ExecutionLane }
+)
+
+export function executionLaneForJobType(jobType: JobType): ExecutionLane {
+  return JOB_EXECUTION_LANE[jobType]
+}
 
 export const JOB_TYPES = Object.freeze(
   Object.fromEntries(JOB_TYPE_VALUES.map((value) => [value, value])) as { [K in JobType]: K }

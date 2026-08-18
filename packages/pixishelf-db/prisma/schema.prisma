@@ -450,6 +450,7 @@ enum TranslateType {
 model SystemJob {
   id                      String                   @id @default(cuid())
   type                    String                   @db.VarChar(80)
+  executionLane           JobExecutionLane         @default(BACKGROUND_WRITER)
   definitionVersion       Int                      @default(1)
   status                  JobStatus                @default(PENDING)
   triggerSource           JobTriggerSource         @default(SYSTEM)
@@ -498,10 +499,12 @@ model SystemJob {
   pendingReplaceOperation PendingReplaceOperation?
   migrationItems          MigrationJobItem[]
   archiveImport           ArchiveImport?
+  archiveIntakeItem       ArchiveIntakeItem?       @relation("ArchiveIntakeCurrentJob")
   keyframeSet             MediaVideoKeyframeSet?
 
   @@unique([scheduledTaskId, scheduledForDate])
   @@index([type, status])
+  @@index([executionLane, status, effectivePriority, availableAt, createdAt], map: "system_jobs_lane_claim_idx")
   @@index([type, status, createdAt])
   @@index([type, status, finishedAt])
   @@index([type, targetImageId, createdAt])
@@ -625,6 +628,8 @@ model ArchiveImport {
   publishedArtwork   Artwork?            @relation(fields: [publishedArtworkId], references: [id], onDelete: SetNull)
   items              ArchiveImportItem[]
   publishedRevision  ArchiveRevision?
+  intakeItems        ArchiveIntakeItem[] @relation("ArchiveIntakeEnqueuedImport")
+  activeIntakeItems  ArchiveIntakeItem[] @relation("ArchiveIntakeActiveImport")
 
   @@index([providerKey, externalId])
   @@index([status, createdAt])
@@ -632,6 +637,152 @@ model ArchiveImport {
   @@index([externalRefId])
   @@index([cleanupRequestedAt])
   @@map("archive_imports")
+}
+
+model ArchiveIntakeSubmission {
+  id                String              @id @default(cuid())
+  idempotencyKey    String              @unique @db.VarChar(180)
+  requestedByUserId String?
+  rawCount          Int
+  acceptedCount     Int
+  invalidCount      Int                 @default(0)
+  duplicateCount    Int                 @default(0)
+  rejectedCount     Int                 @default(0)
+  createdAt         DateTime            @default(now())
+  items             ArchiveIntakeItem[]
+
+  @@index([createdAt(sort: Desc)])
+  @@map("archive_intake_submissions")
+}
+
+model ArchiveIntakeItem {
+  id                    String                       @id @default(cuid())
+  submissionId          String
+  submittedUrl          String                       @db.Text
+  normalizedUrlHash     String                       @db.VarChar(64)
+  queueOrder            BigInt                       @unique @default(autoincrement())
+  status                ArchiveIntakeStatus          @default(QUEUED)
+  attempts              Int                          @default(0)
+  availableAt           DateTime                     @default(now())
+  cancelRequestedAt     DateTime?
+  startedAt             DateTime?
+  finishedAt            DateTime?
+  providerKey           String?                      @db.VarChar(50)
+  externalId            String?
+  canonicalUrl          String?                      @db.Text
+  resolvedTitle         String?                      @db.Text
+  thumbnailUrl          String?                      @db.Text
+  pageCount             Int?
+  resolvedSnapshot      Json?
+  metadataHash          String?                      @db.VarChar(64)
+  resolutionKind        ArchiveIntakeResolutionKind?
+  duplicateOfItemId     String?
+  activeArchiveImportId String?
+  selectedQuality       ArchiveQuality               @default(ORIGINAL)
+  resolvedAt            DateTime?
+  expiresAt             DateTime?
+  archiveImportId       String?
+  errorCode             String?                      @db.VarChar(80)
+  errorMessage          String?                      @db.Text
+  errorStage            String?                      @db.VarChar(40)
+  retryable             Boolean?
+  supersedesItemId      String?
+  currentSystemJobId    String?                      @unique
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+  submission            ArchiveIntakeSubmission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  duplicateOfItem       ArchiveIntakeItem?           @relation("ArchiveIntakeDuplicate", fields: [duplicateOfItemId], references: [id], onDelete: SetNull)
+  duplicateItems        ArchiveIntakeItem[]          @relation("ArchiveIntakeDuplicate")
+  supersedesItem        ArchiveIntakeItem?           @relation("ArchiveIntakeSupersedes", fields: [supersedesItemId], references: [id], onDelete: SetNull)
+  supersededByItems     ArchiveIntakeItem[]          @relation("ArchiveIntakeSupersedes")
+  currentSystemJob      SystemJob?                   @relation("ArchiveIntakeCurrentJob", fields: [currentSystemJobId], references: [id], onDelete: SetNull)
+  activeArchiveImport   ArchiveImport?               @relation("ArchiveIntakeActiveImport", fields: [activeArchiveImportId], references: [id], onDelete: SetNull)
+  archiveImport         ArchiveImport?               @relation("ArchiveIntakeEnqueuedImport", fields: [archiveImportId], references: [id], onDelete: SetNull)
+
+  @@index([status, queueOrder])
+  @@index([submissionId, createdAt])
+  @@index([normalizedUrlHash, status])
+  @@index([providerKey, externalId])
+  @@index([archiveImportId])
+  @@index([activeArchiveImportId])
+  @@index([duplicateOfItemId])
+  @@index([supersedesItemId])
+  @@index([finishedAt])
+  @@map("archive_intake_items")
+}
+
+model ArchiveBulkOperation {
+  id                String                      @id @default(cuid())
+  idempotencyKey    String                      @unique @db.VarChar(180)
+  requestedByUserId String?
+  commandType       ArchiveBulkOperationCommand
+  requestedCount    Int
+  createdCount      Int                         @default(0)
+  appliedCount      Int                         @default(0)
+  reusedCount       Int                         @default(0)
+  skippedCount      Int                         @default(0)
+  conflictCount     Int                         @default(0)
+  failedCount       Int                         @default(0)
+  createdAt         DateTime                    @default(now())
+  completedAt       DateTime?
+  items             ArchiveBulkOperationItem[]
+
+  @@index([createdAt(sort: Desc)])
+  @@map("archive_bulk_operations")
+}
+
+model ArchiveBulkOperationItem {
+  id          String                     @id @default(cuid())
+  operationId String
+  targetType  ArchiveBulkOperationTarget
+  targetId    String                     @db.VarChar(128)
+  result      ArchiveBulkOperationResult
+  relatedId   String?                    @db.VarChar(128)
+  code        String?                    @db.VarChar(80)
+  message     String?                    @db.Text
+  createdAt   DateTime                   @default(now())
+  operation   ArchiveBulkOperation       @relation(fields: [operationId], references: [id], onDelete: Cascade)
+
+  @@unique([operationId, targetType, targetId])
+  @@index([targetType, targetId])
+  @@map("archive_bulk_operation_items")
+}
+
+model ArchiveResolveQueueControl {
+  id        String    @id @default("archive-resolve") @db.VarChar(40)
+  paused    Boolean   @default(false)
+  pausedAt  DateTime?
+  pausedBy  String?
+  updatedAt DateTime  @updatedAt
+
+  @@map("archive_resolve_queue_control")
+}
+
+model ArchiveProviderThrottle {
+  providerKey   String                        @id @db.VarChar(50)
+  nextRequestAt DateTime                      @default(now())
+  penaltyUntil  DateTime?
+  penaltyCode   String?                       @db.VarChar(40)
+  version       Int                           @default(0)
+  updatedAt     DateTime                      @updatedAt
+  requestLeases ArchiveProviderRequestLease[]
+
+  @@index([nextRequestAt])
+  @@index([penaltyUntil])
+  @@map("archive_provider_throttles")
+}
+
+model ArchiveProviderRequestLease {
+  id           String                      @id @default(uuid()) @db.Uuid
+  providerKey  String                      @db.VarChar(50)
+  requestClass ArchiveProviderRequestClass
+  expiresAt    DateTime
+  createdAt    DateTime                    @default(now())
+  provider     ArchiveProviderThrottle     @relation(fields: [providerKey], references: [providerKey], onDelete: Cascade)
+
+  @@index([providerKey, requestClass, expiresAt])
+  @@index([expiresAt])
+  @@map("archive_provider_request_leases")
 }
 
 model ArchivePreviewSession {
@@ -1164,6 +1315,58 @@ enum GcEntryStatus {
   DELETED
   SKIPPED_REFERENCED
   FAILED
+}
+
+enum JobExecutionLane {
+  ARCHIVE_RESOLVE
+  BACKGROUND_WRITER
+}
+
+enum ArchiveIntakeStatus {
+  QUEUED
+  RESOLVING
+  RETRY_WAIT
+  READY
+  STALE
+  FAILED
+  ENQUEUED
+  CANCELLED
+  DUPLICATE
+}
+
+enum ArchiveIntakeResolutionKind {
+  NEW
+  UPDATE
+  UNCHANGED
+  ACTIVE_TASK
+  DUPLICATE_IDENTITY
+}
+
+enum ArchiveBulkOperationCommand {
+  ENQUEUE
+  PAUSE
+  RESUME
+  CANCEL
+  RETRY
+}
+
+enum ArchiveBulkOperationTarget {
+  INTAKE_ITEM
+  ARCHIVE_IMPORT
+}
+
+enum ArchiveBulkOperationResult {
+  CREATED
+  APPLIED
+  REUSED
+  SKIPPED
+  CONFLICT
+  FAILED
+}
+
+enum ArchiveProviderRequestClass {
+  RESOLVE
+  DOWNLOAD
 }
 
 enum VideoKeyframeSetStatus {

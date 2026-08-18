@@ -4,6 +4,8 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { PrismaClient } from '../../../pixishelf-db/src/index.js'
 import { MutableQueueClock } from '../queue-clock.js'
 import {
+  ARCHIVE_RESOLVE_LANE_RESOURCE,
+  BACKGROUND_WRITER_LANE_RESOURCE,
   GLOBAL_BACKGROUND_WORKER_RESOURCE,
   JobExecutionFenceError,
   PostgresQueueRepository,
@@ -16,8 +18,11 @@ const databaseUrl =
 const describePostgres = databaseUrl ? describe : describe.skip
 const testPrefix = `queue-kernel-${randomUUID()}`
 const capabilities: WorkerCapability[] = [
-  { jobType: 'SCAN', definitionVersions: [1] },
-  { jobType: 'VIDEO_MEDIA_PROBE', definitionVersions: [1, 2] }
+  { jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
+  { jobType: 'VIDEO_MEDIA_PROBE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }
+]
+const resolveCapabilities: WorkerCapability[] = [
+  { jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
 ]
 const prisma = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl }) : null
 
@@ -26,15 +31,23 @@ describePostgres('PostgresQueueRepository integration', () => {
 
   beforeEach(async () => {
     clock.set(new Date('2026-08-13T18:00:00.000Z'))
+    await client().archiveIntakeItem.deleteMany({ where: { id: { startsWith: testPrefix } } })
+    await client().archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await client().jobResourceLease.deleteMany({
       where: { ownerJobId: { startsWith: testPrefix } }
     })
     await client().systemJob.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await client().systemJob.deleteMany({ where: { idempotencyKey: { startsWith: testPrefix } } })
+    await client().archiveResolveQueueControl.update({
+      where: { id: 'archive-resolve' },
+      data: { paused: false, pausedAt: null, pausedBy: null }
+    })
   })
 
   afterAll(async () => {
     if (!prisma) return
+    await prisma.archiveIntakeItem.deleteMany({ where: { id: { startsWith: testPrefix } } })
+    await prisma.archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.jobResourceLease.deleteMany({
       where: { ownerJobId: { startsWith: testPrefix } }
     })
@@ -66,6 +79,238 @@ describePostgres('PostgresQueueRepository integration', () => {
 
     await repository.complete(fence(winners[0]!))
   })
+
+  it('allows one resolver and one writer concurrently while preserving resolver FIFO and lane serialization', async () => {
+    const writerJobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const olderResolveJobId = await seedJob({
+      type: 'ARCHIVE_RESOLVE_ITEM',
+      executionLane: 'ARCHIVE_RESOLVE',
+      effectivePriority: 100,
+      triggerSource: 'SYSTEM',
+      createdAt: new Date('2026-08-13T17:00:00.000Z')
+    })
+    const fifoWinnerJobId = await seedJob({
+      type: 'ARCHIVE_RESOLVE_ITEM',
+      executionLane: 'ARCHIVE_RESOLVE',
+      effectivePriority: 100,
+      triggerSource: 'SYSTEM',
+      createdAt: new Date('2026-08-13T17:30:00.000Z')
+    })
+    const submissionId = `${testPrefix}-submission-${randomUUID()}`
+    await client().archiveIntakeSubmission.create({
+      data: {
+        id: submissionId,
+        idempotencyKey: submissionId,
+        rawCount: 2,
+        acceptedCount: 2,
+        items: {
+          create: [
+            {
+              id: `${testPrefix}-intake-first-${randomUUID()}`,
+              submittedUrl: 'https://e-hentai.org/g/1/token/',
+              normalizedUrlHash: randomUUID().replaceAll('-', '').padEnd(64, '0'),
+              currentSystemJobId: fifoWinnerJobId
+            },
+            {
+              id: `${testPrefix}-intake-second-${randomUUID()}`,
+              submittedUrl: 'https://e-hentai.org/g/2/token/',
+              normalizedUrlHash: randomUUID().replaceAll('-', '').padEnd(64, '0'),
+              currentSystemJobId: olderResolveJobId
+            }
+          ]
+        }
+      }
+    })
+    const repository = createRepository(clock)
+
+    const [writer, resolver] = await Promise.all([
+      repository.claim('queue-kernel-writer-lane', capabilities),
+      repository.claim('queue-kernel-resolver-lane', resolveCapabilities)
+    ])
+
+    expect(writer?.id).toBe(writerJobId)
+    expect(resolver?.id).toBe(fifoWinnerJobId)
+    expect(await repository.claim('queue-kernel-second-resolver', resolveCapabilities)).toBeNull()
+    expect(
+      await client().jobResourceLease.findMany({
+        where: { resourceKey: { in: [ARCHIVE_RESOLVE_LANE_RESOURCE, BACKGROUND_WRITER_LANE_RESOURCE] } },
+        orderBy: { resourceKey: 'asc' },
+        select: { resourceKey: true }
+      })
+    ).toHaveLength(2)
+
+    await Promise.all([repository.complete(fence(writer!)), repository.complete(fence(resolver!))])
+  })
+
+  it('allows exactly one resolver winner across ten concurrent claims', async () => {
+    const resolveJobId = await seedJob({
+      type: 'ARCHIVE_RESOLVE_ITEM',
+      executionLane: 'ARCHIVE_RESOLVE',
+      effectivePriority: 100,
+      triggerSource: 'SYSTEM'
+    })
+    const submissionId = `${testPrefix}-contention-submission-${randomUUID()}`
+    await client().archiveIntakeSubmission.create({
+      data: {
+        id: submissionId,
+        idempotencyKey: submissionId,
+        rawCount: 1,
+        acceptedCount: 1,
+        items: {
+          create: {
+            id: `${testPrefix}-contention-item-${randomUUID()}`,
+            submittedUrl: 'https://e-hentai.org/g/4/token/',
+            normalizedUrlHash: randomUUID().replaceAll('-', '').padEnd(64, '0'),
+            currentSystemJobId: resolveJobId
+          }
+        }
+      }
+    })
+    const repository = createRepository(clock)
+
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, index) =>
+        repository.claim(`queue-kernel-resolver-contention-${index}`, resolveCapabilities)
+      )
+    )
+    const winners = results.filter((result): result is ClaimedJob => result !== null)
+
+    expect(winners).toHaveLength(1)
+    expect(winners[0]?.id).toBe(resolveJobId)
+    await repository.complete(fence(winners[0]!))
+  })
+
+  it('rejects persisted job type and execution lane mismatches', async () => {
+    await expect(
+      client().systemJob.create({
+        data: {
+          id: `${testPrefix}-invalid-lane-${randomUUID()}`,
+          type: 'ARCHIVE_RESOLVE_ITEM',
+          executionLane: 'BACKGROUND_WRITER',
+          definitionVersion: 1,
+          status: 'PENDING',
+          triggerSource: 'SYSTEM',
+          queuePriority: 100,
+          effectivePriority: 100,
+          availableAt: clock.now()
+        }
+      })
+    ).rejects.toThrow()
+  })
+
+  it('does not claim the resolver lane while its durable queue control is paused', async () => {
+    await seedJob({
+      type: 'ARCHIVE_RESOLVE_ITEM',
+      executionLane: 'ARCHIVE_RESOLVE',
+      effectivePriority: 100,
+      triggerSource: 'SYSTEM'
+    })
+    await client().archiveResolveQueueControl.update({
+      where: { id: 'archive-resolve' },
+      data: { paused: true, pausedAt: clockDate(), pausedBy: 'test' }
+    })
+
+    await expect(createRepository(clock).claim('queue-kernel-paused-resolver', resolveCapabilities)).resolves.toBeNull()
+  })
+
+  it.each([
+    [2, 'RETRY_WAIT'],
+    [1, 'FAILED']
+  ] as const)('recovers an expired resolver lease into %s-attempt domain state %s', async (maxAttempts, status) => {
+    const jobId = await seedJob({
+      type: 'ARCHIVE_RESOLVE_ITEM',
+      executionLane: 'ARCHIVE_RESOLVE',
+      effectivePriority: 100,
+      triggerSource: 'SYSTEM',
+      maxAttempts
+    })
+    const submissionId = `${testPrefix}-recovery-submission-${randomUUID()}`
+    const itemId = `${testPrefix}-recovery-item-${randomUUID()}`
+    await client().archiveIntakeSubmission.create({
+      data: {
+        id: submissionId,
+        idempotencyKey: submissionId,
+        rawCount: 1,
+        acceptedCount: 1,
+        items: {
+          create: {
+            id: itemId,
+            submittedUrl: 'https://e-hentai.org/g/3/token/',
+            normalizedUrlHash: randomUUID().replaceAll('-', '').padEnd(64, '0'),
+            currentSystemJobId: jobId
+          }
+        }
+      }
+    })
+    const repository = createRepository(clock, 1_000)
+    const claimed = await repository.claim('queue-kernel-resolver-recovery', resolveCapabilities)
+    expect(claimed?.id).toBe(jobId)
+    await client().archiveIntakeItem.update({ where: { id: itemId }, data: { status: 'RESOLVING' } })
+    const queueOrderBefore = (await client().archiveIntakeItem.findUniqueOrThrow({ where: { id: itemId } })).queueOrder
+
+    clock.advance(1_001)
+    await expect(repository.recoverExpiredExecution('ARCHIVE_RESOLVE')).resolves.toMatchObject({ jobId, status })
+
+    const recovered = await client().archiveIntakeItem.findUniqueOrThrow({ where: { id: itemId } })
+    expect(recovered).toMatchObject({
+      status,
+      errorCode: 'WORKER_LEASE_EXPIRED',
+      retryable: true
+    })
+    if (status === 'RETRY_WAIT') expect(recovered.queueOrder).toBeGreaterThan(queueOrderBefore)
+    else expect(recovered.finishedAt).toEqual(clock.now())
+  })
+
+  it.each([
+    ['RUNNING', 1, 'FAILED'],
+    ['CANCELLING', 3, 'CANCELLED']
+  ] as const)(
+    'recovers a pre-executor QUEUED intake item from %s into %s',
+    async (executingStatus, maxAttempts, recoveredStatus) => {
+      const jobId = await seedJob({
+        type: 'ARCHIVE_RESOLVE_ITEM',
+        executionLane: 'ARCHIVE_RESOLVE',
+        effectivePriority: 100,
+        triggerSource: 'SYSTEM',
+        maxAttempts
+      })
+      const submissionId = `${testPrefix}-pre-executor-submission-${randomUUID()}`
+      const itemId = `${testPrefix}-pre-executor-item-${randomUUID()}`
+      await client().archiveIntakeSubmission.create({
+        data: {
+          id: submissionId,
+          idempotencyKey: submissionId,
+          rawCount: 1,
+          acceptedCount: 1,
+          items: {
+            create: {
+              id: itemId,
+              submittedUrl: 'https://e-hentai.org/g/5/token/',
+              normalizedUrlHash: randomUUID().replaceAll('-', '').padEnd(64, '0'),
+              currentSystemJobId: jobId
+            }
+          }
+        }
+      })
+      const repository = createRepository(clock, 1_000)
+      expect((await repository.claim('queue-kernel-pre-executor-recovery', resolveCapabilities))?.id).toBe(jobId)
+      if (executingStatus === 'CANCELLING') {
+        await client().systemJob.update({ where: { id: jobId }, data: { status: 'CANCELLING' } })
+      }
+
+      clock.advance(1_001)
+      await expect(repository.recoverExpiredExecution('ARCHIVE_RESOLVE')).resolves.toMatchObject({
+        jobId,
+        status: recoveredStatus
+      })
+      expect(
+        await client().archiveIntakeItem.findUniqueOrThrow({
+          where: { id: itemId },
+          select: { status: true, finishedAt: true }
+        })
+      ).toEqual({ status: recoveredStatus, finishedAt: clock.now() })
+    }
+  )
 
   it('sorts supported candidates and never claims an unsupported type or definition', async () => {
     const unsupportedType = await seedJob({
@@ -775,6 +1020,44 @@ describePostgres('PostgresQueueRepository integration', () => {
     })
   })
 
+  it('preserves the business retry attempt across repeated transaction-bound scheduling yields', async () => {
+    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10, maxAttempts: 3 })
+    const repository = createRepository(clock)
+
+    for (let yieldCount = 0; yieldCount < 2; yieldCount += 1) {
+      const claimed = (await repository.claim(`queue-kernel-yield-${yieldCount}`, capabilities))!
+      expect(claimed.attempt).toBe(1)
+      await repository.withFencedExecutionTransaction(fence(claimed), async (scope) => {
+        await scope.retry({
+          availableAt: new Date(clock.now().getTime() + 1_000),
+          errorCode: 'RESOURCE_BUSY',
+          error: 'writer lane has provider priority',
+          preserveAttempt: true
+        })
+      })
+      expect(
+        await client().systemJob.findUniqueOrThrow({ where: { id: jobId }, select: { status: true, attempt: true } })
+      ).toEqual({ status: 'RETRY_WAIT', attempt: 0 })
+      clock.advance(1_000)
+    }
+
+    const firstBusinessAttempt = (await repository.claim('queue-kernel-business-attempt', capabilities))!
+    expect(firstBusinessAttempt.attempt).toBe(1)
+    await repository.withFencedExecutionTransaction(fence(firstBusinessAttempt), async (scope) => {
+      await scope.retry({
+        availableAt: new Date(clock.now().getTime() + 1_000),
+        errorCode: 'INTERNAL_ERROR',
+        error: 'first business failure'
+      })
+    })
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { status: true, attempt: true, maxAttempts: true }
+      })
+    ).toEqual({ status: 'RETRY_WAIT', attempt: 1, maxAttempts: 3 })
+  })
+
   it('gives cancellation priority over a transaction-bound domain self-pause', async () => {
     const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
     const repository = createRepository(clock)
@@ -1309,6 +1592,7 @@ function fence(job: ClaimedJob) {
 
 async function seedJob(input: {
   type: string
+  executionLane?: 'ARCHIVE_RESOLVE' | 'BACKGROUND_WRITER'
   definitionVersion?: number
   effectivePriority: number
   maxAttempts?: number
@@ -1322,6 +1606,7 @@ async function seedJob(input: {
     data: {
       id,
       type: input.type,
+      executionLane: input.executionLane ?? 'BACKGROUND_WRITER',
       definitionVersion: input.definitionVersion ?? 1,
       status: 'PENDING',
       triggerSource: input.triggerSource ?? 'MANUAL',

@@ -9,12 +9,22 @@ export interface WorkerApplicationOptions {
   logger: WorkerLogger
   preflight(): Promise<void>
   disconnectDatabase(): Promise<void>
+  forceTerminate?(exitCode: number): void
   presenceReadinessGate?: { allowReady(): void }
   dispatcher?: {
     prepare(): Promise<void>
     activate(): void
     stop(reason?: string): Promise<void>
   }
+  dispatchers?: Array<{
+    prepare(): Promise<void>
+    activate(): void
+    stop(reason?: string): Promise<void>
+  }>
+}
+
+export interface WorkerShutdownOptions {
+  forceAfterMs?: number
 }
 
 export class WorkerApplication {
@@ -25,8 +35,13 @@ export class WorkerApplication {
   private preflightPromise: Promise<void> | null = null
   private dispatcherPreparePromise: Promise<void> | null = null
   private dispatcherPrepared = false
+  private forceTerminationTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private readonly options: WorkerApplicationOptions) {}
+
+  private get dispatchers() {
+    return this.options.dispatchers ?? (this.options.dispatcher ? [this.options.dispatcher] : [])
+  }
 
   start() {
     this.startPromise ??= this.startInternal()
@@ -51,12 +66,14 @@ export class WorkerApplication {
         await this.options.host.shutdown()
         return
       }
-      if (this.options.dispatcher) {
-        this.dispatcherPreparePromise = this.options.dispatcher.prepare()
+      if (this.dispatchers.length > 0) {
+        this.dispatcherPreparePromise = Promise.all(this.dispatchers.map((dispatcher) => dispatcher.prepare())).then(
+          () => undefined
+        )
         await this.dispatcherPreparePromise
         this.dispatcherPrepared = true
         if (this.options.healthState.snapshot().draining) {
-          await this.options.dispatcher.stop('startup-drain')
+          await Promise.all(this.dispatchers.map((dispatcher) => dispatcher.stop('startup-drain')))
           await this.options.host.shutdown()
           return
         }
@@ -64,13 +81,17 @@ export class WorkerApplication {
       this.options.presenceReadinessGate?.allowReady()
       await this.options.host.markReady()
       if (this.options.healthState.snapshot().draining) {
-        if (this.dispatcherPrepared) await this.options.dispatcher?.stop('startup-drain')
+        if (this.dispatcherPrepared) {
+          await Promise.all(this.dispatchers.map((dispatcher) => dispatcher.stop('startup-drain')))
+        }
         await this.options.host.shutdown()
         return
       }
-      this.options.dispatcher?.activate()
+      for (const dispatcher of this.dispatchers) dispatcher.activate()
       this.options.logger.info('worker.preflight_completed')
-      this.options.logger.info(this.options.dispatcher ? 'worker.dispatch_ready' : 'worker.awaiting_dispatcher_phase')
+      this.options.logger.info(
+        this.dispatchers.length > 0 ? 'worker.dispatch_ready' : 'worker.awaiting_dispatcher_phase'
+      )
     } catch (error) {
       if (this.options.healthState.snapshot().draining || this.options.host.signal.aborted) {
         this.options.logger.info('worker.startup_cancelled')
@@ -84,10 +105,25 @@ export class WorkerApplication {
     }
   }
 
-  shutdown(reason = 'signal') {
+  shutdown(reason = 'signal', shutdownOptions: WorkerShutdownOptions = {}) {
     this.options.healthState.beginDrain()
+    if (shutdownOptions.forceAfterMs !== undefined) {
+      this.armForceTermination(reason, shutdownOptions.forceAfterMs)
+    }
     this.shutdownPromise ??= this.shutdownInternal(reason)
     return this.shutdownPromise
+  }
+
+  private armForceTermination(reason: string, forceAfterMs: number) {
+    if (!Number.isSafeInteger(forceAfterMs) || forceAfterMs <= 0) {
+      throw new Error('forceAfterMs must be a positive safe integer')
+    }
+    if (this.forceTerminationTimer) return
+    this.forceTerminationTimer = setTimeout(() => {
+      this.options.logger.error('worker.force_terminate', { reason, forceAfterMs })
+      this.options.forceTerminate?.(1)
+    }, forceAfterMs)
+    this.forceTerminationTimer.unref()
   }
 
   private async shutdownInternal(reason: string) {
@@ -99,7 +135,9 @@ export class WorkerApplication {
         })
         .catch(() => undefined)
     }
-    if (this.dispatcherPrepared) await this.options.dispatcher?.stop(reason)
+    if (this.dispatcherPrepared) {
+      await Promise.all(this.dispatchers.map((dispatcher) => dispatcher.stop(reason)))
+    }
     if (this.hostStartPromise) {
       await this.hostStartPromise
         .then(() => {
@@ -117,5 +155,9 @@ export class WorkerApplication {
     })
     this.options.healthState.markStopped()
     this.options.logger.info('worker.stopped')
+    if (this.forceTerminationTimer) {
+      clearTimeout(this.forceTerminationTimer)
+      this.forceTerminationTimer = null
+    }
   }
 }

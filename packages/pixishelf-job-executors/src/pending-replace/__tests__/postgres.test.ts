@@ -17,7 +17,9 @@ const describePostgres = databaseUrl ? describe : describe.skip
 const prefix = `pending-replace-pg-${randomUUID()}`
 const prisma = databaseUrl ? createDatabaseClient({ datasourceUrl: databaseUrl }) : null
 const clock = new MutableQueueClock(new Date('2026-08-15T00:30:00.000Z'))
-const capabilities = [{ jobType: 'PENDING_REPLACE' as const, definitionVersions: [1] }]
+const capabilities = [
+  { jobType: 'PENDING_REPLACE' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1] }
+]
 
 describePostgres('pending replacement PostgreSQL fences', () => {
   beforeEach(async () => {

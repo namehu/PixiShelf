@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { jsonValueSchema } from './payloads.js'
 import {
+  executionLaneSchema,
   jobEventLevelSchema,
   jobEventTypeSchema,
   jobSkipReasonSchema,
@@ -15,6 +16,7 @@ export const bigintStringSchema = z.string().regex(/^(0|[1-9]\d*)$/, 'Expected a
 export const jobDtoSchema = z.object({
   id: z.string().min(1),
   type: jobTypeSchema,
+  executionLane: executionLaneSchema,
   definitionVersion: z.number().int().nonnegative(),
   status: jobStatusSchema,
   triggerSource: jobTriggerSourceSchema,
@@ -72,6 +74,7 @@ export type WorkerPresenceStatus = z.infer<typeof workerPresenceStatusSchema>
 
 export const workerCapabilitySchema = z.object({
   jobType: jobTypeSchema,
+  executionLane: executionLaneSchema,
   definitionVersions: z
     .array(z.number().int().nonnegative())
     .min(1)

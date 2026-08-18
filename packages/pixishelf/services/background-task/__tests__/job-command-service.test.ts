@@ -17,6 +17,8 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
   const findUnique = vi.fn()
   for (const record of records) findUnique.mockResolvedValueOnce(record)
   const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+  const updateIntakeItems = vi.fn().mockResolvedValue({ count: 1 })
+  const queryRawUnsafe = vi.fn().mockResolvedValue([{ id: 'intake-1' }])
   const create = vi.fn().mockResolvedValue(records.at(-1))
   let eventId = BigInt(0)
   const eventCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) =>
@@ -31,11 +33,13 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
   )
   const transaction = {
     $queryRaw: queryRaw,
+    $queryRawUnsafe: queryRawUnsafe,
     systemJob: { findUnique, updateMany, create },
+    archiveIntakeItem: { updateMany: updateIntakeItems },
     systemJobEvent: { create: eventCreate }
   } as unknown as Prisma.TransactionClient
   const client = { $transaction: <T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) => callback(transaction) }
-  return { client, queryRaw, findUnique, updateMany, create, eventCreate }
+  return { client, queryRaw, queryRawUnsafe, findUnique, updateMany, updateIntakeItems, create, eventCreate }
 }
 
 describe('enqueueJob', () => {
@@ -60,12 +64,34 @@ describe('enqueueJob', () => {
     expect(result.status).toBe('PENDING')
     expect(harness.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: 'PENDING', queuePriority: 10, effectivePriority: 10 })
+        data: expect.objectContaining({
+          status: 'PENDING',
+          executionLane: 'BACKGROUND_WRITER',
+          queuePriority: 10,
+          effectivePriority: 10
+        })
       })
     )
     expect(harness.eventCreate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ jobId: 'job-1', type: 'job.queued' }) })
     )
+  })
+
+  it('rejects resolver jobs outside the archive intake workflow', async () => {
+    const harness = commandHarness([])
+
+    await expect(
+      enqueueJob(
+        {
+          type: 'ARCHIVE_RESOLVE_ITEM',
+          triggerSource: 'SYSTEM',
+          priority: 100,
+          payload: { intakeItemId: 'intake-1' }
+        },
+        harness.client
+      )
+    ).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' })
+    expect(harness.create).not.toHaveBeenCalled()
   })
 
   it('projects canonical keyframe generation payload fields into legacy columns', async () => {
@@ -220,6 +246,34 @@ describe('enqueueJob', () => {
     expect(error).toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' })
     expect(harness.create).not.toHaveBeenCalled()
     expect(harness.eventCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects an idempotent record stored in the wrong execution lane', async () => {
+    const existing = jobRecord({
+      type: 'SCAN',
+      executionLane: 'ARCHIVE_RESOLVE',
+      triggerSource: 'SYSTEM',
+      requestedByUserId: null,
+      payload: { mode: 'INCREMENTAL' },
+      idempotencyKey: 'wrong-lane-scan',
+      queuePriority: 100,
+      effectivePriority: 100
+    })
+    const harness = commandHarness([existing])
+
+    await expect(
+      enqueueJob(
+        {
+          type: 'SCAN',
+          triggerSource: 'SYSTEM',
+          idempotencyKey: 'wrong-lane-scan',
+          priority: 100,
+          payload: { mode: 'INCREMENTAL' }
+        },
+        harness.client
+      )
+    ).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' })
+    expect(harness.create).not.toHaveBeenCalled()
   })
 
   it('serializes concurrent requests with the same idempotency key before find and create', async () => {
@@ -406,6 +460,7 @@ describe('job commands', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           triggerSource: 'RETRY',
+          executionLane: 'BACKGROUND_WRITER',
           requestedByUserId: 'admin-1',
           parentJobId: failed.id,
           queuePriority: 10
@@ -413,6 +468,38 @@ describe('job commands', () => {
       })
     )
     expect(harness.eventCreate).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves the derived resolver lane when retrying archive resolution', async () => {
+    const failed = jobRecord({
+      type: 'ARCHIVE_RESOLVE_ITEM',
+      executionLane: 'ARCHIVE_RESOLVE',
+      status: 'FAILED',
+      payload: { intakeItemId: 'intake-1' }
+    })
+    const retried = jobRecord({
+      id: 'resolve-retry-1',
+      type: 'ARCHIVE_RESOLVE_ITEM',
+      executionLane: 'ARCHIVE_RESOLVE',
+      status: 'PENDING',
+      triggerSource: 'RETRY',
+      parentJobId: failed.id,
+      payload: failed.payload
+    })
+    const harness = commandHarness([failed, retried])
+    harness.create.mockResolvedValue(retried)
+
+    await retryJobCommand({ jobId: failed.id }, harness.client)
+
+    expect(harness.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ executionLane: 'ARCHIVE_RESOLVE' }) })
+    )
+    expect(harness.queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('SET "currentSystemJobId" = $2'),
+      failed.id,
+      retried.id,
+      expect.any(Date)
+    )
   })
 
   it('projects canonical keyframe generation payload fields when creating a retry', async () => {

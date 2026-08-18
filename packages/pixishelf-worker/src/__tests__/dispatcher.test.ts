@@ -73,7 +73,9 @@ describe('CentralDispatcher', () => {
     await dispatcher.stop()
 
     expect(maximumActive).toBe(1)
-    expect(queue.claim.mock.calls[0]?.[1]).toEqual([{ jobType: 'SCAN', definitionVersions: [JOB_DEFINITION_VERSION] }])
+    expect(queue.claim.mock.calls[0]?.[1]).toEqual([
+      { jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [JOB_DEFINITION_VERSION] }
+    ])
   })
 
   it('provides progress, child enqueue, abort signal, and a scoped logger to executors', async () => {
@@ -715,6 +717,7 @@ function claimedJob(id: string): ClaimedJob {
   return {
     id,
     type: 'SCAN',
+    executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
     status: 'RUNNING',
     triggerSource: 'MANUAL',

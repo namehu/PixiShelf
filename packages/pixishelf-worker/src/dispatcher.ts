@@ -1,4 +1,4 @@
-import type { WorkerCapability } from '@pixishelf/job-contracts'
+import type { ExecutionLane, WorkerCapability } from '@pixishelf/job-contracts'
 import type {
   ChildJobRequest,
   ClaimedJob,
@@ -48,6 +48,7 @@ export interface DispatcherTiming {
 export interface CentralDispatcherOptions {
   enabled: boolean
   workerId: string
+  executionLane?: ExecutionLane
   queue: DispatcherQueuePort
   registry: ExecutorRegistry
   logger: WorkerLogger
@@ -80,6 +81,7 @@ const systemTiming: DispatcherTiming = {
 export class CentralDispatcher {
   private readonly timing: DispatcherTiming
   private readonly capabilities: WorkerCapability[]
+  private readonly executionLane: ExecutionLane
   private loopPromise: Promise<void> | null = null
   private currentExecution: Promise<void> | null = null
   private currentController: AbortController | null = null
@@ -102,7 +104,8 @@ export class CentralDispatcher {
     if (options.queueErrorBackoffMs !== undefined) {
       assertBoundedInteger('queueErrorBackoffMs', options.queueErrorBackoffMs, 100, 60_000)
     }
-    this.capabilities = options.registry.capabilities()
+    this.executionLane = options.executionLane ?? 'BACKGROUND_WRITER'
+    this.capabilities = options.registry.capabilities(this.executionLane)
     if (options.enabled && this.capabilities.length === 0) {
       throw new Error('Worker dispatch cannot be enabled with an empty executor registry')
     }
@@ -116,7 +119,10 @@ export class CentralDispatcher {
     }
     if (this.stopping) throw new Error('Cannot prepare a stopping dispatcher')
     this.prepared = true
-    this.options.logger.info('worker.dispatch_prepared', { capabilities: this.capabilities })
+    this.options.logger.info('worker.dispatch_prepared', {
+      executionLane: this.executionLane,
+      capabilities: this.capabilities
+    })
     return Promise.resolve()
   }
 
@@ -124,7 +130,10 @@ export class CentralDispatcher {
     if (!this.options.enabled || this.stopping) return
     if (!this.prepared) throw new Error('Dispatcher must be prepared before activation')
     if (!this.loopPromise) {
-      this.options.logger.info('worker.dispatch_started', { capabilities: this.capabilities })
+      this.options.logger.info('worker.dispatch_started', {
+        executionLane: this.executionLane,
+        capabilities: this.capabilities
+      })
       this.loopPromise = this.runLoop().catch((error) => {
         this.raiseFatal(toError(error, 'Dispatcher loop failed'))
       })

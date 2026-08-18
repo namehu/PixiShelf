@@ -2,6 +2,7 @@ import path from 'node:path'
 import type { PrismaClient } from '@pixishelf/db'
 import {
   createArchiveExecutorRegistrations,
+  createArchiveResolverExecutorRegistrations,
   createDefaultArchiveMediaProviderRegistry,
   createMaintenanceExecutorRegistrations,
   createMigrationExecutorRegistrations,
@@ -13,7 +14,9 @@ import {
   createScanExecutorRegistrations,
   createVideoMediaExecutorRegistrations,
   createVideoProcessingExecutorRegistrations,
-  createVideoKeyframeExecutorRegistrations
+  createVideoKeyframeExecutorRegistrations,
+  GovernedArchiveProviderRegistry,
+  PostgresArchiveProviderGovernor
 } from '@pixishelf/job-executors'
 import type { WorkerConfig } from './config.js'
 import { ExecutorRegistry } from './executor-registry.js'
@@ -33,9 +36,19 @@ type ExecutorWorkerConfig = Pick<
 export function createWorkerExecutorRegistry(input: { database: PrismaClient; config: ExecutorWorkerConfig }) {
   const registry = new ExecutorRegistry()
   const resolved = resolveExecutorWorkerConfiguration(input.config)
+  const archiveProviders = new GovernedArchiveProviderRegistry(
+    createDefaultArchiveMediaProviderRegistry(),
+    new PostgresArchiveProviderGovernor(input.database)
+  )
+  for (const definition of createArchiveResolverExecutorRegistrations({
+    database: input.database,
+    providers: archiveProviders
+  })) {
+    registry.register(definition)
+  }
   for (const definition of createArchiveExecutorRegistrations({
     database: input.database,
-    providers: createDefaultArchiveMediaProviderRegistry(),
+    providers: archiveProviders,
     config: {
       scanRoot: resolved.archiveRoot,
       maxMediaBytes: resolved.archiveMaxMediaBytes

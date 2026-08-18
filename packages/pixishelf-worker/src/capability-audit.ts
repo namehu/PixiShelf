@@ -49,7 +49,9 @@ export async function auditProductionWorkerCapabilities(
   try {
     assertProductionWorkerCapabilities(actual)
   } catch {
-    throw new CapabilityAuditError('online READY Worker capability inventory does not match the 17-item v1 release')
+    throw new CapabilityAuditError(
+      'online READY Worker capability inventory does not match the 18-item dual-lane v1 release'
+    )
   }
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
   return { readyWorkers: 1, capabilities: expected.length }
@@ -108,17 +110,31 @@ function parseCapabilities(value: unknown) {
   if (!Array.isArray(value)) throw new CapabilityAuditError('online READY Worker reported invalid capabilities')
   return canonicalWorkerCapabilities(
     value.map((entry) => {
-      if (!isRecord(entry) || typeof entry.jobType !== 'string' || !Array.isArray(entry.definitionVersions)) {
+      if (
+        !isRecord(entry) ||
+        typeof entry.jobType !== 'string' ||
+        typeof entry.executionLane !== 'string' ||
+        !Array.isArray(entry.definitionVersions)
+      ) {
         throw new CapabilityAuditError('online READY Worker reported invalid capabilities')
       }
       const fields = Object.keys(entry).sort()
-      if (fields.length !== 2 || fields[0] !== 'definitionVersions' || fields[1] !== 'jobType') {
+      if (
+        fields.length !== 3 ||
+        fields[0] !== 'definitionVersions' ||
+        fields[1] !== 'executionLane' ||
+        fields[2] !== 'jobType'
+      ) {
         throw new CapabilityAuditError('online READY Worker reported invalid capabilities')
       }
       if (!entry.definitionVersions.every((version) => Number.isSafeInteger(version) && version > 0)) {
         throw new CapabilityAuditError('online READY Worker reported invalid capabilities')
       }
-      return { jobType: entry.jobType, definitionVersions: entry.definitionVersions as number[] }
+      return {
+        jobType: entry.jobType,
+        executionLane: entry.executionLane,
+        definitionVersions: entry.definitionVersions as number[]
+      }
     })
   )
 }

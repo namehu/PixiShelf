@@ -1,7 +1,10 @@
 import {
   JOB_DEFINITION_VERSION,
+  executionLaneForJobType,
+  executionLaneSchema,
   jobTypeSchema,
   parseJobPayload,
+  type ExecutionLane,
   type JobType,
   type WorkerCapability
 } from '@pixishelf/job-contracts'
@@ -18,6 +21,7 @@ export type ExecutorRegistration<TPayload = unknown, TResult = unknown> = Execut
 
 export interface ResolvedExecutor<TPayload = unknown> {
   jobType: JobType
+  executionLane: ExecutionLane
   definitionVersion: number
   payload: TPayload
   execute: WorkerJobExecutor<TPayload>
@@ -25,6 +29,7 @@ export interface ResolvedExecutor<TPayload = unknown> {
 
 interface StoredRegistration {
   jobType: JobType
+  executionLane: ExecutionLane
   definitionVersion: number
   execute: WorkerJobExecutor
   parsePayload(payload: unknown): unknown
@@ -35,6 +40,10 @@ export class ExecutorRegistry {
 
   register<TPayload, TResult>(registration: ExecutorRegistration<TPayload, TResult>): this {
     const jobType = jobTypeSchema.parse(registration.jobType)
+    const executionLane = executionLaneSchema.parse(registration.executionLane ?? executionLaneForJobType(jobType))
+    if (executionLane !== executionLaneForJobType(jobType)) {
+      throw new Error(`Executor ${jobType} must register in ${executionLaneForJobType(jobType)}`)
+    }
     assertDefinitionVersion(registration.definitionVersion)
     const key = registryKey(jobType, registration.definitionVersion)
     if (this.registrations.has(key)) {
@@ -47,6 +56,7 @@ export class ExecutorRegistry {
     const parsePayload = registration.parsePayload ?? ((payload: unknown) => parseJobPayload(jobType, payload))
     this.registrations.set(key, {
       jobType,
+      executionLane,
       definitionVersion: registration.definitionVersion,
       execute: registration.execute as WorkerJobExecutor,
       parsePayload
@@ -54,22 +64,30 @@ export class ExecutorRegistry {
     return this
   }
 
-  resolve(job: { type: string; definitionVersion: number; payload: unknown }): ResolvedExecutor | null {
+  resolve(job: {
+    type: string
+    executionLane?: string
+    definitionVersion: number
+    payload: unknown
+  }): ResolvedExecutor | null {
     const parsedType = jobTypeSchema.safeParse(job.type)
     if (!parsedType.success) return null
     const registration = this.registrations.get(registryKey(parsedType.data, job.definitionVersion))
     if (!registration) return null
+    if ((job.executionLane ?? executionLaneForJobType(parsedType.data)) !== registration.executionLane) return null
     return {
       jobType: registration.jobType,
+      executionLane: registration.executionLane,
       definitionVersion: registration.definitionVersion,
       payload: registration.parsePayload(job.payload ?? {}),
       execute: registration.execute
     }
   }
 
-  capabilities(): WorkerCapability[] {
+  capabilities(executionLane?: ExecutionLane): WorkerCapability[] {
     const versionsByType = new Map<JobType, number[]>()
     for (const registration of this.registrations.values()) {
+      if (executionLane && registration.executionLane !== executionLane) continue
       const versions = versionsByType.get(registration.jobType) ?? []
       versions.push(registration.definitionVersion)
       versionsByType.set(registration.jobType, versions)
@@ -78,6 +96,7 @@ export class ExecutorRegistry {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([jobType, versions]) => ({
         jobType,
+        executionLane: executionLaneForJobType(jobType),
         definitionVersions: versions.sort((left, right) => left - right)
       }))
   }

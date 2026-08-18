@@ -41,6 +41,7 @@ function createJob(id: string, status: JobStatus, updatedAt = '2026-08-17T02:00:
   return {
     id,
     type: 'VIDEO_MEDIA_PROBE',
+    executionLane: 'BACKGROUND_WRITER',
     definitionVersion: 1,
     status,
     triggerSource: 'MANUAL',

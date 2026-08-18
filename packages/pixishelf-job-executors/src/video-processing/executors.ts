@@ -41,12 +41,14 @@ export function createVideoProcessingExecutorRegistrations(
   assertConfig(dependencies.config)
   const chapter: ExecutorDefinition<ChapterPayload> = {
     jobType: 'VIDEO_CHAPTER_PREVIEW_GENERATION',
+    executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
     parsePayload: (payload) => videoChapterPreviewPayloadSchema.parse(payload),
     execute: (context) => executeChapterPreview(context, dependencies)
   }
   const streaming: ExecutorDefinition<StreamingPayload> = {
     jobType: 'VIDEO_STREAMING_OPTIMIZATION',
+    executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
     parsePayload: (payload) => videoStreamingOptimizationPayloadSchema.parse(payload),
     execute: (context) => executeStreamingOptimization(context, dependencies)

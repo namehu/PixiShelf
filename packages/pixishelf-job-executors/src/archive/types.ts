@@ -74,10 +74,13 @@ export interface ResolvedArchive {
 
 export interface ArchiveProviderContext {
   signal?: AbortSignal
+  runResolveRequest?<T>(operation: () => Promise<T>): Promise<T>
 }
 
 export interface ArchiveDownloadContext extends ArchiveProviderContext {
   quality: ArchiveQuality
+  runDownloadRequest?<T>(operation: () => Promise<T>): Promise<T>
+  runDownloadStreamRequest?<T extends { stream: Readable }>(operation: () => Promise<T>): Promise<T>
 }
 
 export interface ArchiveMediaProvider {
@@ -89,6 +92,7 @@ export interface ArchiveMediaProvider {
 }
 
 export interface ArchiveProvider extends ArchiveMediaProvider {
+  readonly requestGovernance: 'PER_REQUEST'
   accepts(url: URL): boolean
   resolve(url: string, context?: ArchiveProviderContext): Promise<ResolvedArchive>
   openMedia(item: ArchiveProviderMediaItem, context: ArchiveDownloadContext): Promise<ArchiveRemoteMedia>
@@ -100,6 +104,10 @@ export type RemoteMedia = ArchiveRemoteMedia
 
 export interface ArchiveMediaProviderRegistry {
   get(providerKey: string): ArchiveMediaProvider
+}
+
+export interface ArchiveProviderRegistry extends ArchiveMediaProviderRegistry {
+  getForUrl(url: string): ArchiveProvider
 }
 
 export interface ArchiveExecutorConfig {

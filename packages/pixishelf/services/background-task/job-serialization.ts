@@ -1,4 +1,6 @@
 import {
+  executionLaneForJobType,
+  jobTypeSchema,
   jobDtoSchema,
   jobEventDtoSchema,
   jsonValueSchema,
@@ -19,6 +21,7 @@ const DEFAULT_WIRE_TEXT_LIMIT = 4_096
 export const systemJobWireSelect = {
   id: true,
   type: true,
+  executionLane: true,
   definitionVersion: true,
   status: true,
   triggerSource: true,
@@ -149,10 +152,28 @@ export function toJobEventDto(record: SystemJobEventWireRecord): JobEventDto {
 export function toWorkerHealthDto(record: WorkerInstanceWireRecord): WorkerHealthDto {
   return workerHealthDtoSchema.parse({
     ...record,
-    capabilities: jsonValueSchema.parse(record.capabilities ?? []),
+    capabilities: normalizeWorkerCapabilities(record.capabilities),
     lastError: redactSensitiveText(record.lastError, 2_048),
     startedAt: record.startedAt.toISOString(),
     heartbeatAt: record.heartbeatAt.toISOString(),
     updatedAt: record.updatedAt.toISOString()
+  })
+}
+
+function normalizeWorkerCapabilities(value: unknown): JsonValue {
+  const capabilities = jsonValueSchema.parse(value ?? [])
+  if (!Array.isArray(capabilities)) return capabilities
+
+  return capabilities.map((capability) => {
+    if (
+      typeof capability !== 'object' ||
+      capability === null ||
+      Array.isArray(capability) ||
+      'executionLane' in capability
+    ) {
+      return capability
+    }
+    const jobType = jobTypeSchema.safeParse(capability.jobType)
+    return jobType.success ? { ...capability, executionLane: executionLaneForJobType(jobType.data) } : capability
   })
 }

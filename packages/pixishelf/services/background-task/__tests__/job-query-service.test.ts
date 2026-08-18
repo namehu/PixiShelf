@@ -22,6 +22,7 @@ describe('listJobs', () => {
     expect(result.nextCursor).toBe('job-2')
     expect(result.items[0]).toMatchObject({
       id: 'job-2',
+      executionLane: 'BACKGROUND_WRITER',
       payload: { token: '[REDACTED]', nested: { databaseUrl: '[REDACTED]' } },
       createdAt: '2026-08-14T10:00:00.000Z'
     })
@@ -36,7 +37,7 @@ describe('listJobs', () => {
 })
 
 describe('getJobDashboard', () => {
-  it('summarizes status counts and serializes worker health', async () => {
+  it('summarizes status counts and normalizes pre-lane worker capabilities', async () => {
     const systemJob = {
       groupBy: vi.fn().mockResolvedValue([
         { status: 'PENDING', _count: { _all: 3 } },
@@ -53,7 +54,7 @@ describe('getJobDashboard', () => {
     expect(result.runningJob?.status).toBe('RUNNING')
     expect(result.workers[0]).toMatchObject({
       workerId: 'worker-1',
-      capabilities: [{ jobType: 'SCAN', definitionVersions: [1] }]
+      capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }]
     })
   })
 })

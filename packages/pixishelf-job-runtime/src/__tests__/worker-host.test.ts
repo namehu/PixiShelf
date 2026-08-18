@@ -17,7 +17,7 @@ describe('WorkerHost', () => {
         serviceVersion: '1.0.0',
         hostname: 'worker-host',
         processId: 42,
-        capabilities: [{ jobType: 'VIDEO_MEDIA_PROBE', definitionVersions: [1] }]
+        capabilities: [{ jobType: 'VIDEO_MEDIA_PROBE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }]
       },
       presenceStore: { write: async (record) => void writes.push(record) },
       healthState,

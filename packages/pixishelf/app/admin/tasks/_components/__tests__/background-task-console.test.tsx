@@ -71,6 +71,7 @@ function createJob(status: JobStatus = 'PENDING', id = `job-${status.toLowerCase
   return {
     id,
     type: 'VIDEO_MEDIA_PROBE',
+    executionLane: 'BACKGROUND_WRITER',
     definitionVersion: 1,
     status,
     triggerSource: 'MANUAL',
@@ -114,7 +115,7 @@ function createWorker(
     serviceVersion: '1.2.3',
     hostname: 'pixishelf-worker',
     processId: 42,
-    capabilities: [{ jobType: 'VIDEO_MEDIA_PROBE', definitionVersions: [1] }],
+    capabilities: [{ jobType: 'VIDEO_MEDIA_PROBE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }],
     startedAt: '2026-08-17T01:00:00.000Z',
     heartbeatAt,
     lastError: status === 'DEGRADED' ? 'ffmpeg unavailable' : null,
