@@ -125,6 +125,8 @@ readiness checks, and shutdown commands. Never use `db:push` for ordinary startu
 ## Documentation
 
 - Start from `docs/README.md`. It records each document's status, authority, and replacement path.
+- Read `docs/product/product-baseline.md` before changing target users, core workflows, product invariants, or
+  supported/non-goal boundaries; use `CONTEXT.md` for the shared domain language.
 - A `current` document must describe deployed behavior. Future work belongs in a `draft`; one-time cutovers and retired
   designs belong in `historical` documents.
 - Exact fields and configuration remain authoritative in Prisma, Zod, TypeScript, Compose, and `.env.example` files.
@@ -139,6 +141,8 @@ readiness checks, and shutdown commands. Never use `db:push` for ordinary startu
 
 ## Verification
 
+- Use `docs/development/testing-strategy.md` to combine the required checks for every affected change type. Its CI
+  section describes actual coverage and must not be treated as proof for checks that CI does not run.
 - For main app changes, run the narrowest useful check first:
 
 ```bash
@@ -158,6 +162,8 @@ pnpm build
 ```
 
 - If a check cannot run because services, environment variables, or network access are missing, report that clearly.
+- For migration, storage, deployment, bulk replacement, or destructive workflow changes, follow
+  `docs/operations/backup-and-recovery.md` and record the required consistent checkpoint or recovery evidence.
 
 ## Git Hygiene
 

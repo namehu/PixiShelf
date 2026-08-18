@@ -199,6 +199,7 @@ CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类�
 升级、暗启动、消费者切换、验证和回滚入口见：
 
 - [部署基线](./docs/operations/deployment.md)；
+- [备份与恢复基线](./docs/operations/backup-and-recovery.md)；
 - [Build 与部署资产](./build/README.md)；
 - [阶段 1–7 切换记录](./docs/deployment/background-task-cutover-deployment.md)；
 - [兼容回滚手册](./docs/deployment/background-task-cutover-rollback.md)。
@@ -227,8 +228,11 @@ todos/                         尚待收敛的旧 TODO 与技术债材料
 ## 文档与贡献
 
 - [文档索引](./docs/README.md)：所有文档的状态、权威范围和迁移登记；
+- [产品基线](./docs/product/product-baseline.md)：目标用户、核心流程、质量优先级和非目标；
 - [当前架构](./docs/architecture/current-architecture.md)：组件、依赖、数据流和不变量；
 - [领域语境](./CONTEXT.md)：统一业务术语；
+- [测试策略](./docs/development/testing-strategy.md)：按变更类型选择验证范围并理解 CI 缺口；
+- [备份与恢复](./docs/operations/backup-and-recovery.md)：备份集合、恢复目标和演练门禁；
 - [代理规则](./agents.md)：文件命名、测试组织、验证和文档门禁；
 - [当前待办](./TODO.md)：下一步可执行工作。
 

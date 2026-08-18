@@ -18,7 +18,7 @@ sources:
 
 ## 系统定位与边界
 
-PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系统。它负责导入或扫描本地收藏、维护作品与来源元数据、生成派生媒体，并提供检索、整理和浏览界面。
+PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系统。它负责导入或扫描本地收藏、维护作品与来源元数据、生成派生媒体，并提供检索、整理和浏览界面。目标用户、质量优先级和非目标以[产品基线](../product/product-baseline.md)为准。
 
 当前部署边界：
 
@@ -181,6 +181,7 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 - `build/docker-compose.deploy.yml` 仍声明旧 `archive-worker` 且未设置 profile，因此生产稳态必须显式停止它，不能依赖无参数 `docker compose up -d` 自动得到正确消费者集合。
 
 当前操作流程见[部署基线](../operations/deployment.md)，镜像与挂载细节见 [Build 与部署](../../build/README.md)。
+数据库与媒体的一致性检查点和恢复演练见[备份与恢复基线](../operations/backup-and-recovery.md)。
 
 ## 当前不变量
 
@@ -195,6 +196,9 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 
 ## 关联决策与历史
 
+- [产品基线](../product/product-baseline.md)
+- [测试策略](../development/testing-strategy.md)
+- [备份与恢复基线](../operations/backup-and-recovery.md)
 - [ADR-0001：来源引用与本地身份分离](../adr/0001-separate-source-references-from-local-identity.md)
 - [ADR-0002：持久 Worker 与原子归档发布](../adr/0002-use-a-durable-worker-and-atomic-archive-publication.md)
 - [ADR-0003：统一后台任务 Worker](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)

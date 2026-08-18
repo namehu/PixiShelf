@@ -33,14 +33,17 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | 文档                                               | 状态      | 权威范围                                    |
 | -------------------------------------------------- | --------- | ------------------------------------------- |
 | [项目 README](../README.md)                        | `current` | 项目入口、标准本地启动、常用命令            |
+| [产品基线](./product/product-baseline.md)          | `current` | 目标用户、核心场景、产品不变量和非目标      |
 | [领域语境](../CONTEXT.md)                          | `current` | 作品、媒体、来源、归档与本地身份术语        |
 | [当前架构](./architecture/current-architecture.md) | `current` | Workspace、运行组件、依赖方向和关键数据流   |
+| [测试策略](./development/testing-strategy.md)      | `current` | 测试分层、变更验证矩阵、CI 覆盖与已知缺口   |
 | [部署基线](./operations/deployment.md)             | `current` | 当前 Compose 服务、升级顺序、验证和回滚入口 |
+| [备份与恢复](./operations/backup-and-recovery.md)  | `current` | 完整备份集合、恢复目标、演练和灾难恢复边界  |
 | [Build 与部署资产](../build/README.md)             | `current` | Dockerfile、Compose、挂载和 Worker 运行边界 |
 | [当前待办](../TODO.md)                             | `current` | 稳定观察期和下一阶段可执行事项              |
 | [代理规则](../agents.md)                           | `current` | 人与 AI 修改仓库时必须遵守的工程约束        |
 
-产品基线、测试策略、权限矩阵和长期恢复手册属于下一批文档建设范围；在对应文档建立前，不把零散 TODO 或旧设计冒充为这些事实源。
+权限矩阵仍属于后续文档建设范围；建立前不得把零散 TODO、路由名称或旧设计当成完整权限承诺。
 
 ## 架构与性能
 
@@ -81,6 +84,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | 文档                                                                   | 状态         | 权威范围与后续处理                                  |
 | ---------------------------------------------------------------------- | ------------ | --------------------------------------------------- |
 | [部署基线](./operations/deployment.md)                                 | `current`    | 当前标准部署和升级入口                              |
+| [备份与恢复](./operations/backup-and-recovery.md)                      | `current`    | 完整备份集合、验证演练与灾难恢复边界                |
 | [后台任务回滚手册](./deployment/background-task-cutover-rollback.md)   | `current`    | 阶段 8 完成前的兼容回滚；稳定完成后归档             |
 | [后台任务上线后续](./deployment/background-task-follow-up.md)          | `current`    | 稳定观察期和阶段 8 启动门禁                         |
 | [后台任务切换记录](./deployment/background-task-cutover-deployment.md) | `historical` | 2026-08 阶段 1–7 切换记录                           |

@@ -84,6 +84,7 @@ sources:
 - 对后台任务架构切换相关升级运行只读 cutover audit。
 
 备份位置、校验值和镜像 digest 必须记录在本次发布记录中。“命令成功”不能代替恢复验证。
+完整备份集合、停写检查点和隔离恢复演练见[备份与恢复基线](./backup-and-recovery.md)。
 
 ## 标准生产升级
 
@@ -177,6 +178,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 
 - [Build 与部署资产](../../build/README.md)
 - [当前架构](../architecture/current-architecture.md)
+- [备份与恢复基线](./backup-and-recovery.md)
 - [阶段 1–7 切换记录](../deployment/background-task-cutover-deployment.md)
 - [兼容回滚手册](../deployment/background-task-cutover-rollback.md)
 - [上线后待办](../deployment/background-task-follow-up.md)

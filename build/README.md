@@ -124,6 +124,9 @@ CENTRAL_DISPATCHER_CUTOVER_ENABLED=false
 WORKER_DISPATCH_ENABLED=false
 ```
 
+数据库 dump、两个媒体快照、配置和镜像 digest 必须组成同一套恢复点；频率、验证和演练要求见
+[备份与恢复基线](../docs/operations/backup-and-recovery.md)。
+
 生产部署必须先停止写入者、执行只读 cutover audit、创建数据库与媒体一致性备份，再启动 App 完成
 migration 和 Worker 暗启动。最终同时打开两枚开关并停止旧消费者。阶段 1–7 的纯 Docker 审查、备份、
 切换和验收门禁可参考
