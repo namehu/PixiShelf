@@ -78,7 +78,7 @@ Typical local startup for the main app:
 
 ```bash
 cd build
-docker-compose -f docker-compose.dev.yml up -d postgres imgproxy thumbor
+docker-compose -f docker-compose.dev.yml up -d postgres imgproxy
 
 cd ../packages/pixishelf
 pnpm db:generate

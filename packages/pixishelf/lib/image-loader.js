@@ -5,9 +5,10 @@ import { isDerivedMediaPublicUrl, resolveDerivedMediaSource } from './derived-me
 // ImgProxy 的服务地址，因为在 Docker Compose 网络中，可以直接用服务名
 // 从浏览器访问时需要用宿主机的 IP 和端口
 const IMGPROXY_URL = process.env.NEXT_PUBLIC_IMGPROXY_URL || 'http://localhost:5431'
-const THUMBOR_VIDEO_URL = process.env.NEXT_PUBLIC_THUMBOR_VIDEO_URL || 'http://localhost:5433'
 const DEFAULT_IMAGE_OUTPUT_FORMAT = 'webp'
 const STATIC_ANIMATION_THUMBNAIL_FORMAT = 'jpg'
+const VIDEO_THUMBNAIL_PLACEHOLDER_URL = '/video-thumbnail-unavailable.svg'
+const reportedVideoSources = new Set()
 
 function splitSourceVersion(src) {
   const queryIndex = src.indexOf('?')
@@ -61,10 +62,15 @@ export default function imgproxyLoader({ src, width, quality, format }) {
 
   const { source, version } = splitSourceVersion(src)
 
-  // 视频截帧用 自定义的Thumbor 组件
+  // 原始视频必须由播放器展示；缩略图必须使用预先生成的静态封面。
   if (isVideoFile(source)) {
-    const finalUrl = `${THUMBOR_VIDEO_URL}/unsafe/${width || 800}x0/filters:still(1)${source}`
-    return appendVersion(finalUrl, version)
+    if (!reportedVideoSources.has(source)) {
+      reportedVideoSources.add(source)
+      console.error(
+        `[PixiShelf image-loader] Unsupported raw video source passed to next/image: "${source}". Use MediaThumbnail with a generated poster or render the video player.`
+      )
+    }
+    return VIDEO_THUMBNAIL_PLACEHOLDER_URL
   }
 
   // 图片处理 https://docs.imgproxy.net/usage/processing

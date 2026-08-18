@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" role="img" aria-labelledby="title description">
+  <title id="title">视频封面不可用</title>
+  <desc id="description">视频封面尚未生成时显示的占位图</desc>
+  <rect width="640" height="360" fill="#171717"/>
+  <g fill="none" stroke="#a3a3a3" stroke-linecap="round" stroke-linejoin="round" stroke-width="12">
+    <rect x="218" y="118" width="152" height="124" rx="18"/>
+    <path d="m370 157 62-34v114l-62-34z"/>
+  </g>
+  <text x="320" y="286" fill="#a3a3a3" font-family="system-ui, sans-serif" font-size="24" text-anchor="middle">
+    视频封面不可用
+  </text>
+</svg>

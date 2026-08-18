@@ -19,7 +19,7 @@
 - **现代化架构**: 基于Next.js 15 App Router的分层架构设计
 - **类型安全**: 全面使用TypeScript，确保代码质量和开发体验
 - **高性能数据库**: PostgreSQL + Prisma ORM，支持全文搜索和复杂查询
-- **图片处理**: 集成imgproxy和thumbor，提供高性能图片和视频处理
+- **媒体处理**: ImgProxy 负责静态图片优化，FFmpeg 后台任务预生成视频封面和其他派生媒体
 - **容器化部署**: Docker + Docker Compose，一键部署和环境一致性
 - **响应式设计**: 基于Tailwind CSS，适配各种设备屏幕
 - **Monorepo管理**: 使用pnpm workspace管理项目结构
@@ -50,7 +50,7 @@
 ### 图片处理
 
 - **imgproxy** - 高性能图片处理和优化服务
-- **thumbor** - 视频缩略图生成和处理
+- **FFmpeg** - 由后台 Worker 预生成视频封面、章节截图和代表帧
 - **fast-glob** - 高效的文件系统扫描
 
 ### 开发工具
@@ -144,7 +144,6 @@ INIT_ADMIN_PASSWORD=admin123
 
 # 图片处理服务
 NEXT_PUBLIC_IMGPROXY_URL=http://localhost:5431
-NEXT_PUBLIC_THUMBOR_VIDEO_URL=http://localhost:5433
 
 # 图片扫描路径（本机路径）
 SCAN_PATH=D:\your\pixiv\data
@@ -178,7 +177,7 @@ PIXISHELF_DATA_PATH=C:\Users\YourName\Pictures\Collection
 
 ```bash
 cd build
-docker compose -f docker-compose.dev.yml up -d postgres imgproxy thumbor worker
+docker compose -f docker-compose.dev.yml up -d postgres imgproxy worker
 ```
 
 默认不会启动 App 容器、scheduler 或旧 `archive-worker`。Next.js 继续由宿主机 VS Code F5 或
@@ -187,9 +186,9 @@ docker compose -f docker-compose.dev.yml up -d postgres imgproxy thumbor worker
 #### 4.2 启动 Next.js 开发服务
 
 ```bash
-# 1. 启动数据库和媒体处理服务
+# 1. 启动数据库、图片处理服务和通用 Worker
 cd build
-docker compose -f docker-compose.dev.yml up -d postgres imgproxy thumbor worker
+docker compose -f docker-compose.dev.yml up -d postgres imgproxy worker
 
 # 2. 等待数据库就绪
 docker compose -f docker-compose.dev.yml logs -f postgres
@@ -242,8 +241,7 @@ PixiShelf/
 ├── build/                      # Docker配置
 │   ├── docker-compose.dev.yml # 开发环境
 │   ├── docker-compose.deploy.yml # 生产环境
-│   ├── Dockerfile              # 应用镜像
-│   └── thumbor/                # Thumbor配置
+│   └── Dockerfile              # 应用镜像
 └── docs/                       # 项目文档
 ```
 
@@ -405,7 +403,6 @@ docker-compose -f docker-compose.deploy.yml ps
 | app           | 5430 | 主应用服务                 |
 | postgres      | 5432 | PostgreSQL数据库           |
 | imgproxy      | 5431 | 图片处理服务               |
-| thumbor       | 5433 | 视频处理服务               |
 | prisma-studio | 5555 | 数据库管理界面（开发环境） |
 
 ## 🔍 功能说明
@@ -469,10 +466,9 @@ docker-compose -f docker-compose.deploy.yml ps
    ```bash
    # 检查服务状态
    curl http://localhost:5431/health
-   curl http://localhost:5433/healthcheck
 
    # 重启服务
-   docker-compose --env-file build/.env -f build/docker-compose.dev.yml restart imgproxy thumbor
+   docker-compose --env-file build/.env -f build/docker-compose.dev.yml restart imgproxy
    ```
 
 4. **依赖安装问题**

@@ -201,7 +201,7 @@ export default defineConfig({
 ```bash
 # 启动开发环境数据库
 cd build
-docker-compose -f docker-compose.dev.yml up -d postgres imgproxy thumbor
+docker-compose -f docker-compose.dev.yml up -d postgres imgproxy
 
 # 启动 Next.js 服务
 cd ../packages/pixishelf
@@ -211,6 +211,10 @@ pnpm dev
 cd packages/web
 VITE_API_URL=http://localhost:5431 pnpm dev
 ```
+
+当前版本不再部署 Thumbor，也不再提供 `/_video` 请求时截帧路由。生产升级应先验证 FFmpeg 生成的静态
+视频封面、缺失封面占位和原视频播放，再停止并删除旧 Thumbor 容器及外部 Traefik `/_video` 路由。
+回滚仍依赖该兼容入口的旧版本时，必须同时恢复对应版本归档的 Compose 和路由配置。
 
 ## 🐳 Docker 配置详解
 

@@ -5,6 +5,9 @@
 > 镜像策略：生产 Compose 使用 `latest`；回滚依赖上线前保存的不可变镜像 ID、本地回滚标签和数据库/媒体快照  
 > 代码基线：后台任务阶段 1–7 及其上线修复，当前仓库基线为 `v0.36.1`（`92248a08`）
 
+> 后续架构说明：本文保留 2026-08-18 发布时 Thumbor 仍在运行的历史事实。当前版本已经移除 Thumbor；
+> 新部署不得照搬本文中的 Thumbor 服务和 `/_video` 路由，旧版本回滚则必须使用对应归档配置。
+
 本文合并本次上线前的两版部署方案、纯 Docker 环境修正和上线期间的代码修复记录，作为本次发布的最终归档。后续常规升级可复用检查项，但不得把本文的“已完成”状态直接套用到新的发布。
 
 ## 1. 上线结论
@@ -375,7 +378,7 @@ sudo docker system df
 - 是否存在长期 `RUNNING`、租约过期或 `RETRY_WAIT` 激增的任务。
 - 自动窗口结束后是否仍有应被跳过的待执行任务。
 - `DerivedMediaGcEntry` 的 `FAILED` 是否增长。
-- App、Worker、PostgreSQL、imgproxy、Thumbor 和 Traefik 是否出现连续错误。
+- App、Worker、PostgreSQL、imgproxy 和 Traefik 是否出现连续错误。
 - Docker 日志是否保持 `10 MB × 5` 轮转。
 - 媒体目录容量和数据库卷容量是否安全。
 

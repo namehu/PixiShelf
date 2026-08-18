@@ -63,7 +63,7 @@ sudo du -sh <派生媒体宿主机目录>
 - [ ] 检查 scheduler 容器状态与数据库计划启用数量一致。
 - [ ] 对计划逐项启用；不要为了验证一次性开启全部高成本任务。
 - [ ] 首次正式 GC 前审查到期的 `DerivedMediaGcEntry`；reconciliation 继续保持 dry-run。
-- [ ] 观察 imgproxy、Thumbor 和 Traefik 的 404/5xx，特别是派生媒体 URL。
+- [ ] 观察 imgproxy 和 Traefik 的 404/5xx，特别是派生媒体 URL。
 
 ### P2：备份演练
 

@@ -3,6 +3,9 @@
 > 适用发布：2026-08-18 后台任务阶段 1–7 生产切换  
 > 核心原则：先停写和保全现场，再判断回滚层级；数据库和媒体必须恢复到同一时间点
 
+> 后续架构说明：当前 Compose 已移除 Thumbor。回滚到仍依赖 Thumbor 兼容截帧的旧应用镜像时，必须同时
+> 恢复该版本归档的 Compose 和 Traefik `/_video` 路由；不得把旧应用镜像与当前 Compose 混用。
+
 ## 1. 回滚红线
 
 1. 不允许 `archive-worker` 与 `WORKER_DISPATCH_ENABLED=true` 的通用 `worker` 同时运行。
@@ -204,7 +207,7 @@ sudo docker compose logs --tail=300 app archive-worker postgres
 - 数据库 migration 历史符合恢复目标。
 - 不存在两个 Worker 同时消费。
 - 不存在非终态残留任务、未恢复的批量替换或归档 staging。
-- Traefik、imgproxy、Thumbor 路由正常。
+- Traefik、imgproxy 路由正常；如回滚版本仍依赖 Thumbor，归档的 `/_video` 路由也必须正常。
 - scheduler 保持关闭，直到人工确认计划启用状态。
 - 事故原因、影响 jobId、恢复时间点、镜像 ID/digest 和数据损失范围均已记录。
 

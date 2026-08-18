@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import imgproxyLoader from '@/lib/image-loader'
 
 describe('imgproxyLoader', () => {
@@ -49,5 +49,17 @@ describe('imgproxyLoader', () => {
     expect(imgproxyLoader({ src: '/1000/image.jpg?v=2026-08-11', width: 640, quality: 90 })).toBe(
       'http://localhost:5431/_/rs:fit:640:0/q:90/sm:1/plain/local://%2Fmedia%2F1000%2Fimage.jpg@webp?v=2026-08-11'
     )
+  })
+
+  it('returns an explicit placeholder and reports raw video sources once', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const options = { src: '/1000/video.mp4?v=2026-08-18', width: 640, quality: 80 }
+
+    expect(imgproxyLoader(options)).toBe('/video-thumbnail-unavailable.svg')
+    expect(imgproxyLoader(options)).toBe('/video-thumbnail-unavailable.svg')
+    expect(consoleError).toHaveBeenCalledTimes(1)
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('/1000/video.mp4'))
+
+    consoleError.mockRestore()
   })
 })

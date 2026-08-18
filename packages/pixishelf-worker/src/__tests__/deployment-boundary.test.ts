@@ -8,7 +8,7 @@ describe('Worker deployment boundary', () => {
     'caps every long-running service at 10 MB x 5 in %s',
     (filename) => {
       const compose = readFileSync(new URL(`build/${filename}`, repositoryRoot), 'utf8')
-      const services = ['postgres', 'app', 'archive-worker', 'worker', 'scheduler', 'imgproxy', 'thumbor']
+      const services = ['postgres', 'app', 'archive-worker', 'worker', 'scheduler', 'imgproxy']
       for (const [index, service] of services.entries()) {
         const nextService = services[index + 1]
         const start = compose.indexOf(`  ${service}:`)
@@ -18,6 +18,17 @@ describe('Worker deployment boundary', () => {
         expect(definition, service).toMatch(/max-size: ['"]10m['"]/)
         expect(definition, service).toMatch(/max-file: ['"]5['"]/)
       }
+    }
+  )
+
+  it.each(['docker-compose.dev.yml', 'docker-compose.deploy.yml'])(
+    'does not ship the retired Thumbor service in %s',
+    (filename) => {
+      const compose = readFileSync(new URL(`build/${filename}`, repositoryRoot), 'utf8')
+      expect(compose).not.toMatch(/^  thumbor:/m)
+      expect(compose).not.toContain('NEXT_PUBLIC_THUMBOR_VIDEO_URL')
+      expect(compose).not.toContain('THUMBOR_HOST_PORT')
+      expect(compose).not.toContain('5433')
     }
   )
 

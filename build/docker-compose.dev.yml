@@ -54,7 +54,6 @@ services:
       SCAN_PATH: /app/data
       ARCHIVE_STORAGE_PATH: /app/data
       NEXT_PUBLIC_IMGPROXY_URL: http://127.0.0.1:${IMGPROXY_HOST_PORT:-5431}
-      NEXT_PUBLIC_THUMBOR_VIDEO_URL: http://127.0.0.1:${THUMBOR_HOST_PORT:-5433}
     volumes:
       - '${PIXISHELF_DATA_PATH}:/app/data:cached'
       - '${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media'
@@ -202,47 +201,6 @@ services:
         max-size: '10m'
         max-file: '5'
 
-  thumbor:
-    # 使用官方的 Thumbor 镜像
-    build:
-      context: ..
-      dockerfile: build/thumbor/Dockerfile
-    # 给我们自己构建的镜像起个名字
-    image: thumbor-video:latest
-    container_name: thumbor_video
-    restart: always
-    ports:
-      - '${THUMBOR_HOST_PORT:-5433}:80'
-    networks:
-      - pixishelf-network
-    volumes:
-      - '${PIXISHELF_DATA_PATH}:/media:ro' # 'ro' 表示只读，更安全
-    environment:
-      # 设置日志级别，方便调试
-      - LOG_LEVEL=debug
-      - QUALITY=80
-      - WEBP_QUALITY=80
-      - ALLOW_UNSAFE_URL=True
-      - LOADER=thumbor.loaders.file_loader
-      - FILE_LOADER_ROOT_PATH=/media
-      - ENGINE=thumbor_video_engine.engines.video
-      - GIF_ENGINE=thumbor_video_engine.engines.gif
-      - FFMPEG_USE_GIFSICLE_ENGINE=True
-      - FFMPEG_GIF_AUTO_WEBP=True
-      - FFMPEG_GIF_AUTO_H265=True
-      - APP_CLASS=thumbor_video_engine.app.ThumborServiceApp
-      # 配置结果存储为文件系统
-      - RESULT_STORAGE=thumbor_video_engine.result_storages.file_storage
-      - RESULT_STORAGE_FILE_STORAGE_ROOT_PATH=/tmp/thumbor/result_storage
-      - RESULT_STORAGE_STORES_UNSAFE=True
-      - RESULT_STORAGE_EXPIRATION_SECONDS=0
-
-      - FILTERS=['thumbor_video_engine.filters.format','thumbor_video_engine.filters.still']
-    logging:
-      driver: 'json-file'
-      options:
-        max-size: '10m'
-        max-file: '5'
 volumes:
   postgres_data:
 

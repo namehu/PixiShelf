@@ -205,7 +205,6 @@ WebP 扫描结果写入 `Image.webpAnimationStatus`：
 
 - `postgres`
 - `imgproxy`
-- `thumbor`
 
 Next.js App 通常在宿主机运行：
 

@@ -1,49 +1,57 @@
-# PixiShelf 媒体资源处理与分发架构设计
+# PixiShelf 媒体资源处理与分发架构
 
-## 1. 架构概述
+## 1. 当前架构
 
-在生产环境中，PixiShelf 采用微服务架构来处理繁重的媒体资源（图片裁剪、缩放、格式转换、视频截帧等）。应用核心（Next.js）、图片处理引擎（ImgProxy）和视频处理引擎（Thumbor）被拆分为独立的服务，并通过 Traefik 进行统一的请求路由和负载均衡。
+PixiShelf 将静态图片处理、视频派生媒体生成和原视频播放拆成三条明确链路：
 
-## 2. 请求转发链路与核心组件
+- ImgProxy 负责普通图片、静态视频封面、章节截图和代表帧的缩放、格式转换与缓存。
+- 通用 Worker 使用 FFmpeg 提前生成视频封面等静态 WebP 派生媒体，并写入派生媒体目录。
+- 作品详情、全屏预览和沉浸浏览使用视频播放器读取原始视频，不经过 `next/image`。
 
-### 2.1 客户端请求生成 (`image-loader.js`)
-在 Next.js 的前端组件中，当使用 `next/image` 时，我们配置了自定义的 `loader`（`image-loader.js`）。它的核心作用是**绕过 Next.js 的内置图片优化，根据资源类型生成指向独立媒体服务的 URL**。
-- **图片处理**：生成带有 `NEXT_PUBLIC_IMGPROXY_URL`（对应网关的 `/_image`）前缀的 URL，附带处理参数（如按需缩放、智能裁剪、强制 WebP 输出）。
-- **视频截帧**：判断为视频文件时，生成带有 `NEXT_PUBLIC_THUMBOR_VIDEO_URL`（对应网关的 `/_video`）前缀的 URL，调用 Thumbor 的视频截帧滤镜（`filters:still`）。
+系统不再提供请求时实时视频截帧服务，也不再声明 Thumbor 容器或 `/_video` 路由。
 
-### 2.2 网关路由分发 (`docker-compose.deploy.yml` 中的 Traefik)
-用户浏览器发起请求后，流量首先到达 Traefik 代理网关。
-- **图片路由 (`/_image/*`)**：
-  - Traefik 匹配到 `PathPrefix('/_image')` 规则。
-  - 使用 `strip-image-prefix` 中间件动态剥离掉 `/_image` 路径前缀。
-  - 将干净的请求透明转发给后端的 `imgproxy` 容器（内部 5431 端口）。
-- **视频路由 (`/_video/*`)**：
-  - Traefik 匹配到 `PathPrefix('/_video')` 规则。
-  - 使用 `strip-video-prefix` 中间件剥离掉 `/_video` 路径前缀。
-  - 将请求转发给后端的 `thumbor` 容器（内部 80 端口）。
+## 2. 图片请求链路
 
-### 2.3 物理层存储共享 (Docker Volumes)
-媒体服务之所以能极速响应，是因为**避免了通过内部网络传输原文件字节流**：
-`app`、`imgproxy` 和 `thumbor` 容器都通过 Docker Volumes 只读（`ro`）挂载了相同的宿主机数据目录（例如 `/vol02/1001/pixiv`）。
-因此，ImgProxy / Thumbor 收到包含相对路径的请求后，直接从自身的本地文件系统（`/data` 或 `/media`）高速读取原文件进行处理并流式返回。
+### 2.1 普通图片
 
----
+Next.js 的自定义 `image-loader.js` 根据 `NEXT_PUBLIC_IMGPROXY_URL` 生成 ImgProxy URL。ImgProxy 通过
+只读挂载访问原媒体目录，对图片进行按宽度缩放、质量控制、元数据清理和格式转换。普通静态图片默认
+输出 WebP；GIF 和 WebP 缩略图输出静态 JPG，避免在列表中加载缩放后的动图。
 
-## 3. 核心问题解答：为什么要用 `/_image` / `/_video` 转发而不是直接交给 Next.js Loader 处理？
+### 2.2 视频派生静态图片
 
-在生产环境中，我们选择放弃 Next.js 内置图片优化（Node.js 服务器处理），转而采用 **独立服务 + Traefik 路径转发** 模式，主要基于以下四个维度的考量：
+FFmpeg 任务生成的资源使用稳定的虚拟前缀：
 
-### 3.1 性能与资源隔离（突破 Node.js 单线程瓶颈）
-Next.js 的内置图片优化依赖 Node.js 进程中的 Sharp 库进行图像处理。对于像 PixiShelf 这样拥有海量高清画作/视频的画廊应用，如果同一时间有大量用户浏览，密集的图片缩放和格式转换会迅速榨干 Node.js 进程的 CPU 资源，导致主线程阻塞。这不仅会让图片加载缓慢，**还会直接拖垮整个 Next.js 提供的 API 服务和页面 SSR 渲染**。
-将高 CPU 消耗的媒体处理剥离给基于 Go 编写的 ImgProxy 和 Python 编写的 Thumbor，实现了**计算资源的物理隔离**，保护了主业务的稳定性。
+- `/_video-posters/`：视频封面；
+- `/_video-chapter-previews/`：章节截图；
+- `/_video-keyframes/`：视频代表帧。
 
-### 3.2 规避不必要的网络 IO (数据本地化优势)
-如果 Next.js 自己处理外部挂载目录中的图片，它必须把文件读入 Node.js 内存然后再吐出。
-在当前架构下，Traefik 网关直接将 `/_image` 流量分发给 ImgProxy。ImgProxy 通过 Volume 直读本地磁盘文件（`IMGPROXY_LOCAL_FILESYSTEM_ROOT=/data`），处理完后直接经由 Traefik 响应给客户端。**这条数据链路完全不经过 Next.js 容器**，大幅节省了 Next.js 的带宽和内存开销。
+loader 通过派生媒体路径解析器把这些 URL 映射到 ImgProxy 的 `/derived-media/` 只读挂载。URL 中的版本
+参数只作为浏览器缓存键，不会进入本地文件路径。
 
-### 3.3 专业的媒体处理能力边界
-- **视频截帧与动图支持**：Next.js 内置图片组件**不支持**视频文件截帧和 GIF 高效转换。而 Thumbor 配合 `thumbor_video_engine` 可以完美实现视频第一帧提取和 GIF 转 WebP/H265。
-- **防 OOM 与超大图处理**：画廊应用经常会遇到 8K 甚至更大分辨率的插画原图。ImgProxy 在底层针对大图防 OOM（内存溢出）做了极致优化，比 Node.js 下的 Sharp 更加健壮。
+### 2.3 原始视频误传保护
 
-### 3.4 缓存策略的精细化控制
-独立的 `/_image` 和 `/_video` API 路径使得我们在未来更容易接入 CDN（如 Cloudflare）。这些专门用于媒体分发的端点具有高度的确定性（URL 即包含了所有的裁剪、压缩参数），并且不包含用户的 Session Cookie，这能够实现 **极高的 CDN 缓存命中率**。
+所有封面和缩略图入口必须使用 `MediaThumbnail`：存在静态封面时渲染封面，不存在时渲染“封面待生成”
+占位，不把原始视频路径交给 `next/image`。
+
+如果后续代码仍误把原始视频传给图片 loader，loader 会返回 `/video-thumbnail-unavailable.svg`，并按原始
+路径记录一次明确错误。该保护只用于暴露调用方错误，不会重新引入实时截帧。
+
+## 3. 视频和动图播放
+
+- 原视频由 `<video>`/视频播放器按原始媒体 URL 加载，并继续支持章节、代表帧、音频状态和播放控制。
+- GIF、APNG 和动态 WebP 的交互播放继续读取原媒体；列表和普通 `next/image` 场景只展示静态缩略图。
+- 视频封面生成失败或尚未完成时只显示占位图，不在用户请求链路中启动 FFmpeg。
+
+## 4. 部署边界
+
+当前媒体相关部署组件只有 App、Worker、ImgProxy 和外部 Traefik：
+
+- App 读取原媒体并读写派生媒体；是否允许修改原媒体由挂载模式决定。
+- Worker 读写原媒体和派生媒体，执行 FFmpeg/FFprobe 任务。
+- ImgProxy 只读挂载原媒体和派生媒体。
+- Traefik 只需保留现有 ImgProxy 图片路由，不再配置 `/_video` Thumbor 路由。
+
+从旧版本升级时，应先发布并验证新 App/Worker 的静态封面、缺失封面占位和原视频播放，再停止、删除旧
+Thumbor 容器以及外部 `/_video` 路由。回滚到仍依赖 Thumbor 的旧版本时，必须使用该版本归档的
+Compose 和路由配置，不能与当前 Compose 混用。
