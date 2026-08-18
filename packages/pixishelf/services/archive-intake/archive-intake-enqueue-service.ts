@@ -55,6 +55,7 @@ export async function enqueueArchiveIntakeMany(
   const requestOptions = parsed.items
     .map((item) => ({ itemId: item.itemId, quality: item.quality }))
     .sort((left, right) => left.itemId.localeCompare(right.itemId))
+  // best-effort 预检避免纯重放/复用读取存储配置；最终是否新建仍由逐目标事务内的最新状态决定。
   const scanRoot = await prepareEnqueueStorageRoot({
     database,
     idempotencyKey: parsed.idempotencyKey,
@@ -103,6 +104,7 @@ async function prepareEnqueueStorageRoot(input: {
     targetIds: [...uniqueTargetIds].sort(),
     requestOptions
   })
+  // 预检不裁决幂等冲突；冲突键由后续 bulk header 事务拒绝，避免为必然失败的请求读取存储配置。
   const existing = await database.archiveBulkOperation.findUnique({
     where: { idempotencyKey },
     select: {
@@ -126,6 +128,7 @@ async function prepareEnqueueStorageRoot(input: {
     return null
   }
 
+  // 如果这个幂等批次已执行部分项，续跑时只为未处理目标判断是否需要存储目录。
   let remainingTargetIds = uniqueTargetIds
   if (existing) {
     const completedTargets = await database.archiveBulkOperationItem.findMany({
@@ -137,6 +140,7 @@ async function prepareEnqueueStorageRoot(input: {
   }
   if (!remainingTargetIds.length) return null
 
+  // 这里只读取身份字段，用于判断未处理的 READY 项能否复用活动 import。
   const items = await database.archiveIntakeItem.findMany({
     where: { id: { in: remainingTargetIds } },
     select: { status: true, providerKey: true, externalId: true }
@@ -148,6 +152,7 @@ async function prepareEnqueueStorageRoot(input: {
   )
   if (!readyIdentities.length) return null
 
+  // 只要该身份已有未完成归档，就可复用其运行中的 import，本批次无需强依赖 storageRoot。
   const activeImports = await database.archiveImport.findMany({
     where: {
       status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] },
@@ -161,6 +166,7 @@ async function prepareEnqueueStorageRoot(input: {
   )
   if (!needsNewImport) return null
   try {
+    // 只有确认要新建归档任务时再 resolve root；失败时保留可复用项结果，便于幂等审计。
     return await resolveStorageRoot()
   } catch {
     // Persist per-target conflicts instead of losing reusable results and the bulk audit.
@@ -183,6 +189,7 @@ async function enqueueOne(
   const item = await transaction.archiveIntakeItem.findUnique({ where: { id: itemId } })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
   if (item.status === 'ENQUEUED' && item.archiveImportId) {
+    // ENQUEUED 且已有 import 时，直接回写当前归档引用，保证页面多次点击不会重复创建新任务。
     const reusedImport = await transaction.archiveImport.findUnique({
       where: { id: item.archiveImportId },
       select: { id: true, selectedQuality: true }
@@ -217,6 +224,7 @@ async function enqueueOne(
 
   const active = await findActiveImport(transaction, item.providerKey, item.externalId)
   if (active) {
+    // 同一作品已有活动归档任务时，入队动作复用已有任务而不是创建重复任务。
     const changed = await transaction.archiveIntakeItem.updateMany({
       where: { id: item.id, status: 'READY', archiveImportId: null },
       data: {
@@ -240,6 +248,7 @@ async function enqueueOne(
     return { result: 'CONFLICT', code: 'ARCHIVE_TRASHED', message: '该作品在归档回收站中，请先恢复' }
   }
   if (!scanRoot) {
+    // 需要新建 active import 且无法拿到存储目录时，返回冲突以便客户端可重试，避免半写入。
     return { result: 'CONFLICT', code: 'STORAGE_ROOT_UNAVAILABLE', message: '归档存储目录当前不可用，请重试' }
   }
 
@@ -375,6 +384,7 @@ function reusedResult(
   requestedQuality: 'ORIGINAL' | 'DISPLAY',
   message: string
 ): ArchiveBulkTargetResult {
+  // 复用已有任务时，返回 REUSED 且附带 quality 不匹配原因，便于前端给出更清晰提示。
   return archiveImport.selectedQuality === requestedQuality
     ? { result: 'REUSED', relatedId: archiveImport.id, message }
     : {

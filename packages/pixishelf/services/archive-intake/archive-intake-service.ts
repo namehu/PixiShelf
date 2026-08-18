@@ -82,6 +82,7 @@ export async function createArchiveIntakeSubmission(
   if (rawUrls.length === 0) throw new ArchiveError('INVALID_URL', '至少需要一个非空归档链接')
   const requestHash = archiveRequestFingerprint({ urls: rawUrls })
 
+  // 并发场景下先锁幂等键，再锁容量队列，避免重复重放和容量竞争带来的“双重可见项目”。
   return database.$transaction(async (transaction) => {
     await lockKey(transaction, INTAKE_IDEMPOTENCY_LOCK_NAMESPACE, parsed.idempotencyKey)
     const existing = await transaction.archiveIntakeSubmission.findUnique({
@@ -118,6 +119,7 @@ export async function createArchiveIntakeSubmission(
     let invalidCount = 0
     let duplicateCount = 0
     let rejectedCount = 0
+    // firstSeen 去重仅用于“本次提交体”内的重复 URL；全局去重由 normalizedUrlHash + 活跃状态查询负责。
     const firstSeen = new Map<string, string | null>()
 
     for (const submittedUrl of rawUrls) {
@@ -261,6 +263,7 @@ export async function listArchiveIntakeItems(
           }
     )
   }
+  // ACTIVE 视图直接按 queueOrder 分页，能稳定复用“按入列顺序”；非 ACTIVE 则用 updatedAt 分页匹配历史变更视图。
   const where: Prisma.ArchiveIntakeItemWhereInput = {
     status: { in: statuses },
     ...(parsed.submissionId ? { submissionId: parsed.submissionId } : {}),
@@ -476,10 +479,12 @@ async function retryIntakeItem(
   })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
   const retryStatus = effectiveStatus(item, timestamp)
+  // READY 的过期快照在查询层已被映射为 STALE，所以重试分支需要基于快照状态判断。
   if (!['FAILED', 'CANCELLED', 'STALE'].includes(retryStatus)) {
     return { result: 'SKIPPED', code: 'INVALID_STATE', message: `状态 ${item.status} 不允许重试` }
   }
   if (retryStatus === 'FAILED' || retryStatus === 'CANCELLED') {
+    // 重新入列会消耗全局活动容量，因此重新检查 capacity；STALE 走不到这里，避免重复写锁竞争。
     await lockKey(transaction, INTAKE_CAPACITY_LOCK_NAMESPACE, RESOLVE_QUEUE_ID)
     const activeCount = await transaction.archiveIntakeItem.count({
       where: { status: { in: [...ACTIVE_INTAKE_STATUSES] } }
@@ -517,6 +522,7 @@ async function retryIntakeItem(
       message: '等待重新解析归档链接...'
     }
   })
+  // 通过单次 SQL 原子重置重试状态与队列顺序；WHERE 限定原状态，能让并发重试天然幂等。
   const changed = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     UPDATE "archive_intake_items"
     SET "currentSystemJobId" = ${jobId},
@@ -674,6 +680,7 @@ export function hashSubmittedUrl(url: string) {
   return createHash('sha256').update(url.trim()).digest('hex')
 }
 
+// 对外展示前去掉搜索参数和片段，减少敏感参数在日志/消息中外泄风险；展示层统一走这个函数。
 function safeThumbnailUrl(input: string | null): string | null {
   if (!input) return null
   try {
@@ -718,6 +725,7 @@ function encodeCursor(view: IntakeCursor['view'], sortValue: string, id: string)
 }
 
 function decodeCursor(value: string, expectedView: IntakeCursor['view']): IntakeCursor {
+  // 游标解析严格校验版本和视图，防止客户端注入非法游标导致分页错位。
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as IntakeCursor
     if (
@@ -742,6 +750,7 @@ function getDatabase(dependencies: ArchiveIntakeServiceDependencies) {
 }
 
 async function lockKey(transaction: Prisma.TransactionClient, namespace: number, value: string) {
+  // 事务级 advisory lock：不占表行锁，适合“幂等键/容量/重试入口”这类全局序列化热点的轻量控制。
   await transaction.$queryRaw(
     Prisma.sql`SELECT pg_advisory_xact_lock(${namespace}::integer, hashtext(${value}::text))::text AS "lock"`
   )

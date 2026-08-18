@@ -119,6 +119,7 @@ export async function actionArchiveTasksMany(
   const database = getDatabase(dependencies)
   const now = dependencies.now ?? (() => new Date())
   const uuid = dependencies.uuid ?? randomUUID
+  // 批量动作用统一的 archiveBulkOperation 路由，保持与收件箱动作一致的审计与幂等重放模型。
   return runArchiveBulkOperation(
     {
       idempotencyKey: parsed.idempotencyKey,
@@ -152,6 +153,7 @@ async function applyTaskAction(
   }
 ): Promise<ArchiveBulkTargetResult> {
   const { action, requestedByUserId, timestamp, uuid } = options
+  // 与发布管线共用全局 advisory lock，使归档控制与发布/回收站状态变更按同一顺序串行。
   await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
   const task = await transaction.archiveImport.findUnique({
     where: { id: taskId },
@@ -165,6 +167,7 @@ async function applyTaskAction(
   if (ineligibility) return ineligibility
 
   if (action === 'RETRY') {
+    // RETRY 新建 SystemJob 并用 parentJobId 保留重试链；旧 job 继续作为历史审计记录。
     const nextJobId = uuid()
     const priority = Math.min(99, Math.max(0, task.systemJob.queuePriority))
     await transaction.archiveImportItem.updateMany({
@@ -265,6 +268,7 @@ async function applyTaskAction(
   })
   if (jobChanged.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变')
   if (direct || action === 'RESUME') {
+    // 排队态直接控制或恢复执行时没有合法的旧执行者，清理遗留 lease 后才能重新参与 claim。
     await transaction.jobResourceLease.deleteMany({ where: { ownerJobId: task.systemJobId } })
   }
   if (action === 'RESUME') {

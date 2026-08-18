@@ -36,6 +36,7 @@ export function archiveRequestFingerprint(value: unknown): string {
   return createHash('sha256').update(canonicalJson(value)).digest('hex')
 }
 
+// 两层 advisory lock：幂等键锁只串行化 operation 头的创建/校验；稳定目标锁则跨 operation 串行化同一目标的领域变更。
 export async function runArchiveBulkOperation(
   input: StartBulkOperationInput,
   processTarget: (transaction: Prisma.TransactionClient, targetId: string) => Promise<ArchiveBulkTargetResult>,
@@ -48,6 +49,7 @@ export async function runArchiveBulkOperation(
 ) {
   const database = dependencies.database ?? (prisma as unknown as PrismaClient)
   const targetIds = [...new Set(input.targetIds)]
+  // targetIds 在此排序以消除选择顺序差异；requestOptions 若含数组，调用方须先按其领域键稳定排序。
   const requestHash = archiveRequestFingerprint({
     commandType: input.commandType,
     targetType: input.targetType,
@@ -81,6 +83,7 @@ export async function runArchiveBulkOperation(
     })
   })
 
+  // 每个 target 独立事务处理，任何单目标失败只影响该项的批次条目，不会回滚其他目标。
   for (const targetId of targetIds) {
     try {
       await database.$transaction(async (transaction) => {
@@ -174,6 +177,7 @@ async function recordFailedTarget(input: {
   ) => Promise<ArchiveBulkTargetResult | null>
 }) {
   const { database, operationId, targetType, targetId, error, recoverTargetError } = input
+  // 目标失败归档同样需要目标锁，确保在 P2002 等重试场景下只留下一个审计结果条目，保持幂等性。
   await database.$transaction(async (transaction) => {
     await lockKey(transaction, BULK_TARGET_LOCK_NAMESPACE, `${targetType}:${targetId}`)
     const existing = await transaction.archiveBulkOperationItem.findUnique({
@@ -199,6 +203,7 @@ async function recordFailedTarget(input: {
 }
 
 async function finalizeOperation(database: PrismaClient, operationId: string, completedAt: Date) {
+  // 同一 operation 的 finalize 串行重算持久结果；只有逐项数达到 requestedCount 才标记完成，保留崩溃后续跑入口。
   await database.$transaction(async (transaction) => {
     await lockKey(transaction, BULK_TARGET_LOCK_NAMESPACE, `${operationId}:finalize`)
     const operation = await transaction.archiveBulkOperation.findUnique({ where: { id: operationId } })

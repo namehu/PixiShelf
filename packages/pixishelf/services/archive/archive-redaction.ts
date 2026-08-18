@@ -3,6 +3,7 @@ import { redactSensitiveText } from '@/services/background-task/job-serializatio
 const HTTP_URL_IN_TEXT = /https?:\/\/[^\s<>{}[\]"']+/gi
 const TRAILING_PUNCTUATION = /[),.;!?]+$/
 
+// 路径 token 在 URL 片段末端截断，保留协议主机/首路径便于排障而不泄露完整凭证/鉴权参数。
 export function redactArchiveUrl(input: string): string {
   try {
     const url = new URL(input)

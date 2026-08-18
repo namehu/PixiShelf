@@ -44,6 +44,7 @@ export async function listJobs(input: z.input<typeof listJobsInputSchema>, clien
   }
 }
 
+// lane 级状态依赖 worker 心跳，保留 now 注入便于在测试中冻结时间，避免偶发 heartbeat 边界抖动导致断言不稳。
 export async function getJobDashboard(client?: JobQueryClient, now: () => Date = () => new Date()) {
   const database = queryClient(client)
   const [groups, running, recent, workers] = await Promise.all([
@@ -67,6 +68,7 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
     database.workerInstance.findMany({ orderBy: { heartbeatAt: 'desc' }, select: workerInstanceWireSelect })
   ])
 
+  // 仅采用新鲜 worker 心跳，过期 presence 不会影响 READY/DRAINING 判定。
   const counts = Object.fromEntries(JOB_STATUS_VALUES.map((status) => [status, 0])) as Record<JobStatus, number>
   for (const group of groups) counts[group.status] = group._count._all
   const runningJobs = running.map(toJobDto)
@@ -76,6 +78,7 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
   const laneNames = ['ARCHIVE_RESOLVE', 'BACKGROUND_WRITER'] as const
   const lanes = laneNames.map((executionLane) => {
     const runningJob = runningJobs.find((job) => job.executionLane === executionLane) ?? null
+    // 状态优先级：先看是否有运行中的 job；否则看是否有 fresh 的 READY/STOPPING worker，最后才是 ERROR。
     const ready = freshWorkers.some(
       (worker) =>
         worker.status === 'READY' &&

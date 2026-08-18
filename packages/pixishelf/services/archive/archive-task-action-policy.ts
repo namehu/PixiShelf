@@ -9,6 +9,7 @@ const allowedImportStatuses: Record<ArchiveTaskBulkAction, readonly string[]> = 
   RETRY: ['FAILED', 'CANCELLED']
 }
 
+// 新 operation 只接受白名单状态；同幂等键的重放由已持久化的 operation item 负责，不在这里放宽状态。
 export function archiveTaskActionIneligibility(
   status: string,
   action: ArchiveTaskBulkAction
