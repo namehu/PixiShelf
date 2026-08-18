@@ -2,8 +2,6 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*.*.*' # 触发条件：推送版本标签
   pull_request:

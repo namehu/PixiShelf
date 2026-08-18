@@ -12,7 +12,7 @@
     "build": "next build",
     "start": "next start -p 5430",
     "lint": "oxlint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "check:quick": "pnpm lint && pnpm typecheck",
     "test": "pnpm test:unit",
     "test:unit": "vitest run --exclude \"tests/integration/**\" --exclude \"**/*.e2e.test.*\" --exclude \"services/scan-service/__tests__/*fixture-integration.test.ts\"",
