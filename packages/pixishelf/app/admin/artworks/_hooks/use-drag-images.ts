@@ -17,7 +17,7 @@ export interface UseDragImagesReturn {
     onDragEnter: (e: React.DragEvent) => void
     onDragLeave: (e: React.DragEvent) => void
     onDragOver: (e: React.DragEvent) => void
-    onDrop: (e: React.DragEvent) => void
+    onDrop: (e: React.DragEvent) => Promise<void>
   }
   /** 手动重置拖拽态 */
   resetDragState: () => void
@@ -40,6 +40,7 @@ export function useDragImages({
   disabled = false
 }: UseDragImagesProps = {}): UseDragImagesReturn {
   const [isDragging, setIsDragging] = useState(false)
+  // 拖拽事件在嵌套元素间会成对冒泡，使用计数器可避免子元素 leave 后误判为离开整个 drop area。
   const dragCounterRef = useRef(0)
 
   const updateDragState = useCallback(
@@ -134,6 +135,7 @@ export function useDragImages({
       if (disabled) return
       e.preventDefault()
       e.stopPropagation()
+      // 清空 hover 状态，防止异步扫描期间视觉标记滞留（特别是快速拖入放下场景）。
       resetDragState()
 
       const items = e.dataTransfer.items
@@ -143,7 +145,7 @@ export function useDragImages({
       const promises: Promise<void>[] = []
 
       for (const item of Array.from(items)) {
-        // webkitGetAsEntry 非标准，但现代浏览器普遍支持文件夹拖拽场景
+        // webkitGetAsEntry 非标准但在拖拽目录场景中是实际可用且最稳妥的入口。
         const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null
         if (entry) {
           promises.push(scanEntry(entry, fileList))

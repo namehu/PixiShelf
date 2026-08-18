@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { toast } from 'sonner'
@@ -9,7 +9,7 @@ import { useMigration } from '../_hooks/use-migration'
 import { MigrationDialog } from './migration-dialog'
 import { confirm } from '@/components/shared/global-confirm'
 import { useQueryStates, parseAsString, parseAsInteger, parseAsBoolean } from 'nuqs'
-import { ProTable } from '@/components/shared/pro-table'
+import { ProTable, type ActionType } from '@/components/shared/pro-table'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { RowSelectionState } from '@tanstack/react-table'
 import { BatchImportDialog } from './batch-import-dialog'
@@ -21,6 +21,7 @@ import { ArtworkFilterPanel } from '@/components/artwork/artwork-filter'
 import { createArtworkManagementColumns } from './artwork-management-columns'
 import type { MigrationSafety } from './artwork-management-types'
 import { ArtworkRowMediaPreview } from './artwork-row-media-preview'
+import { AdminWorkbench } from '../../_components/admin-workbench'
 import {
   buildArtworkSearchPayload,
   buildEmptyLocalSearch,
@@ -52,7 +53,7 @@ export default function ArtworkManagement() {
     cleanupSource: true
   })
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
-  const [refreshKey, setRefreshKey] = useState(0)
+  const tableActionRef = useRef<ActionType | undefined>(undefined)
 
   const selectedRowKeys = Object.keys(rowSelection)
 
@@ -101,7 +102,7 @@ export default function ArtworkManagement() {
   }, [editorRoute.edit, editorRoute.tab])
 
   const refreshTable = useCallback(() => {
-    setRefreshKey((prev) => prev + 1)
+    tableActionRef.current?.reload()
   }, [])
 
   const handleSearch = () => {
@@ -343,90 +344,98 @@ export default function ArtworkManagement() {
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <ArtworkManagementToolbar
-        migrationSafety={migrationSafety}
-        setMigrationSafety={setMigrationSafety}
-        isExporting={isExporting}
-        selectedCount={selectedRowKeys.length}
-        migrationState={migrationState}
-        hasMigrationLogs={migrationLogger.logs.length > 0}
-        onCreate={() => {
-          setCopyInitialData(null)
-          setEditorConfig({ id: null, tab: 'info' })
-        }}
-        onBatchImport={() => setBatchImportOpen(true)}
-        onBatchReplace={() => router.push('/admin/artworks/batch-replace')}
-        onExportNoSeries={handleExportNoSeries}
-        onMigrationClick={handleMigrationClick}
-        onOpenLogs={() => setLogOpen(true)}
-        pendingReplaceCopyMode={searchState.copyMode === 'pending-replace'}
-        onTogglePendingReplaceCopyMode={() =>
-          setSearchState({
-            copyMode: searchState.copyMode === 'pending-replace' ? null : 'pending-replace'
-          })
-        }
-      />
-
-      <ProTable
-        key={refreshKey}
-        columns={columns}
-        request={request as any}
-        defaultPageSize={20}
-        pagination={{
-          pageIndex: (searchState.page || 1) - 1,
-          pageSize: searchState.pageSize || 20
-        }}
-        onPaginationChange={handlePaginationChange}
-        rowSelection={rowSelection}
-        onRowSelectionChange={setRowSelection}
-        renderExpandedRow={(artwork) => <ArtworkRowMediaPreview artworkId={(artwork as ArtworkResponseDto).id} />}
-        getRowCanExpand={(artwork) => (artwork as ArtworkResponseDto).mediaCount > 0}
-        searchRender={() => (
-          <ArtworkFilterPanel
-            localSearch={localSearch}
-            setLocalSearch={setLocalSearch}
-            advancedSearchOpen={isAdvancedSearchOpen.advancedSearch}
-            onAdvancedSearchOpenChange={(advancedSearch) => setIsAdvancedSearchOpen({ advancedSearch })}
-            mediaTypeOptions={MEDIA_TYPE_OPTIONS}
-            sourceOptions={OSource}
-            onSearchTags={async (query) => {
-              const res = await trpcClient.tag.list.query({ query, pageSize: 20 })
-              return (res as any).items.map((tag: any) => ({
-                label: tag.name_zh ? `${tag.name} (${tag.name_zh})` : tag.name,
-                value: tag.name
-              }))
-            }}
-            onSearch={handleSearch}
-            onReset={handleReset}
-          />
-        )}
-      />
-
-      <ArtworkUnifiedEditor
-        open={!!editorConfig}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditorConfig(null)
+    <AdminWorkbench
+      title="作品管理"
+      description="搜索、筛选并维护作品信息与媒体文件。"
+      actions={
+        <ArtworkManagementToolbar
+          migrationSafety={migrationSafety}
+          setMigrationSafety={setMigrationSafety}
+          isExporting={isExporting}
+          selectedCount={selectedRowKeys.length}
+          migrationState={migrationState}
+          hasMigrationLogs={migrationLogger.logs.length > 0}
+          onCreate={() => {
             setCopyInitialData(null)
-            void setEditorRoute({ edit: null, tab: null, returnTo: null })
+            setEditorConfig({ id: null, tab: 'info' })
+          }}
+          onBatchImport={() => setBatchImportOpen(true)}
+          onBatchReplace={() => router.push('/admin/artworks/batch-replace')}
+          onExportNoSeries={handleExportNoSeries}
+          onMigrationClick={handleMigrationClick}
+          onOpenLogs={() => setLogOpen(true)}
+          pendingReplaceCopyMode={searchState.copyMode === 'pending-replace'}
+          onTogglePendingReplaceCopyMode={() =>
+            setSearchState({
+              copyMode: searchState.copyMode === 'pending-replace' ? null : 'pending-replace'
+            })
           }
-        }}
-        artworkId={editorConfig?.id ?? null}
-        initialTab={editorConfig?.tab}
-        initialData={copyInitialData}
-        onSuccess={refreshTable}
-        returnTo={editorConfig?.id === editorRoute.edit ? editorRoute.returnTo : null}
-      />
+        />
+      }
+    >
+      <div className="flex min-w-0 flex-col gap-4">
+        <ProTable
+          actionRef={tableActionRef}
+          columns={columns}
+          request={request as any}
+          defaultPageSize={20}
+          pagination={{
+            pageIndex: (searchState.page || 1) - 1,
+            pageSize: searchState.pageSize || 20
+          }}
+          onPaginationChange={handlePaginationChange}
+          rowSelection={rowSelection}
+          onRowSelectionChange={setRowSelection}
+          renderExpandedRow={(artwork) => (
+            <ArtworkRowMediaPreview artworkId={(artwork as ArtworkResponseDto).id} onSuccess={refreshTable} />
+          )}
+          searchRender={() => (
+            <ArtworkFilterPanel
+              inlineLabels
+              localSearch={localSearch}
+              setLocalSearch={setLocalSearch}
+              advancedSearchOpen={isAdvancedSearchOpen.advancedSearch}
+              onAdvancedSearchOpenChange={(advancedSearch) => setIsAdvancedSearchOpen({ advancedSearch })}
+              mediaTypeOptions={MEDIA_TYPE_OPTIONS}
+              sourceOptions={OSource}
+              onSearchTags={async (query) => {
+                const res = await trpcClient.tag.list.query({ query, pageSize: 20 })
+                return (res as any).items.map((tag: any) => ({
+                  label: tag.name_zh ? `${tag.name} (${tag.name_zh})` : tag.name,
+                  value: tag.name
+                }))
+              }}
+              onSearch={handleSearch}
+              onReset={handleReset}
+            />
+          )}
+        />
 
-      <MigrationDialog
-        open={logOpen}
-        onOpenChange={setLogOpen}
-        migrationState={migrationState}
-        migrationActions={migrationActions}
-        migrationLogger={migrationLogger}
-      />
-      <BatchImportDialog open={batchImportOpen} onOpenChange={setBatchImportOpen} onSuccess={refreshTable} />
-    </div>
+        <ArtworkUnifiedEditor
+          open={!!editorConfig}
+          onOpenChange={(open) => {
+            if (!open) {
+              setEditorConfig(null)
+              setCopyInitialData(null)
+              void setEditorRoute({ edit: null, tab: null, returnTo: null })
+            }
+          }}
+          artworkId={editorConfig?.id ?? null}
+          initialTab={editorConfig?.tab}
+          initialData={copyInitialData}
+          onSuccess={refreshTable}
+          returnTo={editorConfig?.id === editorRoute.edit ? editorRoute.returnTo : null}
+        />
+
+        <MigrationDialog
+          open={logOpen}
+          onOpenChange={setLogOpen}
+          migrationState={migrationState}
+          migrationActions={migrationActions}
+          migrationLogger={migrationLogger}
+        />
+        <BatchImportDialog open={batchImportOpen} onOpenChange={setBatchImportOpen} onSuccess={refreshTable} />
+      </div>
+    </AdminWorkbench>
   )
 }

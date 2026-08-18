@@ -59,7 +59,7 @@ export function ArtworkManagementToolbar({
   const transferModeLabel = migrationSafety.transferMode === 'move' ? '移动' : '复制'
 
   return (
-    <div className="flex w-full justify-end gap-2 border-b border-border pb-4" role="toolbar" aria-label="作品管理操作">
+    <div className="flex w-full justify-end gap-2 sm:w-auto" role="toolbar" aria-label="作品管理操作">
       <Button variant="default" size="sm" className="flex-1 sm:flex-none" onClick={onCreate}>
         <Plus data-icon="inline-start" aria-hidden="true" />
         新增作品

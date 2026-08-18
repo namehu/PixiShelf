@@ -190,6 +190,7 @@ export function useMigration(): {
           break
 
         case 'progress':
+          // 进度事件可能分批输出消息数组；保留最后一条作为 UI 提示，同时完整输出到日志便于排查。
           // 数据结构：{ progress: number, message: string[], stats: MigrationStats }
           const { message, stats: newStats, progress } = data
           const msgs = Array.isArray(message) ? message : [message]
@@ -203,6 +204,7 @@ export function useMigration(): {
           break
 
         case 'queued':
+          // 后端先返回排队而非执行中：本地不保持 running 态，避免 UI 与进度条误判正在进行。
           const queuedMigration = data?.queued as { jobId?: unknown; scanRunId?: unknown } | undefined
           const queuedJobId = typeof queuedMigration?.jobId === 'string' ? queuedMigration.jobId : null
           const queuedRunId = typeof queuedMigration?.scanRunId === 'string' ? queuedMigration.scanRunId : null
@@ -217,6 +219,7 @@ export function useMigration(): {
           break
 
         case 'complete':
+          // 完成事件是终态事件：清空运行/暂停态，写入最终统计，触发 onComplete。
           const completeData = data as { success: boolean; result: MigrationStats }
           setIsMigrating(false)
           setPaused(false)
@@ -234,6 +237,7 @@ export function useMigration(): {
           break
 
         case 'error':
+          // 错误事件作为终态处理：写入失败原因并终止 SSE，避免重复回调导致 UI 状态抖动。
           const errorData = data as { success: boolean; error: string }
           const errorMsg = errorData?.error || '未知错误'
           setIsMigrating(false)
@@ -275,6 +279,7 @@ export function useMigration(): {
     async (options?: MigrationOptions) => {
       onCompleteRef.current = options?.onComplete
       const url = '/api/migration/stream'
+      // 筛选字段统一归一化为 null，并为安全选项补齐默认值，保持请求体符合后端 schema 预期。
       const body = {
         targetIds: options?.targetIds,
         id: options?.filters?.id ?? null,
@@ -330,7 +335,7 @@ export function useMigration(): {
           },
 
           onclose() {
-            // 正常关闭由事件分发逻辑统一处理
+            // 正常关闭通常由终态事件触发 abort；这里不单独切状态，避免重复处理 close 与 event 同时到达。
           },
 
           onerror(err) {
@@ -355,6 +360,7 @@ export function useMigration(): {
   const startMigration = React.useCallback(
     (options?: MigrationOptions) => {
       if (isMigrating) return
+      // 每次发起新任务前清空共享状态与日志，确保 UI 不展示上一次执行的尾巴数据。
       reset()
       logger.clearLogs()
       runStream(options)
@@ -406,6 +412,7 @@ export function useMigration(): {
     if (isMigrating) return
     try {
       const data = await trpcClient.migration.failed.query({})
+      // 重试失败项时直接沿用原 startMigration 流程，确保控制态和参数解析路径一致。
       const items = (data.items || []) as MigrationFailedItem[]
       if (items.length === 0) {
         toast.info('没有可重试的失败记录')

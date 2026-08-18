@@ -2,25 +2,35 @@ import { useState, useCallback, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 export interface BatchImportItem {
+  /** 该条批量导入项的内部 id，用于列表渲染与后续命令索引。 */
   id: string
+  /** 在导入列表显示的作品标题；当前实现默认使用文件名去扩展名。 */
   title: string
+  /** 当前仅支持单文件作品导入；预留 collection 用于后续支持整目录映射。 */
   type: 'single' | 'collection'
   files: File[]
+  /** 该项包含文件数量，当前类型下恒为 1。 */
   fileCount: number
-  // 原始路径信息，用于调试或展示
+  /** 原始路径信息，现阶段仅保存文件名形式，用于调试或展示。 */
   originalPath: string
 }
 
 export interface UseBatchImportDragProps {
+  /** 扫描完成后返回可直接消费的作品 import 条目。 */
   onDrop?: (items: BatchImportItem[]) => void
+  /** true 时禁用拖拽响应（包含视觉状态与数据扫描）。 */
   disabled?: boolean
 }
 
+/**
+ * 使用 webkit entry 递归扫描拖拽目录，兼容单文件与文件夹输入。
+ * 约束：最终仍按“每个文件一个作品”扁平化输出，不做目录到作品的层级映射。
+ */
 export function useBatchImportDrag({ onDrop, disabled }: UseBatchImportDragProps = {}) {
   const [isDragging, setIsDragging] = useState(false)
   const dragCounterRef = useRef(0)
 
-  // 辅助函数：扫描目录项
+  // 递归入口：统一把文件项与目录项都转为 File[]，用于后续统一验证/入队。
   const scanEntry = async (entry: any, path: string = ''): Promise<File[]> => {
     if (entry.isFile) {
       return new Promise<File[]>((resolve) => {
@@ -56,7 +66,7 @@ export function useBatchImportDrag({ onDrop, disabled }: UseBatchImportDragProps
     return []
   }
 
-  // 核心处理逻辑：扁平化处理，所有文件均为独立作品
+  // 将 DataTransferItemList 全量扫描为文件数组，再映射为单文件 ImportItem，便于批量导入流程复用。
   const processEntries = async (items: DataTransferItemList) => {
     const rootEntries = Array.from(items)
       .map((item) => (item.webkitGetAsEntry ? item.webkitGetAsEntry() : null))
@@ -150,6 +160,7 @@ export function useBatchImportDrag({ onDrop, disabled }: UseBatchImportDragProps
       dragCounterRef.current = 0
 
       if (e.dataTransfer.items) {
+        // 优先走目录扫描路径：可同时解析拖入目录与文件，且不依赖 items.files 兼容性。
         const items = await processEntries(e.dataTransfer.items)
         if (items.length > 0) {
           onDrop?.(items)

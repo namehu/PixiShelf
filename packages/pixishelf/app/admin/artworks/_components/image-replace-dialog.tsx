@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment, useMemo } from 'react'
+import { useState, useEffect, useRef, Fragment, useMemo, useId } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -8,6 +8,8 @@ import {
   DialogFooter
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   Loader2,
@@ -43,6 +45,7 @@ import type {
   MediaChapterUploadResponse
 } from '@/types/artwork-media-api'
 import { confirm as confirmAction } from '@/components/shared/global-confirm'
+import { requestImageReplaceStart } from './image-replace-confirmation'
 
 interface ImageReplaceDialogProps {
   open: boolean
@@ -646,12 +649,16 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   }
 
   const handleStartReplace = () => {
-    confirmAction({
-      title: '替换当前作品的全部媒体？',
-      description: `将使用列表中的 ${previewItems.length} 个媒体替换当前内容；系统会先创建可回滚备份。`,
-      confirmText: '开始替换',
-      variant: 'destructive',
-      onConfirm: startReplace
+    requestImageReplaceStart(startReplace, ({ onSkipChange, onConfirm }) => {
+      confirmAction({
+        title: '替换当前作品的全部媒体？',
+        description: (
+          <ImageReplaceConfirmationDescription mediaCount={previewItems.length} onSkipChange={onSkipChange} />
+        ),
+        confirmText: '开始替换',
+        variant: 'destructive',
+        onConfirm
+      })
     })
   }
 
@@ -1113,5 +1120,41 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function ImageReplaceConfirmationDescription({
+  mediaCount,
+  onSkipChange
+}: {
+  mediaCount: number
+  onSkipChange: (skip: boolean) => void
+}) {
+  const checkboxId = useId()
+  const [skipForSession, setSkipForSession] = useState(false)
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p>将使用列表中的 {mediaCount} 个媒体替换当前内容；系统会先创建可回滚备份。</p>
+      <FieldGroup className="gap-3">
+        <Field orientation="horizontal">
+          <Checkbox
+            id={checkboxId}
+            checked={skipForSession}
+            onCheckedChange={(checked) => {
+              const nextValue = checked === true
+              setSkipForSession(nextValue)
+              onSkipChange(nextValue)
+            }}
+          />
+          <FieldContent>
+            <FieldLabel htmlFor={checkboxId} className="font-normal">
+              本次会话期间不再提示
+            </FieldLabel>
+            <FieldDescription>仅当前浏览器标签页有效，关闭后会恢复确认。</FieldDescription>
+          </FieldContent>
+        </Field>
+      </FieldGroup>
+    </div>
   )
 }
