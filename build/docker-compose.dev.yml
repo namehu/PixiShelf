@@ -1,5 +1,8 @@
-# 开发/本地构建用 Docker Compose 文件
+# 开发/本地构建用 Docker Compose 文件。
+# 默认模式：Next.js 由宿主机 VS Code F5/pnpm dev 启动；Compose 只启动数据库、媒体服务和通用 Worker。
 # 默认从当前 build 目录读取 .env；从仓库根目录运行时请显式传入 --env-file build/.env。
+# app、scheduler 和旧 archive-worker 都受 profile 控制，不会被普通的
+# docker compose -f docker-compose.dev.yml up 自动启动。
 
 services:
   # PostgreSQL 数据库服务
@@ -69,7 +72,7 @@ services:
 
   archive-worker:
     profiles:
-      - archive-worker
+      - legacy-rollback
     build:
       context: ..
       dockerfile: build/archive-worker.Dockerfile
@@ -99,8 +102,8 @@ services:
         max-size: '10m'
         max-file: '5'
 
-  # New general Worker dark launch. It stays present for health/preflight, but
-  # claims no jobs until WORKER_DISPATCH_ENABLED is explicitly enabled.
+  # 通用后台 Worker。开发环境与最终生产架构一致，固定单实例消费中央队列。
+  # 是否领取任务由 build/.env 中的 WORKER_DISPATCH_ENABLED 控制。
   worker:
     build:
       context: ..
@@ -126,6 +129,10 @@ services:
       WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS: ${WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS:-5000}
       WORKER_QUEUE_TRANSACTION_TIMEOUT_MS: ${WORKER_QUEUE_TRANSACTION_TIMEOUT_MS:-30000}
       WORKER_DISPATCH_DRAIN_GRACE_MS: ${WORKER_DISPATCH_DRAIN_GRACE_MS:-30000}
+      WORKER_HEARTBEAT_INTERVAL_MS: ${WORKER_HEARTBEAT_INTERVAL_MS:-30000}
+      WORKER_PREFLIGHT_TIMEOUT_MS: ${WORKER_PREFLIGHT_TIMEOUT_MS:-10000}
+      FFMPEG_PATH: ${FFMPEG_PATH:-ffmpeg}
+      FFPROBE_PATH: ${FFPROBE_PATH:-ffprobe}
     volumes:
       - '${PIXISHELF_DATA_PATH}:/app/data:rw'
       - '${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media:rw'
@@ -144,7 +151,7 @@ services:
 
   scheduler:
     profiles:
-      - scheduler
+      - scheduled
     image: curlimages/curl:latest
     restart: unless-stopped
     env_file:
@@ -206,6 +213,8 @@ services:
     restart: always
     ports:
       - '${THUMBOR_HOST_PORT:-5433}:80'
+    networks:
+      - pixishelf-network
     volumes:
       - '${PIXISHELF_DATA_PATH}:/media:ro' # 'ro' 表示只读，更安全
     environment:

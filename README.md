@@ -148,6 +148,10 @@ NEXT_PUBLIC_THUMBOR_VIDEO_URL=http://localhost:5433
 
 # 图片扫描路径（本机路径）
 SCAN_PATH=D:\your\pixiv\data
+
+# 最终后台任务架构；两枚开关必须成对设置
+CENTRAL_DISPATCHER_CUTOVER_ENABLED=true
+WORKER_DISPATCH_ENABLED=true
 ```
 
 Webhook 触发扫描时，请在请求头中携带：
@@ -174,18 +178,21 @@ PIXISHELF_DATA_PATH=C:\Users\YourName\Pictures\Collection
 
 ```bash
 cd build
-docker-compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml up -d postgres imgproxy thumbor worker
 ```
+
+默认不会启动 App 容器、scheduler 或旧 `archive-worker`。Next.js 继续由宿主机 VS Code F5 或
+`pnpm dev` 启动；只有专项验证时才显式启用对应 profile。
 
 #### 4.2 启动 Next.js 开发服务
 
 ```bash
 # 1. 启动数据库和媒体处理服务
 cd build
-docker-compose -f docker-compose.dev.yml up -d postgres imgproxy thumbor
+docker compose -f docker-compose.dev.yml up -d postgres imgproxy thumbor worker
 
 # 2. 等待数据库就绪
-docker-compose -f docker-compose.dev.yml logs -f postgres
+docker compose -f docker-compose.dev.yml logs -f postgres
 
 # 3. 初始化数据库
 cd ../packages/pixishelf
