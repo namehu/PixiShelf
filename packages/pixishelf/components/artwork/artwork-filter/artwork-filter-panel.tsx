@@ -25,6 +25,7 @@ interface ArtworkFilterPanelProps {
   onSearch: () => void
   onReset: () => void
   embedded?: boolean
+  inlineLabels?: boolean
 }
 
 export function ArtworkFilterPanel({
@@ -37,7 +38,8 @@ export function ArtworkFilterPanel({
   onSearchTags,
   onSearch,
   onReset,
-  embedded = false
+  embedded = false,
+  inlineLabels = false
 }: ArtworkFilterPanelProps) {
   const id = useId()
   const fieldId = (name: string) => `${id}-${name}`
@@ -50,9 +52,11 @@ export function ArtworkFilterPanel({
       }}
       className={cn('flex w-full flex-col gap-4', !embedded && 'rounded-lg border bg-background p-4 shadow-sm')}
     >
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-        <div className="col-span-12 flex flex-col gap-1 md:col-span-3">
-          <div className="h-6 flex items-center">
+      <div className={cn('grid grid-cols-1 items-end md:grid-cols-12', inlineLabels ? 'gap-x-4 gap-y-3' : 'gap-4')}>
+        <div
+          className={cn('col-span-12 md:col-span-3', inlineLabels ? 'flex items-center gap-2' : 'flex flex-col gap-1')}
+        >
+          <div className={cn('flex items-center', inlineLabels ? 'w-12 shrink-0' : 'h-6')}>
             <Label htmlFor={fieldId('id')} className="text-xs font-medium text-muted-foreground">
               内部 ID
             </Label>
@@ -71,8 +75,10 @@ export function ArtworkFilterPanel({
           />
         </div>
 
-        <div className="col-span-12 flex flex-col gap-1 md:col-span-3">
-          <div className="h-6 flex items-center">
+        <div
+          className={cn('col-span-12 md:col-span-3', inlineLabels ? 'flex items-center gap-2' : 'flex flex-col gap-1')}
+        >
+          <div className={cn('flex items-center', inlineLabels ? 'w-12 shrink-0' : 'h-6')}>
             <Label htmlFor={fieldId('title')} className="text-xs font-medium text-muted-foreground">
               标题
             </Label>
@@ -88,8 +94,10 @@ export function ArtworkFilterPanel({
           />
         </div>
 
-        <div className="col-span-6 flex flex-col gap-1 md:col-span-3">
-          <div className="h-6 flex items-center">
+        <div
+          className={cn('col-span-12 md:col-span-3', inlineLabels ? 'flex items-center gap-2' : 'flex flex-col gap-1')}
+        >
+          <div className={cn('flex items-center', inlineLabels ? 'w-12 shrink-0' : 'h-6')}>
             <Label htmlFor={fieldId('external-id')} className="text-xs font-medium text-muted-foreground">
               外部 ID
             </Label>
@@ -106,8 +114,10 @@ export function ArtworkFilterPanel({
           />
         </div>
 
-        <div className="col-span-6 flex flex-col gap-1 md:col-span-3">
-          <div className="h-6 flex items-center">
+        <div
+          className={cn('col-span-12 md:col-span-3', inlineLabels ? 'flex items-center gap-2' : 'flex flex-col gap-1')}
+        >
+          <div className={cn('flex items-center', inlineLabels ? 'w-12 shrink-0' : 'h-6')}>
             <Label htmlFor={fieldId('artist')} className="text-xs font-medium text-muted-foreground">
               作者
             </Label>
@@ -124,8 +134,8 @@ export function ArtworkFilterPanel({
         </div>
 
         <div className="col-span-12 flex flex-col md:flex-row gap-4 md:items-end justify-between">
-          <div className="flex w-full flex-col gap-1 md:w-1/3">
-            <div className="h-6 flex items-center">
+          <div className={cn('flex w-full md:w-1/3', inlineLabels ? 'items-center gap-2' : 'flex-col gap-1')}>
+            <div className={cn('flex items-center', inlineLabels ? 'w-12 shrink-0' : 'h-6')}>
               <Label className="text-xs font-medium text-muted-foreground">发布日期</Label>
             </div>
             <ProDatePicker
@@ -194,11 +204,13 @@ export function ArtworkFilterPanel({
           id={fieldId('advanced-search')}
           className="grid grid-cols-1 gap-4 border-t pt-4 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-200 md:grid-cols-2 lg:grid-cols-12"
         >
-          <div className="col-span-1 flex flex-col gap-1 lg:col-span-3">
-            <div className="h-6 flex items-center">
+          <div
+            className={cn('col-span-1 lg:col-span-3', inlineLabels ? 'flex items-center gap-2' : 'flex flex-col gap-1')}
+          >
+            <div className={cn('flex items-center', inlineLabels ? 'w-12 shrink-0' : 'h-6')}>
               <Label className="text-xs font-medium text-muted-foreground">媒体数量</Label>
             </div>
-            <div className="flex items-center gap-2">
+            <div className={cn('flex items-center gap-2', inlineLabels && 'min-w-0 flex-1')}>
               <div className="relative flex-1">
                 <Input
                   name="mediaCountMin"
@@ -233,8 +245,10 @@ export function ArtworkFilterPanel({
             </div>
           </div>
 
-          <div className="col-span-1 flex flex-col gap-1 lg:col-span-3">
-            <div className="h-6 flex items-center">
+          <div
+            className={cn('col-span-1 lg:col-span-3', inlineLabels ? 'flex items-center gap-2' : 'flex flex-col gap-1')}
+          >
+            <div className={cn('flex items-center', inlineLabels ? 'w-12 shrink-0' : 'h-6')}>
               <Label className="text-xs font-medium text-muted-foreground">媒体类型</Label>
             </div>
             <MultipleSelector
@@ -244,21 +258,26 @@ export function ArtworkFilterPanel({
               onChange={(options) => setLocalSearch((prev) => ({ ...prev, selectedMediaTypes: options }))}
               placeholder="选择格式…"
               emptyIndicator={<p className="text-center text-sm text-gray-500 py-2">未找到相关格式</p>}
-              className="min-h-9 bg-background"
+              className={cn('min-h-9 bg-background', inlineLabels && 'min-w-0 flex-1')}
               badgeClassName="bg-blue-50 text-blue-600 hover:bg-blue-100 border-transparent"
               selectFirstItem={false}
             />
           </div>
 
-          <div className="col-span-1 flex flex-col gap-1 lg:col-span-2">
-            <div className="h-6 flex items-center">
+          <div
+            className={cn('col-span-1 lg:col-span-2', inlineLabels ? 'flex items-center gap-2' : 'flex flex-col gap-1')}
+          >
+            <div className={cn('flex items-center', inlineLabels ? 'w-12 shrink-0' : 'h-6')}>
               <Label className="text-xs font-medium text-muted-foreground">视频音频</Label>
             </div>
             <Select
               value={localSearch.hasAudio}
               onValueChange={(value) => setLocalSearch((prev) => ({ ...prev, hasAudio: normalizeAudioFilter(value) }))}
             >
-              <SelectTrigger className="h-9 bg-background" aria-label="视频音频筛选">
+              <SelectTrigger
+                className={cn('h-9 bg-background', inlineLabels && 'min-w-0 flex-1')}
+                aria-label="视频音频筛选"
+              >
                 <SelectValue placeholder="全部" />
               </SelectTrigger>
               <SelectContent>
@@ -272,8 +291,10 @@ export function ArtworkFilterPanel({
             </Select>
           </div>
 
-          <div className="col-span-1 flex flex-col gap-1 lg:col-span-2">
-            <div className="h-6 flex items-center">
+          <div
+            className={cn('col-span-1 lg:col-span-2', inlineLabels ? 'flex items-center gap-2' : 'flex flex-col gap-1')}
+          >
+            <div className={cn('flex items-center', inlineLabels ? 'w-12 shrink-0' : 'h-6')}>
               <Label className="text-xs font-medium text-muted-foreground">创建类型</Label>
             </div>
             <MultipleSelector
@@ -282,13 +303,15 @@ export function ArtworkFilterPanel({
               onChange={(options) => setLocalSearch((prev) => ({ ...prev, selectedSources: options }))}
               placeholder="选择创建类型…"
               emptyIndicator={<p className="text-center text-sm text-gray-500 py-2">未找到创建类型</p>}
-              className="min-h-9 bg-background"
+              className={cn('min-h-9 bg-background', inlineLabels && 'min-w-0 flex-1')}
               selectFirstItem={false}
             />
           </div>
 
-          <div className="col-span-1 flex flex-col gap-1 lg:col-span-4">
-            <div className="h-6 flex items-center justify-between">
+          <div
+            className={cn('col-span-1 lg:col-span-4', inlineLabels ? 'flex items-center gap-2' : 'flex flex-col gap-1')}
+          >
+            <div className={cn('flex items-center justify-between', inlineLabels ? 'shrink-0 gap-2' : 'h-6')}>
               <Label className="text-xs font-medium text-muted-foreground">标签筛选</Label>
               <div className="flex rounded-md bg-muted p-0.5" aria-label="标签筛选方式">
                 <button
@@ -326,7 +349,7 @@ export function ArtworkFilterPanel({
               triggerSearchOnFocus
               placeholder={localSearch.tagMode === 'include' ? '搜索并选择标签…' : '搜索并排除标签…'}
               emptyIndicator={<p className="text-center text-sm text-gray-500 py-2">未找到相关标签</p>}
-              className="min-h-9 bg-background"
+              className={cn('min-h-9 bg-background', inlineLabels && 'min-w-0 flex-1')}
               badgeClassName={
                 localSearch.tagMode === 'include'
                   ? 'bg-primary/10 text-primary hover:bg-primary/20 border-transparent'
