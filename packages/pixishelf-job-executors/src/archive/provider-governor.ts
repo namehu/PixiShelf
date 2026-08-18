@@ -65,6 +65,8 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
     options: ArchiveProviderAcquireOptions = {}
   ): Promise<ArchiveProviderPermit> {
     const providerKey = normalizeProviderKey(providerKeyInput)
+    // The throttle row is locked inside a serializable transaction so separate
+    // workers cannot observe the same interval/capacity and both issue a request.
     while (true) {
       throwIfAborted(signal)
       const now = this.now()
@@ -145,6 +147,8 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
         options.yieldToDownloads &&
         (decision.reason === 'DOWNLOAD_ACTIVE' || decision.reason === 'PENALTY')
       ) {
+        // Resolver work yields explicitly instead of sleeping behind an active
+        // download; this lets the queue retry it without consuming an attempt.
         const blockedMs = Math.max(1_000, decision.waitUntil.getTime() - this.now().getTime())
         throw new ArchiveExecutorError(
           'REMOTE_RATE_LIMITED',
@@ -291,6 +295,9 @@ class GovernedArchiveProvider implements ArchiveProvider {
           `Archive provider ${this.key} returned media without per-request stream governance`
         )
       }
+      // The download permit follows the returned stream, not just openMedia;
+      // releasing here would allow another worker to exceed the provider cap
+      // while bytes from this response are still being consumed.
       return remote
     } catch (error) {
       if (governedStream.value) governedStream.value.destroy(toError(error))

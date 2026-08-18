@@ -25,6 +25,8 @@ export const BACKGROUND_WRITER_LANE_RESOURCE = 'lane/background-writer'
 export const GLOBAL_BACKGROUND_WORKER_RESOURCE = BACKGROUND_WRITER_LANE_RESOURCE
 
 export function resourceKeyForExecutionLane(lane: ExecutionLane) {
+  // Lane-specific advisory/resource keys preserve the single-writer invariant
+  // per lane while allowing the resolver and background writer to run together.
   return lane === 'ARCHIVE_RESOLVE' ? ARCHIVE_RESOLVE_LANE_RESOURCE : BACKGROUND_WRITER_LANE_RESOURCE
 }
 
@@ -1286,6 +1288,8 @@ export class PostgresQueueRepository {
     now: Date,
     executionLane: ExecutionLane
   ): Promise<RecoveredExecution | null> {
+    // Recovery examines the lane lease and its executing job under the same
+    // transaction lock; a stale lease must not reclaim a newer execution.
     const resourceKey = resourceKeyForExecutionLane(executionLane)
     const leases = await transaction.$queryRawUnsafe<JobResourceLeaseRow[]>(
       `SELECT

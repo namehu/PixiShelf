@@ -100,6 +100,9 @@ export async function executeArchiveResolveItem(
   }
 
   try {
+    // Provider calls stay outside the database transaction. Only the fenced
+    // finalization below mutates queue-owned state, so slow remote I/O cannot
+    // hold row locks or commit after a lease has been lost.
     const provider = dependencies.providers.getForUrl(item.submittedUrl)
     const resolved = await provider.resolve(item.submittedUrl, { signal: context.signal })
     const metadataHash = hashResolvedMetadata(resolved.normalizedMetadata)
@@ -191,6 +194,8 @@ async function finalizeResolved(
   }
 
   const currentHash = existingReference?.archiveRevisions[0]?.metadataHash
+  // The metadata hash makes classification stable across retries: unchanged
+  // remote metadata stays UNCHANGED until an explicit enqueue decision is made.
   const resolutionKind = activeImport
     ? 'ACTIVE_TASK'
     : !existingReference
