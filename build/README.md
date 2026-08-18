@@ -1,30 +1,23 @@
 # Build 与部署
 
-本目录维护 PixiShelf 的容器构建、Compose 和发布配置。阶段 1–7 已完成生产切换：通用
-`pixishelf-worker` 是唯一正常消费者，旧 `archive-worker` 只作为应用级紧急回滚镜像保留，
-生产稳态不得同时运行两个消费者。
+本目录维护 PixiShelf 的容器构建、Compose 和发布配置。通用 `pixishelf-worker` 是唯一后台消费者；
+同一个 Node.js 进程运行 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个固定并发为 1 的执行 lane。
 
 当前标准发布、暗启动、验证和回滚入口见[部署基线](../docs/operations/deployment.md)。本文件只说明
 `build/` 内的镜像、Compose、挂载和运行边界。
 
-> **生产 Compose 过渡约束：** `docker-compose.deploy.yml` 仍声明了没有 profile 的
-> `archive-worker`。阶段 8 完成前，不得用无服务名的 `docker compose up -d` 作为标准发布命令；
-> 必须显式启动 `postgres imgproxy app worker scheduler`，并确认 `archive-worker` 保持停止。
-
 ## 文件边界
 
 - `Dockerfile`：Web/API 的 Next.js standalone 镜像，负责启动前执行数据库迁移。
-- `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和 Phase 5
-  已迁移的全部 17 个 Executor capability：Archive/Keyframe、五类维护任务、视频媒体任务，以及
-  扫描/本地导入、迁移和批量替换。
+- `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和当前全部
+  20 项 v1 Executor capability。
 - `docker-compose.dev.yml`：本地构建与开发环境。
 - `docker-compose.deploy.yml`：使用预构建镜像的生产环境。
 - `.env.example`：部署变量模板；为防止新环境误消费，Central Dispatcher 开关仍安全地默认关闭。
-- `archive-worker.Dockerfile`：回滚期兼容消费者；不参与切换完成后的正常生产运行。
 
-暗启动时两个容器可以同时存在，但仅限通用 Worker 的 Dispatcher 为关闭状态。生产稳态中
-`CENTRAL_DISPATCHER_CUTOVER_ENABLED=true` 与 `WORKER_DISPATCH_ENABLED=true` 必须成对设置，
-并且旧 `archive-worker` 必须停止。严禁两个 Worker 同时消费。
+生产稳态中 `CENTRAL_DISPATCHER_CUTOVER_ENABLED=true` 与 `WORKER_DISPATCH_ENABLED=true` 必须成对设置。
+暗启动或故障隔离使用 `false/false`，不允许只切换一枚开关。旧 `archive-worker` 镜像、workspace、Compose
+服务和 CI 发布入口已退出当前部署边界；双 lane migration 后也不能在新 schema 上启动旧消费者。
 
 `worker.Dockerfile` 不复制 `packages/pixishelf`（Next.js 应用）源码。Worker 只从独立 workspace
 包构建，并以非 root UID/GID `1001` 运行。它不会执行 migration；数据库 schema 仍由 Web
@@ -47,8 +40,9 @@ docker compose -f docker-compose.deploy.yml exec worker \
   node dist/healthcheck.cjs --mode=ready
 ```
 
-通用 Worker 固定为一个 Central Dispatcher。数据库唯一索引与全局资源租约提供第二道保护，禁止
-同时存在两个执行中的任务。Compose 不配置副本数；停止宽限期为 45 秒，业务 drain 默认 30 秒。
+通用 Worker 固定为一个服务，内部运行两个 Dispatcher loop。数据库按 lane 的执行态唯一索引与
+`lane/archive-resolve`、`lane/background-writer` 资源租约提供第二道保护：最多一个 resolver 和一个 writer
+可以同时执行，同 lane 不得重叠。Compose 不配置副本数；停止宽限期为 45 秒，业务 drain 默认 30 秒。
 日志使用 Docker `json-file` 轮转：单文件 10 MB、最多 5 个文件。
 
 领域发布使用短 PostgreSQL 事务，默认连接等待上限由
@@ -93,10 +87,9 @@ docker compose -f docker-compose.dev.yml logs -f worker
 ```
 
 开发模板出于升级安全默认 `false/false`；完整功能验证必须在 App 和 Compose 两侧成对改为 `true/true`。
-只有需要验证旧路径时才显式启动 `archive-worker`；生产稳态不使用旧消费者。`db:push` 不写
-`_prisma_migrations`，不能代替 migration deploy 满足 Worker 预检。
+`db:push` 不写 `_prisma_migrations`，不能代替 migration deploy 满足 Worker 预检。
 
-## 生产部署与回滚兼容
+## 生产部署与恢复边界
 
 当前版本不再包含 Thumbor 服务或 `/_video` 实时截帧入口。发布新版本并确认静态视频封面、缺失封面占位
 和原视频播放正常后，删除外部 Traefik 的 `/_video` 路由并停止、删除旧 Thumbor 容器。旧版本应用回滚
@@ -115,7 +108,7 @@ cp .env.example .env
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml <command> <explicit-services>
 ```
 
-不要省略服务集合；已经停止的 `archive-worker` 可能被无参数 `up -d` 重新拉起。
+高风险发布仍建议显式指定服务集合，便于审查本次实际重建范围。
 
 升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH` 和 `DERIVED_MEDIA_HOST_PATH`。新镜像暗启动阶段必须保持：
 
@@ -127,22 +120,19 @@ WORKER_DISPATCH_ENABLED=false
 数据库 dump、两个媒体快照、配置和镜像 digest 必须组成同一套恢复点；频率、验证和演练要求见
 [备份与恢复基线](../docs/operations/backup-and-recovery.md)。
 
-生产部署必须先停止写入者、执行只读 cutover audit、创建数据库与媒体一致性备份，再启动 App 完成
-migration 和 Worker 暗启动。最终同时打开两枚开关并停止旧消费者。阶段 1–7 的纯 Docker 审查、备份、
-切换和验收门禁可参考
-[生产切换归档](../docs/deployment/background-task-cutover-deployment.md)，但其中的 Thumbor 和 `/_video`
-内容是当时的历史状态，当前服务清单、变量和挂载必须以本目录最新 Compose 与 `.env.example` 为准；
-事故处理见 [回滚手册](../docs/deployment/background-task-cutover-rollback.md)。
+生产部署必须先停止写入者、执行专用 `archive:lane-cutover-audit`、创建数据库与媒体一致性备份，再以
+一次性新 Web 镜像执行 migration 和 Worker 暗启动。lane migration 应用后，旧 Worker 不再是应用级回滚
+选项；事故处理和完整 checkpoint 恢复边界见[部署基线](../docs/operations/deployment.md)与
+[备份与恢复](../docs/operations/backup-and-recovery.md)。
 
 两个开关用途不同：`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 让 Next.js 只创建/控制统一队列任务；
 `WORKER_DISPATCH_ENABLED` 才允许通用 Worker claim。开关默认 false，避免镜像升级时意外开始消费。
-当前通用 Registry 已锁定全部 17 种 v1 capability，其中包括 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、
-`MIGRATION`、`PENDING_REPLACE` 四类高风险任务。阶段 1–7 的生产切换已完成；新部署仍须先以
+当前通用 Registry 已锁定全部 20 种 v1 capability，并校验 job type、definition version 和 lane，其中包括
+`SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE` 四类高风险任务。新部署仍须先以
 `false/false` 暗启动并通过 READY/capability 门禁，然后才能恢复生产稳态的 `true/true`。
 
-最终切换必须一次完成：停止新任务、排空并停止旧 `archive-worker`，确认不存在阻断状态，再同时
-启用 Next 控制面与通用 Worker Dispatcher。旧镜像在阶段 8 稳定完成前继续保留用于应用级回滚，
-但不能作为生产消费者运行。任何时候都禁止双消费者。
+归档收件箱切换必须一次完成：停止新任务和旧写入者，通过 audit 和一致性 checkpoint，应用 lane migration，
+验证双 lane READY 与 20 项 capability，再同时启用 Next 控制面与通用 Worker Dispatcher。
 
 发生问题时先把两个开关恢复为 false 并重建 `app`/`worker`，停止新入队与领取；不要在存在
 RUNNING、PAUSING 或 CANCELLING 任务时强制回滚 schema。数据库和媒体必须从同一时间点的已验证
@@ -154,9 +144,8 @@ RUNNING、PAUSING 或 CANCELLING 任务时强制回滚 schema。数据库和媒�
 
 ```bash
 docker build -f build/Dockerfile --target production -t pixishelf .
-docker build -f build/archive-worker.Dockerfile --target production -t pixishelf-archive-worker .
 docker build -f build/worker.Dockerfile --target production -t pixishelf-worker .
 ```
 
-CI 在过渡期发布上述三个镜像，并分别执行安全扫描。URL 归档网络请求读取
+CI 构建并扫描 App 与通用 Worker 镜像。URL 归档网络请求读取
 `ARCHIVE_HTTPS_PROXY`，未设置时兼容 `HTTPS_PROXY`、`HTTP_PROXY` 与 `NO_PROXY`。

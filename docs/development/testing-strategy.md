@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 的测试分层、变更验证矩阵、CI 实际覆盖和已知质量缺口
-last-verified: 2026-08-18
+last-verified: 2026-08-19
 sources:
   - package.json
   - packages/*/package.json
@@ -20,7 +20,7 @@ sources:
 
 1. 数据库 migration 可以从空 PostgreSQL 按完整历史部署；
 2. 作品、来源、媒体顺序和用户整理语义不被破坏；
-3. 中央队列、租约、重试、取消和终态转换保持正确；
+3. 中央队列、双 lane 租约、重试、取消和终态转换保持正确；
 4. 扫描、归档、替换和迁移不会静默损坏文件；
 5. 核心浏览与管理交互在重构后仍可使用；
 6. 构建产物和 Docker 运行边界与源码依赖一致。
@@ -98,25 +98,25 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/capability-audit.cjs
 ```
 
-健康检查证明进程和预检状态，capability audit 证明生产所需 Executor 已注册；二者都不能代替领域功能测试。
+健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 20 项 v1 Executor 的 type/version/lane 已注册；二者都不能代替领域功能测试。
 
 ## 变更验证矩阵
 
-| 变更类型                  | 最小验证                                                            | 需要追加的验证                                                    |
-| ------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| 纯文档                    | 链接、代码围栏、Prettier、`git diff --check`                        | 命令和路径涉及部署时解析 Compose/脚本                             |
-| 局部 UI/组件              | 主应用 lint、typecheck、聚焦组件测试                                | 涉及共享 shell、播放器或导航时运行相关组件组和视口人工检查        |
-| Service、tRPC、HTTP Route | lint、typecheck、聚焦服务/route 测试                                | 修改鉴权、幂等或事务时加入失败路径和 PostgreSQL 测试              |
-| 认证与接口边界            | lint、typecheck、无凭证/错误凭证/有效凭证聚焦测试                   | 公共路径、Token、信任头、越界资源、限流和未授权零写入测试         |
-| Prisma Schema/migration   | db validate/generate、DB 测试、从空库 `db:deploy`、migration status | 生产数据副本演练、回滚/前向修复方案和 Worker 依赖链测试           |
-| Job contract/payload      | Worker 依赖链 typecheck/test/build                                  | 版本兼容、旧 payload fixture、无效 payload 和重试测试             |
-| Queue/runtime/lease       | Worker 依赖链测试                                                   | PostgreSQL 并发、进程重启、过期租约、终态竞争和取消测试           |
-| Executor/文件操作         | 聚焦 Executor 测试、Worker 依赖链                                   | 临时目录 fixture、失败注入、hash/checkpoint、恢复和不越界路径测试 |
-| 扫描/导入/迁移            | 主应用或 Executor 单测                                              | `test:integration`、真实 fixture、审计记录和重复执行测试          |
-| 媒体播放/派生媒体         | 组件/服务测试                                                       | 图片、视频、封面缺失、动画、FFmpeg 失败和实际浏览器抽样           |
-| Compose/Dockerfile/env    | Compose config、相关 package build                                  | 镜像构建、非 root 权限、挂载、migration、READY/capability 冒烟    |
-| 浏览器扩展                | compile + build                                                     | Chrome/Firefox 目标页面人工验证和权限检查                         |
-| scanner/zip-convert       | 启动或工具级聚焦验证                                                | 当前缺少可靠自动化测试，必须记录 fixture 和人工结果               |
+| 变更类型                  | 最小验证                                                            | 需要追加的验证                                                                    |
+| ------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| 纯文档                    | 链接、代码围栏、Prettier、`git diff --check`                        | 命令和路径涉及部署时解析 Compose/脚本                                             |
+| 局部 UI/组件              | 主应用 lint、typecheck、聚焦组件测试                                | 涉及共享 shell、播放器或导航时运行相关组件组和视口人工检查                        |
+| Service、tRPC、HTTP Route | lint、typecheck、聚焦服务/route 测试                                | 修改鉴权、幂等或事务时加入失败路径和 PostgreSQL 测试                              |
+| 认证与接口边界            | lint、typecheck、无凭证/错误凭证/有效凭证聚焦测试                   | 公共路径、Token、信任头、越界资源、限流和未授权零写入测试                         |
+| Prisma Schema/migration   | db validate/generate、DB 测试、从空库 `db:deploy`、migration status | 生产数据副本演练、回滚/前向修复方案和 Worker 依赖链测试                           |
+| Job contract/payload      | Worker 依赖链 typecheck/test/build                                  | 版本兼容、旧 payload fixture、无效 payload 和重试测试                             |
+| Queue/runtime/lease       | Worker 依赖链测试                                                   | PostgreSQL 同 lane 竞争、resolver+writer 并行、重启、过期租约、终态竞争和取消测试 |
+| Executor/文件操作         | 聚焦 Executor 测试、Worker 依赖链                                   | 临时目录 fixture、失败注入、hash/checkpoint、恢复和不越界路径测试                 |
+| 扫描/导入/迁移            | 主应用或 Executor 单测                                              | `test:integration`、真实 fixture、审计记录和重复执行测试                          |
+| 媒体播放/派生媒体         | 组件/服务测试                                                       | 图片、视频、封面缺失、动画、FFmpeg 失败和实际浏览器抽样                           |
+| Compose/Dockerfile/env    | Compose config、相关 package build                                  | 镜像构建、非 root 权限、挂载、migration、READY/capability 冒烟                    |
+| 浏览器扩展                | compile + build                                                     | Chrome/Firefox 目标页面人工验证和权限检查                                         |
+| scanner/zip-convert       | 启动或工具级聚焦验证                                                | 当前缺少可靠自动化测试，必须记录 fixture 和人工结果                               |
 
 “最小验证”是进入评审前的底线。跨多个类型的变更需要合并各行要求，而不是只选择最轻的一行。
 
@@ -129,6 +129,16 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 - migration 测试至少覆盖从空数据库部署完整链，不只验证最新 Schema；
 - 涉及数据库和文件的领域发布，需要测试“数据库成功/文件失败”和“文件成功/数据库失败”的恢复语义；
 - 时间、重试和租约测试使用可控 clock，避免依赖真实 sleep。
+
+归档收件与执行 lane 变更还必须覆盖：
+
+- 空 PostgreSQL 完整 migration 链，以及含旧 `SystemJob`、等待任务和旧全局 lease 的非空库直切演练；
+- migration 在执行态任务或活跃旧全局 lease 存在时无副作用失败；
+- 旧任务全部回填到 `BACKGROUND_WRITER`，新 `ARCHIVE_RESOLVE_ITEM` 只能进入 `ARCHIVE_RESOLVE`；
+- 两个 Worker 进程竞争时每 lane 最多一个 RUNNING，同时允许一个 resolver 和一个 writer；
+- 收件 create/enqueue/bulk 幂等、FIFO、暂停/重试/取消、Worker 崩溃恢复和未授权零写入；
+- `RECONCILE` 只物化子任务，回收/恢复/永久清理在 writer lane 中根目录受限、可重入并最终 fenced；
+- 30 天保留任务只删除收件、已完成批量记录和过期预览，不删除领域实体、任务与媒体。
 
 ## 测试文件组织
 
@@ -151,6 +161,8 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 7. 构建通用 Worker；
 8. 运行主应用 lint 和 typecheck；
 9. 运行主应用 `test:unit`。
+
+Worker 测试和 capability 门禁包含双 lane contract 与 20 项 v1 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切演练。
 
 CI 当前没有明确执行：
 

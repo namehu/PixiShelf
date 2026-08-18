@@ -1,7 +1,7 @@
 ---
 status: draft
 scope: 多来源 URL 归档的已接受方向、功能政策和分阶段方案
-last-verified: 2026-08-18
+last-verified: 2026-08-19
 ---
 
 # Multi-source URL archive design
@@ -9,8 +9,9 @@ last-verified: 2026-08-18
 Decision status: accepted on 2026-08-11. Implementation details in this document may still describe a target state and must not override current code.
 
 > 演进说明：本文保留 Provider、来源身份、revision、manifest、原子发布和归档生命周期的基础设计。
-> 已确认的持续追加、持久解析、批量入队和双 Worker 资源通道见
-> [归档收件队列设计](./archive-intake-queue.md)。其中的新流程尚未实现，不覆盖当前单链接行为。
+> 已上线的持续追加、持久解析、批量入队和双 Worker 资源通道见
+> [归档收件箱](../features/archive-intake.md)；原实施规格保留在
+> [归档收件队列设计](./archive-intake-queue.md)。本文其余内容仍是多来源归档的分阶段草案。
 
 ## Summary
 

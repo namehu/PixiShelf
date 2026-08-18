@@ -1,6 +1,6 @@
 ---
 status: current
-scope: PixiShelf v0.36.3 的本地运行、生产 Compose 拓扑、升级顺序、验证与回滚入口
+scope: PixiShelf 当前本地运行、生产 Compose 拓扑、升级顺序、验证与回滚入口
 last-verified: 2026-08-19
 sources:
   - build/docker-compose.dev.yml
@@ -28,16 +28,15 @@ sources:
 
 ## 当前服务拓扑
 
-| 服务             | 数据权限                   | 当前职责                                                | 生产稳态             |
-| ---------------- | -------------------------- | ------------------------------------------------------- | -------------------- |
-| `postgres`       | 数据库读写                 | 领域数据、认证、队列、租约和 migration 历史             | 必需                 |
-| `app`            | 数据库读写；原媒体默认只读 | Next.js Web/API、认证、任务控制面；启动时部署 migration | 必需                 |
-| `worker`         | 数据库和媒体读写           | Central Dispatcher 与全部已迁移 Executor                | 必需，固定一个消费者 |
-| `scheduler`      | 无数据库权限               | 使用内部 Token 调用 App 的 scheduler tick               | 按需启用             |
-| `imgproxy`       | 原媒体和派生媒体只读       | 图片缩放、格式处理和缓存                                | 必需                 |
-| `archive-worker` | 数据库和媒体读写           | 阶段 8 前的旧消费者兼容和应用级回滚                     | 生产稳态必须停止     |
+| 服务        | 数据权限                   | 当前职责                                                | 生产稳态           |
+| ----------- | -------------------------- | ------------------------------------------------------- | ------------------ |
+| `postgres`  | 数据库读写                 | 领域数据、认证、队列、租约和 migration 历史             | 必需               |
+| `app`       | 数据库读写；原媒体默认只读 | Next.js Web/API、认证、任务控制面；启动时部署 migration | 必需               |
+| `worker`    | 数据库和媒体读写           | 单进程双 lane Dispatcher 与全部 20 项 v1 capability     | 必需，固定一个服务 |
+| `scheduler` | 无数据库权限               | 使用内部 Token 调用 App 的 scheduler tick               | 按需启用           |
+| `imgproxy`  | 原媒体和派生媒体只读       | 图片缩放、格式处理和缓存                                | 必需               |
 
-`build/docker-compose.deploy.yml` 仍声明了没有 profile 的 `archive-worker`。因此在阶段 8 完成前，生产环境不能用不带服务名的 `docker compose up -d` 作为标准发布命令；它可能重新启动旧消费者。必须显式指定服务并检查旧消费者处于停止状态。
+生产 Compose 不再包含旧 `archive-worker`、旧镜像或兼容 profile。一个 `worker` 容器同时托管固定并发为 1 的 `ARCHIVE_RESOLVE` 和 `BACKGROUND_WRITER`；最多一项解析和一项 writer 工作可以同时推进，所有媒体写仍在 writer lane 全局串行。
 
 ## 环境文件边界
 
@@ -76,14 +75,15 @@ sources:
 
 每次升级都必须先完成：
 
-- 记录当前 App、Worker 和兼容镜像的 tag、image ID 或 digest；
+- 记录当前 App、Worker 的 tag、image ID 或 digest；
 - 确认只有预期消费者在运行，不存在无法解释的 RUNNING/PAUSING/CANCELLING 任务；
 - 停止 scheduler，阻止新的计划任务物化；
 - 创建同一时间点的 PostgreSQL 备份、原媒体快照、派生媒体快照和环境配置备份；
 - 在隔离位置确认数据库备份可读取，媒体快照路径可访问；
 - 检查磁盘余量、目录权限和 FFmpeg/FFprobe 可用性；
 - 阅读目标版本 migration，确认是否存在不可逆数据变更；
-- 对后台任务架构切换相关升级运行只读 cutover audit。
+- 对执行 lane 迁移运行 `archive:lane-cutover-audit`，阻断执行中的任务、活跃旧全局 lease、新鲜旧 Worker、执行中归档和新 Worker 不支持的等待任务。
+- 在应用 lane migration 前移除同一 Compose project 中的 orphan 服务，并用容器标签确认旧 `archive-worker` 容器数量为零。数据库审计无法发现仍存活但空闲的旧消费者，不能替代这项容器门禁。
 
 备份位置、校验值和镜像 digest 必须记录在本次发布记录中。“命令成功”不能代替恢复验证。
 完整备份集合、停写检查点和隔离恢复演练见[备份与恢复基线](./backup-and-recovery.md)。
@@ -130,8 +130,24 @@ sudo PIXISHELF_PRE_UPDATE_HOOK=/absolute/path/pixishelf-backup-checkpoint.sh \
 ```bash
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml ps
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop scheduler
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop worker archive-worker app
+docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop worker app
+docker compose --env-file build/.env -f build/docker-compose.deploy.yml \
+  up -d --remove-orphans --no-recreate postgres imgproxy
+docker ps -a --filter label=com.docker.compose.service=archive-worker \
+  --format '{{.ID}} {{.Names}} {{.Status}}'
 ```
+
+最后一条命令必须没有输出。`--remove-orphans` 要在停写后、专用审计和 lane migration 前执行；否则旧版本 Compose 创建的 `archive-worker` 虽已从新文件删除，仍会继续运行并可能在新 schema 上领取归档任务。执行前先核对同一 Compose project 的服务清单，避免把仍需保留的自定义 orphan 当成目标版本服务。
+
+停止 App、Worker 和外部写入者后，使用目标版本源码或一次性新 App 镜像连接旧数据库执行专用只读审计：
+
+```bash
+pnpm --filter @pixishelf/next archive:lane-cutover-audit
+```
+
+退出码 `0` 才能继续；退出码 `2` 表示存在业务或消费者阻断项，退出码 `1` 表示审计本身失败。不能把等待中的兼容 v1 任务全部取消：`PENDING`、`PAUSED`、`RETRY_WAIT` 可以保留，但其 type/version 必须在新 Worker 的 20 项 capability 内。专用审计只检查数据库状态；上一步“旧 `archive-worker` 容器为零”的结果必须单独记录。
+
+审计通过后，在同一个停写窗口建立 PostgreSQL、原媒体、派生媒体、配置和旧/新镜像 digest 的一致性检查点。lane migration 会拒绝 `RUNNING/PAUSING/CANCELLING` 任务或未过期的 `global/background-worker` lease，并删除已经过期的旧全局 lease；它不是停止并发写入者的替代品。
 
 停止写入者并完成一致性备份后，先把两枚开关设为暗启动状态：
 
@@ -140,16 +156,17 @@ CENTRAL_DISPATCHER_CUTOVER_ENABLED=false
 WORKER_DISPATCH_ENABLED=false
 ```
 
-拉取并启动明确的服务集合：
+拉取镜像并启动基础服务。迁移必须由一次性目标 Web 镜像执行完成，不能先开放会接收请求的 App：
 
 ```bash
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml pull postgres imgproxy app worker scheduler
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d postgres imgproxy
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d app
+docker compose --env-file build/.env -f build/docker-compose.deploy.yml run --rm --no-deps \
+  --entrypoint prisma app migrate deploy --schema=packages/pixishelf-db/prisma/schema.prisma
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d worker
 ```
 
-App 的 entrypoint 会在启动 Next.js 前执行 `prisma migrate deploy`。migration 失败时立即停止，不得使用 `db:push`、手工删列或盲目标记 migration 完成。
+普通版本中 App entrypoint 也会在启动 Next.js 前执行 `prisma migrate deploy`，但 lane 直切必须把 migration 与开放 App 分开。migration 失败时立即停止，不得使用 `db:push`、手工删列或盲目标记 migration 完成。迁移一旦替换为按 lane 的执行索引，就禁止启动不理解双 lane 的旧消费者。
 
 暗启动验证：
 
@@ -157,15 +174,20 @@ App 的 entrypoint 会在启动 Next.js 前执行 `prisma migrate deploy`。migr
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml ps
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T worker node dist/healthcheck.cjs --mode=ready
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T worker node dist/capability-audit.cjs
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml logs --tail=200 app worker
+docker compose --env-file build/.env -f build/docker-compose.deploy.yml logs --tail=200 worker
+```
+
+READY 必须显示两个 lane 都可领取，capability audit 必须精确报告 20 项 v1 及正确 lane；`/livez` 只能证明进程存活，不能替代上述门禁。暗启动通过后再启动 App，仍保持 `false/false` 完成登录和只读媒体抽样。
+
+```bash
+docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d app
 ```
 
 同时验证登录、画廊查询、原图片、静态视频封面、封面缺失占位和原视频播放。当前版本不再提供 Thumbor 或 `/_video` 请求时截帧入口。
 
-确认无阻断后，把两枚开关同时改为 `true`，重建 App 与 Worker，并明确保持旧消费者停止：
+确认无阻断后，把两枚开关同时改为 `true` 并重建 App 与 Worker：
 
 ```bash
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop archive-worker
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d --force-recreate app worker
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T worker node dist/healthcheck.cjs --mode=ready
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T worker node dist/capability-audit.cjs
@@ -176,9 +198,11 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 
 - App、PostgreSQL、ImgProxy 正常；
 - 只有一个当前 Worker 为 READY；
-- `archive-worker` 没有运行；
+- Worker 报告两个 lane READY，且 capability 精确为 20 项 v1；
 - scheduler 的启用状态符合预期；
 - 没有异常积压、重复 claim、媒体 404 或 migration 漂移。
+
+归档专项冒烟还必须证明：连续添加 URL 不等待前项解析；刷新后 FIFO/attempt/pause 保持；resolver 与 writer 可各运行一项；任何时刻没有第二项 writer；已就绪项目能在其余解析期间入队；旧等待任务可以由新 Worker 继续处理。
 
 ## 发布后观察
 
@@ -186,9 +210,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 - 24 小时：错误日志、任务积压、租约、派生媒体失败和磁盘增长；
 - 72 小时：失败/重试趋势、长任务耗时和日志轮转；
 - 至少一个完整的上海时区 `00:00–08:00` 窗口：计划物化、deadline 和 `SKIPPED` 行为；
-- 7–14 天：确认只有一个通用 Worker 消费，再评估阶段 8 兼容代码清理。
-
-当前详细观察清单见[后台任务上线后续](../deployment/background-task-follow-up.md)。
+- 7–14 天：确认只有一个通用 Worker 服务、两个 lane 没有同 lane 重叠，并复核收件与维护任务容量趋势。
 
 ## 故障与回滚入口
 
@@ -200,15 +222,15 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 4. 保存 App、Worker、PostgreSQL 日志和任务状态；
 5. 不在存在活动任务时强制回滚 Schema。
 
-仅重建新版本服务、切回旧 App/兼容 Worker、以及恢复数据库与媒体属于不同回滚等级。阶段 8 完成前使用[后台任务回滚手册](../deployment/background-task-cutover-rollback.md)。
+lane migration 后，服务级回滚只能使用兼容新 schema、20 项 capability 和双 lane 的 App/Worker，或以前向修复继续。旧消费者不能作为应用级回滚目标；需要回到旧消费者时，必须恢复切换前同一检查点的数据库、原媒体、派生媒体、配置和镜像。
 
 恢复时必须使用同一时间点的数据库和媒体快照，不能只恢复其中一侧。任何删除数据库卷、覆盖媒体目录或回滚 migration 的操作都必须单独确认目标与备份，不属于日常故障排查步骤。
 
-## 当前过渡项
+## 当前安全开关与历史边界
 
-- `archive-worker` 仍在生产 Compose 中且没有 profile；阶段 8 清理前必须依靠显式服务集合和运行检查避免双消费者；
 - 两枚 Dispatcher 开关仍保留，生产稳态为 `true/true`，暗启动和故障隔离为 `false/false`；
 - App 镜像负责 migration，Worker 镜像只做 Schema 预检；
+- `ArchivePreviewSession` 表暂时保留用于兼容观察，过期记录由收件保留任务清理；本次不做破坏性 Schema contract；
 - 旧 Thumbor 容器和外部 `/_video` 路由应在新静态封面链路验证后移除；旧版本回滚若依赖它们，必须恢复对应版本的完整 Compose 和路由配置。
 
 相关材料：
@@ -218,5 +240,6 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 - [权限与接口边界](../security/access-control.md)
 - [备份与恢复基线](./backup-and-recovery.md)
 - [阶段 1–7 切换记录](../deployment/background-task-cutover-deployment.md)
-- [兼容回滚手册](../deployment/background-task-cutover-rollback.md)
-- [上线后待办](../deployment/background-task-follow-up.md)
+- [归档收件箱](../features/archive-intake.md)
+- [归档收件箱切换记录](../deployment/archive-intake-cutover-deployment.md)
+- [历史兼容回滚手册](../deployment/background-task-cutover-rollback.md)

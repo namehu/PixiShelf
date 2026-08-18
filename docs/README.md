@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-08-18（`v0.36.3`）
+最后核验：2026-08-19（归档收件箱与双通道 Worker）
 
 ## 状态约定
 
@@ -34,6 +34,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | -------------------------------------------------- | --------- | ------------------------------------------- |
 | [项目 README](../README.md)                        | `current` | 项目入口、标准本地启动、常用命令            |
 | [产品基线](./product/product-baseline.md)          | `current` | 目标用户、核心场景、产品不变量和非目标      |
+| [归档收件箱](./features/archive-intake.md)         | `current` | 持久收件、双通道、批量操作、维护和保留策略  |
 | [领域语境](../CONTEXT.md)                          | `current` | 作品、媒体、来源、归档与本地身份术语        |
 | [当前架构](./architecture/current-architecture.md) | `current` | Workspace、运行组件、依赖方向和关键数据流   |
 | [权限与接口边界](./security/access-control.md)     | `current` | 调用者、页面、API、服务、凭据和存储权限     |
@@ -59,11 +60,12 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [后台扫描任务化设计](./design/background-scan-jobs.md)                            | `historical` | 扫描任务化实施方案，不作为当前接口说明                 |
 | [扫描与导入审计历史](./design/scan-audit-history.md)                              | `historical` | 已实施阶段和历史限制                                   |
 
-## 功能规格与草案
+## 功能规格、草案与实施归档
 
 | 文档                                                     | 状态         | 权威范围与后续处理                                         |
 | -------------------------------------------------------- | ------------ | ---------------------------------------------------------- |
-| [归档收件队列](./design/archive-intake-queue.md)         | `draft`      | 已确认的持续追加、持久解析、批量入队和任务批量控制设计     |
+| [归档收件箱](./features/archive-intake.md)               | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界         |
+| [归档收件队列设计](./design/archive-intake-queue.md)     | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
 | [多来源 URL 归档](./design/multi-source-url-archive.md)  | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
 | [视频代表帧生成](./design/video-keyframe-generation.md)  | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
 | [界面设计升级计划](./pixishelf-design-upgrade-plan.md)   | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
@@ -82,16 +84,17 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 部署、发布与历史记录
 
-| 文档                                                                   | 状态         | 权威范围与后续处理                                  |
-| ---------------------------------------------------------------------- | ------------ | --------------------------------------------------- |
-| [部署基线](./operations/deployment.md)                                 | `current`    | 当前标准部署和升级入口                              |
-| [备份与恢复](./operations/backup-and-recovery.md)                      | `current`    | 完整备份集合、验证演练与灾难恢复边界                |
-| [后台任务回滚手册](./deployment/background-task-cutover-rollback.md)   | `current`    | 阶段 8 完成前的兼容回滚；稳定完成后归档             |
-| [后台任务上线后续](./deployment/background-task-follow-up.md)          | `current`    | 稳定观察期和阶段 8 启动门禁                         |
-| [后台任务切换记录](./deployment/background-task-cutover-deployment.md) | `historical` | 2026-08 阶段 1–7 切换记录                           |
-| [旧版系统设计](./archive/system-design-legacy.md)                      | `historical` | 已退役的 `src/` 目录与单应用三层模型                |
-| [旧版部署指南](./archive/deployment-legacy.md)                         | `historical` | 已退役的 Vite、`packages/web` 和 API/Web 双镜像流程 |
-| [旧版调度架构](./archive/scheduler-architecture-legacy.md)             | `historical` | Central Dispatcher 切换前的进程内执行路径           |
+| 文档                                                                    | 状态         | 权威范围与后续处理                                  |
+| ----------------------------------------------------------------------- | ------------ | --------------------------------------------------- |
+| [部署基线](./operations/deployment.md)                                  | `current`    | 当前标准部署和升级入口                              |
+| [备份与恢复](./operations/backup-and-recovery.md)                       | `current`    | 完整备份集合、验证演练与灾难恢复边界                |
+| [后台任务回滚手册](./deployment/background-task-cutover-rollback.md)    | `historical` | 已退役旧消费者兼容期的回滚手册                      |
+| [后台任务上线后续](./deployment/background-task-follow-up.md)           | `historical` | 2026-08 阶段 8 前的稳定观察与清理清单               |
+| [后台任务切换记录](./deployment/background-task-cutover-deployment.md)  | `historical` | 2026-08 阶段 1–7 切换记录                           |
+| [归档收件箱切换记录](./deployment/archive-intake-cutover-deployment.md) | `historical` | 双通道迁移、审计、检查点与发布证据登记              |
+| [旧版系统设计](./archive/system-design-legacy.md)                       | `historical` | 已退役的 `src/` 目录与单应用三层模型                |
+| [旧版部署指南](./archive/deployment-legacy.md)                          | `historical` | 已退役的 Vite、`packages/web` 和 API/Web 双镜像流程 |
+| [旧版调度架构](./archive/scheduler-architecture-legacy.md)              | `historical` | Central Dispatcher 切换前的进程内执行路径           |
 
 旧路径 `DEPLOYMENT.md`、`docs/SYSTEM_DESIGN.md` 和 `docs/SCHEDULER_ARCHITECTURE.md` 只保留短跳转页，用于兼容外部链接；它们不是独立事实源。
 

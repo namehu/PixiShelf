@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前调用者、页面、HTTP、tRPC、Server Action、服务网络和存储权限边界
-last-verified: 2026-08-18
+last-verified: 2026-08-19
 sources:
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/lib/auth/
@@ -16,7 +16,7 @@ sources:
 
 # PixiShelf 权限与接口边界
 
-本文回答“谁可以调用什么、在哪一层校验、调用后能修改什么，以及当前仍有哪些权限风险”。它描述 `v0.36.3` 的实际行为，不是未来 RBAC 设计，也不承诺对第三方提供稳定开放 API。
+本文回答“谁可以调用什么、在哪一层校验、调用后能修改什么，以及当前仍有哪些权限风险”。它描述当前代码与部署基线，不是未来 RBAC 设计，也不承诺对第三方提供稳定开放 API。
 
 精确路由、procedure、环境变量和挂载仍以代码、Compose 与 `.env.example` 为准。新增或改变接口时，不能只更新本表而不更新执行层校验和测试。
 
@@ -93,14 +93,16 @@ sources:
 
 ## 页面矩阵
 
-| 路径                                                     | 代理层       | 页面内额外角色校验                     | 当前结果                                |
-| -------------------------------------------------------- | ------------ | -------------------------------------- | --------------------------------------- |
-| `/`                                                      | 公共         | 无                                     | 立即跳转 `/dashboard`，后者需要 Session |
-| `/login`                                                 | 公共         | 已有 Session 时代理重定向 `/dashboard` | 登录；无账户时显示首次初始化            |
-| `/dashboard`、作品、艺术家、标签、系列、viewer、settings | Session      | 无                                     | 任一有效账户可浏览和使用对应操作        |
-| `/admin/*`                                               | Session      | Admin Layout 无角色判断                | 任一有效账户可进入全部管理页面          |
-| `/change-password`                                       | Session      | `authActionClient` 复核 Session        | 只能修改当前会话账户密码                |
-| `_next/static`、`_next/image`、`favicon.ico`             | matcher 排除 | 由 Next.js/静态服务器处理              | 不应包含私有原媒体文件                  |
+| 路径                                                     | 代理层       | 页面内额外角色校验                     | 当前结果                                 |
+| -------------------------------------------------------- | ------------ | -------------------------------------- | ---------------------------------------- |
+| `/`                                                      | 公共         | 无                                     | 立即跳转 `/dashboard`，后者需要 Session  |
+| `/login`                                                 | 公共         | 已有 Session 时代理重定向 `/dashboard` | 登录；无账户时显示首次初始化             |
+| `/dashboard`、作品、艺术家、标签、系列、viewer、settings | Session      | 无                                     | 任一有效账户可浏览和使用对应操作         |
+| `/admin/*`                                               | Session      | Admin Layout 无角色判断                | 任一有效账户可进入全部管理页面           |
+| `/admin/archive/inbox`                                   | Session      | 写操作由 `adminProcedure` 复核         | 持久添加、解析控制、重试、取消与批量入队 |
+| `/admin/archive`                                         | Session      | 写操作由 `adminProcedure` 复核         | 归档任务查询、单项及当前页批量控制       |
+| `/change-password`                                       | Session      | `authActionClient` 复核 Session        | 只能修改当前会话账户密码                 |
+| `_next/static`、`_next/image`、`favicon.ico`             | matcher 排除 | 由 Next.js/静态服务器处理              | 不应包含私有原媒体文件                   |
 
 ## HTTP Route 矩阵
 
@@ -129,23 +131,24 @@ HTTP Route 新增文件写入、删除、迁移或任务控制时，应使用 Ro
 
 所有标准 HTTP tRPC 调用先经过 Session 代理门禁。下表记录 procedure 自己使用的边界。
 
-| Router           | 读取                                   | 修改/控制                                          | 当前 procedure 边界                                                      |
-| ---------------- | -------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------ |
-| `auth`           | 当前账户 `me`                          | 无                                                 | `authProcedure`                                                          |
-| `artist`         | 详情、分页                             | 创建、修改、收藏、删除                             | 全部 `authProcedure`                                                     |
-| `artwork`        | 详情、feed、相邻、随机、推荐、上传路径 | 创建、修改、删除、媒体增删与排序                   | 大多为 `authProcedure`；视频重新探测为 `adminProcedure`                  |
-| `search`         | 搜索建议                               | 无                                                 | `authProcedure`                                                          |
-| `tag`            | 查询与管理列表                         | 创建、修改、删除                                   | 全部 `authProcedure`                                                     |
-| `series`         | `list`、`get`                          | 创建、修改、删除、成员增删与排序                   | 读取为 `publicProcedure`，写入为 `authProcedure`；transport 仍需 Session |
-| `setting`        | 健康、扫描路径、系统设置               | 修改扫描路径和系统设置                             | 全部 `authProcedure`                                                     |
-| `user`           | 全部账户                               | 创建、删除其他账户                                 | 全部 `authProcedure`；新增账户拥有同等管理员能力                         |
-| `userSetting`    | 当前账户设置                           | 写入主要通过 Server Action                         | `authProcedure`，以 `userId` 限定当前账户                                |
-| `scanRun`        | 扫描历史、详情                         | 无                                                 | `authProcedure`                                                          |
-| `migration`      | precheck、失败项                       | pause/resume/cancel 等控制                         | 读取 `authProcedure`，控制 `adminProcedure`                              |
-| `localImport`    | preview、status                        | 保存映射、启动、取消                               | 读取 `authProcedure`，写入/控制 `adminProcedure`                         |
-| `archive`        | 任务、项目和统计                       | preview、入队、重试、任务控制                      | 读取 `authProcedure`，写入/控制 `adminProcedure`                         |
-| `pendingReplace` | 预览与状态                             | 绑定、排序、执行、取消、恢复、清理备份             | 全部 `adminProcedure`                                                    |
-| `job`            | 多类状态和队列读取                     | 创建、取消、重试、优先级、scheduler 与中央任务控制 | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`      |
+| Router           | 读取                                   | 修改/控制                                             | 当前 procedure 边界                                                      |
+| ---------------- | -------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------ |
+| `auth`           | 当前账户 `me`                          | 无                                                    | `authProcedure`                                                          |
+| `artist`         | 详情、分页                             | 创建、修改、收藏、删除                                | 全部 `authProcedure`                                                     |
+| `artwork`        | 详情、feed、相邻、随机、推荐、上传路径 | 创建、修改、删除、媒体增删与排序                      | 大多为 `authProcedure`；作品删除和视频重新探测为 `adminProcedure`        |
+| `search`         | 搜索建议                               | 无                                                    | `authProcedure`                                                          |
+| `tag`            | 查询与管理列表                         | 创建、修改、删除                                      | 全部 `authProcedure`                                                     |
+| `series`         | `list`、`get`                          | 创建、修改、删除、成员增删与排序                      | 读取为 `publicProcedure`，写入为 `authProcedure`；transport 仍需 Session |
+| `setting`        | 健康、扫描路径、系统设置               | 修改扫描路径和系统设置                                | 全部 `authProcedure`                                                     |
+| `user`           | 全部账户                               | 创建、删除其他账户                                    | 全部 `authProcedure`；新增账户拥有同等管理员能力                         |
+| `userSetting`    | 当前账户设置                           | 写入主要通过 Server Action                            | `authProcedure`，以 `userId` 限定当前账户                                |
+| `scanRun`        | 扫描历史、详情                         | 无                                                    | `authProcedure`                                                          |
+| `migration`      | precheck、失败项                       | pause/resume/cancel 等控制                            | 读取 `authProcedure`，控制 `adminProcedure`                              |
+| `localImport`    | preview、status                        | 保存映射、启动、取消                                  | 读取 `authProcedure`，写入/控制 `adminProcedure`                         |
+| `archiveInbox`   | 持久收件列表与汇总                     | 创建/修正、暂停/恢复、重试/取消、批量归档入队         | 读取 `authProcedure`，写入/控制 `adminProcedure`                         |
+| `archive`        | 分页任务、项目、统计和批量结果         | 单项操作、重试和 `PAUSE/RESUME/CANCEL/RETRY` 批量控制 | 读取 `authProcedure`，写入/控制 `adminProcedure`                         |
+| `pendingReplace` | 预览与状态                             | 绑定、排序、执行、取消、恢复、清理备份                | 全部 `adminProcedure`                                                    |
+| `job`            | 多类状态和队列读取                     | 创建、取消、重试、优先级、scheduler 与中央任务控制    | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`      |
 
 由于当前所有账户等权，`authProcedure` 与 `adminProcedure` 的运行时能力相同。任何未来角色分离都必须先审查表中使用 `authProcedure` 的用户管理、系统设置、目录写入和删除操作，不能只给 `adminProcedure` 增加角色判断后宣布完成。
 
@@ -168,19 +171,22 @@ HTTP Route 新增文件写入、删除、迁移或任务控制时，应使用 Ro
 
 ## 服务、网络和存储矩阵
 
-| 组件             | 网络入口                                    | 数据库                 | 原媒体                     | 派生媒体   | 当前保护                                                                    |
-| ---------------- | ------------------------------------------- | ---------------------- | -------------------------- | ---------- | --------------------------------------------------------------------------- |
-| `app`            | 宿主机 5430 / 反向代理                      | 读写；启动时 migration | 生产默认 `ro`，可配置 `rw` | `rw`       | Better Auth、Bearer Token、代理网络与路径校验                               |
-| `worker`         | 健康端口 3011 仅 Compose 网络，未映射宿主机 | 读写                   | `rw`                       | `rw`       | 无用户接口；健康端点无认证，依赖容器网络隔离                                |
-| `archive-worker` | 无宿主机端口                                | 读写                   | `rw`                       | `rw`       | 仅兼容回滚；生产稳态停止                                                    |
-| `scheduler`      | 无入站业务接口，只访问 App                  | 无                     | 无                         | 无         | 仅持有 `INTERNAL_JOB_TOKEN`                                                 |
-| `postgres`       | 默认映射宿主机 5432                         | 数据库本体             | 无                         | 无         | 用户名/密码 + 主机防火墙；Compose 未配置 TLS                                |
-| `imgproxy`       | 默认映射宿主机 5431                         | 无                     | `ro`                       | `ro`       | 仅限制 `local:///media/` 和 `local:///derived-media/` 来源；当前 URL 未签名 |
-| 独立 scanner     | 单独启动时监听 3000                         | 无                     | 读取 `SCAN_DIRECTORY`      | 无         | `/metadata-files` 与 `/refresh` 当前无认证；不属于标准 Compose 拓扑         |
-| 浏览器扩展       | 浏览器内容脚本                              | 无                     | 无直接挂载                 | 无         | 当前没有定义稳定的 PixiShelf 后端权限契约                                   |
-| `zip-convert`    | 本地 CLI，无服务端口                        | 无                     | 读写指定本地目录           | 写转换结果 | 依赖执行它的主机账户；当前源码存在不应入库的外部站点会话凭据                |
+| 组件          | 网络入口                                    | 数据库                 | 原媒体                     | 派生媒体   | 当前保护                                                                    |
+| ------------- | ------------------------------------------- | ---------------------- | -------------------------- | ---------- | --------------------------------------------------------------------------- |
+| `app`         | 宿主机 5430 / 反向代理                      | 读写；启动时 migration | 生产默认 `ro`，可配置 `rw` | `rw`       | Better Auth、Bearer Token、代理网络与路径校验                               |
+| `worker`      | 健康端口 3011 仅 Compose 网络，未映射宿主机 | 读写                   | `rw`                       | `rw`       | 同进程双 lane；健康端点无认证，依赖容器网络隔离                             |
+| `scheduler`   | 无入站业务接口，只访问 App                  | 无                     | 无                         | 无         | 仅持有 `INTERNAL_JOB_TOKEN`                                                 |
+| `postgres`    | 默认映射宿主机 5432                         | 数据库本体             | 无                         | 无         | 用户名/密码 + 主机防火墙；Compose 未配置 TLS                                |
+| `imgproxy`    | 默认映射宿主机 5431                         | 无                     | `ro`                       | `ro`       | 仅限制 `local:///media/` 和 `local:///derived-media/` 来源；当前 URL 未签名 |
+| 独立 scanner  | 单独启动时监听 3000                         | 无                     | 读取 `SCAN_DIRECTORY`      | 无         | `/metadata-files` 与 `/refresh` 当前无认证；不属于标准 Compose 拓扑         |
+| 浏览器扩展    | 浏览器内容脚本                              | 无                     | 无直接挂载                 | 无         | 当前没有定义稳定的 PixiShelf 后端权限契约                                   |
+| `zip-convert` | 本地 CLI，无服务端口                        | 无                     | 读写指定本地目录           | 写转换结果 | 依赖执行它的主机账户；当前源码存在不应入库的外部站点会话凭据                |
 
 ImgProxy Compose 没有配置签名 Key/Salt，且默认发布宿主机端口。反向代理必须将它限制在受信网络或等效的认证路径；仅使用难猜文件路径不能视为授权。PostgreSQL 的宿主机端口也应由防火墙限制，不对互联网开放。
+
+Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，lane 是执行资源和 capability 边界，不是操作系统级权限隔离。`ARCHIVE_RESOLVE_ITEM` 的 Executor 不执行媒体写入，所有归档下载、回收、恢复、永久清理和其他文件操作仍由 writer lane 执行并经过根目录/符号链接边界校验。
+
+归档任务 payload、结果、事件、错误与普通日志统一脱敏。不得记录 Cookie、Authorization、完整 Provider locator、token，或 URL 路径中的敏感段；列表和批量结果只返回完成管理操作所需的脱敏值。
 
 ## 凭据与信任头
 
@@ -213,6 +219,7 @@ ImgProxy Compose 没有配置签名 Key/Salt，且默认发布宿主机端口。
 8. 独立 scanner 的两个 GET 接口无认证，只能在受信网络或本机运行。
 9. `zip-convert` 的已跟踪源码含外部站点会话凭据；必须轮换该凭据、从历史和当前代码移除，并改为运行时秘密注入。
 10. 当前没有覆盖代理公共路径、内部信任头和全部接口未授权分支的统一自动化测试。
+11. Worker lane 共享同一容器文件权限；解析 lane 的最小权限当前依赖 capability 注册、类型契约和 Executor 边界，而不是独立容器挂载。
 
 风险修复应更新本文中的“当前事实”，并在 [TODO](../../TODO.md) 留下可执行项。涉及凭据泄露时，只记录凭据类型、轮换时间和负责人，不记录实际值。
 

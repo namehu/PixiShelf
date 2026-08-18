@@ -2,8 +2,9 @@
 status: accepted
 date: 2026-08-18
 scope: 单通用 Worker 内的归档解析与媒体写入资源通道
-last-verified: 2026-08-18
+last-verified: 2026-08-19
 supersedes-in-part: ./0003-unify-background-jobs-under-a-durable-single-worker.md
+implementation: ../features/archive-intake.md
 ---
 
 # Run archive resolution in a separate worker lane
@@ -11,8 +12,8 @@ supersedes-in-part: ./0003-unify-background-jobs-under-a-durable-single-worker.m
 ## Context
 
 [ADR-0003](./0003-unify-background-jobs-under-a-durable-single-worker.md)选择 PostgreSQL 持久队列、一个通用
-`pixishelf-worker` 和全局并发 1。该约束解决了当时任务资源范围不清晰、多个旧消费者重叠、媒体根目录写入
-互斥和部署可预测性问题，仍是当前已上线架构。
+`pixishelf-worker` 和全局并发 1。该约束解决了任务资源范围不清晰、多个旧消费者重叠、媒体根目录写入
+互斥和部署可预测性问题；本 ADR 已实施并只修订其执行槽范围。
 
 归档收件队列引入一种边界更窄的工作：`ARCHIVE_RESOLVE_ITEM` 只校验 Provider URL、读取远端元数据并冻结
 媒体计划，不写原媒体、派生媒体、staging 或发布目录。若它继续与 `ARCHIVE_IMPORT`、扫描、迁移、FFmpeg
@@ -134,8 +135,8 @@ PixiShelf 接受最多两个不同资源类别的后台任务同时推进，以�
 
 ## Rollout
 
-本 ADR 是已接受的目标决策，但在
-[归档收件队列设计](../design/archive-intake-queue.md)完成迁移、并发测试和运行验证前，不描述当前行为。
+本 ADR 已随[归档收件箱](../features/archive-intake.md)完成实现。原发布步骤保留如下，作为理解 lane migration
+为何构成旧 Worker 回滚边界的历史依据。
 
 实现必须：
 

@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前 workspace、运行组件、依赖方向、数据边界和关键调用链
-last-verified: 2026-08-18
+last-verified: 2026-08-19
 sources:
   - package.json
   - pnpm-workspace.yaml
@@ -14,7 +14,7 @@ sources:
 
 # PixiShelf 当前架构
 
-本文只描述 `v0.36.3` 已存在的系统事实。未来方案保留在 `draft` 功能规格或 ADR 中；历史切换过程保留在 `docs/archive/` 和 `docs/deployment/`，不得混入本文。
+本文只描述当前代码与部署基线。未来方案保留在 `draft` 功能规格或 ADR 中；历史切换过程保留在 `docs/archive/` 和 `docs/deployment/`，不得混入本文。
 
 ## 系统定位与边界
 
@@ -28,7 +28,7 @@ PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系�
 - 原媒体和派生媒体使用宿主机文件系统挂载；
 - ImgProxy 只读访问媒体并提供图片转换；
 - 可选 scheduler 定期调用 App 的内部接口；
-- 旧 `archive-worker` 只保留为阶段 8 完成前的回滚兼容消费者，不属于生产稳态。
+- 一个通用 Worker 进程内运行归档解析与后台写入两个固定资源通道。
 
 项目没有多租户、分布式 Worker 集群或 Kubernetes 运行承诺。
 
@@ -42,7 +42,7 @@ flowchart LR
   App[Next.js App\nWeb + API + tRPC]
   Database[(PostgreSQL)]
   Queue[(SystemJob queue)]
-  Worker[通用 Worker\nCentral Dispatcher]
+  Worker[通用 Worker\n双 Dispatcher lane]
   Source[(原媒体目录)]
   Derived[(派生媒体目录)]
   ImgProxy[ImgProxy]
@@ -61,19 +61,18 @@ flowchart LR
   User -->|图片请求| ImgProxy
 ```
 
-| 组件           | 当前职责                                                             | 不负责                                         |
-| -------------- | -------------------------------------------------------------------- | ---------------------------------------------- |
-| Next.js App    | 页面、Better Auth、tRPC/HTTP API、业务控制面、任务创建与状态读取     | 生产稳态下不消费中央后台队列                   |
-| PostgreSQL     | 领域数据、认证会话、任务队列、租约、事件、审计和迁移历史             | 不保存原媒体二进制                             |
-| 通用 Worker    | 领取一个中央队列任务，执行扫描、归档、迁移、替换、维护和视频派生任务 | 不执行 Prisma migration，不提供用户界面        |
-| scheduler      | 周期性调用 `/api/internal/scheduler/tick`                            | 不访问数据库，不执行业务任务                   |
-| ImgProxy       | 只读处理原图片和静态派生媒体                                         | 不生成视频代表帧，不修改原媒体                 |
-| 文件系统       | 保存原媒体、归档 staging/发布目录和派生媒体                          | 不替代数据库中的身份、状态和审计事实           |
-| archive-worker | 兼容旧消费者和应用级回滚                                             | 不得与已启用 Dispatcher 的通用 Worker 同时消费 |
+| 组件        | 当前职责                                                                         | 不负责                                  |
+| ----------- | -------------------------------------------------------------------------------- | --------------------------------------- |
+| Next.js App | 页面、Better Auth、tRPC/HTTP API、业务控制面、任务创建与状态读取                 | 生产稳态下不消费中央后台队列            |
+| PostgreSQL  | 领域数据、认证会话、任务队列、租约、事件、审计和迁移历史                         | 不保存原媒体二进制                      |
+| 通用 Worker | 按 lane 领取任务；串行解析 URL，并串行执行扫描、归档、迁移、替换、维护和视频派生 | 不执行 Prisma migration，不提供用户界面 |
+| scheduler   | 周期性调用 `/api/internal/scheduler/tick`                                        | 不访问数据库，不执行业务任务            |
+| ImgProxy    | 只读处理原图片和静态派生媒体                                                     | 不生成视频代表帧，不修改原媒体          |
+| 文件系统    | 保存原媒体、归档 staging/发布目录和派生媒体                                      | 不替代数据库中的身份、状态和审计事实    |
 
 ## Workspace 责任与依赖
 
-仓库由 `pnpm-workspace.yaml` 纳入 `packages/*`。当前有十个含 `package.json` 的 workspace：
+仓库由 `pnpm-workspace.yaml` 纳入 `packages/*`。主运行链与外围工具使用以下 workspace：
 
 | Workspace                       | 责任                                                    |
 | ------------------------------- | ------------------------------------------------------- |
@@ -83,7 +82,6 @@ flowchart LR
 | `@pixishelf/job-runtime`        | 队列仓储、Worker 心跳、生命周期和运行时协议             |
 | `@pixishelf/job-executors`      | 归档、扫描、迁移、替换、维护和视频任务实现              |
 | `@pixishelf/worker`             | 独立进程入口、配置、预检、健康服务和 Central Dispatcher |
-| `@pixishelf/archive-worker`     | 阶段 8 前的旧消费者兼容实现                             |
 | `@pixishelf/extension`          | Pixiv 浏览器侧采集/下载工作流                           |
 | `@pixishelf/standalone-scanner` | 独立 Pixiv 元数据路径扫描服务                           |
 | `@pixishelf/zip-convert`        | Pixiv zip/APNG 转换工具                                 |
@@ -106,8 +104,6 @@ flowchart TD
   Executors --> Runtime
   Runtime --> Contracts
 
-  Legacy[@pixishelf/archive-worker] --> DB
-  Legacy --> Contracts
 ```
 
 浏览器扩展、独立扫描器和 zip 转换器不参与主应用的运行时依赖图。它们通过浏览器、HTTP 或文件系统工作流与主系统外围协作。
@@ -130,7 +126,7 @@ flowchart TD
 `JWT_SECRET`/`JWT_TTL` 仍存在于环境模板和遗留依赖中，但当前浏览器登录与服务端会话由 Better Auth 负责，不能继续把系统描述为“基于 JWT 的无状态认证”。
 `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 也只保留在环境模板中，当前首次账户由 `/login` 初始化 Action 创建。
 
-## 计划任务与后台执行
+## 归档收件与后台执行
 
 生产稳态使用两段开关：
 
@@ -153,7 +149,20 @@ sequenceDiagram
   W->>D: fenced terminal transition
 ```
 
-App 仍保留 `CENTRAL_DISPATCHER_CUTOVER_ENABLED=false` 的进程内兼容路径，生产稳态不应使用。Worker 使用 PostgreSQL 队列、租约和全局资源约束保证单任务执行；v1 没有可配置的并行 Worker 数量。
+生产稳态为 `true/true`；`false/false` 只用于暗启动和故障隔离。Worker 使用 PostgreSQL 队列、按 lane 的执行态唯一索引、资源租约和 lease token 围栏保证同 lane 单任务执行；并发数不提供环境变量配置。
+
+归档收件箱位于 `/admin/archive/inbox`。一次提交可以包含最多 100 个 URL，活动收件项目上限为 1000；链接持久化后按 FIFO 在 `ARCHIVE_RESOLVE` 中逐条解析。已就绪项目可以在其余项目解析期间多选入队，每个作品创建或复用一个独立 `ARCHIVE_IMPORT`。`/admin/archive` 提供任务分页、筛选、明细和当前页批量控制。完整流程见[归档收件箱](../features/archive-intake.md)。
+
+一个 Worker host 运行两个 Dispatcher loop：
+
+| Lane                | 固定并发 | 工作范围                                                  |
+| ------------------- | -------- | --------------------------------------------------------- |
+| `ARCHIVE_RESOLVE`   | 1        | 仅 `ARCHIVE_RESOLVE_ITEM`，不写原媒体、派生媒体或 staging |
+| `BACKGROUND_WRITER` | 1        | 其余 19 类 v1 job；所有媒体、扫描、迁移、替换和维护写操作 |
+
+两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 capability audit 精确验证 20 项 job type、definition version 与 lane。归档解析主要等待 HTTP 和 PostgreSQL，writer 主要等待文件流、Sharp/libvips 与 FFmpeg 子进程；异步等待允许同一 Node.js 事件循环交替推进两项工作，但不构成纯 JavaScript CPU 并行承诺。
+
+归档维护统一使用 writer lane 的 `ARCHIVE_MAINTENANCE`。每日 `02:05` 的 `RECONCILE` 发现到期 staging、孤立回收/恢复 intent 和到期回收站，为每个目标幂等创建 `CLEAN_STAGING`、`TRASH_ARCHIVE`、`RESTORE_ARCHIVE` 或 `PURGE_ARCHIVE` 子任务。每日 `02:15` 的 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 清理超过 30 天的终态收件/批量历史及过期预览会话，不删除领域归档、作品或媒体。
 
 Worker 启动前必须通过以下预检：
 
@@ -171,7 +180,7 @@ Worker 启动前必须通过以下预检：
 | 视频封面、章节图、代表帧 | `DERIVED_MEDIA_HOST_PATH`  | 可重建，但必须与数据库发布状态一致               |
 | 图片变体与请求缓存       | ImgProxy                   | 非权威、可重新生成                               |
 
-App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制；确需 App 写入的受控功能才切换为 `rw`。Worker 和兼容消费者使用读写挂载，ImgProxy 始终只读。
+App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制；归档收件只保存相对 staging 路径，实际挂载和可写预检由 Worker 负责。Worker 使用读写挂载，ImgProxy 始终只读。
 
 数据库和文件系统构成一个一致性整体。归档和派生媒体先写 staging 或新 generation，验证完成后再通过短事务发布，不能把半成品暴露为当前数据。
 
@@ -179,9 +188,8 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 
 - Web 镜像由 `build/Dockerfile` 构建，启动入口执行 `prisma migrate deploy` 后启动 Next.js standalone 服务；
 - Worker 镜像由 `build/worker.Dockerfile` 构建，不包含主应用源码，不执行 migration；
-- 旧消费者由 `build/archive-worker.Dockerfile` 构建，仅用于兼容回滚；
-- `build/docker-compose.dev.yml` 默认启动 PostgreSQL、ImgProxy 和通用 Worker，App/scheduler/旧消费者受 profile 控制；
-- `build/docker-compose.deploy.yml` 仍声明旧 `archive-worker` 且未设置 profile，因此生产稳态必须显式停止它，不能依赖无参数 `docker compose up -d` 自动得到正确消费者集合。
+- `build/docker-compose.dev.yml` 默认启动 PostgreSQL、ImgProxy 和通用 Worker，App/scheduler 受 profile 控制；
+- `build/docker-compose.deploy.yml` 的生产服务为 PostgreSQL、App、通用 Worker、scheduler 和 ImgProxy，不包含旧归档消费者。
 
 当前操作流程见[部署基线](../operations/deployment.md)，镜像与挂载细节见 [Build 与部署](../../build/README.md)。
 数据库与媒体的一致性检查点和恢复演练见[备份与恢复基线](../operations/backup-and-recovery.md)。
@@ -189,9 +197,9 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 ## 当前不变量
 
 1. 外部来源引用不能定义本地 Artwork 身份。
-2. 同一时间只允许一个 Central Dispatcher 任务执行。
+2. 同一时间每个执行 lane 最多一个任务；只允许一个 resolver 和一个 writer，所有媒体写仍全局串行。
 3. 通用 Worker 未通过 READY 和 capability 检查时不得恢复调度。
-4. 旧 `archive-worker` 与启用 Dispatcher 的通用 Worker 不得同时消费。
+4. 生产 capability inventory 固定为 20 项 v1；任务类型、definition version 与 lane 必须精确匹配。
 5. 普通启动和升级使用 `prisma migrate deploy`，不得用 `db:push` 替代 migration 历史。
 6. 原媒体、派生媒体和数据库需要在一致时间点备份和恢复。
 7. 网络下载、FFmpeg 和文件复制不得放在长数据库事务中。
@@ -206,6 +214,8 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 - [ADR-0001：来源引用与本地身份分离](../adr/0001-separate-source-references-from-local-identity.md)
 - [ADR-0002：持久 Worker 与原子归档发布](../adr/0002-use-a-durable-worker-and-atomic-archive-publication.md)
 - [ADR-0003：统一后台任务 Worker](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)
+- [ADR-0004：归档解析独立资源通道](../adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)
+- [归档收件箱](../features/archive-intake.md)
 - [阶段 1–7 切换记录](../deployment/background-task-cutover-deployment.md)
 - [旧系统设计](../archive/system-design-legacy.md)
 - [旧调度架构](../archive/scheduler-architecture-legacy.md)

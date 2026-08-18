@@ -1,9 +1,9 @@
 ---
-status: draft
+status: historical
 decision-status: accepted
 scope: URL 归档收件队列、持久解析、批量入队、归档任务批量控制与 Worker 资源通道
-last-verified: 2026-08-18
-current-source: ../architecture/current-architecture.md
+last-verified: 2026-08-19
+implemented-by: ../features/archive-intake.md
 related:
   - ./multi-source-url-archive.md
   - ../adr/0002-use-a-durable-worker-and-atomic-archive-publication.md
@@ -13,9 +13,9 @@ related:
 
 # PixiShelf 归档收件队列设计
 
-> 决策于 2026-08-18 确认。本文件描述尚未实现的目标状态，不得用来解释当前部署行为。
-> 当前 `/admin/archive` 仍是单链接同步解析流程；已上线事实以
-> [当前架构](../architecture/current-architecture.md)、代码和 Prisma Schema 为准。
+> 决策于 2026-08-18 确认，并在 2026-08-19 的归档收件箱切换中实施。本文件保留需求取舍、
+> 实施切片与验收设计，不再作为当前接口或运维说明；已上线事实见
+> [归档收件箱](../features/archive-intake.md)、当前架构、代码和 Prisma Schema。
 
 ## 1. 结论
 
@@ -504,15 +504,5 @@ maintenance workflow，不能通过 UI 循环调用单项 action 伪装成已支
 本文件是功能和实施规格；Provider、Revision、Manifest、原子发布、回收站和本地身份继续以
 [多来源 URL 归档设计](./multi-source-url-archive.md)及相关 ADR 为设计基础。
 
-实现完成前：
-
-- 不修改 [当前架构](../architecture/current-architecture.md) 中的单全局执行槽事实；
-- 不修改 [权限与接口边界](../security/access-control.md) 的当前路由矩阵；
-- 不把 intake 字段写进 `current` 领域词汇作为已上线事实。
-
-实现并验证后：
-
-- 将 Worker lane、页面路由、tRPC 和权限矩阵写入 current 文档；
-- 将精确字段和 enum 以 Prisma、Zod 和 TypeScript 为最终事实；
-- 将本文件标为 `current` 或提炼成 current 功能说明；
-- 归档旧单链接流程说明，避免两个“当前行为”并存。
+实现后的当前行为已经提炼到[归档收件箱](../features/archive-intake.md)。本文中的“建议字段”、切片顺序和
+发布验收继续作为历史决策依据；精确字段和 enum 以 Prisma、Zod 和 TypeScript 为最终事实。

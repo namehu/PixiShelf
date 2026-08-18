@@ -10,6 +10,7 @@ PixiShelf 是一个本地优先、自托管的个人媒体收藏系统。它把�
 - 管理作品、艺术家、系列、标签、来源引用和本地整理结果；
 - 提供响应式画廊、筛选、详情页和沉浸浏览；
 - 通过持久 PostgreSQL 队列执行扫描、归档、迁移、替换和媒体维护；
+- 通过持久归档收件箱持续添加 URL、FIFO 解析并多选入队；
 - 使用 FFmpeg/FFprobe 预生成视频封面、章节图和代表帧；
 - 使用 ImgProxy 只读处理原图片和静态派生媒体；
 - 使用 Better Auth 数据库会话保护 Web 与管理界面；
@@ -21,11 +22,10 @@ PixiShelf 是一个本地优先、自托管的个人媒体收藏系统。它把�
 | ---------------------------- | -------------------------------------------------- |
 | `@pixishelf/next`            | Next.js 16 Web、API、tRPC、认证与任务控制面        |
 | PostgreSQL / `@pixishelf/db` | Prisma Schema、migration、领域数据、会话与任务队列 |
-| `@pixishelf/worker`          | 单通用 Worker 和 Central Dispatcher                |
+| `@pixishelf/worker`          | 单通用 Worker；解析与 writer 两个固定执行 lane     |
 | `@pixishelf/job-*`           | 后台任务契约、运行时和 Executor                    |
 | ImgProxy                     | 只读图片与派生媒体处理                             |
 | scheduler                    | 可选定时 tick，只调用 App，不直接访问数据库        |
-| `archive-worker`             | 阶段 8 前的回滚兼容消费者，生产稳态必须停止        |
 
 完整组件图、workspace 依赖和数据流见[当前架构](./docs/architecture/current-architecture.md)。
 
@@ -123,6 +123,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 ```
 
 Worker 必须通过 READY 和 capability 检查。后台任务页面应只显示一个当前 READY 实例。
+当前 capability inventory 为 20 项 v1；READY 必须覆盖 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个 lane。
 
 ### 6. 启动 Next.js
 
@@ -195,7 +196,7 @@ CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类�
 
 ## 生产部署
 
-生产发布不能简化成无参数的 `docker compose up -d`：生产 Compose 仍包含回滚兼容 `archive-worker`，而生产稳态只允许通用 Worker 消费。
+生产只有一个通用 Worker 服务。它允许一项归档 URL 解析与一项 writer 工作同时推进，但所有媒体写仍在 writer lane 全局串行。执行 lane migration 前必须停止写入者、运行专用 audit 并建立数据库与媒体一致性检查点；迁移后不能启动旧消费者。
 
 日常更新可以使用一键脚本，它会按 App migration → Worker READY/capability 的顺序更新同一版本的两个镜像，并在存在执行中任务时默认拒绝操作：
 
@@ -208,8 +209,10 @@ sudo bash ./scripts/update-production.sh
 - [部署基线](./docs/operations/deployment.md)；
 - [备份与恢复基线](./docs/operations/backup-and-recovery.md)；
 - [Build 与部署资产](./build/README.md)；
+- [归档收件箱](./docs/features/archive-intake.md)；
+- [归档收件箱切换记录](./docs/deployment/archive-intake-cutover-deployment.md)；
 - [阶段 1–7 切换记录](./docs/deployment/background-task-cutover-deployment.md)；
-- [兼容回滚手册](./docs/deployment/background-task-cutover-rollback.md)。
+- [历史兼容回滚手册](./docs/deployment/background-task-cutover-rollback.md)。
 
 ## 仓库结构
 
@@ -221,7 +224,6 @@ packages/
 ├── pixishelf-job-runtime/     队列与 Worker 运行时
 ├── pixishelf-job-executors/   后台任务实现
 ├── pixishelf-worker/          通用 Worker 进程
-├── pixishelf-archive-worker/  回滚兼容消费者
 ├── pixishelf-extension/       WXT 浏览器扩展
 ├── pixiv-standalone-scanner/  独立元数据路径扫描服务
 └── zip-convert/               Pixiv zip/APNG 转换工具
@@ -241,6 +243,7 @@ todos/                         尚待收敛的旧 TODO 与技术债材料
 - [权限与接口边界](./docs/security/access-control.md)：调用者、页面、API、服务与存储权限；
 - [测试策略](./docs/development/testing-strategy.md)：按变更类型选择验证范围并理解 CI 缺口；
 - [备份与恢复](./docs/operations/backup-and-recovery.md)：备份集合、恢复目标和演练门禁；
+- [归档收件箱](./docs/features/archive-intake.md)：持续添加、双 lane、批量控制、维护和保留边界；
 - [代理规则](./agents.md)：文件命名、测试组织、验证和文档门禁；
 - [当前待办](./TODO.md)：下一步可执行工作。
 

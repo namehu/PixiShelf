@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 的目标用户、核心场景、产品范围、非目标和长期产品承诺
-last-verified: 2026-08-18
+last-verified: 2026-08-19
 sources:
   - README.md
   - CONTEXT.md
@@ -51,7 +51,7 @@ PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档�
 
 ### 导入与来源
 
-- 支持 Pixiv 目录扫描、本地目录导入、URL 归档、Webhook 触发和手工管理；
+- 支持 Pixiv 目录扫描、本地目录导入、持久 URL 归档收件、Webhook 触发和手工管理；
 - 来源 Provider 与 Creation Method 分离；
 - 一个 Artwork 可以保留多个可信来源引用；
 - 无法可靠判断来源的历史数据保持 Unknown Origin，不默认猜测为 Pixiv；
@@ -66,7 +66,7 @@ PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档�
 
 ### 后台处理
 
-- 长任务通过 PostgreSQL 持久队列和单通用 Worker 执行；
+- 长任务通过 PostgreSQL 持久队列和单通用 Worker 执行；Worker 内一个归档解析 lane 与一个媒体写 lane 各自固定并发 1；
 - 扫描、归档、迁移、替换、维护和视频派生处理具有可恢复状态；
 - scheduler 只物化计划任务，不直接执行业务；
 - 视频封面、章节图和代表帧预生成后发布，用户请求不触发实时视频截帧。
@@ -82,7 +82,7 @@ PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档�
 5. 删除、替换、迁移和恢复原媒体必须是显式、可审计且具备回滚依据的操作。
 6. 数据库与文件系统构成一致性整体，备份和恢复不能只处理其中一侧。
 7. 长任务不能依赖一次浏览器连接或 Next.js 进程内的 fire-and-forget promise 保证完成。
-8. 生产稳态只允许一个通用 Worker 消费中央队列。
+8. 生产稳态只允许一个通用 Worker；归档解析与 writer 各自最多一个任务，所有媒体写任务仍全局串行。
 9. 可重新生成的缩略图和派生媒体不能反过来成为原媒体的唯一副本。
 10. 当前事实、未来方案和历史实现必须在文档中明确区分。
 
@@ -166,3 +166,5 @@ PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档�
 - [ADR-0001](../adr/0001-separate-source-references-from-local-identity.md)
 - [ADR-0002](../adr/0002-use-a-durable-worker-and-atomic-archive-publication.md)
 - [ADR-0003](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)
+- [ADR-0004](../adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)
+- [归档收件箱](../features/archive-intake.md)

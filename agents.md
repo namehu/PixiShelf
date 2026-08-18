@@ -9,8 +9,7 @@ PixiShelf is a pnpm workspace for a personal web gallery that manages local imag
 - `packages/pixishelf`: main Next.js app, API routes, admin UI, gallery UI, and job control plane.
 - `packages/pixishelf-db`: Prisma schema, migrations, generated database client, and schema guards.
 - `packages/pixishelf-job-contracts`, `packages/pixishelf-job-runtime`, `packages/pixishelf-job-executors`: shared background-job contracts, runtime, and executor implementations.
-- `packages/pixishelf-worker`: standalone Central Dispatcher Worker.
-- `packages/pixishelf-archive-worker`: legacy rollback consumer; it is not part of the production steady state.
+- `packages/pixishelf-worker`: standalone Central Dispatcher Worker with separate archive-resolve and background-writer lanes.
 - `packages/pixishelf-extension`: WXT browser extension for PixiShelf download workflows.
 - `packages/pixiv-standalone-scanner`: small Express service for Pixiv metadata paths.
 - `packages/zip-convert`: Express/Node utilities for converting Pixiv zip/APNG assets.

@@ -1,7 +1,7 @@
 ---
 status: current
 scope: Prisma Schema 之外由 migration 实现的扩展、触发器、索引和维护约束
-last-verified: 2026-08-18
+last-verified: 2026-08-19
 sources:
   - schema.prisma
   - migrations/
@@ -101,9 +101,11 @@ sources:
 - (`artworkId`, `mediaType`) 与 (`artworkId`, `sortOrder`, `id`) 目前仅为候选索引。只有生产执行计划证明现有单列/唯一索引不足时才创建，避免增加无依据的写入和存储成本。
 - 历史字段 `Image.webpAnimationStatus` 继续作为动画内容探测状态使用，现覆盖 WebP、GIF、PNG/APNG；探测任务同时把 `mediaType` 纠正为 `IMAGE` 或 `ANIMATION`。
 
-### 3.5 后台任务队列索引
+### 3.5 后台任务队列与执行 lane 索引
 
-- `system_jobs(status, effectivePriority, availableAt, createdAt)` 是单 Worker dispatcher 的领取索引；优先级越小越先执行。
+- `system_jobs(executionLane, status, effectivePriority, availableAt, createdAt)` 是按 lane 的领取索引；优先级越小越先执行。
+- `system_jobs_single_executing_per_lane_idx` 是执行态部分唯一索引，保证 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 各自最多一条 `RUNNING/PAUSING/CANCELLING` 记录。它允许一项 resolver 和一项 writer 同时执行，但不允许同 lane 双执行。
+- `system_jobs_type_execution_lane_check` 固定 job type 到 lane：只有 `ARCHIVE_RESOLVE_ITEM` 可以进入 `ARCHIVE_RESOLVE`，其他任务全部进入 `BACKGROUND_WRITER`。
 - `system_jobs(status, deadlineAt)` 用于自动窗口过期，`system_jobs(status, leaseExpiresAt)` 用于崩溃租约恢复。
 - `system_jobs(scheduledTaskId, scheduledForDate)` 唯一约束防止每日计划重复物化；`system_jobs(idempotencyKey)` 为可空 API 幂等键。
 - `system_job_events(jobId, id)` 支持按全局递增游标读取单任务时间线。
@@ -129,7 +131,24 @@ sources:
 
 两条新 migration 都使用显式事务。结构 migration 的第一项业务语句是只读 guard：若旧 `scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
 
-Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 共 17 项 v1 capability。本阶段不需要额外 schema migration：`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁将其与 17 项期望清单精确比较；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
+Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，当前 Registry 为 20 项 v1。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
+
+### 3.7 归档收件与 Provider 请求治理
+
+`20260818120000_add_archive_intake_worker_lanes` 在同一次协调切换中增加收件持久结构和执行 lane：
+
+| 结构                              | 语义与关键约束                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------------ |
+| `archive_intake_submissions`      | 一次添加操作；幂等键唯一，计数字段受 CHECK，后续增加固定长度请求 hash          |
+| `archive_intake_items`            | 全局 FIFO 项；`queueOrder` 唯一，活动 URL hash 和 Provider identity 有条件唯一 |
+| `archive_bulk_operations` / items | 批量入队/控制的持久命令与逐项目标结果；幂等键及目标组合唯一                    |
+| `archive_resolve_queue_control`   | 单例暂停 intent 与审计时间，不依赖浏览器内存                                   |
+| `archive_provider_throttles`      | 跨 lane、跨重启保存 Provider 下一请求时间和 penalty                            |
+| `archive_provider_request_leases` | 协调解析与下载的 Provider 请求预算和过期租约                                   |
+
+lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING/CANCELLING` 的 `SystemJob`，或存在未过期的 `global/background-worker` lease 时立即失败且不执行 DDL。所有既有任务通过新列默认值成为 `BACKGROUND_WRITER`；过期旧全局 lease 在 guard 后删除。迁移替换全局执行唯一索引，因此应用后不得再启动不理解 lane 的旧 Worker。
+
+`20260818170000_add_archive_operation_request_hashes` 为 submission 和 bulk command 增加请求 hash，使同一幂等键只有请求内容完全一致时才可重放。`20260818180000_add_archive_maintenance_worker_job` 增加维护任务必须位于 writer lane 的命名 CHECK。`20260818190000_add_archive_intake_retention_cleanup` 为已完成批量操作的 30 天清理增加索引；实际清理由有围栏的 writer job 分批执行，不通过级联关系删除 `SystemJob`、归档领域实体或媒体。
 
 ## 4. 审计与维护 (Audit & Maintenance)
 
@@ -184,3 +203,7 @@ Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 
 | `20260815001000` | 新增视频封面 backlog 公平游标及探测/封面复合索引；复合索引显式映射为 `MediaVideoMetadata_poster_backlog_idx`，避免 PostgreSQL 63 字节标识符截断 |
 | `20260815010000` | 在独立事务中扩展扫描运行、扫描单项、批量替换 batch/item 的暂停、重试和恢复状态；不混入结构 DDL                                                  |
 | `20260815011000` | 为四类高风险任务新增冻结输入、单项/文件检查点、批量替换操作绑定、迁移阶段状态、约束和恢复索引；部署前拒绝重复旧 ownership 数据                  |
+| `20260818120000` | 守卫执行态和旧全局 lease，增加双 lane、按 lane 唯一执行索引、持久收件/批量审计/Provider 限流结构及外键                                          |
+| `20260818170000` | 为归档 submission 与 bulk operation 增加请求 hash 和长度 CHECK，确保幂等键重放不会接受不同请求                                                  |
+| `20260818180000` | 验证 `ARCHIVE_MAINTENANCE` 只能位于 `BACKGROUND_WRITER`                                                                                         |
+| `20260818190000` | 为 30 天收件历史保留清理增加已完成批量操作时间索引                                                                                              |

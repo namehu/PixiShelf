@@ -1,13 +1,13 @@
 ---
 status: current
 scope: PixiShelf 单实例的备份集合、恢复目标、验证演练和灾难恢复边界
-last-verified: 2026-08-18
+last-verified: 2026-08-19
 sources:
   - build/docker-compose.deploy.yml
   - build/.env.example
   - packages/pixishelf-db/prisma/schema.prisma
   - docs/operations/deployment.md
-  - docs/deployment/background-task-cutover-rollback.md
+  - docs/features/archive-intake.md
 ---
 
 # PixiShelf 备份与恢复基线
@@ -37,7 +37,7 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 | 原媒体     | `PIXISHELF_DATA_PATH` 对应的同时间点快照           | 不可重新生成，是最高优先级数据                        |
 | 派生媒体   | `DERIVED_MEDIA_HOST_PATH` 对应的同时间点快照       | 多数可重建，但数据库保存发布指针和生成状态            |
 | 部署配置   | `build/.env`、实际 Compose、反向代理配置           | 含密钥和真实路径，必须加密或严格限制权限              |
-| 程序版本   | App、Worker、兼容镜像的 tag、image ID 或 digest    | 不依赖可变 `latest` 猜测恢复版本                      |
+| 程序版本   | App、Worker 的 tag、image ID 或 digest             | 不依赖可变 `latest` 猜测恢复版本                      |
 | 备份清单   | 时间、实例、文件名、SHA-256、快照 ID、操作者、原因 | 用于证明各部分属于同一恢复点                          |
 
 数据库 dump、媒体快照和配置副本必须通过同一个备份清单关联。文件名相似或处于同一天，不足以证明它们来自同一时间点。
@@ -65,7 +65,7 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 
 1. 停止 scheduler，禁止新计划任务物化；
 2. 等待活动任务进入安全终态，或通过业务入口取消并完成恢复；
-3. 停止 App、通用 Worker 和兼容 `archive-worker`；
+3. 停止 App 和通用 Worker；
 4. 停止 Webhook、独立扫描器和所有外部写入脚本；
 5. 确认没有进程继续写数据库、原媒体或派生媒体；
 6. 在停写窗口内创建数据库 dump 和两个媒体快照；
@@ -75,7 +75,7 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 
 ```bash
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop scheduler
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop app worker archive-worker
+docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop app worker
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml ps -a
 ```
 
@@ -159,7 +159,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 
 只有服务重启、应用回滚和领域级修复都不能证明数据一致时，才进入完整恢复：
 
-1. 停止 scheduler、App、两个 Worker 和所有外部写入者；
+1. 停止 scheduler、App、通用 Worker 和所有外部写入者；
 2. 保存事故现场：数据库 dump、容器日志、任务/事件清单和本次新增文件；
 3. 确定恢复点，并核对数据库、原媒体、派生媒体、配置和镜像属于同一备份集合；
 4. 在隔离环境完成一次数据库恢复和媒体抽样；
@@ -168,12 +168,24 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 7. 将数据库恢复到新建的空库或新实例；
 8. 恢复匹配版本的配置和不可变镜像，不混用旧数据库与不兼容的新应用；
 9. scheduler 保持关闭，两枚 Dispatcher 开关先保持 `false/false`；
-10. 验证 migration、登录、目录查询、原图、视频、派生媒体、任务状态和单消费者边界；
+10. 验证 migration、登录、目录查询、原图、视频、派生媒体、任务状态、两个 lane 与 20 项 capability；
 11. 再按[部署基线](./deployment.md)明确启动正确消费者和 scheduler。
 
 正式数据库恢复禁止对仍有应用连接的生产库直接执行 `pg_restore --clean`。推荐恢复到新建空库并显式切换连接；数据库名、所有者、扩展和权限必须与目标版本要求一致。
 
-阶段 8 完成前，后台任务架构相关恢复还必须遵守[兼容回滚手册](../deployment/background-task-cutover-rollback.md)；尤其不能让 `archive-worker` 和已启用 Dispatcher 的通用 Worker 同时消费。
+执行 lane migration 后，旧 `archive-worker` 和任何不理解双 lane 的 Worker 都不能在新 schema 上启动。服务级回滚必须使用兼容双 lane schema 的 App/Worker；若必须回到旧消费者，只能恢复归档收件箱切换前同一检查点的数据库、原媒体、派生媒体、配置和镜像。旧[兼容回滚手册](../deployment/background-task-cutover-rollback.md)仅用于理解更早发布，不能照搬到当前 schema。
+
+### 归档收件箱直切检查点
+
+双 lane 迁移会把全局执行索引和租约边界替换为按 lane 约束，是旧 Worker 的明确回滚边界。切换检查点除完整备份集合外还必须记录：
+
+- `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
+- 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
+- App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
+- 新 Worker READY、两个 lane、20 项 capability 和同 lane 单执行证据；
+- 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
+
+旧 `ArchivePreviewSession` 不要求在切换中转换；它由 30 天收件保留任务过期清理。收件历史清理不是备份策略，也不会删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision` 或媒体。
 
 ## 局部故障边界
 

@@ -2,16 +2,16 @@
 status: accepted
 date: 2026-08-14
 scope: PostgreSQL 持久队列上的单通用 Worker
-last-verified: 2026-08-18
+last-verified: 2026-08-19
 partially-superseded-by: ./0004-run-archive-resolution-in-a-separate-worker-lane.md
 ---
 
 # Unify background jobs under a durable single worker
 
-> 本 ADR 仍定义当前已上线架构。已接受但尚未实施的
+> 本 ADR 仍定义单通用 Worker、PostgreSQL 队列与执行围栏。已实施的
 > [ADR-0004](./0004-run-archive-resolution-in-a-separate-worker-lane.md)
-> 只修订“整个 Worker 全局最多一个 RUNNING job”为“解析与 writer 各一个固定 lane”；单 Worker、
-> PostgreSQL 队列、writer 全局串行和执行围栏决定保持不变。
+> 将“整个 Worker 全局最多一个 RUNNING job”修订为“解析与 writer 各一个固定 lane”；单 Worker、
+> writer 全局串行和执行围栏决定保持不变。
 
 ## Context
 

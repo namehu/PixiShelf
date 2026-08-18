@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 的统一领域语言、概念关系和业务不变量
-last-verified: 2026-08-18
+last-verified: 2026-08-19
 sources:
   - docs/product/product-baseline.md
   - packages/pixishelf-db/prisma/schema.prisma
@@ -42,8 +42,16 @@ _Avoid_: External ID, provider ID
 
 ## Archiving
 
+**Archive Intake Submission**:
+A durable record of one administrator action that adds one or more source URLs. It groups audit context but does not create a closed batch lifecycle or change global FIFO order.
+_Avoid_: Batch job, Archive Import
+
+**Archive Intake Item**:
+One durable URL-resolution entry in the global archive inbox FIFO. It may become ready, fail, be retried, or enqueue/reuse an Archive Import.
+_Avoid_: Archive Item, browser request
+
 **Archive Import**:
-A user-requested attempt to resolve a source URL and preserve its work, metadata, and media in PixiShelf.
+A durable, per-work attempt created or reused from a ready Archive Intake Item to preserve its frozen metadata and ordered media in PixiShelf.
 _Avoid_: Scan, download when referring to the whole operation
 
 **Archive Item**:
@@ -96,6 +104,10 @@ _Avoid_: Cache, imported metadata
 A durable execution record for one background operation, including its trigger, payload, state, progress, events, retry data, and terminal result.
 _Avoid_: Request, thread, task definition
 
+**Execution Lane**:
+A fixed Worker resource class attached to every System Job. `ARCHIVE_RESOLVE` permits one URL resolver; `BACKGROUND_WRITER` permits one globally serialized media/database writer.
+_Avoid_: Worker process, configurable concurrency pool
+
 **Scheduled Task**:
 A persisted schedule definition that may materialize a System Job in an eligible window. It is not itself a run.
 _Avoid_: Cron job instance, System Job
@@ -124,6 +136,7 @@ Series
         └── zero or more immutable Archive Revision
 
 Scheduled Task ──materializes──> System Job ──executes──> domain transition
+Archive Intake Submission ──groups──> Archive Intake Item ──enqueues/reuses──> Archive Import
 Source Media ──generates──> Derived Media ──publishes──> Published Generation
 ```
 
@@ -149,7 +162,7 @@ The important boundaries are:
 10. Deletion, replacement, migration, and restoration of original media require an explicit durable intent and audit trail.
 11. Database and filesystem state must be backed up and restored from a compatible point in time.
 12. A browser request or process log is not sufficient durability for a long-running operation.
-13. Production steady state has one queue-consuming general Worker; a legacy consumer cannot run beside an enabled Central Dispatcher.
+13. Production steady state has one queue-consuming general Worker with one resolver lane and one writer lane; all media writes remain globally serialized.
 14. An authenticated user is the instance administrator in the current single-user deployment. This is a deployment boundary, not a future multi-tenant authorization model.
 
 ## Data Classes
