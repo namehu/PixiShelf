@@ -2,7 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
 
-const latestRequiredMigration = '20260818120000_add_archive_intake_worker_lanes'
+const latestRequiredMigration = '20260818180000_add_archive_maintenance_worker_job'
 
 const requiredQueueObjects = [
   'archive_intake_items',

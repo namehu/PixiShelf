@@ -35,7 +35,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260818120000_add_archive_intake_worker_lanes' }],
+      [{ migrationName: '20260818180000_add_archive_maintenance_worker_job' }],
       [expectedIndex]
     ])
 
@@ -46,7 +46,7 @@ describe('database package', () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, archive_intake_items, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, system_job_events, worker_instances, migration:20260818120000_add_archive_intake_worker_lanes, index:system_jobs_single_executing_per_lane_idx'
+      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, archive_intake_items, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, system_job_events, worker_instances, migration:20260818180000_add_archive_maintenance_worker_job, index:system_jobs_single_executing_per_lane_idx'
     )
   })
 
@@ -63,7 +63,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260818120000_add_archive_intake_worker_lanes' }],
+      [{ migrationName: '20260818180000_add_archive_maintenance_worker_job' }],
       []
     ])
 
@@ -85,7 +85,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260818120000_add_archive_intake_worker_lanes' }],
+      [{ migrationName: '20260818180000_add_archive_maintenance_worker_job' }],
       [
         {
           ...expectedIndex,
@@ -112,7 +112,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260818120000_add_archive_intake_worker_lanes' }],
+      [{ migrationName: '20260818180000_add_archive_maintenance_worker_job' }],
       [{ ...expectedIndex, indexExpression: 'id' }]
     ])
 

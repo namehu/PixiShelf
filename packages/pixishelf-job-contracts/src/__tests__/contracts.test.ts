@@ -26,7 +26,8 @@ describe('job wire contracts', () => {
         'VIDEO_KEYFRAME_DISCOVERY',
         'VIDEO_KEYFRAME_GENERATION',
         'ARCHIVE_RESOLVE_ITEM',
-        'ARCHIVE_IMPORT'
+        'ARCHIVE_IMPORT',
+        'ARCHIVE_MAINTENANCE'
       ])
     )
     expect(TERMINAL_JOB_STATUSES).toContain('SKIPPED')
@@ -37,9 +38,24 @@ describe('job wire contracts', () => {
     expect(JOB_DEFINITION_VERSION).toBe(1)
     expect(executionLaneForJobType('ARCHIVE_RESOLVE_ITEM')).toBe('ARCHIVE_RESOLVE')
     expect(executionLaneForJobType('ARCHIVE_IMPORT')).toBe('BACKGROUND_WRITER')
+    expect(executionLaneForJobType('ARCHIVE_MAINTENANCE')).toBe('BACKGROUND_WRITER')
     expect(parseJobPayload('ARCHIVE_RESOLVE_ITEM', { intakeItemId: 'intake-1' })).toEqual({
       intakeItemId: 'intake-1'
     })
+    expect(parseJobPayload('ARCHIVE_MAINTENANCE', { action: 'CLEAN_STAGING', archiveImportId: 'import-1' })).toEqual({
+      action: 'CLEAN_STAGING',
+      archiveImportId: 'import-1'
+    })
+    expect(parseJobPayload('ARCHIVE_MAINTENANCE', { action: 'TRASH_ARCHIVE', artworkId: 7 })).toEqual({
+      action: 'TRASH_ARCHIVE',
+      artworkId: 7
+    })
+    expect(() =>
+      parseJobPayload('ARCHIVE_MAINTENANCE', {
+        action: 'RESTORE_ARCHIVE',
+        archiveImportId: 'wrong-target'
+      })
+    ).toThrow()
   })
 
   it('publishes one immutable media extension vocabulary including m4v', () => {

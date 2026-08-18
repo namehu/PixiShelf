@@ -10,6 +10,7 @@ import {
 } from '@/services/archive/archive-bulk-operation'
 import { requireArchiveStorageRoot } from '@/services/archive/config'
 import { ArchiveError } from '@/services/archive/errors'
+import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from '@/services/archive/publisher'
 import { redactArchiveText } from '@/services/archive/archive-redaction'
 import { buildArchiveStoragePaths } from '@/services/archive/storage'
 import type { ResolvedArchive } from '@/services/archive/types'
@@ -222,6 +223,9 @@ async function enqueueOne(
     return { result: 'CONFLICT', code: 'IDENTITY_MISMATCH', message: '解析快照身份不一致，请重新解析' }
   }
 
+  // runArchiveBulkOperation 已先取得稳定 target lock；随后统一取得 publish lock，保持
+  // target -> publish 的固定顺序，并与 trash/restore/publication 串行化身份与生命周期裁决。
+  await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
   const active = await findActiveImport(transaction, item.providerKey, item.externalId)
   if (active) {
     // 同一作品已有活动归档任务时，入队动作复用已有任务而不是创建重复任务。

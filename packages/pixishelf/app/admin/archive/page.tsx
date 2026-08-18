@@ -1,14 +1,17 @@
+import { Suspense } from 'react'
 import { ArchiveManagement } from './_components/archive-management'
 import { AdminWorkbench } from '../_components/admin-workbench'
 
 export const metadata = {
-  title: '链接归档 - PixiShelf Admin'
+  title: '归档任务 - PixiShelf Admin'
 }
 
 export default function ArchivePage() {
   return (
-    <AdminWorkbench title="链接归档" description="从外部作品链接下载、追踪并归档内容。">
-      <ArchiveManagement />
+    <AdminWorkbench title="归档任务" description="筛选、追踪并批量控制作品归档任务。">
+      <Suspense fallback={null}>
+        <ArchiveManagement />
+      </Suspense>
     </AdminWorkbench>
   )
 }

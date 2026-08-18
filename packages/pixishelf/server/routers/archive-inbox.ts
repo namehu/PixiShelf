@@ -7,6 +7,8 @@ import {
   createArchiveIntakeSubmission,
   getArchiveIntakeSummary,
   listArchiveIntakeItems,
+  replaceArchiveIntakeItem,
+  replaceArchiveIntakeSchema,
   retryArchiveIntakeMany,
   setArchiveIntakePaused
 } from '@/services/archive-intake/archive-intake-service'
@@ -23,6 +25,10 @@ export const archiveInboxRouter = router({
   create: adminProcedure
     .input(createArchiveIntakeSchema)
     .mutation(({ input, ctx }) => runArchiveOperation(() => createArchiveIntakeSubmission(input, ctx.userId))),
+
+  replace: adminProcedure
+    .input(replaceArchiveIntakeSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => replaceArchiveIntakeItem(input, ctx.userId))),
 
   list: authProcedure
     .input(archiveIntakeListSchema)

@@ -2,6 +2,9 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
+import { Badge } from '@/components/ui/badge'
+import { useTRPC } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import { adminNavigationGroups, isAdminNavigationItemActive } from '../_constant'
 
@@ -12,6 +15,16 @@ interface AdminNavProps {
 
 export function AdminNav({ className, onNavigate }: AdminNavProps) {
   const pathname = usePathname()
+  const trpc = useTRPC()
+  const archiveSummaryQuery = useQuery(
+    trpc.archiveInbox.summary.queryOptions(undefined, {
+      retry: false,
+      refetchInterval: (query) => ((query.state.data?.activeCount ?? 0) > 0 ? 1_500 : 8_000)
+    })
+  )
+  const archiveCounts = archiveSummaryQuery.data
+    ? { waiting: archiveSummaryQuery.data.queuedCount, failed: archiveSummaryQuery.data.counts.FAILED }
+    : null
 
   return (
     <nav aria-label="管理模块" className={cn('flex flex-col gap-5 p-4', className)}>
@@ -40,7 +53,29 @@ export function AdminNav({ className, onNavigate }: AdminNavProps) {
                   )}
                 >
                   <Icon className="size-4" aria-hidden="true" />
-                  <span>{item.title}</span>
+                  <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                  {item.href === '/admin/archive/inbox' && archiveCounts ? (
+                    <span className="ml-auto flex shrink-0 items-center gap-1" translate="no">
+                      {archiveCounts.waiting > 0 ? (
+                        <Badge
+                          variant="info"
+                          className="min-w-5 justify-center px-1.5 font-mono tabular-nums"
+                          aria-label={`归档收件箱等待 ${archiveCounts.waiting} 项`}
+                        >
+                          等 {compactCount(archiveCounts.waiting)}
+                        </Badge>
+                      ) : null}
+                      {archiveCounts.failed > 0 ? (
+                        <Badge
+                          variant="destructive"
+                          className="min-w-5 justify-center px-1.5 font-mono tabular-nums"
+                          aria-label={`归档收件箱失败 ${archiveCounts.failed} 项`}
+                        >
+                          失 {compactCount(archiveCounts.failed)}
+                        </Badge>
+                      ) : null}
+                    </span>
+                  ) : null}
                 </Link>
               )
             })}
@@ -49,4 +84,8 @@ export function AdminNav({ className, onNavigate }: AdminNavProps) {
       ))}
     </nav>
   )
+}
+
+function compactCount(count: number): string {
+  return count > 99 ? '99+' : String(count)
 }

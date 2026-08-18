@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
+  replace: vi.fn(),
   list: vi.fn(),
   summary: vi.fn(),
   pause: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock('@/lib/rate-limit', () => ({ rateLimiter: { check: vi.fn(() => true) } }
 vi.mock('@/services/archive-intake/archive-intake-service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/archive-intake/archive-intake-service')>()),
   createArchiveIntakeSubmission: mocks.create,
+  replaceArchiveIntakeItem: mocks.replace,
   listArchiveIntakeItems: mocks.list,
   getArchiveIntakeSummary: mocks.summary,
   setArchiveIntakePaused: mocks.pause,
@@ -66,6 +68,16 @@ describe('archive inbox authorization boundary', () => {
       service: mocks.pause
     },
     {
+      mutation: 'replace',
+      invoke: () =>
+        archiveInboxRouter.createCaller(unauthorized).replace({
+          idempotencyKey: 'replace-1',
+          itemId: 'item-1',
+          url: 'https://e-hentai.org/g/2/new-token/'
+        }),
+      service: mocks.replace
+    },
+    {
       mutation: 'resume',
       invoke: () => archiveInboxRouter.createCaller(unauthorized).resume(),
       service: mocks.pause
@@ -94,7 +106,14 @@ describe('archive inbox authorization boundary', () => {
   ])('rejects unauthenticated $mutation before its write service boundary', async ({ invoke, service }) => {
     await expect(invoke()).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     expect(service).not.toHaveBeenCalled()
-    for (const writeService of [mocks.create, mocks.pause, mocks.cancelMany, mocks.retryMany, mocks.enqueueMany]) {
+    for (const writeService of [
+      mocks.create,
+      mocks.replace,
+      mocks.pause,
+      mocks.cancelMany,
+      mocks.retryMany,
+      mocks.enqueueMany
+    ]) {
       expect(writeService).not.toHaveBeenCalled()
     }
   })

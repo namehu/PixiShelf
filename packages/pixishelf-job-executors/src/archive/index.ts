@@ -1,5 +1,6 @@
 export * from './errors.js'
 export * from './executor.js'
+export * from './maintenance-executor.js'
 export * from './provider-registry.js'
 export * from './provider-governor.js'
 export * from './resolver-executor.js'

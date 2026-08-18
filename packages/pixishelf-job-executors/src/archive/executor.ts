@@ -185,6 +185,9 @@ export async function executeArchiveImport(
     })
   } catch (error) {
     if (finalizationStarted) throw error
+    if (error instanceof ArchiveCleanupRequestedError) {
+      return releaseArchiveImportForCleanup(context, archiveImportId)
+    }
     return handleArchiveExecutionFailure(context, archiveImportId, error, dependencies, now())
   }
 }
@@ -202,6 +205,7 @@ async function startArchiveImport(
     if (!archiveImport || archiveImport.systemJobId !== context.job.id) {
       throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import payload is not bound to the claimed job')
     }
+    if (archiveImport.cleanupRequestedAt) throw new ArchiveCleanupRequestedError()
     if (!['PENDING', 'RUNNING'].includes(archiveImport.status)) {
       throw new ArchiveExecutorError('STATE_CONFLICT', `Archive import cannot start from ${archiveImport.status}`)
     }
@@ -210,7 +214,12 @@ async function startArchiveImport(
       data: { status: 'PENDING', startedAt: null, finishedAt: null }
     })
     const changed = await transaction.archiveImport.updateMany({
-      where: { id: archiveImport.id, systemJobId: context.job.id, status: { in: ['PENDING', 'RUNNING'] } },
+      where: {
+        id: archiveImport.id,
+        systemJobId: context.job.id,
+        status: { in: ['PENDING', 'RUNNING'] },
+        cleanupRequestedAt: null
+      },
       data: {
         status: 'RUNNING',
         startedAt: archiveImport.startedAt ?? startedAt,
@@ -220,7 +229,13 @@ async function startArchiveImport(
         errorMessage: null
       }
     })
-    if (changed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import start state changed')
+    if (changed.count !== 1) {
+      const latest = await transaction.archiveImport.findUnique({ where: { id: archiveImport.id } })
+      if (latest?.systemJobId === context.job.id && latest.status === 'PENDING' && latest.cleanupRequestedAt) {
+        throw new ArchiveCleanupRequestedError()
+      }
+      throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import start state changed')
+    }
     dependencies.logger?.info('archive.execution_started', { archiveImportId: archiveImport.id, jobId: context.job.id })
     return {
       ...archiveImport,
@@ -232,6 +247,32 @@ async function startArchiveImport(
       )
     }
   })
+}
+
+async function releaseArchiveImportForCleanup(
+  context: ArchiveExecutorContext,
+  archiveImportId: string
+): Promise<JobExecutionOutcome<ArchiveExecutionResult>> {
+  return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
+    const archiveImport = await scope.transaction.archiveImport.findUnique({ where: { id: archiveImportId } })
+    if (
+      !archiveImport ||
+      archiveImport.systemJobId !== context.job.id ||
+      archiveImport.status !== 'PENDING' ||
+      !archiveImport.cleanupRequestedAt
+    ) {
+      throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive cleanup release state changed', {
+        recoverable: true
+      })
+    }
+    await scope.release('Archive cleanup will run before import resumes')
+  })
+}
+
+class ArchiveCleanupRequestedError extends ArchiveExecutorError {
+  constructor() {
+    super('STATE_CONFLICT', 'Archive cleanup must run before import execution', { recoverable: true })
+  }
 }
 
 async function downloadArchiveItem(input: {

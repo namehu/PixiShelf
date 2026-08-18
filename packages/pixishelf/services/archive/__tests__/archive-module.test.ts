@@ -5,7 +5,9 @@ import type { ArchiveProvider, ResolvedArchive } from '../types'
 
 const { prismaMock, writeJobEventMock } = vi.hoisted(() => {
   const prismaMock = {
+    artwork: { findUnique: vi.fn(), updateMany: vi.fn() },
     artworkExternalRef: { findUnique: vi.fn() },
+    archiveRevision: { update: vi.fn() },
     archiveImport: {
       findFirst: vi.fn(),
       findMany: vi.fn(),
@@ -16,7 +18,7 @@ const { prismaMock, writeJobEventMock } = vi.hoisted(() => {
     },
     archiveImportItem: { findFirst: vi.fn(), findMany: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn() },
     archivePreviewSession: { deleteMany: vi.fn(), create: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
-    systemJob: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    systemJob: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     jobResourceLease: { deleteMany: vi.fn() },
     $queryRawUnsafe: vi.fn(),
     $transaction: vi.fn()
@@ -77,6 +79,7 @@ describe('archive module', () => {
     prismaMock.archivePreviewSession.deleteMany.mockResolvedValue({ count: 0 })
     prismaMock.systemJob.updateMany.mockResolvedValue({ count: 1 })
     prismaMock.archiveImport.updateMany.mockResolvedValue({ count: 1 })
+    prismaMock.artwork.updateMany.mockResolvedValue({ count: 1 })
     prismaMock.$queryRawUnsafe.mockResolvedValue([])
   })
 
@@ -291,13 +294,246 @@ describe('archive module', () => {
     expect(writeJobEventMock).toHaveBeenCalledTimes(2)
   })
 
-  it('returns cursor-based task item batches with stable source-page links', async () => {
+  it('atomically records cleanup intent and queues one central archive maintenance job', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    const task = {
+      id: 'import-central',
+      systemJobId: 'job-failed',
+      status: 'FAILED',
+      cleanupRequestedAt: null,
+      systemJob: { id: 'job-failed', status: 'FAILED', attempt: 1 }
+    }
+    prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(null)
+    prismaMock.systemJob.findUnique.mockResolvedValue(null)
+
+    await module.requestAction('import-central', 'DELETE_STAGING', { requestedByUserId: 'admin-1' })
+
+    expect(prismaMock.archiveImport.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'import-central', cleanupRequestedAt: null }),
+        data: expect.objectContaining({ cleanupRequestedAt: expect.any(Date), updatedAt: expect.any(Date) })
+      })
+    )
+    expect(prismaMock.systemJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: 'ARCHIVE_MAINTENANCE',
+        executionLane: 'BACKGROUND_WRITER',
+        requestedByUserId: 'admin-1',
+        parentJobId: 'job-failed',
+        queuePriority: 0,
+        effectivePriority: 0,
+        payload: { action: 'CLEAN_STAGING', archiveImportId: 'import-central' }
+      })
+    })
+    expect(writeJobEventMock).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({ type: 'job.queued', data: { action: 'CLEAN_STAGING' } })
+    )
+  })
+
+  it('reuses the active cleanup job instead of creating duplicate maintenance work', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    const intentAt = new Date('2026-08-18T01:00:00.000Z')
+    const task = {
+      id: 'import-central',
+      systemJobId: 'job-failed',
+      status: 'FAILED',
+      cleanupRequestedAt: intentAt,
+      systemJob: { id: 'job-failed', status: 'FAILED', attempt: 1 }
+    }
+    prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(null)
+    prismaMock.systemJob.findUnique.mockResolvedValue({ status: 'PENDING' })
+
+    await module.requestAction('import-central', 'DELETE_STAGING', { requestedByUserId: 'admin-1' })
+
+    expect(prismaMock.systemJob.findUnique).toHaveBeenCalledWith({
+      where: { idempotencyKey: `archive-maintenance:CLEAN_STAGING:import-central:${intentAt.getTime()}` },
+      select: { status: true }
+    })
+    expect(prismaMock.systemJob.create).not.toHaveBeenCalled()
+    expect(prismaMock.archiveImport.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('blocks central task controls while a staging cleanup intent exists', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    prismaMock.archiveImport.findUnique.mockResolvedValue({
+      id: 'import-central',
+      systemJobId: 'job-failed',
+      status: 'FAILED',
+      cleanupRequestedAt: new Date('2026-08-18T01:00:00.000Z'),
+      systemJob: { id: 'job-failed', status: 'FAILED', attempt: 1 }
+    })
+
+    await expect(
+      module.requestAction('import-central', 'RETRY', { requestedByUserId: 'admin-1' })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+
+    expect(prismaMock.systemJob.create).not.toHaveBeenCalled()
+    expect(prismaMock.archiveImport.updateMany).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['DELETE_ARCHIVE', 'ACTIVE', 'TRASHING', 'TRASH_ARCHIVE'],
+    ['RESTORE_ARCHIVE', 'TRASHED', 'RESTORING', 'RESTORE_ARCHIVE']
+  ] as const)(
+    'queues %s as an atomic lifecycle intent plus writer job',
+    async (action, state, nextState, payloadAction) => {
+      vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+      const task = {
+        id: 'import-central',
+        systemJobId: 'job-completed',
+        status: 'COMPLETED',
+        cleanupRequestedAt: null,
+        publishedArtworkId: 7,
+        systemJob: { id: 'job-completed', status: 'COMPLETED', attempt: 1 }
+      }
+      prismaMock.archiveImport.findUnique
+        .mockResolvedValueOnce(task)
+        .mockResolvedValueOnce(task)
+        .mockResolvedValueOnce(null)
+      prismaMock.systemJob.findUnique.mockResolvedValue(null)
+      prismaMock.archiveImport.findFirst.mockResolvedValue(null)
+      prismaMock.artwork.findUnique.mockResolvedValue({
+        id: 7,
+        createdVia: 'URL_ARCHIVE',
+        archiveLifecycleState: state,
+        deletedAt: state === 'ACTIVE' ? null : new Date('2026-08-18T00:00:00.000Z'),
+        updatedAt: new Date('2026-08-18T00:00:00.000Z'),
+        archiveRevisions: [
+          {
+            id: 'revision-1',
+            trashPath: state === 'ACTIVE' ? null : '.trash/archive/7/revision-1',
+            trashedAt: state === 'ACTIVE' ? null : new Date('2026-08-18T00:00:00.000Z'),
+            purgeAfter: null,
+            externalRef: { providerKey: 'test-provider', externalId: '42' }
+          }
+        ]
+      })
+
+      await module.requestAction('import-central', action, { requestedByUserId: 'admin-1' })
+
+      expect(prismaMock.artwork.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ archiveLifecycleState: nextState }) })
+      )
+      expect(prismaMock.systemJob.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          type: 'ARCHIVE_MAINTENANCE',
+          executionLane: 'BACKGROUND_WRITER',
+          queuePriority: 20,
+          effectivePriority: 20,
+          payload: { action: payloadAction, artworkId: 7 }
+        })
+      })
+    }
+  )
+
+  it('reuses an active artwork maintenance job for a repeated lifecycle request', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    const intentAt = new Date('2026-08-18T02:00:00.000Z')
+    const task = {
+      id: 'import-central',
+      systemJobId: 'job-completed',
+      status: 'COMPLETED',
+      publishedArtworkId: 7,
+      systemJob: { id: 'job-completed', status: 'COMPLETED', attempt: 1 }
+    }
+    prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(null)
+    prismaMock.artwork.findUnique.mockResolvedValue({
+      id: 7,
+      createdVia: 'URL_ARCHIVE',
+      archiveLifecycleState: 'TRASHING',
+      deletedAt: intentAt,
+      updatedAt: intentAt,
+      archiveRevisions: [
+        {
+          id: 'revision-1',
+          trashPath: '.trash/archive/7/revision-1',
+          trashedAt: intentAt,
+          purgeAfter: new Date('2026-08-25T02:00:00.000Z'),
+          externalRef: { providerKey: 'test-provider', externalId: '42' }
+        }
+      ]
+    })
+    prismaMock.systemJob.findUnique.mockResolvedValue({ status: 'RUNNING' })
+
+    await module.requestAction('import-central', 'DELETE_ARCHIVE', { requestedByUserId: 'admin-1' })
+
+    expect(prismaMock.systemJob.findUnique).toHaveBeenCalledWith({
+      where: { idempotencyKey: `archive-maintenance:TRASH_ARCHIVE:7:${intentAt.getTime()}` },
+      select: { status: true }
+    })
+    expect(prismaMock.systemJob.create).not.toHaveBeenCalled()
+    expect(prismaMock.artwork.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('refreshes a pending lifecycle intent after its maintenance job reached a terminal failure', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    const intentAt = new Date('2026-08-18T02:00:00.000Z')
+    const task = {
+      id: 'import-central',
+      systemJobId: 'job-completed',
+      status: 'COMPLETED',
+      publishedArtworkId: 7,
+      systemJob: { id: 'job-completed', status: 'COMPLETED', attempt: 1 }
+    }
+    prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce(null)
+    prismaMock.archiveImport.findFirst.mockResolvedValue(null)
+    prismaMock.artwork.findUnique.mockResolvedValue({
+      id: 7,
+      createdVia: 'URL_ARCHIVE',
+      archiveLifecycleState: 'TRASHING',
+      deletedAt: intentAt,
+      updatedAt: intentAt,
+      archiveRevisions: [
+        {
+          id: 'revision-1',
+          trashPath: '.trash/archive/7/revision-1',
+          trashedAt: intentAt,
+          purgeAfter: new Date('2026-08-25T02:00:00.000Z'),
+          externalRef: { providerKey: 'test-provider', externalId: '42' }
+        }
+      ]
+    })
+    prismaMock.systemJob.findUnique.mockResolvedValue({ status: 'FAILED' })
+
+    await module.requestAction('import-central', 'DELETE_ARCHIVE', { requestedByUserId: 'admin-1' })
+
+    expect(prismaMock.artwork.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 7, archiveLifecycleState: 'TRASHING' },
+        data: expect.objectContaining({ archiveLifecycleState: 'TRASHING', updatedAt: expect.any(Date) })
+      })
+    )
+    const refreshedIntent = prismaMock.artwork.updateMany.mock.calls[0]![0].data.updatedAt as Date
+    expect(refreshedIntent.getTime()).toBeGreaterThan(intentAt.getTime())
+    expect(prismaMock.systemJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: 'ARCHIVE_MAINTENANCE',
+        idempotencyKey: `archive-maintenance:TRASH_ARCHIVE:7:${refreshedIntent.getTime()}`,
+        payload: { action: 'TRASH_ARCHIVE', artworkId: 7 }
+      })
+    })
+  })
+
+  it('returns cursor-based task item batches without provider tokens or staging paths', async () => {
     prismaMock.archiveImport.findUnique.mockResolvedValue({ id: 'import-1', totalItems: 101 })
     prismaMock.archiveImportItem.findMany.mockResolvedValue([
       {
         id: 'item-51',
         pageIndex: 50,
-        sourcePageUrl: 'https://archive.test/s/page/42-51',
+        sourcePageUrl: 'https://archive.test/s/private-token/42-51',
         expectedFilename: '0051',
         status: 'COMPLETED',
         attempts: 1,
@@ -308,7 +544,9 @@ describe('archive module', () => {
         width: 1280,
         height: 720,
         errorCode: null,
-        errorMessage: null,
+        errorMessage: 'failed https://archive.test/s/private-token/42-51 at /private/archive/item.webp',
+        errorStage: 'STORAGE',
+        remoteHost: 'archive.test',
         startedAt: new Date('2026-01-01T00:00:00.000Z'),
         finishedAt: new Date('2026-01-01T00:00:01.000Z'),
         updatedAt: new Date('2026-01-01T00:00:01.000Z')
@@ -328,6 +566,8 @@ describe('archive module', () => {
         height: null,
         errorCode: null,
         errorMessage: null,
+        errorStage: null,
+        remoteHost: null,
         startedAt: null,
         finishedAt: null,
         updatedAt: new Date('2026-01-01T00:00:01.000Z')
@@ -348,12 +588,15 @@ describe('archive module', () => {
       nextCursor: 50,
       items: [
         expect.objectContaining({
-          sourcePageUrl: 'https://archive.test/s/page/42-51',
-          stagedPath: 'media/0051.webp',
-          byteCount: '1024'
+          sourcePageUrl: 'https://archive.test/s/…',
+          byteCount: '1024',
+          errorMessage: '图片处理失败，请根据错误码与失败阶段排查。'
         })
       ]
     })
+    expect(result.items[0]).not.toHaveProperty('stagedPath')
+    expect(JSON.stringify(result.items[0])).not.toContain('private-token')
+    expect(JSON.stringify(result.items[0])).not.toContain('/private/archive')
   })
 
   it('filters task item batches in the database before applying the cursor and limit', async () => {

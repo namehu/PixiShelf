@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { createDatabaseClient, disconnectDatabase, Prisma } from '@pixishelf/db'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ArchiveError } from '@/services/archive/errors'
+import { archiveModule } from '@/services/archive/archive-module'
 import {
   cancelArchiveIntakeMany,
   createArchiveIntakeSubmission,
+  replaceArchiveIntakeItem,
   retryArchiveIntakeMany
 } from '../archive-intake-service'
 import { enqueueArchiveIntakeMany } from '../archive-intake-enqueue-service'
@@ -38,9 +40,11 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     if (archiveImportIds.length > 0) {
       await database.archiveImport.deleteMany({ where: { id: { in: archiveImportIds } } })
     }
+    await database.artwork.deleteMany({ where: { title: { startsWith: suitePrefix } } })
     await database.systemJob.deleteMany({
       where: { OR: [{ requestedByUserId }, ...(itemJobIds.length ? [{ id: { in: itemJobIds } }] : [])] }
     })
+    vi.unstubAllEnvs()
   })
 
   afterAll(async () => disconnectDatabase(database))
@@ -93,9 +97,40 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         submittedUrl: 'https://e-hentai.org/g/retry-at-capacity/token/',
         normalizedUrlHash: 'f'.repeat(64),
         status: 'FAILED',
-        finishedAt: new Date()
+        finishedAt: new Date(),
+        retryable: true
       }
     })
+    const replacementAtCapacity = await replaceArchiveIntakeItem(
+      {
+        idempotencyKey: `${suitePrefix}-replace-at-capacity`,
+        itemId: failedItem.id,
+        url: 'https://e-hentai.org/g/replace-at-capacity/corrected-token/'
+      },
+      requestedByUserId,
+      { database, validateUrl }
+    )
+    expect(replacementAtCapacity).toMatchObject({
+      rawCount: 1,
+      acceptedCount: 0,
+      duplicateCount: 0,
+      rejectedCount: 1
+    })
+    expect(replacementAtCapacity.items).toEqual([
+      expect.objectContaining({
+        status: 'FAILED',
+        supersedesItemId: failedItem.id,
+        errorCode: 'CAPACITY_EXCEEDED',
+        retryable: true,
+        currentSystemJobId: null
+      })
+    ])
+    await expect(
+      database.systemJob.count({
+        where: { payload: { path: ['intakeItemId'], equals: replacementAtCapacity.items[0]!.id } }
+      })
+    ).resolves.toBe(0)
+
     const retry = await retryArchiveIntakeMany(
       { idempotencyKey: `${suitePrefix}-retry-capacity`, itemIds: [failedItem.id] },
       requestedByUserId,
@@ -148,6 +183,207 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     await expect(
       createArchiveIntakeSubmission({ ...input, urls: ['not-a-url'] }, requestedByUserId, { database, validateUrl })
     ).rejects.toBeInstanceOf(ArchiveError)
+  })
+
+  it('replaces a failed item immutably and replays one lineage item and resolver job under concurrency', async () => {
+    const timestamp = new Date('2026-08-18T04:00:00.000Z')
+    const source = await database.archiveIntakeSubmission.create({
+      data: {
+        id: `${suitePrefix}-replace-source`,
+        idempotencyKey: `${suitePrefix}-replace-source`,
+        requestHash: '8'.repeat(64),
+        requestedByUserId,
+        rawCount: 1,
+        acceptedCount: 1,
+        items: {
+          create: {
+            submittedUrl: 'https://e-hentai.org/g/replace-source/old-token/',
+            normalizedUrlHash: '9'.repeat(64),
+            status: 'FAILED',
+            errorCode: 'REMOTE_NOT_FOUND',
+            errorMessage: 'old permanent failure',
+            errorStage: 'SOURCE_PAGE',
+            retryable: false,
+            finishedAt: timestamp,
+            createdAt: timestamp,
+            updatedAt: timestamp
+          }
+        }
+      },
+      include: { items: true }
+    })
+    const original = source.items[0]!
+    const originalBefore = await database.archiveIntakeItem.findUniqueOrThrow({ where: { id: original.id } })
+    const input = {
+      idempotencyKey: `${suitePrefix}-replace-operation`,
+      itemId: original.id,
+      url: 'https://e-hentai.org/g/replace-source/new-token/'
+    }
+
+    const [first, replay] = await Promise.all([
+      replaceArchiveIntakeItem(input, requestedByUserId, { database, validateUrl, now: () => timestamp }),
+      replaceArchiveIntakeItem(input, requestedByUserId, { database, validateUrl, now: () => timestamp })
+    ])
+    expect(replay).toEqual(first)
+    expect(first).toMatchObject({ rawCount: 1, acceptedCount: 1, duplicateCount: 0, rejectedCount: 0 })
+    expect(first.items).toEqual([
+      expect.objectContaining({
+        status: 'QUEUED',
+        supersedesItemId: original.id,
+        currentSystemJobId: expect.any(String)
+      })
+    ])
+    await expect(database.archiveIntakeItem.findUniqueOrThrow({ where: { id: original.id } })).resolves.toEqual(
+      originalBefore
+    )
+    await expect(
+      database.archiveIntakeSubmission.count({ where: { idempotencyKey: input.idempotencyKey } })
+    ).resolves.toBe(1)
+    await expect(database.archiveIntakeItem.count({ where: { supersedesItemId: original.id } })).resolves.toBe(1)
+    const replacement = await database.archiveIntakeItem.findFirstOrThrow({ where: { supersedesItemId: original.id } })
+    await expect(
+      database.systemJob.findUniqueOrThrow({ where: { id: replacement.currentSystemJobId! } })
+    ).resolves.toMatchObject({
+      type: 'ARCHIVE_RESOLVE_ITEM',
+      executionLane: 'ARCHIVE_RESOLVE',
+      triggerSource: 'RETRY',
+      status: 'PENDING',
+      payload: { intakeItemId: replacement.id }
+    })
+
+    await expect(
+      replaceArchiveIntakeItem(
+        { ...input, url: 'https://e-hentai.org/g/replace-source/changed-again/' },
+        requestedByUserId,
+        { database, validateUrl }
+      )
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    await expect(
+      replaceArchiveIntakeItem(
+        {
+          idempotencyKey: `${suitePrefix}-replace-original-url`,
+          itemId: original.id,
+          url: original.submittedUrl
+        },
+        requestedByUserId,
+        { database, validateUrl }
+      )
+    ).rejects.toMatchObject({ code: 'INVALID_URL' })
+  })
+
+  it('records an active replacement URL as a terminal duplicate while preserving supersession lineage', async () => {
+    const active = await createArchiveIntakeSubmission(
+      {
+        idempotencyKey: `${suitePrefix}-replace-duplicate-active`,
+        urls: ['https://e-hentai.org/g/replace-duplicate/active-token/']
+      },
+      requestedByUserId,
+      { database, validateUrl }
+    )
+    const failedSubmission = await database.archiveIntakeSubmission.create({
+      data: {
+        id: `${suitePrefix}-replace-duplicate-source`,
+        idempotencyKey: `${suitePrefix}-replace-duplicate-source`,
+        requestHash: 'a'.repeat(64),
+        requestedByUserId,
+        rawCount: 1,
+        acceptedCount: 1,
+        items: {
+          create: {
+            submittedUrl: 'https://e-hentai.org/g/replace-duplicate/broken-token/',
+            normalizedUrlHash: 'b'.repeat(64),
+            status: 'FAILED',
+            retryable: false,
+            finishedAt: new Date()
+          }
+        }
+      },
+      include: { items: true }
+    })
+    const original = failedSubmission.items[0]!
+    const result = await replaceArchiveIntakeItem(
+      {
+        idempotencyKey: `${suitePrefix}-replace-duplicate-operation`,
+        itemId: original.id,
+        url: 'https://e-hentai.org/g/replace-duplicate/active-token/'
+      },
+      requestedByUserId,
+      { database, validateUrl }
+    )
+    expect(result).toMatchObject({ acceptedCount: 0, duplicateCount: 1, rejectedCount: 0 })
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        status: 'DUPLICATE',
+        supersedesItemId: original.id,
+        duplicateOfItemId: active.items[0]!.id,
+        currentSystemJobId: null
+      })
+    ])
+    await expect(database.archiveIntakeItem.findUniqueOrThrow({ where: { id: original.id } })).resolves.toMatchObject({
+      status: 'FAILED',
+      submittedUrl: original.submittedUrl,
+      supersedesItemId: null
+    })
+  })
+
+  it('skips permanent failed retries while cancelled items remain retryable', async () => {
+    const permanentSubmission = await database.archiveIntakeSubmission.create({
+      data: {
+        id: `${suitePrefix}-permanent-retry-source`,
+        idempotencyKey: `${suitePrefix}-permanent-retry-source`,
+        requestHash: 'c'.repeat(64),
+        requestedByUserId,
+        rawCount: 1,
+        acceptedCount: 1,
+        items: {
+          create: {
+            submittedUrl: 'https://e-hentai.org/g/permanent-retry/token/',
+            normalizedUrlHash: 'd'.repeat(64),
+            status: 'FAILED',
+            retryable: false,
+            finishedAt: new Date()
+          }
+        }
+      },
+      include: { items: true }
+    })
+    const permanent = permanentSubmission.items[0]!
+    const permanentResult = await retryArchiveIntakeMany(
+      { idempotencyKey: `${suitePrefix}-permanent-retry-operation`, itemIds: [permanent.id] },
+      requestedByUserId,
+      { database }
+    )
+    expect(permanentResult?.items).toEqual([
+      expect.objectContaining({ targetId: permanent.id, result: 'SKIPPED', code: 'PERMANENT_FAILURE' })
+    ])
+    await expect(
+      database.systemJob.count({ where: { payload: { path: ['intakeItemId'], equals: permanent.id } } })
+    ).resolves.toBe(0)
+    await expect(database.archiveIntakeItem.findUniqueOrThrow({ where: { id: permanent.id } })).resolves.toMatchObject({
+      status: 'FAILED',
+      retryable: false
+    })
+
+    const cancellable = await createArchiveIntakeSubmission(
+      {
+        idempotencyKey: `${suitePrefix}-cancelled-retry-source`,
+        urls: ['https://e-hentai.org/g/cancelled-retry/token/']
+      },
+      requestedByUserId,
+      { database, validateUrl }
+    )
+    const cancelledItemId = cancellable.items[0]!.id
+    await cancelArchiveIntakeMany(
+      { idempotencyKey: `${suitePrefix}-cancelled-retry-cancel`, itemIds: [cancelledItemId] },
+      requestedByUserId,
+      { database }
+    )
+    const cancelledRetry = await retryArchiveIntakeMany(
+      { idempotencyKey: `${suitePrefix}-cancelled-retry-operation`, itemIds: [cancelledItemId] },
+      requestedByUserId,
+      { database }
+    )
+    expect(cancelledRetry?.items).toEqual([expect.objectContaining({ targetId: cancelledItemId, result: 'APPLIED' })])
   })
 
   it('rejects retry when the resolved provider identity is already active', async () => {
@@ -579,6 +815,161 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       archiveImportId: archiveImport.id,
       activeArchiveImportId: archiveImport.id
     })
+  })
+
+  it('serializes intake enqueue against trash intent under the shared publish lock', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    const now = new Date('2026-08-18T06:00:00.000Z')
+    const externalId = `enqueue-trash-race-${randomUUID()}`
+    const originalJobId = `${suitePrefix}-enqueue-trash-original-job`
+    const originalImportId = `${suitePrefix}-enqueue-trash-original-import`
+    const triggerName = `archive_enqueue_delay_${randomUUID().replaceAll('-', '')}`
+    const functionName = `${triggerName}_fn`
+    const artwork = await database.artwork.create({
+      data: {
+        title: `${suitePrefix}-enqueue-trash-artwork`,
+        createdVia: 'URL_ARCHIVE',
+        source: 'URL_ARCHIVE',
+        archiveLifecycleState: 'ACTIVE'
+      }
+    })
+    const externalRef = await database.artworkExternalRef.create({
+      data: {
+        artworkId: artwork.id,
+        providerKey: 'test-provider',
+        externalId,
+        canonicalUrl: `https://e-hentai.org/g/${externalId}/private-token/`,
+        locator: {}
+      }
+    })
+    await database.systemJob.create({
+      data: {
+        id: originalJobId,
+        type: 'ARCHIVE_IMPORT',
+        executionLane: 'BACKGROUND_WRITER',
+        definitionVersion: 1,
+        status: 'COMPLETED',
+        triggerSource: 'MANUAL',
+        requestedByUserId,
+        payload: { archiveImportId: originalImportId },
+        progress: 100,
+        finishedAt: now
+      }
+    })
+    await database.archiveImport.create({
+      data: {
+        ...archiveImportData(originalImportId, originalJobId, externalId),
+        status: 'COMPLETED',
+        externalRefId: externalRef.id,
+        publishedArtworkId: artwork.id,
+        finishedAt: now
+      }
+    })
+    await database.archiveRevision.create({
+      data: {
+        id: `${suitePrefix}-enqueue-trash-revision`,
+        artworkId: artwork.id,
+        externalRefId: externalRef.id,
+        archiveImportId: originalImportId,
+        archivePath: `sources/test-provider/test-creator/${externalId}/revisions/${originalImportId}`,
+        manifestPath: `sources/test-provider/test-creator/${externalId}/revisions/${originalImportId}/manifest.json`,
+        mediaSnapshot: [],
+        metadataHash: 'a'.repeat(64),
+        isCurrent: true
+      }
+    })
+    const submission = await database.archiveIntakeSubmission.create({
+      data: {
+        id: `${suitePrefix}-enqueue-trash-submission`,
+        idempotencyKey: `${suitePrefix}-enqueue-trash-submission`,
+        requestHash: 'e'.repeat(64),
+        requestedByUserId,
+        rawCount: 1,
+        acceptedCount: 1,
+        items: { create: readyItemData(externalId, now) }
+      },
+      include: { items: true }
+    })
+
+    await database.$executeRawUnsafe(`
+      CREATE FUNCTION "${functionName}"() RETURNS trigger AS $$
+      BEGIN
+        IF NEW."externalId" = '${externalId}' AND NEW."id" <> '${originalImportId}' THEN
+          PERFORM pg_sleep(1);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `)
+    await database.$executeRawUnsafe(`
+      CREATE TRIGGER "${triggerName}"
+      BEFORE INSERT ON "archive_imports"
+      FOR EACH ROW EXECUTE FUNCTION "${functionName}"()
+    `)
+
+    try {
+      const enqueuePromise = enqueueArchiveIntakeMany(
+        {
+          idempotencyKey: `${suitePrefix}-enqueue-trash-operation`,
+          items: [{ itemId: submission.items[0]!.id, quality: 'ORIGINAL' }]
+        },
+        requestedByUserId,
+        {
+          database,
+          now: () => now,
+          resolveStorageRoot: async () => '/tmp/pixishelf-archive-enqueue-trash-race'
+        }
+      )
+      await vi.waitFor(
+        async () => {
+          const rows = await database.$queryRaw<Array<{ sleeping: boolean }>>(Prisma.sql`
+            SELECT EXISTS (
+              SELECT 1 FROM pg_stat_activity WHERE wait_event = 'PgSleep'
+            ) AS "sleeping"
+          `)
+          expect(rows[0]?.sleeping).toBe(true)
+        },
+        { timeout: 5_000, interval: 20 }
+      )
+      const trashPromise = archiveModule.requestAction(originalImportId, 'DELETE_ARCHIVE', {
+        requestedByUserId
+      })
+      const [enqueueResult, trashResult] = await Promise.allSettled([enqueuePromise, trashPromise])
+
+      expect(enqueueResult).toMatchObject({
+        status: 'fulfilled',
+        value: { items: [expect.objectContaining({ result: 'CREATED' })] }
+      })
+      expect(trashResult).toMatchObject({
+        status: 'rejected',
+        reason: expect.objectContaining({ code: 'STATE_CONFLICT' })
+      })
+      await expect(database.artwork.findUniqueOrThrow({ where: { id: artwork.id } })).resolves.toMatchObject({
+        archiveLifecycleState: 'ACTIVE',
+        deletedAt: null
+      })
+      await expect(
+        database.archiveImport.count({
+          where: {
+            providerKey: 'test-provider',
+            externalId,
+            status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] }
+          }
+        })
+      ).resolves.toBe(1)
+      await expect(
+        database.systemJob.count({
+          where: {
+            requestedByUserId,
+            type: 'ARCHIVE_MAINTENANCE',
+            payload: { path: ['artworkId'], equals: artwork.id }
+          }
+        })
+      ).resolves.toBe(0)
+    } finally {
+      await database.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${triggerName}" ON "archive_imports"`)
+      await database.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${functionName}"()`)
+    }
   })
 })
 

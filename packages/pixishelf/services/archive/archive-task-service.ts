@@ -12,12 +12,13 @@ import { ArchiveError } from './errors'
 import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from './publisher'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
 import { archiveTaskActionIneligibility, recoverAppliedArchiveTaskAction } from './archive-task-action-policy'
-import { redactArchiveText, redactArchiveUrl } from './archive-redaction'
+import { archiveWireErrorMessage, redactArchiveText, redactArchiveUrl } from './archive-redaction'
 
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
 
 export const archiveTaskListSchema = z
   .object({
+    taskId: z.string().trim().min(1).max(128).optional(),
     cursor: z.string().min(1).max(512).optional(),
     limit: z.number().int().min(1).max(100).default(50),
     statuses: z
@@ -55,7 +56,7 @@ export async function listArchiveTasks(
 ) {
   const parsed = archiveTaskListSchema.parse(input)
   const database = getDatabase(dependencies)
-  const cursor = parsed.cursor ? decodeTaskCursor(parsed.cursor) : null
+  const cursor = !parsed.taskId && parsed.cursor ? decodeTaskCursor(parsed.cursor) : null
   const requestedAttribution: Prisma.ArchiveIntakeItemWhereInput = {
     ...(parsed.kind ? { resolutionKind: parsed.kind } : {}),
     ...(parsed.submissionId ? { submissionId: parsed.submissionId } : {})
@@ -63,40 +64,45 @@ export async function listArchiveTasks(
   const attributionWhere: Prisma.ArchiveIntakeItemWhereInput =
     parsed.kind || parsed.submissionId ? requestedAttribution : {}
   const records = await database.archiveImport.findMany({
-    where: {
-      ...(parsed.statuses?.length ? { status: { in: parsed.statuses } } : {}),
-      ...(parsed.providerKey ? { providerKey: parsed.providerKey } : {}),
-      ...(parsed.kind || parsed.submissionId
-        ? {
-            intakeItems: {
-              some: requestedAttribution
-            }
-          }
-        : {}),
-      ...((parsed.search || cursor) && {
-        AND: [
-          ...(parsed.search
-            ? [
-                {
-                  OR: [
-                    { submittedUrl: { contains: parsed.search, mode: 'insensitive' as const } },
-                    { canonicalUrl: { contains: parsed.search, mode: 'insensitive' as const } },
-                    { externalId: { contains: parsed.search, mode: 'insensitive' as const } },
-                    { normalizedMetadata: { path: ['titles', 'display'], string_contains: parsed.search } }
+    where: parsed.taskId
+      ? { id: parsed.taskId }
+      : {
+          ...(parsed.statuses?.length ? { status: { in: parsed.statuses } } : {}),
+          ...(parsed.providerKey ? { providerKey: parsed.providerKey } : {}),
+          ...(parsed.kind || parsed.submissionId
+            ? {
+                intakeItems: {
+                  some: requestedAttribution
+                }
+              }
+            : {}),
+          ...((parsed.search || cursor) && {
+            AND: [
+              ...(parsed.search
+                ? [
+                    {
+                      OR: [
+                        { submittedUrl: { contains: parsed.search, mode: 'insensitive' as const } },
+                        { canonicalUrl: { contains: parsed.search, mode: 'insensitive' as const } },
+                        { externalId: { contains: parsed.search, mode: 'insensitive' as const } },
+                        { normalizedMetadata: { path: ['titles', 'display'], string_contains: parsed.search } }
+                      ]
+                    }
                   ]
-                }
-              ]
-            : []),
-          ...(cursor
-            ? [
-                {
-                  OR: [{ createdAt: { lt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { lt: cursor.id } }]
-                }
-              ]
-            : [])
-        ]
-      })
-    },
+                : []),
+              ...(cursor
+                ? [
+                    {
+                      OR: [
+                        { createdAt: { lt: cursor.createdAt } },
+                        { createdAt: cursor.createdAt, id: { lt: cursor.id } }
+                      ]
+                    }
+                  ]
+                : [])
+            ]
+          })
+        },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: parsed.limit + 1,
     select: buildArchiveTaskWireSelect(attributionWhere)
@@ -387,7 +393,7 @@ function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWh
     startedAt: true,
     finishedAt: true,
     retainUntil: true,
-    publishedArtwork: { select: { id: true, title: true, deletedAt: true } },
+    publishedArtwork: { select: { id: true, title: true, deletedAt: true, archiveLifecycleState: true } },
     publishedRevision: { select: { id: true } },
     systemJob: {
       select: {
@@ -423,9 +429,9 @@ function serializeTask(task: ArchiveTaskWire) {
     selectedQuality: task.selectedQuality,
     decisionCode: task.decisionCode,
     progress: task.systemJob.progress,
-    message: redactArchiveText(task.systemJob.message),
+    message: archiveWireErrorMessage(task.errorCode, task.systemJob.message),
     errorCode: task.errorCode,
-    errorMessage: redactArchiveText(task.errorMessage),
+    errorMessage: archiveWireErrorMessage(task.errorCode, task.errorMessage),
     warning: redactArchiveText(task.warning),
     totalItems: task.totalItems,
     completedItems: task.completedItems,

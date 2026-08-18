@@ -232,6 +232,22 @@ export const archiveImportPayloadSchema = z.object({
   archiveImportId: z.string().min(1)
 })
 
+const cleanArchiveStagingPayloadSchema = z
+  .object({ action: z.literal('CLEAN_STAGING'), archiveImportId: boundedIdSchema })
+  .strict()
+const archiveArtworkMaintenancePayloadSchema = z
+  .object({
+    action: z.enum(['TRASH_ARCHIVE', 'RESTORE_ARCHIVE']),
+    artworkId: z.number().int().positive()
+  })
+  .strict()
+
+export const archiveMaintenancePayloadSchema = z.discriminatedUnion('action', [
+  cleanArchiveStagingPayloadSchema,
+  archiveArtworkMaintenancePayloadSchema
+])
+export type ArchiveMaintenancePayload = z.infer<typeof archiveMaintenancePayloadSchema>
+
 export const archiveResolveItemPayloadSchema = z
   .object({
     intakeItemId: boundedIdSchema
@@ -261,6 +277,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   VIDEO_KEYFRAME_GENERATION: videoKeyframeGenerationPayloadSchema,
   ARCHIVE_RESOLVE_ITEM: archiveResolveItemPayloadSchema,
   ARCHIVE_IMPORT: archiveImportPayloadSchema,
+  ARCHIVE_MAINTENANCE: archiveMaintenancePayloadSchema,
   SCAN_RUN_RETENTION_CLEANUP: emptyJobPayloadSchema,
   TRIGGER_LOG_RETENTION_CLEANUP: emptyJobPayloadSchema,
   DERIVED_MEDIA_GC: derivedMediaGcPayloadSchema

@@ -12,6 +12,10 @@ const requestHashMigration = readFileSync(
   path.join(prismaDirectory, 'migrations/20260818170000_add_archive_operation_request_hashes/migration.sql'),
   'utf8'
 )
+const maintenanceMigration = readFileSync(
+  path.join(prismaDirectory, 'migrations/20260818180000_add_archive_maintenance_worker_job/migration.sql'),
+  'utf8'
+)
 
 describe('archive intake Worker lanes migration', () => {
   it('replaces the global execution fence with a per-lane partial unique index', () => {
@@ -69,5 +73,13 @@ describe('archive intake Worker lanes migration', () => {
     expect(requestHashMigration).toContain(`CHECK ("requestHash" ~ '^[a-f0-9]{64}$')`)
     expect(schema).toMatch(/model ArchiveIntakeSubmission \{[\s\S]*requestHash\s+String\s+@db\.VarChar\(64\)/)
     expect(schema).toMatch(/model ArchiveBulkOperation \{[\s\S]*requestHash\s+String\s+@db\.VarChar\(64\)/)
+  })
+
+  it('adds an expand-safe writer-lane guard for archive maintenance jobs', () => {
+    expect(maintenanceMigration).toContain('ADD CONSTRAINT "system_jobs_archive_maintenance_lane_check"')
+    expect(maintenanceMigration).toContain('"type" <> \'ARCHIVE_MAINTENANCE\'')
+    expect(maintenanceMigration).toContain('"executionLane" = \'BACKGROUND_WRITER\'')
+    expect(maintenanceMigration).toContain('NOT VALID')
+    expect(maintenanceMigration).toContain('VALIDATE CONSTRAINT "system_jobs_archive_maintenance_lane_check"')
   })
 })

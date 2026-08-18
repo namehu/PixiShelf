@@ -4,7 +4,9 @@ import {
   archiveIntakeManySchema,
   createArchiveIntakeSchema,
   hashSubmittedUrl,
-  listArchiveIntakeItems
+  listArchiveIntakeItems,
+  replaceArchiveIntakeItem,
+  replaceArchiveIntakeSchema
 } from '../archive-intake-service'
 import { enqueueArchiveIntakeManySchema } from '../archive-intake-enqueue-service'
 import { redactArchiveUrl } from '@/services/archive/archive-redaction'
@@ -40,6 +42,63 @@ describe('archive intake input and wire safety', () => {
     ).toBe(false)
   })
 
+  it('keeps replace input strict and bounds one corrected URL', () => {
+    expect(
+      replaceArchiveIntakeSchema.safeParse({
+        idempotencyKey: 'replace-1',
+        itemId: 'item-1',
+        url: 'https://e-hentai.org/g/2/new-token/'
+      }).success
+    ).toBe(true)
+    expect(
+      replaceArchiveIntakeSchema.safeParse({
+        idempotencyKey: 'replace-1',
+        itemId: 'item-1',
+        url: `https://e-hentai.org/g/2/${'x'.repeat(2_100)}/`
+      }).success
+    ).toBe(false)
+    expect(
+      replaceArchiveIntakeSchema.safeParse({
+        idempotencyKey: 'replace-1',
+        itemId: 'item-1',
+        url: 'https://e-hentai.org/g/2/new-token/',
+        retryOriginal: true
+      }).success
+    ).toBe(false)
+  })
+
+  it.each([
+    'http://e-hentai.org/g/2/token/',
+    'https://user:secret@e-hentai.org/g/2/token/',
+    'https://e-hentai.org:8443/g/2/token/',
+    'https://127.0.0.1/g/2/token/'
+  ])('rejects an unsafe or unsupported replacement URL before any write: %s', async (url) => {
+    const transaction = {
+      $queryRaw: vi.fn(),
+      archiveIntakeSubmission: { findUnique: vi.fn().mockResolvedValue(null) },
+      archiveIntakeItem: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'item-1',
+          status: 'FAILED',
+          submittedUrl: 'https://e-hentai.org/g/1/old-token/'
+        }),
+        count: vi.fn(),
+        findFirst: vi.fn(),
+        create: vi.fn()
+      },
+      systemJob: { create: vi.fn() }
+    }
+    const database = { $transaction: vi.fn((callback) => callback(transaction)) }
+
+    await expect(
+      replaceArchiveIntakeItem({ idempotencyKey: `replace-${url}`, itemId: 'item-1', url }, 'admin-1', {
+        database: database as never
+      })
+    ).rejects.toMatchObject({ code: expect.stringMatching(/INVALID_URL|UNSUPPORTED_PROVIDER|SSRF_BLOCKED/) })
+    expect(transaction.archiveIntakeItem.create).not.toHaveBeenCalled()
+    expect(transaction.systemJob.create).not.toHaveBeenCalled()
+  })
+
   it('hashes the trimmed submitted string without reordering token-bearing query parameters', () => {
     expect(hashSubmittedUrl('  https://e-hentai.org/g/1/token/?b=2&a=1  ')).toBe(
       hashSubmittedUrl('https://e-hentai.org/g/1/token/?b=2&a=1')
@@ -54,6 +113,29 @@ describe('archive intake input and wire safety', () => {
     expect(masked).toBe('https://e-hentai.org/g/…')
     expect(masked).not.toContain('private-token')
     expect(masked).not.toContain('secret')
+  })
+
+  it('replaces persisted internal exception details with a fixed wire message', async () => {
+    const page = await listArchiveIntakeItems(
+      { view: 'FAILED', limit: 1 },
+      {
+        database: {
+          archiveIntakeItem: {
+            findMany: async () => [
+              intakeRecord({
+                status: 'FAILED',
+                errorCode: 'INTERNAL',
+                errorMessage: 'Prisma failed at /private/archive/secret/item.webp'
+              })
+            ]
+          }
+        } as never
+      }
+    )
+
+    expect(page.items[0]?.errorMessage).toBe('内部处理失败，请稍后重试或查看服务日志。')
+    expect(JSON.stringify(page)).not.toContain('/private/archive')
+    expect(JSON.stringify(page)).not.toContain('Prisma')
   })
 
   it('uses a stable tie-break cursor and combines search with the cursor filter', async () => {
@@ -104,6 +186,15 @@ describe('archive intake input and wire safety', () => {
 
   it('keeps list input strict so unknown filter fields cannot reach Prisma', () => {
     expect(archiveIntakeListSchema.safeParse({ view: 'ACTIVE', locator: { token: 'secret' } }).success).toBe(false)
+  })
+
+  it('locates one intake item by id without inheriting the current view filters', async () => {
+    const findMany = vi.fn().mockResolvedValue([])
+    await listArchiveIntakeItems(
+      { itemId: 'item-duplicate', view: 'ACTIVE', cursor: 'ignored-for-direct-lookup' },
+      { database: { archiveIntakeItem: { findMany } } as never }
+    )
+    expect(findMany.mock.calls[0]![0].where).toEqual({ id: 'item-duplicate' })
   })
 })
 

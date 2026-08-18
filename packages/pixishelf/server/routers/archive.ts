@@ -1,7 +1,9 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import logger from '@/lib/logger'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import { archiveModule } from '@/services/archive/archive-module'
+import { redactArchiveText } from '@/services/archive/archive-redaction'
 import { ArchiveError } from '@/services/archive/errors'
 import {
   actionArchiveTasksMany,
@@ -104,7 +106,15 @@ export async function runArchiveOperation<T>(operation: () => Promise<T>): Promi
   try {
     return await operation()
   } catch (error) {
-    if (!(error instanceof ArchiveError)) throw error
+    if (!(error instanceof ArchiveError)) {
+      logger.error('Archive operation failed unexpectedly', {
+        error: redactArchiveText(error instanceof Error ? error.message : String(error))
+      })
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: '归档服务暂时不可用，请稍后重试'
+      })
+    }
     const code =
       error.code === 'INVALID_URL' || error.code === 'UNSUPPORTED_PROVIDER' || error.code === 'SSRF_BLOCKED'
         ? 'BAD_REQUEST'
@@ -115,6 +125,15 @@ export async function runArchiveOperation<T>(operation: () => Promise<T>): Promi
             : error.code === 'ORIGINAL_UNAVAILABLE' || error.code === 'STATE_CONFLICT'
               ? 'PRECONDITION_FAILED'
               : 'INTERNAL_SERVER_ERROR'
-    throw new TRPCError({ code, message: error.message, cause: error })
+    if (code === 'INTERNAL_SERVER_ERROR') {
+      logger.error('Archive operation failed', {
+        code: error.code,
+        error: redactArchiveText(error.message)
+      })
+    }
+    throw new TRPCError({
+      code,
+      message: code === 'INTERNAL_SERVER_ERROR' ? '归档服务暂时不可用，请稍后重试' : error.message
+    })
   }
 }

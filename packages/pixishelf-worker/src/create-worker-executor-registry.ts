@@ -2,6 +2,7 @@ import path from 'node:path'
 import type { PrismaClient } from '@pixishelf/db'
 import {
   createArchiveExecutorRegistrations,
+  createArchiveMaintenanceExecutorRegistrations,
   createArchiveResolverExecutorRegistrations,
   createDefaultArchiveMediaProviderRegistry,
   createMaintenanceExecutorRegistrations,
@@ -53,6 +54,12 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
       scanRoot: resolved.archiveRoot,
       maxMediaBytes: resolved.archiveMaxMediaBytes
     }
+  })) {
+    registry.register(definition)
+  }
+  for (const definition of createArchiveMaintenanceExecutorRegistrations({
+    database: input.database,
+    config: { scanRoot: resolved.archiveRoot }
   })) {
     registry.register(definition)
   }

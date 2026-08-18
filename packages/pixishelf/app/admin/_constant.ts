@@ -2,6 +2,7 @@ import {
   Activity,
   AlbumIcon,
   Archive,
+  Inbox,
   History,
   ImageIcon,
   LayoutDashboardIcon,
@@ -43,8 +44,15 @@ export const sections = [
     group: 'library'
   },
   {
-    title: '链接归档',
-    description: '从外部作品链接下载并归档',
+    title: '归档收件箱',
+    description: '持续添加、解析并选择归档链接',
+    href: '/admin/archive/inbox',
+    icon: Inbox,
+    group: 'library'
+  },
+  {
+    title: '归档任务',
+    description: '追踪并控制作品归档任务',
     href: '/admin/archive',
     icon: Archive,
     group: 'library'
@@ -119,5 +127,5 @@ export function getActiveAdminSection(pathname: string | null) {
 
 export function isAdminNavigationItemActive(pathname: string | null, href: string) {
   if (!pathname) return false
-  return pathname === href || (href !== adminHomeSection.href && pathname.startsWith(`${href}/`))
+  return getActiveAdminSection(pathname)?.href === href
 }

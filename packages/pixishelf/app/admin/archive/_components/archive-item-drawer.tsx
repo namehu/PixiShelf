@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { inferRouterOutputs } from '@trpc/server'
-import { Copy, ExternalLink, Loader2, RefreshCw, RotateCcw } from 'lucide-react'
+import { Loader2, RefreshCw, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 import { SSheet } from '@/components/shared/s-sheet'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
+import { archiveClientErrorMessage } from './archive-client-error'
 import {
   archiveItemPollingIntervals,
   defaultArchiveItemFilter,
@@ -21,7 +22,17 @@ import {
 const PAGE_SIZE = 50
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
-type ArchiveTask = RouterOutputs['archive']['listTasksLegacy'][number]
+interface ArchiveTask {
+  id: string
+  providerKey: string
+  externalId: string
+  title: string | null
+  status: string
+  errorCode: string | null
+  totalItems: number
+  completedItems: number
+  failedItems: number
+}
 type ArchiveItem = RouterOutputs['archive']['listTaskItems']['items'][number]
 
 export function ArchiveItemDrawer({
@@ -75,7 +86,7 @@ export function ArchiveItemDrawer({
         toast.success('已将选中的图片重新加入下载队列')
         await Promise.all([countsQuery.refetch(), itemsQuery.refetch(), onTaskChanged()])
       },
-      onError: (error) => toast.error(error.message)
+      onError: (error) => toast.error(archiveClientErrorMessage(error, '图片重试失败，请稍后再试。'))
     })
   )
   const items = useMemo(() => itemsQuery.data?.pages.flatMap((batch) => batch.items) ?? [], [itemsQuery.data])
@@ -111,7 +122,7 @@ export function ArchiveItemDrawer({
     <SSheet
       open={open}
       onOpenChange={onOpenChange}
-      title={task?.title || (task ? `E-Hentai #${task.externalId}` : '图片明细')}
+      title={task?.title || (task ? `${task.providerKey} #${task.externalId}` : '图片明细')}
       description={
         task
           ? `${task.providerKey} #${task.externalId} · 成功 ${task.completedItems} · 失败 ${task.failedItems} · 共 ${task.totalItems} 张`
@@ -129,13 +140,17 @@ export function ArchiveItemDrawer({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-8 shrink-0"
+            className="shrink-0"
             title="刷新明细"
             aria-label="刷新图片明细"
             disabled={itemsQuery.isFetching || countsQuery.isFetching}
             onClick={() => void refresh()}
           >
-            <RefreshCw className={itemsQuery.isFetching || countsQuery.isFetching ? 'animate-spin' : ''} />
+            <RefreshCw
+              data-icon="inline-start"
+              aria-hidden="true"
+              className={itemsQuery.isFetching || countsQuery.isFetching ? 'animate-spin' : ''}
+            />
           </Button>
         </div>
 
@@ -158,11 +173,12 @@ export function ArchiveItemDrawer({
 
         {itemsQuery.isLoading ? (
           <div className="flex justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden="true" />
+            <span className="sr-only">正在加载图片明细</span>
           </div>
         ) : itemsQuery.isError ? (
           <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
-            {itemsQuery.error.message}
+            图片明细暂时无法加载，请稍后重试。
           </div>
         ) : items.length ? (
           <div
@@ -193,7 +209,7 @@ export function ArchiveItemDrawer({
                       />
                     ) : (
                       <div className="flex items-center justify-center gap-2 py-5 text-sm text-muted-foreground">
-                        <Loader2 className="size-4 animate-spin" />
+                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                         正在加载更多图片明细…
                       </div>
                     )}
@@ -243,37 +259,19 @@ function ArchiveItemCard({
         {metadata.length > 0 && <span className="text-xs text-muted-foreground">{metadata.join(' · ')}</span>}
         {canRetry && (
           <Button type="button" variant="outline" size="sm" className="ml-auto" disabled={retrying} onClick={onRetry}>
-            {retrying ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+            {retrying ? (
+              <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+            ) : (
+              <RotateCcw data-icon="inline-start" aria-hidden="true" />
+            )}
             重试此图
           </Button>
         )}
       </div>
 
-      <div className="flex items-start gap-1">
-        <a
-          href={item.sourcePageUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="min-w-0 flex-1 break-all text-sm text-primary underline-offset-4 hover:underline"
-        >
-          {item.sourcePageUrl}
-          <ExternalLink className="ml-1 inline size-3.5" />
-        </a>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          aria-label={`复制第 ${pageNumber} 张图片页链接`}
-          title="复制链接"
-          onClick={() => copyLink(item.sourcePageUrl)}
-        >
-          <Copy />
-        </Button>
-      </div>
+      <p className="break-all text-sm text-muted-foreground">图片页来源：{item.sourcePageUrl}</p>
 
       <p className="break-all text-xs text-muted-foreground">预期文件名：{item.expectedFilename}</p>
-      {item.stagedPath && <p className="break-all text-xs text-muted-foreground">暂存路径：{item.stagedPath}</p>}
       {(item.errorStage || item.remoteHost) && (
         <p className="break-all text-xs text-warning-foreground">
           失败位置：{failureStageLabel(item.errorStage)}
@@ -338,13 +336,4 @@ function formatBytes(value: string | null): string | null {
     unit = units[index]!
   }
   return `${amount.toFixed(amount >= 10 ? 1 : 2)} ${unit}`
-}
-
-async function copyLink(value: string) {
-  try {
-    await navigator.clipboard.writeText(value)
-    toast.success('图片页链接已复制')
-  } catch {
-    toast.error('复制失败，请手动选择链接')
-  }
 }

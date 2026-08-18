@@ -61,6 +61,15 @@ describe('archive task service input contracts', () => {
     })
   })
 
+  it('locates one archive task by id without inheriting page filters', async () => {
+    const findMany = vi.fn().mockResolvedValue([])
+    await listArchiveTasks(
+      { taskId: 'task-active', cursor: 'ignored-for-direct-lookup', statuses: ['FAILED'], search: 'ignored' },
+      { database: { archiveImport: { findMany } } as never }
+    )
+    expect(findMany.mock.calls[0]![0].where).toEqual({ id: 'task-active' })
+  })
+
   it('redacts path tokens and locator text from task and bulk wire messages', async () => {
     const timestamp = new Date('2026-08-18T00:00:00.000Z')
     const archiveImport = {
@@ -77,7 +86,7 @@ describe('archive task service input contracts', () => {
       completedItems: 0,
       failedItems: 1,
       warning: 'warning https://e-hentai.org/g/123/warning-path-token/',
-      errorCode: 'REMOTE_RESPONSE_INVALID',
+      errorCode: 'INTERNAL',
       errorMessage: 'error https://e-hentai.org/g/123/error-path-token/ locator=private-locator',
       createdAt: timestamp,
       startedAt: timestamp,
@@ -130,6 +139,10 @@ describe('archive task service input contracts', () => {
       }
     } as never)
     const serialized = JSON.stringify({ taskPage, bulk })
+    expect(taskPage.items[0]).toMatchObject({
+      message: '内部处理失败，请稍后重试或查看服务日志。',
+      errorMessage: '内部处理失败，请稍后重试或查看服务日志。'
+    })
     for (const secret of [
       'submitted-path-token',
       'warning-path-token',

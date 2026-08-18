@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { archiveImportPayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import {
+  archiveImportPayloadSchema,
+  archiveMaintenancePayloadSchema,
+  JOB_DEFINITION_VERSION
+} from '@pixishelf/job-contracts'
 import { ArchiveImportStatus, JobStatus, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
+import { redactArchiveUrl } from './archive-redaction'
 import { ArchiveError } from './errors'
 import { archiveProviderRegistry, type ArchiveProviderRegistry } from './provider-registry'
 import { hashResolvedMetadata } from './providers/e-hentai'
@@ -294,7 +299,6 @@ export class ArchiveModule {
         expectedFilename: true,
         status: true,
         attempts: true,
-        stagedPath: true,
         byteCount: true,
         mimeType: true,
         quality: true,
@@ -316,8 +320,24 @@ export class ArchiveModule {
       totalItems: task.totalItems,
       nextCursor: hasNextPage ? items.at(-1)?.pageIndex : undefined,
       items: items.map((item) => ({
-        ...item,
-        byteCount: item.byteCount?.toString() ?? null
+        id: item.id,
+        pageIndex: item.pageIndex,
+        sourcePageUrl: redactArchiveUrl(item.sourcePageUrl),
+        expectedFilename: item.expectedFilename,
+        status: item.status,
+        attempts: item.attempts,
+        byteCount: item.byteCount?.toString() ?? null,
+        mimeType: item.mimeType,
+        quality: item.quality,
+        width: item.width,
+        height: item.height,
+        errorCode: item.errorCode,
+        errorMessage: item.errorMessage ? '图片处理失败，请根据错误码与失败阶段排查。' : null,
+        errorStage: item.errorStage,
+        remoteHost: item.remoteHost,
+        startedAt: item.startedAt,
+        finishedAt: item.finishedAt,
+        updatedAt: item.updatedAt
       }))
     }
   }
@@ -401,17 +421,18 @@ export class ArchiveModule {
   async requestAction(taskId: string, action: ArchiveTaskAction, options: { requestedByUserId?: string } = {}) {
     const task = await prisma.archiveImport.findUnique({ where: { id: taskId }, include: { systemJob: true } })
     if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
-    if (task.cleanupRequestedAt) {
-      if (action === 'DELETE_STAGING') return this.getTask(taskId)
+    const now = new Date()
+    if (task.cleanupRequestedAt && action !== 'DELETE_STAGING') {
       throw stateConflict('暂存目录正在由归档 Worker 清理，请等待清理完成')
     }
-    const now = new Date()
-
     if (isCentralDispatcherCutoverEnabled()) {
       return this.requestCentralAction(task, action, {
         requestedByUserId: requireCentralRequestedBy(options.requestedByUserId),
         now
       })
+    }
+    if (task.cleanupRequestedAt) {
+      return this.getTask(taskId)
     }
 
     switch (action) {
@@ -579,9 +600,8 @@ export class ArchiveModule {
       await transitionCentralArchiveControl(task, action, options.now)
       return this.getTask(task.id)
     }
-    throw stateConflict(
-      `${action} maintenance is not part of the archive executor; run the dedicated maintenance workflow`
-    )
+    await requestCentralArchiveMaintenance(task, action, options)
+    return this.getTask(task.id)
   }
 
   private async retryCentralArchiveImport(
@@ -675,6 +695,210 @@ export class ArchiveModule {
 
 export const archiveModule = new ArchiveModule()
 export { ARCHIVE_IMPORT_JOB_TYPE, FAILED_STAGING_RETENTION_MS, PARTIAL_FAILED_STAGING_RETENTION_MS }
+
+async function requestCentralArchiveMaintenance(
+  task: ArchiveControlTaskRecord,
+  action: Extract<ArchiveTaskAction, 'DELETE_STAGING' | 'DELETE_ARCHIVE' | 'RESTORE_ARCHIVE'>,
+  options: { requestedByUserId: string; now: Date }
+) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+    const current = await tx.archiveImport.findUnique({ where: { id: task.id }, include: { systemJob: true } })
+    if (!current || current.systemJobId !== task.systemJobId) {
+      throw stateConflict('归档任务状态已改变，请刷新后重试')
+    }
+
+    if (action === 'DELETE_STAGING') {
+      assertActionStatus(action, current.status, ['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'])
+      const intentAt = current.cleanupRequestedAt ?? options.now
+      const idempotencyKey = archiveMaintenanceIdempotencyKey('CLEAN_STAGING', current.id, intentAt)
+      if (await reuseActiveArchiveMaintenanceJob(tx, idempotencyKey)) return
+      const nextIntentAt = current.cleanupRequestedAt
+        ? nextArchiveMaintenanceIntentAt(options.now, current.cleanupRequestedAt)
+        : intentAt
+      const nextKey = archiveMaintenanceIdempotencyKey('CLEAN_STAGING', current.id, nextIntentAt)
+      const jobId = randomUUID()
+      const changed = await tx.archiveImport.updateMany({
+        where: {
+          id: current.id,
+          status: current.status,
+          cleanupRequestedAt: current.cleanupRequestedAt
+        },
+        data: { cleanupRequestedAt: nextIntentAt, updatedAt: nextIntentAt }
+      })
+      if (changed.count !== 1) throw stateConflict('暂存清理状态已改变，请刷新后重试')
+      await createArchiveMaintenanceJob(tx, {
+        jobId,
+        idempotencyKey: nextKey,
+        requestedByUserId: options.requestedByUserId,
+        parentJobId: current.systemJobId,
+        payload: { action: 'CLEAN_STAGING', archiveImportId: current.id },
+        availableAt: nextIntentAt,
+        queuePriority: 0,
+        message: 'Clean archive staging files'
+      })
+      return
+    }
+
+    if (!current.publishedArtworkId) throw new ArchiveError('INTERNAL', '任务尚未发布作品')
+    const artwork = await tx.artwork.findUnique({
+      where: { id: current.publishedArtworkId },
+      include: { archiveRevisions: { include: { externalRef: true } } }
+    })
+    if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') {
+      throw new ArchiveError('INTERNAL', '只能维护 URL 归档作品')
+    }
+    const maintenanceAction = action === 'DELETE_ARCHIVE' ? 'TRASH_ARCHIVE' : 'RESTORE_ARCHIVE'
+    const expectedPendingState = maintenanceAction === 'TRASH_ARCHIVE' ? 'TRASHING' : 'RESTORING'
+    if (artwork.archiveLifecycleState === expectedPendingState) {
+      const existingKey = archiveMaintenanceIdempotencyKey(maintenanceAction, String(artwork.id), artwork.updatedAt)
+      if (await reuseActiveArchiveMaintenanceJob(tx, existingKey)) return
+    }
+
+    if (maintenanceAction === 'TRASH_ARCHIVE') {
+      if (artwork.archiveLifecycleState === 'RESTORING') throw stateConflict('作品正在恢复，请稍后再删除')
+      if (artwork.archiveLifecycleState === 'TRASHED') return
+      if (!['ACTIVE', 'TRASHING'].includes(artwork.archiveLifecycleState)) {
+        throw stateConflict('作品当前状态不允许移入回收站')
+      }
+      if (artwork.archiveLifecycleState === 'ACTIVE' && artwork.deletedAt) {
+        throw stateConflict('作品删除状态不一致')
+      }
+    } else {
+      if (artwork.archiveLifecycleState === 'ACTIVE') throw stateConflict('作品不在归档回收站中')
+      if (artwork.archiveLifecycleState === 'TRASHING') throw stateConflict('作品仍在移入回收站，请稍后再恢复')
+      if (!['TRASHED', 'RESTORING'].includes(artwork.archiveLifecycleState)) {
+        throw stateConflict('作品当前状态不允许恢复')
+      }
+      if (!artwork.deletedAt || artwork.archiveRevisions.some((revision) => !revision.trashPath)) {
+        throw stateConflict('作品回收站状态不完整，暂时不能恢复')
+      }
+    }
+    if (artwork.archiveRevisions.length === 0) throw new ArchiveError('INTERNAL', '作品缺少归档版本')
+    for (const revision of artwork.archiveRevisions) {
+      const activeImport = await tx.archiveImport.findFirst({
+        where: {
+          providerKey: revision.externalRef.providerKey,
+          externalId: revision.externalRef.externalId,
+          status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] }
+        },
+        select: { id: true }
+      })
+      if (activeImport) throw stateConflict('该作品有进行中的归档更新，暂时不能删除或恢复')
+    }
+
+    const intentAt =
+      artwork.archiveLifecycleState === expectedPendingState
+        ? nextArchiveMaintenanceIntentAt(options.now, artwork.updatedAt)
+        : options.now
+    if (maintenanceAction === 'TRASH_ARCHIVE') {
+      const deletedAt = artwork.deletedAt ?? intentAt
+      for (const revision of artwork.archiveRevisions) {
+        await tx.archiveRevision.update({
+          where: { id: revision.id },
+          data: {
+            trashPath: revision.trashPath ?? buildArchiveMaintenanceTrashPath(artwork.id, revision.id),
+            trashedAt: revision.trashedAt ?? deletedAt,
+            purgeAfter: revision.purgeAfter ?? new Date(deletedAt.getTime() + FAILED_STAGING_RETENTION_MS)
+          }
+        })
+      }
+      const changed = await tx.artwork.updateMany({
+        where: { id: artwork.id, archiveLifecycleState: artwork.archiveLifecycleState },
+        data: { deletedAt, archiveLifecycleState: 'TRASHING', updatedAt: intentAt }
+      })
+      if (changed.count !== 1) throw stateConflict('作品状态已改变，未能开始删除')
+    } else {
+      const changed = await tx.artwork.updateMany({
+        where: { id: artwork.id, archiveLifecycleState: artwork.archiveLifecycleState, deletedAt: { not: null } },
+        data: { archiveLifecycleState: 'RESTORING', updatedAt: intentAt }
+      })
+      if (changed.count !== 1) throw stateConflict('作品状态已改变，未能开始恢复')
+    }
+
+    await createArchiveMaintenanceJob(tx, {
+      jobId: randomUUID(),
+      idempotencyKey: archiveMaintenanceIdempotencyKey(maintenanceAction, String(artwork.id), intentAt),
+      requestedByUserId: options.requestedByUserId,
+      parentJobId: current.systemJobId,
+      payload: { action: maintenanceAction, artworkId: artwork.id },
+      availableAt: intentAt,
+      queuePriority: 20,
+      message: maintenanceAction === 'TRASH_ARCHIVE' ? 'Move archived artwork to trash' : 'Restore archived artwork'
+    })
+  })
+}
+
+async function createArchiveMaintenanceJob(
+  transaction: ArchiveTransactionClient,
+  input: {
+    jobId: string
+    idempotencyKey: string
+    requestedByUserId: string
+    parentJobId: string
+    payload:
+      | { action: 'CLEAN_STAGING'; archiveImportId: string }
+      | { action: 'TRASH_ARCHIVE' | 'RESTORE_ARCHIVE'; artworkId: number }
+    availableAt: Date
+    queuePriority: number
+    message: string
+  }
+) {
+  const payload = archiveMaintenancePayloadSchema.parse(input.payload)
+  await transaction.systemJob.create({
+    data: {
+      id: input.jobId,
+      type: 'ARCHIVE_MAINTENANCE',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      status: 'PENDING',
+      triggerSource: 'MANUAL',
+      requestedByUserId: input.requestedByUserId,
+      parentJobId: input.parentJobId,
+      idempotencyKey: input.idempotencyKey,
+      payload,
+      queuePriority: input.queuePriority,
+      effectivePriority: input.queuePriority,
+      availableAt: input.availableAt,
+      maxAttempts: 3,
+      progress: 0,
+      message: input.message
+    }
+  })
+  await writeArchiveJobEvent(transaction, {
+    jobId: input.jobId,
+    type: 'job.queued',
+    attempt: 0,
+    message: input.message,
+    data: { action: payload.action }
+  })
+}
+
+async function reuseActiveArchiveMaintenanceJob(
+  transaction: ArchiveTransactionClient,
+  idempotencyKey: string
+): Promise<boolean> {
+  const existing = await transaction.systemJob.findUnique({ where: { idempotencyKey }, select: { status: true } })
+  return Boolean(
+    existing && ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'].includes(existing.status)
+  )
+}
+
+function archiveMaintenanceIdempotencyKey(
+  action: 'CLEAN_STAGING' | 'TRASH_ARCHIVE' | 'RESTORE_ARCHIVE',
+  targetId: string,
+  intentAt: Date
+): string {
+  return `archive-maintenance:${action}:${targetId}:${intentAt.getTime()}`
+}
+
+function nextArchiveMaintenanceIntentAt(now: Date, previous: Date): Date {
+  return new Date(Math.max(now.getTime(), previous.getTime() + 1))
+}
+
+function buildArchiveMaintenanceTrashPath(artworkId: number, revisionId: string): string {
+  return `.trash/archive/${artworkId}/${revisionId}`
+}
 
 async function transitionCentralArchiveControl(
   task: ArchiveControlTaskRecord,

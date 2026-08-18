@@ -169,6 +169,24 @@ describe('archive executor', () => {
     expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
   })
 
+  it('releases a claimed import without changing domain state when staging cleanup won the race', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({
+      ...archiveImport,
+      cleanupRequestedAt: new Date('2026-08-18T00:00:00.000Z')
+    })
+    const context = createContext(transaction)
+
+    await expect(executeArchiveImport(context, dependencies(transaction))).resolves.toEqual(
+      TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+    )
+
+    expect(context.__scope.release).toHaveBeenCalledWith('Archive cleanup will run before import resumes')
+    expect(context.__scope.fail).not.toHaveBeenCalled()
+    expect(transaction.archiveImport.updateMany).not.toHaveBeenCalled()
+    expect(storageMocks.prepareArchiveStagingDirectory).not.toHaveBeenCalled()
+  })
+
   it('atomically cancels the ArchiveImport when cancellation arrives before domain startup', async () => {
     const transaction = createTransaction()
     const controller = new AbortController()

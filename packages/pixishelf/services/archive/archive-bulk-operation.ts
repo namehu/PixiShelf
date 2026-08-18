@@ -194,12 +194,16 @@ async function recordFailedTarget(input: {
         result: recovered?.result ?? (known && error.code === 'STATE_CONFLICT' ? 'CONFLICT' : 'FAILED'),
         relatedId: recovered?.relatedId ?? null,
         code: recovered?.code ?? (known ? error.code : 'INTERNAL'),
-        message: redactArchiveText(
-          recovered?.message ?? (error instanceof Error ? error.message : '批量归档目标处理失败')
-        )
+        message: safeBulkFailureMessage(error, recovered?.message)
       }
     })
   })
+}
+
+function safeBulkFailureMessage(error: unknown, recoveredMessage: string | null | undefined): string | null {
+  if (recoveredMessage) return redactArchiveText(recoveredMessage)
+  if (error instanceof ArchiveError && error.code !== 'INTERNAL') return redactArchiveText(error.message)
+  return '批量归档目标处理失败，请稍后重试。'
 }
 
 async function finalizeOperation(database: PrismaClient, operationId: string, completedAt: Date) {
