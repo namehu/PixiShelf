@@ -66,5 +66,10 @@ jobs:
       - name: Build standalone Worker
         run: pnpm --filter @pixishelf/worker... build
 
+      - name: Lint and typecheck Web
+        run: |
+          pnpm --filter @pixishelf/next lint
+          pnpm --filter @pixishelf/next typecheck
+
       - name: Run Web unit tests
         run: pnpm --filter @pixishelf/next test

@@ -148,11 +148,11 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 5. 从空数据库部署完整 migration 并检查 status；
 6. 对数据库和 Worker 依赖链执行测试；
 7. 构建通用 Worker；
-8. 运行主应用 `test:unit`。
+8. 运行主应用 lint 和 typecheck；
+9. 运行主应用 `test:unit`。
 
 CI 当前没有明确执行：
 
-- 主应用 lint 和 typecheck；
 - 主应用 `test:integration`；
 - `.e2e.test.*`；
 - 主应用生产 build；
@@ -161,7 +161,7 @@ CI 当前没有明确执行：
 - Docker Compose/镜像运行冒烟；
 - 真实浏览器登录、反向代理和媒体播放。
 
-这些是已知缺口，不应在发布说明中声称已由 CI 覆盖。后续提高 CI 门禁时，应优先补主应用 lint/typecheck，再评估集成测试、扩展构建和真实浏览器 E2E。
+这些是已知缺口，不应在发布说明中声称已由 CI 覆盖。后续提高 CI 门禁时，应评估主应用集成测试和生产 build，再逐步补扩展构建与真实浏览器 E2E。
 
 ## 完成标准
 
