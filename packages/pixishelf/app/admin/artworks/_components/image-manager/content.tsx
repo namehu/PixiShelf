@@ -11,10 +11,7 @@ import { confirm } from '@/components/shared/global-confirm'
 import { ImageReplaceDialog } from '../image-replace-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { useChunkUpload } from '../../_hooks/use-chunk-upload'
 import { toast } from 'sonner'
-import { useDragDropStore } from '../../_store/drag-drop-store'
-import { useDragImages } from '../../_hooks/use-drag-images'
 import { HoverPreview } from '../hover-preview'
 import { ImagePreviewDialog } from '../image-preview-dialog'
 import { AddImageDialog } from '../add-image-dialog'
@@ -23,15 +20,15 @@ import type { Option } from '@/components/shared/multiple-selector'
 import { useRecentTags } from '@/store/admin/use-recent-tags'
 import { ImageChapterDialog } from '../image-chapter-dialog'
 import { MediaVideoMetadataDialog } from '../media-video-metadata-dialog'
-import { getFirstImageDirectory, getImageManagerStats, getNextImageSortOrder, isVideoImageListItem } from './utils'
+import { getFirstImageDirectory, getImageManagerStats, isVideoImageListItem } from './utils'
 import { createImageManagerColumns } from './columns'
 import { ImageManagerTagPanel } from './tag-panel'
 import { ImageManagerToolbar } from './toolbar'
 import { ImageManagerDragOverlay } from './drag-overlay'
 import { ImageManagerThumbnailList } from './thumbnail-list'
 import { isActiveVideoOptimization, type VideoOptimizationJob } from './video-optimization'
-import type { ArtworkMediaApiErrorResponse, MediaChapterUploadResponse } from '@/types/artwork-media-api'
 import { describeVideoReprobeResult } from './reprobe-result'
+import { uploadArtworkMediaChapter, useArtworkMediaUpload } from '../../_hooks/use-artwork-media-upload'
 
 interface ImageManagerContentProps {
   data: any
@@ -134,15 +131,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   // 查看状态
   const [showThumbnails, setShowThumbnails] = useState(false)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
-  const [showReplaceDialog, setShowReplaceDialog] = useState(false)
-  const [showAddDialog, setShowAddDialog] = useState(false)
 
-  // 新增状态
-  const [defaultAddOrder, setDefaultAddOrder] = useState(0)
-  const [isAdding, setIsAdding] = useState(false)
-  const [addProgress, setAddProgress] = useState(0)
-  const { uploadSingleFile } = useChunkUpload()
-  const [addInitialFile, setAddInitialFile] = useState<File | null>(null)
   const [chapterDialogTarget, setChapterDialogTarget] = useState<ImageListItem | null>(null)
   const [chapterDialogMode, setChapterDialogMode] = useState<'upload' | 'replace'>('upload')
   const [isSubmittingChapter, setIsSubmittingChapter] = useState(false)
@@ -150,85 +139,6 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   const [deleteChapterPhysical, setDeleteChapterPhysical] = useState(false)
   const [videoMetadataTarget, setVideoMetadataTarget] = useState<ImageListItem | null>(null)
   const [reprobingImageId, setReprobingImageId] = useState<number | null>(null)
-
-  const uploadChapterFile = async (input: { artworkId: number; imageId: number; videoPath: string; file: File }) => {
-    const formData = new FormData()
-    formData.set('artworkId', String(input.artworkId))
-    formData.set('imageId', String(input.imageId))
-    formData.set('videoPath', input.videoPath)
-    formData.set('file', input.file)
-
-    const response = await fetch('/api/artwork/media-chapters/upload', {
-      method: 'POST',
-      body: formData
-    })
-
-    const data = (await response.json().catch(() => ({}))) as Partial<
-      MediaChapterUploadResponse & ArtworkMediaApiErrorResponse
-    >
-    if (!response.ok) {
-      throw new Error(data.error || '章节上传失败')
-    }
-
-    return data.meta
-  }
-
-  const handleAddSubmit = async (file: File, order: number, chapterFile?: File | null) => {
-    if (!artworkId) return
-
-    try {
-      setIsAdding(true)
-      setAddProgress(0)
-
-      const { targetDir, targetRelDir } = await trpcClient.artwork.getUploadPath.query(artworkId)
-      const ext = file.name.split('.').pop() || ''
-      const storageIdentity = artwork.storageKey ?? artwork.externalId ?? `artwork-${artworkId}`
-      const fileName = `${storageIdentity}_p${order}.${ext}`
-
-      const meta = await uploadSingleFile(file, fileName, targetDir, targetRelDir, (progress) => {
-        setAddProgress(progress)
-      })
-
-      if (!meta) {
-        throw new Error('Upload failed: No metadata returned')
-      }
-
-      const createdImage = await trpcClient.artwork.addImage.mutate({
-        artworkId,
-        file: {
-          fileName: meta.fileName,
-          order: order,
-          width: meta.width,
-          height: meta.height,
-          size: meta.size,
-          path: meta.path
-        }
-      })
-
-      let chapterWarning = ''
-      if (chapterFile) {
-        try {
-          await uploadChapterFile({
-            artworkId,
-            imageId: createdImage.id,
-            videoPath: meta.path,
-            file: chapterFile
-          })
-        } catch (error: any) {
-          chapterWarning = error.message || '章节上传失败'
-        }
-      }
-
-      toast.success(chapterWarning ? `媒体已添加，章节关联失败：${chapterWarning}` : '媒体添加成功')
-      setShowAddDialog(false)
-      refreshMediaList()
-    } catch (error: any) {
-      console.error('Add image failed:', error)
-      toast.error(`添加失败: ${error.message}`)
-    } finally {
-      setIsAdding(false)
-    }
-  }
 
   // 删除状态
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
@@ -331,7 +241,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
 
     try {
       setIsSubmittingChapter(true)
-      await uploadChapterFile({
+      await uploadArtworkMediaChapter({
         artworkId,
         imageId: chapterDialogTarget.id,
         videoPath: chapterDialogTarget.path,
@@ -530,76 +440,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
     onDelete: setDeleteTarget
   })
 
-  const isDragging = useDragDropStore((state) => state.isDragging)
-  const setDragging = useDragDropStore((state) => state.setDragging)
-  const addFilesToQueue = useDragDropStore((state) => state.addFilesToQueue)
-
-  const [dragZone, setDragZone] = useState<'add' | 'replace' | null>(null)
-  const dragZoneRef = useRef<'add' | 'replace' | null>(null)
-  const capturedZoneRef = useRef<'add' | 'replace' | null>(null)
-
-  const updateDragZone = useCallback((zone: 'add' | 'replace' | null) => {
-    setDragZone(zone)
-    dragZoneRef.current = zone
-  }, [])
-
-  const { dragHandlers } = useDragImages({
-    onDrop: (files) => {
-      const currentZone = capturedZoneRef.current
-      if (currentZone === 'add') {
-        if (files.length > 0) {
-          setAddInitialFile(files[0]!)
-          setDefaultAddOrder(getNextImageSortOrder(imageList))
-          setShowAddDialog(true)
-        }
-      } else {
-        addFilesToQueue(files)
-        setShowReplaceDialog(true)
-      }
-      updateDragZone(null)
-      capturedZoneRef.current = null
-    },
-    onDragStateChange: (dragging) => {
-      setDragging(dragging)
-      if (!dragging) updateDragZone(null)
-    }
-  })
-
-  const handleDragOver = useCallback(
-    (e: React.DragEvent) => {
-      dragHandlers.onDragOver(e)
-      const rect = e.currentTarget.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const width = rect.width
-      const zone = x < width / 2 ? 'add' : 'replace'
-      if (dragZoneRef.current !== zone) {
-        updateDragZone(zone)
-      }
-    },
-    [dragHandlers, updateDragZone]
-  )
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-
-      const rect = e.currentTarget.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const width = rect.width
-      const zone = x < width / 2 ? 'add' : 'replace'
-      capturedZoneRef.current = zone
-
-      dragHandlers.onDrop(e)
-    },
-    [dragHandlers]
-  )
-
-  const finalDragHandlers = {
-    ...dragHandlers,
-    onDragOver: handleDragOver,
-    onDrop: handleDrop
-  }
+  const mediaUpload = useArtworkMediaUpload({ artwork, imageList, onSuccess: refreshMediaList })
 
   const firstImagePath = useMemo(() => getFirstImageDirectory(artwork), [artwork])
   const mediaStats = useMemo(() => getImageManagerStats(imageList), [imageList])
@@ -619,12 +460,8 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         showThumbnails={showThumbnails}
         onShowThumbnailsChange={setShowThumbnails}
         onRefresh={refreshMediaList}
-        onAdd={() => {
-          setAddInitialFile(null)
-          setDefaultAddOrder(getNextImageSortOrder(imageList))
-          setShowAddDialog(true)
-        }}
-        onReplace={() => setShowReplaceDialog(true)}
+        onAdd={() => mediaUpload.openAddDialog()}
+        onReplace={mediaUpload.openReplaceDialog}
         firstImagePath={firstImagePath}
         mediaCount={mediaStats.count}
         totalSize={mediaStats.totalSize}
@@ -638,11 +475,11 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
       <div
         className={cn(
           'flex-1 min-h-0 relative flex flex-col transition-colors duration-150 ease-out',
-          isDragging && 'bg-accent/10'
+          mediaUpload.isDragging && 'bg-accent/10'
         )}
-        {...finalDragHandlers}
+        {...mediaUpload.dragHandlers}
       >
-        {isDragging && <ImageManagerDragOverlay dragZone={dragZone} />}
+        {mediaUpload.isDragging && <ImageManagerDragOverlay dragZone={mediaUpload.dragZone} />}
         {showThumbnails ? (
           <ImageManagerThumbnailList
             imageList={imageList}
@@ -695,15 +532,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         cacheKey={refreshKey}
       />
 
-      <AddImageDialog
-        open={showAddDialog}
-        onOpenChange={setShowAddDialog}
-        onSubmit={handleAddSubmit}
-        isSubmitting={isAdding}
-        progress={addProgress}
-        defaultOrder={defaultAddOrder}
-        initialFile={addInitialFile}
-      />
+      <AddImageDialog {...mediaUpload.addDialog} />
 
       <ImageChapterDialog
         open={!!chapterDialogTarget}
@@ -728,15 +557,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         }}
       />
 
-      <ImageReplaceDialog
-        open={showReplaceDialog}
-        onOpenChange={setShowReplaceDialog}
-        artworkId={artworkId}
-        artwork={artwork}
-        onSuccess={() => {
-          refreshMediaList()
-        }}
-      />
+      <ImageReplaceDialog {...mediaUpload.replaceDialog} />
 
       <ProDialog
         open={!!deleteTarget}

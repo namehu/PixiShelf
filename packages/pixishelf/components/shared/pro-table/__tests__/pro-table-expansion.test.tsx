@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ProTable, type ProColumnDef } from '../index'
+import { ProTable, type ActionType, type ProColumnDef } from '../index'
 
 interface RowData {
   id: number
@@ -57,6 +57,32 @@ describe('ProTable expandable rows', () => {
     expect(screen.getByText('123')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '复制 __ext-123' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('__ext-123'))
+  })
+
+  it('preserves expanded rows when the parent reloads request data through the action ref', async () => {
+    const actionRef: { current: ActionType | undefined } = { current: undefined }
+    const request = vi.fn().mockResolvedValue({ data: [{ id: 1, externalId: '123' }], total: 1, success: true })
+
+    render(
+      <ProTable
+        actionRef={actionRef}
+        columns={columns}
+        request={request}
+        renderExpandedRow={(row) => <div>preview-{row.externalId}</div>}
+      />
+    )
+
+    expect(await screen.findByText('123')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '展开预览' }))
+    expect(screen.getByText('preview-123')).toBeTruthy()
+
+    await act(async () => {
+      await actionRef.current?.reload()
+    })
+
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('preview-123')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '收起预览' })).toBeTruthy()
   })
 
   it('renders an actionable request error and retries without hiding the table contract', async () => {

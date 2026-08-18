@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { toast } from 'sonner'
@@ -9,7 +9,7 @@ import { useMigration } from '../_hooks/use-migration'
 import { MigrationDialog } from './migration-dialog'
 import { confirm } from '@/components/shared/global-confirm'
 import { useQueryStates, parseAsString, parseAsInteger, parseAsBoolean } from 'nuqs'
-import { ProTable } from '@/components/shared/pro-table'
+import { ProTable, type ActionType } from '@/components/shared/pro-table'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { RowSelectionState } from '@tanstack/react-table'
 import { BatchImportDialog } from './batch-import-dialog'
@@ -52,7 +52,7 @@ export default function ArtworkManagement() {
     cleanupSource: true
   })
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
-  const [refreshKey, setRefreshKey] = useState(0)
+  const tableActionRef = useRef<ActionType | undefined>(undefined)
 
   const selectedRowKeys = Object.keys(rowSelection)
 
@@ -101,7 +101,7 @@ export default function ArtworkManagement() {
   }, [editorRoute.edit, editorRoute.tab])
 
   const refreshTable = useCallback(() => {
-    setRefreshKey((prev) => prev + 1)
+    tableActionRef.current?.reload()
   }, [])
 
   const handleSearch = () => {
@@ -369,7 +369,7 @@ export default function ArtworkManagement() {
       />
 
       <ProTable
-        key={refreshKey}
+        actionRef={tableActionRef}
         columns={columns}
         request={request as any}
         defaultPageSize={20}
@@ -380,8 +380,9 @@ export default function ArtworkManagement() {
         onPaginationChange={handlePaginationChange}
         rowSelection={rowSelection}
         onRowSelectionChange={setRowSelection}
-        renderExpandedRow={(artwork) => <ArtworkRowMediaPreview artworkId={(artwork as ArtworkResponseDto).id} />}
-        getRowCanExpand={(artwork) => (artwork as ArtworkResponseDto).mediaCount > 0}
+        renderExpandedRow={(artwork) => (
+          <ArtworkRowMediaPreview artworkId={(artwork as ArtworkResponseDto).id} onSuccess={refreshTable} />
+        )}
         searchRender={() => (
           <ArtworkFilterPanel
             localSearch={localSearch}
