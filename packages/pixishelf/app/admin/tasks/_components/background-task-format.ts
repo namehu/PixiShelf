@@ -1,4 +1,5 @@
 import type { JobDto, JobEventDto, JobStatus, JobType, WorkerHealthDto } from '@pixishelf/job-contracts'
+import { isWorkerHeartbeatFresh } from '@/services/background-task/worker-heartbeat'
 
 export const ACTIVE_JOB_STATUSES: JobStatus[] = ['PENDING', 'RETRY_WAIT', 'RUNNING', 'PAUSING', 'PAUSED', 'CANCELLING']
 
@@ -82,7 +83,7 @@ export function formatBackgroundDate(value: string | null) {
 
 export function getWorkerHealth(worker: WorkerHealthDto, now = Date.now()) {
   const ageMs = Math.max(0, now - new Date(worker.heartbeatAt).getTime())
-  const stale = ageMs > 90_000
+  const stale = !isWorkerHeartbeatFresh(worker.heartbeatAt, now)
   const healthy = worker.status === 'READY' && !stale
   return { ageMs, stale, healthy }
 }

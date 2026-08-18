@@ -37,24 +37,84 @@ describe('listJobs', () => {
 })
 
 describe('getJobDashboard', () => {
-  it('summarizes status counts and normalizes pre-lane worker capabilities', async () => {
+  it('uses fresh READY and STOPPING presence and normalizes pre-lane worker capabilities', async () => {
     const systemJob = {
-      groupBy: vi.fn().mockResolvedValue([
-        { status: 'PENDING', _count: { _all: 3 } },
-        { status: 'RUNNING', _count: { _all: 1 } }
-      ]),
-      findFirst: vi.fn().mockResolvedValue(jobRecord({ status: 'RUNNING' })),
-      findMany: vi.fn().mockResolvedValue([jobRecord()])
+      groupBy: vi.fn().mockResolvedValue([{ status: 'PENDING', _count: { _all: 3 } }]),
+      findMany: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([jobRecord()])
     }
-    const workerInstance = { findMany: vi.fn().mockResolvedValue([workerRecord()]) }
-    const result = await getJobDashboard({ systemJob, workerInstance } as never)
+    const workerInstance = {
+      findMany: vi.fn().mockResolvedValue([
+        workerRecord(),
+        workerRecord({
+          workerId: 'worker-draining',
+          status: 'STOPPING',
+          capabilities: [{ jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }]
+        })
+      ])
+    }
+    const result = await getJobDashboard(
+      { systemJob, workerInstance } as never,
+      () => new Date('2026-08-14T10:01:30.000Z')
+    )
 
-    expect(result).toMatchObject({ queuedCount: 3, activeCount: 1 })
+    expect(result).toMatchObject({ queuedCount: 3, activeCount: 0 })
     expect(result.counts.SKIPPED).toBe(0)
-    expect(result.runningJob?.status).toBe('RUNNING')
+    expect(result.runningJob).toBeNull()
     expect(result.workers[0]).toMatchObject({
       workerId: 'worker-1',
       capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }]
     })
+    expect(result.lanes).toEqual([
+      { executionLane: 'ARCHIVE_RESOLVE', status: 'DRAINING', runningJob: null },
+      { executionLane: 'BACKGROUND_WRITER', status: 'READY', runningJob: null }
+    ])
+  })
+
+  it('ignores stale READY and STOPPING worker presence', async () => {
+    const systemJob = {
+      groupBy: vi.fn().mockResolvedValue([]),
+      findMany: vi.fn().mockResolvedValue([])
+    }
+    const workerInstance = {
+      findMany: vi.fn().mockResolvedValue([
+        workerRecord(),
+        workerRecord({
+          workerId: 'worker-draining',
+          status: 'STOPPING',
+          capabilities: [{ jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }]
+        })
+      ])
+    }
+    const result = await getJobDashboard(
+      { systemJob, workerInstance } as never,
+      () => new Date('2026-08-14T10:01:30.001Z')
+    )
+
+    expect(result.lanes).toEqual([
+      { executionLane: 'ARCHIVE_RESOLVE', status: 'ERROR', runningJob: null },
+      { executionLane: 'BACKGROUND_WRITER', status: 'ERROR', runningJob: null }
+    ])
+  })
+
+  it('keeps a persisted running job ahead of stale worker presence', async () => {
+    const runningJob = jobRecord({ status: 'RUNNING' })
+    const systemJob = {
+      groupBy: vi.fn().mockResolvedValue([{ status: 'RUNNING', _count: { _all: 1 } }]),
+      findMany: vi.fn().mockResolvedValueOnce([runningJob]).mockResolvedValueOnce([runningJob])
+    }
+    const workerInstance = { findMany: vi.fn().mockResolvedValue([workerRecord()]) }
+    const result = await getJobDashboard(
+      { systemJob, workerInstance } as never,
+      () => new Date('2026-08-14T10:01:30.001Z')
+    )
+
+    expect(result.lanes).toEqual([
+      { executionLane: 'ARCHIVE_RESOLVE', status: 'ERROR', runningJob: null },
+      {
+        executionLane: 'BACKGROUND_WRITER',
+        status: 'RUNNING',
+        runningJob: expect.objectContaining({ id: runningJob.id })
+      }
+    ])
   })
 })

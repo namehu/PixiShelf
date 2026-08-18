@@ -21,7 +21,7 @@ import {
 const PAGE_SIZE = 50
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
-type ArchiveTask = RouterOutputs['archive']['listTasks'][number]
+type ArchiveTask = RouterOutputs['archive']['listTasksLegacy'][number]
 type ArchiveItem = RouterOutputs['archive']['listTaskItems']['items'][number]
 
 export function ArchiveItemDrawer({

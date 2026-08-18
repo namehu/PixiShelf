@@ -70,7 +70,11 @@ describe('worker health server', () => {
     const response = await fetch(`http://127.0.0.1:${server.address()?.port}/readyz`)
     const body = await response.text()
     expect(response.status).toBe(503)
-    expect(body).toBe(JSON.stringify({ ok: false, draining: false }))
+    expect(JSON.parse(body)).toEqual({
+      ok: false,
+      draining: false,
+      lanes: { ARCHIVE_RESOLVE: 'ERROR', BACKGROUND_WRITER: 'ERROR' }
+    })
     expect(body).not.toContain('super-secret')
   })
 })

@@ -8,6 +8,10 @@ const migration = readFileSync(
   'utf8'
 )
 const schema = readFileSync(path.join(prismaDirectory, 'schema.prisma'), 'utf8')
+const requestHashMigration = readFileSync(
+  path.join(prismaDirectory, 'migrations/20260818170000_add_archive_operation_request_hashes/migration.sql'),
+  'utf8'
+)
 
 describe('archive intake Worker lanes migration', () => {
   it('replaces the global execution fence with a per-lane partial unique index', () => {
@@ -48,5 +52,22 @@ describe('archive intake Worker lanes migration', () => {
     expect(schema).toContain('model ArchiveBulkOperation {')
     expect(schema).toContain('model ArchiveProviderThrottle {')
     expect(schema).toMatch(/queueOrder\s+BigInt\s+@unique @default\(autoincrement\(\)\)/)
+  })
+
+  it('adds semantic idempotency fingerprints with an expand-safe legacy backfill', () => {
+    for (const table of ['archive_intake_submissions', 'archive_bulk_operations']) {
+      const addColumn = requestHashMigration.indexOf(`ALTER TABLE "${table}"\n  ADD COLUMN "requestHash" VARCHAR(64);`)
+      const backfill = requestHashMigration.indexOf(`UPDATE "${table}"`)
+      const required = requestHashMigration.indexOf(
+        `ALTER TABLE "${table}"\n  ALTER COLUMN "requestHash" SET NOT NULL;`
+      )
+      expect(addColumn).toBeGreaterThanOrEqual(0)
+      expect(backfill).toBeGreaterThan(addColumn)
+      expect(required).toBeGreaterThan(backfill)
+    }
+    expect(requestHashMigration).toContain('md5("idempotencyKey") || md5(')
+    expect(requestHashMigration).toContain(`CHECK ("requestHash" ~ '^[a-f0-9]{64}$')`)
+    expect(schema).toMatch(/model ArchiveIntakeSubmission \{[\s\S]*requestHash\s+String\s+@db\.VarChar\(64\)/)
+    expect(schema).toMatch(/model ArchiveBulkOperation \{[\s\S]*requestHash\s+String\s+@db\.VarChar\(64\)/)
   })
 })

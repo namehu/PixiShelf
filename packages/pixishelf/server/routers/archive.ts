@@ -3,6 +3,13 @@ import { z } from 'zod'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import { archiveModule } from '@/services/archive/archive-module'
 import { ArchiveError } from '@/services/archive/errors'
+import {
+  actionArchiveTasksMany,
+  archiveTaskActionManySchema,
+  archiveTaskListSchema,
+  getArchiveBulkOperation,
+  listArchiveTasks
+} from '@/services/archive/archive-task-service'
 
 const actionSchema = z.enum([
   'PAUSE',
@@ -34,9 +41,13 @@ export const archiveRouter = router({
     .input(z.object({ taskId: z.string().min(1) }))
     .query(async ({ input }) => runArchiveOperation(() => archiveModule.getTask(input.taskId))),
 
-  listTasks: authProcedure
+  listTasksLegacy: authProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }).default({ limit: 30 }))
     .query(async ({ input }) => runArchiveOperation(() => archiveModule.listTasks(input.limit))),
+
+  listTasks: authProcedure
+    .input(archiveTaskListSchema)
+    .query(({ input }) => runArchiveOperation(() => listArchiveTasks(input))),
 
   listTaskItems: authProcedure
     .input(
@@ -69,7 +80,15 @@ export const archiveRouter = router({
       runArchiveOperation(() =>
         archiveModule.requestAction(input.taskId, input.action, { requestedByUserId: ctx.userId })
       )
-    )
+    ),
+
+  actionMany: adminProcedure
+    .input(archiveTaskActionManySchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => actionArchiveTasksMany(input, ctx.userId))),
+
+  getBulkOperation: authProcedure
+    .input(z.object({ operationId: z.string().min(1).max(128) }).strict())
+    .query(({ input }) => runArchiveOperation(() => getArchiveBulkOperation(input.operationId)))
 })
 
 /**
@@ -81,7 +100,7 @@ export const archiveRouter = router({
  * - REMOTE_RATE_LIMITED 映射为 TOO_MANY_REQUESTS
  * - 其他冲突/缺失状态映射为 PRECONDITION_FAILED
  */
-async function runArchiveOperation<T>(operation: () => Promise<T>): Promise<T> {
+export async function runArchiveOperation<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation()
   } catch (error) {

@@ -32,7 +32,7 @@ import { confirm } from '@/components/shared/global-confirm'
 const ACTIVE_STATUSES = new Set(['PENDING', 'RUNNING', 'CANCELLING'])
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type ArchivePreviewOutput = RouterOutputs['archive']['preview']
-type ArchiveTaskOutput = RouterOutputs['archive']['listTasks'][number]
+type ArchiveTaskOutput = RouterOutputs['archive']['listTasksLegacy'][number]
 
 export function ArchiveManagement() {
   const trpc = useTRPC()
@@ -41,7 +41,7 @@ export function ArchiveManagement() {
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
   const [detailRefreshVersion, setDetailRefreshVersion] = useState(0)
   const tasksQuery = useQuery(
-    trpc.archive.listTasks.queryOptions(
+    trpc.archive.listTasksLegacy.queryOptions(
       { limit: 30 },
       {
         refetchInterval: (query) => {

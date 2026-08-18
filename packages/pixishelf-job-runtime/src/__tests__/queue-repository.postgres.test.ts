@@ -101,6 +101,7 @@ describePostgres('PostgresQueueRepository integration', () => {
       data: {
         id: submissionId,
         idempotencyKey: submissionId,
+        requestHash: '0'.repeat(64),
         rawCount: 2,
         acceptedCount: 2,
         items: {
@@ -154,6 +155,7 @@ describePostgres('PostgresQueueRepository integration', () => {
       data: {
         id: submissionId,
         idempotencyKey: submissionId,
+        requestHash: '0'.repeat(64),
         rawCount: 1,
         acceptedCount: 1,
         items: {
@@ -230,6 +232,7 @@ describePostgres('PostgresQueueRepository integration', () => {
       data: {
         id: submissionId,
         idempotencyKey: submissionId,
+        requestHash: '0'.repeat(64),
         rawCount: 1,
         acceptedCount: 1,
         items: {
@@ -280,6 +283,7 @@ describePostgres('PostgresQueueRepository integration', () => {
         data: {
           id: submissionId,
           idempotencyKey: submissionId,
+          requestHash: '0'.repeat(64),
           rawCount: 1,
           acceptedCount: 1,
           items: {

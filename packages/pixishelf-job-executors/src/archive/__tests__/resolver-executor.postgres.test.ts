@@ -97,6 +97,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
       data: {
         id: existingSubmissionId,
         idempotencyKey: existingSubmissionId,
+        requestHash: '0'.repeat(64),
         rawCount: 1,
         acceptedCount: 1,
         items: {
@@ -219,6 +220,7 @@ async function seedResolverItem(now: Date) {
     data: {
       id: submissionId,
       idempotencyKey: submissionId,
+      requestHash: '0'.repeat(64),
       rawCount: 1,
       acceptedCount: 1,
       items: {

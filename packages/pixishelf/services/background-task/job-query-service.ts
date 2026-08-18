@@ -3,6 +3,7 @@ import { JOB_STATUS_VALUES, JOB_TYPE_VALUES, type JobStatus } from '@pixishelf/j
 import { Prisma } from '@pixishelf/db'
 import { z } from 'zod'
 import { systemJobWireSelect, toJobDto, toWorkerHealthDto, workerInstanceWireSelect } from './job-serialization'
+import { isWorkerHeartbeatFresh } from './worker-heartbeat'
 
 type JobQueryClient = Pick<Prisma.TransactionClient, 'systemJob' | 'workerInstance'>
 
@@ -43,7 +44,7 @@ export async function listJobs(input: z.input<typeof listJobsInputSchema>, clien
   }
 }
 
-export async function getJobDashboard(client?: JobQueryClient) {
+export async function getJobDashboard(client?: JobQueryClient, now: () => Date = () => new Date()) {
   const database = queryClient(client)
   const [groups, running, recent, workers] = await Promise.all([
     database.systemJob.groupBy({
@@ -51,9 +52,10 @@ export async function getJobDashboard(client?: JobQueryClient) {
       where: { definitionVersion: { gte: 1 } },
       _count: { _all: true }
     }),
-    database.systemJob.findFirst({
+    database.systemJob.findMany({
       where: { definitionVersion: { gte: 1 }, status: { in: ['RUNNING', 'PAUSING', 'CANCELLING'] } },
-      orderBy: { startedAt: 'desc' },
+      orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+      take: 2,
       select: systemJobWireSelect
     }),
     database.systemJob.findMany({
@@ -67,13 +69,44 @@ export async function getJobDashboard(client?: JobQueryClient) {
 
   const counts = Object.fromEntries(JOB_STATUS_VALUES.map((status) => [status, 0])) as Record<JobStatus, number>
   for (const group of groups) counts[group.status] = group._count._all
+  const runningJobs = running.map(toJobDto)
+  const workerDtos = workers.map(toWorkerHealthDto)
+  const timestamp = now()
+  const freshWorkers = workerDtos.filter((worker) => isWorkerHeartbeatFresh(worker.heartbeatAt, timestamp))
+  const laneNames = ['ARCHIVE_RESOLVE', 'BACKGROUND_WRITER'] as const
+  const lanes = laneNames.map((executionLane) => {
+    const runningJob = runningJobs.find((job) => job.executionLane === executionLane) ?? null
+    const ready = freshWorkers.some(
+      (worker) =>
+        worker.status === 'READY' &&
+        worker.capabilities.some((capability) => capability.executionLane === executionLane)
+    )
+    const draining = freshWorkers.some(
+      (worker) =>
+        worker.status === 'STOPPING' &&
+        worker.capabilities.some((capability) => capability.executionLane === executionLane)
+    )
+    return {
+      executionLane,
+      status: runningJob
+        ? ('RUNNING' as const)
+        : ready
+          ? ('READY' as const)
+          : draining
+            ? ('DRAINING' as const)
+            : ('ERROR' as const),
+      runningJob
+    }
+  })
   return {
     counts,
     queuedCount: counts.PENDING + counts.RETRY_WAIT,
     activeCount: counts.RUNNING + counts.PAUSING + counts.CANCELLING,
-    runningJob: running ? toJobDto(running) : null,
+    runningJob: runningJobs[0] ?? null,
+    runningJobs,
+    lanes,
     recentJobs: recent.map(toJobDto),
-    workers: workers.map(toWorkerHealthDto)
+    workers: workerDtos
   }
 }
 

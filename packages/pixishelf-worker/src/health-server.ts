@@ -39,7 +39,17 @@ export function createWorkerHealthServer(options: HealthServerOptions): WorkerHe
         }
         if (request.url === '/readyz') {
           response.writeHead(state.ready ? 200 : 503, { 'content-type': 'application/json' })
-          response.end(JSON.stringify({ ok: state.ready, draining: state.draining }))
+          const laneStatus = state.draining ? 'DRAINING' : state.ready ? 'READY' : 'ERROR'
+          response.end(
+            JSON.stringify({
+              ok: state.ready,
+              draining: state.draining,
+              lanes: {
+                ARCHIVE_RESOLVE: laneStatus,
+                BACKGROUND_WRITER: laneStatus
+              }
+            })
+          )
           return
         }
         response.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: false }))

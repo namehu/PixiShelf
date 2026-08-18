@@ -642,6 +642,7 @@ model ArchiveImport {
 model ArchiveIntakeSubmission {
   id                String              @id @default(cuid())
   idempotencyKey    String              @unique @db.VarChar(180)
+  requestHash       String              @db.VarChar(64)
   requestedByUserId String?
   rawCount          Int
   acceptedCount     Int
@@ -714,6 +715,7 @@ model ArchiveIntakeItem {
 model ArchiveBulkOperation {
   id                String                      @id @default(cuid())
   idempotencyKey    String                      @unique @db.VarChar(180)
+  requestHash       String                      @db.VarChar(64)
   requestedByUserId String?
   commandType       ArchiveBulkOperationCommand
   requestedCount    Int
