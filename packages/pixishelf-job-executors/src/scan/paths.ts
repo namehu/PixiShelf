@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import { ScanExecutorError } from './errors.js'
 import { throwIfAborted } from './bounded.js'
+import { compareCodePoints } from './stable-order.js'
 
 export interface SafeScanRoot {
   absolutePath: string
@@ -92,6 +93,7 @@ export async function* walkSafeFiles(
     if (depth > options.maxDepth) {
       throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Scan directory depth exceeds the configured limit')
     }
+    const entryNames: string[] = []
     const handle = await fs.opendir(directory.absolutePath)
     try {
       for await (const entry of handle) {
@@ -101,28 +103,33 @@ export async function* walkSafeFiles(
           throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Scan discovery exceeds the configured entry limit')
         }
         if (entry.name === '.' || entry.name === '..') continue
-        const relativePath = joinRelative(directory.relativePath, entry.name)
-        const absolutePath = path.join(directory.absolutePath, entry.name)
-        const metadata = await fs.lstat(absolutePath)
-        if (metadata.isSymbolicLink()) {
-          throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Scan discovery encountered a symbolic link')
-        }
-        if (metadata.isDirectory()) {
-          yield* visit({ absolutePath, relativePath }, depth + 1)
-          continue
-        }
-        if (!metadata.isFile() || !options.include(relativePath)) continue
-        const resolved = await fs.realpath(absolutePath)
-        assertWithinRoot(root.absolutePath, resolved)
-        page.push({ absolutePath: resolved, relativePath })
-        if (page.length === options.pageSize) {
-          const completedPage = page
-          page = []
-          yield completedPage
-        }
+        entryNames.push(entry.name)
       }
     } finally {
       await handle.close().catch(() => undefined)
+    }
+    entryNames.sort(compareCodePoints)
+    for (const entryName of entryNames) {
+      throwIfAborted(options.signal)
+      const relativePath = joinRelative(directory.relativePath, entryName)
+      const absolutePath = path.join(directory.absolutePath, entryName)
+      const metadata = await fs.lstat(absolutePath)
+      if (metadata.isSymbolicLink()) {
+        throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Scan discovery encountered a symbolic link')
+      }
+      if (metadata.isDirectory()) {
+        yield* visit({ absolutePath, relativePath }, depth + 1)
+        continue
+      }
+      if (!metadata.isFile() || !options.include(relativePath)) continue
+      const resolved = await fs.realpath(absolutePath)
+      assertWithinRoot(root.absolutePath, resolved)
+      page.push({ absolutePath: resolved, relativePath })
+      if (page.length === options.pageSize) {
+        const completedPage = page
+        page = []
+        yield completedPage
+      }
     }
   }
 

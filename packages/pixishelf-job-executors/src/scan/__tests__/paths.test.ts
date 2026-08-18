@@ -14,7 +14,7 @@ describe('scan path safety', () => {
   it('streams bounded pages without returning absolute paths as checkpoint data', async () => {
     const directory = await fixtureRoot()
     await fs.mkdir(path.join(directory, 'artist'), { recursive: true })
-    for (let index = 1; index <= 5; index += 1) {
+    for (const index of [1, 2, 5, 4, 3]) {
       await fs.writeFile(path.join(directory, 'artist', `${index}-meta.json`), '{}')
     }
     const root = await resolveSafeScanRoot(directory)
