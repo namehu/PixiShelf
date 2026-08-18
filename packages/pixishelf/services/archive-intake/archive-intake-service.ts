@@ -209,6 +209,7 @@ export async function replaceArchiveIntakeItem(
   const requestHash = archiveRequestFingerprint({ command: 'REPLACE', itemId: parsed.itemId, url: submittedUrl })
 
   return database.$transaction(async (transaction) => {
+    // 替换只对失败态原项目生效，并要求 URL 改变；这是“修正后重试”而非创建额外并行归档。
     await lockKey(transaction, INTAKE_IDEMPOTENCY_LOCK_NAMESPACE, parsed.idempotencyKey)
     const existing = await transaction.archiveIntakeSubmission.findUnique({
       where: { idempotencyKey: parsed.idempotencyKey }
@@ -256,6 +257,7 @@ export async function replaceArchiveIntakeItem(
     })
 
     if (duplicate?.submittedUrl === submittedUrl) {
+      // 重复分支保留 lineage：duplicateOf 追踪当前系统已在排队/处理中相同链接，supersedes 指向被替换失败项。
       await createDuplicateAuditItem(transaction, {
         id: uuid(),
         submissionId: submission.id,
@@ -266,6 +268,7 @@ export async function replaceArchiveIntakeItem(
         timestamp
       })
     } else if (hasCapacity) {
+      // 容量可用时以 RETRY 触发新解析条目，并用 supersedesItemId 串起“原失败项 -> 替代项”链路。
       await createQueuedIntakeItem(transaction, {
         itemId: uuid(),
         jobId: uuid(),
@@ -278,6 +281,7 @@ export async function replaceArchiveIntakeItem(
         triggerSource: 'RETRY'
       })
     } else {
+      // 容量不足时落持久失败记录（retryable=true），用于用户可见的排队失败并允许后续重试。
       await createCapacityRejectedAuditItem(transaction, {
         id: uuid(),
         submissionId: submission.id,

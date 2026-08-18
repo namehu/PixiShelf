@@ -207,6 +207,7 @@ export function getOrCreateArchiveCommandKey(
   payload: unknown,
   createKey: () => string
 ): string {
+  // 网络结果未确认前按命令和 payload 指纹复用同一 key；成功后由调用方释放，后续操作才生成新 key。
   const fingerprint = archiveCommandFingerprint(command, payload)
   const existing = keys.get(fingerprint)
   if (existing) return existing

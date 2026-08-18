@@ -103,6 +103,7 @@ async function executeStagingCleanup(
 
   const now = (dependencies.now ?? (() => new Date()))()
   return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
+    // 清理与发布链路共享同一把 advisory 锁，确保删除目录与状态重置与后续入队/发布操作严格有序。
     await lockArchivePublication(scope.transaction)
     const current = await scope.transaction.archiveImport.findUnique({
       where: { id: archiveImport.id },
@@ -190,6 +191,7 @@ async function executeArtworkMaintenance(
   throwIfAborted(context.signal)
   const now = (dependencies.now ?? (() => new Date()))()
   return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
+    // 目录移动完成后再二次校验生命周期，保证重复/重放任务只在预期状态下完成最终转态变更。
     await lockArchivePublication(scope.transaction)
     const artwork = await scope.transaction.artwork.findUnique({
       where: { id: payload.artworkId },

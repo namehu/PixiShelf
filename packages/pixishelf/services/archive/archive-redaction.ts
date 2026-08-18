@@ -30,5 +30,6 @@ export function redactArchiveText(value: string | null, maxLength?: number): str
 }
 
 export function archiveWireErrorMessage(errorCode: string | null, value: string | null): string | null {
+  // INTERNAL 级错误不做原文透传，固定输出统一文案以避免泄露内部执行细节。
   return errorCode === 'INTERNAL' ? ARCHIVE_INTERNAL_ERROR_MESSAGE : redactArchiveText(value)
 }

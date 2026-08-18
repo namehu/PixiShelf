@@ -91,6 +91,7 @@ export function ArchiveReplaceDialog({
             const payload = { itemId, url }
             replaceMutation.mutate({
               ...payload,
+              // 网络结果未确认前复用同一 key，使相同失败项目与修正链接能够安全重放。
               idempotencyKey: getOrCreateArchiveCommandKey(
                 commandKeys.current,
                 'REPLACE',

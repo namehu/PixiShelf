@@ -230,6 +230,7 @@ export function ArchiveInbox() {
   const anyMutationPending = enqueueMutation.isPending || cancelMutation.isPending || retryMutation.isPending
 
   const idempotencyKeyFor = (command: string, payload: unknown) => {
+    // 批处理结果未确认前按 payload 指纹复用 key，让连点或网络重试落到同一份服务端审计记录。
     return getOrCreateArchiveCommandKey(
       commandKeys.current,
       command,

@@ -185,6 +185,7 @@ export async function executeArchiveImport(
     })
   } catch (error) {
     if (finalizationStarted) throw error
+    // 如果当前执行已被触发“先清理暂存再重试”，返回 RELEASE，避免把清理需求误记为任务失败。
     if (error instanceof ArchiveCleanupRequestedError) {
       return releaseArchiveImportForCleanup(context, archiveImportId)
     }
@@ -205,6 +206,7 @@ async function startArchiveImport(
     if (!archiveImport || archiveImport.systemJobId !== context.job.id) {
       throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import payload is not bound to the claimed job')
     }
+    // 优先尊重 cleanupRequestedAt 门禁：清理未完成前不得再次启动下载流程，否则状态与文件会互相覆盖。
     if (archiveImport.cleanupRequestedAt) throw new ArchiveCleanupRequestedError()
     if (!['PENDING', 'RUNNING'].includes(archiveImport.status)) {
       throw new ArchiveExecutorError('STATE_CONFLICT', `Archive import cannot start from ${archiveImport.status}`)

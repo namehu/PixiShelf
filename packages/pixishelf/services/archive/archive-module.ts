@@ -422,6 +422,7 @@ export class ArchiveModule {
     const task = await prisma.archiveImport.findUnique({ where: { id: taskId }, include: { systemJob: true } })
     if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
     const now = new Date()
+    // 清理暂存为独立入口：其他动作遇到 cleanupRequestedAt 会被拒绝，避免状态与清理执行器互相覆盖。
     if (task.cleanupRequestedAt && action !== 'DELETE_STAGING') {
       throw stateConflict('暂存目录正在由归档 Worker 清理，请等待清理完成')
     }
@@ -702,6 +703,7 @@ async function requestCentralArchiveMaintenance(
   options: { requestedByUserId: string; now: Date }
 ) {
   await prisma.$transaction(async (tx) => {
+    // 与发布/回收站状态变更共用 advisory lock，避免入队、清理、发布链路同时改动相关归档实体。
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
     const current = await tx.archiveImport.findUnique({ where: { id: task.id }, include: { systemJob: true } })
     if (!current || current.systemJobId !== task.systemJobId) {
@@ -716,6 +718,7 @@ async function requestCentralArchiveMaintenance(
       const nextIntentAt = current.cleanupRequestedAt
         ? nextArchiveMaintenanceIntentAt(options.now, current.cleanupRequestedAt)
         : intentAt
+      // 活动请求已在上方复用；终态失败后的再次请求推进 intent 时间，生成可重新入队的新幂等键。
       const nextKey = archiveMaintenanceIdempotencyKey('CLEAN_STAGING', current.id, nextIntentAt)
       const jobId = randomUUID()
       const changed = await tx.archiveImport.updateMany({
@@ -784,6 +787,7 @@ async function requestCentralArchiveMaintenance(
         },
         select: { id: true }
       })
+      // 防止同一作品版本在归档更新进行时又被移动到回收站/恢复，避免状态版本错位。
       if (activeImport) throw stateConflict('该作品有进行中的归档更新，暂时不能删除或恢复')
     }
 
@@ -1057,6 +1061,7 @@ async function transitionTaskAndJob(
   input: ArchiveTransitionInput
 ) {
   await prisma.$transaction(async (tx) => {
+    // 与发布管线共享同一把 advisory lock，清理路径与任务控制命令必须串行，且只在 cleanupRequestedAt 未置位时更新任务。
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
     const job = await tx.systemJob.updateMany({
       where: { id: task.systemJobId, status: task.systemJob.status },
