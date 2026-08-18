@@ -71,6 +71,7 @@ export function VideoStreamingOptimizationSection() {
   const recent = queue?.recent ?? []
   const runningCount = active.filter((job) => job.status === 'RUNNING' || job.status === 'CANCELLING').length
   const pendingCount = active.filter((job) => job.status === 'PENDING').length
+  const failedCount = recent.filter((job) => job.status === 'FAILED').length
 
   return (
     <TaskSection
@@ -84,9 +85,11 @@ export function VideoStreamingOptimizationSection() {
           ? `${runningCount} 项运行中 · ${pendingCount} 项等待`
           : pendingCount > 0
             ? `${pendingCount} 项等待执行`
-            : `队列空闲 · ${recent.length} 条近期记录`
+            : failedCount > 0
+              ? `需要处理 · ${failedCount} 项失败`
+              : null
       }
-      tone={active.length > 0 ? 'active' : 'idle'}
+      tone={active.length > 0 ? 'active' : failedCount > 0 ? 'error' : 'idle'}
     >
       <QueueGroup title="正在处理与等待" emptyText="当前没有等待或执行中的视频优化任务">
         {active.map((job) => (

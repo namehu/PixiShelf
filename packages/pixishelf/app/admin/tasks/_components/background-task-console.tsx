@@ -4,7 +4,9 @@ import type { JobDto, JobEventDto, JobStatus, WorkerHealthDto } from '@pixishelf
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
   Ban,
+  CheckCircle2,
   ChevronDown,
   Clock3,
   Cpu,
@@ -16,11 +18,14 @@ import {
   Server,
   SquareActivity
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { confirm } from '@/components/shared/global-confirm'
@@ -30,6 +35,7 @@ import {
   canPauseJob,
   canResumeJob,
   canRetryJob,
+  ACTIVE_JOB_STATUSES,
   formatBackgroundDate,
   formatBackgroundEventType,
   formatBackgroundJobStatus,
@@ -57,12 +63,54 @@ export interface BackgroundDashboardView {
 export function BackgroundTaskConsole() {
   const dashboardQuery = useBackgroundDashboard()
   const dashboard = dashboardQuery.data as BackgroundDashboardView | undefined
+  const isDesktop = useMediaQuery('(min-width: 768px)')
+  const [open, setOpen] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  const [acknowledgedFailures, setAcknowledgedFailures] = useState<string[]>([])
+  const [completedNotice, setCompletedNotice] = useState<JobDto | null>(null)
+  const previousActiveJobIds = useRef<Set<string> | null>(null)
+  const completedNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (selectedJobId || !dashboard) return
-    setSelectedJobId(dashboard.runningJob?.id ?? dashboard.recentJobs[0]?.id ?? null)
-  }, [dashboard, selectedJobId])
+    if (!dashboard) return
+    const activeIds = new Set(
+      dashboard.recentJobs.filter((job) => ACTIVE_JOB_STATUSES.includes(job.status)).map((job) => job.id)
+    )
+    if (dashboard.runningJob) activeIds.add(dashboard.runningJob.id)
+
+    const previousIds = previousActiveJobIds.current
+    if (previousIds) {
+      const completedJob = [...previousIds]
+        .map((jobId) => dashboard.recentJobs.find((job) => job.id === jobId && job.status === 'COMPLETED'))
+        .find((job): job is JobDto => Boolean(job && !activeIds.has(job.id)))
+      if (completedJob) {
+        setCompletedNotice(completedJob)
+        if (completedNoticeTimer.current) clearTimeout(completedNoticeTimer.current)
+        completedNoticeTimer.current = setTimeout(() => setCompletedNotice(null), 6_000)
+      }
+    }
+    previousActiveJobIds.current = activeIds
+  }, [dashboard])
+
+  useEffect(
+    () => () => {
+      if (completedNoticeTimer.current) clearTimeout(completedNoticeTimer.current)
+    },
+    []
+  )
+
+  const failedJobs = dashboard?.recentJobs.filter((job) => job.status === 'FAILED') ?? []
+  const unreadFailures = failedJobs.filter((job) => !acknowledgedFailures.includes(job.id))
+  const failedJobIds = failedJobs.map((job) => job.id).join('|')
+
+  useEffect(() => {
+    if (!open || !failedJobIds) return
+    const ids = failedJobIds.split('|')
+    setAcknowledgedFailures((current) => {
+      const next = [...new Set([...current, ...ids])]
+      return next.length === current.length ? current : next
+    })
+  }, [failedJobIds, open])
 
   const dashboardSelectedJob =
     dashboard?.recentJobs.find((job) => job.id === selectedJobId) ??
@@ -75,41 +123,15 @@ export function BackgroundTaskConsole() {
     void detailQuery.refetch()
   })
 
-  if (dashboardQuery.isPending) {
-    return (
-      <section aria-label="后台任务控制台" className="rounded-xl border bg-card p-5 shadow-sm">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner aria-hidden="true" /> 正在读取串行队列与 Worker 状态…
-        </div>
-      </section>
-    )
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen)
+    if (!nextOpen) setSelectedJobId(null)
   }
 
-  if (dashboardQuery.isError || !dashboard) {
-    return (
-      <section
-        aria-label="后台任务控制台读取失败"
-        className="rounded-xl border border-destructive/30 bg-card p-5 shadow-sm"
-      >
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden="true" />
-          <div className="min-w-0 flex-1">
-            <h2 className="font-semibold">无法读取后台队列</h2>
-            <p className="mt-1 break-words text-sm text-muted-foreground">
-              {dashboardQuery.error?.message ?? '查询返回了空数据。'}
-            </p>
-            <Button className="mt-4" size="sm" variant="outline" onClick={() => void dashboardQuery.refetch()}>
-              <RefreshCw data-icon="inline-start" aria-hidden="true" /> 重试
-            </Button>
-          </div>
-        </div>
-      </section>
-    )
-  }
-
-  return (
+  const panelContent = dashboard ? (
     <BackgroundTaskConsoleView
       dashboard={dashboard}
+      selectedJobId={selectedJobId}
       selectedJob={selectedJob}
       selectedJobLoading={detailQuery.isPending && Boolean(selectedJobId)}
       onSelectJob={setSelectedJobId}
@@ -122,6 +144,171 @@ export function BackgroundTaskConsole() {
       detailError={detailQuery.isError ? detailQuery.error : null}
       onRetryDetail={() => void detailQuery.refetch()}
     />
+  ) : (
+    <BackgroundConsoleState
+      loading={dashboardQuery.isPending}
+      error={dashboardQuery.isError ? dashboardQuery.error : null}
+      onRetry={() => void dashboardQuery.refetch()}
+    />
+  )
+
+  return (
+    <>
+      <BackgroundTaskDock
+        dashboard={dashboard}
+        loading={dashboardQuery.isPending}
+        error={dashboardQuery.isError}
+        unreadFailureCount={unreadFailures.length}
+        completedNotice={completedNotice}
+        onOpen={() => setOpen(true)}
+      />
+      {isDesktop ? (
+        <Sheet open={open} onOpenChange={handleOpenChange}>
+          <SheetContent className="w-full gap-0 p-0 sm:max-w-xl xl:max-w-2xl">
+            <SheetHeader className="shrink-0 border-b pr-14 text-left">
+              <SheetTitle>执行动态</SheetTitle>
+              <SheetDescription>查看正在执行、排队和近期后台任务。</SheetDescription>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto">{panelContent}</div>
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Drawer open={open} onOpenChange={handleOpenChange}>
+          <DrawerContent className="max-h-[92dvh]">
+            <DrawerHeader className="shrink-0 border-b text-left">
+              <DrawerTitle>执行动态</DrawerTitle>
+              <DrawerDescription>查看正在执行、排队和近期后台任务。</DrawerDescription>
+            </DrawerHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto">{panelContent}</div>
+          </DrawerContent>
+        </Drawer>
+      )}
+    </>
+  )
+}
+
+function BackgroundTaskDock({
+  dashboard,
+  loading,
+  error,
+  unreadFailureCount,
+  completedNotice,
+  onOpen
+}: {
+  dashboard: BackgroundDashboardView | undefined
+  loading: boolean
+  error: boolean
+  unreadFailureCount: number
+  completedNotice: JobDto | null
+  onOpen: () => void
+}) {
+  const running = dashboard?.runningJob ?? null
+  const queuedCount = dashboard?.queuedCount ?? 0
+  const activeLabel = running ? formatBackgroundJobType(running.type) : null
+  const dockPosition =
+    'fixed inset-x-4 bottom-[calc(var(--app-mobile-navigation-offset)+0.75rem)] z-40 lg:inset-x-auto lg:right-6 lg:bottom-6'
+
+  if (loading) {
+    return (
+      <div className={dockPosition}>
+        <Button type="button" variant="outline" className="w-full shadow-lg lg:size-9 lg:px-0" disabled>
+          <Spinner aria-hidden="true" />
+          <span className="lg:sr-only">正在读取执行动态</span>
+        </Button>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className={dockPosition}>
+        <Button type="button" variant="destructive" onClick={onOpen} className="w-full shadow-lg lg:w-auto">
+          <AlertTriangle data-icon="inline-start" aria-hidden="true" />
+          队列状态读取失败
+        </Button>
+      </div>
+    )
+  }
+
+  if (running || queuedCount > 0) {
+    return (
+      <div className={dockPosition}>
+        <Button
+          type="button"
+          onClick={onOpen}
+          className="h-auto w-full justify-start px-3 py-2.5 shadow-lg lg:w-auto lg:max-w-md"
+          aria-label={`打开执行动态，${activeLabel ?? `${queuedCount} 项等待`}`}
+        >
+          <Activity data-icon="inline-start" className="animate-pulse motion-reduce:animate-none" aria-hidden="true" />
+          <span className="min-w-0 truncate">{activeLabel ?? `${queuedCount} 项等待`}</span>
+          {running ? <span className="font-semibold tabular-nums">{running.progress}%</span> : null}
+          {queuedCount > 0 && running ? <span className="opacity-80">+{queuedCount} 等待</span> : null}
+          {unreadFailureCount > 0 ? <span className="opacity-80">· {unreadFailureCount} 失败</span> : null}
+        </Button>
+      </div>
+    )
+  }
+
+  if (unreadFailureCount > 0) {
+    return (
+      <div className={dockPosition}>
+        <Button type="button" variant="destructive" onClick={onOpen} className="w-full shadow-lg lg:w-auto">
+          <AlertTriangle data-icon="inline-start" aria-hidden="true" />
+          {unreadFailureCount} 项失败
+        </Button>
+      </div>
+    )
+  }
+
+  if (completedNotice) {
+    return (
+      <div className={dockPosition}>
+        <Button type="button" variant="secondary" onClick={onOpen} className="w-full shadow-lg lg:w-auto">
+          <CheckCircle2 data-icon="inline-start" aria-hidden="true" />
+          {formatBackgroundJobType(completedNotice.type)}已完成
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className={dockPosition}>
+      <Button type="button" variant="outline" onClick={onOpen} className="w-full shadow-lg lg:size-9 lg:px-0">
+        <SquareActivity aria-hidden="true" />
+        <span className="lg:sr-only">执行动态</span>
+      </Button>
+    </div>
+  )
+}
+
+function BackgroundConsoleState({
+  loading,
+  error,
+  onRetry
+}: {
+  loading: boolean
+  error: { message: string } | null
+  onRetry: () => void
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 p-5 text-sm text-muted-foreground">
+        <Spinner aria-hidden="true" /> 正在读取串行队列与 Worker 状态…
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-start gap-3 p-5">
+      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <h2 className="font-semibold">无法读取后台队列</h2>
+        <p className="mt-1 break-words text-sm text-muted-foreground">{error?.message ?? '查询返回了空数据。'}</p>
+        <Button className="mt-4" size="sm" variant="outline" onClick={onRetry}>
+          <RefreshCw data-icon="inline-start" aria-hidden="true" /> 重试
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -135,6 +322,7 @@ export interface BackgroundControlsView {
 
 export function BackgroundTaskConsoleView({
   dashboard,
+  selectedJobId = null,
   selectedJob,
   selectedJobLoading,
   onSelectJob,
@@ -145,9 +333,10 @@ export function BackgroundTaskConsoleView({
   onRetryDetail
 }: {
   dashboard: BackgroundDashboardView
+  selectedJobId?: string | null
   selectedJob: JobDto | null
   selectedJobLoading: boolean
-  onSelectJob: (jobId: string) => void
+  onSelectJob: (jobId: string | null) => void
   onRefresh: () => void
   refreshing: boolean
   controls: BackgroundControlsView
@@ -156,30 +345,30 @@ export function BackgroundTaskConsoleView({
 }) {
   const workerSummary = getWorkerSummary(dashboard.workers)
   const running = dashboard.runningJob
+  const showingDetail = Boolean(selectedJobId ?? selectedJob?.id)
 
   return (
-    <section
-      aria-labelledby="background-console-title"
-      className="min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm"
-    >
-      <header className="flex flex-col gap-3 border-b bg-muted/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
+    <section aria-labelledby="background-console-title" className="min-w-0">
+      <header className="flex items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3 sm:px-5">
+        <div className="flex min-w-0 items-center gap-2">
+          {showingDetail ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={() => onSelectJob(null)}
+              aria-label="返回执行列表"
+            >
+              <ArrowLeft aria-hidden="true" />
+            </Button>
+          ) : (
             <SquareActivity className="size-5 text-primary" aria-hidden="true" />
-            <h2 id="background-console-title" className="font-semibold tracking-tight">
-              串行后台作业控制台
-            </h2>
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">中央队列只允许一个 Worker 执行槽；排队不代表任务已完成。</p>
+          )}
+          <h2 id="background-console-title" className="truncate text-sm font-semibold tracking-tight">
+            {showingDetail ? '任务详情' : '队列概览'}
+          </h2>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={onRefresh}
-          disabled={refreshing}
-          className="self-start sm:self-auto"
-        >
+        <Button type="button" size="sm" variant="outline" onClick={onRefresh} disabled={refreshing}>
           <RefreshCw
             data-icon="inline-start"
             className={cn(refreshing && 'animate-spin motion-reduce:animate-none')}
@@ -189,23 +378,8 @@ export function BackgroundTaskConsoleView({
         </Button>
       </header>
 
-      <div className="grid min-w-0 gap-px bg-border lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]">
-        <div className="min-w-0 bg-card p-4 sm:p-5">
-          <ExecutionSlot job={running} queuedCount={dashboard.queuedCount} />
-          <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="后台任务状态汇总">
-            <SummaryCell label="队列等待" value={dashboard.queuedCount} emphasized />
-            <SummaryCell label="正在占槽" value={dashboard.activeCount} />
-            <SummaryCell label="已暂停" value={dashboard.counts.PAUSED} />
-            <SummaryCell label="失败" value={dashboard.counts.FAILED} />
-            <SummaryCell label="已完成" value={dashboard.counts.COMPLETED} />
-          </dl>
-        </div>
-        <WorkerPanel workers={dashboard.workers} label={workerSummary.label} />
-      </div>
-
-      <div className="grid min-w-0 border-t lg:grid-cols-[minmax(18rem,0.72fr)_minmax(0,1.28fr)]">
-        <RecentJobs jobs={dashboard.recentJobs} selectedJobId={selectedJob?.id ?? null} onSelectJob={onSelectJob} />
-        <div className="min-w-0 border-t lg:border-t-0 lg:border-l">
+      {showingDetail ? (
+        <div className="min-w-0">
           {detailError ? (
             <div
               role="status"
@@ -232,12 +406,43 @@ export function BackgroundTaskConsoleView({
             <div className="p-5 text-sm text-muted-foreground">选择一条近期任务，查看控制项和结构化事件。</div>
           )}
         </div>
-      </div>
+      ) : (
+        <div className="flex min-w-0 flex-col">
+          <div className="p-4 sm:p-5">
+            <ExecutionSlot job={running} queuedCount={dashboard.queuedCount} onSelectJob={onSelectJob} />
+          </div>
+          <div className="border-t">
+            <RecentJobs jobs={dashboard.recentJobs} selectedJobId={null} onSelectJob={onSelectJob} />
+          </div>
+          <details className="group border-t">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 [&::-webkit-details-marker]:hidden">
+              <Cpu className="size-4 text-muted-foreground" aria-hidden="true" />
+              <span className="font-medium">系统诊断</span>
+              <span className="text-xs text-muted-foreground">{workerSummary.label}</span>
+              <ChevronDown
+                className="ml-auto size-4 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
+                aria-hidden="true"
+              />
+            </summary>
+            <div className="border-t bg-muted/10 p-4 sm:p-5">
+              <WorkerPanel workers={dashboard.workers} label={workerSummary.label} />
+            </div>
+          </details>
+        </div>
+      )}
     </section>
   )
 }
 
-function ExecutionSlot({ job, queuedCount }: { job: JobDto | null; queuedCount: number }) {
+function ExecutionSlot({
+  job,
+  queuedCount,
+  onSelectJob
+}: {
+  job: JobDto | null
+  queuedCount: number
+  onSelectJob: (jobId: string) => void
+}) {
   const active = Boolean(job)
   return (
     <div
@@ -280,6 +485,9 @@ function ExecutionSlot({ job, queuedCount }: { job: JobDto | null; queuedCount: 
               {job.message ? (
                 <p className="mt-2 select-text break-words text-sm text-muted-foreground">{job.message}</p>
               ) : null}
+              <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => onSelectJob(job.id)}>
+                查看当前任务
+              </Button>
             </>
           ) : (
             <p className="mt-2 text-sm text-muted-foreground">
@@ -288,17 +496,6 @@ function ExecutionSlot({ job, queuedCount }: { job: JobDto | null; queuedCount: 
           )}
         </div>
       </div>
-    </div>
-  )
-}
-
-function SummaryCell({ label, value, emphasized = false }: { label: string; value: number; emphasized?: boolean }) {
-  return (
-    <div className="rounded-lg border bg-muted/10 px-3 py-2.5">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className={cn('mt-1 text-lg font-semibold tabular-nums', emphasized && value > 0 && 'text-primary')}>
-        {value}
-      </dd>
     </div>
   )
 }
@@ -415,12 +612,10 @@ function RecentJobs({
     <section aria-labelledby="recent-jobs-title" className="min-w-0 p-4 sm:p-5">
       <h3 id="recent-jobs-title" className="flex items-center gap-2 text-sm font-semibold">
         <ListOrdered className="size-4 text-primary" aria-hidden="true" />
-        近期任务
+        执行中、排队与近期记录
       </h3>
       {jobs.length === 0 ? (
-        <p className="mt-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          队列为空，还没有中央后台任务记录。
-        </p>
+        <p className="mt-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">还没有后台任务记录。</p>
       ) : (
         <ul className="mt-3 flex flex-col gap-2">
           {jobs.map((job) => (

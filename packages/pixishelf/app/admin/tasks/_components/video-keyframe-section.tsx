@@ -161,6 +161,7 @@ export function VideoKeyframeSection() {
   const pendingCount = active.filter((job) => job.status === 'PENDING').length
   const pausedCount = active.filter((job) => ['PAUSING', 'PAUSED'].includes(job.status)).length
   const discoveryCount = discoveryActive.filter((job) => ['PENDING', 'RUNNING'].includes(job.status)).length
+  const failedCount = [...recent, ...discoveryRecent].filter((job) => job.status === 'FAILED').length
   const summary =
     discoveryCount > 0
       ? `${discoveryCount} 项筛选/批量任务进行中`
@@ -168,13 +169,11 @@ export function VideoKeyframeSection() {
         ? `${runningCount} 项生成中 · ${pendingCount} 项等待`
         : pendingCount > 0
           ? `${pendingCount} 项等待生成`
-          : `${recent.length} 条近期记录`
+          : failedCount > 0
+            ? `需要处理 · ${failedCount} 项失败`
+            : null
   const tone =
-    discoveryCount > 0 || runningCount > 0 || pendingCount > 0
-      ? 'active'
-      : recent[0]?.status === 'FAILED'
-        ? 'error'
-        : 'idle'
+    discoveryCount > 0 || runningCount > 0 || pendingCount > 0 ? 'active' : failedCount > 0 ? 'error' : 'idle'
 
   return (
     <TaskSection

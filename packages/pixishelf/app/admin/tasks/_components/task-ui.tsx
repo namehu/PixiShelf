@@ -99,22 +99,24 @@ const TaskAccordionContext = createContext<{
   toggle: (id: string) => void
 } | null>(null)
 
-export function TaskAccordion({ defaultValue, children }: { defaultValue: string; children: ReactNode }) {
+export function TaskAccordion({ defaultValue, children }: { defaultValue?: string; children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const value = searchParams.get('task')
-  const expandedId = value === 'none' ? null : value || defaultValue
+  const expandedId = value === 'none' ? null : value || defaultValue || null
 
   const toggle = (id: string) => {
     const params = new URLSearchParams(searchParams.toString())
-    params.set('task', expandedId === id ? 'none' : id)
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+    if (expandedId === id) params.delete('task')
+    else params.set('task', id)
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }
 
   return (
     <TaskAccordionContext.Provider value={{ expandedId, toggle }}>
-      <div className="flex flex-col gap-7">{children}</div>
+      <div className="flex flex-col gap-8">{children}</div>
     </TaskAccordionContext.Provider>
   )
 }
@@ -130,11 +132,11 @@ export function TaskGroup({
 }) {
   return (
     <section aria-labelledby={`task-group-${title}`} className="flex flex-col gap-3">
-      <div className="px-1">
-        <h2 id={`task-group-${title}`} className="text-sm font-semibold text-foreground">
+      <div className="flex flex-col gap-1 border-b pb-3 sm:flex-row sm:items-end sm:justify-between">
+        <h2 id={`task-group-${title}`} className="text-base font-semibold tracking-tight text-foreground">
           {title}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        <p className="text-sm text-muted-foreground">{description}</p>
       </div>
       <div className="flex flex-col gap-2">{children}</div>
     </section>
@@ -172,13 +174,15 @@ export function TaskSection({
     <article
       id={id}
       className={cn(
-        'relative scroll-mt-24 overflow-hidden rounded-xl border bg-card shadow-sm transition-[border-color,box-shadow]',
-        expanded && 'border-primary/30 shadow-surface'
+        'relative scroll-mt-24 overflow-hidden rounded-lg border bg-card transition-[border-color,box-shadow]',
+        expanded && 'border-primary/35 shadow-surface',
+        tone === 'active' && 'border-primary/35',
+        tone === 'error' && 'border-destructive/35'
       )}
     >
       <span
         className={cn(
-          'absolute inset-y-0 left-0 w-1 bg-border',
+          'absolute inset-y-0 left-0 w-0.5 bg-border',
           tone === 'active' && 'bg-primary',
           tone === 'success' && 'bg-success',
           tone === 'error' && 'bg-destructive'
@@ -190,11 +194,11 @@ export function TaskSection({
         aria-expanded={expanded}
         aria-controls={panelId}
         onClick={() => accordion.toggle(id)}
-        className="flex w-full items-start gap-3 py-4 pr-4 pl-5 text-left transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:items-center sm:px-5 sm:py-4 sm:pl-6"
+        className="flex w-full items-start gap-3 py-3.5 pr-4 pl-5 text-left transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:items-center sm:px-5 sm:pl-6"
       >
         <div
           className={cn(
-            'mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground sm:mt-0',
+            'mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground sm:mt-0',
             expanded && 'bg-accent text-primary'
           )}
         >
@@ -209,15 +213,27 @@ export function TaskSection({
             >
               {title}
             </span>
-            <span className="text-xs text-muted-foreground">{category}</span>
+            <span className="rounded-md border px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground">
+              {category}
+            </span>
           </div>
           <p className="mt-1 line-clamp-2 text-pretty text-sm leading-5 text-muted-foreground sm:line-clamp-1">
             {description}
           </p>
-          <div className="mt-2 text-xs leading-5 text-muted-foreground sm:hidden">{summary}</div>
+          {summary ? <div className="mt-2 text-xs leading-5 text-muted-foreground sm:hidden">{summary}</div> : null}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-3 self-center">
-          <div className="hidden text-right text-xs text-muted-foreground sm:block">{summary}</div>
+          {summary ? (
+            <div
+              className={cn(
+                'hidden text-right text-xs text-muted-foreground sm:block',
+                tone === 'active' && 'font-medium text-primary',
+                tone === 'error' && 'font-medium text-destructive'
+              )}
+            >
+              {summary}
+            </div>
+          ) : null}
           <ChevronDown
             className={cn(
               'size-4 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
@@ -228,8 +244,8 @@ export function TaskSection({
         </div>
       </button>
       {expanded ? (
-        <div id={panelId} className="border-t bg-muted/10 px-5 py-5 sm:px-6">
-          {action ? <div className="mb-4 flex flex-wrap justify-end gap-2">{action}</div> : null}
+        <div id={panelId} className="border-t bg-muted/10 px-4 py-4 sm:px-6 sm:py-5">
+          {action ? <div className="mb-4 flex flex-wrap justify-start gap-2 sm:justify-end">{action}</div> : null}
           {children ? <div className="flex flex-col gap-4">{children}</div> : null}
         </div>
       ) : null}
@@ -307,17 +323,30 @@ export function ScheduleSettings({
   const priorityId = `schedule-${task.key}-priority`
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
-      <div className="flex items-center justify-between gap-3 border-b bg-muted/25 px-4 py-3">
-        <div className="flex items-center gap-2">
+    <details className="group overflow-hidden rounded-lg border border-border bg-card">
+      <summary className="flex cursor-pointer list-none items-center gap-3 bg-muted/20 px-4 py-3 outline-none transition-colors hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <Clock className="size-4 text-muted-foreground" aria-hidden="true" />
-          <h3 className="text-sm font-medium">定时计划</h3>
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium">计划设置</h3>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {task.executionWindow
+                ? '中央串行窗口 · 上海 00:00–08:00'
+                : task.enabled
+                  ? `每日 ${task.time}`
+                  : '未启用自动计划'}
+            </p>
+          </div>
         </div>
         <AdminStatusBadge status={task.enabled ? 'ACTIVE' : 'IDLE'}>
           {task.enabled ? '已启用' : '已停用'}
         </AdminStatusBadge>
-      </div>
-      <div className="flex flex-col gap-5 p-4">
+        <ChevronDown
+          className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
+          aria-hidden="true"
+        />
+      </summary>
+      <div className="flex flex-col gap-5 border-t p-4">
         {task.executionWindow ? (
           <div className="rounded-md border border-primary/20 bg-primary/[0.04] px-3 py-2.5 text-sm">
             <p className="font-medium text-foreground">中央串行窗口 · 上海时间 00:00–08:00</p>
@@ -434,7 +463,7 @@ export function ScheduleSettings({
           </Button>
         </FieldGroup>
       </div>
-    </div>
+    </details>
   )
 }
 

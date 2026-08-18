@@ -38,6 +38,7 @@ vi.mock('@/lib/trpc', () => ({
 }))
 
 vi.mock('@/components/shared/global-confirm', () => ({ confirm: mocks.confirm }))
+vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => true }))
 
 vi.mock('../use-background-dashboard', () => ({
   useBackgroundDashboard: () => mocks.dashboardQuery,
@@ -150,7 +151,7 @@ describe('background task console', () => {
 
   afterEach(cleanup)
 
-  it('keeps queued and completed counts distinct and exposes the empty queue', () => {
+  it('keeps normal completion counts out of the queue overview', () => {
     const dashboard = createDashboard({ counts: { ...createDashboard().counts, COMPLETED: 8 }, queuedCount: 0 })
     render(
       <BackgroundTaskConsoleView
@@ -165,8 +166,8 @@ describe('background task console', () => {
     )
 
     expect(screen.getByText('当前没有任务占用执行槽，队列中有 0 项等待。')).toBeTruthy()
-    expect(screen.getByText('队列为空，还没有中央后台任务记录。')).toBeTruthy()
-    expect(screen.getByText('已完成').parentElement?.textContent).toContain('8')
+    expect(screen.getByText('还没有后台任务记录。')).toBeTruthy()
+    expect(screen.queryByText('已完成')).toBeNull()
   })
 
   it('labels every runbook job state without treating queued work as complete', () => {
@@ -193,10 +194,10 @@ describe('background task console', () => {
       activeCount: 1,
       workers: [createWorker('READY', new Date().toISOString())]
     })
-    const { container } = render(
+    const { rerender } = render(
       <BackgroundTaskConsoleView
         dashboard={dashboard}
-        selectedJob={running}
+        selectedJob={null}
         selectedJobLoading={false}
         onSelectJob={selectJob}
         onRefresh={vi.fn()}
@@ -206,16 +207,29 @@ describe('background task console', () => {
     )
 
     expect(screen.getByText('唯一执行槽')).toBeTruthy()
-    expect(screen.getByText('1 个可用')).toBeTruthy()
+    expect(screen.getAllByText('1 个可用').length).toBeGreaterThan(0)
     const recentButton = screen.getByRole('button', { name: /视频媒体探测.*执行中/ })
     recentButton.focus()
     expect(document.activeElement).toBe(recentButton)
     expect(recentButton.tagName).toBe('BUTTON')
     fireEvent.click(recentButton)
     expect(selectJob).toHaveBeenCalledWith(running.id)
-    expect(container.firstElementChild?.className).toContain('overflow-hidden')
-    expect(container.innerHTML).toContain('lg:grid-cols')
-    expect(container.innerHTML).toContain('min-w-0')
+
+    rerender(
+      <BackgroundTaskConsoleView
+        dashboard={dashboard}
+        selectedJobId={running.id}
+        selectedJob={running}
+        selectedJobLoading={false}
+        onSelectJob={selectJob}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={createControls()}
+      />
+    )
+    expect(screen.getByText('任务详情')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '返回执行列表' }))
+    expect(selectJob).toHaveBeenCalledWith(null)
   })
 
   it('reports no worker, lifecycle states, and stale heartbeat semantics', () => {
@@ -245,7 +259,7 @@ describe('background task console', () => {
       />
     )
 
-    expect(screen.getByText('1 个可用')).toBeTruthy()
+    expect(screen.getAllByText('1 个可用').length).toBeGreaterThan(0)
     expect(screen.getByText('历史实例')).toBeTruthy()
     expect(screen.getByText('1 条 · 不参与任务执行')).toBeTruthy()
     expect(screen.queryByText('心跳陈旧')).toBeNull()
@@ -354,10 +368,27 @@ describe('background task console', () => {
     mocks.dashboardQuery.isError = true
     mocks.dashboardQuery.error = { message: 'database unavailable' }
     render(<BackgroundTaskConsole />)
+    fireEvent.click(screen.getByRole('button', { name: '队列状态读取失败' }))
     expect(screen.getByText('无法读取后台队列')).toBeTruthy()
     expect(screen.getByText('database unavailable')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(mocks.dashboardQuery.refetch).toHaveBeenCalledOnce()
+  })
+
+  it('collapses idle state to an icon and expands active work into a progress dock', () => {
+    mocks.dashboardQuery.data = createDashboard()
+    const { rerender } = render(<BackgroundTaskConsole />)
+
+    expect(screen.getByRole('button', { name: '执行动态' })).toBeTruthy()
+    expect(screen.queryByText('队列空闲')).toBeNull()
+
+    const running = createJob('RUNNING')
+    mocks.dashboardQuery.data = createDashboard({ runningJob: running, recentJobs: [running], queuedCount: 2 })
+    rerender(<BackgroundTaskConsole />)
+
+    expect(screen.getByRole('button', { name: /打开执行动态，视频媒体探测/ })).toBeTruthy()
+    expect(screen.getByText('42%')).toBeTruthy()
+    expect(screen.getByText('+2 等待')).toBeTruthy()
   })
 
   it('renders detail errors with an explicit retry while retaining the dashboard snapshot', () => {

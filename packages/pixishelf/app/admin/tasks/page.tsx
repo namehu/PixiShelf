@@ -10,12 +10,10 @@ export const metadata: Metadata = {
 
 export default function TasksPage() {
   return (
-    <AdminWorkbench title="后台任务" description="集中执行图库维护与媒体处理任务，并管理自动运行计划。">
-      <div className="mx-auto max-w-6xl">
-        <Suspense fallback={<div className="py-12 text-sm text-muted-foreground">正在读取后台任务…</div>}>
-          <MaintenanceCard />
-        </Suspense>
-      </div>
+    <AdminWorkbench title="后台任务" description="执行图库维护与媒体处理任务，并在原处跟踪运行结果。">
+      <Suspense fallback={<div className="py-12 text-sm text-muted-foreground">正在读取后台任务…</div>}>
+        <MaintenanceCard />
+      </Suspense>
     </AdminWorkbench>
   )
 }

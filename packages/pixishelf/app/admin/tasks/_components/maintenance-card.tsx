@@ -103,35 +103,28 @@ function toVideoChapterPreviewResult(result: unknown): VideoChapterPreviewResult
 
 function getJobSummary(job: JobView | null | undefined, isRunning: boolean) {
   if (isRunning) return `运行中 · ${job?.progress ?? 0}%`
-  if (job?.status === 'COMPLETED') return '上次执行完成'
-  if (job?.status === 'FAILED') return '上次执行失败'
-  if (job?.status === 'CANCELLED') return '上次已取消'
-  return '尚未执行'
+  if (job?.status === 'FAILED') return '需要处理 · 上次执行失败'
+  return null
 }
 
 function getJobTone(job: JobView | null | undefined, isRunning: boolean): 'idle' | 'active' | 'success' | 'error' {
   if (isRunning) return 'active'
-  if (job?.status === 'COMPLETED') return 'success'
   if (job?.status === 'FAILED') return 'error'
   return 'idle'
 }
 
 function getScheduledSummary(task: ScheduledTaskView | undefined, job: JobView | null | undefined, isRunning: boolean) {
-  const schedule = task?.enabled ? (task.executionWindow ? '上海 00:00–08:00 窗口' : `每日 ${task.time}`) : '计划停用'
-  return `${schedule} · ${getJobSummary(job, isRunning)}`
+  const jobSummary = getJobSummary(job, isRunning)
+  if (jobSummary) return jobSummary
+  if (!task?.enabled) return null
+  return task.executionWindow ? '下次 · 上海 00:00–08:00' : `下次 · 每日 ${task.time}`
 }
 
 function getStandaloneSummary(task: ScheduledTaskView) {
-  const schedule = task.enabled ? (task.executionWindow ? '上海 00:00–08:00 窗口' : `每日 ${task.time}`) : '计划停用'
-  const status =
-    task.lastJobStatus && ['PENDING', 'RUNNING', 'CANCELLING'].includes(task.lastJobStatus)
-      ? '正在运行'
-      : task.lastJobStatus === 'COMPLETED'
-        ? '上次完成'
-        : task.lastJobStatus === 'FAILED'
-          ? '上次失败'
-          : '尚未执行'
-  return `${schedule} · ${status}`
+  if (task.lastJobStatus && ['PENDING', 'RUNNING', 'CANCELLING'].includes(task.lastJobStatus)) return '正在运行'
+  if (task.lastJobStatus === 'FAILED') return '需要处理 · 上次执行失败'
+  if (!task.enabled) return null
+  return task.executionWindow ? '下次 · 上海 00:00–08:00' : `下次 · 每日 ${task.time}`
 }
 
 export function shouldPollStandaloneTasks(tasks: ScheduledTaskView[] | undefined) {
@@ -181,22 +174,42 @@ export function StandaloneTaskFeedback({ task }: { task: ScheduledTaskView }) {
           {task.lastJobMode === 'PREVIEW' ? '预览（只读）' : '正式执行'}
         </strong>
       </span>
-      <span>状态：<strong className="font-medium text-foreground">{status}</strong></span>
+      <span>
+        状态：<strong className="font-medium text-foreground">{status}</strong>
+      </span>
       {result && task.key === 'trigger_log_retention_cleanup' && (
-        <span>删除日志：<strong className="font-medium text-foreground">{result?.deletedLogs ?? 0}</strong></span>
+        <span>
+          删除日志：<strong className="font-medium text-foreground">{result?.deletedLogs ?? 0}</strong>
+        </span>
       )}
       {result && task.key === 'scan_run_retention_cleanup' && (
-        <span>删除扫描记录：<strong className="font-medium text-foreground">{result?.deletedRuns ?? 0}</strong></span>
+        <span>
+          删除扫描记录：<strong className="font-medium text-foreground">{result?.deletedRuns ?? 0}</strong>
+        </span>
       )}
       {result && task.type === 'DERIVED_MEDIA_GC' && (
         <>
-          <span>选中：<strong className="font-medium text-foreground">{result?.selected ?? 0}</strong></span>
-          <span>删除：<strong className="font-medium text-foreground">{result?.deleted ?? 0}</strong></span>
-          <span>缺失：<strong className="font-medium text-foreground">{result?.missing ?? 0}</strong></span>
-          <span>仍被引用：<strong className="font-medium text-foreground">{result?.referenced ?? 0}</strong></span>
-          <span>失败：<strong className="font-medium text-destructive">{result?.failed ?? 0}</strong></span>
-          <span>核对扫描：<strong className="font-medium text-foreground">{result?.reconciliationScanned ?? 0}</strong></span>
-          <span>未登记候选：<strong className="font-medium text-foreground">{result?.untrackedCandidates ?? 0}</strong></span>
+          <span>
+            选中：<strong className="font-medium text-foreground">{result?.selected ?? 0}</strong>
+          </span>
+          <span>
+            删除：<strong className="font-medium text-foreground">{result?.deleted ?? 0}</strong>
+          </span>
+          <span>
+            缺失：<strong className="font-medium text-foreground">{result?.missing ?? 0}</strong>
+          </span>
+          <span>
+            仍被引用：<strong className="font-medium text-foreground">{result?.referenced ?? 0}</strong>
+          </span>
+          <span>
+            失败：<strong className="font-medium text-destructive">{result?.failed ?? 0}</strong>
+          </span>
+          <span>
+            核对扫描：<strong className="font-medium text-foreground">{result?.reconciliationScanned ?? 0}</strong>
+          </span>
+          <span>
+            未登记候选：<strong className="font-medium text-foreground">{result?.untrackedCandidates ?? 0}</strong>
+          </span>
         </>
       )}
     </div>
@@ -280,8 +293,6 @@ export function MaintenanceCard() {
         'video_keyframe_generation'
       ].includes(task.key)
   )
-  const centralExecutionWindow = scheduledTasks.find((task) => task.executionWindow)?.executionWindow
-
   const startMutation = useMutation(
     trpc.job.startRefillMetaSource.mutationOptions({
       onSuccess: () => {
@@ -407,15 +418,6 @@ export function MaintenanceCard() {
   const webpScanResult = toWebpAnimationScanResult(webpScanJob?.result)
   const videoProbeResult = toVideoMediaProbeResult(videoProbeJob?.result)
   const chapterPreviewResult = toVideoChapterPreviewResult(chapterPreviewJob?.result)
-  const enabledScheduleCount = scheduledTasks.filter((task) => task.enabled).length
-  const runningTaskCount = [
-    isRunning,
-    isMediaTagRunning,
-    isWebpScanRunning,
-    isVideoProbeRunning,
-    isChapterPreviewRunning
-  ].filter(Boolean).length
-
   const handleSaveScheduledTask = (task: ScheduledTaskView) => {
     const draft = taskDrafts[task.key]
     if (!draft) return
@@ -453,26 +455,14 @@ export function MaintenanceCard() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <BackgroundTaskConsole />
-      {centralExecutionWindow ? (
-        <aside className="flex flex-col gap-1 rounded-lg border border-primary/20 bg-primary/[0.035] px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <span className="font-medium text-foreground">中央自动执行窗口 · 上海时间 00:00–08:00</span>
-          <span className="text-xs text-muted-foreground">
-            单 Worker 按优先级串行领取；每任务时间在中央模式下不参与调度。
-          </span>
-        </aside>
+    <div className="flex min-w-0 flex-col gap-5">
+      {scheduledTasksQuery.isPending ? (
+        <div className="flex items-center gap-2 rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
+          <Spinner aria-hidden="true" />
+          正在读取自动计划…
+        </div>
       ) : null}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y py-3 text-sm text-muted-foreground">
-        <span>{scheduledTasksQuery.isPending ? '正在读取任务…' : `${scheduledTasks.length + 3} 项后台任务`}</span>
-        <span>{enabledScheduleCount} 个自动计划已启用</span>
-        <span className={runningTaskCount > 0 ? 'font-medium text-primary' : undefined}>
-          {runningTaskCount > 0 ? `${runningTaskCount} 项正在运行` : '当前没有运行中的任务'}
-        </span>
-        <span className="ml-auto hidden text-xs sm:inline">展开任务即可执行或调整计划</span>
-      </div>
-
-      <TaskAccordion defaultValue="meta-source">
+      <TaskAccordion>
         <TaskGroup title="图库维护" description="修正作品元数据与标签关系。">
           <TaskSection
             id="meta-source"
@@ -952,15 +942,7 @@ export function MaintenanceCard() {
                   title={task.name}
                   description={task.description}
                   summary={getStandaloneSummary(task)}
-                  tone={
-                    isTaskRunning
-                      ? 'active'
-                      : task.lastJobStatus === 'COMPLETED'
-                        ? 'success'
-                        : task.lastJobStatus === 'FAILED'
-                          ? 'error'
-                          : 'idle'
-                  }
+                  tone={isTaskRunning ? 'active' : task.lastJobStatus === 'FAILED' ? 'error' : 'idle'}
                   action={
                     <Button
                       onClick={() => requestStandaloneTaskTrigger(task, () => handleTriggerScheduledTask(task))}
@@ -983,6 +965,7 @@ export function MaintenanceCard() {
           </TaskGroup>
         ) : null}
       </TaskAccordion>
+      <BackgroundTaskConsole />
     </div>
   )
 }
