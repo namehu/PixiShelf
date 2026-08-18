@@ -47,6 +47,10 @@ export interface ScheduledTaskView {
 }
 
 export interface ScheduledTaskLastJobResult {
+  deletedBulkOperations?: number
+  deletedIntakeItems?: number
+  deletedSubmissions?: number
+  deletedPreviewSessions?: number
   deletedLogs?: number
   deletedRuns?: number
   selected?: number
@@ -162,6 +166,10 @@ function getScheduledTaskLastJobResult(result: unknown): ScheduledTaskLastJobRes
   if (!isRecord(result)) return null
   const projected: ScheduledTaskLastJobResult = {}
   for (const key of [
+    'deletedBulkOperations',
+    'deletedIntakeItems',
+    'deletedSubmissions',
+    'deletedPreviewSessions',
     'deletedLogs',
     'deletedRuns',
     'selected',

@@ -30,7 +30,7 @@ import { ESource, type ESource as ArtworkSource } from '@/enums/e-source'
 import { appendScanRunItems, completeScanRunSummary, startScanRun } from '@/services/scan-run-service'
 import { toApiImageSize } from '@/utils/image-size'
 import { buildVideoPosterUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
-import { trashPublishedArchive } from '@/services/archive/publisher'
+import { requestArchiveArtworkMaintenance } from '@/services/archive/archive-maintenance-service'
 
 const publishedKeyframeSummaryInclude = {
   where: { status: 'PUBLISHED' as const },
@@ -266,11 +266,15 @@ export async function getArtworkCardsPage(params: ArtworksInfiniteQuerySchema): 
  * 2. 删除 Image 表记录 (无数据库级联)
  * 3. 删除 Artwork 表记录 (数据库级联删除 ArtworkTag, ArtworkLike, SeriesArtwork)
  */
-export async function deleteArtwork(id: number) {
+export async function deleteArtwork(id: number, options: { requestedByUserId: string }) {
   const artwork = await prisma.artwork.findUnique({ where: { id } })
   if (!artwork) throw new Error(`Artwork ${id} not found`)
   if (artwork.createdVia === 'URL_ARCHIVE') {
-    await trashPublishedArchive(id)
+    await requestArchiveArtworkMaintenance({
+      artworkId: id,
+      action: 'TRASH_ARCHIVE',
+      requestedByUserId: options.requestedByUserId
+    })
     return prisma.artwork.findUniqueOrThrow({ where: { id } })
   }
 

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { ArchiveMaintenancePayload } from '@pixishelf/job-contracts'
@@ -159,6 +159,135 @@ describe('archive maintenance executor', () => {
     ).rejects.toMatchObject({ code: 'MEDIA_INVALID' })
     await expect(readFile(path.join(root, 'keep.txt'), 'utf8')).resolves.toBe('fixture')
   })
+
+  it('permanently purges due archive trash and its database media rows outside the file transaction', async () => {
+    const root = await temporaryRoot()
+    await writeFixture(root, '.trash/archive/7/rev-1/media/file.jpg')
+    await writeFixture(root, 'sources/test/rev-1/stale.txt')
+    const transaction = purgeTransaction()
+    const context = executionContext({ action: 'PURGE_ARCHIVE', artworkId: 7 }, transaction)
+
+    await expect(
+      executeArchiveMaintenance(context, {
+        database: {} as never,
+        config: { scanRoot: root },
+        now: () => new Date('2026-08-19T00:00:00.000Z')
+      })
+    ).resolves.toEqual(TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME)
+
+    await expect(readFile(path.join(root, '.trash/archive/7/rev-1/media/file.jpg'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+    await expect(readFile(path.join(root, 'sources/test/rev-1/stale.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(transaction.image.deleteMany).toHaveBeenCalledWith({ where: { artworkId: 7 } })
+    expect(transaction.artwork.deleteMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: 7, archiveLifecycleState: 'TRASHED' }) })
+    )
+  })
+
+  it('re-enters purge after a crash between file removal and fenced database deletion', async () => {
+    const root = await temporaryRoot()
+    await writeFixture(root, '.trash/archive/7/rev-1/media/file.jpg')
+    const transaction = purgeTransaction()
+
+    await expect(
+      executeArchiveMaintenance(
+        executionContext({ action: 'PURGE_ARCHIVE', artworkId: 7 }, transaction, true),
+        {
+          database: {} as never,
+          config: { scanRoot: root },
+          now: () => new Date('2026-08-19T00:00:00.000Z')
+        }
+      )
+    ).rejects.toThrow('crash after filesystem mutation')
+    await expect(readFile(path.join(root, '.trash/archive/7/rev-1/media/file.jpg'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+
+    const retry = executionContext({ action: 'PURGE_ARCHIVE', artworkId: 7 }, transaction)
+    await expect(
+      executeArchiveMaintenance(retry, {
+        database: {} as never,
+        config: { scanRoot: root },
+        now: () => new Date('2026-08-19T00:00:00.000Z')
+      })
+    ).resolves.toEqual(TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME)
+    expect(transaction.artwork.deleteMany).toHaveBeenCalledOnce()
+  })
+
+  it('refuses purge traversal and symlink targets outside the archive root', async () => {
+    const root = await temporaryRoot()
+    const outside = await temporaryRoot()
+    await writeFixture(outside, 'keep.txt')
+    const traversal = purgeTransaction({ trashPath: '../outside' })
+    await expect(
+      executeArchiveMaintenance(executionContext({ action: 'PURGE_ARCHIVE', artworkId: 7 }, traversal), {
+        database: {} as never,
+        config: { scanRoot: root },
+        now: () => new Date('2026-08-19T00:00:00.000Z')
+      })
+    ).rejects.toMatchObject({ code: 'MEDIA_INVALID' })
+
+    await mkdir(path.join(root, '.trash/archive/7'), { recursive: true })
+    await symlink(outside, path.join(root, '.trash/archive/7/rev-1'))
+    const linked = purgeTransaction()
+    await expect(
+      executeArchiveMaintenance(executionContext({ action: 'PURGE_ARCHIVE', artworkId: 7 }, linked), {
+        database: {} as never,
+        config: { scanRoot: root },
+        now: () => new Date('2026-08-19T00:00:00.000Z')
+      })
+    ).rejects.toMatchObject({ code: 'MEDIA_INVALID' })
+    await expect(readFile(path.join(outside, 'keep.txt'), 'utf8')).resolves.toBe('fixture')
+  })
+
+  it('reconciles expired staging, reuses active lifecycle work, and re-materializes terminal purge work', async () => {
+    const transaction = reconcileTransaction()
+    const context = executionContext({ action: 'RECONCILE' }, transaction)
+
+    await expect(
+      executeArchiveMaintenance(context, {
+        database: {} as never,
+        config: { scanRoot: '/archive' },
+        now: () => new Date('2026-08-19T00:00:00.000Z')
+      })
+    ).resolves.toEqual(TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME)
+
+    expect(context.enqueueChild).toHaveBeenCalledTimes(2)
+    expect(context.enqueueChild).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: { action: 'CLEAN_STAGING', archiveImportId: 'expired-import' },
+        idempotencyKey: expect.stringContaining('archive-maintenance:CLEAN_STAGING:expired-import:')
+      })
+    )
+    expect(context.enqueueChild).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: { action: 'PURGE_ARCHIVE', artworkId: 8 },
+        idempotencyKey: expect.stringContaining('archive-maintenance:PURGE_ARCHIVE:8:')
+      })
+    )
+    expect(context.__scope.complete).toHaveBeenCalledWith({
+      result: { action: 'RECONCILE', discovered: 3, materialized: 2, reused: 1, skipped: 0 },
+      message: 'Archive maintenance reconciliation completed'
+    })
+  })
+
+  it('fails reconciliation when candidate discovery has an unexpected database error', async () => {
+    const transaction = reconcileTransaction()
+    transaction.archiveImport.findMany.mockRejectedValueOnce(new Error('database unavailable'))
+    const context = executionContext({ action: 'RECONCILE' }, transaction)
+
+    await expect(
+      executeArchiveMaintenance(context, {
+        database: {} as never,
+        config: { scanRoot: '/archive' },
+        now: () => new Date('2026-08-19T00:00:00.000Z')
+      })
+    ).rejects.toThrow('database unavailable')
+
+    expect(context.enqueueChild).not.toHaveBeenCalled()
+    expect(context.finalizeInTransaction).not.toHaveBeenCalled()
+  })
 })
 
 async function temporaryRoot() {
@@ -212,6 +341,89 @@ function artworkTransaction(state: 'ACTIVE' | 'TRASHING' | 'RESTORING') {
   }
 }
 
+function purgeTransaction(overrides: { trashPath?: string } = {}) {
+  const artwork = {
+    id: 7,
+    createdVia: 'URL_ARCHIVE',
+    archiveLifecycleState: 'TRASHED',
+    deletedAt: new Date('2026-08-18T00:00:00.000Z'),
+    archiveRevisions: [
+      {
+        id: 'rev-1',
+        archivePath: 'sources/test/rev-1',
+        trashPath: overrides.trashPath ?? '.trash/archive/7/rev-1',
+        purgeAfter: new Date('2026-08-18T12:00:00.000Z')
+      }
+    ]
+  }
+  return {
+    $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+    artwork: {
+      findUnique: vi.fn().mockResolvedValue(artwork),
+      deleteMany: vi.fn().mockResolvedValue({ count: 1 })
+    },
+    image: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) }
+  }
+}
+
+function reconcileTransaction() {
+  const expired = {
+    id: 'expired-import',
+    status: 'FAILED',
+    cleanupRequestedAt: null,
+    retainUntil: new Date('2026-08-18T00:00:00.000Z')
+  }
+  const lifecycle = {
+    id: 7,
+    createdVia: 'URL_ARCHIVE',
+    archiveLifecycleState: 'TRASHING',
+    deletedAt: new Date('2026-08-18T00:00:00.000Z'),
+    updatedAt: new Date('2026-08-18T00:00:00.000Z'),
+    archiveRevisions: [
+      {
+        id: 'rev-7',
+        trashPath: '.trash/archive/7/rev-7',
+        purgeAfter: new Date('2026-08-25T00:00:00.000Z')
+      }
+    ]
+  }
+  const purge = {
+    ...lifecycle,
+    id: 8,
+    archiveLifecycleState: 'TRASHED',
+    archiveRevisions: [
+      {
+        id: 'rev-8',
+        trashPath: '.trash/archive/8/rev-8',
+        purgeAfter: new Date('2026-08-18T00:00:00.000Z')
+      }
+    ]
+  }
+  return {
+    $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+    archiveImport: {
+      findMany: vi.fn().mockResolvedValue([{ id: expired.id }]),
+      findUnique: vi.fn().mockResolvedValue(expired),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 })
+    },
+    artwork: {
+      findMany: vi.fn().mockResolvedValue([
+        { id: lifecycle.id, archiveLifecycleState: lifecycle.archiveLifecycleState },
+        { id: purge.id, archiveLifecycleState: purge.archiveLifecycleState }
+      ]),
+      findUnique: vi.fn().mockImplementation(({ where }: { where: { id: number } }) =>
+        Promise.resolve(where.id === lifecycle.id ? lifecycle : purge)
+      ),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 })
+    },
+    systemJob: {
+      findFirst: vi.fn().mockImplementation(({ where }: { where: { payload: { equals: { action: string } } } }) =>
+        Promise.resolve(where.payload.equals.action === 'TRASH_ARCHIVE' ? { id: 'active-trash' } : null)
+      )
+    }
+  }
+}
+
 function executionContext<TPayload extends ArchiveMaintenancePayload>(
   payload: TPayload,
   transaction: any,
@@ -231,7 +443,7 @@ function executionContext<TPayload extends ArchiveMaintenancePayload>(
     payload,
     signal,
     progress: vi.fn().mockResolvedValue(undefined),
-    enqueueChild: vi.fn(),
+    enqueueChild: vi.fn().mockResolvedValue({ id: 'child-job', created: true }),
     logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     mutateInTransaction: vi.fn(async (operation: (tx: unknown) => Promise<unknown>) => operation(transaction)),
     finalizeInTransaction: vi.fn(async (operation: (value: unknown) => Promise<void>) => {

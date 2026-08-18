@@ -9,7 +9,7 @@ import {
   type ArchiveBulkTargetResult
 } from './archive-bulk-operation'
 import { ArchiveError } from './errors'
-import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from './publisher'
+import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from './archive-coordination'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
 import { archiveTaskActionIneligibility, recoverAppliedArchiveTaskAction } from './archive-task-action-policy'
 import { archiveWireErrorMessage, redactArchiveText, redactArchiveUrl } from './archive-redaction'

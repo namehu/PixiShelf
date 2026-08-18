@@ -366,6 +366,7 @@ export class PostgresQueueRepository {
         executionLane,
         laneCapabilities
       )
+      // 避免 ARCHIVE_IMPORT 的 cleanup 意图在 claim 环节被“热抢”后长期占道，先在此 transaction 过滤掉待清理的入库任务，给 maintenance 通道让路。
       const candidates = await transaction.$queryRawUnsafe<Array<{ id: string; status: JobStatus }>>(
         `SELECT job."id", job."status"
          FROM "system_jobs" AS job
@@ -382,6 +383,15 @@ export class PostgresQueueRepository {
            )
            AND "attempt" < "maxAttempts"
            AND "cancelRequestedAt" IS NULL
+           AND (
+             job."type" <> 'ARCHIVE_IMPORT'
+             OR NOT EXISTS (
+               SELECT 1
+               FROM "archive_imports" AS archive_import
+               WHERE archive_import."systemJobId" = job."id"
+                 AND archive_import."cleanupRequestedAt" IS NOT NULL
+             )
+           )
            AND (
              "status" = 'PENDING'
              OR (
@@ -465,6 +475,7 @@ export class PostgresQueueRepository {
       )
       const claimed = claimedRows[0]
       if (!claimed) {
+        // 若候选在 UPDATE 前已被其他 worker 接管，返回 null；领取逻辑采用同一行双重校验，executor 中的二次 intent 乐观锁会处理剩余竞态。
         return null
       }
 

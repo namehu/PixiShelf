@@ -2,7 +2,16 @@ import type { Prisma, PrismaClient } from '@pixishelf/db'
 
 export type MaintenanceDatabase = Pick<
   PrismaClient,
-  'artwork' | 'artworkTag' | 'image' | 'scanRun' | 'tag' | 'triggerLog'
+  | 'archiveBulkOperation'
+  | 'archiveIntakeItem'
+  | 'archiveIntakeSubmission'
+  | 'archivePreviewSession'
+  | 'artwork'
+  | 'artworkTag'
+  | 'image'
+  | 'scanRun'
+  | 'tag'
+  | 'triggerLog'
 >
 
 export type MaintenanceTransaction = Prisma.TransactionClient

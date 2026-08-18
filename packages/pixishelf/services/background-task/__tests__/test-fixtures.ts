@@ -58,6 +58,7 @@ export function eventRecord(overrides: Partial<SystemJobEventWireRecord> = {}): 
     message: 'Background job queued',
     data: null,
     createdAt: baseTime,
+    job: { type: 'SCAN' },
     ...overrides
   }
 }

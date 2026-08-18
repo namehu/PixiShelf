@@ -117,8 +117,8 @@ export const artworkRouter = router({
   /**
    * 删除作品
    */
-  delete: authProcedure.input(z.number()).mutation(async ({ input }) => {
-    return deleteArtwork(input)
+  delete: adminProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
+    return deleteArtwork(input, { requestedByUserId: ctx.userId })
   }),
 
   /**

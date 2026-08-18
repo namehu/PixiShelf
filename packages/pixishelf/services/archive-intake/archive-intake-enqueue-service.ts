@@ -3,16 +3,11 @@ import { archiveImportPayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/j
 import { Prisma, type PrismaClient } from '@pixishelf/db'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import {
-  archiveRequestFingerprint,
-  runArchiveBulkOperation,
-  type ArchiveBulkTargetResult
-} from '@/services/archive/archive-bulk-operation'
-import { requireArchiveStorageRoot } from '@/services/archive/config'
+import { runArchiveBulkOperation, type ArchiveBulkTargetResult } from '@/services/archive/archive-bulk-operation'
 import { ArchiveError } from '@/services/archive/errors'
-import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from '@/services/archive/publisher'
+import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from '@/services/archive/archive-coordination'
 import { redactArchiveText } from '@/services/archive/archive-redaction'
-import { buildArchiveStoragePaths } from '@/services/archive/storage'
+import { buildArchiveStorageRelativePaths } from '@/services/archive/storage'
 import type { ResolvedArchive } from '@/services/archive/types'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
 
@@ -40,7 +35,6 @@ export interface ArchiveIntakeEnqueueDependencies {
   database?: PrismaClient
   now?: () => Date
   uuid?: () => string
-  resolveStorageRoot?: () => Promise<string>
 }
 
 export async function enqueueArchiveIntakeMany(
@@ -56,15 +50,6 @@ export async function enqueueArchiveIntakeMany(
   const requestOptions = parsed.items
     .map((item) => ({ itemId: item.itemId, quality: item.quality }))
     .sort((left, right) => left.itemId.localeCompare(right.itemId))
-  // best-effort 预检避免纯重放/复用读取存储配置；最终是否新建仍由逐目标事务内的最新状态决定。
-  const scanRoot = await prepareEnqueueStorageRoot({
-    database,
-    idempotencyKey: parsed.idempotencyKey,
-    requestedByUserId,
-    targetIds: parsed.items.map((item) => item.itemId),
-    requestOptions,
-    resolveStorageRoot: dependencies.resolveStorageRoot ?? requireArchiveStorageRoot
-  })
 
   return runArchiveBulkOperation(
     {
@@ -79,7 +64,6 @@ export async function enqueueArchiveIntakeMany(
       enqueueOne(transaction, itemId, {
         quality: qualityByItemId.get(itemId) ?? 'ORIGINAL',
         requestedByUserId,
-        scanRoot,
         timestamp: now(),
         uuid
       }),
@@ -89,104 +73,17 @@ export async function enqueueArchiveIntakeMany(
   )
 }
 
-async function prepareEnqueueStorageRoot(input: {
-  database: PrismaClient
-  idempotencyKey: string
-  requestedByUserId: string
-  targetIds: string[]
-  requestOptions: Array<{ itemId: string; quality: 'ORIGINAL' | 'DISPLAY' }>
-  resolveStorageRoot: () => Promise<string>
-}): Promise<string | null> {
-  const { database, idempotencyKey, requestedByUserId, targetIds, requestOptions, resolveStorageRoot } = input
-  const uniqueTargetIds = [...new Set(targetIds)]
-  const requestHash = archiveRequestFingerprint({
-    commandType: 'ENQUEUE',
-    targetType: 'INTAKE_ITEM',
-    targetIds: [...uniqueTargetIds].sort(),
-    requestOptions
-  })
-  // 预检不裁决幂等冲突；冲突键由后续 bulk header 事务拒绝，避免为必然失败的请求读取存储配置。
-  const existing = await database.archiveBulkOperation.findUnique({
-    where: { idempotencyKey },
-    select: {
-      id: true,
-      requestHash: true,
-      requestedByUserId: true,
-      commandType: true,
-      requestedCount: true,
-      completedAt: true
-    }
-  })
-  if (
-    existing &&
-    (existing.requestHash !== requestHash ||
-      existing.requestedByUserId !== requestedByUserId ||
-      existing.commandType !== 'ENQUEUE' ||
-      existing.requestedCount !== uniqueTargetIds.length ||
-      existing.completedAt)
-  ) {
-    // Completed replays and conflicting keys are fully decided by the persisted operation.
-    return null
-  }
-
-  // 如果这个幂等批次已执行部分项，续跑时只为未处理目标判断是否需要存储目录。
-  let remainingTargetIds = uniqueTargetIds
-  if (existing) {
-    const completedTargets = await database.archiveBulkOperationItem.findMany({
-      where: { operationId: existing.id, targetType: 'INTAKE_ITEM', targetId: { in: uniqueTargetIds } },
-      select: { targetId: true }
-    })
-    const completed = new Set(completedTargets.map((item) => item.targetId))
-    remainingTargetIds = uniqueTargetIds.filter((itemId) => !completed.has(itemId))
-  }
-  if (!remainingTargetIds.length) return null
-
-  // 这里只读取身份字段，用于判断未处理的 READY 项能否复用活动 import。
-  const items = await database.archiveIntakeItem.findMany({
-    where: { id: { in: remainingTargetIds } },
-    select: { status: true, providerKey: true, externalId: true }
-  })
-  const readyIdentities = items.flatMap((item) =>
-    item.status === 'READY' && item.providerKey && item.externalId
-      ? [{ providerKey: item.providerKey, externalId: item.externalId }]
-      : []
-  )
-  if (!readyIdentities.length) return null
-
-  // 只要该身份已有未完成归档，就可复用其运行中的 import，本批次无需强依赖 storageRoot。
-  const activeImports = await database.archiveImport.findMany({
-    where: {
-      status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] },
-      OR: readyIdentities
-    },
-    select: { providerKey: true, externalId: true }
-  })
-  const activeIdentities = new Set(activeImports.map((item) => `${item.providerKey}\u0000${item.externalId}`))
-  const needsNewImport = readyIdentities.some(
-    (item) => !activeIdentities.has(`${item.providerKey}\u0000${item.externalId}`)
-  )
-  if (!needsNewImport) return null
-  try {
-    // 只有确认要新建归档任务时再 resolve root；失败时保留可复用项结果，便于幂等审计。
-    return await resolveStorageRoot()
-  } catch {
-    // Persist per-target conflicts instead of losing reusable results and the bulk audit.
-    return null
-  }
-}
-
 async function enqueueOne(
   transaction: Prisma.TransactionClient,
   itemId: string,
   options: {
     quality: 'ORIGINAL' | 'DISPLAY'
     requestedByUserId: string
-    scanRoot: string | null
     timestamp: Date
     uuid: () => string
   }
 ): Promise<ArchiveBulkTargetResult> {
-  const { quality, requestedByUserId, scanRoot, timestamp, uuid } = options
+  const { quality, requestedByUserId, timestamp, uuid } = options
   const item = await transaction.archiveIntakeItem.findUnique({ where: { id: itemId } })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
   if (item.status === 'ENQUEUED' && item.archiveImportId) {
@@ -251,15 +148,9 @@ async function enqueueOne(
   if (existingRef && (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')) {
     return { result: 'CONFLICT', code: 'ARCHIVE_TRASHED', message: '该作品在归档回收站中，请先恢复' }
   }
-  if (!scanRoot) {
-    // 需要新建 active import 且无法拿到存储目录时，返回冲突以便客户端可重试，避免半写入。
-    return { result: 'CONFLICT', code: 'STORAGE_ROOT_UNAVAILABLE', message: '归档存储目录当前不可用，请重试' }
-  }
-
   const importId = uuid()
   const jobId = uuid()
-  const paths = buildArchiveStoragePaths({
-    scanRoot,
+  const paths = buildArchiveStorageRelativePaths({
     importId,
     providerKey: resolved.providerKey,
     creatorBucket: resolved.creatorBucket,

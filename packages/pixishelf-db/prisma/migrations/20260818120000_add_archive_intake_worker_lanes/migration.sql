@@ -1,5 +1,32 @@
 BEGIN;
 
+-- This is a coordinated execution-fence cutover. Refuse to change the queue
+-- topology while an old dispatcher may still own work or a live global lease.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "system_jobs"
+    WHERE "status" IN ('RUNNING', 'PAUSING', 'CANCELLING')
+  ) THEN
+    RAISE EXCEPTION 'archive lane cutover requires zero executing system jobs'
+      USING ERRCODE = '55000';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM "job_resource_leases"
+    WHERE "resourceKey" = 'global/background-worker'
+      AND "expiresAt" > CURRENT_TIMESTAMP
+  ) THEN
+    RAISE EXCEPTION 'archive lane cutover requires the legacy global worker lease to expire'
+      USING ERRCODE = '55000';
+  END IF;
+END $$;
+
+DELETE FROM "job_resource_leases"
+WHERE "resourceKey" = 'global/background-worker';
+
 CREATE TYPE "JobExecutionLane" AS ENUM ('ARCHIVE_RESOLVE', 'BACKGROUND_WRITER');
 CREATE TYPE "ArchiveIntakeStatus" AS ENUM (
   'QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE',
@@ -15,10 +42,6 @@ CREATE TYPE "ArchiveProviderRequestClass" AS ENUM ('RESOLVE', 'DOWNLOAD');
 
 ALTER TABLE "system_jobs"
   ADD COLUMN "executionLane" "JobExecutionLane" NOT NULL DEFAULT 'BACKGROUND_WRITER';
-
--- Every existing job type belongs to the writer lane. New producers must derive
--- this column from the shared job-type mapping instead of accepting caller input.
-UPDATE "system_jobs" SET "executionLane" = 'BACKGROUND_WRITER';
 
 -- Keep the database as the final authority for the fixed job-type/lane map.
 -- Existing and future non-resolver job types stay in the serialized writer

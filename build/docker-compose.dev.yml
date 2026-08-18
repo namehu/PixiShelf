@@ -1,7 +1,7 @@
 # 开发/本地构建用 Docker Compose 文件。
 # 默认模式：Next.js 由宿主机 VS Code F5/pnpm dev 启动；Compose 只启动数据库、媒体服务和通用 Worker。
 # 默认从当前 build 目录读取 .env；从仓库根目录运行时请显式传入 --env-file build/.env。
-# app、scheduler 和旧 archive-worker 都受 profile 控制，不会被普通的
+# app 和 scheduler 受 profile 控制，不会被普通的
 # docker compose -f docker-compose.dev.yml up 自动启动。
 
 services:
@@ -62,38 +62,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    restart: unless-stopped
-    logging:
-      driver: 'json-file'
-      options:
-        max-size: '10m'
-        max-file: '5'
-
-  archive-worker:
-    profiles:
-      - legacy-rollback
-    build:
-      context: ..
-      dockerfile: build/archive-worker.Dockerfile
-      target: production
-    env_file:
-      - .env
-    environment:
-      NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=5&pool_timeout=20
-      ARCHIVE_STORAGE_PATH: /app/data
-      SCAN_PATH: /app/data
-      DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
-      KEYFRAME_FFMPEG_THREADS: ${KEYFRAME_FFMPEG_THREADS:-2}
-    command: ['node', 'dist/archive-worker.cjs']
-    volumes:
-      - '${PIXISHELF_DATA_PATH}:/app/data:rw'
-      - '${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media:rw'
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - pixishelf-network
     restart: unless-stopped
     logging:
       driver: 'json-file'

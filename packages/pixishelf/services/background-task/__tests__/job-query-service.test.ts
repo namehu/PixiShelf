@@ -34,6 +34,27 @@ describe('listJobs', () => {
     expect(serialized).not.toContain('url-secret')
     expect(serialized).not.toContain('abc.def')
   })
+
+  it('removes archive URL path tokens from job payload, result, message, and error fields', async () => {
+    const privateUrl = 'https://e-hentai.org/g/123/private-token/'
+    const findMany = vi.fn().mockResolvedValue([
+      jobRecord({
+        type: 'ARCHIVE_IMPORT',
+        payload: { source: privateUrl },
+        result: { nested: [privateUrl] },
+        message: `resolved ${privateUrl}`,
+        error: `failed ${privateUrl}`
+      })
+    ])
+    const result = await listJobs({ limit: 20 }, {
+      systemJob: { findMany },
+      workerInstance: {}
+    } as never)
+
+    const serialized = JSON.stringify(result)
+    expect(serialized).toContain('https://e-hentai.org/g/…')
+    expect(serialized).not.toContain('private-token')
+  })
 })
 
 describe('getJobDashboard', () => {

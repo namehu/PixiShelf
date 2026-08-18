@@ -10,7 +10,7 @@ const {
   unlinkMock,
   loggerWarnMock,
   requireArchiveStorageRootMock,
-  trashPublishedArchiveMock
+  requestArchiveArtworkMaintenanceMock
 } = vi.hoisted(() => ({
   imageFindManyMock: vi.fn(),
   imageDeleteManyMock: vi.fn(),
@@ -21,7 +21,7 @@ const {
   unlinkMock: vi.fn(),
   loggerWarnMock: vi.fn(),
   requireArchiveStorageRootMock: vi.fn(),
-  trashPublishedArchiveMock: vi.fn()
+  requestArchiveArtworkMaintenanceMock: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
@@ -44,8 +44,8 @@ vi.mock('@/services/setting.service', () => ({
 vi.mock('@/services/archive/config', () => ({
   requireArchiveStorageRoot: requireArchiveStorageRootMock
 }))
-vi.mock('@/services/archive/publisher', () => ({
-  trashPublishedArchive: trashPublishedArchiveMock
+vi.mock('@/services/archive/archive-maintenance-service', () => ({
+  requestArchiveArtworkMaintenance: requestArchiveArtworkMaintenanceMock
 }))
 vi.mock('fs/promises', () => ({
   default: {
@@ -79,7 +79,7 @@ describe('deleteArtwork', () => {
     unlinkMock.mockReset()
     loggerWarnMock.mockReset()
     requireArchiveStorageRootMock.mockReset().mockResolvedValue('D:/archive-root')
-    trashPublishedArchiveMock.mockReset().mockResolvedValue({ artworkId: 1 })
+    requestArchiveArtworkMaintenanceMock.mockReset().mockResolvedValue({ artworkId: 1 })
 
     imageDeleteManyMock.mockResolvedValue({ count: 2 })
     artworkDeleteMock.mockResolvedValue({ id: 1 })
@@ -97,7 +97,7 @@ describe('deleteArtwork', () => {
       }
     ])
 
-    await deleteArtwork(1)
+    await deleteArtwork(1, { requestedByUserId: 'admin-1' })
 
     expectUnlinkWithPathEnding('/artist/artwork/video.mp4')
     expectUnlinkWithPathEnding('/artist/artwork/video.chapters.json')
@@ -115,7 +115,7 @@ describe('deleteArtwork', () => {
       }
     ])
 
-    await deleteArtwork(1)
+    await deleteArtwork(1, { requestedByUserId: 'admin-1' })
 
     expect(unlinkMock).toHaveBeenCalledTimes(1)
     expectUnlinkWithPathEnding('/artist/artwork/video.mp4')
@@ -126,9 +126,13 @@ describe('deleteArtwork', () => {
     artworkFindUniqueMock.mockResolvedValue({ id: 1, createdVia: 'URL_ARCHIVE' })
     artworkFindUniqueOrThrowMock.mockResolvedValue(restored)
 
-    await expect(deleteArtwork(1)).resolves.toBe(restored)
+    await expect(deleteArtwork(1, { requestedByUserId: 'admin-1' })).resolves.toBe(restored)
 
-    expect(trashPublishedArchiveMock).toHaveBeenCalledWith(1)
+    expect(requestArchiveArtworkMaintenanceMock).toHaveBeenCalledWith({
+      artworkId: 1,
+      action: 'TRASH_ARCHIVE',
+      requestedByUserId: 'admin-1'
+    })
     expect(imageFindManyMock).not.toHaveBeenCalled()
     expect(unlinkMock).not.toHaveBeenCalled()
     expect(artworkDeleteMock).not.toHaveBeenCalled()

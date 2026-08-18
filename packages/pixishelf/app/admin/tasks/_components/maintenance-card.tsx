@@ -187,6 +187,24 @@ export function StandaloneTaskFeedback({ task }: { task: ScheduledTaskView }) {
           删除扫描记录：<strong className="font-medium text-foreground">{result?.deletedRuns ?? 0}</strong>
         </span>
       )}
+      {result && task.key === 'archive_intake_retention_cleanup' && (
+        <>
+          <span>
+            删除批量操作：
+            <strong className="font-medium text-foreground">{result.deletedBulkOperations ?? 0}</strong>
+          </span>
+          <span>
+            删除收件记录：<strong className="font-medium text-foreground">{result.deletedIntakeItems ?? 0}</strong>
+          </span>
+          <span>
+            删除收件批次：<strong className="font-medium text-foreground">{result.deletedSubmissions ?? 0}</strong>
+          </span>
+          <span>
+            删除过期预览：
+            <strong className="font-medium text-foreground">{result.deletedPreviewSessions ?? 0}</strong>
+          </span>
+        </>
+      )}
       {result && task.type === 'DERIVED_MEDIA_GC' && (
         <>
           <span>

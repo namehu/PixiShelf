@@ -27,7 +27,8 @@ describe('job wire contracts', () => {
         'VIDEO_KEYFRAME_GENERATION',
         'ARCHIVE_RESOLVE_ITEM',
         'ARCHIVE_IMPORT',
-        'ARCHIVE_MAINTENANCE'
+        'ARCHIVE_MAINTENANCE',
+        'ARCHIVE_INTAKE_RETENTION_CLEANUP'
       ])
     )
     expect(TERMINAL_JOB_STATUSES).toContain('SKIPPED')
@@ -39,6 +40,9 @@ describe('job wire contracts', () => {
     expect(executionLaneForJobType('ARCHIVE_RESOLVE_ITEM')).toBe('ARCHIVE_RESOLVE')
     expect(executionLaneForJobType('ARCHIVE_IMPORT')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_MAINTENANCE')).toBe('BACKGROUND_WRITER')
+    expect(executionLaneForJobType('ARCHIVE_INTAKE_RETENTION_CLEANUP')).toBe('BACKGROUND_WRITER')
+    expect(parseJobPayload('ARCHIVE_INTAKE_RETENTION_CLEANUP', {})).toEqual({})
+    expect(() => parseJobPayload('ARCHIVE_INTAKE_RETENTION_CLEANUP', { retentionDays: 7 })).toThrow()
     expect(parseJobPayload('ARCHIVE_RESOLVE_ITEM', { intakeItemId: 'intake-1' })).toEqual({
       intakeItemId: 'intake-1'
     })
@@ -50,6 +54,12 @@ describe('job wire contracts', () => {
       action: 'TRASH_ARCHIVE',
       artworkId: 7
     })
+    expect(parseJobPayload('ARCHIVE_MAINTENANCE', { action: 'PURGE_ARCHIVE', artworkId: 7 })).toEqual({
+      action: 'PURGE_ARCHIVE',
+      artworkId: 7
+    })
+    expect(parseJobPayload('ARCHIVE_MAINTENANCE', { action: 'RECONCILE' })).toEqual({ action: 'RECONCILE' })
+    expect(() => parseJobPayload('ARCHIVE_MAINTENANCE', { action: 'RECONCILE', artworkId: 7 })).toThrow()
     expect(() =>
       parseJobPayload('ARCHIVE_MAINTENANCE', {
         action: 'RESTORE_ARCHIVE',

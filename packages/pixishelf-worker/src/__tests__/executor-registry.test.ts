@@ -98,7 +98,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('must register in ARCHIVE_RESOLVE')
   })
 
-  it('locks the production Worker to all 19 dual-lane executor capabilities', () => {
+  it('locks the production Worker to all 20 dual-lane executor capabilities', () => {
     const registry = createWorkerExecutorRegistry({
       database: {} as PrismaClient,
       config: {
@@ -113,7 +113,7 @@ describe('ExecutorRegistry', () => {
     })
 
     const capabilities = registry.capabilities()
-    expect(capabilities).toHaveLength(19)
+    expect(capabilities).toHaveLength(20)
     expect(capabilities).toEqual(PRODUCTION_WORKER_CAPABILITIES)
   })
 

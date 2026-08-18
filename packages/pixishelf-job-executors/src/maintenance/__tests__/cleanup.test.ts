@@ -1,9 +1,123 @@
 import { describe, expect, it, vi } from 'vitest'
+import {
+  ARCHIVE_INTAKE_RETENTION_DELETE_BATCH_SIZE,
+  cleanupArchiveIntakeHistory
+} from '../archive-intake-retention-cleanup.js'
 import { cleanupScanRunHistory, SCAN_RUN_DELETE_BATCH_SIZE } from '../scan-run-cleanup.js'
 import { cleanupTriggerLogs, TRIGGER_LOG_DELETE_BATCH_SIZE } from '../trigger-log-cleanup.js'
 import type { RunMaintenanceMutation } from '../types.js'
 
 describe('maintenance retention cleanup', () => {
+  it('deletes intake history in bounded fenced batches and repeats every safety predicate', async () => {
+    const readPages = {
+      bulk: [[{ id: 'bulk-1' }], []],
+      item: [[{ id: 'item-1' }], []],
+      submission: [[{ id: 'submission-1' }], []],
+      preview: [[{ id: 'preview-1' }], []]
+    }
+    const archiveBulkOperationFindMany = vi.fn(async (_input: unknown) => readPages.bulk.shift() ?? [])
+    const archiveIntakeItemFindMany = vi.fn(async (_input: unknown) => readPages.item.shift() ?? [])
+    const archiveIntakeSubmissionFindMany = vi.fn(async (_input: unknown) => readPages.submission.shift() ?? [])
+    const archivePreviewSessionFindMany = vi.fn(async (_input: unknown) => readPages.preview.shift() ?? [])
+    const deletionOrder: string[] = []
+    const archiveBulkOperationDeleteMany = vi.fn(async () => {
+      deletionOrder.push('bulk')
+      return { count: 1 }
+    })
+    const archiveIntakeItemDeleteMany = vi.fn(async () => {
+      deletionOrder.push('item')
+      return { count: 1 }
+    })
+    const archiveIntakeSubmissionDeleteMany = vi.fn(async () => {
+      deletionOrder.push('submission')
+      return { count: 1 }
+    })
+    const archivePreviewSessionDeleteMany = vi.fn(async () => {
+      deletionOrder.push('preview')
+      return { count: 1 }
+    })
+    const mutate = vi.fn<RunMaintenanceMutation>(async (operation) =>
+      operation({
+        archiveBulkOperation: { deleteMany: archiveBulkOperationDeleteMany },
+        archiveIntakeItem: { deleteMany: archiveIntakeItemDeleteMany },
+        archiveIntakeSubmission: { deleteMany: archiveIntakeSubmissionDeleteMany },
+        archivePreviewSession: { deleteMany: archivePreviewSessionDeleteMany }
+      } as never)
+    )
+    const now = new Date('2026-08-18T00:00:00.000Z')
+    const cutoff = new Date('2026-07-19T00:00:00.000Z')
+
+    const result = await cleanupArchiveIntakeHistory({
+      database: {
+        archiveBulkOperation: { findMany: archiveBulkOperationFindMany },
+        archiveIntakeItem: { findMany: archiveIntakeItemFindMany },
+        archiveIntakeSubmission: { findMany: archiveIntakeSubmissionFindMany },
+        archivePreviewSession: { findMany: archivePreviewSessionFindMany }
+      } as never,
+      mutate: mutate as never,
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      now
+    })
+
+    expect(result).toEqual({
+      deletedBulkOperations: 1,
+      deletedIntakeItems: 1,
+      deletedSubmissions: 1,
+      deletedPreviewSessions: 1,
+      retentionDays: 30,
+      cutoff: cutoff.toISOString()
+    })
+    expect(deletionOrder).toEqual(['bulk', 'item', 'submission', 'preview'])
+    for (const findMany of [
+      archiveBulkOperationFindMany,
+      archiveIntakeItemFindMany,
+      archiveIntakeSubmissionFindMany,
+      archivePreviewSessionFindMany
+    ]) {
+      expect(findMany.mock.calls[0]![0]).toEqual(
+        expect.objectContaining({
+          take: ARCHIVE_INTAKE_RETENTION_DELETE_BATCH_SIZE
+        })
+      )
+    }
+    expect(archiveBulkOperationDeleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['bulk-1'] }, completedAt: { lt: cutoff } }
+    })
+    expect(archiveIntakeItemDeleteMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: ['item-1'] },
+        status: { in: ['FAILED', 'ENQUEUED', 'CANCELLED', 'DUPLICATE'] },
+        finishedAt: { lt: cutoff }
+      }
+    })
+    expect(archiveIntakeSubmissionDeleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['submission-1'] }, createdAt: { lt: cutoff }, items: { none: {} } }
+    })
+    expect(archivePreviewSessionDeleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['preview-1'] }, expiresAt: { lte: now } }
+    })
+  })
+
+  it('does not enter any intake deletion after the execution fence is stale', async () => {
+    const deleteMany = vi.fn()
+    const staleFence = new Error('stale fence')
+
+    await expect(
+      cleanupArchiveIntakeHistory({
+        database: {
+          archiveBulkOperation: { findMany: vi.fn().mockResolvedValue([{ id: 'bulk-1' }]) }
+        } as never,
+        mutate: vi.fn().mockRejectedValue(staleFence) as never,
+        signal: new AbortController().signal,
+        progress: vi.fn(),
+        now: new Date('2026-08-18T00:00:00.000Z')
+      })
+    ).rejects.toBe(staleFence)
+
+    expect(deleteMany).not.toHaveBeenCalled()
+  })
+
   it('deletes trigger logs in bounded fenced batches and stops on cancellation', async () => {
     const controller = new AbortController()
     const pages = [

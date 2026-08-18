@@ -126,7 +126,18 @@ describe('maintenance standalone tasks', () => {
 
   it.each([
     ['trigger_log_retention_cleanup', 'TRIGGER_LOG_RETENTION_CLEANUP', '删除日志：', { deletedLogs: 9 }],
-    ['scan_run_retention_cleanup', 'SCAN_RUN_RETENTION_CLEANUP', '删除扫描记录：', { deletedRuns: 6 }]
+    ['scan_run_retention_cleanup', 'SCAN_RUN_RETENTION_CLEANUP', '删除扫描记录：', { deletedRuns: 6 }],
+    [
+      'archive_intake_retention_cleanup',
+      'ARCHIVE_INTAKE_RETENTION_CLEANUP',
+      '删除收件记录：',
+      {
+        deletedBulkOperations: 2,
+        deletedIntakeItems: 4,
+        deletedSubmissions: 1,
+        deletedPreviewSessions: 3
+      }
+    ]
   ])('shows the latest %s result', (key, type, label, result) => {
     render(
       <StandaloneTaskFeedback
@@ -136,5 +147,10 @@ describe('maintenance standalone tasks', () => {
 
     expect(screen.getByText('正式执行', { exact: false })).toBeTruthy()
     expect(screen.getByText(label, { exact: false })).toBeTruthy()
+    if (key === 'archive_intake_retention_cleanup') {
+      expect(screen.getByText('删除批量操作：', { exact: false })).toBeTruthy()
+      expect(screen.getByText('删除收件批次：', { exact: false })).toBeTruthy()
+      expect(screen.getByText('删除过期预览：', { exact: false })).toBeTruthy()
+    }
   })
 })

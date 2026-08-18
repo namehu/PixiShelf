@@ -19,7 +19,7 @@
     "test:integration": "vitest run tests/integration services/scan-service/__tests__/scan-fixture-integration.test.ts services/scan-service/__tests__/rescan-fixture-integration.test.ts",
     "archive:migration-report": "tsx scripts/archive-identity-report.ts",
     "background-task:cutover-audit": "tsx scripts/background-task-cutover-audit.ts",
-    "archive:worker": "pnpm --dir ../pixishelf-archive-worker dev",
+    "archive:lane-cutover-audit": "tsx scripts/archive-lane-cutover-audit.ts",
     "check:full": "pnpm check:quick && pnpm test:unit && pnpm build",
     "bench:scan-fixture": "node scripts/scan-benchmark-fixture.js"
   },
@@ -118,11 +118,5 @@
     "typescript": "^5",
     "tsx": "^4.20.6",
     "vitest": "^4.0.18"
-  },
-  "pnpm": {
-    "overrides": {
-      "@types/react": "19.2.7",
-      "@types/react-dom": "19.2.3"
-    }
   }
 }

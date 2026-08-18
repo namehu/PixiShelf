@@ -24,29 +24,12 @@ const actionSchema = z.enum([
   'RESTORE_ARCHIVE'
 ])
 const itemStatusFilterSchema = z.enum(['ALL', 'COMPLETED', 'FAILED', 'PENDING', 'DOWNLOADING'])
+const archiveMutationAckSchema = z.object({ taskId: z.string().min(1) })
 
 /**
  * 归档任务路由：变更操作走显式管理员边界，并将归档服务层的领域错误统一转换为 tRPC 错误码。
  */
 export const archiveRouter = router({
-  preview: adminProcedure
-    .input(z.object({ url: z.url().max(2_048) }))
-    .mutation(async ({ input }) => runArchiveOperation(() => archiveModule.preview(input.url))),
-
-  enqueue: adminProcedure
-    .input(z.object({ previewToken: z.string().min(1), quality: z.enum(['ORIGINAL', 'DISPLAY']) }))
-    .mutation(async ({ input, ctx }) =>
-      runArchiveOperation(() => archiveModule.enqueue(input, { requestedByUserId: ctx.userId }))
-    ),
-
-  getTask: authProcedure
-    .input(z.object({ taskId: z.string().min(1) }))
-    .query(async ({ input }) => runArchiveOperation(() => archiveModule.getTask(input.taskId))),
-
-  listTasksLegacy: authProcedure
-    .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }).default({ limit: 30 }))
-    .query(async ({ input }) => runArchiveOperation(() => archiveModule.listTasks(input.limit))),
-
   listTasks: authProcedure
     .input(archiveTaskListSchema)
     .query(({ input }) => runArchiveOperation(() => listArchiveTasks(input))),
@@ -70,6 +53,7 @@ export const archiveRouter = router({
 
   retryTaskItem: adminProcedure
     .input(z.object({ taskId: z.string().min(1), itemId: z.string().min(1) }))
+    .output(archiveMutationAckSchema)
     .mutation(async ({ input, ctx }) =>
       runArchiveOperation(() =>
         archiveModule.retryTaskItem(input.taskId, input.itemId, { requestedByUserId: ctx.userId })
@@ -78,6 +62,7 @@ export const archiveRouter = router({
 
   action: adminProcedure
     .input(z.object({ taskId: z.string().min(1), action: actionSchema }))
+    .output(archiveMutationAckSchema)
     .mutation(async ({ input, ctx }) =>
       runArchiveOperation(() =>
         archiveModule.requestAction(input.taskId, input.action, { requestedByUserId: ctx.userId })

@@ -11,12 +11,10 @@ import {
   type WorkerHealthDto
 } from '@pixishelf/job-contracts'
 import { Prisma } from '@pixishelf/db'
+import { redactArchiveText } from '@/services/archive/archive-redaction'
+import { redactSensitiveText, sanitizeJsonValue, type WireTextRedactor } from './job-redaction'
 
-const sensitiveKey =
-  /(?:apiKey|accessToken|authorization|connectionString|cookie|credential|databaseUrl|dsn|password|privateKey|secret|token)/i
-const sensitiveTextField =
-  '(?:apiKey|accessToken|authorization|connectionString|cookie|credential|databaseUrl|dsn|password|privateKey|secret|token)'
-const DEFAULT_WIRE_TEXT_LIMIT = 4_096
+export { redactSensitiveText, sanitizeJsonValue } from './job-redaction'
 
 export const systemJobWireSelect = {
   id: true,
@@ -65,7 +63,8 @@ export const systemJobEventWireSelect = {
   progress: true,
   message: true,
   data: true,
-  createdAt: true
+  createdAt: true,
+  job: { select: { type: true } }
 } satisfies Prisma.SystemJobEventSelect
 
 export const workerInstanceWireSelect = {
@@ -85,48 +84,19 @@ export type SystemJobWireRecord = Prisma.SystemJobGetPayload<{ select: typeof sy
 export type SystemJobEventWireRecord = Prisma.SystemJobEventGetPayload<{ select: typeof systemJobEventWireSelect }>
 export type WorkerInstanceWireRecord = Prisma.WorkerInstanceGetPayload<{ select: typeof workerInstanceWireSelect }>
 
-export function redactSensitiveText(value: string | null, maxLength = DEFAULT_WIRE_TEXT_LIMIT): string | null {
-  if (value === null) return null
-  const redacted = value
-    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^@\s/]+@/gi, '$1[REDACTED]@')
-    .replace(/(bearer\s+)[^\s]+/gi, '$1[REDACTED]')
-    .replace(
-      /([?&](?:access_token|accessToken|api_key|apiKey|authorization|databaseUrl|dsn|password|secret|token)=)[^&#\s]+/gi,
-      '$1[REDACTED]'
-    )
-    .replace(new RegExp(`(${sensitiveTextField}["']?\\s*[:=]\\s*["']?)[^\\s,;}"']+`, 'gi'), '$1[REDACTED]')
-  return redacted.slice(0, maxLength)
-}
-
-export function sanitizeJsonValue(value: unknown): JsonValue | null {
-  if (value === null || value === undefined) return null
-  if (typeof value === 'string') return redactSensitiveText(value) ?? ''
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null
-  if (typeof value === 'boolean') return value
-  if (Array.isArray(value)) return value.map(sanitizeJsonValue)
-  if (typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, nested]) => [
-        key,
-        sensitiveKey.test(key) ? '[REDACTED]' : sanitizeJsonValue(nested)
-      ])
-    )
-  }
-  return String(value)
-}
-
 function iso(value: Date | null) {
   return value?.toISOString() ?? null
 }
 
 export function toJobDto(record: SystemJobWireRecord): JobDto {
+  const redactText = wireTextRedactor(record.type)
   return jobDtoSchema.parse({
     ...record,
     idempotencyKey: redactSensitiveText(record.idempotencyKey),
-    payload: sanitizeJsonValue(record.payload),
-    result: sanitizeJsonValue(record.result),
-    message: redactSensitiveText(record.message),
-    error: redactSensitiveText(record.error),
+    payload: sanitizeJsonValue(record.payload, redactText),
+    result: sanitizeJsonValue(record.result, redactText),
+    message: redactText(record.message),
+    error: redactText(record.error),
     availableAt: iso(record.availableAt),
     deadlineAt: iso(record.deadlineAt),
     leaseToken: null,
@@ -140,13 +110,19 @@ export function toJobDto(record: SystemJobWireRecord): JobDto {
 }
 
 export function toJobEventDto(record: SystemJobEventWireRecord): JobEventDto {
+  const { job, ...event } = record
+  const redactText = wireTextRedactor(job.type)
   return jobEventDtoSchema.parse({
-    ...record,
+    ...event,
     id: record.id.toString(10),
-    message: redactSensitiveText(record.message),
-    data: sanitizeJsonValue(record.data),
+    message: redactText(record.message),
+    data: sanitizeJsonValue(record.data, redactText),
     createdAt: record.createdAt.toISOString()
   })
+}
+
+function wireTextRedactor(jobType: string): WireTextRedactor {
+  return jobType.startsWith('ARCHIVE_') ? redactArchiveText : redactSensitiveText
 }
 
 export function toWorkerHealthDto(record: WorkerInstanceWireRecord): WorkerHealthDto {

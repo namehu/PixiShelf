@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { createMaintenanceExecutorRegistrations } from '../executors.js'
 
 describe('maintenance executor registrations', () => {
-  it('registers exactly the five v1 empty-payload maintenance definitions', () => {
+  it('registers exactly the six v1 empty-payload maintenance definitions', () => {
     const definitions = createMaintenanceExecutorRegistrations({ database: {} as never, scanRoot: '/scan' })
     expect(definitions.map(({ jobType, definitionVersion }) => ({ jobType, definitionVersion }))).toEqual([
+      { jobType: 'ARCHIVE_INTAKE_RETENTION_CLEANUP', definitionVersion: 1 },
       { jobType: 'TRIGGER_LOG_RETENTION_CLEANUP', definitionVersion: 1 },
       { jobType: 'SCAN_RUN_RETENTION_CLEANUP', definitionVersion: 1 },
       { jobType: 'REFILL_META_SOURCE', definitionVersion: 1 },

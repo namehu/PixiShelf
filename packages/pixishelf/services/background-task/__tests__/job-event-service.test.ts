@@ -36,4 +36,22 @@ describe('listIncrementalJobEvents', () => {
     expect(serialized).not.toContain('url-secret')
     expect(serialized).not.toContain('private-token')
   })
+
+  it('removes archive URL path tokens from event messages and nested data', async () => {
+    const privateUrl = 'https://e-hentai.org/g/123/private-token/'
+    const findMany = vi.fn().mockResolvedValue([
+      eventRecord({
+        job: { type: 'ARCHIVE_RESOLVE_ITEM' },
+        message: `failed ${privateUrl}`,
+        data: { source: privateUrl }
+      })
+    ])
+    const result = await listIncrementalJobEvents({ jobId: 'job-1' }, {
+      systemJobEvent: { findMany }
+    } as never)
+
+    const serialized = JSON.stringify(result)
+    expect(serialized).toContain('https://e-hentai.org/g/…')
+    expect(serialized).not.toContain('private-token')
+  })
 })

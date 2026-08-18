@@ -20,6 +20,10 @@ export function buildScheduledTaskJobDefinition(
   let candidate: unknown
 
   switch (type) {
+    case 'ARCHIVE_MAINTENANCE':
+      candidate = { action: 'RECONCILE' }
+      break
+    case 'ARCHIVE_INTAKE_RETENTION_CLEANUP':
     case 'TRIGGER_LOG_RETENTION_CLEANUP':
     case 'SCAN_RUN_RETENTION_CLEANUP':
     case 'WEBP_ANIMATION_SCAN':

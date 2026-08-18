@@ -261,6 +261,42 @@ describe('scheduled-task-service', () => {
     expect(task?.lastJobResult).not.toHaveProperty('path')
   })
 
+  it('projects archive intake cleanup counters without exposing unrelated result data', async () => {
+    scheduledTaskFindManyMock.mockResolvedValueOnce([
+      createTask({
+        lastJobId: 'archive-retention-job-1',
+        key: 'archive_intake_retention_cleanup',
+        type: 'ARCHIVE_INTAKE_RETENTION_CLEANUP'
+      })
+    ])
+    systemJobFindManyMock.mockResolvedValueOnce([
+      {
+        id: 'archive-retention-job-1',
+        status: 'COMPLETED',
+        payload: {},
+        result: {
+          deletedBulkOperations: 2,
+          deletedIntakeItems: 4,
+          deletedSubmissions: 1,
+          deletedPreviewSessions: 3,
+          cutoff: '2026-07-19T00:00:00.000Z',
+          internalPath: '/private/archive'
+        }
+      }
+    ])
+
+    const [task] = await listScheduledTasks()
+
+    expect(task?.lastJobResult).toEqual({
+      deletedBulkOperations: 2,
+      deletedIntakeItems: 4,
+      deletedSubmissions: 1,
+      deletedPreviewSessions: 3
+    })
+    expect(task?.lastJobResult).not.toHaveProperty('cutoff')
+    expect(task?.lastJobResult).not.toHaveProperty('internalPath')
+  })
+
   it('does not trigger before the configured daily time', async () => {
     scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([createTask()])
 

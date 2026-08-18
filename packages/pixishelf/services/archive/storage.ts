@@ -15,6 +15,11 @@ export interface ArchiveStoragePaths {
   finalAbsolutePath: string
 }
 
+export interface ArchiveStorageRelativePaths {
+  stagingRelativePath: string
+  finalRelativePath: string
+}
+
 export interface StoredMediaResult {
   relativePath: string
   filename: string
@@ -32,6 +37,20 @@ export function buildArchiveStoragePaths(input: {
   creatorBucket: string
   externalId: string
 }): ArchiveStoragePaths {
+  const relativePaths = buildArchiveStorageRelativePaths(input)
+  return {
+    ...relativePaths,
+    stagingAbsolutePath: path.resolve(input.scanRoot, relativePaths.stagingRelativePath),
+    finalAbsolutePath: path.resolve(input.scanRoot, relativePaths.finalRelativePath)
+  }
+}
+
+export function buildArchiveStorageRelativePaths(input: {
+  importId: string
+  providerKey: string
+  creatorBucket: string
+  externalId: string
+}): ArchiveStorageRelativePaths {
   const provider = safePathSegment(input.providerKey)
   const bucket = safePathSegment(input.creatorBucket)
   const externalId = safePathSegment(input.externalId)
@@ -44,9 +63,7 @@ export function buildArchiveStoragePaths(input: {
   )
   return {
     stagingRelativePath,
-    stagingAbsolutePath: path.resolve(input.scanRoot, stagingRelativePath),
-    finalRelativePath,
-    finalAbsolutePath: path.resolve(input.scanRoot, finalRelativePath)
+    finalRelativePath
   }
 }
 
@@ -291,15 +308,17 @@ function safeExtension(value: string): string {
 function extensionForMimeType(mimeType: string | null): string {
   const type = mimeType?.split(';')[0]?.trim().toLowerCase()
   return (
-    {
-      'image/jpeg': '.jpg',
-      'image/png': '.png',
-      'image/gif': '.gif',
-      'image/webp': '.webp',
-      'image/avif': '.avif',
-      'image/bmp': '.bmp'
-    } as Record<string, string>
-  )[type ?? ''] ?? ''
+    (
+      {
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/gif': '.gif',
+        'image/webp': '.webp',
+        'image/avif': '.avif',
+        'image/bmp': '.bmp'
+      } as Record<string, string>
+    )[type ?? ''] ?? ''
+  )
 }
 
 function normalizeImageMimeType(mimeType: string | null, filename: string): string {
@@ -307,16 +326,18 @@ function normalizeImageMimeType(mimeType: string | null, filename: string): stri
   if (normalized?.startsWith('image/')) return normalized
   const extension = path.extname(filename).toLowerCase()
   return (
-    {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif',
-      '.webp': 'image/webp',
-      '.avif': 'image/avif',
-      '.bmp': 'image/bmp'
-    } as Record<string, string>
-  )[extension] ?? 'application/octet-stream'
+    (
+      {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.avif': 'image/avif',
+        '.bmp': 'image/bmp'
+      } as Record<string, string>
+    )[extension] ?? 'application/octet-stream'
+  )
 }
 
 function getConfiguredMaxMediaBytes(): number {

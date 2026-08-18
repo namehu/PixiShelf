@@ -1,5 +1,6 @@
 import { emptyJobPayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, ExecutorDefinition, QueueSqlExecutor } from '@pixishelf/job-runtime'
+import { cleanupArchiveIntakeHistory } from './archive-intake-retention-cleanup.js'
 import { syncAllMediaDerivedTags } from './media-derived-tag-sync.js'
 import { refillMetaSource } from './refill-meta-source.js'
 import { cleanupScanRunHistory } from './scan-run-cleanup.js'
@@ -20,6 +21,12 @@ export function createMaintenanceExecutorRegistrations(
 ): ExecutorDefinition[] {
   if (!dependencies.scanRoot.trim()) throw new Error('Maintenance scanRoot is required')
   return [
+    definition('ARCHIVE_INTAKE_RETENTION_CLEANUP', (context) =>
+      cleanupArchiveIntakeHistory({
+        ...operationInput(context, dependencies.database),
+        ...(dependencies.now ? { now: dependencies.now() } : {})
+      })
+    ) as ExecutorDefinition,
     definition('TRIGGER_LOG_RETENTION_CLEANUP', (context) =>
       cleanupTriggerLogs({
         ...operationInput(context, dependencies.database),
@@ -52,6 +59,7 @@ export function createMaintenanceExecutorRegistrations(
 
 function definition<TResult>(
   jobType:
+    | 'ARCHIVE_INTAKE_RETENTION_CLEANUP'
     | 'TRIGGER_LOG_RETENTION_CLEANUP'
     | 'SCAN_RUN_RETENTION_CLEANUP'
     | 'REFILL_META_SOURCE'

@@ -7,14 +7,14 @@ import {
 import { PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
 
 describe('production Worker capability audit', () => {
-  it('accepts exactly one fresh READY Worker with the 19-item v1 inventory', async () => {
+  it('accepts exactly one fresh READY Worker with the 20-item v1 inventory', async () => {
     const findMany = vi.fn().mockResolvedValue([{ capabilities: [...PRODUCTION_WORKER_CAPABILITIES].reverse() }])
     await expect(
       auditProductionWorkerCapabilities(database(findMany), {
         now: new Date('2026-08-17T01:00:00.000Z'),
         freshnessMs: 60_000
       })
-    ).resolves.toEqual({ readyWorkers: 1, capabilities: 19 })
+    ).resolves.toEqual({ readyWorkers: 1, capabilities: 20 })
     expect(findMany).toHaveBeenCalledWith({
       where: { status: 'READY', heartbeatAt: { gte: new Date('2026-08-17T00:59:00.000Z') } },
       orderBy: { workerId: 'asc' },

@@ -1,4 +1,5 @@
 export * from './executors.js'
+export * from './archive-intake-retention-cleanup.js'
 export * from './media-derived-tag-sync.js'
 export * from './refill-meta-source.js'
 export * from './scan-run-cleanup.js'

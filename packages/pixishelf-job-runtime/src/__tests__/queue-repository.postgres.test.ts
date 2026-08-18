@@ -24,6 +24,10 @@ const capabilities: WorkerCapability[] = [
 const resolveCapabilities: WorkerCapability[] = [
   { jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
 ]
+const archiveWriterCapabilities: WorkerCapability[] = [
+  { jobType: 'ARCHIVE_IMPORT', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
+  { jobType: 'ARCHIVE_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+]
 const prisma = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl }) : null
 
 describePostgres('PostgresQueueRepository integration', () => {
@@ -351,6 +355,52 @@ describePostgres('PostgresQueueRepository integration', () => {
         orderBy: { id: 'asc' }
       })
     ).toEqual([{ status: 'PENDING' }, { status: 'PENDING' }, { status: 'PENDING' }])
+    await repository.complete(fence(claimed!))
+  })
+
+  it('lets cleanup maintenance bypass a higher-priority archive import until its cleanup intent clears', async () => {
+    const importJobId = await seedJob({ type: 'ARCHIVE_IMPORT', effectivePriority: 10 })
+    const archiveImportId = await seedArchiveImport(importJobId, { cleanupRequestedAt: clock.now() })
+    const maintenanceJobId = await seedJob({
+      type: 'ARCHIVE_MAINTENANCE',
+      effectivePriority: 100,
+      triggerSource: 'SYSTEM'
+    })
+    const repository = createRepository(clock)
+
+    const maintenance = await repository.claim('queue-kernel-cleanup-maintenance', archiveWriterCapabilities)
+
+    expect(maintenance?.id).toBe(maintenanceJobId)
+    await repository.complete(fence(maintenance!))
+
+    await client().archiveImport.update({
+      where: { id: archiveImportId },
+      data: { cleanupRequestedAt: null }
+    })
+    const archiveImport = await repository.claim('queue-kernel-cleanup-import', archiveWriterCapabilities)
+
+    expect(archiveImport?.id).toBe(importJobId)
+    await repository.complete(fence(archiveImport!))
+  })
+
+  it('still claims an archive import that has no ArchiveImport relation', async () => {
+    const importJobId = await seedJob({ type: 'ARCHIVE_IMPORT', effectivePriority: 10 })
+    const repository = createRepository(clock)
+
+    const claimed = await repository.claim('queue-kernel-relationless-import', archiveWriterCapabilities)
+
+    expect(claimed?.id).toBe(importJobId)
+    await repository.complete(fence(claimed!))
+  })
+
+  it('does not apply the archive cleanup gate to another job type', async () => {
+    const scanJobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    await seedArchiveImport(scanJobId, { cleanupRequestedAt: clock.now() })
+    const repository = createRepository(clock)
+
+    const claimed = await repository.claim('queue-kernel-non-import-cleanup-relation', capabilities)
+
+    expect(claimed?.id).toBe(scanJobId)
     await repository.complete(fence(claimed!))
   })
 
@@ -1620,6 +1670,28 @@ async function seedJob(input: {
       maxAttempts: input.maxAttempts ?? 3,
       createdAt,
       updatedAt: createdAt
+    }
+  })
+  return id
+}
+
+async function seedArchiveImport(systemJobId: string, input: { cleanupRequestedAt: Date | null }): Promise<string> {
+  const id = `${testPrefix}-archive-import-${randomUUID()}`
+  await client().archiveImport.create({
+    data: {
+      id,
+      systemJobId,
+      providerKey: 'queue-kernel-test',
+      externalId: id,
+      submittedUrl: `https://example.test/${id}`,
+      canonicalUrl: `https://example.test/${id}`,
+      locator: {},
+      normalizedMetadata: {},
+      rawMetadata: {},
+      metadataHash: 'a'.repeat(64),
+      creatorBucket: testPrefix,
+      stagingPath: `.archive-staging/${id}`,
+      cleanupRequestedAt: input.cleanupRequestedAt
     }
   })
   return id

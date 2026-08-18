@@ -61,37 +61,7 @@ services:
         max-size: '10m'
         max-file: '5'
 
-  # Transitional compatibility consumer. Keep this service active while the
-  # general Worker remains in dark launch; remove it only at the final cutover.
-  archive-worker:
-    image: docker.io/dockernamehu/pixishelf-archive-worker:${IMAGE_TAG:-latest}
-    env_file:
-      - .env
-    environment:
-      NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=5&pool_timeout=20
-      ARCHIVE_STORAGE_PATH: /app/data
-      SCAN_PATH: /app/data
-      DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
-      KEYFRAME_FFMPEG_THREADS: ${KEYFRAME_FFMPEG_THREADS:-2}
-    command: ['node', 'dist/archive-worker.cjs']
-    volumes:
-      - '${PIXISHELF_DATA_PATH:-./data}:/app/data:rw'
-      - '${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/app/.local-data/derived-media:rw'
-    depends_on:
-      app:
-        condition: service_healthy
-    networks:
-      - pixishelf-network
-    restart: unless-stopped
-    logging:
-      driver: 'json-file'
-      options:
-        max-size: '10m'
-        max-file: '5'
-
-  # New general Worker dark launch. It is safe to run beside archive-worker
-  # only while WORKER_DISPATCH_ENABLED remains false.
+  # 唯一后台消费者；进程内分别串行运行解析 lane 与写入 lane。
   worker:
     image: docker.io/dockernamehu/pixishelf-worker:${IMAGE_TAG:-latest}
     env_file:

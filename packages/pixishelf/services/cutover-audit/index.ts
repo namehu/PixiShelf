@@ -18,3 +18,5 @@ export type {
   CutoverAuditReport,
   RawCutoverAuditCheck
 } from './cutover-audit'
+
+export { createPrismaArchiveLaneCutoverAuditReader } from './archive-lane-cutover-audit'

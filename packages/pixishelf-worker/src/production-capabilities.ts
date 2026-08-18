@@ -7,6 +7,7 @@ import {
 
 const PRODUCTION_JOB_TYPES = [
   'ARCHIVE_IMPORT',
+  'ARCHIVE_INTAKE_RETENTION_CLEANUP',
   'ARCHIVE_MAINTENANCE',
   'ARCHIVE_RESOLVE_ITEM',
   'DERIVED_MEDIA_GC',
@@ -54,6 +55,6 @@ export function assertProductionWorkerCapabilities(
   const actual = canonicalWorkerCapabilities(capabilities)
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error('Production Worker capability inventory drifted from the 19-item dual-lane v1 release')
+    throw new Error('Production Worker capability inventory drifted from the 20-item dual-lane v1 release')
   }
 }

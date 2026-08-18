@@ -730,6 +730,7 @@ model ArchiveBulkOperation {
   items             ArchiveBulkOperationItem[]
 
   @@index([createdAt(sort: Desc)])
+  @@index([completedAt])
   @@map("archive_bulk_operations")
 }
 

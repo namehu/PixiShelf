@@ -163,6 +163,65 @@ describePostgres('archive maintenance PostgreSQL integration', () => {
     })
     await expect(readFile(path.join(root, archivePath, 'media/file.jpg'), 'utf8')).resolves.toBe('fixture')
   })
+
+  it('permanently purges due trash paths, revisions, images, and artwork on real rows', async () => {
+    const root = await temporaryRoot()
+    const now = new Date('2026-08-18T13:00:00.000Z')
+    const artwork = await db().artwork.create({
+      data: {
+        title: prefix,
+        createdVia: 'URL_ARCHIVE',
+        source: 'URL_ARCHIVE',
+        archiveLifecycleState: 'TRASHED',
+        deletedAt: new Date('2026-08-11T00:00:00.000Z')
+      }
+    })
+    const externalRef = await db().artworkExternalRef.create({
+      data: {
+        artworkId: artwork.id,
+        providerKey: 'test-purge',
+        externalId: `${prefix}-purge`,
+        canonicalUrl: 'https://example.test/purge',
+        locator: {}
+      }
+    })
+    const archivePath = `sources/test/bucket/${prefix}/revisions/rev-purge`
+    const trashPath = `.trash/archive/${artwork.id}/rev-purge`
+    const revision = await db().archiveRevision.create({
+      data: {
+        id: `${prefix}-purge-revision`,
+        artworkId: artwork.id,
+        externalRefId: externalRef.id,
+        archivePath,
+        manifestPath: `${archivePath}/manifest.json`,
+        mediaSnapshot: [],
+        metadataHash: 'c'.repeat(64),
+        isCurrent: true,
+        trashPath,
+        trashedAt: new Date('2026-08-11T00:00:00.000Z'),
+        purgeAfter: new Date('2026-08-18T00:00:00.000Z')
+      }
+    })
+    const image = await db().image.create({ data: { artworkId: artwork.id, path: `${trashPath}/media/file.jpg` } })
+    await writeFixture(root, `${trashPath}/media/file.jpg`)
+    const purgeJobId = await seedSystemJob(
+      `${prefix}-purge-job`,
+      'ARCHIVE_MAINTENANCE',
+      { action: 'PURGE_ARCHIVE', artworkId: artwork.id },
+      now
+    )
+
+    await runClaimedMaintenance(purgeJobId, root, now)
+
+    await expect(db().artwork.findUnique({ where: { id: artwork.id } })).resolves.toBeNull()
+    await expect(db().archiveRevision.findUnique({ where: { id: revision.id } })).resolves.toBeNull()
+    await expect(db().image.findUnique({ where: { id: image.id } })).resolves.toBeNull()
+    await expect(readFile(path.join(root, trashPath, 'media/file.jpg'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(db().systemJob.findUniqueOrThrow({ where: { id: purgeJobId } })).resolves.toMatchObject({
+      status: 'COMPLETED',
+      result: { action: 'PURGE_ARCHIVE', artworkId: artwork.id }
+    })
+  })
 })
 
 async function runClaimedMaintenance(jobId: string, root: string, now: Date) {

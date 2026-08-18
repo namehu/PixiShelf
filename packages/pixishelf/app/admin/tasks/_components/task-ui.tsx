@@ -30,6 +30,10 @@ export interface ScheduledTaskView {
   lastJobStatus: string | null
   lastJobMode?: 'FORMAL' | 'PREVIEW' | null
   lastJobResult?: {
+    deletedBulkOperations?: number
+    deletedIntakeItems?: number
+    deletedSubmissions?: number
+    deletedPreviewSessions?: number
     deletedLogs?: number
     deletedRuns?: number
     selected?: number

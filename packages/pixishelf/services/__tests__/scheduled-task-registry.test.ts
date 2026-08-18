@@ -138,6 +138,38 @@ describe('scheduled-task-registry', () => {
     )
   })
 
+  it('registers archive intake retention cleanup as an enabled daily writer task', () => {
+    expect(SCHEDULED_TASK_DEFINITIONS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'archive_intake_retention_cleanup',
+          type: SCHEDULED_TASK_TYPES.ARCHIVE_INTAKE_RETENTION_CLEANUP,
+          defaultTime: '02:15',
+          defaultPriority: 15,
+          defaultEnabled: true,
+          mutexKey: 'audit-maintenance'
+        })
+      ])
+    )
+    expect(getScheduledTaskHandler(SCHEDULED_TASK_TYPES.ARCHIVE_INTAKE_RETENTION_CLEANUP)?.start).toBeTypeOf('function')
+  })
+
+  it('registers archive reconciliation as enabled daily writer maintenance', () => {
+    expect(SCHEDULED_TASK_DEFINITIONS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'archive_maintenance_reconcile',
+          type: SCHEDULED_TASK_TYPES.ARCHIVE_MAINTENANCE,
+          defaultTime: '02:05',
+          defaultPriority: 12,
+          defaultEnabled: true,
+          mutexKey: 'audit-maintenance'
+        })
+      ])
+    )
+    expect(getScheduledTaskHandler(SCHEDULED_TASK_TYPES.ARCHIVE_MAINTENANCE)?.start).toBeTypeOf('function')
+  })
+
   it('registers chapter preview generation after video probing and disabled by default', () => {
     expect(SCHEDULED_TASK_DEFINITIONS).toEqual(
       expect.arrayContaining([

@@ -5,6 +5,7 @@ import * as JobService from '@/services/job-service'
 import { getScanPath } from '@/services/setting.service'
 import { cleanupScanRunHistory } from '@/services/scan-run-service'
 import { cleanupTriggerLogs, TRIGGER_LOG_RETENTION_DAYS } from '@/services/trigger-log-service'
+import { ARCHIVE_INTAKE_RETENTION_DAYS } from '@pixishelf/job-executors'
 import { runVideoMediaProbeJob } from '@/services/video-media-probe-service'
 import {
   runVideoChapterPreviewGenerationJob,
@@ -20,6 +21,8 @@ export const SCHEDULED_TASK_TYPES = {
   VIDEO_CHAPTER_PREVIEW_GENERATION: 'VIDEO_CHAPTER_PREVIEW_GENERATION',
   VIDEO_KEYFRAME_DISCOVERY: 'VIDEO_KEYFRAME_DISCOVERY',
   DERIVED_MEDIA_GC: 'DERIVED_MEDIA_GC',
+  ARCHIVE_MAINTENANCE: 'ARCHIVE_MAINTENANCE',
+  ARCHIVE_INTAKE_RETENTION_CLEANUP: 'ARCHIVE_INTAKE_RETENTION_CLEANUP',
   SCAN_RUN_RETENTION_CLEANUP: 'SCAN_RUN_RETENTION_CLEANUP',
   TRIGGER_LOG_RETENTION_CLEANUP: 'TRIGGER_LOG_RETENTION_CLEANUP'
 } as const
@@ -48,6 +51,28 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
     defaultTime: '02:00',
     defaultTimezone: 'Asia/Shanghai',
     defaultPriority: 10,
+    defaultEnabled: true,
+    mutexKey: 'audit-maintenance'
+  },
+  {
+    key: 'archive_maintenance_reconcile',
+    type: SCHEDULED_TASK_TYPES.ARCHIVE_MAINTENANCE,
+    name: '修复归档维护状态',
+    description: '发现到期暂存清理、孤立归档回收/恢复意图和到期回收站，并为每个目标幂等创建维护任务。',
+    defaultTime: '02:05',
+    defaultTimezone: 'Asia/Shanghai',
+    defaultPriority: 12,
+    defaultEnabled: true,
+    mutexKey: 'audit-maintenance'
+  },
+  {
+    key: 'archive_intake_retention_cleanup',
+    type: SCHEDULED_TASK_TYPES.ARCHIVE_INTAKE_RETENTION_CLEANUP,
+    name: '清理归档收件历史',
+    description: `删除超过 ${ARCHIVE_INTAKE_RETENTION_DAYS} 天的终态收件记录和已完成批量操作，并清理过期预览会话；不会删除归档作品或媒体。`,
+    defaultTime: '02:15',
+    defaultTimezone: 'Asia/Shanghai',
+    defaultPriority: 15,
     defaultEnabled: true,
     mutexKey: 'audit-maintenance'
   },
@@ -152,6 +177,12 @@ type ScheduledTaskHandler = {
 }
 
 export const SCHEDULED_TASK_HANDLERS: Record<ScheduledTaskType, ScheduledTaskHandler> = {
+  [SCHEDULED_TASK_TYPES.ARCHIVE_MAINTENANCE]: {
+    start: startArchiveMaintenanceReconcileTask
+  },
+  [SCHEDULED_TASK_TYPES.ARCHIVE_INTAKE_RETENTION_CLEANUP]: {
+    start: startArchiveIntakeRetentionCleanupTask
+  },
   [SCHEDULED_TASK_TYPES.TRIGGER_LOG_RETENTION_CLEANUP]: {
     start: startTriggerLogRetentionCleanupTask
   },
@@ -177,6 +208,14 @@ export const SCHEDULED_TASK_HANDLERS: Record<ScheduledTaskType, ScheduledTaskHan
 
 async function startDerivedMediaGcTask(): Promise<StartScheduledTaskResult> {
   throw new Error('Derived media GC requires central dispatcher cutover')
+}
+
+async function startArchiveIntakeRetentionCleanupTask(): Promise<StartScheduledTaskResult> {
+  throw new Error('Archive intake retention cleanup requires central dispatcher cutover')
+}
+
+async function startArchiveMaintenanceReconcileTask(): Promise<StartScheduledTaskResult> {
+  throw new Error('Archive maintenance reconciliation requires central dispatcher cutover')
 }
 
 async function startTriggerLogRetentionCleanupTask(

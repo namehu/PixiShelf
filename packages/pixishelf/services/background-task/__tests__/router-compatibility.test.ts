@@ -56,8 +56,11 @@ describe('unified background task router integration', () => {
       expect(routerSource).toMatch(new RegExp(`${name}: adminProcedure`))
     }
 
-    for (const name of ['preview', 'enqueue', 'retryTaskItem', 'action']) {
+    for (const name of ['retryTaskItem', 'action', 'actionMany']) {
       expect(archiveRouterSource).toMatch(new RegExp(`${name}: adminProcedure`))
+    }
+    for (const retiredName of ['preview', 'enqueue', 'getTask', 'listTasksLegacy']) {
+      expect(archiveRouterSource).not.toMatch(new RegExp(`\\b${retiredName}:`))
     }
     for (const name of ['saveMappings', 'start', 'cancel']) {
       expect(localImportRouterSource).toMatch(new RegExp(`${name}: adminProcedure`))
@@ -104,7 +107,6 @@ describe('unified background task router integration', () => {
       expect(routerSource).toContain(`assertLegacyRouterExecutionAllowed('${operation}')`)
     }
     expect(localImportRouterSource).toContain("assertLegacyBackgroundExecutionAllowed('LOCAL_DIRECTORY_IMPORT')")
-    expect(archiveRouterSource).toContain('archiveModule.enqueue(input, { requestedByUserId: ctx.userId })')
     expect(archiveRouterSource).toContain(
       'archiveModule.retryTaskItem(input.taskId, input.itemId, { requestedByUserId: ctx.userId })'
     )

@@ -16,11 +16,15 @@ const maintenanceMigration = readFileSync(
   path.join(prismaDirectory, 'migrations/20260818180000_add_archive_maintenance_worker_job/migration.sql'),
   'utf8'
 )
+const retentionMigration = readFileSync(
+  path.join(prismaDirectory, 'migrations/20260818190000_add_archive_intake_retention_cleanup/migration.sql'),
+  'utf8'
+)
 
 describe('archive intake Worker lanes migration', () => {
   it('replaces the global execution fence with a per-lane partial unique index', () => {
     expect(migration).toContain('ADD COLUMN "executionLane" "JobExecutionLane" NOT NULL')
-    expect(migration).toContain('UPDATE "system_jobs" SET "executionLane" = \'BACKGROUND_WRITER\'')
+    expect(migration).not.toContain('UPDATE "system_jobs" SET "executionLane"')
     expect(migration).toContain('CONSTRAINT "system_jobs_type_execution_lane_check" CHECK')
     expect(migration).toContain('"type" = \'ARCHIVE_RESOLVE_ITEM\'')
     expect(migration).toContain('"executionLane" = \'ARCHIVE_RESOLVE\'')
@@ -29,6 +33,19 @@ describe('archive intake Worker lanes migration', () => {
     expect(migration).toContain('CREATE UNIQUE INDEX "system_jobs_single_executing_per_lane_idx"')
     expect(migration).toContain('ON "system_jobs" ("executionLane")')
     expect(migration).toContain(`WHERE "status" IN ('RUNNING', 'PAUSING', 'CANCELLING')`)
+  })
+
+  it('blocks a live legacy executor and removes only its expired global lease', () => {
+    const guard = migration.indexOf('archive lane cutover requires zero executing system jobs')
+    const leaseGuard = migration.indexOf('archive lane cutover requires the legacy global worker lease to expire')
+    const leaseCleanup = migration.indexOf('DELETE FROM "job_resource_leases"')
+    const laneColumn = migration.indexOf('ADD COLUMN "executionLane"')
+    expect(guard).toBeGreaterThanOrEqual(0)
+    expect(leaseGuard).toBeGreaterThan(guard)
+    expect(leaseCleanup).toBeGreaterThan(leaseGuard)
+    expect(laneColumn).toBeGreaterThan(leaseCleanup)
+    expect(migration).toContain(`"resourceKey" = 'global/background-worker'`)
+    expect(migration).toContain('"expiresAt" > CURRENT_TIMESTAMP')
   })
 
   it('creates durable intake, bulk audit, pause, and provider throttle state', () => {
@@ -81,5 +98,11 @@ describe('archive intake Worker lanes migration', () => {
     expect(maintenanceMigration).toContain('"executionLane" = \'BACKGROUND_WRITER\'')
     expect(maintenanceMigration).toContain('NOT VALID')
     expect(maintenanceMigration).toContain('VALIDATE CONSTRAINT "system_jobs_archive_maintenance_lane_check"')
+  })
+
+  it('indexes completed bulk operations for bounded retention discovery', () => {
+    expect(retentionMigration).toContain('CREATE INDEX "archive_bulk_operations_completedAt_idx"')
+    expect(retentionMigration).toContain('ON "archive_bulk_operations" ("completedAt")')
+    expect(schema).toMatch(/model ArchiveBulkOperation \{[\s\S]*@@index\(\[completedAt\]\)/)
   })
 })

@@ -33,6 +33,8 @@ const typeLabels: Partial<Record<JobType, string>> = {
   VIDEO_KEYFRAME_DISCOVERY: '代表帧筛选',
   VIDEO_KEYFRAME_GENERATION: '代表帧生成',
   ARCHIVE_IMPORT: '归档导入',
+  ARCHIVE_MAINTENANCE: '归档维护',
+  ARCHIVE_INTAKE_RETENTION_CLEANUP: '归档收件历史清理',
   SCAN_RUN_RETENTION_CLEANUP: '扫描记录清理',
   TRIGGER_LOG_RETENTION_CLEANUP: '触发日志清理',
   DERIVED_MEDIA_GC: '衍生媒体清理'

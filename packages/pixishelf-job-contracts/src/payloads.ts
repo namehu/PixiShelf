@@ -242,9 +242,20 @@ const archiveArtworkMaintenancePayloadSchema = z
   })
   .strict()
 
+const purgeArchivePayloadSchema = z
+  .object({
+    action: z.literal('PURGE_ARCHIVE'),
+    artworkId: z.number().int().positive()
+  })
+  .strict()
+
+const reconcileArchiveMaintenancePayloadSchema = z.object({ action: z.literal('RECONCILE') }).strict()
+
 export const archiveMaintenancePayloadSchema = z.discriminatedUnion('action', [
   cleanArchiveStagingPayloadSchema,
-  archiveArtworkMaintenancePayloadSchema
+  archiveArtworkMaintenancePayloadSchema,
+  purgeArchivePayloadSchema,
+  reconcileArchiveMaintenancePayloadSchema
 ])
 export type ArchiveMaintenancePayload = z.infer<typeof archiveMaintenancePayloadSchema>
 
@@ -278,6 +289,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   ARCHIVE_RESOLVE_ITEM: archiveResolveItemPayloadSchema,
   ARCHIVE_IMPORT: archiveImportPayloadSchema,
   ARCHIVE_MAINTENANCE: archiveMaintenancePayloadSchema,
+  ARCHIVE_INTAKE_RETENTION_CLEANUP: emptyJobPayloadSchema,
   SCAN_RUN_RETENTION_CLEANUP: emptyJobPayloadSchema,
   TRIGGER_LOG_RETENTION_CLEANUP: emptyJobPayloadSchema,
   DERIVED_MEDIA_GC: derivedMediaGcPayloadSchema

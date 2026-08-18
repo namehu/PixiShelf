@@ -597,8 +597,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     }
     const result = await enqueueArchiveIntakeMany(enqueueInput, requestedByUserId, {
       database,
-      now: () => now,
-      resolveStorageRoot: async () => '/tmp/pixishelf-stage2-archive'
+      now: () => now
     })
     expect(result?.items).toEqual(
       expect.arrayContaining([
@@ -627,10 +626,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       },
       requestedByUserId,
       {
-        database,
-        resolveStorageRoot: async () => {
-          throw new Error('storage setting temporarily unavailable')
-        }
+        database
       }
     )
     expect(changedQualityRequest?.items).toEqual([
@@ -646,15 +642,12 @@ describePostgres('archive intake PostgreSQL transactions', () => {
 
     const replay = await enqueueArchiveIntakeMany(enqueueInput, requestedByUserId, {
       database,
-      now: () => new Date('2026-08-19T00:00:00.000Z'),
-      resolveStorageRoot: async () => {
-        throw new Error('storage setting temporarily unavailable')
-      }
+      now: () => new Date('2026-08-19T00:00:00.000Z')
     })
     expect(replay).toEqual(result)
   })
 
-  it('reuses an active import without consulting unavailable storage configuration', async () => {
+  it('reuses an active import without consulting Web storage configuration', async () => {
     const now = new Date('2026-08-18T00:00:00.000Z')
     const activeJobId = `${suitePrefix}-reuse-only-job`
     const activeImportId = `${suitePrefix}-reuse-only-import`
@@ -691,10 +684,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       requestedByUserId,
       {
         database,
-        now: () => now,
-        resolveStorageRoot: async () => {
-          throw new Error('storage setting temporarily unavailable')
-        }
+        now: () => now
       }
     )
     expect(result?.items).toEqual([expect.objectContaining({ result: 'REUSED', relatedId: activeImportId })])
@@ -708,7 +698,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     })
   })
 
-  it('persists reusable targets when storage configuration blocks only new imports', async () => {
+  it('creates relative staging paths without consulting Web storage configuration', async () => {
     const now = new Date('2026-08-18T00:00:00.000Z')
     const activeJobId = `${suitePrefix}-partial-storage-job`
     const activeImportId = `${suitePrefix}-partial-storage-import`
@@ -749,10 +739,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       requestedByUserId,
       {
         database,
-        now: () => now,
-        resolveStorageRoot: async () => {
-          throw new Error('storage setting temporarily unavailable')
-        }
+        now: () => now
       }
     )
     expect(result?.items).toEqual(
@@ -764,8 +751,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         }),
         expect.objectContaining({
           targetId: submission.items[1]!.id,
-          result: 'CONFLICT',
-          code: 'STORAGE_ROOT_UNAVAILABLE'
+          result: 'CREATED'
         })
       ])
     )
@@ -792,7 +778,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
           items: [{ itemId: submission.items[0]!.id, quality: 'ORIGINAL' }]
         },
         requestedByUserId,
-        { database, now: () => now, resolveStorageRoot: async () => '/tmp/pixishelf-stage2-archive' }
+        { database, now: () => now }
       ),
       enqueueArchiveIntakeMany(
         {
@@ -800,7 +786,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
           items: [{ itemId: submission.items[0]!.id, quality: 'DISPLAY' }]
         },
         requestedByUserId,
-        { database, now: () => now, resolveStorageRoot: async () => '/tmp/pixishelf-stage2-archive' }
+        { database, now: () => now }
       )
     ])
     expect([originalRequest?.items[0]?.result, displayRequest?.items[0]?.result].sort()).toEqual(['CREATED', 'REUSED'])
@@ -916,8 +902,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
         requestedByUserId,
         {
           database,
-          now: () => now,
-          resolveStorageRoot: async () => '/tmp/pixishelf-archive-enqueue-trash-race'
+          now: () => now
         }
       )
       await vi.waitFor(

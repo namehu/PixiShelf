@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
 
 const repositoryRoot = new URL('../../../..', import.meta.url)
 
@@ -8,7 +9,7 @@ describe('Worker deployment boundary', () => {
     'caps every long-running service at 10 MB x 5 in %s',
     (filename) => {
       const compose = readFileSync(new URL(`build/${filename}`, repositoryRoot), 'utf8')
-      const services = ['postgres', 'app', 'archive-worker', 'worker', 'scheduler', 'imgproxy']
+      const services = ['postgres', 'app', 'worker', 'scheduler', 'imgproxy']
       for (const [index, service] of services.entries()) {
         const nextService = services[index + 1]
         const start = compose.indexOf(`  ${service}:`)
@@ -33,11 +34,13 @@ describe('Worker deployment boundary', () => {
   )
 
   it.each(['docker-compose.dev.yml', 'docker-compose.deploy.yml'])(
-    'keeps the new Worker in safe dark launch beside the transitional archive consumer in %s',
+    'ships the general Worker as the only background consumer in %s',
     (filename) => {
       const compose = readFileSync(new URL(`build/${filename}`, repositoryRoot), 'utf8')
-      expect(compose).toMatch(/^  archive-worker:/m)
-      expect(compose).toContain('dist/archive-worker.cjs')
+      expect(compose).not.toMatch(/^  archive-worker:/m)
+      expect(compose).not.toContain('pixishelf-archive-worker')
+      expect(compose).not.toContain('dist/archive-worker.cjs')
+      expect(compose.match(/^  worker:/gm)).toHaveLength(1)
       const worker = compose.match(/^  worker:\r?\n([\s\S]*?)(?=^  [a-z][a-z0-9-]*:\r?$)/m)?.[0]
       expect(worker).toBeDefined()
       expect(worker).toMatch(/depends_on:\s*\r?\n\s+postgres:/)
@@ -52,11 +55,12 @@ describe('Worker deployment boundary', () => {
     }
   )
 
-  it('continues to build and scan both Worker images until the atomic cutover', () => {
+  it('builds and scans only the general Worker image after direct cutover', () => {
     const workflow = readFileSync(new URL('.github/workflows/build-and-deploy.yml', repositoryRoot), 'utf8')
     expect(workflow).toContain('file: ./build/worker.Dockerfile')
-    expect(workflow).toContain('file: ./build/archive-worker.Dockerfile')
-    expect(workflow).toContain('pixishelf-archive-worker')
+    expect(workflow).not.toContain('archive-worker.Dockerfile')
+    expect(workflow).not.toContain('pixishelf-archive-worker')
+    expect(workflow).not.toContain('ARCHIVE_WORKER_IMAGE_NAME')
     expect(workflow).not.toContain('worker-preview')
   })
 
@@ -67,14 +71,35 @@ describe('Worker deployment boundary', () => {
     expect(productionStage).toContain('apk add --no-cache openssl ffmpeg tini')
   })
 
-  it('packages the shared job contracts required by the transitional archive worker', () => {
-    const dockerfile = readFileSync(new URL('build/archive-worker.Dockerfile', repositoryRoot), 'utf8')
-    expect(dockerfile).toContain('COPY packages/pixishelf-job-contracts/package.json')
-    expect(dockerfile).toContain('COPY packages/pixishelf-job-contracts ./packages/pixishelf-job-contracts')
-    expect(dockerfile).toContain('pnpm --filter @pixishelf/job-contracts build')
+  it('publishes both execution lanes from the sole production Worker', () => {
+    expect(new Set(PRODUCTION_WORKER_CAPABILITIES.map(({ executionLane }) => executionLane))).toEqual(
+      new Set(['ARCHIVE_RESOLVE', 'BACKGROUND_WRITER'])
+    )
+    expect(PRODUCTION_WORKER_CAPABILITIES).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE' }),
+        expect.objectContaining({ jobType: 'ARCHIVE_IMPORT', executionLane: 'BACKGROUND_WRITER' }),
+        expect.objectContaining({ jobType: 'ARCHIVE_MAINTENANCE', executionLane: 'BACKGROUND_WRITER' })
+      ])
+    )
   })
 
-  it('ships the read-only 17-capability release audit and documents it as a deployment gate', () => {
+  it('removes every executable legacy consumer entrypoint', () => {
+    const nextPackage = readFileSync(new URL('packages/pixishelf/package.json', repositoryRoot), 'utf8')
+    for (const retiredPath of [
+      'build/archive-worker.Dockerfile',
+      'packages/pixishelf-archive-worker/package.json',
+      'packages/pixishelf/services/archive/archive-worker.ts',
+      'packages/pixishelf/services/archive/publisher.ts',
+      'packages/pixishelf/services/archive/worker-control.ts',
+      'packages/pixishelf/services/video-keyframe-worker.ts'
+    ]) {
+      expect(existsSync(new URL(retiredPath, repositoryRoot)), retiredPath).toBe(false)
+    }
+    expect(nextPackage).not.toContain('archive:worker')
+  })
+
+  it('ships the read-only 20-capability release audit and documents it as a deployment gate', () => {
     const buildScript = readFileSync(new URL('packages/pixishelf-worker/scripts/build.mjs', repositoryRoot), 'utf8')
     const runbook = readFileSync(new URL('docs/design/background-task-runbook.md', repositoryRoot), 'utf8')
     expect(buildScript).toContain("'capability-audit': 'src/capability-audit.ts'")
