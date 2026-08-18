@@ -20,7 +20,7 @@ function PreferredTagCell({ artwork }: { artwork: ArtworkResponseDto }) {
   }
 
   return (
-    <Badge variant="secondary" className="max-w-full font-normal">
+    <Badge variant="destructive" className="max-w-full font-semibold">
       <span className="truncate">{preferredTag}</span>
     </Badge>
   )
