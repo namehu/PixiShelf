@@ -30,9 +30,9 @@ export function buildScheduledTaskJobDefinition(
       break
     case 'DERIVED_MEDIA_GC':
       candidate =
-        options.trigger === 'schedule' && options.scheduleKey !== 'derived_media_gc_reconciliation'
-          ? { dryRun: false, reconcile: false }
-          : { dryRun: true, reconcile: true }
+        options.scheduleKey === 'derived_media_gc_reconciliation'
+          ? { dryRun: true, reconcile: true }
+          : { dryRun: false, reconcile: false }
       break
     case 'VIDEO_CHAPTER_PREVIEW_GENERATION':
       candidate = {

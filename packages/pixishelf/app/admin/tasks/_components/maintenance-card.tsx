@@ -124,8 +124,83 @@ function getScheduledSummary(task: ScheduledTaskView | undefined, job: JobView |
 function getStandaloneSummary(task: ScheduledTaskView) {
   const schedule = task.enabled ? (task.executionWindow ? '上海 00:00–08:00 窗口' : `每日 ${task.time}`) : '计划停用'
   const status =
-    task.lastJobStatus === 'COMPLETED' ? '上次完成' : task.lastJobStatus === 'FAILED' ? '上次失败' : '尚未执行'
+    task.lastJobStatus && ['PENDING', 'RUNNING', 'CANCELLING'].includes(task.lastJobStatus)
+      ? '正在运行'
+      : task.lastJobStatus === 'COMPLETED'
+        ? '上次完成'
+        : task.lastJobStatus === 'FAILED'
+          ? '上次失败'
+          : '尚未执行'
   return `${schedule} · ${status}`
+}
+
+export function shouldPollStandaloneTasks(tasks: ScheduledTaskView[] | undefined) {
+  return Boolean(
+    tasks?.some((task) => task.lastJobStatus && ['PENDING', 'RUNNING', 'CANCELLING'].includes(task.lastJobStatus))
+  )
+}
+
+export function getStandaloneTaskActionLabel(task: ScheduledTaskView) {
+  if (task.key === 'derived_media_gc') return '执行到期清理'
+  if (task.key === 'derived_media_gc_reconciliation') return '开始只读核对'
+  return '立即执行'
+}
+
+export function requestStandaloneTaskTrigger(task: ScheduledTaskView, onTrigger: () => void) {
+  if (task.key !== 'derived_media_gc') {
+    onTrigger()
+    return
+  }
+  confirm({
+    title: '执行到期清理？',
+    description: '只会删除无引用且已到期的已登记派生文件；不会扫描或删除未登记文件。',
+    confirmText: '执行到期清理',
+    variant: 'destructive',
+    onConfirm: onTrigger
+  })
+}
+
+export function StandaloneTaskFeedback({ task }: { task: ScheduledTaskView }) {
+  if (!task.lastJobId) return null
+  const result = task.lastJobResult
+  const status =
+    task.lastJobStatus && ['PENDING', 'RUNNING', 'CANCELLING'].includes(task.lastJobStatus)
+      ? '运行中'
+      : task.lastJobStatus === 'COMPLETED'
+        ? '已完成'
+        : task.lastJobStatus === 'FAILED'
+          ? '失败'
+          : task.lastJobStatus === 'CANCELLED'
+            ? '已取消'
+            : '未知'
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+      <span>
+        模式：
+        <strong className="font-medium text-foreground">
+          {task.lastJobMode === 'PREVIEW' ? '预览（只读）' : '正式执行'}
+        </strong>
+      </span>
+      <span>状态：<strong className="font-medium text-foreground">{status}</strong></span>
+      {result && task.key === 'trigger_log_retention_cleanup' && (
+        <span>删除日志：<strong className="font-medium text-foreground">{result?.deletedLogs ?? 0}</strong></span>
+      )}
+      {result && task.key === 'scan_run_retention_cleanup' && (
+        <span>删除扫描记录：<strong className="font-medium text-foreground">{result?.deletedRuns ?? 0}</strong></span>
+      )}
+      {result && task.type === 'DERIVED_MEDIA_GC' && (
+        <>
+          <span>选中：<strong className="font-medium text-foreground">{result?.selected ?? 0}</strong></span>
+          <span>删除：<strong className="font-medium text-foreground">{result?.deleted ?? 0}</strong></span>
+          <span>缺失：<strong className="font-medium text-foreground">{result?.missing ?? 0}</strong></span>
+          <span>仍被引用：<strong className="font-medium text-foreground">{result?.referenced ?? 0}</strong></span>
+          <span>失败：<strong className="font-medium text-destructive">{result?.failed ?? 0}</strong></span>
+          <span>核对扫描：<strong className="font-medium text-foreground">{result?.reconciliationScanned ?? 0}</strong></span>
+          <span>未登记候选：<strong className="font-medium text-foreground">{result?.untrackedCandidates ?? 0}</strong></span>
+        </>
+      )}
+    </div>
+  )
 }
 
 export function MaintenanceCard() {
@@ -142,6 +217,7 @@ export function MaintenanceCard() {
   const pollCancellable = useTaskPolling<JobView | null>((job) =>
     Boolean(job && ['PENDING', 'RUNNING', 'CANCELLING'].includes(job.status))
   )
+  const pollScheduledTasks = useTaskPolling<ScheduledTaskView[]>(shouldPollStandaloneTasks)
 
   const { data: activeJob, refetch } = useQuery(
     trpc.job.getRefillMetaSourceStatus.queryOptions(undefined, {
@@ -181,7 +257,9 @@ export function MaintenanceCard() {
   const chapterPreviewJob = chapterPreviewJobQuery.data as JobView | null | undefined
   const refetchChapterPreviewJob = chapterPreviewJobQuery.refetch
 
-  const scheduledTasksQuery = useQuery(trpc.job.listScheduledTasks.queryOptions())
+  const scheduledTasksQuery = useQuery(
+    trpc.job.listScheduledTasks.queryOptions(undefined, { refetchInterval: pollScheduledTasks })
+  )
   const scheduledTasks = (scheduledTasksQuery.data ?? []) as ScheduledTaskView[]
   const { drafts: taskDrafts, updateDraft: updateTaskDraft } = useScheduledTaskDrafts(scheduledTasks)
   const refetchScheduledTasks = scheduledTasksQuery.refetch
@@ -861,35 +939,47 @@ export function MaintenanceCard() {
 
         {standaloneScheduledTasks.length > 0 ? (
           <TaskGroup title="自动维护" description="按保留策略清理系统审计与历史数据。">
-            {standaloneScheduledTasks.map((task) => (
-              <TaskSection
-                key={task.key}
-                id={`scheduled-${task.key}`}
-                category="可定时"
-                icon={Wrench}
-                title={task.name}
-                description={task.description}
-                summary={getStandaloneSummary(task)}
-                tone={
-                  task.lastJobStatus === 'COMPLETED' ? 'success' : task.lastJobStatus === 'FAILED' ? 'error' : 'idle'
-                }
-                action={
-                  <Button
-                    onClick={() => handleTriggerScheduledTask(task)}
-                    disabled={triggerScheduledTaskMutation.isPending}
-                  >
-                    {triggeringTaskKey === task.key ? (
-                      <Spinner data-icon="inline-start" aria-hidden="true" />
-                    ) : (
-                      <PlayCircle data-icon="inline-start" aria-hidden="true" />
-                    )}
-                    立即执行
-                  </Button>
-                }
-              >
-                {renderScheduleSettings(task)}
-              </TaskSection>
-            ))}
+            {standaloneScheduledTasks.map((task) => {
+              const isTaskRunning = Boolean(
+                task.lastJobStatus && ['PENDING', 'RUNNING', 'CANCELLING'].includes(task.lastJobStatus)
+              )
+              return (
+                <TaskSection
+                  key={task.key}
+                  id={`scheduled-${task.key}`}
+                  category="可定时"
+                  icon={Wrench}
+                  title={task.name}
+                  description={task.description}
+                  summary={getStandaloneSummary(task)}
+                  tone={
+                    isTaskRunning
+                      ? 'active'
+                      : task.lastJobStatus === 'COMPLETED'
+                        ? 'success'
+                        : task.lastJobStatus === 'FAILED'
+                          ? 'error'
+                          : 'idle'
+                  }
+                  action={
+                    <Button
+                      onClick={() => requestStandaloneTaskTrigger(task, () => handleTriggerScheduledTask(task))}
+                      disabled={isTaskRunning || triggerScheduledTaskMutation.isPending}
+                    >
+                      {triggeringTaskKey === task.key ? (
+                        <Spinner data-icon="inline-start" aria-hidden="true" />
+                      ) : (
+                        <PlayCircle data-icon="inline-start" aria-hidden="true" />
+                      )}
+                      {isTaskRunning ? '执行中…' : getStandaloneTaskActionLabel(task)}
+                    </Button>
+                  }
+                >
+                  <StandaloneTaskFeedback task={task} />
+                  {renderScheduleSettings(task)}
+                </TaskSection>
+              )
+            })}
           </TaskGroup>
         ) : null}
       </TaskAccordion>

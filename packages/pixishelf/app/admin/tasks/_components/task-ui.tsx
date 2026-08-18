@@ -28,6 +28,18 @@ export interface ScheduledTaskView {
   lastTriggeredDate: string | null
   lastJobId: string | null
   lastJobStatus: string | null
+  lastJobMode?: 'FORMAL' | 'PREVIEW' | null
+  lastJobResult?: {
+    deletedLogs?: number
+    deletedRuns?: number
+    selected?: number
+    deleted?: number
+    missing?: number
+    referenced?: number
+    failed?: number
+    reconciliationScanned?: number
+    untrackedCandidates?: number
+  } | null
   nextRunAt: string | null
   executionWindow?: {
     timezone: 'Asia/Shanghai'

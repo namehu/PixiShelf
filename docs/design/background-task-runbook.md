@@ -392,8 +392,8 @@ Phase 3 先以默认关闭的双开关交付内核：`CENTRAL_DISPATCHER_CUTOVER
   `CENTRAL_DISPATCHER_CUTOVER_ENABLED=true` 与 `WORKER_DISPATCH_ENABLED=true` 后，再由管理员启用该计划。
 - 每日计划 payload 固定为 `{dryRun:false,reconcile:false}`，只消费已经登记且到期的
   `DerivedMediaGcEntry`，不会扫描整个封面目录。
-- 首次目录 reconciliation 由管理员手动触发，payload 固定为 `{dryRun:true,reconcile:true}`；先核对
-  `reconciliationScanned` 与 `untrackedCandidates`，不得把 reconciliation 与每日实际删除混为同一模式。
+- 独立目录 reconciliation 无论由管理员手动触发还是每周调度，payload 都固定为 `{dryRun:true,reconcile:true}`；只读核对、不删除文件，
+  先核对 `reconciliationScanned` 与 `untrackedCandidates`，不得把 reconciliation 与每日实际删除混为同一模式。
 - 单图重探测在切换后必须落成带 `imageId`、`force=true` 的 `VIDEO_MEDIA_PROBE`；切换前仍走旧同步服务。
   禁止只开启 Worker 或只开启 Next 控制面，否则会形成旧请求执行与新队列执行重叠、或任务无人消费的窗口。
 - 视频探测每次最多检查 100 条最旧封面状态；全库缺文件发现只允许走显式、有界、默认 dry-run 的

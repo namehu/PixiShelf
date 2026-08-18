@@ -221,6 +221,46 @@ describe('scheduled-task-service', () => {
     })
   })
 
+  it('returns a safe maintenance summary for the latest scheduled job', async () => {
+    scheduledTaskFindManyMock.mockResolvedValueOnce([
+      createTask({ lastJobId: 'gc-job-1', key: 'derived_media_gc_reconciliation', type: 'DERIVED_MEDIA_GC' })
+    ])
+    systemJobFindManyMock.mockResolvedValueOnce([
+      {
+        id: 'gc-job-1',
+        status: 'COMPLETED',
+        payload: { dryRun: true, reconcile: true },
+        result: {
+          selected: 7,
+          deleted: 0,
+          missing: 1,
+          referenced: 2,
+          failed: 0,
+          reconciliationScanned: 12,
+          untrackedCandidates: 3,
+          path: '/private/media/file.webp'
+        }
+      }
+    ])
+
+    const [task] = await listScheduledTasks()
+
+    expect(task).toMatchObject({
+      lastJobStatus: 'COMPLETED',
+      lastJobMode: 'PREVIEW',
+      lastJobResult: {
+        selected: 7,
+        deleted: 0,
+        missing: 1,
+        referenced: 2,
+        failed: 0,
+        reconciliationScanned: 12,
+        untrackedCandidates: 3
+      }
+    })
+    expect(task?.lastJobResult).not.toHaveProperty('path')
+  })
+
   it('does not trigger before the configured daily time', async () => {
     scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([createTask()])
 

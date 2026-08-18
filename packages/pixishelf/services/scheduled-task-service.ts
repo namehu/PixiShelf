@@ -35,6 +35,8 @@ export interface ScheduledTaskView {
   lastTriggeredDate: string | null
   lastJobId: string | null
   lastJobStatus: string | null
+  lastJobMode: 'FORMAL' | 'PREVIEW' | null
+  lastJobResult: ScheduledTaskLastJobResult | null
   nextRunAt: string | null
   executionWindow?: {
     timezone: typeof CENTRAL_SCHEDULE_TIMEZONE
@@ -42,6 +44,18 @@ export interface ScheduledTaskView {
     endAt: string
   }
   config: unknown
+}
+
+export interface ScheduledTaskLastJobResult {
+  deletedLogs?: number
+  deletedRuns?: number
+  selected?: number
+  deleted?: number
+  missing?: number
+  referenced?: number
+  failed?: number
+  reconciliationScanned?: number
+  untrackedCandidates?: number
 }
 
 export interface SchedulerDecision {
@@ -96,14 +110,15 @@ export async function listScheduledTasks(): Promise<ScheduledTaskView[]> {
   const lastJobs = lastJobIds.length
     ? await prisma.systemJob.findMany({
         where: { id: { in: lastJobIds } },
-        select: { id: true, status: true }
+        select: { id: true, status: true, payload: true, result: true }
       })
     : []
-  const statusByJobId = new Map(lastJobs.map((job) => [job.id, job.status]))
+  const lastJobById = new Map(lastJobs.map((job) => [job.id, job]))
   const centralWindow = isCentralDispatcherCutoverEnabled() ? getCurrentOrNextShanghaiScheduleWindow(new Date()) : null
 
   return tasks.map((task) => {
     const definition = getScheduledTaskDefinition(task.key)
+    const lastJob = task.lastJobId ? lastJobById.get(task.lastJobId) : null
     return {
       id: task.id,
       key: task.key,
@@ -119,7 +134,9 @@ export async function listScheduledTasks(): Promise<ScheduledTaskView[]> {
       lastTriggeredAt: task.lastTriggeredAt,
       lastTriggeredDate: task.lastTriggeredDate,
       lastJobId: task.lastJobId,
-      lastJobStatus: task.lastJobId ? (statusByJobId.get(task.lastJobId) ?? null) : null,
+      lastJobStatus: lastJob?.status ?? null,
+      lastJobMode: lastJob ? getScheduledTaskJobMode(lastJob.payload) : null,
+      lastJobResult: lastJob ? getScheduledTaskLastJobResult(lastJob.result) : null,
       nextRunAt: centralWindow
         ? `${centralWindow.scheduledForDate} 00:00 ${CENTRAL_SCHEDULE_TIMEZONE}`
         : getNextRunAt(task.time, task.timezone),
@@ -135,6 +152,34 @@ export async function listScheduledTasks(): Promise<ScheduledTaskView[]> {
       config: task.config
     }
   })
+}
+
+function getScheduledTaskJobMode(payload: unknown): 'FORMAL' | 'PREVIEW' {
+  return isRecord(payload) && payload.dryRun === true ? 'PREVIEW' : 'FORMAL'
+}
+
+function getScheduledTaskLastJobResult(result: unknown): ScheduledTaskLastJobResult | null {
+  if (!isRecord(result)) return null
+  const projected: ScheduledTaskLastJobResult = {}
+  for (const key of [
+    'deletedLogs',
+    'deletedRuns',
+    'selected',
+    'deleted',
+    'missing',
+    'referenced',
+    'failed',
+    'reconciliationScanned',
+    'untrackedCandidates'
+  ] as const) {
+    const value = result[key]
+    if (typeof value === 'number' && Number.isFinite(value)) projected[key] = value
+  }
+  return Object.keys(projected).length > 0 ? projected : null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export async function updateScheduledTask(input: {

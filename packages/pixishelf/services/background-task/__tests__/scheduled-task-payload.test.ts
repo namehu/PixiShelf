@@ -24,18 +24,21 @@ describe('scheduled task payload mapping', () => {
     })
   })
 
-  it('runs registered GC intents daily and makes first manual reconciliation a dry-run', () => {
+  it('runs registered GC intents for both manual and scheduled triggers', () => {
     expect(buildScheduledTaskJobDefinition('DERIVED_MEDIA_GC', { trigger: 'schedule' }).payload).toEqual({
       dryRun: false,
       reconcile: false
     })
     expect(buildScheduledTaskJobDefinition('DERIVED_MEDIA_GC', { trigger: 'manual' }).payload).toEqual({
-      dryRun: true,
-      reconcile: true
+      dryRun: false,
+      reconcile: false
     })
+  })
+
+  it.each(['manual', 'schedule'] as const)('keeps reconciliation read-only for %s triggers', (trigger) => {
     expect(
       buildScheduledTaskJobDefinition('DERIVED_MEDIA_GC', {
-        trigger: 'schedule',
+        trigger,
         scheduleKey: 'derived_media_gc_reconciliation'
       }).payload
     ).toEqual({ dryRun: true, reconcile: true })
