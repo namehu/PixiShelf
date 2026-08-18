@@ -77,14 +77,21 @@ pnpm start
 Typical local startup for the main app:
 
 ```bash
-cd build
-docker-compose -f docker-compose.dev.yml up -d postgres imgproxy
+docker compose --env-file build/.env -f build/docker-compose.dev.yml up -d postgres imgproxy
 
-cd ../packages/pixishelf
-pnpm db:generate
-pnpm db:push
+# Export DATABASE_URL from packages/pixishelf/.env.local in the current shell first.
+pnpm --filter @pixishelf/db db:generate
+pnpm --filter @pixishelf/db db:deploy
+
+docker compose --env-file build/.env -f build/docker-compose.dev.yml up -d --build worker
+
+cd packages/pixishelf
 pnpm dev
 ```
+
+Follow the root `README.md` for the complete cross-platform sequence, required paired environment variables, Worker
+readiness checks, and shutdown commands. Never use `db:push` for ordinary startup or upgrades; it does not update
+`_prisma_migrations`.
 
 ## Coding Notes
 

@@ -52,16 +52,26 @@ docker compose -f docker-compose.deploy.yml exec worker \
 
 ## 本地开发
 
+完整、跨平台且包含环境变量核对与验收命令的流程见根目录 [README](../README.md#-本地开发从零启动)。
+容器与迁移的固定顺序如下；不要在全新数据库迁移前启动 Worker：
+
 ```bash
 cd build
 cp .env.example .env
-# 修改数据库口令、PIXISHELF_DATA_PATH 和安全密钥
+# 修改数据库口令、PIXISHELF_DATA_PATH、安全密钥，并在完整功能验证时将两枚 Dispatcher 开关设为 true
 
 docker compose -f docker-compose.dev.yml up -d postgres imgproxy
 
-cd ../packages/pixishelf
-pnpm db:generate
-pnpm db:migrate
+cd ..
+# 先按根 README 在当前终端显式提供 DATABASE_URL
+pnpm --filter @pixishelf/db db:generate
+pnpm --filter @pixishelf/db db:deploy
+pnpm --filter @pixishelf/db exec prisma migrate status --schema prisma/schema.prisma
+
+docker compose --env-file build/.env -f build/docker-compose.dev.yml up -d --build worker
+docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/healthcheck.cjs --mode=ready
+
+cd packages/pixishelf
 pnpm dev
 ```
 
@@ -75,9 +85,9 @@ docker compose -f docker-compose.dev.yml exec worker \
 docker compose -f docker-compose.dev.yml logs -f worker
 ```
 
-开发模板默认 `WORKER_DISPATCH_ENABLED=false`，所以单独启动通用 Worker 只进行预检、健康服务和
-进程心跳，不会领取任务。只有需要验证旧路径时才显式启动 `archive-worker`；生产稳态不使用旧消费者。
-`db:push` 不写 `_prisma_migrations`，不能代替 migration deploy 满足 Worker 预检。
+开发模板出于升级安全默认 `false/false`；完整功能验证必须在 App 和 Compose 两侧成对改为 `true/true`。
+只有需要验证旧路径时才显式启动 `archive-worker`；生产稳态不使用旧消费者。`db:push` 不写
+`_prisma_migrations`，不能代替 migration deploy 满足 Worker 预检。
 
 ## 生产部署与回滚兼容
 
@@ -100,10 +110,11 @@ WORKER_DISPATCH_ENABLED=false
 ```
 
 生产部署必须先停止写入者、执行只读 cutover audit、创建数据库与媒体一致性备份，再启动 App 完成
-migration 和 Worker 暗启动。最终同时打开两枚开关并停止旧消费者。完整的纯 Docker 命令、Traefik
-部署边界和验收步骤见
-[最终部署文档](../docs/deployment/background-task-cutover-deployment.md)；事故处理见
-[回滚手册](../docs/deployment/background-task-cutover-rollback.md)。
+migration 和 Worker 暗启动。最终同时打开两枚开关并停止旧消费者。阶段 1–7 的纯 Docker 审查、备份、
+切换和验收门禁可参考
+[生产切换归档](../docs/deployment/background-task-cutover-deployment.md)，但其中的 Thumbor 和 `/_video`
+内容是当时的历史状态，当前服务清单、变量和挂载必须以本目录最新 Compose 与 `.env.example` 为准；
+事故处理见 [回滚手册](../docs/deployment/background-task-cutover-rollback.md)。
 
 两个开关用途不同：`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 让 Next.js 只创建/控制统一队列任务；
 `WORKER_DISPATCH_ENABLED` 才允许通用 Worker claim。开关默认 false，避免镜像升级时意外开始消费。
