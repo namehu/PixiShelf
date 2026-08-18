@@ -58,6 +58,12 @@ vi.mock('../image-replace-dialog', () => ({
   ImageReplaceDialog: () => <div data-testid="image-replace-dialog" />
 }))
 
+vi.mock('@/components/media/media-thumbnail', () => ({
+  MediaThumbnail: ({ media, alt }: { media: { path: string }; alt: string }) => (
+    <img src={`/thumbnail${media.path}`} alt={alt} />
+  )
+}))
+
 function artworkWithImages(count: number) {
   return {
     id: 42,
@@ -95,6 +101,7 @@ describe('ArtworkRowMediaPreview', () => {
 
     expect(screen.getByText('前 10 张媒体')).toBeTruthy()
     expect(screen.getAllByRole('img')).toHaveLength(10)
+    expect(screen.getByAltText('image-1.jpg').getAttribute('src')).toBe('/thumbnail/artist/work/image-1.jpg')
     expect(screen.queryByAltText('image-11.jpg')).toBeNull()
   })
 

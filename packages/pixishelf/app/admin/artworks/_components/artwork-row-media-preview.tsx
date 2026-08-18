@@ -2,11 +2,11 @@
 
 import { useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ImageIcon, Loader2, Video } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useTRPC } from '@/lib/trpc'
-import { combinationApiResource } from '@/utils/combination-static'
 import { formatFileSize } from '@/utils/media'
 import { cn } from '@/lib/utils'
+import { MediaThumbnail } from '@/components/media/media-thumbnail'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import type { ImageListItem } from './types'
 import { useArtworkMediaUpload } from '../_hooks/use-artwork-media-upload'
@@ -70,25 +70,16 @@ function ArtworkRowMediaPreviewContent({ artwork, onSuccess }: { artwork: Artwor
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 lg:grid-cols-10">
               {images.map((image) => {
                 const fileName = image.path.replace(/\\/g, '/').split('/').pop() || image.path
-                const extension = fileName.split('.').pop()?.toLowerCase()
-                const isVideo = ['mp4', 'webm', 'mkv', 'mov', 'avi'].includes(extension || '')
                 return (
                   <div key={image.id} className="min-w-0 overflow-hidden rounded-md border bg-background">
-                    <div className="flex aspect-square items-center justify-center overflow-hidden bg-muted">
-                      {isVideo ? (
-                        <Video aria-hidden="true" className="h-8 w-8 text-muted-foreground" />
-                      ) : image.path ? (
-                        <img
-                          src={combinationApiResource(image.path)}
-                          alt={fileName}
-                          width={240}
-                          height={240}
-                          loading="lazy"
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <ImageIcon aria-hidden="true" className="h-8 w-8 text-muted-foreground" />
-                      )}
+                    <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-muted">
+                      <MediaThumbnail
+                        media={image}
+                        alt={fileName}
+                        fill
+                        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 20vw, 10vw"
+                        className="object-cover"
+                      />
                     </div>
                     <div className="flex flex-col gap-0.5 p-2 text-[10px]">
                       <div className="truncate" title={fileName}>

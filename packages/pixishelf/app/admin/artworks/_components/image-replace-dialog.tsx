@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment, useMemo, useId } from 'react'
+import { useState, useEffect, useRef, Fragment, useMemo, useId, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -87,6 +87,12 @@ interface ChapterPreviewItem {
   error?: string
 }
 
+function revokePreviewUrls(items: PreviewItem[]) {
+  items.forEach((item) => {
+    if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+  })
+}
+
 export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onSuccess }: ImageReplaceDialogProps) {
   const storageIdentity = artwork.storageKey ?? artwork.externalId ?? `artwork-${artworkId ?? 'unknown'}`
   const [globalStatus, setGlobalStatus] = useState<GlobalUploadStatus>('idle')
@@ -104,7 +110,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   const prevFileCountRef = useRef(0)
   const { uploadSingleFile } = useChunkUpload()
 
-  const updatePreviewItems = (updater: React.SetStateAction<PreviewItem[]>) => {
+  const updatePreviewItems = useCallback((updater: React.SetStateAction<PreviewItem[]>) => {
     const next =
       typeof updater === 'function'
         ? (updater as (value: PreviewItem[]) => PreviewItem[])(previewItemsRef.current)
@@ -112,9 +118,9 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
 
     previewItemsRef.current = next
     setPreviewItems(next)
-  }
+  }, [])
 
-  const updateChapterItems = (updater: React.SetStateAction<ChapterPreviewItem[]>) => {
+  const updateChapterItems = useCallback((updater: React.SetStateAction<ChapterPreviewItem[]>) => {
     const next =
       typeof updater === 'function'
         ? (updater as (value: ChapterPreviewItem[]) => ChapterPreviewItem[])(chapterItemsRef.current)
@@ -122,24 +128,45 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
 
     chapterItemsRef.current = next
     setChapterItems(next)
-  }
+  }, [])
 
-  // 对话框打开时重置上传会话状态
+  const clearLocalSession = useCallback(() => {
+    const itemsToRelease = previewItemsRef.current
+
+    // Blob URL 由浏览器文档级注册表持有，仅清空 React 状态不会释放其底层 File/Blob。
+    // 先断开 ref，再 revoke，确保关闭、重开和回滚都不会把上一轮替换资源带入下一轮。
+    previewItemsRef.current = []
+    chapterItemsRef.current = []
+    revokePreviewUrls(itemsToRelease)
+
+    setPreviewItems([])
+    setChapterItems([])
+    setUploadConfig(null)
+    uploadedMetaRef.current = {}
+    uploadedChapterMetaRef.current = {}
+    lastScrolledIdRef.current = null
+    prevFileCountRef.current = 0
+  }, [])
+
+  // 打开和关闭都构成会话边界：关闭时及时释放大文件，打开时保证拿到全新的上传上下文。
   useEffect(() => {
-    if (open) {
-      setGlobalStatus('idle')
-      updatePreviewItems([])
-      updateChapterItems([])
-      setUploadConfig(null)
-      uploadedMetaRef.current = {}
-      uploadedChapterMetaRef.current = {}
+    clearLocalSession()
+    setGlobalStatus('idle')
+    isCommittingRef.current = false
+  }, [clearLocalSession, open])
+
+  // 展开行、抽屉或页面直接卸载时，open 可能来不及切换为 false，仍需兜底释放。
+  useEffect(
+    () => () => {
+      const itemsToRelease = previewItemsRef.current
       previewItemsRef.current = []
       chapterItemsRef.current = []
-      isCommittingRef.current = false
-      lastScrolledIdRef.current = null
-      prevFileCountRef.current = 0
-    }
-  }, [open])
+      uploadedMetaRef.current = {}
+      uploadedChapterMetaRef.current = {}
+      revokePreviewUrls(itemsToRelease)
+    },
+    []
+  )
 
   // 1. 只在上传进行中计算当前活跃项（低频更新，避免不必要重算）
   const activeItemId = useMemo(() => {
@@ -347,15 +374,8 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
       }
     }
 
-    // 重置本地状态
-    previewItems.forEach((item) => item.previewUrl && URL.revokeObjectURL(item.previewUrl))
-    updatePreviewItems([])
-    updateChapterItems([])
-    setUploadConfig(null)
-    uploadedMetaRef.current = {}
-    uploadedChapterMetaRef.current = {}
-    previewItemsRef.current = []
-    chapterItemsRef.current = []
+    // 重置本地状态并释放预览 Blob URL / File 引用。
+    clearLocalSession()
     return true
   }
 
@@ -891,9 +911,19 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                                   (VIDEO_EXTENSIONS.includes(
                                     '.' + (item.file.name.split('.').pop() || '').toLowerCase()
                                   ) ? (
-                                    <video src={item.previewUrl} className="w-full h-full object-cover" />
+                                    <video
+                                      src={item.previewUrl}
+                                      className="h-full w-full object-cover"
+                                      preload="metadata"
+                                    />
                                   ) : (
-                                    <img src={item.previewUrl} alt="preview" className="w-full h-full object-cover" />
+                                    <img
+                                      src={item.previewUrl}
+                                      alt="preview"
+                                      className="h-full w-full object-cover"
+                                      loading="lazy"
+                                      decoding="async"
+                                    />
                                   ))}
                               </div>
                             </TableCell>
