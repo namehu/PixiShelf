@@ -1,8 +1,17 @@
+---
+status: historical
+scope: 扫描从 SSE 请求内执行迁移到持久后台任务的实施设计
+last-verified: 2026-08-18
+current-source: ../../packages/pixishelf-job-executors/src/scan
+---
+
 # PixiShelf 后台任务化扫描设计
+
+> 本文保留实施背景和迁移思路，不代表当前 API 或执行链路；当前扫描由中央队列和通用 Worker Executor 执行。
 
 ## 背景
 
-当前 Pixiv 扫描由 `POST /api/scan/stream` 直接启动并执行。这个接口同时负责：
+设计启动时，Pixiv 扫描由 `POST /api/scan/stream` 直接启动并执行。这个接口同时负责：
 
 - 创建 `system_jobs` 运行锁。
 - 创建 `ScanRun` 审计记录。

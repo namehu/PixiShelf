@@ -1,3 +1,9 @@
+---
+status: draft
+scope: 不改变业务契约的分阶段界面设计升级计划
+last-verified: 2026-08-18
+---
+
 # PixiShelf Design Upgrade Plan
 
 ## 1. Objective

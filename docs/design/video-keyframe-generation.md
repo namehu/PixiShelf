@@ -1,9 +1,15 @@
+---
+status: draft
+scope: 视频代表帧功能政策、验收标准和实施设计
+last-verified: 2026-08-18
+---
+
 # Video Keyframe Generation
 
 ## Status
 
 - Decision status: accepted
-- Implementation branch: `codex/video-keyframe-generation`
+- Implementation status: the current Worker contains keyframe executors; migration-era details below still require consolidation before this can become a current architecture document
 - Scope: representative still images extracted from videos; source videos remain read-only
 
 ## Context

@@ -1,3 +1,12 @@
+---
+status: current
+scope: Prisma Schema 之外由 migration 实现的扩展、触发器、索引和维护约束
+last-verified: 2026-08-18
+sources:
+  - schema.prisma
+  - migrations/
+---
+
 # PixiShelf 数据库设计补充文档
 
 本文档总结了 `schema.prisma` 中未体现，但通过 Migration 脚本 (`migrations/`) 直接应用到数据库中的核心逻辑、扩展和索引设计。这些逻辑对于保证数据一致性和查询性能至关重要。

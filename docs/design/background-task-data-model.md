@@ -1,6 +1,13 @@
+---
+status: historical
+scope: Central Dispatcher 切换期的数据模型、兼容字段和迁移顺序
+last-verified: 2026-08-18
+current-source: ../../packages/pixishelf-db/prisma/schema.prisma
+---
+
 # PixiShelf 后台任务数据模型
 
-> 状态：目标设计，采用向前兼容的增量迁移
+> 状态：阶段 1–7 已实施；本文混合目标设计和迁移历史，当前字段与约束以 Prisma Schema 为准。
 > 关联文档：[架构设计](./background-task-architecture.md) · [运行手册](./background-task-runbook.md)
 
 ## 1. 建模原则

@@ -1,3 +1,9 @@
+---
+status: current
+scope: Artwork feed 查询在固定合成数据集上的性能基线和回归门禁
+last-verified: 2026-08-12
+---
+
 # Artwork feed query performance
 
 Baseline date: 2026-08-12. PostgreSQL measurements use `EXPLAIN (ANALYZE, BUFFERS, TIMING OFF)` against connection-scoped temporary tables, so benchmark data never enters the PixiShelf database.

@@ -4,6 +4,13 @@
 `pixishelf-worker` 是唯一正常消费者，旧 `archive-worker` 只作为应用级紧急回滚镜像保留，
 生产稳态不得同时运行两个消费者。
 
+当前标准发布、暗启动、验证和回滚入口见[部署基线](../docs/operations/deployment.md)。本文件只说明
+`build/` 内的镜像、Compose、挂载和运行边界。
+
+> **生产 Compose 过渡约束：** `docker-compose.deploy.yml` 仍声明了没有 profile 的
+> `archive-worker`。阶段 8 完成前，不得用无服务名的 `docker compose up -d` 作为标准发布命令；
+> 必须显式启动 `postgres imgproxy app worker scheduler`，并确认 `archive-worker` 保持停止。
+
 ## 文件边界
 
 - `Dockerfile`：Web/API 的 Next.js standalone 镜像，负责启动前执行数据库迁移。
@@ -52,7 +59,7 @@ docker compose -f docker-compose.deploy.yml exec worker \
 
 ## 本地开发
 
-完整、跨平台且包含环境变量核对与验收命令的流程见根目录 [README](../README.md#-本地开发从零启动)。
+完整、跨平台且包含环境变量核对与验收命令的流程见根目录 [README](../README.md#本地开发)。
 容器与迁移的固定顺序如下；不要在全新数据库迁移前启动 Worker：
 
 ```bash
@@ -101,6 +108,14 @@ docker compose -f docker-compose.dev.yml logs -f worker
 cd build
 cp .env.example .env
 ```
+
+从仓库根目录执行生产命令时，统一使用：
+
+```bash
+docker compose --env-file build/.env -f build/docker-compose.deploy.yml <command> <explicit-services>
+```
+
+不要省略服务集合；已经停止的 `archive-worker` 可能被无参数 `up -d` 重新拉起。
 
 升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH` 和 `DERIVED_MEDIA_HOST_PATH`。新镜像暗启动阶段必须保持：
 

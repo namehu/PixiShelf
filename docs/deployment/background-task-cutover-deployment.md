@@ -1,3 +1,10 @@
+---
+status: historical
+scope: 2026-08-18 后台任务阶段 1–7 的生产切换、验收和发布记录
+last-verified: 2026-08-18
+current-source: ../operations/deployment.md
+---
+
 # PixiShelf 后台任务统一切换最终部署文档
 
 > 发布日期：2026-08-18  

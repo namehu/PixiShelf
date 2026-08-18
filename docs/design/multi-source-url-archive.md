@@ -1,6 +1,12 @@
+---
+status: draft
+scope: 多来源 URL 归档的已接受方向、功能政策和分阶段方案
+last-verified: 2026-08-18
+---
+
 # Multi-source URL archive design
 
-Status: accepted on 2026-08-11
+Decision status: accepted on 2026-08-11. Implementation details in this document may still describe a target state and must not override current code.
 
 ## Summary
 

@@ -1,5 +1,7 @@
 ---
 status: accepted
+scope: 外部来源引用与本地 Artwork 身份分离
+last-verified: 2026-08-18
 ---
 
 # Separate source references from local artwork identity

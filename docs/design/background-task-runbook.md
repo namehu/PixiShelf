@@ -1,6 +1,13 @@
+---
+status: historical
+scope: Central Dispatcher 阶段 0–8 实施计划、切换验证与当时的故障处理
+last-verified: 2026-08-18
+current-source: ../operations/deployment.md
+---
+
 # PixiShelf 后台任务实施与运行手册
 
-> 本文同时是重构执行计划和上线后的运维 Runbook。
+> 本文是阶段性重构计划和上线 Runbook 的历史归档。当前部署操作以[部署基线](../operations/deployment.md)为准。
 > 关联文档：[架构设计](./background-task-architecture.md) · [数据模型](./background-task-data-model.md)
 
 ## 1. 目标运行基线

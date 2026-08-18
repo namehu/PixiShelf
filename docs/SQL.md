@@ -1,4 +1,12 @@
-# 常用SQL
+---
+status: deprecated
+scope: 旧版临时 SQL 片段，不作为数据库操作或运维手册
+last-verified: 2026-08-18
+---
+
+# 常用 SQL（待清理）
+
+> 本文只保留少量历史查询片段，未形成可验证的运行手册。字段和模型以 Prisma Schema 为准。
 
 ## Tag
 

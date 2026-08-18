@@ -1,85 +1,62 @@
-# PixiShelf
+# @pixishelf/next
 
-PixiShelf 是一个自托管的 Pixiv 本地图片管理与浏览系统。它允许你扫描本地存储的 Pixiv 图片（支持通过 Powerful Pixiv Downloader 等工具下载的目录结构），并提供现代化的 Web 界面进行浏览、搜索、标签管理和数据统计。
+PixiShelf 的 Next.js 16 主应用，负责 Web 页面、Better Auth、HTTP/tRPC API、管理界面以及后台任务控制面。
 
-## 🛠 技术栈
+项目级环境准备、数据库迁移、Worker 启动和生产部署以根目录 [README](../../README.md) 为准；本文件只描述主应用包。
 
-- **前端**: [Next.js 16](https://nextjs.org/) (App Router), [React 19](https://react.dev/), [Tailwind CSS 4](https://tailwindcss.com/), [Shadcn UI](https://ui.shadcn.com/)
-- **状态管理**: [Zustand](https://github.com/pmndrs/zustand), [TanStack Query](https://tanstack.com/query)
-- **后端**: Next.js Server Actions / API Routes
-- **数据库**: [Prisma](https://www.prisma.io/) (PostgreSQL)
-- **工具库**: [Zod](https://zod.dev/) (验证), [Winston](https://github.com/winstonjs/winston) (日志), [Day.js](https://day.js.org/) (时间处理)
+## 目录边界
 
-## 📂 项目结构
-
-```plain
-app/
-├── api/
-│   └── auth/
-│       └── route.ts          <-- 只负责解析 Request，调用 server/services
-└── dashboard/
-    └── page.tsx              <-- 页面
-server/                       <-- 专门存放后端路由与上下文
-services/                     <-- 业务服务
-lib/                          <-- Prisma、鉴权、日志、工具函数
-schemas/                      <-- Zod Schemas
-types/                        <-- 前后端公用类型
-components/                   <-- 通用组件
+```text
+app/         App Router 页面和 HTTP Route Handler
+server/      tRPC context、procedure 和 routers
+services/    领域服务与后台任务控制面
+lib/         认证、Prisma 入口、日志和基础设施工具
+schemas/     Zod 输入校验
+components/  UI 与领域组件
+hooks/       React hooks
+store/       客户端状态
+tests/       包级和集成测试
 ```
 
-## 🚀 快速开始
+本包没有 `src/` 中间目录。Prisma Schema 和 migration 位于 `../pixishelf-db/`；中央队列由 `../pixishelf-worker/` 消费。
 
-### 前置要求
+## 开发
 
-- **Node.js**: v20 或更高版本
-- **PostgreSQL**: 需要安装并运行 PostgreSQL 数据库（建议启用 `pg_trgm` 扩展以支持模糊搜索）
-- **包管理器**: 推荐使用 pnpm, npm 或 yarn
-
-### 配置环境变量
-
-在项目根目录下创建 `.env` 文件，并配置以下变量：
-
-```env
-# 数据库连接字符串
-DATABASE_URL="postgresql://user:password@localhost:5432/pixishelf?schema=public"
-
-# JWT 密钥 (生产环境请务必修改)
-JWT_SECRET="your-secret-key-at-least-32-chars"
-
-# Node 环境
-NODE_ENV="development"
-```
-
-### 4. 数据库初始化
-
-运行 Prisma 迁移以创建数据库表结构：
+先按根 README 启动 PostgreSQL、ImgProxy、migration 和 Worker，再执行：
 
 ```bash
-npm run db:migrate
+pnpm dev
 ```
 
-### 5. 启动开发服务器
+主应用监听 `http://127.0.0.1:5430`。
+
+## 验证
 
 ```bash
-npm run dev
+pnpm lint
+pnpm typecheck
+pnpm test:unit
+pnpm test:integration
+pnpm build
 ```
 
-访问 [http://localhost:5430](http://localhost:5430) 查看应用。
+常用数据库脚本只是对 `@pixishelf/db` 的转发：
 
-## 📜 常用脚本
+```bash
+pnpm db:generate
+pnpm db:deploy
+pnpm db:migrate
+pnpm db:studio
+```
 
-- `npm run dev`: 启动开发服务器 (端口 5430)。
-- `npm run build`: 构建生产版本。
-- `npm run start`: 启动生产服务器。
-- `npm run db:migrate`: 执行数据库迁移。
-- `npm run db:generate`: 生成 Prisma 客户端代码。
-- `npm run db:studio`: 打开 Prisma Studio 可视化管理数据库。
-- `npm run lint`: 运行 ESLint 代码检查。
+普通启动和升级使用 `db:deploy`；`db:migrate` 只用于创建新 migration，`db:push` 不得用于共享、长期或生产数据库。
 
-## 🤝 贡献
+## 认证与任务边界
 
-欢迎提交 Issue 和 Pull Request 来改进这个项目！
+- 浏览器登录使用 Better Auth 数据库会话；
+- 当前单用户部署中，已登录用户即实例管理员；
+- Webhook 与 scheduler 分别使用独立 Bearer Token；
+- `CENTRAL_DISPATCHER_CUTOVER_ENABLED=true` 时，App 创建和控制任务，但不消费中央队列；
+- 任务执行、FFmpeg、扫描和受控文件写入由通用 Worker 负责。
 
-## 📄 许可证
-
-[MIT](LICENSE)
+完整边界见[当前架构](../../docs/architecture/current-architecture.md)。

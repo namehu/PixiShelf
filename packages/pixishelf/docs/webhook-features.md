@@ -1,3 +1,11 @@
+---
+status: current
+scope: POST /api/webhooks/scan 的认证、请求、响应和调用示例
+last-verified: 2026-08-18
+sources:
+  - ../app/api/webhooks/scan/route.ts
+---
+
 # Webhook 扫描功能
 
 PixiShelf 提供了一个基于 Webhook 的扫描触发机制，允许外部服务（如 Bash 脚本、CI/CD 流程或其他自动化工具）触发增量或全量扫描。
@@ -19,22 +27,23 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 
 ### 请求头 (Headers)
 
-| Key | Value | 说明 |
-| --- | --- | --- |
+| Key           | Value                         | 说明                           |
+| ------------- | ----------------------------- | ------------------------------ |
 | Authorization | `Bearer <SCAN_WEBHOOK_TOKEN>` | 必须与环境变量中配置的令牌一致 |
-| Content-Type | `application/json` | |
+| Content-Type  | `application/json`            |                                |
 
 ### 请求参数 (Body)
 
-| 参数名 | 类型 | 必填 | 默认值 | 说明 |
-| --- | --- | --- | --- | --- |
-| `type` | `string` | 否 | `"full"` | 扫描类型。可选值：`"full"` (全量/增量扫描), `"list"` (指定文件列表) |
-| `force` | `boolean` | 否 | `false` | 是否强制全量重扫（**注意**：`true` 会清空数据库重新扫描，慎用） |
-| `metadataList` | `string[]` | 否 | `[]` | 当 `type` 为 `"list"` 时必填。指定要扫描的元数据文件相对路径列表 |
+| 参数名         | 类型       | 必填 | 默认值   | 说明                                                                |
+| -------------- | ---------- | ---- | -------- | ------------------------------------------------------------------- |
+| `type`         | `string`   | 否   | `"full"` | 扫描类型。可选值：`"full"` (全量/增量扫描), `"list"` (指定文件列表) |
+| `force`        | `boolean`  | 否   | `false`  | 是否强制全量重扫（**注意**：`true` 会清空数据库重新扫描，慎用）     |
+| `metadataList` | `string[]` | 否   | `[]`     | 当 `type` 为 `"list"` 时必填。指定要扫描的元数据文件相对路径列表    |
 
 ### 响应格式
 
 成功响应：
+
 ```json
 {
   "success": true,
@@ -49,6 +58,7 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 ```
 
 失败响应：
+
 ```json
 {
   "success": false,
@@ -58,13 +68,13 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 
 常见状态码：
 
-| 状态码 | 场景 |
-| --- | --- |
-| `400` | 请求参数非法，或 `SCAN_PATH` 未配置 |
-| `401` | Bearer Token 无效 |
-| `409` | 扫描任务冲突（已有扫描进行中）或任务被取消 |
-| `503` | 服务未配置 `SCAN_WEBHOOK_TOKEN` |
-| `500` | 服务端内部错误 |
+| 状态码 | 场景                                       |
+| ------ | ------------------------------------------ |
+| `400`  | 请求参数非法，或 `SCAN_PATH` 未配置        |
+| `401`  | Bearer Token 无效                          |
+| `409`  | 扫描任务冲突（已有扫描进行中）或任务被取消 |
+| `503`  | 服务未配置 `SCAN_WEBHOOK_TOKEN`            |
+| `500`  | 服务端内部错误                             |
 
 ## 3. 使用示例
 

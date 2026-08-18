@@ -1,6 +1,8 @@
 ---
 status: accepted
 date: 2026-08-14
+scope: PostgreSQL 持久队列上的单通用 Worker
+last-verified: 2026-08-18
 ---
 
 # Unify background jobs under a durable single worker

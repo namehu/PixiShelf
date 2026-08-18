@@ -1,3 +1,12 @@
+---
+status: current
+scope: ImgProxy、静态派生媒体生成和原视频播放的当前分工
+last-verified: 2026-08-18
+sources:
+  - ../../../build/docker-compose.dev.yml
+  - ../../../build/docker-compose.deploy.yml
+---
+
 # PixiShelf 媒体资源处理与分发架构
 
 ## 1. 当前架构

@@ -6,7 +6,11 @@ This file gives coding agents the minimum project context needed to work safely 
 
 PixiShelf is a pnpm workspace for a personal web gallery that manages local image collections.
 
-- `packages/pixishelf`: main Next.js app, API routes, Prisma schema, admin UI, gallery UI.
+- `packages/pixishelf`: main Next.js app, API routes, admin UI, gallery UI, and job control plane.
+- `packages/pixishelf-db`: Prisma schema, migrations, generated database client, and schema guards.
+- `packages/pixishelf-job-contracts`, `packages/pixishelf-job-runtime`, `packages/pixishelf-job-executors`: shared background-job contracts, runtime, and executor implementations.
+- `packages/pixishelf-worker`: standalone Central Dispatcher Worker.
+- `packages/pixishelf-archive-worker`: legacy rollback consumer; it is not part of the production steady state.
 - `packages/pixishelf-extension`: WXT browser extension for PixiShelf download workflows.
 - `packages/pixiv-standalone-scanner`: small Express service for Pixiv metadata paths.
 - `packages/zip-convert`: Express/Node utilities for converting Pixiv zip/APNG assets.
@@ -27,10 +31,14 @@ Run from the repository root unless noted otherwise.
 
 ```bash
 pnpm install
-pnpm dev
-pnpm build
+pnpm check:quick
+pnpm check:full
 pnpm format
 ```
+
+Do not use the root `pnpm dev` as the standard startup command: it recursively starts every workspace package that
+defines `dev`, including processes that are not part of the normal local topology. Follow the root `README.md` and
+start the main app from `packages/pixishelf` after PostgreSQL, ImgProxy, migrations, and the general Worker are ready.
 
 Main app commands:
 
@@ -98,7 +106,8 @@ readiness checks, and shutdown commands. Never use `db:push` for ordinary startu
 - The main app uses Next.js App Router, React, TypeScript, Prisma, Tailwind CSS, Radix UI, TanStack Query, Zustand, Zod, and lucide-react.
 - Every ordinary file and directory name under `packages/pixishelf` must use lowercase kebab-case. Do not introduce uppercase letters, PascalCase, camelCase, or snake_case in paths; this also applies to component files, hooks, stores, tests, documentation, and Next.js dynamic route segment names. Framework or tooling syntax such as `_components`, `__tests__`, `[id]`, and filename suffixes like `.test.ts` remains allowed, but its words must stay lowercase.
 - Keep in-code identifiers in their normal TypeScript conventions (for example, PascalCase React components and camelCase hooks); the kebab-case rule applies to filesystem paths. Before finishing a change, run `rg --files packages/pixishelf | rg '[A-Z]'` and resolve every result.
-- Prefer existing components and patterns under `packages/pixishelf/src` before adding new abstractions.
+- Prefer existing components and patterns under `packages/pixishelf` before adding new abstractions. The main app has
+  no `src/` directory; `app/`, `components/`, `server/`, `services/`, and `lib/` are package-root directories.
 - Use Prisma and typed data access instead of ad hoc SQL/string parsing where possible.
 - Use Zod or existing validation helpers for runtime input validation.
 - Keep UI consistent with the current app: functional, responsive, and concise.
@@ -112,6 +121,21 @@ readiness checks, and shutdown commands. Never use `db:push` for ordinary startu
 - For package-level or cross-module tests, use the package's existing `tests` directory when that is the established local pattern.
 - When moving existing same-level `*.test.ts` or `*.test.tsx` files into `__tests__`, update relative imports and mocks from `./module` to the correct parent path such as `../module`.
 - After moving tests, run the narrowest relevant `pnpm test` or `pnpm vitest run ...` command for the moved files.
+
+## Documentation
+
+- Start from `docs/README.md`. It records each document's status, authority, and replacement path.
+- A `current` document must describe deployed behavior. Future work belongs in a `draft`; one-time cutovers and retired
+  designs belong in `historical` documents.
+- Exact fields and configuration remain authoritative in Prisma, Zod, TypeScript, Compose, and `.env.example` files.
+  Documentation should explain intent, boundaries, invariants, risks, and operating procedures instead of duplicating
+  every field.
+- Update affected documentation in the same change when modifying product boundaries, cross-package dependencies,
+  database meaning or migrations, auth/API contracts, deployment topology, environment variables, backup/recovery,
+  or a hard-to-reverse technical decision.
+- Do not turn a proposal into current documentation until its implementation and verification are complete.
+- When documentation conflicts with code or runtime configuration, report the conflict, establish the current fact,
+  and fix or downgrade the document before relying on it.
 
 ## Verification
 

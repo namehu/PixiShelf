@@ -1,5 +1,7 @@
 ---
 status: accepted
+scope: 持久 Worker、staging 验证和原子归档发布
+last-verified: 2026-08-18
 ---
 
 # Use a durable worker and atomic archive publication

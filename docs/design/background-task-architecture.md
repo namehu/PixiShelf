@@ -1,6 +1,13 @@
+---
+status: historical
+scope: Central Dispatcher 阶段 1–7 的架构设计、问题分析和目标验收
+last-verified: 2026-08-18
+current-source: ../architecture/current-architecture.md
+---
+
 # PixiShelf 后台任务架构设计
 
-> 状态：分阶段实施中；Phase 5 已暗装全部 17 个 Executor capability，全局切换仍关闭
+> 状态：阶段 1–7 已完成并切换；本文保留当时的现状、目标与实施上下文，不作为当前运行说明。
 > 决策日期：2026-08-14
 > 关联文档：[数据模型](./background-task-data-model.md) · [运行手册](./background-task-runbook.md) · [ADR-0003](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)
 

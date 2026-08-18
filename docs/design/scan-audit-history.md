@@ -1,3 +1,10 @@
+---
+status: historical
+scope: ScanRun/ScanRunItem 审计能力的实施历史和已知限制
+last-verified: 2026-08-18
+current-source: ../../packages/pixishelf-db/prisma/schema.prisma
+---
+
 # PixiShelf 扫描与导入审计历史设计
 
 ## 背景
