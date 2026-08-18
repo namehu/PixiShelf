@@ -36,14 +36,13 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [产品基线](./product/product-baseline.md)          | `current` | 目标用户、核心场景、产品不变量和非目标      |
 | [领域语境](../CONTEXT.md)                          | `current` | 作品、媒体、来源、归档与本地身份术语        |
 | [当前架构](./architecture/current-architecture.md) | `current` | Workspace、运行组件、依赖方向和关键数据流   |
+| [权限与接口边界](./security/access-control.md)     | `current` | 调用者、页面、API、服务、凭据和存储权限     |
 | [测试策略](./development/testing-strategy.md)      | `current` | 测试分层、变更验证矩阵、CI 覆盖与已知缺口   |
 | [部署基线](./operations/deployment.md)             | `current` | 当前 Compose 服务、升级顺序、验证和回滚入口 |
 | [备份与恢复](./operations/backup-and-recovery.md)  | `current` | 完整备份集合、恢复目标、演练和灾难恢复边界  |
 | [Build 与部署资产](../build/README.md)             | `current` | Dockerfile、Compose、挂载和 Worker 运行边界 |
 | [当前待办](../TODO.md)                             | `current` | 稳定观察期和下一阶段可执行事项              |
 | [代理规则](../agents.md)                           | `current` | 人与 AI 修改仓库时必须遵守的工程约束        |
-
-权限矩阵仍属于后续文档建设范围；建立前不得把零散 TODO、路由名称或旧设计当成完整权限承诺。
 
 ## 架构与性能
 
@@ -99,7 +98,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | 文档                                                                      | 状态         | 说明                                           |
 | ------------------------------------------------------------------------- | ------------ | ---------------------------------------------- |
 | [主应用包说明](../packages/pixishelf/readme.md)                           | `current`    | 主应用边界和包级命令；项目启动以根 README 为准 |
-| [Webhook 扫描](../packages/pixishelf/docs/webhook-features.md)            | `current`    | 扫描 Webhook 契约；后续并入 API/权限矩阵       |
+| [Webhook 扫描](../packages/pixishelf/docs/webhook-features.md)            | `current`    | 扫描 Webhook 负载契约；权限边界以安全矩阵为准  |
 | [ProTable](../packages/pixishelf/components/shared/pro-table/readme.md)   | `current`    | 共置组件使用说明                               |
 | [Pixiv 信息提取脚本](../packages/pixishelf/scripts/extract-pixiv-info.md) | `current`    | 共置脚本输入、输出与用法                       |
 | [浏览器扩展](../packages/pixishelf-extension/README.md)                   | `deprecated` | 当前仍是 WXT 模板，后续需要重写                |

@@ -125,7 +125,10 @@ flowchart TD
 
 用户通过 Better Auth 的数据库会话登录。当前部署中，已登录用户即实例管理员；敏感 tRPC 使用 `adminProcedure` 表达该边界。扫描 Webhook 与 scheduler 不使用浏览器会话，分别由 `SCAN_WEBHOOK_TOKEN` 和 `INTERNAL_JOB_TOKEN` 保护。
 
+当前可以存在多个登录账户，但没有角色或租户隔离，所有账户属于同一个信任域。页面、HTTP、tRPC、Server Action、ImgProxy 和基础设施的具体执行层门禁见[权限与接口边界](../security/access-control.md)。
+
 `JWT_SECRET`/`JWT_TTL` 仍存在于环境模板和遗留依赖中，但当前浏览器登录与服务端会话由 Better Auth 负责，不能继续把系统描述为“基于 JWT 的无状态认证”。
+`INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 也只保留在环境模板中，当前首次账户由 `/login` 初始化 Action 创建。
 
 ## 计划任务与后台执行
 
@@ -197,6 +200,7 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 ## 关联决策与历史
 
 - [产品基线](../product/product-baseline.md)
+- [权限与接口边界](../security/access-control.md)
 - [测试策略](../development/testing-strategy.md)
 - [备份与恢复基线](../operations/backup-and-recovery.md)
 - [ADR-0001：来源引用与本地身份分离](../adr/0001-separate-source-references-from-local-identity.md)

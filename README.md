@@ -75,7 +75,8 @@ cp packages/pixishelf/.env.example packages/pixishelf/.env.local
 - `PIXISHELF_DATA_PATH`、`SCAN_PATH` 与 `ARCHIVE_STORAGE_PATH` 应指向同一份原媒体；
 - `DERIVED_MEDIA_HOST_PATH` 与 `DERIVED_MEDIA_STORAGE_PATH` 应指向同一份持久化派生媒体目录；
 - 本地完整功能验证时，App 的 `CENTRAL_DISPATCHER_CUTOVER_ENABLED` 与 Worker 的 `WORKER_DISPATCH_ENABLED` 必须同时为 `true`；
-- 修改 `BETTER_AUTH_SECRET`、管理员密码、`INTERNAL_JOB_TOKEN`、`SCAN_WEBHOOK_TOKEN` 和环境模板中保留的遗留 `JWT_SECRET`；
+- 修改 `BETTER_AUTH_SECRET`、`INTERNAL_JOB_TOKEN` 和 `SCAN_WEBHOOK_TOKEN`，不要复用环境模板中保留的遗留 `JWT_SECRET`；
+- `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 当前不会自动创建账户，首次账户在 `/login` 初始化页面设置；
 - 本地 ImgProxy 地址使用 `NEXT_PUBLIC_IMGPROXY_URL=http://127.0.0.1:5431`。
 
 ### 3. 启动 PostgreSQL 和 ImgProxy
@@ -231,6 +232,7 @@ todos/                         尚待收敛的旧 TODO 与技术债材料
 - [产品基线](./docs/product/product-baseline.md)：目标用户、核心流程、质量优先级和非目标；
 - [当前架构](./docs/architecture/current-architecture.md)：组件、依赖、数据流和不变量；
 - [领域语境](./CONTEXT.md)：统一业务术语；
+- [权限与接口边界](./docs/security/access-control.md)：调用者、页面、API、服务与存储权限；
 - [测试策略](./docs/development/testing-strategy.md)：按变更类型选择验证范围并理解 CI 缺口；
 - [备份与恢复](./docs/operations/backup-and-recovery.md)：备份集合、恢复目标和演练门禁；
 - [代理规则](./agents.md)：文件命名、测试组织、验证和文档门禁；

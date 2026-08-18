@@ -51,9 +51,10 @@ sources:
 - `PIXISHELF_DATA_PATH` 指向真实原媒体目录；
 - `DERIVED_MEDIA_HOST_PATH` 使用持久化绝对路径；
 - `BETTER_AUTH_SECRET`、`BETTER_AUTH_URL`、`BETTER_AUTH_TRUSTED_ORIGINS` 符合实际入口；
-- `INIT_ADMIN_PASSWORD`、`INTERNAL_JOB_TOKEN`、`SCAN_WEBHOOK_TOKEN` 和遗留 `JWT_SECRET` 已替换为强随机值；
+- `INTERNAL_JOB_TOKEN` 与 `SCAN_WEBHOOK_TOKEN` 使用彼此独立的强随机值；
+- `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 当前不参与自动初始化，遗留 `JWT_SECRET` 也不负责当前浏览器会话；
 - `CENTRAL_DISPATCHER_CUTOVER_ENABLED` 与 `WORKER_DISPATCH_ENABLED` 始终成对切换；
-- 生产反向代理使用 HTTPS，并将 `NEXT_PUBLIC_IMGPROXY_URL` 设置为浏览器可访问的地址。
+- 生产反向代理使用 HTTPS，清除外部 `x-user-session`/`x-pathname`，并将 `NEXT_PUBLIC_IMGPROXY_URL` 限制在受信网络或等效保护路径。
 
 不要提交 `build/.env`、`.env.local`、数据库备份、访问令牌或生产路径。
 
@@ -178,6 +179,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 
 - [Build 与部署资产](../../build/README.md)
 - [当前架构](../architecture/current-architecture.md)
+- [权限与接口边界](../security/access-control.md)
 - [备份与恢复基线](./backup-and-recovery.md)
 - [阶段 1–7 切换记录](../deployment/background-task-cutover-deployment.md)
 - [兼容回滚手册](../deployment/background-task-cutover-rollback.md)

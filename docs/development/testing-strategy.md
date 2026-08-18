@@ -107,6 +107,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 | 纯文档                    | 链接、代码围栏、Prettier、`git diff --check`                        | 命令和路径涉及部署时解析 Compose/脚本                             |
 | 局部 UI/组件              | 主应用 lint、typecheck、聚焦组件测试                                | 涉及共享 shell、播放器或导航时运行相关组件组和视口人工检查        |
 | Service、tRPC、HTTP Route | lint、typecheck、聚焦服务/route 测试                                | 修改鉴权、幂等或事务时加入失败路径和 PostgreSQL 测试              |
+| 认证与接口边界            | lint、typecheck、无凭证/错误凭证/有效凭证聚焦测试                   | 公共路径、Token、信任头、越界资源、限流和未授权零写入测试         |
 | Prisma Schema/migration   | db validate/generate、DB 测试、从空库 `db:deploy`、migration status | 生产数据副本演练、回滚/前向修复方案和 Worker 依赖链测试           |
 | Job contract/payload      | Worker 依赖链 typecheck/test/build                                  | 版本兼容、旧 payload fixture、无效 payload 和重试测试             |
 | Queue/runtime/lease       | Worker 依赖链测试                                                   | PostgreSQL 并发、进程重启、过期租约、终态竞争和取消测试           |

@@ -127,6 +127,8 @@ readiness checks, and shutdown commands. Never use `db:push` for ordinary startu
 - Start from `docs/README.md`. It records each document's status, authority, and replacement path.
 - Read `docs/product/product-baseline.md` before changing target users, core workflows, product invariants, or
   supported/non-goal boundaries; use `CONTEXT.md` for the shared domain language.
+- Read `docs/security/access-control.md` before changing authentication, public paths, HTTP routes, tRPC procedures,
+  Server Actions, trusted headers, tokens, ports, networks, or media mount permissions.
 - A `current` document must describe deployed behavior. Future work belongs in a `draft`; one-time cutovers and retired
   designs belong in `historical` documents.
 - Exact fields and configuration remain authoritative in Prisma, Zod, TypeScript, Compose, and `.env.example` files.
