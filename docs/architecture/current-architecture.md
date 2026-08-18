@@ -18,7 +18,7 @@ sources:
 
 ## 系统定位与边界
 
-PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系统。它负责导入或扫描本地收藏、维护作品与来源元数据、生成派生媒体，并提供检索、整理和浏览界面。
+PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系统。它负责导入或扫描本地收藏、维护作品与来源元数据、生成派生媒体，并提供检索、整理和浏览界面。目标用户、质量优先级和非目标以[产品基线](../product/product-baseline.md)为准。
 
 当前部署边界：
 
@@ -125,7 +125,10 @@ flowchart TD
 
 用户通过 Better Auth 的数据库会话登录。当前部署中，已登录用户即实例管理员；敏感 tRPC 使用 `adminProcedure` 表达该边界。扫描 Webhook 与 scheduler 不使用浏览器会话，分别由 `SCAN_WEBHOOK_TOKEN` 和 `INTERNAL_JOB_TOKEN` 保护。
 
+当前可以存在多个登录账户，但没有角色或租户隔离，所有账户属于同一个信任域。页面、HTTP、tRPC、Server Action、ImgProxy 和基础设施的具体执行层门禁见[权限与接口边界](../security/access-control.md)。
+
 `JWT_SECRET`/`JWT_TTL` 仍存在于环境模板和遗留依赖中，但当前浏览器登录与服务端会话由 Better Auth 负责，不能继续把系统描述为“基于 JWT 的无状态认证”。
+`INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 也只保留在环境模板中，当前首次账户由 `/login` 初始化 Action 创建。
 
 ## 计划任务与后台执行
 
@@ -181,6 +184,7 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 - `build/docker-compose.deploy.yml` 仍声明旧 `archive-worker` 且未设置 profile，因此生产稳态必须显式停止它，不能依赖无参数 `docker compose up -d` 自动得到正确消费者集合。
 
 当前操作流程见[部署基线](../operations/deployment.md)，镜像与挂载细节见 [Build 与部署](../../build/README.md)。
+数据库与媒体的一致性检查点和恢复演练见[备份与恢复基线](../operations/backup-and-recovery.md)。
 
 ## 当前不变量
 
@@ -195,6 +199,10 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 
 ## 关联决策与历史
 
+- [产品基线](../product/product-baseline.md)
+- [权限与接口边界](../security/access-control.md)
+- [测试策略](../development/testing-strategy.md)
+- [备份与恢复基线](../operations/backup-and-recovery.md)
 - [ADR-0001：来源引用与本地身份分离](../adr/0001-separate-source-references-from-local-identity.md)
 - [ADR-0002：持久 Worker 与原子归档发布](../adr/0002-use-a-durable-worker-and-atomic-archive-publication.md)
 - [ADR-0003：统一后台任务 Worker](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)

@@ -75,7 +75,8 @@ cp packages/pixishelf/.env.example packages/pixishelf/.env.local
 - `PIXISHELF_DATA_PATH`、`SCAN_PATH` 与 `ARCHIVE_STORAGE_PATH` 应指向同一份原媒体；
 - `DERIVED_MEDIA_HOST_PATH` 与 `DERIVED_MEDIA_STORAGE_PATH` 应指向同一份持久化派生媒体目录；
 - 本地完整功能验证时，App 的 `CENTRAL_DISPATCHER_CUTOVER_ENABLED` 与 Worker 的 `WORKER_DISPATCH_ENABLED` 必须同时为 `true`；
-- 修改 `BETTER_AUTH_SECRET`、管理员密码、`INTERNAL_JOB_TOKEN`、`SCAN_WEBHOOK_TOKEN` 和环境模板中保留的遗留 `JWT_SECRET`；
+- 修改 `BETTER_AUTH_SECRET`、`INTERNAL_JOB_TOKEN` 和 `SCAN_WEBHOOK_TOKEN`，不要复用环境模板中保留的遗留 `JWT_SECRET`；
+- `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 当前不会自动创建账户，首次账户在 `/login` 初始化页面设置；
 - 本地 ImgProxy 地址使用 `NEXT_PUBLIC_IMGPROXY_URL=http://127.0.0.1:5431`。
 
 ### 3. 启动 PostgreSQL 和 ImgProxy
@@ -190,7 +191,7 @@ pnpm compile
 pnpm build
 ```
 
-CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类型/测试/构建，以及 Web 单元测试。CI 尚不能替代本地执行 Web lint/typecheck、集成/E2E 和扩展验证。
+CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类型/测试/构建，以及 Web lint、typecheck 和单元测试。CI 尚不能替代本地执行 Web 集成/E2E、生产构建和扩展验证。
 
 ## 生产部署
 
@@ -199,6 +200,7 @@ CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类�
 升级、暗启动、消费者切换、验证和回滚入口见：
 
 - [部署基线](./docs/operations/deployment.md)；
+- [备份与恢复基线](./docs/operations/backup-and-recovery.md)；
 - [Build 与部署资产](./build/README.md)；
 - [阶段 1–7 切换记录](./docs/deployment/background-task-cutover-deployment.md)；
 - [兼容回滚手册](./docs/deployment/background-task-cutover-rollback.md)。
@@ -227,8 +229,12 @@ todos/                         尚待收敛的旧 TODO 与技术债材料
 ## 文档与贡献
 
 - [文档索引](./docs/README.md)：所有文档的状态、权威范围和迁移登记；
+- [产品基线](./docs/product/product-baseline.md)：目标用户、核心流程、质量优先级和非目标；
 - [当前架构](./docs/architecture/current-architecture.md)：组件、依赖、数据流和不变量；
 - [领域语境](./CONTEXT.md)：统一业务术语；
+- [权限与接口边界](./docs/security/access-control.md)：调用者、页面、API、服务与存储权限；
+- [测试策略](./docs/development/testing-strategy.md)：按变更类型选择验证范围并理解 CI 缺口；
+- [备份与恢复](./docs/operations/backup-and-recovery.md)：备份集合、恢复目标和演练门禁；
 - [代理规则](./agents.md)：文件命名、测试组织、验证和文档门禁；
 - [当前待办](./TODO.md)：下一步可执行工作。
 
