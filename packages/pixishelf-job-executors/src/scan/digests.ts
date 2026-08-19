@@ -14,7 +14,7 @@ export interface ArtistMappingDigestRow {
 
 export interface LocalWorkDigestRow {
   ordinal: number
-  kind: 'MEDIA_DIRECTORY' | 'ARCHIVE_MANIFEST'
+  kind: string
   relativePath: string
   fingerprint: string | null
 }

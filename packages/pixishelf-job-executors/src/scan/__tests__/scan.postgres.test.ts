@@ -312,7 +312,6 @@ function dependencies(root: string): ScanExecutorDependencies {
         maxMediaPerArtwork: 10,
         concurrency: 2,
         maxMetadataBytes: 32_000,
-        maxManifestBytes: 32_000,
         maxArchiveMediaBytes: 32_000,
         maxFullSweepReferences: 100
       }

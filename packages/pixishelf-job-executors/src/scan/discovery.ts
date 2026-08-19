@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import { MEDIA_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
+import sharp from 'sharp'
 import { mapBounded, throwIfAborted } from './bounded.js'
 import { hashStableFile } from './content-reader.js'
 import { ScanExecutorError } from './errors.js'
@@ -31,7 +32,6 @@ export interface ScanDiscoveryLimits {
   maxMediaPerArtwork: number
   concurrency?: number
   maxMetadataBytes?: number
-  maxManifestBytes?: number
   maxArchiveMediaBytes?: number
 }
 
@@ -51,8 +51,14 @@ export interface DiscoveredMediaFile {
   chaptersHash: string | null
 }
 
+export interface DiscoveredLocalMediaFile extends DiscoveredMediaFile {
+  width: number
+  height: number
+  modifiedAt: Date
+}
+
 export interface LocalWorkCandidate {
-  kind: 'MEDIA_DIRECTORY' | 'ARCHIVE_MANIFEST'
+  kind: 'MEDIA_DIRECTORY'
   artistDirectory: string
   relativePath: string
   title: string
@@ -225,31 +231,26 @@ export async function* discoverLocalWorkPages(
     const directMedia = entries.filter(
       (entry) => entry.isFile && mediaExtensions.has(path.extname(entry.name).toLowerCase())
     )
-    const manifest = entries.find((entry) => entry.isFile && entry.name === 'manifest.json')
-    if (depth > 0 && (manifest || directMedia.length > 0)) {
+    if (depth > 0 && directMedia.length > 0) {
       if (directMedia.length > limits.maxMediaPerArtwork) {
         throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local work media count exceeds the configured limit')
       }
       const relativePath = directory.relativePath
-      const kind = manifest ? 'ARCHIVE_MANIFEST' : 'MEDIA_DIRECTORY'
       page.push({
-        kind,
+        kind: 'MEDIA_DIRECTORY',
         artistDirectory,
         relativePath,
         title: path.posix.basename(relativePath),
         fingerprint: await computeLocalWorkContentFingerprintWithinRoot({
           root,
           relativeDirectory: directory.relativePath,
-          kind,
+          kind: 'MEDIA_DIRECTORY',
           maxEntries: limits.maxEntries,
           maxFiles: limits.maxMediaPerArtwork,
-          maxFileBytes:
-            kind === 'ARCHIVE_MANIFEST'
-              ? (limits.maxManifestBytes ?? 4 * 1024 * 1024)
-              : (limits.maxArchiveMediaBytes ?? 4 * 1024 * 1024 * 1024),
+          maxFileBytes: limits.maxArchiveMediaBytes ?? 4 * 1024 * 1024 * 1024,
           signal
         }),
-        mediaCount: manifest ? 0 : directMedia.length
+        mediaCount: directMedia.length
       })
       if (page.length === limits.pageSize) {
         const completed = page
@@ -257,7 +258,6 @@ export async function* discoverLocalWorkPages(
         yield completed
       }
     }
-    if (manifest) return
     for (const child of entries.filter((entry) => entry.isDirectory)) {
       const childRelativePath = `${directory.relativePath}/${child.name}`
       yield* visit(
@@ -290,12 +290,12 @@ export async function* discoverLocalWorkPages(
 export async function collectLocalMedia(
   root: SafeScanRoot,
   relativeDirectory: string,
-  limits: Pick<ScanDiscoveryLimits, 'maxEntries' | 'maxMediaPerArtwork'>,
+  limits: Pick<ScanDiscoveryLimits, 'maxEntries' | 'maxMediaPerArtwork' | 'concurrency'>,
   signal: AbortSignal
-): Promise<DiscoveredMediaFile[]> {
+): Promise<DiscoveredLocalMediaFile[]> {
   const directory = await resolveSafeExistingPath(root, relativeDirectory, 'directory')
   const handle = await fs.opendir(directory.absolutePath)
-  const media: Array<DiscoveredMediaFile & { filename: string }> = []
+  const media: Array<DiscoveredMediaFile & { absolutePath: string; filename: string; modifiedAt: Date }> = []
   let entries = 0
   try {
     for await (const entry of handle) {
@@ -322,6 +322,8 @@ export async function collectLocalMedia(
         chaptersCount: 0,
         chaptersDuration: null,
         chaptersHash: null,
+        absolutePath,
+        modifiedAt: metadata.mtime,
         filename: entry.name
       })
       if (media.length > limits.maxMediaPerArtwork) {
@@ -331,18 +333,28 @@ export async function collectLocalMedia(
   } finally {
     await handle.close().catch(() => undefined)
   }
-  const ordered = media
-    .sort((left, right) => naturalNameCompare(left.filename, right.filename))
-    .map((item, sortOrder) => withoutFilename(item, sortOrder))
+  const ordered = await mapBounded(
+    media.sort((left, right) => naturalNameCompare(left.filename, right.filename)),
+    limits.concurrency ?? 1,
+    signal,
+    async (item, sortOrder): Promise<DiscoveredLocalMediaFile> => {
+      const dimensions = await readLocalMediaDimensions(item.absolutePath, item.mediaType)
+      return {
+        ...withoutFilename(item, sortOrder),
+        ...dimensions,
+        modifiedAt: item.modifiedAt
+      }
+    }
+  )
   return attachChapterManifests(root, ordered, signal)
 }
 
 export async function verifyLocalWorkFingerprint(input: {
   root: SafeScanRoot
   relativeDirectory: string
-  kind: 'MEDIA_DIRECTORY' | 'ARCHIVE_MANIFEST'
+  kind: 'MEDIA_DIRECTORY'
   expectedFingerprint: string | null
-  limits: Pick<ScanDiscoveryLimits, 'maxEntries' | 'maxMediaPerArtwork' | 'maxManifestBytes' | 'maxArchiveMediaBytes'>
+  limits: Pick<ScanDiscoveryLimits, 'maxEntries' | 'maxMediaPerArtwork' | 'maxArchiveMediaBytes'>
   signal: AbortSignal
 }): Promise<SafeScanPath> {
   throwIfAborted(input.signal)
@@ -355,10 +367,7 @@ export async function verifyLocalWorkFingerprint(input: {
     kind: input.kind,
     maxEntries: input.limits.maxEntries,
     maxFiles: input.limits.maxMediaPerArtwork,
-    maxFileBytes:
-      input.kind === 'ARCHIVE_MANIFEST'
-        ? (input.limits.maxManifestBytes ?? 4 * 1024 * 1024)
-        : (input.limits.maxArchiveMediaBytes ?? 4 * 1024 * 1024 * 1024),
+    maxFileBytes: input.limits.maxArchiveMediaBytes ?? 4 * 1024 * 1024 * 1024,
     signal: input.signal
   })
   if (actual !== input.expectedFingerprint) {
@@ -419,12 +428,12 @@ function withoutFilename(item: DiscoveredMediaFile & { filename: string }, sortO
   }
 }
 
-async function attachChapterManifests(
+async function attachChapterManifests<T extends DiscoveredMediaFile>(
   root: SafeScanRoot,
-  media: DiscoveredMediaFile[],
+  media: T[],
   signal: AbortSignal
-): Promise<DiscoveredMediaFile[]> {
-  const result: DiscoveredMediaFile[] = []
+): Promise<T[]> {
+  const result: T[] = []
   for (const item of media) {
     throwIfAborted(signal)
     result.push(item.mediaType === 'VIDEO' ? await attachChapterManifest(root, item) : item)
@@ -432,13 +441,9 @@ async function attachChapterManifests(
   return result
 }
 
-async function attachChapterManifest(root: SafeScanRoot, media: DiscoveredMediaFile): Promise<DiscoveredMediaFile> {
+async function attachChapterManifest<T extends DiscoveredMediaFile>(root: SafeScanRoot, media: T): Promise<T> {
   const parsed = path.posix.parse(media.relativePath)
-  const names = [
-    `${parsed.name}.chapters.json`,
-    `${parsed.base}.chapters.json`,
-    `${parsed.name}..chapters.json`
-  ]
+  const names = [`${parsed.name}.chapters.json`, `${parsed.base}.chapters.json`, `${parsed.name}..chapters.json`]
   for (const name of names) {
     const relativePath = parsed.dir ? `${parsed.dir}/${name}` : name
     let resolved: SafeScanPath
@@ -464,8 +469,25 @@ async function attachChapterManifest(root: SafeScanRoot, media: DiscoveredMediaF
           `Video chapter manifest is invalid: ${resolved.relativePath}`
         )
       }
-      throw new ScanExecutorError('SOURCE_NOT_READABLE', `Video chapter manifest cannot be read: ${resolved.relativePath}`)
+      throw new ScanExecutorError(
+        'SOURCE_NOT_READABLE',
+        `Video chapter manifest cannot be read: ${resolved.relativePath}`
+      )
     }
   }
   return media
+}
+
+async function readLocalMediaDimensions(
+  absolutePath: string,
+  mediaType: DiscoveredMediaFile['mediaType']
+): Promise<{ width: number; height: number }> {
+  if (mediaType === 'VIDEO') return { width: 0, height: 0 }
+  try {
+    const metadata = await sharp(absolutePath).metadata()
+    return { width: metadata.width ?? 0, height: metadata.height ?? 0 }
+  } catch {
+    // Match the legacy importer: unreadable image metadata does not reject an otherwise valid media file.
+    return { width: 0, height: 0 }
+  }
 }

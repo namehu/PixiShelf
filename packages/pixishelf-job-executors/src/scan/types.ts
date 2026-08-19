@@ -8,7 +8,6 @@ export interface ScanExecutorLimits {
   maxMediaPerArtwork: number
   concurrency: number
   maxMetadataBytes: number
-  maxManifestBytes: number
   maxArchiveMediaBytes: number
   maxFullSweepReferences: number
 }
@@ -22,12 +21,9 @@ export interface ScanExecutorConfig {
 
 export type ScanDatabase = Pick<
   PrismaClient,
-  | 'archiveRevision'
   | 'artwork'
   | 'artworkExternalRef'
   | 'artworkRawMetadata'
-  | 'artworkRelation'
-  | 'artworkSourceSnapshot'
   | 'artworkTag'
   | 'artist'
   | 'image'
@@ -65,7 +61,6 @@ export const DEFAULT_SCAN_LIMITS: ScanExecutorLimits = Object.freeze({
   maxMediaPerArtwork: 2_000,
   concurrency: 4,
   maxMetadataBytes: 16 * 1024 * 1024,
-  maxManifestBytes: 4 * 1024 * 1024,
   maxArchiveMediaBytes: 4 * 1024 * 1024 * 1024,
   maxFullSweepReferences: 100_000
 })

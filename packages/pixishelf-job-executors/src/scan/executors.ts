@@ -40,7 +40,6 @@ function validateDependencies(dependencies: ScanExecutorDependencies) {
     ['maxMediaPerArtwork', limits.maxMediaPerArtwork, 10_000],
     ['concurrency', limits.concurrency, 32],
     ['maxMetadataBytes', limits.maxMetadataBytes, 256 * 1024 * 1024],
-    ['maxManifestBytes', limits.maxManifestBytes, 64 * 1024 * 1024],
     ['maxArchiveMediaBytes', limits.maxArchiveMediaBytes, Number.MAX_SAFE_INTEGER],
     ['maxFullSweepReferences', limits.maxFullSweepReferences, 10_000_000]
   ] as const) {

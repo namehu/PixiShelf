@@ -61,7 +61,6 @@ export interface LocalImportWorkItem {
   status: LocalImportWorkStatus
   mediaFiles: string[]
   mediaCount: number
-  archiveManifest?: boolean
   error?: string
 }
 

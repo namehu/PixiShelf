@@ -144,8 +144,8 @@ export async function verifyFrozenLocalSnapshot(input: {
     for (const row of page) {
       assertDenseOrdinal(row.ordinal, workCount)
       assertCanonicalRelativeScanPath(row.relativePath)
-      if (row.kind !== 'MEDIA_DIRECTORY' && row.kind !== 'ARCHIVE_MANIFEST') {
-        throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen local work kind is invalid')
+      if (row.kind !== 'MEDIA_DIRECTORY') {
+        throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen local work kind is no longer supported')
       }
       if (!row.fingerprint || !SHA256_PATTERN.test(row.fingerprint)) {
         throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen local work fingerprint is invalid')

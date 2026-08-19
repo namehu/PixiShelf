@@ -1,8 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import type { Prisma } from '@pixishelf/db'
-import { archiveJson, type FrozenArchiveManifest } from './archive-manifest.js'
 import { ScanExecutorError } from './errors.js'
-import type { DiscoveredMediaFile } from './discovery.js'
+import type { DiscoveredLocalMediaFile } from './discovery.js'
+import { selectMediaDerivedTagIds, type MediaDerivedTagIds } from '../maintenance/media-derived-tag-sync.js'
 import type { ScanTransaction } from './types.js'
 
 export interface LocalPublishBase {
@@ -16,7 +16,8 @@ export interface LocalPublishBase {
 export async function publishLocalMediaWork(
   input: LocalPublishBase & {
     artistId: number
-    media: readonly DiscoveredMediaFile[]
+    media: readonly DiscoveredLocalMediaFile[]
+    mediaDerivedTagIds: MediaDerivedTagIds
     defaultTagIds: readonly number[]
   }
 ) {
@@ -52,7 +53,7 @@ export async function publishLocalMediaWork(
       source: 'LOCAL_IMPORT',
       createdVia: 'LOCAL_DIRECTORY',
       storagePath: input.work.relativePath,
-      sourceDate: input.now
+      sourceDate: earliestModifiedAt(input.media)
     },
     select: { id: true }
   })
@@ -62,6 +63,8 @@ export async function publishLocalMediaWork(
     data: input.media.map((item) => ({
       artworkId: artwork.id,
       path: item.relativePath,
+      width: item.width,
+      height: item.height,
       size: item.size,
       sortOrder: item.sortOrder,
       mediaType: item.mediaType,
@@ -72,6 +75,14 @@ export async function publishLocalMediaWork(
       chaptersUpdatedAt: item.chaptersPath ? input.now : null,
       chaptersHash: item.chaptersHash
     }))
+  })
+  const derivedTagIds = selectMediaDerivedTagIds(
+    input.mediaDerivedTagIds,
+    input.media.map((item) => item.relativePath)
+  )
+  await input.transaction.artworkTag.createMany({
+    data: derivedTagIds.map((tagId) => ({ artworkId: artwork.id, tagId, provenance: 'DERIVED' as const })),
+    skipDuplicates: true
   })
   if (tags.length > 0) {
     await input.transaction.artworkTag.createMany({
@@ -89,106 +100,12 @@ export async function publishLocalMediaWork(
   return { status: 'SUCCESS' as const, newImages: input.media.length, artworkId: artwork.id }
 }
 
-export async function publishArchiveManifestWork(input: LocalPublishBase & { manifest: FrozenArchiveManifest }) {
-  const checkpoint = await completedCheckpoint(input)
-  if (checkpoint) return checkpoint
-  const existing = await input.transaction.artworkExternalRef.findUnique({
-    where: {
-      providerKey_externalId: {
-        providerKey: input.manifest.provider.key,
-        externalId: input.manifest.provider.externalId
-      }
-    },
-    select: { artworkId: true }
-  })
-  if (existing) {
-    await writeLocalItem(input, {
-      externalId: `${input.manifest.provider.key}:${input.manifest.provider.externalId}`,
-      status: 'SKIPPED',
-      action: 'SKIP_EXISTING',
-      mediaCount: 0,
-      newImageCount: 0
-    })
-    return { status: 'SKIPPED' as const, newImages: 0, artworkId: existing.artworkId }
-  }
-  const metadata = input.manifest.normalized
-  const artwork = await input.transaction.artwork.create({
-    data: {
-      title: nestedString(metadata, 'titles', 'display') ?? input.title,
-      description: nullableString(metadata.description),
-      sourceDate: parseDate(metadata.postedAt),
-      sourceUrl: input.manifest.provider.canonicalUrl,
-      originalUrl: input.manifest.provider.canonicalUrl,
-      thumbnailUrl: nullableString(metadata.thumbnailUrl),
-      storagePath: input.work.relativePath,
-      createdVia: 'URL_ARCHIVE',
-      source: 'URL_ARCHIVE'
-    },
-    select: { id: true }
-  })
-  const ref = await input.transaction.artworkExternalRef.create({
-    data: {
-      artworkId: artwork.id,
-      providerKey: input.manifest.provider.key,
-      externalId: input.manifest.provider.externalId,
-      canonicalUrl: input.manifest.provider.canonicalUrl,
-      locator: archiveJson(input.manifest.provider.locator),
-      metadataHash: input.manifest.metadataHash,
-      fetchedAt: input.manifest.createdAt
-    }
-  })
-  await input.transaction.artworkSourceSnapshot.create({
-    data: {
-      externalRefId: ref.id,
-      providerSchemaVersion: 1,
-      normalizedMetadata: archiveJson(metadata),
-      rawMetadata: archiveJson(input.manifest.raw),
-      metadataHash: input.manifest.metadataHash,
-      fetchedAt: input.manifest.createdAt
-    }
-  })
-  await input.transaction.artworkRawMetadata.create({
-    data: { artworkId: artwork.id, rawMetadataJson: archiveJson(input.manifest.raw) }
-  })
-  await publishArchiveSourceTags(input.transaction, artwork.id, ref.id, metadata.tags)
-  await publishArchiveRelationships(
-    input.transaction,
-    artwork.id,
-    input.manifest.provider.key,
-    input.manifest.relationships
+function earliestModifiedAt(media: readonly DiscoveredLocalMediaFile[]): Date {
+  if (media.length === 0) throw new ScanExecutorError('MEDIA_NOT_FOUND', 'Local work has no supported media')
+  return media.reduce(
+    (earliest, item) => (item.modifiedAt < earliest ? item.modifiedAt : earliest),
+    media[0]!.modifiedAt
   )
-  await input.transaction.image.createMany({
-    data: input.manifest.media.map((item) => ({
-      artworkId: artwork.id,
-      path: item.databasePath,
-      sortOrder: item.index,
-      width: item.width,
-      height: item.height,
-      size: item.bytes,
-      mediaType: item.mediaType
-    }))
-  })
-  await input.transaction.archiveRevision.create({
-    data: {
-      id: input.manifest.revisionId ?? randomUUID(),
-      artworkId: artwork.id,
-      externalRefId: ref.id,
-      archivePath: input.work.relativePath,
-      manifestPath: `${input.work.relativePath}/manifest.json`,
-      mediaSnapshot: archiveJson(input.manifest.media.map((item) => ({ ...item, bytes: item.bytes.toString() }))),
-      metadataHash: input.manifest.metadataHash,
-      isCurrent: true,
-      publishedAt: input.manifest.createdAt
-    }
-  })
-  await writeLocalItem(input, {
-    externalId: `${input.manifest.provider.key}:${input.manifest.provider.externalId}`,
-    status: 'SUCCESS',
-    action: 'CREATE',
-    mediaCount: input.manifest.media.length,
-    newImageCount: input.manifest.media.length
-  })
-  return { status: 'SUCCESS' as const, newImages: input.manifest.media.length, artworkId: artwork.id }
 }
 
 async function completedCheckpoint(input: LocalPublishBase) {
@@ -252,83 +169,4 @@ export function localCheckpointKey(work: Pick<LocalWorkRow, 'ordinal' | 'kind' |
 function localStorageKey(artworkId: number, relativePath: string) {
   const value = createHash('sha256').update(relativePath).digest().readUInt32BE(0) % 9_000_000
   return `e_${artworkId}_${String(value + 1_000_000)}`
-}
-
-function nullableString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null
-}
-
-function nestedString(value: Record<string, unknown>, parent: string, child: string) {
-  const nested = value[parent]
-  if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return null
-  return nullableString((nested as Record<string, unknown>)[child])
-}
-
-function parseDate(value: unknown) {
-  const text = nullableString(value)
-  if (!text) return null
-  const date = new Date(text)
-  return Number.isNaN(date.getTime()) ? null : date
-}
-
-async function publishArchiveSourceTags(
-  transaction: ScanTransaction,
-  artworkId: number,
-  sourceRefId: string,
-  value: unknown
-) {
-  if (!Array.isArray(value)) return
-  for (const item of value) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
-    const namespace = nullableString((item as Record<string, unknown>).namespace)
-    const name = nullableString((item as Record<string, unknown>).name)
-    if (!namespace || !name) continue
-    const tag = await transaction.tag.upsert({
-      where: { namespace_name: { namespace, name } },
-      create: { namespace, name },
-      update: {},
-      select: { id: true }
-    })
-    await transaction.artworkTag.create({
-      data: { artworkId, tagId: tag.id, provenance: 'SOURCE', sourceRefId }
-    })
-  }
-}
-
-async function publishArchiveRelationships(
-  transaction: ScanTransaction,
-  artworkId: number,
-  providerKey: string,
-  value: unknown
-) {
-  if (!Array.isArray(value)) return
-  for (const item of value) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
-    const relationship = item as Record<string, unknown>
-    if (
-      relationship.type !== 'REPLACES' ||
-      (relationship.direction !== 'OUTBOUND' && relationship.direction !== 'INBOUND') ||
-      typeof relationship.providerKey !== 'string' ||
-      typeof relationship.externalId !== 'string'
-    ) {
-      continue
-    }
-    const target = await transaction.artworkExternalRef.findUnique({
-      where: {
-        providerKey_externalId: {
-          providerKey: relationship.providerKey,
-          externalId: relationship.externalId
-        }
-      },
-      select: { artworkId: true }
-    })
-    if (!target || target.artworkId === artworkId) continue
-    const fromArtworkId = relationship.direction === 'OUTBOUND' ? artworkId : target.artworkId
-    const toArtworkId = relationship.direction === 'OUTBOUND' ? target.artworkId : artworkId
-    await transaction.artworkRelation.upsert({
-      where: { fromArtworkId_toArtworkId_type: { fromArtworkId, toArtworkId, type: 'REPLACES' } },
-      create: { fromArtworkId, toArtworkId, type: 'REPLACES', providerKey },
-      update: { providerKey }
-    })
-  }
 }

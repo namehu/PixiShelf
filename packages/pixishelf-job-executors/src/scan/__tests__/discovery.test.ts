@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import sharp from 'sharp'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   collectArtworkMedia,
@@ -49,13 +50,14 @@ describe('scan discovery', () => {
     ])
   })
 
-  it('discovers local media and manifest works in bounded pages', async () => {
+  it('ignores manifest.json and continues discovering ordinary local media works', async () => {
     const directory = await fixtureRoot()
     await fs.mkdir(path.join(directory, 'local', 'artist-a', 'work-1'), { recursive: true })
-    await fs.mkdir(path.join(directory, 'local', 'artist-a', 'work-2'), { recursive: true })
+    await fs.mkdir(path.join(directory, 'local', 'artist-a', 'work-2', 'nested-work'), { recursive: true })
     await fs.mkdir(path.join(directory, 'local', 'artist-b', 'work-3'), { recursive: true })
     await fs.writeFile(path.join(directory, 'local', 'artist-a', 'work-1', 'a.jpg'), 'a')
     await fs.writeFile(path.join(directory, 'local', 'artist-a', 'work-2', 'manifest.json'), '{}')
+    await fs.writeFile(path.join(directory, 'local', 'artist-a', 'work-2', 'nested-work', 'nested.webp'), 'nested')
     await fs.writeFile(path.join(directory, 'local', 'artist-b', 'work-3', 'b.png'), 'b')
     const root = await resolveSafeScanRoot(directory)
 
@@ -63,9 +65,32 @@ describe('scan discovery', () => {
     expect(pages.map((page) => page.length)).toEqual([2, 1])
     expect(pages.flat()).toMatchObject([
       { kind: 'MEDIA_DIRECTORY', artistDirectory: 'artist-a', relativePath: 'local/artist-a/work-1' },
-      { kind: 'ARCHIVE_MANIFEST', artistDirectory: 'artist-a', relativePath: 'local/artist-a/work-2' },
+      {
+        kind: 'MEDIA_DIRECTORY',
+        artistDirectory: 'artist-a',
+        relativePath: 'local/artist-a/work-2/nested-work'
+      },
       { kind: 'MEDIA_DIRECTORY', artistDirectory: 'artist-b', relativePath: 'local/artist-b/work-3' }
     ])
+  })
+
+  it('collects local image dimensions and the file modification time', async () => {
+    const directory = await fixtureRoot()
+    const work = path.join(directory, 'local', 'artist', 'work')
+    const imagePath = path.join(work, 'image.png')
+    const modifiedAt = new Date('2024-01-02T03:04:05.000Z')
+    await fs.mkdir(work, { recursive: true })
+    await sharp({ create: { width: 7, height: 5, channels: 3, background: '#ffffff' } })
+      .png()
+      .toFile(imagePath)
+    await fs.utimes(imagePath, modifiedAt, modifiedAt)
+    const root = await resolveSafeScanRoot(directory)
+
+    const media = await collectLocalMedia(root, 'local/artist/work', limits, new AbortController().signal)
+
+    expect(media).toHaveLength(1)
+    expect(media[0]).toMatchObject({ width: 7, height: 5 })
+    expect(media[0]!.modifiedAt.getTime()).toBe(modifiedAt.getTime())
   })
 
   it('discovers the canonical Pixiv chapter manifest beside a real page-style video name', async () => {
@@ -108,11 +133,20 @@ describe('scan discovery', () => {
     const collect = () =>
       collectLocalMedia(root, 'local/artist/work', limits, new AbortController().signal).then((items) => items[0]!)
 
-    await expect(collect()).resolves.toMatchObject({ chaptersPath: 'local/artist/work/clip.chapters.json', chaptersDuration: 10 })
+    await expect(collect()).resolves.toMatchObject({
+      chaptersPath: 'local/artist/work/clip.chapters.json',
+      chaptersDuration: 10
+    })
     await fs.unlink(path.join(work, 'clip.chapters.json'))
-    await expect(collect()).resolves.toMatchObject({ chaptersPath: 'local/artist/work/clip.mp4.chapters.json', chaptersDuration: 20 })
+    await expect(collect()).resolves.toMatchObject({
+      chaptersPath: 'local/artist/work/clip.mp4.chapters.json',
+      chaptersDuration: 20
+    })
     await fs.unlink(path.join(work, 'clip.mp4.chapters.json'))
-    await expect(collect()).resolves.toMatchObject({ chaptersPath: 'local/artist/work/clip..chapters.json', chaptersDuration: 30 })
+    await expect(collect()).resolves.toMatchObject({
+      chaptersPath: 'local/artist/work/clip..chapters.json',
+      chaptersDuration: 30
+    })
   })
 
   it('fails scanning when the preferred chapter manifest is corrupt instead of hiding it as absent', async () => {

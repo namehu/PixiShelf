@@ -191,7 +191,10 @@ export async function reconcileLocalArtworkImages(
   return ordered
 }
 
-async function loadFrozenWork(dependencies: ScanExecutorDependencies, run: ScanRunRecord): Promise<LocalWorkInputRow> {
+async function loadFrozenWork(
+  dependencies: ScanExecutorDependencies,
+  run: ScanRunRecord
+): Promise<LocalWorkInputRow & { kind: 'MEDIA_DIRECTORY' }> {
   if (!run.inputFrozenAt || run.inputCount !== 1 || !run.inputDigest) {
     throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local artwork rescan has no frozen directory snapshot')
   }
@@ -201,17 +204,16 @@ async function loadFrozenWork(dependencies: ScanExecutorDependencies, run: ScanR
     take: 2
   })
   const work = rows[0]
-  if (
-    rows.length !== 1 ||
-    !work ||
-    work.ordinal !== 0 ||
-    work.kind !== 'MEDIA_DIRECTORY' ||
-    !work.fingerprint ||
-    localWorkInputDigest([work]) !== run.inputDigest
-  ) {
+  if (rows.length !== 1 || !work || work.ordinal !== 0) {
     throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local artwork rescan snapshot is invalid')
   }
-  return work
+  if (work.kind !== 'MEDIA_DIRECTORY') {
+    throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local artwork rescan work kind is no longer supported')
+  }
+  if (!work.fingerprint || localWorkInputDigest([work]) !== run.inputDigest) {
+    throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local artwork rescan snapshot is invalid')
+  }
+  return { ...work, kind: 'MEDIA_DIRECTORY' }
 }
 
 function normalizePath(value: string) {

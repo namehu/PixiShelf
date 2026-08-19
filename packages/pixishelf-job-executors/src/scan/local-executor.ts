@@ -1,20 +1,15 @@
 import path from 'node:path'
 import type { LocalDirectoryImportPayload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { readAndVerifyArchiveManifest } from './archive-manifest.js'
 import { mapBounded, throwIfAborted } from './bounded.js'
 import { collectLocalMedia, verifyLocalWorkFingerprint } from './discovery.js'
 import { ScanExecutorError } from './errors.js'
 import { finalizeScanError, finalizeScanSuccess } from './lifecycle.js'
-import {
-  localCheckpointKey,
-  publishArchiveManifestWork,
-  publishLocalMediaWork,
-  type LocalWorkRow
-} from './local-publisher.js'
+import { localCheckpointKey, publishLocalMediaWork, type LocalWorkRow } from './local-publisher.js'
 import { assertCanonicalRelativeScanPath, normalizeRelativeScanPath, resolveSafeScanRoot } from './paths.js'
 import { reportScanPageProgress } from './progress.js'
 import { iterateFrozenLocalWorkPages, startOrResumeScanRun, verifyFrozenLocalSnapshot } from './run-store.js'
+import { getOrCreateMediaDerivedTags, type MediaDerivedTagIds } from '../maintenance/media-derived-tag-sync.js'
 import {
   DEFAULT_SCAN_LIMITS,
   type ScanExecutionResult,
@@ -52,6 +47,12 @@ export async function executeLocalDirectoryImport(
       maxEntries: limits.maxEntries
     })
     const mapping = new Map(snapshot.mappings.map((item) => [item.artistDirectory, item.artistId]))
+    const mediaDerivedTagIds =
+      mapping.size > 0
+        ? await context.mutateInTransaction<ScanTransaction & QueueSqlExecutor, MediaDerivedTagIds>((transaction) =>
+            getOrCreateMediaDerivedTags(transaction)
+          )
+        : null
     context.logger.info('local-import.snapshot.validated', {
       inputCount: snapshot.workCount,
       mappingCount: snapshot.mappings.length
@@ -70,6 +71,7 @@ export async function executeLocalDirectoryImport(
               runId: run.id,
               work,
               mapping,
+              mediaDerivedTagIds,
               now: now(),
               limits
             })
@@ -117,6 +119,7 @@ async function processLocalWork(input: {
   runId: string
   work: LocalWorkRow
   mapping: Map<string, number>
+  mediaDerivedTagIds: MediaDerivedTagIds | null
   now: Date
   limits: ScanExecutorLimits
 }) {
@@ -128,38 +131,12 @@ async function processLocalWork(input: {
   if (checkpoint?.status === 'SUCCESS' || checkpoint?.status === 'SKIPPED') {
     return { status: checkpoint.status, newImages: checkpoint.newImageCount }
   }
+  if (input.work.kind !== 'MEDIA_DIRECTORY') {
+    throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen local work kind is no longer supported')
+  }
   const localDirectory = normalizeRelativeScanPath(input.dependencies.config.localImportDirectory ?? 'local-imports')
   const artistDirectory = artistDirectoryFor(input.work.relativePath, localDirectory)
   const title = path.posix.basename(input.work.relativePath)
-  if (input.work.kind === 'ARCHIVE_MANIFEST') {
-    const manifest = await readAndVerifyArchiveManifest({
-      root: input.root,
-      relativeDirectory: input.work.relativePath,
-      signal: input.context.signal,
-      now: input.now,
-      maxManifestBytes: input.limits.maxManifestBytes,
-      maxMediaItems: input.limits.maxMediaPerArtwork,
-      maxMediaBytes: input.limits.maxArchiveMediaBytes,
-      maxJsonDepth: input.limits.maxDepth + 8,
-      maxPathDepth: input.limits.maxDepth
-    })
-    if (manifest.workFingerprint !== input.work.fingerprint) {
-      throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen archive manifest changed before processing')
-    }
-    return input.context.mutateInTransaction<
-      ScanTransaction & QueueSqlExecutor,
-      Awaited<ReturnType<typeof publishArchiveManifestWork>>
-    >((transaction) =>
-      publishArchiveManifestWork({
-        transaction,
-        runId: input.runId,
-        work: input.work,
-        title,
-        now: input.now,
-        manifest
-      })
-    )
-  }
   await verifyLocalWorkFingerprint({
     root: input.root,
     relativeDirectory: input.work.relativePath,
@@ -173,10 +150,18 @@ async function processLocalWork(input: {
   const media = await collectLocalMedia(
     input.root,
     input.work.relativePath,
-    { maxEntries: input.limits.maxEntries, maxMediaPerArtwork: input.limits.maxMediaPerArtwork },
+    {
+      maxEntries: input.limits.maxEntries,
+      maxMediaPerArtwork: input.limits.maxMediaPerArtwork,
+      concurrency: input.limits.concurrency
+    },
     input.context.signal
   )
   if (media.length === 0) throw new ScanExecutorError('MEDIA_NOT_FOUND', 'Local work has no supported media')
+  const mediaDerivedTagIds = input.mediaDerivedTagIds
+  if (!mediaDerivedTagIds) {
+    throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local work has no prepared media-derived tags')
+  }
   return input.context.mutateInTransaction<
     ScanTransaction & QueueSqlExecutor,
     Awaited<ReturnType<typeof publishLocalMediaWork>>
@@ -189,6 +174,7 @@ async function processLocalWork(input: {
       now: input.now,
       artistId,
       media,
+      mediaDerivedTagIds,
       defaultTagIds: input.context.payload.defaultTagIds
     })
   )

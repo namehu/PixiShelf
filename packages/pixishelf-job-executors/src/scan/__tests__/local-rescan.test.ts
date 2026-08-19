@@ -57,13 +57,15 @@ describe('reconcileLocalArtworkImages', () => {
         deleteMany: vi.fn()
       }
     }
-    const media = ['A.jpg', 'a.jpg'].map((name, sortOrder) => discoveredMedia({
-      relativePath: `local/a/${name}`,
-      size: 1n,
-      sortOrder,
-      mediaType: 'IMAGE' as const,
-      webpAnimationStatus: null
-    }))
+    const media = ['A.jpg', 'a.jpg'].map((name, sortOrder) =>
+      discoveredMedia({
+        relativePath: `local/a/${name}`,
+        size: 1n,
+        sortOrder,
+        mediaType: 'IMAGE' as const,
+        webpAnimationStatus: null
+      })
+    )
 
     await expect(reconcileLocalArtworkImages(transaction as never, 7, media, now)).rejects.toThrow(
       'collide after case folding'
@@ -182,13 +184,15 @@ describe('reconcileLocalArtworkImages', () => {
         deleteMany: vi.fn()
       }
     }
-    const media = ['caf\u00e9.jpg', 'cafe\u0301.jpg'].map((name, sortOrder) => discoveredMedia({
-      relativePath: `local/a/${name}`,
-      size: 1n,
-      sortOrder,
-      mediaType: 'IMAGE' as const,
-      webpAnimationStatus: null
-    }))
+    const media = ['caf\u00e9.jpg', 'cafe\u0301.jpg'].map((name, sortOrder) =>
+      discoveredMedia({
+        relativePath: `local/a/${name}`,
+        size: 1n,
+        sortOrder,
+        mediaType: 'IMAGE' as const,
+        webpAnimationStatus: null
+      })
+    )
 
     await expect(reconcileLocalArtworkImages(transaction as never, 7, media, now)).rejects.toThrow(
       'collide after case folding'
@@ -229,7 +233,13 @@ describe('reconcileLocalArtworkImages', () => {
       chaptersHash: 'keep-hash'
     }
     const media = [
-      discoveredMedia({ relativePath: 'local/a/keep.mp4', size: 20n, sortOrder: 0, mediaType: 'VIDEO', ...chapterSummary }),
+      discoveredMedia({
+        relativePath: 'local/a/keep.mp4',
+        size: 20n,
+        sortOrder: 0,
+        mediaType: 'VIDEO',
+        ...chapterSummary
+      }),
       discoveredMedia({
         relativePath: 'local/a/new.mp4',
         size: 30n,
@@ -307,8 +317,14 @@ function discoveredMedia(overrides: {
   chaptersCount?: number
   chaptersDuration?: number | null
   chaptersHash?: string | null
+  width?: number
+  height?: number
+  modifiedAt?: Date
 }) {
   return {
+    width: 0,
+    height: 0,
+    modifiedAt: now,
     webpAnimationStatus: null,
     chaptersPath: null,
     chaptersCount: 0,

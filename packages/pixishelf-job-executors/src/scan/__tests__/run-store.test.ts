@@ -112,6 +112,39 @@ describe('ScanRun frozen input adapter', () => {
     expect(database.scanRunLocalArtistMappingInput.findMany).toHaveBeenCalledTimes(2)
   })
 
+  it('rejects historical archive-manifest work in a new local import execution', async () => {
+    const rows = [
+      {
+        id: 'w1',
+        scanRunId: 'run-1',
+        ordinal: 0,
+        kind: 'ARCHIVE_MANIFEST' as const,
+        relativePath: 'local-imports/Recovered/Gallery',
+        fingerprint: 'a'.repeat(64),
+        createdAt: frozenAt
+      }
+    ]
+    const database = {
+      scanRunLocalWorkInput: { findMany: paged(rows) },
+      scanRunLocalArtistMappingInput: { findMany: paged([]) }
+    } as unknown as ScanDatabase
+
+    await expect(
+      verifyFrozenLocalSnapshot({
+        database,
+        run: {
+          id: 'run-1',
+          inputFrozenAt: frozenAt,
+          inputCount: 1,
+          inputDigest: localWorkInputDigest(rows)
+        } as never,
+        payload: { defaultTagIds: [], mappingCount: 0, mappingDigest: 'f'.repeat(64) },
+        pageSize: 100,
+        maxEntries: 100
+      })
+    ).rejects.toMatchObject({ code: 'INPUT_SNAPSHOT_INVALID' })
+  })
+
   it('rejects non-dense ordinals, noncanonical paths, and empty FULL snapshots', async () => {
     const invalidRows = [
       {

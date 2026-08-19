@@ -88,10 +88,7 @@ export default function LocalDirectoryImportManagement() {
   }, [previewQuery.data])
 
   const importArtists = useMemo(
-    () =>
-      previewQuery.data?.artists.filter((artist) =>
-        artist.works.some((work) => work.status === 'new' && !work.archiveManifest)
-      ) ?? [],
+    () => previewQuery.data?.artists.filter((artist) => artist.works.some((work) => work.status === 'new')) ?? [],
     [previewQuery.data]
   )
   const missingMappings = importArtists.filter((artist) => !mappings[artist.artistDirectory])

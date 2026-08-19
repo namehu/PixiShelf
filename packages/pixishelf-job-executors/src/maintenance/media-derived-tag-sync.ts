@@ -11,7 +11,8 @@ export const MEDIA_DERIVED_TAGS = {
   image: { systemKey: 'media:image', name: 'image' }
 } as const
 
-type MediaDerivedTagKey = keyof typeof MEDIA_DERIVED_TAGS
+export type MediaDerivedTagKey = keyof typeof MEDIA_DERIVED_TAGS
+export type MediaDerivedTagIds = Record<MediaDerivedTagKey, number>
 
 export interface MediaDerivedTagSyncStats {
   expectedArtworks: number
@@ -121,10 +122,8 @@ export async function syncAllMediaDerivedTags(input: MaintenanceOperationInput):
   return stats
 }
 
-async function getOrCreateMediaDerivedTags(
-  transaction: MaintenanceTransaction
-): Promise<Record<MediaDerivedTagKey, number>> {
-  const ids = {} as Record<MediaDerivedTagKey, number>
+export async function getOrCreateMediaDerivedTags(transaction: MaintenanceTransaction): Promise<MediaDerivedTagIds> {
+  const ids = {} as MediaDerivedTagIds
   for (const key of keys()) {
     const definition = MEDIA_DERIVED_TAGS[key]
     const existing = await transaction.tag.findFirst({
@@ -154,6 +153,15 @@ async function getOrCreateMediaDerivedTags(
     ids[key] = tag.id
   }
   return ids
+}
+
+export function selectMediaDerivedTagIds(tagIds: MediaDerivedTagIds, mediaPaths: readonly string[]): number[] {
+  const normalizedPaths = mediaPaths.map((mediaPath) => mediaPath.toLowerCase())
+  const hasWebp = normalizedPaths.some((mediaPath) => mediaPath.endsWith('.webp'))
+  const hasVideo = normalizedPaths.some((mediaPath) =>
+    VIDEO_FILE_EXTENSIONS.some((extension) => mediaPath.endsWith(extension))
+  )
+  return [...(hasWebp ? [tagIds.webp] : []), ...(hasVideo ? [tagIds.video] : [tagIds.image])]
 }
 
 async function loadExpectedRelations(

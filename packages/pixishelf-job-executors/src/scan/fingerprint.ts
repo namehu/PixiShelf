@@ -15,7 +15,7 @@ const maxChapterManifestBytes = 5 * 1024 * 1024
 export interface LocalWorkFingerprintInput {
   scanRoot: string
   relativeDirectory: string
-  kind: 'MEDIA_DIRECTORY' | 'ARCHIVE_MANIFEST'
+  kind: 'MEDIA_DIRECTORY'
   maxEntries: number
   maxFiles: number
   maxFileBytes: number
@@ -30,7 +30,7 @@ export async function computeLocalWorkContentFingerprint(input: LocalWorkFingerp
 export async function computeLocalWorkContentFingerprintWithinRoot(input: {
   root: SafeScanRoot
   relativeDirectory: string
-  kind: 'MEDIA_DIRECTORY' | 'ARCHIVE_MANIFEST'
+  kind: 'MEDIA_DIRECTORY'
   maxEntries: number
   maxFiles: number
   maxFileBytes: number
@@ -60,16 +60,10 @@ export async function computeLocalWorkContentFingerprintWithinRoot(input: {
     await handle.close().catch(() => undefined)
   }
   const mediaFiles = directoryFiles.filter((file) => mediaExtensions.has(path.extname(file.name).toLowerCase()))
-  if (input.kind === 'MEDIA_DIRECTORY' && mediaFiles.length > input.maxFiles) {
+  if (mediaFiles.length > input.maxFiles) {
     throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local work exceeds the configured file limit')
   }
-  const files =
-    input.kind === 'ARCHIVE_MANIFEST'
-      ? directoryFiles.filter((file) => file.name === 'manifest.json')
-      : [...mediaFiles, ...compatibleChapterManifestFiles(directoryFiles, mediaFiles)]
-  if (input.kind === 'ARCHIVE_MANIFEST' && files.length !== 1) {
-    throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Archive work must contain exactly one manifest.json')
-  }
+  const files = [...mediaFiles, ...compatibleChapterManifestFiles(directoryFiles, mediaFiles)]
   files.sort((left, right) => compareCodePoints(left.name, right.name))
   const hashedFiles: Array<{ name: string; size: number; sha256: string }> = []
   for (const file of files) {
@@ -107,7 +101,7 @@ function isChapterManifestName(name: string) {
 }
 
 export function buildLocalWorkContentFingerprint(
-  kind: 'MEDIA_DIRECTORY' | 'ARCHIVE_MANIFEST',
+  kind: 'MEDIA_DIRECTORY',
   files: readonly { name: string; size: number; sha256: string }[]
 ) {
   const fingerprint = createHash('sha256')

@@ -5,6 +5,8 @@ import { publishPixivArtwork } from '../pixiv-publisher.js'
 import type { ScanTransaction } from '../types.js'
 
 const now = new Date('2026-08-15T00:00:00.000Z')
+const mediaModifiedAt = new Date('2024-01-02T03:04:05.000Z')
+const mediaDerivedTagIds = { webp: 20, video: 21, image: 22 }
 
 describe('scan item checkpoints', () => {
   it('does not repeat local domain writes after a successful checkpoint', async () => {
@@ -26,6 +28,7 @@ describe('scan item checkpoints', () => {
         now,
         artistId: 1,
         media: [],
+        mediaDerivedTagIds,
         defaultTagIds: []
       })
     ).resolves.toEqual({ status: 'SUCCESS', newImages: 4, artworkId: null })
@@ -117,6 +120,9 @@ describe('scan item checkpoints', () => {
         media: [
           {
             relativePath: 'local-imports/Artist/Work/1.mp4',
+            width: 1920,
+            height: 1080,
+            modifiedAt: mediaModifiedAt,
             size: 5n,
             sortOrder: 0,
             mediaType: 'VIDEO',
@@ -127,10 +133,19 @@ describe('scan item checkpoints', () => {
             chaptersHash: 'chapter-hash'
           }
         ],
+        mediaDerivedTagIds,
         defaultTagIds: [3, 4]
       })
     ).resolves.toMatchObject({ status: 'SUCCESS', newImages: 1, artworkId: 9 })
-    expect(transaction.artworkTag.createMany).toHaveBeenCalledWith({
+    expect(transaction.artwork.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ sourceDate: mediaModifiedAt }),
+      select: { id: true }
+    })
+    expect(transaction.artworkTag.createMany).toHaveBeenNthCalledWith(1, {
+      data: [{ artworkId: 9, tagId: 21, provenance: 'DERIVED' }],
+      skipDuplicates: true
+    })
+    expect(transaction.artworkTag.createMany).toHaveBeenNthCalledWith(2, {
       data: [
         { artworkId: 9, tagId: 3, provenance: 'MANUAL' },
         { artworkId: 9, tagId: 4, provenance: 'MANUAL' }
@@ -141,6 +156,8 @@ describe('scan item checkpoints', () => {
       data: [
         expect.objectContaining({
           path: 'local-imports/Artist/Work/1.mp4',
+          width: 1920,
+          height: 1080,
           chaptersPath: 'local-imports/Artist/Work/1.chapters.json',
           chaptersCount: 2,
           chaptersDuration: 20,

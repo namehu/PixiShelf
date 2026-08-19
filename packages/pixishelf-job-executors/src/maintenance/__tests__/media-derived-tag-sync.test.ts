@@ -2,11 +2,20 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   MEDIA_DERIVED_TAG_IMAGE_BATCH_SIZE,
   MEDIA_DERIVED_TAG_SYNC_BATCH_SIZE,
+  selectMediaDerivedTagIds,
   syncAllMediaDerivedTags
 } from '../media-derived-tag-sync.js'
 import type { RunMaintenanceMutation } from '../types.js'
 
 describe('media derived tag maintenance', () => {
+  it('classifies imported media with the legacy webp, video, and image semantics', () => {
+    const tagIds = { webp: 11, video: 12, image: 13 }
+
+    expect(selectMediaDerivedTagIds(tagIds, ['work/page.webp'])).toEqual([11, 13])
+    expect(selectMediaDerivedTagIds(tagIds, ['work/page.webp', 'work/clip.mp4'])).toEqual([11, 12])
+    expect(selectMediaDerivedTagIds(tagIds, ['work/page.jpg'])).toEqual([13])
+  })
+
   it('synchronizes bounded artwork pages idempotently', async () => {
     const tagIds = [11, 12, 13]
     const tagFindFirst = vi.fn(async ({ where }: { where: { OR: Array<{ systemKey?: string }> } }) => {

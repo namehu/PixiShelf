@@ -38,7 +38,6 @@ const LOCAL_DISCOVERY_LIMITS = Object.freeze({
   maxMediaPerArtwork: 2_000,
   maxCandidates: MAX_LOCAL_IMPORT_CANDIDATES,
   concurrency: 4,
-  maxManifestBytes: 4 * 1024 * 1024,
   maxArchiveMediaBytes: 4 * 1024 * 1024 * 1024
 })
 const SHA256 = /^[a-f0-9]{64}$/
@@ -494,7 +493,7 @@ interface ExpectedMetadataRow {
 
 interface ExpectedLocalWorkRow {
   ordinal: number
-  kind: 'MEDIA_DIRECTORY' | 'ARCHIVE_MANIFEST'
+  kind: 'MEDIA_DIRECTORY'
   relativePath: string
   fingerprint: string
 }

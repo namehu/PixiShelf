@@ -252,6 +252,15 @@ describe('central media root enqueue semantics', () => {
       })
     )
     expect(mocks.artworkFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 10_001 }))
-    expect(mocks.mappingFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 2_001 }))
+    expect(mocks.mappingFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { artistDirectory: { in: ['artist'] } },
+        take: 2_001
+      })
+    )
+    expect(mocks.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ mappingCount: 1 }) }),
+      expect.anything()
+    )
   })
 })

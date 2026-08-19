@@ -226,7 +226,7 @@ Staging resides on the same writable filesystem as the revision directory. Publi
 
 The manifest is self-contained and versioned. It includes provider identity and locator, canonical URL, titles and aliases, normalized metadata, category, uploader, namespaced tags, replacement relationships, revision identity, ordered media paths, original filenames, dimensions, sizes, hashes, source-page locators, and creation timestamps.
 
-Local directory import detects a supported manifest and reconstructs source references, revisions, ordering, and metadata without contacting the provider. Directories without a manifest keep the existing local-import behavior.
+Archive manifests belong to the URL archive lifecycle under `sources/...`. Local directory import does not inspect or restore them; it only imports directly contained supported media. Catalog recovery from archived revisions, if added, must be a separate explicit recovery workflow rather than a branch of local directory import.
 
 ## Deletion and trash
 
