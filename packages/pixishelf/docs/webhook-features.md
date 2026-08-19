@@ -1,7 +1,7 @@
 ---
 status: current
-scope: POST /api/webhooks/scan 的认证、请求、响应和调用示例
-last-verified: 2026-08-18
+scope: GET/POST /api/webhooks/scan 的认证、扫描入队、状态查询和调用示例
+last-verified: 2026-08-19
 sources:
   - ../app/api/webhooks/scan/route.ts
 ---
@@ -21,7 +21,9 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 
 ## 2. API 接口说明
 
-- **接口地址**: `POST /api/webhooks/scan`
+- **扫描入队**: `POST /api/webhooks/scan`
+- **健康检查**: `GET /api/webhooks/scan`
+- **任务状态**: `GET /api/webhooks/scan?jobId=<jobId>`
 - **认证方式**: Bearer Token
 - **Content-Type**: `application/json`
 
@@ -42,7 +44,46 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 
 ### 响应格式
 
-成功响应：
+启用 Central Dispatcher 时，POST 成功表示任务已入队，返回 HTTP `202`：
+
+```json
+{
+  "success": true,
+  "queued": true,
+  "jobId": "cmsz...",
+  "scanRunId": "cmsz...",
+  "status": "PENDING",
+  "reused": false
+}
+```
+
+调用方必须使用返回的 `jobId` 查询最终状态，不能把 `202` 当作扫描已经完成。任务状态响应：
+
+```json
+{
+  "success": true,
+  "jobId": "cmsz...",
+  "scanRunId": "cmsz...",
+  "status": "COMPLETED",
+  "progress": 100,
+  "message": "Scan completed",
+  "error": null,
+  "createdAt": "2026-08-19T01:29:30.000Z",
+  "startedAt": "2026-08-19T01:29:31.000Z",
+  "finishedAt": "2026-08-19T01:29:37.000Z",
+  "data": {
+    "totalArtworks": 15,
+    "processedArtworks": 15,
+    "succeededArtworks": 15,
+    "skippedArtworks": 0,
+    "failedArtworks": 0,
+    "newImages": 31,
+    "durationMs": 6000
+  }
+}
+```
+
+状态查询只允许读取由 Webhook 使用的系统扫描任务，不会返回其他后台任务的 payload 或内部结果。Dispatcher 未启用时，POST 保持旧的同步成功响应：
 
 ```json
 {
@@ -72,7 +113,9 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 | ------ | ------------------------------------------ |
 | `400`  | 请求参数非法，或 `SCAN_PATH` 未配置        |
 | `401`  | Bearer Token 无效                          |
+| `404`  | 状态查询的 `jobId` 不属于 Webhook 扫描任务 |
 | `409`  | 扫描任务冲突（已有扫描进行中）或任务被取消 |
+| `202`  | 扫描任务已入队，尚未完成                   |
 | `503`  | 服务未配置 `SCAN_WEBHOOK_TOKEN`            |
 | `500`  | 服务端内部错误                             |
 
@@ -118,3 +161,13 @@ curl -X POST "$API_URL" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD"
 ```
+
+### 查询已入队任务
+
+```bash
+curl --get "$API_URL" \
+  -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "jobId=cmszeyxot00ln110lvqz2go2z"
+```
+
+`PENDING`、`RUNNING`、`PAUSING`、`RETRY_WAIT` 和 `CANCELLING` 尚未结束；`COMPLETED` 表示成功；`FAILED`、`CANCELLED` 和 `SKIPPED` 是未成功完成的终态。`PAUSED` 需要管理员处理，自动化调用方不应无限轮询。

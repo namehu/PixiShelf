@@ -24,6 +24,12 @@ export const ScanStreamSchema = z
 
 export type ScanStreamSchema = z.infer<typeof ScanStreamSchema>
 
+export const ScanWebhookJobQuerySchema = z.object({
+  jobId: z.string().trim().min(1).max(191)
+})
+
+export type ScanWebhookJobQuerySchema = z.infer<typeof ScanWebhookJobQuerySchema>
+
 /**
  * 请求体：重新扫描指定作品
  */

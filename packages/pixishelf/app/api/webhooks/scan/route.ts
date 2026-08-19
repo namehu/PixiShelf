@@ -2,11 +2,12 @@ import 'server-only'
 
 import { NextResponse } from 'next/server'
 import { scan } from '@/services/scan-service'
+import { prisma } from '@/lib/prisma'
 import { getScanPath } from '@/services/setting.service'
 import * as JobService from '@/services/job-service'
 import { JobStatus, ScanRunMode, ScanRunType } from '@prisma/client'
 import { apiHandler } from '@/lib/api-handler'
-import { ScanStreamSchema } from '@/schemas/scan.dto'
+import { ScanStreamSchema, ScanWebhookJobQuerySchema } from '@/schemas/scan.dto'
 import logger from '@/lib/logger'
 import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from '@/services/scan-service/scan-errors'
 import {
@@ -43,6 +44,75 @@ export async function GET(req: Request) {
   const authError = validateWebhookAuth(req)
   if (authError) return authError
 
+  const url = new URL(req.url)
+  // 同一条 GET 接口通过是否带 jobId 区分：带 jobId 才做状态查询，不带则返回 webhook 可达性健康检查
+  if (url.searchParams.has('jobId')) {
+    const query = ScanWebhookJobQuerySchema.safeParse({ jobId: url.searchParams.get('jobId') })
+    if (!query.success) {
+      return NextResponse.json({ success: false, error: 'Invalid jobId' }, { status: 400 })
+    }
+
+    const job = await prisma.systemJob.findFirst({
+      where: {
+        id: query.data.jobId,
+        // 仅允许查询 SYSTEM 触发的 SCAN 类型任务，防止外部凭证读取其他管理动作任务
+        type: 'SCAN',
+        triggerSource: 'SYSTEM',
+        // definitionVersion >= 1 约束与新版任务定义对齐，避免返回过旧/不兼容记录
+        definitionVersion: { gte: 1 }
+      },
+      select: {
+        id: true,
+        status: true,
+        progress: true,
+        message: true,
+        error: true,
+        createdAt: true,
+        startedAt: true,
+        finishedAt: true,
+        scanRun: {
+          select: {
+            id: true,
+            totalArtworks: true,
+            processedArtworks: true,
+            succeededArtworks: true,
+            skippedArtworks: true,
+            failedArtworks: true,
+            newImages: true,
+            durationMs: true
+          }
+        }
+      }
+    })
+
+    if (!job?.scanRun) {
+      return NextResponse.json({ success: false, error: 'Scan job not found' }, { status: 404 })
+    }
+
+    return NextResponse.json({
+      success: true,
+      jobId: job.id,
+      scanRunId: job.scanRun.id,
+      status: job.status,
+      progress: job.progress,
+      message: job.message,
+      error: job.error ? formatScanUserError(job.error) : null,
+      createdAt: job.createdAt.toISOString(),
+      startedAt: job.startedAt?.toISOString() ?? null,
+      finishedAt: job.finishedAt?.toISOString() ?? null,
+      data: {
+        // 仅返回 webhook 端需要的统计面板字段，避免把可写字段或内部控制字段扩散到 webhook 响应契约
+        totalArtworks: job.scanRun.totalArtworks,
+        processedArtworks: job.scanRun.processedArtworks,
+        succeededArtworks: job.scanRun.succeededArtworks,
+        skippedArtworks: job.scanRun.skippedArtworks,
+        failedArtworks: job.scanRun.failedArtworks,
+        newImages: job.scanRun.newImages,
+        durationMs: job.scanRun.durationMs
+      }
+    })
+  }
+
   return NextResponse.json({
     success: true,
     data: {
@@ -61,6 +131,7 @@ export async function HEAD(req: Request) {
 /**
  * POST /api/webhooks/scan
  * 使用 Bearer Token 认证通过 Webhook 触发扫描
+ * 在中央调度切换开启时，保持 202 入队语义：本接口只确认提交成功，不代表扫描已执行完成
  */
 export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
   const authError = validateWebhookAuth(req)
@@ -69,6 +140,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
   const { type, force, metadataList } = data
 
   if (isCentralDispatcherCutoverEnabled()) {
+    // Central Dispatcher 下，排队行为是幂等可重试的；scan 直接执行已迁移到中央服务完成，避免本地阻塞超时
     const queued = await runBackgroundTaskApi(() =>
       enqueueCentralScan({
         triggerSource: 'SYSTEM',
@@ -136,6 +208,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
           let progressWrite: Promise<void>
           progressWrite = JobService.updateProgress(job.id, progress.percentage || 0, progress.message || '')
             .catch((err) => {
+              // 进度写库为 best-effort：失败只会影响外部展示状态，不应导致扫描本体失败或中断
               logger.error('Failed to update job progress', err)
             })
             .finally(() => {

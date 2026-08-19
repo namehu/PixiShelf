@@ -11,6 +11,7 @@ export async function finalizeScanSuccess(input: {
   context: ScanContext
   runId: string
   result: ScanExecutionResult
+  startedAt: Date | null
   now: Date
   fullReconcile?: { frozenAt: Date; maxSweepReferences: number }
 }): Promise<JobExecutionOutcome<ScanExecutionResult>> {
@@ -67,11 +68,17 @@ export async function finalizeScanSuccess(input: {
         skippedArtworks: result.skipped,
         failedArtworks: result.failed,
         newImages: result.newImages,
+        durationMs: elapsedMilliseconds(input.startedAt, input.now),
         errorMessage: null
       }
     })
     await scope.complete({ result, message: 'Scan completed' })
   })
+}
+
+function elapsedMilliseconds(startedAt: Date | null, finishedAt: Date): number | null {
+  if (!startedAt) return null
+  return Math.min(2_147_483_647, Math.max(0, finishedAt.getTime() - startedAt.getTime()))
 }
 
 export async function finalizeScanError(input: {

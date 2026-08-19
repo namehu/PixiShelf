@@ -11,6 +11,7 @@ import { finalizeScanError, finalizeScanSuccess } from '../lifecycle.js'
 import type { ScanTransaction } from '../types.js'
 
 const now = new Date('2026-08-15T01:00:00.000Z')
+const startedAt = new Date('2026-08-15T00:59:48.000Z')
 const result = { scanRunId: 'run-1', total: 2, succeeded: 2, skipped: 0, failed: 0, newImages: 3 }
 
 describe('scan fenced lifecycle', () => {
@@ -24,6 +25,7 @@ describe('scan fenced lifecycle', () => {
         context,
         runId: 'run-1',
         result,
+        startedAt,
         now,
         fullReconcile: { frozenAt: now, maxSweepReferences: 100 }
       })
@@ -47,6 +49,9 @@ describe('scan fenced lifecycle', () => {
       }
     })
     expect(order).toEqual(['sweep', 'run:COMPLETED', 'complete'])
+    expect(transaction.scanRun.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ durationMs: 12_000 }) })
+    )
   })
 
   it.each([
@@ -60,6 +65,7 @@ describe('scan fenced lifecycle', () => {
       context,
       runId: 'run-1',
       result,
+      startedAt,
       now,
       fullReconcile: { frozenAt: now, maxSweepReferences: 100 }
     })
@@ -112,6 +118,7 @@ describe('scan fenced lifecycle', () => {
       context: largeContext,
       runId: 'run-1',
       result,
+      startedAt,
       now,
       fullReconcile: { frozenAt: now, maxSweepReferences: 100 }
     })
@@ -145,7 +152,7 @@ describe('scan fenced lifecycle', () => {
       throw new Error('LEASE_LOST')
     }) as never
 
-    await expect(finalizeScanSuccess({ context, runId: 'run-1', result, now })).rejects.toThrow('LEASE_LOST')
+    await expect(finalizeScanSuccess({ context, runId: 'run-1', result, startedAt, now })).rejects.toThrow('LEASE_LOST')
     expect(transaction.scanRun.update).not.toHaveBeenCalled()
     expect(transaction.artworkExternalRef.deleteMany).not.toHaveBeenCalled()
   })

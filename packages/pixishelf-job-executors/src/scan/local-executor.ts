@@ -96,7 +96,7 @@ export async function executeLocalDirectoryImport(
     }
     throwIfAborted(context.signal)
     context.logger.info('local-import.finalize.start', { inputCount: snapshot.workCount })
-    return finalizeScanSuccess({ context, runId: run.id, result, now: now() })
+    return finalizeScanSuccess({ context, runId: run.id, result, startedAt: run.startedAt, now: now() })
   } catch (error) {
     context.logger.warn('local-import.execution.failed', { code: safeLocalCode(error) })
     if (!runId) throw error

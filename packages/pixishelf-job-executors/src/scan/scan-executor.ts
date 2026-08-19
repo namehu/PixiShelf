@@ -64,7 +64,7 @@ export async function executeScan(
         now: now()
       })
       const result = summarize(run.id, 1, [localResult])
-      return finalizeScanSuccess({ context, runId: run.id, result, now: now() })
+      return finalizeScanSuccess({ context, runId: run.id, result, startedAt: run.startedAt, now: now() })
     }
     run = await ensureMetadataSnapshot({ context, dependencies, root, run, now: now(), limits })
     const snapshot = await verifyFrozenMetadataSnapshot({
@@ -119,6 +119,7 @@ export async function executeScan(
       context,
       runId: run.id,
       result,
+      startedAt: run.startedAt,
       now: now(),
       ...(context.payload.mode === 'FULL_RECONCILE'
         ? {
