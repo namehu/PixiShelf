@@ -18,7 +18,7 @@ import { ESource } from '@/enums/e-source'
 
 const MAX_ERRORS = 200
 
-export { discoverLocalImports } from './discovery'
+export { discoverLocalImports, LocalImportDiscoveryLimitError } from './discovery'
 export * from '@/schemas/local-import.dto'
 
 export async function getLocalImportArtistMappings() {

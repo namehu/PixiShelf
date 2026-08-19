@@ -50,7 +50,6 @@ const discovery = {
           title: 'Work',
           storagePath: 'local-imports/Artist/2024/Manga/Work',
           status: 'new',
-          mediaFiles: ['1.jpg'],
           mediaCount: 1
         }
       ]
@@ -191,7 +190,6 @@ describe('local import service', () => {
               title: 'Work',
               storagePath: 'local-imports/Artist/2024/Manga/Work',
               status: 'existing',
-              mediaFiles: ['1.jpg'],
               mediaCount: 1
             }
           ]

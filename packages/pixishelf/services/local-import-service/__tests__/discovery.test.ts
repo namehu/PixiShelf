@@ -4,15 +4,24 @@ import os from 'os'
 import path from 'path'
 import { canonicalizeLocalImportStoragePath } from '@/schemas/local-import.dto'
 
-const { artworkFindManyMock, mappingFindManyMock } = vi.hoisted(() => ({
+const { artworkFindManyMock, mappingFindManyMock, loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   artworkFindManyMock: vi.fn(),
-  mappingFindManyMock: vi.fn()
+  mappingFindManyMock: vi.fn(),
+  loggerInfoMock: vi.fn(),
+  loggerWarnMock: vi.fn()
 }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     artwork: { findMany: artworkFindManyMock },
     localImportArtistMapping: { findMany: mappingFindManyMock }
+  }
+}))
+
+vi.mock('@/lib/logger', () => ({
+  default: {
+    info: loggerInfoMock,
+    warn: loggerWarnMock
   }
 }))
 
@@ -25,6 +34,8 @@ describe('local import discovery', () => {
     scanPath = await fs.mkdtemp(path.join(os.tmpdir(), 'pixishelf-local-import-'))
     artworkFindManyMock.mockReset().mockResolvedValue([])
     mappingFindManyMock.mockReset().mockResolvedValue([])
+    loggerInfoMock.mockReset()
+    loggerWarnMock.mockReset()
   })
 
   afterEach(async () => {
@@ -63,6 +74,13 @@ describe('local import discovery', () => {
 
     const result = await discoverLocalImports({ scanPath })
 
+    expect(artworkFindManyMock).toHaveBeenCalledWith({
+      where: {
+        createdVia: 'LOCAL_DIRECTORY',
+        storagePath: { not: null }
+      },
+      select: { storagePath: true }
+    })
     expect(readdirSpy.mock.calls.some(([target]) => path.resolve(String(target)) === path.resolve(existingWork))).toBe(
       false
     )
@@ -91,11 +109,22 @@ describe('local import discovery', () => {
           relativeDirectory: 'NewWork',
           storagePath: 'local-imports/ArtistCase/NewWork',
           status: 'new',
-          mediaFiles: ['2.jpg', '10.jpg', '00261-2153324271.jpg', 'Cover.JPG'],
           mediaCount: 4
         }
       ]
     })
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      'local-import.discovery.completed',
+      expect.objectContaining({
+        durationMs: expect.any(Number),
+        directoriesVisited: expect.any(Number),
+        entriesVisited: expect.any(Number),
+        existingWorksPruned: 1,
+        newWorks: 1,
+        worksDiscovered: 2,
+        responseBytes: expect.any(Number)
+      })
+    )
   })
 
   it('discovers multi-level artwork directories and keeps duplicate leaf names distinct', async () => {
@@ -124,7 +153,6 @@ describe('local import discovery', () => {
         title: 'Work',
         storagePath: 'local-imports/Artist/2024/Manga/Work',
         status: 'new',
-        mediaFiles: ['1.jpg'],
         mediaCount: 1
       }),
       expect.objectContaining({
@@ -133,7 +161,6 @@ describe('local import discovery', () => {
         title: 'Work',
         storagePath: 'local-imports/Artist/2025/Novel/Work',
         status: 'new',
-        mediaFiles: ['2.jpg'],
         mediaCount: 1
       })
     ])
@@ -193,9 +220,63 @@ describe('local import discovery', () => {
     expect(result.artists[0]?.works).toEqual([
       expect.objectContaining({
         title: 'Gallery',
-        storagePath: 'local-imports/Recovered/Gallery',
-        mediaFiles: ['page.png']
+        storagePath: 'local-imports/Recovered/Gallery'
       })
     ])
+  })
+
+  it('stops when the total directory entry limit is exceeded', async () => {
+    const root = path.join(scanPath, 'local-imports')
+    await fs.mkdir(path.join(root, 'ArtistA'), { recursive: true })
+    await fs.mkdir(path.join(root, 'ArtistB'), { recursive: true })
+
+    await expect(discoverLocalImports({ scanPath }, { limits: { maxEntries: 1 } })).rejects.toMatchObject({
+      name: 'LocalImportDiscoveryLimitError',
+      limit: 'maxEntries',
+      maximum: 1
+    })
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'local-import.discovery.failed',
+      expect.objectContaining({ entriesVisited: 2, error: expect.any(Error) })
+    )
+  })
+
+  it('stops before traversing beyond the maximum work depth', async () => {
+    const root = path.join(scanPath, 'local-imports', 'Artist')
+    await fs.mkdir(path.join(root, 'Level1', 'Level2', 'Level3'), { recursive: true })
+
+    await expect(discoverLocalImports({ scanPath }, { limits: { maxDepth: 2 } })).rejects.toMatchObject({
+      name: 'LocalImportDiscoveryLimitError',
+      limit: 'maxDepth',
+      maximum: 2
+    })
+  })
+
+  it('stops when the discovered work limit is exceeded', async () => {
+    const root = path.join(scanPath, 'local-imports', 'Artist')
+    await fs.mkdir(path.join(root, 'Work1'), { recursive: true })
+    await fs.mkdir(path.join(root, 'Work2'), { recursive: true })
+    await fs.writeFile(path.join(root, 'Work1', '1.jpg'), 'image')
+    await fs.writeFile(path.join(root, 'Work2', '2.jpg'), 'image')
+
+    await expect(discoverLocalImports({ scanPath }, { limits: { maxWorks: 1 } })).rejects.toMatchObject({
+      name: 'LocalImportDiscoveryLimitError',
+      limit: 'maxWorks',
+      maximum: 1
+    })
+  })
+
+  it('stops before database and filesystem work when the request is cancelled', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(discoverLocalImports({ scanPath }, { signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError'
+    })
+    expect(artworkFindManyMock).not.toHaveBeenCalled()
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      'local-import.discovery.cancelled',
+      expect.objectContaining({ directoriesVisited: 0, entriesVisited: 0, worksDiscovered: 0 })
+    )
   })
 })

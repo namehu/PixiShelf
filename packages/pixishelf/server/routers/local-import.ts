@@ -6,7 +6,12 @@ import {
 } from '@/services/background-task/dispatcher-cutover'
 import { saveLocalImportArtistMappingsSchema, startLocalImportSchema } from '@/schemas/local-import.dto'
 import { getScanPath, getSystemSettings } from '@/services/setting.service'
-import { discoverLocalImports, runLocalImport, saveLocalImportArtistMappings } from '@/services/local-import-service'
+import {
+  discoverLocalImports,
+  LocalImportDiscoveryLimitError,
+  runLocalImport,
+  saveLocalImportArtistMappings
+} from '@/services/local-import-service'
 import * as JobService from '@/services/job-service'
 import logger from '@/lib/logger'
 import { ScanRunMode, ScanRunType } from '@prisma/client'
@@ -49,9 +54,16 @@ function assertLegacyLocalImportAllowed() {
  * - 运行期间通过扫描任务记录与作业进度持久化每一步状态，便于前端轮询。
  */
 export const localImportRouter = router({
-  preview: authProcedure.query(async () => {
+  preview: authProcedure.query(async ({ signal }) => {
     const scanPath = await requireScanPath()
-    return discoverLocalImports({ scanPath })
+    try {
+      return await discoverLocalImports({ scanPath }, { signal })
+    } catch (error) {
+      if (error instanceof LocalImportDiscoveryLimitError) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
+      }
+      throw error
+    }
   }),
 
   saveMappings: adminProcedure.input(saveLocalImportArtistMappingsSchema).mutation(async ({ input }) => {

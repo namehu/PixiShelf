@@ -77,7 +77,6 @@ export interface LocalImportWorkItem {
   title: string
   storagePath: string
   status: LocalImportWorkStatus
-  mediaFiles: string[]
   mediaCount: number
   error?: string
 }
