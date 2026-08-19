@@ -2,7 +2,7 @@ import path from 'node:path'
 import type { LocalDirectoryImportPayload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { mapBounded, throwIfAborted } from './bounded.ts'
-import { collectLocalMedia, verifyLocalWorkFingerprint } from './discovery.ts'
+import { collectLocalMedia } from './discovery.ts'
 import { ScanExecutorError } from './errors.ts'
 import { finalizeScanError, finalizeScanSuccess } from './lifecycle.ts'
 import { localCheckpointKey, publishLocalMediaWork, type LocalWorkRow } from './local-publisher.ts'
@@ -137,14 +137,6 @@ async function processLocalWork(input: {
   const localDirectory = normalizeRelativeScanPath(input.dependencies.config.localImportDirectory ?? 'local-imports')
   const artistDirectory = artistDirectoryFor(input.work.relativePath, localDirectory)
   const title = path.posix.basename(input.work.relativePath)
-  await verifyLocalWorkFingerprint({
-    root: input.root,
-    relativeDirectory: input.work.relativePath,
-    kind: input.work.kind,
-    expectedFingerprint: input.work.fingerprint,
-    limits: input.limits,
-    signal: input.context.signal
-  })
   const artistId = input.mapping.get(artistDirectory)
   if (!artistId) throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local work has no frozen artist mapping')
   const media = await collectLocalMedia(

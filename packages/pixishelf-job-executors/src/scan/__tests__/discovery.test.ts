@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   collectArtworkMedia,
   collectLocalMedia,
-  discoverLocalWorkPages,
   discoverMetadataCandidatePages,
   type ScanDiscoveryLimits
 } from '../discovery.js'
@@ -47,30 +46,6 @@ describe('scan discovery', () => {
     ).resolves.toMatchObject([
       { relativePath: 'b/42_p0.webp', mediaType: 'IMAGE', sortOrder: 0 },
       { relativePath: 'b/42_p1.mp4', mediaType: 'VIDEO', sortOrder: 1 }
-    ])
-  })
-
-  it('ignores manifest.json and continues discovering ordinary local media works', async () => {
-    const directory = await fixtureRoot()
-    await fs.mkdir(path.join(directory, 'local', 'artist-a', 'work-1'), { recursive: true })
-    await fs.mkdir(path.join(directory, 'local', 'artist-a', 'work-2', 'nested-work'), { recursive: true })
-    await fs.mkdir(path.join(directory, 'local', 'artist-b', 'work-3'), { recursive: true })
-    await fs.writeFile(path.join(directory, 'local', 'artist-a', 'work-1', 'a.jpg'), 'a')
-    await fs.writeFile(path.join(directory, 'local', 'artist-a', 'work-2', 'manifest.json'), '{}')
-    await fs.writeFile(path.join(directory, 'local', 'artist-a', 'work-2', 'nested-work', 'nested.webp'), 'nested')
-    await fs.writeFile(path.join(directory, 'local', 'artist-b', 'work-3', 'b.png'), 'b')
-    const root = await resolveSafeScanRoot(directory)
-
-    const pages = await collectPages(discoverLocalWorkPages(root, 'local', limits, new AbortController().signal))
-    expect(pages.map((page) => page.length)).toEqual([2, 1])
-    expect(pages.flat()).toMatchObject([
-      { kind: 'MEDIA_DIRECTORY', artistDirectory: 'artist-a', relativePath: 'local/artist-a/work-1' },
-      {
-        kind: 'MEDIA_DIRECTORY',
-        artistDirectory: 'artist-a',
-        relativePath: 'local/artist-a/work-2/nested-work'
-      },
-      { kind: 'MEDIA_DIRECTORY', artistDirectory: 'artist-b', relativePath: 'local/artist-b/work-3' }
     ])
   })
 

@@ -6,14 +6,13 @@ import path from 'node:path'
 import {
   artistMappingInputDigest,
   computeLocalWorkContentFingerprint,
-  discoverBoundedLocalWorkCandidates,
   localWorkInputDigest,
   metadataInputDigest
 } from '@pixishelf/job-executors'
 import { migrationPayloadSchema, type MigrationPayload, type ScanPayload } from '@pixishelf/job-contracts'
 import type { Prisma } from '@pixishelf/db'
 import { prisma } from '@/lib/prisma'
-import { LOCAL_IMPORT_DIRECTORY } from '@/schemas/local-import.dto'
+import { startLocalImportSchema, type StartLocalImportInput } from '@/schemas/local-import.dto'
 import { getScanPath, getSystemSettings } from '@/services/setting.service'
 import {
   buildMigrationSelection,
@@ -31,15 +30,6 @@ import { BackgroundTaskError } from '@/services/background-task/background-task-
 const MAX_METADATA_BYTES = 16 * 1024 * 1024
 const MAX_LOCAL_IMPORT_CANDIDATES = 10_000
 const MAX_LOCAL_IMPORT_ARTISTS = 2_000
-const LOCAL_DISCOVERY_LIMITS = Object.freeze({
-  pageSize: 100,
-  maxDepth: 12,
-  maxEntries: 100_000,
-  maxMediaPerArtwork: 2_000,
-  maxCandidates: MAX_LOCAL_IMPORT_CANDIDATES,
-  concurrency: 4,
-  maxArchiveMediaBytes: 4 * 1024 * 1024 * 1024
-})
 const SHA256 = /^[a-f0-9]{64}$/
 
 export interface QueuedMediaRootJob {
@@ -269,20 +259,13 @@ export async function enqueueCentralArtworkRescan(input: {
   return { jobId: queued.job.id, scanRunId, status: 'PENDING', reused: queued.reused }
 }
 
-export async function enqueueCentralLocalDirectoryImport(requestedByUserId: string): Promise<QueuedMediaRootJob> {
-  const scanPath = await requireScanPath()
-  const signal = AbortSignal.timeout(120_000)
-  const [discovered, settings] = await Promise.all([
-    discoverBoundedLocalWorkCandidates({
-      scanRoot: scanPath,
-      localDirectory: LOCAL_IMPORT_DIRECTORY,
-      limits: LOCAL_DISCOVERY_LIMITS,
-      signal
-    }),
-    getSystemSettings()
-  ])
+export async function enqueueCentralLocalDirectoryImport(
+  input: StartLocalImportInput & { requestedByUserId: string }
+): Promise<QueuedMediaRootJob> {
+  const { storagePaths } = startLocalImportSchema.parse({ storagePaths: input.storagePaths })
+  const settings = await getSystemSettings()
   const existingRows = await prisma.artwork.findMany({
-    where: { storagePath: { in: discovered.map((candidate) => candidate.relativePath) } },
+    where: { storagePath: { in: storagePaths } },
     select: { storagePath: true },
     take: MAX_LOCAL_IMPORT_CANDIDATES + 1
   })
@@ -290,10 +273,9 @@ export async function enqueueCentralLocalDirectoryImport(requestedByUserId: stri
     throw precondition('Local import existing artwork query exceeds the configured limit')
   }
   const existingPaths = new Set(existingRows.flatMap((row) => (row.storagePath ? [row.storagePath] : [])))
-  const candidates = discovered.filter((candidate) => !existingPaths.has(candidate.relativePath))
-  const artistDirectories = [...new Set(candidates.map((candidate) => candidate.artistDirectory))].sort((left, right) =>
-    left.localeCompare(right)
-  )
+  const candidatePaths = storagePaths.filter((storagePath) => !existingPaths.has(storagePath)).sort(compareText)
+  if (candidatePaths.length === 0) throw precondition('No new local import works remain')
+  const artistDirectories = [...new Set(candidatePaths.map(localImportArtistDirectory))].sort(compareText)
   if (artistDirectories.length > MAX_LOCAL_IMPORT_ARTISTS) {
     throw precondition('Local import artist count exceeds the configured limit')
   }
@@ -308,11 +290,11 @@ export async function enqueueCentralLocalDirectoryImport(requestedByUserId: stri
   const mappingMap = new Map(storedMappings.map((mapping) => [mapping.artistDirectory, mapping.artistId]))
   const missing = artistDirectories.find((artistDirectory) => !mappingMap.has(artistDirectory))
   if (missing) throw precondition(`Local import artist mapping is missing: ${missing}`)
-  const workRows = candidates.map((candidate, ordinal) => ({
+  const workRows = candidatePaths.map((relativePath, ordinal) => ({
     ordinal,
-    kind: candidate.kind,
-    relativePath: candidate.relativePath,
-    fingerprint: candidate.fingerprint
+    kind: 'MEDIA_DIRECTORY' as const,
+    relativePath,
+    fingerprint: null
   }))
   const mappingRows = [...mappingMap.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
@@ -329,7 +311,7 @@ export async function enqueueCentralLocalDirectoryImport(requestedByUserId: stri
       payload: { defaultTagIds, mappingCount: mappingRows.length, mappingDigest },
       priority: 15,
       maxAttempts: 3,
-      requestedByUserId
+      requestedByUserId: input.requestedByUserId
     },
     {
       afterEnqueue: async ({ transaction, job, reused }) => {
@@ -495,7 +477,7 @@ interface ExpectedLocalWorkRow {
   ordinal: number
   kind: 'MEDIA_DIRECTORY'
   relativePath: string
-  fingerprint: string
+  fingerprint: string | null
 }
 
 interface ExpectedMappingRow {
@@ -593,4 +575,12 @@ function activeSnapshotConflict(message: string) {
 
 function precondition(message: string) {
   return new BackgroundTaskError('PRECONDITION_FAILED', message)
+}
+
+function localImportArtistDirectory(storagePath: string) {
+  return storagePath.split('/')[1]!
+}
+
+function compareText(left: string, right: string) {
+  return left.localeCompare(right)
 }

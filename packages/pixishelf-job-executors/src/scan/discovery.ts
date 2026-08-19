@@ -7,7 +7,6 @@ import { hashStableFile } from './content-reader.ts'
 import { ScanExecutorError } from './errors.ts'
 import { computeLocalWorkContentFingerprintWithinRoot } from './fingerprint.ts'
 import {
-  normalizeRelativeScanPath,
   relativeFromRoot,
   resolveSafeExistingPath,
   type SafeScanPath,
@@ -55,15 +54,6 @@ export interface DiscoveredLocalMediaFile extends DiscoveredMediaFile {
   width: number
   height: number
   modifiedAt: Date
-}
-
-export interface LocalWorkCandidate {
-  kind: 'MEDIA_DIRECTORY'
-  artistDirectory: string
-  relativePath: string
-  title: string
-  fingerprint: string
-  mediaCount: number
 }
 
 export async function* discoverMetadataCandidatePages(
@@ -180,113 +170,6 @@ export async function collectArtworkMedia(
   return attachChapterManifests(root, ordered, signal)
 }
 
-export async function* discoverLocalWorkPages(
-  root: SafeScanRoot,
-  localDirectory: string,
-  limits: ScanDiscoveryLimits,
-  signal: AbortSignal
-): AsyncGenerator<LocalWorkCandidate[]> {
-  const localRoot = await resolveSafeExistingPath(root, normalizeRelativeScanPath(localDirectory), 'directory').catch(
-    (error) => {
-      if (error instanceof ScanExecutorError && error.code === 'SOURCE_NOT_FOUND') return null
-      throw error
-    }
-  )
-  if (!localRoot) return
-  let page: LocalWorkCandidate[] = []
-  let visitedEntries = 0
-
-  async function* visit(
-    directory: SafeScanPath,
-    artistDirectory: string,
-    depth: number
-  ): AsyncGenerator<LocalWorkCandidate[]> {
-    throwIfAborted(signal)
-    if (depth > limits.maxDepth) {
-      throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local import directory depth exceeds the configured limit')
-    }
-    const entries: Array<{ name: string; isDirectory: boolean; isFile: boolean }> = []
-    const handle = await fs.opendir(directory.absolutePath)
-    try {
-      for await (const entry of handle) {
-        throwIfAborted(signal)
-        visitedEntries += 1
-        if (visitedEntries > limits.maxEntries) {
-          throw new ScanExecutorError(
-            'INPUT_SNAPSHOT_INVALID',
-            'Local import discovery exceeds the configured entry limit'
-          )
-        }
-        const absolutePath = path.join(directory.absolutePath, entry.name)
-        const metadata = await fs.lstat(absolutePath)
-        if (metadata.isSymbolicLink()) {
-          throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Local import discovery encountered a symbolic link')
-        }
-        entries.push({ name: entry.name, isDirectory: metadata.isDirectory(), isFile: metadata.isFile() })
-      }
-    } finally {
-      await handle.close().catch(() => undefined)
-    }
-    entries.sort((left, right) => compareCodePoints(left.name, right.name))
-    const directMedia = entries.filter(
-      (entry) => entry.isFile && mediaExtensions.has(path.extname(entry.name).toLowerCase())
-    )
-    if (depth > 0 && directMedia.length > 0) {
-      if (directMedia.length > limits.maxMediaPerArtwork) {
-        throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local work media count exceeds the configured limit')
-      }
-      const relativePath = directory.relativePath
-      page.push({
-        kind: 'MEDIA_DIRECTORY',
-        artistDirectory,
-        relativePath,
-        title: path.posix.basename(relativePath),
-        fingerprint: await computeLocalWorkContentFingerprintWithinRoot({
-          root,
-          relativeDirectory: directory.relativePath,
-          kind: 'MEDIA_DIRECTORY',
-          maxEntries: limits.maxEntries,
-          maxFiles: limits.maxMediaPerArtwork,
-          maxFileBytes: limits.maxArchiveMediaBytes ?? 4 * 1024 * 1024 * 1024,
-          signal
-        }),
-        mediaCount: directMedia.length
-      })
-      if (page.length === limits.pageSize) {
-        const completed = page
-        page = []
-        yield completed
-      }
-    }
-    for (const child of entries.filter((entry) => entry.isDirectory)) {
-      const childRelativePath = `${directory.relativePath}/${child.name}`
-      yield* visit(
-        { absolutePath: path.join(directory.absolutePath, child.name), relativePath: childRelativePath },
-        artistDirectory,
-        depth + 1
-      )
-    }
-  }
-
-  const artists = await readSafeDirectories(localRoot.absolutePath, () => {
-    visitedEntries += 1
-    if (visitedEntries > limits.maxEntries) {
-      throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local import discovery exceeds the configured entry limit')
-    }
-  })
-  for (const artist of artists) {
-    yield* visit(
-      {
-        absolutePath: path.join(localRoot.absolutePath, artist),
-        relativePath: `${localRoot.relativePath}/${artist}`
-      },
-      artist,
-      0
-    )
-  }
-  if (page.length > 0) yield page
-}
-
 export async function collectLocalMedia(
   root: SafeScanRoot,
   relativeDirectory: string,
@@ -374,25 +257,6 @@ export async function verifyLocalWorkFingerprint(input: {
     throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen local work changed before processing')
   }
   return resolveSafeExistingPath(input.root, input.relativeDirectory, 'directory')
-}
-
-async function readSafeDirectories(directory: string, onEntry: () => void): Promise<string[]> {
-  const result: string[] = []
-  const handle = await fs.opendir(directory)
-  try {
-    for await (const entry of handle) {
-      onEntry()
-      const metadata = await fs.lstat(path.join(directory, entry.name))
-      if (metadata.isSymbolicLink()) {
-        throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Local artist directory is a symbolic link')
-      }
-      if (entry.name.startsWith('.')) continue
-      if (metadata.isDirectory()) result.push(entry.name)
-    }
-  } finally {
-    await handle.close().catch(() => undefined)
-  }
-  return result.sort(compareCodePoints)
 }
 
 function mediaPageIndex(filename: string, artworkId: string, extension: string): number | null {

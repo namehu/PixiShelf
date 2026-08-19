@@ -138,7 +138,11 @@ export default function LocalDirectoryImportManagement() {
     if (mappingPayload.length > 0) {
       await saveMappingsMutation.mutateAsync({ mappings: mappingPayload })
     }
-    await startMutation.mutateAsync()
+    await startMutation.mutateAsync({
+      storagePaths: importArtists.flatMap((artist) =>
+        artist.works.filter((work) => work.status === 'new').map((work) => work.storagePath)
+      )
+    })
   }
 
   return (

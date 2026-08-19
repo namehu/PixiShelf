@@ -1,7 +1,7 @@
 import type { LocalDirectoryImportPayload, ScanPayload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext } from '@pixishelf/job-runtime'
 import { describe, expect, it, vi } from 'vitest'
-import { localWorkInputDigest, metadataInputDigest } from '../digests.js'
+import { artistMappingInputDigest, localWorkInputDigest, metadataInputDigest } from '../digests.js'
 import {
   scanMode,
   startOrResumeScanRun,
@@ -110,6 +110,43 @@ describe('ScanRun frozen input adapter', () => {
       })
     ).rejects.toMatchObject({ code: 'INPUT_SNAPSHOT_INVALID' })
     expect(database.scanRunLocalArtistMappingInput.findMany).toHaveBeenCalledTimes(2)
+  })
+
+  it('accepts path-only local import snapshots without a content fingerprint', async () => {
+    const works = [
+      {
+        id: 'w1',
+        scanRunId: 'run-1',
+        ordinal: 0,
+        kind: 'MEDIA_DIRECTORY' as const,
+        relativePath: 'local-imports/Artist/Work',
+        fingerprint: null,
+        createdAt: frozenAt
+      }
+    ]
+    const mappings = [
+      { id: 'm1', scanRunId: 'run-1', ordinal: 0, artistDirectory: 'Artist', artistId: 7, createdAt: frozenAt }
+    ]
+    const mappingDigest = artistMappingInputDigest(mappings)
+    const database = {
+      scanRunLocalWorkInput: { findMany: paged(works) },
+      scanRunLocalArtistMappingInput: { findMany: paged(mappings) }
+    } as unknown as ScanDatabase
+
+    await expect(
+      verifyFrozenLocalSnapshot({
+        database,
+        run: {
+          id: 'run-1',
+          inputFrozenAt: frozenAt,
+          inputCount: 1,
+          inputDigest: localWorkInputDigest(works)
+        } as never,
+        payload: { defaultTagIds: [], mappingCount: 1, mappingDigest },
+        pageSize: 100,
+        maxEntries: 100
+      })
+    ).resolves.toMatchObject({ workCount: 1, mappings })
   })
 
   it('rejects historical archive-manifest work in a new local import execution', async () => {

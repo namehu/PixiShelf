@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   artworkFindMany: vi.fn(),
   mappingFindMany: vi.fn(),
   fingerprint: vi.fn(),
-  discoverBounded: vi.fn(),
   fsRealpath: vi.fn(),
   fsLstat: vi.fn(),
   fsReadFile: vi.fn()
@@ -34,8 +33,7 @@ vi.mock('@/lib/prisma', () => ({
 }))
 vi.mock('@pixishelf/job-executors', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pixishelf/job-executors')>()),
-  computeLocalWorkContentFingerprint: mocks.fingerprint,
-  discoverBoundedLocalWorkCandidates: mocks.discoverBounded
+  computeLocalWorkContentFingerprint: mocks.fingerprint
 }))
 vi.mock('node:fs/promises', () => ({
   default: {
@@ -67,7 +65,6 @@ describe('central media root enqueue semantics', () => {
     mocks.fingerprint.mockResolvedValue('a'.repeat(64))
     mocks.artworkFindMany.mockResolvedValue([])
     mocks.mappingFindMany.mockResolvedValue([])
-    mocks.discoverBounded.mockResolvedValue([])
     mocks.getSystemSettings.mockResolvedValue({ local_import_default_tag_ids: [] })
     mocks.fsRealpath.mockImplementation(async (value: string) => value)
     mocks.fsLstat.mockResolvedValue({ isSymbolicLink: () => false, isFile: () => true, size: 2 })
@@ -229,29 +226,35 @@ describe('central media root enqueue semantics', () => {
     expect(createRun).not.toHaveBeenCalled()
   })
 
-  it('uses the shared bounded discovery and bounded mapping queries for local import', async () => {
-    mocks.discoverBounded.mockResolvedValue([
-      {
-        kind: 'MEDIA_DIRECTORY',
-        artistDirectory: 'artist',
-        relativePath: 'local-imports/artist/work',
-        title: 'work',
-        fingerprint: 'c'.repeat(64),
-        mediaCount: 1
-      }
-    ])
+  it('queues only preview paths that remain new without reading media content', async () => {
+    mocks.artworkFindMany.mockResolvedValue([{ storagePath: 'local-imports/artist/existing' }])
     mocks.mappingFindMany.mockResolvedValue([{ artistDirectory: 'artist', artistId: 9 }])
-    mocks.enqueue.mockResolvedValue({ job: { id: 'local-job' }, reused: false })
+    const scanRunCreate = vi.fn().mockResolvedValue({ id: 'local-run' })
+    const localWorkCreateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const mappingCreateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const transaction = {
+      scanRun: { findUnique: vi.fn().mockResolvedValue(null), create: scanRunCreate },
+      scanRunLocalWorkInput: { createMany: localWorkCreateMany },
+      scanRunLocalArtistMappingInput: { createMany: mappingCreateMany }
+    }
+    mocks.enqueue.mockImplementationOnce(async (_request, options) => {
+      await options.afterEnqueue({ transaction, job: { id: 'local-job' }, reused: false })
+      return { job: { id: 'local-job' }, reused: false }
+    })
 
-    await enqueueCentralLocalDirectoryImport('admin-1')
+    await enqueueCentralLocalDirectoryImport({
+      requestedByUserId: 'admin-1',
+      storagePaths: ['local-imports/artist/work', 'local-imports/artist/existing']
+    })
 
-    expect(mocks.discoverBounded).toHaveBeenCalledWith(
+    expect(mocks.artworkFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        localDirectory: 'local-imports',
-        limits: expect.objectContaining({ maxDepth: 12, maxEntries: 100_000, maxCandidates: 10_000 })
+        where: {
+          storagePath: { in: ['local-imports/artist/work', 'local-imports/artist/existing'] }
+        },
+        take: 10_001
       })
     )
-    expect(mocks.artworkFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 10_001 }))
     expect(mocks.mappingFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { artistDirectory: { in: ['artist'] } },
@@ -262,5 +265,17 @@ describe('central media root enqueue semantics', () => {
       expect.objectContaining({ payload: expect.objectContaining({ mappingCount: 1 }) }),
       expect.anything()
     )
+    expect(localWorkCreateMany).toHaveBeenCalledWith({
+      data: [
+        {
+          scanRunId: 'local-run',
+          ordinal: 0,
+          kind: 'MEDIA_DIRECTORY',
+          relativePath: 'local-imports/artist/work',
+          fingerprint: null
+        }
+      ]
+    })
+    expect(mocks.fingerprint).not.toHaveBeenCalled()
   })
 })

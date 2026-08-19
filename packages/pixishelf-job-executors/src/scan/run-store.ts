@@ -147,8 +147,8 @@ export async function verifyFrozenLocalSnapshot(input: {
       if (row.kind !== 'MEDIA_DIRECTORY') {
         throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen local work kind is no longer supported')
       }
-      if (!row.fingerprint || !SHA256_PATTERN.test(row.fingerprint)) {
-        throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen local work fingerprint is invalid')
+      if (row.fingerprint !== null) {
+        throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local directory import must not contain content fingerprints')
       }
       const identity = `${row.kind}\0${row.relativePath}`
       if (workIdentities.has(identity)) {

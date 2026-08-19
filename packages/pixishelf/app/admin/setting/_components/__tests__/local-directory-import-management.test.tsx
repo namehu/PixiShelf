@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -11,7 +11,17 @@ const mocks = vi.hoisted(() => ({
     data: undefined as unknown,
     refetch: vi.fn()
   },
-  mutation: {
+  saveMappingsMutation: {
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false
+  },
+  startMutation: {
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false
+  },
+  cancelMutation: {
     mutate: vi.fn(),
     mutateAsync: vi.fn(),
     isPending: false
@@ -21,7 +31,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@tanstack/react-query', () => ({
   useQuery: (options: { queryKey?: string[] }) =>
     options.queryKey?.[0] === 'localImport.status' ? mocks.statusQuery : mocks.previewQuery,
-  useMutation: () => mocks.mutation
+  useMutation: (options: { mutationKey?: string[] }) => {
+    if (options.mutationKey?.[0] === 'localImport.saveMappings') return mocks.saveMappingsMutation
+    if (options.mutationKey?.[0] === 'localImport.start') return mocks.startMutation
+    return mocks.cancelMutation
+  }
 }))
 
 vi.mock('@/lib/trpc', () => ({
@@ -29,9 +43,9 @@ vi.mock('@/lib/trpc', () => ({
     localImport: {
       preview: { queryOptions: () => ({ queryKey: ['localImport.preview'] }) },
       status: { queryOptions: () => ({ queryKey: ['localImport.status'] }) },
-      saveMappings: { mutationOptions: () => ({}) },
-      start: { mutationOptions: () => ({}) },
-      cancel: { mutationOptions: () => ({}) }
+      saveMappings: { mutationOptions: () => ({ mutationKey: ['localImport.saveMappings'] }) },
+      start: { mutationOptions: () => ({ mutationKey: ['localImport.start'] }) },
+      cancel: { mutationOptions: () => ({ mutationKey: ['localImport.cancel'] }) }
     }
   }),
   useTRPCClient: () => ({
@@ -47,6 +61,8 @@ import LocalDirectoryImportManagement from '../local-directory-import-management
 describe('LocalDirectoryImportManagement', () => {
   beforeEach(() => {
     mocks.previewQuery.data = undefined
+    mocks.saveMappingsMutation.mutateAsync.mockResolvedValue(undefined)
+    mocks.startMutation.mutateAsync.mockResolvedValue(undefined)
     mocks.statusQuery.data = {
       job: {
         status: 'COMPLETED',
@@ -91,5 +107,35 @@ describe('LocalDirectoryImportManagement', () => {
     expect(within(successStat!).getByText('2')).toBeTruthy()
     expect(within(durationStat!).getByText('2s')).toBeTruthy()
     expect(screen.queryByText('NaNs')).toBeNull()
+  })
+
+  it('starts the worker with only new paths from the completed preview', async () => {
+    mocks.previewQuery.data = {
+      artists: [
+        {
+          artistDirectory: 'Artist',
+          mapping: { artistId: 7, artistName: 'Mapped Artist' },
+          works: [
+            { storagePath: 'local-imports/Artist/New', status: 'new' },
+            { storagePath: 'local-imports/Artist/Existing', status: 'existing' }
+          ]
+        }
+      ],
+      counts: { artists: 1, works: 2, new: 1, existing: 1, invalid: 0, media: 1 }
+    }
+    render(<LocalDirectoryImportManagement />)
+    const startButton = screen.getByRole('button', { name: '开始导入' }) as HTMLButtonElement
+    await waitFor(() => expect(startButton.disabled).toBe(false))
+
+    fireEvent.click(startButton)
+
+    await waitFor(() => {
+      expect(mocks.startMutation.mutateAsync).toHaveBeenCalledWith({
+        storagePaths: ['local-imports/Artist/New']
+      })
+    })
+    expect(mocks.saveMappingsMutation.mutateAsync).toHaveBeenCalledWith({
+      mappings: [{ artistDirectory: 'Artist', artistId: 7 }]
+    })
   })
 })

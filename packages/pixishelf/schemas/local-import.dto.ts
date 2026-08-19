@@ -51,6 +51,24 @@ export const saveLocalImportArtistMappingsSchema = z.object({
 })
 export type SaveLocalImportArtistMappingsInput = z.infer<typeof saveLocalImportArtistMappingsSchema>
 
+export const localImportWorkStoragePathSchema = localImportStoragePathSchema.refine((value) => {
+  const segments = value.split('/')
+  return (
+    segments[0] === LOCAL_IMPORT_DIRECTORY &&
+    segments.length >= 3 &&
+    localImportArtistDirectorySchema.safeParse(segments[1]).success
+  )
+}, 'Invalid local import work path')
+
+export const startLocalImportSchema = z.object({
+  storagePaths: z
+    .array(localImportWorkStoragePathSchema)
+    .min(1)
+    .max(10_000)
+    .refine((values) => new Set(values).size === values.length, 'Duplicate local import work path')
+})
+export type StartLocalImportInput = z.infer<typeof startLocalImportSchema>
+
 export type LocalImportWorkStatus = 'new' | 'existing' | 'invalid'
 
 export interface LocalImportWorkItem {

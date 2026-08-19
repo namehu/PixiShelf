@@ -4,7 +4,7 @@ import {
   assertLegacyBackgroundExecutionAllowed,
   LegacyBackgroundExecutionDisabledError
 } from '@/services/background-task/dispatcher-cutover'
-import { saveLocalImportArtistMappingsSchema } from '@/schemas/local-import.dto'
+import { saveLocalImportArtistMappingsSchema, startLocalImportSchema } from '@/schemas/local-import.dto'
 import { getScanPath, getSystemSettings } from '@/services/setting.service'
 import { discoverLocalImports, runLocalImport, saveLocalImportArtistMappings } from '@/services/local-import-service'
 import * as JobService from '@/services/job-service'
@@ -58,10 +58,13 @@ export const localImportRouter = router({
     return saveLocalImportArtistMappings(input)
   }),
 
-  start: adminProcedure.mutation(async ({ ctx }) => {
+  start: adminProcedure.input(startLocalImportSchema).mutation(async ({ input, ctx }) => {
     if (isCentralDispatcherCutoverEnabled()) {
       try {
-        const queued = await enqueueCentralLocalDirectoryImport(ctx.userId!)
+        const queued = await enqueueCentralLocalDirectoryImport({
+          requestedByUserId: ctx.userId!,
+          storagePaths: input.storagePaths
+        })
         return { jobId: queued.jobId, queued: true, scanRunId: queued.scanRunId }
       } catch (error) {
         const classified = classifyBackgroundTaskTransportError(error)
