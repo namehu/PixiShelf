@@ -197,6 +197,12 @@ CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类�
 
 生产发布不能简化成无参数的 `docker compose up -d`：生产 Compose 仍包含回滚兼容 `archive-worker`，而生产稳态只允许通用 Worker 消费。
 
+日常更新可以使用一键脚本，它会按 App migration → Worker READY/capability 的顺序更新同一版本的两个镜像，并在存在执行中任务时默认拒绝操作：
+
+```bash
+sudo bash ./scripts/update-production.sh
+```
+
 升级、暗启动、消费者切换、验证和回滚入口见：
 
 - [部署基线](./docs/operations/deployment.md)；

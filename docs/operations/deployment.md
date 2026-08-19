@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf v0.36.3 的本地运行、生产 Compose 拓扑、升级顺序、验证与回滚入口
-last-verified: 2026-08-18
+last-verified: 2026-08-19
 sources:
   - build/docker-compose.dev.yml
   - build/docker-compose.deploy.yml
@@ -9,6 +9,7 @@ sources:
   - build/Dockerfile
   - build/worker.Dockerfile
   - build/entrypoint.sh
+  - scripts/update-production.sh
 ---
 
 # PixiShelf 部署基线
@@ -87,7 +88,42 @@ sources:
 备份位置、校验值和镜像 digest 必须记录在本次发布记录中。“命令成功”不能代替恢复验证。
 完整备份集合、停写检查点和隔离恢复演练见[备份与恢复基线](./backup-and-recovery.md)。
 
-## 标准生产升级
+## 一键生产升级
+
+日常生产升级优先使用仓库内的一键脚本。它把 App 与通用 Worker 作为同一个发布单元：先检查执行中的后台任务，拉取两份镜像，停止写入者，先启动 App 完成 `prisma migrate deploy`，再启动 Worker，并执行 READY 与 capability 门禁。脚本只显式编排 `app`、`worker` 和原本已在运行的可选 `scheduler`。
+
+从部署目录执行：
+
+```bash
+sudo bash ./scripts/update-production.sh
+```
+
+脚本优先使用当前目录的 `docker-compose.yml` / `compose.yml`；在仓库根目录执行且没有默认 Compose 文件时，会自动使用 `build/docker-compose.deploy.yml` 和同目录 `.env`。也可以显式指定：
+
+```bash
+sudo bash ./scripts/update-production.sh \
+  --compose-file build/docker-compose.deploy.yml \
+  --env-file build/.env
+```
+
+默认行为和参数：
+
+- 查询 `system_jobs`，发现 `RUNNING`、`PAUSING` 或 `CANCELLING` 时拒绝升级；`--force` 明确允许通过 Worker drain 路径中断这些任务；
+- 默认同时拉取 `app` 和 `worker`；`--no-pull` 仅用宿主机已有镜像强制重建；
+- 记录 scheduler 原始状态，只在升级前本来就在运行时恢复它；
+- 任一 migration、健康检查、READY 或 capability 门禁失败时保持 scheduler 停止，不自动假装回滚成功；
+- `--wait` 只能证明容器 healthcheck 通过，脚本还会额外执行 Worker READY 和 capability audit。
+
+发布前一致性备份仍是独立门禁，不能由“镜像更新成功”替代。可以把实例自己的 PostgreSQL dump、NAS 原媒体快照、派生媒体快照和清单校验封装成可执行文件，再作为停写窗口内的 Hook：
+
+```bash
+sudo PIXISHELF_PRE_UPDATE_HOOK=/absolute/path/pixishelf-backup-checkpoint.sh \
+  bash ./scripts/update-production.sh
+```
+
+未配置 Hook 时脚本会明确警告，但不会伪造备份证据。完整备份集合和验证要求仍以[备份与恢复基线](./backup-and-recovery.md)为准。
+
+## 标准生产升级（手动流程）
 
 以下命令都从仓库根目录执行，并显式指定环境文件和 Compose 文件：
 
