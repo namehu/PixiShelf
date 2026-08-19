@@ -44,6 +44,7 @@ import {
   getActiveJobByType,
   getActiveJobsByTypes,
   getActiveLocalDirectoryImportJob,
+  getLatestLocalDirectoryImportJob,
   getActiveMigrationJob,
   getActiveScanJob,
   finalizePendingReplaceJob
@@ -126,6 +127,45 @@ describe('job locking and video optimization queue', () => {
         status: { in: expected }
       },
       orderBy: { createdAt: 'desc' }
+    })
+  })
+
+  it('loads scan run summary with the latest local import job status', async () => {
+    const expected = {
+      id: 'job-local-import',
+      type: 'LOCAL_DIRECTORY_IMPORT',
+      scanRun: {
+        id: 'run-local-import',
+        totalArtworks: 3,
+        succeededArtworks: 2,
+        skippedArtworks: 1,
+        failedArtworks: 0,
+        newImages: 5,
+        durationMs: 2400,
+        errorMessage: null
+      }
+    }
+    mocks.findFirst.mockResolvedValueOnce(expected)
+
+    await expect(getLatestLocalDirectoryImportJob()).resolves.toBe(expected)
+
+    expect(mocks.findFirst).toHaveBeenCalledWith({
+      where: { type: 'LOCAL_DIRECTORY_IMPORT' },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        scanRun: {
+          select: {
+            id: true,
+            totalArtworks: true,
+            succeededArtworks: true,
+            skippedArtworks: true,
+            failedArtworks: true,
+            newImages: true,
+            durationMs: true,
+            errorMessage: true
+          }
+        }
+      }
     })
   })
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { FolderSearch, Play, Square, UserPlus, FolderOpen, AlertCircle, HardDriveDownload } from 'lucide-react'
 import { toast } from 'sonner'
+import { ACTIVE_JOB_STATUSES, type JobStatus } from '@pixishelf/job-contracts'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -11,20 +12,26 @@ import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import MultipleSelector, { type Option } from '@/components/shared/multiple-selector'
-import type { LocalImportRunResult } from '@/schemas/local-import.dto'
 import { confirm } from '@/components/shared/global-confirm'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { cn } from '@/lib/utils'
 
-const ACTIVE_JOB_STATUSES = new Set(['PENDING', 'RUNNING', 'CANCELLING'])
-
 interface LocalImportStatusView {
   job: {
-    status: string
+    status: JobStatus
     progress: number
     message: string | null
     error: string | null
     result: unknown
+    scanRun: {
+      totalArtworks: number
+      succeededArtworks: number
+      skippedArtworks: number
+      failedArtworks: number
+      newImages: number
+      durationMs: number | null
+      errorMessage: string | null
+    } | null
   } | null
   activity: {
     scan: unknown | null
@@ -43,7 +50,7 @@ export default function LocalDirectoryImportManagement() {
     trpc.localImport.status.queryOptions(undefined, {
       refetchInterval: (query) => {
         const status = query.state.data?.job?.status
-        return status && ACTIVE_JOB_STATUSES.has(status) ? 1500 : 5000
+        return status && ACTIVE_JOB_STATUSES.has(status as JobStatus) ? 1500 : 5000
       }
     })
   )
@@ -92,7 +99,7 @@ export default function LocalDirectoryImportManagement() {
   const job = statusData?.job
   const isRunning = Boolean(job && ACTIVE_JOB_STATUSES.has(job.status))
   const scanBlocked = Boolean(statusData?.activity.scan)
-  const result = (job?.result ?? null) as LocalImportRunResult | null
+  const result = getLocalImportExecutionResult(job, isRunning)
 
   const searchArtists = async (value: string): Promise<Option[]> => {
     const response = await trpcClient.artist.queryPage.query({
@@ -334,11 +341,11 @@ export default function LocalDirectoryImportManagement() {
 
                 {result && (
                   <div className="grid grid-cols-2 gap-4 md:grid-cols-5 pt-2">
-                    <Stat label="导入成功" value={result.imported} />
+                    <Stat label="导入成功" value={result.succeeded} />
                     <Stat label="跳过" value={result.skipped} />
                     <Stat label="失败" value={result.failed} />
                     <Stat label="新增媒体" value={result.newImages} />
-                    <Stat label="耗时" value={`${Math.round(result.processingTime / 1000)}s`} />
+                    <Stat label="耗时" value={formatImportDuration(result.durationMs)} />
                   </div>
                 )}
 
@@ -369,6 +376,51 @@ export default function LocalDirectoryImportManagement() {
       </div>
     </div>
   )
+}
+
+interface LocalImportExecutionResult {
+  succeeded: number
+  skipped: number
+  failed: number
+  newImages: number
+  durationMs: number | null
+  errors: string[]
+}
+
+function getLocalImportExecutionResult(
+  job: LocalImportStatusView['job'] | undefined,
+  isRunning: boolean
+): LocalImportExecutionResult | null {
+  if (!job) return null
+  const result = toRecord(job.result)
+  if (!result && isRunning) return null
+  if (!result && !job.scanRun) return null
+
+  return {
+    succeeded: readNumber(result?.succeeded) ?? job.scanRun?.succeededArtworks ?? 0,
+    skipped: readNumber(result?.skipped) ?? job.scanRun?.skippedArtworks ?? 0,
+    failed: readNumber(result?.failed) ?? job.scanRun?.failedArtworks ?? 0,
+    newImages: readNumber(result?.newImages) ?? job.scanRun?.newImages ?? 0,
+    durationMs: job.scanRun?.durationMs ?? null,
+    errors: splitErrorMessages(job.scanRun?.errorMessage, job.error)
+  }
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function splitErrorMessages(...values: Array<string | null | undefined>) {
+  return values.flatMap((value) => value?.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) ?? [])
+}
+
+function formatImportDuration(durationMs: number | null) {
+  if (durationMs === null) return '--'
+  return `${Math.round(durationMs / 1000)}s`
 }
 
 function Stat({

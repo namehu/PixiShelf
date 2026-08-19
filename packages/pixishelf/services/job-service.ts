@@ -223,7 +223,21 @@ export async function getActiveLocalDirectoryImportJob() {
 export async function getLatestLocalDirectoryImportJob() {
   return prisma.systemJob.findFirst({
     where: { type: 'LOCAL_DIRECTORY_IMPORT' },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
+    include: {
+      scanRun: {
+        select: {
+          id: true,
+          totalArtworks: true,
+          succeededArtworks: true,
+          skippedArtworks: true,
+          failedArtworks: true,
+          newImages: true,
+          durationMs: true,
+          errorMessage: true
+        }
+      }
+    }
   })
 }
 
