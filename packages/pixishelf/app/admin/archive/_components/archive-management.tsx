@@ -55,6 +55,7 @@ import {
   archiveLaneStatusLabel,
   archiveMaintenanceRetryAction,
   archiveTaskDeepLinkId,
+  archiveTaskDisplayStatus,
   archiveTaskPageWithoutDetail,
   archiveTaskPollingInterval,
   archiveTaskStatusLabel,
@@ -142,7 +143,7 @@ export function ArchiveManagement() {
         refetchInterval: (query) =>
           detailTask?.id === requestedTaskId &&
           query.state.data?.items[0] &&
-          ACTIVE_STATUSES.has(query.state.data.items[0].status)
+          ACTIVE_STATUSES.has(archiveTaskDisplayStatus(query.state.data.items[0]))
             ? 1_500
             : false
       }
@@ -805,10 +806,13 @@ function TaskIdentity({ task }: { task: ArchiveTaskOutput }) {
 
 function TaskStatus({ task }: { task: ArchiveTaskOutput }) {
   const lifecycleState = task.publishedArtwork?.archiveLifecycleState
+  const displayStatus = archiveTaskDisplayStatus(task)
   return (
     <div className="flex flex-col items-start gap-1">
       <div className="flex flex-wrap gap-1">
-        <AdminStatusBadge status={task.status}>{archiveTaskStatusLabel(task.status, task.errorCode)}</AdminStatusBadge>
+        <AdminStatusBadge status={displayStatus}>
+          {archiveTaskStatusLabel(displayStatus, task.errorCode)}
+        </AdminStatusBadge>
         <Badge variant="outline">{task.selectedQuality === 'ORIGINAL' ? '原图' : '展示质量'}</Badge>
       </div>
       {task.decisionCode === 'USE_DISPLAY_QUALITY' && <span className="text-xs text-warning">等待确认展示质量</span>}
@@ -821,10 +825,13 @@ function TaskStatus({ task }: { task: ArchiveTaskOutput }) {
 }
 
 function TaskProgress({ task }: { task: ArchiveTaskOutput }) {
+  const displayStatus = archiveTaskDisplayStatus(task)
   return (
     <div className="flex min-w-36 flex-col gap-1.5">
       <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span className="max-w-32 truncate">{task.message || archiveTaskStatusLabel(task.status, task.errorCode)}</span>
+        <span className="max-w-32 truncate">
+          {task.message || archiveTaskStatusLabel(displayStatus, task.errorCode)}
+        </span>
         <span className="tabular-nums">{task.progress}%</span>
       </div>
       <Progress value={task.progress} aria-label={`${task.title || task.externalId} 完成 ${task.progress}%`} />
@@ -855,7 +862,8 @@ function TaskActions({
   const deleted = lifecycleState === 'TRASHED'
   const lifecyclePending = lifecycleState === 'TRASHING' || lifecycleState === 'RESTORING'
   const maintenanceRetryAction = archiveMaintenanceRetryAction(lifecycleState)
-  const active = ACTIVE_STATUSES.has(task.status)
+  const displayStatus = archiveTaskDisplayStatus(task)
+  const active = ACTIVE_STATUSES.has(displayStatus)
   return (
     <div className="flex justify-end gap-1">
       <Button variant="ghost" size="icon" onClick={onViewItems} aria-label="查看图片明细" title="图片明细">
@@ -873,12 +881,12 @@ function TaskActions({
               <Images aria-hidden="true" />
               图片明细
             </DropdownMenuItem>
-            {task.status === 'RUNNING' && (
+            {displayStatus === 'RUNNING' && (
               <DropdownMenuItem disabled={isPending('PAUSE')} onSelect={() => onAction('PAUSE')}>
                 {isPending('PAUSE') ? <Spinner /> : <CirclePause aria-hidden="true" />}暂停任务
               </DropdownMenuItem>
             )}
-            {task.status === 'PAUSED' && task.decisionCode !== 'USE_DISPLAY_QUALITY' && (
+            {displayStatus === 'PAUSED' && task.decisionCode !== 'USE_DISPLAY_QUALITY' && (
               <DropdownMenuItem disabled={isPending('RESUME')} onSelect={() => onAction('RESUME')}>
                 {isPending('RESUME') ? <Spinner /> : <CirclePlay aria-hidden="true" />}继续任务
               </DropdownMenuItem>

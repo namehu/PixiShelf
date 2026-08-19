@@ -4,6 +4,7 @@ import {
   archiveMaintenanceRetryAction,
   archiveTaskBulkPayloadKey,
   archiveTaskDeepLinkId,
+  archiveTaskDisplayStatus,
   archiveTaskPageWithoutDetail,
   archiveTaskPollingInterval,
   archiveTaskStatusLabel,
@@ -39,6 +40,13 @@ describe('archive task bulk action eligibility', () => {
 
   it('never includes an eligible row that is not selected', () => {
     expect(eligibleArchiveTaskIds(tasks, new Set(['failed']), 'RETRY')).toEqual(['failed'])
+  })
+
+  it('offers recovery when a legacy generic pause left the archive status running', () => {
+    const drifted = [{ id: 'drifted', status: 'RUNNING', systemJobStatus: 'PAUSED' }]
+    expect(archiveTaskDisplayStatus(drifted[0]!)).toBe('PAUSED')
+    expect(eligibleArchiveTaskIds(drifted, new Set(['drifted']), 'RESUME')).toEqual(['drifted'])
+    expect(eligibleArchiveTaskIds(drifted, new Set(['drifted']), 'PAUSE')).toEqual([])
   })
 
   it('uses a stable payload identity independent of selection order', () => {
@@ -105,6 +113,7 @@ describe('polling and labels', () => {
   it('polls quickly only while the current page has active tasks', () => {
     expect(archiveTaskPollingInterval([{ status: 'RUNNING' }])).toBe(1_500)
     expect(archiveTaskPollingInterval([{ status: 'COMPLETED' }])).toBe(8_000)
+    expect(archiveTaskPollingInterval([{ status: 'RUNNING', systemJobStatus: 'PAUSED' }])).toBe(8_000)
   })
 
   it('maps partial failures and lane states to user-facing labels', () => {

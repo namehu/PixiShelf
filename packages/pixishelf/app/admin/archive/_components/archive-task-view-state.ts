@@ -2,9 +2,13 @@ export const ARCHIVE_TASK_ACTIVE_STATUSES = ['PENDING', 'RUNNING', 'CANCELLING']
 
 export type ArchiveTaskBulkAction = 'PAUSE' | 'RESUME' | 'CANCEL' | 'RETRY'
 
-export interface ArchiveTaskStatusLike {
-  id: string
+export interface ArchiveTaskStateLike {
   status: string
+  systemJobStatus?: string
+}
+
+export interface ArchiveTaskStatusLike extends ArchiveTaskStateLike {
+  id: string
 }
 
 export type ArchiveMaintenanceRetryAction = 'DELETE_ARCHIVE' | 'RESTORE_ARCHIVE'
@@ -38,6 +42,10 @@ export function archiveTaskStatusLabel(status: string, errorCode?: string | null
   return TASK_STATUS_LABELS[status] ?? status
 }
 
+export function archiveTaskDisplayStatus(task: ArchiveTaskStateLike): string {
+  return task.status === 'RUNNING' && task.systemJobStatus === 'PAUSED' ? 'PAUSED' : task.status
+}
+
 export function archiveLaneStatusLabel(status: string): string {
   return LANE_STATUS_LABELS[status] ?? status
 }
@@ -48,8 +56,10 @@ export function archiveMaintenanceRetryAction(lifecycleState?: string | null): A
   return null
 }
 
-export function archiveTaskPollingInterval(tasks: readonly { status: string }[]): number {
-  return tasks.some((task) => ARCHIVE_TASK_ACTIVE_STATUSES.includes(task.status as never)) ? 1_500 : 8_000
+export function archiveTaskPollingInterval(tasks: readonly ArchiveTaskStateLike[]): number {
+  return tasks.some((task) => ARCHIVE_TASK_ACTIVE_STATUSES.includes(archiveTaskDisplayStatus(task) as never))
+    ? 1_500
+    : 8_000
 }
 
 export function eligibleArchiveTaskIds(
@@ -58,7 +68,9 @@ export function eligibleArchiveTaskIds(
   action: ArchiveTaskBulkAction
 ): string[] {
   const eligibleStatuses = ELIGIBLE_STATUSES[action]
-  return tasks.filter((task) => selectedIds.has(task.id) && eligibleStatuses.has(task.status)).map((task) => task.id)
+  return tasks
+    .filter((task) => selectedIds.has(task.id) && eligibleStatuses.has(archiveTaskDisplayStatus(task)))
+    .map((task) => task.id)
 }
 
 export function archiveTaskBulkPayloadKey(action: ArchiveTaskBulkAction, taskIds: readonly string[]): string {

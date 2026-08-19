@@ -223,6 +223,32 @@ describe('archive executor', () => {
     expect(context.__scope[finalizer]).toHaveBeenCalledOnce()
   })
 
+  it('atomically pauses when PAUSING rejects a checkpoint before the abort signal arrives', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({
+      ...archiveImport,
+      totalItems: 1,
+      items: [archiveItem]
+    })
+    const context = createContext(transaction, [], new AbortController().signal, 'PAUSING')
+    vi.mocked(context.mutateInTransaction)
+      .mockImplementationOnce(async (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction))
+      .mockRejectedValue(new JobExecutionFenceError('job-1'))
+
+    await expect(executeArchiveImport(context, dependencies(transaction))).resolves.toEqual(
+      TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+    )
+
+    expect(transaction.archiveImport.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'PAUSED' }) })
+    )
+    expect(context.__scope.pause).toHaveBeenCalledWith({
+      reason: 'USER_REQUESTED',
+      message: 'Archive import paused'
+    })
+    expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
+  })
+
   it('atomically pauses a running import when provider action is required', async () => {
     const transaction = createTransaction()
     transaction.archiveImport.findUnique.mockResolvedValue({
@@ -330,6 +356,7 @@ describe('archive executor', () => {
     context.mutateInTransaction = vi.fn(async () => {
       throw new JobExecutionFenceError('job-1')
     }) as never
+    context.finalizeInTransaction.mockRejectedValueOnce(new JobExecutionFenceError('job-1'))
 
     await expect(executeArchiveImport(context, dependencies(transaction))).rejects.toBeInstanceOf(
       JobExecutionFenceError
@@ -337,7 +364,8 @@ describe('archive executor', () => {
 
     expect(transaction.archiveImport.findUnique).not.toHaveBeenCalled()
     expect(transaction.archiveImport.updateMany).not.toHaveBeenCalled()
-    expect(context.finalizeInTransaction).not.toHaveBeenCalled()
+    expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
+    expect(context.__scope.fail).not.toHaveBeenCalled()
   })
 })
 

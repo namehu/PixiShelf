@@ -293,8 +293,15 @@ async function transitionCentralArchiveControl(
   now: Date,
   options: { useDisplayQuality?: boolean } = {}
 ) {
+  const recoverablePausedDrift = action === 'RESUME' && task.status === 'RUNNING' && task.systemJob.status === 'PAUSED'
   const allowedImportStatuses =
-    action === 'PAUSE' ? ['PENDING', 'RUNNING'] : action === 'RESUME' ? ['PAUSED'] : ['PENDING', 'RUNNING', 'PAUSED']
+    action === 'PAUSE'
+      ? ['PENDING', 'RUNNING']
+      : action === 'RESUME'
+        ? recoverablePausedDrift
+          ? ['PAUSED', 'RUNNING']
+          : ['PAUSED']
+        : ['PENDING', 'RUNNING', 'PAUSED']
   assertActionStatus(action, task.status, allowedImportStatuses)
 
   await prisma.$transaction(async (tx) => {

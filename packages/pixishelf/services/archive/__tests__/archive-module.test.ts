@@ -89,6 +89,56 @@ describe('archive module', () => {
     )
   })
 
+  it('resumes a legacy pause whose queue status settled before the archive status', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    const task = {
+      id: 'import-drifted',
+      systemJobId: 'job-paused',
+      status: 'RUNNING',
+      cleanupRequestedAt: null,
+      systemJob: { id: 'job-paused', status: 'PAUSED', attempt: 1, queuePriority: 10, maxAttempts: 3 }
+    }
+    prismaMock.archiveImport.findUnique.mockResolvedValueOnce(task).mockResolvedValueOnce(task)
+    prismaMock.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    prismaMock.jobResourceLease.deleteMany.mockResolvedValue({ count: 1 })
+
+    await expect(module.requestAction('import-drifted', 'RESUME', { requestedByUserId: 'admin-1' })).resolves.toEqual({
+      taskId: 'import-drifted'
+    })
+
+    expect(prismaMock.systemJob.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING', pauseRequestedAt: null }) })
+    )
+    expect(prismaMock.archiveImportItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { archiveImportId: 'import-drifted', status: { not: 'COMPLETED' } } })
+    )
+    expect(prismaMock.archiveImport.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING' }) })
+    )
+    expect(writeJobEventMock).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({ jobId: 'job-paused', type: 'job.queued', data: { reason: 'RESUME' } })
+    )
+  })
+
+  it('does not treat a genuinely running archive task as a recoverable paused drift', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+    prismaMock.archiveImport.findUnique.mockResolvedValue({
+      id: 'import-running',
+      systemJobId: 'job-running',
+      status: 'RUNNING',
+      cleanupRequestedAt: null,
+      systemJob: { id: 'job-running', status: 'RUNNING', attempt: 1, queuePriority: 10, maxAttempts: 3 }
+    })
+
+    await expect(
+      module.requestAction('import-running', 'RESUME', { requestedByUserId: 'admin-1' })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT', message: '任务状态 RUNNING 不允许执行 RESUME' })
+
+    expect(prismaMock.systemJob.updateMany).not.toHaveBeenCalled()
+    expect(prismaMock.archiveImport.updateMany).not.toHaveBeenCalled()
+  })
+
   it('retries a terminal central archive task as a new linked SystemJob', async () => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
     const task = {
@@ -577,5 +627,4 @@ describe('archive module', () => {
       })
     )
   })
-
 })

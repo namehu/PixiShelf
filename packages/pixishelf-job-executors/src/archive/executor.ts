@@ -461,10 +461,14 @@ async function handleArchiveExecutionFailure(
 
   const classified = toArchiveExecutorError(error)
   dependencies.logger?.error('archive.execution_failed', classified, { archiveImportId, code: classified.code })
-  if (classified.pause) {
-    return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
-      if (await finalizeRequestedArchiveControl(scope, archiveImportId, now)) return
-      const counts = await readCounts(scope.transaction, archiveImportId)
+  return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
+    // A control request can change the queue row to PAUSING/CANCELLING before the
+    // dispatcher propagates its AbortSignal. Ordinary checkpoint transactions
+    // reject that controlled execution, so re-read the locked queue state here
+    // before classifying the checkpoint error as a business failure.
+    if (await finalizeRequestedArchiveControl(scope, archiveImportId, now)) return
+    const counts = await readCounts(scope.transaction, archiveImportId)
+    if (classified.pause) {
       const changed = await scope.transaction.archiveImport.updateMany({
         where: { id: archiveImportId, status: 'RUNNING' },
         data: {
@@ -485,13 +489,22 @@ async function handleArchiveExecutionFailure(
           decisionCode: classified.decisionCode ?? 'ORIGINAL_UNAVAILABLE'
         }
       })
+      return
+    }
+    await finishArchiveImport(scope.transaction, {
+      archiveImportId,
+      status: 'FAILED',
+      counts,
+      now,
+      errorCode: classified.code,
+      errorMessage: classified.message
     })
-  }
-
-  const counts = await context.mutateInTransaction<ArchiveTransaction, ArchiveItemCounts>((transaction) =>
-    readCounts(transaction, archiveImportId)
-  )
-  return finalizeArchiveFailure(context, archiveImportId, counts, now, classified)
+    await scope.fail({
+      errorCode: mapArchiveJobErrorCode(classified.code),
+      error: classified.message,
+      message: classified.message
+    })
+  })
 }
 
 async function finalizeArchiveFailure(
