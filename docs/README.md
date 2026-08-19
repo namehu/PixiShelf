@@ -68,6 +68,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [归档收件队列设计](./design/archive-intake-queue.md)     | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
 | [多来源 URL 归档](./design/multi-source-url-archive.md)  | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
 | [视频代表帧生成](./design/video-keyframe-generation.md)  | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
+| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)   | `draft`      | 退役强制全量重扫，设计增量发现、定向同步与只读来源核对     |
 | [界面设计升级计划](./pixishelf-design-upgrade-plan.md)   | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
 | [媒体类型建模技术债](../todos/媒体类型后缀匹配技术债.md) | `draft`      | 媒体类型结构化的待实施方案，后续迁入 `docs/features/`      |
 | [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)     | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格         |
@@ -81,6 +82,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [ADR-0002](./adr/0002-use-a-durable-worker-and-atomic-archive-publication.md) | `accepted` | 持久 Worker 与原子归档发布       |
 | [ADR-0003](./adr/0003-unify-background-jobs-under-a-durable-single-worker.md) | `accepted` | PostgreSQL 队列上的单通用 Worker |
 | [ADR-0004](./adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)    | `accepted` | 单 Worker 内双资源执行通道       |
+| [ADR-0005](./adr/0005-retire-destructive-full-rescan.md)                      | `accepted` | 退役破坏性全量重扫并拆分来源维护 |
 
 ## 部署、发布与历史记录
 
