@@ -4,8 +4,8 @@ import {
   type PendingReplacePayload
 } from '@pixishelf/job-contracts'
 import type { ExecutorDefinition, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { executePendingReplace } from './executor.js'
-import type { PendingReplaceExecutorDependencies } from './types.js'
+import { executePendingReplace } from './executor.ts'
+import type { PendingReplaceExecutorDependencies } from './types.ts'
 
 export function createPendingReplaceExecutorRegistrations<TTransaction extends QueueSqlExecutor>(
   dependencies: PendingReplaceExecutorDependencies<TTransaction>

@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import type { Readable } from 'node:stream'
-import { ArchiveError, withArchiveErrorContext } from '../errors.js'
-import { SafeHttpClient, assertSuccessStatus, remoteHostForUrl } from '../safe-http.js'
+import { ArchiveError, withArchiveErrorContext } from '../errors.ts'
+import { SafeHttpClient, assertSuccessStatus, remoteHostForUrl } from '../safe-http.ts'
 import type {
   ArchiveDownloadContext,
   ArchiveProvider,
@@ -11,7 +11,7 @@ import type {
   ResolvedArchive,
   ResolvedMedia,
   SourceTagValue
-} from '../types.js'
+} from '../types.ts'
 
 const PROVIDER_KEY = 'e-hentai'
 const GALLERY_HOST = 'e-hentai.org'

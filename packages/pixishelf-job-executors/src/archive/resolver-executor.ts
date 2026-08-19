@@ -13,9 +13,9 @@ import type {
   JobExecutionOutcome,
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
-import { toArchiveExecutorError } from './errors.js'
-import { hashResolvedMetadata } from './providers/e-hentai.js'
-import type { ArchiveProviderRegistry, ResolvedArchive } from './types.js'
+import { toArchiveExecutorError } from './errors.ts'
+import { hashResolvedMetadata } from './providers/e-hentai.ts'
+import type { ArchiveProviderRegistry, ResolvedArchive } from './types.ts'
 
 const SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1_000
 const MAX_RETRY_DELAY_MS = 30_000

@@ -7,7 +7,7 @@ import { Buffer } from 'node:buffer'
 import type { ClientRequest, IncomingHttpHeaders, IncomingMessage } from 'node:http'
 import type { RequestOptions } from 'node:https'
 import type { Socket } from 'node:net'
-import { ArchiveError, type ArchiveErrorStage, withArchiveErrorContext } from './errors.js'
+import { ArchiveError, type ArchiveErrorStage, withArchiveErrorContext } from './errors.ts'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_BODY_LIMIT = 8 * 1024 * 1024

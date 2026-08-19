@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import { MEDIA_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
-import { throwIfAborted } from './bounded.js'
-import { hashStableFile } from './content-reader.js'
-import { ScanExecutorError } from './errors.js'
-import { resolveSafeExistingPath, resolveSafeScanRoot, type SafeScanRoot } from './paths.js'
-import { compareCodePoints } from './stable-order.js'
+import { throwIfAborted } from './bounded.ts'
+import { hashStableFile } from './content-reader.ts'
+import { ScanExecutorError } from './errors.ts'
+import { resolveSafeExistingPath, resolveSafeScanRoot, type SafeScanRoot } from './paths.ts'
+import { compareCodePoints } from './stable-order.ts'
 
 const mediaExtensions = new Set<string>(MEDIA_FILE_EXTENSIONS)
 const videoExtensions = new Set<string>(VIDEO_FILE_EXTENSIONS)

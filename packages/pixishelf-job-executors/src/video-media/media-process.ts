@@ -2,7 +2,7 @@ import * as childProcess from 'node:child_process'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
-import { VideoMediaPermanentError, VideoMediaProcessError, type VideoProbeMetadata } from './types.js'
+import { VideoMediaPermanentError, VideoMediaProcessError, type VideoProbeMetadata } from './types.ts'
 
 const MAX_PROCESS_OUTPUT_BYTES = 2 * 1024 * 1024
 const AUDIO_SAMPLE_SECONDS = 10

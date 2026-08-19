@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
+    "target": "ES2022",
     "lib": [
       "dom",
       "dom.iterable",
@@ -13,6 +13,7 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
@@ -28,6 +29,15 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@pixishelf/job-contracts": [
+        "../pixishelf-job-contracts/src/index.ts"
+      ],
+      "@pixishelf/job-executors": [
+        "../pixishelf-job-executors/src/index.ts"
+      ],
+      "@pixishelf/job-runtime": [
+        "../pixishelf-job-runtime/src/index.ts"
       ],
       "@/components/*": [
         "./components/*"

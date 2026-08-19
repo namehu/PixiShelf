@@ -6,6 +6,9 @@ sources:
   - package.json
   - pnpm-workspace.yaml
   - packages/*/package.json
+  - packages/pixishelf/next.config.ts
+  - packages/pixishelf/tsconfig.json
+  - packages/pixishelf-job-*/tsconfig.json
   - build/docker-compose.dev.yml
   - build/docker-compose.deploy.yml
   - packages/pixishelf-db/prisma/schema.prisma
@@ -105,6 +108,13 @@ flowchart TD
   Runtime --> Contracts
 
 ```
+
+主应用通过 TypeScript path、Vitest alias 和 Next.js `transpilePackages` 直接解析三个 job workspace 的
+`src/index.ts`，因此 Web 开发与生产构建不以这些包的 `dist` 为前置条件。共享包的生产源码使用显式
+`.ts` 相对导入，TypeScript 5.9 的 `rewriteRelativeImportExtensions` 在独立构建时将其重写为 Node ESM
+可执行的 `.js` 导入。独立 Worker 继续只从 DB、job 与 Worker workspace 构建，不复制主应用源码。
+CI 先在无 `dist` 条件下构建 Web，再独立生成三个包的 `dist`/类型声明并打包 Worker，同时守住源码
+消费与独立编译两种边界。
 
 浏览器扩展、独立扫描器和 zip 转换器不参与主应用的运行时依赖图。它们通过浏览器、HTTP 或文件系统工作流与主系统外围协作。
 

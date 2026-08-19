@@ -3,8 +3,8 @@ import type {
   PendingReplaceManifestFile,
   PendingReplaceMediaSnapshot,
   PendingReplaceTargetFileSnapshot
-} from './types.js'
-import { PendingReplacePermanentError } from './types.js'
+} from './types.ts'
+import { PendingReplacePermanentError } from './types.ts'
 
 export const MAX_PENDING_REPLACE_ENTRIES = 1_234
 export const MAX_PENDING_REPLACE_WARNINGS = 123

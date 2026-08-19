@@ -1,22 +1,22 @@
 import path from 'node:path'
 import type { LocalDirectoryImportPayload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { mapBounded, throwIfAborted } from './bounded.js'
-import { collectLocalMedia, verifyLocalWorkFingerprint } from './discovery.js'
-import { ScanExecutorError } from './errors.js'
-import { finalizeScanError, finalizeScanSuccess } from './lifecycle.js'
-import { localCheckpointKey, publishLocalMediaWork, type LocalWorkRow } from './local-publisher.js'
-import { assertCanonicalRelativeScanPath, normalizeRelativeScanPath, resolveSafeScanRoot } from './paths.js'
-import { reportScanPageProgress } from './progress.js'
-import { iterateFrozenLocalWorkPages, startOrResumeScanRun, verifyFrozenLocalSnapshot } from './run-store.js'
-import { getOrCreateMediaDerivedTags, type MediaDerivedTagIds } from '../maintenance/media-derived-tag-sync.js'
+import { mapBounded, throwIfAborted } from './bounded.ts'
+import { collectLocalMedia, verifyLocalWorkFingerprint } from './discovery.ts'
+import { ScanExecutorError } from './errors.ts'
+import { finalizeScanError, finalizeScanSuccess } from './lifecycle.ts'
+import { localCheckpointKey, publishLocalMediaWork, type LocalWorkRow } from './local-publisher.ts'
+import { assertCanonicalRelativeScanPath, normalizeRelativeScanPath, resolveSafeScanRoot } from './paths.ts'
+import { reportScanPageProgress } from './progress.ts'
+import { iterateFrozenLocalWorkPages, startOrResumeScanRun, verifyFrozenLocalSnapshot } from './run-store.ts'
+import { getOrCreateMediaDerivedTags, type MediaDerivedTagIds } from '../maintenance/media-derived-tag-sync.ts'
 import {
   DEFAULT_SCAN_LIMITS,
   type ScanExecutionResult,
   type ScanExecutorDependencies,
   type ScanExecutorLimits,
   type ScanTransaction
-} from './types.js'
+} from './types.ts'
 
 const DEFAULT_RETRY_DELAY_MS = 60_000
 

@@ -192,7 +192,9 @@ pnpm compile
 pnpm build
 ```
 
-CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类型/测试/构建，以及 Web lint、typecheck 和单元测试。CI 尚不能替代本地执行 Web 集成/E2E、生产构建和扩展验证。
+CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类型/测试/构建，以及在 job 包 `dist`
+生成前执行 Web lint、typecheck、单元测试和 production build。主应用因此直接消费 workspace 源码，独立
+`dist` 构建只保留为独立编译产物和类型声明的契约验证。CI 尚不能替代本地执行 Web 集成/E2E 和扩展验证。
 
 ## 生产部署
 

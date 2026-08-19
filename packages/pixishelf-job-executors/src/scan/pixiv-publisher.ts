@@ -1,8 +1,8 @@
 import { Prisma } from '@pixishelf/db'
-import { ScanExecutorError } from './errors.js'
-import type { DiscoveredMediaFile } from './discovery.js'
-import type { ScanMetadata } from './metadata.js'
-import type { ScanTransaction } from './types.js'
+import { ScanExecutorError } from './errors.ts'
+import type { DiscoveredMediaFile } from './discovery.ts'
+import type { ScanMetadata } from './metadata.ts'
+import type { ScanTransaction } from './types.ts'
 
 export type ExistingArtworkPolicy = 'SKIP' | 'REFRESH'
 

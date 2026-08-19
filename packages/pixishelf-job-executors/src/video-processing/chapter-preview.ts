@@ -1,16 +1,16 @@
 import * as fs from 'node:fs/promises'
 import sharp from 'sharp'
-import { createChapterManifestHash, readChapterManifest } from './chapter-manifest.js'
-import { assertNoFinalSymlink, resolveCreatablePathWithinRoot, resolveExistingPathWithinRoot } from './paths.js'
-import { throwIfAborted } from './process-runner.js'
+import { createChapterManifestHash, readChapterManifest } from './chapter-manifest.ts'
+import { assertNoFinalSymlink, resolveCreatablePathWithinRoot, resolveExistingPathWithinRoot } from './paths.ts'
+import { throwIfAborted } from './process-runner.ts'
 import type {
   RunFencedVideoMutation,
   VideoProcessingDatabase,
   VideoProcessingProgress,
   VideoProcessingRuntimeConfig,
   VideoProcessRunner
-} from './types.js'
-import { VideoProcessingRecoveryError } from './types.js'
+} from './types.ts'
+import { VideoProcessingRecoveryError } from './types.ts'
 
 const FAILED_SAMPLE_LIMIT = 20
 const CAPTURE_EPSILON_SECONDS = 0.05

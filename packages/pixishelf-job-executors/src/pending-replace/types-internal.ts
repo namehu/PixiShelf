@@ -6,4 +6,4 @@ export type {
   PendingReplaceManifestFile,
   PendingReplaceMediaSnapshot,
   PendingReplaceTargetFileSnapshot
-} from './types.js'
+} from './types.ts'

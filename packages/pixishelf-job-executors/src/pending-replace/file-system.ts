@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { lstat, mkdir, open, opendir, readFile, realpath, rename, rmdir, unlink, writeFile } from 'node:fs/promises'
-import type { PendingReplaceFileSystemPort } from './types.js'
+import type { PendingReplaceFileSystemPort } from './types.ts'
 
 export function createNodePendingReplaceFileSystem(): PendingReplaceFileSystemPort {
   return {

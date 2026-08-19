@@ -6,9 +6,9 @@ import {
   type ScanPayload
 } from '@pixishelf/job-contracts'
 import type { ExecutorDefinition } from '@pixishelf/job-runtime'
-import { executeLocalDirectoryImport } from './local-executor.js'
-import { executeScan } from './scan-executor.js'
-import { DEFAULT_SCAN_LIMITS, type ScanExecutorDependencies } from './types.js'
+import { executeLocalDirectoryImport } from './local-executor.ts'
+import { executeScan } from './scan-executor.ts'
+import { DEFAULT_SCAN_LIMITS, type ScanExecutorDependencies } from './types.ts'
 
 export function createScanExecutorRegistrations(dependencies: ScanExecutorDependencies): ExecutorDefinition[] {
   validateDependencies(dependencies)

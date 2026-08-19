@@ -2,10 +2,10 @@ import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import { MEDIA_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
 import sharp from 'sharp'
-import { mapBounded, throwIfAborted } from './bounded.js'
-import { hashStableFile } from './content-reader.js'
-import { ScanExecutorError } from './errors.js'
-import { computeLocalWorkContentFingerprintWithinRoot } from './fingerprint.js'
+import { mapBounded, throwIfAborted } from './bounded.ts'
+import { hashStableFile } from './content-reader.ts'
+import { ScanExecutorError } from './errors.ts'
+import { computeLocalWorkContentFingerprintWithinRoot } from './fingerprint.ts'
 import {
   normalizeRelativeScanPath,
   relativeFromRoot,
@@ -13,11 +13,11 @@ import {
   type SafeScanPath,
   type SafeScanRoot,
   walkSafeFiles
-} from './paths.js'
-import { metadataCandidateFromPath, selectPreferredMetadataCandidates, type MetadataCandidate } from './metadata.js'
-import { compareCodePoints, compareNaturalCodePoints } from './stable-order.js'
-import { createChapterManifestHash, readChapterManifest } from '../video-processing/chapter-manifest.js'
-import { VideoProcessingPermanentError } from '../video-processing/types.js'
+} from './paths.ts'
+import { metadataCandidateFromPath, selectPreferredMetadataCandidates, type MetadataCandidate } from './metadata.ts'
+import { compareCodePoints, compareNaturalCodePoints } from './stable-order.ts'
+import { createChapterManifestHash, readChapterManifest } from '../video-processing/chapter-manifest.ts'
+import { VideoProcessingPermanentError } from '../video-processing/types.ts'
 
 const metadataSuffix = /-meta\.(?:json|txt)$/i
 const mediaExtensions = new Set<string>(MEDIA_FILE_EXTENSIONS)

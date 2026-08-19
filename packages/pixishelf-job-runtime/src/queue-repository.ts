@@ -15,9 +15,9 @@ import {
   jsonValueSchema,
   parseJobPayload
 } from '@pixishelf/job-contracts'
-import { DispatchWindowPolicy } from './dispatch-window.js'
-import { type QueueClock, systemQueueClock } from './queue-clock.js'
-import { redactSensitiveText } from './worker-health-state.js'
+import { DispatchWindowPolicy } from './dispatch-window.ts'
+import { type QueueClock, systemQueueClock } from './queue-clock.ts'
+import { redactSensitiveText } from './worker-health-state.ts'
 
 export const ARCHIVE_RESOLVE_LANE_RESOURCE = 'lane/archive-resolve'
 export const BACKGROUND_WRITER_LANE_RESOURCE = 'lane/background-writer'

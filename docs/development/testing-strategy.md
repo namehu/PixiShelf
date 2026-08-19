@@ -79,6 +79,9 @@ pnpm --filter @pixishelf/worker... build
 ```
 
 `@pixishelf/worker...` 包含 Worker 及其 workspace 依赖，覆盖 DB、job-contracts、job-runtime 和 job-executors 的相应脚本。
+CI 在任何 job 包 `dist` 生成前完成 Web lint、typecheck、unit test 和 production build，证明主应用只消费
+workspace 源码；随后独立构建 job-contracts、job-runtime、job-executors 的 `dist`，再打包 Worker，验证
+独立编译输出、类型声明和依赖顺序没有漂移。
 
 ### 浏览器扩展
 

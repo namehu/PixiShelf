@@ -1,8 +1,8 @@
 import { constants as fsConstants } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
-import { assertNoFinalSymlink, normalizeArtifactId, resolveCreatablePathWithinRoot } from './paths.js'
-import { throwIfAborted } from './process-runner.js'
+import { assertNoFinalSymlink, normalizeArtifactId, resolveCreatablePathWithinRoot } from './paths.ts'
+import { throwIfAborted } from './process-runner.ts'
 import type {
   RunFencedVideoMutation,
   VideoProcessingDatabase,
@@ -10,8 +10,8 @@ import type {
   VideoProcessingRuntimeConfig,
   VideoProcessingTransaction,
   VideoProcessRunner
-} from './types.js'
-import { VideoProcessingPermanentError, VideoProcessingRecoveryError } from './types.js'
+} from './types.ts'
+import { VideoProcessingPermanentError, VideoProcessingRecoveryError } from './types.ts'
 
 interface MediaStreamFingerprint {
   index?: number

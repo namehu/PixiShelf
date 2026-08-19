@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
-import type { VideoProcessRunner } from './types.js'
-import { VideoProcessingProcessError } from './types.js'
+import type { VideoProcessRunner } from './types.ts'
+import { VideoProcessingProcessError } from './types.ts'
 
 const MAX_PROCESS_OUTPUT_BYTES = 10 * 1024 * 1024
 

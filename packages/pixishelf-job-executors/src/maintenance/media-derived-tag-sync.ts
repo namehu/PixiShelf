@@ -1,6 +1,6 @@
 import { VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
-import type { MaintenanceOperationInput, MaintenanceTransaction } from './types.js'
-import { throwIfMaintenanceAborted } from './types.js'
+import type { MaintenanceOperationInput, MaintenanceTransaction } from './types.ts'
+import { throwIfMaintenanceAborted } from './types.ts'
 
 export const MEDIA_DERIVED_TAG_SYNC_BATCH_SIZE = 500
 export const MEDIA_DERIVED_TAG_IMAGE_BATCH_SIZE = 1_000

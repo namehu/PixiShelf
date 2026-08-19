@@ -8,17 +8,17 @@ import type {
   JobExecutionOutcome,
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
-import type { VideoPosterPayload } from './executors.js'
-import { lockVideoPoster } from './lock.js'
-import { generateVideoPoster } from './media-process.js'
-import { inspectGcCandidate, resolvePosterOutput, resolveVideoSource } from './paths.js'
+import type { VideoPosterPayload } from './executors.ts'
+import { lockVideoPoster } from './lock.ts'
+import { generateVideoPoster } from './media-process.ts'
+import { inspectGcCandidate, resolvePosterOutput, resolveVideoSource } from './paths.ts'
 import {
   VideoMediaPermanentError,
   VideoMediaProcessError,
   type VideoMediaDatabase,
   type VideoMediaRuntimeConfig,
   type VideoMediaTransaction
-} from './types.js'
+} from './types.ts'
 
 const GC_DELAY_MS = 60 * 60_000
 

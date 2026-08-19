@@ -1,7 +1,7 @@
-export * from './executor.js'
-export * from './executors.js'
-export * from './file-operations.js'
-export * from './file-system.js'
+export * from './executor.ts'
+export * from './executors.ts'
+export * from './file-operations.ts'
+export * from './file-system.ts'
 export {
   assertDistinctPaths as assertPendingReplaceDistinctPaths,
   caseFoldPath as caseFoldPendingReplacePath,
@@ -9,8 +9,8 @@ export {
   resolveSafeCreatablePath as resolveSafePendingReplaceCreatablePath,
   resolveSafeExistingPath as resolveSafePendingReplaceExistingPath,
   toStoredPath as toPendingReplaceStoredPath
-} from './paths.js'
-export * from './prisma-database.js'
-export * from './schemas.js'
-export * from './snapshot.js'
-export * from './types.js'
+} from './paths.ts'
+export * from './prisma-database.ts'
+export * from './schemas.ts'
+export * from './snapshot.ts'
+export * from './types.ts'

@@ -1,13 +1,13 @@
 import * as fs from 'node:fs/promises'
 import { videoKeyframeGenerationPayloadSchema } from '@pixishelf/job-contracts'
-import { extractVideoFrame, isValidWebp, probeVideoDuration } from './media-process.js'
-import { resolveKeyframePath, resolveSourceFile } from './paths.js'
+import { extractVideoFrame, isValidWebp, probeVideoDuration } from './media-process.ts'
+import { resolveKeyframePath, resolveSourceFile } from './paths.ts'
 import {
   buildVideoKeyframeCandidateTimes,
   getVideoKeyframeTargetCount,
   selectRepresentativeKeyframes,
   VIDEO_KEYFRAME_POLICY_VERSION
-} from './policy.js'
+} from './policy.ts'
 import type {
   RunFencedMutation,
   VideoKeyframeDatabase,
@@ -15,8 +15,8 @@ import type {
   VideoKeyframeProgress,
   VideoKeyframeRuntimeConfig,
   VideoKeyframeTransaction
-} from './types.js'
-import { VideoKeyframePermanentError, VideoKeyframeProcessError } from './types.js'
+} from './types.ts'
+import { VideoKeyframePermanentError, VideoKeyframeProcessError } from './types.ts'
 
 const DEFAULT_FRAME_TIMEOUT_MS = 2 * 60 * 1_000
 const DEFAULT_PROBE_TIMEOUT_MS = 2 * 60 * 1_000

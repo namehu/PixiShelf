@@ -54,14 +54,8 @@ COPY packages/pixishelf-job-contracts/ ./packages/pixishelf-job-contracts/
 COPY packages/pixishelf-job-runtime/ ./packages/pixishelf-job-runtime/
 COPY packages/pixishelf-job-executors/ ./packages/pixishelf-job-executors/
 
-# 按依赖顺序构建项目
-# 1. 生成 Prisma Client
+# 生成 Prisma Client；Next.js 直接编译 workspace 中的 job 包源码。
 RUN pnpm --filter="@pixishelf/db" db:generate
-# 2. 构建后台任务共享包
-RUN pnpm --filter="@pixishelf/job-contracts" build && \
-    pnpm --filter="@pixishelf/job-runtime" build && \
-    pnpm --filter="@pixishelf/job-executors" build
-# 3. 构建主应用
 # 使用缓存挂载加速 Next.js 构建
 RUN --mount=type=cache,target=/app/packages/pixishelf/.next/cache \
     pnpm --filter="@pixishelf/next" build

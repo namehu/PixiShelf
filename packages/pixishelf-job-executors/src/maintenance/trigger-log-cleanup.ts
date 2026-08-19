@@ -1,5 +1,5 @@
-import type { MaintenanceOperationInput } from './types.js'
-import { throwIfMaintenanceAborted } from './types.js'
+import type { MaintenanceOperationInput } from './types.ts'
+import { throwIfMaintenanceAborted } from './types.ts'
 
 export const TRIGGER_LOG_RETENTION_DAYS = 30
 export const TRIGGER_LOG_DELETE_BATCH_SIZE = 500

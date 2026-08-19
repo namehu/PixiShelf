@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
-import { VideoKeyframePermanentError } from './types.js'
+import { VideoKeyframePermanentError } from './types.ts'
 
 export async function resolveSourceFile(scanRoot: string, relativePath: string) {
   const normalized = relativePath.replace(/^[/\\]+/, '')

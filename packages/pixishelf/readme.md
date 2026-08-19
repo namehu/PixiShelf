@@ -28,6 +28,9 @@ tests/       包级和集成测试
 pnpm dev
 ```
 
+主应用通过 TypeScript、Vitest 与 Next.js 配置直接编译 job-contracts、job-runtime 和 job-executors 的
+workspace 源码；本地启动和 App production build 不要求预先生成这些包的 `dist`。
+
 主应用监听 `http://127.0.0.1:5430`。
 
 ## 验证

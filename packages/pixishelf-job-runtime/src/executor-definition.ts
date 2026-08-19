@@ -7,8 +7,8 @@ import {
   type JobType
 } from '@pixishelf/job-contracts'
 import { z } from 'zod'
-import type { EnqueuedChildJob } from './queue-repository.js'
-import type { ExecutionContext, TransactionallyFinalizedExecutionOutcome } from './execution-context.js'
+import type { EnqueuedChildJob } from './queue-repository.ts'
+import type { ExecutionContext, TransactionallyFinalizedExecutionOutcome } from './execution-context.ts'
 
 export type JobExecutionOutcome<TResult = unknown> =
   | { kind: 'completed'; result?: TResult; message?: string }

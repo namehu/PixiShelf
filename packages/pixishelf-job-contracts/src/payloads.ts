@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { JOB_DEFINITION_VERSION, type JobType } from './job-types.js'
-import { MEDIA_FILE_EXTENSIONS } from './media-types.js'
+import { JOB_DEFINITION_VERSION, type JobType } from './job-types.ts'
+import { MEDIA_FILE_EXTENSIONS } from './media-types.ts'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }

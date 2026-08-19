@@ -1,7 +1,7 @@
 import type { JobErrorCode, LocalDirectoryImportPayload, ScanPayload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { ScanExecutorError } from './errors.js'
-import type { ScanExecutionResult, ScanTransaction } from './types.js'
+import { ScanExecutorError } from './errors.ts'
+import type { ScanExecutionResult, ScanTransaction } from './types.ts'
 
 type ScanContext =
   | ExecutionContext<ScanPayload, EnqueuedChildJob>

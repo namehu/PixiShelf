@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
-import type { MigrationFileSystemPort } from './types.js'
-import { MigrationPermanentError } from './types.js'
+import type { MigrationFileSystemPort } from './types.ts'
+import { MigrationPermanentError } from './types.ts'
 
 const WINDOWS_RESERVED_SEGMENT = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i
 

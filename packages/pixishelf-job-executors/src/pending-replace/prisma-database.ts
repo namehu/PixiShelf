@@ -5,8 +5,8 @@ import type {
   PendingReplaceItemCheckpoint,
   PendingReplaceItemSnapshot,
   PendingReplaceMediaSnapshot
-} from './types.js'
-import { PendingReplacePermanentError } from './types.js'
+} from './types.ts'
+import { PendingReplacePermanentError } from './types.ts'
 
 type PendingPrismaTransaction = Prisma.TransactionClient & QueueSqlExecutor
 type PendingPrismaDatabase = Pick<

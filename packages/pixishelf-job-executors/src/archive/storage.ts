@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto'
 import { lstat, mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
-import { ArchiveExecutorError, toArchiveExecutorError, withArchiveExecutorErrorContext } from './errors.js'
-import type { ArchiveRemoteMedia } from './types.js'
+import { ArchiveExecutorError, toArchiveExecutorError, withArchiveExecutorErrorContext } from './errors.ts'
+import type { ArchiveRemoteMedia } from './types.ts'
 
 const DEFAULT_MAX_MEDIA_BYTES = 512 * 1024 * 1024
 

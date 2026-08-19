@@ -1,12 +1,12 @@
 import { emptyJobPayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, ExecutorDefinition, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { cleanupArchiveIntakeHistory } from './archive-intake-retention-cleanup.js'
-import { syncAllMediaDerivedTags } from './media-derived-tag-sync.js'
-import { refillMetaSource } from './refill-meta-source.js'
-import { cleanupScanRunHistory } from './scan-run-cleanup.js'
-import { cleanupTriggerLogs } from './trigger-log-cleanup.js'
-import type { MaintenanceDatabase, MaintenanceTransaction, RunMaintenanceMutation } from './types.js'
-import { scanWebpAnimations } from './webp-animation-scan.js'
+import { cleanupArchiveIntakeHistory } from './archive-intake-retention-cleanup.ts'
+import { syncAllMediaDerivedTags } from './media-derived-tag-sync.ts'
+import { refillMetaSource } from './refill-meta-source.ts'
+import { cleanupScanRunHistory } from './scan-run-cleanup.ts'
+import { cleanupTriggerLogs } from './trigger-log-cleanup.ts'
+import type { MaintenanceDatabase, MaintenanceTransaction, RunMaintenanceMutation } from './types.ts'
+import { scanWebpAnimations } from './webp-animation-scan.ts'
 
 export interface MaintenanceExecutorDependencies {
   database: MaintenanceDatabase

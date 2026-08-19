@@ -1,5 +1,5 @@
-import type { MaintenanceOperationInput } from './types.js'
-import { throwIfMaintenanceAborted } from './types.js'
+import type { MaintenanceOperationInput } from './types.ts'
+import { throwIfMaintenanceAborted } from './types.ts'
 
 export const SCAN_RUN_RETENTION_MAX_AGE_DAYS = 180
 export const SCAN_RUN_RETENTION_MAX_RUNS_PER_TYPE = 100

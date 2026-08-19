@@ -1,6 +1,6 @@
 import path from 'node:path'
-import type { PendingReplaceFileSystemPort } from './types.js'
-import { PendingReplacePermanentError } from './types.js'
+import type { PendingReplaceFileSystemPort } from './types.ts'
+import { PendingReplacePermanentError } from './types.ts'
 
 export function normalizeStoredRelativePath(value: string): string {
   const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/')

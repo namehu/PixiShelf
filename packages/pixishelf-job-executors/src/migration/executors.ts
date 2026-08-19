@@ -1,7 +1,7 @@
 import { JOB_DEFINITION_VERSION, migrationPayloadSchema, type MigrationPayload } from '@pixishelf/job-contracts'
 import type { ExecutorDefinition, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { executeMigration } from './executor.js'
-import type { MigrationExecutorDependencies } from './types.js'
+import { executeMigration } from './executor.ts'
+import type { MigrationExecutorDependencies } from './types.ts'
 
 export function createMigrationExecutorRegistrations<TTransaction extends QueueSqlExecutor>(
   dependencies: MigrationExecutorDependencies<TTransaction>

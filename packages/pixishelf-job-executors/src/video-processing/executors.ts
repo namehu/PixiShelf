@@ -12,16 +12,16 @@ import type {
   JobExecutionOutcome,
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
-import { generateVideoChapterPreviews } from './chapter-preview.js'
-import { runVideoProcess } from './process-runner.js'
-import { prepareVideoStreamingOptimization, type PreparedVideoStreamingOptimization } from './streaming-optimization.js'
+import { generateVideoChapterPreviews } from './chapter-preview.ts'
+import { runVideoProcess } from './process-runner.ts'
+import { prepareVideoStreamingOptimization, type PreparedVideoStreamingOptimization } from './streaming-optimization.ts'
 import type {
   VideoProcessingDatabase,
   VideoProcessingRuntimeConfig,
   VideoProcessingTransaction,
   VideoProcessRunner
-} from './types.js'
-import { VideoProcessingPermanentError, VideoProcessingProcessError, VideoProcessingRecoveryError } from './types.js'
+} from './types.ts'
+import { VideoProcessingPermanentError, VideoProcessingProcessError, VideoProcessingRecoveryError } from './types.ts'
 
 export interface VideoProcessingExecutorDependencies {
   database: VideoProcessingDatabase

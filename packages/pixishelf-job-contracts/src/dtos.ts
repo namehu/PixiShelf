@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { jsonValueSchema } from './payloads.js'
+import { jsonValueSchema } from './payloads.ts'
 import {
   executionLaneSchema,
   jobEventLevelSchema,
@@ -8,7 +8,7 @@ import {
   jobStatusSchema,
   jobTriggerSourceSchema,
   jobTypeSchema
-} from './job-types.js'
+} from './job-types.ts'
 
 export const isoDateTimeSchema = z.string().datetime({ offset: true })
 export const bigintStringSchema = z.string().regex(/^(0|[1-9]\d*)$/, 'Expected an unsigned base-10 integer string')

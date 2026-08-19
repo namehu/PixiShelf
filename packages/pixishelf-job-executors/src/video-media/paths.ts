@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
-import { VideoMediaPermanentError } from './types.js'
+import { VideoMediaPermanentError } from './types.ts'
 
 export async function resolveVideoSource(scanRoot: string, relativePath: string) {
   const root = await fs.realpath(scanRoot)

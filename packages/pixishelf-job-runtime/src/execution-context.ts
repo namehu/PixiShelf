@@ -1,4 +1,4 @@
-import type { ClaimedJob, FencedExecutionTransaction, QueueSqlExecutor } from './queue-repository.js'
+import type { ClaimedJob, FencedExecutionTransaction, QueueSqlExecutor } from './queue-repository.ts'
 
 export interface ExecutionProgressUpdate {
   progress: number

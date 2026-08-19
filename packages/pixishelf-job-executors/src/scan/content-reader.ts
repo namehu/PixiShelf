@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import * as fs from 'node:fs/promises'
-import { ScanExecutorError } from './errors.js'
-import { throwIfAborted } from './bounded.js'
+import { ScanExecutorError } from './errors.ts'
+import { throwIfAborted } from './bounded.ts'
 
 const READ_CHUNK_BYTES = 64 * 1024
 

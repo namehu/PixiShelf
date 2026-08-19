@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from '@pixishelf/db'
-import type { VideoKeyframeFilter } from './policy.js'
+import type { VideoKeyframeFilter } from './policy.ts'
 
 export type VideoKeyframeDatabase = Pick<
   PrismaClient,

@@ -1,7 +1,7 @@
 import { createReadStream, constants as fsConstants } from 'node:fs'
 import { copyFile, lstat, mkdir, open, opendir, realpath, unlink } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import type { MigrationFileSystemPort } from './types.js'
+import type { MigrationFileSystemPort } from './types.ts'
 
 export function createNodeMigrationFileSystem(): MigrationFileSystemPort {
   return {

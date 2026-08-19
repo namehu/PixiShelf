@@ -1,6 +1,6 @@
-import { discoverLocalWorkPages, type LocalWorkCandidate, type ScanDiscoveryLimits } from './discovery.js'
-import { ScanExecutorError } from './errors.js'
-import { normalizeRelativeScanPath, resolveSafeScanRoot } from './paths.js'
+import { discoverLocalWorkPages, type LocalWorkCandidate, type ScanDiscoveryLimits } from './discovery.ts'
+import { ScanExecutorError } from './errors.ts'
+import { normalizeRelativeScanPath, resolveSafeScanRoot } from './paths.ts'
 
 export interface BoundedLocalWorkDiscoveryInput {
   scanRoot: string

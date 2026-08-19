@@ -1,14 +1,14 @@
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { MEDIA_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
-import { MAX_PENDING_REPLACE_WARNINGS } from './schemas.js'
+import { MAX_PENDING_REPLACE_WARNINGS } from './schemas.ts'
 import {
   caseFoldPath,
   normalizeStoredRelativePath,
   resolveSafeCreatablePath,
   resolveSafeExistingPath,
   toStoredPath
-} from './paths.js'
+} from './paths.ts'
 import type {
   PendingReplaceArtworkSnapshot,
   PendingReplaceExecutorDependencies,
@@ -16,8 +16,8 @@ import type {
   PendingReplaceMediaSnapshot,
   PendingReplaceTargetFileSnapshot,
   QueueSqlExecutor
-} from './types-internal.js'
-import { PendingReplacePermanentError } from './types.js'
+} from './types-internal.ts'
+import { PendingReplacePermanentError } from './types.ts'
 
 const mediaExtensions = new Set<string>(MEDIA_FILE_EXTENSIONS)
 const videoExtensions = new Set<string>(VIDEO_FILE_EXTENSIONS)

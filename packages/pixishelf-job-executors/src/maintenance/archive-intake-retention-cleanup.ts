@@ -1,5 +1,5 @@
-import type { MaintenanceOperationInput } from './types.js'
-import { throwIfMaintenanceAborted } from './types.js'
+import type { MaintenanceOperationInput } from './types.ts'
+import { throwIfMaintenanceAborted } from './types.ts'
 
 export const ARCHIVE_INTAKE_RETENTION_DAYS = 30
 export const ARCHIVE_INTAKE_RETENTION_DELETE_BATCH_SIZE = 200

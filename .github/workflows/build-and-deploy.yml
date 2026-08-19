@@ -59,7 +59,10 @@ jobs:
           pnpm --filter @pixishelf/db exec prisma migrate status --schema prisma/schema.prisma
           pnpm --filter @pixishelf/worker... typecheck
           pnpm --filter @pixishelf/worker... test
-          pnpm --filter @pixishelf/worker... build
+          pnpm --filter @pixishelf/job-contracts build
+          pnpm --filter @pixishelf/job-runtime build
+          pnpm --filter @pixishelf/job-executors build
+          pnpm --filter @pixishelf/worker build
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

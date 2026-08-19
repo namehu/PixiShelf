@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
-import { resolveExistingPathWithinRoot } from './paths.js'
-import { VideoProcessingPermanentError } from './types.js'
+import { resolveExistingPathWithinRoot } from './paths.ts'
+import { VideoProcessingPermanentError } from './types.ts'
 
 const MAX_MANIFEST_BYTES = 5 * 1024 * 1024
 const MAX_MANIFEST_CHAPTERS = 1_000

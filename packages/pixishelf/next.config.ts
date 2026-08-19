@@ -16,7 +16,12 @@ const cspHeader = `
 
 const nextConfig: NextConfig = {
   output: 'standalone',
-  transpilePackages: ['@pixishelf/db'],
+  transpilePackages: [
+    '@pixishelf/db',
+    '@pixishelf/job-contracts',
+    '@pixishelf/job-executors',
+    '@pixishelf/job-runtime'
+  ],
   images: {
     qualities: [75, 80, 85, 95, 100],
     // // 允许生成的图片宽度

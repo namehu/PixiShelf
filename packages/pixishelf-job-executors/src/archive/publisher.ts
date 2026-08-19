@@ -1,8 +1,8 @@
 import path from 'node:path'
 import { Prisma } from '@pixishelf/db'
-import { ArchiveExecutorError } from './errors.js'
-import { normalizeRelativePath, type ArchiveStoragePaths } from './storage.js'
-import type { ArchiveTransaction } from './types.js'
+import { ArchiveExecutorError } from './errors.ts'
+import { normalizeRelativePath, type ArchiveStoragePaths } from './storage.ts'
+import type { ArchiveTransaction } from './types.ts'
 
 const ARCHIVE_PUBLISH_ADVISORY_LOCK_ID = 7_341_902_117
 

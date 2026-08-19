@@ -4,9 +4,9 @@ import {
   resolvePathInsideRoot,
   resolveSafeExistingFile,
   resolveSafeOptionalFile
-} from './paths.js'
-import type { MigrationFilePlan, MigrationFileSystemPort, MigrationRuntimeConfig } from './types.js'
-import { MigrationActionRequiredError, MigrationPermanentError } from './types.js'
+} from './paths.ts'
+import type { MigrationFilePlan, MigrationFileSystemPort, MigrationRuntimeConfig } from './types.ts'
+import { MigrationActionRequiredError, MigrationPermanentError } from './types.ts'
 
 export interface MigrationFingerprint {
   size: number

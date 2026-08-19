@@ -1,6 +1,6 @@
-import { ArchiveExecutorError } from './errors.js'
-import { EHentaiProvider } from './providers/e-hentai.js'
-import type { ArchiveMediaProvider, ArchiveProvider, ArchiveProviderRegistry } from './types.js'
+import { ArchiveExecutorError } from './errors.ts'
+import { EHentaiProvider } from './providers/e-hentai.ts'
+import type { ArchiveMediaProvider, ArchiveProvider, ArchiveProviderRegistry } from './types.ts'
 
 export class DefaultArchiveMediaProviderRegistry implements ArchiveProviderRegistry {
   private readonly providers = new Map<string, ArchiveMediaProvider>()

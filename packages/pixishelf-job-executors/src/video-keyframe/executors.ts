@@ -12,10 +12,10 @@ import type {
   JobExecutionOutcome,
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
-import { discoverVideoKeyframes, type VideoKeyframeDiscoveryPayload } from './discovery.js'
-import { generateVideoKeyframes, type VideoKeyframeGenerationPayload } from './generation.js'
-import type { VideoKeyframeDatabase, VideoKeyframeRuntimeConfig, VideoKeyframeTransaction } from './types.js'
-import { VideoKeyframePermanentError, VideoKeyframeProcessError } from './types.js'
+import { discoverVideoKeyframes, type VideoKeyframeDiscoveryPayload } from './discovery.ts'
+import { generateVideoKeyframes, type VideoKeyframeGenerationPayload } from './generation.ts'
+import type { VideoKeyframeDatabase, VideoKeyframeRuntimeConfig, VideoKeyframeTransaction } from './types.ts'
+import { VideoKeyframePermanentError, VideoKeyframeProcessError } from './types.ts'
 
 export interface VideoKeyframeExecutorDependencies {
   database: VideoKeyframeDatabase

@@ -1,16 +1,16 @@
 import { createHash } from 'node:crypto'
 import type { ScanPayload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { mapBounded, throwIfAborted } from './bounded.js'
-import { readStableFileContent } from './content-reader.js'
-import { collectArtworkMedia, discoverMetadataCandidatePages } from './discovery.js'
-import { ScanExecutorError } from './errors.js'
-import { finalizeScanError, finalizeScanSuccess } from './lifecycle.js'
-import { executeLocalArtworkRescan } from './local-rescan.js'
-import { metadataCandidateFromPath, parseMetadataDocument } from './metadata.js'
-import { publishPixivArtwork, type ExistingArtworkPolicy } from './pixiv-publisher.js'
-import { reportScanPageProgress } from './progress.js'
-import { resolveSafeExistingPath, resolveSafeScanRoot } from './paths.js'
+import { mapBounded, throwIfAborted } from './bounded.ts'
+import { readStableFileContent } from './content-reader.ts'
+import { collectArtworkMedia, discoverMetadataCandidatePages } from './discovery.ts'
+import { ScanExecutorError } from './errors.ts'
+import { finalizeScanError, finalizeScanSuccess } from './lifecycle.ts'
+import { executeLocalArtworkRescan } from './local-rescan.ts'
+import { metadataCandidateFromPath, parseMetadataDocument } from './metadata.ts'
+import { publishPixivArtwork, type ExistingArtworkPolicy } from './pixiv-publisher.ts'
+import { reportScanPageProgress } from './progress.ts'
+import { resolveSafeExistingPath, resolveSafeScanRoot } from './paths.ts'
 import {
   freezeDiscoveredMetadataPages,
   iterateFrozenMetadataPages,
@@ -19,14 +19,14 @@ import {
   verifyFrozenMetadataSnapshot,
   type MetadataInputRow,
   type ScanRunRecord
-} from './run-store.js'
+} from './run-store.ts'
 import {
   DEFAULT_SCAN_LIMITS,
   type ScanExecutionResult,
   type ScanExecutorDependencies,
   type ScanExecutorLimits,
   type ScanTransaction
-} from './types.js'
+} from './types.ts'
 
 const DEFAULT_RETRY_DELAY_MS = 60_000
 

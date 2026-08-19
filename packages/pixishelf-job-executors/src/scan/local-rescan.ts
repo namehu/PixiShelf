@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto'
 import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import type { ScanPayload } from '@pixishelf/job-contracts'
-import { collectLocalMedia, verifyLocalWorkFingerprint } from './discovery.js'
-import { ScanExecutorError } from './errors.js'
-import { localWorkInputDigest } from './digests.js'
-import type { LocalWorkInputRow, ScanRunRecord } from './run-store.js'
-import type { ScanExecutorDependencies, ScanExecutorLimits, ScanTransaction } from './types.js'
-import type { SafeScanRoot } from './paths.js'
+import { collectLocalMedia, verifyLocalWorkFingerprint } from './discovery.ts'
+import { ScanExecutorError } from './errors.ts'
+import { localWorkInputDigest } from './digests.ts'
+import type { LocalWorkInputRow, ScanRunRecord } from './run-store.ts'
+import type { ScanExecutorDependencies, ScanExecutorLimits, ScanTransaction } from './types.ts'
+import type { SafeScanRoot } from './paths.ts'
 
 export async function executeLocalArtworkRescan(input: {
   context: ExecutionContext<ScanPayload, EnqueuedChildJob>

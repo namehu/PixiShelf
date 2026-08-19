@@ -8,8 +8,8 @@ import type {
   FencedExecutionTransaction,
   JobExecutionOutcome
 } from '@pixishelf/job-runtime'
-import { ArchiveExecutorError, toArchiveExecutorError } from './errors.js'
-import { publishArchiveImportInTransaction } from './publisher.js'
+import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
+import { publishArchiveImportInTransaction } from './publisher.ts'
 import {
   buildArchiveStoragePaths,
   pathExists,
@@ -18,14 +18,14 @@ import {
   storeArchiveRemoteMedia,
   validateArchiveStoredMedia,
   writeArchiveManifest
-} from './storage.js'
+} from './storage.ts'
 import type {
   ArchiveExecutorDependencies,
   ArchiveMediaItem,
   ArchiveMediaProvider,
   ArchiveProviderMediaItem,
   ArchiveTransaction
-} from './types.js'
+} from './types.ts'
 
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const PARTIAL_FAILED_STAGING_RETENTION_MS = 30 * 24 * 60 * 60 * 1000

@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
-import { ScanExecutorError } from './errors.js'
-import { throwIfAborted } from './bounded.js'
-import { compareCodePoints } from './stable-order.js'
+import { ScanExecutorError } from './errors.ts'
+import { throwIfAborted } from './bounded.ts'
+import { compareCodePoints } from './stable-order.ts'
 
 export interface SafeScanRoot {
   absolutePath: string

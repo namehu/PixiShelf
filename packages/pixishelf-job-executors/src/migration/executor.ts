@@ -17,7 +17,7 @@ import {
   resolveSafeExistingDirectory,
   resolveSafeExistingFile,
   toDatabaseStoredPath
-} from './paths.js'
+} from './paths.ts'
 import {
   cleanupPublishedSource,
   publishMigrationFile,
@@ -25,7 +25,7 @@ import {
   stageMigrationFile,
   verifyPreparedMigrationFile,
   type MigrationFingerprint
-} from './transfer.js'
+} from './transfer.ts'
 import type {
   CreateMigrationPlanInput,
   MigrationArtworkPlan,
@@ -35,9 +35,9 @@ import type {
   MigrationItemPhase,
   MigrationPayloadV1,
   MigrationSelectionRow
-} from './types.js'
-import { MigrationActionRequiredError, MigrationPermanentError } from './types.js'
-import { migrationPublicErrorCode, migrationPublicSummary } from './diagnostics.js'
+} from './types.ts'
+import { MigrationActionRequiredError, MigrationPermanentError } from './types.ts'
+import { migrationPublicErrorCode, migrationPublicSummary } from './diagnostics.ts'
 
 const DEFAULT_SELECTION_PAGE_SIZE = 100
 const MAX_SELECTION_PAGE_SIZE = 100

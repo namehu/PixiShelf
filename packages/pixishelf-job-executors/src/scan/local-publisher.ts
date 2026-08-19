@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import type { Prisma } from '@pixishelf/db'
-import { ScanExecutorError } from './errors.js'
-import type { DiscoveredLocalMediaFile } from './discovery.js'
-import { selectMediaDerivedTagIds, type MediaDerivedTagIds } from '../maintenance/media-derived-tag-sync.js'
-import type { ScanTransaction } from './types.js'
+import { ScanExecutorError } from './errors.ts'
+import type { DiscoveredLocalMediaFile } from './discovery.ts'
+import { selectMediaDerivedTagIds, type MediaDerivedTagIds } from '../maintenance/media-derived-tag-sync.ts'
+import type { ScanTransaction } from './types.ts'
 
 export interface LocalPublishBase {
   transaction: ScanTransaction

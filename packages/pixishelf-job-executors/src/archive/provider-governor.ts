@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { Readable } from 'node:stream'
 import type { PrismaClient } from '@pixishelf/db'
-import { ArchiveExecutorError, toArchiveExecutorError } from './errors.js'
-import type { ArchiveMediaProvider, ArchiveProvider, ArchiveProviderRegistry, ArchiveRemoteMedia } from './types.js'
+import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
+import type { ArchiveMediaProvider, ArchiveProvider, ArchiveProviderRegistry, ArchiveRemoteMedia } from './types.ts'
 
 export type ArchiveProviderRequestClass = 'RESOLVE' | 'DOWNLOAD'
 

@@ -11,7 +11,7 @@ import {
   parsePendingReplaceMedia,
   parsePendingReplaceTargets,
   parsePendingReplaceWarnings
-} from './schemas.js'
+} from './schemas.ts'
 import {
   assertExactSnapshotDirectory,
   assertSnapshotFiles,
@@ -20,7 +20,7 @@ import {
   moveDirectoryIdempotent,
   removeExactSnapshotFiles,
   verifyManifestAcrossWorkspaces
-} from './file-operations.js'
+} from './file-operations.ts'
 import {
   BACKUP_DIRECTORY,
   buildArtworkSnapshots,
@@ -32,7 +32,7 @@ import {
   PENDING_DIRECTORY,
   scanPendingSource,
   WORK_DIRECTORY
-} from './snapshot.js'
+} from './snapshot.ts'
 import {
   assertDistinctPaths,
   caseFoldPath,
@@ -40,7 +40,7 @@ import {
   resolveSafeCreatablePath,
   resolveSafeExistingPath,
   toStoredPath
-} from './paths.js'
+} from './paths.ts'
 import type {
   DiscoveredPendingReplaceItem,
   PendingReplaceBatchCounters,
@@ -51,8 +51,8 @@ import type {
   PendingReplaceMediaSnapshot,
   PendingReplacePayloadV1,
   PendingReplaceTargetFileSnapshot
-} from './types.js'
-import { PendingReplaceActionRequiredError, PendingReplacePermanentError } from './types.js'
+} from './types.ts'
+import { PendingReplaceActionRequiredError, PendingReplacePermanentError } from './types.ts'
 
 type PendingContext = ExecutionContext<PendingReplacePayloadV1, EnqueuedChildJob>
 type PendingScope<TTransaction extends QueueSqlExecutor> = FencedExecutionTransaction<TTransaction>

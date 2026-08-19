@@ -1,7 +1,7 @@
 import type { WorkerPresenceStatus } from '@pixishelf/job-contracts'
-import { startHeartbeatLoop, type HeartbeatLoop, type HeartbeatScheduler } from './heartbeat-loop.js'
-import { errorMessage, WorkerHealthState } from './worker-health-state.js'
-import { createWorkerPresenceRecord, type WorkerIdentity, type WorkerPresenceStore } from './worker-presence.js'
+import { startHeartbeatLoop, type HeartbeatLoop, type HeartbeatScheduler } from './heartbeat-loop.ts'
+import { errorMessage, WorkerHealthState } from './worker-health-state.ts'
+import { createWorkerPresenceRecord, type WorkerIdentity, type WorkerPresenceStore } from './worker-presence.ts'
 
 export interface WorkerHostOptions {
   identity: WorkerIdentity

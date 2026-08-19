@@ -4,10 +4,10 @@ import type {
   PendingReplaceManifestFile,
   PendingReplaceMediaSnapshot,
   PendingReplaceTargetFileSnapshot
-} from './types.js'
+} from './types.ts'
 import type { QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { resolveSafeCreatablePath, resolveSafeExistingPath } from './paths.js'
-import { PendingReplaceActionRequiredError, PendingReplacePermanentError } from './types.js'
+import { resolveSafeCreatablePath, resolveSafeExistingPath } from './paths.ts'
+import { PendingReplaceActionRequiredError, PendingReplacePermanentError } from './types.ts'
 
 export async function assertSnapshotFiles<TTransaction extends QueueSqlExecutor>(
   dependencies: PendingReplaceExecutorDependencies<TTransaction>,

@@ -2,7 +2,7 @@ import * as childProcess from 'node:child_process'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
-import { VideoKeyframePermanentError, VideoKeyframeProcessError } from './types.js'
+import { VideoKeyframePermanentError, VideoKeyframeProcessError } from './types.ts'
 
 const MAX_PROCESS_OUTPUT_BYTES = 2 * 1024 * 1024
 

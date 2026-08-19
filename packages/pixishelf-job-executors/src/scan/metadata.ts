@@ -1,4 +1,4 @@
-import { compareCodePoints } from './stable-order.js'
+import { compareCodePoints } from './stable-order.ts'
 
 export type ScanMetadataFormat = 'json' | 'txt'
 

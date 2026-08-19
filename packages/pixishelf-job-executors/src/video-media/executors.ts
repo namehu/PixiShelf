@@ -5,10 +5,10 @@ import {
   videoMediaProbePayloadSchema
 } from '@pixishelf/job-contracts'
 import type { ExecutorDefinition } from '@pixishelf/job-runtime'
-import { executeDerivedMediaGc } from './gc.js'
-import { executeVideoPoster } from './poster.js'
-import { executeVideoMediaProbe } from './probe.js'
-import type { VideoMediaDatabase, VideoMediaRuntimeConfig } from './types.js'
+import { executeDerivedMediaGc } from './gc.ts'
+import { executeVideoPoster } from './poster.ts'
+import { executeVideoMediaProbe } from './probe.ts'
+import type { VideoMediaDatabase, VideoMediaRuntimeConfig } from './types.ts'
 
 export type VideoMediaProbePayload = ReturnType<typeof videoMediaProbePayloadSchema.parse>
 export type VideoPosterPayload = ReturnType<typeof targetImagePayloadSchema.parse>

@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
-import type { MaintenanceOperationInput } from './types.js'
-import { throwIfMaintenanceAborted } from './types.js'
+import type { MaintenanceOperationInput } from './types.ts'
+import { throwIfMaintenanceAborted } from './types.ts'
 
 export const ANIMATION_SCAN_BATCH_SIZE = 20
 export const ANIMATION_INITIALIZE_BATCH_SIZE = 500

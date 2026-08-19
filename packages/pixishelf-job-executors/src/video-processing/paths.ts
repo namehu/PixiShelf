@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
-import { VideoProcessingPermanentError } from './types.js'
+import { VideoProcessingPermanentError } from './types.ts'
 
 export async function resolveExistingPathWithinRoot(root: string, relativePath: string): Promise<string> {
   const normalized = normalizeRelativePath(relativePath)

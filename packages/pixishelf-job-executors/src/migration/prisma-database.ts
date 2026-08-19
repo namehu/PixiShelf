@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
 import type { QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { buildCanonicalTargetDirectory, normalizeStoredRelativePath } from './paths.js'
-import { migrationPublicErrorCode, migrationPublicSummary } from './diagnostics.js'
+import { buildCanonicalTargetDirectory, normalizeStoredRelativePath } from './paths.ts'
+import { migrationPublicErrorCode, migrationPublicSummary } from './diagnostics.ts'
 import type {
   CreateMigrationPlanInput,
   MigrationArtworkPlan,
@@ -14,8 +14,8 @@ import type {
   MigrationSelection,
   MigrationSelectionPageInput,
   MigrationSelectionPort
-} from './types.js'
-import { MigrationActionRequiredError } from './types.js'
+} from './types.ts'
+import { MigrationActionRequiredError } from './types.ts'
 
 type MigrationPrismaTransaction = Prisma.TransactionClient & QueueSqlExecutor
 type MigrationPrismaDatabase = Pick<

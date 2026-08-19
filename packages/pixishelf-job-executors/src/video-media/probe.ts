@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
-import type { VideoMediaProbePayload } from './executors.js'
-import { probeVideoMetadata } from './media-process.js'
-import { inspectGcCandidate, resolveVideoSource } from './paths.js'
+import type { VideoMediaProbePayload } from './executors.ts'
+import { probeVideoMetadata } from './media-process.ts'
+import { inspectGcCandidate, resolveVideoSource } from './paths.ts'
 import {
   VideoMediaPermanentError,
   type VideoMediaDatabase,
   type VideoMediaRuntimeConfig,
   type VideoMediaTransaction
-} from './types.js'
+} from './types.ts'
 
 const CLASSIFICATION_BATCH_SIZE = 500
 const PROBE_BATCH_SIZE = 20

@@ -61,13 +61,23 @@ jobs:
       - name: Run database and Worker unit tests
         run: pnpm --filter @pixishelf/worker... test
 
-      - name: Build standalone Worker
-        run: pnpm --filter @pixishelf/worker... build
-
-      - name: Lint and typecheck Web
+      - name: Verify Web consumes workspace sources without job package dist
+        env:
+          NEXT_PUBLIC_IMGPROXY_URL: __NEXT_PUBLIC_IMGPROXY_URL__
         run: |
+          test ! -d packages/pixishelf-job-contracts/dist
+          test ! -d packages/pixishelf-job-runtime/dist
+          test ! -d packages/pixishelf-job-executors/dist
           pnpm --filter @pixishelf/next lint
           pnpm --filter @pixishelf/next typecheck
+          pnpm --filter @pixishelf/next test
+          pnpm --filter @pixishelf/next build
 
-      - name: Run Web unit tests
-        run: pnpm --filter @pixishelf/next test
+      - name: Build shared job package contracts
+        run: |
+          pnpm --filter @pixishelf/job-contracts build
+          pnpm --filter @pixishelf/job-runtime build
+          pnpm --filter @pixishelf/job-executors build
+
+      - name: Build standalone Worker
+        run: pnpm --filter @pixishelf/worker build

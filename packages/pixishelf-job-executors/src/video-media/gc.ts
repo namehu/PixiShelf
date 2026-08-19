@@ -7,10 +7,10 @@ import {
   type JobExecutionOutcome,
   type QueueSqlExecutor
 } from '@pixishelf/job-runtime'
-import type { DerivedMediaGcPayload } from './executors.js'
-import { lockVideoPoster } from './lock.js'
-import { inspectGcCandidate } from './paths.js'
-import type { VideoMediaDatabase, VideoMediaRuntimeConfig, VideoMediaTransaction } from './types.js'
+import type { DerivedMediaGcPayload } from './executors.ts'
+import { lockVideoPoster } from './lock.ts'
+import { inspectGcCandidate } from './paths.ts'
+import type { VideoMediaDatabase, VideoMediaRuntimeConfig, VideoMediaTransaction } from './types.ts'
 
 const DEFAULT_BATCH_SIZE = 100
 const DEFAULT_RECONCILIATION_LIMIT = 500

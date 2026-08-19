@@ -13,14 +13,14 @@ import type {
   FencedExecutionTransaction,
   JobExecutionOutcome
 } from '@pixishelf/job-runtime'
-import { ArchiveExecutorError } from './errors.js'
+import { ArchiveExecutorError } from './errors.ts'
 import {
   buildArchiveStoragePaths,
   pathExists,
   resolveCreatablePathWithinRoot,
   resolveExistingPathWithinRoot
-} from './storage.js'
-import type { ArchiveTransaction } from './types.js'
+} from './storage.ts'
+import type { ArchiveTransaction } from './types.ts'
 
 const ARCHIVE_PUBLISH_ADVISORY_LOCK_ID = 7_341_902_117
 

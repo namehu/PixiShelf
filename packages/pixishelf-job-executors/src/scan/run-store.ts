@@ -5,12 +5,12 @@ import {
   createArtistMappingDigestAccumulator,
   createLocalWorkDigestAccumulator,
   createMetadataDigestAccumulator
-} from './digests.js'
-import { ScanExecutorError } from './errors.js'
-import { metadataCandidateFromPath } from './metadata.js'
-import { assertCanonicalRelativeScanPath } from './paths.js'
-import { logFrozenSnapshotPage } from './progress.js'
-import type { ScanDatabase, ScanTransaction } from './types.js'
+} from './digests.ts'
+import { ScanExecutorError } from './errors.ts'
+import { metadataCandidateFromPath } from './metadata.ts'
+import { assertCanonicalRelativeScanPath } from './paths.ts'
+import { logFrozenSnapshotPage } from './progress.ts'
+import type { ScanDatabase, ScanTransaction } from './types.ts'
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
 

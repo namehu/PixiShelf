@@ -23,6 +23,10 @@
 包构建，并以非 root UID/GID `1001` 运行。它不会执行 migration；数据库 schema 仍由 Web
 镜像的 entrypoint 或显式 `pnpm --filter @pixishelf/db db:deploy` 管理。
 
+Web `Dockerfile` 直接由 Next.js 编译 job-contracts、job-runtime 和 job-executors 的 workspace 源码，
+不依赖或复制宿主机 `dist`。三个包的独立 `dist`、类型声明和公开包依赖仍由 GitHub CI 在 Web 源码边界
+验证完成后按顺序构建；它们不是 Web 镜像的构建前置条件。
+
 ## 存储与运行边界
 
 Worker 需要以下挂载：

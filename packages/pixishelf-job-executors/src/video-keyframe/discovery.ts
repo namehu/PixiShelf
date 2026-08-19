@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises'
 import { videoKeyframeDiscoveryPayloadSchema } from '@pixishelf/job-contracts'
-import { resolveKeyframePath, resolveSourceFile } from './paths.js'
-import { matchesVideoKeyframeFilter, type VideoKeyframeFilter } from './policy.js'
+import { resolveKeyframePath, resolveSourceFile } from './paths.ts'
+import { matchesVideoKeyframeFilter, type VideoKeyframeFilter } from './policy.ts'
 import type {
   VideoKeyframeDatabase,
   VideoKeyframeDiscoveryBaseResult,
@@ -9,7 +9,7 @@ import type {
   VideoKeyframePreviewCandidate,
   VideoKeyframeProgress,
   VideoKeyframeRuntimeConfig
-} from './types.js'
+} from './types.ts'
 
 const DISCOVERY_PAGE_SIZE = 200
 const PREVIEW_CANDIDATE_LIMIT = 1_000
