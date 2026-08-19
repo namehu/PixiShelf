@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { BackgroundTaskError } from './background-task-error'
 import { writeJobEvent } from './job-event-service'
 import { systemJobWireSelect, toJobDto, type SystemJobWireRecord } from './job-serialization'
+import { FULL_SCAN_RETIRED_MESSAGE, isRetiredFullReconcilePayload } from '@/services/scan-source-policy'
 
 const commonEnqueueFields = {
   type: jobTypeSchema,
@@ -185,6 +186,9 @@ export async function enqueueJob(
     parsed.definitionVersion === JOB_DEFINITION_VERSION
       ? parseJobPayload(parsed.type, parsed.payload ?? {})
       : jsonValueSchema.parse(parsed.payload ?? {})
+  if (isRetiredFullReconcilePayload(parsed.type, payload)) {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', FULL_SCAN_RETIRED_MESSAGE)
+  }
   const database = commandDatabase(client)
 
   try {
@@ -392,6 +396,9 @@ export async function retryJobCommand(
         'INVALID_STATE_TRANSITION',
         'This historical job does not contain a valid v1 payload; create a new task instead'
       )
+    }
+    if (isRetiredFullReconcilePayload(retryType, retryPayload)) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', FULL_SCAN_RETIRED_MESSAGE)
     }
     const executionLane = executionLaneForJobType(retryType)
     if (job.executionLane !== executionLane) {

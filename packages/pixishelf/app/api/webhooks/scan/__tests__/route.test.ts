@@ -58,9 +58,10 @@ vi.mock('@/lib/prisma', () => ({
   }
 }))
 
-import { GET, POST } from '../route'
+import { GET, HEAD, POST } from '../route'
 
 const get = GET
+const head = HEAD
 const post = POST
 
 describe('webhook scan audit integration', () => {
@@ -103,6 +104,20 @@ describe('webhook scan audit integration', () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ success: true, data: { status: 'ok' } })
+    expect(mocks.findScanJob).not.toHaveBeenCalled()
+    expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
+    expect(mocks.createScanJob).not.toHaveBeenCalled()
+  })
+
+  it('keeps HEAD as an authenticated read-only availability check', async () => {
+    const response = await head(
+      new NextRequest('http://localhost/api/webhooks/scan', {
+        method: 'HEAD',
+        headers: { authorization: 'Bearer token' }
+      })
+    )
+
+    expect(response.status).toBe(204)
     expect(mocks.findScanJob).not.toHaveBeenCalled()
     expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
     expect(mocks.createScanJob).not.toHaveBeenCalled()
@@ -236,6 +251,34 @@ describe('webhook scan audit integration', () => {
     expect(mocks.createScanJob).not.toHaveBeenCalled()
   })
 
+  it('keeps an empty request body as the deployed directory-discovery default', async () => {
+    mocks.central = true
+    mocks.enqueueCentralScan.mockResolvedValue({ jobId: 'job-default', status: 'PENDING', reused: false })
+    const request = new NextRequest('http://localhost/api/webhooks/scan', {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify({})
+    })
+
+    const response = await post(request, { params: Promise.resolve({}) })
+
+    expect(response.status).toBe(202)
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      queued: true,
+      jobId: 'job-default',
+      status: 'PENDING'
+    })
+    expect(mocks.enqueueCentralScan).toHaveBeenCalledWith({
+      triggerSource: 'SYSTEM',
+      type: 'all',
+      force: false,
+      metadataList: []
+    })
+    expect(mocks.scan).not.toHaveBeenCalled()
+    expect(mocks.createScanJob).not.toHaveBeenCalled()
+  })
+
   it.each([
     [false, false],
     [true, true]
@@ -267,7 +310,7 @@ describe('webhook scan audit integration', () => {
     expect(mocks.createScanJob).not.toHaveBeenCalled()
   })
 
-  it('creates CLIENT_LIST audit runs for webhook list scans', async () => {
+  it.each([false, true])('passes legacy list force=%s to a CLIENT_LIST scan', async (force) => {
     const request = new NextRequest('http://localhost/api/webhooks/scan', {
       method: 'POST',
       headers: {
@@ -276,6 +319,7 @@ describe('webhook scan audit integration', () => {
       },
       body: JSON.stringify({
         type: 'list',
+        force,
         metadataList: ['artist/100-meta.json']
       })
     })
@@ -290,20 +334,34 @@ describe('webhook scan audit integration', () => {
     })
     expect(mocks.scan).toHaveBeenCalledWith(
       expect.objectContaining({
+        forceUpdate: force,
         metadataRelativePaths: ['artist/100-meta.json']
       })
     )
   })
 
-  it('marks the job and scan run as failed when a force rebuild rejects', async () => {
+  it('keeps a legacy full force=false request as directory incremental discovery', async () => {
+    const request = new NextRequest('http://localhost/api/webhooks/scan', {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'full', force: false })
+    })
+
+    const response = await post(request, { params: Promise.resolve({}) })
+
+    expect(response.status).toBe(200)
+    expect(mocks.startScanRun).toHaveBeenCalledWith({ systemJobId: 'job-1', type: 'PIXIV', mode: 'INCREMENTAL' })
+    expect(mocks.scan).toHaveBeenCalledWith(
+      expect.objectContaining({ forceUpdate: false, metadataRelativePaths: undefined })
+    )
+  })
+
+  it('persists a legacy incremental execution failure without reporting completion', async () => {
     mocks.scan.mockRejectedValueOnce(new Error('Failed to process batch 1: database unavailable'))
     const request = new NextRequest('http://localhost/api/webhooks/scan', {
       method: 'POST',
-      headers: {
-        authorization: 'Bearer token',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({ type: 'full', force: true })
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'full', force: false })
     })
 
     const response = await post(request, { params: Promise.resolve({}) })
@@ -317,5 +375,52 @@ describe('webhook scan audit integration', () => {
     expect(mocks.failScanRun).toHaveBeenCalledWith('run-1', 'Failed to process batch 1: database unavailable')
     expect(mocks.completeJob).not.toHaveBeenCalled()
     expect(mocks.completeScanRun).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('rejects a retired directory force scan before %s mode performs I/O', async (central) => {
+    mocks.central = central
+    const request = new NextRequest('http://localhost/api/webhooks/scan', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer token',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ type: 'full', force: true })
+    })
+
+    const response = await post(request, { params: Promise.resolve({}) })
+
+    expect(response.status).toBe(410)
+    await expect(response.json()).resolves.toEqual({
+      code: 410,
+      data: { reason: 'FULL_SCAN_RETIRED' },
+      message:
+        'Directory-wide forced scans have been retired; use incremental discovery or an explicit metadata list instead',
+      success: false,
+      errorCode: 410,
+      error:
+        'Directory-wide forced scans have been retired; use incremental discovery or an explicit metadata list instead'
+    })
+    expect(mocks.getScanPath).not.toHaveBeenCalled()
+    expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
+    expect(mocks.createScanJob).not.toHaveBeenCalled()
+    expect(mocks.startScanRun).not.toHaveBeenCalled()
+    expect(mocks.scan).not.toHaveBeenCalled()
+  })
+
+  it('authenticates before reporting that directory force scan is retired', async () => {
+    const request = new NextRequest('http://localhost/api/webhooks/scan', {
+      method: 'POST',
+      headers: { authorization: 'Bearer wrong', 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'full', force: true })
+    })
+
+    const response = await post(request, { params: Promise.resolve({}) })
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({ success: false, error: 'Unauthorized' })
+    expect(mocks.getScanPath).not.toHaveBeenCalled()
+    expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
+    expect(mocks.createScanJob).not.toHaveBeenCalled()
   })
 })

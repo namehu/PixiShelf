@@ -33,16 +33,15 @@ sources:
 
 ## 调用者与凭证
 
-| 调用者                | 当前凭证                                     | 允许范围                                                    | 不允许假设                                                           |
-| --------------------- | -------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------- |
-| 未登录浏览器          | 无                                           | `/`、`/login`；登录和首次初始化 Server Action               | 不能读取目录、媒体或管理数据                                         |
-| 会话账户              | Better Auth Session Cookie                   | 所有受保护页面、HTTP API 和绝大多数 tRPC/Server Action      | 账户之间没有只读、编辑、管理之分                                     |
-| 扫描调用方            | `Authorization: Bearer <SCAN_WEBHOOK_TOKEN>` | `/api/webhooks/scan` 的健康检查、扫描触发和对应任务状态查询 | 该 Token 不能读取其他后台任务，也不能调用 scheduler 或浏览器会话接口 |
-| scheduler             | `Authorization: Bearer <INTERNAL_JOB_TOKEN>` | `/api/internal/scheduler/tick` 的健康检查和计划物化         | scheduler 不直接访问数据库或执行领域任务                             |
-| 通用 Worker           | `DATABASE_URL` 与读写文件挂载                | 领取任务、更新领域/任务数据、修改原媒体与派生媒体           | 没有用户会话，也不应接受公网业务请求                                 |
-| 兼容 `archive-worker` | `DATABASE_URL` 与读写文件挂载                | 阶段 8 前应用级回滚                                         | 不能与启用 Dispatcher 的通用 Worker 同时消费                         |
-| ImgProxy 调用方       | 当前无 URL 签名或应用会话校验                | 处理允许的本地原媒体和派生媒体路径                          | 端口可达不等于经过 PixiShelf 登录授权                                |
-| 实例管理员            | 主机/NAS/Docker/PostgreSQL 凭据              | 部署、备份、恢复、配置、网络和存储                          | 主机权限超出应用权限模型，必须单独保护                               |
+| 调用者          | 当前凭证                                     | 允许范围                                                                       | 不允许假设                                                                               |
+| --------------- | -------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| 未登录浏览器    | 无                                           | `/`、`/login`；登录和首次初始化 Server Action                                  | 不能读取目录、媒体或管理数据                                                             |
+| 会话账户        | Better Auth Session Cookie                   | 所有受保护页面、HTTP API 和绝大多数 tRPC/Server Action                         | 账户之间没有只读、编辑、管理之分                                                         |
+| 扫描调用方      | `Authorization: Bearer <SCAN_WEBHOOK_TOKEN>` | `/api/webhooks/scan` 的健康/认证检查、目录发现、明确列表扫描和对应任务状态查询 | 该 Token 不能读取其他后台任务、创建全目录强制刷新，也不能调用 scheduler 或浏览器会话接口 |
+| scheduler       | `Authorization: Bearer <INTERNAL_JOB_TOKEN>` | `/api/internal/scheduler/tick` 的健康检查和计划物化                            | scheduler 不直接访问数据库或执行领域任务                                                 |
+| 通用 Worker     | `DATABASE_URL` 与读写文件挂载                | 领取任务、更新领域/任务数据、修改原媒体与派生媒体                              | 没有用户会话，也不应接受公网业务请求                                                     |
+| ImgProxy 调用方 | 当前无 URL 签名或应用会话校验                | 处理允许的本地原媒体和派生媒体路径                                             | 端口可达不等于经过 PixiShelf 登录授权                                                    |
+| 实例管理员      | 主机/NAS/Docker/PostgreSQL 凭据              | 部署、备份、恢复、配置、网络和存储                                             | 主机权限超出应用权限模型，必须单独保护                                                   |
 
 `SCAN_WEBHOOK_TOKEN` 与 `INTERNAL_JOB_TOKEN` 必须使用不同的长随机值，不能复用 Better Auth、数据库或外部来源凭据。
 
@@ -108,24 +107,31 @@ sources:
 
 “Session（代理）”表示 Route 文件本身没有独立会话中间件，安全性依赖 `proxy.ts` 始终执行；“Session（双层）”表示 Route 内还会通过 Better Auth 再次验证。
 
-| 路径与方法                                      | 调用者与执行层校验                                      | 数据/文件能力                                                              | 风险等级                                                        |
-| ----------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `GET/POST /api/auth/[...all]`                   | Session（代理）；POST 另有每 IP 10 次/分钟限流          | Better Auth 会话与账户操作                                                 | 高；当前登录走 `/login` Server Action，不依赖未登录访问该 Route |
-| `GET/POST /api/trpc/[trpc]`                     | Session（代理）+ procedure 级校验                       | 取决于具体 router                                                          | 取决于 procedure                                                |
-| `GET/POST /api/internal/scheduler/tick`         | 公共 transport + `INTERNAL_JOB_TOKEN`；未配置返回 `503` | GET 健康检查；POST 物化到期计划任务                                        | 高；Token 泄露可持续创建后台任务                                |
-| `GET/HEAD/POST /api/webhooks/scan`              | 公共 transport + `SCAN_WEBHOOK_TOKEN`；未配置返回 `503` | 健康检查、入队/执行扫描；GET `jobId` 仅查询 `SYSTEM + SCAN` 的受限状态 DTO | 高；Token 泄露可触发高成本扫描并读取对应扫描摘要                |
-| `POST /api/scan/stream`                         | Session（双层，`requireAdminRequest`）                  | 入队或执行全量/增量/列表扫描                                               | 高，数据库和原媒体目录读取                                      |
-| `POST /api/scan/rescan`                         | Session（双层，`requireAdminRequest`）                  | 重扫一个 Artwork，更新目录与审计                                           | 高，数据库和文件关系变化                                        |
-| `POST /api/migration/stream`                    | Session（双层，`requireAdminRequest`）                  | 入队或执行迁移、复制/移动/清理                                             | 最高，可能修改原媒体                                            |
-| `POST /api/artwork/[id]/replace`                | Session（代理）                                         | 初始化、提交或回滚媒体替换会话                                             | 最高，数据库与原媒体写入                                        |
-| `GET/POST /api/artwork/upload-chunk`            | Session（代理）                                         | 查询上传状态、写入媒体分块                                                 | 高，原媒体写入                                                  |
-| `POST /api/artwork/media-chapters/upload`       | Session（代理）                                         | 上传章节 manifest                                                          | 高，数据库/派生或媒体侧写入                                     |
-| `DELETE /api/artwork/media-chapters/[image-id]` | Session（代理）                                         | 清除章节记录，可选择删除文件                                               | 高，数据库与文件删除                                            |
-| `GET /api/v1/images/[...path]`                  | Session（代理）+ 路径边界检查                           | 读取并流式返回 `SCAN_PATH` 内媒体，支持 Range                              | 高，原媒体内容读取                                              |
-| `GET /api/v1/media/[image-id]/chapters`         | Session（代理）                                         | 读取已发布章节 manifest                                                    | 中，私有媒体元数据读取                                          |
-| `GET /api/v1/media/[image-id]/keyframes`        | Session（代理）                                         | 读取已发布代表帧 manifest                                                  | 中，私有媒体元数据读取                                          |
+| 路径与方法                                      | 调用者与执行层校验                                      | 数据/文件能力                                                                                                   | 风险等级                                                        |
+| ----------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `GET/POST /api/auth/[...all]`                   | Session（代理）；POST 另有每 IP 10 次/分钟限流          | Better Auth 会话与账户操作                                                                                      | 高；当前登录走 `/login` Server Action，不依赖未登录访问该 Route |
+| `GET/POST /api/trpc/[trpc]`                     | Session（代理）+ procedure 级校验                       | 取决于具体 router                                                                                               | 取决于 procedure                                                |
+| `GET/POST /api/internal/scheduler/tick`         | 公共 transport + `INTERNAL_JOB_TOKEN`；未配置返回 `503` | GET 健康检查；POST 物化到期计划任务                                                                             | 高；Token 泄露可持续创建后台任务                                |
+| `GET/HEAD/POST /api/webhooks/scan`              | 公共 transport + `SCAN_WEBHOOK_TOKEN`；未配置返回 `503` | GET 无 `jobId` 只健康检查、有 `jobId` 只读 `SYSTEM + SCAN` 受限 DTO；HEAD 只认证；POST 可创建目录发现或列表扫描 | 高；Token 泄露可触发高成本扫描并读取对应扫描摘要                |
+| `POST /api/scan/stream`                         | Session（双层，`requireAdminRequest`）                  | 入队或执行目录发现/列表扫描；拒绝全目录强制刷新                                                                 | 高，数据库和原媒体目录读取                                      |
+| `POST /api/scan/rescan`                         | Session（双层，`requireAdminRequest`）                  | 重扫一个 Artwork，更新目录与审计                                                                                | 高，数据库和文件关系变化                                        |
+| `POST /api/migration/stream`                    | Session（双层，`requireAdminRequest`）                  | 入队或执行迁移、复制/移动/清理                                                                                  | 最高，可能修改原媒体                                            |
+| `POST /api/artwork/[id]/replace`                | Session（代理）                                         | 初始化、提交或回滚媒体替换会话                                                                                  | 最高，数据库与原媒体写入                                        |
+| `GET/POST /api/artwork/upload-chunk`            | Session（代理）                                         | 查询上传状态、写入媒体分块                                                                                      | 高，原媒体写入                                                  |
+| `POST /api/artwork/media-chapters/upload`       | Session（代理）                                         | 上传章节 manifest                                                                                               | 高，数据库/派生或媒体侧写入                                     |
+| `DELETE /api/artwork/media-chapters/[image-id]` | Session（代理）                                         | 清除章节记录，可选择删除文件                                                                                    | 高，数据库与文件删除                                            |
+| `GET /api/v1/images/[...path]`                  | Session（代理）+ 路径边界检查                           | 读取并流式返回 `SCAN_PATH` 内媒体，支持 Range                                                                   | 高，原媒体内容读取                                              |
+| `GET /api/v1/media/[image-id]/chapters`         | Session（代理）                                         | 读取已发布章节 manifest                                                                                         | 中，私有媒体元数据读取                                          |
+| `GET /api/v1/media/[image-id]/keyframes`        | Session（代理）                                         | 读取已发布代表帧 manifest                                                                                       | 中，私有媒体元数据读取                                          |
 
 HTTP Route 新增文件写入、删除、迁移或任务控制时，应使用 Route 内 Session 复核，不能只依赖代理路径没有被误加入 `PUBLIC_PATHS`。
+
+`POST /api/webhooks/scan` 保持现有 URL、Bearer Token 和生产 `202` 响应字段。`type=list`
+时，`force=false` 对已有 Source Reference 使用 `SKIP`，`force=true` 只对提交列表做有界
+`REFRESH`；`{}` 和 `type=full, force=false` 仍是目录发现。`type=full, force=true` 在认证
+后返回 HTTP `410` 与 `{ code: 410, data: { reason: 'FULL_SCAN_RETIRED' }, errorCode: 410 }`，且不写入
+`SystemJob` 或 `ScanRun`。GET 和 HEAD 永不触发扫描。App 任务命令层同时拒绝新建、人工复制或
+重试 `FULL_RECONCILE`；已存在的活动兼容任务仍可查询和控制，并由 Worker 执行或租约恢复。
 
 ## tRPC Router 矩阵
 

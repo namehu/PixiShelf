@@ -56,4 +56,18 @@ describe('useSseScan central queued event', () => {
     expect(mocks.toastSuccess).not.toHaveBeenCalled()
     expect(mocks.fetchEventSource.mock.calls[0]?.[1].signal.aborted).toBe(true)
   })
+
+  it('keeps force available for an explicit metadata list refresh', async () => {
+    const { result } = renderHook(() => useSseScan())
+
+    act(() => result.current.actions.startScan({ metadataList: ['artist/100-meta.json'], force: true }))
+
+    await waitFor(() => expect(mocks.fetchEventSource).toHaveBeenCalledOnce())
+    const request = mocks.fetchEventSource.mock.calls[0]?.[1]
+    expect(JSON.parse(request.body)).toEqual({
+      type: 'list',
+      force: true,
+      metadataList: ['artist/100-meta.json']
+    })
+  })
 })

@@ -204,7 +204,7 @@ function BackgroundTaskDock({
 }) {
   const running = dashboard?.runningJob ?? null
   const queuedCount = dashboard?.queuedCount ?? 0
-  const activeLabel = running ? formatBackgroundJobType(running.type) : null
+  const activeLabel = running ? formatBackgroundJobType(running.type, running.payload) : null
   const dockPosition =
     'fixed inset-x-4 bottom-[calc(var(--app-mobile-navigation-offset)+0.75rem)] z-40 lg:inset-x-auto lg:right-6 lg:bottom-6'
 
@@ -265,7 +265,7 @@ function BackgroundTaskDock({
       <div className={dockPosition}>
         <Button type="button" variant="secondary" onClick={onOpen} className="w-full shadow-lg lg:w-auto">
           <CheckCircle2 data-icon="inline-start" aria-hidden="true" />
-          {formatBackgroundJobType(completedNotice.type)}已完成
+          {formatBackgroundJobType(completedNotice.type, completedNotice.payload)}已完成
         </Button>
       </div>
     )
@@ -476,7 +476,7 @@ function ExecutionSlot({
           </div>
           {job ? (
             <>
-              <p className="mt-2 font-semibold">{formatBackgroundJobType(job.type)}</p>
+              <p className="mt-2 font-semibold">{formatBackgroundJobType(job.type, job.payload)}</p>
               <p className="mt-1 select-text break-all font-mono text-xs text-muted-foreground">{job.id}</p>
               <div className="mt-3 flex items-center gap-3">
                 <Progress value={job.progress} className="h-2 flex-1" aria-label={`任务进度 ${job.progress}%`} />
@@ -630,7 +630,7 @@ function RecentJobs({
                 )}
               >
                 <span className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-medium">{formatBackgroundJobType(job.type)}</span>
+                  <span className="text-sm font-medium">{formatBackgroundJobType(job.type, job.payload)}</span>
                   <AdminStatusBadge status={job.status}>{formatBackgroundJobStatus(job.status)}</AdminStatusBadge>
                 </span>
                 <span className="mt-1 block select-text break-all font-mono text-[11px] text-muted-foreground">
@@ -669,7 +669,7 @@ function JobDetail({ job, controls }: { job: JobDto; controls: BackgroundControl
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 id="job-detail-title" className="text-sm font-semibold">
-              {formatBackgroundJobType(job.type)}
+              {formatBackgroundJobType(job.type, job.payload)}
             </h3>
             <AdminStatusBadge status={job.status}>{formatBackgroundJobStatus(job.status)}</AdminStatusBadge>
           </div>
@@ -795,7 +795,7 @@ function JobActions({ job, controls, disabled }: { job: JobDto; controls: Backgr
           disabled={disabled}
           onClick={() =>
             confirm({
-              title: `取消“${formatBackgroundJobType(job.type)}”？`,
+              title: `取消“${formatBackgroundJobType(job.type, job.payload)}”？`,
               description:
                 job.status === 'PENDING' || job.status === 'RETRY_WAIT' || job.status === 'PAUSED'
                   ? '任务会从队列中取消，不会开始后续处理；此前已经发布的产物会保留。'

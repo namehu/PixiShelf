@@ -7,7 +7,13 @@ import {
   type BackgroundControlsView,
   type BackgroundDashboardView
 } from '../background-task-console'
-import { formatBackgroundJobStatus, getWorkerHealth, getWorkerSummary, mergeJobEvents } from '../background-task-format'
+import {
+  canRetryJob,
+  formatBackgroundJobStatus,
+  getWorkerHealth,
+  getWorkerSummary,
+  mergeJobEvents
+} from '../background-task-format'
 
 const mocks = vi.hoisted(() => ({
   dashboardQuery: {
@@ -184,6 +190,66 @@ describe('background task console', () => {
       '已取消',
       '已跳过'
     ])
+  })
+
+  it('hides retry only for retired historical full scans', () => {
+    const historicalFull = {
+      ...createJob('FAILED', 'job-full'),
+      type: 'SCAN' as const,
+      payload: { mode: 'FULL_RECONCILE' }
+    }
+    const ordinaryScan = {
+      ...createJob('FAILED', 'job-incremental'),
+      type: 'SCAN' as const,
+      payload: { mode: 'INCREMENTAL' }
+    }
+
+    expect(canRetryJob(historicalFull)).toBe(false)
+    expect(canRetryJob(ordinaryScan)).toBe(true)
+    expect(canRetryJob(createJob('FAILED'))).toBe(true)
+  })
+
+  it('does not render retry for historical full scans but keeps it for ordinary failures', () => {
+    const controls = createControls()
+    const historicalFull = {
+      ...createJob('FAILED', 'job-full'),
+      type: 'SCAN' as const,
+      payload: { mode: 'FULL_RECONCILE' }
+    }
+    const ordinaryScan = {
+      ...createJob('FAILED', 'job-incremental'),
+      type: 'SCAN' as const,
+      payload: { mode: 'INCREMENTAL' }
+    }
+    const { rerender } = render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard({ recentJobs: [historicalFull] })}
+        selectedJob={historicalFull}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={controls}
+      />
+    )
+
+    expect(screen.getAllByText('历史来源核对（已停用）').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull()
+
+    rerender(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard({ recentJobs: [ordinaryScan] })}
+        selectedJob={ordinaryScan}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={controls}
+      />
+    )
+    expect(screen.getAllByText('图库扫描').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    expect(controls.retry.mutate).toHaveBeenCalledWith({ jobId: ordinaryScan.id })
   })
 
   it('shows the single execution slot, worker health, and native keyboard-operable recent jobs', () => {

@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { getScanPath } from '@/services/setting.service'
 import * as JobService from '@/services/job-service'
 import { JobStatus, ScanRunMode, ScanRunType } from '@prisma/client'
-import { apiHandler } from '@/lib/api-handler'
+import { apiHandler, ApiError } from '@/lib/api-handler'
 import { ScanStreamSchema, ScanWebhookJobQuerySchema } from '@/schemas/scan.dto'
 import logger from '@/lib/logger'
 import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from '@/services/scan-service/scan-errors'
@@ -20,6 +20,11 @@ import {
 import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
 import { enqueueCentralScan } from '@/services/media-root-central-service'
 import { runBackgroundTaskApi } from '@/services/background-task/api-error-mapping'
+import {
+  FULL_SCAN_RETIRED_MESSAGE,
+  FULL_SCAN_RETIRED_REASON,
+  isRetiredDirectoryFullScan
+} from '@/services/scan-source-policy'
 
 function validateWebhookAuth(req: Request) {
   const authHeader = req.headers.get('Authorization')
@@ -138,6 +143,10 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
   if (authError) return authError
 
   const { type, force, metadataList } = data
+
+  if (isRetiredDirectoryFullScan({ type, force })) {
+    throw new ApiError(FULL_SCAN_RETIRED_MESSAGE, 410, { reason: FULL_SCAN_RETIRED_REASON })
+  }
 
   if (isCentralDispatcherCutoverEnabled()) {
     // Central Dispatcher 下，排队行为是幂等可重试的；scan 直接执行已迁移到中央服务完成，避免本地阻塞超时

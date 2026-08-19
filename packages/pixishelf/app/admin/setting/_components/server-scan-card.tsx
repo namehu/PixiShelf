@@ -19,10 +19,8 @@ interface ServerScanCardProps {
   healthStatus?: string
   /** 更新路径回调 */
   onUpdatePath: (path: string) => void
-  /** 触发增量扫描 */
-  onScanIncremental: () => void
-  /** 触发全量扫描 */
-  onScanForce: () => void
+  /** 扫描目录中尚未入库的新作品 */
+  onScanNewArtworks: () => void
   className?: string
 }
 
@@ -32,8 +30,7 @@ export function ServerScanCard({
   isScanning,
   healthStatus,
   onUpdatePath,
-  onScanIncremental,
-  onScanForce,
+  onScanNewArtworks,
   className
 }: ServerScanCardProps) {
   // 内部管理编辑状态，不再污染父组件
@@ -115,9 +112,7 @@ export function ServerScanCard({
       extra={
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">后端状态</span>
-          <Badge
-            variant={healthStatus === 'ok' ? 'success' : 'destructive'}
-          >
+          <Badge variant={healthStatus === 'ok' ? 'success' : 'destructive'}>
             <Activity data-icon="inline-start" aria-hidden="true" />
             {healthStatus || '检查中…'}
           </Badge>
@@ -127,14 +122,11 @@ export function ServerScanCard({
       footer={
         <div className="flex items-center justify-end gap-3 w-full">
           <span className="mr-auto text-xs text-muted-foreground">
-            {isScanning ? '任务正在后台执行中…' : '选择扫描模式以开始'}
+            {isScanning ? '任务正在后台执行中…' : '扫描目录并导入尚未入库的作品'}
           </span>
 
-          <Button variant="secondary" onClick={onScanForce} disabled={isScanning || !scanPathData}>
-            强制全量重扫
-          </Button>
-          <Button onClick={onScanIncremental} disabled={isScanning || !scanPathData}>
-            {isScanning ? '扫描中…' : '开始增量扫描'}
+          <Button onClick={onScanNewArtworks} disabled={isScanning || !scanPathData}>
+            {isScanning ? '扫描中…' : '扫描新作品'}
           </Button>
         </div>
       }

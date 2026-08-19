@@ -119,6 +119,16 @@ describe('central media root enqueue semantics', () => {
     expect(mocks.enqueue).not.toHaveBeenCalled()
   })
 
+  it('rejects directory-wide force before reading the scan root or opening the queue', async () => {
+    await expect(enqueueCentralScan({ type: 'all', force: true, requestedByUserId: 'admin-1' })).rejects.toMatchObject({
+      code: 'INVALID_STATE_TRANSITION'
+    })
+
+    expect(mocks.getScanPath).not.toHaveBeenCalled()
+    expect(mocks.enqueue).not.toHaveBeenCalled()
+    expect(mocks.systemEnqueue).not.toHaveBeenCalled()
+  })
+
   it.each([
     [false, 'SKIP'],
     [true, 'REFRESH']

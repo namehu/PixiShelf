@@ -26,6 +26,7 @@ import {
 } from '@/services/background-task/manual-job-singleton'
 import { isLocalDirectoryArtworkSource } from '@/utils/artwork/artwork-source'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
+import { FULL_SCAN_RETIRED_MESSAGE, isRetiredDirectoryFullScan } from '@/services/scan-source-policy'
 
 const MAX_METADATA_BYTES = 16 * 1024 * 1024
 const MAX_LOCAL_IMPORT_CANDIDATES = 10_000
@@ -46,6 +47,9 @@ export async function enqueueCentralScan(
     metadataList?: string[]
   } & ({ triggerSource?: 'MANUAL'; requestedByUserId: string } | { triggerSource: 'SYSTEM'; requestedByUserId?: never })
 ): Promise<QueuedMediaRootJob> {
+  if (isRetiredDirectoryFullScan(input)) {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', FULL_SCAN_RETIRED_MESSAGE)
+  }
   const scanPath = await requireScanPath()
   const now = new Date()
   let payload: ScanPayload
@@ -60,7 +64,7 @@ export async function enqueueCentralScan(
       inputDigest: digest
     }
   } else {
-    payload = { mode: input.force ? 'FULL_RECONCILE' : 'INCREMENTAL' }
+    payload = { mode: 'INCREMENTAL' }
   }
   let scanRunId = ''
   const options: EnqueueSingletonManualJobOptions = {
@@ -71,7 +75,7 @@ export async function enqueueCentralScan(
           transaction,
           existing,
           expectedType: 'PIXIV',
-          expectedMode: payload.mode === 'CLIENT_LIST' ? 'CLIENT_LIST' : input.force ? 'FULL' : 'INCREMENTAL',
+          expectedMode: payload.mode === 'CLIENT_LIST' ? 'CLIENT_LIST' : 'INCREMENTAL',
           expectedInputDigest: payload.mode === 'CLIENT_LIST' ? payload.inputDigest : null,
           expectedInputCount: payload.mode === 'CLIENT_LIST' ? payload.inputCount : 0,
           expectFrozen: payload.mode === 'CLIENT_LIST',
@@ -86,7 +90,7 @@ export async function enqueueCentralScan(
         data: {
           systemJobId: job.id,
           type: 'PIXIV',
-          mode: payload.mode === 'CLIENT_LIST' ? 'CLIENT_LIST' : input.force ? 'FULL' : 'INCREMENTAL',
+          mode: payload.mode === 'CLIENT_LIST' ? 'CLIENT_LIST' : 'INCREMENTAL',
           status: 'PENDING',
           checkpointStage: 'QUEUED',
           checkpointOrdinal: 0,

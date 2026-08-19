@@ -19,12 +19,13 @@ class FatalError extends Error {
 /**
  * 扫描入参配置
  */
-interface ScanOptions {
-  /** 强制执行完整重扫（重跑现有文件） */
-  force?: boolean
-  /** 列表扫描时的元数据路径集合 */
-  metadataList?: string[]
-}
+type ScanOptions =
+  | { metadataList?: undefined; force?: false }
+  | {
+      /** 列表扫描可选择跳过已有作品或安全刷新明确指定的来源。 */
+      metadataList: string[]
+      force?: boolean
+    }
 
 /**
  * 状态结构

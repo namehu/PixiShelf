@@ -14,8 +14,9 @@ sources:
 
 # Pixiv 来源发现、同步与核对设计
 
-本文是尚未实施的功能规格。当前页面、HTTP 契约和 Worker 行为仍以代码与 `current` 文档为准；本文不得被
-当成已上线说明。
+本文是分阶段实施的功能规格。阶段 0 的来源刷新兼容修复和阶段 1 的全目录强制刷新退役已在本分支完成；
+阶段 2 之后的 inventory、一致性核对和兼容清理仍未实施。当前页面、HTTP 契约和 Worker 行为以代码与
+`current` 文档为准；本文的未实施部分不得当成已上线说明。
 
 ## 1. 决策摘要
 
@@ -48,9 +49,9 @@ sources:
 
 因此“删除 Pixiv 作品后重建”不再只是一次昂贵导入，而是可能破坏不可重建的本地数据和跨来源关系。
 
-### 2.2 当前入口与执行语义不一致
+### 2.2 改造前的入口与执行语义不一致
 
-当前设置页仍声明强制扫描会删除并重建 Pixiv 作品；中央 Worker 的 `FULL_RECONCILE` 实际执行以下动作：
+改造前的设置页声明强制扫描会删除并重建 Pixiv 作品；中央 Worker 的 `FULL_RECONCILE` 实际执行以下动作：
 
 1. 遍历并 hash 所有候选 metadata；
 2. 对每个已存在 Pixiv Source Reference 使用 `REFRESH`；
@@ -72,9 +73,9 @@ hash 和冻结输入的成本仍随总量增长。
 - `Δ` 是新增或指纹变化的输入，`F` 是上次未成功且需要重试的输入；
 - 不再让普通扫描对全部 `N` 个作品做领域写入。
 
-### 2.4 当前升级兼容 Bug 不能靠删除按钮规避
+### 2.4 升级兼容 Bug 不能靠删除按钮规避
 
-现有 Pixiv publisher 只删除当前 Source Reference 拥有的 `SOURCE` 标签，再为来源返回的每个标签直接创建
+改造前的 Pixiv publisher 只删除当前 Source Reference 拥有的 `SOURCE` 标签，再为来源返回的每个标签直接创建
 `SOURCE` 行。历史迁移把无法证明归属的关系保留为 `LEGACY`，而 `ArtworkTag` 仍以 `(artworkId, tagId)` 唯一；
 同名 `LEGACY` 行会使创建 `SOURCE` 行触发唯一约束错误。
 
@@ -399,14 +400,19 @@ publishDurationMs
 
 ### 阶段 0：独立兼容修复
 
+**状态：本分支完成。**
+
 - 修复 Pixiv publisher 的 provenance 幂等合并；
 - honor `titleOverridden` / `descriptionOverridden`；
 - 现有 Artwork 刷新不改 Artist、不重排或删除已有 Media；
 - 补 `LEGACY / MANUAL / SOURCE`、Local Override 和多来源隔离测试。
 
-该阶段修复当前错误，独立提交，不依赖 inventory 或 UI 改造。
+该阶段修复升级兼容错误，独立提交，不依赖 inventory 或 UI 改造。本分支的验证覆盖 executor
+checkpoint 单测、真实 PostgreSQL publisher 回归，以及 Webhook 路由与中央扫描服务的 list contract。
 
 ### 阶段 1：停止创建全目录刷新
+
+**状态：本分支完成。**
 
 - 设置页移除强制按钮和旧文案；
 - 保留并修复 legacy executor，使已入队任务可以安全结束；
@@ -415,7 +421,9 @@ publishDurationMs
 - 保留 Webhook `list + force=false/true` 的 URL、认证、请求和响应 contract，并增加兼容回归测试；
 - 更新 Webhook、安全矩阵和当前页面文档。
 
-这是可快速降低风险的产品切换，不包含数据库 migration，也不要求生产 Webhook 调用方改造。
+这是可快速降低风险的产品切换，不包含数据库 migration，也不要求生产 Webhook 调用方改造。本分支的验证
+覆盖设置页入口、管理与 Webhook HTTP 退役响应、零任务写入、中央扫描 producer 和通用任务新建/重试门禁，
+同时回归 `list + force=false/true`、GET 健康/状态与 HEAD 认证契约。
 
 ### 阶段 2：真正增量的 inventory
 

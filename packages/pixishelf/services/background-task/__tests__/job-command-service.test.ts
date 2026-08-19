@@ -94,6 +94,27 @@ describe('enqueueJob', () => {
     expect(harness.create).not.toHaveBeenCalled()
   })
 
+  it('rejects a new FULL_RECONCILE scan before opening a queue transaction', async () => {
+    const harness = commandHarness([])
+
+    await expect(
+      enqueueJob(
+        {
+          type: 'SCAN',
+          triggerSource: 'MANUAL',
+          requestedByUserId: 'user-1',
+          priority: 10,
+          payload: { mode: 'FULL_RECONCILE' }
+        },
+        harness.client
+      )
+    ).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' })
+
+    expect(harness.queryRaw).not.toHaveBeenCalled()
+    expect(harness.create).not.toHaveBeenCalled()
+    expect(harness.eventCreate).not.toHaveBeenCalled()
+  })
+
   it('projects canonical keyframe generation payload fields into legacy columns', async () => {
     const created = jobRecord({ type: 'VIDEO_KEYFRAME_GENERATION' })
     const harness = commandHarness([created])
@@ -394,7 +415,12 @@ describe('enqueueJob', () => {
 
 describe('job commands', () => {
   it('moves RUNNING cancellation to CANCELLING with an event', async () => {
-    const current = jobRecord({ status: 'RUNNING', workerId: 'worker-1', attempt: 1 })
+    const current = jobRecord({
+      status: 'RUNNING',
+      workerId: 'worker-1',
+      attempt: 1,
+      payload: { mode: 'FULL_RECONCILE' }
+    })
     const updated = jobRecord({ ...current, status: 'CANCELLING' })
     const harness = commandHarness([current, updated])
     const result = await cancelJobCommand({ jobId: current.id }, harness.client)
@@ -409,7 +435,7 @@ describe('job commands', () => {
   })
 
   it('pauses queued work directly and resumes it to PENDING', async () => {
-    const pending = jobRecord({ status: 'PENDING' })
+    const pending = jobRecord({ status: 'PENDING', payload: { mode: 'FULL_RECONCILE' } })
     const paused = jobRecord({ ...pending, status: 'PAUSED' })
     const pauseHarness = commandHarness([pending, paused])
     await expect(pauseJobCommand({ jobId: pending.id }, pauseHarness.client)).resolves.toMatchObject({
@@ -468,6 +494,23 @@ describe('job commands', () => {
       })
     )
     expect(harness.eventCreate).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not clone a terminal historical FULL_RECONCILE scan', async () => {
+    const historical = jobRecord({
+      type: 'SCAN',
+      status: 'FAILED',
+      payload: { mode: 'FULL_RECONCILE' },
+      finishedAt: new Date()
+    })
+    const harness = commandHarness([historical])
+
+    await expect(
+      retryJobCommand({ jobId: historical.id, requestedByUserId: 'admin-1' }, harness.client)
+    ).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' })
+
+    expect(harness.create).not.toHaveBeenCalled()
+    expect(harness.eventCreate).not.toHaveBeenCalled()
   })
 
   it('preserves the derived resolver lane when retrying archive resolution', async () => {

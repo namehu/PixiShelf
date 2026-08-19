@@ -63,7 +63,8 @@ export function formatBackgroundJobStatus(status: JobStatus) {
   return statusLabels[status]
 }
 
-export function formatBackgroundJobType(type: JobType) {
+export function formatBackgroundJobType(type: JobType, payload?: unknown) {
+  if (isHistoricalFullScan(type, payload)) return '历史来源核对（已停用）'
   return typeLabels[type] ?? type
 }
 
@@ -128,7 +129,18 @@ export function canResumeJob(job: JobDto) {
 }
 
 export function canRetryJob(job: JobDto) {
-  return ['FAILED', 'CANCELLED', 'SKIPPED'].includes(job.status)
+  return !isHistoricalFullScan(job.type, job.payload) && ['FAILED', 'CANCELLED', 'SKIPPED'].includes(job.status)
+}
+
+function isHistoricalFullScan(type: JobType, payload: unknown) {
+  return (
+    type === 'SCAN' &&
+    typeof payload === 'object' &&
+    payload !== null &&
+    !Array.isArray(payload) &&
+    'mode' in payload &&
+    payload.mode === 'FULL_RECONCILE'
+  )
 }
 
 export function canChangePriority(job: JobDto) {
