@@ -418,6 +418,14 @@ function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWh
 type ArchiveTaskWire = Prisma.ArchiveImportGetPayload<{ select: ReturnType<typeof buildArchiveTaskWireSelect> }>
 
 function serializeTask(task: ArchiveTaskWire) {
+  const itemProgress = taskProgress(task.completedItems, task.totalItems)
+  const progress = ['RUNNING', 'PAUSED'].includes(task.status)
+    ? Math.max(task.systemJob.progress, itemProgress)
+    : task.systemJob.progress
+  const message =
+    task.status === 'RUNNING' && ['RUNNING', 'PAUSING'].includes(task.systemJob.status)
+      ? `Downloaded ${task.completedItems}/${task.totalItems}`
+      : archiveWireErrorMessage(task.errorCode, task.systemJob.message)
   return {
     id: task.id,
     providerKey: task.providerKey,
@@ -428,8 +436,8 @@ function serializeTask(task: ArchiveTaskWire) {
     requestedQuality: task.requestedQuality,
     selectedQuality: task.selectedQuality,
     decisionCode: task.decisionCode,
-    progress: task.systemJob.progress,
-    message: archiveWireErrorMessage(task.errorCode, task.systemJob.message),
+    progress,
+    message,
     errorCode: task.errorCode,
     errorMessage: archiveWireErrorMessage(task.errorCode, task.errorMessage),
     warning: redactArchiveText(task.warning),

@@ -8,6 +8,7 @@ import type { ArchiveRemoteMedia } from './types.js'
 const DEFAULT_MAX_MEDIA_BYTES = 512 * 1024 * 1024
 
 export interface ArchiveStoragePaths {
+  scanRootAbsolutePath: string
   stagingRelativePath: string
   stagingAbsolutePath: string
   finalRelativePath: string
@@ -39,6 +40,7 @@ export function buildArchiveStoragePaths(input: {
     path.join('sources', provider, bucket, externalId, 'revisions', archiveImportId)
   )
   return {
+    scanRootAbsolutePath: path.resolve(input.scanRoot),
     stagingRelativePath,
     stagingAbsolutePath: path.resolve(input.scanRoot, stagingRelativePath),
     finalRelativePath,
@@ -210,16 +212,10 @@ export async function writeArchiveManifest(stagingDirectory: string, manifest: R
 }
 
 export async function prepareArchiveRevisionDirectory(paths: ArchiveStoragePaths): Promise<void> {
-  const finalDirectory = await resolveCreatablePathWithinRoot(
-    path.dirname(paths.finalAbsolutePath),
-    path.basename(paths.finalAbsolutePath)
-  )
+  const finalDirectory = await resolveCreatablePathWithinRoot(paths.scanRootAbsolutePath, paths.finalRelativePath)
   await mkdir(path.dirname(finalDirectory), { recursive: true })
   if (!(await pathExists(finalDirectory))) {
-    const stagingDirectory = await resolveExistingPathWithinRoot(
-      path.dirname(paths.stagingAbsolutePath),
-      path.basename(paths.stagingAbsolutePath)
-    )
+    const stagingDirectory = await resolveExistingPathWithinRoot(paths.scanRootAbsolutePath, paths.stagingRelativePath)
     await rename(stagingDirectory, finalDirectory)
   }
   for (const required of ['media', 'manifest.json']) {

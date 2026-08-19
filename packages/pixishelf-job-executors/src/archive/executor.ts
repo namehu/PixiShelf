@@ -215,6 +215,8 @@ async function startArchiveImport(
       where: { archiveImportId: archiveImport.id, status: 'DOWNLOADING' },
       data: { status: 'PENDING', startedAt: null, finishedAt: null }
     })
+    const completedItems = archiveImport.items.filter((item) => item.status === 'COMPLETED').length
+    const failedItems = archiveImport.items.filter((item) => item.status === 'FAILED').length
     const changed = await transaction.archiveImport.updateMany({
       where: {
         id: archiveImport.id,
@@ -228,7 +230,9 @@ async function startArchiveImport(
         finishedAt: null,
         retainUntil: null,
         errorCode: null,
-        errorMessage: null
+        errorMessage: null,
+        completedItems,
+        failedItems
       }
     })
     if (changed.count !== 1) {
@@ -242,6 +246,8 @@ async function startArchiveImport(
     return {
       ...archiveImport,
       status: 'RUNNING',
+      completedItems,
+      failedItems,
       items: archiveImport.items.map((item) =>
         item.status === 'DOWNLOADING'
           ? { ...item, status: 'PENDING' as const, startedAt: null, finishedAt: null }
@@ -360,9 +366,12 @@ async function downloadArchiveItem(input: {
         }
       })
       if (completed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive item completion changed')
-      return transaction.archiveImportItem.count({
-        where: { archiveImportId: input.archiveImport.id, status: 'COMPLETED' }
+      const aggregate = await transaction.archiveImport.update({
+        where: { id: input.archiveImport.id },
+        data: { completedItems: { increment: 1 } },
+        select: { completedItems: true }
       })
+      return aggregate.completedItems
     })
     await input.context.progress({
       progress: archiveProgress(completedItems, input.archiveImport.totalItems),
@@ -394,6 +403,13 @@ async function downloadArchiveItem(input: {
       })
       if (updated.count !== 1) {
         throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive item failure checkpoint changed')
+      }
+      if (terminalItemFailure) {
+        await transaction.archiveImport.update({
+          where: { id: input.archiveImport.id },
+          data: { failedItems: { increment: 1 } },
+          select: { failedItems: true }
+        })
       }
     })
     if (classified.pause || isTaskStoppingFailure(classified)) throw classified

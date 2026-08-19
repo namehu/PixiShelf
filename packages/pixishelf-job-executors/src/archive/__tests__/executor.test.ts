@@ -13,6 +13,7 @@ const { publishMock, storageMocks } = vi.hoisted(() => ({
   publishMock: vi.fn(),
   storageMocks: {
     buildArchiveStoragePaths: vi.fn(() => ({
+      scanRootAbsolutePath: 'D:/archive',
       stagingRelativePath: '.archive-staging/import-1',
       stagingAbsolutePath: 'D:/archive/.archive-staging/import-1',
       finalRelativePath: 'sources/test/bucket/42/revisions/import-1',
@@ -100,6 +101,19 @@ const archiveItem = {
   updatedAt: new Date('2026-08-14T00:00:00.000Z')
 }
 
+const completedArchiveItem = {
+  ...archiveItem,
+  status: 'COMPLETED' as const,
+  attempts: 1,
+  stagedPath: 'media/001.jpg',
+  byteCount: BigInt(128),
+  mimeType: 'image/jpeg',
+  quality: 'ORIGINAL' as const,
+  width: 100,
+  height: 100,
+  sha256: 'b'.repeat(64)
+}
+
 describe('archive executor', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -135,6 +149,77 @@ describe('archive executor', () => {
       expect.any(Date)
     )
     expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
+  })
+
+  it('reconciles stale aggregate counts from durable item checkpoints before execution', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({
+      ...archiveImport,
+      totalItems: 1,
+      completedItems: 0,
+      items: [completedArchiveItem]
+    })
+    transaction.archiveImportItem.groupBy.mockResolvedValue([{ status: 'COMPLETED', _count: { _all: 1 } }])
+    transaction.archiveImportItem.findMany.mockResolvedValue([completedArchiveItem])
+    const context = createContext(transaction)
+
+    await expect(executeArchiveImport(context, dependencies(transaction))).resolves.toEqual(
+      TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+    )
+
+    expect(transaction.archiveImport.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ completedItems: 1, failedItems: 0 })
+      })
+    )
+  })
+
+  it('increments the live aggregate in the same transaction as an item completion', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({
+      ...archiveImport,
+      totalItems: 1,
+      items: [archiveItem]
+    })
+    transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    transaction.archiveImportItem.groupBy.mockResolvedValue([{ status: 'COMPLETED', _count: { _all: 1 } }])
+    transaction.archiveImportItem.findMany.mockResolvedValue([completedArchiveItem])
+    transaction.archiveImport.update.mockResolvedValueOnce({ completedItems: 1 }).mockResolvedValue(undefined)
+    storageMocks.storeArchiveRemoteMedia.mockResolvedValueOnce({
+      relativePath: completedArchiveItem.stagedPath,
+      byteCount: completedArchiveItem.byteCount,
+      mimeType: completedArchiveItem.mimeType,
+      width: completedArchiveItem.width,
+      height: completedArchiveItem.height,
+      sha256: completedArchiveItem.sha256
+    })
+    const stream = new PassThrough()
+    const executorDependencies = dependencies(transaction)
+    executorDependencies.providers = new DefaultArchiveMediaProviderRegistry([
+      {
+        key: 'test',
+        openMedia: vi.fn(async () => ({
+          stream,
+          mimeType: 'image/jpeg',
+          contentLength: 128,
+          originalFilename: '001.jpg',
+          quality: 'ORIGINAL' as const,
+          remoteHost: 'example.test'
+        }))
+      }
+    ])
+    const context = createContext(transaction)
+
+    await expect(executeArchiveImport(context, executorDependencies)).resolves.toEqual(
+      TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+    )
+
+    expect(transaction.archiveImport.update).toHaveBeenCalledWith({
+      where: { id: 'import-1' },
+      data: { completedItems: { increment: 1 } },
+      select: { completedItems: true }
+    })
+    expect(context.progress).toHaveBeenCalledWith(expect.objectContaining({ message: 'Downloaded 1/1', progress: 95 }))
   })
 
   it.each([
@@ -347,6 +432,11 @@ describe('archive executor', () => {
     await executeArchiveImport(context, executorDependencies).catch(() => undefined)
 
     expect(stream.destroyed).toBe(true)
+    expect(transaction.archiveImport.update).toHaveBeenCalledWith({
+      where: { id: 'import-1' },
+      data: { failedItems: { increment: 1 } },
+      select: { failedItems: true }
+    })
     await vi.waitFor(() => expect(governor.release).toHaveBeenCalledWith(permit))
   })
 

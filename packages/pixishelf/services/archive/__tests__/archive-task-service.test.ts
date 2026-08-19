@@ -70,6 +70,60 @@ describe('archive task service input contracts', () => {
     expect(findMany.mock.calls[0]![0].where).toEqual({ id: 'task-active' })
   })
 
+  it('projects live archive aggregates instead of the throttled queue progress while downloading', async () => {
+    const timestamp = new Date('2026-08-19T00:00:00.000Z')
+    const taskPage = await listArchiveTasks(
+      { limit: 50 },
+      {
+        database: {
+          archiveImport: {
+            findMany: async () => [
+              {
+                id: 'task-running',
+                providerKey: 'test',
+                externalId: '276',
+                submittedUrl: 'https://example.test/gallery/276',
+                normalizedMetadata: { titles: { display: 'Running archive' } },
+                status: 'RUNNING',
+                requestedQuality: 'ORIGINAL',
+                selectedQuality: 'ORIGINAL',
+                decisionCode: null,
+                totalItems: 276,
+                completedItems: 25,
+                failedItems: 0,
+                warning: null,
+                errorCode: null,
+                errorMessage: null,
+                createdAt: timestamp,
+                startedAt: timestamp,
+                finishedAt: null,
+                retainUntil: null,
+                publishedArtwork: null,
+                publishedRevision: null,
+                systemJob: {
+                  id: 'job-running',
+                  executionLane: 'BACKGROUND_WRITER',
+                  status: 'RUNNING',
+                  progress: 9,
+                  message: 'Downloaded 12/276',
+                  attempt: 1,
+                  heartbeatAt: timestamp
+                },
+                intakeItems: []
+              }
+            ]
+          }
+        } as never
+      }
+    )
+
+    expect(taskPage.items[0]).toMatchObject({
+      completedItems: 25,
+      progress: 13,
+      message: 'Downloaded 25/276'
+    })
+  })
+
   it('redacts path tokens and locator text from task and bulk wire messages', async () => {
     const timestamp = new Date('2026-08-18T00:00:00.000Z')
     const archiveImport = {
