@@ -104,6 +104,8 @@ describe('webhook scan audit integration', () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ success: true, data: { status: 'ok' } })
     expect(mocks.findScanJob).not.toHaveBeenCalled()
+    expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
+    expect(mocks.createScanJob).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -229,6 +231,37 @@ describe('webhook scan audit integration', () => {
       type: 'all',
       force: false,
       metadataList: []
+    })
+    expect(mocks.scan).not.toHaveBeenCalled()
+    expect(mocks.createScanJob).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [false, false],
+    [true, true]
+  ])('keeps webhook list force=%s as an asynchronous central enqueue', async (force, expectedForce) => {
+    mocks.central = true
+    mocks.enqueueCentralScan.mockResolvedValue({ jobId: `job-list-${force}`, status: 'PENDING', reused: false })
+    const request = new NextRequest('http://localhost/api/webhooks/scan', {
+      method: 'POST',
+      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'list', force, metadataList: ['artist/100-meta.json'] })
+    })
+
+    const response = await post(request, { params: Promise.resolve({}) })
+
+    expect(response.status).toBe(202)
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      queued: true,
+      jobId: `job-list-${force}`,
+      status: 'PENDING'
+    })
+    expect(mocks.enqueueCentralScan).toHaveBeenCalledWith({
+      triggerSource: 'SYSTEM',
+      type: 'list',
+      force: expectedForce,
+      metadataList: ['artist/100-meta.json']
     })
     expect(mocks.scan).not.toHaveBeenCalled()
     expect(mocks.createScanJob).not.toHaveBeenCalled()

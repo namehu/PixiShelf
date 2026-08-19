@@ -119,6 +119,37 @@ describe('central media root enqueue semantics', () => {
     expect(mocks.enqueue).not.toHaveBeenCalled()
   })
 
+  it.each([
+    [false, 'SKIP'],
+    [true, 'REFRESH']
+  ] as const)('maps webhook list force=%s to CLIENT_LIST %s without changing the transport', async (force, policy) => {
+    mocks.systemEnqueue.mockResolvedValue({ job: { id: `system-list-${force}` }, reused: false })
+
+    await expect(
+      enqueueCentralScan({
+        type: 'list',
+        force,
+        metadataList: ['artist/100-meta.json'],
+        triggerSource: 'SYSTEM'
+      })
+    ).resolves.toMatchObject({ jobId: `system-list-${force}`, status: 'PENDING', reused: false })
+
+    expect(mocks.systemEnqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'SCAN',
+        triggerSource: 'SYSTEM',
+        payload: expect.objectContaining({
+          mode: 'CLIENT_LIST',
+          existingPolicy: policy,
+          inputCount: 1,
+          inputDigest: expect.stringMatching(/^[a-f0-9]{64}$/)
+        })
+      }),
+      expect.anything()
+    )
+    expect(mocks.enqueue).not.toHaveBeenCalled()
+  })
+
   it('freezes a Pixiv artwork metadata input in the enqueue transaction', async () => {
     mocks.artworkFindUnique.mockResolvedValue({
       id: 7,

@@ -27,6 +27,7 @@ const databaseUrl =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const describePostgres = databaseUrl ? describe.sequential : describe.skip
 const prisma = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl }) : null
+const concurrentPrisma = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl }) : null
 const testPrefix = `scan-executor-${randomUUID()}`
 const clock = new MutableQueueClock(new Date('2026-08-14T18:00:00.000Z'))
 const capabilities: WorkerCapability[] = [
@@ -42,7 +43,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
   afterAll(async () => {
     await cleanup()
     await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })))
-    await prisma?.$disconnect()
+    await Promise.all([prisma?.$disconnect(), concurrentPrisma?.$disconnect()])
   })
 
   it('rolls back domain publication with its checkpoint, retries idempotently, and rejects a stale fence', async () => {
@@ -101,6 +102,147 @@ describePostgres('scan executor PostgreSQL integration', () => {
       })
     ).rejects.toBeInstanceOf(JobExecutionFenceError)
     expect(callbackEntered).toBe(false)
+  })
+
+  it('refreshes an existing Pixiv source without claiming curated tags or local artwork state', async () => {
+    const jobId = await seedJob('SCAN', { mode: 'INCREMENTAL' }, 1)
+    const run = await client().scanRun.create({
+      data: { systemJobId: jobId, type: 'PIXIV', mode: 'INCREMENTAL', status: 'RUNNING', startedAt: clock.now() }
+    })
+    const repository = queue()
+    const claimed = await claim(repository, 'refresh-ownership')
+    const externalId = nextNumericId()
+    const legacyExternalId = `${testPrefix}-local-${externalId}`
+    const oldArtist = await client().artist.create({
+      data: {
+        name: `${testPrefix}-curated-artist`,
+        username: `${testPrefix}-curated-artist`,
+        userId: `curated-${externalId}`
+      }
+    })
+    const artwork = await client().artwork.create({
+      data: {
+        title: `${testPrefix}-curated-title`,
+        description: 'initial description',
+        descriptionLength: 19,
+        titleOverridden: false,
+        descriptionOverridden: false,
+        externalId: legacyExternalId,
+        artistId: oldArtist.id,
+        source: 'PIXIV_IMPORTED',
+        createdVia: 'PIXIV_SCAN'
+      }
+    })
+    const pixivRef = await client().artworkExternalRef.create({
+      data: {
+        artworkId: artwork.id,
+        providerKey: 'pixiv',
+        externalId,
+        canonicalUrl: `https://www.pixiv.net/artworks/${externalId}`,
+        locator: { artworkId: externalId }
+      }
+    })
+    const otherRef = await client().artworkExternalRef.create({
+      data: {
+        artworkId: artwork.id,
+        providerKey: 'fixture-other',
+        externalId,
+        canonicalUrl: `https://fixture.invalid/${externalId}`,
+        locator: { artworkId: externalId }
+      }
+    })
+    const tagNames = [
+      'stale-source',
+      'legacy-overlap',
+      'manual-overlap',
+      'derived-overlap',
+      'other-overlap',
+      'new-source'
+    ]
+    const tags = await Promise.all(
+      tagNames.map((name) =>
+        client().tag.create({ data: { namespace: 'general', name: `${testPrefix}-${externalId}-${name}` } })
+      )
+    )
+    await client().artworkTag.createMany({
+      data: [
+        { artworkId: artwork.id, tagId: tags[0]!.id, provenance: 'SOURCE', sourceRefId: pixivRef.id },
+        { artworkId: artwork.id, tagId: tags[1]!.id, provenance: 'LEGACY' },
+        { artworkId: artwork.id, tagId: tags[2]!.id, provenance: 'MANUAL' },
+        { artworkId: artwork.id, tagId: tags[3]!.id, provenance: 'DERIVED' },
+        { artworkId: artwork.id, tagId: tags[4]!.id, provenance: 'SOURCE', sourceRefId: otherRef.id }
+      ]
+    })
+    await client().image.createMany({
+      data: [
+        { artworkId: artwork.id, path: `/pixiv/${externalId}_p0.jpg`, sortOrder: 10, size: 1n },
+        { artworkId: artwork.id, path: `curated/${externalId}.jpg`, sortOrder: 3, size: 2n }
+      ]
+    })
+
+    await repository.withFencedMutationTransaction<ScanTransaction & QueueSqlExecutor>(
+      fence(claimed),
+      async (transaction) => {
+        const coordinatedTransaction = afterPixivSourceLookup(transaction, async () => {
+          await concurrentClient().artwork.update({
+            where: { id: artwork.id },
+            data: { title: `${testPrefix}-concurrent-title`, titleOverridden: true }
+          })
+        })
+        await publishPixivArtwork({
+          transaction: coordinatedTransaction,
+          runId: run.id,
+          checkpointOrdinal: 0,
+          checkpointKey: 'metadata:0:refresh-ownership',
+          metadataRelativePath: `pixiv/${externalId}-meta.json`,
+          metadata: {
+            ...metadata(externalId),
+            title: 'upstream title',
+            description: 'upstream description',
+            tags: tags.slice(1).map((tag) => tag.name)
+          },
+          media: [media(`pixiv/${externalId}_p0.jpg`, 0), media(`pixiv/${externalId}_p1.jpg`, 1)],
+          existingPolicy: 'REFRESH',
+          now: clock.now()
+        })
+      }
+    )
+
+    const refreshed = await client().artwork.findUniqueOrThrow({ where: { id: artwork.id } })
+    expect(refreshed).toMatchObject({
+      title: `${testPrefix}-concurrent-title`,
+      description: 'upstream description',
+      descriptionLength: 20,
+      externalId: legacyExternalId,
+      artistId: oldArtist.id,
+      titleOverridden: true,
+      descriptionOverridden: false
+    })
+    const refreshedTags = await client().artworkTag.findMany({
+      where: { artworkId: artwork.id },
+      orderBy: { tagId: 'asc' },
+      select: { tagId: true, provenance: true, sourceRefId: true }
+    })
+    expect(refreshedTags).toEqual(
+      [
+        { tagId: tags[1]!.id, provenance: 'LEGACY', sourceRefId: null },
+        { tagId: tags[2]!.id, provenance: 'MANUAL', sourceRefId: null },
+        { tagId: tags[3]!.id, provenance: 'DERIVED', sourceRefId: null },
+        { tagId: tags[4]!.id, provenance: 'SOURCE', sourceRefId: otherRef.id },
+        { tagId: tags[5]!.id, provenance: 'SOURCE', sourceRefId: pixivRef.id }
+      ].sort((left, right) => left.tagId - right.tagId)
+    )
+    const refreshedImages = await client().image.findMany({
+      where: { artworkId: artwork.id },
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      select: { path: true, sortOrder: true }
+    })
+    expect(refreshedImages).toEqual([
+      { path: `curated/${externalId}.jpg`, sortOrder: 3 },
+      { path: `/pixiv/${externalId}_p0.jpg`, sortOrder: 10 },
+      { path: `pixiv/${externalId}_p1.jpg`, sortOrder: 11 }
+    ])
+    expect(await client().artist.count({ where: { userId: externalId } })).toBe(0)
   })
 
   it('FULL success sweeps exactly stale frozen references while a failed snapshot never sweeps', async () => {
@@ -410,6 +552,20 @@ function metadata(externalId: string) {
   }
 }
 
+function media(relativePath: string, sortOrder: number) {
+  return {
+    relativePath,
+    size: 5n,
+    sortOrder,
+    mediaType: 'IMAGE' as const,
+    webpAnimationStatus: null,
+    chaptersPath: null,
+    chaptersCount: 0,
+    chaptersDuration: null,
+    chaptersHash: null
+  }
+}
+
 function metadataDocument(externalId: string) {
   return {
     id: externalId,
@@ -438,9 +594,42 @@ async function cleanup() {
   await prisma.systemJob.deleteMany({ where: { id: { startsWith: testPrefix } } })
   await prisma.artwork.deleteMany({ where: { title: { startsWith: testPrefix } } })
   await prisma.artist.deleteMany({ where: { name: { startsWith: testPrefix } } })
+  await prisma.tag.deleteMany({ where: { name: { startsWith: testPrefix } } })
 }
 
 function client() {
   if (!prisma) throw new Error('QUEUE_KERNEL_TEST_DATABASE_URL is not configured')
   return prisma
+}
+
+function concurrentClient() {
+  if (!concurrentPrisma) throw new Error('QUEUE_KERNEL_TEST_DATABASE_URL is not configured')
+  return concurrentPrisma
+}
+
+function afterPixivSourceLookup(transaction: ScanTransaction, afterRead: () => Promise<void>): ScanTransaction {
+  const externalRefs = transaction.artworkExternalRef
+  let intercepted = false
+  const coordinatedExternalRefs = new Proxy(externalRefs, {
+    get(target, property) {
+      if (property === 'findUnique') {
+        return async (...args: Parameters<typeof externalRefs.findUnique>) => {
+          const result = await externalRefs.findUnique(...args)
+          if (!intercepted) {
+            intercepted = true
+            await afterRead()
+          }
+          return result
+        }
+      }
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    }
+  })
+  return new Proxy(transaction, {
+    get(target, property, receiver) {
+      if (property === 'artworkExternalRef') return coordinatedExternalRefs
+      return Reflect.get(target, property, receiver)
+    }
+  })
 }

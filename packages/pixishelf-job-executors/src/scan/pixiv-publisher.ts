@@ -20,6 +20,8 @@ export interface PixivPublishInput {
 
 export async function publishPixivArtwork(input: PixivPublishInput) {
   const { transaction, metadata } = input
+
+  // 已完成项是按 checkpoint 幂等重放的：命中过往 SUCCESS/SKIPPED 的结果时直接返回，避免在重试/重放场景重复写入 side effect。
   const existingItem = await transaction.scanRunItem.findUnique({
     where: { scanRunId_checkpointKey: { scanRunId: input.runId, checkpointKey: input.checkpointKey } }
   })
@@ -35,6 +37,8 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     where: { providerKey_externalId: { providerKey: 'pixiv', externalId: metadata.id } },
     include: { artwork: { select: { id: true } } }
   })
+
+  // existingPolicy=SKIP 代表“仅跟踪发现”，用于扫描作业希望不改历史数据的场景；一旦发现已有 ref，仅更新 lastSeenScanRunId。
   if (sourceRef && input.existingPolicy === 'SKIP') {
     await transaction.artworkExternalRef.update({
       where: { id: sourceRef.id },
@@ -60,19 +64,9 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     }
   }
 
-  const artist = await transaction.artist.upsert({
-    where: { unique_username_userid: { username: metadata.user, userId: metadata.userId } },
-    create: { name: metadata.user, username: metadata.user, userId: metadata.userId },
-    update: { name: metadata.user },
-    select: { id: true }
-  })
-  const artworkData = {
-    title: metadata.title,
-    description: metadata.description,
-    descriptionLength: metadata.description?.length ?? 0,
-    artistId: artist.id,
+  // Artwork 级 externalId/source/createdVia 只在新建时写入；刷新仅更新来源派生数据，不迁移本地身份和 ownership。
+  const sourceArtworkData = {
     bookmarkCount: metadata.bookmarkCount,
-    externalId: metadata.id,
     isAiGenerated: metadata.isAiGenerated,
     originalUrl: metadata.original,
     size: metadata.size,
@@ -84,14 +78,42 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     metadataFormat: metadata.metadataFormat,
     pixivAiType: metadata.pixivAiType,
     pixivType: metadata.pixivType,
-    sanityLevel: metadata.sanityLevel,
-    source: 'PIXIV_IMPORTED' as const,
-    createdVia: 'PIXIV_SCAN' as const
+    sanityLevel: metadata.sanityLevel
   }
   if (artworkId) {
-    await transaction.artwork.update({ where: { id: artworkId }, data: artworkData })
+    await transaction.artwork.update({ where: { id: artworkId }, data: sourceArtworkData })
+    // override 必须在写语句的条件中当地检查，避免用户在来源查询后提交的编辑被过期快照覆盖。
+    await transaction.artwork.updateMany({
+      where: { id: artworkId, titleOverridden: false },
+      data: { title: metadata.title }
+    })
+    await transaction.artwork.updateMany({
+      where: { id: artworkId, descriptionOverridden: false },
+      data: {
+        description: metadata.description,
+        descriptionLength: metadata.description?.length ?? 0
+      }
+    })
   } else {
-    const artwork = await transaction.artwork.create({ data: artworkData, select: { id: true } })
+    const artist = await transaction.artist.upsert({
+      where: { unique_username_userid: { username: metadata.user, userId: metadata.userId } },
+      create: { name: metadata.user, username: metadata.user, userId: metadata.userId },
+      update: { name: metadata.user },
+      select: { id: true }
+    })
+    const artwork = await transaction.artwork.create({
+      data: {
+        ...sourceArtworkData,
+        externalId: metadata.id,
+        title: metadata.title,
+        description: metadata.description,
+        descriptionLength: metadata.description?.length ?? 0,
+        artistId: artist.id,
+        source: 'PIXIV_IMPORTED',
+        createdVia: 'PIXIV_SCAN'
+      },
+      select: { id: true }
+    })
     artworkId = artwork.id
   }
 
@@ -133,7 +155,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
   const existingImages = await transaction.image.findMany({
     where: { artworkId },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-    select: { id: true, path: true }
+    select: { id: true, path: true, sortOrder: true }
   })
   const existingByIdentity = new Map<string, (typeof existingImages)[number]>()
   for (const image of existingImages) {
@@ -144,11 +166,12 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     existingByIdentity.set(identity, image)
   }
   let newImageCount = 0
+
+  // 新增图片要接在当前最大 sortOrder 之后；复用路径则只更新元数据，不触发删除、重排或插队，保证本地手工追加/本地文件更新不会被扫描改乱顺序。
+  let nextSortOrder = existingImages.reduce((maximum, image) => Math.max(maximum, image.sortOrder), -1) + 1
   for (const item of input.media) {
-    const data = {
-      path: item.relativePath,
+    const sourceMediaData = {
       size: item.size,
-      sortOrder: item.sortOrder,
       mediaType: item.mediaType,
       webpAnimationStatus: item.webpAnimationStatus,
       chaptersPath: item.chaptersPath,
@@ -159,14 +182,17 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     }
     const existing = existingByIdentity.get(normalizeMediaIdentity(item.relativePath))
     if (existing) {
-      await transaction.image.update({ where: { id: existing.id }, data })
+      await transaction.image.update({ where: { id: existing.id }, data: sourceMediaData })
     } else {
       await transaction.image.create({
         data: {
           artworkId,
-          ...data
+          path: item.relativePath,
+          sortOrder: nextSortOrder,
+          ...sourceMediaData
         }
       })
+      nextSortOrder += 1
       newImageCount += 1
     }
   }
@@ -184,12 +210,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
 }
 
 function normalizeMediaIdentity(value: string) {
-  return value
-    .replace(/\\/g, '/')
-    .replace(/\/+/g, '/')
-    .replace(/^\/+/, '')
-    .normalize('NFC')
-    .toLocaleLowerCase('und')
+  return value.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/+/, '').normalize('NFC').toLocaleLowerCase('und')
 }
 
 async function replaceSourceTags(
@@ -198,16 +219,32 @@ async function replaceSourceTags(
   sourceRefId: string,
   names: string[]
 ) {
-  await transaction.artworkTag.deleteMany({ where: { artworkId, provenance: 'SOURCE', sourceRefId } })
-  for (const name of names) {
+  const tagIds: number[] = []
+  for (const name of new Set(names)) {
     const tag = await transaction.tag.upsert({
       where: { namespace_name: { namespace: 'general', name } },
       create: { namespace: 'general', name },
       update: {},
       select: { id: true }
     })
-    await transaction.artworkTag.create({
-      data: { artworkId, tagId: tag.id, provenance: 'SOURCE', sourceRefId }
+    tagIds.push(tag.id)
+  }
+
+  // ArtworkTag 使用 (artworkId, tagId) 唯一约束，且一条关系有 provenance/sourceRefId 两个维度。
+  // 刷新时仅清理当前 provider/sourceRef 标记的 SOURCE 标签，避免误删 MANUAL/DERIVED/LEGACY（以及其他来源）归属。
+  await transaction.artworkTag.deleteMany({
+    where: {
+      artworkId,
+      provenance: 'SOURCE',
+      sourceRefId,
+      ...(tagIds.length > 0 ? { tagId: { notIn: tagIds } } : {})
+    }
+  })
+  for (const tagId of tagIds) {
+    await transaction.artworkTag.upsert({
+      where: { artworkId_tagId: { artworkId, tagId } },
+      create: { artworkId, tagId, provenance: 'SOURCE', sourceRefId },
+      update: {}
     })
   }
 }
