@@ -105,6 +105,8 @@ export async function freezeIncrementalInventorySnapshot(input: {
   const prepared = await mutate(input.context, async (transaction) => {
     const current = await transaction.scanRun.findUniqueOrThrow({ where: { id: input.run.id } })
     if (current.inputFrozenAt) return { shouldFreeze: false, run: current }
+    // An unfrozen snapshot is intentionally rebuildable. Page commits may survive a crash, so
+    // retry replaces their run-local rows while retaining reusable observations in the inventory.
     await transaction.scanRunMetadataInput.deleteMany({ where: { scanRunId: input.run.id } })
     await transaction.scanRunItem.deleteMany({
       where: { scanRunId: input.run.id, checkpointKey: { startsWith: 'inventory-discovery:' } }
@@ -265,6 +267,8 @@ export async function freezeIncrementalInventorySnapshot(input: {
     for (const row of frozenRows) digest.update(row)
 
     await mutate(input.context, async (transaction) => {
+      // One transaction makes each discovery page replay-safe: its observed state, failures,
+      // frozen inputs, and aggregate counters either advance together or not at all.
       for (const candidate of observed) {
         // Discovery advances only observed state. processedContentHash is reserved for the fenced domain commit.
         const stat = inventoryStatData(candidate.state)
@@ -400,6 +404,8 @@ export async function freezeIncrementalInventorySnapshot(input: {
     const current = await transaction.scanRun.findUniqueOrThrow({ where: { id: input.run.id } })
     if (current.inputFrozenAt) return current
     if (baselineGeneration !== null) {
+      // READY is the global trust barrier: no row from a partial first traversal can establish
+      // an existing Artwork baseline, even though page-level inventory writes are already durable.
       await transaction.pixivMetadataInventoryState.update({
         where: { id: inventoryState.id },
         data: { status: 'READY', baselineCompletedAt: input.now }
@@ -462,6 +468,8 @@ export async function recordExistingInventoryDecision(input: {
     where: { scanRunId_checkpointKey: { scanRunId: input.runId, checkpointKey: input.checkpointKey } },
     select: { status: true, action: true }
   })
+  // Besides recording the full-reconcile sighting, this update locks the source reference before
+  // the exact Artwork/metaSource check below, keeping baseline classification inside one CAS boundary.
   const locked = await input.transaction.artworkExternalRef.updateMany({
     where: { providerKey: 'pixiv', externalId: input.externalId },
     data: { lastSeenScanRunId: input.runId }
@@ -728,6 +736,8 @@ async function applyRunInputMetricTransition(
   after: MetricCheckpoint,
   publishDurationMs = 0
 ) {
+  // Retries replace an existing checkpoint outcome. Applying state deltas keeps aggregate metrics
+  // correct when FAILED later becomes SUCCESS/SKIPPED, or when a committed result is replayed.
   const parsedDelta = Number(isParsedCheckpoint(after)) - Number(isParsedCheckpoint(before))
   const publishedDelta = Number(isPublishedCheckpoint(after)) - Number(isPublishedCheckpoint(before))
   const failedDelta = Number(after.status === 'FAILED') - Number(before?.status === 'FAILED')

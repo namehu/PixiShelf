@@ -81,6 +81,8 @@ function assertStatus(job: SystemJobWireRecord, allowed: readonly JobStatus[], a
 }
 
 function isFrozenScanSnapshotPayload(type: string, payload: unknown) {
+  // Generic retry creates a new job, but these inputs live under the original job's ScanRun.
+  // Their producers must freeze and enqueue a fresh snapshot as one transaction instead.
   if (type !== 'SCAN' || typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false
   if (!('mode' in payload)) return false
   return payload.mode === 'CLIENT_LIST' || payload.mode === 'ARTWORK_RESCAN'

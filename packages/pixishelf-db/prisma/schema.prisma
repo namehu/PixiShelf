@@ -1002,6 +1002,7 @@ model ScanRun {
   inputDigest              String?                          @db.VarChar(64)
   inputCount               Int                              @default(0)
   inputFrozenAt            DateTime?
+  /// Identifies the first-traversal baseline this run may classify; null for ordinary frozen scans.
   inventoryBaselineGeneration Int?
   checkpointStage          String?                          @db.VarChar(80)
   checkpointOrdinal        Int                              @default(0)
@@ -1129,6 +1130,7 @@ model PixivMetadataInventory {
   lastProcessedAt          DateTime?
   lastErrorCode            String?             @db.VarChar(80)
   lastErrorSummary         String?             @db.Text
+  /// With an error: true retries, false caches an exact-content verdict, null reevaluates external state.
   lastErrorRetryable       Boolean?
   createdAt                DateTime            @default(now())
   updatedAt                DateTime            @updatedAt

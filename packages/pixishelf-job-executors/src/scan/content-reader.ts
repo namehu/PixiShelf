@@ -21,6 +21,8 @@ export interface StableFileState {
   inode: bigint | null
 }
 
+// Inventory statting keeps the same no-symlink/canonical-path boundary as a full read;
+// the read path later repeats these checks around the open descriptor to close the TOCTOU window.
 export async function statStableFile(absolutePath: string): Promise<StableFileState> {
   let metadata: BigIntStats
   try {
@@ -141,6 +143,8 @@ export function stableFileStateFromMetadata(metadata: {
 
 function optionalPositiveBigInt(value: number | bigint): bigint | null {
   const normalized = typeof value === 'bigint' ? value : BigInt(Math.trunc(value))
+  // Some filesystems expose zero for unavailable identity signals. Treat those as absent so
+  // size and mtime can still provide the portable inventory fast path.
   return normalized > 0n ? normalized : null
 }
 

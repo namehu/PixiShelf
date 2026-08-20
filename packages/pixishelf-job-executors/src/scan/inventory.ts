@@ -17,6 +17,9 @@ export function hashScanRootIdentity(absolutePath: string): string {
   return createHash('sha256').update(absolutePath).digest('hex')
 }
 
+// This decision tree deliberately separates observing bytes from publishing them. Stable
+// unprocessed hashes can be replayed without I/O, while a permanent verdict is reusable only
+// when lastAttemptedContentHash proves that it describes the currently observed content.
 export function decideInventoryBeforeHash(
   inventory: PixivInventoryRecord | undefined,
   state: StableFileState,
@@ -133,6 +136,8 @@ export function classifyInventoryFailure(error: unknown): {
 }
 
 function sameOptionalSignal(left: bigint | null, right: bigint | null): boolean {
+  // Optional filesystem identity fields strengthen change detection only when both observations
+  // provide them; missing support must not make every scan look changed.
   return left === null || right === null || left === right
 }
 

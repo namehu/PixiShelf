@@ -77,6 +77,8 @@ export async function executeScan(
       return finalizeScanSuccess({ context, runId: run.id, result, startedAt: run.startedAt, now: now() })
     }
     const inventoryRootPathHash = hashScanRootIdentity(root.absolutePath)
+    // All Pixiv scan modes share the inventory, including pre-frozen lists and rescans; bind them
+    // to the resolved root before reading a snapshot so another mount cannot reuse its path/hash facts.
     await ensurePixivInventoryRootIdentity({ context, rootPathHash: inventoryRootPathHash, now: now() })
     run = await ensureMetadataSnapshot({ context, dependencies, root, run, now: now(), limits })
     const snapshot = await verifyFrozenMetadataSnapshot({
@@ -238,6 +240,8 @@ async function processMetadataInput(input: {
     return { status: checkpoint.status, newImages: checkpoint.newImageCount }
   }
   if (checkpoint?.status === 'FAILED') {
+    // A failure is terminal only while inventory still describes this run and content hash.
+    // Another run may have repaired the same content, in which case this checkpoint is reconciled again.
     const inventory = await input.dependencies.database.pixivMetadataInventory.findUnique({
       where: { relativePath: input.row.relativePath },
       select: {
@@ -373,6 +377,8 @@ async function assertArtworkRescanSnapshot(input: {
   externalId: string
   metadataRelativePath: string
 }) {
+  // Revalidate and lock both sides of the frozen identity inside the publication transaction;
+  // enqueue-time checks alone cannot prevent a concurrent source relink or metaSource change.
   const locked = await input.transaction.$queryRaw<Array<{ id: number }>>(Prisma.sql`
     SELECT artwork."id"
     FROM "Artwork" AS artwork

@@ -67,6 +67,7 @@ CREATE TABLE "pixiv_metadata_inventory" (
   "lastProcessedAt" TIMESTAMP(3),
   "lastErrorCode" VARCHAR(80),
   "lastErrorSummary" TEXT,
+  -- With an error, NULL is intentional: it distinguishes an external-state verdict from a cached content failure.
   "lastErrorRetryable" BOOLEAN,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
