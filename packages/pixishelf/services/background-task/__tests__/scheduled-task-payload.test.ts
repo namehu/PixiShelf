@@ -20,8 +20,7 @@ describe('scheduled task payload mapping', () => {
 
   it('maps media probe and chapter preview behavior explicitly', () => {
     expect(buildScheduledTaskJobDefinition('VIDEO_MEDIA_PROBE', { trigger: 'schedule' }).payload).toEqual({
-      force: false,
-      enqueueMissingPosters: true
+      force: false
     })
     expect(
       buildScheduledTaskJobDefinition('VIDEO_CHAPTER_PREVIEW_GENERATION', { trigger: 'schedule' }).payload

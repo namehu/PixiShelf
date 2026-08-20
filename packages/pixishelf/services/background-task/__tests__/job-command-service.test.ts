@@ -223,7 +223,7 @@ describe('enqueueJob', () => {
       type: 'VIDEO_MEDIA_PROBE',
       triggerSource: 'MANUAL',
       requestedByUserId: 'user-1',
-      payload: { force: false, enqueueMissingPosters: true },
+      payload: { force: false },
       idempotencyKey: 'manual-probe-1',
       queuePriority: 10,
       effectivePriority: 10
@@ -235,7 +235,7 @@ describe('enqueueJob', () => {
         type: 'VIDEO_MEDIA_PROBE',
         triggerSource: 'MANUAL',
         requestedByUserId: 'user-1',
-        payload: { force: true, enqueueMissingPosters: true },
+        payload: { force: true },
         idempotencyKey: 'manual-probe-1',
         priority: 10
       },

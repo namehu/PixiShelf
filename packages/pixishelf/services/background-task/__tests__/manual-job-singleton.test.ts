@@ -55,7 +55,7 @@ describe('manual background job singleton', () => {
       id: 'probe-1',
       type: 'VIDEO_MEDIA_PROBE',
       status: 'PAUSED',
-      payload: { enqueueMissingPosters: true, force: false },
+      payload: { force: false },
       queuePriority: 30,
       effectivePriority: 30
     })
@@ -103,7 +103,7 @@ describe('manual background job singleton', () => {
       jobRecord({
         id: 'probe-normal',
         type: 'VIDEO_MEDIA_PROBE',
-        payload: { enqueueMissingPosters: true, force: false },
+        payload: { force: false },
         queuePriority: 30,
         effectivePriority: 30
       })
@@ -228,7 +228,7 @@ describe('manual background job singleton', () => {
     const existing = jobRecord({
       id: 'probe-existing',
       type: 'VIDEO_MEDIA_PROBE',
-      payload: { force: true, enqueueMissingPosters: true, imageId: 9 },
+      payload: { force: true, imageId: 9 },
       queuePriority: 20,
       effectivePriority: 20
     })
@@ -238,7 +238,7 @@ describe('manual background job singleton', () => {
       triggerSource: 'MANUAL' as const,
       requestedByUserId: 'admin-1',
       priority: 20,
-      payload: { force: true, enqueueMissingPosters: true, imageId: 9 }
+      payload: { force: true, imageId: 9 }
     }
 
     await expect(enqueueSingletonManualJobWithResult(request, { client: reusedState.client })).resolves.toMatchObject({

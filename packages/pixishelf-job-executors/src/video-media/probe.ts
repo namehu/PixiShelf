@@ -1,8 +1,9 @@
-import { createHash } from 'node:crypto'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
+import type { Prisma } from '@pixishelf/db'
 import type { VideoMediaProbePayload } from './executors.ts'
 import { probeVideoMetadata } from './media-process.ts'
-import { inspectGcCandidate, resolveVideoSource } from './paths.ts'
+import { resolveVideoSource } from './paths.ts'
+import { generatePendingVideoPoster } from './poster.ts'
 import {
   VideoMediaPermanentError,
   type VideoMediaDatabase,
@@ -12,24 +13,20 @@ import {
 
 const CLASSIFICATION_BATCH_SIZE = 500
 const PROBE_BATCH_SIZE = 20
-const POSTER_BACKLOG_BATCH_SIZE = 100
+const POSTER_BATCH_SIZE = 20
 const FAILED_SAMPLE_LIMIT = 20
 
 export interface VideoMediaProbeResult {
-  classifiedVideos: number
-  classifiedImages: number
-  classifiedAnimations: number
-  unknown: number
-  metadataRowsCreated: number
-  processed: number
-  failed: number
-  remaining: number
-  posterChildrenEnqueued: number
-  posterChildrenReused: number
-  posterEnqueueFailed: number
-  posterBacklogScanned: number
-  posterFilesMissing: number
-  failedSamples: Array<{ imageId: number; path: string; error: string }>
+  classification: {
+    videos: number
+    images: number
+    animations: number
+    unknown: number
+    metadataRowsCreated: number
+  }
+  probe: { total: number; processed: number; failed: number; remaining: number }
+  poster: { total: number; processed: number; generated: number; skipped: number; failed: number; remaining: number }
+  failedSamples: Array<{ stage: 'PROBE' | 'POSTER'; imageId: number; path: string; error: string }>
 }
 
 type ProbeContext = ExecutionContext<VideoMediaProbePayload, EnqueuedChildJob>
@@ -52,15 +49,15 @@ export async function executeVideoMediaProbe(
       where: { probeStatus: { in: [...statuses] }, ...targetWhere }
     })
     const result: VideoMediaProbeResult = {
-      ...classification,
-      processed: 0,
-      failed: 0,
-      remaining: total,
-      posterChildrenEnqueued: 0,
-      posterChildrenReused: 0,
-      posterEnqueueFailed: 0,
-      posterBacklogScanned: 0,
-      posterFilesMissing: 0,
+      classification: {
+        videos: classification.classifiedVideos,
+        images: classification.classifiedImages,
+        animations: classification.classifiedAnimations,
+        unknown: classification.unknown,
+        metadataRowsCreated: classification.metadataRowsCreated
+      },
+      probe: { total, processed: 0, failed: 0, remaining: total },
+      poster: { total: 0, processed: 0, generated: 0, skipped: 0, failed: 0, remaining: 0 },
       failedSamples: []
     }
     let cursor = 0
@@ -112,7 +109,7 @@ export async function executeVideoMediaProbe(
             if (updated.count !== 1) throw new Error('Video probe checkpoint changed before completion')
           })
           activeImageId = null
-          result.processed += 1
+          result.probe.processed += 1
         } catch (error) {
           if (context.signal.aborted) throw error
           const message = error instanceof Error ? error.message : 'Unknown video probe failure'
@@ -123,26 +120,23 @@ export async function executeVideoMediaProbe(
             })
           })
           activeImageId = null
-          result.failed += 1
+          result.probe.failed += 1
           if (result.failedSamples.length < FAILED_SAMPLE_LIMIT) {
-            result.failedSamples.push({ imageId: item.imageId, path: item.image.path, error: message })
+            result.failedSamples.push({ stage: 'PROBE', imageId: item.imageId, path: item.image.path, error: message })
           }
         }
-        const attempted = result.processed + result.failed
+        const attempted = result.probe.processed + result.probe.failed
         await context.progress({
-          progress: Math.min(99, 20 + Math.floor((attempted / Math.max(total, 1)) * 79)),
+          progress: Math.min(50, 10 + Math.floor((attempted / Math.max(total, 1)) * 40)),
           stage: 'PROBING',
-          message: `已探测 ${attempted}/${total} 个视频，失败 ${result.failed} 个`
+          message: `已探测 ${attempted}/${total} 个视频，失败 ${result.probe.failed} 个`
         })
       }
     }
-    if (context.payload.enqueueMissingPosters) {
-      await materializePosterBacklog(context, dependencies, result)
-    }
-    result.remaining = await dependencies.database.mediaVideoMetadata.count({
+    result.probe.remaining = await dependencies.database.mediaVideoMetadata.count({
       where: { probeStatus: { in: [...statuses] }, ...targetWhere }
     })
-    if (context.payload.imageId && result.failed > 0) {
+    if (context.payload.imageId && result.probe.failed > 0) {
       const message = result.failedSamples[0]?.error ?? 'Targeted video probe failed'
       return context.job.attempt < context.job.maxAttempts
         ? {
@@ -154,7 +148,12 @@ export async function executeVideoMediaProbe(
           }
         : { kind: 'failed', errorCode: 'INTERNAL_ERROR', error: message, message: '单视频媒体重探测失败' }
     }
-    return { kind: 'completed', result, message: `视频媒体探测完成：成功 ${result.processed}，失败 ${result.failed}` }
+    await processPendingPosters(context, dependencies, result)
+    return {
+      kind: 'completed',
+      result,
+      message: `视频媒体探测与封面生成完成：探测成功 ${result.probe.processed}，封面生成 ${result.poster.generated}，失败 ${result.probe.failed + result.poster.failed}`
+    }
   } catch (error) {
     if (context.signal.aborted) {
       return context.finalizeInTransaction<VideoMediaTransaction & QueueSqlExecutor>(async (scope) => {
@@ -189,111 +188,71 @@ export async function executeVideoMediaProbe(
   }
 }
 
-async function enqueuePosterChild(
-  context: ProbeContext,
-  result: VideoMediaProbeResult,
-  imageId: number,
-  relativePath: string,
-  stateVersion: string
-) {
-  try {
-    const child = await context.enqueueChild({
-      type: 'VIDEO_POSTER_GENERATION',
-      payload: { imageId, relativePath: normalizeRelativePath(relativePath) },
-      idempotencyKey: posterChildIdempotencyKey(context.job.id, imageId, stateVersion)
-    })
-    if (child.created) result.posterChildrenEnqueued += 1
-    else result.posterChildrenReused += 1
-    return true
-  } catch (error) {
-    result.posterEnqueueFailed += 1
-    context.logger.warn('video-media.poster-child-enqueue-failed', {
-      imageId,
-      error: error instanceof Error ? error.message : 'Unknown child enqueue failure'
-    })
-    return false
-  }
-}
-
-function posterChildIdempotencyKey(parentJobId: string, imageId: number, stateVersion: string) {
-  const parentStateDigest = createHash('sha256')
-    .update(parentJobId)
-    .update('\0')
-    .update(stateVersion)
-    .digest('hex')
-  return `video-poster:${imageId}:${parentStateDigest}`
-}
-
-async function materializePosterBacklog(
+async function processPendingPosters(
   context: ProbeContext,
   dependencies: { database: VideoMediaDatabase; config: VideoMediaRuntimeConfig },
   result: VideoMediaProbeResult
 ) {
   throwIfAborted(context.signal)
-  const batch = await dependencies.database.mediaVideoMetadata.findMany({
-    where: {
-      probeStatus: 'COMPLETED',
-      manualPosterTimestamp: null,
-      ...(context.payload.imageId ? { imageId: context.payload.imageId } : {}),
-      posterStatus: { in: ['PENDING', 'FAILED', 'COMPLETED'] }
-    },
-    orderBy: [
-      { posterBacklogCheckedAt: { sort: 'asc', nulls: 'first' } },
-      { imageId: 'asc' }
-    ],
-    take: context.payload.imageId ? 1 : POSTER_BACKLOG_BATCH_SIZE,
-    select: {
-      imageId: true,
-      posterStatus: true,
-      posterPath: true,
-      posterUpdatedAt: true,
-      image: { select: { path: true } }
-    }
-  })
-  const checkedImageIds: number[] = []
-  for (const item of batch) {
+  const targetWhere = context.payload.imageId ? { imageId: context.payload.imageId } : {}
+  const candidateWhere: Prisma.MediaVideoMetadataWhereInput = {
+    probeStatus: 'COMPLETED' as const,
+    manualPosterTimestamp: null,
+    posterStatus: { in: ['PENDING', 'FAILED', 'GENERATING'] },
+    ...targetWhere
+  }
+  result.poster.total = await dependencies.database.mediaVideoMetadata.count({ where: candidateWhere })
+  let cursor = 0
+  while (true) {
     throwIfAborted(context.signal)
-    result.posterBacklogScanned += 1
-    if (item.posterStatus === 'COMPLETED') {
-      let exists = false
-      if (item.posterPath) {
-        try {
-          exists = (await inspectGcCandidate(dependencies.config.posterStorageRoot, item.posterPath)).exists
-        } catch (error) {
-          context.logger.warn('video-media.poster-file-invalid', {
+    const batch = await dependencies.database.mediaVideoMetadata.findMany({
+      where: {
+        ...candidateWhere,
+        imageId: context.payload.imageId ?? { gt: cursor }
+      },
+      orderBy: { imageId: 'asc' },
+      take: context.payload.imageId ? 1 : POSTER_BATCH_SIZE,
+      select: { imageId: true, image: { select: { path: true } } }
+    })
+    if (batch.length === 0) break
+    cursor = batch.at(-1)!.imageId
+    for (const item of batch) {
+      throwIfAborted(context.signal)
+      const outcome = await generatePendingVideoPoster(context, dependencies, {
+        imageId: item.imageId,
+        relativePath: normalizeRelativePath(item.image.path)
+      })
+      result.poster.processed += 1
+      if (outcome.kind === 'generated') {
+        result.poster.generated += 1
+      } else if (outcome.kind === 'skipped') {
+        result.poster.skipped += 1
+      } else if (outcome.kind === 'failed') {
+        result.poster.failed += 1
+        if (result.failedSamples.length < FAILED_SAMPLE_LIMIT) {
+          result.failedSamples.push({
+            stage: 'POSTER',
             imageId: item.imageId,
-            error: error instanceof Error ? error.message : 'Unknown poster validation failure'
+            path: item.image.path,
+            error: outcome.message
           })
         }
       }
-      if (exists) {
-        checkedImageIds.push(item.imageId)
-        continue
-      }
-      result.posterFilesMissing += 1
-    }
-    const stateVersion = [
-      item.posterStatus,
-      item.posterUpdatedAt?.getTime() ?? 0,
-      item.posterPath ?? 'none'
-    ].join(':')
-    await enqueuePosterChild(context, result, item.imageId, item.image.path, stateVersion)
-    // A poison row must advance the fairness cursor even when its child enqueue failed. The
-    // parent still retries below; after untouched rows get a turn, this older checkpoint rotates
-    // back to the front and retries the failed row instead of permanently dropping it.
-    checkedImageIds.push(item.imageId)
-  }
-  if (checkedImageIds.length > 0) {
-    await context.mutateInTransaction<VideoMediaTransaction & QueueSqlExecutor>(async (transaction) => {
-      await transaction.mediaVideoMetadata.updateMany({
-        where: { imageId: { in: checkedImageIds } },
-        data: { posterBacklogCheckedAt: new Date() }
+      await context.progress({
+        progress: Math.min(99, 50 + Math.floor((result.poster.processed / Math.max(result.poster.total, 1)) * 49)),
+        stage: 'GENERATING_POSTERS',
+        message: `已处理封面 ${result.poster.processed}/${result.poster.total}，生成 ${result.poster.generated}，跳过 ${result.poster.skipped}，失败 ${result.poster.failed}`
       })
-    })
+    }
   }
-  if (result.posterEnqueueFailed > 0) {
-    throw new Error(`Failed to durably enqueue ${result.posterEnqueueFailed} video poster jobs`)
-  }
+  result.poster.remaining = await dependencies.database.mediaVideoMetadata.count({
+    where: {
+      probeStatus: 'COMPLETED',
+      manualPosterTimestamp: null,
+      posterStatus: { in: ['PENDING', 'GENERATING'] },
+      ...targetWhere
+    }
+  })
 }
 
 async function prepareTargetedVideoProbe(context: ProbeContext, database: VideoMediaDatabase, imageId: number) {
@@ -358,13 +317,22 @@ async function classifyUnknownMedia(context: ProbeContext, database: VideoMediaD
     const created = await context.mutateInTransaction<VideoMediaTransaction & QueueSqlExecutor, number>(
       async (transaction) => {
         if (videos.length > 0) {
-          await transaction.image.updateMany({ where: { id: { in: videos }, mediaType: 'UNKNOWN' }, data: { mediaType: 'VIDEO' } })
+          await transaction.image.updateMany({
+            where: { id: { in: videos }, mediaType: 'UNKNOWN' },
+            data: { mediaType: 'VIDEO' }
+          })
         }
         if (images.length > 0) {
-          await transaction.image.updateMany({ where: { id: { in: images }, mediaType: 'UNKNOWN' }, data: { mediaType: 'IMAGE' } })
+          await transaction.image.updateMany({
+            where: { id: { in: images }, mediaType: 'UNKNOWN' },
+            data: { mediaType: 'IMAGE' }
+          })
         }
         if (animations.length > 0) {
-          await transaction.image.updateMany({ where: { id: { in: animations }, mediaType: 'UNKNOWN' }, data: { mediaType: 'ANIMATION' } })
+          await transaction.image.updateMany({
+            where: { id: { in: animations }, mediaType: 'UNKNOWN' },
+            data: { mediaType: 'ANIMATION' }
+          })
         }
         if (videos.length === 0) return 0
         return (
@@ -380,7 +348,11 @@ async function classifyUnknownMedia(context: ProbeContext, database: VideoMediaD
     result.classifiedAnimations += animations.length
     result.metadataRowsCreated += created
   }
-  await context.progress({ progress: 10, stage: 'CLASSIFYING', message: `媒体分类完成，发现视频 ${result.classifiedVideos} 个` })
+  await context.progress({
+    progress: 10,
+    stage: 'CLASSIFYING',
+    message: `媒体分类完成，发现视频 ${result.classifiedVideos} 个`
+  })
   return result
 }
 

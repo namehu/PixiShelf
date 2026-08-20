@@ -25,7 +25,7 @@ vi.mock('../paths.js', () => ({
 }))
 vi.mock('node:fs/promises', () => ({ rename: mocks.rename, rm: mocks.rm }))
 
-import { executeVideoPoster } from '../poster.js'
+import { executeVideoPoster, generatePendingVideoPoster } from '../poster.js'
 
 describe('video poster executor publication', () => {
   beforeEach(() => {
@@ -56,6 +56,36 @@ describe('video poster executor publication', () => {
       })
     )
     expect(fixture.complete).toHaveBeenCalledOnce()
+  })
+
+  it('reuses the same publication path inside a parent probe without finalizing that parent', async () => {
+    const fixture = posterFixture()
+
+    const outcome = await generatePendingVideoPoster(fixture.context, fixture.dependencies, fixture.context.payload)
+
+    expect(outcome).toMatchObject({ kind: 'generated', imageId: 1 })
+    expect(fixture.finalize).not.toHaveBeenCalled()
+    expect(fixture.complete).not.toHaveBeenCalled()
+    expect(mocks.generate).toHaveBeenCalledOnce()
+    expect(mocks.rename).toHaveBeenCalledOnce()
+  })
+
+  it('resets an inline poster checkpoint when the parent probe is cancelled before publication', async () => {
+    const fixture = posterFixture()
+    mocks.generate.mockImplementation(async () => {
+      fixture.controller.abort(new Error('cancelled'))
+    })
+
+    await expect(
+      generatePendingVideoPoster(fixture.context, fixture.dependencies, fixture.context.payload)
+    ).rejects.toThrow('cancelled')
+
+    expect(mocks.rename).not.toHaveBeenCalled()
+    expect(fixture.metadataUpdateMany).toHaveBeenCalledWith({
+      where: { imageId: 1, posterStatus: 'GENERATING' },
+      data: { posterStatus: 'PENDING', posterError: null }
+    })
+    expect(fixture.finalize).not.toHaveBeenCalled()
   })
 
   it('pre-registers an attempt-owned output so a commit rollback leaves ordinary GC work', async () => {

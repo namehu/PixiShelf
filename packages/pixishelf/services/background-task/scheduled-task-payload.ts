@@ -30,7 +30,7 @@ export function buildScheduledTaskJobDefinition(
       candidate = {}
       break
     case 'VIDEO_MEDIA_PROBE':
-      candidate = { force: false, enqueueMissingPosters: true }
+      candidate = { force: false }
       break
     case 'DERIVED_MEDIA_GC':
       candidate =

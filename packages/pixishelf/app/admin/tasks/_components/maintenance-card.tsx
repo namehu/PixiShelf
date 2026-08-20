@@ -56,22 +56,30 @@ interface WebpAnimationScanResult {
 }
 
 interface VideoMediaProbeFailedSample {
+  stage: 'PROBE' | 'POSTER'
   imageId: number
   path: string
   error: string
 }
 
 interface VideoMediaProbeResult {
-  classifiedVideos?: number
-  classifiedImages?: number
-  classifiedAnimations?: number
-  unknown?: number
-  metadataRowsCreated?: number
-  processed?: number
-  failed?: number
-  remainingPending?: number
+  classification?: {
+    videos?: number
+    images?: number
+    animations?: number
+    unknown?: number
+    metadataRowsCreated?: number
+  }
+  probe?: { total?: number; processed?: number; failed?: number; remaining?: number }
+  poster?: {
+    total?: number
+    processed?: number
+    generated?: number
+    skipped?: number
+    failed?: number
+    remaining?: number
+  }
   failedSamples?: VideoMediaProbeFailedSample[]
-  poster?: { processed?: number; generated?: number; failed?: number; orphanedFilesDeleted?: number }
 }
 
 interface VideoChapterPreviewResult {
@@ -347,7 +355,7 @@ export function MaintenanceCard() {
   const cancelVideoProbeMutation = useMutation(
     trpc.job.cancelVideoMediaProbe.mutationOptions({
       onSuccess: () => {
-        toast.info('正在取消视频媒体探测任务…')
+        toast.info('正在取消视频媒体探测与封面生成任务…')
         refetchVideoProbeJob()
       },
       onError: (error) => {
@@ -645,9 +653,10 @@ export function MaintenanceCard() {
             id="video-probe"
             category="可定时"
             icon={Film}
-            title={videoScheduledTask?.name ?? '视频媒体探测'}
+            title={videoScheduledTask?.name ?? '视频媒体探测与封面生成'}
             description={
-              videoScheduledTask?.description ?? '分类未识别媒体，并使用 ffprobe 探测视频音频、编码、时长和帧率。'
+              videoScheduledTask?.description ??
+              '分类未识别媒体，探测视频音频、编码、时长和帧率，并生成缺失的视频封面。'
             }
             summary={getScheduledSummary(videoScheduledTask, videoProbeJob, Boolean(isVideoProbeRunning))}
             tone={getJobTone(videoProbeJob, Boolean(isVideoProbeRunning))}
@@ -655,7 +664,9 @@ export function MaintenanceCard() {
               isVideoProbeRunning ? (
                 <Button
                   variant="destructive"
-                  onClick={() => confirmTaskCancellation('视频媒体探测', () => cancelVideoProbeMutation.mutate())}
+                  onClick={() =>
+                    confirmTaskCancellation('视频媒体探测与封面生成', () => cancelVideoProbeMutation.mutate())
+                  }
                   disabled={isVideoProbeCancelling || cancelVideoProbeMutation.isPending}
                 >
                   {isVideoProbeCancelling ? '正在取消…' : '取消任务'}
@@ -720,24 +731,26 @@ export function MaintenanceCard() {
                       <span>
                         视频：{' '}
                         <strong className="text-foreground font-medium">
-                          {videoProbeResult?.classifiedVideos ?? 0}
+                          {videoProbeResult?.classification?.videos ?? 0}
                         </strong>
                       </span>
                       <span>
                         图片：{' '}
                         <strong className="text-foreground font-medium">
-                          {videoProbeResult?.classifiedImages ?? 0}
+                          {videoProbeResult?.classification?.images ?? 0}
                         </strong>
                       </span>
                       <span>
                         动图：{' '}
                         <strong className="text-foreground font-medium">
-                          {videoProbeResult?.classifiedAnimations ?? 0}
+                          {videoProbeResult?.classification?.animations ?? 0}
                         </strong>
                       </span>
                       <span>
                         仍未知：
-                        <strong className="text-foreground font-medium">{videoProbeResult?.unknown ?? 0}</strong>
+                        <strong className="text-foreground font-medium">
+                          {videoProbeResult?.classification?.unknown ?? 0}
+                        </strong>
                       </span>
                     </div>
                   </div>
@@ -747,21 +760,24 @@ export function MaintenanceCard() {
                       <span>
                         新建 metadata：{' '}
                         <strong className="text-foreground font-medium">
-                          {videoProbeResult?.metadataRowsCreated ?? 0}
+                          {videoProbeResult?.classification?.metadataRowsCreated ?? 0}
                         </strong>{' '}
                         行
                       </span>
                       <span>
                         成功：
-                        <strong className="text-foreground font-medium">{videoProbeResult?.processed ?? 0}</strong>
+                        <strong className="text-foreground font-medium">
+                          {videoProbeResult?.probe?.processed ?? 0}
+                        </strong>
                       </span>
                       <span>
-                        失败：<strong className="text-destructive font-medium">{videoProbeResult?.failed ?? 0}</strong>
+                        失败：
+                        <strong className="text-destructive font-medium">{videoProbeResult?.probe?.failed ?? 0}</strong>
                       </span>
                       <span>
                         剩余待探测：{' '}
                         <strong className="text-foreground font-medium">
-                          {videoProbeResult?.remainingPending ?? 0}
+                          {videoProbeResult?.probe?.remaining ?? 0}
                         </strong>
                       </span>
                     </div>
@@ -769,6 +785,10 @@ export function MaintenanceCard() {
                   <div className="flex flex-col gap-1.5 border-t border-border/50 pt-2">
                     <p className="text-sm font-medium text-foreground">视频封面处理：</p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                      <span>
+                        待处理：{' '}
+                        <strong className="text-foreground font-medium">{videoProbeResult?.poster?.total ?? 0}</strong>
+                      </span>
                       <span>
                         处理：{' '}
                         <strong className="text-foreground font-medium">
@@ -782,15 +802,21 @@ export function MaintenanceCard() {
                         </strong>
                       </span>
                       <span>
+                        跳过：{' '}
+                        <strong className="text-foreground font-medium">
+                          {videoProbeResult?.poster?.skipped ?? 0}
+                        </strong>
+                      </span>
+                      <span>
                         失败：{' '}
                         <strong className="text-destructive font-medium">
                           {videoProbeResult?.poster?.failed ?? 0}
                         </strong>
                       </span>
                       <span>
-                        清理孤儿文件：{' '}
+                        剩余待处理：{' '}
                         <strong className="text-foreground font-medium">
-                          {videoProbeResult?.poster?.orphanedFilesDeleted ?? 0}
+                          {videoProbeResult?.poster?.remaining ?? 0}
                         </strong>
                       </span>
                     </div>
@@ -800,9 +826,9 @@ export function MaintenanceCard() {
                       <p className="font-medium mb-2 text-sm">失败样例</p>
                       <ul className="flex flex-col gap-1 font-mono text-xs">
                         {videoProbeResult.failedSamples.slice(0, 5).map((sample) => (
-                          <li key={sample.imageId} className="break-all">
+                          <li key={`${sample.stage}-${sample.imageId}`} className="break-all">
                             <span className="opacity-70">
-                              #{sample.imageId} {sample.path}：
+                              {sample.stage === 'PROBE' ? '媒体探测' : '封面生成'} · #{sample.imageId} {sample.path}：
                             </span>{' '}
                             {sample.error}
                           </li>

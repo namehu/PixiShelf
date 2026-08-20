@@ -43,7 +43,7 @@ describePostgres('background task PostgreSQL concurrency', () => {
       triggerSource: 'MANUAL' as const,
       requestedByUserId: 'postgres-test-admin',
       idempotencyKey,
-      payload: { force: false, enqueueMissingPosters: true },
+      payload: { force: false },
       priority: 10
     }
 
@@ -63,11 +63,9 @@ describePostgres('background task PostgreSQL concurrency', () => {
       idempotencyKey,
       priority: 10
     }
-    const created = await enqueueJob({ ...common, payload: { force: false, enqueueMissingPosters: true } }, client)
+    const created = await enqueueJob({ ...common, payload: { force: false } }, client)
 
-    const error = await enqueueJob({ ...common, payload: { force: true, enqueueMissingPosters: true } }, client).catch(
-      (caught: unknown) => caught
-    )
+    const error = await enqueueJob({ ...common, payload: { force: true } }, client).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(BackgroundTaskError)
     expect(error).toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' })

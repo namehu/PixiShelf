@@ -187,7 +187,6 @@ export const targetImagePayloadSchema = z.object({
 export const videoMediaProbePayloadSchema = z
   .object({
     force: z.boolean().default(false),
-    enqueueMissingPosters: z.boolean().default(true),
     imageId: z.number().int().positive().optional()
   })
   .superRefine((payload, context) => {

@@ -176,6 +176,8 @@ sequenceDiagram
 
 归档维护统一使用 writer lane 的 `ARCHIVE_MAINTENANCE`。每日 `02:05` 的 `RECONCILE` 发现到期 staging、孤立回收/恢复 intent 和到期回收站，为每个目标幂等创建 `CLEAN_STAGING`、`TRASH_ARCHIVE`、`RESTORE_ARCHIVE` 或 `PURGE_ARCHIVE` 子任务。每日 `02:15` 的 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 清理超过 30 天的终态收件/批量历史及过期预览会话，不删除领域归档、作品或媒体。
 
+`VIDEO_MEDIA_PROBE` 是视频探测与自动封面生成的单一持久工作流。Worker 先按 `imageId` 游标完成媒体分类和 FFprobe，再在同一个 SystemJob 内顺序处理全部 `PENDING`、`FAILED` 或中断遗留的 `GENERATING` 封面；任务只有在封面阶段结束后才进入终态。批量流程不创建 `VIDEO_POSTER_GENERATION` 子任务，该类型只用于单视频人工生成。已完成封面的文件完整性检查和孤儿文件清理不属于探测流程，`DERIVED_MEDIA_GC` 继续独立处理已登记的无引用派生文件。
+
 Worker 启动前必须通过以下预检：
 
 - 数据库 migration 和后台队列表结构满足要求；

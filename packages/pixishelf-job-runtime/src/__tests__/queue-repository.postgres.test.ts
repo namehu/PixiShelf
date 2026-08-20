@@ -625,7 +625,7 @@ describePostgres('PostgresQueueRepository integration', () => {
       })
     ).toEqual({
       parentJobId: parent.id,
-      payload: { force: false, enqueueMissingPosters: true },
+      payload: { force: false },
       triggerSource: 'SYSTEM'
     })
 
@@ -784,7 +784,7 @@ describePostgres('PostgresQueueRepository integration', () => {
         status: 'PENDING',
         triggerSource: 'SYSTEM',
         idempotencyKey,
-        payload: { force: false, enqueueMissingPosters: true },
+        payload: { force: false },
         parentJobId: otherParentId,
         queuePriority: 100,
         effectivePriority: 100,

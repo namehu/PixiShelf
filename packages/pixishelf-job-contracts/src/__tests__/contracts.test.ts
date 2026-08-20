@@ -85,8 +85,7 @@ describe('job wire contracts', () => {
   it('requires force for durable single-image reprobe and bounds explicit GC batches', () => {
     expect(parseJobPayload('VIDEO_MEDIA_PROBE', { imageId: 7, force: true })).toEqual({
       imageId: 7,
-      force: true,
-      enqueueMissingPosters: true
+      force: true
     })
     expect(() => parseJobPayload('VIDEO_MEDIA_PROBE', { imageId: 7, force: false })).toThrow()
     expect(

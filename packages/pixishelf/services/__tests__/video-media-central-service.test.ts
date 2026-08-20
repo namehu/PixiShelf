@@ -48,14 +48,16 @@ describe('central video media enqueue helpers', () => {
   })
 
   it('enqueues an explicit force probe without running media work in the request', async () => {
-    await expect(
-      enqueueCentralVideoMediaProbe({ force: true, requestedByUserId: 'admin-1' })
-    ).resolves.toEqual({ jobId: 'job-new', status: 'PENDING', reused: false })
+    await expect(enqueueCentralVideoMediaProbe({ force: true, requestedByUserId: 'admin-1' })).resolves.toEqual({
+      jobId: 'job-new',
+      status: 'PENDING',
+      reused: false
+    })
     expect(mocks.enqueueSingletonManualJobWithResult).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'VIDEO_MEDIA_PROBE',
         priority: 40,
-        payload: { force: true, enqueueMissingPosters: true }
+        payload: { force: true }
       })
     )
   })
@@ -65,9 +67,11 @@ describe('central video media enqueue helpers', () => {
       job: { id: 'job-existing', status: 'RUNNING' },
       reused: true
     })
-    await expect(
-      enqueueCentralVideoMediaProbe({ force: false, requestedByUserId: 'admin-1' })
-    ).resolves.toEqual({ jobId: 'job-existing', status: 'RUNNING', reused: true })
+    await expect(enqueueCentralVideoMediaProbe({ force: false, requestedByUserId: 'admin-1' })).resolves.toEqual({
+      jobId: 'job-existing',
+      status: 'RUNNING',
+      reused: true
+    })
   })
 
   it('validates and enqueues only one target poster payload', async () => {
@@ -92,7 +96,7 @@ describe('central video media enqueue helpers', () => {
       expect.objectContaining({
         type: 'VIDEO_MEDIA_PROBE',
         priority: 20,
-        payload: { force: true, enqueueMissingPosters: true, imageId: 42 }
+        payload: { force: true, imageId: 42 }
       })
     )
   })

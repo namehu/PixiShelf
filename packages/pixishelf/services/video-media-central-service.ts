@@ -1,9 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import {
-  cancelJobCommand,
-  enqueueJob,
-  enqueueSingletonManualJobWithResult
-} from '@/services/background-task'
+import { cancelJobCommand, enqueueJob, enqueueSingletonManualJobWithResult } from '@/services/background-task'
 import type { Prisma } from '@pixishelf/db'
 
 const CENTRAL_VIDEO_MEDIA_ENQUEUE_LOCK = 7_283_470
@@ -11,13 +7,11 @@ const ACTIVE_JOB_STATUSES = ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_W
 
 export async function enqueueCentralVideoMediaProbe(input: {
   force: boolean
-  enqueueMissingPosters?: boolean
   imageId?: number
   requestedByUserId: string
 }) {
   const payload = {
     force: input.force,
-    enqueueMissingPosters: input.enqueueMissingPosters ?? true,
     ...(input.imageId === undefined ? {} : { imageId: input.imageId })
   }
   const { job, reused } = await enqueueSingletonManualJobWithResult({
@@ -40,7 +34,6 @@ export async function enqueueCentralVideoMediaReprobe(input: { imageId: number; 
   if (image.mediaType !== 'VIDEO' && !isVideoPath(image.path)) throw new Error('Image is not a video')
   return enqueueCentralVideoMediaProbe({
     force: true,
-    enqueueMissingPosters: true,
     imageId: image.id,
     requestedByUserId: input.requestedByUserId
   })

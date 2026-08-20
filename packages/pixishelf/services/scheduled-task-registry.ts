@@ -101,8 +101,8 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
   {
     key: 'video_media_probe',
     type: SCHEDULED_TASK_TYPES.VIDEO_MEDIA_PROBE,
-    name: '视频媒体探测',
-    description: '分类未识别媒体，并使用 ffprobe 探测视频音频、编码、时长和帧率。',
+    name: '视频媒体探测与封面生成',
+    description: '分类未识别媒体，探测视频音频、编码、时长和帧率，并生成缺失的视频封面。',
     defaultTime: '04:00',
     defaultTimezone: 'Asia/Shanghai',
     defaultPriority: 40,

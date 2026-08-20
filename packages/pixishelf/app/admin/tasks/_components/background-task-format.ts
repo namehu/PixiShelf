@@ -26,7 +26,7 @@ const typeLabels: Partial<Record<JobType, string>> = {
   REFILL_META_SOURCE: '补全来源元数据',
   MEDIA_DERIVED_TAG_SYNC: '同步媒体标签',
   WEBP_ANIMATION_SCAN: '识别图片动画',
-  VIDEO_MEDIA_PROBE: '视频媒体探测',
+  VIDEO_MEDIA_PROBE: '视频媒体探测与封面生成',
   VIDEO_POSTER_GENERATION: '视频封面生成',
   VIDEO_CHAPTER_PREVIEW_GENERATION: '视频章节截图',
   VIDEO_STREAMING_OPTIMIZATION: '视频播放优化',
