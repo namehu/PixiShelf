@@ -30,6 +30,8 @@ export type ScanDatabase = Pick<
   | 'scanRun'
   | 'scanRunItem'
   | 'scanRunMetadataInput'
+  | 'pixivMetadataInventory'
+  | 'pixivMetadataInventoryState'
   | 'scanRunLocalWorkInput'
   | 'scanRunLocalArtistMappingInput'
   | 'tag'

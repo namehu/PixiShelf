@@ -192,7 +192,7 @@ describe('background task console', () => {
     ])
   })
 
-  it('hides retry only for retired historical full scans', () => {
+  it('hides retry for scans whose retired or frozen inputs cannot be cloned', () => {
     const historicalFull = {
       ...createJob('FAILED', 'job-full'),
       type: 'SCAN' as const,
@@ -203,8 +203,20 @@ describe('background task console', () => {
       type: 'SCAN' as const,
       payload: { mode: 'INCREMENTAL' }
     }
+    const clientListScan = {
+      ...createJob('FAILED', 'job-client-list'),
+      type: 'SCAN' as const,
+      payload: { mode: 'CLIENT_LIST', existingPolicy: 'SKIP', inputCount: 1, inputDigest: 'a'.repeat(64) }
+    }
+    const artworkRescan = {
+      ...createJob('FAILED', 'job-artwork-rescan'),
+      type: 'SCAN' as const,
+      payload: { mode: 'ARTWORK_RESCAN', artworkId: 42 }
+    }
 
     expect(canRetryJob(historicalFull)).toBe(false)
+    expect(canRetryJob(clientListScan)).toBe(false)
+    expect(canRetryJob(artworkRescan)).toBe(false)
     expect(canRetryJob(ordinaryScan)).toBe(true)
     expect(canRetryJob(createJob('FAILED'))).toBe(true)
   })

@@ -68,7 +68,9 @@ export function formatType(type: string) {
   )
 }
 
-export function formatAction(action: string) {
+export function formatAction(action: string, inventoryDecision?: string | null) {
+  if (inventoryDecision === 'BASELINE_EXISTING') return '已建立基线'
+  if (inventoryDecision === 'PENDING_SOURCE_REFRESH') return '发现来源变化'
   return (
     {
       CREATE: '新增',
@@ -81,6 +83,11 @@ export function formatAction(action: string) {
       FAILED_WRITE: '写入失败'
     }[action] ?? action
   )
+}
+
+export function formatMediaCount(mediaCount: number, inventoryDecision?: string | null) {
+  if (inventoryDecision === 'BASELINE_EXISTING') return '—'
+  return new Intl.NumberFormat('zh-CN').format(mediaCount)
 }
 
 export function formatDate(value: Date | string | null) {

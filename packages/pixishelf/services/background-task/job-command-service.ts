@@ -80,6 +80,12 @@ function assertStatus(job: SystemJobWireRecord, allowed: readonly JobStatus[], a
   }
 }
 
+function isFrozenScanSnapshotPayload(type: string, payload: unknown) {
+  if (type !== 'SCAN' || typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false
+  if (!('mode' in payload)) return false
+  return payload.mode === 'CLIENT_LIST' || payload.mode === 'ARTWORK_RESCAN'
+}
+
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
@@ -284,6 +290,15 @@ export async function cancelJobCommand(
         throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Archive resolver job is not bound to an intake item')
       }
     }
+    if (direct && (job.type === 'SCAN' || job.type === 'LOCAL_DIRECTORY_IMPORT')) {
+      await transaction.scanRun.updateMany({
+        where: {
+          systemJobId: job.id,
+          status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED'] }
+        },
+        data: { status: 'CANCELLED', checkpointStage: 'CANCELLED', finishedAt: timestamp }
+      })
+    }
     await writeJobEvent(transaction, {
       jobId,
       type: 'job.cancel_requested',
@@ -399,6 +414,12 @@ export async function retryJobCommand(
     }
     if (isRetiredFullReconcilePayload(retryType, retryPayload)) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', FULL_SCAN_RETIRED_MESSAGE)
+    }
+    if (isFrozenScanSnapshotPayload(retryType, retryPayload)) {
+      throw new BackgroundTaskError(
+        'INVALID_STATE_TRANSITION',
+        'This scan uses a frozen input snapshot; submit the list or artwork rescan again instead'
+      )
     }
     const executionLane = executionLaneForJobType(retryType)
     if (job.executionLane !== executionLane) {

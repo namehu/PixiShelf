@@ -129,7 +129,13 @@ export function canResumeJob(job: JobDto) {
 }
 
 export function canRetryJob(job: JobDto) {
-  return !isHistoricalFullScan(job.type, job.payload) && ['FAILED', 'CANCELLED', 'SKIPPED'].includes(job.status)
+  return !isNonRetryableScan(job.type, job.payload) && ['FAILED', 'CANCELLED', 'SKIPPED'].includes(job.status)
+}
+
+function isNonRetryableScan(type: JobType, payload: unknown) {
+  if (type !== 'SCAN' || typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false
+  if (!('mode' in payload)) return false
+  return ['FULL_RECONCILE', 'CLIENT_LIST', 'ARTWORK_RESCAN'].includes(String(payload.mode))
 }
 
 function isHistoricalFullScan(type: JobType, payload: unknown) {

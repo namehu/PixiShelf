@@ -14,9 +14,8 @@ sources:
 
 # Pixiv 来源发现、同步与核对设计
 
-本文是分阶段实施的功能规格。阶段 0 的来源刷新兼容修复和阶段 1 的全目录强制刷新退役已在本分支完成；
-阶段 2 之后的 inventory、一致性核对和兼容清理仍未实施。当前页面、HTTP 契约和 Worker 行为以代码与
-`current` 文档为准；本文的未实施部分不得当成已上线说明。
+本文是分阶段实施的功能规格。阶段 0–2 已在对应功能分支实现；一致性核对和兼容清理仍未实施。当前页面、HTTP
+契约和 Worker 行为以代码与 `current` 文档为准；本文中的阶段 3–4 不得当成已上线说明。
 
 ## 1. 决策摘要
 
@@ -427,12 +426,21 @@ checkpoint 单测、真实 PostgreSQL publisher 回归，以及 Webhook 路由�
 
 ### 阶段 2：真正增量的 inventory
 
+**状态：本分支完成。**
+
 - expand migration 增加 `PixivMetadataInventory` 与冻结 stat 字段；
 - discovery 按 page 比较 inventory，只 hash/freeze 变化与失败项；
 - publisher 成功与 inventory `processedContentHash` 在同一 fenced transaction 推进；
 - 增加阶段计数、性能基线和恢复测试。
 
-旧代码可以忽略新表，因此 migration 本身不越过不可回退边界。
+实现同时固定以下恢复边界：首次完整遍历完成前不得消费局部 baseline；resolved root 不匹配时任何 Pixiv 扫描模式
+都拒绝写 inventory；单作品重扫在发布事务内重新锁定 metadata path 和唯一 Pixiv ref；只有内容确定性的
+metadata invalid 才跨 ScanRun 缓存为永久失败。`CLIENT_LIST` 与 `ARTWORK_RESCAN` 的冻结快照不能由通用任务
+“重试”复制，调用方应重新提交原命令。
+
+本阶段真实 PostgreSQL fixture 覆盖页面提交后崩溃、freeze 后取消、retryable/permanent failure、跨 Run 处理、
+多来源 URL Archive、root/source CAS 和 fenced 原子发布。10,000 个稳定 metadata 的目录增量测试遍历/stat 全部
+输入，内容 hash、parse 和 publisher 调用均为 0。旧代码可以忽略新表，因此 migration 本身不越过不可回退边界。
 
 ### 阶段 3：来源一致性核对与选定同步
 

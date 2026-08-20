@@ -271,6 +271,21 @@ export function ScanHistoryManagement() {
                       </div>
                     ) : null}
 
+                    {selectedRun.walkedEntries !== null ? (
+                      <InventoryWorkMetrics
+                        walked={selectedRun.walkedEntries}
+                        candidates={selectedRun.metadataCandidates ?? 0}
+                        unchanged={selectedRun.inventoryUnchanged ?? 0}
+                        hashed={selectedRun.contentHashed ?? 0}
+                        changed={selectedRun.contentChanged ?? 0}
+                        parsed={selectedRun.parsedInputs ?? 0}
+                        published={selectedRun.publishedInputs ?? 0}
+                        discoveryDurationMs={selectedRun.discoveryDurationMs}
+                        hashDurationMs={selectedRun.hashDurationMs}
+                        publishDurationMs={selectedRun.publishDurationMs}
+                      />
+                    ) : null}
+
                     {detailQuery.isError ? (
                       <QueryError
                         title="无法加载作品明细"
@@ -295,6 +310,56 @@ export function ScanHistoryManagement() {
         </section>
       )}
     </div>
+  )
+}
+
+function InventoryWorkMetrics({
+  walked,
+  candidates,
+  unchanged,
+  hashed,
+  changed,
+  parsed,
+  published,
+  discoveryDurationMs,
+  hashDurationMs,
+  publishDurationMs
+}: {
+  walked: number
+  candidates: number
+  unchanged: number
+  hashed: number
+  changed: number
+  parsed: number
+  published: number
+  discoveryDurationMs: number | null
+  hashDurationMs: number | null
+  publishDurationMs: number | null
+}) {
+  const stages = [
+    ['遍历', walked],
+    ['metadata', candidates],
+    ['未变化', unchanged],
+    ['读取内容', hashed],
+    ['有变化', changed],
+    ['解析', parsed],
+    ['写入', published]
+  ] as const
+  return (
+    <section className="mb-4 overflow-hidden rounded-lg border bg-background" aria-label="本次扫描工作量">
+      <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4 xl:grid-cols-7">
+        {stages.map(([label, value]) => (
+          <div key={label} className="bg-background px-3 py-2.5">
+            <div className="text-[11px] text-muted-foreground">{label}</div>
+            <div className="mt-0.5 font-semibold tabular-nums text-foreground">{numberFormatter.format(value)}</div>
+          </div>
+        ))}
+      </div>
+      <div className="border-t px-3 py-2 text-xs tabular-nums text-muted-foreground">
+        发现 {formatDuration(discoveryDurationMs)} · hash {formatDuration(hashDurationMs)} · 写入{' '}
+        {formatDuration(publishDurationMs)}
+      </div>
+    </section>
   )
 }
 

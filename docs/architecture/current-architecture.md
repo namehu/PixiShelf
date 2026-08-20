@@ -139,11 +139,19 @@ Pixiv 目录的正常管理入口只显示“扫描新作品”，并创建 `INC
 设置页移除；App 服务、HTTP 入口、通用任务入队和人工重试都不能创建新的 `FULL_RECONCILE`。历史任务和
 `ScanRunMode.FULL` 仍可读；已存在的活动任务仍可控制，并能由 Worker 执行或租约恢复，但不能人工复制或重试。
 
+目录增量扫描使用 `PixivMetadataInventory` 保存相对路径、稳定 stat、观测/已发布内容 hash 和失败状态。首次完整
+遍历建立可信基线；之后仍会安全枚举和 stat 全目录，但只对新文件、指纹变化或可重试失败读取内容，只有实际待处理
+输入才进入冻结快照、解析和发布。目录身份以 resolved root 的不可逆 hash 绑定，不能让另一个根目录复用旧
+inventory。发布 Artwork/Source Reference 与推进 `processedContentHash` 位于同一个 fenced transaction；中断、
+取消和跨任务重放不会把仅观测到的内容误标为已处理。ScanRun 记录遍历、候选、未变化、hash、变化、解析、发布和
+阶段耗时；历史与显式列表任务没有同口径测量时保持 `null`，界面不把缺失值伪装为 0。
+
 扫描 Webhook 保持已部署 contract：`POST type=list, force=false` 冻结明确路径，并对已有来源使用
 `SKIP`；`force=true` 只对该列表做有界 `REFRESH`。`{}` 和 `type=full, force=false` 仍是目录发现的兼容
 请求；`type=full, force=true` 在认证后返回 `410 / FULL_SCAN_RETIRED`且零任务写入。Webhook GET 无
 `jobId` 时只做健康检查、有 `jobId` 时只读受限状态，HEAD 只校验 Bearer Token；三者中只有 POST 能创建
-扫描任务。完整请求和响应字段见[Webhook 扫描功能](../../packages/pixishelf/docs/webhook-features.md)。
+扫描任务。状态响应向后兼容地增加可空 inventory 工作量字段；调用方仍只需依赖既有终态字段。完整请求和响应字段
+见[Webhook 扫描功能](../../packages/pixishelf/docs/webhook-features.md)。
 
 `JWT_SECRET`/`JWT_TTL` 仍存在于环境模板和遗留依赖中，但当前浏览器登录与服务端会话由 Better Auth 负责，不能继续把系统描述为“基于 JWT 的无状态认证”。
 `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 也只保留在环境模板中，当前首次账户由 `/login` 初始化 Action 创建。

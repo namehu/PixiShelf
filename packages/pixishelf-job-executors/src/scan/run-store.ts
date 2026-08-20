@@ -7,6 +7,7 @@ import {
   createMetadataDigestAccumulator
 } from './digests.ts'
 import { ScanExecutorError } from './errors.ts'
+import { inventoryStatData } from './inventory.ts'
 import { metadataCandidateFromPath } from './metadata.ts'
 import { assertCanonicalRelativeScanPath } from './paths.ts'
 import { logFrozenSnapshotPage } from './progress.ts'
@@ -50,7 +51,23 @@ export async function startOrResumeScanRun(input: {
           status: 'RUNNING',
           startedAt: input.now,
           checkpointStage: 'DISCOVERY',
-          checkpointOrdinal: 0
+          checkpointOrdinal: 0,
+          ...(expectedType === 'PIXIV' && input.mode === 'INCREMENTAL'
+            ? {
+                walkedEntries: 0,
+                metadataCandidates: 0,
+                inventoryUnchanged: 0,
+                contentHashed: 0,
+                contentChanged: 0,
+                parsedInputs: 0,
+                publishedInputs: 0,
+                failedInputs: 0,
+                missingInputs: 0,
+                discoveryDurationMs: 0,
+                hashDurationMs: 0,
+                publishDurationMs: 0
+              }
+            : {})
         }
       })
     }
@@ -66,7 +83,23 @@ export async function startOrResumeScanRun(input: {
         status: 'RUNNING',
         startedAt: current.startedAt ?? input.now,
         finishedAt: null,
-        errorMessage: null
+        errorMessage: null,
+        ...(expectedType === 'PIXIV' && input.mode === 'INCREMENTAL'
+          ? {
+              walkedEntries: current.walkedEntries ?? 0,
+              metadataCandidates: current.metadataCandidates ?? current.inputCount,
+              inventoryUnchanged: current.inventoryUnchanged ?? 0,
+              contentHashed: current.contentHashed ?? 0,
+              contentChanged: current.contentChanged ?? current.inputCount,
+              parsedInputs: current.parsedInputs ?? 0,
+              publishedInputs: current.publishedInputs ?? 0,
+              failedInputs: current.failedInputs ?? 0,
+              missingInputs: current.missingInputs ?? 0,
+              discoveryDurationMs: current.discoveryDurationMs ?? 0,
+              hashDurationMs: current.hashDurationMs ?? 0,
+              publishDurationMs: current.publishDurationMs ?? 0
+            }
+          : {})
       }
     })
   })
@@ -126,7 +159,13 @@ export async function verifyFrozenMetadataSnapshot(input: {
   if (input.payload.mode === 'FULL_RECONCILE' && count === 0) {
     throw new ScanExecutorError('EMPTY_FULL_RECONCILE', 'Full reconcile discovered no metadata inputs')
   }
-  return { count, inputFrozenAt: input.run.inputFrozenAt! }
+  return {
+    count,
+    inputFrozenAt: input.run.inputFrozenAt!,
+    metadataCandidates: input.run.metadataCandidates ?? count,
+    inventoryUnchanged: input.run.inventoryUnchanged ?? 0,
+    failedInputs: input.run.failedInputs ?? 0
+  }
 }
 
 export async function verifyFrozenLocalSnapshot(input: {
@@ -148,7 +187,10 @@ export async function verifyFrozenLocalSnapshot(input: {
         throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen local work kind is no longer supported')
       }
       if (row.fingerprint !== null) {
-        throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local directory import must not contain content fingerprints')
+        throw new ScanExecutorError(
+          'INPUT_SNAPSHOT_INVALID',
+          'Local directory import must not contain content fingerprints'
+        )
       }
       const identity = `${row.kind}\0${row.relativePath}`
       if (workIdentities.has(identity)) {
@@ -247,7 +289,13 @@ async function* iterateFrozenLocalMappingPages(
 export async function freezeDiscoveredMetadataPages(input: {
   context: ExecutionContext<ScanPayload, EnqueuedChildJob>
   run: ScanRunRecord
-  pages: AsyncIterable<readonly { relativePath: string; contentHash: string }[]>
+  pages: AsyncIterable<
+    readonly {
+      relativePath: string
+      contentHash: string
+      state?: Parameters<typeof inventoryStatData>[0]
+    }[]
+  >
   now: Date
   maxEntries: number
 }): Promise<ScanRunRecord> {
@@ -269,7 +317,8 @@ export async function freezeDiscoveredMetadataPages(input: {
       scanRunId: input.run.id,
       ordinal: ordinal++,
       relativePath: candidate.relativePath,
-      contentHash: candidate.contentHash
+      contentHash: candidate.contentHash,
+      ...(candidate.state ? inventoryStatData(candidate.state) : {})
     }))
     if (ordinal > input.maxEntries) throw tooManySnapshotRows()
     for (const row of rows) digest.update(row)
@@ -298,7 +347,11 @@ export async function freezeDiscoveredMetadataPages(input: {
 export async function freezeDiscoveredMetadata(input: {
   context: ExecutionContext<ScanPayload, EnqueuedChildJob>
   run: ScanRunRecord
-  candidates: readonly { relativePath: string; contentHash: string }[]
+  candidates: readonly {
+    relativePath: string
+    contentHash: string
+    state?: Parameters<typeof inventoryStatData>[0]
+  }[]
   now: Date
   maxEntries?: number
 }): Promise<ScanRunRecord> {

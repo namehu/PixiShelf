@@ -19,6 +19,7 @@ export interface WalkSafeFilesOptions {
   maxEntries: number
   signal: AbortSignal
   include: (relativePath: string) => boolean
+  onEntry?: () => void
 }
 
 export async function resolveSafeScanRoot(configuredRoot: string): Promise<SafeScanRoot> {
@@ -99,6 +100,7 @@ export async function* walkSafeFiles(
       for await (const entry of handle) {
         throwIfAborted(options.signal)
         visitedEntries += 1
+        options.onEntry?.()
         if (visitedEntries > options.maxEntries) {
           throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Scan discovery exceeds the configured entry limit')
         }

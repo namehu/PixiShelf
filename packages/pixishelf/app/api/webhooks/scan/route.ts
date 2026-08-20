@@ -84,7 +84,18 @@ export async function GET(req: Request) {
             skippedArtworks: true,
             failedArtworks: true,
             newImages: true,
-            durationMs: true
+            durationMs: true,
+            walkedEntries: true,
+            metadataCandidates: true,
+            inventoryUnchanged: true,
+            contentHashed: true,
+            contentChanged: true,
+            parsedInputs: true,
+            publishedInputs: true,
+            failedInputs: true,
+            discoveryDurationMs: true,
+            hashDurationMs: true,
+            publishDurationMs: true
           }
         }
       }
@@ -113,7 +124,18 @@ export async function GET(req: Request) {
         skippedArtworks: job.scanRun.skippedArtworks,
         failedArtworks: job.scanRun.failedArtworks,
         newImages: job.scanRun.newImages,
-        durationMs: job.scanRun.durationMs
+        durationMs: job.scanRun.durationMs,
+        walkedEntries: job.scanRun.walkedEntries,
+        metadataCandidates: job.scanRun.metadataCandidates,
+        inventoryUnchanged: job.scanRun.inventoryUnchanged,
+        contentHashed: job.scanRun.contentHashed,
+        contentChanged: job.scanRun.contentChanged,
+        parsedInputs: job.scanRun.parsedInputs,
+        publishedInputs: job.scanRun.publishedInputs,
+        failedInputs: job.scanRun.failedInputs,
+        discoveryDurationMs: job.scanRun.discoveryDurationMs,
+        hashDurationMs: job.scanRun.hashDurationMs,
+        publishDurationMs: job.scanRun.publishDurationMs
       }
     })
   }

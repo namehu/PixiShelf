@@ -94,10 +94,25 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
     "skippedArtworks": 0,
     "failedArtworks": 0,
     "newImages": 31,
-    "durationMs": 6000
+    "durationMs": 6000,
+    "walkedEntries": 120,
+    "metadataCandidates": 15,
+    "inventoryUnchanged": 10,
+    "contentHashed": 5,
+    "contentChanged": 4,
+    "parsedInputs": 4,
+    "publishedInputs": 2,
+    "failedInputs": 0,
+    "discoveryDurationMs": 2000,
+    "hashDurationMs": 400,
+    "publishDurationMs": 900
   }
 }
 ```
+
+`walkedEntries` 到 `publishDurationMs` 是向后兼容增加的可空工作量指标。目录增量任务提供同口径统计，用于验证高成本
+工作随变化量增长；升级前历史记录、`CLIENT_LIST`、单作品重扫和兼容 FULL 没有可比较测量时返回 `null`，不会用
+0 伪装“没有读取或变化”。旧调用方不需要读取这些字段，仍以 `status` 和既有结果字段判断终态。
 
 状态查询只允许读取由 Webhook 使用的 `SYSTEM + SCAN` 任务，不会返回其他后台任务的 payload 或内部结果。
 Dispatcher 未启用时，仅保留故障隔离所需的旧同步执行路径；它同样拒绝全目录强制刷新，但成功时使用历史 `200`

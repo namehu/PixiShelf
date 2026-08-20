@@ -15,6 +15,8 @@ import {
   StatusBadge
 } from '@/app/admin/scan-history/_components/scan-history-format'
 
+const numberFormatter = new Intl.NumberFormat('zh-CN')
+
 export function ScanHistorySummaryCard() {
   const trpc = useTRPC()
   const historyQuery = useQuery(
@@ -79,6 +81,20 @@ export function ScanHistorySummaryCard() {
             <SummaryStat label="失败" value={latest.failedArtworks} />
             <SummaryStat label="新增图片" value={latest.newImages} />
           </div>
+          {latest.walkedEntries !== null ? (
+            <div className="rounded-lg border bg-muted/20 px-3 py-3">
+              <div className="text-xs font-medium text-foreground">本次扫描工作量</div>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>遍历 {numberFormatter.format(latest.walkedEntries)}</span>
+                <span>候选 {numberFormatter.format(latest.metadataCandidates ?? 0)}</span>
+                <span>未变化 {numberFormatter.format(latest.inventoryUnchanged ?? 0)}</span>
+                <span>读取 {numberFormatter.format(latest.contentHashed ?? 0)}</span>
+                <span>变化 {numberFormatter.format(latest.contentChanged ?? 0)}</span>
+                <span>解析 {numberFormatter.format(latest.parsedInputs ?? 0)}</span>
+                <span>写入 {numberFormatter.format(latest.publishedInputs ?? 0)}</span>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">

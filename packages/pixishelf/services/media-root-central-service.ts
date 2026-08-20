@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { createHash } from 'node:crypto'
+import type { BigIntStats } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import {
@@ -53,7 +54,7 @@ export async function enqueueCentralScan(
   const scanPath = await requireScanPath()
   const now = new Date()
   let payload: ScanPayload
-  let metadataRows: Array<{ ordinal: number; relativePath: string; contentHash: string }> = []
+  let metadataRows: ExpectedMetadataRow[] = []
   if (input.type === 'list') {
     metadataRows = await freezeMetadataInputs(scanPath, input.metadataList ?? [])
     const digest = metadataInputDigest(metadataRows)
@@ -153,7 +154,7 @@ export async function enqueueCentralArtworkRescan(input: {
   if (!artwork) throw new BackgroundTaskError('JOB_NOT_FOUND', 'Artwork not found')
   const local = isLocalDirectoryArtworkSource(artwork.source)
   let localRow: { ordinal: number; kind: 'MEDIA_DIRECTORY'; relativePath: string; fingerprint: string } | null = null
-  let metadataRows: Array<{ ordinal: number; relativePath: string; contentHash: string }> = []
+  let metadataRows: ExpectedMetadataRow[] = []
   if (local) {
     if (!artwork.storagePath) throw precondition('Local artwork has no storage path')
     localRow = {
@@ -399,22 +400,22 @@ async function freezeMetadataInputs(scanPath: string, inputs: string[]) {
   } catch {
     throw precondition('Scan path cannot be resolved')
   }
-  const rows = [] as Array<{ ordinal: number; relativePath: string; contentHash: string }>
+  const rows: ExpectedMetadataRow[] = []
   const identities = new Set<string>()
-  const selected = new Map<string, { relativePath: string; contentHash: string; preference: number }>()
+  const selected = new Map<string, Omit<ExpectedMetadataRow, 'ordinal'> & { preference: number }>()
   for (const raw of inputs) {
     const relativePath = canonicalRelativePath(raw)
     const match = path.posix.basename(relativePath).match(/^(\d+)(?:_p\d+)?-meta\.(json|txt)$/i)
     if (!match?.[1] || !match[2]) throw precondition(`Invalid metadata path: ${raw}`)
     const absolute = path.resolve(root, relativePath)
     assertWithinRoot(root, absolute)
-    let stat: Awaited<ReturnType<typeof fs.lstat>>
+    let stat: BigIntStats
     try {
-      stat = await fs.lstat(absolute)
+      stat = await fs.lstat(absolute, { bigint: true })
     } catch {
       throw precondition(`Metadata path cannot be read: ${raw}`)
     }
-    if (stat.isSymbolicLink() || !stat.isFile() || stat.size > MAX_METADATA_BYTES) {
+    if (stat.isSymbolicLink() || !stat.isFile() || stat.size > BigInt(MAX_METADATA_BYTES)) {
       throw precondition(`Unsafe metadata path: ${raw}`)
     }
     let real: string
@@ -432,6 +433,7 @@ async function freezeMetadataInputs(scanPath: string, inputs: string[]) {
     }
     const contentHash = createHash('sha256').update(bytes).digest('hex')
     if (!SHA256.test(contentHash)) throw precondition('Metadata hash failed')
+    const state = stableFileState(stat)
     const preference = match[2].toLowerCase() === 'json' ? 0 : 1
     const current = selected.get(match[1])
     if (
@@ -439,13 +441,22 @@ async function freezeMetadataInputs(scanPath: string, inputs: string[]) {
       preference < current.preference ||
       (preference === current.preference && relativePath < current.relativePath)
     ) {
-      selected.set(match[1], { relativePath, contentHash, preference })
+      selected.set(match[1], { relativePath, contentHash, ...state, preference })
     }
   }
   for (const [identity, item] of [...selected.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     if (identities.has(identity)) throw precondition(`Duplicate metadata identity: ${identity}`)
     identities.add(identity)
-    rows.push({ ordinal: rows.length, relativePath: item.relativePath, contentHash: item.contentHash })
+    rows.push({
+      ordinal: rows.length,
+      relativePath: item.relativePath,
+      contentHash: item.contentHash,
+      sizeBytes: item.sizeBytes,
+      mtimeMs: item.mtimeMs,
+      ctimeMs: item.ctimeMs,
+      deviceId: item.deviceId,
+      inode: item.inode
+    })
   }
   return rows
 }
@@ -475,6 +486,30 @@ interface ExpectedMetadataRow {
   ordinal: number
   relativePath: string
   contentHash: string
+  sizeBytes: bigint
+  mtimeMs: bigint
+  ctimeMs: bigint | null
+  deviceId: bigint | null
+  inode: bigint | null
+}
+
+function stableFileState(stat: BigIntStats) {
+  return {
+    sizeBytes: BigInt(stat.size),
+    mtimeMs: normalizedBigInt(stat.mtimeMs),
+    ctimeMs: optionalPositiveBigInt(stat.ctimeMs),
+    deviceId: optionalPositiveBigInt(stat.dev),
+    inode: optionalPositiveBigInt(stat.ino)
+  }
+}
+
+function optionalPositiveBigInt(value: number | bigint): bigint | null {
+  const normalized = normalizedBigInt(value)
+  return normalized > 0n ? normalized : null
+}
+
+function normalizedBigInt(value: number | bigint): bigint {
+  return typeof value === 'bigint' ? value : BigInt(Math.trunc(value))
 }
 
 interface ExpectedLocalWorkRow {

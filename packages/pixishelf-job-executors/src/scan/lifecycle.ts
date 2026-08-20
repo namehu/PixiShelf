@@ -67,6 +67,7 @@ export async function finalizeScanSuccess(input: {
         succeededArtworks: result.succeeded,
         skippedArtworks: result.skipped,
         failedArtworks: result.failed,
+        failedInputs: result.failed,
         newImages: result.newImages,
         durationMs: elapsedMilliseconds(input.startedAt, input.now),
         errorMessage: null

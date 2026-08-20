@@ -18,6 +18,7 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
   for (const record of records) findUnique.mockResolvedValueOnce(record)
   const updateMany = vi.fn().mockResolvedValue({ count: 1 })
   const updateIntakeItems = vi.fn().mockResolvedValue({ count: 1 })
+  const updateScanRuns = vi.fn().mockResolvedValue({ count: 1 })
   const queryRawUnsafe = vi.fn().mockResolvedValue([{ id: 'intake-1' }])
   const create = vi.fn().mockResolvedValue(records.at(-1))
   let eventId = BigInt(0)
@@ -36,10 +37,21 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
     $queryRawUnsafe: queryRawUnsafe,
     systemJob: { findUnique, updateMany, create },
     archiveIntakeItem: { updateMany: updateIntakeItems },
+    scanRun: { updateMany: updateScanRuns },
     systemJobEvent: { create: eventCreate }
   } as unknown as Prisma.TransactionClient
   const client = { $transaction: <T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) => callback(transaction) }
-  return { client, queryRaw, queryRawUnsafe, findUnique, updateMany, updateIntakeItems, create, eventCreate }
+  return {
+    client,
+    queryRaw,
+    queryRawUnsafe,
+    findUnique,
+    updateMany,
+    updateIntakeItems,
+    updateScanRuns,
+    create,
+    eventCreate
+  }
 }
 
 describe('enqueueJob', () => {
@@ -414,6 +426,25 @@ describe('enqueueJob', () => {
 })
 
 describe('job commands', () => {
+  it('cancels a queued scan and its ScanRun in the same command transaction', async () => {
+    const current = jobRecord({ status: 'RETRY_WAIT', type: 'SCAN', payload: { mode: 'INCREMENTAL' } })
+    const updated = jobRecord({ ...current, status: 'CANCELLED', finishedAt: new Date() })
+    const harness = commandHarness([current, updated])
+
+    await expect(cancelJobCommand({ jobId: current.id }, harness.client)).resolves.toMatchObject({
+      status: 'CANCELLED'
+    })
+
+    expect(harness.updateScanRuns).toHaveBeenCalledWith({
+      where: {
+        systemJobId: current.id,
+        status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED'] }
+      },
+      data: expect.objectContaining({ status: 'CANCELLED', checkpointStage: 'CANCELLED', finishedAt: expect.any(Date) })
+    })
+    expect(harness.eventCreate).toHaveBeenCalledTimes(2)
+  })
+
   it('moves RUNNING cancellation to CANCELLING with an event', async () => {
     const current = jobRecord({
       status: 'RUNNING',
@@ -501,6 +532,31 @@ describe('job commands', () => {
       type: 'SCAN',
       status: 'FAILED',
       payload: { mode: 'FULL_RECONCILE' },
+      finishedAt: new Date()
+    })
+    const harness = commandHarness([historical])
+
+    await expect(
+      retryJobCommand({ jobId: historical.id, requestedByUserId: 'admin-1' }, harness.client)
+    ).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' })
+
+    expect(harness.create).not.toHaveBeenCalled()
+    expect(harness.eventCreate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      mode: 'CLIENT_LIST',
+      existingPolicy: 'REFRESH',
+      inputCount: 1,
+      inputDigest: 'a'.repeat(64)
+    },
+    { mode: 'ARTWORK_RESCAN', artworkId: 42 }
+  ])('does not clone a terminal scan whose $mode input snapshot belongs to its original run', async (payload) => {
+    const historical = jobRecord({
+      type: 'SCAN',
+      status: 'FAILED',
+      payload,
       finishedAt: new Date()
     })
     const harness = commandHarness([historical])

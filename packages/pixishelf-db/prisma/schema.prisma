@@ -120,6 +120,7 @@ model ArtworkExternalRef {
   sourceTags        ArtworkTag[]
   archiveImports    ArchiveImport[]
   archiveRevisions  ArchiveRevision[]
+  pixivMetadataInputs PixivMetadataInventory[]
 
   @@unique([providerKey, externalId])
   @@index([artworkId])
@@ -1001,6 +1002,7 @@ model ScanRun {
   inputDigest              String?                          @db.VarChar(64)
   inputCount               Int                              @default(0)
   inputFrozenAt            DateTime?
+  inventoryBaselineGeneration Int?
   checkpointStage          String?                          @db.VarChar(80)
   checkpointOrdinal        Int                              @default(0)
   totalArtworks            Int                              @default(0)
@@ -1011,6 +1013,18 @@ model ScanRun {
   newArtists               Int                              @default(0)
   newTags                  Int                              @default(0)
   newImages                Int                              @default(0)
+  walkedEntries            Int?
+  metadataCandidates       Int?
+  inventoryUnchanged       Int?
+  contentHashed            Int?
+  contentChanged           Int?
+  parsedInputs             Int?
+  publishedInputs          Int?
+  failedInputs             Int?
+  missingInputs            Int?
+  discoveryDurationMs      Int?
+  hashDurationMs           Int?
+  publishDurationMs        Int?
   errorMessage             String?                          @db.Text
   logRef                   String?                          @db.Text
   createdAt                DateTime                         @default(now())
@@ -1037,6 +1051,7 @@ model ScanRunItem {
   metadataRelativePath String?           @db.Text
   status               ScanRunItemStatus
   action               ScanRunItemAction
+  inventoryDecision    String?           @db.VarChar(40)
   checkpointKey        String?           @db.VarChar(180)
   attempt              Int               @default(0)
   mediaCount           Int               @default(0)
@@ -1061,12 +1076,68 @@ model ScanRunMetadataInput {
   ordinal      Int
   relativePath String   @db.Text
   contentHash  String?  @db.VarChar(64)
+  sizeBytes    BigInt?
+  mtimeMs      BigInt?
+  ctimeMs      BigInt?
+  deviceId     BigInt?
+  inode        BigInt?
   createdAt    DateTime @default(now())
   scanRun      ScanRun  @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
 
   @@unique([scanRunId, ordinal], map: "scan_metadata_inputs_run_ordinal_key")
   @@unique([scanRunId, relativePath], map: "scan_metadata_inputs_run_path_key")
   @@map("scan_run_metadata_inputs")
+}
+
+model PixivMetadataInventoryState {
+  id                 String                       @id @default("pixiv") @db.VarChar(40)
+  status             PixivMetadataInventoryStatus @default(INITIALIZING)
+  /// Hashing the resolved root prevents a different mount from silently inheriting an existing baseline.
+  rootPathHash       String                       @db.VarChar(64)
+  baselineGeneration Int                          @default(1)
+  baselineStartedAt  DateTime                     @default(now())
+  baselineCompletedAt DateTime?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+
+  @@map("pixiv_metadata_inventory_state")
+}
+
+model PixivMetadataInventory {
+  id                       String              @id @default(cuid())
+  relativePath             String              @unique @db.Text
+  externalId               String?
+  sizeBytes                BigInt
+  mtimeMs                  BigInt
+  ctimeMs                  BigInt?
+  deviceId                 BigInt?
+  inode                    BigInt?
+  /// Last content that was read stably, whether or not its domain publication succeeded.
+  observedContentHash      String?             @db.VarChar(64)
+  /// Content whose Artwork/source changes committed atomically; a mismatch means synchronization is pending.
+  processedContentHash     String?             @db.VarChar(64)
+  /// Prevents unchanged permanent failures from being reparsed while retaining their diagnostic record.
+  lastAttemptedContentHash String?             @db.VarChar(64)
+  externalRefId            String?
+  externalRef              ArtworkExternalRef? @relation(fields: [externalRefId], references: [id], onDelete: SetNull)
+  baselineGeneration       Int                 @default(1)
+  /// True only for content frozen by the first complete traversal but not yet classified.
+  baselineEligible         Boolean             @default(false)
+  /// ScanRun history is retained independently, so this operational sighting intentionally has no foreign key.
+  lastSeenScanRunId        String?             @db.VarChar(30)
+  lastAttemptedAt          DateTime?
+  lastProcessedAt          DateTime?
+  lastErrorCode            String?             @db.VarChar(80)
+  lastErrorSummary         String?             @db.Text
+  lastErrorRetryable       Boolean?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  @@index([externalId])
+  @@index([externalRefId])
+  @@index([lastSeenScanRunId])
+  @@index([lastErrorRetryable, updatedAt], map: "pixiv_metadata_inventory_retry_updated_idx")
+  @@map("pixiv_metadata_inventory")
 }
 
 model ScanRunLocalWorkInput {
@@ -1150,6 +1221,11 @@ enum ScanRunItemAction {
   FAILED_PARSE
   FAILED_COLLECT
   FAILED_WRITE
+}
+
+enum PixivMetadataInventoryStatus {
+  INITIALIZING
+  READY
 }
 
 enum MigrationItemStatus {

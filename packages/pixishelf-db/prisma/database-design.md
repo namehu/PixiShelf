@@ -1,7 +1,7 @@
 ---
 status: current
 scope: Prisma Schema 之外由 migration 实现的扩展、触发器、索引和维护约束
-last-verified: 2026-08-19
+last-verified: 2026-08-20
 sources:
   - schema.prisma
   - migrations/
@@ -138,6 +138,22 @@ payload。历史 `ScanRunMode.FULL` 和已存在的 `FULL_RECONCILE` 记录不�
 清扫旧引用；显式包含 `NULL` 是为了让升级前从未写入 marker 的历史引用也能被正确对账。失败、暂停或重试不得
 执行 sweep。`artwork_external_refs_reconcile_sweep_idx(providerKey, createdAt, lastSeenScanRunId)` 与该有界
 查询一致，单列 marker 索引则保留用于诊断。
+
+`20260820120000_add_pixiv_metadata_inventory` 以 expand-only 方式增加 Pixiv metadata inventory：
+
+- `pixiv_metadata_inventory_state` 是 `id='pixiv'` 的单例，绑定 resolved scan root 的 SHA-256，并记录首次可信
+  baseline 的 generation 与完成状态；不同根目录不能共享 inventory。
+- `pixiv_metadata_inventory` 以 `relativePath` 唯一，保存 size/mtime、可用时的 ctime/device/inode、观测 hash、已
+  发布 hash、最近尝试和可恢复错误。它不拥有 Artwork，`externalRefId` 删除时只置空。
+- `baselineEligible` 只表示某行来自首次完整遍历的候选；只有相同 generation 的全局状态到达 `READY` 后才能被
+  消费，部分页面提交或取消不能提前建立基线。
+- `lastErrorRetryable=false` 只缓存由相同内容确定的永久 metadata 错误；可重试错误写 `true`，不由内容决定的终态
+  冲突写 `null`，从而允许后续 ScanRun 在外部状态修复后重新判断。
+- `scan_run_metadata_inputs` 冻结相同 stat 字段；`scan_runs` 新增可空工作量和阶段耗时。升级前历史行保持 `null`，
+  `ScanRunItemAction` 没有扩枚举，旧客户端可以继续读取和写入旧字段集合。
+
+普通增量只在 stat/失败状态要求时 hash，发布领域记录与推进 `processedContentHash` 使用同一 fenced transaction。
+migration 对既有表的值域约束采用 `NOT VALID` 后再显式 `VALIDATE`，避免在加约束语句本身混入不可控历史改写。
 
 两条新 migration 都使用显式事务。结构 migration 的第一项业务语句是只读 guard：若旧 `scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
 

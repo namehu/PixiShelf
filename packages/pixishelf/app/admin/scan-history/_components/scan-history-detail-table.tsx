@@ -3,12 +3,13 @@
 import { Loader2, SearchX } from 'lucide-react'
 import { TableVirtuoso, Virtuoso } from 'react-virtuoso'
 import { useMediaQuery } from '@/hooks/use-media-query'
-import { formatAction, ItemStatusBadge, ScanRunItemStatus } from './scan-history-format'
+import { formatAction, formatMediaCount, ItemStatusBadge, ScanRunItemStatus } from './scan-history-format'
 
 interface ScanHistoryDetailItem {
   id: string
   status: string
   action: string
+  inventoryDecision: string | null
   title: string | null
   externalId: string | null
   artistName: string | null
@@ -70,8 +71,8 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
               <th scope="col" className="px-3 py-2.5 text-left font-medium">
                 路径
               </th>
-              <th scope="col" className="w-20 px-3 py-2.5 text-right font-medium">
-                媒体
+              <th scope="col" className="w-24 px-3 py-2.5 text-right font-medium">
+                本次媒体
               </th>
             </tr>
           )}
@@ -80,7 +81,9 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
               <td className="w-24 px-3 py-3 align-top">
                 <ItemStatusBadge status={item.status as ScanRunItemStatus} />
               </td>
-              <td className="w-32 px-3 py-3 align-top text-muted-foreground">{formatAction(item.action)}</td>
+              <td className="w-32 px-3 py-3 align-top text-muted-foreground">
+                {formatAction(item.action, item.inventoryDecision)}
+              </td>
               <td className="w-[30%] min-w-0 whitespace-normal px-3 py-3 align-top">
                 <div
                   className="truncate font-medium text-foreground"
@@ -106,7 +109,9 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
                   {item.metadataRelativePath || '—'}
                 </div>
               </td>
-              <td className="w-20 px-3 py-3 text-right align-top font-medium tabular-nums">{item.mediaCount}</td>
+              <td className="w-24 px-3 py-3 text-right align-top font-medium tabular-nums">
+                {formatMediaCount(item.mediaCount, item.inventoryDecision)}
+              </td>
             </>
           )}
         />
@@ -121,9 +126,11 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
             <article className="border-b px-3 py-3.5 last:border-b-0">
               <div className="flex items-center gap-2">
                 <ItemStatusBadge status={item.status as ScanRunItemStatus} />
-                <span className="text-xs text-muted-foreground">{formatAction(item.action)}</span>
+                <span className="text-xs text-muted-foreground">
+                  {formatAction(item.action, item.inventoryDecision)}
+                </span>
                 <span className="ml-auto text-xs font-medium tabular-nums text-foreground">
-                  {item.mediaCount} 个媒体
+                  本次媒体 {formatMediaCount(item.mediaCount, item.inventoryDecision)}
                 </span>
               </div>
               <h3 className="mt-2 truncate text-sm font-medium text-foreground" title={item.title || undefined}>
