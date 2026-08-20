@@ -1,7 +1,7 @@
 ---
 status: current
 scope: URL 归档收件箱、持久解析、批量入队、任务控制、维护与保留策略
-last-verified: 2026-08-19
+last-verified: 2026-08-20
 sources:
   - packages/pixishelf/app/admin/archive/
   - packages/pixishelf/server/routers/archive-inbox.ts
@@ -72,9 +72,9 @@ sources:
 | `RECONCILE`       | 发现孤立/到期 intent，并为每个目标幂等创建子任务 |
 | `PURGE_ARCHIVE`   | 到期后受根目录约束地删除归档文件和对应领域记录   |
 
-默认启用的 `archive_maintenance_reconcile` 每日 `02:05`（`Asia/Shanghai`）物化 `RECONCILE`。父任务只发现和创建按目标隔离的维护子任务，不在发现事务中做文件 I/O；子任务继续经过 writer lane、路径边界、发布互斥和 fenced 终态检查。正常作品删除与归档任务操作也写入同一中央维护流程，不依赖 Next.js 进程内队列。
+默认启用的 `archive_maintenance_reconcile` 在页面中的默认显示时间是 `02:05`。中央模式实际在上海时间 `00:00-08:00` 统一窗口内物化当天任务，并按优先级执行；当前 `HH:mm` 不参与 materializer 计算。`RECONCILE` 父任务只发现和创建按目标隔离的维护子任务，不在发现事务中做文件 I/O；子任务继续经过 writer lane、路径边界、发布互斥和 fenced 终态检查。正常作品删除与归档任务操作也写入同一中央维护流程，不依赖 Next.js 进程内队列。
 
-默认启用的 `archive_intake_retention_cleanup` 每日 `02:15` 执行，终态收件项目、已完成批量操作、无项目的旧 submission 和过期 `ArchivePreviewSession` 保留 30 天后分批清理。它只删除操作历史和冻结预览，不删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision`、`Image` 或任何媒体文件。
+默认启用的 `archive_intake_retention_cleanup` 页面默认显示时间是 `02:15`，同样按中央统一窗口和优先级执行。终态收件项目、已完成批量操作、无项目的旧 submission 和过期 `ArchivePreviewSession` 保留 30 天后分批清理。它只删除操作历史和冻结预览，不删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision`、`Image` 或任何媒体文件。
 
 ## 权限与敏感数据
 
@@ -94,6 +94,7 @@ sources:
 相关文档：
 
 - [当前架构](../architecture/current-architecture.md)
+- [后台任务业务链路](../architecture/background-job-business-flows.md)
 - [权限与接口边界](../security/access-control.md)
 - [部署基线](../operations/deployment.md)
 - [备份与恢复](../operations/backup-and-recovery.md)

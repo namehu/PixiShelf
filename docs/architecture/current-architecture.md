@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前 workspace、运行组件、依赖方向、数据边界和关键调用链
-last-verified: 2026-08-19
+last-verified: 2026-08-20
 sources:
   - package.json
   - pnpm-workspace.yaml
@@ -173,6 +173,8 @@ sequenceDiagram
 
 生产稳态为 `true/true`；`false/false` 只用于暗启动和故障隔离。Worker 使用 PostgreSQL 队列、按 lane 的执行态唯一索引、资源租约和 lease token 围栏保证同 lane 单任务执行；并发数不提供环境变量配置。
 
+中央模式下，scheduler 在上海时间 `00:00-08:00` 窗口内按天幂等物化所有已启用 DAILY 任务，统一设置 `availableAt=00:00`、`deadlineAt=08:00`，再由队列优先级决定执行顺序。任务设置页中的 `HH:mm` 当前不参与中央 materializer 计算，不能把显示时间理解为精确触发时刻。完整任务清单、状态边界和业务流程见[后台任务业务链路](./background-job-business-flows.md)。
+
 归档收件箱位于 `/admin/archive/inbox`。一次提交可以包含最多 100 个 URL，活动收件项目上限为 1000；链接持久化后按 FIFO 在 `ARCHIVE_RESOLVE` 中逐条解析。已就绪项目可以在其余项目解析期间多选入队，每个作品创建或复用一个独立 `ARCHIVE_IMPORT`。`/admin/archive` 提供任务分页、筛选、明细和当前页批量控制。完整流程见[归档收件箱](../features/archive-intake.md)。
 
 一个 Worker host 运行两个 Dispatcher loop：
@@ -184,7 +186,7 @@ sequenceDiagram
 
 两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 capability audit 精确验证 20 项 job type、definition version 与 lane。归档解析主要等待 HTTP 和 PostgreSQL，writer 主要等待文件流、Sharp/libvips 与 FFmpeg 子进程；异步等待允许同一 Node.js 事件循环交替推进两项工作，但不构成纯 JavaScript CPU 并行承诺。
 
-归档维护统一使用 writer lane 的 `ARCHIVE_MAINTENANCE`。每日 `02:05` 的 `RECONCILE` 发现到期 staging、孤立回收/恢复 intent 和到期回收站，为每个目标幂等创建 `CLEAN_STAGING`、`TRASH_ARCHIVE`、`RESTORE_ARCHIVE` 或 `PURGE_ARCHIVE` 子任务。每日 `02:15` 的 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 清理超过 30 天的终态收件/批量历史及过期预览会话，不删除领域归档、作品或媒体。
+归档维护统一使用 writer lane 的 `ARCHIVE_MAINTENANCE`。默认启用、显示时间为 `02:05` 的 `RECONCILE` 发现到期 staging、孤立回收/恢复 intent 和到期回收站，为每个目标幂等创建 `CLEAN_STAGING`、`TRASH_ARCHIVE`、`RESTORE_ARCHIVE` 或 `PURGE_ARCHIVE` 子任务。默认启用、显示时间为 `02:15` 的 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 清理超过 30 天的终态收件/批量历史及过期预览会话，不删除领域归档、作品或媒体；两者在中央模式下仍按统一调度窗口和优先级执行。
 
 `VIDEO_MEDIA_PROBE` 是视频探测与自动封面生成的单一持久工作流。Worker 先按 `imageId` 游标完成媒体分类和 FFprobe，再在同一个 SystemJob 内顺序处理全部 `PENDING`、`FAILED` 或中断遗留的 `GENERATING` 封面；任务只有在封面阶段结束后才进入终态。批量流程不创建 `VIDEO_POSTER_GENERATION` 子任务，该类型只用于单视频人工生成。已完成封面的文件完整性检查和孤儿文件清理不属于探测流程，`DERIVED_MEDIA_GC` 继续独立处理已登记的无引用派生文件。
 
@@ -242,6 +244,7 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 - [ADR-0004：归档解析独立资源通道](../adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)
 - [ADR-0005：退役破坏性全量重扫](../adr/0005-retire-destructive-full-rescan.md)
 - [归档收件箱](../features/archive-intake.md)
+- [后台任务业务链路](./background-job-business-flows.md)
 - [阶段 1–7 切换记录](../deployment/background-task-cutover-deployment.md)
 - [旧系统设计](../archive/system-design-legacy.md)
 - [旧调度架构](../archive/scheduler-architecture-legacy.md)

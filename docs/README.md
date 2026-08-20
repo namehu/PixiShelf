@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-08-20（视频探测与封面生成工作流）
+最后核验：2026-08-20（中央 Worker 全任务业务链路）
 
 ## 状态约定
 
@@ -30,26 +30,28 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
-| 文档                                               | 状态      | 权威范围                                    |
-| -------------------------------------------------- | --------- | ------------------------------------------- |
-| [项目 README](../README.md)                        | `current` | 项目入口、标准本地启动、常用命令            |
-| [产品基线](./product/product-baseline.md)          | `current` | 目标用户、核心场景、产品不变量和非目标      |
-| [归档收件箱](./features/archive-intake.md)         | `current` | 持久收件、双通道、批量操作、维护和保留策略  |
-| [领域语境](../CONTEXT.md)                          | `current` | 作品、媒体、来源、归档与本地身份术语        |
-| [当前架构](./architecture/current-architecture.md) | `current` | Workspace、运行组件、依赖方向和关键数据流   |
-| [权限与接口边界](./security/access-control.md)     | `current` | 调用者、页面、API、服务、凭据和存储权限     |
-| [测试策略](./development/testing-strategy.md)      | `current` | 测试分层、变更验证矩阵、CI 覆盖与已知缺口   |
-| [部署基线](./operations/deployment.md)             | `current` | 当前 Compose 服务、升级顺序、验证和回滚入口 |
-| [备份与恢复](./operations/backup-and-recovery.md)  | `current` | 完整备份集合、恢复目标、演练和灾难恢复边界  |
-| [Build 与部署资产](../build/README.md)             | `current` | Dockerfile、Compose、挂载和 Worker 运行边界 |
-| [当前待办](../TODO.md)                             | `current` | 稳定观察期和下一阶段可执行事项              |
-| [代理规则](../agents.md)                           | `current` | 人与 AI 修改仓库时必须遵守的工程约束        |
+| 文档                                                                | 状态      | 权威范围                                      |
+| ------------------------------------------------------------------- | --------- | --------------------------------------------- |
+| [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令              |
+| [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标        |
+| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、20 类 Worker 任务、领域状态和流程图 |
+| [归档收件箱](./features/archive-intake.md)                          | `current` | 持久收件、双通道、批量操作、维护和保留策略    |
+| [领域语境](../CONTEXT.md)                                           | `current` | 作品、媒体、来源、归档与本地身份术语          |
+| [当前架构](./architecture/current-architecture.md)                  | `current` | Workspace、运行组件、依赖方向和关键数据流     |
+| [权限与接口边界](./security/access-control.md)                      | `current` | 调用者、页面、API、服务、凭据和存储权限       |
+| [测试策略](./development/testing-strategy.md)                       | `current` | 测试分层、变更验证矩阵、CI 覆盖与已知缺口     |
+| [部署基线](./operations/deployment.md)                              | `current` | 当前 Compose 服务、升级顺序、验证和回滚入口   |
+| [备份与恢复](./operations/backup-and-recovery.md)                   | `current` | 完整备份集合、恢复目标、演练和灾难恢复边界    |
+| [Build 与部署资产](../build/README.md)                              | `current` | Dockerfile、Compose、挂载和 Worker 运行边界   |
+| [当前待办](../TODO.md)                                              | `current` | 稳定观察期和下一阶段可执行事项                |
+| [代理规则](../agents.md)                                            | `current` | 人与 AI 修改仓库时必须遵守的工程约束          |
 
 ## 架构与性能
 
 | 文档                                                                              | 状态         | 权威范围与后续处理                                     |
 | --------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------ |
 | [当前架构](./architecture/current-architecture.md)                                | `current`    | 当前系统级事实源                                       |
+| [后台任务业务链路](./architecture/background-job-business-flows.md)               | `current`    | 当前任务入口、调度、执行、状态、副作用和业务流程图     |
 | [媒体资源处理与分发](../packages/pixishelf/docs/media-forwarding-architecture.md) | `current`    | ImgProxy、静态派生媒体和视频播放边界；后续移入架构目录 |
 | [数据库设计补充](../packages/pixishelf-db/prisma/database-design.md)              | `current`    | Schema 之外的触发器、索引和维护约束                    |
 | [Artwork feed 查询性能](./design/artwork-feed-query-performance.md)               | `current`    | 2026-08-12 数据集上的性能基线和回归门禁                |
