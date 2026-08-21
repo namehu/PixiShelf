@@ -2,7 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
 
-const latestRequiredMigration = '20260820120000_add_pixiv_metadata_inventory'
+const latestRequiredMigration = '20260820210000_add_pixiv_source_audit_apply'
 
 const requiredQueueObjects = [
   'archive_intake_items',
@@ -13,6 +13,7 @@ const requiredQueueObjects = [
   'job_resource_leases',
   'pixiv_metadata_inventory',
   'pixiv_metadata_inventory_state',
+  'pixiv_source_audit_items',
   'system_job_events',
   'worker_instances'
 ] as const

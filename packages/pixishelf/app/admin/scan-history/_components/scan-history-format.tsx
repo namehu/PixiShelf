@@ -52,9 +52,31 @@ export function formatMode(mode: string) {
       LOCAL_DIRECTORY_IMPORT: '本地目录导入',
       LOCAL_CREATE: '本地创建',
       BATCH_CREATE: '批量创建',
-      BATCH_REGISTER_IMAGES: '批量注册图片'
+      BATCH_REGISTER_IMAGES: '批量注册图片',
+      CONSISTENCY_AUDIT: '来源一致性核对',
+      AUDIT_APPLY: '来源选定同步'
     }[mode] ?? mode
   )
+}
+
+export function isSourceAuditRun(run: { operationKind?: string | null }) {
+  return run.operationKind === 'CONSISTENCY_AUDIT'
+}
+
+export function isSourceAuditApplyRun(run: { operationKind?: string | null }) {
+  return run.operationKind === 'AUDIT_APPLY'
+}
+
+export function getSourceMaintenanceHref(run: {
+  id: string
+  operationKind?: string | null
+  sourceAuditRunId?: string | null
+}) {
+  if (isSourceAuditRun(run)) return `/admin/scan-history/${run.id}/source-audit`
+  if (isSourceAuditApplyRun(run) && run.sourceAuditRunId) {
+    return `/admin/scan-history/${run.sourceAuditRunId}/source-audit?operation=${run.id}`
+  }
+  return null
 }
 
 export function formatType(type: string) {

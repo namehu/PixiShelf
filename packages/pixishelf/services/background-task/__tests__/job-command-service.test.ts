@@ -19,6 +19,9 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
   const updateMany = vi.fn().mockResolvedValue({ count: 1 })
   const updateIntakeItems = vi.fn().mockResolvedValue({ count: 1 })
   const updateScanRuns = vi.fn().mockResolvedValue({ count: 1 })
+  const findScanRun = vi.fn().mockResolvedValue(null)
+  const updateScanRunItems = vi.fn().mockResolvedValue({ count: 0 })
+  const findScanRunItems = vi.fn().mockResolvedValue([])
   const queryRawUnsafe = vi.fn().mockResolvedValue([{ id: 'intake-1' }])
   const create = vi.fn().mockResolvedValue(records.at(-1))
   let eventId = BigInt(0)
@@ -37,7 +40,8 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
     $queryRawUnsafe: queryRawUnsafe,
     systemJob: { findUnique, updateMany, create },
     archiveIntakeItem: { updateMany: updateIntakeItems },
-    scanRun: { updateMany: updateScanRuns },
+    scanRun: { findUnique: findScanRun, updateMany: updateScanRuns },
+    scanRunItem: { updateMany: updateScanRunItems, findMany: findScanRunItems },
     systemJobEvent: { create: eventCreate }
   } as unknown as Prisma.TransactionClient
   const client = { $transaction: <T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) => callback(transaction) }
@@ -49,6 +53,9 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
     updateMany,
     updateIntakeItems,
     updateScanRuns,
+    findScanRun,
+    updateScanRunItems,
+    findScanRunItems,
     create,
     eventCreate
   }
@@ -443,6 +450,162 @@ describe('job commands', () => {
       data: expect.objectContaining({ status: 'CANCELLED', checkpointStage: 'CANCELLED', finishedAt: expect.any(Date) })
     })
     expect(harness.eventCreate).toHaveBeenCalledTimes(2)
+  })
+
+  it('terminalizes every frozen AUDIT_APPLY item when cancelling before Worker claim', async () => {
+    const timestamp = new Date('2026-08-20T12:00:00.000Z')
+    const current = jobRecord({
+      status: 'PENDING',
+      type: 'SCAN',
+      definitionVersion: 3,
+      payload: {
+        mode: 'AUDIT_APPLY',
+        auditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64)
+      }
+    })
+    const updated = jobRecord({ ...current, status: 'CANCELLED', finishedAt: timestamp })
+    const harness = commandHarness([current, updated])
+    harness.findScanRun.mockResolvedValue({
+      id: 'apply-run-1',
+      operationKind: 'AUDIT_APPLY',
+      sourceAuditRunId: 'audit-run-1',
+      inputCount: 2,
+      inputDigest: 'a'.repeat(64),
+      inputFrozenAt: timestamp,
+      metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }],
+      items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+    })
+    harness.updateScanRunItems.mockResolvedValue({ count: 2 })
+    harness.findScanRunItems.mockResolvedValue([
+      { applyOutcome: 'FAILED', applyReasonCode: 'OPERATION_CANCELLED', newImageCount: 0 },
+      { applyOutcome: 'FAILED', applyReasonCode: 'OPERATION_CANCELLED', newImageCount: 0 }
+    ])
+
+    await expect(cancelJobCommand({ jobId: current.id }, harness.client, () => timestamp)).resolves.toMatchObject({
+      status: 'CANCELLED'
+    })
+
+    expect(harness.updateScanRunItems).toHaveBeenCalledWith({
+      where: { scanRunId: 'apply-run-1', applyOutcome: null },
+      data: {
+        status: 'FAILED',
+        applyOutcome: 'FAILED',
+        applyReasonCode: 'OPERATION_CANCELLED',
+        applyReasonSummary: 'Operation was cancelled before this item completed',
+        applyRetryable: true,
+        finishedAt: timestamp
+      }
+    })
+    expect(harness.updateScanRuns).toHaveBeenCalledWith({
+      where: { id: 'apply-run-1', status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED'] } },
+      data: expect.objectContaining({
+        status: 'CANCELLED',
+        checkpointStage: 'CANCELLED',
+        processedArtworks: 2,
+        succeededArtworks: 0,
+        skippedArtworks: 0,
+        failedArtworks: 2,
+        publishedInputs: 0,
+        failedInputs: 2,
+        auditApplyStaleInputs: 0,
+        auditApplyConflictInputs: 0,
+        newImages: 0
+      })
+    })
+    expect(harness.eventCreate).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    [
+      'payload/run identity mismatch',
+      {
+        sourceAuditRunId: 'audit-run-other',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64),
+        inputFrozenAt: new Date(),
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+      }
+    ],
+    [
+      'incomplete frozen input set',
+      {
+        sourceAuditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64),
+        inputFrozenAt: new Date(),
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: null }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+      }
+    ],
+    [
+      'different frozen input sets',
+      {
+        sourceAuditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64),
+        inputFrozenAt: new Date(),
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-3' }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+      }
+    ],
+    [
+      'digest mismatch',
+      {
+        sourceAuditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'b'.repeat(64),
+        inputFrozenAt: new Date(),
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+      }
+    ],
+    [
+      'input count mismatch',
+      {
+        sourceAuditRunId: 'audit-run-1',
+        inputCount: 1,
+        inputDigest: 'a'.repeat(64),
+        inputFrozenAt: new Date(),
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }]
+      }
+    ],
+    [
+      'missing frozen timestamp',
+      {
+        sourceAuditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64),
+        inputFrozenAt: null,
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+      }
+    ]
+  ])('fails closed before writing when AUDIT_APPLY has %s', async (_label, frozenRun) => {
+    const current = jobRecord({
+      status: 'PENDING',
+      type: 'SCAN',
+      definitionVersion: 3,
+      payload: {
+        mode: 'AUDIT_APPLY',
+        auditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64)
+      }
+    })
+    const harness = commandHarness([current])
+    harness.findScanRun.mockResolvedValue({ id: 'apply-run-1', operationKind: 'AUDIT_APPLY', ...frozenRun })
+
+    await expect(cancelJobCommand({ jobId: current.id }, harness.client)).rejects.toMatchObject({
+      code: 'INVALID_STATE_TRANSITION'
+    })
+    expect(harness.updateMany).not.toHaveBeenCalled()
+    expect(harness.updateScanRunItems).not.toHaveBeenCalled()
+    expect(harness.updateScanRuns).not.toHaveBeenCalled()
+    expect(harness.eventCreate).not.toHaveBeenCalled()
   })
 
   it('moves RUNNING cancellation to CANCELLING with an event', async () => {

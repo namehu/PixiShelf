@@ -6,6 +6,8 @@ import { compareCodePoints } from './stable-order.ts'
 
 export interface SafeScanRoot {
   absolutePath: string
+  deviceId: bigint
+  inode: bigint
 }
 
 export interface SafeScanPath {
@@ -39,7 +41,13 @@ export async function resolveSafeScanRoot(configuredRoot: string): Promise<SafeS
     throw new ScanExecutorError('CONFIGURATION_INVALID', 'Scan root is not a directory')
   }
   const absolutePath = await fs.realpath(trimmed)
-  return { absolutePath }
+  // Capture the identity of the resolved directory itself. A path hash alone cannot detect a
+  // remounted/replaced source at the same configured pathname during a consistency audit.
+  const resolvedMetadata = await fs.lstat(absolutePath, { bigint: true })
+  if (!resolvedMetadata.isDirectory()) {
+    throw new ScanExecutorError('CONFIGURATION_INVALID', 'Scan root is not a directory')
+  }
+  return { absolutePath, deviceId: resolvedMetadata.dev, inode: resolvedMetadata.ino }
 }
 
 export async function resolveSafeExistingPath(

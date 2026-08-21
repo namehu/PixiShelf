@@ -10,7 +10,9 @@ const {
   scanRunItemCreateManyMock,
   scanRunItemGroupByMock,
   scanRunItemAggregateMock,
-  scanRunItemUpdateManyMock
+  scanRunItemUpdateManyMock,
+  prismaTransactionMock,
+  queryRawMock
 } = vi.hoisted(() => ({
   scanRunCreateMock: vi.fn(),
   scanRunUpdateMock: vi.fn(),
@@ -20,11 +22,14 @@ const {
   scanRunItemCreateManyMock: vi.fn(),
   scanRunItemGroupByMock: vi.fn(),
   scanRunItemAggregateMock: vi.fn(),
-  scanRunItemUpdateManyMock: vi.fn()
+  scanRunItemUpdateManyMock: vi.fn(),
+  prismaTransactionMock: vi.fn(),
+  queryRawMock: vi.fn()
 }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $transaction: prismaTransactionMock,
     scanRun: {
       create: scanRunCreateMock,
       update: scanRunUpdateMock,
@@ -69,6 +74,13 @@ describe('scan-run-service', () => {
       { status: ScanRunItemStatus.SKIPPED, _count: { _all: 1 } },
       { status: ScanRunItemStatus.FAILED, _count: { _all: 1 } }
     ])
+    queryRawMock.mockReset().mockResolvedValue([{ lock: '' }])
+    prismaTransactionMock.mockReset().mockImplementation((operation) =>
+      operation({
+        $queryRaw: queryRawMock,
+        scanRun: { findMany: scanRunFindManyMock, deleteMany: scanRunDeleteManyMock }
+      })
+    )
   })
 
   it('creates a scan run linked to an optional system job', async () => {
@@ -192,22 +204,35 @@ describe('scan-run-service', () => {
   })
 
   it('excludes manual local-create audit runs from the default history list', async () => {
-    await listScanRuns({ limit: 10 })
+    scanRunFindManyMock.mockResolvedValueOnce([historyRecord()])
+    const result = await listScanRuns({ limit: 10 })
 
-    expect(scanRunFindManyMock).toHaveBeenCalledWith({
-      where: {
-        mode: {
-          not: ScanRunMode.LOCAL_CREATE
-        }
-      },
-      orderBy: { startedAt: 'desc' },
-      take: 10,
-      include: {
-        _count: {
-          select: { items: true }
-        }
-      }
+    expect(scanRunFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { mode: { not: ScanRunMode.LOCAL_CREATE } },
+        orderBy: { startedAt: 'desc' },
+        take: 10,
+        select: expect.objectContaining({
+          operationKind: true,
+          sourceAuditRunId: true,
+          auditNewInputs: true,
+          auditChangedInputs: true
+        })
+      })
+    )
+    const select = scanRunFindManyMock.mock.calls[0]?.[0]?.select
+    expect(select).not.toHaveProperty('inputDigest')
+    expect(select).not.toHaveProperty('inventoryBaselineGeneration')
+    expect(select).not.toHaveProperty('checkpointStage')
+    expect(select).not.toHaveProperty('logRef')
+    expect(result[0]).toMatchObject({
+      operationKind: 'CONSISTENCY_AUDIT',
+      sourceAuditRunId: null,
+      auditNewInputs: 2,
+      auditChangedInputs: 3,
+      errorMessage: '扫描未完成，请查看后台任务状态。'
     })
+    expect(JSON.stringify(result)).not.toContain('/secret')
   })
 
   it('cleans up terminal scan runs older than the retention cutoff', async () => {
@@ -230,7 +255,7 @@ describe('scan-run-service', () => {
         status: { in: [ScanRunStatus.COMPLETED, ScanRunStatus.FAILED, ScanRunStatus.CANCELLED] },
         finishedAt: { lt: new Date('2025-12-28T00:00:00.000Z') }
       },
-      select: { id: true }
+      select: { id: true, operationKind: true, sourceAuditRunId: true }
     })
     expect(scanRunDeleteManyMock).toHaveBeenCalledWith({
       where: {
@@ -262,12 +287,119 @@ describe('scan-run-service', () => {
       },
       orderBy: [{ finishedAt: 'desc' }, { startedAt: 'desc' }],
       skip: 100,
-      select: { id: true }
+      select: { id: true, operationKind: true, sourceAuditRunId: true }
     })
     expect(scanRunDeleteManyMock).toHaveBeenCalledWith({
       where: {
         id: { in: ['pixiv-overflow', 'local-import-overflow', 'batch-overflow'] }
       }
+    })
+  })
+
+  it('deletes an expired source audit together with all newer terminal apply children', async () => {
+    scanRunFindManyMock
+      .mockResolvedValueOnce([{ id: 'audit-parent', operationKind: 'CONSISTENCY_AUDIT', sourceAuditRunId: null }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'apply-terminal-newer',
+          operationKind: 'AUDIT_APPLY',
+          sourceAuditRunId: 'audit-parent',
+          status: ScanRunStatus.COMPLETED,
+          systemJob: { status: 'COMPLETED' }
+        },
+        {
+          id: 'apply-terminal-latest',
+          operationKind: 'AUDIT_APPLY',
+          sourceAuditRunId: 'audit-parent',
+          status: ScanRunStatus.FAILED,
+          systemJob: { status: 'FAILED' }
+        }
+      ])
+    scanRunDeleteManyMock.mockResolvedValueOnce({ count: 3 })
+
+    await expect(
+      cleanupScanRunHistory({
+        now: new Date('2026-06-26T00:00:00.000Z'),
+        maxAgeDays: 180,
+        maxRunsPerType: 100
+      })
+    ).resolves.toEqual({ deletedRuns: 3 })
+
+    expect(queryRawMock).toHaveBeenCalledOnce()
+    expect(queryRawMock.mock.invocationCallOrder[0]!).toBeLessThan(scanRunFindManyMock.mock.invocationCallOrder[0]!)
+    expect(scanRunFindManyMock).toHaveBeenLastCalledWith({
+      where: { operationKind: 'AUDIT_APPLY', sourceAuditRunId: { in: ['audit-parent'] } },
+      select: { id: true, sourceAuditRunId: true, status: true, systemJob: { select: { status: true } } }
+    })
+    expect(scanRunDeleteManyMock).toHaveBeenCalledWith({
+      where: { id: { in: ['audit-parent', 'apply-terminal-newer', 'apply-terminal-latest'] } }
+    })
+  })
+
+  it('keeps an expired source audit when any apply child is non-terminal', async () => {
+    scanRunFindManyMock
+      .mockResolvedValueOnce([{ id: 'audit-parent', operationKind: 'CONSISTENCY_AUDIT', sourceAuditRunId: null }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'apply-complete',
+          sourceAuditRunId: 'audit-parent',
+          status: ScanRunStatus.COMPLETED,
+          systemJob: { status: 'COMPLETED' }
+        },
+        {
+          id: 'apply-running',
+          sourceAuditRunId: 'audit-parent',
+          status: ScanRunStatus.RUNNING,
+          systemJob: { status: 'RUNNING' }
+        }
+      ])
+
+    await expect(
+      cleanupScanRunHistory({
+        now: new Date('2026-06-26T00:00:00.000Z'),
+        maxAgeDays: 180,
+        maxRunsPerType: 100
+      })
+    ).resolves.toEqual({ deletedRuns: 0 })
+    expect(scanRunDeleteManyMock).not.toHaveBeenCalled()
+  })
+
+  it('deletes an overflow source audit as a terminal family but never deletes an apply child alone', async () => {
+    scanRunFindManyMock
+      .mockResolvedValueOnce([
+        { id: 'apply-only-candidate', operationKind: 'AUDIT_APPLY', sourceAuditRunId: 'retained-parent' }
+      ])
+      .mockResolvedValueOnce([{ id: 'audit-overflow', operationKind: 'CONSISTENCY_AUDIT', sourceAuditRunId: null }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'apply-overflow-family',
+          sourceAuditRunId: 'audit-overflow',
+          status: ScanRunStatus.CANCELLED,
+          systemJob: { status: 'CANCELLED' }
+        }
+      ])
+    scanRunDeleteManyMock.mockResolvedValueOnce({ count: 2 })
+
+    await expect(
+      cleanupScanRunHistory({
+        now: new Date('2026-06-26T00:00:00.000Z'),
+        maxAgeDays: 180,
+        maxRunsPerType: 100
+      })
+    ).resolves.toEqual({ deletedRuns: 2 })
+    expect(scanRunDeleteManyMock).toHaveBeenCalledWith({
+      where: { id: { in: ['audit-overflow', 'apply-overflow-family'] } }
     })
   })
 
@@ -297,20 +429,54 @@ describe('scan-run-service', () => {
   })
 
   it('excludes manual local-create audit runs from latest history lookup', async () => {
+    scanRunFindFirstMock.mockResolvedValueOnce(historyRecord())
     await getLatestScanRun()
 
-    expect(scanRunFindFirstMock).toHaveBeenCalledWith({
-      where: {
-        mode: {
-          not: ScanRunMode.LOCAL_CREATE
-        }
-      },
-      orderBy: { startedAt: 'desc' },
-      include: {
-        _count: {
-          select: { items: true }
-        }
-      }
-    })
+    expect(scanRunFindFirstMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { mode: { not: ScanRunMode.LOCAL_CREATE } },
+        orderBy: { startedAt: 'desc' },
+        select: expect.objectContaining({ operationKind: true, auditIdentityConflictInputs: true })
+      })
+    )
   })
 })
+
+function historyRecord() {
+  return {
+    id: 'scan-run-1',
+    type: ScanRunType.PIXIV,
+    mode: ScanRunMode.INCREMENTAL,
+    status: ScanRunStatus.FAILED,
+    operationKind: 'CONSISTENCY_AUDIT',
+    sourceAuditRunId: null,
+    startedAt: new Date('2026-08-20T00:00:00.000Z'),
+    finishedAt: new Date('2026-08-20T00:00:01.000Z'),
+    durationMs: 1000,
+    totalArtworks: 10,
+    succeededArtworks: 1,
+    skippedArtworks: 2,
+    failedArtworks: 3,
+    newImages: 0,
+    walkedEntries: 20,
+    metadataCandidates: 10,
+    inventoryUnchanged: 4,
+    contentHashed: 5,
+    contentChanged: 6,
+    parsedInputs: 7,
+    publishedInputs: 0,
+    missingInputs: 1,
+    auditNewInputs: 2,
+    auditChangedInputs: 3,
+    auditInvalidInputs: 4,
+    auditIdentityConflictInputs: 5,
+    discoveryDurationMs: 100,
+    hashDurationMs: 200,
+    publishDurationMs: 0,
+    errorMessage: 'INTERNAL_ERROR at /secret/pixiv/root',
+    inputDigest: 'do-not-expose',
+    inventoryBaselineGeneration: 2,
+    checkpointStage: 'FAILED',
+    logRef: '/secret/worker.log'
+  }
+}

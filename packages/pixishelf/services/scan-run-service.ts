@@ -5,18 +5,74 @@ import { Prisma, ScanRunItemAction, ScanRunItemStatus, ScanRunMode, ScanRunStatu
 import type { ScanAuditItemInput } from './scan-service/types'
 import { ESource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
+import { lockSingletonJobType } from './background-task/manual-job-singleton'
 
 const DEFAULT_ITEM_BATCH_SIZE = 200
 const MAX_HISTORY_LIMIT = 50
 const MAX_DETAIL_LIMIT = 500
 const DEFAULT_RETENTION_MAX_AGE_DAYS = 180
 const DEFAULT_RETENTION_MAX_RUNS_PER_TYPE = 100
-const TERMINAL_SCAN_RUN_STATUSES = [ScanRunStatus.COMPLETED, ScanRunStatus.FAILED, ScanRunStatus.CANCELLED]
+const TERMINAL_SCAN_RUN_STATUSES: ScanRunStatus[] = [
+  ScanRunStatus.COMPLETED,
+  ScanRunStatus.FAILED,
+  ScanRunStatus.CANCELLED
+]
+const TERMINAL_SYSTEM_JOB_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'])
 const DEFAULT_HISTORY_RUN_WHERE: Prisma.ScanRunWhereInput = {
   mode: {
     not: ScanRunMode.LOCAL_CREATE
   }
 }
+
+const scanRunHistorySelect = {
+  id: true,
+  type: true,
+  mode: true,
+  status: true,
+  operationKind: true,
+  sourceAuditRunId: true,
+  startedAt: true,
+  finishedAt: true,
+  durationMs: true,
+  totalArtworks: true,
+  succeededArtworks: true,
+  skippedArtworks: true,
+  failedArtworks: true,
+  newImages: true,
+  walkedEntries: true,
+  metadataCandidates: true,
+  inventoryUnchanged: true,
+  contentHashed: true,
+  contentChanged: true,
+  parsedInputs: true,
+  publishedInputs: true,
+  missingInputs: true,
+  auditNewInputs: true,
+  auditChangedInputs: true,
+  auditInvalidInputs: true,
+  auditIdentityConflictInputs: true,
+  discoveryDurationMs: true,
+  hashDurationMs: true,
+  publishDurationMs: true,
+  errorMessage: true
+} satisfies Prisma.ScanRunSelect
+
+const scanRunDetailItemSelect = {
+  id: true,
+  externalId: true,
+  title: true,
+  artistName: true,
+  relativeDirectory: true,
+  metadataRelativePath: true,
+  status: true,
+  action: true,
+  inventoryDecision: true,
+  mediaCount: true,
+  errorMessage: true
+} satisfies Prisma.ScanRunItemSelect
+
+type ScanRunHistoryRecord = Prisma.ScanRunGetPayload<{ select: typeof scanRunHistorySelect }>
+type ScanRunDetailItemRecord = Prisma.ScanRunItemGetPayload<{ select: typeof scanRunDetailItemSelect }>
 
 export interface StartScanRunInput {
   systemJobId?: string | null
@@ -213,29 +269,23 @@ export async function cancelScanRun(scanRunId: string, result?: ScanResult | nul
 /** 分页列出历史扫描运行记录，排除本地创建的记录 */
 export async function listScanRuns(input: ListScanRunsInput = {}) {
   const take = Math.min(Math.max(input.limit ?? 10, 1), MAX_HISTORY_LIMIT)
-  return prisma.scanRun.findMany({
+  const records = await prisma.scanRun.findMany({
     where: DEFAULT_HISTORY_RUN_WHERE,
     orderBy: { startedAt: 'desc' },
     take,
-    include: {
-      _count: {
-        select: { items: true }
-      }
-    }
+    select: scanRunHistorySelect
   })
+  return records.map(toScanRunHistoryDto)
 }
 
 /** 获取最近一次扫描运行记录 */
 export async function getLatestScanRun() {
-  return prisma.scanRun.findFirst({
+  const record = await prisma.scanRun.findFirst({
     where: DEFAULT_HISTORY_RUN_WHERE,
     orderBy: { startedAt: 'desc' },
-    include: {
-      _count: {
-        select: { items: true }
-      }
-    }
+    select: scanRunHistorySelect
   })
+  return record ? toScanRunHistoryDto(record) : null
 }
 
 /** 获取扫描运行的详细信息，包含分页的条目列表和游标 */
@@ -248,7 +298,8 @@ export async function getScanRunDetail(input: GetScanRunDetailInput) {
 
   const [run, items] = await Promise.all([
     prisma.scanRun.findUnique({
-      where: { id: input.scanRunId }
+      where: { id: input.scanRunId },
+      select: scanRunHistorySelect
     }),
     prisma.scanRunItem.findMany({
       where,
@@ -259,17 +310,77 @@ export async function getScanRunDetail(input: GetScanRunDetailInput) {
             cursor: { id: input.cursor },
             skip: 1
           }
-        : {})
+        : {}),
+      select: scanRunDetailItemSelect
     })
   ])
 
   const hasMore = items.length > take
   const pageItems = hasMore ? items.slice(0, take) : items
   return {
-    run,
-    items: pageItems,
+    run: run ? toScanRunHistoryDto(run) : null,
+    items: pageItems.map(toScanRunDetailItemDto),
     nextCursor: hasMore ? (pageItems[pageItems.length - 1]?.id ?? null) : null
   }
+}
+
+function toScanRunHistoryDto(record: ScanRunHistoryRecord) {
+  return {
+    id: record.id,
+    type: record.type,
+    mode: record.mode,
+    status: record.status,
+    operationKind: safeScanOperationKind(record.operationKind),
+    sourceAuditRunId: record.sourceAuditRunId,
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
+    durationMs: record.durationMs,
+    totalArtworks: record.totalArtworks,
+    succeededArtworks: record.succeededArtworks,
+    skippedArtworks: record.skippedArtworks,
+    failedArtworks: record.failedArtworks,
+    newImages: record.newImages,
+    walkedEntries: record.walkedEntries,
+    metadataCandidates: record.metadataCandidates,
+    inventoryUnchanged: record.inventoryUnchanged,
+    contentHashed: record.contentHashed,
+    contentChanged: record.contentChanged,
+    parsedInputs: record.parsedInputs,
+    publishedInputs: record.publishedInputs,
+    missingInputs: record.missingInputs,
+    auditNewInputs: record.auditNewInputs,
+    auditChangedInputs: record.auditChangedInputs,
+    auditInvalidInputs: record.auditInvalidInputs,
+    auditIdentityConflictInputs: record.auditIdentityConflictInputs,
+    discoveryDurationMs: record.discoveryDurationMs,
+    hashDurationMs: record.hashDurationMs,
+    publishDurationMs: record.publishDurationMs,
+    errorMessage: record.errorMessage ? '扫描未完成，请查看后台任务状态。' : null
+  }
+}
+
+function safeScanOperationKind(value: string | null): 'CONSISTENCY_AUDIT' | 'AUDIT_APPLY' | null {
+  return value === 'CONSISTENCY_AUDIT' || value === 'AUDIT_APPLY' ? value : null
+}
+
+function toScanRunDetailItemDto(record: ScanRunDetailItemRecord) {
+  return {
+    id: record.id,
+    externalId: record.externalId,
+    title: record.title,
+    artistName: record.artistName,
+    relativeDirectory: record.relativeDirectory,
+    metadataRelativePath: record.metadataRelativePath,
+    status: record.status,
+    action: record.action,
+    inventoryDecision: safeInventoryDecision(record.inventoryDecision),
+    mediaCount: record.mediaCount,
+    errorMessage: record.errorMessage ? '该条目处理失败。' : null
+  }
+}
+
+function safeInventoryDecision(value: string | null): 'BASELINE_EXISTING' | 'PENDING_SOURCE_REFRESH' | null {
+  return value === 'BASELINE_EXISTING' || value === 'PENDING_SOURCE_REFRESH' ? value : null
 }
 
 /** 清理 ScanRun 审计历史：只删除终态记录，包含默认历史列表隐藏的 LOCAL_CREATE，明细依赖数据库级联删除 */
@@ -280,43 +391,76 @@ export async function cleanupScanRunHistory(
   const maxAgeDays = input.maxAgeDays ?? DEFAULT_RETENTION_MAX_AGE_DAYS
   const maxRunsPerType = input.maxRunsPerType ?? DEFAULT_RETENTION_MAX_RUNS_PER_TYPE
   const cutoff = new Date(now.getTime() - maxAgeDays * 24 * 60 * 60 * 1000)
-  const idsToDelete = new Set<string>()
-
-  const expiredRuns = await prisma.scanRun.findMany({
-    where: {
-      status: { in: TERMINAL_SCAN_RUN_STATUSES },
-      finishedAt: { lt: cutoff }
-    },
-    select: { id: true }
-  })
-
-  expiredRuns.forEach((run) => idsToDelete.add(run.id))
-
-  for (const type of Object.values(ScanRunType)) {
-    const overflowRuns = await prisma.scanRun.findMany({
+  return prisma.$transaction(async (transaction) => {
+    await lockSingletonJobType(transaction, 'SCAN')
+    const candidates = new Map<string, { id: string; operationKind: string | null; sourceAuditRunId: string | null }>()
+    const candidateSelect = { id: true, operationKind: true, sourceAuditRunId: true } as const
+    const expiredRuns = await transaction.scanRun.findMany({
       where: {
-        type,
-        status: { in: TERMINAL_SCAN_RUN_STATUSES }
+        status: { in: TERMINAL_SCAN_RUN_STATUSES },
+        finishedAt: { lt: cutoff }
       },
-      orderBy: [{ finishedAt: 'desc' }, { startedAt: 'desc' }],
-      skip: maxRunsPerType,
-      select: { id: true }
+      select: candidateSelect
     })
+    expiredRuns.forEach((run) => candidates.set(run.id, run))
 
-    overflowRuns.forEach((run) => idsToDelete.add(run.id))
-  }
+    for (const type of Object.values(ScanRunType)) {
+      const overflowRuns = await transaction.scanRun.findMany({
+        where: {
+          type,
+          status: { in: TERMINAL_SCAN_RUN_STATUSES }
+        },
+        orderBy: [{ finishedAt: 'desc' }, { startedAt: 'desc' }],
+        skip: maxRunsPerType,
+        select: candidateSelect
+      })
 
-  if (idsToDelete.size === 0) {
-    return { deletedRuns: 0 }
-  }
-
-  const result = await prisma.scanRun.deleteMany({
-    where: {
-      id: { in: Array.from(idsToDelete) }
+      overflowRuns.forEach((run) => candidates.set(run.id, run))
     }
-  })
 
-  return { deletedRuns: result.count }
+    if (candidates.size === 0) return { deletedRuns: 0 }
+
+    const auditParentIds = [...candidates.values()]
+      .filter((run) => run.operationKind === 'CONSISTENCY_AUDIT')
+      .map((run) => run.id)
+    const applyChildren =
+      auditParentIds.length === 0
+        ? []
+        : await transaction.scanRun.findMany({
+            where: { operationKind: 'AUDIT_APPLY', sourceAuditRunId: { in: auditParentIds } },
+            select: { id: true, sourceAuditRunId: true, status: true, systemJob: { select: { status: true } } }
+          })
+    const blockedParents = new Set(
+      applyChildren.filter((child) => !isTerminalApplyChild(child)).flatMap((child) => child.sourceAuditRunId ?? [])
+    )
+    const safeParents = new Set(auditParentIds.filter((id) => !blockedParents.has(id)))
+    const idsToDelete = new Set(
+      [...candidates.values()]
+        .filter(
+          (run) =>
+            run.operationKind !== 'AUDIT_APPLY' &&
+            (run.operationKind !== 'CONSISTENCY_AUDIT' || safeParents.has(run.id))
+        )
+        .map((run) => run.id)
+    )
+    for (const child of applyChildren) {
+      if (child.sourceAuditRunId && safeParents.has(child.sourceAuditRunId) && isTerminalApplyChild(child)) {
+        idsToDelete.add(child.id)
+      }
+    }
+
+    if (idsToDelete.size === 0) return { deletedRuns: 0 }
+
+    const result = await transaction.scanRun.deleteMany({ where: { id: { in: Array.from(idsToDelete) } } })
+    return { deletedRuns: result.count }
+  })
+}
+
+function isTerminalApplyChild(child: { status: ScanRunStatus; systemJob: { status: string } | null }) {
+  return (
+    TERMINAL_SCAN_RUN_STATUSES.includes(child.status) &&
+    (child.systemJob === null || TERMINAL_SYSTEM_JOB_STATUSES.has(child.systemJob.status))
+  )
 }
 
 /** 按状态分组统计扫描运行条目数量 */

@@ -15,6 +15,7 @@ import { scanRunRouter } from './routers/scan-run'
 import { pendingReplaceRouter } from './routers/pending-replace'
 import { archiveRouter } from './routers/archive'
 import { archiveInboxRouter } from './routers/archive-inbox'
+import { sourceAuditRouter } from './routers/source-audit'
 
 // 挂载子路由
 export const appRouter = router({
@@ -33,7 +34,8 @@ export const appRouter = router({
   scanRun: scanRunRouter,
   pendingReplace: pendingReplaceRouter,
   archive: archiveRouter,
-  archiveInbox: archiveInboxRouter
+  archiveInbox: archiveInboxRouter,
+  sourceAudit: sourceAuditRouter
 })
 
 // 导出类型供前端使用

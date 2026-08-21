@@ -9,6 +9,7 @@ import {
 } from '../background-task-console'
 import {
   canRetryJob,
+  formatBackgroundJobType,
   formatBackgroundJobStatus,
   getWorkerHealth,
   getWorkerSummary,
@@ -219,6 +220,35 @@ describe('background task console', () => {
     expect(canRetryJob(artworkRescan)).toBe(false)
     expect(canRetryJob(ordinaryScan)).toBe(true)
     expect(canRetryJob(createJob('FAILED'))).toBe(true)
+  })
+
+  it('labels the v2 read-only scan as Pixiv source audit and keeps retry unavailable', () => {
+    const sourceAudit = {
+      ...createJob('FAILED', 'job-source-audit'),
+      type: 'SCAN' as const,
+      definitionVersion: 2,
+      payload: { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' }
+    }
+
+    expect(formatBackgroundJobType(sourceAudit.type, sourceAudit.payload)).toBe('Pixiv 来源核对')
+    expect(canRetryJob(sourceAudit)).toBe(false)
+  })
+
+  it('labels selected source synchronization separately and never clones its frozen inputs', () => {
+    const sourceApply = {
+      ...createJob('FAILED', 'job-source-apply'),
+      type: 'SCAN' as const,
+      definitionVersion: 3,
+      payload: {
+        mode: 'AUDIT_APPLY',
+        auditRunId: 'audit-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64)
+      }
+    }
+
+    expect(formatBackgroundJobType(sourceApply.type, sourceApply.payload)).toBe('Pixiv 来源同步')
+    expect(canRetryJob(sourceApply)).toBe(false)
   })
 
   it('does not render retry for historical full scans but keeps it for ordinary failures', () => {

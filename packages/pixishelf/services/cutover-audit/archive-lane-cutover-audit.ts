@@ -1,4 +1,9 @@
-import { JOB_DEFINITION_VERSION, JOB_TYPE_VALUES } from '@pixishelf/job-contracts'
+import {
+  JOB_DEFINITION_VERSION,
+  JOB_TYPE_VALUES,
+  SCAN_AUDIT_APPLY_DEFINITION_VERSION,
+  SCAN_DEFINITION_VERSION
+} from '@pixishelf/job-contracts'
 import type { PrismaClient } from '@prisma/client'
 import { createPrismaCutoverAuditReader, type CutoverAuditReader, type RawCutoverAuditCheck } from './cutover-audit'
 
@@ -94,7 +99,7 @@ async function readInfrastructureChecks(
   const incompatibleGroups = jobCompatibilityRows.filter(
     (row) =>
       WAITING_JOB_STATUSES.has(row.status) &&
-      (!SUPPORTED_JOB_TYPES.has(row.type) || row.definitionVersion !== JOB_DEFINITION_VERSION)
+      (!SUPPORTED_JOB_TYPES.has(row.type) || !supportsProductionDefinition(row.type, row.definitionVersion))
   )
   // 运行中任务不直接计入阻塞清单：支持的等待队列定义是为了 cutover 前保障新旧 worker 的可接续性，
   // 已领取并执行中的任务优先由当前实例自行完成或回收，不强制等价迁移。
@@ -109,7 +114,7 @@ async function readInfrastructureChecks(
       key: 'unsupported-waiting-job-capability',
       model: 'SystemJob',
       field: 'type/definitionVersion/status',
-      blockingValues: [`production Worker capability v${JOB_DEFINITION_VERSION} required`],
+      blockingValues: ['production Worker capability inventory must support each waiting type/version'],
       count: incompatibleCount,
       samples: incompatibleGroups.slice(0, sampleLimit).map(({ count, ...row }) => ({
         ...row,
@@ -117,6 +122,14 @@ async function readInfrastructureChecks(
       }))
     }
   ]
+}
+
+function supportsProductionDefinition(jobType: string, definitionVersion: number): boolean {
+  return jobType === 'SCAN'
+    ? definitionVersion === JOB_DEFINITION_VERSION ||
+        definitionVersion === SCAN_DEFINITION_VERSION ||
+        definitionVersion === SCAN_AUDIT_APPLY_DEFINITION_VERSION
+    : definitionVersion === JOB_DEFINITION_VERSION
 }
 
 async function readCountedCheck(

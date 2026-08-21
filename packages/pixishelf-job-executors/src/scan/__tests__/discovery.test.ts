@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   collectArtworkMedia,
   collectLocalMedia,
+  discoverAuditMetadataStatCandidatePages,
   discoverMetadataCandidatePages,
   type ScanDiscoveryLimits
 } from '../discovery.js'
@@ -36,6 +37,13 @@ describe('scan discovery', () => {
     const selected42 = pages.flat().find((candidate) => candidate.artworkId === '42')!
     expect(selected42.relativePath).toBe('b/42-meta.json')
     expect(selected42.contentHash).toMatch(/^[a-f0-9]{64}$/)
+    const auditCandidates = (
+      await collectPages(discoverAuditMetadataStatCandidatePages(root, limits, new AbortController().signal))
+    ).flat()
+    expect(
+      auditCandidates.filter((candidate) => candidate.artworkId === '42').map((candidate) => candidate.relativePath)
+    ).toEqual(['a/42-meta.txt', 'b/42-meta.json'])
+    expect(auditCandidates.every((candidate) => candidate.state.sizeBytes >= 0n)).toBe(true)
     await expect(
       collectArtworkMedia(root, selected42, { maxEntries: 100, maxMediaPerArtwork: 1 }, new AbortController().signal)
     ).rejects.toMatchObject({

@@ -2,9 +2,18 @@ import { createHash, randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import type { LocalDirectoryImportPayload, ScanPayload, WorkerCapability } from '@pixishelf/job-contracts'
-import { PrismaClient } from '@pixishelf/db'
+import type {
+  AuditApplyInputEvidence,
+  LocalDirectoryImportPayload,
+  ScanAuditApplyPayload,
+  ScanPayload,
+  ScanV2Payload,
+  WorkerCapability
+} from '@pixishelf/job-contracts'
+import { canonicalizeAuditApplyInputs } from '@pixishelf/job-contracts'
+import { Prisma, PrismaClient } from '@pixishelf/db'
 import {
+  type FencedExecutionTransaction,
   JobExecutionFenceError,
   MutableQueueClock,
   PostgresQueueRepository,
@@ -18,7 +27,9 @@ import {
 } from '@pixishelf/job-runtime'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { artistMappingInputDigest, localWorkInputDigest, metadataInputDigest } from '../digests.js'
-import { statStableFile } from '../content-reader.js'
+import { hashStableFile, statStableFile } from '../content-reader.js'
+import { executeConsistencyAudit } from '../consistency-audit-executor.js'
+import { executeAuditApply } from '../audit-apply-executor.js'
 import { hashScanRootIdentity } from '../inventory.js'
 import {
   freezeIncrementalInventorySnapshot,
@@ -26,6 +37,7 @@ import {
   recordPublishedInventory
 } from '../inventory-run.js'
 import { executeLocalDirectoryImport } from '../local-executor.js'
+import { resolveSafeScanRoot } from '../paths.js'
 import { publishPixivArtwork } from '../pixiv-publisher.js'
 import { executeScan } from '../scan-executor.js'
 import {
@@ -43,7 +55,7 @@ const concurrentPrisma = databaseUrl ? new PrismaClient({ datasourceUrl: databas
 const testPrefix = `scan-executor-${randomUUID()}`
 const clock = new MutableQueueClock(new Date('2026-08-14T18:00:00.000Z'))
 const capabilities: WorkerCapability[] = [
-  { jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
+  { jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3] },
   { jobType: 'LOCAL_DIRECTORY_IMPORT', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
 ]
 const roots: string[] = []
@@ -73,6 +85,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         checkpointOrdinal: 0,
         checkpointKey: 'metadata:0:pg',
         metadataRelativePath: `pg/${externalId}-meta.json`,
+        metadataContentHash: 'a'.repeat(64),
         metadata: metadata(externalId),
         media: [],
         existingPolicy: 'REFRESH',
@@ -105,6 +118,11 @@ describePostgres('scan executor PostgreSQL integration', () => {
     )
     expect(await client().artwork.count({ where: { externalId } })).toBe(1)
     expect(await client().scanRunItem.count({ where: { scanRunId: run.id } })).toBe(1)
+    const sourceRef = await client().artworkExternalRef.findUniqueOrThrow({
+      where: { providerKey_externalId: { providerKey: 'pixiv', externalId } }
+    })
+    expect(sourceRef.metadataHash).toBe('a'.repeat(64))
+    expect(await client().artworkSourceSnapshot.count({ where: { externalRefId: sourceRef.id } })).toBe(1)
     await repository.complete(fence(claimed))
 
     let callbackEntered = false
@@ -143,6 +161,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         checkpointOrdinal: 0,
         checkpointKey: 'metadata:0:inventory-atomic',
         metadataRelativePath: relativePath,
+        metadataContentHash: 'a'.repeat(64),
         metadata: metadata(externalId),
         media: [],
         existingPolicy: 'REFRESH',
@@ -651,7 +670,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
       freezeIncrementalInventorySnapshot({
         context: interruptedContext,
         database: dependencies(root).database,
-        root: { absolutePath: await fs.realpath(root) },
+        root: await resolveSafeScanRoot(root),
         run: interruptedRun,
         now: clock.now(),
         limits: { ...DEFAULT_SCAN_LIMITS, pageSize: 1 }
@@ -755,7 +774,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
     await freezeIncrementalInventorySnapshot({
       context: context(repository, claimed, payload),
       database: runDependencies.database,
-      root: { absolutePath: await fs.realpath(root) },
+      root: await resolveSafeScanRoot(root),
       run,
       now: clock.now(),
       limits: { ...DEFAULT_SCAN_LIMITS, ...runDependencies.config.limits }
@@ -852,7 +871,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         limits: { ...baseDependencies.config.limits!, pageSize: 1 }
       }
     }
-    const safeRoot = { absolutePath: await fs.realpath(root) }
+    const safeRoot = await resolveSafeScanRoot(root)
 
     await expect(
       freezeIncrementalInventorySnapshot({
@@ -919,7 +938,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
       freezeIncrementalInventorySnapshot({
         context: executionContext,
         database: runDependencies.database,
-        root: { absolutePath: await fs.realpath(root) },
+        root: await resolveSafeScanRoot(root),
         run,
         now: clock.now(),
         limits: { ...DEFAULT_SCAN_LIMITS, ...runDependencies.config.limits }
@@ -955,11 +974,11 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const inventory = await client().pixivMetadataInventory.findUniqueOrThrow({ where: { relativePath } })
     expect(inventory.processedContentHash).toBe(inventory.observedContentHash)
     expect(inventory.externalRefId).not.toBeNull()
-    expect(
-      await client().artworkExternalRef.count({
-        where: { providerKey: 'pixiv', externalId }
-      })
-    ).toBe(1)
+    const sourceRef = await client().artworkExternalRef.findUniqueOrThrow({
+      where: { providerKey_externalId: { providerKey: 'pixiv', externalId } }
+    })
+    expect(sourceRef.metadataHash).toBe(inventory.processedContentHash)
+    expect(await client().artworkSourceSnapshot.count({ where: { externalRefId: sourceRef.id } })).toBe(1)
   })
 
   it('continues valid inputs but keeps an unchanged permanent metadata failure visible without rehashing', async () => {
@@ -1077,6 +1096,1010 @@ describePostgres('scan executor PostgreSQL integration', () => {
     expect(await client().scanRunItem.count({ where: { scanRunId: run.id } })).toBe(0)
   })
 
+  it('classifies all audit differences without writing gallery domain tables', async () => {
+    const root = await fixtureRoot()
+    const canonicalRoot = await fs.realpath(root)
+    await fs.mkdir(path.join(root, 'audit'), { recursive: true })
+    const abortSignal = new AbortController().signal
+    const writeMetadata = async (externalId: string, document: unknown = metadataDocument(externalId)) => {
+      const relativePath = `audit/${externalId}-meta.json`
+      await fs.writeFile(path.join(root, relativePath), JSON.stringify(document))
+      return {
+        externalId,
+        relativePath,
+        ...(await hashStableFile({
+          absolutePath: path.join(canonicalRoot, relativePath),
+          maxBytes: 32_000,
+          signal: abortSignal
+        }))
+      }
+    }
+
+    const unchanged = await writeMetadata(nextNumericId())
+    const changedId = nextNumericId()
+    const changed = await writeMetadata(changedId, {
+      ...metadataDocument(changedId),
+      title: `${testPrefix}-changed-upstream`
+    })
+    await writeMetadata(nextNumericId())
+    const inventoryOnly = await writeMetadata(nextNumericId())
+    await writeMetadata(nextNumericId(), { invalid: true })
+    const conflictExpectedId = nextNumericId()
+    const conflictObservedId = nextNumericId()
+    await writeMetadata(conflictExpectedId, metadataDocument(conflictObservedId))
+    const drifted = await writeMetadata(nextNumericId())
+    const duplicateRef = await writeMetadata(nextNumericId())
+    const deletedRef = await writeMetadata(nextNumericId())
+    const legacyConflict = await writeMetadata(nextNumericId())
+    const missingExternalId = nextNumericId()
+    const missingRelativePath = `missing/${missingExternalId}-meta.json`
+
+    const createSource = async (externalId: string, relativePath: string) => {
+      const artwork = await client().artwork.create({
+        data: {
+          title: `${testPrefix}-audit-source-${externalId}`,
+          externalId: `${testPrefix}-legacy-${externalId}`,
+          metaSource: relativePath,
+          source: 'PIXIV_IMPORTED',
+          createdVia: 'PIXIV_SCAN'
+        }
+      })
+      return client().artworkExternalRef.create({
+        data: {
+          artworkId: artwork.id,
+          providerKey: 'pixiv',
+          externalId,
+          canonicalUrl: `https://www.pixiv.net/artworks/${externalId}`,
+          locator: { artworkId: externalId }
+        }
+      })
+    }
+    const unchangedRef = await createSource(unchanged.externalId, unchanged.relativePath)
+    const changedRef = await createSource(changed.externalId, changed.relativePath)
+    const driftedRef = await createSource(drifted.externalId, drifted.relativePath)
+    const duplicateRefSource = await createSource(duplicateRef.externalId, duplicateRef.relativePath)
+    const deletedRefSource = await createSource(deletedRef.externalId, deletedRef.relativePath)
+    await client().artwork.update({
+      where: { id: driftedRef.artworkId },
+      data: { metaSource: `drifted/${drifted.externalId}-meta.json` }
+    })
+    await client().artworkExternalRef.create({
+      data: {
+        artworkId: duplicateRefSource.artworkId,
+        providerKey: 'pixiv',
+        externalId: nextNumericId(),
+        canonicalUrl: 'https://www.pixiv.net/artworks/duplicate',
+        locator: { reason: 'duplicate-test-ref' }
+      }
+    })
+    await client().artwork.create({
+      data: {
+        title: `${testPrefix}-legacy-conflict`,
+        externalId: legacyConflict.externalId,
+        source: 'PIXIV_IMPORTED',
+        createdVia: 'UNKNOWN'
+      }
+    })
+    const rootIdentity = await resolveSafeScanRoot(root)
+    await client().pixivMetadataInventoryState.create({
+      data: {
+        id: 'pixiv',
+        status: 'READY',
+        rootPathHash: hashScanRootIdentity(canonicalRoot),
+        rootDeviceId: rootIdentity.deviceId,
+        rootInode: rootIdentity.inode,
+        baselineCompletedAt: clock.now()
+      }
+    })
+    await client().pixivMetadataInventory.create({
+      data: {
+        relativePath: unchanged.relativePath,
+        externalId: unchanged.externalId,
+        ...unchanged.state,
+        observedContentHash: unchanged.sha256,
+        processedContentHash: unchanged.sha256,
+        lastAttemptedContentHash: unchanged.sha256,
+        externalRefId: unchangedRef.id,
+        createdAt: clock.now()
+      }
+    })
+    for (const [candidate, externalRefId] of [
+      [drifted, driftedRef.id],
+      [duplicateRef, duplicateRefSource.id],
+      [deletedRef, deletedRefSource.id]
+    ] as const) {
+      await client().pixivMetadataInventory.create({
+        data: {
+          relativePath: candidate.relativePath,
+          externalId: candidate.externalId,
+          ...candidate.state,
+          observedContentHash: candidate.sha256,
+          processedContentHash: candidate.sha256,
+          lastAttemptedContentHash: candidate.sha256,
+          externalRefId,
+          createdAt: clock.now()
+        }
+      })
+    }
+    await client().artworkExternalRef.delete({ where: { id: deletedRefSource.id } })
+    await client().pixivMetadataInventory.create({
+      data: {
+        relativePath: changed.relativePath,
+        externalId: changed.externalId,
+        sizeBytes: 1n,
+        mtimeMs: 1n,
+        observedContentHash: 'a'.repeat(64),
+        processedContentHash: 'a'.repeat(64),
+        lastAttemptedContentHash: 'a'.repeat(64),
+        externalRefId: changedRef.id,
+        createdAt: clock.now()
+      }
+    })
+    await client().pixivMetadataInventory.create({
+      data: {
+        relativePath: inventoryOnly.relativePath,
+        externalId: inventoryOnly.externalId,
+        ...inventoryOnly.state,
+        observedContentHash: null,
+        processedContentHash: null,
+        createdAt: clock.now()
+      }
+    })
+    await client().pixivMetadataInventory.create({
+      data: {
+        relativePath: missingRelativePath,
+        externalId: missingExternalId,
+        sizeBytes: 1n,
+        mtimeMs: 1n,
+        observedContentHash: 'b'.repeat(64),
+        processedContentHash: 'b'.repeat(64),
+        lastAttemptedContentHash: 'b'.repeat(64),
+        createdAt: clock.now()
+      }
+    })
+
+    const domainBefore = await galleryDomainCounts()
+    const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+    const jobId = await seedJob('SCAN', payload, 1, 2)
+    const repository = queue()
+    const claimed = await claim(repository, 'audit-five-kinds')
+    const executionContext = context(repository, claimed, payload)
+    let insertedAfterFreeze = false
+    executionContext.progress = vi.fn(async () => {
+      if (insertedAfterFreeze) return
+      insertedAfterFreeze = true
+      await client().pixivMetadataInventory.create({
+        data: {
+          relativePath: 'post-freeze/not-missing-meta.json',
+          externalId: nextNumericId(),
+          sizeBytes: 1n,
+          mtimeMs: 1n,
+          observedContentHash: 'c'.repeat(64),
+          processedContentHash: 'c'.repeat(64),
+          createdAt: new Date(clock.now().getTime() + 1)
+        }
+      })
+    })
+    await executeConsistencyAudit(executionContext, dependencies(root))
+
+    const run = await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })
+    expect(run).toMatchObject({
+      status: 'COMPLETED',
+      operationKind: 'CONSISTENCY_AUDIT',
+      inputCount: 10,
+      inventoryUnchanged: 1,
+      contentHashed: 6,
+      contentChanged: 6,
+      parsedInputs: 5,
+      publishedInputs: 0,
+      failedInputs: 6,
+      missingInputs: 1,
+      auditNewInputs: 2,
+      auditChangedInputs: 1,
+      auditInvalidInputs: 1,
+      auditIdentityConflictInputs: 5
+    })
+    expect(
+      await client().pixivSourceAuditItem.groupBy({
+        by: ['differenceKind'],
+        where: { scanRunId: run.id },
+        _count: { _all: true },
+        orderBy: { differenceKind: 'asc' }
+      })
+    ).toEqual([
+      { differenceKind: 'CHANGED', _count: { _all: 1 } },
+      { differenceKind: 'IDENTITY_CONFLICT', _count: { _all: 5 } },
+      { differenceKind: 'INVALID', _count: { _all: 1 } },
+      { differenceKind: 'MISSING', _count: { _all: 1 } },
+      { differenceKind: 'NEW', _count: { _all: 2 } }
+    ])
+    expect(
+      await client().pixivSourceAuditItem.findFirst({
+        where: { scanRunId: run.id, relativePath: 'post-freeze/not-missing-meta.json' }
+      })
+    ).toBeNull()
+    expect(await galleryDomainCounts()).toEqual(domainBefore)
+    expect(
+      await client().scanRunMetadataInput.count({
+        where: { scanRunId: run.id, auditDifferenceKind: 'UNCHANGED', sourceAuditItemId: null }
+      })
+    ).toBe(1)
+    expect(
+      await client().pixivSourceAuditItem.findFirstOrThrow({
+        where: { scanRunId: run.id, differenceKind: 'IDENTITY_CONFLICT' }
+      })
+    ).toMatchObject({ expectedExternalId: conflictExpectedId, observedExternalId: conflictObservedId })
+    expect(
+      await client().pixivSourceAuditItem.findFirstOrThrow({
+        where: { scanRunId: run.id, relativePath: deletedRef.relativePath }
+      })
+    ).toMatchObject({ expectedExternalId: deletedRef.externalId, observedExternalId: deletedRef.externalId })
+  })
+
+  it('persists a large MISSING result set in bounded batches inside the final fenced transaction', async () => {
+    const root = await fixtureRoot()
+    const externalId = nextNumericId()
+    const relativePath = `missing-batch/${externalId}-meta.json`
+    await fs.mkdir(path.dirname(path.join(root, relativePath)), { recursive: true })
+    await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
+    await seedReadyAuditState(root)
+
+    const missingCount = 1_201
+    await client().pixivMetadataInventory.createMany({
+      data: Array.from({ length: missingCount }, (_, index) => {
+        const missingExternalId = String(30_000_000 + index)
+        return {
+          relativePath: `missing-batch/absent/${missingExternalId}-meta.json`,
+          externalId: missingExternalId,
+          sizeBytes: 1n,
+          mtimeMs: 1n,
+          observedContentHash: 'e'.repeat(64),
+          processedContentHash: 'e'.repeat(64),
+          lastAttemptedContentHash: 'e'.repeat(64),
+          createdAt: clock.now()
+        }
+      })
+    })
+
+    const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+    const jobId = await seedJob('SCAN', payload, 1, 2)
+    const repository = queue()
+    const claimed = await claim(repository, 'audit-missing-batches')
+    const executionContext = context(repository, claimed, payload)
+    const originalFinalize = executionContext.finalizeInTransaction
+    const batchSizes: number[] = []
+    type AuditTransaction = ScanTransaction & QueueSqlExecutor
+    type AuditScope = FencedExecutionTransaction<AuditTransaction>
+    executionContext.finalizeInTransaction = ((operation: (scope: AuditScope) => Promise<void>) =>
+      originalFinalize<AuditTransaction>((scope) =>
+        operation({ ...scope, transaction: trackAuditItemBatches(scope.transaction, batchSizes) })
+      )) as typeof executionContext.finalizeInTransaction
+
+    await executeConsistencyAudit(executionContext, {
+      ...dependencies(root),
+      config: {
+        ...dependencies(root).config,
+        limits: { ...dependencies(root).config.limits!, maxEntries: 2_000, maxFullSweepReferences: 2_000 }
+      }
+    })
+
+    expect(batchSizes).toEqual([500, 500, 201])
+    expect(await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })).toMatchObject({
+      status: 'COMPLETED',
+      inputCount: 1,
+      auditNewInputs: 1,
+      missingInputs: missingCount
+    })
+    expect(
+      await client().pixivSourceAuditItem.count({
+        where: { scanRun: { systemJobId: jobId }, differenceKind: 'MISSING' }
+      })
+    ).toBe(missingCount)
+  })
+
+  it('rebuilds an empty audit snapshot when the paused job is resumed after files appear', async () => {
+    const root = await fixtureRoot()
+    await seedReadyAuditState(root)
+    const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+    const jobId = await seedJob('SCAN', payload, 2, 2)
+    const firstRepository = queue()
+    const firstClaim = await claim(firstRepository, 'audit-empty-first')
+
+    await executeConsistencyAudit(context(firstRepository, firstClaim, payload), dependencies(root))
+
+    const pausedRun = await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({ status: 'PAUSED' })
+    expect(pausedRun).toMatchObject({
+      status: 'PAUSED',
+      inputCount: 0,
+      inputDigest: null,
+      inputFrozenAt: null,
+      inventoryBaselineGeneration: null,
+      totalArtworks: 0,
+      processedArtworks: 0,
+      checkpointStage: 'PAUSED',
+      checkpointOrdinal: 0,
+      missingInputs: 0
+    })
+    expect(await client().scanRunMetadataInput.count({ where: { scanRunId: pausedRun.id } })).toBe(0)
+    expect(await client().pixivSourceAuditItem.count({ where: { scanRunId: pausedRun.id } })).toBe(0)
+    expect(await client().pixivMetadataInventory.count({ where: { lastSeenAuditRunId: pausedRun.id } })).toBe(0)
+
+    const externalId = nextNumericId()
+    const relativePath = `empty-resume/${externalId}-meta.json`
+    await fs.mkdir(path.dirname(path.join(root, relativePath)), { recursive: true })
+    await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
+    await client().systemJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'PENDING',
+        availableAt: clock.now(),
+        pauseRequestedAt: null,
+        finishedAt: null,
+        errorCode: null,
+        error: null
+      }
+    })
+    const resumedRepository = queue()
+    const resumedClaim = await claim(resumedRepository, 'audit-empty-resumed')
+
+    await executeConsistencyAudit(context(resumedRepository, resumedClaim, payload), dependencies(root))
+
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({ status: 'COMPLETED' })
+    expect(await client().scanRun.findUniqueOrThrow({ where: { id: pausedRun.id } })).toMatchObject({
+      status: 'COMPLETED',
+      inputCount: 1,
+      auditNewInputs: 1,
+      missingInputs: 0
+    })
+    expect(await client().scanRunMetadataInput.count({ where: { scanRunId: pausedRun.id } })).toBe(1)
+  })
+
+  it('fails a missing-count safety overflow and requires a new audit after the limit changes', async () => {
+    const root = await fixtureRoot()
+    const presentExternalId = nextNumericId()
+    const presentRelativePath = `missing-limit/${presentExternalId}-meta.json`
+    await fs.mkdir(path.dirname(path.join(root, presentRelativePath)), { recursive: true })
+    await fs.writeFile(path.join(root, presentRelativePath), JSON.stringify(metadataDocument(presentExternalId)))
+    await seedReadyAuditState(root)
+    await seedMissingAuditInventory(`missing-limit/absent/${nextNumericId()}-meta.json`)
+    await seedMissingAuditInventory(`missing-limit/absent/${nextNumericId()}-meta.json`)
+    const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+    const firstJobId = await seedJob('SCAN', payload, 1, 2)
+    const firstRepository = queue()
+    const firstClaim = await claim(firstRepository, 'audit-missing-limit-first')
+    const baseDependencies = dependencies(root)
+
+    await executeConsistencyAudit(context(firstRepository, firstClaim, payload), {
+      ...baseDependencies,
+      config: {
+        ...baseDependencies.config,
+        limits: { ...baseDependencies.config.limits!, maxFullSweepReferences: 1 }
+      }
+    })
+
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: firstJobId } })).toMatchObject({
+      status: 'FAILED',
+      errorCode: 'PRECONDITION_FAILED'
+    })
+    const failedRun = await client().scanRun.findUniqueOrThrow({ where: { systemJobId: firstJobId } })
+    expect(failedRun).toMatchObject({ status: 'FAILED', checkpointStage: 'FAILED', missingInputs: 0 })
+    expect(
+      await client().pixivSourceAuditItem.count({
+        where: { scanRunId: failedRun.id, differenceKind: 'MISSING' }
+      })
+    ).toBe(0)
+
+    const secondJobId = await seedJob('SCAN', payload, 1, 2)
+    const secondRepository = queue()
+    const secondClaim = await claim(secondRepository, 'audit-missing-limit-second')
+    await executeConsistencyAudit(context(secondRepository, secondClaim, payload), {
+      ...baseDependencies,
+      config: {
+        ...baseDependencies.config,
+        limits: { ...baseDependencies.config.limits!, maxFullSweepReferences: 10 }
+      }
+    })
+
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: secondJobId } })).toMatchObject({
+      status: 'COMPLETED'
+    })
+    expect(await client().scanRun.findUniqueOrThrow({ where: { systemJobId: secondJobId } })).toMatchObject({
+      status: 'COMPLETED',
+      missingInputs: 2
+    })
+  })
+
+  it('reports a FAST identity conflict when inventory identity differs from the frozen filename without hashing', async () => {
+    const root = await fixtureRoot()
+    const expectedExternalId = nextNumericId()
+    const inventoryExternalId = nextNumericId()
+    const relativePath = `fast-identity/${expectedExternalId}-meta.json`
+    await fs.mkdir(path.dirname(path.join(root, relativePath)), { recursive: true })
+    const bytes = Buffer.from(JSON.stringify(metadataDocument(expectedExternalId)))
+    await fs.writeFile(path.join(root, relativePath), bytes)
+    const canonicalRoot = await fs.realpath(root)
+    const state = await statStableFile(path.join(canonicalRoot, relativePath))
+    const contentHash = createHash('sha256').update(bytes).digest('hex')
+    const artwork = await client().artwork.create({
+      data: {
+        title: `${testPrefix}-fast-identity`,
+        externalId: `${testPrefix}-fast-identity-legacy`,
+        metaSource: relativePath,
+        source: 'PIXIV_IMPORTED',
+        createdVia: 'PIXIV_SCAN'
+      }
+    })
+    const externalRef = await client().artworkExternalRef.create({
+      data: {
+        artworkId: artwork.id,
+        providerKey: 'pixiv',
+        externalId: inventoryExternalId,
+        canonicalUrl: `https://www.pixiv.net/artworks/${inventoryExternalId}`,
+        locator: { artworkId: inventoryExternalId }
+      }
+    })
+    await seedReadyAuditState(root)
+    await client().pixivMetadataInventory.create({
+      data: {
+        relativePath,
+        externalId: inventoryExternalId,
+        ...state,
+        observedContentHash: contentHash,
+        processedContentHash: contentHash,
+        lastAttemptedContentHash: contentHash,
+        externalRefId: externalRef.id,
+        createdAt: clock.now()
+      }
+    })
+    const domainBefore = await galleryDomainCounts()
+    const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+    const jobId = await seedJob('SCAN', payload, 1, 2)
+    const repository = queue()
+    const claimed = await claim(repository, 'audit-fast-identity')
+
+    await executeConsistencyAudit(context(repository, claimed, payload), dependencies(root))
+
+    const run = await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })
+    expect(run).toMatchObject({
+      status: 'COMPLETED',
+      inputCount: 1,
+      contentHashed: 0,
+      parsedInputs: 0,
+      auditIdentityConflictInputs: 1,
+      inventoryUnchanged: 0
+    })
+    expect(await client().pixivSourceAuditItem.findFirstOrThrow({ where: { scanRunId: run.id } })).toMatchObject({
+      differenceKind: 'IDENTITY_CONFLICT',
+      expectedExternalId,
+      observedExternalId: inventoryExternalId
+    })
+    expect(await galleryDomainCounts()).toEqual(domainBefore)
+  })
+
+  it('freezes every duplicate metadata path and reports both identities as conflicts without gallery writes', async () => {
+    const root = await fixtureRoot()
+    const canonicalRoot = await fs.realpath(root)
+    const externalId = nextNumericId()
+    const relativePaths = [
+      `duplicate-identity/a/${externalId}-meta.json`,
+      `duplicate-identity/b/${externalId}-meta.json`
+    ]
+    const frozen: Array<{ relativePath: string; state: Awaited<ReturnType<typeof statStableFile>>; hash: string }> = []
+    for (const relativePath of relativePaths) {
+      await fs.mkdir(path.dirname(path.join(root, relativePath)), { recursive: true })
+      const bytes = Buffer.from(JSON.stringify(metadataDocument(externalId)))
+      await fs.writeFile(path.join(root, relativePath), bytes)
+      frozen.push({
+        relativePath,
+        state: await statStableFile(path.join(canonicalRoot, relativePath)),
+        hash: createHash('sha256').update(bytes).digest('hex')
+      })
+    }
+    await seedReadyAuditState(root)
+    await client().pixivMetadataInventory.createMany({
+      data: frozen.map((item) => ({
+        relativePath: item.relativePath,
+        externalId,
+        ...item.state,
+        observedContentHash: item.hash,
+        processedContentHash: item.hash,
+        lastAttemptedContentHash: item.hash,
+        createdAt: clock.now()
+      }))
+    })
+    const domainBefore = await galleryDomainCounts()
+    const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+    const jobId = await seedJob('SCAN', payload, 1, 2)
+    const repository = queue()
+    const claimed = await claim(repository, 'audit-duplicate-identity')
+
+    await executeConsistencyAudit(context(repository, claimed, payload), dependencies(root))
+
+    const run = await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })
+    expect(run).toMatchObject({
+      status: 'COMPLETED',
+      inputCount: 2,
+      contentHashed: 0,
+      parsedInputs: 0,
+      auditIdentityConflictInputs: 2,
+      missingInputs: 0
+    })
+    expect(
+      await client().scanRunMetadataInput.findMany({
+        where: { scanRunId: run.id },
+        select: { relativePath: true, auditDifferenceKind: true },
+        orderBy: { relativePath: 'asc' }
+      })
+    ).toEqual(relativePaths.map((relativePath) => ({ relativePath, auditDifferenceKind: 'IDENTITY_CONFLICT' })))
+    expect(
+      await client().pixivSourceAuditItem.findMany({
+        where: { scanRunId: run.id },
+        select: { relativePath: true, differenceKind: true, issueCode: true },
+        orderBy: { relativePath: 'asc' }
+      })
+    ).toEqual(
+      relativePaths.map((relativePath) => ({
+        relativePath,
+        differenceKind: 'IDENTITY_CONFLICT',
+        issueCode: 'DUPLICATE_METADATA_IDENTITY'
+      }))
+    )
+    expect(await client().pixivSourceAuditItem.count({ where: { scanRunId: run.id, differenceKind: 'MISSING' } })).toBe(
+      0
+    )
+    expect(await galleryDomainCounts()).toEqual(domainBefore)
+  })
+
+  it.each(['EMPTY', 'LIMIT', 'CANCEL', 'CHANGED_AFTER_FREEZE'] as const)(
+    'never emits MISSING from an incomplete %s audit',
+    async (scenario) => {
+      const root = await fixtureRoot()
+      const externalId = nextNumericId()
+      const relativePath = `safety/${externalId}-meta.json`
+      if (scenario !== 'EMPTY') {
+        await fs.mkdir(path.dirname(path.join(root, relativePath)), { recursive: true })
+        await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
+      }
+      await seedReadyAuditState(root)
+      await seedMissingAuditInventory(`missing-${scenario.toLowerCase()}/${nextNumericId()}-meta.json`)
+      const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+      const jobId = await seedJob('SCAN', payload, 1, 2)
+      const repository = queue()
+      const claimed = await claim(repository, `audit-safety-${scenario.toLowerCase()}`)
+      const controller = new AbortController()
+      const executionContext = context(repository, claimed, payload, controller.signal)
+      if (scenario === 'CANCEL' || scenario === 'CHANGED_AFTER_FREEZE') {
+        const originalMutate = executionContext.mutateInTransaction
+        let injected = false
+        executionContext.mutateInTransaction = (async (
+          operation: (transaction: QueueSqlExecutor) => Promise<unknown>
+        ) => {
+          const result = await originalMutate(operation)
+          if (
+            !injected &&
+            typeof result === 'object' &&
+            result !== null &&
+            'inputFrozenAt' in result &&
+            (result as { inputFrozenAt: Date | null }).inputFrozenAt !== null
+          ) {
+            injected = true
+            if (scenario === 'CANCEL') {
+              await client().systemJob.update({
+                where: { id: jobId },
+                data: { status: 'CANCELLING', cancelRequestedAt: clock.now() }
+              })
+              controller.abort(new Error('cancel after freeze'))
+            } else {
+              await fs.writeFile(
+                path.join(root, relativePath),
+                JSON.stringify({ ...metadataDocument(externalId), title: 'changed after frozen audit snapshot' })
+              )
+            }
+          }
+          return result
+        }) as typeof executionContext.mutateInTransaction
+      }
+      const baseDependencies = dependencies(root)
+      await executeConsistencyAudit(executionContext, {
+        ...baseDependencies,
+        config: {
+          ...baseDependencies.config,
+          limits: {
+            ...baseDependencies.config.limits!,
+            ...(scenario === 'LIMIT' ? { maxEntries: 1 } : {})
+          }
+        }
+      })
+      const job = await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })
+      expect(job.status).toBe(scenario === 'CANCEL' ? 'CANCELLED' : scenario === 'EMPTY' ? 'PAUSED' : 'FAILED')
+      const run = await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })
+      expect(run.status).toBe(job.status)
+      expect(run.missingInputs).toBe(0)
+      expect(
+        await client().pixivSourceAuditItem.count({ where: { scanRunId: run.id, differenceKind: 'MISSING' } })
+      ).toBe(0)
+    }
+  )
+
+  it('replays a committed audit page and tolerates final ACK loss without duplicate items', async () => {
+    const root = await fixtureRoot()
+    const externalId = nextNumericId()
+    const relativePath = `replay/${externalId}-meta.json`
+    await fs.mkdir(path.dirname(path.join(root, relativePath)), { recursive: true })
+    await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
+    await seedReadyAuditState(root)
+    const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+    const jobId = await seedJob('SCAN', payload, 2, 2)
+    const firstRepository = queue()
+    const firstClaim = await claim(firstRepository, 'audit-page-crash')
+    const firstContext = context(firstRepository, firstClaim, payload)
+    const originalMutate = firstContext.mutateInTransaction
+    let crashed = false
+    firstContext.mutateInTransaction = (async (operation: (transaction: QueueSqlExecutor) => Promise<unknown>) => {
+      const result = await originalMutate(operation)
+      if (!crashed && typeof result === 'string') {
+        crashed = true
+        throw new Error('crash after committed audit item')
+      }
+      return result
+    }) as typeof firstContext.mutateInTransaction
+    await executeConsistencyAudit(firstContext, dependencies(root))
+    const run = await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })
+    expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe('RETRY_WAIT')
+    expect(await client().pixivSourceAuditItem.count({ where: { scanRunId: run.id } })).toBe(1)
+
+    clock.advance(60_001)
+    const replayRepository = queue()
+    const replayClaim = await claim(replayRepository, 'audit-ack-loss')
+    const replayContext = context(replayRepository, replayClaim, payload)
+    const originalFinalize = replayContext.finalizeInTransaction
+    replayContext.finalizeInTransaction = (async (operation) => {
+      const outcome = await originalFinalize(operation)
+      throw new Error(`lost final ACK after ${outcome.kind}`)
+    }) as typeof replayContext.finalizeInTransaction
+    await expect(executeConsistencyAudit(replayContext, dependencies(root))).rejects.toBeInstanceOf(
+      JobExecutionFenceError
+    )
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({ status: 'COMPLETED' })
+    expect(await client().scanRun.findUniqueOrThrow({ where: { id: run.id } })).toMatchObject({
+      status: 'COMPLETED',
+      auditNewInputs: 1
+    })
+    expect(await client().pixivSourceAuditItem.count({ where: { scanRunId: run.id } })).toBe(1)
+  })
+
+  it('applies frozen NEW evidence with metadata provenance and survives final ACK loss without duplicate writes', async () => {
+    const fixture = await seedAuditApplyFixture({ includeMedia: true, maxAttempts: 2 })
+    const repository = queue()
+    const claimed = await claim(repository, 'audit-apply-ack-loss')
+    const executionContext = context(repository, claimed, fixture.payload)
+    const originalFinalize = executionContext.finalizeInTransaction
+    executionContext.finalizeInTransaction = (async (operation) => {
+      const outcome = await originalFinalize(operation)
+      throw new Error(`lost apply ACK after ${outcome.kind}`)
+    }) as typeof executionContext.finalizeInTransaction
+
+    await expect(executeAuditApply(executionContext, dependencies(fixture.root))).rejects.toBeInstanceOf(
+      JobExecutionFenceError
+    )
+
+    const item = await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: fixture.applyRunId } })
+    expect(item).toMatchObject({ status: 'SUCCESS', applyOutcome: 'APPLIED', applyRetryable: false })
+    const ref = await client().artworkExternalRef.findUniqueOrThrow({
+      where: { providerKey_externalId: { providerKey: 'pixiv', externalId: fixture.externalId } }
+    })
+    expect(ref.metadataHash).toBe(fixture.contentHash)
+    expect(await client().artworkSourceSnapshot.count({ where: { externalRefId: ref.id } })).toBe(1)
+    expect(await client().artwork.count({ where: { id: item.resultArtworkId! } })).toBe(1)
+    expect(
+      await client().pixivMetadataInventory.findUniqueOrThrow({ where: { id: fixture.inventoryId } })
+    ).toMatchObject({
+      processedContentHash: fixture.contentHash,
+      externalRefId: ref.id
+    })
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: fixture.jobId } })).toMatchObject({
+      status: 'COMPLETED'
+    })
+  })
+
+  it('marks changed source bytes STALE without gallery writes', async () => {
+    const fixture = await seedAuditApplyFixture({ includeMedia: true })
+    const domainBefore = await galleryDomainCounts()
+    await fs.writeFile(
+      path.join(fixture.root, fixture.relativePath),
+      JSON.stringify({ ...metadataDocument(fixture.externalId), title: 'changed after audit' })
+    )
+    const repository = queue()
+    const claimed = await claim(repository, 'audit-apply-stale')
+
+    await executeAuditApply(context(repository, claimed, fixture.payload), dependencies(fixture.root))
+
+    expect(await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: fixture.applyRunId } })).toMatchObject({
+      status: 'SKIPPED',
+      applyOutcome: 'SKIPPED',
+      applyReasonCode: 'STALE_SOURCE_INPUT',
+      applyRetryable: false
+    })
+    expect(await client().artwork.count({ where: { externalId: fixture.externalId } })).toBe(0)
+    expect(await galleryDomainCounts()).toEqual(domainBefore)
+  })
+
+  it('applies CHANGED evidence to the exact locked source while preserving a curated title', async () => {
+    const fixture = await seedAuditApplyFixture({ includeMedia: true, differenceKind: 'CHANGED' })
+    const repository = queue()
+    const claimed = await claim(repository, 'audit-apply-changed')
+
+    await executeAuditApply(context(repository, claimed, fixture.payload), dependencies(fixture.root))
+
+    const item = await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: fixture.applyRunId } })
+    expect(item).toMatchObject({
+      status: 'SUCCESS',
+      applyOutcome: 'APPLIED',
+      resultArtworkId: fixture.expectedArtworkId
+    })
+    expect(await client().artwork.findUniqueOrThrow({ where: { id: fixture.expectedArtworkId! } })).toMatchObject({
+      title: `${testPrefix}-curated-${fixture.externalId}`,
+      titleOverridden: true,
+      metaSource: fixture.relativePath
+    })
+    const ref = await client().artworkExternalRef.findUniqueOrThrow({ where: { id: fixture.expectedExternalRefId! } })
+    expect(ref.metadataHash).toBe(fixture.contentHash)
+    expect(await client().artworkSourceSnapshot.count({ where: { externalRefId: ref.id } })).toBe(1)
+  })
+
+  it('recognizes content applied by another operation without duplicating domain writes', async () => {
+    const first = await seedAuditApplyFixture({ includeMedia: true })
+    const firstRepository = queue()
+    const firstClaim = await claim(firstRepository, 'audit-apply-first-writer')
+    await executeAuditApply(context(firstRepository, firstClaim, first.payload), dependencies(first.root))
+
+    const second = await seedApplyOperationFromAudit(first)
+    const secondRepository = queue()
+    const secondClaim = await claim(secondRepository, 'audit-apply-already-applied')
+    await executeAuditApply(context(secondRepository, secondClaim, second.payload), dependencies(first.root))
+
+    const item = await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: second.applyRunId } })
+    expect(item).toMatchObject({
+      status: 'SKIPPED',
+      applyOutcome: 'SKIPPED',
+      applyReasonCode: 'ALREADY_APPLIED',
+      applyRetryable: false
+    })
+    const ref = await client().artworkExternalRef.findUniqueOrThrow({
+      where: { providerKey_externalId: { providerKey: 'pixiv', externalId: first.externalId } }
+    })
+    expect(item.resultArtworkId).toBe(ref.artworkId)
+    expect(await client().artwork.count({ where: { externalId: first.externalId } })).toBe(1)
+    expect(await client().artworkSourceSnapshot.count({ where: { externalRefId: ref.id } })).toBe(1)
+  })
+
+  it('allows a retryable missing-media result to be resubmitted from the same audit after repair', async () => {
+    const first = await seedAuditApplyFixture({ includeMedia: false })
+    const firstRepository = queue()
+    const firstClaim = await claim(firstRepository, 'audit-apply-no-media')
+    await executeAuditApply(context(firstRepository, firstClaim, first.payload), dependencies(first.root))
+
+    expect(await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: first.applyRunId } })).toMatchObject({
+      status: 'FAILED',
+      applyOutcome: 'FAILED',
+      applyReasonCode: 'MEDIA_NOT_FOUND',
+      applyRetryable: true
+    })
+
+    await fs.writeFile(
+      path.join(path.dirname(path.join(first.root, first.relativePath)), `${first.externalId}_p0.jpg`),
+      'media'
+    )
+    const second = await seedApplyOperationFromAudit(first)
+    const secondRepository = queue()
+    const secondClaim = await claim(secondRepository, 'audit-apply-media-repaired')
+    await executeAuditApply(context(secondRepository, secondClaim, second.payload), dependencies(first.root))
+
+    expect(await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: second.applyRunId } })).toMatchObject({
+      status: 'SUCCESS',
+      applyOutcome: 'APPLIED',
+      applyRetryable: false
+    })
+    expect(await client().artwork.count({ where: { externalId: first.externalId } })).toBe(1)
+  })
+
+  it('records identity drift as a conflict and never publishes domain changes', async () => {
+    const fixture = await seedAuditApplyFixture({ includeMedia: true })
+    const domainBefore = await galleryDomainCounts()
+    await client().pixivMetadataInventory.update({
+      where: { id: fixture.inventoryId },
+      data: { externalId: nextNumericId() }
+    })
+    const repository = queue()
+    const claimed = await claim(repository, 'audit-apply-conflict')
+
+    await executeAuditApply(context(repository, claimed, fixture.payload), dependencies(fixture.root))
+
+    expect(await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: fixture.applyRunId } })).toMatchObject({
+      status: 'FAILED',
+      applyOutcome: 'CONFLICT',
+      applyReasonCode: 'SOURCE_IDENTITY_CHANGED',
+      applyRetryable: false
+    })
+    expect(await client().artwork.count({ where: { externalId: fixture.externalId } })).toBe(0)
+    expect(await galleryDomainCounts()).toEqual(domainBefore)
+  })
+
+  it('terminalizes every unfinished item when an audit apply is cancelled', async () => {
+    const fixture = await seedAuditApplyFixture({ includeMedia: true })
+    const repository = queue()
+    const claimed = await claim(repository, 'audit-apply-cancel')
+    const controller = new AbortController()
+    const executionContext = context(repository, claimed, fixture.payload, controller.signal)
+    const originalMutate = executionContext.mutateInTransaction
+    let cancellationRequested = false
+    executionContext.mutateInTransaction = (async (operation: (transaction: QueueSqlExecutor) => Promise<unknown>) => {
+      const result = await originalMutate(operation)
+      if (!cancellationRequested) {
+        cancellationRequested = true
+        await client().systemJob.update({
+          where: { id: fixture.jobId },
+          data: { status: 'CANCELLING', cancelRequestedAt: clock.now() }
+        })
+        controller.abort(new Error('cancel requested'))
+      }
+      return result
+    }) as typeof executionContext.mutateInTransaction
+
+    await executeAuditApply(executionContext, dependencies(fixture.root))
+
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: fixture.jobId } })).toMatchObject({
+      status: 'CANCELLED'
+    })
+    expect(await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: fixture.applyRunId } })).toMatchObject({
+      status: 'FAILED',
+      applyOutcome: 'FAILED',
+      applyReasonCode: 'OPERATION_CANCELLED',
+      applyRetryable: true
+    })
+
+    const retry = await seedApplyOperationFromAudit(fixture)
+    const retryRepository = queue()
+    const retryClaim = await claim(retryRepository, 'audit-apply-after-cancel')
+    await executeAuditApply(context(retryRepository, retryClaim, retry.payload), dependencies(fixture.root))
+    expect(await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: retry.applyRunId } })).toMatchObject({
+      status: 'SUCCESS',
+      applyOutcome: 'APPLIED'
+    })
+  })
+
+  it('releases a worker shutdown during media collection without persisting a business failure', async () => {
+    const fixture = await seedAuditApplyFixture({ includeMedia: true, maxAttempts: 2 })
+    const repository = queue()
+    const claimed = await claim(repository, 'audit-apply-media-shutdown')
+    const interruption = new Error('worker shutdown during media collection')
+    let abortChecks = 0
+    const signal = {
+      get aborted() {
+        abortChecks += 1
+        return abortChecks >= 4
+      },
+      get reason() {
+        return interruption
+      }
+    } as AbortSignal
+
+    await executeAuditApply(context(repository, claimed, fixture.payload, signal), dependencies(fixture.root))
+
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: fixture.jobId } })).toMatchObject({
+      status: 'PENDING'
+    })
+    expect(await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: fixture.applyRunId } })).toMatchObject({
+      status: 'PENDING',
+      applyOutcome: null,
+      applyReasonCode: null,
+      applyRetryable: null
+    })
+    expect(await client().artwork.count({ where: { externalId: fixture.externalId } })).toBe(0)
+  })
+
+  it('retries when the source root is unavailable after claim and resumes the same operation after recovery', async () => {
+    const fixture = await seedAuditApplyFixture({ includeMedia: true, maxAttempts: 2 })
+    const unavailableRoot = `${fixture.root}-offline`
+    await fs.rename(fixture.root, unavailableRoot)
+    const firstRepository = queue()
+    const firstClaim = await claim(firstRepository, 'audit-apply-root-offline')
+
+    await executeAuditApply(context(firstRepository, firstClaim, fixture.payload), dependencies(fixture.root))
+
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: fixture.jobId } })).toMatchObject({
+      status: 'RETRY_WAIT'
+    })
+    expect(await client().scanRun.findUniqueOrThrow({ where: { id: fixture.applyRunId } })).toMatchObject({
+      status: 'RETRY_WAIT',
+      checkpointStage: 'RETRY_WAIT'
+    })
+    expect(await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: fixture.applyRunId } })).toMatchObject({
+      status: 'PENDING',
+      applyOutcome: null,
+      applyRetryable: null
+    })
+
+    await fs.rename(unavailableRoot, fixture.root)
+    clock.advance(60_001)
+    const resumedRepository = queue()
+    const resumedClaim = await claim(resumedRepository, 'audit-apply-root-restored')
+    await executeAuditApply(context(resumedRepository, resumedClaim, fixture.payload), dependencies(fixture.root))
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: fixture.jobId } })).toMatchObject({
+      status: 'COMPLETED'
+    })
+  })
+
+  it('terminalizes unfinished items as retryable when an infrastructure failure exhausts attempts', async () => {
+    const fixture = await seedAuditApplyFixture({ includeMedia: true, maxAttempts: 1 })
+    const unavailableRoot = `${fixture.root}-exhausted`
+    await fs.rename(fixture.root, unavailableRoot)
+    try {
+      const repository = queue()
+      const claimed = await claim(repository, 'audit-apply-root-exhausted')
+
+      await executeAuditApply(context(repository, claimed, fixture.payload), dependencies(fixture.root))
+
+      expect(await client().systemJob.findUniqueOrThrow({ where: { id: fixture.jobId } })).toMatchObject({
+        status: 'FAILED',
+        errorCode: 'PRECONDITION_FAILED'
+      })
+      expect(await client().scanRun.findUniqueOrThrow({ where: { id: fixture.applyRunId } })).toMatchObject({
+        status: 'FAILED',
+        checkpointStage: 'FAILED'
+      })
+      expect(await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: fixture.applyRunId } })).toMatchObject({
+        status: 'FAILED',
+        applyOutcome: 'FAILED',
+        applyReasonCode: 'OPERATION_FAILED',
+        applyRetryable: true
+      })
+      expect(await client().artwork.count({ where: { externalId: fixture.externalId } })).toBe(0)
+    } finally {
+      await fs.rename(unavailableRoot, fixture.root)
+    }
+  })
+
+  it('resumes after a crash following the committed per-item transaction without republishing', async () => {
+    const fixture = await seedAuditApplyFixture({ includeMedia: true, maxAttempts: 2 })
+    const firstRepository = queue()
+    const firstClaim = await claim(firstRepository, 'audit-apply-crash')
+    const firstContext = context(firstRepository, firstClaim, fixture.payload)
+    const originalMutate = firstContext.mutateInTransaction
+    let injected = false
+    firstContext.mutateInTransaction = (async (operation: (transaction: QueueSqlExecutor) => Promise<unknown>) => {
+      const result = await originalMutate(operation)
+      const completed = await client().scanRunItem.findFirst({
+        where: { scanRunId: fixture.applyRunId, applyOutcome: 'APPLIED' }
+      })
+      if (!injected && completed) {
+        injected = true
+        throw new Error('crash after committed apply item')
+      }
+      return result
+    }) as typeof firstContext.mutateInTransaction
+
+    await executeAuditApply(firstContext, dependencies(fixture.root))
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: fixture.jobId } })).toMatchObject({
+      status: 'RETRY_WAIT'
+    })
+    clock.advance(60_001)
+    const replayRepository = queue()
+    const replayClaim = await claim(replayRepository, 'audit-apply-replay')
+    await executeAuditApply(context(replayRepository, replayClaim, fixture.payload), dependencies(fixture.root))
+
+    const ref = await client().artworkExternalRef.findUniqueOrThrow({
+      where: { providerKey_externalId: { providerKey: 'pixiv', externalId: fixture.externalId } }
+    })
+    expect(await client().artwork.count({ where: { externalId: fixture.externalId } })).toBe(1)
+    expect(await client().artworkSourceSnapshot.count({ where: { externalRefId: ref.id } })).toBe(1)
+    expect(await client().scanRunItem.count({ where: { scanRunId: fixture.applyRunId } })).toBe(1)
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: fixture.jobId } })).toMatchObject({
+      status: 'COMPLETED'
+    })
+  })
+
   it('stats 10,000 stable metadata files without hashing, parsing, or publishing any input', async () => {
     const root = await fixtureRoot()
     const canonicalRoot = await fs.realpath(root)
@@ -1093,6 +2116,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
       observedContentHash: string
       processedContentHash: string
       lastAttemptedContentHash: string
+      externalRefId: string
     }> = []
     for (let offset = 0; offset < 10_000; offset += 200) {
       const batch = Array.from({ length: Math.min(200, 10_000 - offset) }, (_, index) => offset + index + 1)
@@ -1111,10 +2135,41 @@ describePostgres('scan executor PostgreSQL integration', () => {
             ...state,
             observedContentHash: contentHash,
             processedContentHash: contentHash,
-            lastAttemptedContentHash: contentHash
+            lastAttemptedContentHash: contentHash,
+            externalRefId: `${testPrefix}-scale-ref-${externalId}`
           })
         })
       )
+    }
+    for (let offset = 0; offset < rows.length; offset += 500) {
+      const batch = rows.slice(offset, offset + 500)
+      await client().artwork.createMany({
+        data: batch.map((row) => ({
+          title: `${testPrefix}-scale-${row.externalId}`,
+          externalId: `${testPrefix}-scale-legacy-${row.externalId}`,
+          metaSource: row.relativePath,
+          source: 'PIXIV_IMPORTED' as const,
+          createdVia: 'PIXIV_SCAN' as const
+        }))
+      })
+    }
+    const scaleArtworks = await client().artwork.findMany({
+      where: { title: { startsWith: `${testPrefix}-scale-` } },
+      select: { id: true, metaSource: true }
+    })
+    const artworkByPath = new Map(scaleArtworks.map((artwork) => [artwork.metaSource, artwork.id]))
+    for (let offset = 0; offset < rows.length; offset += 500) {
+      const batch = rows.slice(offset, offset + 500)
+      await client().artworkExternalRef.createMany({
+        data: batch.map((row) => ({
+          id: row.externalRefId,
+          artworkId: artworkByPath.get(row.relativePath)!,
+          providerKey: 'pixiv',
+          externalId: row.externalId,
+          canonicalUrl: `https://www.pixiv.net/artworks/${row.externalId}`,
+          locator: { artworkId: row.externalId }
+        }))
+      })
     }
     await client().pixivMetadataInventoryState.create({
       data: {
@@ -1152,7 +2207,33 @@ describePostgres('scan executor PostgreSQL integration', () => {
       publishedInputs: 0,
       failedInputs: 0
     })
-  }, 30_000)
+
+    const auditPayload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+    const auditJobId = await seedJob('SCAN', auditPayload, 1, 2)
+    const auditRepository = queue()
+    const auditClaim = await claim(auditRepository, 'audit-scale')
+    await executeConsistencyAudit(context(auditRepository, auditClaim, auditPayload), {
+      ...baseDependencies,
+      config: {
+        ...baseDependencies.config,
+        limits: { ...baseDependencies.config.limits!, pageSize: 250, maxEntries: 20_000 }
+      }
+    })
+    expect(await client().scanRun.findUniqueOrThrow({ where: { systemJobId: auditJobId } })).toMatchObject({
+      status: 'COMPLETED',
+      operationKind: 'CONSISTENCY_AUDIT',
+      inputCount: 10_000,
+      metadataCandidates: 10_000,
+      inventoryUnchanged: 10_000,
+      contentHashed: 0,
+      contentChanged: 0,
+      parsedInputs: 0,
+      publishedInputs: 0,
+      failedInputs: 0,
+      missingInputs: 0
+    })
+    expect(await client().pixivSourceAuditItem.count({ where: { scanRun: { systemJobId: auditJobId } } })).toBe(0)
+  }, 60_000)
 
   it('refreshes an existing Pixiv source without claiming curated tags or local artwork state', async () => {
     const jobId = await seedJob('SCAN', { mode: 'INCREMENTAL' }, 1)
@@ -1245,6 +2326,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
           checkpointOrdinal: 0,
           checkpointKey: 'metadata:0:refresh-ownership',
           metadataRelativePath: `pixiv/${externalId}-meta.json`,
+          metadataContentHash: 'a'.repeat(64),
           metadata: {
             ...metadata(externalId),
             title: 'upstream title',
@@ -1783,6 +2865,225 @@ async function referenceExists(externalId: string) {
   )
 }
 
+interface AuditApplyFixture {
+  root: string
+  externalId: string
+  relativePath: string
+  contentHash: string
+  state: Awaited<ReturnType<typeof statStableFile>>
+  inventoryId: string
+  auditRunId: string
+  sourceAuditItemId: string
+  differenceKind: 'NEW' | 'CHANGED'
+  expectedProcessedContentHash: string | null
+  expectedExternalRefId: string | null
+  expectedArtworkId: number | null
+  jobId: string
+  applyRunId: string
+  payload: ScanAuditApplyPayload
+}
+
+async function seedAuditApplyFixture(options: {
+  includeMedia: boolean
+  maxAttempts?: number
+  differenceKind?: 'NEW' | 'CHANGED'
+}): Promise<AuditApplyFixture> {
+  const root = await fixtureRoot()
+  const externalId = nextNumericId()
+  const relativePath = `audit-apply/${externalId}-meta.json`
+  const absolutePath = path.join(root, relativePath)
+  await fs.mkdir(path.dirname(absolutePath), { recursive: true })
+  const bytes = Buffer.from(JSON.stringify(metadataDocument(externalId)))
+  await fs.writeFile(absolutePath, bytes)
+  if (options.includeMedia) {
+    await fs.writeFile(path.join(path.dirname(absolutePath), `${externalId}_p0.jpg`), 'media')
+  }
+  const state = await statStableFile(path.join(await fs.realpath(root), relativePath))
+  const contentHash = createHash('sha256').update(bytes).digest('hex')
+  await seedReadyAuditState(root)
+  const differenceKind = options.differenceKind ?? 'NEW'
+  const expectedProcessedContentHash = differenceKind === 'CHANGED' ? 'd'.repeat(64) : null
+  const existingArtwork =
+    differenceKind === 'CHANGED'
+      ? await client().artwork.create({
+          data: {
+            title: `${testPrefix}-curated-${externalId}`,
+            titleOverridden: true,
+            externalId: `${testPrefix}-legacy-${externalId}`,
+            metaSource: relativePath,
+            source: 'PIXIV_IMPORTED',
+            createdVia: 'PIXIV_SCAN'
+          }
+        })
+      : null
+  const existingRef = existingArtwork
+    ? await client().artworkExternalRef.create({
+        data: {
+          artworkId: existingArtwork.id,
+          providerKey: 'pixiv',
+          externalId,
+          canonicalUrl: `https://www.pixiv.net/artworks/${externalId}`,
+          locator: { artworkId: externalId },
+          metadataHash: expectedProcessedContentHash
+        }
+      })
+    : null
+  const inventory = await client().pixivMetadataInventory.create({
+    data: {
+      relativePath,
+      externalId,
+      ...state,
+      observedContentHash: contentHash,
+      processedContentHash: expectedProcessedContentHash,
+      lastAttemptedContentHash: contentHash,
+      externalRefId: existingRef?.id ?? null,
+      baselineGeneration: 1,
+      lastAttemptedAt: clock.now()
+    }
+  })
+  const auditJobId = await seedJob('SCAN', { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' }, 1, 2)
+  await client().systemJob.update({
+    where: { id: auditJobId },
+    data: { status: 'COMPLETED', startedAt: clock.now(), finishedAt: clock.now(), progress: 100 }
+  })
+  const auditRun = await client().scanRun.create({
+    data: {
+      systemJobId: auditJobId,
+      type: 'PIXIV',
+      mode: 'INCREMENTAL',
+      status: 'COMPLETED',
+      operationKind: 'CONSISTENCY_AUDIT',
+      inputCount: 1,
+      inputFrozenAt: clock.now(),
+      inventoryBaselineGeneration: 1,
+      startedAt: clock.now(),
+      finishedAt: clock.now(),
+      checkpointStage: 'COMPLETED',
+      auditNewInputs: differenceKind === 'NEW' ? 1 : 0,
+      auditChangedInputs: differenceKind === 'CHANGED' ? 1 : 0,
+      auditInvalidInputs: 0,
+      auditIdentityConflictInputs: 0,
+      missingInputs: 0,
+      inventoryUnchanged: 0
+    }
+  })
+  const sourceItem = await client().pixivSourceAuditItem.create({
+    data: {
+      scanRunId: auditRun.id,
+      ordinal: 0,
+      differenceKind,
+      relativePath,
+      expectedExternalId: externalId,
+      observedExternalId: externalId,
+      title: `${testPrefix}-${externalId}`,
+      artistName: `${testPrefix}-artist`,
+      inventoryId: inventory.id,
+      externalRefId: existingRef?.id ?? null,
+      artworkId: existingArtwork?.id ?? null,
+      observedContentHash: contentHash,
+      processedContentHash: expectedProcessedContentHash,
+      ...state
+    }
+  })
+  return seedApplyOperationFromAudit(
+    {
+      root,
+      externalId,
+      relativePath,
+      contentHash,
+      state,
+      inventoryId: inventory.id,
+      auditRunId: auditRun.id,
+      sourceAuditItemId: sourceItem.id,
+      differenceKind,
+      expectedProcessedContentHash,
+      expectedExternalRefId: existingRef?.id ?? null,
+      expectedArtworkId: existingArtwork?.id ?? null
+    },
+    options.maxAttempts
+  )
+}
+
+async function seedApplyOperationFromAudit(
+  source: Omit<AuditApplyFixture, 'jobId' | 'applyRunId' | 'payload'>,
+  maxAttempts = 1
+): Promise<AuditApplyFixture> {
+  const evidence: AuditApplyInputEvidence = {
+    ordinal: 0,
+    sourceAuditItemId: source.sourceAuditItemId,
+    auditDifferenceKind: source.differenceKind,
+    relativePath: source.relativePath,
+    expectedExternalId: source.externalId,
+    observedExternalId: source.externalId,
+    expectedInventoryId: source.inventoryId,
+    expectedExternalRefId: source.expectedExternalRefId,
+    expectedArtworkId: source.expectedArtworkId,
+    observedContentHash: source.contentHash,
+    processedContentHash: source.expectedProcessedContentHash,
+    ...source.state
+  }
+  const inputDigest = createHash('sha256')
+    .update(canonicalizeAuditApplyInputs(source.auditRunId, [evidence]))
+    .digest('hex')
+  const payload: ScanAuditApplyPayload = {
+    mode: 'AUDIT_APPLY',
+    auditRunId: source.auditRunId,
+    inputCount: 1,
+    inputDigest
+  }
+  const jobId = await seedJob('SCAN', payload, maxAttempts, 3)
+  const run = await client().scanRun.create({
+    data: {
+      systemJobId: jobId,
+      type: 'PIXIV',
+      mode: 'INCREMENTAL',
+      status: 'PENDING',
+      operationKind: 'AUDIT_APPLY',
+      sourceAuditRunId: source.auditRunId,
+      inputCount: 1,
+      inputDigest,
+      inputFrozenAt: clock.now(),
+      inventoryBaselineGeneration: 1,
+      checkpointStage: 'QUEUED',
+      totalArtworks: 1,
+      auditNewInputs: source.differenceKind === 'NEW' ? 1 : 0,
+      auditChangedInputs: source.differenceKind === 'CHANGED' ? 1 : 0,
+      auditApplyStaleInputs: 0,
+      auditApplyConflictInputs: 0,
+      metadataInputs: {
+        create: {
+          ordinal: 0,
+          relativePath: source.relativePath,
+          contentHash: source.contentHash,
+          sourceAuditItemId: source.sourceAuditItemId,
+          auditDifferenceKind: source.differenceKind,
+          expectedExternalId: source.externalId,
+          observedExternalId: source.externalId,
+          expectedInventoryId: source.inventoryId,
+          expectedExternalRefId: source.expectedExternalRefId,
+          expectedArtworkId: source.expectedArtworkId,
+          expectedProcessedContentHash: source.expectedProcessedContentHash,
+          ...source.state
+        }
+      },
+      items: {
+        create: {
+          checkpointKey: `audit-apply:${source.sourceAuditItemId}`,
+          sourceAuditItemId: source.sourceAuditItemId,
+          auditDifferenceKind: source.differenceKind,
+          externalId: source.externalId,
+          title: `${testPrefix}-${source.externalId}`,
+          artistName: `${testPrefix}-artist`,
+          metadataRelativePath: source.relativePath,
+          status: 'PENDING',
+          action: source.differenceKind === 'NEW' ? 'CREATE' : 'UPDATE'
+        }
+      }
+    }
+  })
+  return { ...source, jobId, applyRunId: run.id, payload }
+}
+
 function dependencies(root: string): ScanExecutorDependencies {
   return {
     database: client() as unknown as ScanDatabase,
@@ -1803,7 +3104,7 @@ function dependencies(root: string): ScanExecutorDependencies {
   }
 }
 
-function context<TPayload extends ScanPayload | LocalDirectoryImportPayload>(
+function context<TPayload extends ScanPayload | ScanV2Payload | ScanAuditApplyPayload | LocalDirectoryImportPayload>(
   repository: PostgresQueueRepository,
   job: ClaimedJob,
   payload: TPayload,
@@ -1846,13 +3147,18 @@ function fence(job: ClaimedJob): ExecutionFence {
   return { jobId: job.id, workerId: job.workerId, executionToken: job.executionToken, attempt: job.attempt }
 }
 
-async function seedJob(type: 'SCAN' | 'LOCAL_DIRECTORY_IMPORT', payload: unknown, maxAttempts: number) {
+async function seedJob(
+  type: 'SCAN' | 'LOCAL_DIRECTORY_IMPORT',
+  payload: unknown,
+  maxAttempts: number,
+  definitionVersion = 1
+) {
   const id = `${testPrefix}-${randomUUID()}`
   await client().systemJob.create({
     data: {
       id,
       type,
-      definitionVersion: 1,
+      definitionVersion,
       status: 'PENDING',
       triggerSource: 'MANUAL',
       payload: payload as never,
@@ -1940,6 +3246,49 @@ async function cleanup() {
   await prisma.tag.deleteMany({ where: { name: { startsWith: testPrefix } } })
 }
 
+async function galleryDomainCounts() {
+  const [artworks, images, externalRefs, tags, series, sourceSnapshots, rawMetadata, artworkTags] = await Promise.all([
+    client().artwork.count(),
+    client().image.count(),
+    client().artworkExternalRef.count(),
+    client().tag.count(),
+    client().series.count(),
+    client().artworkSourceSnapshot.count(),
+    client().artworkRawMetadata.count(),
+    client().artworkTag.count()
+  ])
+  return { artworks, images, externalRefs, tags, series, sourceSnapshots, rawMetadata, artworkTags }
+}
+
+async function seedReadyAuditState(root: string) {
+  const identity = await resolveSafeScanRoot(root)
+  return client().pixivMetadataInventoryState.create({
+    data: {
+      id: 'pixiv',
+      status: 'READY',
+      rootPathHash: hashScanRootIdentity(identity.absolutePath),
+      rootDeviceId: identity.deviceId,
+      rootInode: identity.inode,
+      baselineCompletedAt: clock.now()
+    }
+  })
+}
+
+async function seedMissingAuditInventory(relativePath: string) {
+  return client().pixivMetadataInventory.create({
+    data: {
+      relativePath,
+      externalId: relativePath.match(/(\d+)-meta/)?.[1] ?? nextNumericId(),
+      sizeBytes: 1n,
+      mtimeMs: 1n,
+      observedContentHash: 'd'.repeat(64),
+      processedContentHash: 'd'.repeat(64),
+      lastAttemptedContentHash: 'd'.repeat(64),
+      createdAt: clock.now()
+    }
+  })
+}
+
 async function executeIncremental(root: string, suffix: string) {
   const payload: ScanPayload = { mode: 'INCREMENTAL' }
   const jobId = await seedJob('SCAN', payload, 1)
@@ -1983,6 +3332,36 @@ function afterPixivSourceLookup(transaction: ScanTransaction, afterRead: () => P
   return new Proxy(transaction, {
     get(target, property, receiver) {
       if (property === 'artworkExternalRef') return coordinatedExternalRefs
+      return Reflect.get(target, property, receiver)
+    }
+  })
+}
+
+function trackAuditItemBatches(
+  transaction: ScanTransaction & QueueSqlExecutor,
+  batchSizes: number[]
+): ScanTransaction & QueueSqlExecutor {
+  const auditItems = transaction.pixivSourceAuditItem
+  const trackedAuditItems = new Proxy(auditItems, {
+    get(target, property) {
+      if (property === 'create') {
+        return () => {
+          throw new Error('Final MISSING audit items must use bounded createMany batches')
+        }
+      }
+      if (property === 'createMany') {
+        return (args: Prisma.PixivSourceAuditItemCreateManyArgs) => {
+          batchSizes.push(Array.isArray(args.data) ? args.data.length : 1)
+          return target.createMany(args)
+        }
+      }
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    }
+  })
+  return new Proxy(transaction, {
+    get(target, property, receiver) {
+      if (property === 'pixivSourceAuditItem') return trackedAuditItems
       return Reflect.get(target, property, receiver)
     }
   })

@@ -4,14 +4,19 @@ import {
   EXECUTING_JOB_STATUSES,
   executionLaneForJobType,
   JOB_DEFINITION_VERSION,
+  SCAN_AUDIT_APPLY_DEFINITION_VERSION,
+  SCAN_DEFINITION_VERSION,
   JOB_PAYLOAD_SCHEMAS,
   JOB_TYPE_VALUES,
   MEDIA_FILE_EXTENSIONS,
   TERMINAL_JOB_STATUSES,
   VIDEO_FILE_EXTENSIONS,
   bigintStringSchema,
+  canonicalizeAuditApplyInputs,
   jobEventDtoSchema,
   parseJobPayload,
+  scanV2PayloadSchema,
+  scanV3PayloadSchema,
   relativePathSchema,
   workerHealthDtoSchema
 } from '../index.js'
@@ -37,6 +42,8 @@ describe('job wire contracts', () => {
     expect([...TERMINAL_JOB_STATUSES].some((status) => ACTIVE_JOB_STATUSES.has(status))).toBe(false)
     expect(Object.keys(JOB_PAYLOAD_SCHEMAS)).toHaveLength(JOB_TYPE_VALUES.length)
     expect(JOB_DEFINITION_VERSION).toBe(1)
+    expect(SCAN_DEFINITION_VERSION).toBe(2)
+    expect(SCAN_AUDIT_APPLY_DEFINITION_VERSION).toBe(3)
     expect(executionLaneForJobType('ARCHIVE_RESOLVE_ITEM')).toBe('ARCHIVE_RESOLVE')
     expect(executionLaneForJobType('ARCHIVE_IMPORT')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_MAINTENANCE')).toBe('BACKGROUND_WRITER')
@@ -139,6 +146,84 @@ describe('job wire contracts', () => {
         mappingDigest: digest
       })
     ).toThrow()
+  })
+
+  it('keeps SCAN v1 strict while defining independent strict v2 audit payloads', () => {
+    const digest = 'b'.repeat(64)
+    expect(scanV2PayloadSchema.parse({ mode: 'CONSISTENCY_AUDIT', verification: 'FAST' })).toEqual({
+      mode: 'CONSISTENCY_AUDIT',
+      verification: 'FAST'
+    })
+    expect(
+      scanV2PayloadSchema.parse({ mode: 'AUDIT_APPLY', auditRunId: 'audit-1', inputCount: 2, inputDigest: digest })
+    ).toEqual({ mode: 'AUDIT_APPLY', auditRunId: 'audit-1', inputCount: 2, inputDigest: digest })
+    expect(() => parseJobPayload('SCAN', { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' })).toThrow()
+    expect(() =>
+      parseJobPayload('SCAN', { mode: 'AUDIT_APPLY', auditRunId: 'audit-1', inputCount: 2, inputDigest: digest })
+    ).toThrow()
+    expect(() => scanV2PayloadSchema.parse({ mode: 'INCREMENTAL' })).toThrow()
+    expect(() => scanV2PayloadSchema.parse({ mode: 'CONSISTENCY_AUDIT', verification: 'FULL' })).toThrow()
+    expect(() =>
+      scanV2PayloadSchema.parse({ mode: 'AUDIT_APPLY', auditRunId: 'audit-1', inputCount: 0, inputDigest: digest })
+    ).toThrow()
+    expect(() =>
+      scanV2PayloadSchema.parse({
+        mode: 'AUDIT_APPLY',
+        auditRunId: 'audit-1',
+        inputCount: 1,
+        inputDigest: digest,
+        unexpected: true
+      })
+    ).toThrow()
+    expect(
+      scanV3PayloadSchema.parse({ mode: 'AUDIT_APPLY', auditRunId: 'audit-1', inputCount: 2, inputDigest: digest })
+    ).toEqual({
+      mode: 'AUDIT_APPLY',
+      auditRunId: 'audit-1',
+      inputCount: 2,
+      inputDigest: digest
+    })
+    expect(() => scanV3PayloadSchema.parse({ mode: 'CONSISTENCY_AUDIT', verification: 'FAST' })).toThrow()
+  })
+
+  it('canonicalizes complete audit apply evidence without depending on input order', () => {
+    const base = {
+      sourceAuditItemId: 'audit-item-1',
+      auditDifferenceKind: 'CHANGED' as const,
+      relativePath: '123/123.json',
+      expectedExternalId: '123',
+      observedExternalId: '123',
+      expectedInventoryId: 'inventory-1',
+      expectedExternalRefId: 'ref-1',
+      expectedArtworkId: 42,
+      observedContentHash: 'a'.repeat(64),
+      processedContentHash: 'b'.repeat(64),
+      sizeBytes: 100n,
+      mtimeMs: 200n,
+      ctimeMs: 300n,
+      deviceId: 400n,
+      inode: 500n
+    }
+    const rows = [
+      { ...base, ordinal: 1, sourceAuditItemId: 'audit-item-2', relativePath: '124/124.json' },
+      { ...base, ordinal: 0 }
+    ]
+    const canonical = canonicalizeAuditApplyInputs('audit-run-1', rows)
+
+    expect(canonical).toBe(canonicalizeAuditApplyInputs('audit-run-1', [...rows].reverse()))
+    expect(canonical).not.toBe(
+      canonicalizeAuditApplyInputs(
+        'audit-run-1',
+        rows.map((row) => ({ ...row, inode: row.inode + 1n }))
+      )
+    )
+    expect(canonical).not.toBe(canonicalizeAuditApplyInputs('audit-run-2', rows))
+    expect(() => canonicalizeAuditApplyInputs('audit-run-1', [rows[0]!, { ...rows[1]!, ordinal: 1 }])).toThrow(
+      'unique audit apply input ordinals'
+    )
+    expect(() => canonicalizeAuditApplyInputs('audit-run-1', [{ ...base, ordinal: 2 }])).toThrow(
+      'contiguous audit apply input ordinals'
+    )
   })
 
   it('canonicalizes migration selection while keeping operational tuning out of durable payloads', () => {

@@ -112,6 +112,33 @@ export async function* discoverMetadataStatCandidatePages(
   }
 }
 
+export async function* discoverAuditMetadataStatCandidatePages(
+  root: SafeScanRoot,
+  limits: ScanDiscoveryLimits,
+  signal: AbortSignal,
+  onEntry?: () => void
+): AsyncGenerator<StattedMetadataCandidate[]> {
+  for await (const page of walkSafeFiles(root, '', {
+    pageSize: limits.pageSize,
+    maxDepth: limits.maxDepth,
+    maxEntries: limits.maxEntries,
+    signal,
+    include: (relativePath) => metadataSuffix.test(relativePath),
+    ...(onEntry ? { onEntry } : {})
+  })) {
+    throwIfAborted(signal)
+    const candidates = page.flatMap((item) => {
+      const candidate = metadataCandidateFromPath(item)
+      return candidate ? [candidate] : []
+    })
+    if (candidates.length === 0) continue
+    yield await mapBounded(candidates, limits.concurrency ?? 1, signal, async (candidate) => ({
+      ...candidate,
+      state: await statStableFile(candidate.absolutePath)
+    }))
+  }
+}
+
 export async function resolveClientMetadataPage(
   root: SafeScanRoot,
   relativePaths: readonly string[],

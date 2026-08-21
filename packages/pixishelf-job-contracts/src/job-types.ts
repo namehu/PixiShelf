@@ -2,6 +2,17 @@ import { z } from 'zod'
 
 export const JOB_DEFINITION_VERSION = 1 as const
 
+// SCAN evolves independently so the other nineteen durable job contracts remain on v1.
+export const SCAN_DEFINITION_VERSION = 2 as const
+
+// AUDIT_APPLY is isolated from the Stage 3A SCAN@v2 release so an older Worker
+// that advertised v2 cannot claim a write-capable task it only knows how to reject.
+export const SCAN_AUDIT_APPLY_DEFINITION_VERSION = 3 as const
+
+// All transactions that create or retire singleton SCAN work coordinate on
+// this namespace plus PostgreSQL hashtext('SCAN').
+export const SINGLETON_JOB_ADVISORY_LOCK_NAMESPACE = 80_432_028 as const
+
 export const JOB_TYPE_VALUES = [
   'SCAN',
   'LOCAL_DIRECTORY_IMPORT',

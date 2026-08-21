@@ -26,6 +26,7 @@ function inventory(overrides: Partial<PixivInventoryRecord> = {}): PixivInventor
     baselineGeneration: 1,
     baselineEligible: false,
     lastSeenScanRunId: null,
+    lastSeenAuditRunId: null,
     lastAttemptedAt: null,
     lastProcessedAt: null,
     lastErrorCode: null,

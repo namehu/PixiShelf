@@ -1,7 +1,7 @@
 ---
 status: draft
 scope: 退役 Pixiv 强制全量重扫，建立增量发现、定向来源同步、来源一致性核对和兼容迁移
-last-verified: 2026-08-19
+last-verified: 2026-08-20
 sources:
   - docs/product/product-baseline.md
   - docs/adr/0001-separate-source-references-from-local-identity.md
@@ -10,12 +10,14 @@ sources:
   - packages/pixishelf/services/media-root-central-service.ts
   - packages/pixishelf-job-contracts/src/payloads.ts
   - packages/pixishelf-job-executors/src/scan/
+  - packages/pixishelf-worker/src/production-capabilities.ts
 ---
 
 # Pixiv 来源发现、同步与核对设计
 
-本文是分阶段实施的功能规格。阶段 0–2 已在对应功能分支实现；一致性核对和兼容清理仍未实施。当前页面、HTTP
-契约和 Worker 行为以代码与 `current` 文档为准；本文中的阶段 3–4 不得当成已上线说明。
+本文是分阶段实施的功能规格。阶段 0–3C 已完成：来源一致性核对、可恢复结果页和基于冻结证据的选定同步均已
+实现；阶段 4 的兼容清理仍未实施。当前页面、HTTP 契约和 Worker 行为以代码与 `current` 文档为准；未完成阶段
+不得当成已上线说明。
 
 ## 1. 决策摘要
 
@@ -137,8 +139,8 @@ provenance 兼容必须作为独立修复完成。
 
 | 分类                | 含义                                               | 默认动作           |
 | ------------------- | -------------------------------------------------- | ------------------ |
-| `NEW`               | 新 path 或新 Pixiv 身份                            | 可选“导入选中项”   |
-| `CHANGED`           | 已知 path 内容变化                                 | 可选“同步选中项”   |
+| `NEW`               | 新 path 或新 Pixiv 身份                            | 可选“同步所选来源” |
+| `CHANGED`           | 已知 path 内容变化                                 | 可选“同步所选来源” |
 | `MISSING`           | inventory 中存在，但完整核对未发现                 | 只提示，不自动处理 |
 | `INVALID`           | metadata 无法安全读取或解析                        | 修复文件后重新核对 |
 | `IDENTITY_CONFLICT` | path、metadata identity 与 Source Reference 不一致 | 阻止写入，人工处理 |
@@ -221,7 +223,12 @@ createdAt / updatedAt
 - inventory 是扫描优化和诊断事实，不拥有 Artwork，也不能级联删除 Artwork。
 
 `ScanRunMetadataInput` 增加冻结的 `sizeBytes` 和 `mtimeMs`。现有 `contentHash` 保持可空：普通增量只冻结需要处理
-的有 hash 输入；一致性核对可冻结全部 path/stat，并仅为变化项写 hash。
+的有 hash 输入；一致性核对冻结全部 path/stat，并只在需要稳定读取时写 hash。Stage 3A 还增加核对明细 ID、分类和
+预期 inventory/external-ref/Artwork 身份快照；这些 ID 是证据而不是外键。
+
+Stage 3C 的 apply ScanRun 通过 `sourceAuditRunId` 指向证据核对，并为每个选中项复制核对 item ID、预期/观测
+external ID、观测/已发布 hash、stat 和 inventory/ref/Artwork ID。这个引用和这些 ID 都故意不建领域外键，避免
+后续领域行变化反向改写历史证据。`ScanRunItem` 逐项保存 apply outcome、安全原因码、retryable 与结果 Artwork ID。
 
 ### 5.2 增量算法
 
@@ -259,27 +266,51 @@ hash 和媒体收集不放在长事务中。
 - 任务没有 PAUSING/CANCELLING；
 - 本次 audit 尚未终态提交。
 
-`MISSING` 只写 ScanRunItem 差异，不删除 `ArtworkExternalRef`。未变化项不逐条写 ScanRunItem，以避免万级审计
-噪声；ScanRun 保存总数和分类计数。
+`MISSING` 只写 `PixivSourceAuditItem` 差异，不删除 `ArtworkExternalRef`。未变化项只在冻结输入 checkpoint 和
+ScanRun 聚合中计数，不逐条写差异明细，避免万级审计噪声。核对过程中也不写 Artwork、Image、来源引用、标签、
+Source Snapshot 或媒体。
+
+### 5.4 选定同步算法
+
+管理员提交的只是 1–50 个核对 item ID。App 在共享 SCAN singleton lock 内从已完成核对重新读取证据，确认
+inventory generation、来源 root、cutover/dispatcher 和新鲜 `SCAN@v3` Worker，再按稳定 canonical 顺序计算 digest
+并原子创建 SystemJob、apply ScanRun、冻结输入与 PENDING 单项。执行阶段逐项完成：
+
+1. 稳定读取 metadata，再次比较 path、内容 hash 和 stat；变化则记 `STALE_SOURCE_INPUT`，不进入发布事务；
+2. parse 并收集媒体；单项失败记录固定安全码，其他项继续；
+3. fenced 发布事务锁定并比较 inventory、Source Reference、Artwork 与 processed hash；身份漂移记 conflict，零
+   领域写入；
+4. 身份仍一致才调用 publisher，并在同一事务推进 inventory processed hash 和单项 `APPLIED`；
+5. 汇总全部 outcome 后终态化 apply ScanRun 与 SystemJob。一个 operation 可以部分成功，不能回滚已提交项目。
+
+同一核对项只允许首次提交，或在过往结果全部为 retryable failure 时修复后重试。已经 applied、stale、conflict、
+普通 skipped 或永久失败必须重新核对。取消会终态化所有尚未完成项目，但保留取消前已提交的结果；扫描历史清理在
+共享锁内把父核对与终态 apply 成组删除，任何非终态 apply 都保护父核对证据。
 
 ## 6. 任务、契约与接口
 
 ### 6.1 Job contract
 
-继续使用 `SCAN` job type 和 `BACKGROUND_WRITER` lane。目标 payload 形态：
+继续使用 `SCAN` job type 和 `BACKGROUND_WRITER` lane，但版本化解析器彼此隔离：
 
 ```ts
-type ScanPayload =
+type ScanV1Payload =
   | { mode: 'INCREMENTAL' }
-  | { mode: 'CONSISTENCY_AUDIT'; verification: 'FAST' }
   | { mode: 'CLIENT_LIST'; existingPolicy: 'SKIP' | 'REFRESH'; inputCount: number; inputDigest: string }
   | { mode: 'ARTWORK_RESCAN'; artworkId: number }
   | { mode: 'FULL_RECONCILE' } // compatibility only; no new producer
+
+type ScanV2Payload = { mode: 'CONSISTENCY_AUDIT'; verification: 'FAST' }
+
+type ScanV3Payload = { mode: 'AUDIT_APPLY'; auditRunId: string; inputCount: number; inputDigest: string }
 ```
 
-`FULL_RECONCILE` 在兼容阶段必须继续被 parser、Worker capability 和任务控制台识别。新管理页面、Webhook 和
+生产 Registry 仍是 20 个 job type，但 `SCAN` 注册 v1/v2/v3，其余 19 类仅注册 v1，共 22 个 type/version 组合。
+`FULL_RECONCILE` 在兼容阶段必须继续被 v1 parser、Worker capability 和任务控制台识别。新管理页面、Webhook 和
 服务不再创建该 payload。待审计确认不存在非终态和可重试的 legacy payload 后，后续 cleanup 才能移除 executor
-分支；历史 `ScanRunMode.FULL` 枚举和值永久保留可读。
+分支；历史 `ScanRunMode.FULL` 枚举和值永久保留可读。生产执行语义固定为：v2 只执行只读
+`CONSISTENCY_AUDIT`，v3 只执行写入型 `AUDIT_APPLY`。App 只会把选定同步生产为 `SCAN@v3`，旧 v2 Worker 在
+滚动部署中不会领取它。
 
 ### 6.2 管理接口
 
@@ -289,11 +320,13 @@ type ScanPayload =
 scan.startDiscovery()
 scan.startConsistencyAudit({ verification: 'FAST' })
 scan.refreshArtworkSource({ artworkId })
-scan.refreshAuditItems({ auditRunId, itemIds, idempotencyKey })
+sourceAudit.startApply({ auditRunId, itemIds, idempotencyKey })
 ```
 
-所有写入口使用当前单实例管理员边界，返回稳定 DTO，不返回 Prisma record、绝对路径或内部异常原文。批量同步为
-逐项结果，允许 `APPLIED / SKIPPED / CONFLICT / FAILED`，不能用一个输入失败回滚已完成的其他输入。
+所有写入口使用当前单实例管理员边界，返回稳定 DTO，不返回 Prisma record、绝对路径或内部异常原文。只读
+availability/get/listItems/getApplyOverview/getApplyOperation 使用 `authProcedure`，start/startApply 使用
+`adminProcedure`。批量同步为逐项结果，允许 `APPLIED / SKIPPED / CONFLICT / FAILED`；对外将
+`SKIPPED + STALE_SOURCE_INPUT` 映射为 `STALE`，不能用一个输入失败回滚已完成的其他输入。
 
 ### 6.3 HTTP 与 Webhook 兼容
 
@@ -352,13 +385,14 @@ Webhook 的 GET 和 POST 职责必须保持分离：
 
 - `NEW / CHANGED / MISSING / INVALID / IDENTITY_CONFLICT` 计数；
 - 按分类筛选和 cursor 分页；
-- `NEW` 与 `CHANGED` 当前页多选；
-- `导入选中项` / `同步选中项`；
+- `NEW` 与 `CHANGED` 当前页多选，混合选择一次最多 50 项；
+- 一个统一的 `同步所选来源` 动作；
 - `MISSING` 只展示定位和建议，不提供一键删除；
 - 结果过期或文件指纹变化时显示 `结果已过期，请重新核对`。
 
 批量动作必须显示逐项结果和部分成功。选择范围第一版只支持显式 item IDs 或当前已加载页，不支持“选择所有未知
-分页结果”。
+分页结果”。切换分类、分页或核对记录时清空选择；operation ID 写入 URL，刷新后优先恢复该 operation，再回退到
+当前活动或最近一次 operation。
 
 ### 7.3 作品页
 
@@ -444,12 +478,61 @@ metadata invalid 才跨 ScanRun 缓存为永久失败。`CLIENT_LIST` 与 `ARTWO
 
 ### 阶段 3：来源一致性核对与选定同步
 
-- 增加 `CONSISTENCY_AUDIT` payload、ScanRun mode/action 和差异查询；
-- 增加设置页核对入口、结果页和显式选择；
-- apply 时重新验证冻结身份与 hash；
-- missing 只报告，不自动解绑或删除。
+#### 阶段 3A：只读执行底座
 
-新 App 只有在新 Worker READY 且 capability audit 通过后才开放 audit producer。
+**状态：本分支已实现并通过独立审查，P0/P1 为 0。**
+
+- 阶段 3A 交付时 Registry 保持 20 个 job type，`SCAN` 注册 v1/v2、其余任务仍为 v1；阶段 3C 完成后
+  `SCAN@v3` 已加入当前 Registry；
+- `SCAN@v2` 增加严格的 `CONSISTENCY_AUDIT`，不改变 `SCAN@v1` parser、旧任务或 Webhook producer；
+- expand-only migration 增加 ScanRun operation/count、冻结证据、root dev/inode、独立 audit sighting marker 和
+  `PixivSourceAuditItem`；
+- Worker 在 writer lane 执行完整冻结、分类和 fenced finalizer；核对只写 operational/audit 数据；
+- `MISSING` 只有在完整、非空、未截断且 root/count/digest/fence 全部复核通过时生成，只报告、不解绑或删除。
+
+阶段内已通过 contracts/db/executors/worker 四包 typecheck、App `check:quick`、contracts 12/12、DB 52/52、
+普通 Executor 316/316 和 Worker 79/79；隔离 PostgreSQL 15 的完整 58 条 migration 与扫描 fixture 41/41
+通过，旧 v1 capability 不领取 `SCAN@v2` 的定向领取测试 1/1 通过。10,000 个稳定输入约 10.6 秒完成且
+hash/parse/publish 均为 0；1,201 个缺失项按 500/500/201 有界分批生成。默认 100,000 条 `MISSING` 上限的 30 秒
+fenced transaction 仍需更大规模压力证据。
+
+#### 阶段 3B：管理入口与可恢复查询
+
+**状态：本分支已实现并通过独立审查，P0/P1 为 0。**
+
+- 增加设置页核对入口和独立结果页；
+- 增加稳定脱敏 DTO、分类筛选和绑定 run/filter 的 cursor 分页；
+- App 只有在 fresh READY Worker 声明 writer-lane `SCAN@v2` 后才开放 audit producer；生产发布另须通过完整
+  capability audit；
+- producer 与普通扫描共用 SCAN singleton lock；相同 request ID 幂等重放，不同请求与活动任务冲突；
+- 只有 ScanRun 与 SystemJob 都完成后才开放明细，运行中只展示可恢复摘要；
+- 不向客户端返回绝对路径、原始异常或不必要的内部身份；
+- 本阶段保持只读，不提供 checkbox、当前页选择或 apply。
+
+阶段内已通过后端、鉴权、cursor、DTO 和 UI 聚焦测试 70/70，Next typecheck/lint 通过；隔离 PostgreSQL 并发测试
+1/1 证明普通 `SCAN@v1` 与核对 `SCAN@v2` 共享 singleton lock，最终只会创建一个活动 SCAN 和一条 queued event。
+
+#### 阶段 3C：选定同步
+
+**状态：本分支已实现并通过独立审查，P0/P1 为 0。**
+
+- 新增独立写版本 `SCAN@v3 / AUDIT_APPLY`；Registry 仍为 20 个 job type，共 22 个 type/version 组合。旧 v2
+  Worker 不会领取 v3，发布 capability 门禁要求 SCAN v1/v2/v3 全部存在；
+- `startApply` 接受已完成 audit、1–50 个唯一 item ID 和 UUID 幂等键；共享 SCAN lock 内复核 readiness、generation
+  和历史 eligibility，再冻结 canonical evidence；
+- 当前已加载页可以混合选择 `NEW / CHANGED` 并用一个动作提交；切换 filter/page/audit 清空选择，URL operation
+  可在刷新后恢复持久结果；
+- Executor 逐项重新验证 metadata/stat/hash 与 inventory/ref/Artwork 身份，stale/conflict 零领域写入，其他项继续；
+- 同一核对只允许 retryable failure 在修复后重试；已应用、stale、conflict、普通 skipped 与永久失败要求新核对；
+- publisher 为普通扫描与 apply 统一写 `metadataHash` 和不可变 `ArtworkSourceSnapshot`，同时保留 override、Artist、
+  非当前来源标签和媒体顺序；
+- 排队 apply 直接取消、运行中取消和历史保留都维护 SystemJob、apply ScanRun、逐项结果与父核对证据的一致性；
+- `MISSING / INVALID / IDENTITY_CONFLICT` 不进入 apply，`MISSING` 仍只报告、永不自动删除。
+
+阶段 3C 最终验证完成 59 条 migration；隔离 PostgreSQL 的扫描/核对/apply 矩阵 52/52、保留清理 4/4，共
+56/56。数据库测试 59/59（另有 1 项按环境条件跳过）、contracts 13/13、Executor 322/322、Worker 80/80；
+App 聚焦服务/鉴权/查询测试 136/136、UI 测试 19/19。Next.js typecheck、lint 和 production build 均通过，静态
+页面生成 35/35。独立审查确认本阶段 P0/P1 为 0。
 
 ### 阶段 4：兼容清理
 
@@ -466,8 +549,10 @@ metadata invalid 才跨 ScanRun 缓存为永久失败。`CLIENT_LIST` 与 `ARTWO
 - 阶段 0 只有保守 publisher 修复，可通过应用/Worker 镜像回滚；不会批量改写历史 provenance。
 - 阶段 1 没有 schema 变更；回滚 UI 不得重新开放未修复的全目录刷新。
 - 阶段 2 是 expand-only；回滚旧应用时保留 inventory 表，不清空、不降级 migration。
-- 阶段 3 的核对只写 operational/audit 数据；回滚不需要撤销领域数据。
-- 任何显式来源同步沿用 SystemJob、ScanRun 和文件快照恢复边界。
+- 阶段 3A/3B 的核对只写 operational/audit 数据；回滚不需要撤销领域数据。
+- 阶段 3C migration 仍是 expand-only；已完成的来源同步是正式领域写入，镜像回滚不会也不应撤销。回滚前先停止
+  新 apply 和 Worker，保留 SystemJob、父核对、apply ScanRun/Item、来源快照与媒体的一致性检查点；旧 v2 Worker
+  不会领取仍在等待的 v3 job，必须由兼容 v3 Worker恢复、取消或明确处理。
 - 若发布过程中出现来源身份或原媒体不一致，先停止 scheduler/App/Worker 保存现场，再按
   [备份与恢复基线](../operations/backup-and-recovery.md)处理；不得用全量重扫作为事故恢复捷径。
 
@@ -475,12 +560,12 @@ metadata invalid 才跨 ScanRun 缓存为永久失败。`CLIENT_LIST` 与 `ARTWO
 
 ### 11.1 单元与 contract
 
-- 新旧 payload 解析，旧 FULL 只可由兼容层读取、不能由 producer 创建；
+- v1/v2/v3 payload 与领取隔离，旧 FULL 只可由兼容层读取、不能由 producer 创建，旧 v2 Worker 不领取 v3；
 - 旧 HTTP 请求归一化与 `FULL_SCAN_RETIRED`；
 - inventory 指纹分类和 digest；
 - 来源字段拥有权矩阵；
 - provenance 合并：同名 LEGACY/MANUAL 不冲突、不转类、不删除；
-- audit result 过期与批量选择状态。
+- audit result 过期、当前页混合选择、selection 清空、operation URL 恢复与逐项安全文案。
 
 ### 11.2 真实 PostgreSQL
 
@@ -489,6 +574,9 @@ metadata invalid 才跨 ScanRun 缓存为永久失败。`CLIENT_LIST` 与 `ARTWO
 - 同一输入重试不重复创建 Artwork、Image、Source Snapshot 或标签；
 - 多来源 Artwork 刷新 Pixiv 时，其他 Source Reference 与 archive revision 不变；
 - 完整 audit 成功才生成 MISSING；空根、取消、租约丢失和遍历上限均不能生成 MISSING；
+- apply 的 stale/hash 漂移和 inventory/ref/Artwork 身份冲突必须零领域写入，成功项不因其他项失败回滚；
+- 崩溃、ACK 丢失与重领不重复创建 Artwork/Image/SourceSnapshot，排队/运行中取消终态化所有未完成项；
+- 保留清理在非终态 apply 存在时保护父核对，全部终态后按证据组删除；
 - 并发手工标签修改与来源刷新不会触发 P2002 或丢失手工关系；
 - legacy FULL job 在新 Worker 上仍能解析和安全终态。
 
@@ -504,14 +592,14 @@ metadata invalid 才跨 ScanRun 缓存为永久失败。`CLIENT_LIST` 与 `ARTWO
 
 - 设置页不存在强制全量重扫入口；
 - 扫描新作品关闭页面后继续，重新打开可恢复状态；
-- 核对结果分页、筛选、当前页选择和部分成功；
+- 核对结果分页、筛选、当前页 `NEW / CHANGED` 混合选择、部分成功和刷新恢复；
 - MISSING 没有一键删除；
 - 历史 FULL 记录显示“历史来源核对（已停用）”，不显示可重新运行按钮；
 - 浏览器验证一条新作品、一个变化作品、一个缺失输入和一个 provenance 兼容作品。
 
 每个实现阶段先运行窄测试，再运行受影响 package 的 typecheck/lint/test/build；涉及 migration、队列 fencing 和
-文件状态的阶段必须使用隔离 PostgreSQL 与临时目录。阶段代码完成后先做项目一致的必要注释补充，再进入独立审查，
-所有 P0/P1 修复并回归通过后才进入下一阶段。
+文件状态的阶段必须使用隔离 PostgreSQL 与临时目录。阶段代码完成后进入独立审查，所有 P0/P1 修复并回归通过后
+才进入下一阶段。
 
 ## 12. 完成标准
 

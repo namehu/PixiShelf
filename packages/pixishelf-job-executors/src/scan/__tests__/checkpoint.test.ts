@@ -58,6 +58,7 @@ describe('scan item checkpoints', () => {
         checkpointOrdinal: 0,
         checkpointKey: 'metadata:0:a',
         metadataRelativePath: 'a/42-meta.json',
+        metadataContentHash: 'a'.repeat(64),
         metadata: {
           id: '42',
           user: 'Artist',
@@ -177,6 +178,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:pixiv',
       metadataRelativePath: '11/42/42-meta.json',
+      metadataContentHash: 'a'.repeat(64),
       metadata: pixivMetadata(),
       media: [pixivMedia('11/42/42_p0.mp4')],
       existingPolicy: 'REFRESH',
@@ -204,6 +206,7 @@ describe('scan item checkpoints', () => {
         checkpointOrdinal: 0,
         checkpointKey: 'metadata:0:legacy',
         metadataRelativePath: '11/42/42-meta.json',
+        metadataContentHash: 'a'.repeat(64),
         metadata: pixivMetadata(),
         media: [pixivMedia('11/42/42_p0.mp4')],
         existingPolicy: 'REFRESH',
@@ -233,6 +236,7 @@ describe('scan item checkpoints', () => {
         checkpointOrdinal: 0,
         checkpointKey: 'metadata:0:conflict',
         metadataRelativePath: '11/42/42-meta.json',
+        metadataContentHash: 'a'.repeat(64),
         metadata: pixivMetadata(),
         media: [pixivMedia('11/42/42_p0.mp4')],
         existingPolicy: 'REFRESH',
@@ -269,6 +273,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:tags',
       metadataRelativePath: '11/42/42-meta.json',
+      metadataContentHash: 'a'.repeat(64),
       metadata: {
         ...pixivMetadata(),
         tags: [
@@ -314,6 +319,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:refresh',
       metadataRelativePath: '11/42/42-meta.json',
+      metadataContentHash: 'a'.repeat(64),
       metadata: { ...pixivMetadata(), title: 'Upstream title', description: 'Upstream description' },
       media: [pixivMedia('11/42/42_p0.mp4'), pixivMedia('11/42/42_p1.mp4')],
       existingPolicy: 'REFRESH',
@@ -357,6 +363,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:source-fields',
       metadataRelativePath: '11/42/42-meta.json',
+      metadataContentHash: 'a'.repeat(64),
       metadata: { ...pixivMetadata(), title: 'Upstream title', description: 'Upstream description' },
       media: [],
       existingPolicy: 'REFRESH',
@@ -395,6 +402,7 @@ describe('scan item checkpoints', () => {
         checkpointOrdinal: 0,
         checkpointKey: `metadata:0:independent-${titleOverridden}`,
         metadataRelativePath: '11/42/42-meta.json',
+        metadataContentHash: 'a'.repeat(64),
         metadata: { ...pixivMetadata(), title: 'Upstream title', description: 'Upstream description' },
         media: [],
         existingPolicy: 'REFRESH',
@@ -418,6 +426,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:create',
       metadataRelativePath: '11/42/42-meta.json',
+      metadataContentHash: 'a'.repeat(64),
       metadata: { ...pixivMetadata(), description: 'Source description' },
       media: [],
       existingPolicy: 'REFRESH',
@@ -436,6 +445,88 @@ describe('scan item checkpoints', () => {
       }),
       select: { id: true }
     })
+    expect(fixture.artworkExternalRefUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ metadataHash: 'a'.repeat(64) }),
+        update: expect.objectContaining({ metadataHash: 'a'.repeat(64) })
+      })
+    )
+    expect(fixture.artworkSourceSnapshotUpsert).toHaveBeenCalledWith({
+      where: {
+        externalRefId_metadataHash: { externalRefId: 'ref-1', metadataHash: 'a'.repeat(64) }
+      },
+      create: expect.objectContaining({
+        externalRefId: 'ref-1',
+        metadataHash: 'a'.repeat(64),
+        providerSchemaVersion: 1,
+        rawMetadata: expect.objectContaining({ sourceFormat: 'txt' }),
+        normalizedMetadata: expect.objectContaining({ id: '42', title: 'Title' })
+      }),
+      update: { fetchedAt: now }
+    })
+  })
+
+  it('locks and validates frozen NEW identity evidence before publishing', async () => {
+    const fixture = pixivTransaction([])
+    fixture.inventoryFindUnique.mockResolvedValue({
+      id: 'inventory-1',
+      externalId: '42',
+      externalRefId: null,
+      processedContentHash: null
+    })
+
+    await publishPixivArtwork({
+      transaction: fixture.transaction,
+      runId: 'run-1',
+      checkpointOrdinal: 0,
+      checkpointKey: 'audit-apply:item-1',
+      metadataRelativePath: '11/42/42-meta.json',
+      metadataContentHash: 'a'.repeat(64),
+      metadata: pixivMetadata(),
+      media: [],
+      existingPolicy: 'REFRESH',
+      manageCheckpoint: false,
+      expectedIdentity: {
+        expectedExternalId: '42',
+        expectedInventoryId: 'inventory-1',
+        expectedExternalRefId: null,
+        expectedArtworkId: null,
+        expectedProcessedContentHash: null
+      },
+      now
+    })
+
+    expect(fixture.queryRaw).toHaveBeenCalledOnce()
+    expect(fixture.artworkCreate).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a frozen identity when the transactional lock predicate no longer matches', async () => {
+    const fixture = pixivTransaction([])
+    fixture.queryRaw.mockResolvedValue([])
+
+    await expect(
+      publishPixivArtwork({
+        transaction: fixture.transaction,
+        runId: 'run-1',
+        checkpointOrdinal: 0,
+        checkpointKey: 'audit-apply:item-1',
+        metadataRelativePath: '11/42/42-meta.json',
+        metadataContentHash: 'a'.repeat(64),
+        metadata: pixivMetadata(),
+        media: [],
+        existingPolicy: 'REFRESH',
+        manageCheckpoint: false,
+        expectedIdentity: {
+          expectedExternalId: '42',
+          expectedInventoryId: 'inventory-1',
+          expectedExternalRefId: null,
+          expectedArtworkId: null,
+          expectedProcessedContentHash: null
+        },
+        now
+      })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    expect(fixture.artworkCreate).not.toHaveBeenCalled()
   })
 })
 
@@ -493,12 +584,24 @@ function pixivTransaction(existingImages: Array<{ id: number; path: string; sort
   const imageCreate = vi.fn(async (_input: { data: Record<string, unknown> }) => ({}))
   const imageUpdate = vi.fn(async (_input: { where: { id: number }; data: Record<string, unknown> }) => ({}))
   const artworkCreate = vi.fn(async (_input: { data: Record<string, unknown>; select: { id: true } }) => ({ id: 42 }))
+  const artworkSourceSnapshotUpsert = vi.fn(async () => ({}))
+  const artworkExternalRefUpsert = vi.fn(async () => ({ id: 'ref-1' }))
+  const queryRaw = vi.fn(async () => [{ id: 'inventory-1' }])
+  const inventoryFindUnique = vi.fn(async () => ({
+    id: 'inventory-1',
+    externalId: '42',
+    externalRefId: null,
+    processedContentHash: null
+  }))
   const transaction = {
+    $queryRaw: queryRaw,
     scanRunItem: { findUnique: vi.fn(async () => null), upsert: vi.fn(async () => ({})) },
     artworkExternalRef: {
       findUnique: vi.fn(async () => null),
-      upsert: vi.fn(async () => ({ id: 'ref-1' }))
+      upsert: artworkExternalRefUpsert
     },
+    artworkSourceSnapshot: { upsert: artworkSourceSnapshotUpsert },
+    pixivMetadataInventory: { findUnique: inventoryFindUnique },
     artwork: { findUnique: vi.fn(async () => null), create: artworkCreate },
     artist: { upsert: vi.fn(async () => ({ id: 7 })) },
     artworkTag: { deleteMany: vi.fn(async () => ({ count: 0 })), upsert: vi.fn(async () => ({})) },
@@ -509,7 +612,16 @@ function pixivTransaction(existingImages: Array<{ id: number; path: string; sort
     },
     scanRun: { updateMany: vi.fn(async () => ({ count: 1 })) }
   } as unknown as ScanTransaction
-  return { transaction, artworkCreate, imageCreate, imageUpdate }
+  return {
+    transaction,
+    artworkCreate,
+    artworkExternalRefUpsert,
+    artworkSourceSnapshotUpsert,
+    queryRaw,
+    inventoryFindUnique,
+    imageCreate,
+    imageUpdate
+  }
 }
 
 type TagProvenance = 'SOURCE' | 'MANUAL' | 'DERIVED' | 'LEGACY'
@@ -556,6 +668,7 @@ function existingPixivTransaction(
   const imageUpdate = vi.fn(async (_input: { where: { id: number }; data: Record<string, unknown> }) => ({}))
   const imageCreate = vi.fn(async (_input: { data: Record<string, unknown> }) => ({}))
   const imageDeleteMany = vi.fn(async () => ({ count: 0 }))
+  const artworkSourceSnapshotUpsert = vi.fn(async () => ({}))
   const artworkTagUpsert = vi.fn(async ({ where, create, update }) => {
     const existing = tags.find((row) => row.tagId === where.artworkId_tagId.tagId)
     if (!existing) tags.push({ tagId: create.tagId, provenance: create.provenance, sourceRefId: create.sourceRefId })
@@ -590,6 +703,7 @@ function existingPixivTransaction(
       })),
       upsert: vi.fn(async () => ({ id: 'ref-pixiv' }))
     },
+    artworkSourceSnapshot: { upsert: artworkSourceSnapshotUpsert },
     artwork: { update: artworkUpdate, updateMany: artworkUpdateMany },
     artist: { upsert: artistUpsert },
     artworkRawMetadata: { upsert: vi.fn(async () => ({})) },
@@ -617,6 +731,7 @@ function existingPixivTransaction(
     artworkUpdate,
     artworkUpdateMany,
     artistUpsert,
+    artworkSourceSnapshotUpsert,
     artworkTagUpsert,
     imageUpdate,
     imageCreate,

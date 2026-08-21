@@ -10,7 +10,7 @@
 
 - `Dockerfile`：Web/API 的 Next.js standalone 镜像，负责启动前执行数据库迁移。
 - `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和当前全部
-  20 项 v1 Executor capability。
+  20 个 job type；`SCAN` 支持 v1/v2/v3，其余 19 类只支持 v1，共 22 个 type/version 组合。
 - `docker-compose.dev.yml`：本地构建与开发环境。
 - `docker-compose.deploy.yml`：使用预构建镜像的生产环境。
 - `.env.example`：部署变量模板；为防止新环境误消费，Central Dispatcher 开关仍安全地默认关闭。
@@ -131,12 +131,15 @@ WORKER_DISPATCH_ENABLED=false
 
 两个开关用途不同：`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 让 Next.js 只创建/控制统一队列任务；
 `WORKER_DISPATCH_ENABLED` 才允许通用 Worker claim。开关默认 false，避免镜像升级时意外开始消费。
-当前通用 Registry 已锁定全部 20 种 v1 capability，并校验 job type、definition version 和 lane，其中包括
-`SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE` 四类高风险任务。新部署仍须先以
+当前通用 Registry 已锁定 20 个 job type、22 个 type/version 组合，并校验 job type、definition version 和
+lane；20 类中包括 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE` 四类高风险任务，
+`SCAN` 支持 v1/v2/v3，其余 19 类只支持 v1。新部署仍须先以
 `false/false` 暗启动并通过 READY/capability 门禁，然后才能恢复生产稳态的 `true/true`。
+`SCAN@v3` 专用于来源核对后的写入型 `AUDIT_APPLY`；只支持 v2 的旧 Worker 不会领取它。滚动部署的版本隔离不能
+替代发布门禁，开放新 App 写入口前仍必须确认目标 Worker 同时报告 SCAN v1/v2/v3。
 
 归档收件箱切换必须一次完成：停止新任务和旧写入者，通过 audit 和一致性 checkpoint，应用 lane migration，
-验证双 lane READY 与 20 项 capability，再同时启用 Next 控制面与通用 Worker Dispatcher。
+验证双 lane READY 与当前 capability inventory，再同时启用 Next 控制面与通用 Worker Dispatcher。
 
 发生问题时先把两个开关恢复为 false 并重建 `app`/`worker`，停止新入队与领取；不要在存在
 RUNNING、PAUSING 或 CANCELLING 任务时强制回滚 schema。数据库和媒体必须从同一时间点的已验证

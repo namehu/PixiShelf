@@ -6,6 +6,7 @@ import { ClientScanCard } from './client-scan-card'
 import { ServerScanCard } from './server-scan-card'
 import { ScanResultCard } from './scan-result-card'
 import { ScanHistorySummaryCard } from './scan-history-summary-card'
+import { SourceAuditCard } from './source-audit-card'
 import { useSseScan } from '../_hooks/use-sse-scan'
 
 function useScanPath() {
@@ -77,6 +78,8 @@ function ScanManagement() {
           onUpdatePath={handleUpdatePath}
           onScanNewArtworks={startServerScan}
         />
+
+        <SourceAuditCard />
 
         <ClientScanCard hasScanPath={!!scanPath.query.data?.data} isScanning={scanBusy} onScan={handleClientScan} />
 

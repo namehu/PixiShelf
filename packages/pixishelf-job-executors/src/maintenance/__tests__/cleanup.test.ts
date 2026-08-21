@@ -188,9 +188,17 @@ describe('maintenance retention cleanup', () => {
       }
     )
     const deleteMany = vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => ({ count: where.id.in.length }))
+    const transactionFindMany = vi.fn(async ({ where }: { where: { AND?: Array<{ id?: { in?: string[] } }> } }) =>
+      (where.AND?.[0]?.id?.in ?? []).map((id) => ({ id, operationKind: null }))
+    )
+    const advisoryLock = vi.fn().mockResolvedValue([{ lock: '' }])
     const result = await cleanupScanRunHistory({
       database: { scanRun: { findMany } } as never,
-      mutate: (async (operation) => operation({ scanRun: { deleteMany } } as never)) satisfies RunMaintenanceMutation,
+      mutate: (async (operation) =>
+        operation({
+          $queryRawUnsafe: advisoryLock,
+          scanRun: { findMany: transactionFindMany, deleteMany }
+        } as never)) satisfies RunMaintenanceMutation,
       signal: new AbortController().signal,
       progress: vi.fn(),
       now: new Date('2026-08-14T00:00:00.000Z'),
@@ -202,5 +210,181 @@ describe('maintenance retention cleanup', () => {
       expect(args.take).toBe(SCAN_RUN_DELETE_BATCH_SIZE)
     }
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 100, take: SCAN_RUN_DELETE_BATCH_SIZE }))
+    expect(advisoryLock).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))::text AS "lock"',
+      80_432_028,
+      'SCAN'
+    )
+  })
+
+  it('deletes an expired consistency audit together with all terminal apply children', async () => {
+    const pages = [[{ id: 'audit-parent' }, { id: 'ordinary' }], []]
+    const findMany = vi.fn(async ({ where }: { where: { finishedAt?: unknown } }) =>
+      where.finishedAt ? (pages.shift() ?? []) : []
+    )
+    const transactionFindMany = vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.operationKind === 'AUDIT_APPLY') {
+        return [
+          {
+            id: 'apply-completed',
+            sourceAuditRunId: 'audit-parent',
+            status: 'COMPLETED',
+            systemJob: { status: 'COMPLETED' }
+          },
+          {
+            id: 'apply-failed',
+            sourceAuditRunId: 'audit-parent',
+            status: 'FAILED',
+            systemJob: null
+          }
+        ]
+      }
+      return [
+        { id: 'audit-parent', operationKind: 'CONSISTENCY_AUDIT' },
+        { id: 'ordinary', operationKind: null }
+      ]
+    })
+    const deletedIds: string[][] = []
+    const deleteMany = vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
+      deletedIds.push(where.id.in)
+      return { count: where.id.in.length }
+    })
+
+    const result = await cleanupScanRunHistory({
+      database: { scanRun: { findMany } } as never,
+      mutate: (async (operation) =>
+        operation({
+          $queryRawUnsafe: vi.fn().mockResolvedValue([{ lock: '' }]),
+          scanRun: { findMany: transactionFindMany, deleteMany }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      now: new Date('2026-08-14T00:00:00.000Z')
+    })
+
+    expect(result).toEqual({ deletedRuns: 4, expiredRuns: 4, overflowRuns: 0 })
+    expect(new Set(deletedIds[0])).toEqual(new Set(['audit-parent', 'ordinary', 'apply-completed', 'apply-failed']))
+  })
+
+  it('rechecks after the singleton lock and preserves an audit with a newly active apply child', async () => {
+    const outerPages = [[{ id: 'audit-parent' }], [{ id: 'ordinary' }], []]
+    const outerFindMany = vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+      const isExpiry = 'finishedAt' in where || 'AND' in where
+      return isExpiry ? (outerPages.shift() ?? []) : []
+    })
+    const callOrder: string[] = []
+    const advisoryLock = vi.fn(async () => {
+      callOrder.push('lock')
+      return [{ lock: '' }]
+    })
+    let transactionBatch = 0
+    const transactionFindMany = vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.operationKind === 'AUDIT_APPLY') {
+        callOrder.push('children')
+        return [
+          {
+            id: 'apply-running',
+            sourceAuditRunId: 'audit-parent',
+            status: 'RUNNING',
+            systemJob: { status: 'RUNNING' }
+          }
+        ]
+      }
+      transactionBatch += 1
+      return transactionBatch === 1
+        ? [{ id: 'audit-parent', operationKind: 'CONSISTENCY_AUDIT' }]
+        : [{ id: 'ordinary', operationKind: null }]
+    })
+    const deleteMany = vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => ({
+      count: where.id.in.length
+    }))
+
+    const result = await cleanupScanRunHistory({
+      database: { scanRun: { findMany: outerFindMany } } as never,
+      mutate: (async (operation) =>
+        operation({
+          $queryRawUnsafe: advisoryLock,
+          scanRun: { findMany: transactionFindMany, deleteMany }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      now: new Date('2026-08-14T00:00:00.000Z')
+    })
+
+    expect(result).toEqual({ deletedRuns: 1, expiredRuns: 1, overflowRuns: 0 })
+    expect(deleteMany).toHaveBeenCalledOnce()
+    expect(deleteMany.mock.calls[0]![0].where.id.in).toEqual(['ordinary'])
+    expect(callOrder.slice(0, 2)).toEqual(['lock', 'children'])
+    expect(outerFindMany).toHaveBeenCalledTimes(7)
+  })
+
+  it('deletes overflow audit history as a terminal parent-child group', async () => {
+    let pixivReads = 0
+    const findMany = vi.fn(async ({ where }: { where: { type?: string } }) => {
+      if (where.type !== 'PIXIV') return []
+      pixivReads += 1
+      return pixivReads === 1 ? [{ id: 'overflow-audit' }] : []
+    })
+    const transactionFindMany = vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
+      where.operationKind === 'AUDIT_APPLY'
+        ? [
+            {
+              id: 'overflow-apply',
+              sourceAuditRunId: 'overflow-audit',
+              status: 'CANCELLED',
+              systemJob: { status: 'CANCELLED' }
+            }
+          ]
+        : [{ id: 'overflow-audit', operationKind: 'CONSISTENCY_AUDIT' }]
+    )
+    const deleteMany = vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => ({
+      count: where.id.in.length
+    }))
+
+    const result = await cleanupScanRunHistory({
+      database: { scanRun: { findMany } } as never,
+      mutate: (async (operation) =>
+        operation({
+          $queryRawUnsafe: vi.fn().mockResolvedValue([{ lock: '' }]),
+          scanRun: { findMany: transactionFindMany, deleteMany }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      now: new Date('2026-08-14T00:00:00.000Z'),
+      maxRunsPerType: 100
+    })
+
+    expect(result).toEqual({ deletedRuns: 2, expiredRuns: 0, overflowRuns: 2 })
+    expect(new Set(deleteMany.mock.calls[0]![0].where.id.in)).toEqual(new Set(['overflow-audit', 'overflow-apply']))
+  })
+
+  it('does not delete an overflow apply child when its audit parent is retained', async () => {
+    let pixivReads = 0
+    const findMany = vi.fn(async ({ where }: { where: { type?: string } }) => {
+      if (where.type !== 'PIXIV') return []
+      pixivReads += 1
+      return pixivReads === 1 ? [{ id: 'overflow-child-only' }] : []
+    })
+    const deleteMany = vi.fn()
+    const transactionFindMany = vi.fn().mockResolvedValue([{ id: 'overflow-child-only', operationKind: 'AUDIT_APPLY' }])
+
+    const result = await cleanupScanRunHistory({
+      database: { scanRun: { findMany } } as never,
+      mutate: (async (operation) =>
+        operation({
+          $queryRawUnsafe: vi.fn().mockResolvedValue([{ lock: '' }]),
+          scanRun: { findMany: transactionFindMany, deleteMany }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      now: new Date('2026-08-14T00:00:00.000Z'),
+      maxRunsPerType: 100
+    })
+
+    expect(result).toEqual({ deletedRuns: 0, expiredRuns: 0, overflowRuns: 0 })
+    expect(deleteMany).not.toHaveBeenCalled()
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ AND: expect.any(Array) }) })
+    )
   })
 })

@@ -11,6 +11,9 @@ import {
   formatDuration,
   formatMode,
   formatType,
+  getSourceMaintenanceHref,
+  isSourceAuditApplyRun,
+  isSourceAuditRun,
   ScanRunStatus,
   StatusBadge
 } from '@/app/admin/scan-history/_components/scan-history-format'
@@ -32,6 +35,10 @@ export function ScanHistorySummaryCard() {
   )
 
   const latest = historyQuery.data?.[0] ?? null
+  const sourceAudit = latest ? isSourceAuditRun(latest) : false
+  const sourceAuditApply = latest ? isSourceAuditApplyRun(latest) : false
+  const sourceMaintenance = sourceAudit || sourceAuditApply
+  const sourceMaintenanceHref = latest ? getSourceMaintenanceHref(latest) : null
 
   return (
     <SCard
@@ -45,13 +52,13 @@ export function ScanHistorySummaryCard() {
       extra={
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => historyQuery.refetch()} disabled={historyQuery.isFetching}>
-            <RotateCcw className="h-4 w-4" />
+            <RotateCcw data-icon="inline-start" aria-hidden="true" />
             刷新
           </Button>
           <Button asChild size="sm">
             <Link href="/admin/scan-history">
               查看历史
-              <ArrowRight className="h-4 w-4" />
+              <ArrowRight data-icon="inline-end" aria-hidden="true" />
             </Link>
           </Button>
         </div>
@@ -64,7 +71,8 @@ export function ScanHistorySummaryCard() {
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={latest.status as ScanRunStatus} />
                 <span className="text-sm text-muted-foreground">
-                  {formatType(latest.type)} · {formatMode(latest.mode)}
+                  {formatType(latest.type)} ·{' '}
+                  {formatMode(sourceMaintenance ? (latest.operationKind ?? latest.mode) : latest.mode)}
                 </span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -74,14 +82,54 @@ export function ScanHistorySummaryCard() {
             {latest.errorMessage && <p className="max-w-md text-sm text-destructive">{latest.errorMessage}</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-            <SummaryStat label="发现" value={latest.totalArtworks} />
-            <SummaryStat label="成功" value={latest.succeededArtworks} />
-            <SummaryStat label="跳过" value={latest.skippedArtworks} />
-            <SummaryStat label="失败" value={latest.failedArtworks} />
-            <SummaryStat label="新增图片" value={latest.newImages} />
-          </div>
-          {latest.walkedEntries !== null ? (
+          {sourceAudit ? (
+            <>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                <SummaryStat label="来源新增" value={latest.auditNewInputs ?? 0} />
+                <SummaryStat label="来源变化" value={latest.auditChangedInputs ?? 0} />
+                <SummaryStat label="来源缺失" value={latest.missingInputs ?? 0} />
+                <SummaryStat label="无效 metadata" value={latest.auditInvalidInputs ?? 0} />
+                <SummaryStat label="身份冲突" value={latest.auditIdentityConflictInputs ?? 0} />
+                <SummaryStat label="一致" value={latest.inventoryUnchanged ?? 0} />
+              </div>
+              <div className="flex justify-end">
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/admin/scan-history/${latest.id}/source-audit`}>
+                    查看核对结果
+                    <ArrowRight data-icon="inline-end" aria-hidden="true" />
+                  </Link>
+                </Button>
+              </div>
+            </>
+          ) : sourceAuditApply ? (
+            <>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <SummaryStat label="所选" value={latest.totalArtworks} />
+                <SummaryStat label="已应用" value={latest.succeededArtworks} />
+                <SummaryStat label="跳过" value={latest.skippedArtworks} />
+                <SummaryStat label="失败" value={latest.failedArtworks} />
+              </div>
+              {sourceMaintenanceHref ? (
+                <div className="flex justify-end">
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={sourceMaintenanceHref}>
+                      查看同步结果
+                      <ArrowRight data-icon="inline-end" aria-hidden="true" />
+                    </Link>
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+              <SummaryStat label="发现" value={latest.totalArtworks} />
+              <SummaryStat label="成功" value={latest.succeededArtworks} />
+              <SummaryStat label="跳过" value={latest.skippedArtworks} />
+              <SummaryStat label="失败" value={latest.failedArtworks} />
+              <SummaryStat label="新增图片" value={latest.newImages} />
+            </div>
+          )}
+          {!sourceMaintenance && latest.walkedEntries !== null ? (
             <div className="rounded-lg border bg-muted/20 px-3 py-3">
               <div className="text-xs font-medium text-foreground">本次扫描工作量</div>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -109,7 +157,7 @@ function SummaryStat({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-md border bg-muted/50 px-3 py-2">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-lg font-semibold">{value}</div>
+      <div className="mt-1 text-lg font-semibold tabular-nums">{numberFormatter.format(value)}</div>
     </div>
   )
 }

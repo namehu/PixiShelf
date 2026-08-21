@@ -21,7 +21,7 @@
 - [ ] 在[归档收件箱切换记录](./docs/deployment/archive-intake-cutover-deployment.md)填入实际 commit/tag、App/Worker digest、审计时间和切换时间。
 - [ ] 登记 PostgreSQL dump、原媒体快照、派生媒体快照、配置副本和校验值，证明它们属于同一停写检查点。
 - [ ] 保存非空 PostgreSQL migration 演练的历史任务/领域/媒体计数、迁移耗时、锁/WAL/容量观测与迁移后断言。
-- [ ] 保存新 Worker READY、两个 lane、20 项 capability、resolver+writer 同时推进和 writer 单执行证据。
+- [ ] 保存新 Worker READY、两个 lane、20 类 job type / 22 个 type-version capability、resolver+writer 同时推进和 writer 单执行证据。
 - [ ] 完成收件连续添加、刷新恢复、部分失败、多选入队、批量控制、每日 `02:05` 维护和 `02:15` 保留任务的生产观察。
 
 ## 2026-08-18 后台任务统一切换历史收尾
@@ -65,7 +65,7 @@
 - [ ] 验证现有 `NOT VALID` 历史 CHECK 约束，并先处理所有不合法历史行。
 - [ ] 使用独立 migration 收紧 `availableAt NOT NULL`、租约字段成组、`SKIPPED` 字段一致性和计划字段成对约束。
 - [ ] 旧数据库列的物理删除继续延后一个发布周期，不能与阶段 8 的代码清理混在同一次 migration。
-- [ ] 在生产数据副本完成 migration、20 项 capability、任务竞态、媒体任务、GC 和兼容双 lane schema 的应用回滚演练。
+- [ ] 在生产数据副本完成 migration、20 类 job type / 22 个 type-version capability、任务竞态、媒体任务、GC 和兼容双 lane schema 的应用回滚演练。
 
 ### 后续数据库 contract
 

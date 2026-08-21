@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { Prisma } from '@pixishelf/db'
-import type { ScanPayload } from '@pixishelf/job-contracts'
+import type { ScanPayload, ScanV2Payload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { mapBounded, throwIfAborted } from './bounded.ts'
 import { hashStableFile, type StableFileState } from './content-reader.ts'
@@ -47,29 +47,44 @@ interface DiscoveryFailure {
 }
 
 export async function ensurePixivInventoryRootIdentity(input: {
-  context: ExecutionContext<ScanPayload, EnqueuedChildJob>
+  context: ExecutionContext<ScanPayload | ScanV2Payload, EnqueuedChildJob>
   rootPathHash: string
+  rootDeviceId: bigint
+  rootInode: bigint
   now: Date
 }) {
   return mutate(input.context, async (transaction) => {
     const state = await transaction.pixivMetadataInventoryState.findUnique({ where: { id: 'pixiv' } })
-    if (state && state.rootPathHash !== input.rootPathHash) {
+    if (
+      state &&
+      (state.rootPathHash !== input.rootPathHash ||
+        (state.rootDeviceId !== null && state.rootDeviceId !== input.rootDeviceId) ||
+        (state.rootInode !== null && state.rootInode !== input.rootInode))
+    ) {
       throw new ScanExecutorError(
         'STATE_CONFLICT',
         'The configured Pixiv scan root does not match the existing metadata inventory'
       )
     }
-    return (
-      state ??
-      transaction.pixivMetadataInventoryState.create({
+    if (!state) {
+      return transaction.pixivMetadataInventoryState.create({
         data: {
           id: 'pixiv',
           rootPathHash: input.rootPathHash,
+          rootDeviceId: input.rootDeviceId,
+          rootInode: input.rootInode,
           status: 'INITIALIZING',
           baselineStartedAt: input.now
         }
       })
-    )
+    }
+    if (state.rootDeviceId === null || state.rootInode === null) {
+      return transaction.pixivMetadataInventoryState.update({
+        where: { id: state.id },
+        data: { rootDeviceId: input.rootDeviceId, rootInode: input.rootInode }
+      })
+    }
+    return state
   })
 }
 
@@ -87,18 +102,36 @@ export async function freezeIncrementalInventorySnapshot(input: {
   // The first complete traversal owns INITIALIZING. A different resolved root must never inherit that baseline.
   const inventoryState = await mutate(input.context, async (transaction) => {
     const existing = await transaction.pixivMetadataInventoryState.findUnique({ where: { id: 'pixiv' } })
-    if (existing && existing.rootPathHash !== rootPathHash) {
+    if (
+      existing &&
+      (existing.rootPathHash !== rootPathHash ||
+        (existing.rootDeviceId !== null && existing.rootDeviceId !== input.root.deviceId) ||
+        (existing.rootInode !== null && existing.rootInode !== input.root.inode))
+    ) {
       throw new ScanExecutorError(
         'STATE_CONFLICT',
         'The configured Pixiv scan root does not match the existing metadata inventory'
       )
     }
-    return (
-      existing ??
-      transaction.pixivMetadataInventoryState.create({
-        data: { id: 'pixiv', rootPathHash, status: 'INITIALIZING', baselineStartedAt: input.now }
+    if (!existing) {
+      return transaction.pixivMetadataInventoryState.create({
+        data: {
+          id: 'pixiv',
+          rootPathHash,
+          rootDeviceId: input.root.deviceId,
+          rootInode: input.root.inode,
+          status: 'INITIALIZING',
+          baselineStartedAt: input.now
+        }
       })
-    )
+    }
+    if (existing.rootDeviceId === null || existing.rootInode === null) {
+      return transaction.pixivMetadataInventoryState.update({
+        where: { id: existing.id },
+        data: { rootDeviceId: input.root.deviceId, rootInode: input.root.inode }
+      })
+    }
+    return existing
   })
   const baselineGeneration = inventoryState.status === 'INITIALIZING' ? inventoryState.baselineGeneration : null
 
@@ -441,7 +474,7 @@ function boundedMilliseconds(value: number): number {
 }
 
 function mutate<TResult>(
-  context: ExecutionContext<ScanPayload, EnqueuedChildJob>,
+  context: ExecutionContext<ScanPayload | ScanV2Payload, EnqueuedChildJob>,
   operation: (transaction: ScanTransaction) => Promise<TResult>
 ) {
   return context.mutateInTransaction<ScanTransaction & QueueSqlExecutor, TResult>((transaction) =>

@@ -5,7 +5,11 @@ import {
   formatFullDate,
   formatItemStatus,
   formatMediaCount,
-  formatStatus
+  formatMode,
+  formatStatus,
+  getSourceMaintenanceHref,
+  isSourceAuditApplyRun,
+  isSourceAuditRun
 } from '../scan-history-format'
 
 describe('scan history formatting', () => {
@@ -32,5 +36,28 @@ describe('scan history formatting', () => {
   it('renders a pending run without inventing a start timestamp', () => {
     expect(formatDate(null)).toBe('等待执行')
     expect(formatFullDate(null)).toBe('等待执行')
+  })
+
+  it('identifies the new read-only source audit separately from ordinary scans', () => {
+    expect(formatMode('CONSISTENCY_AUDIT')).toBe('来源一致性核对')
+    expect(formatMode('AUDIT_APPLY')).toBe('来源选定同步')
+    expect(isSourceAuditRun({ operationKind: 'CONSISTENCY_AUDIT' })).toBe(true)
+    expect(isSourceAuditApplyRun({ operationKind: 'AUDIT_APPLY' })).toBe(true)
+    expect(isSourceAuditApplyRun({ operationKind: 'CONSISTENCY_AUDIT' })).toBe(false)
+    expect(isSourceAuditRun({ operationKind: 'SCAN' })).toBe(false)
+  })
+
+  it('deep-links source apply history back to its audit and selected operation', () => {
+    expect(
+      getSourceMaintenanceHref({
+        id: 'apply-1',
+        operationKind: 'AUDIT_APPLY',
+        sourceAuditRunId: 'audit-1'
+      })
+    ).toBe('/admin/scan-history/audit-1/source-audit?operation=apply-1')
+    expect(getSourceMaintenanceHref({ id: 'audit-1', operationKind: 'CONSISTENCY_AUDIT' })).toBe(
+      '/admin/scan-history/audit-1/source-audit'
+    )
+    expect(getSourceMaintenanceHref({ id: 'apply-1', operationKind: 'AUDIT_APPLY', sourceAuditRunId: null })).toBeNull()
   })
 })

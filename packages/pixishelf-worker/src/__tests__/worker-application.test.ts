@@ -105,7 +105,7 @@ describe('WorkerApplication', () => {
         serviceVersion: '1.0.0',
         hostname: 'worker-host',
         processId: 42,
-        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }]
+        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }]
       },
       presenceStore: {
         write: async (record) => void order.push(`presence:${record.status}`)
@@ -157,7 +157,7 @@ describe('WorkerApplication', () => {
         processId: 42,
         capabilities: [
           { jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] },
-          { jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+          { jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }
         ]
       },
       presenceStore: { write: async (record) => void order.push(`presence:${record.status}`) },
@@ -211,7 +211,7 @@ describe('WorkerApplication', () => {
         serviceVersion: '1.0.0',
         hostname: 'worker-host',
         processId: 42,
-        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }]
+        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }]
       },
       presenceStore: { write: vi.fn().mockResolvedValue(undefined) },
       healthState: state
@@ -261,7 +261,7 @@ describe('WorkerApplication', () => {
         serviceVersion: '1.0.0',
         hostname: 'worker-host',
         processId: 42,
-        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }]
+        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }]
       },
       presenceStore: { write: async (record) => void records.push(record) },
       healthState: state
@@ -302,7 +302,7 @@ describe('WorkerApplication', () => {
         serviceVersion: '1.0.0',
         hostname: 'worker-host',
         processId: 42,
-        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }]
+        capabilities: [{ jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }]
       },
       presenceStore: { write: async (record) => void records.push(record) },
       healthState: state

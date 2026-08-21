@@ -79,7 +79,13 @@ export async function executeScan(
     const inventoryRootPathHash = hashScanRootIdentity(root.absolutePath)
     // All Pixiv scan modes share the inventory, including pre-frozen lists and rescans; bind them
     // to the resolved root before reading a snapshot so another mount cannot reuse its path/hash facts.
-    await ensurePixivInventoryRootIdentity({ context, rootPathHash: inventoryRootPathHash, now: now() })
+    await ensurePixivInventoryRootIdentity({
+      context,
+      rootPathHash: inventoryRootPathHash,
+      rootDeviceId: root.deviceId,
+      rootInode: root.inode,
+      now: now()
+    })
     run = await ensureMetadataSnapshot({ context, dependencies, root, run, now: now(), limits })
     const snapshot = await verifyFrozenMetadataSnapshot({
       database: dependencies.database,
@@ -345,6 +351,7 @@ async function processMetadataInput(input: {
         checkpointKey: checkpointKey(input.row),
         metadataRelativePath: candidate.relativePath,
         metadata,
+        metadataContentHash: input.row.contentHash!,
         media,
         existingPolicy: input.policy,
         now: input.now

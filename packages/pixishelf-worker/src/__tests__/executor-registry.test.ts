@@ -64,6 +64,23 @@ describe('ExecutorRegistry', () => {
     ).toThrow()
   })
 
+  it('does not let a SCAN v2-only registry claim an AUDIT_APPLY v3 job', () => {
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: 2,
+      parsePayload: (payload) => payload,
+      execute: vi.fn(async () => ({ kind: 'completed' as const }))
+    })
+
+    expect(
+      registry.resolve({
+        type: 'SCAN',
+        definitionVersion: 3,
+        payload: { mode: 'AUDIT_APPLY', auditRunId: 'audit-1', inputCount: 1, inputDigest: 'a'.repeat(64) }
+      })
+    ).toBeNull()
+  })
+
   it('rejects duplicate registrations and future versions without an explicit payload parser', () => {
     const registry = new ExecutorRegistry().register({
       jobType: 'SCAN',
@@ -98,7 +115,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('must register in ARCHIVE_RESOLVE')
   })
 
-  it('locks the production Worker to all 20 dual-lane executor capabilities', () => {
+  it('locks the production Worker to 20 job capabilities and 22 type/version combinations', () => {
     const registry = createWorkerExecutorRegistry({
       database: {} as PrismaClient,
       config: {
@@ -115,6 +132,12 @@ describe('ExecutorRegistry', () => {
     const capabilities = registry.capabilities()
     expect(capabilities).toHaveLength(20)
     expect(capabilities).toEqual(PRODUCTION_WORKER_CAPABILITIES)
+    expect(capabilities.find((capability) => capability.jobType === 'SCAN')?.definitionVersions).toEqual([1, 2, 3])
+    expect(
+      capabilities
+        .filter((capability) => capability.jobType !== 'SCAN')
+        .every((capability) => capability.definitionVersions.length === 1 && capability.definitionVersions[0] === 1)
+    ).toBe(true)
   })
 
   it('maps Worker roots and process configuration into executor domains', () => {

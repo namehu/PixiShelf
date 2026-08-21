@@ -1,6 +1,8 @@
 import {
   executionLaneForJobType,
   JOB_DEFINITION_VERSION,
+  SCAN_AUDIT_APPLY_DEFINITION_VERSION,
+  SCAN_DEFINITION_VERSION,
   type JobType,
   type WorkerCapability
 } from '@pixishelf/job-contracts'
@@ -31,7 +33,10 @@ const PRODUCTION_JOB_TYPES = [
 export const PRODUCTION_WORKER_CAPABILITIES = PRODUCTION_JOB_TYPES.map((jobType) => ({
   jobType,
   executionLane: executionLaneForJobType(jobType),
-  definitionVersions: [JOB_DEFINITION_VERSION]
+  definitionVersions:
+    jobType === 'SCAN'
+      ? [JOB_DEFINITION_VERSION, SCAN_DEFINITION_VERSION, SCAN_AUDIT_APPLY_DEFINITION_VERSION]
+      : [JOB_DEFINITION_VERSION]
 })) satisfies readonly WorkerCapability[]
 
 export function canonicalWorkerCapabilities(
@@ -55,6 +60,6 @@ export function assertProductionWorkerCapabilities(
   const actual = canonicalWorkerCapabilities(capabilities)
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error('Production Worker capability inventory drifted from the 20-item dual-lane v1 release')
+    throw new Error('Production Worker capability inventory drifted from the 20-job/22-version dual-lane release')
   }
 }

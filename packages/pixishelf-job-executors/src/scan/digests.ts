@@ -6,6 +6,16 @@ export interface MetadataDigestRow {
   contentHash: string | null
 }
 
+export interface AuditMetadataDigestRow {
+  ordinal: number
+  relativePath: string
+  sizeBytes: bigint | null
+  mtimeMs: bigint | null
+  ctimeMs: bigint | null
+  deviceId: bigint | null
+  inode: bigint | null
+}
+
 export interface ArtistMappingDigestRow {
   ordinal: number
   artistDirectory: string
@@ -47,6 +57,13 @@ export function createMetadataDigestAccumulator() {
   return createAccumulator((row: MetadataDigestRow) => `${row.ordinal}\0${row.relativePath}\0${row.contentHash ?? ''}`)
 }
 
+export function createAuditMetadataDigestAccumulator() {
+  return createAccumulator(
+    (row: AuditMetadataDigestRow) =>
+      `${row.ordinal}\0${row.relativePath}\0${canonicalBigInt(row.sizeBytes)}\0${canonicalBigInt(row.mtimeMs)}\0${canonicalBigInt(row.ctimeMs)}\0${canonicalBigInt(row.deviceId)}\0${canonicalBigInt(row.inode)}`
+  )
+}
+
 export function createArtistMappingDigestAccumulator() {
   return createAccumulator((row: ArtistMappingDigestRow) => `${row.ordinal}\0${row.artistDirectory}\0${row.artistId}`)
 }
@@ -77,4 +94,8 @@ function createAccumulator<TRow>(canonicalize: (row: TRow) => string) {
       return hash.digest('hex')
     }
   }
+}
+
+function canonicalBigInt(value: bigint | null): string {
+  return value === null ? '' : value.toString(10)
 }

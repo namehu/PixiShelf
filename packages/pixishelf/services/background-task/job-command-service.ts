@@ -2,9 +2,12 @@ import { prisma } from '@/lib/prisma'
 import {
   executionLaneForJobType,
   JOB_DEFINITION_VERSION,
+  SCAN_AUDIT_APPLY_DEFINITION_VERSION,
   jobTypeSchema,
   jsonValueSchema,
   parseJobPayload,
+  scanAuditApplyPayloadSchema,
+  type ScanAuditApplyPayload,
   type JobDto,
   type JobStatus
 } from '@pixishelf/job-contracts'
@@ -267,6 +270,14 @@ export async function cancelJobCommand(
     assertStatus(job, ['PENDING', 'RETRY_WAIT', 'PAUSED', 'RUNNING', 'PAUSING'], 'cancel')
     const timestamp = now()
     const direct = ['PENDING', 'RETRY_WAIT', 'PAUSED'].includes(job.status)
+    let auditApplySnapshot: ValidatedAuditApplySnapshot | null = null
+    if (direct && job.type === 'SCAN' && job.definitionVersion === SCAN_AUDIT_APPLY_DEFINITION_VERSION) {
+      const payload = scanAuditApplyPayloadSchema.safeParse(job.payload)
+      if (!payload.success) {
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Audit apply job payload is invalid')
+      }
+      auditApplySnapshot = await validateQueuedAuditApply(transaction, job.id, payload.data)
+    }
     const updated = await compareAndSetJob(transaction, job, {
       status: direct ? 'CANCELLED' : 'CANCELLING',
       cancelRequestedAt: timestamp,
@@ -293,13 +304,17 @@ export async function cancelJobCommand(
       }
     }
     if (direct && (job.type === 'SCAN' || job.type === 'LOCAL_DIRECTORY_IMPORT')) {
-      await transaction.scanRun.updateMany({
-        where: {
-          systemJobId: job.id,
-          status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED'] }
-        },
-        data: { status: 'CANCELLED', checkpointStage: 'CANCELLED', finishedAt: timestamp }
-      })
+      if (auditApplySnapshot) {
+        await cancelQueuedAuditApply(transaction, auditApplySnapshot, timestamp)
+      } else {
+        await transaction.scanRun.updateMany({
+          where: {
+            systemJobId: job.id,
+            status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED'] }
+          },
+          data: { status: 'CANCELLED', checkpointStage: 'CANCELLED', finishedAt: timestamp }
+        })
+      }
     }
     await writeJobEvent(transaction, {
       jobId,
@@ -317,6 +332,109 @@ export async function cancelJobCommand(
     }
     return toJobDto(updated)
   })
+}
+
+interface ValidatedAuditApplySnapshot {
+  id: string
+  inputCount: number
+}
+
+async function validateQueuedAuditApply(
+  transaction: Prisma.TransactionClient,
+  jobId: string,
+  payload: ScanAuditApplyPayload
+): Promise<ValidatedAuditApplySnapshot> {
+  const run = await transaction.scanRun.findUnique({
+    where: { systemJobId: jobId },
+    select: {
+      id: true,
+      operationKind: true,
+      sourceAuditRunId: true,
+      inputCount: true,
+      inputDigest: true,
+      inputFrozenAt: true,
+      metadataInputs: { select: { sourceAuditItemId: true } },
+      items: { select: { sourceAuditItemId: true } }
+    }
+  })
+  if (
+    !run ||
+    run.operationKind !== 'AUDIT_APPLY' ||
+    run.sourceAuditRunId !== payload.auditRunId ||
+    run.inputCount !== payload.inputCount ||
+    run.inputDigest !== payload.inputDigest ||
+    !run.inputFrozenAt
+  ) {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Audit apply job is not bound to its frozen operation')
+  }
+  const metadataItemIds = run.metadataInputs.flatMap((item) => item.sourceAuditItemId ?? [])
+  const runItemIds = run.items.flatMap((item) => item.sourceAuditItemId ?? [])
+  const uniqueMetadataItemIds = new Set(metadataItemIds)
+  const uniqueRunItemIds = new Set(runItemIds)
+  const completeInputSet =
+    metadataItemIds.length === payload.inputCount &&
+    runItemIds.length === payload.inputCount &&
+    uniqueMetadataItemIds.size === payload.inputCount &&
+    uniqueRunItemIds.size === payload.inputCount &&
+    [...uniqueMetadataItemIds].every((id) => uniqueRunItemIds.has(id))
+  if (!completeInputSet) {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Audit apply frozen item set is incomplete')
+  }
+  return { id: run.id, inputCount: run.inputCount }
+}
+
+async function cancelQueuedAuditApply(
+  transaction: Prisma.TransactionClient,
+  run: ValidatedAuditApplySnapshot,
+  timestamp: Date
+) {
+  await transaction.scanRunItem.updateMany({
+    where: { scanRunId: run.id, applyOutcome: null },
+    data: {
+      status: 'FAILED',
+      applyOutcome: 'FAILED',
+      applyReasonCode: 'OPERATION_CANCELLED',
+      applyReasonSummary: 'Operation was cancelled before this item completed',
+      applyRetryable: true,
+      finishedAt: timestamp
+    }
+  })
+  const items = await transaction.scanRunItem.findMany({
+    where: { scanRunId: run.id },
+    select: { applyOutcome: true, applyReasonCode: true, newImageCount: true }
+  })
+  if (items.length !== run.inputCount) {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Audit apply frozen item set is incomplete')
+  }
+  const applied = items.filter((item) => item.applyOutcome === 'APPLIED').length
+  const skipped = items.filter((item) => item.applyOutcome === 'SKIPPED').length
+  const stale = items.filter(
+    (item) => item.applyOutcome === 'SKIPPED' && item.applyReasonCode === 'STALE_SOURCE_INPUT'
+  ).length
+  const conflicts = items.filter((item) => item.applyOutcome === 'CONFLICT').length
+  const failed = items.filter((item) => item.applyOutcome === 'FAILED').length
+  const newImages = items.reduce((total, item) => total + item.newImageCount, 0)
+  const updated = await transaction.scanRun.updateMany({
+    where: { id: run.id, status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED'] } },
+    data: {
+      status: 'CANCELLED',
+      checkpointStage: 'CANCELLED',
+      finishedAt: timestamp,
+      processedArtworks: items.length,
+      succeededArtworks: applied,
+      skippedArtworks: skipped,
+      failedArtworks: conflicts + failed,
+      publishedInputs: applied,
+      failedInputs: conflicts + failed,
+      auditApplyStaleInputs: stale,
+      auditApplyConflictInputs: conflicts,
+      newImages,
+      errorMessage: null
+    }
+  })
+  if (updated.count !== 1) {
+    throw new BackgroundTaskError('CONCURRENT_MODIFICATION', 'Audit apply operation changed while cancelling')
+  }
 }
 
 export async function pauseJobCommand(

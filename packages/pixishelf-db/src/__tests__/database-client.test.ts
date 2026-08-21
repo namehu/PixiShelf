@@ -35,10 +35,11 @@ describe('database package', () => {
         { tableName: 'job_resource_leases' },
         { tableName: 'pixiv_metadata_inventory' },
         { tableName: 'pixiv_metadata_inventory_state' },
+        { tableName: 'pixiv_source_audit_items' },
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260820120000_add_pixiv_metadata_inventory' }],
+      [{ migrationName: '20260820210000_add_pixiv_source_audit_apply' }],
       [expectedIndex]
     ])
 
@@ -49,7 +50,32 @@ describe('database package', () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, archive_intake_items, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, system_job_events, worker_instances, migration:20260820120000_add_pixiv_metadata_inventory, index:system_jobs_single_executing_per_lane_idx'
+      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, archive_intake_items, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, system_job_events, worker_instances, migration:20260820210000_add_pixiv_source_audit_apply, index:system_jobs_single_executing_per_lane_idx'
+    )
+  })
+
+  it('rejects a database that has the read-only audit migration but not the apply migration', async () => {
+    const client = createQueryClient([
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
+      [
+        { tableName: 'archive_intake_items' },
+        { tableName: 'archive_provider_request_leases' },
+        { tableName: 'archive_provider_throttles' },
+        { tableName: 'archive_resolve_queue_control' },
+        { tableName: 'derived_media_gc_entries' },
+        { tableName: 'job_resource_leases' },
+        { tableName: 'pixiv_metadata_inventory' },
+        { tableName: 'pixiv_metadata_inventory_state' },
+        { tableName: 'pixiv_source_audit_items' },
+        { tableName: 'system_job_events' },
+        { tableName: 'worker_instances' }
+      ],
+      [{ migrationName: '20260820200000_add_pixiv_source_audit' }],
+      [expectedIndex]
+    ])
+
+    await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
+      'Background queue schema is not ready: missing migration:20260820210000_add_pixiv_source_audit_apply'
     )
   })
 
@@ -65,10 +91,11 @@ describe('database package', () => {
         { tableName: 'job_resource_leases' },
         { tableName: 'pixiv_metadata_inventory' },
         { tableName: 'pixiv_metadata_inventory_state' },
+        { tableName: 'pixiv_source_audit_items' },
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260820120000_add_pixiv_metadata_inventory' }],
+      [{ migrationName: '20260820210000_add_pixiv_source_audit_apply' }],
       []
     ])
 
@@ -89,10 +116,11 @@ describe('database package', () => {
         { tableName: 'job_resource_leases' },
         { tableName: 'pixiv_metadata_inventory' },
         { tableName: 'pixiv_metadata_inventory_state' },
+        { tableName: 'pixiv_source_audit_items' },
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260820120000_add_pixiv_metadata_inventory' }],
+      [{ migrationName: '20260820210000_add_pixiv_source_audit_apply' }],
       [
         {
           ...expectedIndex,
@@ -118,10 +146,11 @@ describe('database package', () => {
         { tableName: 'job_resource_leases' },
         { tableName: 'pixiv_metadata_inventory' },
         { tableName: 'pixiv_metadata_inventory_state' },
+        { tableName: 'pixiv_source_audit_items' },
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260820120000_add_pixiv_metadata_inventory' }],
+      [{ migrationName: '20260820210000_add_pixiv_source_audit_apply' }],
       [{ ...expectedIndex, indexExpression: 'id' }]
     ])
 

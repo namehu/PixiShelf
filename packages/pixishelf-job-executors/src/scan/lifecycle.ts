@@ -1,10 +1,11 @@
-import type { JobErrorCode, LocalDirectoryImportPayload, ScanPayload } from '@pixishelf/job-contracts'
+import type { JobErrorCode, LocalDirectoryImportPayload, ScanPayload, ScanV2Payload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { ScanExecutorError } from './errors.ts'
 import type { ScanExecutionResult, ScanTransaction } from './types.ts'
 
 type ScanContext =
   | ExecutionContext<ScanPayload, EnqueuedChildJob>
+  | ExecutionContext<ScanV2Payload, EnqueuedChildJob>
   | ExecutionContext<LocalDirectoryImportPayload, EnqueuedChildJob>
 
 export async function finalizeScanSuccess(input: {
@@ -109,12 +110,17 @@ export async function finalizeScanError(input: {
       await scope.release('Worker stopped; scan will resume from its checkpoint')
       return
     }
-    if (input.error instanceof ScanExecutorError && input.error.code === 'EMPTY_FULL_RECONCILE') {
+    if (
+      input.error instanceof ScanExecutorError &&
+      (input.error.code === 'EMPTY_FULL_RECONCILE' ||
+        input.error.code === 'EMPTY_CONSISTENCY_AUDIT' ||
+        input.error.code === 'AUDIT_SAFETY_LIMIT_EXCEEDED')
+    ) {
       await setRunPaused(scope.transaction, input.runId, input.now)
       await scope.pause({
         reason: 'ACTION_REQUIRED',
         message: input.error.message,
-        data: { decisionCode: 'EMPTY_FULL_RECONCILE' }
+        data: { decisionCode: input.error.code }
       })
       return
     }

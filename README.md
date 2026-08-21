@@ -7,6 +7,7 @@ PixiShelf 是一个本地优先、自托管的个人媒体收藏系统。它把�
 ## 核心能力
 
 - 扫描本地图片和视频收藏，解析目录与来源元数据；
+- 对 Pixiv metadata 生成只读来源一致性报告，并安全同步显式选中的新增或变化项；
 - 管理作品、艺术家、系列、标签、来源引用和本地整理结果；
 - 提供响应式画廊、筛选、详情页和沉浸浏览；
 - 通过持久 PostgreSQL 队列执行扫描、归档、迁移、替换和媒体维护；
@@ -123,7 +124,9 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 ```
 
 Worker 必须通过 READY 和 capability 检查。后台任务页面应只显示一个当前 READY 实例。
-当前 capability inventory 为 20 项 v1；READY 必须覆盖 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个 lane。
+当前 capability inventory 为 20 个 job type；`SCAN` 支持 v1/v2/v3，其余 19 类只支持 v1，共 22 个
+type/version 组合。READY 必须覆盖
+`ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个 lane。
 
 ### 6. 启动 Next.js
 

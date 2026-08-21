@@ -155,9 +155,48 @@ payload。历史 `ScanRunMode.FULL` 和已存在的 `FULL_RECONCILE` 记录不�
 普通增量只在 stat/失败状态要求时 hash，发布领域记录与推进 `processedContentHash` 使用同一 fenced transaction。
 migration 对既有表的值域约束采用 `NOT VALID` 后再显式 `VALIDATE`，避免在加约束语句本身混入不可控历史改写。
 
-两条新 migration 都使用显式事务。结构 migration 的第一项业务语句是只读 guard：若旧 `scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
+`20260820200000_add_pixiv_source_audit` 继续以 expand-only 方式增加来源一致性核对的持久底座：
 
-Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，当前 Registry 为 20 项 v1。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
+- `scan_runs.operationKind` 区分普通扫描与 `CONSISTENCY_AUDIT` / `AUDIT_APPLY`，四个可空分类计数只为新核对
+  记录提供聚合；历史 ScanRun 和旧写入者可以继续保留 `null`。
+- `pixiv_source_audit_items` 保存 `NEW / CHANGED / MISSING / INVALID / IDENTITY_CONFLICT` 差异。它只把
+  `scanRunId` 建成级联外键；inventory、external ref 和 Artwork ID 都是核对时的证据快照，不跟随后续领域行
+  删除或改名，也不能被解释为新的所有权关系。
+- `scan_run_metadata_inputs` 增加来源核对项、差异类型和预期身份快照。`auditDifferenceKind` 同时作为逐输入持久
+  checkpoint；成功分类为 `UNCHANGED` 的输入不写明细行，避免稳定目录产生万级报告噪声。
+- inventory state 除 resolved root 的路径 hash 外，还保存可用时的 root device/inode；inventory 行使用独立的
+  `lastSeenAuditRunId` 记录本轮核对是否见到，不能复用普通发现的 `lastSeenScanRunId`。
+
+一致性核对只写 ScanRun、冻结输入、inventory 观测和差异明细，不写 `Artwork`、`Image`、
+`ArtworkExternalRef`、标签、Source Snapshot 或原媒体。只有完整、非空、未达到遍历上限、输入 count/digest 与
+root 身份均再次验证通过，并且仍持有任务 fence 时，finalizer 才能把本轮未见 inventory 分类为 `MISSING`；取消、
+失败、空目录、遍历截断或 root 变化均不得生成 `MISSING`。`MISSING` 只是报告，不自动解绑或删除领域数据。
+
+`20260820210000_add_pixiv_source_audit_apply` 继续保持 expand-only，为选定同步增加可空证据与结果列：
+
+- `scan_runs.sourceAuditRunId` 保存 apply 所依据的核对 ID；它故意不建可变领域外键。stale/conflict 聚合只在
+  `AUDIT_APPLY` 上使用，旧 ScanRun 保持 `null`。
+- `scan_run_metadata_inputs` 补齐核对时观测的 external ID 与预期已发布 hash，连同既有 path、内容 hash、stat、
+  inventory/ref/Artwork ID 组成 v3 的冻结 CAS 证据。
+- `scan_run_items` 保存核对项 ID、`NEW / CHANGED`、`APPLIED / SKIPPED / CONFLICT / FAILED`、安全原因码、是否
+  可重试和结果 Artwork ID；约束要求非 apply 行整组为空、apply 终态结果完整，每个 operation 对同一核对项唯一。
+- 上述证据 ID 均不建立到当前 inventory、Source Reference、Artwork 或 audit item 的外键，避免后续领域删改
+  篡改历史任务含义；一致性由入队冻结、canonical digest、领取验证和 fenced publish 共同保证。
+
+普通扫描和 `AUDIT_APPLY` 现在共用的 Pixiv publisher 会把冻结 metadata 内容 hash 写入
+`ArtworkExternalRef.metadataHash`，并按 `(externalRefId, metadataHash)` upsert 不可变 `ArtworkSourceSnapshot`，
+保存规范化与原始来源证据。刷新仍保留本地 override、既有 Artist、非当前来源标签和媒体顺序，不因来源缺项删除
+Image。apply 的 stale 或身份冲突在这些领域写入之前终止。
+
+`ScanRun` 保留清理按核对证据组运行：共享 SCAN advisory lock 后，任何非终态 apply 都阻止父核对删除；只有父
+核对本身符合年龄/数量策略且所有 apply 均终态时，父核对与关联终态 apply 才在同批事务中删除。直接取消未领取
+的 v3 job 也必须在同一事务中终态化 SystemJob、apply ScanRun 与每个未完成 ScanRunItem。
+
+`20260815010000` 与 `20260815011000` 都使用显式事务。后者的第一项业务语句是只读 guard：若旧
+`scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择
+任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
+
+Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 保持 20 个 job type。当前 `SCAN` 同时注册 v1/v2/v3，其余 19 类仍只注册 v1，因此共有 22 个 job type/definition-version 组合。v1 承载既有扫描，v2 只读核对，v3 选定写入；滚动部署中的旧 v2 Worker 不会领取 v3。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
 
 ### 3.7 归档收件与 Provider 请求治理
 
@@ -233,3 +272,5 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 | `20260818170000` | 为归档 submission 与 bulk operation 增加请求 hash 和长度 CHECK，确保幂等键重放不会接受不同请求                                                  |
 | `20260818180000` | 验证 `ARCHIVE_MAINTENANCE` 只能位于 `BACKGROUND_WRITER`                                                                                         |
 | `20260818190000` | 为 30 天收件历史保留清理增加已完成批量操作时间索引                                                                                              |
+| `20260820200000` | 以 expand-only 方式增加来源核对 operation/count、冻结证据、root dev/inode、独立 sighting marker 和持久差异明细；不改写领域或媒体数据            |
+| `20260820210000` | 为来源核对选定同步增加父核对证据、冻结 CAS 字段、逐项 outcome/reason/retryable、完整性 CHECK 和恢复/查询索引；历史行保持兼容                    |

@@ -153,6 +153,26 @@ inventory。发布 Artwork/Source Reference 与推进 `processedContentHash` 位
 扫描任务。状态响应向后兼容地增加可空 inventory 工作量字段；调用方仍只需依赖既有终态字段。完整请求和响应字段
 见[Webhook 扫描功能](../../packages/pixishelf/docs/webhook-features.md)。
 
+设置页的“来源一致性核对”创建只读 `SCAN@v2 / CONSISTENCY_AUDIT`。核对完整、非空的 metadata 快照并持久
+分类 `NEW / CHANGED / MISSING / INVALID / IDENTITY_CONFLICT`；运行中只显示摘要，ScanRun 与 SystemJob 都完成
+后才开放结果分页。管理员可以在结果页当前已加载页选择 1–50 个仍可处理的 `NEW / CHANGED`，一次混合提交
+`SCAN@v3 / AUDIT_APPLY`。App 在共享 SCAN singleton lock 中复核核对终态、inventory generation、来源根和新鲜
+Worker capability，再把选中项的 path、来源身份、内容 hash 与 stat 证据冻结到独立 apply ScanRun。
+
+Worker 对每项重新读取并比较冻结证据，在持有 fence 的短事务中复核 inventory、Source Reference 和 Artwork
+身份后才发布；一个项目 stale、冲突或失败不会回滚已完成项目。`MISSING` 永远只报告，不会进入 apply，也不会
+解绑来源或删除作品。相同核对中，已经应用、stale、冲突或永久失败的项目必须重新核对；只有标记为可重试的失败
+项目可在修复后从同一核对再次提交。apply 结果持久在 ScanRun/ScanRunItem，页面刷新后可通过 operation ID 恢复。
+
+排队、等待重试或已暂停的 apply 被直接取消时，job、apply ScanRun 和所有未完成单项在同一事务中终态化，已完成
+单项结果保留；运行中取消由 Executor 在 fence 下做同样收口。扫描历史保留任务把核对及其 apply 当作证据组：存在
+非终态 apply 时不删除父核对，满足保留条件且子项均终态时才将父核对与终态 apply 一并删除。
+
+所有 Pixiv publisher 的成功创建/刷新路径现在都把 metadata 内容 hash 写入 `ArtworkExternalRef.metadataHash`，并按
+`externalRefId + metadataHash` 追加或复用不可变 `ArtworkSourceSnapshot`，保存规范化与原始来源证据。刷新仍尊重
+title/description override，保留既有 Artist、MANUAL/DERIVED/LEGACY 或其他来源标签、现有媒体顺序，并且不删除
+来源中不再出现的媒体。
+
 `JWT_SECRET`/`JWT_TTL` 仍存在于环境模板和遗留依赖中，但当前浏览器登录与服务端会话由 Better Auth 负责，不能继续把系统描述为“基于 JWT 的无状态认证”。
 `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 也只保留在环境模板中，当前首次账户由 `/login` 初始化 Action 创建。
 
@@ -190,9 +210,15 @@ sequenceDiagram
 | Lane                | 固定并发 | 工作范围                                                  |
 | ------------------- | -------- | --------------------------------------------------------- |
 | `ARCHIVE_RESOLVE`   | 1        | 仅 `ARCHIVE_RESOLVE_ITEM`，不写原媒体、派生媒体或 staging |
-| `BACKGROUND_WRITER` | 1        | 其余 19 类 v1 job；所有媒体、扫描、迁移、替换和维护写操作 |
+| `BACKGROUND_WRITER` | 1        | 其余 19 类 job；所有媒体、扫描、迁移、替换和维护写操作    |
 
-两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 capability audit 精确验证 20 项 job type、definition version 与 lane。归档解析主要等待 HTTP 和 PostgreSQL，writer 主要等待文件流、Sharp/libvips 与 FFmpeg 子进程；异步等待允许同一 Node.js 事件循环交替推进两项工作，但不构成纯 JavaScript CPU 并行承诺。
+两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 20 个 job type：`SCAN` 同时注册
+v1/v2/v3，其余 19 类只注册 v1，共 22 个 job type/definition-version 组合。capability audit 精确验证 type、
+version 与 lane。`SCAN@v1` 承载既有设置页扫描、单作品扫描和 Webhook；`SCAN@v2` 只执行只读
+`CONSISTENCY_AUDIT`；`SCAN@v3` 只执行写入型 `AUDIT_APPLY`。这个版本隔离保证滚动部署中的旧 v2 Worker 不会领取
+v3 apply；生产开放新写入口前仍须确认新 Worker 同时报告 SCAN v1/v2/v3。归档解析主要等待 HTTP 和 PostgreSQL，
+writer 主要等待文件流、Sharp/libvips 与 FFmpeg 子进程；异步等待允许同一 Node.js 事件循环交替推进两项工作，但
+不构成纯 JavaScript CPU 并行承诺。
 
 归档维护统一使用 writer lane 的 `ARCHIVE_MAINTENANCE`。默认启用、显示时间为 `02:05` 的 `RECONCILE` 发现到期 staging、孤立回收/恢复 intent 和到期回收站，为每个目标幂等创建 `CLEAN_STAGING`、`TRASH_ARCHIVE`、`RESTORE_ARCHIVE` 或 `PURGE_ARCHIVE` 子任务。默认启用、显示时间为 `02:15` 的 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 清理超过 30 天的终态收件/批量历史及过期预览会话，不删除领域归档、作品或媒体；两者在中央模式下仍按统一调度窗口和优先级执行。
 
@@ -233,7 +259,8 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 1. 外部来源引用不能定义本地 Artwork 身份。
 2. 同一时间每个执行 lane 最多一个任务；只允许一个 resolver 和一个 writer，所有媒体写仍全局串行。
 3. 通用 Worker 未通过 READY 和 capability 检查时不得恢复调度。
-4. 生产 capability inventory 固定为 20 项 v1；任务类型、definition version 与 lane 必须精确匹配。
+4. 生产 capability inventory 固定为 20 个 job type、22 个 type/version 组合；`SCAN` 支持 v1/v2/v3，其余
+   19 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
 5. 普通启动和升级使用 `prisma migrate deploy`，不得用 `db:push` 替代 migration 历史。
 6. 原媒体、派生媒体和数据库需要在一致时间点备份和恢复。
 7. 网络下载、FFmpeg 和文件复制不得放在长数据库事务中。
