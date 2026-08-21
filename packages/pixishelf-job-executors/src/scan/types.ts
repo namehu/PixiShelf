@@ -4,6 +4,7 @@ import type { ExecutionLogger } from '@pixishelf/job-runtime'
 export interface ScanExecutorLimits {
   pageSize: number
   maxDepth: number
+  maxDiscoveryEntries: number
   maxEntries: number
   maxMediaPerArtwork: number
   concurrency: number
@@ -61,6 +62,9 @@ export interface ScanExecutionResult {
 export const DEFAULT_SCAN_LIMITS: ScanExecutorLimits = Object.freeze({
   pageSize: 100,
   maxDepth: 12,
+  // Discovery counts every visited directory entry, including media files. Keep this
+  // separate from maxEntries, which bounds frozen metadata rows and per-work reads.
+  maxDiscoveryEntries: 10_000_000,
   maxEntries: 100_000,
   maxMediaPerArtwork: 2_000,
   concurrency: 4,

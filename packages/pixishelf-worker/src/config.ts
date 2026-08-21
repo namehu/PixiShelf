@@ -23,6 +23,7 @@ const workerConfigSchema = z
     FFPROBE_PATH: z.string().trim().min(1).default('ffprobe'),
     KEYFRAME_FFMPEG_THREADS: positiveInteger(2, 1, 8),
     ARCHIVE_MAX_MEDIA_BYTES: positiveInteger(512 * 1024 * 1024, 1, 2_147_483_647),
+    SCAN_DISCOVERY_MAX_ENTRIES: positiveInteger(10_000_000, 1, 100_000_000),
     WORKER_ID: z.string().trim().min(1).max(120).optional(),
     WORKER_SERVICE_VERSION: z.string().trim().min(1).max(50).default('0.1.0'),
     WORKER_HEALTH_HOST: z.string().trim().min(1).default('0.0.0.0'),
@@ -63,6 +64,7 @@ export interface WorkerConfig {
   ffprobePath: string
   keyframeFfmpegThreads: number
   archiveMaxMediaBytes: number
+  scanDiscoveryMaxEntries: number
   workerId?: string
   serviceVersion: string
   healthHost: string
@@ -101,6 +103,7 @@ export function parseWorkerConfig(environment: NodeJS.ProcessEnv): WorkerConfig 
     ffprobePath: parsed.FFPROBE_PATH,
     keyframeFfmpegThreads: parsed.KEYFRAME_FFMPEG_THREADS,
     archiveMaxMediaBytes: parsed.ARCHIVE_MAX_MEDIA_BYTES,
+    scanDiscoveryMaxEntries: parsed.SCAN_DISCOVERY_MAX_ENTRIES,
     ...(parsed.WORKER_ID ? { workerId: parsed.WORKER_ID } : {}),
     serviceVersion: parsed.WORKER_SERVICE_VERSION,
     healthHost: parsed.WORKER_HEALTH_HOST,

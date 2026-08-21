@@ -60,5 +60,11 @@ describe('scan executor registrations', () => {
         config: { scanRoot: 'D:/scan', limits: { concurrency: 33 } }
       })
     ).toThrow('concurrency')
+    expect(() =>
+      createScanExecutorRegistrations({
+        database: {} as never,
+        config: { scanRoot: 'D:/scan', limits: { maxDiscoveryEntries: 100_000_001 } }
+      })
+    ).toThrow('maxDiscoveryEntries')
   })
 })

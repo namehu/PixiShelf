@@ -1,7 +1,7 @@
 ---
 status: draft
 scope: 退役 Pixiv 强制全量重扫，建立增量发现、定向来源同步、来源一致性核对和兼容迁移
-last-verified: 2026-08-20
+last-verified: 2026-08-21
 sources:
   - docs/product/product-baseline.md
   - docs/adr/0001-separate-source-references-from-local-identity.md
@@ -254,6 +254,10 @@ external ID、观测/已发布 hash、stat 和 inventory/ref/Artwork ID。这个
 
 目录枚举、冻结和发布都分页进行；单次数据库事务只处理一个输入或一个小批量 set-based inventory 更新。文件读取、
 hash 和媒体收集不放在长事务中。
+
+安全上限区分“遍历过的全部目录项”和“metadata 输入行”。前者包含媒体文件，由 Worker 的
+`SCAN_DISCOVERY_MAX_ENTRIES` 控制，默认 1000 万且可在 1–100000000 内按生产存储规模调整；后者继续使用 10 万
+行上限。不能用 metadata 行上限限制媒体遍历总数，否则万级作品库会在 metadata 数仍安全时提前失败。
 
 ### 5.3 核对算法
 

@@ -27,6 +27,7 @@ const contentScannedAnimationExtensions = new Set(['.webp', '.gif', '.png', '.ap
 export interface ScanDiscoveryLimits {
   pageSize: number
   maxDepth: number
+  maxDiscoveryEntries: number
   maxEntries: number
   maxMediaPerArtwork: number
   concurrency?: number
@@ -90,7 +91,7 @@ export async function* discoverMetadataStatCandidatePages(
   for await (const page of walkSafeFiles(root, '', {
     pageSize: limits.pageSize,
     maxDepth: limits.maxDepth,
-    maxEntries: limits.maxEntries,
+    maxEntries: limits.maxDiscoveryEntries,
     signal,
     include: (relativePath) => metadataSuffix.test(relativePath),
     ...(onEntry ? { onEntry } : {})
@@ -121,7 +122,7 @@ export async function* discoverAuditMetadataStatCandidatePages(
   for await (const page of walkSafeFiles(root, '', {
     pageSize: limits.pageSize,
     maxDepth: limits.maxDepth,
-    maxEntries: limits.maxEntries,
+    maxEntries: limits.maxDiscoveryEntries,
     signal,
     include: (relativePath) => metadataSuffix.test(relativePath),
     ...(onEntry ? { onEntry } : {})

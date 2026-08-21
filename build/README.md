@@ -55,6 +55,10 @@ docker compose -f docker-compose.deploy.yml exec worker \
 `WORKER_JOB_LEASE_DURATION_MS`，启动配置校验不满足时会直接拒绝启动。文件下载、探测和 FFmpeg
 等长操作不得放入事务，只允许短检查点或最终领域发布使用该事务窗口。
 
+Pixiv 目录发现的安全上限由 `SCAN_DISCOVERY_MAX_ENTRIES` 控制，默认 `10000000`。该计数包含遍历到的目录、
+metadata 和媒体文件，不等于作品数；冻结进数据库的 metadata 输入仍受独立的 100000 行上限保护。生产目录若
+接近默认上限，应先在 Worker 容器内统计实际条目数，再为该变量保留增长余量，不能通过取消所有安全上限处理。
+
 ## 本地开发
 
 完整、跨平台且包含环境变量核对与验收命令的流程见根目录 [README](../README.md#本地开发)。

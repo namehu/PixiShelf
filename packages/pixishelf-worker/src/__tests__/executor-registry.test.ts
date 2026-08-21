@@ -123,6 +123,7 @@ describe('ExecutorRegistry', () => {
         sourceMediaRoot: '/media/source',
         derivedMediaRoot: '/media/derived',
         archiveMaxMediaBytes: 512 * 1024 * 1024,
+        scanDiscoveryMaxEntries: 10_000_000,
         ffmpegPath: 'ffmpeg',
         ffprobePath: 'ffprobe',
         keyframeFfmpegThreads: 2
@@ -147,6 +148,7 @@ describe('ExecutorRegistry', () => {
         sourceMediaRoot: '/media/source',
         derivedMediaRoot: '/media/derived',
         archiveMaxMediaBytes: 512 * 1024 * 1024,
+        scanDiscoveryMaxEntries: 25_000_000,
         ffmpegPath: '/usr/bin/ffmpeg',
         ffprobePath: '/usr/bin/ffprobe',
         keyframeFfmpegThreads: 3
@@ -155,6 +157,7 @@ describe('ExecutorRegistry', () => {
       sourceMediaRoot: '/media/source',
       archiveRoot: '/media/archive',
       archiveMaxMediaBytes: 512 * 1024 * 1024,
+      scanDiscoveryMaxEntries: 25_000_000,
       posterStorageRoot: path.join('/media/derived', 'video', 'posters'),
       chapterPreviewRoot: path.join('/media/derived', 'video', 'chapters'),
       keyframeStorageRoot: path.join('/media/derived', 'video', 'keyframes'),

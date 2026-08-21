@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前 workspace、运行组件、依赖方向、数据边界和关键调用链
-last-verified: 2026-08-20
+last-verified: 2026-08-21
 sources:
   - package.json
   - pnpm-workspace.yaml
@@ -145,6 +145,10 @@ Pixiv 目录的正常管理入口只显示“扫描新作品”，并创建 `INC
 inventory。发布 Artwork/Source Reference 与推进 `processedContentHash` 位于同一个 fenced transaction；中断、
 取消和跨任务重放不会把仅观测到的内容误标为已处理。ScanRun 记录遍历、候选、未变化、hash、变化、解析、发布和
 阶段耗时；历史与显式列表任务没有同口径测量时保持 `null`，界面不把缺失值伪装为 0。
+
+目录遍历与冻结输入使用不同的安全上限：`SCAN_DISCOVERY_MAX_ENTRIES` 默认允许 Worker 遍历 1000 万个目录项，
+这里会统计媒体文件和目录；可冻结的 metadata 行仍最多 10 万。前者可以按真实存储规模在 1–100000000 范围内
+配置，后者不随媒体文件数量放大，避免万级作品库因为图片总数超过 10 万而被误判为输入快照过大。
 
 扫描 Webhook 保持已部署 contract：`POST type=list, force=false` 冻结明确路径，并对已有来源使用
 `SKIP`；`force=true` 只对该列表做有界 `REFRESH`。`{}` 和 `type=full, force=false` 仍是目录发现的兼容

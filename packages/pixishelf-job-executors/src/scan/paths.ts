@@ -110,7 +110,10 @@ export async function* walkSafeFiles(
         visitedEntries += 1
         options.onEntry?.()
         if (visitedEntries > options.maxEntries) {
-          throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Scan discovery exceeds the configured entry limit')
+          throw new ScanExecutorError(
+            'INPUT_SNAPSHOT_INVALID',
+            `Scan discovery exceeds the configured entry limit (${options.maxEntries})`
+          )
         }
         if (entry.name === '.' || entry.name === '..') continue
         entryNames.push(entry.name)

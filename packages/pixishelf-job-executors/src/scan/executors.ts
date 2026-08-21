@@ -66,6 +66,7 @@ function validateDependencies(dependencies: ScanExecutorDependencies) {
   for (const [name, value, maximum] of [
     ['pageSize', limits.pageSize, 1_000],
     ['maxDepth', limits.maxDepth, 100],
+    ['maxDiscoveryEntries', limits.maxDiscoveryEntries, 100_000_000],
     ['maxEntries', limits.maxEntries, 100_000],
     ['maxMediaPerArtwork', limits.maxMediaPerArtwork, 10_000],
     ['concurrency', limits.concurrency, 32],

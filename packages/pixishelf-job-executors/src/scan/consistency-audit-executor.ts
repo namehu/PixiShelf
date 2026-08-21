@@ -1104,6 +1104,7 @@ function defaultAuditLimits(): ScanExecutorLimits {
   return {
     pageSize: 100,
     maxDepth: 12,
+    maxDiscoveryEntries: 10_000_000,
     maxEntries: 100_000,
     maxMediaPerArtwork: 2_000,
     concurrency: 4,

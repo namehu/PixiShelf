@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 任务计划、中央 Worker、扫描、本地导入、归档及派生媒体任务的当前业务链路与状态边界
-last-verified: 2026-08-20
+last-verified: 2026-08-21
 sources:
   - packages/pixishelf/app/api/internal/scheduler/tick/route.ts
   - packages/pixishelf/services/background-task/
@@ -282,6 +282,10 @@ flowchart TD
 ```
 
 `ScanRun` 是扫描领域审计，不是第二套队列。`SystemJob` 管执行控制，`ScanRun` 管输入快照、逐项结果、作品/图片数量和耗时。
+
+INCREMENTAL 的目录发现会统计经过的所有目录项，包括媒体文件。Worker 默认用
+`SCAN_DISCOVERY_MAX_ENTRIES=10000000` 约束完整遍历；metadata 候选/冻结行另受 100000 行限制。两个上限必须
+分开理解：前者防止异常目录无限遍历，后者限制单次数据库快照规模。
 
 ### 来源一致性核对
 

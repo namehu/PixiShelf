@@ -11,6 +11,7 @@ const config: WorkerConfig = {
   ffprobePath: '/usr/bin/ffprobe',
   keyframeFfmpegThreads: 2,
   archiveMaxMediaBytes: 512 * 1024 * 1024,
+  scanDiscoveryMaxEntries: 10_000_000,
   serviceVersion: '1.0.0',
   healthHost: '0.0.0.0',
   healthPort: 3011,

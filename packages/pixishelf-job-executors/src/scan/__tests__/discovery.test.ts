@@ -13,13 +13,47 @@ import {
 import { resolveSafeScanRoot } from '../paths.js'
 
 const roots: string[] = []
-const limits: ScanDiscoveryLimits = { pageSize: 2, maxDepth: 8, maxEntries: 100, maxMediaPerArtwork: 10 }
+const limits: ScanDiscoveryLimits = {
+  pageSize: 2,
+  maxDepth: 8,
+  maxDiscoveryEntries: 100,
+  maxEntries: 100,
+  maxMediaPerArtwork: 10
+}
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })))
 })
 
 describe('scan discovery', () => {
+  it('does not apply the frozen metadata row limit to visited media entries', async () => {
+    const directory = await fixtureRoot()
+    const artwork = path.join(directory, 'artist', '42')
+    await fs.mkdir(artwork, { recursive: true })
+    await fs.writeFile(path.join(artwork, '42-meta.json'), '{}')
+    for (let index = 0; index < 6; index += 1) {
+      await fs.writeFile(path.join(artwork, `42_p${index}.jpg`), 'image')
+    }
+    const root = await resolveSafeScanRoot(directory)
+    const separatedLimits = { ...limits, maxEntries: 1, maxDiscoveryEntries: 10 }
+
+    await expect(
+      collectPages(discoverMetadataCandidatePages(root, separatedLimits, new AbortController().signal))
+    ).resolves.toMatchObject([[{ artworkId: '42', relativePath: 'artist/42/42-meta.json' }]])
+    await expect(
+      collectPages(
+        discoverMetadataCandidatePages(
+          root,
+          { ...separatedLimits, maxDiscoveryEntries: 8 },
+          new AbortController().signal
+        )
+      )
+    ).rejects.toMatchObject({
+      code: 'INPUT_SNAPSHOT_INVALID',
+      message: 'Scan discovery exceeds the configured entry limit (8)'
+    })
+  })
+
   it('deduplicates metadata globally, prefers JSON, pages inputs, and bounds media collection', async () => {
     const directory = await fixtureRoot()
     await fs.mkdir(path.join(directory, 'a'), { recursive: true })
