@@ -16,7 +16,11 @@ import { executeLocalDirectoryImport } from './local-executor.ts'
 import { executeConsistencyAudit } from './consistency-audit-executor.ts'
 import { executeScan } from './scan-executor.ts'
 import { executeAuditApply } from './audit-apply-executor.ts'
-import { DEFAULT_SCAN_LIMITS, type ScanExecutorDependencies } from './types.ts'
+import {
+  DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES,
+  DEFAULT_SCAN_LIMITS,
+  type ScanExecutorDependencies
+} from './types.ts'
 
 export function createScanExecutorRegistrations(dependencies: ScanExecutorDependencies): ExecutorDefinition[] {
   validateDependencies(dependencies)
@@ -62,6 +66,24 @@ export function createScanExecutorRegistrations(dependencies: ScanExecutorDepend
 
 function validateDependencies(dependencies: ScanExecutorDependencies) {
   if (!dependencies.config.scanRoot.trim()) throw new Error('Scan executor scanRoot is required')
+  const excludedRootDirectories =
+    dependencies.config.discoveryExcludedRootDirectories ?? DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES
+  if (
+    excludedRootDirectories.length > 100 ||
+    excludedRootDirectories.some(
+      (item) =>
+        !item ||
+        item !== item.trim() ||
+        item.length > 255 ||
+        item === '.' ||
+        item === '..' ||
+        item.includes('/') ||
+        item.includes('\\') ||
+        item.includes('\0')
+    )
+  ) {
+    throw new Error('Scan executor discoveryExcludedRootDirectories contains an invalid directory name')
+  }
   const limits = { ...DEFAULT_SCAN_LIMITS, ...dependencies.config.limits }
   for (const [name, value, maximum] of [
     ['pageSize', limits.pageSize, 1_000],

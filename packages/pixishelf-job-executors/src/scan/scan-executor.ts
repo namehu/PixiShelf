@@ -31,6 +31,7 @@ import {
   type ScanRunRecord
 } from './run-store.ts'
 import {
+  DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES,
   DEFAULT_SCAN_LIMITS,
   type ScanExecutionResult,
   type ScanExecutorDependencies,
@@ -46,6 +47,8 @@ export async function executeScan(
 ): Promise<JobExecutionOutcome<ScanExecutionResult>> {
   const now = dependencies.now ?? (() => new Date())
   const limits = { ...DEFAULT_SCAN_LIMITS, ...dependencies.config.limits }
+  const excludedRootDirectories =
+    dependencies.config.discoveryExcludedRootDirectories ?? DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES
   let runId: string | null = null
   context.logger.info('scan.snapshot.start', { mode: context.payload.mode })
   try {
@@ -86,7 +89,15 @@ export async function executeScan(
       rootInode: root.inode,
       now: now()
     })
-    run = await ensureMetadataSnapshot({ context, dependencies, root, run, now: now(), limits })
+    run = await ensureMetadataSnapshot({
+      context,
+      dependencies,
+      root,
+      run,
+      now: now(),
+      limits,
+      excludedRootDirectories
+    })
     const snapshot = await verifyFrozenMetadataSnapshot({
       database: dependencies.database,
       run,
@@ -195,6 +206,7 @@ async function ensureMetadataSnapshot(input: {
   run: ScanRunRecord
   now: Date
   limits: ScanExecutorLimits
+  excludedRootDirectories: readonly string[]
 }) {
   if (input.run.inputFrozenAt) return input.run
   if (input.context.payload.mode === 'CLIENT_LIST') {
@@ -213,13 +225,16 @@ async function ensureMetadataSnapshot(input: {
       root: input.root,
       run: input.run,
       now: input.now,
-      limits: input.limits
+      limits: input.limits,
+      excludedRootDirectories: input.excludedRootDirectories
     })
   }
   return freezeDiscoveredMetadataPages({
     context: input.context,
     run: input.run,
-    pages: discoverMetadataCandidatePages(input.root, input.limits, input.context.signal),
+    pages: discoverMetadataCandidatePages(input.root, input.limits, input.context.signal, {
+      excludedRootDirectories: input.excludedRootDirectories
+    }),
     now: input.now,
     maxEntries: input.limits.maxEntries
   })

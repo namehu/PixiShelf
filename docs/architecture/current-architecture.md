@@ -149,6 +149,9 @@ inventory。发布 Artwork/Source Reference 与推进 `processedContentHash` 位
 目录遍历与冻结输入使用不同的安全上限：`SCAN_DISCOVERY_MAX_ENTRIES` 默认允许 Worker 遍历 1000 万个目录项，
 这里会统计媒体文件和目录；可冻结的 metadata 行仍最多 10 万。前者可以按真实存储规模在 1–100000000 范围内
 配置，后者不随媒体文件数量放大，避免万级作品库因为图片总数超过 10 万而被误判为输入快照过大。
+Pixiv 发现默认跳过 SCAN_PATH 根目录直属的 `local-imports`、`sources`、`.archive-staging` 和 `.trash`，不进入本地
+导入与归档存储；`SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES` 可以用逗号分隔清单替换默认值，空值表示禁用排除。
+同名的更深层目录不受影响；一致性核对生成 `MISSING` 时也排除相同根目录前缀。
 
 扫描 Webhook 保持已部署 contract：`POST type=list, force=false` 冻结明确路径，并对已有来源使用
 `SKIP`；`force=true` 只对该列表做有界 `REFRESH`。`{}` 和 `type=full, force=false` 仍是目录发现的兼容

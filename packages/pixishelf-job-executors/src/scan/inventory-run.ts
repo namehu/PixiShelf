@@ -19,6 +19,7 @@ import {
 } from './inventory.ts'
 import { logFrozenSnapshotPage } from './progress.ts'
 import type { ScanRunRecord } from './run-store.ts'
+import { DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES } from './types.ts'
 import type { ScanDatabase, ScanExecutorLimits, ScanTransaction } from './types.ts'
 import type { SafeScanRoot } from './paths.ts'
 
@@ -95,6 +96,7 @@ export async function freezeIncrementalInventorySnapshot(input: {
   run: ScanRunRecord
   now: Date
   limits: ScanExecutorLimits
+  excludedRootDirectories?: readonly string[]
 }): Promise<ScanRunRecord> {
   if (input.run.inputFrozenAt) return input.run
 
@@ -182,8 +184,11 @@ export async function freezeIncrementalInventorySnapshot(input: {
   let ordinal = 0
   const digest = createMetadataDigestAccumulator()
 
-  for await (const page of discoverMetadataStatCandidatePages(input.root, input.limits, input.context.signal, () => {
-    walkedEntries += 1
+  for await (const page of discoverMetadataStatCandidatePages(input.root, input.limits, input.context.signal, {
+    onEntry: () => {
+      walkedEntries += 1
+    },
+    excludedRootDirectories: input.excludedRootDirectories ?? DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES
   })) {
     throwIfAborted(input.context.signal)
     metadataCandidates += page.length

@@ -58,6 +58,9 @@ docker compose -f docker-compose.deploy.yml exec worker \
 Pixiv 目录发现的安全上限由 `SCAN_DISCOVERY_MAX_ENTRIES` 控制，默认 `10000000`。该计数包含遍历到的目录、
 metadata 和媒体文件，不等于作品数；冻结进数据库的 metadata 输入仍受独立的 100000 行上限保护。生产目录若
 接近默认上限，应先在 Worker 容器内统计实际条目数，再为该变量保留增长余量，不能通过取消所有安全上限处理。
+发现默认不进入 SCAN_PATH 根目录下的 `local-imports`、`sources`、`.archive-staging` 和 `.trash`；可用
+`SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES` 提供逗号分隔的完整替代清单，空值表示不排除。该规则只匹配根目录
+的直接子目录，不会排除更深层同名目录；来源核对也不会把排除目录内的既有 inventory 误报为 `MISSING`。
 
 ## 本地开发
 

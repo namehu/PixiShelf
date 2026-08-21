@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES } from '@pixishelf/job-executors'
 
 const positiveInteger = (fallback: number, minimum: number, maximum: number) =>
   z.coerce.number().int().min(minimum).max(maximum).default(fallback)
@@ -7,6 +8,36 @@ const environmentBoolean = z
   .enum(['true', 'false', '1', '0'])
   .default('false')
   .transform((value) => value === 'true' || value === '1')
+
+const excludedRootDirectoryList = z
+  .string()
+  .default(DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES.join(','))
+  .transform((value, context) => {
+    const directories = [
+      ...new Set(
+        value
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      )
+    ]
+    const invalid =
+      directories.length > 100 ||
+      directories.some(
+        (item) =>
+          item.length > 255 ||
+          item === '.' ||
+          item === '..' ||
+          item.includes('/') ||
+          item.includes('\\') ||
+          item.includes('\0')
+      )
+    if (invalid) {
+      context.addIssue({ code: 'custom', message: 'Excluded scan root directories must be safe directory names' })
+      return z.NEVER
+    }
+    return directories
+  })
 
 const workerConfigSchema = z
   .object({
@@ -24,6 +55,7 @@ const workerConfigSchema = z
     KEYFRAME_FFMPEG_THREADS: positiveInteger(2, 1, 8),
     ARCHIVE_MAX_MEDIA_BYTES: positiveInteger(512 * 1024 * 1024, 1, 2_147_483_647),
     SCAN_DISCOVERY_MAX_ENTRIES: positiveInteger(10_000_000, 1, 100_000_000),
+    SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES: excludedRootDirectoryList,
     WORKER_ID: z.string().trim().min(1).max(120).optional(),
     WORKER_SERVICE_VERSION: z.string().trim().min(1).max(50).default('0.1.0'),
     WORKER_HEALTH_HOST: z.string().trim().min(1).default('0.0.0.0'),
@@ -65,6 +97,7 @@ export interface WorkerConfig {
   keyframeFfmpegThreads: number
   archiveMaxMediaBytes: number
   scanDiscoveryMaxEntries: number
+  scanDiscoveryExcludedRootDirectories: readonly string[]
   workerId?: string
   serviceVersion: string
   healthHost: string
@@ -104,6 +137,7 @@ export function parseWorkerConfig(environment: NodeJS.ProcessEnv): WorkerConfig 
     keyframeFfmpegThreads: parsed.KEYFRAME_FFMPEG_THREADS,
     archiveMaxMediaBytes: parsed.ARCHIVE_MAX_MEDIA_BYTES,
     scanDiscoveryMaxEntries: parsed.SCAN_DISCOVERY_MAX_ENTRIES,
+    scanDiscoveryExcludedRootDirectories: parsed.SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES,
     ...(parsed.WORKER_ID ? { workerId: parsed.WORKER_ID } : {}),
     serviceVersion: parsed.WORKER_SERVICE_VERSION,
     healthHost: parsed.WORKER_HEALTH_HOST,

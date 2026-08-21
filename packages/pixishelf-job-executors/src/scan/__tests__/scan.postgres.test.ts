@@ -880,7 +880,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         root: safeRoot,
         run,
         now: clock.now(),
-        limits: oneItemPages.config.limits as Required<typeof oneItemPages.config.limits>
+        limits: { ...DEFAULT_SCAN_LIMITS, ...oneItemPages.config.limits }
       })
     ).rejects.toThrow('crash after first discovery page')
     expect(await client().pixivMetadataInventory.count()).toBe(1)
@@ -1397,6 +1397,50 @@ describePostgres('scan executor PostgreSQL integration', () => {
     ).toBe(missingCount)
   })
 
+  it('keeps excluded root directories out of audit discovery and MISSING results', async () => {
+    const root = await fixtureRoot()
+    const includedExternalId = nextNumericId()
+    const excludedExternalId = nextNumericId()
+    const includedPath = `pixiv/${includedExternalId}-meta.json`
+    const excludedPath = `sources/provider/${excludedExternalId}-meta.json`
+    for (const [relativePath, externalId] of [
+      [includedPath, includedExternalId],
+      [excludedPath, excludedExternalId]
+    ] as const) {
+      await fs.mkdir(path.dirname(path.join(root, relativePath)), { recursive: true })
+      await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
+    }
+    await seedReadyAuditState(root)
+    const excludedMissing = await seedMissingAuditInventory(`local-imports/absent/${nextNumericId()}-meta.json`)
+
+    const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+    const jobId = await seedJob('SCAN', payload, 1, 2)
+    const repository = queue()
+    const claimed = await claim(repository, 'audit-excluded-roots')
+    const baseDependencies = dependencies(root)
+    await executeConsistencyAudit(context(repository, claimed, payload), {
+      ...baseDependencies,
+      config: {
+        ...baseDependencies.config,
+        discoveryExcludedRootDirectories: ['sources', 'local-imports']
+      }
+    })
+
+    const run = await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })
+    expect(run).toMatchObject({ status: 'COMPLETED', inputCount: 1, auditNewInputs: 1, missingInputs: 0 })
+    expect(
+      await client().scanRunMetadataInput.findMany({
+        where: { scanRunId: run.id },
+        select: { relativePath: true }
+      })
+    ).toEqual([{ relativePath: includedPath }])
+    expect(
+      await client().pixivSourceAuditItem.findFirst({
+        where: { scanRunId: run.id, inventoryId: excludedMissing.id }
+      })
+    ).toBeNull()
+  })
+
   it('rebuilds an empty audit snapshot when the paused job is resumed after files appear', async () => {
     const root = await fixtureRoot()
     await seedReadyAuditState(root)
@@ -1707,7 +1751,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
           ...baseDependencies.config,
           limits: {
             ...baseDependencies.config.limits!,
-            ...(scenario === 'LIMIT' ? { maxEntries: 1 } : {})
+            ...(scenario === 'LIMIT' ? { maxDiscoveryEntries: 1 } : {})
           }
         }
       })

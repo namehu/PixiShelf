@@ -258,6 +258,9 @@ hash 和媒体收集不放在长事务中。
 安全上限区分“遍历过的全部目录项”和“metadata 输入行”。前者包含媒体文件，由 Worker 的
 `SCAN_DISCOVERY_MAX_ENTRIES` 控制，默认 1000 万且可在 1–100000000 内按生产存储规模调整；后者继续使用 10 万
 行上限。不能用 metadata 行上限限制媒体遍历总数，否则万级作品库会在 metadata 数仍安全时提前失败。
+Pixiv 发现同时跳过根目录直属的本地导入和归档保留目录，默认清单为 `local-imports,sources,.archive-staging,.trash`；
+Worker 环境变量 `SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES` 可替换清单。排除只作用于根目录直接子项，不改变
+更深层同名路径；一致性核对的 `MISSING` 查询使用相同排除边界。
 
 ### 5.3 核对算法
 

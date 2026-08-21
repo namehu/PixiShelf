@@ -16,6 +16,7 @@ export interface ScanExecutorLimits {
 export interface ScanExecutorConfig {
   scanRoot: string
   localImportDirectory?: string
+  discoveryExcludedRootDirectories?: readonly string[]
   limits?: Partial<ScanExecutorLimits>
   retryDelayMs?: number
 }
@@ -72,3 +73,10 @@ export const DEFAULT_SCAN_LIMITS: ScanExecutorLimits = Object.freeze({
   maxArchiveMediaBytes: 4 * 1024 * 1024 * 1024,
   maxFullSweepReferences: 100_000
 })
+
+export const DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES = Object.freeze([
+  'local-imports',
+  'sources',
+  '.archive-staging',
+  '.trash'
+])

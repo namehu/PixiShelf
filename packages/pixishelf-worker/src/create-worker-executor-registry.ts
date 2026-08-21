@@ -30,6 +30,7 @@ type ExecutorWorkerConfig = Pick<
   | 'derivedMediaRoot'
   | 'archiveMaxMediaBytes'
   | 'scanDiscoveryMaxEntries'
+  | 'scanDiscoveryExcludedRootDirectories'
   | 'ffmpegPath'
   | 'ffprobePath'
   | 'keyframeFfmpegThreads'
@@ -74,6 +75,7 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
     database: input.database,
     config: {
       scanRoot: resolved.sourceMediaRoot,
+      discoveryExcludedRootDirectories: resolved.scanDiscoveryExcludedRootDirectories,
       limits: { maxDiscoveryEntries: resolved.scanDiscoveryMaxEntries }
     }
   })) {
@@ -139,6 +141,7 @@ export function resolveExecutorWorkerConfiguration(config: ExecutorWorkerConfig)
     archiveRoot: config.archiveRoot,
     archiveMaxMediaBytes: config.archiveMaxMediaBytes,
     scanDiscoveryMaxEntries: config.scanDiscoveryMaxEntries,
+    scanDiscoveryExcludedRootDirectories: config.scanDiscoveryExcludedRootDirectories,
     posterStorageRoot: path.join(config.derivedMediaRoot, 'video', 'posters'),
     chapterPreviewRoot: path.join(config.derivedMediaRoot, 'video', 'chapters'),
     keyframeStorageRoot: path.join(config.derivedMediaRoot, 'video', 'keyframes'),

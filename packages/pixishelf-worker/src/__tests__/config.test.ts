@@ -17,6 +17,7 @@ describe('worker config', () => {
       keyframeFfmpegThreads: 2,
       archiveMaxMediaBytes: 512 * 1024 * 1024,
       scanDiscoveryMaxEntries: 10_000_000,
+      scanDiscoveryExcludedRootDirectories: ['local-imports', 'sources', '.archive-staging', '.trash'],
       healthPort: 3011,
       heartbeatIntervalMs: 30_000,
       dispatchEnabled: false,
@@ -49,6 +50,9 @@ describe('worker config', () => {
     expect(() => parseWorkerConfig({ ...requiredEnvironment, ARCHIVE_MAX_MEDIA_BYTES: '0' })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, SCAN_DISCOVERY_MAX_ENTRIES: '100000001' })).toThrow()
     expect(() =>
+      parseWorkerConfig({ ...requiredEnvironment, SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES: '../sources' })
+    ).toThrow()
+    expect(() =>
       parseWorkerConfig({
         ...requiredEnvironment,
         WORKER_JOB_LEASE_DURATION_MS: '20000',
@@ -74,9 +78,20 @@ describe('worker config', () => {
   })
 
   it('allows the Pixiv discovery traversal limit to be tuned independently', () => {
-    expect(parseWorkerConfig({ ...requiredEnvironment, SCAN_DISCOVERY_MAX_ENTRIES: '25000000' })).toMatchObject({
-      scanDiscoveryMaxEntries: 25_000_000
+    expect(
+      parseWorkerConfig({
+        ...requiredEnvironment,
+        SCAN_DISCOVERY_MAX_ENTRIES: '25000000',
+        SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES: 'incoming, cache,incoming'
+      })
+    ).toMatchObject({
+      scanDiscoveryMaxEntries: 25_000_000,
+      scanDiscoveryExcludedRootDirectories: ['incoming', 'cache']
     })
+    expect(
+      parseWorkerConfig({ ...requiredEnvironment, SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES: '' })
+        .scanDiscoveryExcludedRootDirectories
+    ).toEqual([])
   })
 
   it('defaults healthcheck mode to ready', () => {

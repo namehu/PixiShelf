@@ -66,5 +66,11 @@ describe('scan executor registrations', () => {
         config: { scanRoot: 'D:/scan', limits: { maxDiscoveryEntries: 100_000_001 } }
       })
     ).toThrow('maxDiscoveryEntries')
+    expect(() =>
+      createScanExecutorRegistrations({
+        database: {} as never,
+        config: { scanRoot: 'D:/scan', discoveryExcludedRootDirectories: ['../sources'] }
+      })
+    ).toThrow('discoveryExcludedRootDirectories')
   })
 })

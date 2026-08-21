@@ -35,6 +35,11 @@ export interface ScanDiscoveryLimits {
   maxArchiveMediaBytes?: number
 }
 
+interface MetadataDiscoveryOptions {
+  onEntry?: () => void
+  excludedRootDirectories?: readonly string[]
+}
+
 export interface FrozenMetadataCandidate extends MetadataCandidate {
   contentHash: string
   state: StableFileState
@@ -66,9 +71,9 @@ export async function* discoverMetadataCandidatePages(
   root: SafeScanRoot,
   limits: ScanDiscoveryLimits,
   signal: AbortSignal,
-  onEntry?: () => void
+  options: MetadataDiscoveryOptions = {}
 ): AsyncGenerator<FrozenMetadataCandidate[]> {
-  for await (const page of discoverMetadataStatCandidatePages(root, limits, signal, onEntry)) {
+  for await (const page of discoverMetadataStatCandidatePages(root, limits, signal, options)) {
     throwIfAborted(signal)
     yield await mapBounded(page, limits.concurrency ?? 1, signal, async (candidate) => {
       const hashed = await hashStableFile({
@@ -85,7 +90,7 @@ export async function* discoverMetadataStatCandidatePages(
   root: SafeScanRoot,
   limits: ScanDiscoveryLimits,
   signal: AbortSignal,
-  onEntry?: () => void
+  options: MetadataDiscoveryOptions = {}
 ): AsyncGenerator<StattedMetadataCandidate[]> {
   const candidates: MetadataCandidate[] = []
   for await (const page of walkSafeFiles(root, '', {
@@ -94,7 +99,8 @@ export async function* discoverMetadataStatCandidatePages(
     maxEntries: limits.maxDiscoveryEntries,
     signal,
     include: (relativePath) => metadataSuffix.test(relativePath),
-    ...(onEntry ? { onEntry } : {})
+    ...(options.onEntry ? { onEntry: options.onEntry } : {}),
+    ...(options.excludedRootDirectories ? { excludedRootDirectories: options.excludedRootDirectories } : {})
   })) {
     for (const item of page) {
       const candidate = metadataCandidateFromPath(item)
@@ -117,7 +123,7 @@ export async function* discoverAuditMetadataStatCandidatePages(
   root: SafeScanRoot,
   limits: ScanDiscoveryLimits,
   signal: AbortSignal,
-  onEntry?: () => void
+  options: MetadataDiscoveryOptions = {}
 ): AsyncGenerator<StattedMetadataCandidate[]> {
   for await (const page of walkSafeFiles(root, '', {
     pageSize: limits.pageSize,
@@ -125,7 +131,8 @@ export async function* discoverAuditMetadataStatCandidatePages(
     maxEntries: limits.maxDiscoveryEntries,
     signal,
     include: (relativePath) => metadataSuffix.test(relativePath),
-    ...(onEntry ? { onEntry } : {})
+    ...(options.onEntry ? { onEntry: options.onEntry } : {}),
+    ...(options.excludedRootDirectories ? { excludedRootDirectories: options.excludedRootDirectories } : {})
   })) {
     throwIfAborted(signal)
     const candidates = page.flatMap((item) => {

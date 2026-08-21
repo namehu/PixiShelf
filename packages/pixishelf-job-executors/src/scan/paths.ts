@@ -22,6 +22,7 @@ export interface WalkSafeFilesOptions {
   signal: AbortSignal
   include: (relativePath: string) => boolean
   onEntry?: () => void
+  excludedRootDirectories?: readonly string[]
 }
 
 export async function resolveSafeScanRoot(configuredRoot: string): Promise<SafeScanRoot> {
@@ -88,6 +89,7 @@ export async function* walkSafeFiles(
   options: WalkSafeFilesOptions
 ): AsyncGenerator<SafeScanPath[]> {
   validateWalkOptions(options)
+  const excludedRootDirectories = new Set(options.excludedRootDirectories ?? [])
   const start = relativeDirectory
     ? await resolveSafeExistingPath(root, relativeDirectory, 'directory')
     : {
@@ -131,6 +133,7 @@ export async function* walkSafeFiles(
         throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Scan discovery encountered a symbolic link')
       }
       if (metadata.isDirectory()) {
+        if (depth === 0 && excludedRootDirectories.has(entryName)) continue
         yield* visit({ absolutePath, relativePath }, depth + 1)
         continue
       }
@@ -198,6 +201,19 @@ function validateWalkOptions(options: WalkSafeFilesOptions): void {
   ] as const) {
     if (!Number.isSafeInteger(value) || value < 1) {
       throw new ScanExecutorError('CONFIGURATION_INVALID', `${name} must be a positive integer`)
+    }
+  }
+  for (const directoryName of options.excludedRootDirectories ?? []) {
+    if (
+      !directoryName ||
+      directoryName !== directoryName.trim() ||
+      directoryName === '.' ||
+      directoryName === '..' ||
+      directoryName.includes('/') ||
+      directoryName.includes('\\') ||
+      directoryName.includes('\0')
+    ) {
+      throw new ScanExecutorError('CONFIGURATION_INVALID', 'Excluded scan root directory name is invalid')
     }
   }
 }

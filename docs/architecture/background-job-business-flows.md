@@ -286,6 +286,8 @@ flowchart TD
 INCREMENTAL 的目录发现会统计经过的所有目录项，包括媒体文件。Worker 默认用
 `SCAN_DISCOVERY_MAX_ENTRIES=10000000` 约束完整遍历；metadata 候选/冻结行另受 100000 行限制。两个上限必须
 分开理解：前者防止异常目录无限遍历，后者限制单次数据库快照规模。
+遍历默认不进入 SCAN_PATH 根目录直属的 `local-imports`、`sources`、`.archive-staging` 和 `.trash`，避免把本地
+导入及归档文件纳入 Pixiv 发现成本；`SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES` 可提供完整替代清单。
 
 ### 来源一致性核对
 

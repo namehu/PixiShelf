@@ -21,6 +21,7 @@ import type {
   ScanExecutorLimits,
   ScanTransaction
 } from './types.ts'
+import { DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES } from './types.ts'
 
 type AuditContext = ExecutionContext<ScanV2Payload, EnqueuedChildJob>
 type AuditDifferenceKind = 'NEW' | 'CHANGED' | 'MISSING' | 'INVALID' | 'IDENTITY_CONFLICT' | 'UNCHANGED'
@@ -62,6 +63,8 @@ export async function executeConsistencyAudit(
 ): Promise<JobExecutionOutcome<ConsistencyAuditResult>> {
   const now = dependencies.now ?? (() => new Date())
   const limits = { ...defaultAuditLimits(), ...dependencies.config.limits }
+  const excludedRootDirectories =
+    dependencies.config.discoveryExcludedRootDirectories ?? DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES
   let runId: string | null = null
   try {
     const root = await resolveSafeScanRoot(dependencies.config.scanRoot)
@@ -78,7 +81,16 @@ export async function executeConsistencyAudit(
     }
     let run = await startOrResumeAuditRun({ context, database: dependencies.database, now: now() })
     runId = run.id
-    run = await freezeAuditSnapshot({ context, dependencies, root, run, inventoryState, limits, now: now() })
+    run = await freezeAuditSnapshot({
+      context,
+      dependencies,
+      root,
+      run,
+      inventoryState,
+      limits,
+      excludedRootDirectories,
+      now: now()
+    })
     const snapshot = await verifyAuditSnapshot(dependencies.database, run, limits)
     if (snapshot.count === 0) {
       throw new ScanExecutorError('EMPTY_CONSISTENCY_AUDIT', 'Consistency audit discovered no metadata inputs')
@@ -165,6 +177,7 @@ export async function executeConsistencyAudit(
       baselineGeneration: run.inventoryBaselineGeneration!,
       maxMissing: limits.maxFullSweepReferences,
       limits,
+      excludedRootDirectories,
       now: now()
     })
   } catch (error) {
@@ -246,6 +259,7 @@ async function freezeAuditSnapshot(input: {
     rootInode: bigint | null
   }
   limits: ScanExecutorLimits
+  excludedRootDirectories: readonly string[]
   now: Date
 }): Promise<ScanRunRecord> {
   if (input.run.inputFrozenAt) return input.run
@@ -295,14 +309,12 @@ async function freezeAuditSnapshot(input: {
   const started = performance.now()
   let ordinal = 0
   let walkedEntries = 0
-  for await (const page of discoverAuditMetadataStatCandidatePages(
-    input.root,
-    input.limits,
-    input.context.signal,
-    () => {
+  for await (const page of discoverAuditMetadataStatCandidatePages(input.root, input.limits, input.context.signal, {
+    onEntry: () => {
       walkedEntries += 1
-    }
-  )) {
+    },
+    excludedRootDirectories: input.excludedRootDirectories
+  })) {
     throwIfAborted(input.context.signal)
     const rows = page.map((candidate) => ({
       scanRunId: input.run.id,
@@ -323,7 +335,7 @@ async function freezeAuditSnapshot(input: {
       })
     }
   }
-  if (walkedEntries >= input.limits.maxEntries) {
+  if (walkedEntries > input.limits.maxDiscoveryEntries) {
     throw new ScanExecutorError(
       'AUDIT_SAFETY_LIMIT_EXCEEDED',
       'Consistency audit reached the configured traversal safety limit'
@@ -827,6 +839,7 @@ async function finalizeAuditSuccess(input: {
   baselineGeneration: number
   maxMissing: number
   limits: ScanExecutorLimits
+  excludedRootDirectories: readonly string[]
   now: Date
 }): Promise<JobExecutionOutcome<ConsistencyAuditResult>> {
   return input.context.finalizeInTransaction<ScanTransaction & QueueSqlExecutor>(async (scope) => {
@@ -860,7 +873,14 @@ async function finalizeAuditSuccess(input: {
       where: {
         baselineGeneration: input.baselineGeneration,
         createdAt: { lte: currentRun.inputFrozenAt! },
-        OR: [{ lastSeenAuditRunId: null }, { lastSeenAuditRunId: { not: input.run.id } }]
+        OR: [{ lastSeenAuditRunId: null }, { lastSeenAuditRunId: { not: input.run.id } }],
+        ...(input.excludedRootDirectories.length > 0
+          ? {
+              NOT: input.excludedRootDirectories.map((directoryName) => ({
+                relativePath: { startsWith: `${directoryName}/` }
+              }))
+            }
+          : {})
       },
       orderBy: { relativePath: 'asc' },
       take: input.maxMissing + 1

@@ -26,6 +26,42 @@ afterEach(async () => {
 })
 
 describe('scan discovery', () => {
+  it('skips configured root directories without excluding the same name when nested', async () => {
+    const directory = await fixtureRoot()
+    for (const [relativePath, externalId] of [
+      ['local-imports/work', '10'],
+      ['sources/provider', '11'],
+      ['.archive-staging/task', '12'],
+      ['.trash/archive', '13'],
+      ['artist/sources/work', '14'],
+      ['pixiv/work', '15']
+    ] as const) {
+      const target = path.join(directory, relativePath)
+      await fs.mkdir(target, { recursive: true })
+      await fs.writeFile(path.join(target, `${externalId}-meta.json`), '{}')
+    }
+    const root = await resolveSafeScanRoot(directory)
+    const options = {
+      excludedRootDirectories: ['local-imports', 'sources', '.archive-staging', '.trash']
+    }
+
+    const incremental = (
+      await collectPages(discoverMetadataCandidatePages(root, limits, new AbortController().signal, options))
+    ).flat()
+    const audit = (
+      await collectPages(discoverAuditMetadataStatCandidatePages(root, limits, new AbortController().signal, options))
+    ).flat()
+
+    expect(incremental.map((item) => item.relativePath)).toEqual([
+      'artist/sources/work/14-meta.json',
+      'pixiv/work/15-meta.json'
+    ])
+    expect(audit.map((item) => item.relativePath)).toEqual([
+      'artist/sources/work/14-meta.json',
+      'pixiv/work/15-meta.json'
+    ])
+  })
+
   it('does not apply the frozen metadata row limit to visited media entries', async () => {
     const directory = await fixtureRoot()
     const artwork = path.join(directory, 'artist', '42')
