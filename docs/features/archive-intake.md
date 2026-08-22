@@ -58,7 +58,9 @@ sources:
 
 所有原媒体、派生媒体、staging、发布、扫描、迁移、替换和维护写操作都在 `BACKGROUND_WRITER` 全局串行。`ARCHIVE_RESOLVE` 的 Executor 契约只访问解析所需的远端数据和数据库，不执行媒体目录写入；两个 lane 仍共用同一 Worker 进程和 `rw` 挂载，因此这是队列/capability 边界，不是操作系统权限隔离。数据库按 lane 的执行态唯一索引与 `lane/archive-resolve`、`lane/background-writer` 资源租约共同防止滚动部署或误启动第二个 Worker 时出现同 lane 双执行。
 
-生产 capability inventory 固定为 20 项 v1，并同时校验 job type、definition version 和 lane。READY 证明预检通过，capability audit 证明 Registry 精确匹配；两者都通过后才可开放 claim。
+生产 capability inventory 固定为 20 个 job type；`SCAN` 支持 v1/v2/v3，其余 19 类只支持 v1，共 22 个
+type/version 组合，并同时校验 job type、definition version 和 lane。READY 证明预检通过，capability audit
+证明 Registry 精确匹配；两者都通过后才可开放 claim。`SCAN@v2/v3` 不改变归档收件任务及其 lane。
 
 ## 归档维护与保留
 

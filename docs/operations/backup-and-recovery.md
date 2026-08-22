@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 单实例的备份集合、恢复目标、验证演练和灾难恢复边界
-last-verified: 2026-08-19
+last-verified: 2026-08-20
 sources:
   - build/docker-compose.deploy.yml
   - build/.env.example
@@ -70,6 +70,10 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 5. 确认没有进程继续写数据库、原媒体或派生媒体；
 6. 在停写窗口内创建数据库 dump 和两个媒体快照；
 7. 验证各备份可读后，才启动新版本。
+
+`SCAN@v3 / AUDIT_APPLY` 是正式领域写操作。建立检查点前必须等待它完成，或通过任务控制入口完成取消收口；不能
+只把 SystemJob 改成终态。数据库备份需要同时保留父核对、apply ScanRun、逐项结果、Source Reference、Source
+Snapshot 和 inventory 状态，媒体快照则必须与这些发布结果属于同一恢复点。
 
 从仓库根目录停止 Compose 写入者：
 
@@ -168,7 +172,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 7. 将数据库恢复到新建的空库或新实例；
 8. 恢复匹配版本的配置和不可变镜像，不混用旧数据库与不兼容的新应用；
 9. scheduler 保持关闭，两枚 Dispatcher 开关先保持 `false/false`；
-10. 验证 migration、登录、目录查询、原图、视频、派生媒体、任务状态、两个 lane 与 20 项 capability；
+10. 验证 migration、登录、目录查询、原图、视频、派生媒体、任务状态、两个 lane 与当前 capability inventory；
 11. 再按[部署基线](./deployment.md)明确启动正确消费者和 scheduler。
 
 正式数据库恢复禁止对仍有应用连接的生产库直接执行 `pg_restore --clean`。推荐恢复到新建空库并显式切换连接；数据库名、所有者、扩展和权限必须与目标版本要求一致。
@@ -182,7 +186,8 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 - `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
 - 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
 - App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
-- 新 Worker READY、两个 lane、20 项 capability 和同 lane 单执行证据；
+- 新 Worker READY、两个 lane、20 个 job type / 22 个 type-version 组合（`SCAN` v1/v2/v3，其余 v1）和同
+  lane 单执行证据；
 - 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
 
 旧 `ArchivePreviewSession` 不要求在切换中转换；它由 30 天收件保留任务过期清理。收件历史清理不是备份策略，也不会删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision` 或媒体。

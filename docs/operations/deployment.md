@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前本地运行、生产 Compose 拓扑、升级顺序、验证与回滚入口
-last-verified: 2026-08-19
+last-verified: 2026-08-20
 sources:
   - build/docker-compose.dev.yml
   - build/docker-compose.deploy.yml
@@ -32,7 +32,7 @@ sources:
 | ----------- | -------------------------- | ------------------------------------------------------- | ------------------ |
 | `postgres`  | 数据库读写                 | 领域数据、认证、队列、租约和 migration 历史             | 必需               |
 | `app`       | 数据库读写；原媒体默认只读 | Next.js Web/API、认证、任务控制面；启动时部署 migration | 必需               |
-| `worker`    | 数据库和媒体读写           | 单进程双 lane Dispatcher 与全部 20 项 v1 capability     | 必需，固定一个服务 |
+| `worker`    | 数据库和媒体读写           | 单进程双 lane；20 个 job type，SCAN v1/v2/v3、其余仅 v1 | 必需，固定一个服务 |
 | `scheduler` | 无数据库权限               | 使用内部 Token 调用 App 的 scheduler tick               | 按需启用           |
 | `imgproxy`  | 原媒体和派生媒体只读       | 图片缩放、格式处理和缓存                                | 必需               |
 
@@ -145,7 +145,7 @@ docker ps -a --filter label=com.docker.compose.service=archive-worker \
 pnpm --filter @pixishelf/next archive:lane-cutover-audit
 ```
 
-退出码 `0` 才能继续；退出码 `2` 表示存在业务或消费者阻断项，退出码 `1` 表示审计本身失败。不能把等待中的兼容 v1 任务全部取消：`PENDING`、`PAUSED`、`RETRY_WAIT` 可以保留，但其 type/version 必须在新 Worker 的 20 项 capability 内。专用审计只检查数据库状态；上一步“旧 `archive-worker` 容器为零”的结果必须单独记录。
+退出码 `0` 才能继续；退出码 `2` 表示存在业务或消费者阻断项，退出码 `1` 表示审计本身失败。不能把等待中的兼容任务全部取消：`PENDING`、`PAUSED`、`RETRY_WAIT` 可以保留，但其 type/version 必须在新 Worker 的 capability inventory 内。当前 inventory 为 20 个 job type、22 个 type/version 组合，其中 `SCAN` 支持 v1/v2/v3、其余 19 类只支持 v1。专用审计只检查数据库状态；上一步“旧 `archive-worker` 容器为零”的结果必须单独记录。
 
 审计通过后，在同一个停写窗口建立 PostgreSQL、原媒体、派生媒体、配置和旧/新镜像 digest 的一致性检查点。lane migration 会拒绝 `RUNNING/PAUSING/CANCELLING` 任务或未过期的 `global/background-worker` lease，并删除已经过期的旧全局 lease；它不是停止并发写入者的替代品。
 
@@ -177,7 +177,11 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml logs --tail=200 worker
 ```
 
-READY 必须显示两个 lane 都可领取，capability audit 必须精确报告 20 项 v1 及正确 lane；`/livez` 只能证明进程存活，不能替代上述门禁。暗启动通过后再启动 App，仍保持 `false/false` 完成登录和只读媒体抽样。
+READY 必须显示两个 lane 都可领取，capability audit 必须精确报告 20 个 job type、22 个 type/version 组合、
+`SCAN` v1/v2/v3、其余 v1 及正确 lane；`/livez` 只能证明进程存活，不能替代上述门禁。`SCAN@v3` 把
+`AUDIT_APPLY` 与只读 `SCAN@v2` 隔离：滚动部署期间旧 v2 Worker 不会领取 v3 写任务，但发布门禁仍要求新
+Worker 明确报告 v1/v2/v3 后才能开放 App 写入口。暗启动通过后再启动 App，仍保持 `false/false` 完成登录和
+只读媒体抽样。
 
 ```bash
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d app
@@ -198,7 +202,8 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 
 - App、PostgreSQL、ImgProxy 正常；
 - 只有一个当前 Worker 为 READY；
-- Worker 报告两个 lane READY，且 capability 精确为 20 项 v1；
+- Worker 报告两个 lane READY，且 capability 精确为 20 个 job type / 22 个 type-version 组合（`SCAN`
+  v1/v2/v3，其余 v1）；
 - scheduler 的启用状态符合预期；
 - 没有异常积压、重复 claim、媒体 404 或 migration 漂移。
 
@@ -222,7 +227,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 4. 保存 App、Worker、PostgreSQL 日志和任务状态；
 5. 不在存在活动任务时强制回滚 Schema。
 
-lane migration 后，服务级回滚只能使用兼容新 schema、20 项 capability 和双 lane 的 App/Worker，或以前向修复继续。旧消费者不能作为应用级回滚目标；需要回到旧消费者时，必须恢复切换前同一检查点的数据库、原媒体、派生媒体、配置和镜像。
+lane migration 后，服务级回滚只能使用兼容新 schema、当前 capability inventory 和双 lane 的 App/Worker，或以前向修复继续。旧消费者不能作为应用级回滚目标；需要回到旧消费者时，必须恢复切换前同一检查点的数据库、原媒体、派生媒体、配置和镜像。
 
 恢复时必须使用同一时间点的数据库和媒体快照，不能只恢复其中一侧。任何删除数据库卷、覆盖媒体目录或回滚 migration 的操作都必须单独确认目标与备份，不属于日常故障排查步骤。
 

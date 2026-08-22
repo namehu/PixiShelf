@@ -16,6 +16,8 @@ describe('worker config', () => {
       ffprobePath: 'ffprobe',
       keyframeFfmpegThreads: 2,
       archiveMaxMediaBytes: 512 * 1024 * 1024,
+      scanDiscoveryMaxEntries: 10_000_000,
+      scanDiscoveryExcludedRootDirectories: ['local-imports', 'sources', '.archive-staging', '.trash'],
       healthPort: 3011,
       heartbeatIntervalMs: 30_000,
       dispatchEnabled: false,
@@ -46,6 +48,10 @@ describe('worker config', () => {
     expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_SERVICE_VERSION: 'x'.repeat(51) })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, KEYFRAME_FFMPEG_THREADS: '9' })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, ARCHIVE_MAX_MEDIA_BYTES: '0' })).toThrow()
+    expect(() => parseWorkerConfig({ ...requiredEnvironment, SCAN_DISCOVERY_MAX_ENTRIES: '100000001' })).toThrow()
+    expect(() =>
+      parseWorkerConfig({ ...requiredEnvironment, SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES: '../sources' })
+    ).toThrow()
     expect(() =>
       parseWorkerConfig({
         ...requiredEnvironment,
@@ -69,6 +75,23 @@ describe('worker config', () => {
   it('parses the dispatch opt-in explicitly', () => {
     expect(parseWorkerConfig({ ...requiredEnvironment, WORKER_DISPATCH_ENABLED: 'true' }).dispatchEnabled).toBe(true)
     expect(parseWorkerConfig({ ...requiredEnvironment, WORKER_DISPATCH_ENABLED: '0' }).dispatchEnabled).toBe(false)
+  })
+
+  it('allows the Pixiv discovery traversal limit to be tuned independently', () => {
+    expect(
+      parseWorkerConfig({
+        ...requiredEnvironment,
+        SCAN_DISCOVERY_MAX_ENTRIES: '25000000',
+        SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES: 'incoming, cache,incoming'
+      })
+    ).toMatchObject({
+      scanDiscoveryMaxEntries: 25_000_000,
+      scanDiscoveryExcludedRootDirectories: ['incoming', 'cache']
+    })
+    expect(
+      parseWorkerConfig({ ...requiredEnvironment, SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES: '' })
+        .scanDiscoveryExcludedRootDirectories
+    ).toEqual([])
   })
 
   it('defaults healthcheck mode to ready', () => {

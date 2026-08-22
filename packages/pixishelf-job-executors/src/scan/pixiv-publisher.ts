@@ -13,9 +13,20 @@ export interface PixivPublishInput {
   checkpointKey: string
   metadataRelativePath: string
   metadata: ScanMetadata
+  metadataContentHash: string
   media: readonly DiscoveredMediaFile[]
   existingPolicy: ExistingArtworkPolicy
   now: Date
+  expectedIdentity?: PixivPublishIdentityExpectation
+  manageCheckpoint?: boolean
+}
+
+export interface PixivPublishIdentityExpectation {
+  expectedExternalId: string
+  expectedInventoryId: string | null
+  expectedExternalRefId: string | null
+  expectedArtworkId: number | null
+  expectedProcessedContentHash: string | null
 }
 
 export async function publishPixivArtwork(input: PixivPublishInput) {
@@ -29,14 +40,26 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     return {
       status: existingItem.status,
       newImages: existingItem.newImageCount,
-      artworkId: null as number | null
+      artworkId: existingItem.resultArtworkId
     }
   }
 
   const sourceRef = await transaction.artworkExternalRef.findUnique({
     where: { providerKey_externalId: { providerKey: 'pixiv', externalId: metadata.id } },
-    include: { artwork: { select: { id: true } } }
+    include: {
+      artwork: {
+        select: {
+          id: true,
+          metaSource: true,
+          externalRefs: { where: { providerKey: 'pixiv' }, select: { id: true }, take: 2 }
+        }
+      }
+    }
   })
+
+  if (input.expectedIdentity) {
+    await assertExpectedIdentity({ ...input, expectedIdentity: input.expectedIdentity }, sourceRef)
+  }
 
   // existingPolicy=SKIP 代表“仅跟踪发现”，用于扫描作业希望不改历史数据的场景；一旦发现已有 ref，仅更新 lastSeenScanRunId。
   if (sourceRef && input.existingPolicy === 'SKIP') {
@@ -44,12 +67,14 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       where: { id: sourceRef.id },
       data: { lastSeenScanRunId: input.runId }
     })
-    await writeItem(input, {
-      artworkId: sourceRef.artwork.id,
-      status: 'SKIPPED',
-      action: 'SKIP_EXISTING',
-      newImageCount: 0
-    })
+    if (input.manageCheckpoint !== false) {
+      await writeItem(input, {
+        artworkId: sourceRef.artwork.id,
+        status: 'SKIPPED',
+        action: 'SKIP_EXISTING',
+        newImageCount: 0
+      })
+    }
     return { status: 'SKIPPED' as const, newImages: 0, artworkId: sourceRef.artwork.id }
   }
 
@@ -125,15 +150,37 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       externalId: metadata.id,
       canonicalUrl: metadata.url ?? `https://www.pixiv.net/artworks/${metadata.id}`,
       locator: { artworkId: metadata.id },
+      metadataHash: input.metadataContentHash,
       lastSeenScanRunId: input.runId,
       fetchedAt: input.now
     },
     update: {
       canonicalUrl: metadata.url ?? `https://www.pixiv.net/artworks/${metadata.id}`,
       locator: { artworkId: metadata.id },
+      metadataHash: input.metadataContentHash,
       lastSeenScanRunId: input.runId,
       fetchedAt: input.now
     }
+  })
+  const normalizedMetadata = normalizedPixivMetadata(metadata)
+  await transaction.artworkSourceSnapshot.upsert({
+    where: {
+      externalRefId_metadataHash: { externalRefId: ref.id, metadataHash: input.metadataContentHash }
+    },
+    create: {
+      externalRefId: ref.id,
+      providerSchemaVersion: 1,
+      normalizedMetadata: toInputJson(normalizedMetadata),
+      rawMetadata: toInputJson(
+        metadata.rawMetadataJson ?? {
+          sourceFormat: 'txt',
+          normalizedMetadata
+        }
+      ),
+      metadataHash: input.metadataContentHash,
+      fetchedAt: input.now
+    },
+    update: { fetchedAt: input.now }
   })
   if (metadata.rawMetadataJson !== null) {
     const raw = toInputJson(metadata.rawMetadataJson)
@@ -196,16 +243,119 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       newImageCount += 1
     }
   }
-  await writeItem(input, {
-    artworkId,
-    status: 'SUCCESS',
-    action: sourceRef ? 'UPDATE' : 'CREATE',
-    newImageCount
-  })
+  if (input.manageCheckpoint !== false) {
+    await writeItem(input, {
+      artworkId,
+      status: 'SUCCESS',
+      action: sourceRef ? 'UPDATE' : 'CREATE',
+      newImageCount
+    })
+  }
   return {
     status: 'SUCCESS' as const,
     newImages: newImageCount,
     artworkId
+  }
+}
+
+async function assertExpectedIdentity(
+  input: PixivPublishInput & { expectedIdentity: PixivPublishIdentityExpectation },
+  sourceRef: {
+    id: string
+    artworkId: number
+    artwork: { id: number; metaSource: string | null; externalRefs: Array<{ id: string }> }
+  } | null
+) {
+  const expected = input.expectedIdentity
+  if (input.metadata.id !== expected.expectedExternalId) {
+    throw new ScanExecutorError('STATE_CONFLICT', 'Pixiv metadata identity changed after the audit')
+  }
+  if (!expected.expectedInventoryId) {
+    throw new ScanExecutorError('STATE_CONFLICT', 'Pixiv inventory identity is missing from the audit')
+  }
+  const locked = expected.expectedExternalRefId
+    ? await input.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT inventory."id"
+        FROM "pixiv_metadata_inventory" AS inventory
+        JOIN "artwork_external_refs" AS source_ref
+          ON source_ref."id" = inventory."externalRefId"
+        JOIN "Artwork" AS artwork
+          ON artwork."id" = source_ref."artworkId"
+        WHERE inventory."id" = ${expected.expectedInventoryId}
+          AND inventory."relativePath" = ${input.metadataRelativePath}
+          AND inventory."externalId" = ${expected.expectedExternalId}
+          AND inventory."externalRefId" = ${expected.expectedExternalRefId}
+          AND inventory."processedContentHash" IS NOT DISTINCT FROM ${expected.expectedProcessedContentHash}
+          AND source_ref."providerKey" = 'pixiv'
+          AND source_ref."externalId" = ${expected.expectedExternalId}
+          AND source_ref."artworkId" = ${expected.expectedArtworkId}
+          AND artwork."metaSource" = ${input.metadataRelativePath}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM "artwork_external_refs" AS other_ref
+            WHERE other_ref."artworkId" = artwork."id"
+              AND other_ref."providerKey" = 'pixiv'
+              AND other_ref."id" <> source_ref."id"
+          )
+        FOR UPDATE OF inventory, source_ref, artwork
+      `)
+    : await input.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT inventory."id"
+        FROM "pixiv_metadata_inventory" AS inventory
+        WHERE inventory."id" = ${expected.expectedInventoryId}
+          AND inventory."relativePath" = ${input.metadataRelativePath}
+          AND inventory."externalId" = ${expected.expectedExternalId}
+          AND inventory."externalRefId" IS NULL
+          AND inventory."processedContentHash" IS NOT DISTINCT FROM ${expected.expectedProcessedContentHash}
+        FOR UPDATE OF inventory
+      `)
+  if (locked.length !== 1) {
+    throw new ScanExecutorError('STATE_CONFLICT', 'Pixiv source identity changed after the audit')
+  }
+  const inventory = await input.transaction.pixivMetadataInventory.findUnique({
+    where: { relativePath: input.metadataRelativePath },
+    select: { id: true, externalId: true, externalRefId: true, processedContentHash: true }
+  })
+  if (
+    inventory?.id !== expected.expectedInventoryId ||
+    inventory?.externalId !== expected.expectedExternalId ||
+    inventory?.externalRefId !== expected.expectedExternalRefId ||
+    inventory?.processedContentHash !== expected.expectedProcessedContentHash ||
+    (sourceRef?.id ?? null) !== expected.expectedExternalRefId ||
+    (sourceRef?.artworkId ?? null) !== expected.expectedArtworkId
+  ) {
+    throw new ScanExecutorError('STATE_CONFLICT', 'Pixiv source identity changed after the audit')
+  }
+  if (
+    sourceRef &&
+    (sourceRef.artwork.metaSource !== input.metadataRelativePath ||
+      sourceRef.artwork.externalRefs.length !== 1 ||
+      sourceRef.artwork.externalRefs[0]?.id !== sourceRef.id)
+  ) {
+    throw new ScanExecutorError('STATE_CONFLICT', 'Pixiv artwork source identity changed after the audit')
+  }
+}
+
+function normalizedPixivMetadata(metadata: ScanMetadata) {
+  return {
+    id: metadata.id,
+    user: metadata.user,
+    userId: metadata.userId,
+    title: metadata.title,
+    description: metadata.description,
+    tags: [...metadata.tags],
+    url: metadata.url,
+    original: metadata.original,
+    thumbnail: metadata.thumbnail,
+    xRestrict: metadata.xRestrict,
+    isAiGenerated: metadata.isAiGenerated,
+    size: metadata.size,
+    bookmarkCount: metadata.bookmarkCount,
+    sourceDate: metadata.sourceDate?.toISOString() ?? null,
+    metadataFormat: metadata.metadataFormat,
+    pixivAiType: metadata.pixivAiType,
+    pixivType: metadata.pixivType,
+    sanityLevel: metadata.sanityLevel
   }
 }
 

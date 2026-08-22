@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { readStableFileContent } from '../content-reader.js'
+import { readStableFileContent, stableFileStateFromMetadata } from '../content-reader.js'
 import { computeLocalWorkContentFingerprint } from '../fingerprint.js'
 
 const roots: string[] = []
@@ -13,6 +13,25 @@ afterEach(async () => {
 })
 
 describe('bounded stable content reads', () => {
+  it('preserves filesystem identity signals above the safe JavaScript integer range', () => {
+    const largeIdentity = 9_007_199_254_740_993n
+    expect(
+      stableFileStateFromMetadata({
+        size: 10n,
+        mtimeMs: 20n,
+        ctimeMs: 30n,
+        dev: largeIdentity,
+        ino: largeIdentity + 1n
+      })
+    ).toEqual({
+      sizeBytes: 10n,
+      mtimeMs: 20n,
+      ctimeMs: 30n,
+      deviceId: largeIdentity,
+      inode: largeIdentity + 1n
+    })
+  })
+
   it('returns bytes and the digest from the same bounded read', async () => {
     const root = await fixtureRoot()
     const file = path.join(root, 'metadata.json')

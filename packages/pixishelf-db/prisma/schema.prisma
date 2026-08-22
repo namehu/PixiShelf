@@ -104,22 +104,23 @@ model Artwork {
 }
 
 model ArtworkExternalRef {
-  id                String                  @id @default(cuid())
-  artworkId         Int
-  providerKey       String                  @db.VarChar(50)
-  externalId        String
-  canonicalUrl      String                  @db.Text
-  locator           Json
-  metadataHash      String?
-  lastSeenScanRunId String?                 @db.VarChar(30)
-  fetchedAt         DateTime?
-  createdAt         DateTime                @default(now())
-  updatedAt         DateTime                @updatedAt
-  artwork           Artwork                 @relation(fields: [artworkId], references: [id], onDelete: Cascade)
-  snapshots         ArtworkSourceSnapshot[]
-  sourceTags        ArtworkTag[]
-  archiveImports    ArchiveImport[]
-  archiveRevisions  ArchiveRevision[]
+  id                  String                   @id @default(cuid())
+  artworkId           Int
+  providerKey         String                   @db.VarChar(50)
+  externalId          String
+  canonicalUrl        String                   @db.Text
+  locator             Json
+  metadataHash        String?
+  lastSeenScanRunId   String?                  @db.VarChar(30)
+  fetchedAt           DateTime?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  artwork             Artwork                  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  snapshots           ArtworkSourceSnapshot[]
+  sourceTags          ArtworkTag[]
+  archiveImports      ArchiveImport[]
+  archiveRevisions    ArchiveRevision[]
+  pixivMetadataInputs PixivMetadataInventory[]
 
   @@unique([providerKey, externalId])
   @@index([artworkId])
@@ -989,40 +990,66 @@ model PendingReplaceOperation {
 }
 
 model ScanRun {
-  id                       String                           @id @default(cuid())
-  systemJobId              String?                          @unique
-  systemJob                SystemJob?                       @relation(fields: [systemJobId], references: [id], onDelete: SetNull)
-  type                     ScanRunType
-  mode                     ScanRunMode
-  status                   ScanRunStatus                    @default(RUNNING)
-  startedAt                DateTime?
-  finishedAt               DateTime?
-  durationMs               Int?
-  inputDigest              String?                          @db.VarChar(64)
-  inputCount               Int                              @default(0)
-  inputFrozenAt            DateTime?
-  checkpointStage          String?                          @db.VarChar(80)
-  checkpointOrdinal        Int                              @default(0)
-  totalArtworks            Int                              @default(0)
-  processedArtworks        Int                              @default(0)
-  succeededArtworks        Int                              @default(0)
-  skippedArtworks          Int                              @default(0)
-  failedArtworks           Int                              @default(0)
-  newArtists               Int                              @default(0)
-  newTags                  Int                              @default(0)
-  newImages                Int                              @default(0)
-  errorMessage             String?                          @db.Text
-  logRef                   String?                          @db.Text
-  createdAt                DateTime                         @default(now())
-  updatedAt                DateTime                         @updatedAt
-  items                    ScanRunItem[]
-  metadataInputs           ScanRunMetadataInput[]
-  localWorkInputs          ScanRunLocalWorkInput[]
-  localArtistMappingInputs ScanRunLocalArtistMappingInput[]
+  id                          String                           @id @default(cuid())
+  systemJobId                 String?                          @unique
+  systemJob                   SystemJob?                       @relation(fields: [systemJobId], references: [id], onDelete: SetNull)
+  type                        ScanRunType
+  mode                        ScanRunMode
+  status                      ScanRunStatus                    @default(RUNNING)
+  startedAt                   DateTime?
+  finishedAt                  DateTime?
+  durationMs                  Int?
+  inputDigest                 String?                          @db.VarChar(64)
+  inputCount                  Int                              @default(0)
+  inputFrozenAt               DateTime?
+  /// Identifies the first-traversal baseline this run may classify; null for ordinary frozen scans.
+  inventoryBaselineGeneration Int?
+  /// Nullable varchar keeps historical ScanRunMode values readable while versioned SCAN operations evolve.
+  operationKind               String?                          @db.VarChar(40)
+  /// Evidence link to the immutable source audit selected by AUDIT_APPLY; deliberately not a domain FK.
+  sourceAuditRunId            String?                          @db.VarChar(30)
+  checkpointStage             String?                          @db.VarChar(80)
+  checkpointOrdinal           Int                              @default(0)
+  totalArtworks               Int                              @default(0)
+  processedArtworks           Int                              @default(0)
+  succeededArtworks           Int                              @default(0)
+  skippedArtworks             Int                              @default(0)
+  failedArtworks              Int                              @default(0)
+  newArtists                  Int                              @default(0)
+  newTags                     Int                              @default(0)
+  newImages                   Int                              @default(0)
+  walkedEntries               Int?
+  metadataCandidates          Int?
+  inventoryUnchanged          Int?
+  contentHashed               Int?
+  contentChanged              Int?
+  parsedInputs                Int?
+  publishedInputs             Int?
+  failedInputs                Int?
+  missingInputs               Int?
+  auditNewInputs              Int?
+  auditChangedInputs          Int?
+  auditInvalidInputs          Int?
+  auditIdentityConflictInputs Int?
+  auditApplyStaleInputs       Int?
+  auditApplyConflictInputs    Int?
+  discoveryDurationMs         Int?
+  hashDurationMs              Int?
+  publishDurationMs           Int?
+  errorMessage                String?                          @db.Text
+  logRef                      String?                          @db.Text
+  createdAt                   DateTime                         @default(now())
+  updatedAt                   DateTime                         @updatedAt
+  items                       ScanRunItem[]
+  metadataInputs              ScanRunMetadataInput[]
+  sourceAuditItems            PixivSourceAuditItem[]
+  localWorkInputs             ScanRunLocalWorkInput[]
+  localArtistMappingInputs    ScanRunLocalArtistMappingInput[]
 
   @@index([startedAt])
   @@index([status, startedAt])
   @@index([type, mode, startedAt])
+  @@index([sourceAuditRunId, createdAt], map: "scan_runs_source_audit_created_idx")
   @@map("scan_runs")
 }
 
@@ -1037,6 +1064,15 @@ model ScanRunItem {
   metadataRelativePath String?           @db.Text
   status               ScanRunItemStatus
   action               ScanRunItemAction
+  inventoryDecision    String?           @db.VarChar(40)
+  /// Apply identifiers and result IDs are durable evidence, not mutable domain relations.
+  sourceAuditItemId    String?           @db.VarChar(30)
+  auditDifferenceKind  String?           @db.VarChar(32)
+  applyOutcome         String?           @db.VarChar(32)
+  resultArtworkId      Int?
+  applyReasonCode      String?           @db.VarChar(80)
+  applyReasonSummary   String?           @db.Text
+  applyRetryable       Boolean?
   checkpointKey        String?           @db.VarChar(180)
   attempt              Int               @default(0)
   mediaCount           Int               @default(0)
@@ -1049,24 +1085,130 @@ model ScanRunItem {
   updatedAt            DateTime          @updatedAt
 
   @@unique([scanRunId, checkpointKey], map: "scan_run_items_run_checkpoint_key")
+  @@unique([scanRunId, sourceAuditItemId], map: "scan_run_items_run_source_audit_item_key")
   @@index([scanRunId, status])
   @@index([scanRunId, action])
   @@index([externalId])
+  @@index([sourceAuditItemId, createdAt], map: "scan_run_items_source_audit_created_idx")
   @@map("scan_run_items")
 }
 
 model ScanRunMetadataInput {
-  id           String   @id @default(cuid())
-  scanRunId    String
-  ordinal      Int
-  relativePath String   @db.Text
-  contentHash  String?  @db.VarChar(64)
-  createdAt    DateTime @default(now())
-  scanRun      ScanRun  @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+  id                           String   @id @default(cuid())
+  scanRunId                    String
+  ordinal                      Int
+  relativePath                 String   @db.Text
+  contentHash                  String?  @db.VarChar(64)
+  sizeBytes                    BigInt?
+  mtimeMs                      BigInt?
+  ctimeMs                      BigInt?
+  deviceId                     BigInt?
+  inode                        BigInt?
+  /// Snapshot identifiers are evidence only and deliberately do not reference mutable domain rows.
+  sourceAuditItemId            String?  @db.VarChar(30)
+  auditDifferenceKind          String?  @db.VarChar(32)
+  expectedExternalId           String?  @db.VarChar(255)
+  observedExternalId           String?  @db.VarChar(255)
+  expectedInventoryId          String?  @db.VarChar(30)
+  expectedExternalRefId        String?  @db.VarChar(30)
+  expectedArtworkId            Int?
+  expectedProcessedContentHash String?  @db.VarChar(64)
+  createdAt                    DateTime @default(now())
+  scanRun                      ScanRun  @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
 
   @@unique([scanRunId, ordinal], map: "scan_metadata_inputs_run_ordinal_key")
   @@unique([scanRunId, relativePath], map: "scan_metadata_inputs_run_path_key")
   @@map("scan_run_metadata_inputs")
+}
+
+model PixivSourceAuditItem {
+  id                   String   @id @default(cuid())
+  scanRunId            String
+  ordinal              Int
+  differenceKind       String   @db.VarChar(32)
+  relativePath         String   @db.Text
+  expectedExternalId   String?  @db.VarChar(255)
+  observedExternalId   String?  @db.VarChar(255)
+  title                String?
+  artistName           String?
+  /// These identifiers are immutable evidence snapshots, not ownership relations.
+  inventoryId          String?  @db.VarChar(30)
+  externalRefId        String?  @db.VarChar(30)
+  artworkId            Int?
+  observedContentHash  String?  @db.VarChar(64)
+  processedContentHash String?  @db.VarChar(64)
+  sizeBytes            BigInt?
+  mtimeMs              BigInt?
+  ctimeMs              BigInt?
+  deviceId             BigInt?
+  inode                BigInt?
+  issueCode            String?  @db.VarChar(80)
+  issueSummary         String?  @db.Text
+  createdAt            DateTime @default(now())
+  scanRun              ScanRun  @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+
+  @@unique([scanRunId, ordinal], map: "pixiv_source_audit_items_run_ordinal_key")
+  @@unique([scanRunId, relativePath], map: "pixiv_source_audit_items_run_path_key")
+  @@index([scanRunId, differenceKind, ordinal], map: "pixiv_source_audit_items_run_kind_ordinal_idx")
+  @@index([expectedExternalId])
+  @@map("pixiv_source_audit_items")
+}
+
+model PixivMetadataInventoryState {
+  id                  String                       @id @default("pixiv") @db.VarChar(40)
+  status              PixivMetadataInventoryStatus @default(INITIALIZING)
+  /// Hashing the resolved root prevents a different mount from silently inheriting an existing baseline.
+  rootPathHash        String                       @db.VarChar(64)
+  rootDeviceId        BigInt?
+  rootInode           BigInt?
+  baselineGeneration  Int                          @default(1)
+  baselineStartedAt   DateTime                     @default(now())
+  baselineCompletedAt DateTime?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+
+  @@map("pixiv_metadata_inventory_state")
+}
+
+model PixivMetadataInventory {
+  id                       String              @id @default(cuid())
+  relativePath             String              @unique @db.Text
+  externalId               String?
+  sizeBytes                BigInt
+  mtimeMs                  BigInt
+  ctimeMs                  BigInt?
+  deviceId                 BigInt?
+  inode                    BigInt?
+  /// Last content that was read stably, whether or not its domain publication succeeded.
+  observedContentHash      String?             @db.VarChar(64)
+  /// Content whose Artwork/source changes committed atomically; a mismatch means synchronization is pending.
+  processedContentHash     String?             @db.VarChar(64)
+  /// Prevents unchanged permanent failures from being reparsed while retaining their diagnostic record.
+  lastAttemptedContentHash String?             @db.VarChar(64)
+  externalRefId            String?
+  externalRef              ArtworkExternalRef? @relation(fields: [externalRefId], references: [id], onDelete: SetNull)
+  baselineGeneration       Int                 @default(1)
+  /// True only for content frozen by the first complete traversal but not yet classified.
+  baselineEligible         Boolean             @default(false)
+  /// ScanRun history is retained independently, so this operational sighting intentionally has no foreign key.
+  lastSeenScanRunId        String?             @db.VarChar(30)
+  /// Audit sighting is separate from discovery so incomplete audits cannot corrupt Stage 2 semantics.
+  lastSeenAuditRunId       String?             @db.VarChar(30)
+  lastAttemptedAt          DateTime?
+  lastProcessedAt          DateTime?
+  lastErrorCode            String?             @db.VarChar(80)
+  lastErrorSummary         String?             @db.Text
+  /// With an error: true retries, false caches an exact-content verdict, null reevaluates external state.
+  lastErrorRetryable       Boolean?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  @@index([externalId])
+  @@index([externalRefId])
+  @@index([lastSeenScanRunId])
+  @@index([lastSeenAuditRunId], map: "pixiv_metadata_inventory_last_audit_idx")
+  @@index([lastErrorRetryable, updatedAt], map: "pixiv_metadata_inventory_retry_updated_idx")
+  @@map("pixiv_metadata_inventory")
 }
 
 model ScanRunLocalWorkInput {
@@ -1150,6 +1292,11 @@ enum ScanRunItemAction {
   FAILED_PARSE
   FAILED_COLLECT
   FAILED_WRITE
+}
+
+enum PixivMetadataInventoryStatus {
+  INITIALIZING
+  READY
 }
 
 enum MigrationItemStatus {

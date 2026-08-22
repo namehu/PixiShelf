@@ -67,7 +67,15 @@ describe('central media root enqueue semantics', () => {
     mocks.mappingFindMany.mockResolvedValue([])
     mocks.getSystemSettings.mockResolvedValue({ local_import_default_tag_ids: [] })
     mocks.fsRealpath.mockImplementation(async (value: string) => value)
-    mocks.fsLstat.mockResolvedValue({ isSymbolicLink: () => false, isFile: () => true, size: 2 })
+    mocks.fsLstat.mockResolvedValue({
+      isSymbolicLink: () => false,
+      isFile: () => true,
+      size: 2n,
+      mtimeMs: 20n,
+      ctimeMs: 21n,
+      dev: 22n,
+      ino: 23n
+    })
     mocks.fsReadFile.mockResolvedValue(Buffer.from('{}'))
     mocks.buildMigrationSelection.mockResolvedValue({ mode: 'ARTWORK_IDS', artworkIds: [7] })
   })
@@ -133,7 +141,16 @@ describe('central media root enqueue semantics', () => {
     [false, 'SKIP'],
     [true, 'REFRESH']
   ] as const)('maps webhook list force=%s to CLIENT_LIST %s without changing the transport', async (force, policy) => {
-    mocks.systemEnqueue.mockResolvedValue({ job: { id: `system-list-${force}` }, reused: false })
+    const scanRunCreate = vi.fn().mockResolvedValue({ id: `run-list-${force}` })
+    const metadataCreateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const transaction = {
+      scanRun: { findUnique: vi.fn().mockResolvedValue(null), create: scanRunCreate },
+      scanRunMetadataInput: { createMany: metadataCreateMany }
+    }
+    mocks.systemEnqueue.mockImplementationOnce(async (_request, options) => {
+      await options.afterEnqueue({ transaction, job: { id: `system-list-${force}` }, reused: false })
+      return { job: { id: `system-list-${force}` }, reused: false }
+    })
 
     await expect(
       enqueueCentralScan({
@@ -157,6 +174,19 @@ describe('central media root enqueue semantics', () => {
       }),
       expect.anything()
     )
+    expect(metadataCreateMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          scanRunId: `run-list-${force}`,
+          relativePath: 'artist/100-meta.json',
+          sizeBytes: 2n,
+          mtimeMs: 20n,
+          ctimeMs: 21n,
+          deviceId: 22n,
+          inode: 23n
+        })
+      ]
+    })
     expect(mocks.enqueue).not.toHaveBeenCalled()
   })
 
@@ -201,7 +231,18 @@ describe('central media root enqueue semantics', () => {
       })
     })
     expect(metadataCreateMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({ scanRunId: 'run-pixiv', ordinal: 0, relativePath: 'artist/7-meta.json' })]
+      data: [
+        expect.objectContaining({
+          scanRunId: 'run-pixiv',
+          ordinal: 0,
+          relativePath: 'artist/7-meta.json',
+          sizeBytes: 2n,
+          mtimeMs: 20n,
+          ctimeMs: 21n,
+          deviceId: 22n,
+          inode: 23n
+        })
+      ]
     })
   })
 

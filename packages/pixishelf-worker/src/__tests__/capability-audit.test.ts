@@ -7,7 +7,7 @@ import {
 import { PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
 
 describe('production Worker capability audit', () => {
-  it('accepts exactly one fresh READY Worker with the 20-item v1 inventory', async () => {
+  it('accepts exactly one fresh READY Worker with 20 job types and SCAN v1/v2/v3', async () => {
     const findMany = vi.fn().mockResolvedValue([{ capabilities: [...PRODUCTION_WORKER_CAPABILITIES].reverse() }])
     await expect(
       auditProductionWorkerCapabilities(database(findMany), {
@@ -21,6 +21,16 @@ describe('production Worker capability audit', () => {
       select: { capabilities: true },
       take: 2
     })
+  })
+
+  it('rejects the previous 20-job inventory when SCAN only advertises v1', async () => {
+    const previousInventory = PRODUCTION_WORKER_CAPABILITIES.map((capability) =>
+      capability.jobType === 'SCAN' ? { ...capability, definitionVersions: [1] } : capability
+    )
+
+    await expect(
+      auditProductionWorkerCapabilities(database(vi.fn().mockResolvedValue([{ capabilities: previousInventory }])))
+    ).rejects.toThrow('20-job/22-version dual-lane release')
   })
 
   it('rejects missing, duplicate, or mismatched online inventories', async () => {
@@ -44,6 +54,28 @@ describe('production Worker capability audit', () => {
     for (const workers of invalidInventories) {
       await expect(auditProductionWorkerCapabilities(database(vi.fn().mockResolvedValue(workers)))).rejects.toThrow()
     }
+  })
+
+  it('reports job type count without treating SCAN versions as separate capabilities', async () => {
+    const writeOutput = vi.fn()
+    const exitCode = await runCapabilityAudit(
+      { DATABASE_URL: 'postgresql://worker:top-secret@postgres:5432/pixishelf' },
+      {
+        createClient: () => ({
+          workerInstance: {
+            findMany: vi.fn().mockResolvedValue([{ capabilities: PRODUCTION_WORKER_CAPABILITIES }])
+          },
+          $disconnect: vi.fn().mockResolvedValue(undefined)
+        }),
+        writeOutput,
+        writeError: vi.fn()
+      }
+    )
+
+    expect(exitCode).toBe(0)
+    expect(writeOutput).toHaveBeenCalledWith(
+      'Worker capability audit passed: 1 READY Worker, 20 job types / 22 versions (SCAN v1/v2/v3)'
+    )
   })
 
   it('returns non-zero and never exposes database credentials when the query fails', async () => {

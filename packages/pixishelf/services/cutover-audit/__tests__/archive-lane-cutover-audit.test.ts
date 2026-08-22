@@ -17,6 +17,8 @@ describe('archive lane cutover audit', () => {
       if (sql.includes('GROUP BY "type"')) {
         return [
           { type: 'SCAN', definitionVersion: 1, status: 'PENDING', count: BigInt(4) },
+          { type: 'SCAN', definitionVersion: 2, status: 'RETRY_WAIT', count: BigInt(3) },
+          { type: 'SCAN', definitionVersion: 3, status: 'PAUSED', count: BigInt(2) },
           { type: 'ARCHIVE_IMPORT', definitionVersion: 1, status: 'PAUSED', count: BigInt(2) }
         ]
       }
@@ -43,7 +45,7 @@ describe('archive lane cutover audit', () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes('GROUP BY "type"')) {
         return [
-          { type: 'SCAN', definitionVersion: 2, status: 'PAUSED', count: BigInt(2) },
+          { type: 'SCAN', definitionVersion: 4, status: 'PAUSED', count: BigInt(2) },
           { type: 'UNKNOWN_JOB', definitionVersion: 1, status: 'PENDING', count: BigInt(1) }
         ]
       }

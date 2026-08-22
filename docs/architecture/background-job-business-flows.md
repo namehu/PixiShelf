@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 任务计划、中央 Worker、扫描、本地导入、归档及派生媒体任务的当前业务链路与状态边界
-last-verified: 2026-08-20
+last-verified: 2026-08-21
 sources:
   - packages/pixishelf/app/api/internal/scheduler/tick/route.ts
   - packages/pixishelf/services/background-task/
@@ -72,7 +72,7 @@ flowchart LR
   subgraph Worker[一个 Central Worker 进程]
     RESOLVE[ARCHIVE_RESOLVE Dispatcher\n并发 1]
     WRITER[BACKGROUND_WRITER Dispatcher\n并发 1]
-    EXEC[20 类 v1 Executor]
+    EXEC[20 类 job type\nSCAN v1/v2/v3，其余 v1]
   end
 
   subgraph Storage[文件和外部资源]
@@ -219,28 +219,32 @@ sequenceDiagram
 
 除 `ARCHIVE_RESOLVE_ITEM` 外，其他任务全部进入 `BACKGROUND_WRITER`。
 
-| Job type                           | 主要入口                           | 是否计划任务 | 是否创建子任务 | 主要副作用                                                       |
-| ---------------------------------- | ---------------------------------- | ------------ | -------------- | ---------------------------------------------------------------- |
-| `SCAN`                             | 设置页扫描、Webhook、单作品重扫    | 否           | 否             | 发现/读取元数据，发布或刷新 Artwork、Image、来源标签，写 ScanRun |
-| `LOCAL_DIRECTORY_IMPORT`           | 本地目录导入“开始导入”             | 否           | 否             | 读取已冻结目录，创建本地 Artwork、Image、默认标签和派生标签      |
-| `MIGRATION`                        | 媒体目录迁移管理                   | 否           | 否             | 分阶段复制/移动媒体、校验、发布新路径、清理旧路径                |
-| `PENDING_REPLACE`                  | 批量替换管理                       | 否           | 否             | DISCOVER/BATCH/RESTORE/CLEANUP，持久快照和备份后替换媒体         |
-| `REFILL_META_SOURCE`               | 后台维护手动入口                   | 否           | 否             | 为缺少 `metaSource` 的旧作品查找对应元数据文件并补字段           |
-| `MEDIA_DERIVED_TAG_SYNC`           | 后台维护手动入口                   | 否           | 否             | 重算 `media:webp`、`media:video`、`media:image` 派生标签关系     |
-| `WEBP_ANIMATION_SCAN`              | 任务计划或立即运行                 | 是           | 否             | 内容探测并更新图片 mediaType/动画状态                            |
-| `VIDEO_MEDIA_PROBE`                | 任务计划、立即运行、单视频重探测   | 是           | 否             | 分类、视频元数据探测、同任务批量生成自动封面                     |
-| `VIDEO_POSTER_GENERATION`          | 单视频显式封面生成                 | 否           | 否             | 为一个视频生成并发布自动封面                                     |
-| `VIDEO_CHAPTER_PREVIEW_GENERATION` | 任务计划或立即运行                 | 是           | 否             | 校验、生成、替换章节预览 WebP，登记旧文件 GC                     |
-| `VIDEO_STREAMING_OPTIMIZATION`     | 视频播放/图片管理中的无损优化      | 否           | 否             | 对单个 MP4 做 faststart remux，失败时恢复原文件                  |
-| `VIDEO_KEYFRAME_DISCOVERY`         | 任务计划、立即运行、代表帧批量入口 | 是           | 是             | 判断 MISSING/STALE/FAILED/CURRENT；计划模式创建生成子任务        |
-| `VIDEO_KEYFRAME_GENERATION`        | discovery 或人工选中结果           | 否           | 否             | FFmpeg 抽帧、质量筛选并发布代表帧集合                            |
-| `ARCHIVE_RESOLVE_ITEM`             | 归档收件新增/重试                  | 否           | 否             | 访问 Provider、冻结元数据和媒体计划、分类 READY 等状态           |
-| `ARCHIVE_IMPORT`                   | READY 收件项批量入队               | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork            |
-| `ARCHIVE_MAINTENANCE`              | 计划 reconcile、归档删除/恢复/清理 | 是           | RECONCILE 会   | 清 staging、回收、恢复或永久清理归档                             |
-| `ARCHIVE_INTAKE_RETENTION_CLEANUP` | 任务计划或立即运行                 | 是           | 否             | 只删除可丢弃的归档收件审计历史                                   |
-| `SCAN_RUN_RETENTION_CLEANUP`       | 任务计划或立即运行                 | 是           | 否             | 删除符合保留策略的扫描审计历史                                   |
-| `TRIGGER_LOG_RETENTION_CLEANUP`    | 任务计划或立即运行                 | 是           | 否             | 删除旧触发器日志                                                 |
-| `DERIVED_MEDIA_GC`                 | 任务计划、立即运行或指定 intent    | 是           | 否             | 复核引用后隔离并删除已登记的派生媒体候选                         |
+| Job type                           | 主要入口                           | 是否计划任务 | 是否创建子任务 | 主要副作用                                                   |
+| ---------------------------------- | ---------------------------------- | ------------ | -------------- | ------------------------------------------------------------ |
+| `SCAN`                             | 扫描、Webhook、来源核对与选定同步  | 否           | 否             | 按版本发现/核对/发布，写 SystemJob、ScanRun 与逐项结果       |
+| `LOCAL_DIRECTORY_IMPORT`           | 本地目录导入“开始导入”             | 否           | 否             | 读取已冻结目录，创建本地 Artwork、Image、默认标签和派生标签  |
+| `MIGRATION`                        | 媒体目录迁移管理                   | 否           | 否             | 分阶段复制/移动媒体、校验、发布新路径、清理旧路径            |
+| `PENDING_REPLACE`                  | 批量替换管理                       | 否           | 否             | DISCOVER/BATCH/RESTORE/CLEANUP，持久快照和备份后替换媒体     |
+| `REFILL_META_SOURCE`               | 后台维护手动入口                   | 否           | 否             | 为缺少 `metaSource` 的旧作品查找对应元数据文件并补字段       |
+| `MEDIA_DERIVED_TAG_SYNC`           | 后台维护手动入口                   | 否           | 否             | 重算 `media:webp`、`media:video`、`media:image` 派生标签关系 |
+| `WEBP_ANIMATION_SCAN`              | 任务计划或立即运行                 | 是           | 否             | 内容探测并更新图片 mediaType/动画状态                        |
+| `VIDEO_MEDIA_PROBE`                | 任务计划、立即运行、单视频重探测   | 是           | 否             | 分类、视频元数据探测、同任务批量生成自动封面                 |
+| `VIDEO_POSTER_GENERATION`          | 单视频显式封面生成                 | 否           | 否             | 为一个视频生成并发布自动封面                                 |
+| `VIDEO_CHAPTER_PREVIEW_GENERATION` | 任务计划或立即运行                 | 是           | 否             | 校验、生成、替换章节预览 WebP，登记旧文件 GC                 |
+| `VIDEO_STREAMING_OPTIMIZATION`     | 视频播放/图片管理中的无损优化      | 否           | 否             | 对单个 MP4 做 faststart remux，失败时恢复原文件              |
+| `VIDEO_KEYFRAME_DISCOVERY`         | 任务计划、立即运行、代表帧批量入口 | 是           | 是             | 判断 MISSING/STALE/FAILED/CURRENT；计划模式创建生成子任务    |
+| `VIDEO_KEYFRAME_GENERATION`        | discovery 或人工选中结果           | 否           | 否             | FFmpeg 抽帧、质量筛选并发布代表帧集合                        |
+| `ARCHIVE_RESOLVE_ITEM`             | 归档收件新增/重试                  | 否           | 否             | 访问 Provider、冻结元数据和媒体计划、分类 READY 等状态       |
+| `ARCHIVE_IMPORT`                   | READY 收件项批量入队               | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork        |
+| `ARCHIVE_MAINTENANCE`              | 计划 reconcile、归档删除/恢复/清理 | 是           | RECONCILE 会   | 清 staging、回收、恢复或永久清理归档                         |
+| `ARCHIVE_INTAKE_RETENTION_CLEANUP` | 任务计划或立即运行                 | 是           | 否             | 只删除可丢弃的归档收件审计历史                               |
+| `SCAN_RUN_RETENTION_CLEANUP`       | 任务计划或立即运行                 | 是           | 否             | 删除符合保留策略的扫描审计历史                               |
+| `TRIGGER_LOG_RETENTION_CLEANUP`    | 任务计划或立即运行                 | 是           | 否             | 删除旧触发器日志                                             |
+| `DERIVED_MEDIA_GC`                 | 任务计划、立即运行或指定 intent    | 是           | 否             | 复核引用后隔离并删除已登记的派生媒体候选                     |
+
+生产 Registry 保持 20 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 19 类仍只支持 v1，因此 capability audit
+实际核对 22 个 job type/definition-version 组合及其 lane，而不是把 v2/v3 误算成新的任务类型。v1 承载既有
+扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
 
 ## Pixiv 扫描链路
 
@@ -278,6 +282,60 @@ flowchart TD
 ```
 
 `ScanRun` 是扫描领域审计，不是第二套队列。`SystemJob` 管执行控制，`ScanRun` 管输入快照、逐项结果、作品/图片数量和耗时。
+
+INCREMENTAL 的目录发现会统计经过的所有目录项，包括媒体文件。Worker 默认用
+`SCAN_DISCOVERY_MAX_ENTRIES=10000000` 约束完整遍历；metadata 候选/冻结行另受 100000 行限制。两个上限必须
+分开理解：前者防止异常目录无限遍历，后者限制单次数据库快照规模。
+遍历默认不进入 SCAN_PATH 根目录直属的 `local-imports`、`sources`、`.archive-staging` 和 `.trash`，避免把本地
+导入及归档文件纳入 Pixiv 发现成本；`SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES` 可提供完整替代清单。
+
+### 来源一致性核对
+
+设置页可以创建 `SCAN@v2` 的 `CONSISTENCY_AUDIT`。App 在共享的 SCAN singleton lock 内复核 Pixiv inventory
+baseline 已处于 `READY`、存在新鲜 READY 且声明 `SCAN@v2` 的 Worker，并原子创建 SystemJob、ScanRun 和 queued
+event；日常目录扫描、单作品扫描和 Webhook 仍走上面的 `SCAN@v1` 链路，调用方不需要修改。Worker 先冻结完整且
+非空的 metadata path/stat 快照，再分类 `NEW / CHANGED / MISSING / INVALID / IDENTITY_CONFLICT /
+UNCHANGED`。它只写 operational/audit 记录和 inventory 观测，不发布 Artwork、Image、来源引用、标签、Source
+Snapshot 或媒体。
+
+`MISSING` 只允许在完整遍历、未达到安全上限、冻结 count/digest 和扫描 root 身份全部复核通过后，由持有任务
+fence 的 finalizer 生成；中断、取消、空目录或 root 变化都不会产生缺失报告。运行中页面只轮询安全摘要；只有
+ScanRun 与 SystemJob 都进入 `COMPLETED` 后，独立结果页才开放绑定 run/filter 的 cursor 明细查询。
+
+#### 选定同步
+
+管理员只可在结果页当前已加载页选择 1–50 个仍为 eligible 的 `NEW / CHANGED`；两类可以用一个“同步所选来源”
+动作混合提交。App 在共享 SCAN singleton lock 内重新验证核对已完整完成、inventory generation 未变化、来源根
+可用且存在新鲜 READY 的 `SCAN@v3` Worker，然后原子创建 `SCAN@v3 / AUDIT_APPLY`、独立 apply ScanRun、冻结输入
+和 PENDING 单项。`sourceAuditRunId` 只保存父核对的证据 ID，不建立可跟随变化的领域外键。
+
+```mermaid
+flowchart TD
+  SELECT[当前页选择 1–50 个 NEW/CHANGED] --> START[管理员提交 auditRunId、itemIds、幂等键]
+  START --> LOCK[共享 SCAN singleton lock]
+  LOCK --> FREEZE[复核核对终态与 generation\n冻结 path、来源身份、hash、stat]
+  FREEZE --> V3[创建 SCAN@v3 + apply ScanRun]
+  V3 --> ITEM[Worker 逐项稳定读取、parse 和媒体校验]
+  ITEM --> CAS{fenced 身份与 hash 仍匹配?}
+  CAS -->|否：内容变化| STALE[STALE，不做领域写]
+  CAS -->|否：身份变化| CONFLICT[CONFLICT，不做领域写]
+  CAS -->|是| PUBLISH[短事务发布 NEW 或 CHANGED]
+  PUBLISH --> RESULT[持久 APPLIED/SKIPPED/FAILED]
+  STALE --> NEXT[继续其他项]
+  CONFLICT --> NEXT
+  RESULT --> NEXT
+  NEXT --> FINAL[汇总部分成功并保存 operation]
+```
+
+apply 不是 `CLIENT_LIST` 的别名。v3 Executor 逐项重新比较 metadata 内容、stat、inventory、ExternalRef 和 Artwork
+身份；stale 或冲突项目零领域写入，其他项目可以继续，因此一次 job 可以完成但包含逐项失败。页面刷新后从
+operation ID 恢复持久结果。一个核对项已经 APPLIED、非 stale SKIPPED、STALE、CONFLICT 或永久失败后不能从同一
+核对重复提交；只有可重试失败（例如媒体在核对后暂时缺失）能在修复后从同一核对再次提交。`MISSING / INVALID /
+IDENTITY_CONFLICT` 永不进入 apply，`MISSING` 也永不触发解绑或删除。
+
+普通 Pixiv 扫描和 v3 apply 共用 publisher。成功发布会更新 `ArtworkExternalRef.metadataHash`，并按 metadata hash
+追加或复用不可变 `ArtworkSourceSnapshot` 的规范化与原始来源证据。刷新只更新来源拥有的数据：尊重标题/描述
+override，保留 Artist、MANUAL/DERIVED/LEGACY 与其他来源标签、现有媒体顺序，不删除不再出现的媒体。
 
 ## 本地目录导入链路
 
@@ -549,6 +607,17 @@ flowchart TD
 - **重试**：只有可重试错误且 attempt 未耗尽时进入 `RETRY_WAIT`。永久路径错误、输入快照失效和明确前置条件不满足不会无限重试。
 - **逐项失败**：视频批量探测、章节图、动画识别等任务会继续处理其他项目；是否让父 job 失败由各 Executor 契约决定，不能只用 `SystemJob.status` 推断零失败。
 - **文件与数据库**：两者无法处于同一个数据库事务。当前实现使用 staging、短事务发布、fence、备份恢复和 GC intent 组合维持可恢复性。
+
+`AUDIT_APPLY` 对取消与保留有额外的证据完整性约束：
+
+- PENDING、RETRY_WAIT 或 PAUSED 的 v3 apply 被直接取消前，命令层先验证 job payload、apply ScanRun、冻结输入与
+  单项集合完整；随后在同一事务中取消 job 和 ScanRun，把未完成项记为可重试的 `OPERATION_CANCELLED`，并保留
+  已完成项。
+- RUNNING apply 先进入 CANCELLING，由 Executor 在 fence 下终态化尚未完成的项目和 apply ScanRun；任务完成前
+  不能留下没有逐项结果的终态 operation。
+- `SCAN_RUN_RETENTION_CLEANUP` 在共享 SCAN lock 内复核核对/apply 关系。父核对存在非终态 apply 时整组保留；
+  只有父核对符合过期或溢出条件且关联 apply 都终态时，才删除父核对及这些终态 apply，避免留下无证据来源的
+  operation 或过早删除核对证据。
 
 ## 当前已确认的设计风险
 

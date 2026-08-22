@@ -18,6 +18,10 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
   for (const record of records) findUnique.mockResolvedValueOnce(record)
   const updateMany = vi.fn().mockResolvedValue({ count: 1 })
   const updateIntakeItems = vi.fn().mockResolvedValue({ count: 1 })
+  const updateScanRuns = vi.fn().mockResolvedValue({ count: 1 })
+  const findScanRun = vi.fn().mockResolvedValue(null)
+  const updateScanRunItems = vi.fn().mockResolvedValue({ count: 0 })
+  const findScanRunItems = vi.fn().mockResolvedValue([])
   const queryRawUnsafe = vi.fn().mockResolvedValue([{ id: 'intake-1' }])
   const create = vi.fn().mockResolvedValue(records.at(-1))
   let eventId = BigInt(0)
@@ -36,10 +40,25 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
     $queryRawUnsafe: queryRawUnsafe,
     systemJob: { findUnique, updateMany, create },
     archiveIntakeItem: { updateMany: updateIntakeItems },
+    scanRun: { findUnique: findScanRun, updateMany: updateScanRuns },
+    scanRunItem: { updateMany: updateScanRunItems, findMany: findScanRunItems },
     systemJobEvent: { create: eventCreate }
   } as unknown as Prisma.TransactionClient
   const client = { $transaction: <T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) => callback(transaction) }
-  return { client, queryRaw, queryRawUnsafe, findUnique, updateMany, updateIntakeItems, create, eventCreate }
+  return {
+    client,
+    queryRaw,
+    queryRawUnsafe,
+    findUnique,
+    updateMany,
+    updateIntakeItems,
+    updateScanRuns,
+    findScanRun,
+    updateScanRunItems,
+    findScanRunItems,
+    create,
+    eventCreate
+  }
 }
 
 describe('enqueueJob', () => {
@@ -414,6 +433,181 @@ describe('enqueueJob', () => {
 })
 
 describe('job commands', () => {
+  it('cancels a queued scan and its ScanRun in the same command transaction', async () => {
+    const current = jobRecord({ status: 'RETRY_WAIT', type: 'SCAN', payload: { mode: 'INCREMENTAL' } })
+    const updated = jobRecord({ ...current, status: 'CANCELLED', finishedAt: new Date() })
+    const harness = commandHarness([current, updated])
+
+    await expect(cancelJobCommand({ jobId: current.id }, harness.client)).resolves.toMatchObject({
+      status: 'CANCELLED'
+    })
+
+    expect(harness.updateScanRuns).toHaveBeenCalledWith({
+      where: {
+        systemJobId: current.id,
+        status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED'] }
+      },
+      data: expect.objectContaining({ status: 'CANCELLED', checkpointStage: 'CANCELLED', finishedAt: expect.any(Date) })
+    })
+    expect(harness.eventCreate).toHaveBeenCalledTimes(2)
+  })
+
+  it('terminalizes every frozen AUDIT_APPLY item when cancelling before Worker claim', async () => {
+    const timestamp = new Date('2026-08-20T12:00:00.000Z')
+    const current = jobRecord({
+      status: 'PENDING',
+      type: 'SCAN',
+      definitionVersion: 3,
+      payload: {
+        mode: 'AUDIT_APPLY',
+        auditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64)
+      }
+    })
+    const updated = jobRecord({ ...current, status: 'CANCELLED', finishedAt: timestamp })
+    const harness = commandHarness([current, updated])
+    harness.findScanRun.mockResolvedValue({
+      id: 'apply-run-1',
+      operationKind: 'AUDIT_APPLY',
+      sourceAuditRunId: 'audit-run-1',
+      inputCount: 2,
+      inputDigest: 'a'.repeat(64),
+      inputFrozenAt: timestamp,
+      metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }],
+      items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+    })
+    harness.updateScanRunItems.mockResolvedValue({ count: 2 })
+    harness.findScanRunItems.mockResolvedValue([
+      { applyOutcome: 'FAILED', applyReasonCode: 'OPERATION_CANCELLED', newImageCount: 0 },
+      { applyOutcome: 'FAILED', applyReasonCode: 'OPERATION_CANCELLED', newImageCount: 0 }
+    ])
+
+    await expect(cancelJobCommand({ jobId: current.id }, harness.client, () => timestamp)).resolves.toMatchObject({
+      status: 'CANCELLED'
+    })
+
+    expect(harness.updateScanRunItems).toHaveBeenCalledWith({
+      where: { scanRunId: 'apply-run-1', applyOutcome: null },
+      data: {
+        status: 'FAILED',
+        applyOutcome: 'FAILED',
+        applyReasonCode: 'OPERATION_CANCELLED',
+        applyReasonSummary: 'Operation was cancelled before this item completed',
+        applyRetryable: true,
+        finishedAt: timestamp
+      }
+    })
+    expect(harness.updateScanRuns).toHaveBeenCalledWith({
+      where: { id: 'apply-run-1', status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED'] } },
+      data: expect.objectContaining({
+        status: 'CANCELLED',
+        checkpointStage: 'CANCELLED',
+        processedArtworks: 2,
+        succeededArtworks: 0,
+        skippedArtworks: 0,
+        failedArtworks: 2,
+        publishedInputs: 0,
+        failedInputs: 2,
+        auditApplyStaleInputs: 0,
+        auditApplyConflictInputs: 0,
+        newImages: 0
+      })
+    })
+    expect(harness.eventCreate).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    [
+      'payload/run identity mismatch',
+      {
+        sourceAuditRunId: 'audit-run-other',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64),
+        inputFrozenAt: new Date(),
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+      }
+    ],
+    [
+      'incomplete frozen input set',
+      {
+        sourceAuditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64),
+        inputFrozenAt: new Date(),
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: null }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+      }
+    ],
+    [
+      'different frozen input sets',
+      {
+        sourceAuditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64),
+        inputFrozenAt: new Date(),
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-3' }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+      }
+    ],
+    [
+      'digest mismatch',
+      {
+        sourceAuditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'b'.repeat(64),
+        inputFrozenAt: new Date(),
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+      }
+    ],
+    [
+      'input count mismatch',
+      {
+        sourceAuditRunId: 'audit-run-1',
+        inputCount: 1,
+        inputDigest: 'a'.repeat(64),
+        inputFrozenAt: new Date(),
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }]
+      }
+    ],
+    [
+      'missing frozen timestamp',
+      {
+        sourceAuditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64),
+        inputFrozenAt: null,
+        metadataInputs: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }],
+        items: [{ sourceAuditItemId: 'audit-item-1' }, { sourceAuditItemId: 'audit-item-2' }]
+      }
+    ]
+  ])('fails closed before writing when AUDIT_APPLY has %s', async (_label, frozenRun) => {
+    const current = jobRecord({
+      status: 'PENDING',
+      type: 'SCAN',
+      definitionVersion: 3,
+      payload: {
+        mode: 'AUDIT_APPLY',
+        auditRunId: 'audit-run-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64)
+      }
+    })
+    const harness = commandHarness([current])
+    harness.findScanRun.mockResolvedValue({ id: 'apply-run-1', operationKind: 'AUDIT_APPLY', ...frozenRun })
+
+    await expect(cancelJobCommand({ jobId: current.id }, harness.client)).rejects.toMatchObject({
+      code: 'INVALID_STATE_TRANSITION'
+    })
+    expect(harness.updateMany).not.toHaveBeenCalled()
+    expect(harness.updateScanRunItems).not.toHaveBeenCalled()
+    expect(harness.updateScanRuns).not.toHaveBeenCalled()
+    expect(harness.eventCreate).not.toHaveBeenCalled()
+  })
+
   it('moves RUNNING cancellation to CANCELLING with an event', async () => {
     const current = jobRecord({
       status: 'RUNNING',
@@ -501,6 +695,31 @@ describe('job commands', () => {
       type: 'SCAN',
       status: 'FAILED',
       payload: { mode: 'FULL_RECONCILE' },
+      finishedAt: new Date()
+    })
+    const harness = commandHarness([historical])
+
+    await expect(
+      retryJobCommand({ jobId: historical.id, requestedByUserId: 'admin-1' }, harness.client)
+    ).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' })
+
+    expect(harness.create).not.toHaveBeenCalled()
+    expect(harness.eventCreate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      mode: 'CLIENT_LIST',
+      existingPolicy: 'REFRESH',
+      inputCount: 1,
+      inputDigest: 'a'.repeat(64)
+    },
+    { mode: 'ARTWORK_RESCAN', artworkId: 42 }
+  ])('does not clone a terminal scan whose $mode input snapshot belongs to its original run', async (payload) => {
+    const historical = jobRecord({
+      type: 'SCAN',
+      status: 'FAILED',
+      payload,
       finishedAt: new Date()
     })
     const harness = commandHarness([historical])

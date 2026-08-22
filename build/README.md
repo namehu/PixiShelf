@@ -10,7 +10,7 @@
 
 - `Dockerfile`：Web/API 的 Next.js standalone 镜像，负责启动前执行数据库迁移。
 - `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和当前全部
-  20 项 v1 Executor capability。
+  20 个 job type；`SCAN` 支持 v1/v2/v3，其余 19 类只支持 v1，共 22 个 type/version 组合。
 - `docker-compose.dev.yml`：本地构建与开发环境。
 - `docker-compose.deploy.yml`：使用预构建镜像的生产环境。
 - `.env.example`：部署变量模板；为防止新环境误消费，Central Dispatcher 开关仍安全地默认关闭。
@@ -54,6 +54,13 @@ docker compose -f docker-compose.deploy.yml exec worker \
 `WORKER_QUEUE_TRANSACTION_TIMEOUT_MS=30000` 控制。事务超时必须严格小于
 `WORKER_JOB_LEASE_DURATION_MS`，启动配置校验不满足时会直接拒绝启动。文件下载、探测和 FFmpeg
 等长操作不得放入事务，只允许短检查点或最终领域发布使用该事务窗口。
+
+Pixiv 目录发现的安全上限由 `SCAN_DISCOVERY_MAX_ENTRIES` 控制，默认 `10000000`。该计数包含遍历到的目录、
+metadata 和媒体文件，不等于作品数；冻结进数据库的 metadata 输入仍受独立的 100000 行上限保护。生产目录若
+接近默认上限，应先在 Worker 容器内统计实际条目数，再为该变量保留增长余量，不能通过取消所有安全上限处理。
+发现默认不进入 SCAN_PATH 根目录下的 `local-imports`、`sources`、`.archive-staging` 和 `.trash`；可用
+`SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES` 提供逗号分隔的完整替代清单，空值表示不排除。该规则只匹配根目录
+的直接子目录，不会排除更深层同名目录；来源核对也不会把排除目录内的既有 inventory 误报为 `MISSING`。
 
 ## 本地开发
 
@@ -131,12 +138,15 @@ WORKER_DISPATCH_ENABLED=false
 
 两个开关用途不同：`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 让 Next.js 只创建/控制统一队列任务；
 `WORKER_DISPATCH_ENABLED` 才允许通用 Worker claim。开关默认 false，避免镜像升级时意外开始消费。
-当前通用 Registry 已锁定全部 20 种 v1 capability，并校验 job type、definition version 和 lane，其中包括
-`SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE` 四类高风险任务。新部署仍须先以
+当前通用 Registry 已锁定 20 个 job type、22 个 type/version 组合，并校验 job type、definition version 和
+lane；20 类中包括 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE` 四类高风险任务，
+`SCAN` 支持 v1/v2/v3，其余 19 类只支持 v1。新部署仍须先以
 `false/false` 暗启动并通过 READY/capability 门禁，然后才能恢复生产稳态的 `true/true`。
+`SCAN@v3` 专用于来源核对后的写入型 `AUDIT_APPLY`；只支持 v2 的旧 Worker 不会领取它。滚动部署的版本隔离不能
+替代发布门禁，开放新 App 写入口前仍必须确认目标 Worker 同时报告 SCAN v1/v2/v3。
 
 归档收件箱切换必须一次完成：停止新任务和旧写入者，通过 audit 和一致性 checkpoint，应用 lane migration，
-验证双 lane READY 与 20 项 capability，再同时启用 Next 控制面与通用 Worker Dispatcher。
+验证双 lane READY 与当前 capability inventory，再同时启用 Next 控制面与通用 Worker Dispatcher。
 
 发生问题时先把两个开关恢复为 false 并重建 `app`/`worker`，停止新入队与领取；不要在存在
 RUNNING、PAUSING 或 CANCELLING 任务时强制回滚 schema。数据库和媒体必须从同一时间点的已验证

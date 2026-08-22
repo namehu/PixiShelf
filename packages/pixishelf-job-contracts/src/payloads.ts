@@ -70,6 +70,31 @@ export const scanPayloadSchema = z.discriminatedUnion('mode', [
 ])
 export type ScanPayload = z.infer<typeof scanPayloadSchema>
 
+const scanConsistencyAuditPayloadSchema = z
+  .object({ mode: z.literal('CONSISTENCY_AUDIT'), verification: z.literal('FAST') })
+  .strict()
+export const scanAuditApplyPayloadSchema = z
+  .object({
+    mode: z.literal('AUDIT_APPLY'),
+    auditRunId: boundedIdSchema,
+    inputCount: z.number().int().min(1).max(10_000),
+    inputDigest: sha256DigestSchema
+  })
+  .strict()
+
+/** SCAN@v2 is versioned separately; the legacy SCAN parser intentionally remains v1-only. */
+export const scanV2PayloadSchema = z.discriminatedUnion('mode', [
+  scanConsistencyAuditPayloadSchema,
+  scanAuditApplyPayloadSchema
+])
+export type ScanV2Payload = z.infer<typeof scanV2PayloadSchema>
+export type ScanConsistencyAuditPayload = z.infer<typeof scanConsistencyAuditPayloadSchema>
+export type ScanAuditApplyPayload = z.infer<typeof scanAuditApplyPayloadSchema>
+
+/** SCAN@v3 admits only the write-capable apply operation. */
+export const scanV3PayloadSchema = scanAuditApplyPayloadSchema
+export type ScanV3Payload = z.infer<typeof scanV3PayloadSchema>
+
 export const localDirectoryImportPayloadSchema = z
   .object({
     defaultTagIds: uniquePositiveTagIdsSchema(100).default([]),

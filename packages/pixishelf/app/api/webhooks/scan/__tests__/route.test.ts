@@ -171,7 +171,18 @@ describe('webhook scan audit integration', () => {
         skippedArtworks: 0,
         failedArtworks: 0,
         newImages: 31,
-        durationMs: 6_000
+        durationMs: 6_000,
+        walkedEntries: 120,
+        metadataCandidates: 15,
+        inventoryUnchanged: 10,
+        contentHashed: 5,
+        contentChanged: 4,
+        parsedInputs: 4,
+        publishedInputs: 2,
+        failedInputs: 0,
+        discoveryDurationMs: 2_000,
+        hashDurationMs: 400,
+        publishDurationMs: 900
       }
     })
 
@@ -200,7 +211,18 @@ describe('webhook scan audit integration', () => {
         skippedArtworks: 0,
         failedArtworks: 0,
         newImages: 31,
-        durationMs: 6_000
+        durationMs: 6_000,
+        walkedEntries: 120,
+        metadataCandidates: 15,
+        inventoryUnchanged: 10,
+        contentHashed: 5,
+        contentChanged: 4,
+        parsedInputs: 4,
+        publishedInputs: 2,
+        failedInputs: 0,
+        discoveryDurationMs: 2_000,
+        hashDurationMs: 400,
+        publishDurationMs: 900
       }
     })
     expect(mocks.findScanJob).toHaveBeenCalledWith(
@@ -213,6 +235,55 @@ describe('webhook scan audit integration', () => {
         }
       })
     )
+  })
+
+  it('keeps inventory metrics nullable for historical and explicit-list runs without comparable measurements', async () => {
+    mocks.findScanJob.mockResolvedValue({
+      id: 'job-legacy-metrics',
+      status: 'COMPLETED',
+      progress: 100,
+      message: null,
+      error: null,
+      createdAt: new Date('2026-08-19T01:29:30.000Z'),
+      startedAt: null,
+      finishedAt: new Date('2026-08-19T01:29:37.000Z'),
+      scanRun: {
+        id: 'run-legacy-metrics',
+        totalArtworks: 1,
+        processedArtworks: 1,
+        succeededArtworks: 0,
+        skippedArtworks: 1,
+        failedArtworks: 0,
+        newImages: 0,
+        durationMs: 7_000,
+        walkedEntries: null,
+        metadataCandidates: null,
+        inventoryUnchanged: null,
+        contentHashed: null,
+        contentChanged: null,
+        parsedInputs: null,
+        publishedInputs: null,
+        failedInputs: null,
+        discoveryDurationMs: null,
+        hashDurationMs: null,
+        publishDurationMs: null
+      }
+    })
+
+    const response = await get(
+      new NextRequest('http://localhost/api/webhooks/scan?jobId=job-legacy-metrics', {
+        headers: { authorization: 'Bearer token' }
+      })
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.data).toMatchObject({
+      walkedEntries: null,
+      contentHashed: null,
+      contentChanged: null,
+      hashDurationMs: null
+    })
   })
 
   it('does not expose jobs outside the webhook scan scope', async () => {

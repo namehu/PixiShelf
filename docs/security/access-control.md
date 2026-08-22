@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前调用者、页面、HTTP、tRPC、Server Action、服务网络和存储权限边界
-last-verified: 2026-08-19
+last-verified: 2026-08-20
 sources:
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/lib/auth/
@@ -98,6 +98,7 @@ sources:
 | `/login`                                                 | 公共         | 已有 Session 时代理重定向 `/dashboard` | 登录；无账户时显示首次初始化             |
 | `/dashboard`、作品、艺术家、标签、系列、viewer、settings | Session      | 无                                     | 任一有效账户可浏览和使用对应操作         |
 | `/admin/*`                                               | Session      | Admin Layout 无角色判断                | 任一有效账户可进入全部管理页面           |
+| `/admin/scan-history/[id]/source-audit`                  | Session      | 写操作由 `adminProcedure` 复核         | 查看核对；管理员可提交选定来源同步       |
 | `/admin/archive/inbox`                                   | Session      | 写操作由 `adminProcedure` 复核         | 持久添加、解析控制、重试、取消与批量入队 |
 | `/admin/archive`                                         | Session      | 写操作由 `adminProcedure` 复核         | 归档任务查询、单项及当前页批量控制       |
 | `/change-password`                                       | Session      | `authActionClient` 复核 Session        | 只能修改当前会话账户密码                 |
@@ -137,26 +138,32 @@ HTTP Route 新增文件写入、删除、迁移或任务控制时，应使用 Ro
 
 所有标准 HTTP tRPC 调用先经过 Session 代理门禁。下表记录 procedure 自己使用的边界。
 
-| Router           | 读取                                   | 修改/控制                                             | 当前 procedure 边界                                                      |
-| ---------------- | -------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------ |
-| `auth`           | 当前账户 `me`                          | 无                                                    | `authProcedure`                                                          |
-| `artist`         | 详情、分页                             | 创建、修改、收藏、删除                                | 全部 `authProcedure`                                                     |
-| `artwork`        | 详情、feed、相邻、随机、推荐、上传路径 | 创建、修改、删除、媒体增删与排序                      | 大多为 `authProcedure`；作品删除和视频重新探测为 `adminProcedure`        |
-| `search`         | 搜索建议                               | 无                                                    | `authProcedure`                                                          |
-| `tag`            | 查询与管理列表                         | 创建、修改、删除                                      | 全部 `authProcedure`                                                     |
-| `series`         | `list`、`get`                          | 创建、修改、删除、成员增删与排序                      | 读取为 `publicProcedure`，写入为 `authProcedure`；transport 仍需 Session |
-| `setting`        | 健康、扫描路径、系统设置               | 修改扫描路径和系统设置                                | 全部 `authProcedure`                                                     |
-| `user`           | 全部账户                               | 创建、删除其他账户                                    | 全部 `authProcedure`；新增账户拥有同等管理员能力                         |
-| `userSetting`    | 当前账户设置                           | 写入主要通过 Server Action                            | `authProcedure`，以 `userId` 限定当前账户                                |
-| `scanRun`        | 扫描历史、详情                         | 无                                                    | `authProcedure`                                                          |
-| `migration`      | precheck、失败项                       | pause/resume/cancel 等控制                            | 读取 `authProcedure`，控制 `adminProcedure`                              |
-| `localImport`    | preview、status                        | 保存映射、启动、取消                                  | 读取 `authProcedure`，写入/控制 `adminProcedure`                         |
-| `archiveInbox`   | 持久收件列表与汇总                     | 创建/修正、暂停/恢复、重试/取消、批量归档入队         | 读取 `authProcedure`，写入/控制 `adminProcedure`                         |
-| `archive`        | 分页任务、项目、统计和批量结果         | 单项操作、重试和 `PAUSE/RESUME/CANCEL/RETRY` 批量控制 | 读取 `authProcedure`，写入/控制 `adminProcedure`                         |
-| `pendingReplace` | 预览与状态                             | 绑定、排序、执行、取消、恢复、清理备份                | 全部 `adminProcedure`                                                    |
-| `job`            | 多类状态和队列读取                     | 创建、取消、重试、优先级、scheduler 与中央任务控制    | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`      |
+| Router           | 读取                                                            | 修改/控制                                             | 当前 procedure 边界                                                      |
+| ---------------- | --------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------ |
+| `auth`           | 当前账户 `me`                                                   | 无                                                    | `authProcedure`                                                          |
+| `artist`         | 详情、分页                                                      | 创建、修改、收藏、删除                                | 全部 `authProcedure`                                                     |
+| `artwork`        | 详情、feed、相邻、随机、推荐、上传路径                          | 创建、修改、删除、媒体增删与排序                      | 大多为 `authProcedure`；作品删除和视频重新探测为 `adminProcedure`        |
+| `search`         | 搜索建议                                                        | 无                                                    | `authProcedure`                                                          |
+| `tag`            | 查询与管理列表                                                  | 创建、修改、删除                                      | 全部 `authProcedure`                                                     |
+| `series`         | `list`、`get`                                                   | 创建、修改、删除、成员增删与排序                      | 读取为 `publicProcedure`，写入为 `authProcedure`；transport 仍需 Session |
+| `setting`        | 健康、扫描路径、系统设置                                        | 修改扫描路径和系统设置                                | 全部 `authProcedure`                                                     |
+| `user`           | 全部账户                                                        | 创建、删除其他账户                                    | 全部 `authProcedure`；新增账户拥有同等管理员能力                         |
+| `userSetting`    | 当前账户设置                                                    | 写入主要通过 Server Action                            | `authProcedure`，以 `userId` 限定当前账户                                |
+| `scanRun`        | 扫描历史、详情                                                  | 无                                                    | `authProcedure`                                                          |
+| `sourceAudit`    | `availability/get/listItems/getApplyOverview/getApplyOperation` | `start`、`startApply`（1–50 个 NEW/CHANGED）          | 所有读取为 `authProcedure`；两个 mutation 为 `adminProcedure`            |
+| `migration`      | precheck、失败项                                                | pause/resume/cancel 等控制                            | 读取 `authProcedure`，控制 `adminProcedure`                              |
+| `localImport`    | preview、status                                                 | 保存映射、启动、取消                                  | 读取 `authProcedure`，写入/控制 `adminProcedure`                         |
+| `archiveInbox`   | 持久收件列表与汇总                                              | 创建/修正、暂停/恢复、重试/取消、批量归档入队         | 读取 `authProcedure`，写入/控制 `adminProcedure`                         |
+| `archive`        | 分页任务、项目、统计和批量结果                                  | 单项操作、重试和 `PAUSE/RESUME/CANCEL/RETRY` 批量控制 | 读取 `authProcedure`，写入/控制 `adminProcedure`                         |
+| `pendingReplace` | 预览与状态                                                      | 绑定、排序、执行、取消、恢复、清理备份                | 全部 `adminProcedure`                                                    |
+| `job`            | 多类状态和队列读取                                              | 创建、取消、重试、优先级、scheduler 与中央任务控制    | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`      |
 
 由于当前所有账户等权，`authProcedure` 与 `adminProcedure` 的运行时能力相同。任何未来角色分离都必须先审查表中使用 `authProcedure` 的用户管理、系统设置、目录写入和删除操作，不能只给 `adminProcedure` 增加角色判断后宣布完成。
+
+`sourceAudit.startApply` 只接受 audit ID、1–50 个不重复 item ID 和 UUID 幂等键；客户端不能提交绝对路径、hash、
+来源身份或写策略。服务端从已完成核对冻结这些证据，并在共享 SCAN lock 内复核 cutover、dispatcher、来源根、
+inventory 与 `SCAN@v3` Worker readiness。读取接口只返回相对 metadata path、固定结果码和脱敏摘要，不返回冻结的
+绝对路径、数据库异常原文或内部 apply reason 原文。
 
 ## Server Action 矩阵
 

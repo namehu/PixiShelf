@@ -6,19 +6,90 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   collectArtworkMedia,
   collectLocalMedia,
+  discoverAuditMetadataStatCandidatePages,
   discoverMetadataCandidatePages,
   type ScanDiscoveryLimits
 } from '../discovery.js'
 import { resolveSafeScanRoot } from '../paths.js'
 
 const roots: string[] = []
-const limits: ScanDiscoveryLimits = { pageSize: 2, maxDepth: 8, maxEntries: 100, maxMediaPerArtwork: 10 }
+const limits: ScanDiscoveryLimits = {
+  pageSize: 2,
+  maxDepth: 8,
+  maxDiscoveryEntries: 100,
+  maxEntries: 100,
+  maxMediaPerArtwork: 10
+}
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })))
 })
 
 describe('scan discovery', () => {
+  it('skips configured root directories without excluding the same name when nested', async () => {
+    const directory = await fixtureRoot()
+    for (const [relativePath, externalId] of [
+      ['local-imports/work', '10'],
+      ['sources/provider', '11'],
+      ['.archive-staging/task', '12'],
+      ['.trash/archive', '13'],
+      ['artist/sources/work', '14'],
+      ['pixiv/work', '15']
+    ] as const) {
+      const target = path.join(directory, relativePath)
+      await fs.mkdir(target, { recursive: true })
+      await fs.writeFile(path.join(target, `${externalId}-meta.json`), '{}')
+    }
+    const root = await resolveSafeScanRoot(directory)
+    const options = {
+      excludedRootDirectories: ['local-imports', 'sources', '.archive-staging', '.trash']
+    }
+
+    const incremental = (
+      await collectPages(discoverMetadataCandidatePages(root, limits, new AbortController().signal, options))
+    ).flat()
+    const audit = (
+      await collectPages(discoverAuditMetadataStatCandidatePages(root, limits, new AbortController().signal, options))
+    ).flat()
+
+    expect(incremental.map((item) => item.relativePath)).toEqual([
+      'artist/sources/work/14-meta.json',
+      'pixiv/work/15-meta.json'
+    ])
+    expect(audit.map((item) => item.relativePath)).toEqual([
+      'artist/sources/work/14-meta.json',
+      'pixiv/work/15-meta.json'
+    ])
+  })
+
+  it('does not apply the frozen metadata row limit to visited media entries', async () => {
+    const directory = await fixtureRoot()
+    const artwork = path.join(directory, 'artist', '42')
+    await fs.mkdir(artwork, { recursive: true })
+    await fs.writeFile(path.join(artwork, '42-meta.json'), '{}')
+    for (let index = 0; index < 6; index += 1) {
+      await fs.writeFile(path.join(artwork, `42_p${index}.jpg`), 'image')
+    }
+    const root = await resolveSafeScanRoot(directory)
+    const separatedLimits = { ...limits, maxEntries: 1, maxDiscoveryEntries: 10 }
+
+    await expect(
+      collectPages(discoverMetadataCandidatePages(root, separatedLimits, new AbortController().signal))
+    ).resolves.toMatchObject([[{ artworkId: '42', relativePath: 'artist/42/42-meta.json' }]])
+    await expect(
+      collectPages(
+        discoverMetadataCandidatePages(
+          root,
+          { ...separatedLimits, maxDiscoveryEntries: 8 },
+          new AbortController().signal
+        )
+      )
+    ).rejects.toMatchObject({
+      code: 'INPUT_SNAPSHOT_INVALID',
+      message: 'Scan discovery exceeds the configured entry limit (8)'
+    })
+  })
+
   it('deduplicates metadata globally, prefers JSON, pages inputs, and bounds media collection', async () => {
     const directory = await fixtureRoot()
     await fs.mkdir(path.join(directory, 'a'), { recursive: true })
@@ -36,6 +107,13 @@ describe('scan discovery', () => {
     const selected42 = pages.flat().find((candidate) => candidate.artworkId === '42')!
     expect(selected42.relativePath).toBe('b/42-meta.json')
     expect(selected42.contentHash).toMatch(/^[a-f0-9]{64}$/)
+    const auditCandidates = (
+      await collectPages(discoverAuditMetadataStatCandidatePages(root, limits, new AbortController().signal))
+    ).flat()
+    expect(
+      auditCandidates.filter((candidate) => candidate.artworkId === '42').map((candidate) => candidate.relativePath)
+    ).toEqual(['a/42-meta.txt', 'b/42-meta.json'])
+    expect(auditCandidates.every((candidate) => candidate.state.sizeBytes >= 0n)).toBe(true)
     await expect(
       collectArtworkMedia(root, selected42, { maxEntries: 100, maxMediaPerArtwork: 1 }, new AbortController().signal)
     ).rejects.toMatchObject({

@@ -1,8 +1,10 @@
 'use client'
 
+import type { ReactNode } from 'react'
+import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ChevronDown, Loader2, RefreshCw, SearchX } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Loader2, RefreshCw, SearchX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useTRPC } from '@/lib/trpc'
@@ -13,6 +15,9 @@ import {
   formatFullDate,
   formatMode,
   formatType,
+  getSourceMaintenanceHref,
+  isSourceAuditApplyRun,
+  isSourceAuditRun,
   ScanRunItemStatus,
   ScanRunStatus,
   StatusBadge
@@ -62,8 +67,12 @@ export function ScanHistoryManagement() {
   const runs = historyQuery.data ?? []
   const latest = runs[0] ?? null
   const runParam = searchParams.get('run')
-  const selectedRunId = runParam === 'none' ? null : (runParam ?? latest?.id ?? null)
+  const defaultRunId = latest && !isSourceAuditRun(latest) && !isSourceAuditApplyRun(latest) ? latest.id : null
+  const selectedRunId = runParam === 'none' ? null : (runParam ?? defaultRunId)
   const statusFilter = parseStatusFilter(searchParams.get('status'))
+  const selectedListRun = runs.find((run) => run.id === selectedRunId) ?? null
+  const selectedListRunHasIndependentResult =
+    selectedListRun && (isSourceAuditRun(selectedListRun) || isSourceAuditApplyRun(selectedListRun))
 
   const detailQuery = useQuery(
     trpc.scanRun.detail.queryOptions(
@@ -72,11 +81,11 @@ export function ScanHistoryManagement() {
         status: statusFilter === 'ALL' ? undefined : statusFilter,
         limit: 500
       },
-      { enabled: Boolean(selectedRunId) }
+      { enabled: Boolean(selectedRunId) && !selectedListRunHasIndependentResult }
     )
   )
 
-  const selectedRun = runs.find((run) => run.id === selectedRunId) ?? detailQuery.data?.run ?? null
+  const selectedRun = selectedListRun ?? detailQuery.data?.run ?? null
   const detailItems = detailQuery.data?.items ?? []
 
   const updateView = (runId: string | null, status: ScanRunItemStatus | 'ALL' = 'ALL') => {
@@ -110,7 +119,7 @@ export function ScanHistoryManagement() {
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y py-3 text-sm text-muted-foreground">
         <span>{historyQuery.isPending ? '正在读取记录…' : `最近 ${runs.length} 次运行`}</span>
         <span>运行中的任务每 2 秒更新</span>
-        <span className="ml-auto hidden text-xs sm:inline">点击记录展开或收起明细</span>
+        <span className="ml-auto hidden text-xs sm:inline">普通扫描可展开明细，来源核对与同步进入独立结果页</span>
       </div>
 
       {historyQuery.isError ? (
@@ -126,7 +135,11 @@ export function ScanHistoryManagement() {
       ) : (
         <section aria-label="扫描运行记录" className="flex flex-col gap-2">
           {runs.map((run, index) => {
-            const expanded = run.id === selectedRunId
+            const sourceAudit = isSourceAuditRun(run)
+            const sourceAuditApply = isSourceAuditApplyRun(run)
+            const sourceMaintenance = sourceAudit || sourceAuditApply
+            const sourceMaintenanceHref = getSourceMaintenanceHref(run)
+            const expanded = !sourceMaintenance && run.id === selectedRunId
             const panelId = `scan-run-${run.id}-panel`
 
             return (
@@ -141,12 +154,13 @@ export function ScanHistoryManagement() {
                   className={cn('absolute inset-y-0 left-0 w-1', getStatusRailClass(run.status))}
                   aria-hidden="true"
                 />
-                <button
-                  type="button"
-                  aria-expanded={expanded}
-                  aria-controls={panelId}
-                  onClick={() => updateView(expanded ? null : run.id)}
-                  className="w-full py-4 pr-4 pl-5 text-left transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 sm:pl-6"
+                <RunTrigger
+                  independentResult={sourceMaintenance}
+                  href={sourceMaintenanceHref}
+                  expanded={expanded}
+                  panelId={panelId}
+                  auditLabel={`查看 ${formatDate(run.startedAt)} 的${sourceAuditApply ? '来源同步进度' : '来源一致性核对结果'}`}
+                  onToggle={() => updateView(expanded ? null : run.id)}
                 >
                   <div className="grid items-center gap-3 sm:grid-cols-[112px_minmax(0,1fr)_auto_auto] sm:gap-5">
                     <div className="flex items-center justify-between gap-3 sm:block">
@@ -165,13 +179,17 @@ export function ScanHistoryManagement() {
                       ) : null}
                       <div className="flex items-center gap-2 sm:hidden">
                         <StatusBadge status={run.status as ScanRunStatus} />
-                        <ChevronDown
-                          className={cn(
-                            'size-4 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
-                            expanded && 'rotate-180'
-                          )}
-                          aria-hidden="true"
-                        />
+                        {sourceMaintenance ? (
+                          <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+                        ) : (
+                          <ChevronDown
+                            className={cn(
+                              'size-4 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                              expanded && 'rotate-180'
+                            )}
+                            aria-hidden="true"
+                          />
+                        )}
                       </div>
                     </div>
 
@@ -184,37 +202,65 @@ export function ScanHistoryManagement() {
                         >
                           {formatType(run.type)}
                         </span>
-                        <span className="text-xs text-muted-foreground">{formatMode(run.mode)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {formatMode(sourceMaintenance ? (run.operationKind ?? run.mode) : run.mode)}
+                        </span>
                       </div>
+                      {sourceAudit ? (
+                        <AuditRunMetrics run={run} className="mt-2 sm:hidden" />
+                      ) : sourceAuditApply ? (
+                        <ApplyRunMetrics
+                          applied={run.succeededArtworks}
+                          skipped={run.skippedArtworks}
+                          failed={run.failedArtworks}
+                          className="mt-2 sm:hidden"
+                        />
+                      ) : (
+                        <RunMetrics
+                          succeeded={run.succeededArtworks}
+                          skipped={run.skippedArtworks}
+                          failed={run.failedArtworks}
+                          media={run.newImages}
+                          className="mt-2 sm:hidden"
+                        />
+                      )}
+                    </div>
+
+                    {sourceAudit ? (
+                      <AuditRunMetrics run={run} className="hidden sm:flex" />
+                    ) : sourceAuditApply ? (
+                      <ApplyRunMetrics
+                        applied={run.succeededArtworks}
+                        skipped={run.skippedArtworks}
+                        failed={run.failedArtworks}
+                        className="hidden sm:flex"
+                      />
+                    ) : (
                       <RunMetrics
                         succeeded={run.succeededArtworks}
                         skipped={run.skippedArtworks}
                         failed={run.failedArtworks}
                         media={run.newImages}
-                        className="mt-2 sm:hidden"
+                        className="hidden sm:flex"
                       />
-                    </div>
-
-                    <RunMetrics
-                      succeeded={run.succeededArtworks}
-                      skipped={run.skippedArtworks}
-                      failed={run.failedArtworks}
-                      media={run.newImages}
-                      className="hidden sm:flex"
-                    />
+                    )}
 
                     <div className="hidden items-center gap-3 sm:flex">
                       <StatusBadge status={run.status as ScanRunStatus} />
-                      <ChevronDown
-                        className={cn(
-                          'size-4 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
-                          expanded && 'rotate-180'
-                        )}
-                        aria-hidden="true"
-                      />
+                      {sourceMaintenance ? (
+                        <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+                      ) : (
+                        <ChevronDown
+                          className={cn(
+                            'size-4 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                            expanded && 'rotate-180'
+                          )}
+                          aria-hidden="true"
+                        />
+                      )}
                     </div>
                   </div>
-                </button>
+                </RunTrigger>
 
                 {expanded && selectedRun ? (
                   <div id={panelId} className="border-t bg-muted/10 px-4 py-5 sm:px-6">
@@ -271,6 +317,21 @@ export function ScanHistoryManagement() {
                       </div>
                     ) : null}
 
+                    {selectedRun.walkedEntries !== null ? (
+                      <InventoryWorkMetrics
+                        walked={selectedRun.walkedEntries}
+                        candidates={selectedRun.metadataCandidates ?? 0}
+                        unchanged={selectedRun.inventoryUnchanged ?? 0}
+                        hashed={selectedRun.contentHashed ?? 0}
+                        changed={selectedRun.contentChanged ?? 0}
+                        parsed={selectedRun.parsedInputs ?? 0}
+                        published={selectedRun.publishedInputs ?? 0}
+                        discoveryDurationMs={selectedRun.discoveryDurationMs}
+                        hashDurationMs={selectedRun.hashDurationMs}
+                        publishDurationMs={selectedRun.publishDurationMs}
+                      />
+                    ) : null}
+
                     {detailQuery.isError ? (
                       <QueryError
                         title="无法加载作品明细"
@@ -295,6 +356,171 @@ export function ScanHistoryManagement() {
         </section>
       )}
     </div>
+  )
+}
+
+function RunTrigger({
+  independentResult,
+  href,
+  expanded,
+  panelId,
+  auditLabel,
+  onToggle,
+  children
+}: {
+  independentResult: boolean
+  href: string | null
+  expanded: boolean
+  panelId: string
+  auditLabel: string
+  onToggle: () => void
+  children: ReactNode
+}) {
+  const className =
+    'block w-full py-4 pr-4 pl-5 text-left transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 sm:pl-6'
+
+  if (independentResult && href) {
+    return (
+      <Link href={href} aria-label={auditLabel} className={className}>
+        {children}
+      </Link>
+    )
+  }
+
+  if (independentResult) return <div className={className}>{children}</div>
+
+  return (
+    <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={onToggle} className={className}>
+      {children}
+    </button>
+  )
+}
+
+function AuditRunMetrics({
+  run,
+  className
+}: {
+  run: {
+    auditNewInputs?: number | null
+    auditChangedInputs?: number | null
+    missingInputs?: number | null
+    auditInvalidInputs?: number | null
+    auditIdentityConflictInputs?: number | null
+  }
+  className?: string
+}) {
+  const different =
+    (run.auditNewInputs ?? 0) +
+    (run.auditChangedInputs ?? 0) +
+    (run.missingInputs ?? 0) +
+    (run.auditInvalidInputs ?? 0) +
+    (run.auditIdentityConflictInputs ?? 0)
+  return (
+    <div
+      className={cn(
+        'flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-muted-foreground',
+        className
+      )}
+    >
+      <span>
+        <strong className="font-semibold text-foreground">{numberFormatter.format(different)}</strong> 项差异
+      </span>
+      <span>
+        新增{' '}
+        <strong className="font-semibold text-foreground">{numberFormatter.format(run.auditNewInputs ?? 0)}</strong>
+      </span>
+      <span>
+        变化{' '}
+        <strong className="font-semibold text-foreground">{numberFormatter.format(run.auditChangedInputs ?? 0)}</strong>
+      </span>
+      <span>
+        缺失 <strong className="font-semibold text-foreground">{numberFormatter.format(run.missingInputs ?? 0)}</strong>
+      </span>
+    </div>
+  )
+}
+
+function ApplyRunMetrics({
+  applied,
+  skipped,
+  failed,
+  className
+}: {
+  applied: number
+  skipped: number
+  failed: number
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        'flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-muted-foreground',
+        className
+      )}
+    >
+      <span>
+        已应用 <strong className="font-semibold text-success">{numberFormatter.format(applied)}</strong>
+      </span>
+      <span>
+        跳过 <strong className="font-semibold text-foreground">{numberFormatter.format(skipped)}</strong>
+      </span>
+      <span>
+        失败{' '}
+        <strong className={cn('font-semibold', failed > 0 ? 'text-destructive' : 'text-foreground')}>
+          {numberFormatter.format(failed)}
+        </strong>
+      </span>
+    </div>
+  )
+}
+
+function InventoryWorkMetrics({
+  walked,
+  candidates,
+  unchanged,
+  hashed,
+  changed,
+  parsed,
+  published,
+  discoveryDurationMs,
+  hashDurationMs,
+  publishDurationMs
+}: {
+  walked: number
+  candidates: number
+  unchanged: number
+  hashed: number
+  changed: number
+  parsed: number
+  published: number
+  discoveryDurationMs: number | null
+  hashDurationMs: number | null
+  publishDurationMs: number | null
+}) {
+  const stages = [
+    ['遍历', walked],
+    ['metadata', candidates],
+    ['未变化', unchanged],
+    ['读取内容', hashed],
+    ['有变化', changed],
+    ['解析', parsed],
+    ['写入', published]
+  ] as const
+  return (
+    <section className="mb-4 overflow-hidden rounded-lg border bg-background" aria-label="本次扫描工作量">
+      <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4 xl:grid-cols-7">
+        {stages.map(([label, value]) => (
+          <div key={label} className="bg-background px-3 py-2.5">
+            <div className="text-[11px] text-muted-foreground">{label}</div>
+            <div className="mt-0.5 font-semibold tabular-nums text-foreground">{numberFormatter.format(value)}</div>
+          </div>
+        ))}
+      </div>
+      <div className="border-t px-3 py-2 text-xs tabular-nums text-muted-foreground">
+        发现 {formatDuration(discoveryDurationMs)} · hash {formatDuration(hashDurationMs)} · 写入{' '}
+        {formatDuration(publishDurationMs)}
+      </div>
+    </section>
   )
 }
 

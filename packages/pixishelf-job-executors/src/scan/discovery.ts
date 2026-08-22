@@ -3,7 +3,7 @@ import path from 'node:path'
 import { MEDIA_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
 import sharp from 'sharp'
 import { mapBounded, throwIfAborted } from './bounded.ts'
-import { hashStableFile } from './content-reader.ts'
+import { hashStableFile, statStableFile, type StableFileState } from './content-reader.ts'
 import { ScanExecutorError } from './errors.ts'
 import { computeLocalWorkContentFingerprintWithinRoot } from './fingerprint.ts'
 import {
@@ -27,6 +27,7 @@ const contentScannedAnimationExtensions = new Set(['.webp', '.gif', '.png', '.ap
 export interface ScanDiscoveryLimits {
   pageSize: number
   maxDepth: number
+  maxDiscoveryEntries: number
   maxEntries: number
   maxMediaPerArtwork: number
   concurrency?: number
@@ -34,8 +35,18 @@ export interface ScanDiscoveryLimits {
   maxArchiveMediaBytes?: number
 }
 
+interface MetadataDiscoveryOptions {
+  onEntry?: () => void
+  excludedRootDirectories?: readonly string[]
+}
+
 export interface FrozenMetadataCandidate extends MetadataCandidate {
   contentHash: string
+  state: StableFileState
+}
+
+export interface StattedMetadataCandidate extends MetadataCandidate {
+  state: StableFileState
 }
 
 export interface DiscoveredMediaFile {
@@ -59,15 +70,37 @@ export interface DiscoveredLocalMediaFile extends DiscoveredMediaFile {
 export async function* discoverMetadataCandidatePages(
   root: SafeScanRoot,
   limits: ScanDiscoveryLimits,
-  signal: AbortSignal
+  signal: AbortSignal,
+  options: MetadataDiscoveryOptions = {}
 ): AsyncGenerator<FrozenMetadataCandidate[]> {
+  for await (const page of discoverMetadataStatCandidatePages(root, limits, signal, options)) {
+    throwIfAborted(signal)
+    yield await mapBounded(page, limits.concurrency ?? 1, signal, async (candidate) => {
+      const hashed = await hashStableFile({
+        absolutePath: candidate.absolutePath,
+        maxBytes: limits.maxMetadataBytes ?? 16 * 1024 * 1024,
+        signal
+      })
+      return { ...candidate, contentHash: hashed.sha256, state: hashed.state }
+    })
+  }
+}
+
+export async function* discoverMetadataStatCandidatePages(
+  root: SafeScanRoot,
+  limits: ScanDiscoveryLimits,
+  signal: AbortSignal,
+  options: MetadataDiscoveryOptions = {}
+): AsyncGenerator<StattedMetadataCandidate[]> {
   const candidates: MetadataCandidate[] = []
   for await (const page of walkSafeFiles(root, '', {
     pageSize: limits.pageSize,
     maxDepth: limits.maxDepth,
-    maxEntries: limits.maxEntries,
+    maxEntries: limits.maxDiscoveryEntries,
     signal,
-    include: (relativePath) => metadataSuffix.test(relativePath)
+    include: (relativePath) => metadataSuffix.test(relativePath),
+    ...(options.onEntry ? { onEntry: options.onEntry } : {}),
+    ...(options.excludedRootDirectories ? { excludedRootDirectories: options.excludedRootDirectories } : {})
   })) {
     for (const item of page) {
       const candidate = metadataCandidateFromPath(item)
@@ -78,17 +111,39 @@ export async function* discoverMetadataCandidatePages(
   for (let offset = 0; offset < selected.length; offset += limits.pageSize) {
     throwIfAborted(signal)
     const page = selected.slice(offset, offset + limits.pageSize)
-    const hashed = await mapBounded(page, limits.concurrency ?? 1, signal, async (candidate) => ({
+    const statted = await mapBounded(page, limits.concurrency ?? 1, signal, async (candidate) => ({
       ...candidate,
-      contentHash: (
-        await hashStableFile({
-          absolutePath: candidate.absolutePath,
-          maxBytes: limits.maxMetadataBytes ?? 16 * 1024 * 1024,
-          signal
-        })
-      ).sha256
+      state: await statStableFile(candidate.absolutePath)
     }))
-    yield hashed
+    yield statted
+  }
+}
+
+export async function* discoverAuditMetadataStatCandidatePages(
+  root: SafeScanRoot,
+  limits: ScanDiscoveryLimits,
+  signal: AbortSignal,
+  options: MetadataDiscoveryOptions = {}
+): AsyncGenerator<StattedMetadataCandidate[]> {
+  for await (const page of walkSafeFiles(root, '', {
+    pageSize: limits.pageSize,
+    maxDepth: limits.maxDepth,
+    maxEntries: limits.maxDiscoveryEntries,
+    signal,
+    include: (relativePath) => metadataSuffix.test(relativePath),
+    ...(options.onEntry ? { onEntry: options.onEntry } : {}),
+    ...(options.excludedRootDirectories ? { excludedRootDirectories: options.excludedRootDirectories } : {})
+  })) {
+    throwIfAborted(signal)
+    const candidates = page.flatMap((item) => {
+      const candidate = metadataCandidateFromPath(item)
+      return candidate ? [candidate] : []
+    })
+    if (candidates.length === 0) continue
+    yield await mapBounded(candidates, limits.concurrency ?? 1, signal, async (candidate) => ({
+      ...candidate,
+      state: await statStableFile(candidate.absolutePath)
+    }))
   }
 }
 
@@ -109,11 +164,10 @@ export async function resolveClientMetadataPage(
     candidates.push(candidate)
   }
   return Promise.all(
-    selectPreferredMetadataCandidates(candidates).map(async (candidate) => ({
-      ...candidate,
-      contentHash: (await hashStableFile({ absolutePath: candidate.absolutePath, maxBytes: maxMetadataBytes, signal }))
-        .sha256
-    }))
+    selectPreferredMetadataCandidates(candidates).map(async (candidate) => {
+      const hashed = await hashStableFile({ absolutePath: candidate.absolutePath, maxBytes: maxMetadataBytes, signal })
+      return { ...candidate, contentHash: hashed.sha256, state: hashed.state }
+    })
   )
 }
 

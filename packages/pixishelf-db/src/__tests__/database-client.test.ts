@@ -3,7 +3,8 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 
 import { assertBackgroundQueueSchema } from '../index'
 
-const queueKernelDatabaseUrl = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
+const queueKernelDatabaseUrl =
+  process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const describePostgres = queueKernelDatabaseUrl ? describe : describe.skip
 const postgresClient = queueKernelDatabaseUrl ? new PrismaClient({ datasourceUrl: queueKernelDatabaseUrl }) : null
 
@@ -32,10 +33,13 @@ describe('database package', () => {
         { tableName: 'archive_resolve_queue_control' },
         { tableName: 'derived_media_gc_entries' },
         { tableName: 'job_resource_leases' },
+        { tableName: 'pixiv_metadata_inventory' },
+        { tableName: 'pixiv_metadata_inventory_state' },
+        { tableName: 'pixiv_source_audit_items' },
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260818190000_add_archive_intake_retention_cleanup' }],
+      [{ migrationName: '20260820210000_add_pixiv_source_audit_apply' }],
       [expectedIndex]
     ])
 
@@ -46,7 +50,32 @@ describe('database package', () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, archive_intake_items, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, system_job_events, worker_instances, migration:20260818190000_add_archive_intake_retention_cleanup, index:system_jobs_single_executing_per_lane_idx'
+      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, archive_intake_items, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, system_job_events, worker_instances, migration:20260820210000_add_pixiv_source_audit_apply, index:system_jobs_single_executing_per_lane_idx'
+    )
+  })
+
+  it('rejects a database that has the read-only audit migration but not the apply migration', async () => {
+    const client = createQueryClient([
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
+      [
+        { tableName: 'archive_intake_items' },
+        { tableName: 'archive_provider_request_leases' },
+        { tableName: 'archive_provider_throttles' },
+        { tableName: 'archive_resolve_queue_control' },
+        { tableName: 'derived_media_gc_entries' },
+        { tableName: 'job_resource_leases' },
+        { tableName: 'pixiv_metadata_inventory' },
+        { tableName: 'pixiv_metadata_inventory_state' },
+        { tableName: 'pixiv_source_audit_items' },
+        { tableName: 'system_job_events' },
+        { tableName: 'worker_instances' }
+      ],
+      [{ migrationName: '20260820200000_add_pixiv_source_audit' }],
+      [expectedIndex]
+    ])
+
+    await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
+      'Background queue schema is not ready: missing migration:20260820210000_add_pixiv_source_audit_apply'
     )
   })
 
@@ -60,10 +89,13 @@ describe('database package', () => {
         { tableName: 'archive_resolve_queue_control' },
         { tableName: 'derived_media_gc_entries' },
         { tableName: 'job_resource_leases' },
+        { tableName: 'pixiv_metadata_inventory' },
+        { tableName: 'pixiv_metadata_inventory_state' },
+        { tableName: 'pixiv_source_audit_items' },
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260818190000_add_archive_intake_retention_cleanup' }],
+      [{ migrationName: '20260820210000_add_pixiv_source_audit_apply' }],
       []
     ])
 
@@ -82,10 +114,13 @@ describe('database package', () => {
         { tableName: 'archive_resolve_queue_control' },
         { tableName: 'derived_media_gc_entries' },
         { tableName: 'job_resource_leases' },
+        { tableName: 'pixiv_metadata_inventory' },
+        { tableName: 'pixiv_metadata_inventory_state' },
+        { tableName: 'pixiv_source_audit_items' },
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260818190000_add_archive_intake_retention_cleanup' }],
+      [{ migrationName: '20260820210000_add_pixiv_source_audit_apply' }],
       [
         {
           ...expectedIndex,
@@ -109,10 +144,13 @@ describe('database package', () => {
         { tableName: 'archive_resolve_queue_control' },
         { tableName: 'derived_media_gc_entries' },
         { tableName: 'job_resource_leases' },
+        { tableName: 'pixiv_metadata_inventory' },
+        { tableName: 'pixiv_metadata_inventory_state' },
+        { tableName: 'pixiv_source_audit_items' },
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260818190000_add_archive_intake_retention_cleanup' }],
+      [{ migrationName: '20260820210000_add_pixiv_source_audit_apply' }],
       [{ ...expectedIndex, indexExpression: 'id' }]
     ])
 

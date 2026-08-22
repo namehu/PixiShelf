@@ -9,6 +9,7 @@ import {
 } from '../background-task-console'
 import {
   canRetryJob,
+  formatBackgroundJobType,
   formatBackgroundJobStatus,
   getWorkerHealth,
   getWorkerSummary,
@@ -192,7 +193,7 @@ describe('background task console', () => {
     ])
   })
 
-  it('hides retry only for retired historical full scans', () => {
+  it('hides retry for scans whose retired or frozen inputs cannot be cloned', () => {
     const historicalFull = {
       ...createJob('FAILED', 'job-full'),
       type: 'SCAN' as const,
@@ -203,10 +204,51 @@ describe('background task console', () => {
       type: 'SCAN' as const,
       payload: { mode: 'INCREMENTAL' }
     }
+    const clientListScan = {
+      ...createJob('FAILED', 'job-client-list'),
+      type: 'SCAN' as const,
+      payload: { mode: 'CLIENT_LIST', existingPolicy: 'SKIP', inputCount: 1, inputDigest: 'a'.repeat(64) }
+    }
+    const artworkRescan = {
+      ...createJob('FAILED', 'job-artwork-rescan'),
+      type: 'SCAN' as const,
+      payload: { mode: 'ARTWORK_RESCAN', artworkId: 42 }
+    }
 
     expect(canRetryJob(historicalFull)).toBe(false)
+    expect(canRetryJob(clientListScan)).toBe(false)
+    expect(canRetryJob(artworkRescan)).toBe(false)
     expect(canRetryJob(ordinaryScan)).toBe(true)
     expect(canRetryJob(createJob('FAILED'))).toBe(true)
+  })
+
+  it('labels the v2 read-only scan as Pixiv source audit and keeps retry unavailable', () => {
+    const sourceAudit = {
+      ...createJob('FAILED', 'job-source-audit'),
+      type: 'SCAN' as const,
+      definitionVersion: 2,
+      payload: { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' }
+    }
+
+    expect(formatBackgroundJobType(sourceAudit.type, sourceAudit.payload)).toBe('Pixiv 来源核对')
+    expect(canRetryJob(sourceAudit)).toBe(false)
+  })
+
+  it('labels selected source synchronization separately and never clones its frozen inputs', () => {
+    const sourceApply = {
+      ...createJob('FAILED', 'job-source-apply'),
+      type: 'SCAN' as const,
+      definitionVersion: 3,
+      payload: {
+        mode: 'AUDIT_APPLY',
+        auditRunId: 'audit-1',
+        inputCount: 2,
+        inputDigest: 'a'.repeat(64)
+      }
+    }
+
+    expect(formatBackgroundJobType(sourceApply.type, sourceApply.payload)).toBe('Pixiv 来源同步')
+    expect(canRetryJob(sourceApply)).toBe(false)
   })
 
   it('does not render retry for historical full scans but keeps it for ordinary failures', () => {
@@ -250,6 +292,34 @@ describe('background task console', () => {
     expect(screen.getAllByText('图库扫描').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(controls.retry.mutate).toHaveBeenCalledWith({ jobId: ordinaryScan.id })
+  })
+
+  it('renders multiline scan failure details with their paths and actionable error code', () => {
+    const failedScan = {
+      ...createJob('FAILED', 'job-scan-failure-details'),
+      type: 'SCAN' as const,
+      payload: { mode: 'INCREMENTAL' },
+      errorCode: 'PRECONDITION_FAILED',
+      error:
+        '2 frozen metadata inputs failed validation or publish:\n- artist/100/100-meta.txt [MEDIA_NOT_FOUND]: Artwork has no supported media\n- artist/200/200-meta.txt [METADATA_INVALID]: Metadata document is invalid'
+    }
+
+    render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard({ recentJobs: [failedScan] })}
+        selectedJob={failedScan}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={createControls()}
+      />
+    )
+
+    expect(screen.getByText('PRECONDITION_FAILED：任务需要处理后重试')).toBeTruthy()
+    const details = screen.getByText(/artist\/100\/100-meta\.txt/)
+    expect(details.className).toContain('whitespace-pre-wrap')
+    expect(details.textContent).toContain('artist/200/200-meta.txt [METADATA_INVALID]')
   })
 
   it('shows the single execution slot, worker health, and native keyboard-operable recent jobs', () => {

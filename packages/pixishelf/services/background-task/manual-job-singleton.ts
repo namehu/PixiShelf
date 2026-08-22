@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import {
   ACTIVE_JOB_STATUSES,
   JOB_DEFINITION_VERSION,
+  SINGLETON_JOB_ADVISORY_LOCK_NAMESPACE,
   parseJobPayload,
   type JobDto,
   type JsonValue
@@ -20,7 +21,7 @@ const singletonSystemJobInputSchema = manualEnqueueJobRequestSchema.extend({
   priority: z.number().int().min(100).max(999)
 })
 
-const SINGLETON_MANUAL_JOB_LOCK_NAMESPACE = 80_432_028
+export const SINGLETON_MANUAL_JOB_LOCK_NAMESPACE = SINGLETON_JOB_ADVISORY_LOCK_NAMESPACE
 
 interface SingletonCommandDatabaseClient {
   $transaction<T>(operation: (transaction: Prisma.TransactionClient) => Promise<T>): Promise<T>
@@ -34,6 +35,15 @@ export interface EnqueueSingletonManualJobOptions {
 export interface EnqueueSingletonManualJobResult {
   job: JobDto
   reused: boolean
+}
+
+export async function lockSingletonJobType(
+  transaction: Pick<Prisma.TransactionClient, '$queryRaw'>,
+  jobType: string
+): Promise<void> {
+  await transaction.$queryRaw(
+    Prisma.sql`SELECT pg_advisory_xact_lock(${SINGLETON_MANUAL_JOB_LOCK_NAMESPACE}::integer, hashtext(${jobType}::text))::text AS "lock"`
+  )
 }
 
 function canonicalJson(value: unknown): string {
@@ -105,9 +115,7 @@ async function enqueueSingletonJobWithResult(
   const database = options.client ?? (prisma as unknown as SingletonCommandDatabaseClient)
 
   return database.$transaction(async (transaction) => {
-    await transaction.$queryRaw(
-      Prisma.sql`SELECT pg_advisory_xact_lock(${SINGLETON_MANUAL_JOB_LOCK_NAMESPACE}::integer, hashtext(${parsed.type}::text))::text AS "lock"`
-    )
+    await lockSingletonJobType(transaction, parsed.type)
     const existing = await transaction.systemJob.findFirst({
       where: { type: parsed.type, status: { in: [...ACTIVE_JOB_STATUSES] } },
       orderBy: { createdAt: 'desc' },

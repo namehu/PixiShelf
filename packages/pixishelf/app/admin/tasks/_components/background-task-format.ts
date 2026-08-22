@@ -65,6 +65,8 @@ export function formatBackgroundJobStatus(status: JobStatus) {
 
 export function formatBackgroundJobType(type: JobType, payload?: unknown) {
   if (isHistoricalFullScan(type, payload)) return '历史来源核对（已停用）'
+  if (isPixivSourceAudit(type, payload)) return 'Pixiv 来源核对'
+  if (isPixivSourceApply(type, payload)) return 'Pixiv 来源同步'
   return typeLabels[type] ?? type
 }
 
@@ -129,7 +131,37 @@ export function canResumeJob(job: JobDto) {
 }
 
 export function canRetryJob(job: JobDto) {
-  return !isHistoricalFullScan(job.type, job.payload) && ['FAILED', 'CANCELLED', 'SKIPPED'].includes(job.status)
+  return !isNonRetryableScan(job.type, job.payload) && ['FAILED', 'CANCELLED', 'SKIPPED'].includes(job.status)
+}
+
+function isNonRetryableScan(type: JobType, payload: unknown) {
+  if (type !== 'SCAN' || typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false
+  if (!('mode' in payload)) return false
+  return ['FULL_RECONCILE', 'CLIENT_LIST', 'ARTWORK_RESCAN', 'CONSISTENCY_AUDIT', 'AUDIT_APPLY'].includes(
+    String(payload.mode)
+  )
+}
+
+function isPixivSourceAudit(type: JobType, payload: unknown) {
+  return (
+    type === 'SCAN' &&
+    typeof payload === 'object' &&
+    payload !== null &&
+    !Array.isArray(payload) &&
+    'mode' in payload &&
+    payload.mode === 'CONSISTENCY_AUDIT'
+  )
+}
+
+function isPixivSourceApply(type: JobType, payload: unknown) {
+  return (
+    type === 'SCAN' &&
+    typeof payload === 'object' &&
+    payload !== null &&
+    !Array.isArray(payload) &&
+    'mode' in payload &&
+    payload.mode === 'AUDIT_APPLY'
+  )
 }
 
 function isHistoricalFullScan(type: JobType, payload: unknown) {
