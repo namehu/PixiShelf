@@ -294,6 +294,34 @@ describe('background task console', () => {
     expect(controls.retry.mutate).toHaveBeenCalledWith({ jobId: ordinaryScan.id })
   })
 
+  it('renders multiline scan failure details with their paths and actionable error code', () => {
+    const failedScan = {
+      ...createJob('FAILED', 'job-scan-failure-details'),
+      type: 'SCAN' as const,
+      payload: { mode: 'INCREMENTAL' },
+      errorCode: 'PRECONDITION_FAILED',
+      error:
+        '2 frozen metadata inputs failed validation or publish:\n- artist/100/100-meta.txt [MEDIA_NOT_FOUND]: Artwork has no supported media\n- artist/200/200-meta.txt [METADATA_INVALID]: Metadata document is invalid'
+    }
+
+    render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard({ recentJobs: [failedScan] })}
+        selectedJob={failedScan}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={createControls()}
+      />
+    )
+
+    expect(screen.getByText('PRECONDITION_FAILED：任务需要处理后重试')).toBeTruthy()
+    const details = screen.getByText(/artist\/100\/100-meta\.txt/)
+    expect(details.className).toContain('whitespace-pre-wrap')
+    expect(details.textContent).toContain('artist/200/200-meta.txt [METADATA_INVALID]')
+  })
+
   it('shows the single execution slot, worker health, and native keyboard-operable recent jobs', () => {
     const running = createJob('RUNNING')
     const selectJob = vi.fn()

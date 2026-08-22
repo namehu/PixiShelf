@@ -40,6 +40,7 @@ import {
 } from './types.ts'
 
 const DEFAULT_RETRY_DELAY_MS = 60_000
+const MAX_FAILURE_SAMPLES = 5
 
 export async function executeScan(
   context: ExecutionContext<ScanPayload, EnqueuedChildJob>,
@@ -151,6 +152,7 @@ export async function executeScan(
         where: { lastSeenScanRunId: run.id, lastErrorRetryable: true },
         select: { id: true }
       })
+      const failureMessage = await describeFailedMetadataInputs(dependencies, run.id, result.failed)
       await context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
         await transaction.scanRun.update({
           where: { id: run.id },
@@ -165,7 +167,7 @@ export async function executeScan(
       })
       throw new ScanExecutorError(
         retryableFailure ? 'SOURCE_NOT_READABLE' : 'METADATA_INVALID',
-        `${result.failed} frozen metadata inputs failed validation or publish`,
+        failureMessage,
         retryableFailure !== null
       )
     }
@@ -481,6 +483,49 @@ function summarize(
 
 function safeInputCode(error: unknown) {
   return error instanceof ScanExecutorError ? error.code : 'UNEXPECTED'
+}
+
+async function describeFailedMetadataInputs(
+  dependencies: ScanExecutorDependencies,
+  runId: string,
+  total: number
+): Promise<string> {
+  const items = await dependencies.database.scanRunItem.findMany({
+    where: { scanRunId: runId, status: 'FAILED' },
+    select: { metadataRelativePath: true, action: true, errorMessage: true },
+    orderBy: [{ metadataRelativePath: 'asc' }, { id: 'asc' }],
+    take: MAX_FAILURE_SAMPLES + 1
+  })
+  const visibleItems = items.slice(0, MAX_FAILURE_SAMPLES)
+  const paths = visibleItems.flatMap((item) => (item.metadataRelativePath ? [item.metadataRelativePath] : []))
+  const inventoryRows =
+    paths.length === 0
+      ? []
+      : await dependencies.database.pixivMetadataInventory.findMany({
+          where: { relativePath: { in: paths } },
+          select: { relativePath: true, lastErrorCode: true, lastErrorSummary: true }
+        })
+  const inventoryByPath = new Map(inventoryRows.map((row) => [row.relativePath, row]))
+  const lines = visibleItems.map((item) => {
+    const relativePath = singleLine(item.metadataRelativePath ?? 'unknown metadata input', 500)
+    const inventory = item.metadataRelativePath ? inventoryByPath.get(item.metadataRelativePath) : undefined
+    const code = singleLine(inventory?.lastErrorCode ?? item.action, 80)
+    const summary = singleLine(inventory?.lastErrorSummary ?? item.errorMessage ?? 'Input processing failed', 300)
+    return `- ${relativePath} [${code}]: ${summary}`
+  })
+  const hidden = Math.max(0, total - visibleItems.length)
+  return [
+    `${total} frozen metadata inputs failed validation or publish:`,
+    ...lines,
+    ...(hidden > 0 ? [`- ...and ${hidden} more failed inputs`] : [])
+  ].join('\n')
+}
+
+function singleLine(value: string, maxLength: number) {
+  return value
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .trim()
+    .slice(0, maxLength)
 }
 
 class MetadataInputFailure extends Error {

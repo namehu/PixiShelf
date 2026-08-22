@@ -97,6 +97,26 @@ describe('scan fenced lifecycle', () => {
     expect(context.__scope.fail).toHaveBeenCalledOnce()
   })
 
+  it.each(['SOURCE_NOT_READABLE', 'METADATA_INVALID', 'MEDIA_NOT_FOUND'] as const)(
+    'reports source input error %s as a precondition failure instead of an internal error',
+    async (code) => {
+      const transaction = transactionFixture()
+      const context = contextFixture(transaction, 'RUNNING')
+
+      await finalizeScanError({
+        context,
+        runId: 'run-1',
+        error: new ScanExecutorError(code, 'A source input needs attention'),
+        now,
+        retryDelayMs: 1_000
+      })
+
+      expect(context.__scope.fail).toHaveBeenCalledWith(
+        expect.objectContaining({ errorCode: 'PRECONDITION_FAILED', error: 'A source input needs attention' })
+      )
+    }
+  )
+
   it('pauses for action instead of sweeping an empty FULL snapshot or an abnormal sweep volume', async () => {
     const emptyTransaction = transactionFixture()
     const emptyContext = contextFixture(emptyTransaction, 'RUNNING')

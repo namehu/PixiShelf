@@ -163,7 +163,10 @@ function classifyScanError(error: unknown): { jobErrorCode: JobErrorCode; messag
           ? 'PATH_OUTSIDE_ALLOWED_ROOT'
           : error.code === 'CONFIGURATION_INVALID' ||
               error.code === 'INPUT_SNAPSHOT_INVALID' ||
-              error.code === 'STATE_CONFLICT'
+              error.code === 'STATE_CONFLICT' ||
+              error.code === 'SOURCE_NOT_READABLE' ||
+              error.code === 'METADATA_INVALID' ||
+              error.code === 'MEDIA_NOT_FOUND'
             ? 'PRECONDITION_FAILED'
             : 'INTERNAL_ERROR'
     return { jobErrorCode, message: error.message, recoverable: error.recoverable }

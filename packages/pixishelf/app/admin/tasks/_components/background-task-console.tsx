@@ -733,10 +733,16 @@ function JobDetail({ job, controls }: { job: JobDto; controls: BackgroundControl
       ) : null}
       {job.message ? <p className="mt-3 select-text break-words text-sm text-muted-foreground">{job.message}</p> : null}
       {job.error ? (
-        <p className="mt-3 select-text break-words rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
-          {job.errorCode ? `${job.errorCode}：` : ''}
-          {job.error}
-        </p>
+        <div className="mt-3 select-text rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+          <p className="font-medium">
+            {job.errorCode === 'PRECONDITION_FAILED'
+              ? `${job.errorCode}：任务需要处理后重试`
+              : job.errorCode
+                ? `${job.errorCode}：任务执行失败`
+                : '任务执行失败'}
+          </p>
+          <p className="mt-1 whitespace-pre-wrap break-words">{job.error}</p>
+        </div>
       ) : null}
 
       <EventTimeline

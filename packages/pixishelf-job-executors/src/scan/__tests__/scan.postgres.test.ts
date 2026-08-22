@@ -321,6 +321,11 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const firstItem = await client().scanRunItem.findFirstOrThrow({ where: { scanRunId: run.id } })
     expect(firstItem).toMatchObject({ status: 'FAILED', action: 'FAILED_PARSE', attempt: 1 })
     expect(run).toMatchObject({ status: 'FAILED', failedInputs: 1, parsedInputs: 0 })
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({
+      status: 'FAILED',
+      errorCode: 'PRECONDITION_FAILED',
+      error: expect.stringContaining(`${relativePath} [METADATA_INVALID]: Metadata document is invalid`)
+    })
 
     // If the permanent checkpoint were parsed again, the changed bytes would either import or
     // produce a second checkpoint attempt. Re-queueing the same job models lease recovery.
@@ -376,6 +381,11 @@ describePostgres('scan executor PostgreSQL integration', () => {
       lastErrorRetryable: true
     })
     expect(run).toMatchObject({ status: 'RETRY_WAIT', failedInputs: 1, parsedInputs: 1, publishedInputs: 0 })
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({
+      status: 'RETRY_WAIT',
+      errorCode: 'PRECONDITION_FAILED',
+      error: expect.stringContaining(`${relativePath} [MEDIA_NOT_FOUND]: Artwork has no supported media`)
+    })
 
     await fs.writeFile(path.join(directory, `${externalId}_p0.jpg`), 'image')
     clock.advance(60_001)
