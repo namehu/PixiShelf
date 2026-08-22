@@ -204,7 +204,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
   const scanRun = await startScanRun({
     systemJobId: job.id,
     type: ScanRunType.PIXIV,
-    mode: type === 'list' ? ScanRunMode.CLIENT_LIST : force ? ScanRunMode.FULL : ScanRunMode.INCREMENTAL
+    mode: type === 'list' ? ScanRunMode.CLIENT_LIST : ScanRunMode.INCREMENTAL
   })
   const auditBuffer = createScanRunItemBuffer(scanRun.id)
   const pendingProgressWrites = new Set<Promise<void>>()

@@ -28,7 +28,7 @@ export async function startOrResumeScanRun(input: {
   context: ScanContext
   database: ScanDatabase
   kind: 'SCAN' | 'LOCAL_DIRECTORY_IMPORT' | 'LOCAL_ARTWORK_RESCAN'
-  mode: 'FULL' | 'INCREMENTAL' | 'CLIENT_LIST' | 'RESCAN' | 'LOCAL_RESCAN' | 'LOCAL_DIRECTORY_IMPORT'
+  mode: 'INCREMENTAL' | 'CLIENT_LIST' | 'RESCAN' | 'LOCAL_RESCAN' | 'LOCAL_DIRECTORY_IMPORT'
   now: Date
   requireFrozen: boolean
 }): Promise<ScanRunRecord> {
@@ -155,9 +155,6 @@ export async function verifyFrozenMetadataSnapshot(input: {
       'INPUT_SNAPSHOT_INVALID',
       'Artwork rescan must contain exactly one frozen metadata input'
     )
-  }
-  if (input.payload.mode === 'FULL_RECONCILE' && count === 0) {
-    throw new ScanExecutorError('EMPTY_FULL_RECONCILE', 'Full reconcile discovered no metadata inputs')
   }
   return {
     count,
@@ -369,8 +366,6 @@ export async function freezeDiscoveredMetadata(input: {
 
 export function scanMode(payload: ScanPayload) {
   switch (payload.mode) {
-    case 'FULL_RECONCILE':
-      return 'FULL' as const
     case 'ARTWORK_RESCAN':
       return 'RESCAN' as const
     case 'CLIENT_LIST':

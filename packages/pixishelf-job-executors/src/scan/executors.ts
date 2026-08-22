@@ -94,7 +94,7 @@ function validateDependencies(dependencies: ScanExecutorDependencies) {
     ['concurrency', limits.concurrency, 32],
     ['maxMetadataBytes', limits.maxMetadataBytes, 256 * 1024 * 1024],
     ['maxArchiveMediaBytes', limits.maxArchiveMediaBytes, Number.MAX_SAFE_INTEGER],
-    ['maxFullSweepReferences', limits.maxFullSweepReferences, 10_000_000]
+    ['maxAuditMissingItems', limits.maxAuditMissingItems, 10_000_000]
   ] as const) {
     if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
       throw new Error(`Scan executor ${name} must be an integer between 1 and ${maximum}`)

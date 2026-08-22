@@ -1389,7 +1389,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
       ...dependencies(root),
       config: {
         ...dependencies(root).config,
-        limits: { ...dependencies(root).config.limits!, maxEntries: 2_000, maxFullSweepReferences: 2_000 }
+        limits: { ...dependencies(root).config.limits!, maxEntries: 2_000, maxAuditMissingItems: 2_000 }
       }
     })
 
@@ -1528,7 +1528,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
       ...baseDependencies,
       config: {
         ...baseDependencies.config,
-        limits: { ...baseDependencies.config.limits!, maxFullSweepReferences: 1 }
+        limits: { ...baseDependencies.config.limits!, maxAuditMissingItems: 1 }
       }
     })
 
@@ -1551,7 +1551,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
       ...baseDependencies,
       config: {
         ...baseDependencies.config,
-        limits: { ...baseDependencies.config.limits!, maxFullSweepReferences: 10 }
+        limits: { ...baseDependencies.config.limits!, maxAuditMissingItems: 10 }
       }
     })
 
@@ -2562,32 +2562,10 @@ describePostgres('scan executor PostgreSQL integration', () => {
     ).toMatchObject({ processedContentHash: null, lastErrorCode: 'STATE_CONFLICT' })
   })
 
-  it('FULL success sweeps exactly stale frozen references while a failed snapshot never sweeps', async () => {
-    const successful = await fullFixture(false)
-    const successfulRepository = queue()
-    const successfulClaim = await claim(successfulRepository, 'full-success')
-    await expect(
-      executeScan(context(successfulRepository, successfulClaim, successful.payload), dependencies(successful.root))
-    ).resolves.toEqual(TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME)
-    expect(await referenceExists(successful.currentExternalId)).toBe(true)
-    expect(await referenceExists(successful.staleExternalId)).toBe(false)
-    expect(await referenceExists(successful.futureExternalId)).toBe(true)
-
-    const failed = await fullFixture(true)
-    const failedRepository = queue()
-    const failedClaim = await claim(failedRepository, 'full-failed')
-    await expect(
-      executeScan(context(failedRepository, failedClaim, failed.payload), dependencies(failed.root))
-    ).resolves.toEqual(TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME)
-    expect((await client().systemJob.findUniqueOrThrow({ where: { id: failed.jobId } })).status).toBe('FAILED')
-    expect(await referenceExists(failed.staleExternalId)).toBe(true)
-  })
-
   it.each([
     ['CLIENT_LIST_SKIP', { mode: 'CLIENT_LIST', existingPolicy: 'SKIP' }],
     ['CLIENT_LIST_REFRESH', { mode: 'CLIENT_LIST', existingPolicy: 'REFRESH' }],
-    ['ARTWORK_RESCAN', { mode: 'ARTWORK_RESCAN', artworkId: 1 }],
-    ['FULL_RECONCILE', { mode: 'FULL_RECONCILE' }]
+    ['ARTWORK_RESCAN', { mode: 'ARTWORK_RESCAN', artworkId: 1 }]
   ] as const)('persists first-seen inventory failures for %s snapshots', async (_label, partialPayload) => {
     const root = await fixtureRoot()
     const directory = path.join(root, 'pixiv')
@@ -2612,7 +2590,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
       data: {
         systemJobId: jobId,
         type: 'PIXIV',
-        mode: payload.mode === 'CLIENT_LIST' ? 'CLIENT_LIST' : payload.mode === 'ARTWORK_RESCAN' ? 'RESCAN' : 'FULL',
+        mode: payload.mode === 'CLIENT_LIST' ? 'CLIENT_LIST' : 'RESCAN',
         status: 'PENDING',
         inputFrozenAt: clock.now(),
         inputCount: 1,
@@ -2861,64 +2839,6 @@ async function frozenArtworkRescanFixture(root: string, source: 'PIXIV_IMPORTED'
   return { artwork, externalId, jobId, payload, relativePath, row, run }
 }
 
-async function fullFixture(tampered: boolean) {
-  const root = await fixtureRoot()
-  const currentExternalId = nextNumericId()
-  const staleExternalId = nextNumericId()
-  const futureExternalId = nextNumericId()
-  const directory = path.join(root, 'pixiv')
-  await fs.mkdir(directory, { recursive: true })
-  const document = Buffer.from(JSON.stringify(metadataDocument(currentExternalId)))
-  await fs.writeFile(path.join(directory, `${currentExternalId}-meta.json`), document)
-  await fs.writeFile(path.join(directory, `${currentExternalId}_p0.jpg`), 'image')
-  const contentHash = createHash('sha256').update(document).digest('hex')
-  const relativePath = `pixiv/${currentExternalId}-meta.json`
-  const frozenAt = clock.now()
-  const row = { ordinal: 0, relativePath, contentHash: tampered ? 'f'.repeat(64) : contentHash }
-  const payload: ScanPayload = { mode: 'FULL_RECONCILE' }
-  const jobId = await seedJob('SCAN', payload, 1)
-  await client().scanRun.create({
-    data: {
-      systemJobId: jobId,
-      type: 'PIXIV',
-      mode: 'FULL',
-      status: 'PENDING',
-      inputFrozenAt: frozenAt,
-      inputCount: 1,
-      inputDigest: metadataInputDigest([row]),
-      metadataInputs: { create: { ...row } }
-    }
-  })
-  await createReferencedArtwork(currentExternalId, new Date(frozenAt.getTime() - 2_000))
-  await createReferencedArtwork(staleExternalId, new Date(frozenAt.getTime() - 1_000))
-  await createReferencedArtwork(futureExternalId, new Date(frozenAt.getTime() + 1_000))
-  return { root, jobId, payload, currentExternalId, staleExternalId, futureExternalId }
-}
-
-async function createReferencedArtwork(externalId: string, createdAt: Date) {
-  const artwork = await client().artwork.create({
-    data: { title: `${testPrefix}-${externalId}`, externalId, source: 'PIXIV_IMPORTED', createdVia: 'PIXIV_SCAN' }
-  })
-  await client().artworkExternalRef.create({
-    data: {
-      artworkId: artwork.id,
-      providerKey: 'pixiv',
-      externalId,
-      canonicalUrl: `https://www.pixiv.net/artworks/${externalId}`,
-      locator: { artworkId: externalId },
-      createdAt
-    }
-  })
-}
-
-async function referenceExists(externalId: string) {
-  return Boolean(
-    await client().artworkExternalRef.findUnique({
-      where: { providerKey_externalId: { providerKey: 'pixiv', externalId } }
-    })
-  )
-}
-
 interface AuditApplyFixture {
   root: string
   externalId: string
@@ -3151,7 +3071,7 @@ function dependencies(root: string): ScanExecutorDependencies {
         concurrency: 2,
         maxMetadataBytes: 32_000,
         maxArchiveMediaBytes: 32_000,
-        maxFullSweepReferences: 100
+        maxAuditMissingItems: 100
       }
     },
     now: () => clock.now()

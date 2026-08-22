@@ -15,7 +15,6 @@ const frozenAt = new Date('2026-08-15T00:00:00.000Z')
 describe('ScanRun frozen input adapter', () => {
   it('maps all wire scan modes onto the established database modes', () => {
     expect(scanMode({ mode: 'INCREMENTAL' })).toBe('INCREMENTAL')
-    expect(scanMode({ mode: 'FULL_RECONCILE' })).toBe('FULL')
     expect(scanMode({ mode: 'CLIENT_LIST', existingPolicy: 'SKIP', inputCount: 1, inputDigest: 'a'.repeat(64) })).toBe(
       'CLIENT_LIST'
     )
@@ -182,7 +181,7 @@ describe('ScanRun frozen input adapter', () => {
     ).rejects.toMatchObject({ code: 'INPUT_SNAPSHOT_INVALID' })
   })
 
-  it('rejects non-dense ordinals, noncanonical paths, and empty FULL snapshots', async () => {
+  it('rejects non-dense ordinals and noncanonical paths', async () => {
     const invalidRows = [
       {
         id: 'i1',
@@ -208,22 +207,6 @@ describe('ScanRun frozen input adapter', () => {
         maxEntries: 100
       })
     ).rejects.toMatchObject({ code: 'INPUT_SNAPSHOT_INVALID' })
-
-    const emptyDatabase = { scanRunMetadataInput: { findMany: paged([]) } } as unknown as ScanDatabase
-    await expect(
-      verifyFrozenMetadataSnapshot({
-        database: emptyDatabase,
-        run: {
-          id: 'run-2',
-          inputFrozenAt: frozenAt,
-          inputCount: 0,
-          inputDigest: metadataInputDigest([])
-        } as never,
-        payload: { mode: 'FULL_RECONCILE' },
-        pageSize: 100,
-        maxEntries: 100
-      })
-    ).rejects.toMatchObject({ code: 'EMPTY_FULL_RECONCILE' })
   })
 })
 

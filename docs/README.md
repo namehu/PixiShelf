@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-08-20（中央 Worker 全任务业务链路）
+最后核验：2026-08-22（Pixiv 来源维护阶段 4 代码收口）
 
 ## 状态约定
 
@@ -70,7 +70,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [归档收件队列设计](./design/archive-intake-queue.md)     | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
 | [多来源 URL 归档](./design/multi-source-url-archive.md)  | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
 | [视频代表帧生成](./design/video-keyframe-generation.md)  | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
-| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)   | `draft`      | 退役强制全量重扫；阶段 0–3C 已实施，兼容清理仍待完成       |
+| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)   | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记        |
 | [界面设计升级计划](./pixishelf-design-upgrade-plan.md)   | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
 | [媒体类型建模技术债](../todos/媒体类型后缀匹配技术债.md) | `draft`      | 媒体类型结构化的待实施方案，后续迁入 `docs/features/`      |
 | [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)     | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格         |

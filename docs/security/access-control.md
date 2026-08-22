@@ -132,7 +132,8 @@ HTTP Route 新增文件写入、删除、迁移或任务控制时，应使用 Ro
 `REFRESH`；`{}` 和 `type=full, force=false` 仍是目录发现。`type=full, force=true` 在认证
 后返回 HTTP `410` 与 `{ code: 410, data: { reason: 'FULL_SCAN_RETIRED' }, errorCode: 410 }`，且不写入
 `SystemJob` 或 `ScanRun`。GET 和 HEAD 永不触发扫描。App 任务命令层同时拒绝新建、人工复制或
-重试 `FULL_RECONCILE`；已存在的活动兼容任务仍可查询和控制，并由 Worker 执行或租约恢复。
+重试 `FULL_RECONCILE`；当前 Worker 不再解析或执行该模式，历史终态任务只保留查询和展示。生产升级门禁会
+阻断任何仍处于 `PENDING / RETRY_WAIT / RUNNING / PAUSING / PAUSED / CANCELLING` 的历史 FULL 任务。
 
 ## tRPC Router 矩阵
 

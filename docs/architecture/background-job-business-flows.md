@@ -253,7 +253,7 @@ sequenceDiagram
 - 管理页普通扫描和兼容的 full 非 force Webhook 创建 `INCREMENTAL`。
 - Webhook `type=list` 创建 `CLIENT_LIST`，`force=false` 对已有来源使用 `SKIP`，`force=true` 仅刷新这份有界列表。
 - 单作品重扫创建 `ARTWORK_RESCAN`。
-- 新的破坏性 `FULL_RECONCILE` 已退役；历史活动任务仍可恢复执行，但 App 不再创建或人工重试该模式。
+- 破坏性 `FULL_RECONCILE` 已退出 App producer、`SCAN@v1` contract 和 Worker executor；历史终态记录只读保留。
 
 ```mermaid
 flowchart TD

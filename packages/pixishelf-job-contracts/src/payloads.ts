@@ -49,7 +49,6 @@ const uniquePositiveTagIdsSchema = (maximum: number) =>
     .transform((values) => [...values].sort((left, right) => left - right))
 
 const scanIncrementalPayloadSchema = z.object({ mode: z.literal('INCREMENTAL') }).strict()
-const scanFullReconcilePayloadSchema = z.object({ mode: z.literal('FULL_RECONCILE') }).strict()
 const scanClientListPayloadSchema = z
   .object({
     mode: z.literal('CLIENT_LIST'),
@@ -64,7 +63,6 @@ const scanArtworkRescanPayloadSchema = z
 
 export const scanPayloadSchema = z.discriminatedUnion('mode', [
   scanIncrementalPayloadSchema,
-  scanFullReconcilePayloadSchema,
   scanClientListPayloadSchema,
   scanArtworkRescanPayloadSchema
 ])

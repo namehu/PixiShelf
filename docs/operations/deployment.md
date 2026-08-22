@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前本地运行、生产 Compose 拓扑、升级顺序、验证与回滚入口
-last-verified: 2026-08-20
+last-verified: 2026-08-22
 sources:
   - build/docker-compose.dev.yml
   - build/docker-compose.deploy.yml
@@ -83,6 +83,8 @@ sources:
 - 检查磁盘余量、目录权限和 FFmpeg/FFprobe 可用性；
 - 阅读目标版本 migration，确认是否存在不可逆数据变更；
 - 对执行 lane 迁移运行 `archive:lane-cutover-audit`，阻断执行中的任务、活跃旧全局 lease、新鲜旧 Worker、执行中归档和新 Worker 不支持的等待任务。
+- 安装不再支持 `FULL_RECONCILE` 的 Worker 前，使用下文的只读数据库命令确认该 payload 在所有非终态状态中的
+  数量为零；这个一次性 contract 门禁由发布人员执行，不扩展通用升级脚本，也不可用 `--force` 绕过。
 - 在应用 lane migration 前移除同一 Compose project 中的 orphan 服务，并用容器标签确认旧 `archive-worker` 容器数量为零。数据库审计无法发现仍存活但空闲的旧消费者，不能替代这项容器门禁。
 
 备份位置、校验值和镜像 digest 必须记录在本次发布记录中。“命令成功”不能代替恢复验证。
@@ -123,6 +125,29 @@ sudo PIXISHELF_PRE_UPDATE_HOOK=/absolute/path/pixishelf-backup-checkpoint.sh \
 
 未配置 Hook 时脚本会明确警告，但不会伪造备份证据。完整备份集合和验证要求仍以[备份与恢复基线](./backup-and-recovery.md)为准。
 
+### 退役 FULL contract 审计
+
+首次安装移除 `FULL_RECONCILE` executor 的版本前，在生产部署目录执行以下只读查询。它直接使用 PostgreSQL
+容器中的生产用户和数据库名，不要求宿主机存在目标版本源码：
+
+```bash
+sudo docker compose \
+  --env-file .env \
+  -f docker-compose.yml \
+  exec -T postgres \
+  sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -P pager=off -c "$1"' sh \
+  "SELECT id, status, \"definitionVersion\", \"createdAt\", \"availableAt\", \"workerId\", error
+   FROM system_jobs
+   WHERE type = 'SCAN'
+     AND payload->>'mode' = 'FULL_RECONCILE'
+     AND status IN ('PENDING', 'RETRY_WAIT', 'RUNNING', 'PAUSING', 'PAUSED', 'CANCELLING')
+   ORDER BY \"createdAt\", id;"
+```
+
+结果必须是 `(0 rows)`。终态 `COMPLETED / FAILED / CANCELLED / SKIPPED` 记录无需删除，它们继续用于历史展示。
+如果存在非终态记录，先保持旧 Worker，逐项确认后完成或取消；不得直接改 payload、伪造终态或用
+`--force` 跳过。确认结果为零后应立即执行升级；通用升级脚本不会代替这项版本专用审计。
+
 ## 标准生产升级（手动流程）
 
 以下命令都从仓库根目录执行，并显式指定环境文件和 Compose 文件：
@@ -145,7 +170,11 @@ docker ps -a --filter label=com.docker.compose.service=archive-worker \
 pnpm --filter @pixishelf/next archive:lane-cutover-audit
 ```
 
-退出码 `0` 才能继续；退出码 `2` 表示存在业务或消费者阻断项，退出码 `1` 表示审计本身失败。不能把等待中的兼容任务全部取消：`PENDING`、`PAUSED`、`RETRY_WAIT` 可以保留，但其 type/version 必须在新 Worker 的 capability inventory 内。当前 inventory 为 20 个 job type、22 个 type/version 组合，其中 `SCAN` 支持 v1/v2/v3、其余 19 类只支持 v1。专用审计只检查数据库状态；上一步“旧 `archive-worker` 容器为零”的结果必须单独记录。
+退出码 `0` 才能继续；退出码 `2` 表示存在业务或消费者阻断项，退出码 `1` 表示审计本身失败。普通兼容任务的
+`PENDING`、`PAUSED`、`RETRY_WAIT` 可以保留，但其 type/version 必须在新 Worker 的 capability inventory 内；
+`FULL_RECONCILE` 是额外的 payload 级例外，必须按上一节清零。当前 inventory 为 20 个 job type、22 个
+type/version 组合，其中 `SCAN` 支持 v1/v2/v3、其余 19 类只支持 v1。专用审计只检查数据库状态；上一步“旧
+`archive-worker` 容器为零”的结果必须单独记录。
 
 审计通过后，在同一个停写窗口建立 PostgreSQL、原媒体、派生媒体、配置和旧/新镜像 digest 的一致性检查点。lane migration 会拒绝 `RUNNING/PAUSING/CANCELLING` 任务或未过期的 `global/background-worker` lease，并删除已经过期的旧全局 lease；它不是停止并发写入者的替代品。
 

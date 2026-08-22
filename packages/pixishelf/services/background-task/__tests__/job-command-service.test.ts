@@ -613,7 +613,7 @@ describe('job commands', () => {
       status: 'RUNNING',
       workerId: 'worker-1',
       attempt: 1,
-      payload: { mode: 'FULL_RECONCILE' }
+      payload: { mode: 'INCREMENTAL' }
     })
     const updated = jobRecord({ ...current, status: 'CANCELLING' })
     const harness = commandHarness([current, updated])
@@ -629,7 +629,7 @@ describe('job commands', () => {
   })
 
   it('pauses queued work directly and resumes it to PENDING', async () => {
-    const pending = jobRecord({ status: 'PENDING', payload: { mode: 'FULL_RECONCILE' } })
+    const pending = jobRecord({ status: 'PENDING', payload: { mode: 'INCREMENTAL' } })
     const paused = jobRecord({ ...pending, status: 'PAUSED' })
     const pauseHarness = commandHarness([pending, paused])
     await expect(pauseJobCommand({ jobId: pending.id }, pauseHarness.client)).resolves.toMatchObject({

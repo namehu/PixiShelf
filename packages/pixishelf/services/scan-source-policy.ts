@@ -7,7 +7,7 @@ export function isRetiredDirectoryFullScan(input: { type: 'all' | 'full' | 'list
   return input.type !== 'list' && input.force
 }
 
-// This only blocks creation of new FULL_RECONCILE jobs; existing active jobs stay with prior executor compatibility.
+// Recognize historical payloads without admitting them back into the executable SCAN contract.
 export function isRetiredFullReconcilePayload(type: string, payload: unknown): boolean {
   return (
     type === 'SCAN' &&

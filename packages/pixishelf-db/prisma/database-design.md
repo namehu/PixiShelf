@@ -127,17 +127,10 @@ sources:
 | 目录迁移项     | `migration_job_items`                                                | `(systemJobId, artworkIdSnapshot)` 唯一；状态、阶段、attempt、源/目标 fingerprint                                                         | 每个作品独立恢复；`artworkIdSnapshot` 是冻结选择，不建 Artwork FK，不因作品后续删除而抹掉审计               |
 | 目录迁移文件   | `migration_file_entries`                                             | `(itemId, ordinal)`、`(itemId, sourceRelativePath)`、`(itemId, targetRelativePath)` 三重唯一；源/staging hash、size、mtime 和三个提交时间 | 文件先进入 attempt staging，校验后发布数据库，最后按 fingerprint 清理源；`ACTION_REQUIRED` 保留人工恢复证据 |
 
-`SCAN` payload 的 `FULL_RECONCILE` 映射到既有 `ScanRunMode.FULL`，而不是再增加一组含义重复的数据库枚举。
-它现在仅是 compatibility-only 的历史任务值：App 不存在新 producer，通用入队与人工重试也拒绝该
-payload。历史 `ScanRunMode.FULL` 和已存在的 `FULL_RECONCILE` 记录不会被删除或改写；活动任务仍可读取、
-控制、执行和租约自动恢复，但不能人工复制或重试为新任务。
-
-仅对这些已存在的兼容任务，Executor 在领取前记录 `inputFrozenAt`，处理每个 provider reference 时写
-`ArtworkExternalRef.lastSeenScanRunId`。只有所有冻结输入都成功后，才允许按
-`providerKey + createdAt <= inputFrozenAt + (lastSeenScanRunId IS NULL OR lastSeenScanRunId <> currentRun)`
-清扫旧引用；显式包含 `NULL` 是为了让升级前从未写入 marker 的历史引用也能被正确对账。失败、暂停或重试不得
-执行 sweep。`artwork_external_refs_reconcile_sweep_idx(providerKey, createdAt, lastSeenScanRunId)` 与该有界
-查询一致，单列 marker 索引则保留用于诊断。
+`FULL_RECONCILE` 已退出 `SCAN@v1` payload contract 和 Worker executor。历史 `ScanRunMode.FULL` 与终态
+`FULL_RECONCILE` 任务不会被删除或改写，DTO 和管理页面继续把它们作为已停用历史展示；发布前只读数据库审计要求
+所有非终态 FULL 任务在安装新 Worker 前完成或由管理员取消。`ArtworkExternalRef.lastSeenScanRunId` 及既有索引继续作为
+历史兼容字段保留，本次代码 contract 清理不混入物理删列或删索引 migration。
 
 `20260820120000_add_pixiv_metadata_inventory` 以 expand-only 方式增加 Pixiv metadata inventory：
 

@@ -1,7 +1,7 @@
 ---
 status: draft
 scope: 退役 Pixiv 强制全量重扫，建立增量发现、定向来源同步、来源一致性核对和兼容迁移
-last-verified: 2026-08-21
+last-verified: 2026-08-22
 sources:
   - docs/product/product-baseline.md
   - docs/adr/0001-separate-source-references-from-local-identity.md
@@ -15,9 +15,9 @@ sources:
 
 # Pixiv 来源发现、同步与核对设计
 
-本文是分阶段实施的功能规格。阶段 0–3C 已完成：来源一致性核对、可恢复结果页和基于冻结证据的选定同步均已
-实现；阶段 4 的兼容清理仍未实施。当前页面、HTTP 契约和 Worker 行为以代码与 `current` 文档为准；未完成阶段
-不得当成已上线说明。
+本文是分阶段实施的功能规格。阶段 0–3C 已完成；阶段 4 的代码清理和发布门禁已实现，生产数据库中非终态
+`FULL_RECONCILE` 为零的审计及目标版本发布证据仍待登记，因此本文暂时保持 `draft`。当前页面、HTTP 契约和
+Worker 行为以代码与 `current` 文档为准；未登记的生产门禁不得当成已上线证据。
 
 ## 1. 决策摘要
 
@@ -305,7 +305,6 @@ type ScanV1Payload =
   | { mode: 'INCREMENTAL' }
   | { mode: 'CLIENT_LIST'; existingPolicy: 'SKIP' | 'REFRESH'; inputCount: number; inputDigest: string }
   | { mode: 'ARTWORK_RESCAN'; artworkId: number }
-  | { mode: 'FULL_RECONCILE' } // compatibility only; no new producer
 
 type ScanV2Payload = { mode: 'CONSISTENCY_AUDIT'; verification: 'FAST' }
 
@@ -313,11 +312,10 @@ type ScanV3Payload = { mode: 'AUDIT_APPLY'; auditRunId: string; inputCount: numb
 ```
 
 生产 Registry 仍是 20 个 job type，但 `SCAN` 注册 v1/v2/v3，其余 19 类仅注册 v1，共 22 个 type/version 组合。
-`FULL_RECONCILE` 在兼容阶段必须继续被 v1 parser、Worker capability 和任务控制台识别。新管理页面、Webhook 和
-服务不再创建该 payload。待审计确认不存在非终态和可重试的 legacy payload 后，后续 cleanup 才能移除 executor
-分支；历史 `ScanRunMode.FULL` 枚举和值永久保留可读。生产执行语义固定为：v2 只执行只读
-`CONSISTENCY_AUDIT`，v3 只执行写入型 `AUDIT_APPLY`。App 只会把选定同步生产为 `SCAN@v3`，旧 v2 Worker 在
-滚动部署中不会领取它。
+`FULL_RECONCILE` 曾在兼容阶段由 v1 parser 和 Worker executor 识别；阶段 4 在非终态任务审计门禁之后将它移出
+可执行 contract，任务控制台只按原始历史 payload 提供终态展示。历史 `ScanRunMode.FULL` 枚举和值永久保留可读。
+生产执行语义固定为：v2 只执行只读 `CONSISTENCY_AUDIT`，v3 只执行写入型 `AUDIT_APPLY`。App 只会把选定同步
+生产为 `SCAN@v3`，旧 v2 Worker 在滚动部署中不会领取它。
 
 ### 6.2 管理接口
 
@@ -543,11 +541,20 @@ App 聚焦服务/鉴权/查询测试 136/136、UI 测试 19/19。Next.js typeche
 
 ### 阶段 4：兼容清理
 
-- 审计数据库中 `FULL_RECONCILE` 的 PENDING/RUNNING/PAUSED/RETRY_WAIT 任务；
-- 处理完或由管理员明确取消后，删除内部 FULL producer；保留 Webhook list 契约；
-- 删除中央 executor 的 FULL 分支和旧 App 进程内 force-reset 分支；
-- 保留历史 DTO 对 `ScanRunMode.FULL` 的展示；
-- 将本 draft 的已实施事实提炼到 current 功能和架构文档。
+**状态：代码已实现并完成聚焦验证；生产审计与发布证据待登记。**
+
+- 生产部署前使用只读数据库命令审计 `FULL_RECONCILE` 的全部非终态任务，结果非零时禁止安装新 Worker；
+- App producer、通用入队和人工重试继续拒绝 FULL；Webhook list 契约保持不变；
+- `SCAN@v1` parser、中央 executor 的 FULL sweep 和旧 App 进程内 force-reset 分支已经删除；
+- 历史 DTO 与管理页面继续识别 `ScanRunMode.FULL / FULL_RECONCILE`，但当前 Worker 不再执行；
+- 已实施事实同步到 current 架构、安全、数据库和运维文档。
+
+阶段 4 最终验证：contracts 13/13、Executor 非 PostgreSQL 测试 327/327、隔离 PostgreSQL 扫描/核对/apply
+51/51（包含 10,000 个稳定输入）、Worker 81/81、App unit 1262/1262；App 中 42 项条件式 PostgreSQL 测试按
+默认配置跳过，其中本阶段相关的来源核对并发测试已在隔离库单独 4/4 通过。Worker 依赖链 typecheck/build、App
+旧进程内扫描/重扫 fixture 8/8、typecheck/lint/production build、35/35 静态页面和只读 FULL 审计 SQL 均
+通过。最终代码审查 P0/P1 为 0；生产数据库审计、镜像部署和运行时 READY/capability 证据仍待
+发布时登记。
 
 破坏性 contract 清理不得与阶段 2 的 expand migration 放在同一不可回退发布中。
 
@@ -585,7 +592,7 @@ App 聚焦服务/鉴权/查询测试 136/136、UI 测试 19/19。Next.js typeche
 - 崩溃、ACK 丢失与重领不重复创建 Artwork/Image/SourceSnapshot，排队/运行中取消终态化所有未完成项；
 - 保留清理在非终态 apply 存在时保护父核对，全部终态后按证据组删除；
 - 并发手工标签修改与来源刷新不会触发 P2002 或丢失手工关系；
-- legacy FULL job 在新 Worker 上仍能解析和安全终态。
+- `SCAN@v1` 明确拒绝 legacy FULL payload，历史终态 FULL 记录仍可查询且不能重试。
 
 ### 11.3 文件系统 fixture
 

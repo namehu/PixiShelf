@@ -70,12 +70,22 @@ type RawMetadataRecord = {
   rawMetadataJson: unknown
 }
 
+type ArtworkExternalRefRecord = {
+  id: number
+  artworkId: number
+  providerKey: 'pixiv'
+  externalId: string
+  canonicalUrl: string
+  locator: unknown
+}
+
 type ArtistCreateInput = Omit<ArtistRecord, 'id'>
 type ArtworkCreateInput = Omit<ArtworkRecord, 'id'>
 type TagCreateInput = Omit<TagRecord, 'id'>
 type ImageCreateInput = Omit<ImageRecord, 'id'>
 type ArtworkTagCreateInput = ArtworkTagRecord
 type RawMetadataCreateInput = RawMetadataRecord
+type ArtworkExternalRefCreateInput = Omit<ArtworkExternalRefRecord, 'id'>
 type PrismaFindArgs = { where?: Record<string, unknown>; select?: Record<string, boolean> }
 type PrismaCreateArgs<TData> = { data: TData; select?: Record<string, boolean> }
 type PrismaCreateManyArgs<TData> = { data: TData[]; skipDuplicates?: boolean }
@@ -96,10 +106,12 @@ const { database, prismaStub } = vi.hoisted(() => {
     images: [] as ImageRecord[],
     artworkTags: [] as ArtworkTagRecord[],
     rawMetadata: [] as RawMetadataRecord[],
+    artworkExternalRefs: [] as ArtworkExternalRefRecord[],
     nextArtistId: 1,
     nextArtworkId: 1,
     nextTagId: 1,
-    nextImageId: 1
+    nextImageId: 1,
+    nextArtworkExternalRefId: 1
   }
 
   function valuesIn<T>(args: { where?: Record<string, unknown> }, field: string): T[] | undefined {
@@ -148,8 +160,18 @@ const { database, prismaStub } = vi.hoisted(() => {
     artwork: {
       findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
         const externalIds = valuesIn<string>(args, 'externalId')
+        const externalRefs = isRecord(args.where?.externalRefs) ? args.where.externalRefs : null
+        const none = externalRefs && isRecord(externalRefs.none) ? externalRefs.none : null
         return database.artworks
-          .filter((artwork) => !externalIds || externalIds.includes(artwork.externalId))
+          .filter((artwork) => {
+            if (externalIds && !externalIds.includes(artwork.externalId)) return false
+            if (none?.providerKey === 'pixiv') {
+              return !database.artworkExternalRefs.some(
+                (reference) => reference.artworkId === artwork.id && reference.providerKey === 'pixiv'
+              )
+            }
+            return true
+          })
           .map((artwork) => selectFields(artwork, args.select))
       }),
       createMany: vi.fn(async (args: PrismaCreateManyArgs<ArtworkCreateInput>) => {
@@ -160,6 +182,34 @@ const { database, prismaStub } = vi.hoisted(() => {
             id: database.nextArtworkId++,
             ...artwork
           })
+          count++
+        }
+        return { count }
+      })
+    },
+    artworkExternalRef: {
+      findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
+        const externalIds = valuesIn<string>(args, 'externalId')
+        return database.artworkExternalRefs
+          .filter(
+            (reference) =>
+              (!args.where?.providerKey || reference.providerKey === args.where.providerKey) &&
+              (!externalIds || externalIds.includes(reference.externalId))
+          )
+          .map((reference) => selectFields(reference, args.select))
+      }),
+      createMany: vi.fn(async (args: PrismaCreateManyArgs<ArtworkExternalRefCreateInput>) => {
+        let count = 0
+        for (const reference of args.data) {
+          if (
+            args.skipDuplicates &&
+            database.artworkExternalRefs.some(
+              (item) => item.providerKey === reference.providerKey && item.externalId === reference.externalId
+            )
+          ) {
+            continue
+          }
+          database.artworkExternalRefs.push({ id: database.nextArtworkExternalRefId++, ...reference })
           count++
         }
         return { count }
@@ -295,10 +345,12 @@ function resetDatabase() {
   database.images = []
   database.artworkTags = []
   database.rawMetadata = []
+  database.artworkExternalRefs = []
   database.nextArtistId = 1
   database.nextArtworkId = 1
   database.nextTagId = 1
   database.nextImageId = 1
+  database.nextArtworkExternalRefId = 1
 }
 
 vi.mock('@/lib/prisma', () => ({

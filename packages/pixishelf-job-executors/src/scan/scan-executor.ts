@@ -5,7 +5,7 @@ import type { ScanPayload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { mapBounded, throwIfAborted } from './bounded.ts'
 import { readStableFileContent, type StableFileState } from './content-reader.ts'
-import { collectArtworkMedia, discoverMetadataCandidatePages } from './discovery.ts'
+import { collectArtworkMedia } from './discovery.ts'
 import { ScanExecutorError } from './errors.ts'
 import {
   ensurePixivInventoryRootIdentity,
@@ -22,7 +22,6 @@ import { publishPixivArtwork, type ExistingArtworkPolicy } from './pixiv-publish
 import { reportScanPageProgress } from './progress.ts'
 import { resolveSafeExistingPath, resolveSafeScanRoot } from './paths.ts'
 import {
-  freezeDiscoveredMetadataPages,
   iterateFrozenMetadataPages,
   scanMode,
   startOrResumeScanRun,
@@ -178,15 +177,7 @@ export async function executeScan(
       runId: run.id,
       result,
       startedAt: run.startedAt,
-      now: now(),
-      ...(context.payload.mode === 'FULL_RECONCILE'
-        ? {
-            fullReconcile: {
-              frozenAt: snapshot.inputFrozenAt,
-              maxSweepReferences: limits.maxFullSweepReferences
-            }
-          }
-        : {})
+      now: now()
     })
   } catch (error) {
     context.logger.warn('scan.execution.failed', { mode: context.payload.mode, code: safeInputCode(error) })
@@ -220,25 +211,14 @@ async function ensureMetadataSnapshot(input: {
       'Artwork rescan metadata must be transactionally frozen before enqueue'
     )
   }
-  if (input.context.payload.mode === 'INCREMENTAL') {
-    return freezeIncrementalInventorySnapshot({
-      context: input.context,
-      database: input.dependencies.database,
-      root: input.root,
-      run: input.run,
-      now: input.now,
-      limits: input.limits,
-      excludedRootDirectories: input.excludedRootDirectories
-    })
-  }
-  return freezeDiscoveredMetadataPages({
+  return freezeIncrementalInventorySnapshot({
     context: input.context,
+    database: input.dependencies.database,
+    root: input.root,
     run: input.run,
-    pages: discoverMetadataCandidatePages(input.root, input.limits, input.context.signal, {
-      excludedRootDirectories: input.excludedRootDirectories
-    }),
     now: input.now,
-    maxEntries: input.limits.maxEntries
+    limits: input.limits,
+    excludedRootDirectories: input.excludedRootDirectories
   })
 }
 

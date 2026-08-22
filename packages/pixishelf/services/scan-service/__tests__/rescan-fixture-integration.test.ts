@@ -68,13 +68,26 @@ type RawMetadataRecord = {
   rawMetadataJson: unknown
 }
 
+type ArtworkExternalRefRecord = {
+  id: number
+  artworkId: number
+  providerKey: 'pixiv'
+  externalId: string
+  canonicalUrl: string
+  locator: unknown
+}
+
 type ArtistCreateInput = Omit<ArtistRecord, 'id'>
 type ArtworkCreateInput = Omit<ArtworkRecord, 'id'>
 type TagCreateInput = Omit<TagRecord, 'id'>
 type ImageCreateInput = Omit<ImageRecord, 'id'>
 type ArtworkTagCreateInput = ArtworkTagRecord
 type RawMetadataCreateInput = RawMetadataRecord
-type PrismaFindArgs = { where?: Record<string, unknown>; select?: Record<string, boolean> }
+type PrismaFindArgs = {
+  where?: Record<string, unknown>
+  select?: Record<string, boolean>
+  include?: Record<string, boolean>
+}
 type PrismaCreateArgs<TData> = { data: TData; select?: Record<string, boolean> }
 type PrismaCreateManyArgs<TData> = { data: TData[]; skipDuplicates?: boolean }
 type PrismaUpdateArgs<TData> = {
@@ -95,10 +108,12 @@ const { database, prismaStub } = vi.hoisted(() => {
     images: [] as ImageRecord[],
     artworkTags: [] as ArtworkTagRecord[],
     rawMetadata: [] as RawMetadataRecord[],
+    artworkExternalRefs: [] as ArtworkExternalRefRecord[],
     nextArtistId: 1,
     nextArtworkId: 1,
     nextTagId: 1,
-    nextImageId: 1
+    nextImageId: 1,
+    nextArtworkExternalRefId: 1
   }
 
   function valuesIn<T>(args: { where?: Record<string, unknown> }, field: string): T[] | undefined {
@@ -185,6 +200,39 @@ const { database, prismaStub } = vi.hoisted(() => {
         Object.assign(artwork, args.data)
         return artwork
       })
+    },
+    artworkExternalRef: {
+      findUnique: vi.fn(async (args: PrismaFindArgs) => {
+        const identity = args.where?.providerKey_externalId
+        if (!isRecord(identity)) return null
+        const reference = database.artworkExternalRefs.find(
+          (item) => item.providerKey === identity.providerKey && item.externalId === identity.externalId
+        )
+        if (!reference) return null
+        return {
+          ...reference,
+          ...(args.include ? { artwork: database.artworks.find((artwork) => artwork.id === reference.artworkId) } : {})
+        }
+      }),
+      upsert: vi.fn(
+        async (
+          args: PrismaUpsertArgs<Omit<ArtworkExternalRefRecord, 'id'>> & {
+            where: { providerKey_externalId: { providerKey: 'pixiv'; externalId: string } }
+          }
+        ) => {
+          const identity = args.where.providerKey_externalId
+          const existing = database.artworkExternalRefs.find(
+            (item) => item.providerKey === identity.providerKey && item.externalId === identity.externalId
+          )
+          if (existing) {
+            Object.assign(existing, args.update)
+            return existing
+          }
+          const created = { id: database.nextArtworkExternalRefId++, ...args.create }
+          database.artworkExternalRefs.push(created)
+          return created
+        }
+      )
     },
     tag: {
       findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
@@ -357,10 +405,12 @@ function resetDatabase() {
   database.images = []
   database.artworkTags = []
   database.rawMetadata = []
+  database.artworkExternalRefs = []
   database.nextArtistId = 1
   database.nextArtworkId = 1
   database.nextTagId = 1
   database.nextImageId = 1
+  database.nextArtworkExternalRefId = 1
 }
 
 function seedArtist(input: Partial<ArtistRecord> = {}) {
@@ -433,6 +483,20 @@ function seedImage(input: Partial<ImageRecord>) {
   return image
 }
 
+function seedPixivReference(artwork: ArtworkRecord) {
+  if (!artwork.externalId) throw new Error('Pixiv reference fixture requires an external ID')
+  const reference: ArtworkExternalRefRecord = {
+    id: database.nextArtworkExternalRefId++,
+    artworkId: artwork.id,
+    providerKey: 'pixiv',
+    externalId: artwork.externalId,
+    canonicalUrl: `https://www.pixiv.net/artworks/${artwork.externalId}`,
+    locator: { artworkId: artwork.externalId }
+  }
+  database.artworkExternalRefs.push(reference)
+  return reference
+}
+
 vi.mock('@/lib/prisma', () => ({
   prisma: prismaStub
 }))
@@ -478,6 +542,7 @@ describe('rescan fixture integration', () => {
       externalId: '2001',
       title: 'Old Pixiv title'
     })
+    seedPixivReference(artwork)
     const manualTag = seedTag({ name: 'manual-tag' })
     database.artworkTags.push({ artworkId: artwork.id, tagId: manualTag.id })
     database.rawMetadata.push({ artworkId: artwork.id, rawMetadataJson: { title: 'old raw title' } })

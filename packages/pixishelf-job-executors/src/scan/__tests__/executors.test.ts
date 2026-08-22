@@ -13,7 +13,7 @@ describe('scan executor registrations', () => {
       { jobType: 'SCAN', definitionVersion: 3 },
       { jobType: 'LOCAL_DIRECTORY_IMPORT', definitionVersion: 1 }
     ])
-    expect(registrations[0]!.parsePayload?.({ mode: 'FULL_RECONCILE' })).toEqual({ mode: 'FULL_RECONCILE' })
+    expect(() => registrations[0]!.parsePayload?.({ mode: 'FULL_RECONCILE' })).toThrow()
     expect(
       registrations[0]!.parsePayload?.({
         mode: 'CLIENT_LIST',
@@ -66,6 +66,12 @@ describe('scan executor registrations', () => {
         config: { scanRoot: 'D:/scan', limits: { maxDiscoveryEntries: 100_000_001 } }
       })
     ).toThrow('maxDiscoveryEntries')
+    expect(() =>
+      createScanExecutorRegistrations({
+        database: {} as never,
+        config: { scanRoot: 'D:/scan', limits: { maxAuditMissingItems: 10_000_001 } }
+      })
+    ).toThrow('maxAuditMissingItems')
     expect(() =>
       createScanExecutorRegistrations({
         database: {} as never,

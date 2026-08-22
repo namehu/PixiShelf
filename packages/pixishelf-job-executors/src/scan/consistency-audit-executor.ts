@@ -175,7 +175,7 @@ export async function executeConsistencyAudit(
       root,
       rootPathHash,
       baselineGeneration: run.inventoryBaselineGeneration!,
-      maxMissing: limits.maxFullSweepReferences,
+      maxMissing: limits.maxAuditMissingItems,
       limits,
       excludedRootDirectories,
       now: now()
@@ -1130,7 +1130,7 @@ function defaultAuditLimits(): ScanExecutorLimits {
     concurrency: 4,
     maxMetadataBytes: 16 * 1024 * 1024,
     maxArchiveMediaBytes: 4 * 1024 * 1024 * 1024,
-    maxFullSweepReferences: 100_000
+    maxAuditMissingItems: 100_000
   }
 }
 

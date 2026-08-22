@@ -193,13 +193,13 @@ export async function enqueueJob(
       'Archive resolver jobs must be created through the archive intake workflow'
     )
   }
+  if (isRetiredFullReconcilePayload(parsed.type, parsed.payload)) {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', FULL_SCAN_RETIRED_MESSAGE)
+  }
   const payload =
     parsed.definitionVersion === JOB_DEFINITION_VERSION
       ? parseJobPayload(parsed.type, parsed.payload ?? {})
       : jsonValueSchema.parse(parsed.payload ?? {})
-  if (isRetiredFullReconcilePayload(parsed.type, payload)) {
-    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', FULL_SCAN_RETIRED_MESSAGE)
-  }
   const database = commandDatabase(client)
 
   try {
@@ -521,6 +521,9 @@ export async function retryJobCommand(
         `Only definition version ${JOB_DEFINITION_VERSION} jobs can be retried; create a new task instead`
       )
     }
+    if (isRetiredFullReconcilePayload(job.type, job.payload)) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', FULL_SCAN_RETIRED_MESSAGE)
+    }
     let retryPayload
     let retryType
     try {
@@ -531,9 +534,6 @@ export async function retryJobCommand(
         'INVALID_STATE_TRANSITION',
         'This historical job does not contain a valid v1 payload; create a new task instead'
       )
-    }
-    if (isRetiredFullReconcilePayload(retryType, retryPayload)) {
-      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', FULL_SCAN_RETIRED_MESSAGE)
     }
     if (isFrozenScanSnapshotPayload(retryType, retryPayload)) {
       throw new BackgroundTaskError(

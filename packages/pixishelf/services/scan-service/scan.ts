@@ -2,17 +2,17 @@ import path from 'path'
 import logger from '@/lib/logger'
 import { sleep } from '@/utils/sleep'
 import type { ScanResult } from '@/types'
+import { FULL_SCAN_RETIRED_MESSAGE } from '../scan-source-policy'
 import { batchProcessArtists, batchProcessTags, processBatch } from './batch-processor'
 import { globMetadataFiles, parseAndCollect, prepareMetadataFilesFromList } from './metadata-files'
 import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from './scan-errors'
-import { clearPixivImportedData } from './force-reset'
 import type { ArtworkData, GlobMetadataFile, ScanAuditItemInput, ScanContext, ScanOptions } from './types'
 
 /**
- * 统一扫描入口，按配置决定扫描来源、是否全量重扫及失败处理策略。
+ * 统一扫描入口，按配置决定扫描来源和已有来源处理策略。
  *
  * - metadataList 模式：只扫描客户端上报的文件列表，并验证路径是否在 scanPath 内；
- * - forceUpdate 模式：在扫描前清空 Pixiv 入库快照并重建，未成功重建项将失败整个流程；
+ * - forceUpdate 只允许与 metadataList 一起使用，对明确列表中的已有来源执行刷新；
  * - 运行期错误区分取消与非取消错误，前者返回部分结果，后者向上抛出。
  *
  * @param options 扫描选项
@@ -40,34 +40,12 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
   }
 
   try {
+    if (options.forceUpdate && !isMetadataListScan(options)) {
+      throw new Error(FULL_SCAN_RETIRED_MESSAGE)
+    }
     logger.info('Starting scan:', { scanPath: options.scanPath })
 
-    // 强扫必须先验证扫描源，避免空目录、错误路径或临时挂载故障导致旧数据先被删除。
     const metadataFiles = await discoverMetadataFiles(context)
-
-    if (shouldResetPixivImportedData(options)) {
-      if (metadataFiles.length === 0) {
-        throw new Error('Force scan aborted: no metadata files found')
-      }
-
-      options.onProgress?.({
-        phase: 'counting',
-        message: '正在清理 Pixiv 扫描数据（保留自建和本地导入作品）...',
-        percentage: 5
-      })
-
-      context.scanResult.removedArtworks = await clearPixivImportedData()
-
-      logger.info('Pixiv imported data cleared for force update', {
-        removedArtworks: context.scanResult.removedArtworks
-      })
-
-      options.onProgress?.({
-        phase: 'counting',
-        message: 'Pixiv 扫描数据清理完成，开始重建作品...',
-        percentage: 10
-      })
-    }
 
     await streamProcessArtworks(context, metadataFiles)
 
@@ -145,14 +123,13 @@ async function discoverMetadataFiles(context: ScanContext): Promise<GlobMetadata
   return metadataFiles
 }
 
-// 将“发现”与“处理”拼接成单次流式循环，可在批大小可控时降低内存峰值；
-// 每批成功才继续推进，Force 重扫下只要存在失败批次则中止以避免状态不一致。
+// 将“发现”与“处理”拼接成单次流式循环，可在批大小可控时降低内存峰值。
 async function streamProcessArtworks(context: ScanContext, metadataFiles: GlobMetadataFile[]): Promise<void> {
   const { options } = context
   const BATCH_SIZE = process.env.NODE_ENV === 'development' ? 5 : 100 // 定义处理批次的大小
   let artworkBatch: ArtworkData[] = []
   let batchNumber = 0
-  let basePercentage = shouldResetPixivImportedData(options) ? 10 : 0
+  const basePercentage = 10
   const totalFiles = metadataFiles.length
   const totalBatches = Math.ceil(totalFiles / BATCH_SIZE)
 
@@ -165,7 +142,6 @@ async function streamProcessArtworks(context: ScanContext, metadataFiles: GlobMe
     return
   }
 
-  basePercentage += 10
   options.onProgress?.({
     phase: 'scanning',
     message: `发现 ${totalFiles} 个作品，开始处理...`,
@@ -203,8 +179,6 @@ async function streamProcessArtworks(context: ScanContext, metadataFiles: GlobMe
       batchNumber++
       logger.info(`Processing batch ${batchNumber} of ${totalBatches} (size: ${artworkBatch.length})...`)
       const batchStartTime = Date.now()
-      let fatalBatchError: Error | null = null
-
       try {
         // 调用批量处理逻辑（针对当前批次的数据）
         await batchProcessTags(artworkBatch, context)
@@ -219,9 +193,6 @@ async function streamProcessArtworks(context: ScanContext, metadataFiles: GlobMe
         await context.options.audit?.recordItems?.(
           buildFailedWriteAuditItems(artworkBatch, context.options.scanPath, rawErrorMessage)
         )
-        if (shouldResetPixivImportedData(options)) {
-          fatalBatchError = new Error(rawErrorMessage)
-        }
       }
       logger.info('Scan performance checkpoint:', {
         phase: 'batch_processing',
@@ -233,10 +204,6 @@ async function streamProcessArtworks(context: ScanContext, metadataFiles: GlobMe
         totalFiles,
         errors: context.scanResult.errors.length
       })
-
-      if (fatalBatchError) {
-        throw fatalBatchError
-      }
 
       // 清空批次，为下一批做准备
       artworkBatch = []
@@ -261,10 +228,6 @@ async function streamProcessArtworks(context: ScanContext, metadataFiles: GlobMe
     parsedArtworks,
     skippedFiles
   })
-
-  if (shouldResetPixivImportedData(options) && skippedFiles > 0) {
-    throw new Error(`Force scan failed to rebuild ${skippedFiles} of ${totalFiles} discovered artworks`)
-  }
 }
 
 function buildFailedWriteAuditItems(
@@ -289,10 +252,6 @@ function buildFailedWriteAuditItems(
 
 function toRelativeScanPath(scanPath: string, targetPath: string): string {
   return path.relative(scanPath, targetPath).replace(/\\/g, '/')
-}
-
-function shouldResetPixivImportedData(options: ScanOptions): boolean {
-  return options.forceUpdate === true && !isMetadataListScan(options)
 }
 
 function isMetadataListScan(options: ScanOptions): boolean {

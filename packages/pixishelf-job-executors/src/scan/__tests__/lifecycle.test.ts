@@ -15,7 +15,7 @@ const startedAt = new Date('2026-08-15T00:59:48.000Z')
 const result = { scanRunId: 'run-1', total: 2, succeeded: 2, skipped: 0, failed: 0, newImages: 3 }
 
 describe('scan fenced lifecycle', () => {
-  it('performs FULL sweep only in the successful final transaction before queue completion', async () => {
+  it('completes the scan run before completing the queue job in the same final transaction', async () => {
     const order: string[] = []
     const transaction = transactionFixture(order)
     const context = contextFixture(transaction, 'RUNNING', order)
@@ -26,29 +26,11 @@ describe('scan fenced lifecycle', () => {
         runId: 'run-1',
         result,
         startedAt,
-        now,
-        fullReconcile: { frozenAt: now, maxSweepReferences: 100 }
+        now
       })
     ).resolves.toEqual(TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME)
 
-    const sweepWhere = {
-      providerKey: 'pixiv',
-      createdAt: { lte: now },
-      OR: [{ lastSeenScanRunId: null }, { lastSeenScanRunId: { not: 'run-1' } }]
-    }
-    expect(transaction.artworkExternalRef.findMany).toHaveBeenCalledWith({
-      where: sweepWhere,
-      select: { id: true },
-      orderBy: { id: 'asc' },
-      take: 101
-    })
-    expect(transaction.artworkExternalRef.deleteMany).toHaveBeenCalledWith({
-      where: {
-        ...sweepWhere,
-        id: { in: ['ref-0', 'ref-1', 'ref-2', 'ref-3'] }
-      }
-    })
-    expect(order).toEqual(['sweep', 'run:COMPLETED', 'complete'])
+    expect(order).toEqual(['run:COMPLETED', 'complete'])
     expect(transaction.scanRun.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ durationMs: 12_000 }) })
     )
@@ -66,11 +48,9 @@ describe('scan fenced lifecycle', () => {
       runId: 'run-1',
       result,
       startedAt,
-      now,
-      fullReconcile: { frozenAt: now, maxSweepReferences: 100 }
+      now
     })
 
-    expect(transaction.artworkExternalRef.deleteMany).not.toHaveBeenCalled()
     expect(transaction.scanRun.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: runStatus }) })
     )
@@ -78,7 +58,7 @@ describe('scan fenced lifecycle', () => {
     expect(context.__scope.complete).not.toHaveBeenCalled()
   })
 
-  it('does not sweep after a FULL processing failure and fails domain + job atomically', async () => {
+  it('fails the scan domain record and queue job atomically after a processing failure', async () => {
     const transaction = transactionFixture()
     const context = contextFixture(transaction, 'RUNNING')
 
@@ -90,7 +70,6 @@ describe('scan fenced lifecycle', () => {
       retryDelayMs: 1_000
     })
 
-    expect(transaction.artworkExternalRef.deleteMany).not.toHaveBeenCalled()
     expect(transaction.scanRun.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'FAILED' }) })
     )
@@ -117,38 +96,22 @@ describe('scan fenced lifecycle', () => {
     }
   )
 
-  it('pauses for action instead of sweeping an empty FULL snapshot or an abnormal sweep volume', async () => {
-    const emptyTransaction = transactionFixture()
-    const emptyContext = contextFixture(emptyTransaction, 'RUNNING')
+  it('pauses an audit safety-limit failure for administrator action', async () => {
+    const transaction = transactionFixture()
+    const context = contextFixture(transaction, 'RUNNING')
     await finalizeScanError({
-      context: emptyContext,
+      context,
       runId: 'run-1',
-      error: new ScanExecutorError('EMPTY_FULL_RECONCILE', 'Full reconcile discovered no metadata inputs'),
+      error: new ScanExecutorError('AUDIT_SAFETY_LIMIT_EXCEEDED', 'Audit result exceeds its safety limit'),
       now,
       retryDelayMs: 1_000
     })
-    expect(emptyContext.__scope.pause).toHaveBeenCalledWith(
-      expect.objectContaining({ reason: 'ACTION_REQUIRED', data: { decisionCode: 'EMPTY_FULL_RECONCILE' } })
-    )
-    expect(emptyTransaction.artworkExternalRef.deleteMany).not.toHaveBeenCalled()
-
-    const largeTransaction = transactionFixture([], 101)
-    const largeContext = contextFixture(largeTransaction, 'RUNNING')
-    await finalizeScanSuccess({
-      context: largeContext,
-      runId: 'run-1',
-      result,
-      startedAt,
-      now,
-      fullReconcile: { frozenAt: now, maxSweepReferences: 100 }
-    })
-    expect(largeContext.__scope.pause).toHaveBeenCalledWith(
+    expect(context.__scope.pause).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: 'ACTION_REQUIRED',
-        data: { decisionCode: 'FULL_SWEEP_LIMIT_EXCEEDED', sweepCount: 101 }
+        data: { decisionCode: 'AUDIT_SAFETY_LIMIT_EXCEEDED' }
       })
     )
-    expect(largeTransaction.artworkExternalRef.deleteMany).not.toHaveBeenCalled()
   })
 
   it('atomically releases an interrupted RUNNING run for checkpoint resume', async () => {
@@ -174,17 +137,11 @@ describe('scan fenced lifecycle', () => {
 
     await expect(finalizeScanSuccess({ context, runId: 'run-1', result, startedAt, now })).rejects.toThrow('LEASE_LOST')
     expect(transaction.scanRun.update).not.toHaveBeenCalled()
-    expect(transaction.artworkExternalRef.deleteMany).not.toHaveBeenCalled()
   })
 })
 
-function transactionFixture(order: string[] = [], sweepCount = 4) {
-  const candidates = Array.from({ length: sweepCount }, (_, index) => ({ id: `ref-${index}` }))
+function transactionFixture(order: string[] = []) {
   return {
-    artworkExternalRef: {
-      findMany: vi.fn(async () => candidates),
-      deleteMany: vi.fn(async () => (order.push('sweep'), { count: candidates.length }))
-    },
     scanRun: {
       update: vi.fn(async (input: { data: { status: string } }) => {
         order.push(`run:${input.data.status}`)

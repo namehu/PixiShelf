@@ -122,6 +122,7 @@ describe('job wire contracts', () => {
       mode: 'ARTWORK_RESCAN',
       artworkId: 42
     })
+    expect(() => parseJobPayload('SCAN', { mode: 'FULL_RECONCILE' })).toThrow()
     expect(() => parseJobPayload('SCAN', { mode: 'INCREMENTAL', metadataList: ['unbounded'] })).toThrow()
     expect(() =>
       parseJobPayload('SCAN', { mode: 'CLIENT_LIST', existingPolicy: 'SKIP', inputCount: 0, inputDigest: digest })

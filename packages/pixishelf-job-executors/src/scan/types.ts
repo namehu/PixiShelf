@@ -10,7 +10,7 @@ export interface ScanExecutorLimits {
   concurrency: number
   maxMetadataBytes: number
   maxArchiveMediaBytes: number
-  maxFullSweepReferences: number
+  maxAuditMissingItems: number
 }
 
 export interface ScanExecutorConfig {
@@ -57,7 +57,6 @@ export interface ScanExecutionResult {
   skipped: number
   failed: number
   newImages: number
-  sweptReferences?: number
 }
 
 export const DEFAULT_SCAN_LIMITS: ScanExecutorLimits = Object.freeze({
@@ -71,7 +70,7 @@ export const DEFAULT_SCAN_LIMITS: ScanExecutorLimits = Object.freeze({
   concurrency: 4,
   maxMetadataBytes: 16 * 1024 * 1024,
   maxArchiveMediaBytes: 4 * 1024 * 1024 * 1024,
-  maxFullSweepReferences: 100_000
+  maxAuditMissingItems: 100_000
 })
 
 export const DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES = Object.freeze([

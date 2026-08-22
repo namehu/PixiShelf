@@ -647,7 +647,7 @@ function actionRequiredReason(status: string, errorCode: string | null, pausedEv
   if (status === 'COMPLETED' || status === 'SKIPPED') return null
   const decisionCode = status === 'PAUSED' ? readDecisionCode(pausedEventData) : null
   if (decisionCode === 'EMPTY_CONSISTENCY_AUDIT') return 'EMPTY_SOURCE'
-  if (decisionCode === 'AUDIT_SAFETY_LIMIT_EXCEEDED' || decisionCode === 'FULL_SWEEP_LIMIT_EXCEEDED') {
+  if (decisionCode === 'AUDIT_SAFETY_LIMIT_EXCEEDED') {
     return 'SAFETY_LIMIT_EXCEEDED'
   }
   if (errorCode === 'SOURCE_NOT_FOUND' || errorCode === 'PATH_OUTSIDE_ALLOWED_ROOT') return 'SOURCE_CHANGED'

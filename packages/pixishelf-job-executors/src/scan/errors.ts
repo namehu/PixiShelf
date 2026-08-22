@@ -8,10 +8,8 @@ export type ScanExecutorErrorCode =
   | 'METADATA_INVALID'
   | 'MEDIA_NOT_FOUND'
   | 'STATE_CONFLICT'
-  | 'EMPTY_FULL_RECONCILE'
   | 'EMPTY_CONSISTENCY_AUDIT'
   | 'AUDIT_SAFETY_LIMIT_EXCEEDED'
-  | 'FULL_SWEEP_LIMIT_EXCEEDED'
 
 export class ScanExecutorError extends Error {
   constructor(
