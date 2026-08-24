@@ -102,10 +102,6 @@ docker compose -f docker-compose.dev.yml logs -f worker
 
 ## 生产部署与恢复边界
 
-当前版本不再包含 Thumbor 服务或 `/_video` 实时截帧入口。发布新版本并确认静态视频封面、缺失封面占位
-和原视频播放正常后，删除外部 Traefik 的 `/_video` 路由并停止、删除旧 Thumbor 容器。旧版本应用回滚
-如仍需要该兼容入口，必须同时使用对应发布归档中的旧 Compose 与路由配置，不能混用当前 Compose。
-
 首次复制配置：
 
 ```bash

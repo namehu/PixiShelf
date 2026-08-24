@@ -12,9 +12,6 @@ current-source: ../operations/deployment.md
 > 镜像策略：生产 Compose 使用 `latest`；回滚依赖上线前保存的不可变镜像 ID、本地回滚标签和数据库/媒体快照  
 > 代码基线：后台任务阶段 1–7 及其上线修复，当前仓库基线为 `v0.36.1`（`92248a08`）
 
-> 后续架构说明：本文保留 2026-08-18 发布时 Thumbor 仍在运行的历史事实。当前版本已经移除 Thumbor；
-> 新部署不得照搬本文中的 Thumbor 服务和 `/_video` 路由，旧版本回滚则必须使用对应归档配置。
-
 本文合并本次上线前的两版部署方案、纯 Docker 环境修正和上线期间的代码修复记录，作为本次发布的最终归档。后续常规升级可复用检查项，但不得把本文的“已完成”状态直接套用到新的发布。
 
 ## 1. 上线结论
@@ -32,7 +29,7 @@ current-source: ../operations/deployment.md
 - 旧 `archive-worker` 只保留在 `legacy-rollback` profile 中，生产稳态不得启动。
 - `scheduler` 容器只负责触发 tick；每项自动任务是否执行，继续由数据库中对应计划的启用状态决定。
 - PostgreSQL 数据、原媒体和派生媒体均沿用原生产持久化位置，没有创建新系统或切换到空数据库。
-- Traefik 继续使用外部 `web` 网络、`websecure` entrypoint 和既有域名；`/_image`、`/_video` 分别路由至 imgproxy、Thumbor。
+- Traefik 继续使用外部 `web` 网络、`websecure` entrypoint 和既有域名；`/_image` 路由至 imgproxy。
 - 上线负责人已完成第 11 阶段回归，本次上线按成功完成归档。
 
 ## 2. 本次交付与修复范围
@@ -59,7 +56,6 @@ current-source: ../operations/deployment.md
 | `scheduler` | 按生产计划运行 | 只调用内部 tick；数据库计划仍可分别停用。 |
 | `postgres` | 运行 | 使用既有外部卷 `pixivshelf_postgres_data`。 |
 | `imgproxy` | 运行 | 只读访问原媒体和派生媒体，处理 `/_image`。 |
-| `thumbor` | 运行 | 只读访问原媒体并使用持久化结果目录，处理 `/_video`。 |
 | Traefik | 外部既有服务 | 使用外部 `web` 网络，不由本 Compose 创建或删除。 |
 
 关键挂载边界：
@@ -67,7 +63,6 @@ current-source: ../operations/deployment.md
 - App：原媒体 `rw`、派生媒体 `rw`、既有 public 数据 `ro`。
 - Worker：原媒体 `rw`、派生媒体 `rw`。
 - imgproxy：原媒体和派生媒体均为 `ro`。
-- Thumbor：原媒体 `ro`、结果缓存目录 `rw`。
 
 ## 4. 最终使用的 11 阶段部署流程
 
@@ -127,7 +122,7 @@ sudo chmod 600 <备份目录>/config/env.before-cutover
 - 所有脱敏占位符已经替换成原生产真实值。
 - 数据库密码、`JWT_SECRET`、`BETTER_AUTH_SECRET`、内部 token 沿用生产值，不在升级时轮换。
 - `IMAGE_TAG=latest`。
-- 原媒体、派生媒体、Thumbor 缓存和 PostgreSQL 外部卷仍指向既有路径/卷。
+- 原媒体、派生媒体和 PostgreSQL 外部卷仍指向既有路径/卷。
 - Traefik 网络、域名、entrypoint 和公开端口保持原值。
 - 暗启动前两个 Dispatcher 开关均为 `false`。
 - `.env` 权限限制为仅管理员可读，并且永远不提交到 Git。
@@ -139,11 +134,11 @@ sudo docker compose --env-file .env -f docker-compose.yml config --services
 sudo docker compose --env-file .env -f docker-compose.yml config --profiles
 ```
 
-默认服务列表中应包含 `app`、`worker`、`postgres`、`imgproxy`、`thumbor`；`archive-worker` 和 `scheduler` 应分别受 `legacy-rollback`、`scheduled` profile 控制。
+默认服务列表中应包含 `app`、`worker`、`postgres`、`imgproxy`；`archive-worker` 和 `scheduler` 应分别受 `legacy-rollback`、`scheduled` profile 控制。
 
 ### 阶段 4：只拉取本次需要更新的镜像
 
-为避免无意升级 Thumbor、imgproxy、PostgreSQL 等外围镜像，本次只拉取 App 和 Worker：
+为避免无意升级 imgproxy、PostgreSQL 等外围镜像，本次只拉取 App 和 Worker：
 
 ```bash
 sudo docker compose pull app worker

@@ -41,7 +41,7 @@ PixiShelf 是一个本地优先、自托管的个人媒体收藏系统。它把�
 
 ## 本地开发
 
-标准开发拓扑是：PostgreSQL、ImgProxy 和通用 Worker 运行在 Docker 中，Next.js 在宿主机通过 VS Code F5 或 `pnpm dev` 运行。当前版本没有 Thumbor、5433 服务或 `/_video` 请求时截帧路由。
+标准开发拓扑是：PostgreSQL、ImgProxy 和通用 Worker 运行在 Docker 中，Next.js 在宿主机通过 VS Code F5 或 `pnpm dev` 运行。
 
 ### 1. 准备环境
 

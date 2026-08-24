@@ -216,7 +216,7 @@ Worker 明确报告 v1/v2/v3 后才能开放 App 写入口。暗启动通过后�
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d app
 ```
 
-同时验证登录、画廊查询、原图片、静态视频封面、封面缺失占位和原视频播放。当前版本不再提供 Thumbor 或 `/_video` 请求时截帧入口。
+同时验证登录、画廊查询、原图片、静态视频封面、封面缺失占位和原视频播放。
 
 确认无阻断后，把两枚开关同时改为 `true` 并重建 App 与 Worker：
 
@@ -265,7 +265,6 @@ lane migration 后，服务级回滚只能使用兼容新 schema、当前 capabi
 - 两枚 Dispatcher 开关仍保留，生产稳态为 `true/true`，暗启动和故障隔离为 `false/false`；
 - App 镜像负责 migration，Worker 镜像只做 Schema 预检；
 - `ArchivePreviewSession` 表暂时保留用于兼容观察，过期记录由收件保留任务清理；本次不做破坏性 Schema contract；
-- 旧 Thumbor 容器和外部 `/_video` 路由应在新静态封面链路验证后移除；旧版本回滚若依赖它们，必须恢复对应版本的完整 Compose 和路由配置。
 
 相关材料：
 
