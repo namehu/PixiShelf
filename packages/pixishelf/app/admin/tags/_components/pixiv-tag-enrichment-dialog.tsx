@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CircleStop, Info, Sparkles } from 'lucide-react'
+import { CheckCircle2, CircleStop, Clock3, Info, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -22,7 +22,8 @@ import { useTRPC } from '@/lib/trpc'
 interface PixivTagEnrichmentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onStarted: () => void
+  onBatchStarted: () => void
+  onStatusChanged: () => void
   selectedTags: Array<{
     id: number
     name: string
@@ -34,13 +35,17 @@ interface PixivTagEnrichmentDialogProps {
 export function PixivTagEnrichmentDialog({
   open,
   onOpenChange,
-  onStarted,
+  onBatchStarted,
+  onStatusChanged,
   selectedTags
 }: PixivTagEnrichmentDialogProps) {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
-  const selectedTagIds = selectedTags.map((tag) => tag.id)
-  const selectedMode = selectedTagIds.length > 0
+  const [submittedSelection, setSubmittedSelection] = useState<typeof selectedTags | null>(null)
+  const [submittedBatchId, setSubmittedBatchId] = useState<string | null>(null)
+  const hasSubmitted = submittedSelection !== null
+  const trackedBatchId = useRef<string | null>(null)
+  const reportedFinishedBatch = useRef<string | null>(null)
   const summaryQuery = useQuery(
     trpc.tag.pixivEnrichmentSummary.queryOptions(undefined, {
       enabled: open,
@@ -49,16 +54,22 @@ export function PixivTagEnrichmentDialog({
   )
   const startMutation = useMutation(
     trpc.tag.startPixivEnrichment.mutationOptions({
-      onSuccess: ({ reused }) => {
+      onSuccess: ({ reused, job }) => {
+        const requestedTagIds = selectedTags.map((tag) => tag.id)
         toast.success(
           reused
             ? '已有 Pixiv 标签补全任务正在运行'
-            : selectedMode
-              ? `已创建 ${selectedTagIds.length} 个标签的补全批次`
+            : requestedTagIds.length
+              ? `已创建 ${requestedTagIds.length} 个标签的补全批次`
               : 'Pixiv 标签补全任务已创建'
         )
+        if (!reused) {
+          trackedBatchId.current = job.id
+          setSubmittedSelection(selectedTags)
+          setSubmittedBatchId(job.id)
+          onBatchStarted()
+        }
         queryClient.invalidateQueries({ queryKey: trpc.tag.pixivEnrichmentSummary.queryKey() })
-        onStarted()
       },
       onError: (error) => toast.error(error.message)
     })
@@ -68,7 +79,7 @@ export function PixivTagEnrichmentDialog({
       onSuccess: ({ affectedCount }) => {
         toast.success(affectedCount ? '整批 Pixiv 标签补全已请求取消' : '任务已经结束')
         queryClient.invalidateQueries({ queryKey: trpc.tag.pixivEnrichmentSummary.queryKey() })
-        onStarted()
+        onStatusChanged()
       },
       onError: (error) => toast.error(error.message)
     })
@@ -79,21 +90,42 @@ export function PixivTagEnrichmentDialog({
     ? Math.round((summary.children.completed / summary.children.total) * 100)
     : (summary?.activeJob?.progress ?? 0)
   const active = Boolean(summary?.activeJob)
-  const observedActiveBatch = useRef(false)
+  const sessionBatchId = submittedBatchId ?? trackedBatchId.current
+  const hasBatchSession = hasSubmitted || Boolean(sessionBatchId) || active
+  const displayedTags = submittedSelection ?? (hasBatchSession ? [] : selectedTags)
+  const selectedTagIds = displayedTags.map((tag) => tag.id)
+  const selectedMode = selectedTagIds.length > 0
+  const submittedBatchFinished = Boolean(
+    sessionBatchId &&
+      !active &&
+      summary?.latestBatch?.id === sessionBatchId &&
+      ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(summary.latestBatch.status)
+  )
 
   useEffect(() => {
-    if (active) {
-      observedActiveBatch.current = true
-      return
-    }
-    if (!observedActiveBatch.current) return
+    if (!summary?.activeJob || trackedBatchId.current) return
+    trackedBatchId.current = summary.activeJob.parentJobId ?? summary.activeJob.id
+  }, [summary?.activeJob])
 
-    observedActiveBatch.current = false
-    onStarted()
-  }, [active, onStarted])
+  useEffect(() => {
+    if (!submittedBatchFinished || !sessionBatchId || reportedFinishedBatch.current === sessionBatchId) return
+
+    reportedFinishedBatch.current = sessionBatchId
+    onStatusChanged()
+  }, [onStatusChanged, sessionBatchId, submittedBatchFinished])
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setSubmittedSelection(null)
+      setSubmittedBatchId(null)
+      trackedBatchId.current = null
+      reportedFinishedBatch.current = null
+    }
+    onOpenChange(nextOpen)
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>从 Pixiv 补全标签</DialogTitle>
@@ -126,7 +158,7 @@ export function PixivTagEnrichmentDialog({
             </Alert>
 
             {selectedMode ? (
-              <SelectedTagSummary tags={selectedTags} />
+              <SelectedTagSummary tags={displayedTags} />
             ) : (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <SummaryMetric label="待检查" value={summary?.candidateCount ?? 0} />
@@ -150,7 +182,23 @@ export function PixivTagEnrichmentDialog({
               </div>
             )}
 
-            {!active && summary?.latestBatch?.status === 'FAILED' && summary.latestBatch.error && (
+            {hasBatchSession && !active && !submittedBatchFinished && (
+              <Alert>
+                <Clock3 aria-hidden="true" />
+                <AlertTitle>任务已提交</AlertTitle>
+                <AlertDescription>正在等待 Worker 领取任务。</AlertDescription>
+              </Alert>
+            )}
+
+            {submittedBatchFinished && (
+              <BatchFinishedAlert
+                status={summary?.latestBatch?.status ?? 'COMPLETED'}
+                failedCount={summary?.children.byStatus.FAILED ?? 0}
+                cancelledCount={summary?.children.byStatus.CANCELLED ?? 0}
+              />
+            )}
+
+            {!hasBatchSession && !active && summary?.latestBatch?.status === 'FAILED' && summary.latestBatch.error && (
               <Alert variant="destructive">
                 <AlertTitle>最近一次批量任务失败</AlertTitle>
                 <AlertDescription>{summary.latestBatch.error}</AlertDescription>
@@ -160,7 +208,7 @@ export function PixivTagEnrichmentDialog({
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>
             关闭
           </Button>
           {active && (
@@ -173,18 +221,60 @@ export function PixivTagEnrichmentDialog({
               {cancelMutation.isPending ? '正在取消整批任务' : '取消整批任务'}
             </Button>
           )}
-          <Button
-            onClick={() => startMutation.mutate({ tagIds: selectedMode ? selectedTagIds : undefined })}
-            disabled={
-              startMutation.isPending || summaryQuery.isLoading || active || (!selectedMode && !summary?.candidateCount)
-            }
-          >
-            {startMutation.isPending ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
-            {active ? '任务执行中' : selectedMode ? `补全已选 ${selectedTagIds.length} 项` : '开始补全'}
-          </Button>
+          {!active && !hasBatchSession && (
+            <Button
+              onClick={() => startMutation.mutate({ tagIds: selectedMode ? selectedTagIds : undefined })}
+              disabled={
+                startMutation.isPending || summaryQuery.isLoading || (!selectedMode && !summary?.candidateCount)
+              }
+            >
+              {startMutation.isPending ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
+              {selectedMode ? `补全已选 ${selectedTagIds.length} 项` : '开始补全'}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function BatchFinishedAlert({
+  status,
+  failedCount,
+  cancelledCount
+}: {
+  status: string
+  failedCount: number
+  cancelledCount: number
+}) {
+  if (status === 'FAILED' || failedCount > 0) {
+    return (
+      <Alert variant="warning">
+        <Info aria-hidden="true" />
+        <AlertTitle>本次补全已结束</AlertTitle>
+        <AlertDescription>
+          {failedCount ? `${failedCount} 个标签处理失败，可在列表中重新选择。` : '批次执行失败。'}
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  if (status === 'CANCELLED' || cancelledCount > 0) {
+    return (
+      <Alert variant="warning">
+        <CircleStop aria-hidden="true" />
+        <AlertTitle>本次补全已停止</AlertTitle>
+        <AlertDescription>未完成的标签没有继续处理。</AlertDescription>
+      </Alert>
+    )
+  }
+
+  return (
+    <Alert variant="success">
+      <CheckCircle2 aria-hidden="true" />
+      <AlertTitle>本次补全已完成</AlertTitle>
+      <AlertDescription>列表中的翻译、简介和封面状态已刷新。</AlertDescription>
+    </Alert>
   )
 }
 

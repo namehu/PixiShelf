@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useCallback, useRef } from 'react'
+import Link from 'next/link'
 import { toast } from 'sonner'
-import { RefreshCw, Download, Edit2, Trash, Languages, Search, RotateCcw, Plus, Sparkles } from 'lucide-react'
+import { RefreshCw, Download, Edit2, Trash, Search, RotateCcw, Plus, Sparkles } from 'lucide-react'
 import type { TagManagementStats } from '@/types/tags'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
@@ -265,7 +266,12 @@ export default function TagManagement() {
       accessorKey: 'name',
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
-          <span className="font-medium">{row.original.name}</span>
+          <Link
+            href={`/tags/${row.original.id}`}
+            className="rounded-sm font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            {row.original.name}
+          </Link>
           {row.original.isSystem && (
             <Badge variant="secondary" className="text-xs font-normal">
               系统
@@ -314,10 +320,9 @@ export default function TagManagement() {
     {
       id: 'actions',
       header: '操作',
-      size: 190,
+      size: 160,
       cell: ({ row }) => {
         const record = row.original
-        const tName = getTranslateName(record)
 
         return (
           <div className="flex items-center gap-2">
@@ -330,17 +335,6 @@ export default function TagManagement() {
             >
               <Edit2 aria-hidden="true" />
             </Button>
-            {!tName && (
-              <Button
-                size="icon"
-                onClick={() => handleEdit(record)} // 快速编辑入口，默认用于补充翻译
-                variant="ghost"
-                className="size-8 text-primary hover:bg-accent hover:text-primary"
-                aria-label={`翻译标签 ${record.name}`}
-              >
-                <Languages aria-hidden="true" />
-              </Button>
-            )}
             {record.pixivEligible && (
               <Button
                 size="icon"
@@ -567,7 +561,11 @@ export default function TagManagement() {
           image: tag.image,
           checked: Boolean(tag.pixivSync)
         }))}
-        onStarted={() => {
+        onBatchStarted={() => {
+          setRowSelection({})
+          setRefreshKey((prev) => prev + 1)
+        }}
+        onStatusChanged={() => {
           setRefreshKey((prev) => prev + 1)
         }}
       />
