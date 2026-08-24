@@ -1,7 +1,7 @@
 ---
 status: draft
 scope: 退役 Pixiv 强制全量重扫，建立增量发现、定向来源同步、来源一致性核对和兼容迁移
-last-verified: 2026-08-22
+last-verified: 2026-08-24
 sources:
   - docs/product/product-baseline.md
   - docs/adr/0001-separate-source-references-from-local-identity.md
@@ -80,7 +80,7 @@ hash 和冻结输入的成本仍随总量增长。
 `SOURCE` 行。历史迁移把无法证明归属的关系保留为 `LEGACY`，而 `ArtworkTag` 仍以 `(artworkId, tagId)` 唯一；
 同名 `LEGACY` 行会使创建 `SOURCE` 行触发唯一约束错误。
 
-即使移除 `FULL_RECONCILE`，单作品 `ARTWORK_RESCAN` 和选定列表的 `REFRESH` 仍会进入同一 publisher。因此
+即使移除 `FULL_RECONCILE`，单作品 `ARTWORK_RESCAN` 和核对后的选定同步 `REFRESH` 仍会进入同一 publisher。因此
 provenance 兼容必须作为独立修复完成。
 
 ## 3. 目标与非目标
@@ -127,7 +127,6 @@ provenance 兼容必须作为独立修复完成。
 
 - 一个 Artwork 的唯一 Pixiv Source Reference；
 - 一个来源核对报告中选中的 `NEW` 或 `CHANGED` 项；
-- 受信客户端提交的明确 metadata path 列表。
 
 提交时冻结 path、外部身份和内容 hash；执行时再次验证内容未变化。变化后的输入以
 `STALE_SOURCE_INPUT` 跳过并要求重新核对，不拿旧报告覆盖新文件。
@@ -335,12 +334,15 @@ availability/get/listItems/getApplyOverview/getApplyOperation 使用 `authProced
 
 ### 6.3 HTTP 与 Webhook 兼容
 
-`POST /api/webhooks/scan` 是日常自动化的主力入口，必须保持长期 transport 兼容。实施本设计不要求调用方修改：
+`POST /api/webhooks/scan` 是日常自动化的主力入口，必须保持长期 transport 兼容。当前决策允许随版本同步修改唯一
+生产脚本，因此不再保留 `force` 请求体兼容。实施本设计仍保持：
 
 - URL、Bearer Token 和 `SCAN_WEBHOOK_TOKEN`；
-- 生产实际使用的 `type=list`、`metadataList` 和可选 `force` 请求体；
+- 生产实际使用的 `type=list` 与 `metadataList` 请求体；
 - POST 成功时的 HTTP `202` 与 `jobId / scanRunId / status / reused` 字段；
 - `GET /api/webhooks/scan?jobId=...` 的轮询方式和既有终态字段。
+
+现有脚本只需要删除 `"force": false` 字段；公开请求体出现任何 `force` 都按参数错误处理。
 
 Webhook 的 GET 和 POST 职责必须保持分离：
 
@@ -349,17 +351,15 @@ Webhook 的 GET 和 POST 职责必须保持分离：
 
 服务端按以下规则处理现有 POST 请求：
 
-| 请求                     | 行为                                                              |
-| ------------------------ | ----------------------------------------------------------------- |
-| `{}`                     | 保留为目录增量发现的兼容请求                                      |
-| `type=full, force=false` | 映射为变化感知的 `startDiscovery`                                 |
-| `type=full, force=true`  | 拒绝并返回稳定 `FULL_SCAN_RETIRED`，不创建任务                    |
-| `type=list, force=false` | 冻结明确路径；新身份可以导入，已存在 Source Reference 使用 `SKIP` |
-| `type=list, force=true`  | 冻结明确路径；已存在 Source Reference 使用安全的定向 `REFRESH`    |
+| 请求                   | 行为                                                              |
+| ---------------------- | ----------------------------------------------------------------- |
+| `{}`                   | 保留为目录增量发现的兼容请求                                      |
+| `type=full`            | 映射为变化感知的 `startDiscovery`                                 |
+| `type=list`            | 冻结明确路径；新身份可以导入，已存在 Source Reference 使用 `SKIP` |
+| 任意请求体包含 `force` | 返回 HTTP `400` 参数错误，不创建任务                              |
 
-`force` 在 `list` 模式下不是无效参数。对于列表中的新作品，`SKIP` 和 `REFRESH` 都会创建，因此两者看起来相同；
-只有列表包含已存在作品时才产生差异：`false` 跳过，`true` 重新同步该作品的 Pixiv 来源。这个定向刷新是本设计保留
-的安全能力，不等同于全目录强制扫描。
+Webhook list 不再提供已有作品刷新能力。已有作品重新同步走单作品重扫，或来源核对报告中的选定同步；这两个路径使用
+明确意图，不复用公开 Webhook 的 `force` 参数。
 
 生产 Webhook 已经提供明确 metadata path 列表，相当于外部 change feed。该路径直接冻结并处理 `k` 个输入，不需要
 服务端再次遍历全部 `N` 个 metadata，也不依赖阶段 2 的 inventory 才能保持高效。inventory 主要优化设置页的目录
@@ -369,8 +369,8 @@ Webhook 的 GET 和 POST 职责必须保持分离：
 `skippedArtworks`，`processedArtworks` 在完成时仍覆盖本次候选；hash 和 publish 计数只作为可选新增字段。不得要求
 旧调用方读取新增字段才能判断任务终态。
 
-新管理接口使用显式 intent，避免继续扩散 `force` 这个含混名称；Webhook 的 `list + force=false/true` 作为已部署
-自动化契约长期保留，不把客户端迁移作为本改造的上线前提。全目录 `force=true` 不属于该兼容承诺。
+新管理接口和 Webhook 都使用显式 intent，避免继续扩散 `force` 这个含混名称；生产自动化脚本随本改造同步删除
+`force=false`。
 
 ## 7. 页面与交互
 
@@ -455,13 +455,13 @@ checkpoint 单测、真实 PostgreSQL publisher 回归，以及 Webhook 路由�
 - 设置页移除强制按钮和旧文案；
 - 保留并修复 legacy executor，使已入队任务可以安全结束；
 - App 服务禁止创建新的 `FULL_RECONCILE`；
-- 全目录 `type=full, force=true` 返回 `FULL_SCAN_RETIRED`；
-- 保留 Webhook `list + force=false/true` 的 URL、认证、请求和响应 contract，并增加兼容回归测试；
+- 公开 HTTP 请求体出现 `force` 返回 `400` 参数错误；
+- 保留 Webhook `list` 的 URL、认证、入队响应和状态轮询 contract，并增加无 `force` 回归测试；
 - 更新 Webhook、安全矩阵和当前页面文档。
 
-这是可快速降低风险的产品切换，不包含数据库 migration，也不要求生产 Webhook 调用方改造。本分支的验证
+这是可快速降低风险的产品切换，不包含数据库 migration；生产 Webhook 脚本需要同步删除 `force=false`。本分支的验证
 覆盖设置页入口、管理与 Webhook HTTP 退役响应、零任务写入、中央扫描 producer 和通用任务新建/重试门禁，
-同时回归 `list + force=false/true`、GET 健康/状态与 HEAD 认证契约。
+同时回归 `list`、带 `force` 的参数错误、GET 健康/状态与 HEAD 认证契约。
 
 ### 阶段 2：真正增量的 inventory
 
@@ -544,7 +544,7 @@ App 聚焦服务/鉴权/查询测试 136/136、UI 测试 19/19。Next.js typeche
 **状态：代码已实现并完成聚焦验证；生产审计与发布证据待登记。**
 
 - 生产部署前使用只读数据库命令审计 `FULL_RECONCILE` 的全部非终态任务，结果非零时禁止安装新 Worker；
-- App producer、通用入队和人工重试继续拒绝 FULL；Webhook list 契约保持不变；
+- App producer、通用入队和人工重试继续拒绝 FULL；Webhook list 契约收敛为 `type + metadataList`；
 - `SCAN@v1` parser、中央 executor 的 FULL sweep 和旧 App 进程内 force-reset 分支已经删除；
 - 历史 DTO 与管理页面继续识别 `ScanRunMode.FULL / FULL_RECONCILE`，但当前 Worker 不再执行；
 - 已实施事实同步到 current 架构、安全、数据库和运维文档。
@@ -575,7 +575,7 @@ App 聚焦服务/鉴权/查询测试 136/136、UI 测试 19/19。Next.js typeche
 ### 11.1 单元与 contract
 
 - v1/v2/v3 payload 与领取隔离，旧 FULL 只可由兼容层读取、不能由 producer 创建，旧 v2 Worker 不领取 v3；
-- 旧 HTTP 请求归一化与 `FULL_SCAN_RETIRED`；
+- 带 `force` 的 HTTP 请求返回参数错误且零任务写入，历史 `FULL_RECONCILE` producer gate 仍拒绝复制和重试；
 - inventory 指纹分类和 digest；
 - 来源字段拥有权矩阵；
 - provenance 合并：同名 LEGACY/MANUAL 不冲突、不转类、不删除；
@@ -619,7 +619,7 @@ App 聚焦服务/鉴权/查询测试 136/136、UI 测试 19/19。Next.js typeche
 
 本设计只有在以下条件全部满足后才能从 `draft` 提炼为 current：
 
-1. 正常 UI、Webhook 和服务无法再创建 `FULL_RECONCILE`，生产 Webhook 的 list 请求无需修改；
+1. 正常 UI、Webhook 和服务无法再创建 `FULL_RECONCILE`，生产 Webhook 的 list 请求已移除 `force`；
 2. provenance 升级兼容和 Local Override 测试通过；
 3. unchanged 规模 fixture 证明 hash/parse/publish 为 0；
 4. audit 不对 Artwork、Media、Source Reference 或原媒体执行删除；

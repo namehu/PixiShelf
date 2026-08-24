@@ -21,18 +21,6 @@ describe('scan error formatting', () => {
     expect(formatScanUserError(error)).toBe('清空数据库失败，请查看日志')
   })
 
-  it('explains that an empty force-scan source leaves existing data unchanged', () => {
-    expect(formatScanUserError('Force scan aborted: no metadata files found')).toBe(
-      '强制扫描已中止：扫描目录中未发现 Pixiv 元数据文件，原有数据未修改'
-    )
-  })
-
-  it('formats incomplete force rebuilds as failures', () => {
-    expect(formatScanUserError('Force scan failed to rebuild 2 of 10 discovered artworks')).toBe(
-      '强制扫描未能完整重建所有作品，请查看扫描日志'
-    )
-  })
-
   it('normalizes batch failures without exposing nested implementation details', () => {
     expect(formatScanUserError('Failed to process batch 3: Unique constraint failed on Image.path')).toBe(
       '部分作品处理失败，请查看扫描日志'

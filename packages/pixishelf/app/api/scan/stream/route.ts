@@ -14,7 +14,7 @@ import {
   failScanRun,
   startScanRun
 } from '@/services/scan-run-service'
-import { apiHandler, ApiError } from '@/lib/api-handler'
+import { apiHandler } from '@/lib/api-handler'
 import { ScanStreamSchema } from '@/schemas/scan.dto'
 import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from '@/services/scan-service/scan-errors'
 import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
@@ -22,11 +22,6 @@ import { requireAdminRequest } from '@/services/background-task/request-auth'
 import { enqueueCentralScan } from '@/services/media-root-central-service'
 import { queuedSseResponse } from '@/services/background-task/queued-sse-response'
 import { runBackgroundTaskApi } from '@/services/background-task/api-error-mapping'
-import {
-  FULL_SCAN_RETIRED_MESSAGE,
-  FULL_SCAN_RETIRED_REASON,
-  isRetiredDirectoryFullScan
-} from '@/services/scan-source-policy'
 
 /**
  * SSE 事件发送器：将事件名与负载格式化为 SSE 原始文本分块发送
@@ -44,19 +39,14 @@ function createEventSender(controller: ReadableStreamDefaultController, encoder:
  * 统一扫描流式入口，支持增量/全量/列表扫描
  */
 export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
-  const { type, force, metadataList } = data
+  const { type, metadataList } = data
   const { userId } = await requireAdminRequest(req)
-
-  if (isRetiredDirectoryFullScan({ type, force })) {
-    throw new ApiError(FULL_SCAN_RETIRED_MESSAGE, 410, { reason: FULL_SCAN_RETIRED_REASON })
-  }
 
   if (isCentralDispatcherCutoverEnabled()) {
     const queued = await runBackgroundTaskApi(() =>
       enqueueCentralScan({
         requestedByUserId: userId,
         type: type === 'list' ? 'list' : 'all',
-        force,
         metadataList
       })
     )
@@ -109,7 +99,6 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
 
         const result = await scan({
           scanPath,
-          forceUpdate: force,
           metadataRelativePaths: type === 'list' ? metadataList : undefined,
           audit: {
             recordItems: auditBuffer.recordItems

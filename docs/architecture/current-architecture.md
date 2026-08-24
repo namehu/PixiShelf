@@ -154,9 +154,9 @@ Pixiv 发现默认跳过 SCAN_PATH 根目录直属的 `local-imports`、`sources
 导入与归档存储；`SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES` 可以用逗号分隔清单替换默认值，空值表示禁用排除。
 同名的更深层目录不受影响；一致性核对生成 `MISSING` 时也排除相同根目录前缀。
 
-扫描 Webhook 保持已部署 contract：`POST type=list, force=false` 冻结明确路径，并对已有来源使用
-`SKIP`；`force=true` 只对该列表做有界 `REFRESH`。`{}` 和 `type=full, force=false` 仍是目录发现的兼容
-请求；`type=full, force=true` 在认证后返回 `410 / FULL_SCAN_RETIRED`且零任务写入。Webhook GET 无
+扫描 Webhook 保持已部署 URL、Bearer Token、`202` 入队响应和状态轮询 contract：`POST type=list` 冻结明确路径，
+并对已有来源使用 `SKIP`；`{}` 和 `type=full` 仍是目录发现的兼容请求。公开请求体不再接受 `force` 字段，任意
+`force` 请求返回 `400` 参数错误且零任务写入。Webhook GET 无
 `jobId` 时只做健康检查、有 `jobId` 时只读受限状态，HEAD 只校验 Bearer Token；三者中只有 POST 能创建
 扫描任务。状态响应向后兼容地增加可空 inventory 工作量字段；调用方仍只需依赖既有终态字段。完整请求和响应字段
 见[Webhook 扫描功能](../../packages/pixishelf/docs/webhook-features.md)。

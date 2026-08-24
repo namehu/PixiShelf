@@ -6,9 +6,9 @@ import { z } from 'zod'
 export const ScanStreamSchema = z
   .object({
     type: z.enum(['full', 'list']).default('full'),
-    force: z.boolean().optional().default(false),
     metadataList: z.array(z.string()).optional().default([])
   })
+  .strict()
   .refine(
     (data) => {
       if (data.type === 'list' && data.metadataList.length === 0) {

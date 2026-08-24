@@ -47,7 +47,6 @@ vi.mock('@/services/media-root-central-service', () => ({ enqueueCentralScan: mo
 
 import { POST } from '../route'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
-import { ApiError } from '@/lib/api-handler'
 
 const post = POST
 
@@ -86,7 +85,7 @@ describe('scan stream failure state', () => {
     const request = new NextRequest('http://localhost/api/scan/stream', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'full', force: false })
+      body: JSON.stringify({ type: 'full' })
     })
 
     const response = await post(request, { params: Promise.resolve({}) })
@@ -95,6 +94,11 @@ describe('scan stream failure state', () => {
     expect(body).toContain('event: queued')
     expect(body).not.toContain('event: complete')
     expect(body).toContain('job-central')
+    expect(mocks.enqueueCentralScan).toHaveBeenCalledWith({
+      requestedByUserId: 'admin-1',
+      type: 'all',
+      metadataList: []
+    })
     expect(mocks.scan).not.toHaveBeenCalled()
     expect(mocks.createScanJob).not.toHaveBeenCalled()
   })
@@ -107,7 +111,7 @@ describe('scan stream failure state', () => {
     const request = new NextRequest('http://localhost/api/scan/stream', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'full', force: false })
+      body: JSON.stringify({ type: 'full' })
     })
 
     const response = await post(request, { params: Promise.resolve({}) })
@@ -124,7 +128,7 @@ describe('scan stream failure state', () => {
     const request = new NextRequest('http://localhost/api/scan/stream', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'list', metadataList: ['7-meta.json'], force: false })
+      body: JSON.stringify({ type: 'list', metadataList: ['7-meta.json'] })
     })
 
     const response = await post(request, { params: Promise.resolve({}) })
@@ -133,24 +137,28 @@ describe('scan stream failure state', () => {
     await expect(response.json()).resolves.toMatchObject({ error: 'Metadata path cannot be read' })
   })
 
-  it.each([false, true])('rejects a retired directory force scan before %s mode performs I/O', async (central) => {
-    mocks.central = central
+  it.each([
+    { type: 'full', force: true },
+    { type: 'full', force: false },
+    { type: 'list', force: true, metadataList: ['artist/100-meta.json'] },
+    { type: 'list', force: false, metadataList: ['artist/100-meta.json'] }
+  ])('rejects obsolete force field before scan stream performs I/O', async (body) => {
     const request = new NextRequest('http://localhost/api/scan/stream', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'full', force: true })
+      body: JSON.stringify(body)
     })
 
     const response = await post(request, { params: Promise.resolve({}) })
 
-    expect(response.status).toBe(410)
+    expect(response.status).toBe(400)
     await expect(response.json()).resolves.toMatchObject({
-      code: 410,
-      errorCode: 410,
+      code: 400,
+      errorCode: 400,
       success: false,
-      data: { reason: 'FULL_SCAN_RETIRED' }
+      error: 'Invalid Request Parameters'
     })
-    expect(mocks.requireAdminRequest).toHaveBeenCalledOnce()
+    expect(mocks.requireAdminRequest).not.toHaveBeenCalled()
     expect(mocks.getScanPath).not.toHaveBeenCalled()
     expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
     expect(mocks.createScanJob).not.toHaveBeenCalled()
@@ -158,30 +166,13 @@ describe('scan stream failure state', () => {
     expect(mocks.scan).not.toHaveBeenCalled()
   })
 
-  it('authenticates before reporting that directory force scan is retired', async () => {
-    mocks.requireAdminRequest.mockRejectedValueOnce(new ApiError('Unauthorized', 401))
-    const request = new NextRequest('http://localhost/api/scan/stream', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'full', force: true })
-    })
-
-    const response = await post(request, { params: Promise.resolve({}) })
-
-    expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toMatchObject({ code: 401, errorCode: 401, error: 'Unauthorized' })
-    expect(mocks.getScanPath).not.toHaveBeenCalled()
-    expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
-    expect(mocks.createScanJob).not.toHaveBeenCalled()
-  })
-
-  it.each([false, true])('passes central list force=%s through without changing its meaning', async (force) => {
+  it('queues a central list scan without force semantics', async () => {
     mocks.central = true
-    mocks.enqueueCentralScan.mockResolvedValue({ jobId: `job-list-${force}`, status: 'PENDING' })
+    mocks.enqueueCentralScan.mockResolvedValue({ jobId: 'job-list', status: 'PENDING' })
     const request = new NextRequest('http://localhost/api/scan/stream', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'list', force, metadataList: ['artist/100-meta.json'] })
+      body: JSON.stringify({ type: 'list', metadataList: ['artist/100-meta.json'] })
     })
 
     const response = await post(request, { params: Promise.resolve({}) })
@@ -191,16 +182,15 @@ describe('scan stream failure state', () => {
     expect(mocks.enqueueCentralScan).toHaveBeenCalledWith({
       requestedByUserId: 'admin-1',
       type: 'list',
-      force,
       metadataList: ['artist/100-meta.json']
     })
   })
 
-  it.each([false, true])('passes legacy list force=%s to the bounded scan', async (force) => {
+  it('passes a legacy list request to the bounded scan', async () => {
     const request = new NextRequest('http://localhost/api/scan/stream', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'list', force, metadataList: ['artist/100-meta.json'] })
+      body: JSON.stringify({ type: 'list', metadataList: ['artist/100-meta.json'] })
     })
 
     const response = await post(request, { params: Promise.resolve({}) })
@@ -208,15 +198,16 @@ describe('scan stream failure state', () => {
 
     expect(mocks.startScanRun).toHaveBeenCalledWith({ systemJobId: 'job-1', type: 'PIXIV', mode: 'CLIENT_LIST' })
     expect(mocks.scan).toHaveBeenCalledWith(
-      expect.objectContaining({ forceUpdate: force, metadataRelativePaths: ['artist/100-meta.json'] })
+      expect.objectContaining({ metadataRelativePaths: ['artist/100-meta.json'] })
     )
+    expect(mocks.scan.mock.calls[0]?.[0]).not.toHaveProperty('forceUpdate')
   })
 
-  it('keeps a legacy full force=false request as directory incremental discovery', async () => {
+  it('keeps a legacy full request as directory incremental discovery', async () => {
     const request = new NextRequest('http://localhost/api/scan/stream', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'full', force: false })
+      body: JSON.stringify({ type: 'full' })
     })
 
     const response = await post(request, { params: Promise.resolve({}) })
@@ -224,8 +215,9 @@ describe('scan stream failure state', () => {
 
     expect(mocks.startScanRun).toHaveBeenCalledWith({ systemJobId: 'job-1', type: 'PIXIV', mode: 'INCREMENTAL' })
     expect(mocks.scan).toHaveBeenCalledWith(
-      expect.objectContaining({ forceUpdate: false, metadataRelativePaths: undefined })
+      expect.objectContaining({ metadataRelativePaths: undefined })
     )
+    expect(mocks.scan.mock.calls[0]?.[0]).not.toHaveProperty('forceUpdate')
   })
 
   it('persists a legacy incremental execution failure without reporting completion', async () => {
@@ -233,7 +225,7 @@ describe('scan stream failure state', () => {
     const request = new NextRequest('http://localhost/api/scan/stream', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'full', force: false })
+      body: JSON.stringify({ type: 'full' })
     })
 
     const response = await post(request, { params: Promise.resolve({}) })

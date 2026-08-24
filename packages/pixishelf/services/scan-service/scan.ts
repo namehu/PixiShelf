@@ -2,7 +2,6 @@ import path from 'path'
 import logger from '@/lib/logger'
 import { sleep } from '@/utils/sleep'
 import type { ScanResult } from '@/types'
-import { FULL_SCAN_RETIRED_MESSAGE } from '../scan-source-policy'
 import { batchProcessArtists, batchProcessTags, processBatch } from './batch-processor'
 import { globMetadataFiles, parseAndCollect, prepareMetadataFilesFromList } from './metadata-files'
 import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from './scan-errors'
@@ -12,7 +11,6 @@ import type { ArtworkData, GlobMetadataFile, ScanAuditItemInput, ScanContext, Sc
  * 统一扫描入口，按配置决定扫描来源和已有来源处理策略。
  *
  * - metadataList 模式：只扫描客户端上报的文件列表，并验证路径是否在 scanPath 内；
- * - forceUpdate 只允许与 metadataList 一起使用，对明确列表中的已有来源执行刷新；
  * - 运行期错误区分取消与非取消错误，前者返回部分结果，后者向上抛出。
  *
  * @param options 扫描选项
@@ -40,9 +38,6 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
   }
 
   try {
-    if (options.forceUpdate && !isMetadataListScan(options)) {
-      throw new Error(FULL_SCAN_RETIRED_MESSAGE)
-    }
     logger.info('Starting scan:', { scanPath: options.scanPath })
 
     const metadataFiles = await discoverMetadataFiles(context)
@@ -88,7 +83,6 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
       newImages: context.scanResult.newImages,
       newTags: context.scanResult.newTags,
       errors: context.scanResult.errors.length,
-      forceUpdate: !!options.forceUpdate,
       metadataSource: isMetadataListScan(options) ? 'client_list' : 'glob'
     })
   }
@@ -107,8 +101,8 @@ async function discoverMetadataFiles(context: ScanContext): Promise<GlobMetadata
 
   const discoveryStartTime = Date.now()
   const metadataFiles = isMetadataListScan(options)
-    ? await prepareMetadataFilesFromList(options.scanPath, options.metadataRelativePaths!, context, options.forceUpdate)
-    : await globMetadataFiles(options.scanPath, context, options.forceUpdate)
+    ? await prepareMetadataFilesFromList(options.scanPath, options.metadataRelativePaths!, context)
+    : await globMetadataFiles(options.scanPath, context)
 
   logger.info('Scan performance checkpoint:', {
     phase: 'metadata_discovery',
@@ -116,8 +110,7 @@ async function discoverMetadataFiles(context: ScanContext): Promise<GlobMetadata
     totalFiles: context.scanResult.totalArtworks,
     filesToProcess: metadataFiles.length,
     skippedFiles: context.scanResult.skippedArtworks,
-    source,
-    forceUpdate: !!options.forceUpdate
+    source
   })
 
   return metadataFiles

@@ -141,7 +141,6 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
 
         const scanOptions = {
           scanPath,
-          forceUpdate: false,
           audit: {
             recordItems: auditBuffer.recordItems
           },

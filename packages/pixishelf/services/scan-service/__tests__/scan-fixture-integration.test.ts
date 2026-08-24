@@ -440,7 +440,6 @@ describe('scan fixture integration', () => {
     const progressEvents: Array<{ phase: string; percentage?: number; message: string }> = []
     const result = await scan({
       scanPath,
-      forceUpdate: false,
       onProgress: (event) => progressEvents.push(event)
     })
 
@@ -475,8 +474,8 @@ describe('scan fixture integration', () => {
     })
     await writeFile(path.join(pixivDirectory, '1101.jpg'), 'image')
 
-    const firstResult = await scan({ scanPath, forceUpdate: false })
-    const secondResult = await scan({ scanPath, forceUpdate: false })
+    const firstResult = await scan({ scanPath })
+    const secondResult = await scan({ scanPath })
 
     expect(firstResult).toMatchObject({
       totalArtworks: 1,
@@ -538,7 +537,7 @@ describe('scan fixture integration', () => {
       Title: 'No media artwork'
     })
 
-    const result = await scan({ scanPath, forceUpdate: false })
+    const result = await scan({ scanPath })
 
     expect(result.totalArtworks).toBe(3)
     expect(result.newArtworks).toBe(1)
@@ -560,7 +559,6 @@ describe('scan fixture integration', () => {
     const checkCancelled = vi.fn(async () => true)
     const result = await scan({
       scanPath,
-      forceUpdate: false,
       checkCancelled
     })
 
@@ -588,8 +586,7 @@ describe('scan fixture integration', () => {
     prismaStub.$transaction.mockRejectedValueOnce(new Error('database unavailable'))
 
     const result = await scan({
-      scanPath,
-      forceUpdate: false
+      scanPath
     })
 
     expect(result.totalArtworks).toBe(1)
@@ -612,8 +609,7 @@ describe('scan fixture integration', () => {
     await writeFile(path.join(pixivDirectory, '1501.jpg'), 'performance-image')
 
     await scan({
-      scanPath,
-      forceUpdate: false
+      scanPath
     })
 
     const performanceLogs = loggerInfoMock.mock.calls

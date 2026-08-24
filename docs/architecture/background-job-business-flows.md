@@ -250,8 +250,8 @@ sequenceDiagram
 
 ### 入口与模式
 
-- 管理页普通扫描和兼容的 full 非 force Webhook 创建 `INCREMENTAL`。
-- Webhook `type=list` 创建 `CLIENT_LIST`，`force=false` 对已有来源使用 `SKIP`，`force=true` 仅刷新这份有界列表。
+- 管理页普通扫描和兼容的 full Webhook 创建 `INCREMENTAL`。
+- Webhook `type=list` 创建 `CLIENT_LIST`，对已有来源使用 `SKIP`；公开请求体中的 `force` 字段已退役。
 - 单作品重扫创建 `ARTWORK_RESCAN`。
 - 破坏性 `FULL_RECONCILE` 已退出 App producer、`SCAN@v1` contract 和 Worker executor；历史终态记录只读保留。
 
@@ -274,7 +274,7 @@ flowchart TD
   VERIFY --> PROCESS
   PROCESS --> POLICY{已有作品策略}
   POLICY -->|SKIP| SKIP[记录 ScanRunItem SKIPPED]
-  POLICY -->|REFRESH| REFRESH[保留本地覆盖和媒体顺序\n刷新该来源的数据和来源标签]
+  POLICY -->|REFRESH\n单作品重扫或选定同步| REFRESH[保留本地覆盖和媒体顺序\n刷新该来源的数据和来源标签]
   POLICY -->|不存在| CREATE[创建 Artwork、ExternalRef、Image 和来源标签]
   SKIP --> FINAL[汇总 ScanRun 并结束 SystemJob]
   REFRESH --> FINAL

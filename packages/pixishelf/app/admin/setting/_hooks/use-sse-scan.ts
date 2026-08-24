@@ -20,11 +20,9 @@ class FatalError extends Error {
  * 扫描入参配置
  */
 type ScanOptions =
-  | { metadataList?: undefined; force?: false }
+  | { metadataList?: undefined }
   | {
-      /** 列表扫描可选择跳过已有作品或安全刷新明确指定的来源。 */
       metadataList: string[]
-      force?: boolean
     }
 
 /**
@@ -182,7 +180,6 @@ export function useSseScan(): { state: SseScanState; actions: SseScanActions } {
       const isListScan = options.metadataList && options.metadataList.length > 0
       const body = {
         type: isListScan ? 'list' : 'full',
-        force: options.force,
         metadataList: options.metadataList
       }
 

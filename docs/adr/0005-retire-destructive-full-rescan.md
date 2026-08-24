@@ -1,7 +1,7 @@
 ---
 status: accepted
 scope: 退役破坏性 Pixiv 全量重扫，并以增量发现、定向来源同步和只读来源核对替代
-last-verified: 2026-08-22
+last-verified: 2026-08-24
 ---
 
 # Retire destructive full rescan in favor of source-aware maintenance
@@ -25,9 +25,9 @@ valid routine synchronization strategy.
 - A missing metadata file is evidence for review, not permission to detach a Source Reference or delete an Artwork.
 - Disaster reconstruction, if ever needed, is an offline backup-and-recovery operation and is not exposed as a normal
   page or webhook action.
-- The existing scan Webhook list-mode URL, authentication, request body, accepted response, and status polling contract
-  remain compatible. List-mode `force=true` remains a bounded refresh of the supplied paths; directory-wide
-  `force=true` is retired and rejected.
+- The existing scan Webhook URL, authentication, accepted response, and status polling contract remain compatible.
+  List-mode callers must submit only `type=list` and `metadataList`; the public `force` request field is retired and
+  rejected as invalid input for both directory discovery and explicit lists.
 - Historical terminal `FULL_RECONCILE` jobs and `ScanRunMode.FULL` records remain readable. After the compatibility
   window and a non-terminal job audit, the v1 payload parser and executor branch are removed; the release procedure
   blocks installation while any old executable job remains.

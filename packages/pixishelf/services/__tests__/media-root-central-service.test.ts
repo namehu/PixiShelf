@@ -111,7 +111,7 @@ describe('central media root enqueue semantics', () => {
   it('queues webhook scans as SYSTEM priority without a requested user', async () => {
     mocks.systemEnqueue.mockResolvedValue({ job: { id: 'system-scan' }, reused: false })
 
-    await expect(enqueueCentralScan({ type: 'all', force: false, triggerSource: 'SYSTEM' })).resolves.toMatchObject({
+    await expect(enqueueCentralScan({ type: 'all', triggerSource: 'SYSTEM' })).resolves.toMatchObject({
       jobId: 'system-scan',
       reused: false
     })
@@ -127,39 +127,25 @@ describe('central media root enqueue semantics', () => {
     expect(mocks.enqueue).not.toHaveBeenCalled()
   })
 
-  it('rejects directory-wide force before reading the scan root or opening the queue', async () => {
-    await expect(enqueueCentralScan({ type: 'all', force: true, requestedByUserId: 'admin-1' })).rejects.toMatchObject({
-      code: 'INVALID_STATE_TRANSITION'
-    })
-
-    expect(mocks.getScanPath).not.toHaveBeenCalled()
-    expect(mocks.enqueue).not.toHaveBeenCalled()
-    expect(mocks.systemEnqueue).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    [false, 'SKIP'],
-    [true, 'REFRESH']
-  ] as const)('maps webhook list force=%s to CLIENT_LIST %s without changing the transport', async (force, policy) => {
-    const scanRunCreate = vi.fn().mockResolvedValue({ id: `run-list-${force}` })
+  it('maps webhook list scans to CLIENT_LIST SKIP without changing the transport', async () => {
+    const scanRunCreate = vi.fn().mockResolvedValue({ id: 'run-list' })
     const metadataCreateMany = vi.fn().mockResolvedValue({ count: 1 })
     const transaction = {
       scanRun: { findUnique: vi.fn().mockResolvedValue(null), create: scanRunCreate },
       scanRunMetadataInput: { createMany: metadataCreateMany }
     }
     mocks.systemEnqueue.mockImplementationOnce(async (_request, options) => {
-      await options.afterEnqueue({ transaction, job: { id: `system-list-${force}` }, reused: false })
-      return { job: { id: `system-list-${force}` }, reused: false }
+      await options.afterEnqueue({ transaction, job: { id: 'system-list' }, reused: false })
+      return { job: { id: 'system-list' }, reused: false }
     })
 
     await expect(
       enqueueCentralScan({
         type: 'list',
-        force,
         metadataList: ['artist/100-meta.json'],
         triggerSource: 'SYSTEM'
       })
-    ).resolves.toMatchObject({ jobId: `system-list-${force}`, status: 'PENDING', reused: false })
+    ).resolves.toMatchObject({ jobId: 'system-list', status: 'PENDING', reused: false })
 
     expect(mocks.systemEnqueue).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -167,7 +153,7 @@ describe('central media root enqueue semantics', () => {
         triggerSource: 'SYSTEM',
         payload: expect.objectContaining({
           mode: 'CLIENT_LIST',
-          existingPolicy: policy,
+          existingPolicy: 'SKIP',
           inputCount: 1,
           inputDigest: expect.stringMatching(/^[a-f0-9]{64}$/)
         })
@@ -177,7 +163,7 @@ describe('central media root enqueue semantics', () => {
     expect(metadataCreateMany).toHaveBeenCalledWith({
       data: [
         expect.objectContaining({
-          scanRunId: `run-list-${force}`,
+          scanRunId: 'run-list',
           relativePath: 'artist/100-meta.json',
           sizeBytes: 2n,
           mtimeMs: 20n,
@@ -264,7 +250,7 @@ describe('central media root enqueue semantics', () => {
       return { job: { id: 'active-job' }, reused: true }
     })
 
-    await expect(enqueueCentralScan({ type: 'all', force: false, requestedByUserId: 'admin-1' })).rejects.toMatchObject(
+    await expect(enqueueCentralScan({ type: 'all', requestedByUserId: 'admin-1' })).rejects.toMatchObject(
       { code: 'ACTIVE_JOB_CONFLICT' }
     )
   })

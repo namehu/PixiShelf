@@ -41,7 +41,6 @@ export interface ScanAuditHooks {
  */
 export interface ScanOptions {
   scanPath: string
-  forceUpdate?: boolean
   onProgress?: (progress: ScanProgress) => void
   /**
    * 检查取消状态的回调函数

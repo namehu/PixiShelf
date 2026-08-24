@@ -66,31 +66,21 @@ describe('prepareMetadataFilesFromList', () => {
     const context = createScanContext()
 
     const scanPath = '/tmp/pixishelf-scan'
-    const results = await prepareMetadataFilesFromList(
-      scanPath,
-      ['../evil/999-meta.txt', 'safe/123-meta.txt'],
-      context,
-      false
-    )
+    const results = await prepareMetadataFilesFromList(scanPath, ['../evil/999-meta.txt', 'safe/123-meta.txt'], context)
 
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe(path.resolve(scanPath, 'safe/123-meta.txt'))
     expect(context.scanResult.errors).toContain('发现越界的元数据路径，已跳过: ../evil/999-meta.txt')
   })
 
-  it('should filter existing artworks when forceUpdate is false', async () => {
+  it('should filter existing artworks', async () => {
     findManyMock.mockResolvedValue([{ externalId: '123' }])
     const context = createScanContext()
     const recordItems = vi.fn()
     context.options.audit = { recordItems }
 
     const scanPath = '/tmp/pixishelf-scan'
-    const results = await prepareMetadataFilesFromList(
-      scanPath,
-      ['safe/123-meta.txt', 'safe/456-meta.txt'],
-      context,
-      false
-    )
+    const results = await prepareMetadataFilesFromList(scanPath, ['safe/123-meta.txt', 'safe/456-meta.txt'], context)
 
     expect(findManyMock).toHaveBeenCalledTimes(1)
     expect(results).toHaveLength(1)
@@ -104,12 +94,7 @@ describe('prepareMetadataFilesFromList', () => {
     findManyMock.mockResolvedValue([])
     const context = createScanContext()
 
-    const results = await prepareMetadataFilesFromList(
-      '/tmp/pixishelf-scan',
-      ['a/777-meta.txt', 'b/777-meta.txt'],
-      context,
-      false
-    )
+    const results = await prepareMetadataFilesFromList('/tmp/pixishelf-scan', ['a/777-meta.txt', 'b/777-meta.txt'], context)
 
     expect(results).toHaveLength(1)
     expect(results[0]?.artworkId).toBe('777')

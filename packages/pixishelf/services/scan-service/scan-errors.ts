@@ -30,14 +30,6 @@ export function formatScanUserError(error: unknown): string {
     return '清空数据库失败，请查看日志'
   }
 
-  if (message === 'Force scan aborted: no metadata files found') {
-    return '强制扫描已中止：扫描目录中未发现 Pixiv 元数据文件，原有数据未修改'
-  }
-
-  if (message.startsWith('Force scan failed to rebuild ')) {
-    return '强制扫描未能完整重建所有作品，请查看扫描日志'
-  }
-
   if (message.startsWith('Failed to process batch ')) {
     return '部分作品处理失败，请查看扫描日志'
   }

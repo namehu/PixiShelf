@@ -27,7 +27,6 @@ import {
 } from '@/services/background-task/manual-job-singleton'
 import { isLocalDirectoryArtworkSource } from '@/utils/artwork/artwork-source'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
-import { FULL_SCAN_RETIRED_MESSAGE, isRetiredDirectoryFullScan } from '@/services/scan-source-policy'
 
 const MAX_METADATA_BYTES = 16 * 1024 * 1024
 const MAX_LOCAL_IMPORT_CANDIDATES = 10_000
@@ -44,13 +43,9 @@ export interface QueuedMediaRootJob {
 export async function enqueueCentralScan(
   input: {
     type: 'all' | 'list'
-    force: boolean
     metadataList?: string[]
   } & ({ triggerSource?: 'MANUAL'; requestedByUserId: string } | { triggerSource: 'SYSTEM'; requestedByUserId?: never })
 ): Promise<QueuedMediaRootJob> {
-  if (isRetiredDirectoryFullScan(input)) {
-    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', FULL_SCAN_RETIRED_MESSAGE)
-  }
   const scanPath = await requireScanPath()
   const now = new Date()
   let payload: ScanPayload
@@ -60,7 +55,7 @@ export async function enqueueCentralScan(
     const digest = metadataInputDigest(metadataRows)
     payload = {
       mode: 'CLIENT_LIST',
-      existingPolicy: input.force ? 'REFRESH' : 'SKIP',
+      existingPolicy: 'SKIP',
       inputCount: metadataRows.length,
       inputDigest: digest
     }
@@ -121,14 +116,14 @@ export async function enqueueCentralScan(
   const queued =
     input.triggerSource === 'SYSTEM'
       ? await enqueueSingletonSystemJobWithResult(
-          { ...jobRequest, triggerSource: 'SYSTEM', priority: input.force ? 120 : 110 },
+          { ...jobRequest, triggerSource: 'SYSTEM', priority: 110 },
           options
         )
       : await enqueueSingletonManualJobWithResult(
           {
             ...jobRequest,
             triggerSource: 'MANUAL',
-            priority: input.force ? 20 : 10,
+            priority: 10,
             requestedByUserId: input.requestedByUserId
           },
           options

@@ -41,7 +41,7 @@ describe('useSseScan central queued event', () => {
   it('releases the local running state and exposes ids without reporting completion', async () => {
     const { result } = renderHook(() => useSseScan())
 
-    act(() => result.current.actions.startScan({ force: false }))
+    act(() => result.current.actions.startScan({}))
 
     await waitFor(() => expect(result.current.state.jobId).toBe('scan-job-1'))
     expect(result.current.state).toMatchObject({
@@ -57,16 +57,15 @@ describe('useSseScan central queued event', () => {
     expect(mocks.fetchEventSource.mock.calls[0]?.[1].signal.aborted).toBe(true)
   })
 
-  it('keeps force available for an explicit metadata list refresh', async () => {
+  it('sends explicit metadata list scans without force semantics', async () => {
     const { result } = renderHook(() => useSseScan())
 
-    act(() => result.current.actions.startScan({ metadataList: ['artist/100-meta.json'], force: true }))
+    act(() => result.current.actions.startScan({ metadataList: ['artist/100-meta.json'] }))
 
     await waitFor(() => expect(mocks.fetchEventSource).toHaveBeenCalledOnce())
     const request = mocks.fetchEventSource.mock.calls[0]?.[1]
     expect(JSON.parse(request.body)).toEqual({
       type: 'list',
-      force: true,
       metadataList: ['artist/100-meta.json']
     })
   })

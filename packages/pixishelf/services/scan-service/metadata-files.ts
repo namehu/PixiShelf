@@ -12,14 +12,9 @@ import type { ArtworkData, GlobMetadataFile, ScanAuditItemInput, ScanContext } f
  * 递归查找元数据文件
  * @param directoryPath 目录路径
  * @param context 扫描上下文
- * @param forceUpdate 是否强制更新
  * @returns 元数据文件数组
  */
-export async function globMetadataFiles(
-  directoryPath: string,
-  context: ScanContext,
-  forceUpdate: boolean = false
-): Promise<GlobMetadataFile[]> {
+export async function globMetadataFiles(directoryPath: string, context: ScanContext): Promise<GlobMetadataFile[]> {
   let files: string[] = []
 
   logger.info('Using local file scanning for metadata file discovery', {
@@ -57,37 +52,34 @@ export async function globMetadataFiles(
 
   context.scanResult.totalArtworks = preferredFiles.length // 发现总作品数
 
-  // 如果不是强制更新，需要过滤掉已存在的作品
   let filesToProcess = preferredFiles
-  if (!forceUpdate) {
-    const artworkIds = preferredFiles.map(({ artworkId }) => artworkId) // 提取所有作品的 artworkId
+  const artworkIds = preferredFiles.map(({ artworkId }) => artworkId) // 提取所有作品的 artworkId
 
-    if (artworkIds.length > 0) {
-      const existingRefs = await prisma.artworkExternalRef.findMany({
-        where: {
-          providerKey: 'pixiv',
-          externalId: {
-            in: artworkIds
-          }
-        },
-        select: {
-          externalId: true
+  if (artworkIds.length > 0) {
+    const existingRefs = await prisma.artworkExternalRef.findMany({
+      where: {
+        providerKey: 'pixiv',
+        externalId: {
+          in: artworkIds
         }
-      })
+      },
+      select: {
+        externalId: true
+      }
+    })
 
-      const existingIds = new Set(existingRefs.map((reference) => reference.externalId))
+    const existingIds = new Set(existingRefs.map((reference) => reference.externalId))
 
-      // 过滤掉已存在的文件
-      filesToProcess = preferredFiles.filter((file) => !existingIds.has(file.artworkId))
+    // 过滤掉已存在的文件
+    filesToProcess = preferredFiles.filter((file) => !existingIds.has(file.artworkId))
 
-      context.scanResult.skippedArtworks = preferredFiles.length - filesToProcess.length // 已存在作品数
+    context.scanResult.skippedArtworks = preferredFiles.length - filesToProcess.length // 已存在作品数
 
-      logger.info('Filtered metadata files based on existing artworks:', {
-        totalFiles: preferredFiles.length,
-        existingFiles: preferredFiles.length - filesToProcess.length,
-        filesToProcess: filesToProcess.length
-      })
-    }
+    logger.info('Filtered metadata files based on existing artworks:', {
+      totalFiles: preferredFiles.length,
+      existingFiles: preferredFiles.length - filesToProcess.length,
+      filesToProcess: filesToProcess.length
+    })
   }
 
   return filesToProcess
@@ -98,13 +90,11 @@ export async function globMetadataFiles(
  * @param directoryPath 目录根路径（scanPath）
  * @param relativePaths 客户端提供的相对路径列表
  * @param context 扫描上下文
- * @param forceUpdate 是否强制更新（影响去重与过滤）
  */
 export async function prepareMetadataFilesFromList(
   directoryPath: string,
   relativePaths: string[],
-  context: ScanContext,
-  forceUpdate: boolean = false
+  context: ScanContext
 ): Promise<GlobMetadataFile[]> {
   logger.info('Building metadata files from client-provided list', {
     directoryPath,
@@ -151,26 +141,23 @@ export async function prepareMetadataFilesFromList(
   })
   context.scanResult.totalArtworks = preferredFiles.length
 
-  // 非强制更新时，过滤掉数据库中已存在的作品
   let filesToProcess = preferredFiles
-  if (!forceUpdate) {
-    const artworkIds = preferredFiles.map(({ artworkId }) => artworkId)
-    if (artworkIds.length > 0) {
-      const existingRefs = await prisma.artworkExternalRef.findMany({
-        where: { providerKey: 'pixiv', externalId: { in: artworkIds } },
-        select: { externalId: true }
-      })
+  const artworkIds = preferredFiles.map(({ artworkId }) => artworkId)
+  if (artworkIds.length > 0) {
+    const existingRefs = await prisma.artworkExternalRef.findMany({
+      where: { providerKey: 'pixiv', externalId: { in: artworkIds } },
+      select: { externalId: true }
+    })
 
-      const existingIds = new Set(existingRefs.map((reference) => reference.externalId))
-      filesToProcess = preferredFiles.filter((file) => !existingIds.has(file.artworkId))
-      context.scanResult.skippedArtworks = preferredFiles.length - filesToProcess.length
+    const existingIds = new Set(existingRefs.map((reference) => reference.externalId))
+    filesToProcess = preferredFiles.filter((file) => !existingIds.has(file.artworkId))
+    context.scanResult.skippedArtworks = preferredFiles.length - filesToProcess.length
 
-      logger.info('Filtered client list based on existing artworks', {
-        totalFiles: preferredFiles.length,
-        existingFiles: preferredFiles.length - filesToProcess.length,
-        filesToProcess: filesToProcess.length
-      })
-    }
+    logger.info('Filtered client list based on existing artworks', {
+      totalFiles: preferredFiles.length,
+      existingFiles: preferredFiles.length - filesToProcess.length,
+      filesToProcess: filesToProcess.length
+    })
   }
 
   return filesToProcess

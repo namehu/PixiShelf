@@ -56,7 +56,7 @@ function ScanManagement() {
     actions.startScan({ metadataList })
   }
 
-  const startServerScan = () => actions.startScan({ force: false })
+  const startServerScan = () => actions.startScan({})
 
   const handleUpdatePath = (newPath: string) => {
     scanPath.update.mutate(newPath)
