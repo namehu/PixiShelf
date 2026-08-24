@@ -1,12 +1,15 @@
 'use client'
 
-import { Loader2, SearchX } from 'lucide-react'
+import Link from 'next/link'
+import { ExternalLink, Loader2, SearchX } from 'lucide-react'
 import { TableVirtuoso, Virtuoso } from 'react-virtuoso'
 import { useMediaQuery } from '@/hooks/use-media-query'
+import { cn } from '@/lib/utils'
 import { formatAction, formatMediaCount, ItemStatusBadge, ScanRunItemStatus } from './scan-history-format'
 
 interface ScanHistoryDetailItem {
   id: string
+  resultArtworkId: number | null
   status: string
   action: string
   inventoryDecision: string | null
@@ -48,13 +51,18 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
     <div className="relative overflow-hidden rounded-lg border bg-card" aria-busy={isFetching}>
       {isDesktop ? (
         <TableVirtuoso
-          className="h-[clamp(18rem,calc(100vh-26rem),42rem)] min-h-72 overscroll-contain"
+          className="h-[clamp(18rem,calc(100vh-26rem),42rem)] min-h-72 overscroll-contain [scrollbar-gutter:stable]"
           data={items}
           defaultItemHeight={68}
           overscan={320}
           computeItemKey={(_, item) => item.id}
           components={{
-            Table: (props) => <table {...props} className="min-w-[820px] table-fixed text-sm" />,
+            Table: ({ children, ...props }) => (
+              <table {...props} className="w-full min-w-[860px] table-fixed text-sm">
+                <ScanHistoryDetailColGroup />
+                {children}
+              </table>
+            ),
             TableRow: (props) => <tr {...props} className="border-b transition-colors hover:bg-muted/35" />
           }}
           fixedHeaderContent={() => (
@@ -65,13 +73,13 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
               <th scope="col" className="w-32 px-3 py-2.5 text-left font-medium">
                 动作
               </th>
-              <th scope="col" className="w-[30%] px-3 py-2.5 text-left font-medium">
+              <th scope="col" className="w-72 px-3 py-2.5 text-left font-medium">
                 作品
               </th>
               <th scope="col" className="px-3 py-2.5 text-left font-medium">
                 路径
               </th>
-              <th scope="col" className="w-24 px-3 py-2.5 text-right font-medium">
+              <th scope="col" className="w-28 px-3 py-2.5 text-right font-medium">
                 本次媒体
               </th>
             </tr>
@@ -84,13 +92,8 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
               <td className="w-32 px-3 py-3 align-top text-muted-foreground">
                 {formatAction(item.action, item.inventoryDecision)}
               </td>
-              <td className="w-[30%] min-w-0 whitespace-normal px-3 py-3 align-top">
-                <div
-                  className="truncate font-medium text-foreground"
-                  title={item.title || item.externalId || undefined}
-                >
-                  {item.title || item.externalId || '未命名作品'}
-                </div>
+              <td className="w-72 min-w-0 whitespace-normal px-3 py-3 align-top">
+                <ArtworkDetailLink item={item} />
                 <div
                   className="mt-1 truncate text-xs text-muted-foreground"
                   title={item.artistName || item.externalId || undefined}
@@ -109,7 +112,7 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
                   {item.metadataRelativePath || '—'}
                 </div>
               </td>
-              <td className="w-24 px-3 py-3 text-right align-top font-medium tabular-nums">
+              <td className="w-28 px-3 py-3 text-right align-top font-medium tabular-nums">
                 {formatMediaCount(item.mediaCount, item.inventoryDecision)}
               </td>
             </>
@@ -117,7 +120,7 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
         />
       ) : (
         <Virtuoso
-          className="h-[clamp(22rem,calc(100vh-24rem),42rem)] min-h-88 overscroll-contain"
+          className="h-[clamp(22rem,calc(100vh-24rem),42rem)] min-h-88 overscroll-contain [scrollbar-gutter:stable]"
           data={items}
           defaultItemHeight={142}
           overscan={280}
@@ -133,8 +136,8 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
                   本次媒体 {formatMediaCount(item.mediaCount, item.inventoryDecision)}
                 </span>
               </div>
-              <h3 className="mt-2 truncate text-sm font-medium text-foreground" title={item.title || undefined}>
-                {item.title || item.externalId || '未命名作品'}
+              <h3 className="mt-2 min-w-0 text-sm font-medium text-foreground">
+                <ArtworkDetailLink item={item} />
               </h3>
               <p className="mt-1 truncate text-xs text-muted-foreground" title={item.artistName || undefined}>
                 {item.artistName || item.externalId || '—'}
@@ -162,5 +165,47 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
         </div>
       ) : null}
     </div>
+  )
+}
+
+function ScanHistoryDetailColGroup() {
+  return (
+    <colgroup>
+      <col className="w-24" />
+      <col className="w-32" />
+      <col className="w-72" />
+      <col />
+      <col className="w-28" />
+    </colgroup>
+  )
+}
+
+function ArtworkDetailLink({ item, className }: { item: ScanHistoryDetailItem; className?: string }) {
+  const label = item.title || item.externalId || '未命名作品'
+  const title = item.artistName ? `${label} - ${item.artistName}` : label
+
+  if (!item.resultArtworkId) {
+    return (
+      <span className={cn('block min-w-0 truncate font-medium text-foreground', className)} title={title}>
+        {label}
+      </span>
+    )
+  }
+
+  return (
+    <Link
+      href={`/artworks/${item.resultArtworkId}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(
+        'inline-flex min-w-0 max-w-full items-center gap-1 font-medium text-foreground outline-none transition-colors hover:text-primary focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring',
+        className
+      )}
+      title={title}
+      aria-label={`在新标签页打开作品 ${label}`}
+    >
+      <span className="min-w-0 truncate">{label}</span>
+      <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
+    </Link>
   )
 }

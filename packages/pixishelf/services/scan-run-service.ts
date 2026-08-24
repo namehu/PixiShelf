@@ -59,6 +59,7 @@ const scanRunHistorySelect = {
 
 const scanRunDetailItemSelect = {
   id: true,
+  resultArtworkId: true,
   externalId: true,
   title: true,
   artistName: true,
@@ -317,11 +318,107 @@ export async function getScanRunDetail(input: GetScanRunDetailInput) {
 
   const hasMore = items.length > take
   const pageItems = hasMore ? items.slice(0, take) : items
+  const artworkIdsByItemId = await resolveScanRunDetailArtworkIds(run?.type ?? null, pageItems)
+
   return {
     run: run ? toScanRunHistoryDto(run) : null,
-    items: pageItems.map(toScanRunDetailItemDto),
+    items: pageItems.map((item) => toScanRunDetailItemDto(item, artworkIdsByItemId.get(item.id) ?? null)),
     nextCursor: hasMore ? (pageItems[pageItems.length - 1]?.id ?? null) : null
   }
+}
+
+async function resolveScanRunDetailArtworkIds(runType: ScanRunType | null, items: ScanRunDetailItemRecord[]) {
+  const resolved = new Map<string, number>()
+  if (items.length === 0) return resolved
+
+  const directArtworkIds = uniqueNumbers(
+    items.flatMap((item) => (isPositiveInt(item.resultArtworkId) ? [item.resultArtworkId] : []))
+  )
+  if (directArtworkIds.length > 0) {
+    const activeArtworks = await prisma.artwork.findMany({
+      where: { id: { in: directArtworkIds }, deletedAt: null },
+      select: { id: true }
+    })
+    const activeIds = new Set(activeArtworks.map((artwork) => artwork.id))
+    for (const item of items) {
+      if (isPositiveInt(item.resultArtworkId) && activeIds.has(item.resultArtworkId)) {
+        resolved.set(item.id, item.resultArtworkId)
+      }
+    }
+  }
+
+  const externalIds = uniqueStrings(
+    items.flatMap((item) => (!resolved.has(item.id) && item.externalId ? [item.externalId] : []))
+  )
+  if (externalIds.length === 0) return resolved
+
+  if (runType === ScanRunType.PIXIV) {
+    const refs = await prisma.artworkExternalRef.findMany({
+      where: {
+        providerKey: 'pixiv',
+        externalId: { in: externalIds },
+        artwork: { is: { deletedAt: null } }
+      },
+      select: { externalId: true, artworkId: true }
+    })
+    const artworkIdByExternalId = new Map<string, number>()
+    for (const ref of refs) {
+      artworkIdByExternalId.set(ref.externalId, ref.artworkId)
+    }
+    for (const item of items) {
+      if (!item.externalId || resolved.has(item.id)) continue
+
+      const artworkId = artworkIdByExternalId.get(item.externalId)
+      if (isPositiveInt(artworkId)) {
+        resolved.set(item.id, artworkId)
+      }
+    }
+  }
+
+  const remainingExternalIds = uniqueStrings(
+    items.flatMap((item) => (!resolved.has(item.id) && item.externalId ? [item.externalId] : []))
+  )
+  if (remainingExternalIds.length === 0) return resolved
+
+  const numericArtworkIds =
+    runType === ScanRunType.PIXIV
+      ? []
+      : uniqueNumbers(remainingExternalIds.map((value) => Number(value)).filter(isPositiveInt))
+  const artworkWhere: Prisma.ArtworkWhereInput[] = [
+    { externalId: { in: remainingExternalIds } },
+    { storageKey: { in: remainingExternalIds } }
+  ]
+  if (numericArtworkIds.length > 0) {
+    artworkWhere.push({ id: { in: numericArtworkIds } })
+  }
+
+  const artworks = await prisma.artwork.findMany({
+    where: { deletedAt: null, OR: artworkWhere },
+    select: { id: true, externalId: true, storageKey: true }
+  })
+  const artworkIdByExternalId = new Map<string, number>()
+  for (const artwork of artworks) {
+    if (artwork.externalId && remainingExternalIds.includes(artwork.externalId)) {
+      artworkIdByExternalId.set(artwork.externalId, artwork.id)
+    }
+    if (artwork.storageKey && remainingExternalIds.includes(artwork.storageKey)) {
+      artworkIdByExternalId.set(artwork.storageKey, artwork.id)
+    }
+    if (numericArtworkIds.includes(artwork.id)) {
+      artworkIdByExternalId.set(String(artwork.id), artwork.id)
+    }
+  }
+
+  for (const item of items) {
+    if (!item.externalId || resolved.has(item.id)) continue
+
+    const artworkId = artworkIdByExternalId.get(item.externalId)
+    if (isPositiveInt(artworkId)) {
+      resolved.set(item.id, artworkId)
+    }
+  }
+
+  return resolved
 }
 
 function toScanRunHistoryDto(record: ScanRunHistoryRecord) {
@@ -363,9 +460,10 @@ function safeScanOperationKind(value: string | null): 'CONSISTENCY_AUDIT' | 'AUD
   return value === 'CONSISTENCY_AUDIT' || value === 'AUDIT_APPLY' ? value : null
 }
 
-function toScanRunDetailItemDto(record: ScanRunDetailItemRecord) {
+function toScanRunDetailItemDto(record: ScanRunDetailItemRecord, resultArtworkId: number | null) {
   return {
     id: record.id,
+    resultArtworkId,
     externalId: record.externalId,
     title: record.title,
     artistName: record.artistName,
@@ -381,6 +479,18 @@ function toScanRunDetailItemDto(record: ScanRunDetailItemRecord) {
 
 function safeInventoryDecision(value: string | null): 'BASELINE_EXISTING' | 'PENDING_SOURCE_REFRESH' | null {
   return value === 'BASELINE_EXISTING' || value === 'PENDING_SOURCE_REFRESH' ? value : null
+}
+
+function isPositiveInt(value: number | null | undefined): value is number {
+  return Number.isInteger(value) && Number(value) > 0
+}
+
+function uniqueNumbers(values: number[]) {
+  return Array.from(new Set(values))
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values))
 }
 
 /** 清理 ScanRun 审计历史：只删除终态记录，包含默认历史列表隐藏的 LOCAL_CREATE，明细依赖数据库级联删除 */

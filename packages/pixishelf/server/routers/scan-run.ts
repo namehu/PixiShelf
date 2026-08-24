@@ -42,6 +42,7 @@ const scanRunHistoryDtoSchema = z
 const scanRunDetailItemDtoSchema = z
   .object({
     id: z.string().min(1),
+    resultArtworkId: z.number().int().positive().nullable(),
     externalId: z.string().nullable(),
     title: z.string().nullable(),
     artistName: z.string().nullable(),

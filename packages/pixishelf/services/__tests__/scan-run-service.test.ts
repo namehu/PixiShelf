@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ScanRunItemStatus, ScanRunMode, ScanRunStatus, ScanRunType } from '@prisma/client'
+import { ScanRunItemAction, ScanRunItemStatus, ScanRunMode, ScanRunStatus, ScanRunType } from '@prisma/client'
 
 const {
   scanRunCreateMock,
@@ -7,10 +7,14 @@ const {
   scanRunDeleteManyMock,
   scanRunFindManyMock,
   scanRunFindFirstMock,
+  scanRunFindUniqueMock,
   scanRunItemCreateManyMock,
+  scanRunItemFindManyMock,
   scanRunItemGroupByMock,
   scanRunItemAggregateMock,
   scanRunItemUpdateManyMock,
+  artworkFindManyMock,
+  artworkExternalRefFindManyMock,
   prismaTransactionMock,
   queryRawMock
 } = vi.hoisted(() => ({
@@ -19,10 +23,14 @@ const {
   scanRunDeleteManyMock: vi.fn(),
   scanRunFindManyMock: vi.fn(),
   scanRunFindFirstMock: vi.fn(),
+  scanRunFindUniqueMock: vi.fn(),
   scanRunItemCreateManyMock: vi.fn(),
+  scanRunItemFindManyMock: vi.fn(),
   scanRunItemGroupByMock: vi.fn(),
   scanRunItemAggregateMock: vi.fn(),
   scanRunItemUpdateManyMock: vi.fn(),
+  artworkFindManyMock: vi.fn(),
+  artworkExternalRefFindManyMock: vi.fn(),
   prismaTransactionMock: vi.fn(),
   queryRawMock: vi.fn()
 }))
@@ -35,14 +43,18 @@ vi.mock('@/lib/prisma', () => ({
       update: scanRunUpdateMock,
       deleteMany: scanRunDeleteManyMock,
       findMany: scanRunFindManyMock,
-      findFirst: scanRunFindFirstMock
+      findFirst: scanRunFindFirstMock,
+      findUnique: scanRunFindUniqueMock
     },
     scanRunItem: {
       createMany: scanRunItemCreateManyMock,
+      findMany: scanRunItemFindManyMock,
       groupBy: scanRunItemGroupByMock,
       aggregate: scanRunItemAggregateMock,
       updateMany: scanRunItemUpdateManyMock
-    }
+    },
+    artwork: { findMany: artworkFindManyMock },
+    artworkExternalRef: { findMany: artworkExternalRefFindManyMock }
   }
 }))
 
@@ -51,6 +63,7 @@ import {
   cleanupScanRunHistory,
   completeScanRun,
   completeScanRunSummary,
+  getScanRunDetail,
   getLatestScanRun,
   getScanRunTypeForArtworkSource,
   listScanRuns,
@@ -66,7 +79,9 @@ describe('scan-run-service', () => {
     scanRunDeleteManyMock.mockReset().mockResolvedValue({ count: 0 })
     scanRunFindManyMock.mockReset().mockResolvedValue([])
     scanRunFindFirstMock.mockReset().mockResolvedValue(null)
+    scanRunFindUniqueMock.mockReset().mockResolvedValue(null)
     scanRunItemCreateManyMock.mockReset().mockResolvedValue({ count: 2 })
+    scanRunItemFindManyMock.mockReset().mockResolvedValue([])
     scanRunItemUpdateManyMock.mockReset().mockResolvedValue({ count: 1 })
     scanRunItemAggregateMock.mockReset().mockResolvedValue({ _sum: { newImageCount: 9 } })
     scanRunItemGroupByMock.mockReset().mockResolvedValue([
@@ -74,6 +89,8 @@ describe('scan-run-service', () => {
       { status: ScanRunItemStatus.SKIPPED, _count: { _all: 1 } },
       { status: ScanRunItemStatus.FAILED, _count: { _all: 1 } }
     ])
+    artworkFindManyMock.mockReset().mockResolvedValue([])
+    artworkExternalRefFindManyMock.mockReset().mockResolvedValue([])
     queryRawMock.mockReset().mockResolvedValue([{ lock: '' }])
     prismaTransactionMock.mockReset().mockImplementation((operation) =>
       operation({
@@ -195,6 +212,66 @@ describe('scan-run-service', () => {
         newImageCount: 3
       })
     })
+  })
+
+  it('resolves scan detail artwork links from direct evidence and pixiv external refs', async () => {
+    scanRunFindUniqueMock.mockResolvedValueOnce({ ...historyRecord(), type: ScanRunType.PIXIV })
+    scanRunItemFindManyMock.mockResolvedValueOnce([
+      detailItem({ id: 'direct-active', resultArtworkId: 11, externalId: '100' }),
+      detailItem({ id: 'pixiv-ref', resultArtworkId: null, externalId: '200' }),
+      detailItem({ id: 'direct-deleted', resultArtworkId: 33, externalId: '300' }),
+      detailItem({ id: 'no-external', resultArtworkId: null, externalId: null })
+    ])
+    artworkFindManyMock.mockResolvedValueOnce([{ id: 11 }]).mockResolvedValueOnce([])
+    artworkExternalRefFindManyMock.mockResolvedValueOnce([{ externalId: '200', artworkId: 22 }])
+
+    const result = await getScanRunDetail({ scanRunId: 'scan-run-1', limit: 10 })
+
+    expect(scanRunItemFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({ resultArtworkId: true })
+      })
+    )
+    expect(artworkExternalRefFindManyMock).toHaveBeenCalledWith({
+      where: {
+        providerKey: 'pixiv',
+        externalId: { in: ['200', '300'] },
+        artwork: { is: { deletedAt: null } }
+      },
+      select: { externalId: true, artworkId: true }
+    })
+    expect(result.items.map((item) => [item.id, item.resultArtworkId])).toEqual([
+      ['direct-active', 11],
+      ['pixiv-ref', 22],
+      ['direct-deleted', null],
+      ['no-external', null]
+    ])
+  })
+
+  it('resolves local scan detail artwork links from storage keys and numeric artwork ids', async () => {
+    scanRunFindUniqueMock.mockResolvedValueOnce({ ...historyRecord(), type: ScanRunType.LOCAL_IMPORT })
+    scanRunItemFindManyMock.mockResolvedValueOnce([
+      detailItem({ id: 'storage-key', resultArtworkId: null, externalId: 'local-key' }),
+      detailItem({ id: 'numeric-id', resultArtworkId: null, externalId: '42' })
+    ])
+    artworkFindManyMock.mockResolvedValueOnce([
+      { id: 42, externalId: null, storageKey: null },
+      { id: 99, externalId: null, storageKey: 'local-key' }
+    ])
+
+    const result = await getScanRunDetail({ scanRunId: 'scan-run-1', limit: 10 })
+
+    expect(artworkFindManyMock).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+        OR: [{ externalId: { in: ['local-key', '42'] } }, { storageKey: { in: ['local-key', '42'] } }, { id: { in: [42] } }]
+      },
+      select: { id: true, externalId: true, storageKey: true }
+    })
+    expect(result.items.map((item) => [item.id, item.resultArtworkId])).toEqual([
+      ['storage-key', 99],
+      ['numeric-id', 42]
+    ])
   })
 
   it('maps artwork source to scan run type', () => {
@@ -478,5 +555,23 @@ function historyRecord() {
     inventoryBaselineGeneration: 2,
     checkpointStage: 'FAILED',
     logRef: '/secret/worker.log'
+  }
+}
+
+function detailItem(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'scan-run-item-1',
+    resultArtworkId: null,
+    externalId: '100',
+    title: 'Artwork title',
+    artistName: 'Artist',
+    relativeDirectory: 'artist/100',
+    metadataRelativePath: 'artist/100/meta.json',
+    status: ScanRunItemStatus.SUCCESS,
+    action: ScanRunItemAction.CREATE,
+    inventoryDecision: null,
+    mediaCount: 1,
+    errorMessage: null,
+    ...overrides
   }
 }
