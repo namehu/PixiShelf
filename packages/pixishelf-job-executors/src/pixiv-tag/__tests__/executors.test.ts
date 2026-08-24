@@ -21,6 +21,24 @@ describe('Pixiv tag enrichment executor', () => {
     })
   })
 
+  it('limits forced discovery to the explicitly selected tag ids', async () => {
+    const findMany = vi.fn().mockResolvedValue([])
+    const [registration] = createPixivTagExecutorRegistrations({
+      database: { tag: { findMany } } as never,
+      pixivDataRoot: '/pixiv-data'
+    })
+
+    await registration!.execute(context({ mode: 'DISCOVER', force: true, tagIds: [3, 7] }) as never)
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: { gt: 0, in: [3, 7] }
+        })
+      })
+    )
+  })
+
   it('fills only missing fields and preserves manual translation ownership', async () => {
     const update = vi.fn().mockResolvedValue(undefined)
     const upsert = vi.fn().mockResolvedValue(undefined)

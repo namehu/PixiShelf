@@ -4,6 +4,7 @@ import * as tagService from '@/services/tag-service'
 import { prisma } from '@/lib/prisma'
 import { TagManagementStats } from '@/types/tags'
 import { Prisma } from '@pixishelf/db'
+import { buildPixivTagImageUrl } from '@/lib/pixiv-data'
 import {
   cancelPixivTagEnrichment,
   getPixivTagEnrichmentSummary,
@@ -162,6 +163,7 @@ export const tagRouter = router({
             name_zh: true,
             name_en: true,
             description: true,
+            image: true,
             artworkCount: true,
             createdAt: true,
             updatedAt: true,
@@ -201,8 +203,9 @@ export const tagRouter = router({
         success: true,
         data: {
           // 将关联表压平成管理页需要的 Pixiv 状态，避免把 Prisma 关系结构暴露给 UI。
-          tags: tags.map(({ externalMetadata, artworkTags, namespace, ...tag }) => ({
+          tags: tags.map(({ externalMetadata, artworkTags, namespace, image, ...tag }) => ({
             ...tag,
+            image: buildPixivTagImageUrl(image),
             pixivSync: externalMetadata[0] ?? null,
             pixivEligible: namespace === 'general' && artworkTags.length > 0 && !tag.isSystem
           })),
@@ -257,7 +260,9 @@ export const tagRouter = router({
 
   pixivEnrichmentSummary: adminProcedure.query(() => getPixivTagEnrichmentSummary()),
 
-  startPixivEnrichment: adminProcedure.mutation(({ ctx }) => startPixivTagEnrichment(ctx.userId)),
+  startPixivEnrichment: adminProcedure
+    .input(z.object({ tagIds: z.array(z.number().int().positive()).min(1).max(1_000).optional() }))
+    .mutation(({ input, ctx }) => startPixivTagEnrichment(ctx.userId, input.tagIds)),
 
   cancelPixivEnrichment: adminProcedure.mutation(() => cancelPixivTagEnrichment()),
 

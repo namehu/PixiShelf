@@ -14,6 +14,7 @@ import { BackgroundTaskError } from '@/services/background-task/background-task-
 const JOB_TYPE = 'PIXIV_TAG_ENRICHMENT' as const
 const PROVIDER_KEY = 'pixiv'
 const CANCEL_CONCURRENCY_RETRY_LIMIT = 3
+const MAX_SELECTED_TAGS = 1_000
 
 export const pixivTagCandidateWhere = {
   namespace: 'general',
@@ -94,7 +95,12 @@ export async function getPixivTagEnrichmentSummary() {
   }
 }
 
-export async function startPixivTagEnrichment(requestedByUserId: string) {
+export async function startPixivTagEnrichment(requestedByUserId: string, tagIds?: number[]) {
+  const selectedTagIds = tagIds ? [...new Set(tagIds)].sort((left, right) => left - right) : undefined
+  if (selectedTagIds && selectedTagIds.length > MAX_SELECTED_TAGS) {
+    throw new Error(`一次最多选择 ${MAX_SELECTED_TAGS} 个标签`)
+  }
+
   // 发现任务按 ID 分页，并把当时的 tagId/name 固化到可重试子任务；执行前仍会重新校验来源关系。
   return enqueueSingletonManualJobWithResult({
     type: JOB_TYPE,
@@ -102,7 +108,9 @@ export async function startPixivTagEnrichment(requestedByUserId: string) {
     requestedByUserId,
     priority: 80,
     maxAttempts: 3,
-    payload: { mode: 'DISCOVER', force: false }
+    payload: selectedTagIds?.length
+      ? { mode: 'DISCOVER', force: true, tagIds: selectedTagIds }
+      : { mode: 'DISCOVER', force: false }
   })
 }
 

@@ -63,6 +63,19 @@ describe('Pixiv tag enrichment control service', () => {
     })
   })
 
+  it('starts one forced discovery batch for the deduplicated selected tags', async () => {
+    mocks.enqueueSingleton.mockResolvedValue({ job: { id: 'root-1' }, reused: false })
+
+    await startPixivTagEnrichment('user-1', [7, 3, 7])
+
+    expect(mocks.enqueueSingleton).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'PIXIV_TAG_ENRICHMENT',
+        payload: { mode: 'DISCOVER', force: true, tagIds: [3, 7] }
+      })
+    )
+  })
+
   it('serializes explicit retries and freezes the current tag name', async () => {
     await retryPixivTagEnrichment(7, 'user-1')
 
@@ -93,11 +106,7 @@ describe('Pixiv tag enrichment control service', () => {
       parentJobId: 'root-1',
       status: 'RUNNING'
     })
-    mocks.prisma.systemJob.findMany.mockResolvedValue([
-      { id: 'root-1' },
-      { id: 'child-1' },
-      { id: 'child-2' }
-    ])
+    mocks.prisma.systemJob.findMany.mockResolvedValue([{ id: 'root-1' }, { id: 'child-1' }, { id: 'child-2' }])
 
     await expect(cancelPixivTagEnrichment('child-1')).resolves.toMatchObject({
       batchId: 'root-1',

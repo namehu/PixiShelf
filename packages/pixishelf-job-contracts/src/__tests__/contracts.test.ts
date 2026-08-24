@@ -113,6 +113,19 @@ describe('job wire contracts', () => {
     })
     expect(
       parseJobPayload('PIXIV_TAG_ENRICHMENT', {
+        mode: 'DISCOVER',
+        force: true,
+        tagIds: [3, 7]
+      })
+    ).toEqual({ mode: 'DISCOVER', force: true, tagIds: [3, 7] })
+    expect(() =>
+      parseJobPayload('PIXIV_TAG_ENRICHMENT', {
+        mode: 'DISCOVER',
+        tagIds: Array.from({ length: 1_001 }, (_, index) => index + 1)
+      })
+    ).toThrow()
+    expect(
+      parseJobPayload('PIXIV_TAG_ENRICHMENT', {
         mode: 'TAG',
         tagId: 7,
         expectedName: '  original-tag  ',

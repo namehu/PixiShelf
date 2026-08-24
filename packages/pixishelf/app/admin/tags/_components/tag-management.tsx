@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { RefreshCw, Download, Edit2, Trash, Languages, Search, RotateCcw, Plus, Sparkles } from 'lucide-react'
 import type { TagManagementStats } from '@/types/tags'
@@ -12,16 +12,18 @@ import { updateTagStatsAction, exportUntranslatedTagsAction } from '@/actions/ta
 import { getTranslateName } from '@/utils/tags'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
-import { SortingState } from '@tanstack/react-table'
+import { RowSelectionState, SortingState } from '@tanstack/react-table'
 import { useMutation } from '@tanstack/react-query'
 import { confirm } from '@/components/shared/global-confirm'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 
 // 导入子组件
 import { TagStatsCards } from './tag-stats-cards'
 import { TagDialog } from './tag-dialog'
 import { PixivTagEnrichmentDialog } from './pixiv-tag-enrichment-dialog'
 import { Spinner } from '@/components/ui/spinner'
+import { TagCoverPreviewDialog, TagCoverThumbnail, type TagCoverTarget } from './tag-cover'
 
 // 定义 TagListItem 类型，匹配后端返回的数据结构
 interface TagListItem {
@@ -32,6 +34,7 @@ interface TagListItem {
   name_zh: string | null
   name_en: string | null
   description: string | null
+  image: string
   artworkCount: number
   createdAt: string
   updatedAt: string
@@ -114,6 +117,13 @@ export default function TagManagement() {
   const [pixivDialogOpen, setPixivDialogOpen] = useState(false)
   const [editingTag, setEditingTag] = useState<TagListItem | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [previewedCover, setPreviewedCover] = useState<TagCoverTarget | null>(null)
+  const loadedTagsRef = useRef(new Map<number, TagListItem>())
+  const selectedTagIds = Object.keys(rowSelection).map(Number)
+  const selectedTags = selectedTagIds
+    .map((id) => loadedTagsRef.current.get(id))
+    .filter((tag): tag is TagListItem => Boolean(tag))
 
   // 同步 URL 查询参数到当前列表状态
   const [searchState, setSearchState] = useQueryStates({
@@ -130,6 +140,7 @@ export default function TagManagement() {
   })
 
   const handleSearch = () => {
+    setRowSelection({})
     setSearchState({
       name: localSearch.name || null,
       filter: localSearch.filter,
@@ -138,6 +149,7 @@ export default function TagManagement() {
   }
 
   const handleReset = () => {
+    setRowSelection({})
     setLocalSearch({ name: '', filter: 'all' })
     setSearchState({
       name: null,
@@ -218,6 +230,37 @@ export default function TagManagement() {
   // 表格列定义
   const columns: ProColumnDef<TagListItem>[] = [
     {
+      id: 'select',
+      size: 44,
+      header: ({ table }) => {
+        const eligibleRows = table.getRowModel().rows.filter((row) => row.original.pixivEligible)
+        const selectedCount = eligibleRows.filter((row) => row.getIsSelected()).length
+        const checked =
+          selectedCount === 0 ? false : selectedCount === eligibleRows.length ? true : ('indeterminate' as const)
+
+        return (
+          <Checkbox
+            checked={checked}
+            disabled={eligibleRows.length === 0}
+            onCheckedChange={(value) => {
+              for (const row of eligibleRows) row.toggleSelected(Boolean(value))
+            }}
+            aria-label="选择本页所有可从 Pixiv 补全的标签"
+          />
+        )
+      },
+      cell: ({ row }) =>
+        row.original.pixivEligible ? (
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(Boolean(value))}
+            aria-label={`选择标签 ${row.original.name}`}
+          />
+        ) : null,
+      enableSorting: false,
+      enableHiding: false
+    },
+    {
       header: '标签名称',
       accessorKey: 'name',
       cell: ({ row }) => (
@@ -245,6 +288,12 @@ export default function TagManagement() {
       accessorKey: 'artworkCount',
       enableSorting: true,
       size: 120
+    },
+    {
+      id: 'cover',
+      header: '封面',
+      size: 112,
+      cell: ({ row }) => <TagCoverThumbnail tag={row.original} onPreview={setPreviewedCover} />
     },
     {
       id: 'pixivSync',
@@ -348,6 +397,8 @@ export default function TagManagement() {
         order: sortOrder as any
       })
 
+      for (const tag of res.data.tags) loadedTagsRef.current.set(tag.id, tag)
+
       // 更新统计数据
       if (res.data.stats) {
         setStats(res.data.stats)
@@ -389,7 +440,8 @@ export default function TagManagement() {
           onClick={() => setPixivDialogOpen(true)}
           className="flex flex-1 items-center justify-center gap-2 md:flex-none"
         >
-          <Sparkles data-icon="inline-start" aria-hidden="true" />从 Pixiv 补全
+          <Sparkles data-icon="inline-start" aria-hidden="true" />
+          {selectedTagIds.length ? `补全已选 ${selectedTagIds.length} 项` : '从 Pixiv 补全'}
         </Button>
         <Button
           variant="outline"
@@ -427,8 +479,24 @@ export default function TagManagement() {
         key={refreshKey}
         rowKey="id"
         headerTitle="标签列表"
+        toolBarRender={() =>
+          selectedTagIds.length ? (
+            <>
+              <span className="text-sm text-muted-foreground">已选择 {selectedTagIds.length} 项</span>
+              <Button size="sm" onClick={() => setPixivDialogOpen(true)}>
+                <Sparkles data-icon="inline-start" aria-hidden="true" />
+                补全已选
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
+                清除选择
+              </Button>
+            </>
+          ) : null
+        }
         columns={columns}
         request={request}
+        rowSelection={rowSelection}
+        onRowSelectionChange={setRowSelection}
         defaultPageSize={20}
         // 分页参数受控，由 URL 同步来源（避免翻页状态丢失）
         pagination={{
@@ -489,9 +557,21 @@ export default function TagManagement() {
       />
       <PixivTagEnrichmentDialog
         open={pixivDialogOpen}
-        onOpenChange={setPixivDialogOpen}
-        onStarted={() => setRefreshKey((prev) => prev + 1)}
+        onOpenChange={(open) => {
+          setPixivDialogOpen(open)
+          if (!open) setRefreshKey((prev) => prev + 1)
+        }}
+        selectedTags={selectedTags.map((tag) => ({
+          id: tag.id,
+          name: tag.name,
+          image: tag.image,
+          checked: Boolean(tag.pixivSync)
+        }))}
+        onStarted={() => {
+          setRefreshKey((prev) => prev + 1)
+        }}
       />
+      <TagCoverPreviewDialog tag={previewedCover} onOpenChange={(open) => !open && setPreviewedCover(null)} />
     </div>
   )
 }

@@ -297,7 +297,8 @@ export const derivedMediaGcPayloadSchema = z.object({
 const pixivTagEnrichmentDiscoverPayloadSchema = z
   .object({
     mode: z.literal('DISCOVER'),
-    force: z.boolean().default(false)
+    force: z.boolean().default(false),
+    tagIds: z.array(z.number().int().positive()).min(1).max(1_000).optional()
   })
   .strict()
 

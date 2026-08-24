@@ -70,7 +70,7 @@ async function executeDiscovery(
       throwIfAborted(context.signal)
       const page = await dependencies.database.tag.findMany({
         where: {
-          id: { gt: cursor },
+          id: { gt: cursor, ...(payload.tagIds ? { in: payload.tagIds } : {}) },
           namespace: 'general',
           isSystem: false,
           artworkTags: {
