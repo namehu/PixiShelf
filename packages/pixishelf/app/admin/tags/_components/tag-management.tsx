@@ -25,6 +25,7 @@ import { TagDialog } from './tag-dialog'
 import { PixivTagEnrichmentDialog } from './pixiv-tag-enrichment-dialog'
 import { Spinner } from '@/components/ui/spinner'
 import { TagCoverPreviewDialog, TagCoverThumbnail, type TagCoverTarget } from './tag-cover'
+import { AdminWorkbench } from '../../_components/admin-workbench'
 
 // 定义 TagListItem 类型，匹配后端返回的数据结构
 interface TagListItem {
@@ -424,153 +425,150 @@ export default function TagManagement() {
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
-      <div
-        className="flex w-full flex-wrap justify-end gap-2 border-b border-border pb-4"
-        role="toolbar"
-        aria-label="标签维护操作"
-      >
-        <Button
-          onClick={() => setPixivDialogOpen(true)}
-          className="flex flex-1 items-center justify-center gap-2 md:flex-none"
-        >
-          <Sparkles data-icon="inline-start" aria-hidden="true" />
-          {selectedTagIds.length ? `补全已选 ${selectedTagIds.length} 项` : '从 Pixiv 补全'}
-        </Button>
-        <Button
-          variant="outline"
-          onClick={handleExportUntranslated}
-          disabled={isExporting}
-          className="flex-1 md:flex-none flex items-center justify-center gap-2"
-        >
-          <Download
-            data-icon="inline-start"
-            className={isExporting ? 'animate-bounce' : undefined}
-            aria-hidden="true"
-          />
-          {isExporting ? '导出中…' : '导出未翻译'}
-        </Button>
-        <Button
-          variant="outline"
-          onClick={handleUpdateStats}
-          disabled={isUpdatingStats}
-          className="flex-1 md:flex-none flex items-center justify-center gap-2"
-        >
-          <RefreshCw
-            data-icon="inline-start"
-            className={isUpdatingStats ? 'animate-spin' : undefined}
-            aria-hidden="true"
-          />
-          {isUpdatingStats ? '更新中…' : '更新统计'}
-        </Button>
-      </div>
-
-      {/* 统计卡片 */}
-      <TagStatsCards stats={stats} isLoading={false} />
-
-      {/* 高级表格 */}
-      <ProTable
-        key={refreshKey}
-        rowKey="id"
-        headerTitle="标签列表"
-        toolBarRender={() =>
-          selectedTagIds.length ? (
-            <>
-              <span className="text-sm text-muted-foreground">已选择 {selectedTagIds.length} 项</span>
-              <Button size="sm" onClick={() => setPixivDialogOpen(true)}>
-                <Sparkles data-icon="inline-start" aria-hidden="true" />
-                补全已选
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
-                清除选择
-              </Button>
-            </>
-          ) : null
-        }
-        columns={columns}
-        request={request}
-        rowSelection={rowSelection}
-        onRowSelectionChange={setRowSelection}
-        defaultPageSize={20}
-        // 分页参数受控，由 URL 同步来源（避免翻页状态丢失）
-        pagination={{
-          pageIndex: (searchState.page || 1) - 1,
-          pageSize: searchState.pageSize || 20
-        }}
-        onPaginationChange={handlePaginationChange}
-        searchRender={() => (
-          <div className="flex flex-wrap items-center gap-2 w-full">
-            <Input
-              name="tag-search"
-              aria-label="搜索标签名称"
-              autoComplete="off"
-              placeholder="搜索标签名称…"
-              value={localSearch.name}
-              onChange={(e) => setLocalSearch((prev) => ({ ...prev, name: e.target.value }))}
-              className="h-8 w-full md:w-[200px]"
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+    <AdminWorkbench
+      title="标签管理"
+      description="维护标签翻译、使用统计与系统标签。"
+      actions={
+        <div className="flex w-full justify-end gap-2 sm:w-auto" role="toolbar" aria-label="标签维护操作">
+          <Button size="sm" onClick={() => setPixivDialogOpen(true)} className="flex-1 sm:flex-none">
+            <Sparkles data-icon="inline-start" aria-hidden="true" />
+            {selectedTagIds.length ? `补全已选 ${selectedTagIds.length} 项` : '从 Pixiv 补全'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExportUntranslated}
+            disabled={isExporting}
+            className="flex-1 sm:flex-none"
+          >
+            <Download
+              data-icon="inline-start"
+              className={isExporting ? 'animate-bounce' : undefined}
+              aria-hidden="true"
             />
-            <Select
-              value={localSearch.filter}
-              onValueChange={(value) => setLocalSearch((prev) => ({ ...prev, filter: value }))}
-            >
-              <SelectTrigger className="h-8 w-full md:w-[120px]" aria-label="筛选翻译状态">
-                <SelectValue placeholder="翻译状态" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="all">全部</SelectItem>
-                  <SelectItem value="translated">已翻译</SelectItem>
-                  <SelectItem value="untranslated">未翻译</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
-              <Button variant="default" size="sm" onClick={handleSearch} className="h-8 px-3 flex-1 md:flex-none">
-                <Search data-icon="inline-start" aria-hidden="true" />
-                搜索
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleReset} className="h-8 px-3 flex-1 md:flex-none">
-                <RotateCcw data-icon="inline-start" aria-hidden="true" />
-                重置
-              </Button>
-              <Button variant="default" size="sm" className="ml-auto" onClick={handleCreate}>
-                <Plus data-icon="inline-start" aria-hidden="true" />
-                新增标签
-              </Button>
-            </div>
-          </div>
-        )}
-      />
+            {isExporting ? '导出中…' : '导出未翻译'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleUpdateStats}
+            disabled={isUpdatingStats}
+            className="flex-1 sm:flex-none"
+          >
+            <RefreshCw
+              data-icon="inline-start"
+              className={isUpdatingStats ? 'animate-spin' : undefined}
+              aria-hidden="true"
+            />
+            {isUpdatingStats ? '更新中…' : '更新统计'}
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex min-w-0 flex-col gap-6">
+        {/* 统计卡片 */}
+        <TagStatsCards stats={stats} isLoading={false} />
 
-      <TagDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        tag={editingTag}
-        onSuccess={() => setRefreshKey((prev) => prev + 1)}
-      />
-      <PixivTagEnrichmentDialog
-        open={pixivDialogOpen}
-        onOpenChange={(open) => {
-          setPixivDialogOpen(open)
-          if (!open) setRefreshKey((prev) => prev + 1)
-        }}
-        selectedTags={selectedTags.map((tag) => ({
-          id: tag.id,
-          name: tag.name,
-          image: tag.image,
-          checked: Boolean(tag.pixivSync)
-        }))}
-        onBatchStarted={() => {
-          setRowSelection({})
-          setRefreshKey((prev) => prev + 1)
-        }}
-        onStatusChanged={() => {
-          setRefreshKey((prev) => prev + 1)
-        }}
-      />
-      <TagCoverPreviewDialog tag={previewedCover} onOpenChange={(open) => !open && setPreviewedCover(null)} />
-    </div>
+        {/* 高级表格 */}
+        <ProTable
+          key={refreshKey}
+          rowKey="id"
+          headerTitle="标签列表"
+          toolBarRender={() =>
+            selectedTagIds.length ? (
+              <>
+                <span className="text-sm text-muted-foreground">已选择 {selectedTagIds.length} 项</span>
+                <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
+                  清除选择
+                </Button>
+              </>
+            ) : null
+          }
+          columns={columns}
+          request={request}
+          rowSelection={rowSelection}
+          onRowSelectionChange={setRowSelection}
+          defaultPageSize={20}
+          // 分页参数受控，由 URL 同步来源（避免翻页状态丢失）
+          pagination={{
+            pageIndex: (searchState.page || 1) - 1,
+            pageSize: searchState.pageSize || 20
+          }}
+          onPaginationChange={handlePaginationChange}
+          searchRender={() => (
+            <div className="flex flex-wrap items-center gap-2 w-full">
+              <Input
+                name="tag-search"
+                aria-label="搜索标签名称"
+                autoComplete="off"
+                placeholder="搜索标签名称…"
+                value={localSearch.name}
+                onChange={(e) => setLocalSearch((prev) => ({ ...prev, name: e.target.value }))}
+                className="h-8 w-full md:w-[200px]"
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              />
+              <Select
+                value={localSearch.filter}
+                onValueChange={(value) => setLocalSearch((prev) => ({ ...prev, filter: value }))}
+              >
+                <SelectTrigger className="h-8 w-full md:w-[120px]" aria-label="筛选翻译状态">
+                  <SelectValue placeholder="翻译状态" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="all">全部</SelectItem>
+                    <SelectItem value="translated">已翻译</SelectItem>
+                    <SelectItem value="untranslated">未翻译</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
+                <Button variant="default" size="sm" onClick={handleSearch} className="h-8 px-3 flex-1 md:flex-none">
+                  <Search data-icon="inline-start" aria-hidden="true" />
+                  搜索
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleReset} className="h-8 px-3 flex-1 md:flex-none">
+                  <RotateCcw data-icon="inline-start" aria-hidden="true" />
+                  重置
+                </Button>
+                <Button variant="default" size="sm" className="ml-auto" onClick={handleCreate}>
+                  <Plus data-icon="inline-start" aria-hidden="true" />
+                  新增标签
+                </Button>
+              </div>
+            </div>
+          )}
+        />
+
+        <TagDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          tag={editingTag}
+          onSuccess={() => setRefreshKey((prev) => prev + 1)}
+        />
+        <PixivTagEnrichmentDialog
+          open={pixivDialogOpen}
+          onOpenChange={(open) => {
+            setPixivDialogOpen(open)
+            if (!open) setRefreshKey((prev) => prev + 1)
+          }}
+          selectedTags={selectedTags.map((tag) => ({
+            id: tag.id,
+            name: tag.name,
+            image: tag.image,
+            checked: Boolean(tag.pixivSync)
+          }))}
+          onBatchStarted={() => {
+            setRowSelection({})
+            setRefreshKey((prev) => prev + 1)
+          }}
+          onStatusChanged={() => {
+            setRefreshKey((prev) => prev + 1)
+          }}
+        />
+        <TagCoverPreviewDialog tag={previewedCover} onOpenChange={(open) => !open && setPreviewedCover(null)} />
+      </div>
+    </AdminWorkbench>
   )
 }
 
