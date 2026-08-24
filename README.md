@@ -230,7 +230,6 @@ packages/
 ├── pixishelf-job-executors/   后台任务实现
 ├── pixishelf-worker/          通用 Worker 进程
 ├── pixishelf-extension/       WXT 浏览器扩展
-├── pixiv-standalone-scanner/  独立元数据路径扫描服务
 └── zip-convert/               Pixiv zip/APNG 转换工具
 
 build/                         Dockerfile、Compose 和环境模板

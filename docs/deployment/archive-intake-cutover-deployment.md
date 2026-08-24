@@ -47,7 +47,7 @@ current-source: ../operations/deployment.md
 执行前确认：
 
 - [ ] scheduler 已停止，计划任务不再物化；
-- [ ] App、Worker、Webhook、scanner、维护脚本和 NAS 侧写入者已停止；
+- [ ] App、Worker、Webhook、维护脚本和 NAS 侧写入者已停止；
 - [ ] `pnpm --filter @pixishelf/next archive:lane-cutover-audit` 退出码为 `0`；
 - [ ] 没有 `RUNNING/PAUSING/CANCELLING` 的 SystemJob；
 - [ ] 没有未过期的 `global/background-worker` lease 或 90 秒内新鲜旧 Worker；

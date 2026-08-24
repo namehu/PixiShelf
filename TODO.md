@@ -2,7 +2,7 @@
 
 ## 权限与接口边界收尾
 
-当前事实与风险说明见[权限与接口边界](./docs/security/access-control.md)。以下事项完成前，不把实例账户、App、PostgreSQL、ImgProxy 或辅助 scanner 暴露给不可信网络或用户。
+当前事实与风险说明见[权限与接口边界](./docs/security/access-control.md)。以下事项完成前，不把实例账户、App、PostgreSQL 或 ImgProxy 暴露给不可信网络或用户。
 
 - [ ] 让 `initAdminAction` 在创建账户的同一原子边界内确认系统仍无用户，并覆盖并发初始化测试。
 - [ ] 为媒体替换、分块上传、章节增删等写 Route 增加 Route 内 Session 复核与未授权零写入测试。
@@ -10,7 +10,6 @@
 - [ ] 明确单一信任域账户政策；在没有角色模型前，用户管理和系统设置不得提供给不可信账户。
 - [ ] 限制 PostgreSQL 与 ImgProxy 的宿主机端口；评估 ImgProxy 签名 URL 或受保护转发。
 - [ ] 在反向代理清除外部 `x-user-session`/`x-pathname`，重写可信 `x-forwarded-for`，并检查生产 Cookie 安全属性。
-- [ ] 限制独立 scanner 只在本机/受信网络运行，或为 `/metadata-files` 与 `/refresh` 增加认证。
 - [ ] 轮换 `zip-convert` 源码中暴露的外部站点会话凭据，从当前代码与 Git 历史移除，并改为运行时秘密注入。
 - [ ] 建立代理公共路径、HTTP/tRPC/Server Action 未授权分支和敏感值脱敏的统一回归测试。
 

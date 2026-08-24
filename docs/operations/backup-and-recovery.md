@@ -66,7 +66,7 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 1. 停止 scheduler，禁止新计划任务物化；
 2. 等待活动任务进入安全终态，或通过业务入口取消并完成恢复；
 3. 停止 App 和通用 Worker；
-4. 停止 Webhook、独立扫描器和所有外部写入脚本；
+4. 停止 Webhook 和所有外部写入脚本；
 5. 确认没有进程继续写数据库、原媒体或派生媒体；
 6. 在停写窗口内创建数据库 dump 和两个媒体快照；
 7. 验证各备份可读后，才启动新版本。
@@ -83,7 +83,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop app
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml ps -a
 ```
 
-`stop` 只覆盖 Compose 服务。Webhook 调用方、独立扫描器、维护 shell 和 NAS 侧同步任务需要另行确认。
+`stop` 只覆盖 Compose 服务。Webhook 调用方、维护 shell 和 NAS 侧同步任务需要另行确认。
 
 ## 创建数据库备份
 

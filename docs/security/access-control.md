@@ -29,7 +29,7 @@ sources:
 - 系统可以创建多个账户，但所有已登录账户拥有同等实例管理员能力；“单用户部署”指没有多租户和权限隔离，不代表数据库只能存在一个账户；
 - scheduler 和扫描 Webhook 不使用浏览器会话，分别使用不同的 Bearer Token；
 - Worker、PostgreSQL、ImgProxy 等服务依赖 Compose 网络、端口暴露和文件挂载形成基础设施边界；
-- 当前不能把任一账户交给不可信用户，也不能把 App、PostgreSQL、ImgProxy 或辅助扫描器直接暴露到不可信网络后仍声称存在完整权限隔离。
+- 当前不能把任一账户交给不可信用户，也不能把 App、PostgreSQL 或 ImgProxy 直接暴露到不可信网络后仍声称存在完整权限隔离。
 
 ## 调用者与凭证
 
@@ -191,7 +191,6 @@ inventory 与 `SCAN@v3` Worker readiness。读取接口只返回相对 metadata 
 | `scheduler`   | 无入站业务接口，只访问 App                  | 无                     | 无                         | 无         | 仅持有 `INTERNAL_JOB_TOKEN`                                                 |
 | `postgres`    | 默认映射宿主机 5432                         | 数据库本体             | 无                         | 无         | 用户名/密码 + 主机防火墙；Compose 未配置 TLS                                |
 | `imgproxy`    | 默认映射宿主机 5431                         | 无                     | `ro`                       | `ro`       | 仅限制 `local:///media/` 和 `local:///derived-media/` 来源；当前 URL 未签名 |
-| 独立 scanner  | 单独启动时监听 3000                         | 无                     | 读取 `SCAN_DIRECTORY`      | 无         | `/metadata-files` 与 `/refresh` 当前无认证；不属于标准 Compose 拓扑         |
 | 浏览器扩展    | 浏览器内容脚本                              | 无                     | 无直接挂载                 | 无         | 当前没有定义稳定的 PixiShelf 后端权限契约                                   |
 | `zip-convert` | 本地 CLI，无服务端口                        | 无                     | 读写指定本地目录           | 写转换结果 | 依赖执行它的主机账户；当前源码存在不应入库的外部站点会话凭据                |
 
@@ -229,10 +228,9 @@ Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，l
 5. ImgProxy URL 未签名且端口默认映射宿主机；必须依赖网络/反向代理限制，后续应评估签名 URL 或受保护转发。
 6. `x-user-session`、`x-pathname` 和 `x-forwarded-for` 的安全性依赖反向代理正确清理和重写。
 7. Better Auth 的 `useSecureCookies` 当前受生产模式、HTTPS URL 和 Trusted Origins 配置组合影响，部署后必须检查真实响应 Cookie 属性。
-8. 独立 scanner 的两个 GET 接口无认证，只能在受信网络或本机运行。
-9. `zip-convert` 的已跟踪源码含外部站点会话凭据；必须轮换该凭据、从历史和当前代码移除，并改为运行时秘密注入。
-10. 当前没有覆盖代理公共路径、内部信任头和全部接口未授权分支的统一自动化测试。
-11. Worker lane 共享同一容器文件权限；解析 lane 的最小权限当前依赖 capability 注册、类型契约和 Executor 边界，而不是独立容器挂载。
+8. `zip-convert` 的已跟踪源码含外部站点会话凭据；必须轮换该凭据、从历史和当前代码移除，并改为运行时秘密注入。
+9. 当前没有覆盖代理公共路径、内部信任头和全部接口未授权分支的统一自动化测试。
+10. Worker lane 共享同一容器文件权限；解析 lane 的最小权限当前依赖 capability 注册、类型契约和 Executor 边界，而不是独立容器挂载。
 
 风险修复应更新本文中的“当前事实”，并在 [TODO](../../TODO.md) 留下可执行项。涉及凭据泄露时，只记录凭据类型、轮换时间和负责人，不记录实际值。
 
@@ -246,7 +244,7 @@ Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，l
 - 新增账户、角色、共享访问或外部 API；
 - 新增 Token、Cookie、Webhook 或反向代理信任头；
 - 修改数据库端口、服务端口、容器网络或媒体挂载读写模式；
-- 让 App、Worker、scanner 或 ImgProxy 接受新的外部调用方。
+- 让 App、Worker 或 ImgProxy 接受新的外部调用方。
 
 最小权限测试应覆盖：无凭证、错误凭证、有效凭证、凭证缺失配置、越界资源、路径穿透、限流和敏感值日志脱敏。高风险写入口还要断言未经授权时数据库和文件系统均未发生变化。
 

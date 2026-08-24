@@ -541,12 +541,6 @@ importers:
         specifier: ^4.0.18
         version: 4.0.18(@types/node@20.19.17)(jsdom@27.4.0)(tsx@4.23.12)
 
-  packages/pixiv-standalone-scanner:
-    dependencies:
-      express:
-        specifier: ^4.18.2
-        version: 4.21.2
-
   packages/zip-convert:
     dependencies:
       express:

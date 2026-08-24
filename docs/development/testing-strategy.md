@@ -123,7 +123,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 | 媒体播放/派生媒体         | 组件/服务测试                                                       | 图片、视频、封面缺失、动画、FFmpeg 失败和实际浏览器抽样                                                |
 | Compose/Dockerfile/env    | Compose config、相关 package build                                  | 镜像构建、非 root 权限、挂载、migration、READY/capability 冒烟                                         |
 | 浏览器扩展                | compile + build                                                     | Chrome/Firefox 目标页面人工验证和权限检查                                                              |
-| scanner/zip-convert       | 启动或工具级聚焦验证                                                | 当前缺少可靠自动化测试，必须记录 fixture 和人工结果                                                    |
+| zip-convert               | 启动或工具级聚焦验证                                                | 当前缺少可靠自动化测试，必须记录 fixture 和人工结果                                                    |
 
 “最小验证”是进入评审前的底线。跨多个类型的变更需要合并各行要求，而不是只选择最轻的一行。
 
@@ -185,7 +185,7 @@ CI 当前没有明确执行：
 - `.e2e.test.*`；
 - 主应用生产 build；
 - 浏览器扩展 compile/build；
-- 独立 scanner 和 zip-convert 验证；
+- zip-convert 验证；
 - Docker Compose/镜像运行冒烟；
 - 真实浏览器登录、反向代理和媒体播放。
 

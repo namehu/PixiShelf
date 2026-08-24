@@ -86,7 +86,6 @@ flowchart LR
 | `@pixishelf/job-executors`      | 归档、扫描、迁移、替换、维护和视频任务实现              |
 | `@pixishelf/worker`             | 独立进程入口、配置、预检、健康服务和 Central Dispatcher |
 | `@pixishelf/extension`          | Pixiv 浏览器侧采集/下载工作流                           |
-| `@pixishelf/standalone-scanner` | 独立 Pixiv 元数据路径扫描服务                           |
 | `@pixishelf/zip-convert`        | Pixiv zip/APNG 转换工具                                 |
 
 核心依赖方向：
@@ -116,7 +115,7 @@ flowchart TD
 CI 先在无 `dist` 条件下构建 Web，再独立生成三个包的 `dist`/类型声明并打包 Worker，同时守住源码
 消费与独立编译两种边界。
 
-浏览器扩展、独立扫描器和 zip 转换器不参与主应用的运行时依赖图。它们通过浏览器、HTTP 或文件系统工作流与主系统外围协作。
+浏览器扩展和 zip 转换器不参与主应用的运行时依赖图。它们通过浏览器或文件系统工作流与主系统外围协作。
 
 ## Web/API 请求链路
 
