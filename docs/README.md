@@ -104,15 +104,15 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 包与工具文档
 
-| 文档                                                                      | 状态         | 说明                                           |
-| ------------------------------------------------------------------------- | ------------ | ---------------------------------------------- |
-| [主应用包说明](../packages/pixishelf/readme.md)                           | `current`    | 主应用边界和包级命令；项目启动以根 README 为准 |
-| [Webhook 扫描](../packages/pixishelf/docs/webhook-features.md)            | `current`    | 扫描 Webhook 负载契约；权限边界以安全矩阵为准  |
-| [ProTable](../packages/pixishelf/components/shared/pro-table/readme.md)   | `current`    | 共置组件使用说明                               |
-| [Pixiv 信息提取脚本](../packages/pixishelf/scripts/extract-pixiv-info.md) | `current`    | 共置脚本输入、输出与用法                       |
-| [浏览器扩展](../packages/pixishelf-extension/README.md)                   | `deprecated` | 当前仍是 WXT 模板，后续需要重写                |
-| [Zip Convert](../packages/zip-convert/README.md)                          | `draft`      | 工具用法存在，尚未核验测试与平台边界           |
-| [辅助脚本](../scripts/README.md)                                          | `draft`      | 使用前需核验脚本、参数和基准数据               |
+| 文档                                                                      | 状态      | 说明                                           |
+| ------------------------------------------------------------------------- | --------- | ---------------------------------------------- |
+| [主应用包说明](../packages/pixishelf/readme.md)                           | `current` | 主应用边界和包级命令；项目启动以根 README 为准 |
+| [Webhook 扫描](../packages/pixishelf/docs/webhook-features.md)            | `current` | 扫描 Webhook 负载契约；权限边界以安全矩阵为准  |
+| [ProTable](../packages/pixishelf/components/shared/pro-table/readme.md)   | `current` | 共置组件使用说明                               |
+| [Pixiv 信息提取脚本](../packages/pixishelf/scripts/extract-pixiv-info.md) | `current` | 共置脚本输入、输出与用法                       |
+| [浏览器扩展](../packages/pixishelf-extension/README.md)                   | `current` | Pixiv 页面采集、任务持久化、SQL 与图片导出说明 |
+| [Zip Convert](../packages/zip-convert/README.md)                          | `draft`   | 工具用法存在，尚未核验测试与平台边界           |
+| [辅助脚本](../scripts/README.md)                                          | `draft`   | 使用前需核验脚本、参数和基准数据               |
 
 ## 文档维护门禁
 
