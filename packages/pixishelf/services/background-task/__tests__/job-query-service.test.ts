@@ -61,6 +61,7 @@ describe('getJobDashboard', () => {
   it('uses fresh READY and STOPPING presence and normalizes pre-lane worker capabilities', async () => {
     const systemJob = {
       groupBy: vi.fn().mockResolvedValue([{ status: 'PENDING', _count: { _all: 3 } }]),
+      findFirst: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([jobRecord()])
     }
     const workerInstance = {
@@ -94,6 +95,7 @@ describe('getJobDashboard', () => {
   it('ignores stale READY and STOPPING worker presence', async () => {
     const systemJob = {
       groupBy: vi.fn().mockResolvedValue([]),
+      findFirst: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValue([])
     }
     const workerInstance = {
@@ -121,6 +123,7 @@ describe('getJobDashboard', () => {
     const runningJob = jobRecord({ status: 'RUNNING' })
     const systemJob = {
       groupBy: vi.fn().mockResolvedValue([{ status: 'RUNNING', _count: { _all: 1 } }]),
+      findFirst: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValueOnce([runningJob]).mockResolvedValueOnce([runningJob])
     }
     const workerInstance = { findMany: vi.fn().mockResolvedValue([workerRecord()]) }

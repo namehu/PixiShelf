@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { TagManagementStats } from '@/types/tags'
 import { Prisma } from '@pixishelf/db'
 import {
+  cancelPixivTagEnrichment,
   getPixivTagEnrichmentSummary,
   retryPixivTagEnrichment,
   startPixivTagEnrichment
@@ -257,6 +258,8 @@ export const tagRouter = router({
   pixivEnrichmentSummary: adminProcedure.query(() => getPixivTagEnrichmentSummary()),
 
   startPixivEnrichment: adminProcedure.mutation(({ ctx }) => startPixivTagEnrichment(ctx.userId)),
+
+  cancelPixivEnrichment: adminProcedure.mutation(() => cancelPixivTagEnrichment()),
 
   retryPixivEnrichment: adminProcedure
     .input(z.object({ tagId: z.number().int().positive() }))

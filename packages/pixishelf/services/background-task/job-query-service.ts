@@ -47,10 +47,14 @@ export async function listJobs(input: z.input<typeof listJobsInputSchema>, clien
 // lane 级状态依赖 worker 心跳，保留 now 注入便于在测试中冻结时间，避免偶发 heartbeat 边界抖动导致断言不稳。
 export async function getJobDashboard(client?: JobQueryClient, now: () => Date = () => new Date()) {
   const database = queryClient(client)
-  const [groups, running, recent, workers] = await Promise.all([
+  const dashboardVisibleWhere = {
+    definitionVersion: { gte: 1 },
+    NOT: { type: 'PIXIV_TAG_ENRICHMENT', parentJobId: { not: null } }
+  } satisfies Prisma.SystemJobWhereInput
+  const [groups, running, recent, workers, activeCollapsedPixivBatch] = await Promise.all([
     database.systemJob.groupBy({
       by: ['status'],
-      where: { definitionVersion: { gte: 1 } },
+      where: dashboardVisibleWhere,
       _count: { _all: true }
     }),
     database.systemJob.findMany({
@@ -60,17 +64,31 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
       select: systemJobWireSelect
     }),
     database.systemJob.findMany({
-      where: { definitionVersion: { gte: 1 } },
+      where: dashboardVisibleWhere,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 10,
       select: systemJobWireSelect
     }),
-    database.workerInstance.findMany({ orderBy: { heartbeatAt: 'desc' }, select: workerInstanceWireSelect })
+    database.workerInstance.findMany({ orderBy: { heartbeatAt: 'desc' }, select: workerInstanceWireSelect }),
+    database.systemJob.findFirst({
+      where: {
+        definitionVersion: { gte: 1 },
+        type: 'PIXIV_TAG_ENRICHMENT',
+        parentJobId: { not: null },
+        status: { in: ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] },
+        parentJob: {
+          is: { status: { notIn: ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] } }
+        }
+      },
+      select: { id: true }
+    })
   ])
 
   // 仅采用新鲜 worker 心跳，过期 presence 不会影响 READY/DRAINING 判定。
   const counts = Object.fromEntries(JOB_STATUS_VALUES.map((status) => [status, 0])) as Record<JobStatus, number>
   for (const group of groups) counts[group.status] = group._count._all
+  // Tag enrichment fans out internally, but the operator started one batch. Count that batch once.
+  if (activeCollapsedPixivBatch) counts.RUNNING += 1
   const runningJobs = running.map(toJobDto)
   const workerDtos = workers.map(toWorkerHealthDto)
   const timestamp = now()

@@ -1,11 +1,19 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
-import { enqueueJob, enqueueSingletonManualJobWithResult, lockSingletonJobType } from '@/services/background-task'
+import {
+  cancelJobCommand,
+  enqueueJob,
+  enqueueSingletonManualJobWithResult,
+  getJobById,
+  lockSingletonJobType
+} from '@/services/background-task'
 import { ACTIVE_JOB_STATUSES } from '@pixishelf/job-contracts'
 import { Prisma } from '@pixishelf/db'
+import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 
 const JOB_TYPE = 'PIXIV_TAG_ENRICHMENT' as const
 const PROVIDER_KEY = 'pixiv'
+const CANCEL_CONCURRENCY_RETRY_LIMIT = 3
 
 export const pixivTagCandidateWhere = {
   namespace: 'general',
@@ -96,6 +104,62 @@ export async function startPixivTagEnrichment(requestedByUserId: string) {
     maxAttempts: 3,
     payload: { mode: 'DISCOVER', force: false }
   })
+}
+
+export async function cancelPixivTagEnrichment(requestedJobId?: string) {
+  const selectedJob = requestedJobId
+    ? await prisma.systemJob.findUnique({
+        where: { id: requestedJobId, type: JOB_TYPE },
+        select: { id: true, parentJobId: true, status: true }
+      })
+    : await prisma.systemJob.findFirst({
+        where: { type: JOB_TYPE, status: { in: [...ACTIVE_JOB_STATUSES] } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, parentJobId: true, status: true }
+      })
+
+  if (!selectedJob) return { batchId: null, affectedCount: 0, job: null }
+
+  const batchId = selectedJob.parentJobId ?? selectedJob.id
+  const activeJobs = await prisma.systemJob.findMany({
+    where: {
+      type: JOB_TYPE,
+      status: { in: [...ACTIVE_JOB_STATUSES] },
+      OR: [{ id: batchId }, { parentJobId: batchId }]
+    },
+    orderBy: [{ parentJobId: 'asc' }, { createdAt: 'asc' }],
+    select: { id: true }
+  })
+
+  // Cancel the discovery parent first. enqueueChild requires a RUNNING parent, so no new
+  // children can appear while the remaining queued/running children are being cancelled.
+  const root = activeJobs.find((job) => job.id === batchId)
+  let affectedCount = 0
+  if (root && (await cancelIfStillActive(root.id))) affectedCount += 1
+
+  const children = activeJobs.filter((job) => job.id !== batchId)
+  for (let offset = 0; offset < children.length; offset += 10) {
+    const results = await Promise.all(children.slice(offset, offset + 10).map((job) => cancelIfStillActive(job.id)))
+    affectedCount += results.filter(Boolean).length
+  }
+
+  return { batchId, affectedCount, job: await getJobById(selectedJob.id) }
+}
+
+async function cancelIfStillActive(jobId: string) {
+  for (let attempt = 1; attempt <= CANCEL_CONCURRENCY_RETRY_LIMIT; attempt += 1) {
+    try {
+      await cancelJobCommand({ jobId })
+      return true
+    } catch (error) {
+      const current = await prisma.systemJob.findUnique({ where: { id: jobId }, select: { status: true } })
+      if (!current || !ACTIVE_JOB_STATUSES.has(current.status)) return false
+      if (error instanceof BackgroundTaskError && error.code === 'CONCURRENT_MODIFICATION') continue
+      throw error
+    }
+  }
+
+  throw new BackgroundTaskError('CONCURRENT_MODIFICATION', 'Background job kept changing while cancelling the batch')
 }
 
 export async function retryPixivTagEnrichment(tagId: number, requestedByUserId: string) {

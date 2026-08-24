@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 
 const mocks = vi.hoisted(() => ({
   enqueueJob: vi.fn(),
   enqueueSingleton: vi.fn(),
+  cancelJob: vi.fn(),
+  getJobById: vi.fn(),
   lockSingleton: vi.fn(),
   transaction: {
     systemJob: { findFirst: vi.fn() },
@@ -12,7 +15,7 @@ const mocks = vi.hoisted(() => ({
     $transaction: vi.fn(),
     tag: { count: vi.fn() },
     tagExternalMetadata: { groupBy: vi.fn() },
-    systemJob: { findFirst: vi.fn(), groupBy: vi.fn() }
+    systemJob: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), groupBy: vi.fn() }
   }
 }))
 
@@ -20,10 +23,13 @@ vi.mock('@/lib/prisma', () => ({ prisma: mocks.prisma }))
 vi.mock('@/services/background-task', () => ({
   enqueueJob: mocks.enqueueJob,
   enqueueSingletonManualJobWithResult: mocks.enqueueSingleton,
+  cancelJobCommand: mocks.cancelJob,
+  getJobById: mocks.getJobById,
   lockSingletonJobType: mocks.lockSingleton
 }))
 
 import {
+  cancelPixivTagEnrichment,
   getPixivTagEnrichmentSummary,
   retryPixivTagEnrichment,
   startPixivTagEnrichment
@@ -36,6 +42,8 @@ describe('Pixiv tag enrichment control service', () => {
     mocks.transaction.systemJob.findFirst.mockResolvedValue(null)
     mocks.transaction.tag.findFirst.mockResolvedValue({ id: 7, name: 'original' })
     mocks.enqueueJob.mockResolvedValue({ id: 'job-1' })
+    mocks.cancelJob.mockResolvedValue({ status: 'CANCELLED' })
+    mocks.getJobById.mockResolvedValue({ id: 'child-1', status: 'CANCELLING' })
   })
 
   it('starts one non-force discovery job through the manual singleton boundary', async () => {
@@ -77,6 +85,42 @@ describe('Pixiv tag enrichment control service', () => {
 
     await expect(retryPixivTagEnrichment(7, 'user-1')).rejects.toThrow('已有 Pixiv 标签补全任务正在运行')
     expect(mocks.enqueueJob).not.toHaveBeenCalled()
+  })
+
+  it('cancels the discovery parent before every active child in the selected batch', async () => {
+    mocks.prisma.systemJob.findUnique.mockResolvedValue({
+      id: 'child-1',
+      parentJobId: 'root-1',
+      status: 'RUNNING'
+    })
+    mocks.prisma.systemJob.findMany.mockResolvedValue([
+      { id: 'root-1' },
+      { id: 'child-1' },
+      { id: 'child-2' }
+    ])
+
+    await expect(cancelPixivTagEnrichment('child-1')).resolves.toMatchObject({
+      batchId: 'root-1',
+      affectedCount: 3,
+      job: { id: 'child-1', status: 'CANCELLING' }
+    })
+    expect(mocks.cancelJob.mock.calls.map(([input]) => input.jobId)).toEqual(['root-1', 'child-1', 'child-2'])
+  })
+
+  it('retries cancellation when a queued child is claimed concurrently', async () => {
+    mocks.prisma.systemJob.findUnique
+      .mockResolvedValueOnce({ id: 'child-1', parentJobId: 'root-1', status: 'PENDING' })
+      .mockResolvedValueOnce({ status: 'RUNNING' })
+    mocks.prisma.systemJob.findMany.mockResolvedValue([{ id: 'child-1' }])
+    mocks.cancelJob
+      .mockRejectedValueOnce(new BackgroundTaskError('CONCURRENT_MODIFICATION', 'changed while cancelling'))
+      .mockResolvedValueOnce({ status: 'CANCELLING' })
+
+    await expect(cancelPixivTagEnrichment('child-1')).resolves.toMatchObject({
+      batchId: 'root-1',
+      affectedCount: 1
+    })
+    expect(mocks.cancelJob).toHaveBeenCalledTimes(2)
   })
 
   it('summarizes provider and child terminal states for the management dialog', async () => {

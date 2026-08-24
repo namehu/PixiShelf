@@ -30,6 +30,7 @@ import {
 } from '@/services/video-keyframe-central-service'
 import { z } from 'zod'
 import type { JobDto } from '@pixishelf/job-contracts'
+import { cancelPixivTagEnrichment } from '@/services/pixiv-tag-enrichment-service'
 import {
   assertLegacyBackgroundExecutionAllowed,
   BackgroundTaskError,
@@ -651,7 +652,16 @@ export const jobRouter = router({
 
   cancelBackgroundJob: adminProcedure
     .input(jobIdInputSchema)
-    .mutation(({ input }) => runBackgroundTaskCommand(() => cancelJobCommand(input))),
+    .mutation(({ input }) =>
+      runBackgroundTaskCommand(async () => {
+        const job = await getJobById(input.jobId)
+        if (job?.type !== 'PIXIV_TAG_ENRICHMENT') return cancelJobCommand(input)
+
+        const cancelled = await cancelPixivTagEnrichment(input.jobId)
+        if (!cancelled.job) throw new BackgroundTaskError('JOB_NOT_FOUND', 'Background job not found')
+        return cancelled.job
+      })
+    ),
 
   pauseBackgroundJob: adminProcedure
     .input(jobIdInputSchema)

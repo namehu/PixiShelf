@@ -19,7 +19,9 @@ const responseSchema = z
     message: z.string().optional(),
     body: z
       .object({
-        tagTranslation: z.record(z.string(), translationSchema).nullable().optional(),
+        // Pixiv uses [] (not {}) when a tag has no translations. Accept only the
+        // empty tuple so a future non-empty array still fails closed as a schema change.
+        tagTranslation: z.union([z.record(z.string(), translationSchema), z.tuple([])]).nullable().optional(),
         pixpedia: z
           .object({
             abstract: z.string().nullable().optional(),
@@ -116,7 +118,8 @@ export async function fetchPixivTagMetadata(input: {
       throw new PixivTagRequestError('Pixiv 标签接口响应缺少 body', 'PIXIV_SCHEMA_CHANGED', false)
     }
 
-    const translation = parsed.data.body.tagTranslation?.[input.tagName]
+    const translations = parsed.data.body.tagTranslation
+    const translation = Array.isArray(translations) ? undefined : translations?.[input.tagName]
     const pixpedia = parsed.data.body.pixpedia
     return {
       nameZh: normalizeText(translation?.zh),

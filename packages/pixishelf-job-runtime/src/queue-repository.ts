@@ -665,7 +665,8 @@ export class PostgresQueueRepository {
     const legacyProjection = deriveLegacyJobProjection(type, definitionVersion, normalizedPayload)
     const childId = randomUUID()
     return this.runTransaction(async (transaction) => {
-      await this.lockOwnedExecution(transaction, parentFence, now)
+      // A parent that is pausing or cancelling must stop expanding its batch immediately.
+      await this.lockRunningExecution(transaction, parentFence, now)
       const insertedRows = await transaction.$queryRawUnsafe<Array<{ id: string }>>(
         `INSERT INTO "system_jobs" (
            "id", "type", "executionLane", "definitionVersion", "status", "triggerSource", "idempotencyKey",

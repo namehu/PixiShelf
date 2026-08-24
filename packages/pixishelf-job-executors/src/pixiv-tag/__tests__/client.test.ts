@@ -39,6 +39,44 @@ describe('Pixiv tag client', () => {
     ).resolves.toEqual({ nameZh: null, nameEn: null, abstract: null, imageUrl: null })
   })
 
+  it('accepts Pixiv empty translation arrays while retaining Pixpedia data', async () => {
+    await expect(
+      fetchPixivTagMetadata({
+        tagName: 'without-translation',
+        signal: new AbortController().signal,
+        fetchImpl: (async () =>
+          new Response(
+            JSON.stringify({
+              error: false,
+              body: {
+                tagTranslation: [],
+                pixpedia: { abstract: 'summary', image: 'https://i.pximg.net/tag.png' }
+              }
+            }),
+            { status: 200 }
+          )) as typeof fetch
+      })
+    ).resolves.toEqual({
+      nameZh: null,
+      nameEn: null,
+      abstract: 'summary',
+      imageUrl: 'https://i.pximg.net/tag.png'
+    })
+  })
+
+  it('rejects non-empty translation arrays as an unknown provider schema', async () => {
+    const error = await fetchPixivTagMetadata({
+      tagName: 'tag',
+      signal: new AbortController().signal,
+      fetchImpl: (async () =>
+        new Response(JSON.stringify({ error: false, body: { tagTranslation: [{ zh: 'unexpected' }] } }), {
+          status: 200
+        })) as typeof fetch
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toMatchObject({ code: 'PIXIV_SCHEMA_CHANGED', retryable: false })
+  })
+
   it('stops safely when the provider schema changes', async () => {
     const error = await fetchPixivTagMetadata({
       tagName: 'tag',

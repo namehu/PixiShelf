@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Info, Sparkles } from 'lucide-react'
+import { CircleStop, Info, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +37,16 @@ export function PixivTagEnrichmentDialog({ open, onOpenChange, onStarted }: Pixi
     trpc.tag.startPixivEnrichment.mutationOptions({
       onSuccess: ({ reused }) => {
         toast.success(reused ? '已有相同补全任务正在运行' : 'Pixiv 标签补全任务已创建')
+        queryClient.invalidateQueries({ queryKey: trpc.tag.pixivEnrichmentSummary.queryKey() })
+        onStarted()
+      },
+      onError: (error) => toast.error(error.message)
+    })
+  )
+  const cancelMutation = useMutation(
+    trpc.tag.cancelPixivEnrichment.mutationOptions({
+      onSuccess: ({ affectedCount }) => {
+        toast.success(affectedCount ? '整批 Pixiv 标签补全已请求取消' : '任务已经结束')
         queryClient.invalidateQueries({ queryKey: trpc.tag.pixivEnrichmentSummary.queryKey() })
         onStarted()
       },
@@ -113,6 +123,20 @@ export function PixivTagEnrichmentDialog({ open, onOpenChange, onStarted }: Pixi
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             关闭
           </Button>
+          {active && (
+            <Button
+              variant="destructive"
+              onClick={() => cancelMutation.mutate()}
+              disabled={cancelMutation.isPending}
+            >
+              {cancelMutation.isPending ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <CircleStop data-icon="inline-start" />
+              )}
+              {cancelMutation.isPending ? '正在取消整批任务' : '取消整批任务'}
+            </Button>
+          )}
           <Button
             onClick={() => startMutation.mutate()}
             disabled={startMutation.isPending || summaryQuery.isLoading || active || !summary?.candidateCount}

@@ -8,6 +8,10 @@ const migration = readFileSync(
   path.join(prismaDirectory, 'migrations/20260824130000_add_tag_external_metadata/migration.sql'),
   'utf8'
 )
+const jobIdExpansionMigration = readFileSync(
+  path.join(prismaDirectory, 'migrations/20260824183000_expand_tag_external_metadata_job_id/migration.sql'),
+  'utf8'
+)
 
 describe('tag external metadata migration', () => {
   it('adds the provider state without rewriting existing tags', () => {
@@ -24,6 +28,12 @@ describe('tag external metadata migration', () => {
     expect(schema).toContain('normalizedPayload Json?')
     expect(schema).toContain('lastSystemJobId String?')
     expect(migration).toContain('tag_external_metadata_tagId_providerKey_key')
+  })
+
+  it('stores UUID-backed system job ids without truncation', () => {
+    expect(schema).toMatch(/lastSystemJobId\s+String\?\s*\n/)
+    expect(schema).not.toMatch(/lastSystemJobId\s+String\?\s+@db\.VarChar\(30\)/)
+    expect(jobIdExpansionMigration).toContain('ALTER COLUMN "lastSystemJobId" TYPE TEXT')
   })
 
   it('models complete, partial, empty, and failed outcomes', () => {
