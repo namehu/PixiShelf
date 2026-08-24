@@ -88,6 +88,7 @@ export interface AppendScanRunItemInput extends ScanAuditItemInput {
 
 export interface ListScanRunsInput {
   limit?: number
+  type?: ScanRunType
 }
 
 export interface GetScanRunDetailInput {
@@ -267,11 +268,14 @@ export async function cancelScanRun(scanRunId: string, result?: ScanResult | nul
   return updateTerminalScanRun(scanRunId, ScanRunStatus.CANCELLED, counts, '扫描已取消', result)
 }
 
-/** 分页列出历史扫描运行记录，排除本地创建的记录 */
+/** 分页列出历史扫描运行记录，排除本地创建的记录，并可按运行类型筛选。 */
 export async function listScanRuns(input: ListScanRunsInput = {}) {
   const take = Math.min(Math.max(input.limit ?? 10, 1), MAX_HISTORY_LIMIT)
   const records = await prisma.scanRun.findMany({
-    where: DEFAULT_HISTORY_RUN_WHERE,
+    where: {
+      ...DEFAULT_HISTORY_RUN_WHERE,
+      ...(input.type ? { type: input.type } : {})
+    },
     orderBy: { startedAt: 'desc' },
     take,
     select: scanRunHistorySelect

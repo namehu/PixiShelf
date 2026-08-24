@@ -1,14 +1,27 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ data: [] as Array<Record<string, unknown>> }))
+const mocks = vi.hoisted(() => ({
+  data: [] as Array<Record<string, unknown>>,
+  queryOptions: vi.fn(),
+  refetch: vi.fn(),
+  isFetching: false,
+  isPending: false,
+  isError: false
+}))
 
 vi.mock('@tanstack/react-query', () => ({
-  useQuery: () => ({ data: mocks.data, isFetching: false, refetch: vi.fn() })
+  useQuery: () => ({
+    data: mocks.data,
+    isFetching: mocks.isFetching,
+    isPending: mocks.isPending,
+    isError: mocks.isError,
+    refetch: mocks.refetch
+  })
 }))
 
 vi.mock('@/lib/trpc', () => ({
-  useTRPC: () => ({ scanRun: { list: { queryOptions: vi.fn(() => ({})) } } })
+  useTRPC: () => ({ scanRun: { list: { queryOptions: mocks.queryOptions } } })
 }))
 
 import { ScanHistorySummaryCard } from '../scan-history-summary-card'
@@ -33,6 +46,80 @@ describe('ScanHistorySummaryCard inventory metrics', () => {
 
   beforeEach(() => {
     mocks.data = []
+    mocks.queryOptions.mockReset().mockReturnValue({})
+    mocks.refetch.mockReset()
+    mocks.isFetching = false
+    mocks.isPending = false
+    mocks.isError = false
+  })
+
+  it('requests Pixiv-only history and does not render an unexpected non-Pixiv latest record', () => {
+    mocks.data = [{ ...baseRun, type: 'LOCAL_IMPORT', mode: 'LOCAL_DIRECTORY_IMPORT' }]
+
+    render(<ScanHistorySummaryCard />)
+
+    expect(mocks.queryOptions).toHaveBeenCalledWith(
+      { limit: 1, type: 'PIXIV' },
+      expect.objectContaining({ refetchInterval: expect.any(Function) })
+    )
+    expect(screen.getByText('尚未记录 Pixiv 扫描历史')).toBeTruthy()
+    expect(screen.queryByText('本地导入')).toBeNull()
+  })
+
+  it('refreshes both the Pixiv history and the visible Worker activity', () => {
+    const onRefreshActivity = vi.fn()
+    const { rerender } = render(
+      <ScanHistorySummaryCard
+        activity={{ id: 'scan-job-1', status: 'RUNNING', progress: 42, message: null, error: null }}
+        onRefreshActivity={onRefreshActivity}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }))
+
+    expect(mocks.refetch).toHaveBeenCalledOnce()
+    expect(onRefreshActivity).toHaveBeenCalledOnce()
+
+    rerender(
+      <ScanHistorySummaryCard
+        activity={{ id: 'scan-job-1', status: 'RUNNING', progress: 42, message: null, error: null }}
+        onRefreshActivity={onRefreshActivity}
+        isRefreshingActivity
+      />
+    )
+
+    expect(screen.getByRole('button', { name: '刷新' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('shows a retryable error instead of an empty history when the history query fails', () => {
+    mocks.isError = true
+
+    render(<ScanHistorySummaryCard />)
+
+    expect(screen.getByRole('alert').textContent).toContain('无法读取 Pixiv 扫描历史')
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }))
+    expect(mocks.refetch).toHaveBeenCalledOnce()
+    expect(screen.queryByText('尚未记录 Pixiv 扫描历史')).toBeNull()
+  })
+
+  it('prioritizes the active Worker task with its real status, progress, and message', () => {
+    render(
+      <ScanHistorySummaryCard
+        activity={{
+          id: 'scan-job-1',
+          status: 'RUNNING',
+          progress: 42,
+          message: '正在读取 metadata',
+          error: '第 3 个 metadata 无法读取'
+        }}
+      />
+    )
+
+    expect(screen.getByText('运行中')).toBeTruthy()
+    expect(screen.getByText('正在读取 metadata')).toBeTruthy()
+    expect(screen.getByText('42%')).toBeTruthy()
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('42')
+    expect(screen.getByText('第 3 个 metadata 无法读取')).toBeTruthy()
   })
 
   it('shows localized incremental work and the changed-input count', () => {

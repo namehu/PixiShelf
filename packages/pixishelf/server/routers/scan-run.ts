@@ -76,13 +76,14 @@ export const scanRunRouter = router({
     .input(
       z
         .object({
-          limit: z.number().int().min(1).max(50).optional()
+          limit: z.number().int().min(1).max(50).optional(),
+          type: z.nativeEnum(ScanRunType).optional()
         })
         .optional()
     )
     .output(z.array(scanRunHistoryDtoSchema))
     .query(async ({ input }) => {
-      return listScanRuns({ limit: input?.limit })
+      return listScanRuns({ limit: input?.limit, type: input?.type })
     }),
 
   detail: authProcedure

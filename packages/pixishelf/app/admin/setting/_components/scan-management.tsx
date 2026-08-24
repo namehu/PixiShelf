@@ -1,11 +1,11 @@
 'use client'
 
+import { useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTRPC } from '@/lib/trpc'
 import { ClientScanCard } from './client-scan-card'
 import { ServerScanCard } from './server-scan-card'
-import { ScanResultCard } from './scan-result-card'
-import { ScanHistorySummaryCard } from './scan-history-summary-card'
+import { ScanHistorySummaryCard, type PixivScanActivity } from './scan-history-summary-card'
 import { SourceAuditCard } from './source-audit-card'
 import { useSseScan } from '../_hooks/use-sse-scan'
 
@@ -36,20 +36,31 @@ function useScanPath() {
  */
 function ScanManagement() {
   const trpc = useTRPC()
+  const queryClient = useQueryClient()
   const { data: health } = useQuery(trpc.setting.health.queryOptions())
 
   const scanPath = useScanPath()
   const mediaActivity = useQuery(
     trpc.localImport.status.queryOptions(undefined, {
-      refetchInterval: 3000
+      refetchInterval: (query) => (query.state.data?.activity.scan ? 3000 : 15000)
     })
   )
 
-  // 统一的状态和动作 Hook
-  const { state, actions } = useSseScan()
+  const refreshActivity = useCallback(() => {
+    void mediaActivity.refetch()
+  }, [mediaActivity.refetch])
+
+  const refreshScanStatus = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: trpc.scanRun.list.queryKey() })
+    refreshActivity()
+  }, [queryClient, refreshActivity, trpc])
+
+  const { state, actions } = useSseScan({ onQueued: refreshScanStatus })
   const { streaming } = state
-  const localImportRunning = Boolean(mediaActivity.data?.activity.localImport)
-  const scanBusy = streaming || localImportRunning || Boolean(mediaActivity.data?.activity.scan)
+  const activity = mediaActivity.data as MediaScanActivity | undefined
+  const localImportRunning = Boolean(activity?.activity.localImport)
+  const activeScan = activity?.activity.scan ?? null
+  const scanBusy = streaming || localImportRunning || Boolean(activeScan)
 
   // // 启动客户端列表扫描 (POST)
   const handleClientScan = (metadataList: string[]) => {
@@ -67,8 +78,14 @@ function ScanManagement() {
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
         <div>
           <h2 className="text-lg font-semibold text-foreground">Pixiv 扫描</h2>
-          <p className="mt-1 text-sm text-muted-foreground">管理作品扫描路径、监控扫描进度和查看详细日志。</p>
+          <p className="mt-1 text-sm text-muted-foreground">先确认当前任务状态，再管理扫描路径与发起扫描。</p>
         </div>
+
+        <ScanHistorySummaryCard
+          activity={activeScan}
+          onRefreshActivity={refreshActivity}
+          isRefreshingActivity={mediaActivity.isFetching}
+        />
 
         <ServerScanCard
           scanPathData={scanPath.query.data?.data || ''}
@@ -82,15 +99,16 @@ function ScanManagement() {
         <SourceAuditCard />
 
         <ClientScanCard hasScanPath={!!scanPath.query.data?.data} isScanning={scanBusy} onScan={handleClientScan} />
-
-        {/*  统一的状态、结果和日志区域 (新) */}
-        {/* 仅在有任何活动或结果时显示此卡片 */}
-        <ScanResultCard onCancel={actions.cancelScan} elapsed={state.elapsed} />
-
-        <ScanHistorySummaryCard />
       </div>
     </div>
   )
+}
+
+interface MediaScanActivity {
+  activity: {
+    scan: PixivScanActivity | null
+    localImport: unknown | null
+  }
 }
 
 export default ScanManagement

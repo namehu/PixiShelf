@@ -312,6 +312,22 @@ describe('scan-run-service', () => {
     expect(JSON.stringify(result)).not.toContain('/secret')
   })
 
+  it('filters the history list to Pixiv runs without changing the default global history filter', async () => {
+    scanRunFindManyMock.mockResolvedValueOnce([historyRecord()])
+
+    await listScanRuns({ limit: 1, type: ScanRunType.PIXIV })
+
+    expect(scanRunFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          mode: { not: ScanRunMode.LOCAL_CREATE },
+          type: ScanRunType.PIXIV
+        },
+        take: 1
+      })
+    )
+  })
+
   it('cleans up terminal scan runs older than the retention cutoff', async () => {
     scanRunFindManyMock
       .mockResolvedValueOnce([{ id: 'old-completed' }, { id: 'old-failed' }])

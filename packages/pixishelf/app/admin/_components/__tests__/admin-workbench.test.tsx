@@ -38,6 +38,9 @@ describe('admin status badge', () => {
     ['RUNNING', 'info'],
     ['COMPLETED', 'success'],
     ['PENDING', 'warning'],
+    ['PAUSING', 'warning'],
+    ['RETRY_WAIT', 'warning'],
+    ['CANCELLING', 'warning'],
     ['FAILED', 'destructive'],
     ['CANCELLED', 'muted'],
     ['CUSTOM', 'default']
