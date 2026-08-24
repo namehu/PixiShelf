@@ -6,6 +6,7 @@ const config: WorkerConfig = {
   databaseUrl: 'postgresql://worker:secret@postgres:5432/pixishelf',
   sourceMediaRoot: '/media/source',
   derivedMediaRoot: '/media/derived',
+  pixivDataRoot: '/media/pixiv-data',
   archiveRoot: '/media/archive',
   ffmpegPath: '/usr/bin/ffmpeg',
   ffprobePath: '/usr/bin/ffprobe',
@@ -40,6 +41,7 @@ describe('startup preflight', () => {
       expect.arrayContaining([
         ['/media/source', 'read-write'],
         ['/media/derived', 'read-write'],
+        ['/media/pixiv-data', 'read-write'],
         ['/media/archive', 'read-write']
       ])
     )

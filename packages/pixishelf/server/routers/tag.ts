@@ -1,8 +1,14 @@
 import { z } from 'zod'
-import { router, authProcedure } from '@/server/trpc'
+import { router, authProcedure, adminProcedure } from '@/server/trpc'
 import * as tagService from '@/services/tag-service'
 import { prisma } from '@/lib/prisma'
 import { TagManagementStats } from '@/types/tags'
+import { Prisma } from '@pixishelf/db'
+import {
+  getPixivTagEnrichmentSummary,
+  retryPixivTagEnrichment,
+  startPixivTagEnrichment
+} from '@/services/pixiv-tag-enrichment-service'
 
 /**
  * 获取标签管理统计信息
@@ -108,23 +114,27 @@ export const tagRouter = router({
       const { page, limit, search, filter, sort, order } = input
 
       // 构建where条件
-      const whereConditions: any = {}
+      const andConditions: Prisma.TagWhereInput[] = []
 
       // 搜索条件
       if (search) {
-        whereConditions.OR = [
-          { name: { contains: search, mode: 'insensitive' } },
-          { name_zh: { contains: search, mode: 'insensitive' } },
-          { name_en: { contains: search, mode: 'insensitive' } }
-        ]
+        andConditions.push({
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { name_zh: { contains: search, mode: 'insensitive' } },
+            { name_en: { contains: search, mode: 'insensitive' } }
+          ]
+        })
       }
 
       // 筛选条件
       if (filter === 'translated') {
-        whereConditions.OR = [{ name_zh: { not: null } }, { name_en: { not: null } }]
+        andConditions.push({ OR: [{ name_zh: { not: null } }, { name_en: { not: null } }] })
       } else if (filter === 'untranslated') {
-        whereConditions.OR = [{ name_zh: null }, { name_en: null }]
+        // “未翻译”要求中英文都为空，与自动补全对任一字段成功的语义保持一致。
+        andConditions.push({ AND: [{ name_zh: null }, { name_en: null }] })
       }
+      const whereConditions: Prisma.TagWhereInput = andConditions.length > 0 ? { AND: andConditions } : {}
 
       // 计算偏移量
       const skip = (page - 1) * limit
@@ -145,6 +155,7 @@ export const tagRouter = router({
           select: {
             id: true,
             name: true,
+            namespace: true,
             isSystem: true,
             systemKey: true,
             name_zh: true,
@@ -152,7 +163,26 @@ export const tagRouter = router({
             description: true,
             artworkCount: true,
             createdAt: true,
-            updatedAt: true
+            updatedAt: true,
+            externalMetadata: {
+              where: { providerKey: 'pixiv' },
+              take: 1,
+              select: {
+                status: true,
+                lastAttemptAt: true,
+                lastErrorCode: true,
+                lastError: true,
+                lastSystemJobId: true
+              }
+            },
+            artworkTags: {
+              where: {
+                provenance: 'SOURCE',
+                sourceRef: { is: { providerKey: 'pixiv' } }
+              },
+              take: 1,
+              select: { id: true }
+            }
           }
         }),
         prisma.tag.count({ where: whereConditions })
@@ -169,7 +199,12 @@ export const tagRouter = router({
       return {
         success: true,
         data: {
-          tags,
+          // 将关联表压平成管理页需要的 Pixiv 状态，避免把 Prisma 关系结构暴露给 UI。
+          tags: tags.map(({ externalMetadata, artworkTags, namespace, ...tag }) => ({
+            ...tag,
+            pixivSync: externalMetadata[0] ?? null,
+            pixivEligible: namespace === 'general' && artworkTags.length > 0 && !tag.isSystem
+          })),
           pagination: {
             page,
             limit,
@@ -218,6 +253,14 @@ export const tagRouter = router({
     .mutation(async ({ input }) => {
       return tagService.updateTag(input.id, input.data)
     }),
+
+  pixivEnrichmentSummary: adminProcedure.query(() => getPixivTagEnrichmentSummary()),
+
+  startPixivEnrichment: adminProcedure.mutation(({ ctx }) => startPixivTagEnrichment(ctx.userId)),
+
+  retryPixivEnrichment: adminProcedure
+    .input(z.object({ tagId: z.number().int().positive() }))
+    .mutation(({ input, ctx }) => retryPixivTagEnrichment(input.tagId, ctx.userId)),
 
   /**
    * 删除标签

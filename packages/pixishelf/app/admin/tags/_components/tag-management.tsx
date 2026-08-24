@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { RefreshCw, Download, Edit2, Trash, Languages, Search, RotateCcw, Plus } from 'lucide-react'
+import { RefreshCw, Download, Edit2, Trash, Languages, Search, RotateCcw, Plus, Sparkles } from 'lucide-react'
 import type { TagManagementStats } from '@/types/tags'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,8 @@ import { Badge } from '@/components/ui/badge'
 // 导入子组件
 import { TagStatsCards } from './tag-stats-cards'
 import { TagDialog } from './tag-dialog'
+import { PixivTagEnrichmentDialog } from './pixiv-tag-enrichment-dialog'
+import { Spinner } from '@/components/ui/spinner'
 
 // 定义 TagListItem 类型，匹配后端返回的数据结构
 interface TagListItem {
@@ -33,6 +35,14 @@ interface TagListItem {
   artworkCount: number
   createdAt: string
   updatedAt: string
+  pixivEligible: boolean
+  pixivSync: {
+    status: 'SUCCESS' | 'PARTIAL' | 'NO_DATA' | 'FAILED'
+    lastAttemptAt: string
+    lastErrorCode: string | null
+    lastError: string | null
+    lastSystemJobId: string | null
+  } | null
 }
 
 /**
@@ -101,6 +111,7 @@ export default function TagManagement() {
 
   // 弹窗状态
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [pixivDialogOpen, setPixivDialogOpen] = useState(false)
   const [editingTag, setEditingTag] = useState<TagListItem | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -169,6 +180,16 @@ export default function TagManagement() {
     })
   )
 
+  const retryPixivMutation = useMutation(
+    trpc.tag.retryPixivEnrichment.mutationOptions({
+      onSuccess: () => {
+        toast.success('Pixiv 标签重试任务已创建')
+        setRefreshKey((prev) => prev + 1)
+      },
+      onError: (error) => toast.error(error.message)
+    })
+  )
+
   const handleDelete = (id: number, artworkCount: number) => {
     confirm({
       title: '确定删除该标签吗？',
@@ -226,6 +247,12 @@ export default function TagManagement() {
       size: 120
     },
     {
+      id: 'pixivSync',
+      header: 'Pixiv 补全',
+      size: 120,
+      cell: ({ row }) => <PixivSyncBadge tag={row.original} />
+    },
+    {
       header: '创建时间',
       accessorKey: 'createdAt',
       enableSorting: true,
@@ -238,7 +265,7 @@ export default function TagManagement() {
     {
       id: 'actions',
       header: '操作',
-      size: 150,
+      size: 190,
       cell: ({ row }) => {
         const record = row.original
         const tName = getTranslateName(record)
@@ -263,6 +290,23 @@ export default function TagManagement() {
                 aria-label={`翻译标签 ${record.name}`}
               >
                 <Languages aria-hidden="true" />
+              </Button>
+            )}
+            {record.pixivEligible && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8 text-muted-foreground hover:text-foreground"
+                disabled={retryPixivMutation.isPending}
+                onClick={() => retryPixivMutation.mutate({ tagId: record.id })}
+                aria-label={`重新从 Pixiv 补全标签 ${record.name}`}
+                title="重新从 Pixiv 补全"
+              >
+                {retryPixivMutation.isPending && retryPixivMutation.variables?.tagId === record.id ? (
+                  <Spinner aria-hidden="true" />
+                ) : (
+                  <RefreshCw aria-hidden="true" />
+                )}
               </Button>
             )}
             {!record.isSystem && (
@@ -319,7 +363,7 @@ export default function TagManagement() {
   )
 
   const handlePaginationChange = (updaterOrValue: any) => {
-      // 兼容 React Table 的 updater 模式（支持函数更新）
+    // 兼容 React Table 的 updater 模式（支持函数更新）
     const newPagination =
       typeof updaterOrValue === 'function'
         ? updaterOrValue({
@@ -336,25 +380,43 @@ export default function TagManagement() {
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <div className="flex w-full flex-wrap justify-end gap-2 border-b border-border pb-4" role="toolbar" aria-label="标签维护操作">
-          <Button
-            variant="outline"
-            onClick={handleExportUntranslated}
-            disabled={isExporting}
-            className="flex-1 md:flex-none flex items-center justify-center gap-2"
-          >
-            <Download data-icon="inline-start" className={isExporting ? 'animate-bounce' : undefined} aria-hidden="true" />
-            {isExporting ? '导出中…' : '导出未翻译'}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleUpdateStats}
-            disabled={isUpdatingStats}
-            className="flex-1 md:flex-none flex items-center justify-center gap-2"
-          >
-            <RefreshCw data-icon="inline-start" className={isUpdatingStats ? 'animate-spin' : undefined} aria-hidden="true" />
-            {isUpdatingStats ? '更新中…' : '更新统计'}
-          </Button>
+      <div
+        className="flex w-full flex-wrap justify-end gap-2 border-b border-border pb-4"
+        role="toolbar"
+        aria-label="标签维护操作"
+      >
+        <Button
+          onClick={() => setPixivDialogOpen(true)}
+          className="flex flex-1 items-center justify-center gap-2 md:flex-none"
+        >
+          <Sparkles data-icon="inline-start" aria-hidden="true" />从 Pixiv 补全
+        </Button>
+        <Button
+          variant="outline"
+          onClick={handleExportUntranslated}
+          disabled={isExporting}
+          className="flex-1 md:flex-none flex items-center justify-center gap-2"
+        >
+          <Download
+            data-icon="inline-start"
+            className={isExporting ? 'animate-bounce' : undefined}
+            aria-hidden="true"
+          />
+          {isExporting ? '导出中…' : '导出未翻译'}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={handleUpdateStats}
+          disabled={isUpdatingStats}
+          className="flex-1 md:flex-none flex items-center justify-center gap-2"
+        >
+          <RefreshCw
+            data-icon="inline-start"
+            className={isUpdatingStats ? 'animate-spin' : undefined}
+            aria-hidden="true"
+          />
+          {isUpdatingStats ? '更新中…' : '更新统计'}
+        </Button>
       </div>
 
       {/* 统计卡片 */}
@@ -425,6 +487,27 @@ export default function TagManagement() {
         tag={editingTag}
         onSuccess={() => setRefreshKey((prev) => prev + 1)}
       />
+      <PixivTagEnrichmentDialog
+        open={pixivDialogOpen}
+        onOpenChange={setPixivDialogOpen}
+        onStarted={() => setRefreshKey((prev) => prev + 1)}
+      />
     </div>
+  )
+}
+
+function PixivSyncBadge({ tag }: { tag: TagListItem }) {
+  if (!tag.pixivEligible) return <span className="text-muted-foreground">—</span>
+  if (!tag.pixivSync) return <Badge variant="outline">未检查</Badge>
+  const presentation = {
+    SUCCESS: { label: '成功', variant: 'success' as const },
+    PARTIAL: { label: '部分成功', variant: 'warning' as const },
+    NO_DATA: { label: '无数据', variant: 'muted' as const },
+    FAILED: { label: '失败', variant: 'destructive' as const }
+  }[tag.pixivSync.status]
+  return (
+    <Badge variant={presentation.variant} title={tag.pixivSync.lastError || undefined}>
+      {presentation.label}
+    </Badge>
   )
 }

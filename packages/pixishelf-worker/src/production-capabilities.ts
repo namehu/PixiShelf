@@ -17,6 +17,7 @@ const PRODUCTION_JOB_TYPES = [
   'MEDIA_DERIVED_TAG_SYNC',
   'MIGRATION',
   'PENDING_REPLACE',
+  'PIXIV_TAG_ENRICHMENT',
   'REFILL_META_SOURCE',
   'SCAN',
   'SCAN_RUN_RETENTION_CLEANUP',
@@ -60,6 +61,6 @@ export function assertProductionWorkerCapabilities(
   const actual = canonicalWorkerCapabilities(capabilities)
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error('Production Worker capability inventory drifted from the 20-job/22-version dual-lane release')
+    throw new Error('Production Worker capability inventory drifted from the 21-job/23-version dual-lane release')
   }
 }

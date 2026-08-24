@@ -53,9 +53,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
       SCAN_PATH: /app/data
       ARCHIVE_STORAGE_PATH: /app/data
+      PIXIV_DATA_STORAGE_PATH: /app/pixiv-data
       NEXT_PUBLIC_IMGPROXY_URL: http://127.0.0.1:${IMGPROXY_HOST_PORT:-5431}
     volumes:
       - '${PIXISHELF_DATA_PATH}:/app/data:cached'
+      - '${PIXISHELF_PUBLIC_DATA_PATH:?PIXISHELF_PUBLIC_DATA_PATH is required}:/app/pixiv-data:ro'
       - '${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media'
     networks:
       - pixishelf-network
@@ -89,6 +91,7 @@ services:
       SCAN_DISCOVERY_MAX_ENTRIES: ${SCAN_DISCOVERY_MAX_ENTRIES:-10000000}
       SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES: ${SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES-local-imports,sources,.archive-staging,.trash}
       DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
+      PIXIV_DATA_ROOT: /app/pixiv-data
       KEYFRAME_FFMPEG_THREADS: ${KEYFRAME_FFMPEG_THREADS:-2}
       ARCHIVE_MAX_MEDIA_BYTES: ${ARCHIVE_MAX_MEDIA_BYTES:-536870912}
       WORKER_DISPATCH_ENABLED: ${WORKER_DISPATCH_ENABLED:-false}
@@ -104,6 +107,7 @@ services:
       FFPROBE_PATH: ${FFPROBE_PATH:-ffprobe}
     volumes:
       - '${PIXISHELF_DATA_PATH}:/app/data:rw'
+      - '${PIXISHELF_PUBLIC_DATA_PATH:?PIXISHELF_PUBLIC_DATA_PATH is required}:/app/pixiv-data:rw'
       - '${DERIVED_MEDIA_HOST_PATH:-../packages/pixishelf/.local-data/derived-media}:/app/.local-data/derived-media:rw'
     depends_on:
       postgres:

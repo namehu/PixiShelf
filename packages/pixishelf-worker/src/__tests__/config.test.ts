@@ -6,6 +6,7 @@ const requiredEnvironment = {
   DATABASE_URL: 'postgresql://worker:secret@postgres:5432/pixishelf',
   SOURCE_MEDIA_ROOT: '/media/source',
   DERIVED_MEDIA_ROOT: '/media/derived',
+  PIXIV_DATA_ROOT: '/media/pixiv-data',
   ARCHIVE_ROOT: '/media/archive'
 }
 
@@ -33,11 +34,13 @@ describe('worker config', () => {
         DATABASE_URL: requiredEnvironment.DATABASE_URL,
         SCAN_PATH: '/media/source',
         DERIVED_MEDIA_STORAGE_PATH: '/media/derived',
+        PIXIV_DATA_STORAGE_PATH: '/media/pixiv-data',
         ARCHIVE_STORAGE_PATH: '/media/archive'
       })
     ).toMatchObject({
       sourceMediaRoot: '/media/source',
       derivedMediaRoot: '/media/derived',
+      pixivDataRoot: '/media/pixiv-data',
       archiveRoot: '/media/archive'
     })
   })

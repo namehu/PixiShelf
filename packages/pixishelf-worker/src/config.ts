@@ -49,6 +49,7 @@ const workerConfigSchema = z
       }),
     SOURCE_MEDIA_ROOT: z.string().trim().min(1),
     DERIVED_MEDIA_ROOT: z.string().trim().min(1),
+    PIXIV_DATA_ROOT: z.string().trim().min(1),
     ARCHIVE_ROOT: z.string().trim().min(1),
     FFMPEG_PATH: z.string().trim().min(1).default('ffmpeg'),
     FFPROBE_PATH: z.string().trim().min(1).default('ffprobe'),
@@ -91,6 +92,7 @@ export interface WorkerConfig {
   databaseUrl: string
   sourceMediaRoot: string
   derivedMediaRoot: string
+  pixivDataRoot: string
   archiveRoot: string
   ffmpegPath: string
   ffprobePath: string
@@ -120,10 +122,12 @@ export function createDefaultWorkerId(host: string, processId: number, instanceI
 }
 
 export function parseWorkerConfig(environment: NodeJS.ProcessEnv): WorkerConfig {
+  // PIXIV_DATA_ROOT 是 Worker 的写入根；别名只兼容仍提供 PIXIV_DATA_STORAGE_PATH 的运行环境。
   const parsed = workerConfigSchema.parse({
     ...environment,
     SOURCE_MEDIA_ROOT: environment.SOURCE_MEDIA_ROOT ?? environment.SCAN_PATH,
     DERIVED_MEDIA_ROOT: environment.DERIVED_MEDIA_ROOT ?? environment.DERIVED_MEDIA_STORAGE_PATH,
+    PIXIV_DATA_ROOT: environment.PIXIV_DATA_ROOT ?? environment.PIXIV_DATA_STORAGE_PATH,
     ARCHIVE_ROOT: environment.ARCHIVE_ROOT ?? environment.ARCHIVE_STORAGE_PATH
   })
 
@@ -131,6 +135,7 @@ export function parseWorkerConfig(environment: NodeJS.ProcessEnv): WorkerConfig 
     databaseUrl: parsed.DATABASE_URL,
     sourceMediaRoot: parsed.SOURCE_MEDIA_ROOT,
     derivedMediaRoot: parsed.DERIVED_MEDIA_ROOT,
+    pixivDataRoot: parsed.PIXIV_DATA_ROOT,
     archiveRoot: parsed.ARCHIVE_ROOT,
     ffmpegPath: parsed.FFMPEG_PATH,
     ffprobePath: parsed.FFPROBE_PATH,

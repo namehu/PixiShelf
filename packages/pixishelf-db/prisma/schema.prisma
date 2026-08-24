@@ -158,22 +158,23 @@ model ArtworkRawMetadata {
 }
 
 model Tag {
-  id            Int                      @id @default(autoincrement())
-  name          String
-  namespace     String                   @default("general") @db.VarChar(50)
-  isSystem      Boolean                  @default(false)
-  systemKey     String?                  @unique
-  createdAt     DateTime                 @default(now())
-  updatedAt     DateTime                 @updatedAt
-  artworkCount  Int                      @default(0)
-  description   String?
-  name_zh       String?
-  search_vector Unsupported("tsvector")?
-  translateType TranslateType            @default(NONE)
-  abstract      String?
-  image         String?
-  name_en       String?
-  artworkTags   ArtworkTag[]
+  id               Int                      @id @default(autoincrement())
+  name             String
+  namespace        String                   @default("general") @db.VarChar(50)
+  isSystem         Boolean                  @default(false)
+  systemKey        String?                  @unique
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  artworkCount     Int                      @default(0)
+  description      String?
+  name_zh          String?
+  search_vector    Unsupported("tsvector")?
+  translateType    TranslateType            @default(NONE)
+  abstract         String?
+  image            String?
+  name_en          String?
+  artworkTags      ArtworkTag[]
+  externalMetadata TagExternalMetadata[]
 
   @@unique([namespace, name])
   @@index([name])
@@ -446,6 +447,36 @@ enum TranslateType {
   PIXIV // 1-pixiv
   AI // 2-AI
   MANUAL // 3-人工标注
+}
+
+enum TagExternalMetadataStatus {
+  SUCCESS
+  PARTIAL
+  NO_DATA
+  FAILED
+}
+
+model TagExternalMetadata {
+  id                String                    @id @default(cuid())
+  tagId             Int
+  providerKey       String                    @db.VarChar(50)
+  lookupKey         String                    @db.VarChar(255)
+  status            TagExternalMetadataStatus
+  normalizedPayload Json?
+  payloadHash       String?                   @db.VarChar(64)
+  lastAttemptAt     DateTime
+  lastSuccessAt     DateTime?
+  lastErrorCode     String?                   @db.VarChar(80)
+  lastError         String?                   @db.Text
+  lastSystemJobId   String?                   @db.VarChar(30)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  tag               Tag                       @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([tagId, providerKey])
+  @@index([providerKey, status, lastAttemptAt])
+  @@index([lastSystemJobId])
+  @@map("tag_external_metadata")
 }
 
 model SystemJob {

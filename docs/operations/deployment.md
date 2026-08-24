@@ -32,7 +32,7 @@ sources:
 | ----------- | -------------------------- | ------------------------------------------------------- | ------------------ |
 | `postgres`  | 数据库读写                 | 领域数据、认证、队列、租约和 migration 历史             | 必需               |
 | `app`       | 数据库读写；原媒体默认只读 | Next.js Web/API、认证、任务控制面；启动时部署 migration | 必需               |
-| `worker`    | 数据库和媒体读写           | 单进程双 lane；20 个 job type，SCAN v1/v2/v3、其余仅 v1 | 必需，固定一个服务 |
+| `worker`    | 数据库和媒体读写           | 单进程双 lane；21 个 job type，SCAN v1/v2/v3、其余仅 v1 | 必需，固定一个服务 |
 | `scheduler` | 无数据库权限               | 使用内部 Token 调用 App 的 scheduler tick               | 按需启用           |
 | `imgproxy`  | 原媒体和派生媒体只读       | 图片缩放、格式处理和缓存                                | 必需               |
 
@@ -50,6 +50,7 @@ sources:
 - `POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB` 与 `DATABASE_URL` 一致；
 - `PIXISHELF_DATA_PATH` 指向真实原媒体目录；
 - `DERIVED_MEDIA_HOST_PATH` 使用持久化绝对路径；
+- `PIXISHELF_PUBLIC_DATA_PATH` 指向既有 `pixiv_data` 持久化绝对路径，并在容器内统一挂载到 `/app/pixiv-data`：App 只读、Worker 读写；
 - `BETTER_AUTH_SECRET`、`BETTER_AUTH_URL`、`BETTER_AUTH_TRUSTED_ORIGINS` 符合实际入口；
 - `INTERNAL_JOB_TOKEN` 与 `SCAN_WEBHOOK_TOKEN` 使用彼此独立的强随机值；
 - `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 当前不参与自动初始化，遗留 `JWT_SECRET` 也不负责当前浏览器会话；
@@ -172,8 +173,8 @@ pnpm --filter @pixishelf/next archive:lane-cutover-audit
 
 退出码 `0` 才能继续；退出码 `2` 表示存在业务或消费者阻断项，退出码 `1` 表示审计本身失败。普通兼容任务的
 `PENDING`、`PAUSED`、`RETRY_WAIT` 可以保留，但其 type/version 必须在新 Worker 的 capability inventory 内；
-`FULL_RECONCILE` 是额外的 payload 级例外，必须按上一节清零。当前 inventory 为 20 个 job type、22 个
-type/version 组合，其中 `SCAN` 支持 v1/v2/v3、其余 19 类只支持 v1。专用审计只检查数据库状态；上一步“旧
+`FULL_RECONCILE` 是额外的 payload 级例外，必须按上一节清零。当前 inventory 为 21 个 job type、23 个
+type/version 组合，其中 `SCAN` 支持 v1/v2/v3、其余 20 类只支持 v1。专用审计只检查数据库状态；上一步“旧
 `archive-worker` 容器为零”的结果必须单独记录。
 
 审计通过后，在同一个停写窗口建立 PostgreSQL、原媒体、派生媒体、配置和旧/新镜像 digest 的一致性检查点。lane migration 会拒绝 `RUNNING/PAUSING/CANCELLING` 任务或未过期的 `global/background-worker` lease，并删除已经过期的旧全局 lease；它不是停止并发写入者的替代品。
@@ -206,7 +207,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml logs --tail=200 worker
 ```
 
-READY 必须显示两个 lane 都可领取，capability audit 必须精确报告 20 个 job type、22 个 type/version 组合、
+READY 必须显示两个 lane 都可领取，capability audit 必须精确报告 21 个 job type、23 个 type/version 组合、
 `SCAN` v1/v2/v3、其余 v1 及正确 lane；`/livez` 只能证明进程存活，不能替代上述门禁。`SCAN@v3` 把
 `AUDIT_APPLY` 与只读 `SCAN@v2` 隔离：滚动部署期间旧 v2 Worker 不会领取 v3 写任务，但发布门禁仍要求新
 Worker 明确报告 v1/v2/v3 后才能开放 App 写入口。暗启动通过后再启动 App，仍保持 `false/false` 完成登录和
@@ -231,7 +232,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 
 - App、PostgreSQL、ImgProxy 正常；
 - 只有一个当前 Worker 为 READY；
-- Worker 报告两个 lane READY，且 capability 精确为 20 个 job type / 22 个 type-version 组合（`SCAN`
+- Worker 报告两个 lane READY，且 capability 精确为 21 个 job type / 23 个 type-version 组合（`SCAN`
   v1/v2/v3，其余 v1）；
 - scheduler 的启用状态符合预期；
 - 没有异常积压、重复 claim、媒体 404 或 migration 漂移。

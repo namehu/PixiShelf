@@ -10,6 +10,7 @@ import {
   createNodeMigrationFileSystem,
   createNodePendingReplaceFileSystem,
   createPendingReplaceExecutorRegistrations,
+  createPixivTagExecutorRegistrations,
   createPrismaMigrationDatabase,
   createPrismaPendingReplaceDatabase,
   createScanExecutorRegistrations,
@@ -28,6 +29,7 @@ type ExecutorWorkerConfig = Pick<
   | 'archiveRoot'
   | 'sourceMediaRoot'
   | 'derivedMediaRoot'
+  | 'pixivDataRoot'
   | 'archiveMaxMediaBytes'
   | 'scanDiscoveryMaxEntries'
   | 'scanDiscoveryExcludedRootDirectories'
@@ -95,6 +97,13 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
   })) {
     registry.register(definition)
   }
+  for (const definition of createPixivTagExecutorRegistrations({
+    // 注册在统一后台写入注册表中，确保能力审计和线上执行器清单一致。
+    database: input.database,
+    pixivDataRoot: resolved.pixivDataRoot
+  })) {
+    registry.register(definition)
+  }
   for (const definition of createVideoMediaExecutorRegistrations({
     database: input.database,
     config: {
@@ -145,6 +154,7 @@ export function resolveExecutorWorkerConfiguration(config: ExecutorWorkerConfig)
     posterStorageRoot: path.join(config.derivedMediaRoot, 'video', 'posters'),
     chapterPreviewRoot: path.join(config.derivedMediaRoot, 'video', 'chapters'),
     keyframeStorageRoot: path.join(config.derivedMediaRoot, 'video', 'keyframes'),
+    pixivDataRoot: config.pixivDataRoot,
     ffmpegPath: config.ffmpegPath,
     ffprobePath: config.ffprobePath,
     ffmpegThreads: config.keyframeFfmpegThreads

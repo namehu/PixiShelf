@@ -33,7 +33,8 @@ describe('job wire contracts', () => {
         'ARCHIVE_RESOLVE_ITEM',
         'ARCHIVE_IMPORT',
         'ARCHIVE_MAINTENANCE',
-        'ARCHIVE_INTAKE_RETENTION_CLEANUP'
+        'ARCHIVE_INTAKE_RETENTION_CLEANUP',
+        'PIXIV_TAG_ENRICHMENT'
       ])
     )
     expect(TERMINAL_JOB_STATUSES).toContain('SKIPPED')
@@ -106,6 +107,19 @@ describe('job wire contracts', () => {
         entryIds: Array.from({ length: 1_001 }, (_, index) => `gc-${index}`)
       })
     ).toThrow()
+    expect(parseJobPayload('PIXIV_TAG_ENRICHMENT', { mode: 'DISCOVER' })).toEqual({
+      mode: 'DISCOVER',
+      force: false
+    })
+    expect(
+      parseJobPayload('PIXIV_TAG_ENRICHMENT', {
+        mode: 'TAG',
+        tagId: 7,
+        expectedName: '  original-tag  ',
+        force: true
+      })
+    ).toEqual({ mode: 'TAG', tagId: 7, expectedName: 'original-tag', force: true })
+    expect(() => parseJobPayload('PIXIV_TAG_ENRICHMENT', { mode: 'TAG', tagId: 0, expectedName: 'tag' })).toThrow()
   })
 
   it('freezes strict scan and local-import inputs instead of carrying unbounded work lists', () => {

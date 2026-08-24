@@ -4,6 +4,12 @@ import imgproxyLoader from '@/lib/image-loader'
 const IMGPROXY_URL = process.env.NEXT_PUBLIC_IMGPROXY_URL || 'http://localhost:5431'
 
 describe('imgproxyLoader', () => {
+  it('leaves authenticated Pixiv data API URLs unchanged', () => {
+    const src = '/api/pixiv-data/tags/cover.webp'
+
+    expect(imgproxyLoader({ src, width: 320, quality: 80 })).toBe(src)
+  })
+
   it('routes generated video posters through ImgProxy', () => {
     expect(imgproxyLoader({ src: '/_video-posters/1-abc.webp?v=1784117706648', width: 640, quality: 80 })).toBe(
       `${IMGPROXY_URL}/_/rs:fit:640:0/q:80/sm:1/plain/local://%2Fderived-media%2Fvideo%2Fposters%2F1-abc.webp@webp?v=1784117706648`

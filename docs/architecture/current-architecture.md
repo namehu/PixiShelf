@@ -28,7 +28,7 @@ PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系�
 - 一个 Next.js Web/API 实例；
 - 一个 PostgreSQL 数据库；
 - 一个能够领取任务的通用 Worker；
-- 原媒体和派生媒体使用宿主机文件系统挂载；
+- 原媒体、派生媒体和 Pixiv data 使用宿主机文件系统挂载；
 - ImgProxy 只读访问媒体并提供图片转换；
 - 可选 scheduler 定期调用 App 的内部接口；
 - 一个通用 Worker 进程内运行归档解析与后台写入两个固定资源通道。
@@ -48,6 +48,7 @@ flowchart LR
   Worker[通用 Worker\n双 Dispatcher lane]
   Source[(原媒体目录)]
   Derived[(派生媒体目录)]
+  PixivData[(Pixiv data\nartists + tags)]
   ImgProxy[ImgProxy]
 
   User -->|Better Auth session| App
@@ -59,6 +60,8 @@ flowchart LR
   Worker --> Database
   Worker -->|扫描、归档与受控文件操作| Source
   Worker -->|FFmpeg/FFprobe/Sharp 输出| Derived
+  Worker -->|校验并发布 Pixiv 标签封面| PixivData
+  App -->|受鉴权只读路由| PixivData
   ImgProxy -->|只读| Source
   ImgProxy -->|只读| Derived
   User -->|图片请求| ImgProxy
@@ -71,22 +74,22 @@ flowchart LR
 | 通用 Worker | 按 lane 领取任务；串行解析 URL，并串行执行扫描、归档、迁移、替换、维护和视频派生 | 不执行 Prisma migration，不提供用户界面 |
 | scheduler   | 周期性调用 `/api/internal/scheduler/tick`                                        | 不访问数据库，不执行业务任务            |
 | ImgProxy    | 只读处理原图片和静态派生媒体                                                     | 不生成视频代表帧，不修改原媒体          |
-| 文件系统    | 保存原媒体、归档 staging/发布目录和派生媒体                                      | 不替代数据库中的身份、状态和审计事实    |
+| 文件系统    | 保存原媒体、归档 staging/发布目录、派生媒体和 Pixiv data                         | 不替代数据库中的身份、状态和审计事实    |
 
 ## Workspace 责任与依赖
 
 仓库由 `pnpm-workspace.yaml` 纳入 `packages/*`。主运行链与外围工具使用以下 workspace：
 
-| Workspace                       | 责任                                                    |
-| ------------------------------- | ------------------------------------------------------- |
-| `@pixishelf/next`               | Next.js 主应用、API、tRPC、管理与浏览界面               |
-| `@pixishelf/db`                 | Prisma Schema、migration、生成客户端和数据库守卫        |
-| `@pixishelf/job-contracts`      | 后台任务类型、payload、DTO、错误码和媒体类型契约        |
-| `@pixishelf/job-runtime`        | 队列仓储、Worker 心跳、生命周期和运行时协议             |
-| `@pixishelf/job-executors`      | 归档、扫描、迁移、替换、维护和视频任务实现              |
-| `@pixishelf/worker`             | 独立进程入口、配置、预检、健康服务和 Central Dispatcher |
-| `@pixishelf/extension`          | Pixiv 浏览器侧采集/下载工作流                           |
-| `@pixishelf/zip-convert`        | Pixiv zip/APNG 转换工具                                 |
+| Workspace                  | 责任                                                    |
+| -------------------------- | ------------------------------------------------------- |
+| `@pixishelf/next`          | Next.js 主应用、API、tRPC、管理与浏览界面               |
+| `@pixishelf/db`            | Prisma Schema、migration、生成客户端和数据库守卫        |
+| `@pixishelf/job-contracts` | 后台任务类型、payload、DTO、错误码和媒体类型契约        |
+| `@pixishelf/job-runtime`   | 队列仓储、Worker 心跳、生命周期和运行时协议             |
+| `@pixishelf/job-executors` | 归档、扫描、迁移、替换、维护和视频任务实现              |
+| `@pixishelf/worker`        | 独立进程入口、配置、预检、健康服务和 Central Dispatcher |
+| `@pixishelf/extension`     | Pixiv 浏览器侧采集/下载工作流                           |
+| `@pixishelf/zip-convert`   | Pixiv zip/APNG 转换工具                                 |
 
 核心依赖方向：
 
@@ -177,8 +180,8 @@ Worker 对每项重新读取并比较冻结证据，在持有 fence 的短事务
 
 所有 Pixiv publisher 的成功创建/刷新路径现在都把 metadata 内容 hash 写入 `ArtworkExternalRef.metadataHash`，并按
 `externalRefId + metadataHash` 追加或复用不可变 `ArtworkSourceSnapshot`，保存规范化与原始来源证据。刷新仍尊重
-title/description override，保留既有 Artist、MANUAL/DERIVED/LEGACY 或其他来源标签、现有媒体顺序，并且不删除
-来源中不再出现的媒体。
+title/description override，保留既有 Artist、MANUAL/DERIVED、未被当前来源再次确认的 LEGACY 或其他来源标签、现有媒体顺序，并且不删除
+来源中不再出现的媒体；当前 Pixiv 元数据明确包含的同名 LEGACY 标签会认领为该 Pixiv 引用的 SOURCE 标签。
 
 `JWT_SECRET`/`JWT_TTL` 仍存在于环境模板和遗留依赖中，但当前浏览器登录与服务端会话由 Better Auth 负责，不能继续把系统描述为“基于 JWT 的无状态认证”。
 `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 也只保留在环境模板中，当前首次账户由 `/login` 初始化 Action 创建。
@@ -217,10 +220,10 @@ sequenceDiagram
 | Lane                | 固定并发 | 工作范围                                                  |
 | ------------------- | -------- | --------------------------------------------------------- |
 | `ARCHIVE_RESOLVE`   | 1        | 仅 `ARCHIVE_RESOLVE_ITEM`，不写原媒体、派生媒体或 staging |
-| `BACKGROUND_WRITER` | 1        | 其余 19 类 job；所有媒体、扫描、迁移、替换和维护写操作    |
+| `BACKGROUND_WRITER` | 1        | 其余 20 类 job；所有媒体、扫描、迁移、替换和维护写操作    |
 
-两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 20 个 job type：`SCAN` 同时注册
-v1/v2/v3，其余 19 类只注册 v1，共 22 个 job type/definition-version 组合。capability audit 精确验证 type、
+两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 21 个 job type：`SCAN` 同时注册
+v1/v2/v3，其余 20 类只注册 v1，共 23 个 job type/definition-version 组合。capability audit 精确验证 type、
 version 与 lane。`SCAN@v1` 承载既有设置页扫描、单作品扫描和 Webhook；`SCAN@v2` 只执行只读
 `CONSISTENCY_AUDIT`；`SCAN@v3` 只执行写入型 `AUDIT_APPLY`。这个版本隔离保证滚动部署中的旧 v2 Worker 不会领取
 v3 apply；生产开放新写入口前仍须确认新 Worker 同时报告 SCAN v1/v2/v3。归档解析主要等待 HTTP 和 PostgreSQL，
@@ -234,18 +237,19 @@ writer 主要等待文件流、Sharp/libvips 与 FFmpeg 子进程；异步等待
 Worker 启动前必须通过以下预检：
 
 - 数据库 migration 和后台队列表结构满足要求；
-- 原媒体、归档和派生媒体目录可读写；
+- 原媒体、归档、派生媒体和 Pixiv data 目录可读写；
 - FFmpeg 与 FFprobe 可执行；
 - 心跳间隔、租约和事务超时配置满足约束。
 
 ## 数据与存储边界
 
-| 数据                     | 权威来源                   | 保护规则                                         |
-| ------------------------ | -------------------------- | ------------------------------------------------ |
-| 领域关系、任务和认证     | PostgreSQL / Prisma Schema | 只通过正式 migration 演进                        |
-| 原媒体和已发布归档       | `PIXISHELF_DATA_PATH` 挂载 | 默认不得静默删除；高风险操作由 Worker 执行并记录 |
-| 视频封面、章节图、代表帧 | `DERIVED_MEDIA_HOST_PATH`  | 可重建，但必须与数据库发布状态一致               |
-| 图片变体与请求缓存       | ImgProxy                   | 非权威、可重新生成                               |
+| 数据                     | 权威来源                     | 保护规则                                          |
+| ------------------------ | ---------------------------- | ------------------------------------------------- |
+| 领域关系、任务和认证     | PostgreSQL / Prisma Schema   | 只通过正式 migration 演进                         |
+| 原媒体和已发布归档       | `PIXISHELF_DATA_PATH` 挂载   | 默认不得静默删除；高风险操作由 Worker 执行并记录  |
+| 视频封面、章节图、代表帧 | `DERIVED_MEDIA_HOST_PATH`    | 可重建，但必须与数据库发布状态一致                |
+| Pixiv 作者图片、标签封面 | `PIXISHELF_PUBLIC_DATA_PATH` | 独立持久目录；通过受鉴权的 `/api/pixiv-data` 读取 |
+| 图片变体与请求缓存       | ImgProxy                     | 非权威、可重新生成                                |
 
 App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制；归档收件只保存相对 staging 路径，实际挂载和可写预检由 Worker 负责。Worker 使用读写挂载，ImgProxy 始终只读。
 
@@ -266,10 +270,10 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 1. 外部来源引用不能定义本地 Artwork 身份。
 2. 同一时间每个执行 lane 最多一个任务；只允许一个 resolver 和一个 writer，所有媒体写仍全局串行。
 3. 通用 Worker 未通过 READY 和 capability 检查时不得恢复调度。
-4. 生产 capability inventory 固定为 20 个 job type、22 个 type/version 组合；`SCAN` 支持 v1/v2/v3，其余
-   19 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
+4. 生产 capability inventory 固定为 21 个 job type、23 个 type/version 组合；`SCAN` 支持 v1/v2/v3，其余
+   20 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
 5. 普通启动和升级使用 `prisma migrate deploy`，不得用 `db:push` 替代 migration 历史。
-6. 原媒体、派生媒体和数据库需要在一致时间点备份和恢复。
+6. 原媒体、派生媒体、Pixiv data 和数据库需要在一致时间点备份和恢复。
 7. 网络下载、FFmpeg 和文件复制不得放在长数据库事务中。
 8. 当前架构只描述已上线事实；未完成方案必须标为 `draft`。
 9. `FULL_RECONCILE` 已退出可执行 contract；数据库只保留历史任务与 `ScanRunMode.FULL` 的只读展示。

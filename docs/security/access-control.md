@@ -122,6 +122,7 @@ sources:
 | `POST /api/artwork/media-chapters/upload`       | Session（代理）                                         | 上传章节 manifest                                                                                               | 高，数据库/派生或媒体侧写入                                     |
 | `DELETE /api/artwork/media-chapters/[image-id]` | Session（代理）                                         | 清除章节记录，可选择删除文件                                                                                    | 高，数据库与文件删除                                            |
 | `GET /api/v1/images/[...path]`                  | Session（代理）+ 路径边界检查                           | 读取并流式返回 `SCAN_PATH` 内媒体，支持 Range                                                                   | 高，原媒体内容读取                                              |
+| `GET/HEAD /api/pixiv-data/[...path]`            | Session（代理）+ 路径、根目录与文件类型检查             | 从独立于 Next `public` 和 ImgProxy 的只读挂载返回作者图片与标签封面                                             | 中，私有来源图片读取                                            |
 | `GET /api/v1/media/[image-id]/chapters`         | Session（代理）                                         | 读取已发布章节 manifest                                                                                         | 中，私有媒体元数据读取                                          |
 | `GET /api/v1/media/[image-id]/keyframes`        | Session（代理）                                         | 读取已发布代表帧 manifest                                                                                       | 中，私有媒体元数据读取                                          |
 
@@ -144,7 +145,7 @@ HTTP Route 新增文件写入、删除、迁移或任务控制时，应使用 Ro
 | `artist`         | 详情、分页                                                      | 创建、修改、收藏、删除                                | 全部 `authProcedure`                                                     |
 | `artwork`        | 详情、feed、相邻、随机、推荐、上传路径                          | 创建、修改、删除、媒体增删与排序                      | 大多为 `authProcedure`；作品删除和视频重新探测为 `adminProcedure`        |
 | `search`         | 搜索建议                                                        | 无                                                    | `authProcedure`                                                          |
-| `tag`            | 查询与管理列表                                                  | 创建、修改、删除                                      | 全部 `authProcedure`                                                     |
+| `tag`            | 查询、管理列表与 Pixiv 补全状态                                 | 创建、修改、删除、批量补全与单标签重试                | 普通管理为 `authProcedure`；Pixiv 补全读写为 `adminProcedure`            |
 | `series`         | `list`、`get`                                                   | 创建、修改、删除、成员增删与排序                      | 读取为 `publicProcedure`，写入为 `authProcedure`；transport 仍需 Session |
 | `setting`        | 健康、扫描路径、系统设置                                        | 修改扫描路径和系统设置                                | 全部 `authProcedure`                                                     |
 | `user`           | 全部账户                                                        | 创建、删除其他账户                                    | 全部 `authProcedure`；新增账户拥有同等管理员能力                         |
@@ -184,15 +185,15 @@ inventory 与 `SCAN@v3` Worker readiness。读取接口只返回相对 metadata 
 
 ## 服务、网络和存储矩阵
 
-| 组件          | 网络入口                                    | 数据库                 | 原媒体                     | 派生媒体   | 当前保护                                                                    |
-| ------------- | ------------------------------------------- | ---------------------- | -------------------------- | ---------- | --------------------------------------------------------------------------- |
-| `app`         | 宿主机 5430 / 反向代理                      | 读写；启动时 migration | 生产默认 `ro`，可配置 `rw` | `rw`       | Better Auth、Bearer Token、代理网络与路径校验                               |
-| `worker`      | 健康端口 3011 仅 Compose 网络，未映射宿主机 | 读写                   | `rw`                       | `rw`       | 同进程双 lane；健康端点无认证，依赖容器网络隔离                             |
-| `scheduler`   | 无入站业务接口，只访问 App                  | 无                     | 无                         | 无         | 仅持有 `INTERNAL_JOB_TOKEN`                                                 |
-| `postgres`    | 默认映射宿主机 5432                         | 数据库本体             | 无                         | 无         | 用户名/密码 + 主机防火墙；Compose 未配置 TLS                                |
-| `imgproxy`    | 默认映射宿主机 5431                         | 无                     | `ro`                       | `ro`       | 仅限制 `local:///media/` 和 `local:///derived-media/` 来源；当前 URL 未签名 |
-| 浏览器扩展    | 浏览器内容脚本                              | 无                     | 无直接挂载                 | 无         | 当前没有定义稳定的 PixiShelf 后端权限契约                                   |
-| `zip-convert` | 本地 CLI，无服务端口                        | 无                     | 读写指定本地目录           | 写转换结果 | 依赖执行它的主机账户；当前源码存在不应入库的外部站点会话凭据                |
+| 组件          | 网络入口                                    | 数据库                 | 原媒体                     | 派生媒体   | Pixiv data | 当前保护                                                                    |
+| ------------- | ------------------------------------------- | ---------------------- | -------------------------- | ---------- | ---------- | --------------------------------------------------------------------------- |
+| `app`         | 宿主机 5430 / 反向代理                      | 读写；启动时 migration | 生产默认 `ro`，可配置 `rw` | `rw`       | `ro`       | Better Auth、Bearer Token、代理网络与路径校验                               |
+| `worker`      | 健康端口 3011 仅 Compose 网络，未映射宿主机 | 读写                   | `rw`                       | `rw`       | `rw`       | 同进程双 lane；健康端点无认证，依赖容器网络隔离                             |
+| `scheduler`   | 无入站业务接口，只访问 App                  | 无                     | 无                         | 无         | 无         | 仅持有 `INTERNAL_JOB_TOKEN`                                                 |
+| `postgres`    | 默认映射宿主机 5432                         | 数据库本体             | 无                         | 无         | 无         | 用户名/密码 + 主机防火墙；Compose 未配置 TLS                                |
+| `imgproxy`    | 默认映射宿主机 5431                         | 无                     | `ro`                       | `ro`       | 无         | 仅限制 `local:///media/` 和 `local:///derived-media/` 来源；当前 URL 未签名 |
+| 浏览器扩展    | 浏览器内容脚本                              | 无                     | 无直接挂载                 | 无         | 无         | 当前没有定义稳定的 PixiShelf 后端权限契约                                   |
+| `zip-convert` | 本地 CLI，无服务端口                        | 无                     | 读写指定本地目录           | 写转换结果 | 无         | 依赖执行它的主机账户；当前源码存在不应入库的外部站点会话凭据                |
 
 ImgProxy Compose 没有配置签名 Key/Salt，且默认发布宿主机端口。反向代理必须将它限制在受信网络或等效的认证路径；仅使用难猜文件路径不能视为授权。PostgreSQL 的宿主机端口也应由防火墙限制，不对互联网开放。
 

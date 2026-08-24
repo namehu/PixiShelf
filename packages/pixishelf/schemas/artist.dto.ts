@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ArtistModel } from './models'
 import { dateToString } from './utils'
-import { combinationStaticAvatar, combinationStaticArtistBg } from '@/utils/combination-static'
+import { buildPixivArtistAvatarUrl, buildPixivArtistBackgroundUrl } from '@/lib/pixiv-data'
 
 /**
  * 艺术家详情查询结构
@@ -32,8 +32,8 @@ export const ArtistResponseDto = ArtistModel.extend({
 }).transform(({ _count, ...artist }) => {
   return {
     ...artist,
-    avatar: combinationStaticAvatar(artist.userId, artist.avatar),
-    backgroundImg: combinationStaticArtistBg(artist.userId, artist.backgroundImg),
+    avatar: buildPixivArtistAvatarUrl(artist.userId, artist.avatar),
+    backgroundImg: buildPixivArtistBackgroundUrl(artist.userId, artist.backgroundImg),
     artworksCount: _count?.artworks || 0
   }
 })

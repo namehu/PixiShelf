@@ -43,11 +43,13 @@ services:
       NODE_ENV: production
       # 固定应用在容器内的派生媒体写入目录，避免受 Next.js 运行时工作目录影响
       DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
+      PIXIV_DATA_STORAGE_PATH: /app/pixiv-data
       ARCHIVE_STORAGE_PATH: /app/data
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connection_limit=20&pool_timeout=20
     volumes:
       # 挂载图片目录 - 根据实际需要调整路径
       - '${PIXISHELF_DATA_PATH:-./data}:/app/data:${PIXISHELF_APP_DATA_MOUNT_MODE:-ro}'
+      - '${PIXISHELF_PUBLIC_DATA_PATH:?PIXISHELF_PUBLIC_DATA_PATH is required}:/app/pixiv-data:ro'
       - '${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/app/.local-data/derived-media'
     networks:
       - pixishelf-network
@@ -77,6 +79,7 @@ services:
       SCAN_DISCOVERY_MAX_ENTRIES: ${SCAN_DISCOVERY_MAX_ENTRIES:-10000000}
       SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES: ${SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES-local-imports,sources,.archive-staging,.trash}
       DERIVED_MEDIA_STORAGE_PATH: /app/.local-data/derived-media
+      PIXIV_DATA_ROOT: /app/pixiv-data
       KEYFRAME_FFMPEG_THREADS: ${KEYFRAME_FFMPEG_THREADS:-2}
       ARCHIVE_MAX_MEDIA_BYTES: ${ARCHIVE_MAX_MEDIA_BYTES:-536870912}
       WORKER_DISPATCH_ENABLED: ${WORKER_DISPATCH_ENABLED:-false}
@@ -88,6 +91,7 @@ services:
       WORKER_DISPATCH_DRAIN_GRACE_MS: ${WORKER_DISPATCH_DRAIN_GRACE_MS:-30000}
     volumes:
       - '${PIXISHELF_DATA_PATH:-./data}:/app/data:rw'
+      - '${PIXISHELF_PUBLIC_DATA_PATH:?PIXISHELF_PUBLIC_DATA_PATH is required}:/app/pixiv-data:rw'
       - '${DERIVED_MEDIA_HOST_PATH:-./derived-media}:/app/.local-data/derived-media:rw'
     depends_on:
       postgres:

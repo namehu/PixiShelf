@@ -2411,7 +2411,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
     })
     expect(refreshedTags).toEqual(
       [
-        { tagId: tags[1]!.id, provenance: 'LEGACY', sourceRefId: null },
+        { tagId: tags[1]!.id, provenance: 'SOURCE', sourceRefId: pixivRef.id },
         { tagId: tags[2]!.id, provenance: 'MANUAL', sourceRefId: null },
         { tagId: tags[3]!.id, provenance: 'DERIVED', sourceRefId: null },
         { tagId: tags[4]!.id, provenance: 'SOURCE', sourceRefId: otherRef.id },

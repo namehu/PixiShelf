@@ -34,6 +34,7 @@ export function getMediaMimeType(filename: string): string | null {
     '.gif': 'image/gif',
     '.bmp': 'image/bmp',
     '.webp': 'image/webp',
+    '.avif': 'image/avif',
     '.svg': 'image/svg+xml',
     '.tiff': 'image/tiff',
     '.tif': 'image/tiff'

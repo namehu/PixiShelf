@@ -247,7 +247,7 @@ describe('scan item checkpoints', () => {
     expect(fixture.imageCreate).not.toHaveBeenCalled()
   })
 
-  it('conservatively merges Pixiv source tags without claiming or deleting other provenance', async () => {
+  it('promotes matching legacy tags while preserving manual, derived, and other-source provenance', async () => {
     const fixture = existingPixivTransaction({
       tags: [
         { tagId: 1, provenance: 'SOURCE', sourceRefId: 'ref-pixiv' },
@@ -293,7 +293,7 @@ describe('scan item checkpoints', () => {
 
     expect(fixture.tags).toEqual([
       { tagId: 2, provenance: 'SOURCE', sourceRefId: 'ref-pixiv' },
-      { tagId: 3, provenance: 'LEGACY', sourceRefId: null },
+      { tagId: 3, provenance: 'SOURCE', sourceRefId: 'ref-pixiv' },
       { tagId: 4, provenance: 'MANUAL', sourceRefId: null },
       { tagId: 5, provenance: 'DERIVED', sourceRefId: null },
       { tagId: 6, provenance: 'SOURCE', sourceRefId: 'ref-other' },
@@ -675,6 +675,14 @@ function existingPixivTransaction(
     if (Object.keys(update).length > 0) throw new Error('The fixture only supports ownership-preserving upserts')
     return existing ?? create
   })
+  const artworkTagUpdateMany = vi.fn(async ({ where, data }) => {
+    const existing = tags.find(
+      (row) => row.tagId === where.tagId && row.provenance === where.provenance && row.sourceRefId === where.sourceRefId
+    )
+    if (!existing) return { count: 0 }
+    Object.assign(existing, data)
+    return { count: 1 }
+  })
   const artworkTagDeleteMany = vi.fn(async ({ where }) => {
     const incoming = new Set<number>(where.tagId?.notIn ?? [])
     let deleted = 0
@@ -715,7 +723,7 @@ function existingPixivTransaction(
         return { id }
       })
     },
-    artworkTag: { deleteMany: artworkTagDeleteMany, upsert: artworkTagUpsert },
+    artworkTag: { deleteMany: artworkTagDeleteMany, updateMany: artworkTagUpdateMany, upsert: artworkTagUpsert },
     image: {
       findMany: vi.fn(async () => options.existingImages ?? []),
       create: imageCreate,

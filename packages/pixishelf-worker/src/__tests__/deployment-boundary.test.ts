@@ -55,6 +55,24 @@ describe('Worker deployment boundary', () => {
     }
   )
 
+  it.each(['docker-compose.dev.yml', 'docker-compose.deploy.yml'])(
+    'mounts the existing Pixiv data directory outside Next public with App read-only and Worker read-write in %s',
+    (filename) => {
+      const compose = readFileSync(new URL(`build/${filename}`, repositoryRoot), 'utf8')
+      const app = compose.slice(compose.indexOf('  app:'), compose.indexOf('  worker:'))
+      const worker = compose.slice(compose.indexOf('  worker:'), compose.indexOf('  scheduler:'))
+      const containerPath = '/app/pixiv-data'
+      const hostMount = '${PIXISHELF_PUBLIC_DATA_PATH:?PIXISHELF_PUBLIC_DATA_PATH is required}'
+
+      expect(app).toContain(`PIXIV_DATA_STORAGE_PATH: ${containerPath}`)
+      expect(app).toContain(`${hostMount}:${containerPath}:ro`)
+      expect(worker).toContain(`PIXIV_DATA_ROOT: ${containerPath}`)
+      expect(worker).toContain(`${hostMount}:${containerPath}:rw`)
+      expect(compose).not.toContain('PIXIV_DATA_HOST_PATH')
+      expect(compose).not.toContain('/app/packages/pixishelf/public/pixiv_data')
+    }
+  )
+
   it('builds and scans only the general Worker image after direct cutover', () => {
     const workflow = readFileSync(new URL('.github/workflows/build-and-deploy.yml', repositoryRoot), 'utf8')
     expect(workflow).toContain('file: ./build/worker.Dockerfile')
@@ -99,7 +117,7 @@ describe('Worker deployment boundary', () => {
     expect(nextPackage).not.toContain('archive:worker')
   })
 
-  it('ships the read-only 20-job capability audit and documents it as a deployment gate', () => {
+  it('ships the read-only 21-job capability audit and documents it as a deployment gate', () => {
     const buildScript = readFileSync(new URL('packages/pixishelf-worker/scripts/build.mjs', repositoryRoot), 'utf8')
     const runbook = readFileSync(new URL('docs/design/background-task-runbook.md', repositoryRoot), 'utf8')
     expect(buildScript).toContain("'capability-audit': 'src/capability-audit.ts'")

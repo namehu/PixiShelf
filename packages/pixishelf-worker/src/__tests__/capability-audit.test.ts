@@ -7,14 +7,14 @@ import {
 import { PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
 
 describe('production Worker capability audit', () => {
-  it('accepts exactly one fresh READY Worker with 20 job types and SCAN v1/v2/v3', async () => {
+  it('accepts exactly one fresh READY Worker with 21 job types and SCAN v1/v2/v3', async () => {
     const findMany = vi.fn().mockResolvedValue([{ capabilities: [...PRODUCTION_WORKER_CAPABILITIES].reverse() }])
     await expect(
       auditProductionWorkerCapabilities(database(findMany), {
         now: new Date('2026-08-17T01:00:00.000Z'),
         freshnessMs: 60_000
       })
-    ).resolves.toEqual({ readyWorkers: 1, capabilities: 20 })
+    ).resolves.toEqual({ readyWorkers: 1, capabilities: 21 })
     expect(findMany).toHaveBeenCalledWith({
       where: { status: 'READY', heartbeatAt: { gte: new Date('2026-08-17T00:59:00.000Z') } },
       orderBy: { workerId: 'asc' },
@@ -23,14 +23,14 @@ describe('production Worker capability audit', () => {
     })
   })
 
-  it('rejects the previous 20-job inventory when SCAN only advertises v1', async () => {
+  it('rejects an incomplete inventory when SCAN only advertises v1', async () => {
     const previousInventory = PRODUCTION_WORKER_CAPABILITIES.map((capability) =>
       capability.jobType === 'SCAN' ? { ...capability, definitionVersions: [1] } : capability
     )
 
     await expect(
       auditProductionWorkerCapabilities(database(vi.fn().mockResolvedValue([{ capabilities: previousInventory }])))
-    ).rejects.toThrow('20-job/22-version dual-lane release')
+    ).rejects.toThrow('21-job/23-version dual-lane release')
   })
 
   it('rejects missing, duplicate, or mismatched online inventories', async () => {
@@ -74,7 +74,7 @@ describe('production Worker capability audit', () => {
 
     expect(exitCode).toBe(0)
     expect(writeOutput).toHaveBeenCalledWith(
-      'Worker capability audit passed: 1 READY Worker, 20 job types / 22 versions (SCAN v1/v2/v3)'
+      'Worker capability audit passed: 1 READY Worker, 21 job types / 23 versions (SCAN v1/v2/v3)'
     )
   })
 

@@ -1,6 +1,7 @@
 import { isGifFile, isVideoFile, isWebpFile } from './media'
 import { API_IMAGE_PREFIX } from './constant'
 import { isDerivedMediaPublicUrl, resolveDerivedMediaSource } from './derived-media'
+import { PIXIV_DATA_API_PREFIX } from './pixiv-data'
 
 // ImgProxy 的服务地址，因为在 Docker Compose 网络中，可以直接用服务名
 // 从浏览器访问时需要用宿主机的 IP 和端口
@@ -42,8 +43,8 @@ export function buildImgproxyImageUrl({ src, width, quality, format = DEFAULT_IM
  * @param {ImgproxyImageOptions} options
  */
 export default function imgproxyLoader({ src, width, quality, format }) {
-  // pixiv_data 下用于存放 artists / tags 图片数据，并通过 public 目录挂载。
-  if (src.startsWith(API_IMAGE_PREFIX) || src.startsWith('/pixiv_data')) {
+  // 受鉴权的媒体 API 自行负责读取文件，不交给 ImgProxy 解析本地路径。
+  if (src.startsWith(API_IMAGE_PREFIX) || src.startsWith(PIXIV_DATA_API_PREFIX)) {
     return src
   }
 

@@ -50,6 +50,8 @@ export async function runStartupPreflight(
   await Promise.all([
     abortable(dependencies.checkPath(config.sourceMediaRoot, 'read-write'), signal),
     abortable(dependencies.checkPath(config.derivedMediaRoot, 'read-write'), signal),
+    // App 只读同一挂载，Worker 必须在启动前确认拥有写权限以保证封面原子落盘。
+    abortable(dependencies.checkPath(config.pixivDataRoot, 'read-write'), signal),
     abortable(dependencies.checkPath(config.archiveRoot, 'read-write'), signal),
     abortable(dependencies.checkExecutable(config.ffmpegPath, config.preflightTimeoutMs, signal), signal),
     abortable(dependencies.checkExecutable(config.ffprobePath, config.preflightTimeoutMs, signal), signal)

@@ -9,6 +9,7 @@ PixiShelf 是一个本地优先、自托管的个人媒体收藏系统。它把�
 - 扫描本地图片和视频收藏，解析目录与来源元数据；
 - 对 Pixiv metadata 生成只读来源一致性报告，并安全同步显式选中的新增或变化项；
 - 管理作品、艺术家、系列、标签、来源引用和本地整理结果；
+- 手动从 Pixiv 公共标签接口补全来源标签的翻译、Pixpedia 简介和本地封面；
 - 提供响应式画廊、筛选、详情页和沉浸浏览；
 - 通过持久 PostgreSQL 队列执行扫描、归档、迁移、替换和媒体维护；
 - 通过持久归档收件箱持续添加 URL、FIFO 解析并多选入队；
@@ -75,6 +76,7 @@ cp packages/pixishelf/.env.example packages/pixishelf/.env.local
 - `packages/pixishelf/.env.local` 在宿主机使用 `127.0.0.1:5432`；
 - `PIXISHELF_DATA_PATH`、`SCAN_PATH` 与 `ARCHIVE_STORAGE_PATH` 应指向同一份原媒体；
 - `DERIVED_MEDIA_HOST_PATH` 与 `DERIVED_MEDIA_STORAGE_PATH` 应指向同一份持久化派生媒体目录；
+- `PIXISHELF_PUBLIC_DATA_PATH` 是既有 Pixiv 作者/标签图片目录；App 只读，Worker 对同一宿主目录读写；
 - 本地完整功能验证时，App 的 `CENTRAL_DISPATCHER_CUTOVER_ENABLED` 与 Worker 的 `WORKER_DISPATCH_ENABLED` 必须同时为 `true`；
 - 修改 `BETTER_AUTH_SECRET`、`INTERNAL_JOB_TOKEN` 和 `SCAN_WEBHOOK_TOKEN`，不要复用环境模板中保留的遗留 `JWT_SECRET`；
 - `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 当前不会自动创建账户，首次账户在 `/login` 初始化页面设置；
@@ -124,7 +126,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 ```
 
 Worker 必须通过 READY 和 capability 检查。后台任务页面应只显示一个当前 READY 实例。
-当前 capability inventory 为 20 个 job type；`SCAN` 支持 v1/v2/v3，其余 19 类只支持 v1，共 22 个
+当前 capability inventory 为 21 个 job type；`SCAN` 支持 v1/v2/v3，其余 20 类只支持 v1，共 23 个
 type/version 组合。READY 必须覆盖
 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个 lane。
 

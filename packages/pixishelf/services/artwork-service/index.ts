@@ -13,7 +13,8 @@ import { VIDEO_EXTENSIONS } from '@/lib/constant'
 import { RandomImageItem, RandomImagesResponse, ViewerFeedResponse } from '@/types/images'
 import { guid } from '@/utils/guid'
 import { MediaType } from '@/types'
-import { combinationApiResource, combinationStaticAvatar } from '@/utils/combination-static'
+import { combinationApiResource } from '@/utils/combination-static'
+import { buildPixivArtistAvatarUrl } from '@/lib/pixiv-data'
 import { getUserArtworkLikeStatus } from '@/services/like-service'
 import logger from '@/lib/logger'
 import { EMediaType } from '@/enums/e-media-type'
@@ -836,7 +837,7 @@ export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, bo
           id: artist.id,
           userId: artist.userId || '',
           name: artist.name,
-          avatar: combinationStaticAvatar(artist.userId, artist.avatar),
+          avatar: buildPixivArtistAvatarUrl(artist.userId, artist.avatar),
           username: artist.username || ''
         }
       : null,

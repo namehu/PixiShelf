@@ -171,7 +171,8 @@ Pixiv 刷新必须按下表限制写入范围：
 | 新发现 Media                   | 可追加，必须通过现有 root/path/媒体限制验证                          |
 | 来源中不再出现的 Media         | 形成核对差异，不自动删除 Image 或原文件                              |
 | SOURCE 标签                    | 只替换当前 Source Reference 明确拥有的标签                           |
-| MANUAL / DERIVED / LEGACY 标签 | 永不由来源刷新删除或改写                                             |
+| MANUAL / DERIVED 标签          | 永不由来源刷新删除或改写                                             |
+| LEGACY 标签                    | 当前来源明确返回同名标签时认领为 SOURCE；否则不删除、不改写          |
 | likes、Series、其他来源        | 永不修改                                                             |
 
 若未来要求来源刷新更新 Artist 或本地媒体顺序，必须先增加可靠的 Local Override/来源排序模型和历史数据迁移，不能通过
@@ -184,10 +185,11 @@ Pixiv 刷新必须按下表限制写入范围：
 1. 删除当前 `sourceRefId` 拥有、但不在新来源集合中的 `SOURCE` 行；
 2. 对每个新来源 tag 使用 `(artworkId, tagId)` 幂等 upsert；
 3. 已存在行属于当前来源时保持不变；
-4. 已存在行属于 `MANUAL`、`DERIVED`、`LEGACY` 或其他来源时保持原归属，不转换、不删除；
-5. 完整来源标签仍保存在 Source Snapshot，因此没有通过强行改 provenance 来制造错误证据。
+4. 已存在行属于 `LEGACY`，且本次来源明确返回同名标签时，转换为当前 Source Reference 的 `SOURCE`；
+5. 已存在行属于 `MANUAL`、`DERIVED` 或其他来源时保持原归属，不转换、不删除；未被本次来源确认的 `LEGACY` 同样保持不变；
+6. 完整来源标签仍保存在 Source Snapshot，不对缺少当前来源证据的关系猜测 provenance。
 
-该规则优先保护用户数据。代价是一个与历史 `LEGACY` 重合的来源标签不会在 `ArtworkTag` 上记录当前来源贡献。
+该规则优先保护用户数据，同时允许当前来源证据逐步修复历史 `LEGACY` 归属。
 若未来需要多个 Source Reference 同时声明同一有效标签，应另行设计来源贡献表，而不是放宽唯一约束后让查询返回重复标签。
 
 ## 5. 持久输入库存
@@ -578,7 +580,7 @@ App 聚焦服务/鉴权/查询测试 136/136、UI 测试 19/19。Next.js typeche
 - 带 `force` 的 HTTP 请求返回参数错误且零任务写入，历史 `FULL_RECONCILE` producer gate 仍拒绝复制和重试；
 - inventory 指纹分类和 digest；
 - 来源字段拥有权矩阵；
-- provenance 合并：同名 LEGACY/MANUAL 不冲突、不转类、不删除；
+- provenance 合并：同名 LEGACY 在当前来源明确返回时认领为 SOURCE；MANUAL/DERIVED/其他来源不转类、不删除；
 - audit result 过期、当前页混合选择、selection 清空、operation URL 恢复与逐项安全文案。
 
 ### 11.2 真实 PostgreSQL

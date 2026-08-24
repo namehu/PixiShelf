@@ -294,6 +294,28 @@ export const derivedMediaGcPayloadSchema = z.object({
   reconcile: z.boolean().default(false)
 })
 
+const pixivTagEnrichmentDiscoverPayloadSchema = z
+  .object({
+    mode: z.literal('DISCOVER'),
+    force: z.boolean().default(false)
+  })
+  .strict()
+
+const pixivTagEnrichmentTagPayloadSchema = z
+  .object({
+    mode: z.literal('TAG'),
+    tagId: z.number().int().positive(),
+    expectedName: z.string().trim().min(1).max(255),
+    force: z.boolean().default(false)
+  })
+  .strict()
+
+export const pixivTagEnrichmentPayloadSchema = z.discriminatedUnion('mode', [
+  pixivTagEnrichmentDiscoverPayloadSchema,
+  pixivTagEnrichmentTagPayloadSchema
+])
+export type PixivTagEnrichmentPayload = z.infer<typeof pixivTagEnrichmentPayloadSchema>
+
 export const JOB_PAYLOAD_SCHEMAS = {
   SCAN: scanPayloadSchema,
   LOCAL_DIRECTORY_IMPORT: localDirectoryImportPayloadSchema,
@@ -314,7 +336,8 @@ export const JOB_PAYLOAD_SCHEMAS = {
   ARCHIVE_INTAKE_RETENTION_CLEANUP: emptyJobPayloadSchema,
   SCAN_RUN_RETENTION_CLEANUP: emptyJobPayloadSchema,
   TRIGGER_LOG_RETENTION_CLEANUP: emptyJobPayloadSchema,
-  DERIVED_MEDIA_GC: derivedMediaGcPayloadSchema
+  DERIVED_MEDIA_GC: derivedMediaGcPayloadSchema,
+  PIXIV_TAG_ENRICHMENT: pixivTagEnrichmentPayloadSchema
 } satisfies Record<JobType, z.ZodType>
 
 export function parseJobPayload(type: JobType, payload: unknown) {

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { TagModel } from './models'
 import { dateToString } from './utils'
-import { combinationStaticTagImage } from '@/utils/combination-static'
+import { buildPixivTagImageUrl } from '@/lib/pixiv-data'
 import { TAG_SELECT } from './models/tags'
 
 /**
@@ -14,7 +14,7 @@ export const TagResponseDto = TagModel.pick(TAG_SELECT).extend({
   image: z
     .string()
     .nullable()
-    .transform((image) => combinationStaticTagImage(image))
+    .transform((image) => buildPixivTagImageUrl(image))
 })
 
 export type TTagResponseDto = z.infer<typeof TagResponseDto>

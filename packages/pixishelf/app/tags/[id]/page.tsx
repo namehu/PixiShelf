@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createSerializer, parseAsInteger, parseAsString } from 'nuqs/server'
-import { ImageUpIcon, TagIcon, WallpaperIcon } from 'lucide-react'
+import { BookOpenTextIcon, ImageUpIcon, TagIcon, WallpaperIcon } from 'lucide-react'
 import { getById } from '@/services/tag-service'
 import { getTranslateName } from '@/utils/tags'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
@@ -90,6 +90,16 @@ export default async function TagDetailPage({ params }: PageProps<'/tags/[id]'>)
             }
           />
         </div>
+
+        {tag.abstract && (
+          <section className="grid gap-2 rounded-xl border bg-card p-5" aria-labelledby="pixpedia-summary-title">
+            <h2 id="pixpedia-summary-title" className="flex items-center gap-2 text-sm font-semibold">
+              <BookOpenTextIcon className="size-4 text-primary" aria-hidden="true" />
+              Pixpedia 简介
+            </h2>
+            <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{tag.abstract}</p>
+          </section>
+        )}
 
         <ArtworkList tagId={tagId} />
       </PageContainer>

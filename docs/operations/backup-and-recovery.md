@@ -36,6 +36,7 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 | 业务数据库 | PostgreSQL custom-format dump                      | 包含领域数据、认证、队列、审计和 `_prisma_migrations` |
 | 原媒体     | `PIXISHELF_DATA_PATH` 对应的同时间点快照           | 不可重新生成，是最高优先级数据                        |
 | 派生媒体   | `DERIVED_MEDIA_HOST_PATH` 对应的同时间点快照       | 多数可重建，但数据库保存发布指针和生成状态            |
+| Pixiv data | `PIXISHELF_PUBLIC_DATA_PATH` 对应的同时间点快照    | 作者图片和标签封面；数据库保存相对路径与检查状态      |
 | 部署配置   | `build/.env`、实际 Compose、反向代理配置           | 含密钥和真实路径，必须加密或严格限制权限              |
 | 程序版本   | App、Worker 的 tag、image ID 或 digest             | 不依赖可变 `latest` 猜测恢复版本                      |
 | 备份清单   | 时间、实例、文件名、SHA-256、快照 ID、操作者、原因 | 用于证明各部分属于同一恢复点                          |
@@ -54,7 +55,7 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 2. 记录 dump 的 SHA-256 和 migration 列表；
 3. 由 NAS/文件系统创建原媒体和派生媒体快照；
 4. 复制当前部署配置和镜像 digest；
-5. 将数据库、两个媒体快照和配置登记成同一完整备份集合；
+5. 将数据库、三个媒体快照和配置登记成同一完整备份集合；
 6. 将至少一个副本放到与生产存储故障域不同的位置。
 
 在线数据库 dump 与普通目录复制并不天然处于同一事务时刻。只有在写入静默且底层存储能提供可协调、可验证的快照语义时，日常流程才能保持在线；否则日常备份也应使用下面的短暂停写窗口。无法证明数据库与媒体兼容的副本不能标记为完整或 `verified`。
@@ -68,7 +69,7 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 3. 停止 App 和通用 Worker；
 4. 停止 Webhook 和所有外部写入脚本；
 5. 确认没有进程继续写数据库、原媒体或派生媒体；
-6. 在停写窗口内创建数据库 dump 和两个媒体快照；
+6. 在停写窗口内创建数据库 dump 和三个媒体快照；
 7. 验证各备份可读后，才启动新版本。
 
 `SCAN@v3 / AUDIT_APPLY` 是正式领域写操作。建立检查点前必须等待它完成，或通过任务控制入口完成取消收口；不能
@@ -112,6 +113,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 
 - `PIXISHELF_DATA_PATH`：原媒体；
 - `DERIVED_MEDIA_HOST_PATH`：封面、章节图、代表帧和其他派生媒体。
+- `PIXISHELF_PUBLIC_DATA_PATH`：Pixiv 作者图片和标签封面。
 
 备份部署配置时至少保留实际 Compose、环境文件和反向代理配置。环境文件权限不得宽于仅管理员可读，例如：
 
@@ -168,7 +170,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 3. 确定恢复点，并核对数据库、原媒体、派生媒体、配置和镜像属于同一备份集合；
 4. 在隔离环境完成一次数据库恢复和媒体抽样；
 5. 评估恢复点之后将丢失的数据，并由实例管理员明确批准正式覆盖；
-6. 使用 NAS/文件系统工具恢复两个媒体目录到目标快照；
+6. 使用 NAS/文件系统工具恢复三个媒体目录到目标快照；
 7. 将数据库恢复到新建的空库或新实例；
 8. 恢复匹配版本的配置和不可变镜像，不混用旧数据库与不兼容的新应用；
 9. scheduler 保持关闭，两枚 Dispatcher 开关先保持 `false/false`；
@@ -186,7 +188,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 - `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
 - 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
 - App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
-- 新 Worker READY、两个 lane、20 个 job type / 22 个 type-version 组合（`SCAN` v1/v2/v3，其余 v1）和同
+- 新 Worker READY、两个 lane、21 个 job type / 23 个 type-version 组合（`SCAN` v1/v2/v3，其余 v1）和同
   lane 单执行证据；
 - 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
 
@@ -200,7 +202,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 
 ### 只有数据库损坏
 
-不能仅恢复数据库后继续使用较新的媒体目录。较新的归档、替换或迁移文件可能与旧数据库无法对应；必须选择与 dump 配对的两个媒体快照，或逐项证明差异可通过领域恢复消除。
+不能仅恢复数据库后继续使用较新的媒体目录。较新的归档、替换、迁移或 Pixiv 标签封面可能与旧数据库无法对应；必须选择与 dump 配对的三个媒体快照，或逐项证明差异可通过领域恢复消除。
 
 ### 只有原媒体损坏
 

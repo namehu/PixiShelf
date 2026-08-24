@@ -381,7 +381,7 @@ async function replaceSourceTags(
   }
 
   // ArtworkTag 使用 (artworkId, tagId) 唯一约束，且一条关系有 provenance/sourceRefId 两个维度。
-  // 刷新时仅清理当前 provider/sourceRef 标记的 SOURCE 标签，避免误删 MANUAL/DERIVED/LEGACY（以及其他来源）归属。
+  // 刷新时仅清理当前 provider/sourceRef 标记的 SOURCE 标签，避免误删 MANUAL/DERIVED/未命中的 LEGACY（以及其他来源）归属。
   await transaction.artworkTag.deleteMany({
     where: {
       artworkId,
@@ -391,6 +391,12 @@ async function replaceSourceTags(
     }
   })
   for (const tagId of tagIds) {
+    // 当前 Pixiv 元数据再次明确声明同名标签时，已有 LEGACY 关系已经具备可验证的来源证据，可以安全认领给当前 ref。
+    // MANUAL、DERIVED 和其他来源关系不满足条件，仍由下面的 ownership-preserving upsert 原样保留。
+    await transaction.artworkTag.updateMany({
+      where: { artworkId, tagId, provenance: 'LEGACY', sourceRefId: null },
+      data: { provenance: 'SOURCE', sourceRefId }
+    })
     await transaction.artworkTag.upsert({
       where: { artworkId_tagId: { artworkId, tagId } },
       create: { artworkId, tagId, provenance: 'SOURCE', sourceRefId },

@@ -96,19 +96,32 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
       return
     }
 
-    const payload = {
-      name_zh: formData.name_zh.trim() || undefined,
-      name_en: formData.name_en.trim() || undefined,
-      description: formData.description.trim() || undefined
-    }
+    const name = formData.name.trim()
+    const nameZh = formData.name_zh.trim() || null
+    const nameEn = formData.name_en.trim() || null
+    const description = formData.description.trim() || null
 
     if (isEdit && tag) {
+      const data: {
+        name?: string
+        name_zh?: string | null
+        name_en?: string | null
+        description?: string | null
+      } = {}
+      if (!tag.isSystem && name !== tag.name) data.name = name
+      if (nameZh !== normalizeExisting(tag.name_zh)) data.name_zh = nameZh
+      if (nameEn !== normalizeExisting(tag.name_en)) data.name_en = nameEn
+      if (description !== normalizeExisting(tag.description)) data.description = description
+      if (Object.keys(data).length === 0) {
+        toast.info('没有需要保存的更改')
+        return
+      }
       updateMutation.mutate({
         id: tag.id,
-        data: tag.isSystem ? payload : { ...payload, name: formData.name.trim() }
+        data
       })
     } else {
-      createMutation.mutate({ ...payload, name: formData.name.trim() })
+      createMutation.mutate({ name, name_zh: nameZh, name_en: nameEn, description })
     }
   }
 
@@ -139,7 +152,9 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
             placeholder="请输入标签名称"
             disabled={Boolean(tag?.isSystem)}
           />
-          {tag?.isSystem && <FieldDescription className="text-xs">系统标签名称由程序维护，不允许修改。</FieldDescription>}
+          {tag?.isSystem && (
+            <FieldDescription className="text-xs">系统标签名称由程序维护，不允许修改。</FieldDescription>
+          )}
         </Field>
 
         {/* 中文名称 */}
@@ -184,4 +199,9 @@ export function TagDialog({ open, onOpenChange, tag, onSuccess }: TagDialogProps
       </FieldGroup>
     </ProDialog>
   )
+}
+
+function normalizeExisting(value: string | null | undefined) {
+  const normalized = value?.trim()
+  return normalized || null
 }

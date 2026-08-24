@@ -10,7 +10,7 @@
 
 - `Dockerfile`：Web/API 的 Next.js standalone 镜像，负责启动前执行数据库迁移。
 - `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和当前全部
-  20 个 job type；`SCAN` 支持 v1/v2/v3，其余 19 类只支持 v1，共 22 个 type/version 组合。
+  21 个 job type；`SCAN` 支持 v1/v2/v3，其余 20 类只支持 v1，共 23 个 type/version 组合。
 - `docker-compose.dev.yml`：本地构建与开发环境。
 - `docker-compose.deploy.yml`：使用预构建镜像的生产环境。
 - `.env.example`：部署变量模板；为防止新环境误消费，Central Dispatcher 开关仍安全地默认关闭。
@@ -33,9 +33,10 @@ Worker 需要以下挂载：
 
 - `PIXISHELF_DATA_PATH` → `/app/data:rw`：原始媒体、归档 staging 与发布目录；
 - `DERIVED_MEDIA_HOST_PATH` → `/app/.local-data/derived-media:rw`：视频代表帧等派生媒体；
+- `PIXISHELF_PUBLIC_DATA_PATH` → `/app/pixiv-data:rw`：既有 Pixiv 作者图片与标签封面目录；宿主机目录不迁移，容器内不进入 Next `public`；
 - PostgreSQL：任务队列、租约、事件、领域检查点与最终发布状态。
 
-启动预检会验证数据库版本、三个媒体目录的读写权限、FFmpeg 与 FFprobe。原始媒体目录必须可写，
+启动预检会验证数据库版本、原媒体、归档、派生媒体和 Pixiv data 目录的读写权限、FFmpeg 与 FFprobe。原始媒体目录必须可写，
 因为扫描、本地导入、迁移和批量替换会在其中执行有检查点的文件操作。任一条件不满足时 Worker 不进入
 READY，也不会领取任务。镜像内健康检查使用 `/livez`；部署确认使用：
 
@@ -117,14 +118,14 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml <command
 
 高风险发布仍建议显式指定服务集合，便于审查本次实际重建范围。
 
-升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH` 和 `DERIVED_MEDIA_HOST_PATH`。新镜像暗启动阶段必须保持：
+升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH`、`DERIVED_MEDIA_HOST_PATH` 和 `PIXISHELF_PUBLIC_DATA_PATH`。新镜像暗启动阶段必须保持：
 
 ```dotenv
 CENTRAL_DISPATCHER_CUTOVER_ENABLED=false
 WORKER_DISPATCH_ENABLED=false
 ```
 
-数据库 dump、两个媒体快照、配置和镜像 digest 必须组成同一套恢复点；频率、验证和演练要求见
+数据库 dump、三个媒体快照、配置和镜像 digest 必须组成同一套恢复点；频率、验证和演练要求见
 [备份与恢复基线](../docs/operations/backup-and-recovery.md)。
 
 生产部署必须先停止写入者、执行专用 `archive:lane-cutover-audit`、创建数据库与媒体一致性备份，再以
@@ -134,9 +135,9 @@ WORKER_DISPATCH_ENABLED=false
 
 两个开关用途不同：`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 让 Next.js 只创建/控制统一队列任务；
 `WORKER_DISPATCH_ENABLED` 才允许通用 Worker claim。开关默认 false，避免镜像升级时意外开始消费。
-当前通用 Registry 已锁定 20 个 job type、22 个 type/version 组合，并校验 job type、definition version 和
-lane；20 类中包括 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE` 四类高风险任务，
-`SCAN` 支持 v1/v2/v3，其余 19 类只支持 v1。新部署仍须先以
+当前通用 Registry 已锁定 21 个 job type、23 个 type/version 组合，并校验 job type、definition version 和
+lane；任务清单中包括 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE` 四类高风险任务，
+`SCAN` 支持 v1/v2/v3，其余 20 类只支持 v1。新部署仍须先以
 `false/false` 暗启动并通过 READY/capability 门禁，然后才能恢复生产稳态的 `true/true`。
 `SCAN@v3` 专用于来源核对后的写入型 `AUDIT_APPLY`；只支持 v2 的旧 Worker 不会领取它。滚动部署的版本隔离不能
 替代发布门禁，开放新 App 写入口前仍必须确认目标 Worker 同时报告 SCAN v1/v2/v3。

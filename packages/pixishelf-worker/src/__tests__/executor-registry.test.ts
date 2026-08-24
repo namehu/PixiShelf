@@ -122,6 +122,7 @@ describe('ExecutorRegistry', () => {
         archiveRoot: '/media/archive',
         sourceMediaRoot: '/media/source',
         derivedMediaRoot: '/media/derived',
+        pixivDataRoot: '/media/pixiv-data',
         archiveMaxMediaBytes: 512 * 1024 * 1024,
         scanDiscoveryMaxEntries: 10_000_000,
         scanDiscoveryExcludedRootDirectories: ['local-imports', 'sources', '.archive-staging', '.trash'],
@@ -132,7 +133,7 @@ describe('ExecutorRegistry', () => {
     })
 
     const capabilities = registry.capabilities()
-    expect(capabilities).toHaveLength(20)
+    expect(capabilities).toHaveLength(21)
     expect(capabilities).toEqual(PRODUCTION_WORKER_CAPABILITIES)
     expect(capabilities.find((capability) => capability.jobType === 'SCAN')?.definitionVersions).toEqual([1, 2, 3])
     expect(
@@ -148,6 +149,7 @@ describe('ExecutorRegistry', () => {
         archiveRoot: '/media/archive',
         sourceMediaRoot: '/media/source',
         derivedMediaRoot: '/media/derived',
+        pixivDataRoot: '/media/pixiv-data',
         archiveMaxMediaBytes: 512 * 1024 * 1024,
         scanDiscoveryMaxEntries: 25_000_000,
         scanDiscoveryExcludedRootDirectories: ['incoming'],
@@ -164,6 +166,7 @@ describe('ExecutorRegistry', () => {
       posterStorageRoot: path.join('/media/derived', 'video', 'posters'),
       chapterPreviewRoot: path.join('/media/derived', 'video', 'chapters'),
       keyframeStorageRoot: path.join('/media/derived', 'video', 'keyframes'),
+      pixivDataRoot: '/media/pixiv-data',
       ffmpegPath: '/usr/bin/ffmpeg',
       ffprobePath: '/usr/bin/ffprobe',
       ffmpegThreads: 3

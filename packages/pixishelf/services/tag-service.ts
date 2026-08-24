@@ -209,8 +209,10 @@ export async function getRandomTags(params: { page: number; pageSize: number }):
  */
 export async function getUntranslatedTagNames(): Promise<string[]> {
   const tags = await prisma.tag.findMany({
+    // translateType 可能来自旧数据或人工清空操作，导出语义以实际两个翻译字段为准。
     where: {
-      translateType: 'NONE'
+      name_zh: null,
+      name_en: null
     },
     select: {
       name: true
@@ -234,7 +236,18 @@ export async function createTag(data: {
   if (existing) {
     throw new Error('Tag already exists')
   }
-  return prisma.tag.create({ data: { ...data, namespace: 'general' } })
+  const nameZh = normalizeNullableText(data.name_zh)
+  const nameEn = normalizeNullableText(data.name_en)
+  return prisma.tag.create({
+    data: {
+      ...data,
+      name_zh: nameZh,
+      name_en: nameEn,
+      description: normalizeNullableText(data.description),
+      translateType: nameZh || nameEn ? 'MANUAL' : 'NONE',
+      namespace: 'general'
+    }
+  })
 }
 
 /**
@@ -246,7 +259,7 @@ export async function updateTag(
 ) {
   const tag = await prisma.tag.findUnique({
     where: { id },
-    select: { isSystem: true, name: true }
+    select: { isSystem: true, name: true, name_zh: true, name_en: true }
   })
   if (!tag) {
     throw new Error('Tag not found')
@@ -269,7 +282,25 @@ export async function updateTag(
       throw new Error('Tag name already exists')
     }
   }
-  return prisma.tag.update({ where: { id }, data })
+  const updateData: Prisma.TagUpdateInput = { ...data }
+  if (data.name_zh !== undefined) updateData.name_zh = normalizeNullableText(data.name_zh)
+  if (data.name_en !== undefined) updateData.name_en = normalizeNullableText(data.name_en)
+  if (data.description !== undefined) updateData.description = normalizeNullableText(data.description)
+  const translationChanged =
+    (data.name_zh !== undefined && normalizeNullableText(data.name_zh) !== normalizeNullableText(tag.name_zh)) ||
+    (data.name_en !== undefined && normalizeNullableText(data.name_en) !== normalizeNullableText(tag.name_en))
+  if (translationChanged) {
+    // 只要任一翻译字段仍有值就视为人工维护；描述或封面变更不应改写翻译归属。
+    const resultingNameZh = data.name_zh !== undefined ? normalizeNullableText(data.name_zh) : tag.name_zh
+    const resultingNameEn = data.name_en !== undefined ? normalizeNullableText(data.name_en) : tag.name_en
+    updateData.translateType = resultingNameZh || resultingNameEn ? 'MANUAL' : 'NONE'
+  }
+  return prisma.tag.update({ where: { id }, data: updateData })
+}
+
+function normalizeNullableText(value: string | null | undefined): string | null {
+  const normalized = value?.trim()
+  return normalized ? normalized : null
 }
 
 /**
