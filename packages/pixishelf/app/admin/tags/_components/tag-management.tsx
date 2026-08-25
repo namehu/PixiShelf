@@ -304,11 +304,7 @@ export default function TagManagement() {
       header: '封面',
       size: 112,
       cell: ({ row }) => (
-        <TagCoverThumbnail
-          tag={row.original}
-          checked={Boolean(row.original.pixivSync)}
-          onPreview={setPreviewedCover}
-        />
+        <TagCoverThumbnail tag={row.original} checked={Boolean(row.original.pixivSync)} onPreview={setPreviewedCover} />
       )
     },
     {
@@ -497,9 +493,7 @@ export default function TagManagement() {
                 <Switch
                   id="tag-cover-column-visibility"
                   checked={columnVisibility.cover !== false}
-                  onCheckedChange={(checked) =>
-                    setColumnVisibility((current) => ({ ...current, cover: checked }))
-                  }
+                  onCheckedChange={(checked) => setColumnVisibility((current) => ({ ...current, cover: checked }))}
                 />
                 <Label htmlFor="tag-cover-column-visibility" className="cursor-pointer">
                   显示封面

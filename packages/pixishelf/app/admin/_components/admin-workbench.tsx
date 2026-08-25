@@ -23,14 +23,8 @@ export function AdminWorkbench({
   ...props
 }: AdminWorkbenchProps) {
   return (
-    <div className={cn('flex min-w-0 flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8', className)} {...props}>
-      <PageHeader
-        title={title}
-        description={description}
-        eyebrow={eyebrow}
-        metadata={metadata}
-        actions={actions}
-      />
+    <div className={cn('flex min-w-0 flex-col gap-2 px-4 py-6 sm:px-6 lg:px-8', className)} {...props}>
+      <PageHeader title={title} description={description} eyebrow={eyebrow} metadata={metadata} actions={actions} />
       <div className={cn('min-w-0', contentClassName)}>{children}</div>
     </div>
   )
@@ -89,13 +83,17 @@ export function AdminMetric({
   icon?: ReactNode
 }) {
   return (
-    <div className={cn('flex min-w-0 items-start justify-between gap-4 border-t border-border py-4', className)} {...props}>
+    <div className={cn('flex min-w-0 items-start justify-between gap-2', className)} {...props}>
       <div className="min-w-0">
         <p className="text-sm text-muted-foreground">{label}</p>
-        <div className="font-utility mt-1 text-2xl font-semibold tracking-tight text-foreground tabular-nums">{value}</div>
+        <div className="font-utility mt-1 text-2xl font-semibold tracking-tight text-foreground tabular-nums">
+          {value}
+        </div>
         {description ? <p className="mt-1 text-xs text-muted-foreground">{description}</p> : null}
       </div>
-      {icon ? <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent text-primary">{icon}</div> : null}
+      {icon ? (
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent text-primary">{icon}</div>
+      ) : null}
     </div>
   )
 }
