@@ -7,14 +7,13 @@ import {
   getJobById,
   lockSingletonJobType
 } from '@/services/background-task'
-import { ACTIVE_JOB_STATUSES } from '@pixishelf/job-contracts'
+import { ACTIVE_JOB_STATUSES, PIXIV_TAG_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
 import { Prisma } from '@pixishelf/db'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 
 const JOB_TYPE = 'PIXIV_TAG_ENRICHMENT' as const
 const PROVIDER_KEY = 'pixiv'
 const CANCEL_CONCURRENCY_RETRY_LIMIT = 3
-const MAX_SELECTED_TAGS = 1_000
 
 export const pixivTagCandidateWhere = {
   namespace: 'general',
@@ -97,8 +96,8 @@ export async function getPixivTagEnrichmentSummary() {
 
 export async function startPixivTagEnrichment(requestedByUserId: string, tagIds?: number[]) {
   const selectedTagIds = tagIds ? [...new Set(tagIds)].sort((left, right) => left - right) : undefined
-  if (selectedTagIds && selectedTagIds.length > MAX_SELECTED_TAGS) {
-    throw new Error(`一次最多选择 ${MAX_SELECTED_TAGS} 个标签`)
+  if (selectedTagIds && selectedTagIds.length > PIXIV_TAG_ENRICHMENT_BATCH_LIMIT) {
+    throw new Error(`一次最多选择 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 个标签`)
   }
 
   // 发现任务按 ID 分页，并把当时的 tagId/name 固化到可重试子任务；执行前仍会重新校验来源关系。

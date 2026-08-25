@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, CircleStop, Clock3, Info, Sparkles } from 'lucide-react'
+import { PIXIV_TAG_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -95,6 +96,8 @@ export function PixivTagEnrichmentDialog({
   const displayedTags = submittedSelection ?? (hasBatchSession ? [] : selectedTags)
   const selectedTagIds = displayedTags.map((tag) => tag.id)
   const selectedMode = selectedTagIds.length > 0
+  const selectionExceedsLimit = selectedMode && selectedTagIds.length > PIXIV_TAG_ENRICHMENT_BATCH_LIMIT
+  const nextBatchCount = Math.min(summary?.candidateCount ?? 0, PIXIV_TAG_ENRICHMENT_BATCH_LIMIT)
   const submittedBatchFinished = Boolean(
     sessionBatchId &&
       !active &&
@@ -147,13 +150,15 @@ export function PixivTagEnrichmentDialog({
           </Alert>
         ) : (
           <div className="grid gap-4">
-            <Alert variant="info">
+            <Alert variant={selectionExceedsLimit ? 'warning' : 'info'}>
               <Info aria-hidden="true" />
-              <AlertTitle>仅填充空字段</AlertTitle>
+              <AlertTitle>{selectionExceedsLimit ? '选择数量超过限制' : '仅填充空字段'}</AlertTitle>
               <AlertDescription>
-                {selectedMode
-                  ? '所选标签即使检查过也会重新查询，但已有翻译、人工描述和封面仍不会被覆盖。'
-                  : '已有翻译、人工描述和封面都不会被覆盖；已检查过的标签默认跳过。'}
+                {selectionExceedsLimit
+                  ? `一次最多选择 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 个标签，当前已选择 ${selectedTagIds.length} 个。`
+                  : selectedMode
+                    ? '所选标签即使检查过也会重新查询，但已有翻译、人工描述和封面仍不会被覆盖。'
+                    : `每批最多处理 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 个尚未检查的标签；已有翻译、人工描述和封面都不会被覆盖。`}
               </AlertDescription>
             </Alert>
 
@@ -225,11 +230,18 @@ export function PixivTagEnrichmentDialog({
             <Button
               onClick={() => startMutation.mutate({ tagIds: selectedMode ? selectedTagIds : undefined })}
               disabled={
-                startMutation.isPending || summaryQuery.isLoading || (!selectedMode && !summary?.candidateCount)
+                startMutation.isPending ||
+                summaryQuery.isLoading ||
+                selectionExceedsLimit ||
+                (!selectedMode && !summary?.candidateCount)
               }
             >
               {startMutation.isPending ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
-              {selectedMode ? `补全已选 ${selectedTagIds.length} 项` : '开始补全'}
+              {selectionExceedsLimit
+                ? `已选 ${selectedTagIds.length} 项（最多 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 项）`
+                : selectedMode
+                  ? `补全已选 ${selectedTagIds.length} 项`
+                  : `开始下一批（${nextBatchCount} 个）`}
             </Button>
           )}
         </DialogFooter>

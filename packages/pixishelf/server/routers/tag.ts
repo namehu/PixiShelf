@@ -4,6 +4,7 @@ import * as tagService from '@/services/tag-service'
 import { prisma } from '@/lib/prisma'
 import { TagManagementStats } from '@/types/tags'
 import { Prisma } from '@pixishelf/db'
+import { PIXIV_TAG_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
 import { buildPixivTagImageUrl } from '@/lib/pixiv-data'
 import {
   cancelPixivTagEnrichment,
@@ -261,7 +262,11 @@ export const tagRouter = router({
   pixivEnrichmentSummary: adminProcedure.query(() => getPixivTagEnrichmentSummary()),
 
   startPixivEnrichment: adminProcedure
-    .input(z.object({ tagIds: z.array(z.number().int().positive()).min(1).max(1_000).optional() }))
+    .input(
+      z.object({
+        tagIds: z.array(z.number().int().positive()).min(1).max(PIXIV_TAG_ENRICHMENT_BATCH_LIMIT).optional()
+      })
+    )
     .mutation(({ input, ctx }) => startPixivTagEnrichment(ctx.userId, input.tagIds)),
 
   cancelPixivEnrichment: adminProcedure.mutation(() => cancelPixivTagEnrichment()),

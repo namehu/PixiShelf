@@ -41,6 +41,7 @@ export const calendarDateSchema = z
 
 const boundedIdSchema = z.string().trim().min(1).max(128)
 const positiveTagIdSchema = z.number().int().positive()
+export const PIXIV_TAG_ENRICHMENT_BATCH_LIMIT = 200
 const uniquePositiveTagIdsSchema = (maximum: number) =>
   z
     .array(positiveTagIdSchema)
@@ -298,6 +299,8 @@ const pixivTagEnrichmentDiscoverPayloadSchema = z
   .object({
     mode: z.literal('DISCOVER'),
     force: z.boolean().default(false),
+    // Persisted jobs created before the bounded-batch rollout may contain up to 1,000 selected IDs.
+    // New producers enforce PIXIV_TAG_ENRICHMENT_BATCH_LIMIT without invalidating those queued payloads.
     tagIds: z.array(z.number().int().positive()).min(1).max(1_000).optional()
   })
   .strict()

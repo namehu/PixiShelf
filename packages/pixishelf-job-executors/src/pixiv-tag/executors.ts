@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { Prisma, PrismaClient } from '@pixishelf/db'
 import {
   JOB_DEFINITION_VERSION,
+  PIXIV_TAG_ENRICHMENT_BATCH_LIMIT,
   pixivTagEnrichmentPayloadSchema,
   type JobErrorCode,
   type PixivTagEnrichmentPayload
@@ -18,7 +19,6 @@ import { fetchPixivTagMetadata, PixivTagRequestError, type NormalizedPixivTagMet
 import { PixivTagImageError, storePixivTagImage } from './storage.ts'
 
 const PROVIDER_KEY = 'pixiv'
-const DISCOVERY_PAGE_SIZE = 200
 const CHILD_QUEUE_PRIORITY = 900
 const ERROR_MESSAGE_LIMIT = 2_000
 
@@ -82,7 +82,7 @@ async function executeDiscovery(
           ...(payload.force ? {} : { externalMetadata: { none: { providerKey: PROVIDER_KEY } } })
         },
         orderBy: { id: 'asc' },
-        take: DISCOVERY_PAGE_SIZE,
+        take: PIXIV_TAG_ENRICHMENT_BATCH_LIMIT,
         select: { id: true, name: true }
       })
       if (page.length === 0) break
@@ -101,12 +101,14 @@ async function executeDiscovery(
         else reused += 1
       }
       await context.progress({
-        progress: Math.min(95, 5 + Math.floor(discovered / DISCOVERY_PAGE_SIZE) * 5),
+        progress: payload.tagIds ? Math.min(95, Math.floor((discovered / payload.tagIds.length) * 95)) : 95,
         stage: 'DISCOVERING',
         message: `已发现 ${discovered} 个标签，创建 ${enqueued} 个补全任务`,
         data: { discovered, enqueued, reused }
       })
-      if (page.length < DISCOVERY_PAGE_SIZE) break
+      // 无显式选择时只物化下一批；显式选择保留对升级前已持久化大批次的兼容执行能力。
+      if (!payload.tagIds || discovered >= payload.tagIds.length || page.length < PIXIV_TAG_ENRICHMENT_BATCH_LIMIT)
+        break
     }
     return {
       kind: 'completed',

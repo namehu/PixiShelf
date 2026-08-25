@@ -76,6 +76,16 @@ describe('Pixiv tag enrichment control service', () => {
     )
   })
 
+  it('rejects a selected batch larger than the bounded enrichment batch', async () => {
+    await expect(
+      startPixivTagEnrichment(
+        'user-1',
+        Array.from({ length: 201 }, (_, index) => index + 1)
+      )
+    ).rejects.toThrow('一次最多选择 200 个标签')
+    expect(mocks.enqueueSingleton).not.toHaveBeenCalled()
+  })
+
   it('serializes explicit retries and freezes the current tag name', async () => {
     await retryPixivTagEnrichment(7, 'user-1')
 

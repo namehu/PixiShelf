@@ -39,6 +39,26 @@ describe('Pixiv tag enrichment executor', () => {
     )
   })
 
+  it('materializes only the next 200 unexamined tags in a default batch', async () => {
+    const page = Array.from({ length: 200 }, (_, index) => ({ id: index + 1, name: `tag-${index + 1}` }))
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce(page)
+      .mockResolvedValueOnce([{ id: 201, name: 'must-not-be-enqueued' }])
+    const enqueueChild = vi.fn().mockResolvedValue({ id: 'child', created: true })
+    const [registration] = createPixivTagExecutorRegistrations({
+      database: { tag: { findMany } } as never,
+      pixivDataRoot: '/pixiv-data'
+    })
+
+    const outcome = await registration!.execute(context({ mode: 'DISCOVER', force: false }, { enqueueChild }) as never)
+
+    expect(outcome).toMatchObject({ kind: 'completed', result: { discovered: 200, enqueued: 200 } })
+    expect(findMany).toHaveBeenCalledTimes(1)
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 200 }))
+    expect(enqueueChild).toHaveBeenCalledTimes(200)
+  })
+
   it('fills only missing fields and preserves manual translation ownership', async () => {
     const update = vi.fn().mockResolvedValue(undefined)
     const upsert = vi.fn().mockResolvedValue(undefined)

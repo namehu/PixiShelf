@@ -106,4 +106,43 @@ describe('PixivTagEnrichmentDialog', () => {
     expect(screen.getByRole('button', { name: '关闭' })).toBeTruthy()
     await waitFor(() => expect(onStatusChanged).toHaveBeenCalledTimes(1))
   })
+
+  it('starts only the next bounded default batch', () => {
+    render(
+      <PixivTagEnrichmentDialog
+        open
+        onOpenChange={vi.fn()}
+        onBatchStarted={vi.fn()}
+        onStatusChanged={vi.fn()}
+        selectedTags={[]}
+      />
+    )
+
+    expect(screen.getByText('每批最多处理 200 个尚未检查的标签；已有翻译、人工描述和封面都不会被覆盖。')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '开始下一批（10 个）' }))
+    expect(mocks.startInput).toEqual({ tagIds: undefined })
+  })
+
+  it('blocks a selected batch larger than 200 tags', () => {
+    const tooManyTags = Array.from({ length: 201 }, (_, index) => ({
+      id: index + 1,
+      name: `tag-${index + 1}`,
+      image: '',
+      checked: false
+    }))
+    render(
+      <PixivTagEnrichmentDialog
+        open
+        onOpenChange={vi.fn()}
+        onBatchStarted={vi.fn()}
+        onStatusChanged={vi.fn()}
+        selectedTags={tooManyTags}
+      />
+    )
+
+    expect(screen.getByText('一次最多选择 200 个标签，当前已选择 201 个。')).toBeTruthy()
+    expect((screen.getByRole('button', { name: '已选 201 项（最多 200 项）' }) as HTMLButtonElement).disabled).toBe(
+      true
+    )
+  })
 })
