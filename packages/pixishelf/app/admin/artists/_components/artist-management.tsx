@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useCallback, useMemo, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTRPCClient, useTRPC } from '@/lib/trpc'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { Input } from '@/components/ui/input'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
-import { RowSelectionState, SortingState } from '@tanstack/react-table'
+import { RowSelectionState, SortingState, VisibilityState } from '@tanstack/react-table'
 import { Search, RotateCcw, Edit, Trash, ExternalLink, Plus, Star, Sparkles, RefreshCw, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ArtistDialog } from './artist-dialog'
@@ -18,7 +18,9 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
+import { Switch } from '@/components/ui/switch'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
 import { PixivArtistEnrichmentDialog } from './pixiv-artist-enrichment-dialog'
 
@@ -77,6 +79,10 @@ export function ArtistManagement() {
   const [editingArtist, setEditingArtist] = useState<ArtistListItem | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    avatar: true,
+    backgroundImg: true
+  })
   const loadedArtistsRef = useRef(new Map<number, ArtistListItem>())
   const selectedArtistIds = Object.keys(rowSelection).map(Number)
   const selectedArtists = selectedArtistIds
@@ -288,6 +294,7 @@ export function ArtistManagement() {
       {
         accessorKey: 'avatar',
         header: '头像',
+        size: 76,
         cell: ({ row }) => {
           const avatar = row.getValue('avatar') as string
           const name = row.getValue('name') as string
@@ -298,6 +305,12 @@ export function ArtistManagement() {
             </Avatar>
           )
         }
+      },
+      {
+        accessorKey: 'backgroundImg',
+        header: '背景图',
+        size: 112,
+        cell: ({ row }) => <ArtistBackgroundThumbnail name={row.original.name} image={row.original.backgroundImg} />
       },
       {
         accessorKey: 'name',
@@ -437,19 +450,35 @@ export function ArtistManagement() {
         onPaginationChange={handlePaginationChange}
         sorting={sorting}
         onSortingChange={handleSortingChange}
+        columnVisibility={columnVisibility}
+        onColumnVisibilityChange={setColumnVisibility}
         rowSelection={rowSelection}
         onRowSelectionChange={setRowSelection}
         headerTitle="艺术家列表"
-        toolBarRender={() =>
-          selectedArtistIds.length ? (
-            <>
-              <span className="text-sm text-muted-foreground">已选择 {selectedArtistIds.length} 项</span>
-              <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
-                清除选择
-              </Button>
-            </>
-          ) : null
-        }
+        toolBarRender={() => (
+          <>
+            {selectedArtistIds.length ? (
+              <>
+                <span className="text-sm text-muted-foreground">已选择 {selectedArtistIds.length} 项</span>
+                <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
+                  清除选择
+                </Button>
+              </>
+            ) : null}
+            <div className="flex items-center gap-2">
+              <Switch
+                id="artist-image-column-visibility"
+                checked={columnVisibility.avatar !== false && columnVisibility.backgroundImg !== false}
+                onCheckedChange={(checked) =>
+                  setColumnVisibility((current) => ({ ...current, avatar: checked, backgroundImg: checked }))
+                }
+              />
+              <Label htmlFor="artist-image-column-visibility" className="cursor-pointer">
+                显示图片
+              </Label>
+            </div>
+          </>
+        )}
         searchRender={() => (
           <div className="flex flex-wrap items-center gap-2 w-full">
             <Select
@@ -526,6 +555,35 @@ export function ArtistManagement() {
         }))}
       />
     </div>
+  )
+}
+
+function ArtistBackgroundThumbnail({ name, image }: { name: string; image: string | null }) {
+  const [loadFailed, setLoadFailed] = useState(false)
+
+  useEffect(() => setLoadFailed(false), [image])
+
+  if (!image || loadFailed) {
+    return (
+      <span
+        className="inline-flex h-11 w-20 rounded-md border border-dashed bg-muted/30"
+        aria-label={`艺术家 ${name} 没有背景图`}
+      />
+    )
+  }
+
+  return (
+    <span className="relative inline-flex h-11 w-20 overflow-hidden rounded-md border bg-muted">
+      {/* 背景图既可能是受 Session 保护的站内 API，也可能是管理员维护的外部 URL。 */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={image}
+        alt={`艺术家 ${name} 的背景图`}
+        className="size-full object-cover"
+        loading="lazy"
+        onError={() => setLoadFailed(true)}
+      />
+    </span>
   )
 }
 
