@@ -20,6 +20,8 @@ import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useTRPC } from '@/lib/trpc'
 
+const ACTIVE_BATCH_STATUSES = new Set(['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'])
+
 interface PixivTagEnrichmentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -62,7 +64,7 @@ export function PixivTagEnrichmentDialog({
             ? '已有 Pixiv 标签补全任务正在运行'
             : requestedTagIds.length
               ? `已创建 ${requestedTagIds.length} 个标签的补全批次`
-              : 'Pixiv 标签补全任务已创建'
+              : 'Pixiv 标签全量补全任务已创建'
         )
         if (!reused) {
           trackedBatchId.current = job.id
@@ -87,9 +89,15 @@ export function PixivTagEnrichmentDialog({
   )
 
   const summary = summaryQuery.data
-  const progress = summary?.children.total
-    ? Math.round((summary.children.completed / summary.children.total) * 100)
-    : (summary?.activeJob?.progress ?? 0)
+  const discoveryActive = Boolean(
+    summary?.latestBatch?.stage === 'DISCOVERING' && ACTIVE_BATCH_STATUSES.has(summary.latestBatch.status)
+  )
+  const progress = discoveryActive
+    ? (summary?.latestBatch?.progress ?? 0)
+    : summary?.children.total
+      ? Math.round((summary.children.completed / summary.children.total) * 100)
+      : (summary?.activeJob?.progress ?? 0)
+  const activeMessage = discoveryActive ? summary?.latestBatch?.message : summary?.activeJob?.message
   const active = Boolean(summary?.activeJob)
   const sessionBatchId = submittedBatchId ?? trackedBatchId.current
   const hasBatchSession = hasSubmitted || Boolean(sessionBatchId) || active
@@ -97,7 +105,6 @@ export function PixivTagEnrichmentDialog({
   const selectedTagIds = displayedTags.map((tag) => tag.id)
   const selectedMode = selectedTagIds.length > 0
   const selectionExceedsLimit = selectedMode && selectedTagIds.length > PIXIV_TAG_ENRICHMENT_BATCH_LIMIT
-  const nextBatchCount = Math.min(summary?.candidateCount ?? 0, PIXIV_TAG_ENRICHMENT_BATCH_LIMIT)
   const submittedBatchFinished = Boolean(
     sessionBatchId &&
       !active &&
@@ -135,7 +142,7 @@ export function PixivTagEnrichmentDialog({
           <DialogDescription>
             {selectedMode
               ? `重新查询已选择的 ${selectedTagIds.length} 个 Pixiv 来源标签。`
-              : '查询尚未检查的 Pixiv 来源标签，并补充翻译、Pixpedia 简介和封面。'}
+              : '查询并连续补全全部尚未检查的 Pixiv 来源标签。'}
           </DialogDescription>
         </DialogHeader>
 
@@ -152,13 +159,15 @@ export function PixivTagEnrichmentDialog({
           <div className="grid gap-4">
             <Alert variant={selectionExceedsLimit ? 'warning' : 'info'}>
               <Info aria-hidden="true" />
-              <AlertTitle>{selectionExceedsLimit ? '选择数量超过限制' : '仅填充空字段'}</AlertTitle>
+              <AlertTitle>
+                {selectionExceedsLimit ? '选择数量超过限制' : selectedMode ? '仅填充空字段' : '连续补全全部待检查标签'}
+              </AlertTitle>
               <AlertDescription>
                 {selectionExceedsLimit
                   ? `一次最多选择 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 个标签，当前已选择 ${selectedTagIds.length} 个。`
                   : selectedMode
                     ? '所选标签即使检查过也会重新查询，但已有翻译、人工描述和封面仍不会被覆盖。'
-                    : `每批最多处理 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 个尚未检查的标签；已有翻译、人工描述和封面都不会被覆盖。`}
+                    : `当前 ${summary?.candidateCount ?? 0} 个候选会按每页 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 个发现并全部排入持久队列；关闭页面不影响执行，已有字段不会被覆盖。`}
               </AlertDescription>
             </Alert>
 
@@ -181,8 +190,9 @@ export function PixivTagEnrichmentDialog({
                 </div>
                 <Progress value={progress} />
                 <p className="text-xs text-muted-foreground">
-                  {summary?.activeJob?.message || 'Worker 正在处理标签'}
+                  {activeMessage || 'Worker 正在处理标签'}
                   {summary?.children.total ? `（${summary.children.completed}/${summary.children.total}）` : ''}
+                  {' 关闭页面不影响后台执行。'}
                 </p>
               </div>
             )}
@@ -241,7 +251,7 @@ export function PixivTagEnrichmentDialog({
                 ? `已选 ${selectedTagIds.length} 项（最多 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 项）`
                 : selectedMode
                   ? `补全已选 ${selectedTagIds.length} 项`
-                  : `开始下一批（${nextBatchCount} 个）`}
+                  : `连续补全全部（${summary?.candidateCount ?? 0} 个）`}
             </Button>
           )}
         </DialogFooter>

@@ -64,8 +64,23 @@ async function executeDiscovery(
   let discovered = 0
   let enqueued = 0
   let reused = 0
+  let pageCount = 0
   try {
     await context.progress({ progress: 1, stage: 'DISCOVERING', message: '正在发现可从 Pixiv 补全的标签...' })
+    const totalCandidates = await dependencies.database.tag.count({
+      where: {
+        namespace: 'general',
+        isSystem: false,
+        artworkTags: {
+          some: {
+            provenance: 'SOURCE',
+            sourceRef: { is: { providerKey: PROVIDER_KEY } }
+          }
+        },
+        ...(payload.tagIds ? { id: { in: payload.tagIds } } : {}),
+        ...(payload.force ? {} : { externalMetadata: { none: { providerKey: PROVIDER_KEY } } })
+      }
+    })
     while (true) {
       throwIfAborted(context.signal)
       const page = await dependencies.database.tag.findMany({
@@ -86,6 +101,7 @@ async function executeDiscovery(
         select: { id: true, name: true }
       })
       if (page.length === 0) break
+      pageCount += 1
       cursor = page.at(-1)!.id
       discovered += page.length
 
@@ -101,18 +117,17 @@ async function executeDiscovery(
         else reused += 1
       }
       await context.progress({
-        progress: payload.tagIds ? Math.min(95, Math.floor((discovered / payload.tagIds.length) * 95)) : 95,
+        progress: totalCandidates > 0 ? Math.min(95, Math.max(1, Math.floor((discovered / totalCandidates) * 95))) : 95,
         stage: 'DISCOVERING',
-        message: `已发现 ${discovered} 个标签，创建 ${enqueued} 个补全任务`,
-        data: { discovered, enqueued, reused }
+        message: `已发现 ${discovered}/${totalCandidates} 个标签，创建 ${enqueued} 个补全任务`,
+        data: { totalCandidates, pageCount, discovered, enqueued, reused }
       })
-      // 无显式选择时只物化下一批；显式选择保留对升级前已持久化大批次的兼容执行能力。
-      if (!payload.tagIds || discovered >= payload.tagIds.length || page.length < PIXIV_TAG_ENRICHMENT_BATCH_LIMIT)
-        break
+      // 200 只是稳定的数据库分页大小；默认运行会物化发现阶段的全部候选。
+      if (discovered >= totalCandidates || page.length < PIXIV_TAG_ENRICHMENT_BATCH_LIMIT) break
     }
     return {
       kind: 'completed',
-      result: { discovered, enqueued, reused },
+      result: { totalCandidates, pageCount, discovered, enqueued, reused },
       message: `标签发现完成：${discovered} 个候选，创建 ${enqueued} 个补全任务`
     }
   } catch (error) {

@@ -107,7 +107,7 @@ describe('PixivTagEnrichmentDialog', () => {
     await waitFor(() => expect(onStatusChanged).toHaveBeenCalledTimes(1))
   })
 
-  it('starts only the next bounded default batch', () => {
+  it('starts one continuous default batch for every pending candidate', () => {
     render(
       <PixivTagEnrichmentDialog
         open
@@ -118,9 +118,41 @@ describe('PixivTagEnrichmentDialog', () => {
       />
     )
 
-    expect(screen.getByText('每批最多处理 200 个尚未检查的标签；已有翻译、人工描述和封面都不会被覆盖。')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '开始下一批（10 个）' }))
+    expect(
+      screen.getByText('当前 10 个候选会按每页 200 个发现并全部排入持久队列；关闭页面不影响执行，已有字段不会被覆盖。')
+    ).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '连续补全全部（10 个）' }))
     expect(mocks.startInput).toEqual({ tagIds: undefined })
+  })
+
+  it('shows discovery progress for a 5000-tag logical batch before item execution starts', () => {
+    mocks.summary = summary({
+      candidateCount: 5_000,
+      activeJob: { id: 'child-2000', parentJobId: 'root-1', progress: 0, message: null },
+      latestBatch: {
+        id: 'root-1',
+        status: 'RUNNING',
+        stage: 'DISCOVERING',
+        progress: 38,
+        message: '已发现 2000/5000 个标签，创建 2000 个补全任务'
+      },
+      children: { total: 2_000, completed: 0, byStatus: { PENDING: 2_000 } }
+    })
+
+    render(
+      <PixivTagEnrichmentDialog
+        open
+        onOpenChange={vi.fn()}
+        onBatchStarted={vi.fn()}
+        onStatusChanged={vi.fn()}
+        selectedTags={[]}
+      />
+    )
+
+    expect(screen.getByText('38%')).toBeTruthy()
+    expect(screen.getByText(/2000\/5000/)).toBeTruthy()
+    expect(screen.getByText(/关闭页面不影响后台执行/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: '取消整批任务' })).toBeTruthy()
   })
 
   it('blocks a selected batch larger than 200 tags', () => {

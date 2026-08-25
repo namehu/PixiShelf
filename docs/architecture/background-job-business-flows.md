@@ -219,30 +219,32 @@ sequenceDiagram
 
 除 `ARCHIVE_RESOLVE_ITEM` 外，其他任务全部进入 `BACKGROUND_WRITER`。
 
-| Job type                           | 主要入口                           | 是否计划任务 | 是否创建子任务 | 主要副作用                                                   |
-| ---------------------------------- | ---------------------------------- | ------------ | -------------- | ------------------------------------------------------------ |
-| `SCAN`                             | 扫描、Webhook、来源核对与选定同步  | 否           | 否             | 按版本发现/核对/发布，写 SystemJob、ScanRun 与逐项结果       |
-| `LOCAL_DIRECTORY_IMPORT`           | 本地目录导入“开始导入”             | 否           | 否             | 读取已冻结目录，创建本地 Artwork、Image、默认标签和派生标签  |
-| `MIGRATION`                        | 媒体目录迁移管理                   | 否           | 否             | 分阶段复制/移动媒体、校验、发布新路径、清理旧路径            |
-| `PENDING_REPLACE`                  | 批量替换管理                       | 否           | 否             | DISCOVER/BATCH/RESTORE/CLEANUP，持久快照和备份后替换媒体     |
-| `REFILL_META_SOURCE`               | 后台维护手动入口                   | 否           | 否             | 为缺少 `metaSource` 的旧作品查找对应元数据文件并补字段       |
-| `MEDIA_DERIVED_TAG_SYNC`           | 后台维护手动入口                   | 否           | 否             | 重算 `media:webp`、`media:video`、`media:image` 派生标签关系 |
-| `WEBP_ANIMATION_SCAN`              | 任务计划或立即运行                 | 是           | 否             | 内容探测并更新图片 mediaType/动画状态                        |
-| `VIDEO_MEDIA_PROBE`                | 任务计划、立即运行、单视频重探测   | 是           | 否             | 分类、视频元数据探测、同任务批量生成自动封面                 |
-| `VIDEO_POSTER_GENERATION`          | 单视频显式封面生成                 | 否           | 否             | 为一个视频生成并发布自动封面                                 |
-| `VIDEO_CHAPTER_PREVIEW_GENERATION` | 任务计划或立即运行                 | 是           | 否             | 校验、生成、替换章节预览 WebP，登记旧文件 GC                 |
-| `VIDEO_STREAMING_OPTIMIZATION`     | 视频播放/图片管理中的无损优化      | 否           | 否             | 对单个 MP4 做 faststart remux，失败时恢复原文件              |
-| `VIDEO_KEYFRAME_DISCOVERY`         | 任务计划、立即运行、代表帧批量入口 | 是           | 是             | 判断 MISSING/STALE/FAILED/CURRENT；计划模式创建生成子任务    |
-| `VIDEO_KEYFRAME_GENERATION`        | discovery 或人工选中结果           | 否           | 否             | FFmpeg 抽帧、质量筛选并发布代表帧集合                        |
-| `ARCHIVE_RESOLVE_ITEM`             | 归档收件新增/重试                  | 否           | 否             | 访问 Provider、冻结元数据和媒体计划、分类 READY 等状态       |
-| `ARCHIVE_IMPORT`                   | READY 收件项批量入队               | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork        |
-| `ARCHIVE_MAINTENANCE`              | 计划 reconcile、归档删除/恢复/清理 | 是           | RECONCILE 会   | 清 staging、回收、恢复或永久清理归档                         |
-| `ARCHIVE_INTAKE_RETENTION_CLEANUP` | 任务计划或立即运行                 | 是           | 否             | 只删除可丢弃的归档收件审计历史                               |
-| `SCAN_RUN_RETENTION_CLEANUP`       | 任务计划或立即运行                 | 是           | 否             | 删除符合保留策略的扫描审计历史                               |
-| `TRIGGER_LOG_RETENTION_CLEANUP`    | 任务计划或立即运行                 | 是           | 否             | 删除旧触发器日志                                             |
-| `DERIVED_MEDIA_GC`                 | 任务计划、立即运行或指定 intent    | 是           | 否             | 复核引用后隔离并删除已登记的派生媒体候选                     |
-| `PIXIV_ARTIST_ENRICHMENT`          | 艺术家管理页批量补全、显式刷新或单项重试 | 否      | DISCOVER 会    | 查询 Pixiv 用户资料；默认只填空图片，刷新模式安全替换已有图片 |
-| `PIXIV_TAG_ENRICHMENT`             | 标签管理页批量补全或单标签重试     | 否           | DISCOVER 会    | 查询公共 Pixiv 标签数据，只填空字段并保存本地封面            |
+| Job type                           | 主要入口                                 | 是否计划任务 | 是否创建子任务 | 主要副作用                                                    |
+| ---------------------------------- | ---------------------------------------- | ------------ | -------------- | ------------------------------------------------------------- |
+| `SCAN`                             | 扫描、Webhook、来源核对与选定同步        | 否           | 否             | 按版本发现/核对/发布，写 SystemJob、ScanRun 与逐项结果        |
+| `LOCAL_DIRECTORY_IMPORT`           | 本地目录导入“开始导入”                   | 否           | 否             | 读取已冻结目录，创建本地 Artwork、Image、默认标签和派生标签   |
+| `MIGRATION`                        | 媒体目录迁移管理                         | 否           | 否             | 分阶段复制/移动媒体、校验、发布新路径、清理旧路径             |
+| `PENDING_REPLACE`                  | 批量替换管理                             | 否           | 否             | DISCOVER/BATCH/RESTORE/CLEANUP，持久快照和备份后替换媒体      |
+| `REFILL_META_SOURCE`               | 后台维护手动入口                         | 否           | 否             | 为缺少 `metaSource` 的旧作品查找对应元数据文件并补字段        |
+| `MEDIA_DERIVED_TAG_SYNC`           | 后台维护手动入口                         | 否           | 否             | 重算 `media:webp`、`media:video`、`media:image` 派生标签关系  |
+| `WEBP_ANIMATION_SCAN`              | 任务计划或立即运行                       | 是           | 否             | 内容探测并更新图片 mediaType/动画状态                         |
+| `VIDEO_MEDIA_PROBE`                | 任务计划、立即运行、单视频重探测         | 是           | 否             | 分类、视频元数据探测、同任务批量生成自动封面                  |
+| `VIDEO_POSTER_GENERATION`          | 单视频显式封面生成                       | 否           | 否             | 为一个视频生成并发布自动封面                                  |
+| `VIDEO_CHAPTER_PREVIEW_GENERATION` | 任务计划或立即运行                       | 是           | 否             | 校验、生成、替换章节预览 WebP，登记旧文件 GC                  |
+| `VIDEO_STREAMING_OPTIMIZATION`     | 视频播放/图片管理中的无损优化            | 否           | 否             | 对单个 MP4 做 faststart remux，失败时恢复原文件               |
+| `VIDEO_KEYFRAME_DISCOVERY`         | 任务计划、立即运行、代表帧批量入口       | 是           | 是             | 判断 MISSING/STALE/FAILED/CURRENT；计划模式创建生成子任务     |
+| `VIDEO_KEYFRAME_GENERATION`        | discovery 或人工选中结果                 | 否           | 否             | FFmpeg 抽帧、质量筛选并发布代表帧集合                         |
+| `ARCHIVE_RESOLVE_ITEM`             | 归档收件新增/重试                        | 否           | 否             | 访问 Provider、冻结元数据和媒体计划、分类 READY 等状态        |
+| `ARCHIVE_IMPORT`                   | READY 收件项批量入队                     | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork         |
+| `ARCHIVE_MAINTENANCE`              | 计划 reconcile、归档删除/恢复/清理       | 是           | RECONCILE 会   | 清 staging、回收、恢复或永久清理归档                          |
+| `ARCHIVE_INTAKE_RETENTION_CLEANUP` | 任务计划或立即运行                       | 是           | 否             | 只删除可丢弃的归档收件审计历史                                |
+| `SCAN_RUN_RETENTION_CLEANUP`       | 任务计划或立即运行                       | 是           | 否             | 删除符合保留策略的扫描审计历史                                |
+| `TRIGGER_LOG_RETENTION_CLEANUP`    | 任务计划或立即运行                       | 是           | 否             | 删除旧触发器日志                                              |
+| `DERIVED_MEDIA_GC`                 | 任务计划、立即运行或指定 intent          | 是           | 否             | 复核引用后隔离并删除已登记的派生媒体候选                      |
+| `PIXIV_ARTIST_ENRICHMENT`          | 艺术家管理页批量补全、显式刷新或单项重试 | 否           | DISCOVER 会    | 查询 Pixiv 用户资料；默认只填空图片，刷新模式安全替换已有图片 |
+| `PIXIV_TAG_ENRICHMENT`             | 标签管理页批量补全或单标签重试           | 否           | DISCOVER 会    | 查询公共 Pixiv 标签数据，只填空字段并保存本地封面             |
+
+标签补全的默认 `DISCOVER` 把发现阶段的全部未检查候选物化到同一逻辑批次；200 只是按 ID 发现的分页大小，不是整批上限。所有标签子任务仍使用低优先级并由单 writer lane 逐个执行。整批取消先封住父任务派生，再批量取消未完成子任务；已发布的标签字段不回滚。
 
 生产 Registry 保持 22 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 21 类仍只支持 v1，因此 capability audit
 实际核对 24 个 job type/definition-version 组合及其 lane，而不是把 v2/v3 误算成新的任务类型。v1 承载既有

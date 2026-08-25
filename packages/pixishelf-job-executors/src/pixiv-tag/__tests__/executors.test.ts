@@ -3,16 +3,20 @@ import { createPixivTagExecutorRegistrations } from '../executors.ts'
 
 describe('Pixiv tag enrichment executor', () => {
   it('discovers eligible tags and freezes each tag identity in a child payload', async () => {
+    const count = vi.fn().mockResolvedValue(1)
     const findMany = vi.fn().mockResolvedValue([{ id: 7, name: 'original' }])
     const enqueueChild = vi.fn().mockResolvedValue({ id: 'child-1', created: true })
     const [registration] = createPixivTagExecutorRegistrations({
-      database: { tag: { findMany } } as never,
+      database: { tag: { count, findMany } } as never,
       pixivDataRoot: '/pixiv-data'
     })
 
     const outcome = await registration!.execute(context({ mode: 'DISCOVER', force: false }, { enqueueChild }) as never)
 
-    expect(outcome).toMatchObject({ kind: 'completed', result: { discovered: 1, enqueued: 1, reused: 0 } })
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: { totalCandidates: 1, pageCount: 1, discovered: 1, enqueued: 1, reused: 0 }
+    })
     expect(enqueueChild).toHaveBeenCalledWith({
       type: 'PIXIV_TAG_ENRICHMENT',
       payload: { mode: 'TAG', tagId: 7, expectedName: 'original', force: false },
@@ -22,9 +26,10 @@ describe('Pixiv tag enrichment executor', () => {
   })
 
   it('limits forced discovery to the explicitly selected tag ids', async () => {
+    const count = vi.fn().mockResolvedValue(0)
     const findMany = vi.fn().mockResolvedValue([])
     const [registration] = createPixivTagExecutorRegistrations({
-      database: { tag: { findMany } } as never,
+      database: { tag: { count, findMany } } as never,
       pixivDataRoot: '/pixiv-data'
     })
 
@@ -37,25 +42,115 @@ describe('Pixiv tag enrichment executor', () => {
         })
       })
     )
+    expect(count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { in: [3, 7] } })
+      })
+    )
   })
 
-  it('materializes only the next 200 unexamined tags in a default batch', async () => {
+  it('reuses all 200 children when an exact-page discovery is retried idempotently', async () => {
     const page = Array.from({ length: 200 }, (_, index) => ({ id: index + 1, name: `tag-${index + 1}` }))
-    const findMany = vi
-      .fn()
-      .mockResolvedValueOnce(page)
-      .mockResolvedValueOnce([{ id: 201, name: 'must-not-be-enqueued' }])
-    const enqueueChild = vi.fn().mockResolvedValue({ id: 'child', created: true })
+    const findMany = vi.fn().mockResolvedValue(page)
+    const enqueueChild = vi.fn().mockResolvedValue({ id: 'existing-child', created: false })
     const [registration] = createPixivTagExecutorRegistrations({
-      database: { tag: { findMany } } as never,
+      database: { tag: { count: vi.fn().mockResolvedValue(200), findMany } } as never,
       pixivDataRoot: '/pixiv-data'
     })
 
     const outcome = await registration!.execute(context({ mode: 'DISCOVER', force: false }, { enqueueChild }) as never)
 
-    expect(outcome).toMatchObject({ kind: 'completed', result: { discovered: 200, enqueued: 200 } })
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: { totalCandidates: 200, pageCount: 1, discovered: 200, enqueued: 0, reused: 200 }
+    })
     expect(findMany).toHaveBeenCalledTimes(1)
+    expect(enqueueChild).toHaveBeenCalledTimes(200)
+  })
+
+  it('continues after the first 200 unexamined tags in a default batch', async () => {
+    const firstPage = Array.from({ length: 200 }, (_, index) => ({ id: index + 1, name: `tag-${index + 1}` }))
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce([{ id: 201, name: 'tag-201' }])
+    const enqueueChild = vi.fn().mockResolvedValue({ id: 'child', created: true })
+    const [registration] = createPixivTagExecutorRegistrations({
+      database: { tag: { count: vi.fn().mockResolvedValue(201), findMany } } as never,
+      pixivDataRoot: '/pixiv-data'
+    })
+
+    const outcome = await registration!.execute(context({ mode: 'DISCOVER', force: false }, { enqueueChild }) as never)
+
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: { totalCandidates: 201, pageCount: 2, discovered: 201, enqueued: 201 }
+    })
+    expect(findMany).toHaveBeenCalledTimes(2)
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 200 }))
+    expect(findMany.mock.calls[1]?.[0]).toMatchObject({ where: { id: { gt: 200 } } })
+    expect(enqueueChild).toHaveBeenCalledTimes(201)
+  })
+
+  it('materializes more than 5000 candidates as one logical batch across stable database pages', async () => {
+    const totalCandidates = 5_001
+    const findMany = vi.fn().mockImplementation(({ where }: { where: { id: { gt: number } } }) => {
+      const start = where.id.gt + 1
+      if (start > totalCandidates) return Promise.resolve([])
+      return Promise.resolve(
+        Array.from({ length: Math.min(200, totalCandidates - start + 1) }, (_, index) => ({
+          id: start + index,
+          name: `tag-${start + index}`
+        }))
+      )
+    })
+    const enqueueChild = vi.fn().mockResolvedValue({ id: 'child', created: true })
+    const progress = vi.fn().mockResolvedValue(undefined)
+    const [registration] = createPixivTagExecutorRegistrations({
+      database: { tag: { count: vi.fn().mockResolvedValue(totalCandidates), findMany } } as never,
+      pixivDataRoot: '/pixiv-data'
+    })
+
+    const outcome = await registration!.execute(
+      context({ mode: 'DISCOVER', force: false }, { enqueueChild, progress }) as never
+    )
+
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: { totalCandidates, pageCount: 26, discovered: totalCandidates, enqueued: totalCandidates, reused: 0 }
+    })
+    expect(findMany).toHaveBeenCalledTimes(26)
+    expect(enqueueChild).toHaveBeenCalledTimes(totalCandidates)
+    expect(progress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        progress: 95,
+        data: { totalCandidates, pageCount: 26, discovered: totalCandidates, enqueued: totalCandidates, reused: 0 }
+      })
+    )
+  })
+
+  it('stops discovery without materializing another page after cancellation', async () => {
+    const controller = new AbortController()
+    const firstPage = Array.from({ length: 200 }, (_, index) => ({ id: index + 1, name: `tag-${index + 1}` }))
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce([{ id: 201, name: 'tag-201' }])
+    const enqueueChild = vi.fn().mockImplementation(async () => {
+      if (enqueueChild.mock.calls.length === 200) controller.abort(new Error('cancelled'))
+      return { id: 'child', created: true }
+    })
+    const [registration] = createPixivTagExecutorRegistrations({
+      database: { tag: { count: vi.fn().mockResolvedValue(201), findMany } } as never,
+      pixivDataRoot: '/pixiv-data'
+    })
+
+    const outcome = await registration!.execute(
+      context({ mode: 'DISCOVER', force: false }, { enqueueChild, signal: controller.signal }) as never
+    )
+
+    expect(outcome).toEqual({ kind: 'released', message: 'Pixiv 标签发现已停止，等待恢复' })
+    expect(findMany).toHaveBeenCalledTimes(1)
     expect(enqueueChild).toHaveBeenCalledTimes(200)
   })
 
