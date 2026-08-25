@@ -96,7 +96,8 @@ export function ArtistManagement() {
     pageSize: parseAsInteger.withDefault(20),
     sortId: parseAsString,
     sortDesc: parseAsString, // 'true' | 'false'
-    isStarred: parseAsString // 'true' | 'false' | null
+    isStarred: parseAsString, // 'true' | 'false' | null
+    pixivStatus: parseAsString
   })
 
   // 2. 本地搜索输入状态
@@ -230,7 +231,8 @@ export function ArtistManagement() {
       pageSize: 20,
       sortId: null,
       sortDesc: null,
-      isStarred: null
+      isStarred: null,
+      pixivStatus: null
     })
   }
 
@@ -495,6 +497,29 @@ export function ArtistManagement() {
                   <SelectItem value="all">全部</SelectItem>
                   <SelectItem value="true">已星标</SelectItem>
                   <SelectItem value="false">未星标</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={searchState.pixivStatus || 'all'}
+              onValueChange={(value) => {
+                setRowSelection({})
+                setSearchState({ pixivStatus: value === 'all' ? null : value, page: 1 })
+              }}
+            >
+              <SelectTrigger className="h-8 w-[160px]" aria-label="筛选 Pixiv 补全状态">
+                <SelectValue placeholder="Pixiv 补全状态" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">全部补全状态</SelectItem>
+                  <SelectItem value="NO_IDENTITY">无 Pixiv 身份</SelectItem>
+                  <SelectItem value="UNCHECKED">待检查</SelectItem>
+                  <SelectItem value="CHECKED">已检查</SelectItem>
+                  <SelectItem value="SUCCESS">成功</SelectItem>
+                  <SelectItem value="PARTIAL">部分成功</SelectItem>
+                  <SelectItem value="NO_DATA">无数据</SelectItem>
+                  <SelectItem value="FAILED">失败</SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>

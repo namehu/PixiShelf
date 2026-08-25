@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getDashboardArtists, updateArtist } from '../artist-service'
+import { getArtists, getDashboardArtists, updateArtist } from '../artist-service'
 
 const {
   artistAggregateMock,
+  artistCountMock,
   artistFindManyMock,
   artworkFindManyMock,
   queryRawMock,
@@ -11,6 +12,7 @@ const {
   transactionArtistUpdateMock
 } = vi.hoisted(() => ({
   artistAggregateMock: vi.fn(),
+  artistCountMock: vi.fn(),
   artistFindManyMock: vi.fn(),
   artworkFindManyMock: vi.fn(),
   queryRawMock: vi.fn(),
@@ -23,6 +25,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     artist: {
       aggregate: artistAggregateMock,
+      count: artistCountMock,
       findMany: artistFindManyMock
     },
     artwork: {
@@ -40,6 +43,28 @@ vi.mock('@/lib/logger', () => ({
     error: vi.fn()
   }
 }))
+
+describe('getArtists Pixiv enrichment filters', () => {
+  beforeEach(() => {
+    artistFindManyMock.mockReset().mockResolvedValue([])
+    artistCountMock.mockReset().mockResolvedValue(0)
+  })
+
+  it.each([
+    ['NO_IDENTITY', { externalRefs: { none: { providerKey: 'pixiv' } } }],
+    ['UNCHECKED', { externalRefs: { some: { providerKey: 'pixiv', status: null } } }],
+    ['CHECKED', { externalRefs: { some: { providerKey: 'pixiv', status: { not: null } } } }],
+    ['SUCCESS', { externalRefs: { some: { providerKey: 'pixiv', status: 'SUCCESS' } } }],
+    ['PARTIAL', { externalRefs: { some: { providerKey: 'pixiv', status: 'PARTIAL' } } }],
+    ['NO_DATA', { externalRefs: { some: { providerKey: 'pixiv', status: 'NO_DATA' } } }],
+    ['FAILED', { externalRefs: { some: { providerKey: 'pixiv', status: 'FAILED' } } }]
+  ] as const)('applies the %s database filter before pagination', async (pixivStatus, where) => {
+    await getArtists({ cursor: 1, pageSize: 20, sortBy: 'name_asc', pixivStatus })
+
+    expect(artistFindManyMock).toHaveBeenCalledWith(expect.objectContaining({ where }))
+    expect(artistCountMock).toHaveBeenCalledWith({ where })
+  })
+})
 
 describe('getDashboardArtists', () => {
   beforeEach(() => {

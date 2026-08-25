@@ -88,6 +88,18 @@ export const ArtistResponseDto = ArtistModel.extend({
 
 export type ArtistResponseDto = z.infer<typeof ArtistResponseDto>
 
+export const ArtistPixivStatusFilterSchema = z.enum([
+  'NO_IDENTITY',
+  'UNCHECKED',
+  'CHECKED',
+  'SUCCESS',
+  'PARTIAL',
+  'NO_DATA',
+  'FAILED'
+])
+
+export type ArtistPixivStatusFilter = z.infer<typeof ArtistPixivStatusFilterSchema>
+
 /**
  * 艺术家列表查询结构
  * 获取艺术家列表查询参数
@@ -97,7 +109,8 @@ export const ArtistsGetSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),
   sortBy: z.enum(['name_asc', 'name_desc', 'artworks_desc', 'artworks_asc']).optional().default('name_asc'),
-  isStarred: z.boolean().optional()
+  isStarred: z.boolean().optional(),
+  pixivStatus: ArtistPixivStatusFilterSchema.optional()
 })
 
 export type ArtistsGetSchema = z.infer<typeof ArtistsGetSchema>

@@ -8,6 +8,7 @@ describe('buildArtistQuery', () => {
     sortId: null,
     sortDesc: null,
     isStarred: null,
+    pixivStatus: null,
     page: 1,
     pageSize: 20
   }
@@ -19,7 +20,8 @@ describe('buildArtistQuery', () => {
       pageSize: 20,
       search: undefined,
       sortBy: 'name_asc',
-      isStarred: undefined
+      isStarred: undefined,
+      pixivStatus: undefined
     })
   })
 
@@ -34,7 +36,11 @@ describe('buildArtistQuery', () => {
   })
 
   it('should handle sort by artworks count asc', () => {
-    const result = buildArtistQuery(defaultParams, { ...defaultSearchState, sortId: 'artworksCount', sortDesc: 'false' })
+    const result = buildArtistQuery(defaultParams, {
+      ...defaultSearchState,
+      sortId: 'artworksCount',
+      sortDesc: 'false'
+    })
     expect(result.sortBy).toBe('artworks_asc')
   })
 
@@ -47,5 +53,17 @@ describe('buildArtistQuery', () => {
 
     const resultAll = buildArtistQuery(defaultParams, { ...defaultSearchState, isStarred: 'all' })
     expect(resultAll.isStarred).toBeUndefined()
+  })
+
+  it('should handle Pixiv enrichment filters and discard invalid URL values', () => {
+    expect(buildArtistQuery(defaultParams, { ...defaultSearchState, pixivStatus: 'UNCHECKED' }).pixivStatus).toBe(
+      'UNCHECKED'
+    )
+    expect(buildArtistQuery(defaultParams, { ...defaultSearchState, pixivStatus: 'SUCCESS' }).pixivStatus).toBe(
+      'SUCCESS'
+    )
+    expect(
+      buildArtistQuery(defaultParams, { ...defaultSearchState, pixivStatus: 'invalid' }).pixivStatus
+    ).toBeUndefined()
   })
 })

@@ -39,7 +39,7 @@ export async function getArtistById(id: number | string): Promise<ArtistResponse
  * @returns 艺术家列表响应
  */
 export async function getArtists(options: ArtistsGetSchema): Promise<PaginationResponseData<ArtistResponseDto>> {
-  const { pageSize, search, sortBy, cursor, isStarred } = options
+  const { pageSize, search, sortBy, cursor, isStarred, pixivStatus } = options
   const page = cursor ?? 1
   try {
     // 限制页面大小，防止过大的查询
@@ -50,6 +50,21 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
     const whereClause: any = {}
     if (isStarred !== undefined) {
       whereClause.isStarred = isStarred
+    }
+    if (pixivStatus) {
+      switch (pixivStatus) {
+        case 'NO_IDENTITY':
+          whereClause.externalRefs = { none: { providerKey: 'pixiv' } }
+          break
+        case 'UNCHECKED':
+          whereClause.externalRefs = { some: { providerKey: 'pixiv', status: null } }
+          break
+        case 'CHECKED':
+          whereClause.externalRefs = { some: { providerKey: 'pixiv', status: { not: null } } }
+          break
+        default:
+          whereClause.externalRefs = { some: { providerKey: 'pixiv', status: pixivStatus } }
+      }
     }
     if (search) {
       whereClause.OR = [

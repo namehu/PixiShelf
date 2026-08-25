@@ -1,4 +1,4 @@
-import { ArtistsGetSchema } from '@/schemas/artist.dto'
+import { ArtistPixivStatusFilterSchema, ArtistsGetSchema } from '@/schemas/artist.dto'
 
 export function buildArtistQuery(
   params: { pageSize: number; current: number },
@@ -7,6 +7,7 @@ export function buildArtistQuery(
     sortId: string | null
     sortDesc: string | null
     isStarred: string | null
+    pixivStatus: string | null
   }
 ): ArtistsGetSchema {
   let sortBy: 'name_asc' | 'name_desc' | 'artworks_asc' | 'artworks_desc' = 'name_asc'
@@ -17,14 +18,15 @@ export function buildArtistQuery(
     if (searchState.sortId === 'artworksCount') sortBy = isDesc ? 'artworks_desc' : 'artworks_asc'
   }
 
-  const isStarred =
-    searchState.isStarred === 'true' ? true : searchState.isStarred === 'false' ? false : undefined
+  const isStarred = searchState.isStarred === 'true' ? true : searchState.isStarred === 'false' ? false : undefined
+  const parsedPixivStatus = ArtistPixivStatusFilterSchema.safeParse(searchState.pixivStatus)
 
   return {
     cursor: params.current,
     pageSize: params.pageSize,
     search: searchState.name || undefined,
     sortBy,
-    isStarred
+    isStarred,
+    pixivStatus: parsedPixivStatus.success ? parsedPixivStatus.data : undefined
   }
 }
