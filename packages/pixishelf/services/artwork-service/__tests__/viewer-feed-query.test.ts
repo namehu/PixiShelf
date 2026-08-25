@@ -2,10 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ViewerFeedQuerySchema } from '@/schemas/artwork.dto'
 import { ESource } from '@/enums/e-source'
 
-const { queryRawMock, imageFindManyMock, artworkTagFindManyMock, likeStatusMock } = vi.hoisted(() => ({
+const {
+  queryRawMock,
+  imageFindManyMock,
+  artworkTagFindManyMock,
+  artistExternalRefFindManyMock,
+  localArtistMappingFindManyMock,
+  likeStatusMock
+} = vi.hoisted(() => ({
   queryRawMock: vi.fn(),
   imageFindManyMock: vi.fn(),
   artworkTagFindManyMock: vi.fn(),
+  artistExternalRefFindManyMock: vi.fn(),
+  localArtistMappingFindManyMock: vi.fn(),
   likeStatusMock: vi.fn()
 }))
 
@@ -14,7 +23,9 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     $queryRawUnsafe: queryRawMock,
     image: { findMany: imageFindManyMock },
-    artworkTag: { findMany: artworkTagFindManyMock }
+    artworkTag: { findMany: artworkTagFindManyMock },
+    artistExternalRef: { findMany: artistExternalRefFindManyMock },
+    localImportArtistMapping: { findMany: localArtistMappingFindManyMock }
   }
 }))
 vi.mock('@/services/like-service', () => ({ getUserArtworkLikeStatus: likeStatusMock }))
@@ -40,6 +51,8 @@ describe('getViewerFeed query shape', () => {
     queryRawMock.mockReset()
     imageFindManyMock.mockReset().mockResolvedValue([])
     artworkTagFindManyMock.mockReset().mockResolvedValue([])
+    artistExternalRefFindManyMock.mockReset().mockResolvedValue([])
+    localArtistMappingFindManyMock.mockReset().mockResolvedValue([])
     likeStatusMock.mockReset().mockResolvedValue({})
   })
 

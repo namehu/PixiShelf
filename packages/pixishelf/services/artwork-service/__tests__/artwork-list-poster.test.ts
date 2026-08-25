@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 
-const { queryRawMock, imageFindManyMock, artworkTagFindManyMock } = vi.hoisted(() => ({
+const {
+  queryRawMock,
+  imageFindManyMock,
+  artworkTagFindManyMock,
+  artistExternalRefFindManyMock,
+  localArtistMappingFindManyMock
+} = vi.hoisted(() => ({
   queryRawMock: vi.fn(),
   imageFindManyMock: vi.fn(),
-  artworkTagFindManyMock: vi.fn()
+  artworkTagFindManyMock: vi.fn(),
+  artistExternalRefFindManyMock: vi.fn(),
+  localArtistMappingFindManyMock: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
@@ -12,7 +20,9 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     $queryRawUnsafe: queryRawMock,
     image: { findMany: imageFindManyMock },
-    artworkTag: { findMany: artworkTagFindManyMock }
+    artworkTag: { findMany: artworkTagFindManyMock },
+    artistExternalRef: { findMany: artistExternalRefFindManyMock },
+    localImportArtistMapping: { findMany: localArtistMappingFindManyMock }
   }
 }))
 
@@ -23,6 +33,8 @@ describe('getArtworksList video posters', () => {
     queryRawMock.mockReset()
     imageFindManyMock.mockReset()
     artworkTagFindManyMock.mockReset()
+    artistExternalRefFindManyMock.mockReset().mockResolvedValue([])
+    localArtistMappingFindManyMock.mockReset().mockResolvedValue([])
   })
 
   it('loads video metadata and exposes the generated poster URL', async () => {
