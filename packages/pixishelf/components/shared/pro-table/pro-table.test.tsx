@@ -136,4 +136,27 @@ describe('ProTable Integration', () => {
       )
     })
   })
+
+  it('supports controlled column visibility', () => {
+    const columns = [
+      ...mockColumns,
+      {
+        id: 'cover',
+        header: 'Cover',
+        accessorKey: 'cover'
+      }
+    ]
+    const data = [{ id: 1, name: 'Test', cover: 'cover.webp' }]
+    const { rerender } = render(
+      <ProTable columns={columns} dataSource={data} columnVisibility={{ cover: true }} rowKey="id" />
+    )
+
+    expect(screen.getByRole('columnheader', { name: 'Cover' })).toBeTruthy()
+    expect(screen.getByText('cover.webp')).toBeTruthy()
+
+    rerender(<ProTable columns={columns} dataSource={data} columnVisibility={{ cover: false }} rowKey="id" />)
+
+    expect(screen.queryByRole('columnheader', { name: 'Cover' })).toBeNull()
+    expect(screen.queryByText('cover.webp')).toBeNull()
+  })
 })

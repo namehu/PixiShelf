@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
-import { Eye, ImageOff } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 export interface TagCoverTarget {
@@ -12,47 +11,49 @@ export interface TagCoverTarget {
 
 export function TagCoverThumbnail({
   tag,
+  checked,
   onPreview
 }: {
   tag: TagCoverTarget
+  checked: boolean
   onPreview: (tag: TagCoverTarget) => void
 }) {
   const [loadFailed, setLoadFailed] = useState(false)
 
   useEffect(() => setLoadFailed(false), [tag.image])
 
+  if (!checked) {
+    return (
+      <span className="text-muted-foreground" aria-label={`标签 ${tag.name} 尚未生成封面`}>
+        -
+      </span>
+    )
+  }
+
   if (!tag.image || loadFailed) {
     return (
-      <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-        <span className="flex size-11 items-center justify-center rounded-md border border-dashed bg-muted/30">
-          <ImageOff className="size-4" aria-hidden="true" />
-        </span>
-        <span>{loadFailed ? '读取失败' : '无封面'}</span>
-      </div>
+      <span
+        className="inline-flex size-11 rounded-md border border-dashed bg-muted/30"
+        aria-label={`标签 ${tag.name} 没有封面`}
+      />
     )
   }
 
   return (
     <button
       type="button"
-      className="group inline-flex items-center gap-2 rounded-md text-left text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="group relative inline-flex size-11 overflow-hidden rounded-md border bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       onClick={() => onPreview(tag)}
       aria-label={`查看标签 ${tag.name} 的封面`}
     >
-      <span className="relative size-11 overflow-hidden rounded-md border bg-muted">
-        <Image
-          src={tag.image}
-          alt=""
-          fill
-          sizes="44px"
-          className="object-cover transition-transform group-hover:scale-105 motion-reduce:transition-none"
-          onError={() => setLoadFailed(true)}
-        />
-        <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition-colors group-hover:bg-black/45 group-hover:opacity-100 group-focus-visible:bg-black/45 group-focus-visible:opacity-100 motion-reduce:transition-none">
-          <Eye className="size-4" aria-hidden="true" />
-        </span>
-      </span>
-      <span>有封面</span>
+      <Image
+        src={tag.image}
+        alt=""
+        fill
+        sizes="44px"
+        className="object-cover transition-transform group-hover:scale-105 motion-reduce:transition-none"
+        onError={() => setLoadFailed(true)}
+      />
     </button>
   )
 }

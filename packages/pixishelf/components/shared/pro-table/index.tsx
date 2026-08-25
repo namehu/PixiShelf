@@ -136,6 +136,16 @@ interface ProTableProps<TData, TValue> {
   onRowSelectionChange?: OnChangeFn<RowSelectionState>
 
   /**
+   * 列可见性状态 (受控模式)
+   */
+  columnVisibility?: VisibilityState
+
+  /**
+   * 列可见性改变回调 (受控模式)
+   */
+  onColumnVisibilityChange?: OnChangeFn<VisibilityState>
+
+  /**
    * 行唯一标识，默认为 "id"
    */
   rowKey?: string | ((originalRow: TData) => string)
@@ -209,6 +219,8 @@ export function ProTable<TData, TValue>({
   searchRender,
   rowSelection,
   onRowSelectionChange,
+  columnVisibility: controlledColumnVisibility,
+  onColumnVisibilityChange: controlledOnColumnVisibilityChange,
   rowKey = 'id',
   actionRef,
   defaultPageSize = 10,
@@ -246,7 +258,9 @@ export function ProTable<TData, TValue>({
   const onSortingChange = controlledOnSortingChange ?? setInternalSorting
 
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
+  const [internalColumnVisibility, setInternalColumnVisibility] = React.useState<VisibilityState>({})
+  const columnVisibility = controlledColumnVisibility ?? internalColumnVisibility
+  const onColumnVisibilityChange = controlledOnColumnVisibilityChange ?? setInternalColumnVisibility
   const [expanded, setExpanded] = React.useState<ExpandedState>({})
 
   // 行选择：外部未传入时使用内部状态，否则默认为空对象。
@@ -369,7 +383,7 @@ export function ProTable<TData, TValue>({
     onPaginationChange: onPaginationChange,
     onSortingChange: onSortingChange,
     onColumnFiltersChange: setColumnFilters,
-    onColumnVisibilityChange: setColumnVisibility,
+    onColumnVisibilityChange,
     onRowSelectionChange: finalOnRowSelectionChange,
     onExpandedChange: setExpanded,
     enableRowSelection: enableRowSelection,

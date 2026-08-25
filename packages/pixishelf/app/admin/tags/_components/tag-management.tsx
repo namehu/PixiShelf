@@ -13,11 +13,13 @@ import { updateTagStatsAction, exportUntranslatedTagsAction } from '@/actions/ta
 import { getTranslateName } from '@/utils/tags'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
-import { RowSelectionState, SortingState } from '@tanstack/react-table'
+import { RowSelectionState, SortingState, VisibilityState } from '@tanstack/react-table'
 import { useMutation } from '@tanstack/react-query'
 import { confirm } from '@/components/shared/global-confirm'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 
 // 导入子组件
 import { TagStatsCards } from './tag-stats-cards'
@@ -120,6 +122,7 @@ export default function TagManagement() {
   const [editingTag, setEditingTag] = useState<TagListItem | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({ cover: true })
   const [previewedCover, setPreviewedCover] = useState<TagCoverTarget | null>(null)
   const loadedTagsRef = useRef(new Map<number, TagListItem>())
   const selectedTagIds = Object.keys(rowSelection).map(Number)
@@ -300,7 +303,13 @@ export default function TagManagement() {
       id: 'cover',
       header: '封面',
       size: 112,
-      cell: ({ row }) => <TagCoverThumbnail tag={row.original} onPreview={setPreviewedCover} />
+      cell: ({ row }) => (
+        <TagCoverThumbnail
+          tag={row.original}
+          checked={Boolean(row.original.pixivSync)}
+          onPreview={setPreviewedCover}
+        />
+      )
     },
     {
       id: 'pixivSync',
@@ -474,17 +483,33 @@ export default function TagManagement() {
           key={refreshKey}
           rowKey="id"
           headerTitle="标签列表"
-          toolBarRender={() =>
-            selectedTagIds.length ? (
-              <>
-                <span className="text-sm text-muted-foreground">已选择 {selectedTagIds.length} 项</span>
-                <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
-                  清除选择
-                </Button>
-              </>
-            ) : null
-          }
+          toolBarRender={() => (
+            <>
+              {selectedTagIds.length ? (
+                <>
+                  <span className="text-sm text-muted-foreground">已选择 {selectedTagIds.length} 项</span>
+                  <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
+                    清除选择
+                  </Button>
+                </>
+              ) : null}
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="tag-cover-column-visibility"
+                  checked={columnVisibility.cover !== false}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((current) => ({ ...current, cover: checked }))
+                  }
+                />
+                <Label htmlFor="tag-cover-column-visibility" className="cursor-pointer">
+                  显示封面
+                </Label>
+              </div>
+            </>
+          )}
           columns={columns}
+          columnVisibility={columnVisibility}
+          onColumnVisibilityChange={setColumnVisibility}
           request={request}
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}

@@ -20,31 +20,42 @@ vi.mock('next/image', () => ({
 afterEach(cleanup)
 
 describe('TagCoverThumbnail', () => {
-  it('shows an explicit empty state when a tag has no cover', () => {
-    render(<TagCoverThumbnail tag={{ name: '初音ミク', image: '' }} onPreview={vi.fn()} />)
+  it('shows a dash when the cover has never been generated', () => {
+    render(<TagCoverThumbnail tag={{ name: '初音ミク', image: '' }} checked={false} onPreview={vi.fn()} />)
 
-    expect(screen.getByText('无封面')).toBeTruthy()
+    expect(screen.getByLabelText('标签 初音ミク 尚未生成封面').textContent).toBe('-')
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('shows an empty placeholder when a checked tag has no cover', () => {
+    render(<TagCoverThumbnail tag={{ name: '初音ミク', image: '' }} checked onPreview={vi.fn()} />)
+
+    expect(screen.getByLabelText('标签 初音ミク 没有封面').textContent).toBe('')
     expect(screen.queryByRole('button')).toBeNull()
   })
 
   it('opens the cover preview from the thumbnail', () => {
     const onPreview = vi.fn()
     const tag = { name: '初音ミク', image: '/api/pixiv-data/tags/cover.webp' }
-    render(<TagCoverThumbnail tag={tag} onPreview={onPreview} />)
+    render(<TagCoverThumbnail tag={tag} checked onPreview={onPreview} />)
 
     fireEvent.click(screen.getByRole('button', { name: '查看标签 初音ミク 的封面' }))
 
     expect(onPreview).toHaveBeenCalledWith(tag)
-    expect(screen.getByText('有封面')).toBeTruthy()
+    expect(screen.queryByText('有封面')).toBeNull()
   })
 
-  it('distinguishes a missing file from a tag without cover metadata', () => {
+  it('falls back to the empty placeholder when the cover file cannot be read', () => {
     const { container } = render(
-      <TagCoverThumbnail tag={{ name: '初音ミク', image: '/api/pixiv-data/tags/missing.webp' }} onPreview={vi.fn()} />
+      <TagCoverThumbnail
+        tag={{ name: '初音ミク', image: '/api/pixiv-data/tags/missing.webp' }}
+        checked
+        onPreview={vi.fn()}
+      />
     )
 
     fireEvent.error(container.querySelector('img')!)
 
-    expect(screen.getByText('读取失败')).toBeTruthy()
+    expect(screen.getByLabelText('标签 初音ミク 没有封面').textContent).toBe('')
   })
 })
