@@ -126,7 +126,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 ```
 
 Worker 必须通过 READY 和 capability 检查。后台任务页面应只显示一个当前 READY 实例。
-当前 capability inventory 为 21 个 job type；`SCAN` 支持 v1/v2/v3，其余 20 类只支持 v1，共 23 个
+当前 capability inventory 为 22 个 job type；`SCAN` 支持 v1/v2/v3，其余 21 类只支持 v1，共 24 个
 type/version 组合。READY 必须覆盖
 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个 lane。
 
@@ -205,7 +205,7 @@ CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类�
 
 生产只有一个通用 Worker 服务。它允许一项归档 URL 解析与一项 writer 工作同时推进，但所有媒体写仍在 writer lane 全局串行。执行 lane migration 前必须停止写入者、运行专用 audit 并建立数据库与媒体一致性检查点；迁移后不能启动旧消费者。
 
-日常更新可以使用一键脚本，它会按 App migration → Worker READY/capability 的顺序更新同一版本的两个镜像，并在存在执行中任务时默认拒绝操作：
+日常更新可以使用一键脚本，它会按独立 migration → Worker READY/capability → App 的顺序更新同一版本的两个镜像，并在存在执行中任务时默认拒绝操作：
 
 ```bash
 sudo bash ./scripts/update-production.sh

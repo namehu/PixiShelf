@@ -87,6 +87,17 @@ sources:
 - **定义**: `GIN (name gin_trgm_ops)`
 - **用途**: 加速艺术家名字的模糊匹配查询。
 
+### 3.3 艺术家外部身份
+
+`20260825103000_add_artist_external_refs` 增加 `artist_external_refs`。身份唯一性由
+`(providerKey, externalId)` 和 `(artistId, providerKey)` 两个唯一索引共同保证：同一外部账户不能归属多个
+Artist，同一 Artist 在一个 Provider 下也不能同时保存多个身份。本地目录来源仍由 `LocalImportArtistMapping`
+表达，不占用外部 Provider 身份。
+
+迁移只回填“唯一数字 `Artist.userId` + 名下 Artwork 具有 Pixiv 外部引用”的强证据记录；重复数字 ID、没有
+作品来源证据的数字 ID 和历史 `p_` ID 保持未认领。`Artist.userId` 在兼容发布周期内不删除，新写入逻辑以
+`artist_external_refs` 为来源真值。
+
 ### 3.3 标签反查作品
 
 - **索引名**: `ArtworkTag_tagId_artworkId_idx`
@@ -189,7 +200,7 @@ Image。apply 的 stale 或身份冲突在这些领域写入之前终止。
 `scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择
 任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
 
-Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 保持 20 个 job type。当前 `SCAN` 同时注册 v1/v2/v3，其余 19 类仍只注册 v1，因此共有 22 个 job type/definition-version 组合。v1 承载既有扫描，v2 只读核对，v3 选定写入；滚动部署中的旧 v2 Worker 不会领取 v3。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
+Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。当前加入 Pixiv 标签与艺术家补全后为 22 个 job type；`SCAN` 同时注册 v1/v2/v3，其余 21 类仍只注册 v1，因此共有 24 个 job type/definition-version 组合。v1 承载既有扫描，v2 只读核对，v3 选定写入；滚动部署中的旧 v2 Worker 不会领取 v3。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
 
 ### 3.7 归档收件与 Provider 请求治理
 
@@ -267,3 +278,4 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 | `20260818190000` | 为 30 天收件历史保留清理增加已完成批量操作时间索引                                                                                              |
 | `20260820200000` | 以 expand-only 方式增加来源核对 operation/count、冻结证据、root dev/inode、独立 sighting marker 和持久差异明细；不改写领域或媒体数据            |
 | `20260820210000` | 为来源核对选定同步增加父核对证据、冻结 CAS 字段、逐项 outcome/reason/retryable、完整性 CHECK 和恢复/查询索引；历史行保持兼容                    |
+| `20260825103000` | 增加艺术家多 Provider 外部身份、同步状态与 Pixiv 强证据回填；保留旧 `Artist.userId` 作为一个发布周期的回滚镜像                                  |

@@ -101,7 +101,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/capability-audit.cjs
 ```
 
-健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 21 个 job type、23 个 type/version 组合
+健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 22 个 job type、24 个 type/version 组合
 （`SCAN` v1/v2/v3、其余 v1）的 type/version/lane 已注册；二者都不能代替领域功能测试。
 
 ## 变更验证矩阵
@@ -121,6 +121,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 | Pixiv 来源一致性核对      | v1/v2 payload 隔离、分类/checkpoint、producer/DTO/UI/鉴权回归       | PostgreSQL + 临时目录：共享 SCAN 锁、空根/截断/取消/root 变化不生成 MISSING、重放幂等、只读领域边界    |
 | Pixiv 核对选定同步        | v2/v3 隔离、证据 canonicalization、选择/UI/DTO/鉴权/幂等回归        | PostgreSQL + 临时目录：stale/身份 CAS 零写入、部分成功、崩溃重放、取消终态、publisher 拥有权和成组保留 |
 | Pixiv 标签补全            | payload、只填空字段、状态、远端响应和封面安全校验                   | PostgreSQL + 临时目录：批量/子任务、限流重试、重启恢复、只读 App 挂载与鉴权图片路由                    |
+| Pixiv 艺术家补全          | 身份迁移、payload、只填空图片、来源姓名和远端响应安全校验           | PostgreSQL + 临时目录：批量上限、取消/重试、并发人工修改、身份变化与作者图片鉴权读取                   |
 | 媒体播放/派生媒体         | 组件/服务测试                                                       | 图片、视频、封面缺失、动画、FFmpeg 失败和实际浏览器抽样                                                |
 | Compose/Dockerfile/env    | Compose config、相关 package build                                  | 镜像构建、非 root 权限、挂载、migration、READY/capability 冒烟                                         |
 | 浏览器扩展                | compile + build                                                     | Chrome/Firefox 目标页面人工验证和权限检查                                                              |
@@ -128,11 +129,11 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 
 “最小验证”是进入评审前的底线。跨多个类型的变更需要合并各行要求，而不是只选择最轻的一行。
 
-当前分支级验证基线为：60 条 migration；隔离 PostgreSQL 扫描/核对/apply 52/52、保留清理 4/4，共
-56/56；数据库测试 63/63（另有 1 项按环境条件跳过）、contracts 13/13、Executor 337/337（另有 68 项
-PostgreSQL 条件测试跳过）、Worker 83/83；App 单元与组件测试 1267/1267（另有 42 项条件测试跳过）；Next.js
-typecheck、lint 与 production build 通过，静态页面生成 35/35。该记录证明本次实现的已运行检查，不替代生产
-数据副本、真实浏览器或部署冒烟。
+本期增量验证覆盖 62 条 migration 的 Schema/静态契约、数据库测试 68/68（另有 1 项按环境条件跳过）、
+contracts 13/13、Pixiv 艺术家 Executor 与扫描 checkpoint 24/24、Worker 84/84，以及 App 受影响服务/DTO/
+任务汇总 17/17。Next.js typecheck、lint 与 production build 通过，静态页面生成 35/35；扩展 compile/build 和
+Worker build 通过。Windows 主机上的 Executor 全量套件另有一个既有归档符号链接用例受权限环境影响失败，
+本期 Executor 聚焦套件已通过。该记录不替代隔离 PostgreSQL migration 链、生产数据副本、真实浏览器或部署冒烟。
 
 ## 数据库与文件测试原则
 
@@ -176,7 +177,7 @@ typecheck、lint 与 production build 通过，静态页面生成 35/35。该记
 8. 运行主应用 lint 和 typecheck；
 9. 运行主应用 `test:unit`。
 
-Worker 测试和 capability 门禁包含双 lane contract，以及 21 个 job type、23 个 type/version 组合（`SCAN`
+Worker 测试和 capability 门禁包含双 lane contract，以及 22 个 job type、24 个 type/version 组合（`SCAN`
 v1/v2/v3、其余 v1）的精确 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切
 演练。v3 的独立领取测试同时证明只声明 SCAN v2 的旧 Worker 不会领取 `AUDIT_APPLY`。
 

@@ -11,5 +11,20 @@ export const ARTIST_SELECT = {
   updatedAt: true,
   avatar: true,
   backgroundImg: true,
-  isStarred: true
+  isStarred: true,
+  externalRefs: {
+    select: {
+      id: true,
+      providerKey: true,
+      externalId: true,
+      sourceName: true,
+      status: true,
+      lastAttemptAt: true,
+      lastSuccessAt: true,
+      lastErrorCode: true,
+      lastError: true,
+      lastSystemJobId: true
+    }
+  },
+  localImportMappings: { select: { id: true } }
 } satisfies Prisma.ArtistSelect

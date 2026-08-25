@@ -7,7 +7,7 @@ export interface PanelPosition {
 }
 
 // 标签页类型
-export type TabType = 'tags' | 'users' | 'artworks';
+export type TabType = 'tags' | 'artworks' | 'setting';
 
 // 日志级别
 export type LogLevel = 'info' | 'success' | 'warning' | 'error';

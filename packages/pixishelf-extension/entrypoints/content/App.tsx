@@ -5,7 +5,6 @@ import { useAppStore } from './stores/appStore'
 import { useUIStore } from './stores/uiStore'
 
 import TagTaskContent from './components/tag-content'
-import UserContent from './components/user-content'
 import ArtworkContent from './components/artwork-content'
 import { SettingContent } from './components/setting-content'
 import { useShallow } from 'zustand/shallow'
@@ -30,8 +29,6 @@ const App: React.FC = () => {
     switch (activeTab) {
       case 'tags':
         return <TagTaskContent />
-      case 'users':
-        return <UserContent />
       case 'artworks':
         return <ArtworkContent />
       case 'setting':

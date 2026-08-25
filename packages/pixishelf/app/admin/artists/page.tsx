@@ -1,6 +1,5 @@
 import { Metadata } from 'next'
 import { ArtistManagement } from './_components/artist-management'
-import { ArtistExportButton } from './_components/artist-export-button'
 import { AdminWorkbench } from '../_components/admin-workbench'
 
 export const metadata: Metadata = {
@@ -10,11 +9,7 @@ export const metadata: Metadata = {
 
 export default function ArtistPage() {
   return (
-    <AdminWorkbench
-      title="艺术家管理"
-      description="查看和维护艺术家资料、星标状态与作品关联。"
-      actions={<ArtistExportButton />}
-    >
+    <AdminWorkbench title="艺术家管理" description="查看和维护艺术家资料、星标状态与作品关联。">
       <ArtistManagement />
     </AdminWorkbench>
   )

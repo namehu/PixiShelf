@@ -120,12 +120,54 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       }
     })
   } else {
-    const artist = await transaction.artist.upsert({
-      where: { unique_username_userid: { username: metadata.user, userId: metadata.userId } },
-      create: { name: metadata.user, username: metadata.user, userId: metadata.userId },
-      update: { name: metadata.user },
-      select: { id: true }
+    const existingArtistRef = await transaction.artistExternalRef.findUnique({
+      where: { providerKey_externalId: { providerKey: 'pixiv', externalId: metadata.userId } },
+      select: { artistId: true }
     })
+    let artistId = existingArtistRef?.artistId
+    if (artistId) {
+      // Pixiv 返回的名称属于来源资料，不能静默覆盖管理员维护的主姓名。
+      await transaction.artistExternalRef.update({
+        where: { providerKey_externalId: { providerKey: 'pixiv', externalId: metadata.userId } },
+        data: {
+          sourceName: metadata.user,
+          canonicalUrl: `https://www.pixiv.net/users/${metadata.userId}`
+        }
+      })
+    } else {
+      const legacyArtists = await transaction.artist.findMany({
+        where: { userId: metadata.userId },
+        take: 2,
+        select: {
+          id: true,
+          externalRefs: { where: { providerKey: 'pixiv' }, select: { id: true } }
+        }
+      })
+      // 当前 Pixiv 元数据提供了来源证据，但重复历史 ID 仍不能猜测归属。
+      // 只有唯一且尚未绑定其他 Pixiv 身份的旧记录可以被认领；歧义时创建正式来源记录，旧行留给审计。
+      const legacyArtist =
+        legacyArtists.length === 1 && legacyArtists[0]!.externalRefs.length === 0 ? legacyArtists[0] : null
+      const artist =
+        legacyArtist ??
+        (await transaction.artist.create({
+          data: {
+            name: metadata.user,
+            username: metadata.user,
+            userId: legacyArtists.length === 0 ? metadata.userId : null
+          },
+          select: { id: true }
+        }))
+      artistId = artist.id
+      await transaction.artistExternalRef.create({
+        data: {
+          artistId,
+          providerKey: 'pixiv',
+          externalId: metadata.userId,
+          sourceName: metadata.user,
+          canonicalUrl: `https://www.pixiv.net/users/${metadata.userId}`
+        }
+      })
+    }
     const artwork = await transaction.artwork.create({
       data: {
         ...sourceArtworkData,
@@ -133,7 +175,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
         title: metadata.title,
         description: metadata.description,
         descriptionLength: metadata.description?.length ?? 0,
-        artistId: artist.id,
+        artistId,
         source: 'PIXIV_IMPORTED',
         createdVia: 'PIXIV_SCAN'
       },

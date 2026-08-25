@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef } from 'react'
 import { useTRPCClient, useTRPC } from '@/lib/trpc'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { Input } from '@/components/ui/input'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
-import { SortingState } from '@tanstack/react-table'
-import { Search, RotateCcw, Edit, Trash, ExternalLink, Plus, Star } from 'lucide-react'
+import { RowSelectionState, SortingState } from '@tanstack/react-table'
+import { Search, RotateCcw, Edit, Trash, ExternalLink, Plus, Star, Sparkles, RefreshCw, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ArtistDialog } from './artist-dialog'
 import { confirm } from '@/components/shared/global-confirm'
@@ -16,6 +16,13 @@ import Link from 'next/link'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Spinner } from '@/components/ui/spinner'
+import type { ArtistResponseDto } from '@/schemas/artist.dto'
+import { PixivArtistEnrichmentDialog } from './pixiv-artist-enrichment-dialog'
+
+type ArtistListItem = ArtistResponseDto
 
 export function StarButton({
   id,
@@ -66,8 +73,15 @@ export function ArtistManagement() {
   const trpcClient = useTRPCClient()
 
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingArtist, setEditingArtist] = useState<any>(null)
+  const [pixivDialogOpen, setPixivDialogOpen] = useState(false)
+  const [editingArtist, setEditingArtist] = useState<ArtistListItem | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const loadedArtistsRef = useRef(new Map<number, ArtistListItem>())
+  const selectedArtistIds = Object.keys(rowSelection).map(Number)
+  const selectedArtists = selectedArtistIds
+    .map((id) => loadedArtistsRef.current.get(id))
+    .filter((artist): artist is ArtistListItem => Boolean(artist))
 
   // 1. URL 参数同步状态
   const [searchState, setSearchState] = useQueryStates({
@@ -141,6 +155,26 @@ export function ArtistManagement() {
     })
   )
 
+  const retryPixivMutation = useMutation(
+    trpc.artist.retryPixivEnrichment.mutationOptions({
+      onSuccess: () => {
+        toast.success('Pixiv 艺术家重试任务已创建')
+        setRefreshKey((prev) => prev + 1)
+      },
+      onError: (error) => toast.error(error.message)
+    })
+  )
+
+  const adoptPixivNameMutation = useMutation(
+    trpc.artist.adoptPixivSourceName.mutationOptions({
+      onSuccess: () => {
+        toast.success('已采用 Pixiv 来源姓名')
+        setRefreshKey((prev) => prev + 1)
+      },
+      onError: (error) => toast.error(error.message)
+    })
+  )
+
   const handleDelete = (id: number) => {
     confirm({
       title: '确定删除该艺术家吗？',
@@ -151,7 +185,7 @@ export function ArtistManagement() {
     })
   }
 
-  const handleEdit = (item: any) => {
+  const handleEdit = (item: ArtistListItem) => {
     setEditingArtist(item)
     setDialogOpen(true)
   }
@@ -161,6 +195,7 @@ export function ArtistManagement() {
     async (params: { pageSize: number; current: number }) => {
       const queryParams = buildArtistQuery(params, searchState)
       const res = await trpcClient.artist.queryPage.query(queryParams)
+      for (const artist of res.data) loadedArtistsRef.current.set(artist.id, artist)
 
       return {
         data: res.data,
@@ -173,6 +208,7 @@ export function ArtistManagement() {
 
   // 5. 操作处理函数
   const handleSearch = () => {
+    setRowSelection({})
     setSearchState({
       name: keyword || null,
       page: 1
@@ -180,6 +216,7 @@ export function ArtistManagement() {
   }
 
   const handleReset = () => {
+    setRowSelection({})
     setKeyword('')
     setSearchState({
       name: null,
@@ -207,8 +244,35 @@ export function ArtistManagement() {
   }
 
   // 列定义
-  const columns = useMemo<ProColumnDef<any>[]>(
+  const columns = useMemo<ProColumnDef<ArtistListItem>[]>(
     () => [
+      {
+        id: 'select',
+        size: 44,
+        header: ({ table }) => {
+          const eligibleRows = table.getRowModel().rows.filter((row) => row.original.pixivEligible)
+          const selectedCount = eligibleRows.filter((row) => row.getIsSelected()).length
+          const checked =
+            selectedCount === 0 ? false : selectedCount === eligibleRows.length ? true : ('indeterminate' as const)
+          return (
+            <Checkbox
+              checked={checked}
+              disabled={eligibleRows.length === 0}
+              onCheckedChange={(value) => eligibleRows.forEach((row) => row.toggleSelected(Boolean(value)))}
+              aria-label="选择本页所有具有 Pixiv 身份的艺术家"
+            />
+          )
+        },
+        cell: ({ row }) =>
+          row.original.pixivEligible ? (
+            <Checkbox
+              checked={row.getIsSelected()}
+              onCheckedChange={(value) => row.toggleSelected(Boolean(value))}
+              aria-label={`选择艺术家 ${row.original.name}`}
+            />
+          ) : null,
+        enableHiding: false
+      },
       {
         accessorKey: 'id',
         header: 'ID',
@@ -238,7 +302,42 @@ export function ArtistManagement() {
       {
         accessorKey: 'name',
         header: '姓名',
-        enableSorting: true
+        enableSorting: true,
+        cell: ({ row }) => (
+          <div className="grid gap-1">
+            <span>{row.original.name}</span>
+            {row.original.pixivSync?.sourceName && row.original.pixivSync.sourceName !== row.original.name ? (
+              <span className="text-xs text-muted-foreground">Pixiv：{row.original.pixivSync.sourceName}</span>
+            ) : null}
+          </div>
+        )
+      },
+      {
+        id: 'sources',
+        header: '来源',
+        cell: ({ row }) => (
+          <div className="flex flex-wrap gap-1">
+            {row.original.sources.map((source) => (
+              <Badge
+                key={`${source.providerKey}:${source.externalId}`}
+                variant={source.type === 'PIXIV' ? 'info' : 'secondary'}
+              >
+                {source.type === 'PIXIV'
+                  ? `Pixiv ${source.externalId}`
+                  : source.type === 'LOCAL'
+                    ? '本地'
+                    : source.type === 'MANUAL'
+                      ? '手工'
+                      : source.providerKey}
+              </Badge>
+            ))}
+          </div>
+        )
+      },
+      {
+        id: 'pixivSync',
+        header: 'Pixiv 补全',
+        cell: ({ row }) => <PixivSyncBadge artist={row.original} />
       },
       {
         accessorKey: 'artworksCount',
@@ -278,6 +377,34 @@ export function ArtistManagement() {
                 <ExternalLink aria-hidden="true" />
               </Link>
             </Button>
+            {row.original.pixivEligible ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={retryPixivMutation.isPending}
+                onClick={() => retryPixivMutation.mutate({ artistId: row.original.id })}
+                aria-label={`重新从 Pixiv 补全艺术家 ${row.original.name}`}
+                title="重新从 Pixiv 补全"
+              >
+                {retryPixivMutation.isPending && retryPixivMutation.variables?.artistId === row.original.id ? (
+                  <Spinner />
+                ) : (
+                  <RefreshCw aria-hidden="true" />
+                )}
+              </Button>
+            ) : null}
+            {row.original.pixivSync?.sourceName && row.original.pixivSync.sourceName !== row.original.name ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={adoptPixivNameMutation.isPending}
+                onClick={() => adoptPixivNameMutation.mutate({ artistId: row.original.id })}
+                aria-label={`采用艺术家 ${row.original.name} 的 Pixiv 来源姓名`}
+                title={`采用 Pixiv 姓名：${row.original.pixivSync.sourceName}`}
+              >
+                <Check aria-hidden="true" />
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               size="icon"
@@ -291,13 +418,14 @@ export function ArtistManagement() {
         )
       }
     ],
-    [handleToggleStar]
+    [adoptPixivNameMutation, handleToggleStar, retryPixivMutation]
   )
 
   return (
     <div>
       <ProTable
         key={refreshKey}
+        rowKey="id"
         columns={columns}
         request={request}
         defaultPageSize={20}
@@ -309,6 +437,19 @@ export function ArtistManagement() {
         onPaginationChange={handlePaginationChange}
         sorting={sorting}
         onSortingChange={handleSortingChange}
+        rowSelection={rowSelection}
+        onRowSelectionChange={setRowSelection}
+        headerTitle="艺术家列表"
+        toolBarRender={() =>
+          selectedArtistIds.length ? (
+            <>
+              <span className="text-sm text-muted-foreground">已选择 {selectedArtistIds.length} 项</span>
+              <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
+                清除选择
+              </Button>
+            </>
+          ) : null
+        }
         searchRender={() => (
           <div className="flex flex-wrap items-center gap-2 w-full">
             <Select
@@ -346,6 +487,10 @@ export function ArtistManagement() {
               <RotateCcw data-icon="inline-start" aria-hidden="true" />
               重置
             </Button>
+            <Button variant="default" size="sm" onClick={() => setPixivDialogOpen(true)}>
+              <Sparkles data-icon="inline-start" aria-hidden="true" />
+              {selectedArtistIds.length ? `补全已选 ${selectedArtistIds.length} 项` : '从 Pixiv 补全'}
+            </Button>
             <Button
               variant="default"
               size="sm"
@@ -367,6 +512,36 @@ export function ArtistManagement() {
         artist={editingArtist}
         onSuccess={() => setRefreshKey((prev) => prev + 1)}
       />
+      <PixivArtistEnrichmentDialog
+        open={pixivDialogOpen}
+        onOpenChange={setPixivDialogOpen}
+        onStatusChanged={() => {
+          setRowSelection({})
+          setRefreshKey((prev) => prev + 1)
+        }}
+        selectedArtists={selectedArtists.map((artist) => ({
+          id: artist.id,
+          name: artist.name,
+          checked: artist.pixivSync?.status != null
+        }))}
+      />
     </div>
+  )
+}
+
+function PixivSyncBadge({ artist }: { artist: ArtistListItem }) {
+  if (!artist.pixivEligible) return <span className="text-muted-foreground">—</span>
+  const status = artist.pixivSync?.status
+  if (!status) return <Badge variant="outline">待检查</Badge>
+  const display = {
+    SUCCESS: { label: '成功', variant: 'success' as const },
+    PARTIAL: { label: '部分成功', variant: 'warning' as const },
+    NO_DATA: { label: '无数据', variant: 'muted' as const },
+    FAILED: { label: '失败', variant: 'destructive' as const }
+  }[status]
+  return (
+    <Badge variant={display.variant} title={artist.pixivSync?.lastError ?? undefined}>
+      {display.label}
+    </Badge>
   )
 }

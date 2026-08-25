@@ -13,7 +13,7 @@ model Artist {
   id                  Int                        @id @default(autoincrement())
   name                String
   username            String?
-  userId              String? // pixiv 用户id
+  userId              String? // 兼容期保留的历史来源字段；Pixiv 身份以 ArtistExternalRef 为准
   bio                 String?
   createdAt           DateTime                   @default(now())
   updatedAt           DateTime                   @updatedAt
@@ -21,11 +21,45 @@ model Artist {
   backgroundImg       String?
   isStarred           Boolean                    @default(false)
   artworks            Artwork[]
+  externalRefs        ArtistExternalRef[]
   localImportMappings LocalImportArtistMapping[]
 
   @@unique([username, userId], name: "unique_username_userid")
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([isStarred])
+}
+
+enum ArtistExternalRefStatus {
+  SUCCESS
+  PARTIAL
+  NO_DATA
+  FAILED
+}
+
+model ArtistExternalRef {
+  id                String                   @id @default(cuid())
+  artistId          Int
+  providerKey       String                   @db.VarChar(50)
+  externalId        String
+  canonicalUrl      String?
+  sourceName        String?
+  status            ArtistExternalRefStatus?
+  normalizedPayload Json?
+  payloadHash       String?                  @db.VarChar(64)
+  lastAttemptAt     DateTime?
+  lastSuccessAt     DateTime?
+  lastErrorCode     String?                  @db.VarChar(80)
+  lastError         String?                  @db.Text
+  lastSystemJobId   String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  artist            Artist                   @relation(fields: [artistId], references: [id], onDelete: Cascade)
+
+  @@unique([providerKey, externalId])
+  @@unique([artistId, providerKey])
+  @@index([providerKey, status, lastAttemptAt])
+  @@index([lastSystemJobId])
+  @@map("artist_external_refs")
 }
 
 model LocalImportArtistMapping {

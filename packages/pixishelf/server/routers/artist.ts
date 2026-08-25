@@ -1,6 +1,20 @@
 import { ArtistsGetSchema, ArtistCreateSchema, ArtistUpdateSchema } from '@/schemas/artist.dto'
-import { authProcedure, router } from '@/server/trpc'
-import { getArtists, createArtist, updateArtist, deleteArtist, getArtistById } from '@/services/artist-service'
+import { adminProcedure, authProcedure, router } from '@/server/trpc'
+import {
+  adoptPixivSourceName,
+  createArtist,
+  deleteArtist,
+  getArtistById,
+  getArtists,
+  updateArtist
+} from '@/services/artist-service'
+import {
+  cancelPixivArtistEnrichment,
+  getPixivArtistEnrichmentSummary,
+  retryPixivArtistEnrichment,
+  startPixivArtistEnrichment
+} from '@/services/pixiv-artist-enrichment-service'
+import { PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
 import { z } from 'zod'
 
 /**
@@ -38,16 +52,36 @@ export const artistRouter = router({
   /**
    * 设置艺术家星标状态
    */
-  setStar: authProcedure
-    .input(z.object({ id: z.number(), isStarred: z.boolean() }))
-    .mutation(async ({ input }) => {
-      return await updateArtist(input.id, { isStarred: input.isStarred })
-    }),
+  setStar: authProcedure.input(z.object({ id: z.number(), isStarred: z.boolean() })).mutation(async ({ input }) => {
+    return await updateArtist(input.id, { isStarred: input.isStarred })
+  }),
 
   /**
    * 删除艺术家
    */
   delete: authProcedure.input(z.number()).mutation(async ({ input }) => {
     return await deleteArtist(input)
-  })
+  }),
+
+  pixivEnrichmentSummary: adminProcedure.query(() => getPixivArtistEnrichmentSummary()),
+
+  startPixivEnrichment: adminProcedure
+    .input(
+      z.object({
+        artistIds: z.array(z.number().int().positive()).min(1).max(PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT).optional()
+      })
+    )
+    .mutation(({ input, ctx }) => startPixivArtistEnrichment(ctx.userId, input.artistIds)),
+
+  cancelPixivEnrichment: adminProcedure
+    .input(z.object({ jobId: z.string().min(1).optional() }).optional())
+    .mutation(({ input }) => cancelPixivArtistEnrichment(input?.jobId)),
+
+  retryPixivEnrichment: adminProcedure
+    .input(z.object({ artistId: z.number().int().positive() }))
+    .mutation(({ input, ctx }) => retryPixivArtistEnrichment(input.artistId, ctx.userId)),
+
+  adoptPixivSourceName: adminProcedure
+    .input(z.object({ artistId: z.number().int().positive() }))
+    .mutation(({ input }) => adoptPixivSourceName(input.artistId))
 })

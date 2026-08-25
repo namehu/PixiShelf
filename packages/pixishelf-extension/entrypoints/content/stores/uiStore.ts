@@ -7,7 +7,7 @@ interface Position {
   y: number
 }
 
-export const tabIds = ['tags', 'users', 'artworks', 'setting'] as const
+export const tabIds = ['tags', 'artworks', 'setting'] as const
 export type TabId = (typeof tabIds)[number]
 interface UIState {
   // 面板显示状态

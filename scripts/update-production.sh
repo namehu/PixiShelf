@@ -50,7 +50,7 @@ Environment:
   PIXISHELF_UPDATE_READY_POLL_SECONDS       (default: 5)
 
 PIXISHELF_PRE_UPDATE_HOOK must name an executable backup/checkpoint script.
-It runs after all application writers stop and before the new App starts.
+It runs after all application writers stop and before database migration.
 EOF
 }
 
@@ -300,9 +300,10 @@ else
   log_warn "No PIXISHELF_PRE_UPDATE_HOOK is configured. This script does not create the required database/media checkpoint."
 fi
 
-UPDATE_PHASE="start-app"
-log_info "Starting App first so prisma migrate deploy completes before Worker startup..."
-"${COMPOSE[@]}" up -d --force-recreate --wait --wait-timeout "$WAIT_TIMEOUT_SECONDS" app
+UPDATE_PHASE="deploy-migrations"
+log_info "Deploying database migrations with a one-shot App image..."
+"${COMPOSE[@]}" run --rm --no-deps --entrypoint prisma app \
+  migrate deploy --schema=packages/pixishelf-db/prisma/schema.prisma
 
 UPDATE_PHASE="start-worker"
 log_info "Starting the general Worker..."
@@ -315,6 +316,10 @@ wait_for_worker_ready
 UPDATE_PHASE="capability-audit"
 log_info "Verifying Worker capabilities..."
 "${COMPOSE[@]}" exec -T worker node dist/capability-audit.cjs
+
+UPDATE_PHASE="start-app"
+log_info "Starting App after Worker READY and capability verification..."
+"${COMPOSE[@]}" up -d --force-recreate --wait --wait-timeout "$WAIT_TIMEOUT_SECONDS" app
 
 if [ "$SCHEDULER_WAS_RUNNING" = true ]; then
   UPDATE_PHASE="restore-scheduler"

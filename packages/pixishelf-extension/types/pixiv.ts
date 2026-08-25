@@ -53,39 +53,6 @@ export interface PixivApiResponse {
   }
 }
 
-// Pixiv 用户信息相关类型定义
-
-export interface PixivUserData {
-  userId: string
-  name: string
-  avatarUrl: string | null
-  backgroundUrl: string | null
-}
-
-export interface UserProgress {
-  status: 'fulfilled' | 'rejected'
-  data: PixivUserData | string // 成功时为PixivUserData，失败时为错误消息
-}
-
-export interface UserProgressStorage {
-  [userId: string]: UserProgress
-}
-
-export interface UserStats {
-  total: number
-  completed: number
-  successful: number
-  failed: number
-  pending: number
-}
-
-export interface PixivUserApiResponse {
-  userId: string
-  name: string
-  avatarUrl?: string
-  backgroundUrl?: string
-}
-
 // Pixiv 作品信息相关类型定义
 
 export interface PixivArtworkData {

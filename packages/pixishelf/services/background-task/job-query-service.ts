@@ -49,9 +49,14 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
   const database = queryClient(client)
   const dashboardVisibleWhere = {
     definitionVersion: { gte: 1 },
-    NOT: { type: 'PIXIV_TAG_ENRICHMENT', parentJobId: { not: null } }
+    NOT: {
+      OR: [
+        { type: 'PIXIV_TAG_ENRICHMENT', parentJobId: { not: null } },
+        { type: 'PIXIV_ARTIST_ENRICHMENT', parentJobId: { not: null } }
+      ]
+    }
   } satisfies Prisma.SystemJobWhereInput
-  const [groups, running, recent, workers, activeCollapsedPixivBatch] = await Promise.all([
+  const [groups, running, recent, workers, activeCollapsedPixivBatches] = await Promise.all([
     database.systemJob.groupBy({
       by: ['status'],
       where: dashboardVisibleWhere,
@@ -70,25 +75,26 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
       select: systemJobWireSelect
     }),
     database.workerInstance.findMany({ orderBy: { heartbeatAt: 'desc' }, select: workerInstanceWireSelect }),
-    database.systemJob.findFirst({
+    database.systemJob.findMany({
       where: {
         definitionVersion: { gte: 1 },
-        type: 'PIXIV_TAG_ENRICHMENT',
+        type: { in: ['PIXIV_TAG_ENRICHMENT', 'PIXIV_ARTIST_ENRICHMENT'] },
         parentJobId: { not: null },
         status: { in: ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] },
         parentJob: {
           is: { status: { notIn: ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] } }
         }
       },
-      select: { id: true }
+      select: { type: true },
+      distinct: ['type']
     })
   ])
 
   // 仅采用新鲜 worker 心跳，过期 presence 不会影响 READY/DRAINING 判定。
   const counts = Object.fromEntries(JOB_STATUS_VALUES.map((status) => [status, 0])) as Record<JobStatus, number>
   for (const group of groups) counts[group.status] = group._count._all
-  // Tag enrichment fans out internally, but the operator started one batch. Count that batch once.
-  if (activeCollapsedPixivBatch) counts.RUNNING += 1
+  // Pixiv enrichment jobs fan out internally, but the operator started one batch. Count each active batch once.
+  counts.RUNNING += activeCollapsedPixivBatches.length
   const runningJobs = running.map(toJobDto)
   const workerDtos = workers.map(toWorkerHealthDto)
   const timestamp = now()

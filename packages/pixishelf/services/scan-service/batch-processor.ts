@@ -8,7 +8,7 @@ import { preserveExistingMediaPathOrder } from '@/services/artwork-service/image
 import { buildScannedImageSeedData, type ScannedImageSeedData } from './scan-image-builder'
 import { getMetaSource, getPathBasename } from './path-utils'
 import type { MetadataInfo } from './metadata-parser'
-import type { ArtistCacheEntry, ArtworkData, ScanAuditItemInput, ScanContext } from './types'
+import type { ArtworkData, ScanAuditItemInput, ScanContext } from './types'
 import { toDatabaseImageSize } from '@/utils/image-size'
 
 type CreatedArtworkLookup = {
@@ -100,7 +100,9 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
           select: { id: true, externalId: true, createdVia: true }
         })
         if (ambiguousLegacyRows.length > 0) {
-          const conflicts = ambiguousLegacyRows.map((row) => `${row.externalId}(Artwork ${row.id}, ${row.createdVia})`).join(', ')
+          const conflicts = ambiguousLegacyRows
+            .map((row) => `${row.externalId}(Artwork ${row.id}, ${row.createdVia})`)
+            .join(', ')
           throw new Error(`Pixiv 来源身份冲突，未自动认领历史作品: ${conflicts}`)
         }
         // 使用 createMany 而不是 createManyAndReturn 来提高性能
@@ -161,7 +163,9 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
 
           // 准备图片数据
           if (artworkData.mediaFiles.length > 0) {
-            const artworkImages = imageSeedsForArtwork.map((imageSeed) => buildImageCreateManyInput(imageSeed, artwork.id))
+            const artworkImages = imageSeedsForArtwork.map((imageSeed) =>
+              buildImageCreateManyInput(imageSeed, artwork.id)
+            )
             imagesToCreate.push(...artworkImages)
           }
 
@@ -287,30 +291,73 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
 
   logger.info('Processing uncached artists in current batch:', { uncachedArtists: uncachedUserIds.size })
 
-  // 2. 批量查询数据库中已存在的艺术家
+  const sourceNameByUserId = new Map(
+    artworks
+      .filter((artwork) => artwork.metadata.userId)
+      .map((artwork) => [artwork.metadata.userId, artwork.metadata.user])
+  )
+  const confirmedRefs = await prisma.artistExternalRef.findMany({
+    where: { providerKey: 'pixiv', externalId: { in: Array.from(uncachedUserIds) } },
+    select: {
+      externalId: true,
+      artist: { select: { id: true, name: true, username: true, userId: true, bio: true } }
+    }
+  })
+  for (const ref of confirmedRefs) {
+    context.artistCache.set(ref.externalId, ref.artist)
+    uncachedUserIds.delete(ref.externalId)
+  }
+
+  // 2. 兼容期只认领唯一的历史数字 ID；重复 ID 保留给审计，不做猜测。
   const existingArtists = await prisma.artist.findMany({
     where: {
       userId: {
         in: Array.from(uncachedUserIds)
       }
+    },
+    include: {
+      externalRefs: { where: { providerKey: 'pixiv' }, select: { id: true, externalId: true } }
     }
   })
 
-  // 构建已存在艺术家的映射
-  const existingArtistMap = new Map<string, ArtistCacheEntry>()
+  const legacyArtistsByUserId = new Map<string, (typeof existingArtists)[number][]>()
   for (const artist of existingArtists) {
     if (artist.userId) {
-      existingArtistMap.set(artist.userId, artist)
-      // 增量更新缓存
-      context.artistCache.set(artist.userId, artist)
+      const bucket = legacyArtistsByUserId.get(artist.userId)
+      if (bucket) bucket.push(artist)
+      else legacyArtistsByUserId.set(artist.userId, [artist])
     }
+  }
+  const legacyRefsToCreate: Prisma.ArtistExternalRefCreateManyInput[] = []
+  for (const [userId, artists] of legacyArtistsByUserId) {
+    if (artists.length !== 1 || artists[0]!.externalRefs.length > 0) {
+      logger.warn('Skipping ambiguous or conflicting legacy Pixiv artist identity', {
+        userId,
+        artistCount: artists.length,
+        existingPixivIdentityCount: artists.reduce((count, artist) => count + artist.externalRefs.length, 0)
+      })
+      uncachedUserIds.delete(userId)
+      continue
+    }
+    const artist = artists[0]!
+    context.artistCache.set(userId, artist)
+    legacyRefsToCreate.push({
+      artistId: artist.id,
+      providerKey: 'pixiv',
+      externalId: userId,
+      canonicalUrl: `https://www.pixiv.net/users/${userId}`,
+      sourceName: sourceNameByUserId.get(userId) ?? null
+    })
+  }
+  if (legacyRefsToCreate.length > 0) {
+    await prisma.artistExternalRef.createMany({ data: legacyRefsToCreate, skipDuplicates: true })
   }
 
   // 3. 筛选出需要新建的艺术家
   const artistsToCreate: Prisma.ArtistCreateManyInput[] = []
   for (const artwork of artworks) {
     const userId = artwork.metadata.userId
-    if (userId && uncachedUserIds.has(userId) && !existingArtistMap.has(userId)) {
+    if (userId && uncachedUserIds.has(userId) && !legacyArtistsByUserId.has(userId)) {
       artistsToCreate.push({
         name: artwork.metadata.user,
         username: artwork.metadata.user,
@@ -348,6 +395,22 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
         context.artistCache.set(artist.userId, artist)
       }
     }
+    await prisma.artistExternalRef.createMany({
+      data: newlyCreatedArtists.flatMap((artist) =>
+        artist.userId
+          ? [
+              {
+                artistId: artist.id,
+                providerKey: 'pixiv',
+                externalId: artist.userId,
+                canonicalUrl: `https://www.pixiv.net/users/${artist.userId}`,
+                sourceName: sourceNameByUserId.get(artist.userId) ?? null
+              }
+            ]
+          : []
+      ),
+      skipDuplicates: true
+    })
   }
 
   logger.info('Batch artist processing completed:', { totalArtistsInCache: context.artistCache.size })
@@ -503,7 +566,9 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
         const existingArtwork = sourceRef?.artwork
 
         if (!existingArtwork) {
-          throw new Error(`Pixiv Source Reference ${metadata.id} not found; refusing to claim a legacy global externalId`)
+          throw new Error(
+            `Pixiv Source Reference ${metadata.id} not found; refusing to claim a legacy global externalId`
+          )
         }
 
         logger.debug('update artwork:', existingArtwork, {

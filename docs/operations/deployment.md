@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前本地运行、生产 Compose 拓扑、升级顺序、验证与回滚入口
-last-verified: 2026-08-22
+last-verified: 2026-08-25
 sources:
   - build/docker-compose.dev.yml
   - build/docker-compose.deploy.yml
@@ -32,7 +32,7 @@ sources:
 | ----------- | -------------------------- | ------------------------------------------------------- | ------------------ |
 | `postgres`  | 数据库读写                 | 领域数据、认证、队列、租约和 migration 历史             | 必需               |
 | `app`       | 数据库读写；原媒体默认只读 | Next.js Web/API、认证、任务控制面；启动时部署 migration | 必需               |
-| `worker`    | 数据库和媒体读写           | 单进程双 lane；21 个 job type，SCAN v1/v2/v3、其余仅 v1 | 必需，固定一个服务 |
+| `worker`    | 数据库和媒体读写           | 单进程双 lane；22 个 job type，SCAN v1/v2/v3、其余仅 v1 | 必需，固定一个服务 |
 | `scheduler` | 无数据库权限               | 使用内部 Token 调用 App 的 scheduler tick               | 按需启用           |
 | `imgproxy`  | 原媒体和派生媒体只读       | 图片缩放、格式处理和缓存                                | 必需               |
 
@@ -91,9 +91,22 @@ sources:
 备份位置、校验值和镜像 digest 必须记录在本次发布记录中。“命令成功”不能代替恢复验证。
 完整备份集合、停写检查点和隔离恢复演练见[备份与恢复基线](./backup-and-recovery.md)。
 
+### 艺术家外部身份版本的附加门禁
+
+首次部署 `ArtistExternalRef` 和 `PIXIV_ARTIST_ENRICHMENT` 时还必须：
+
+1. 把 PostgreSQL 与 `PIXISHELF_PUBLIC_DATA_PATH` 纳入同一一致性检查点；
+2. 在旧数据库运行只读 `packages/pixishelf-db/prisma/diagnostics/artist-source-identity-audit.sql`，保存自动认领、重复数字 ID、无来源证据数字 ID 和 `p_` ID 计数；
+3. 停止 App/Worker 写入后执行 `prisma migrate deploy`，再运行 `artist-external-ref-verification.sql`；其中 `missing_expected_claims` 和 `duplicate_provider_identities` 必须为零；
+4. 先启动新 Worker，确认 READY 且 capability 精确为 22 个 job type / 24 个 type-version 组合，再启动新 App；
+5. App 开放后先选择少量已确认艺术家试跑，核对 `artist_external_refs` 状态、`pixiv_data/artists/<user-id>/` 文件和受鉴权图片 URL；通过后再运行一批最多 200 个；
+6. 重复 ID、无作品 Pixiv 来源证据的数字 ID 和 `p_` ID 只保留在审计结果中，不能通过生产 SQL 批量猜测认领。
+
+旧 `Artist.userId` 本版本不会删除。只有稳定运行一个发布周期并确认回滚镜像、旧消费者和导出工具不再读取它后，才允许使用独立 migration 做物理清理。
+
 ## 一键生产升级
 
-日常生产升级优先使用仓库内的一键脚本。它把 App 与通用 Worker 作为同一个发布单元：先检查执行中的后台任务，拉取两份镜像，停止写入者，先启动 App 完成 `prisma migrate deploy`，再启动 Worker，并执行 READY 与 capability 门禁。脚本只显式编排 `app`、`worker` 和原本已在运行的可选 `scheduler`。
+日常生产升级优先使用仓库内的一键脚本。它把 App 与通用 Worker 作为同一个发布单元：先检查执行中的后台任务，拉取两份镜像，停止写入者，以一次性 App 容器执行 `prisma migrate deploy`，再启动 Worker 并通过 READY/capability 门禁，最后启动 App。脚本只显式编排 `app`、`worker` 和原本已在运行的可选 `scheduler`。
 
 从部署目录执行：
 
@@ -173,8 +186,8 @@ pnpm --filter @pixishelf/next archive:lane-cutover-audit
 
 退出码 `0` 才能继续；退出码 `2` 表示存在业务或消费者阻断项，退出码 `1` 表示审计本身失败。普通兼容任务的
 `PENDING`、`PAUSED`、`RETRY_WAIT` 可以保留，但其 type/version 必须在新 Worker 的 capability inventory 内；
-`FULL_RECONCILE` 是额外的 payload 级例外，必须按上一节清零。当前 inventory 为 21 个 job type、23 个
-type/version 组合，其中 `SCAN` 支持 v1/v2/v3、其余 20 类只支持 v1。专用审计只检查数据库状态；上一步“旧
+`FULL_RECONCILE` 是额外的 payload 级例外，必须按上一节清零。当前 inventory 为 22 个 job type、24 个
+type/version 组合，其中 `SCAN` 支持 v1/v2/v3、其余 21 类只支持 v1。专用审计只检查数据库状态；上一步“旧
 `archive-worker` 容器为零”的结果必须单独记录。
 
 审计通过后，在同一个停写窗口建立 PostgreSQL、原媒体、派生媒体、配置和旧/新镜像 digest 的一致性检查点。lane migration 会拒绝 `RUNNING/PAUSING/CANCELLING` 任务或未过期的 `global/background-worker` lease，并删除已经过期的旧全局 lease；它不是停止并发写入者的替代品。
@@ -207,7 +220,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml logs --tail=200 worker
 ```
 
-READY 必须显示两个 lane 都可领取，capability audit 必须精确报告 21 个 job type、23 个 type/version 组合、
+READY 必须显示两个 lane 都可领取，capability audit 必须精确报告 22 个 job type、24 个 type/version 组合、
 `SCAN` v1/v2/v3、其余 v1 及正确 lane；`/livez` 只能证明进程存活，不能替代上述门禁。`SCAN@v3` 把
 `AUDIT_APPLY` 与只读 `SCAN@v2` 隔离：滚动部署期间旧 v2 Worker 不会领取 v3 写任务，但发布门禁仍要求新
 Worker 明确报告 v1/v2/v3 后才能开放 App 写入口。暗启动通过后再启动 App，仍保持 `false/false` 完成登录和
@@ -232,7 +245,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 
 - App、PostgreSQL、ImgProxy 正常；
 - 只有一个当前 Worker 为 READY；
-- Worker 报告两个 lane READY，且 capability 精确为 21 个 job type / 23 个 type-version 组合（`SCAN`
+- Worker 报告两个 lane READY，且 capability 精确为 22 个 job type / 24 个 type-version 组合（`SCAN`
   v1/v2/v3，其余 v1）；
 - scheduler 的启用状态符合预期；
 - 没有异常积压、重复 claim、媒体 404 或 migration 漂移。

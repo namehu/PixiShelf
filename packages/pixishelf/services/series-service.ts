@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { transformSingleArtwork } from '@/services/artwork-service/utils'
+import { ARTIST_SELECT } from '@/schemas/models/artists'
 import { resolveMediaCoverUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
 
 export async function getSeriesList(params: { page: number; pageSize: number; query?: string }) {
@@ -80,7 +81,7 @@ export async function getSeriesDetail(id: number) {
         include: {
           artwork: {
             include: {
-              artist: true,
+              artist: { select: ARTIST_SELECT },
               images: {
                 orderBy: { sortOrder: 'asc' },
                 include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }

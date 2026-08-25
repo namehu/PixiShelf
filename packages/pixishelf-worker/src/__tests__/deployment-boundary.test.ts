@@ -117,10 +117,24 @@ describe('Worker deployment boundary', () => {
     expect(nextPackage).not.toContain('archive:worker')
   })
 
-  it('ships the read-only 21-job capability audit and documents it as a deployment gate', () => {
+  it('ships the read-only 22-job capability audit and documents it as a deployment gate', () => {
     const buildScript = readFileSync(new URL('packages/pixishelf-worker/scripts/build.mjs', repositoryRoot), 'utf8')
     const runbook = readFileSync(new URL('docs/design/background-task-runbook.md', repositoryRoot), 'utf8')
     expect(buildScript).toContain("'capability-audit': 'src/capability-audit.ts'")
     expect(runbook).toContain('node dist/capability-audit.cjs')
+  })
+
+  it('deploys migrations before Worker readiness and starts App only after the capability gate', () => {
+    const updateScript = readFileSync(new URL('scripts/update-production.sh', repositoryRoot), 'utf8')
+    const migration = updateScript.indexOf('UPDATE_PHASE="deploy-migrations"')
+    const worker = updateScript.indexOf('UPDATE_PHASE="start-worker"')
+    const capability = updateScript.indexOf('UPDATE_PHASE="capability-audit"')
+    const app = updateScript.indexOf('UPDATE_PHASE="start-app"')
+
+    expect(updateScript).toContain('run --rm --no-deps --entrypoint prisma app')
+    expect(migration).toBeGreaterThan(-1)
+    expect(migration).toBeLessThan(worker)
+    expect(worker).toBeLessThan(capability)
+    expect(capability).toBeLessThan(app)
   })
 })

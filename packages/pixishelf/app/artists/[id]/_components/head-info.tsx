@@ -58,14 +58,14 @@ const Component: FC<HeadInfoProps> = ({ artist, immersiveHref }) => (
               <CalendarIcon className="size-3.5" aria-hidden="true" />
               {new Date(artist.createdAt).toLocaleDateString('zh-CN')} 加入
             </span>
-            {artist.userId && (
+            {artist.pixivUserId && (
               <a
-                href={`https://www.pixiv.net/users/${artist.userId}`}
+                href={`https://www.pixiv.net/users/${artist.pixivUserId}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-primary outline-none hover:underline focus-visible:underline"
               >
-                Pixiv @{artist.userId}
+                Pixiv @{artist.pixivUserId}
                 <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
               </a>
             )}

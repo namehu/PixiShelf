@@ -62,7 +62,7 @@ describe('getJobDashboard', () => {
     const systemJob = {
       groupBy: vi.fn().mockResolvedValue([{ status: 'PENDING', _count: { _all: 3 } }]),
       findFirst: vi.fn().mockResolvedValue(null),
-      findMany: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([jobRecord()])
+      findMany: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([jobRecord()]).mockResolvedValue([])
     }
     const workerInstance = {
       findMany: vi.fn().mockResolvedValue([
@@ -124,7 +124,7 @@ describe('getJobDashboard', () => {
     const systemJob = {
       groupBy: vi.fn().mockResolvedValue([{ status: 'RUNNING', _count: { _all: 1 } }]),
       findFirst: vi.fn().mockResolvedValue(null),
-      findMany: vi.fn().mockResolvedValueOnce([runningJob]).mockResolvedValueOnce([runningJob])
+      findMany: vi.fn().mockResolvedValueOnce([runningJob]).mockResolvedValueOnce([runningJob]).mockResolvedValue([])
     }
     const workerInstance = { findMany: vi.fn().mockResolvedValue([workerRecord()]) }
     const result = await getJobDashboard(
@@ -140,5 +140,22 @@ describe('getJobDashboard', () => {
         runningJob: expect.objectContaining({ id: runningJob.id })
       }
     ])
+  })
+
+  it('counts an active Pixiv artist child as one operator-visible batch', async () => {
+    const systemJob = {
+      groupBy: vi.fn().mockResolvedValue([{ status: 'COMPLETED', _count: { _all: 1 } }]),
+      findMany: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([jobRecord({ type: 'PIXIV_ARTIST_ENRICHMENT', status: 'COMPLETED' })])
+        .mockResolvedValueOnce([{ type: 'PIXIV_ARTIST_ENRICHMENT' }])
+    }
+    const workerInstance = { findMany: vi.fn().mockResolvedValue([]) }
+
+    const result = await getJobDashboard({ systemJob, workerInstance } as never)
+
+    expect(result.counts.RUNNING).toBe(1)
+    expect(result.activeCount).toBe(1)
   })
 })

@@ -1,11 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getDashboardArtists } from '../artist-service'
+import { getDashboardArtists, updateArtist } from '../artist-service'
 
-const { artistAggregateMock, artistFindManyMock, artworkFindManyMock, queryRawMock } = vi.hoisted(() => ({
+const {
+  artistAggregateMock,
+  artistFindManyMock,
+  artworkFindManyMock,
+  queryRawMock,
+  prismaTransactionMock,
+  transactionArtistFindMock,
+  transactionArtistUpdateMock
+} = vi.hoisted(() => ({
   artistAggregateMock: vi.fn(),
   artistFindManyMock: vi.fn(),
   artworkFindManyMock: vi.fn(),
-  queryRawMock: vi.fn()
+  queryRawMock: vi.fn(),
+  prismaTransactionMock: vi.fn(),
+  transactionArtistFindMock: vi.fn(),
+  transactionArtistUpdateMock: vi.fn()
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -17,7 +28,8 @@ vi.mock('@/lib/prisma', () => ({
     artwork: {
       findMany: artworkFindManyMock
     },
-    $queryRaw: queryRawMock
+    $queryRaw: queryRawMock,
+    $transaction: prismaTransactionMock
   }
 }))
 
@@ -141,5 +153,33 @@ describe('getDashboardArtists', () => {
       expect.objectContaining({ id: 12, coverUrl: null, coverMediaType: 'video' })
     ])
     expect(artworkFindManyMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('updateArtist Pixiv identity safety', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prismaTransactionMock.mockImplementation((operation) =>
+      operation({
+        artist: {
+          findUniqueOrThrow: transactionArtistFindMock,
+          update: transactionArtistUpdateMock
+        },
+        artistExternalRef: { deleteMany: vi.fn(), upsert: vi.fn() }
+      })
+    )
+  })
+
+  it('requires existing identity-bound images to be handled explicitly before changing the Pixiv id', async () => {
+    transactionArtistFindMock.mockResolvedValue({
+      avatar: 'avatar.jpg',
+      backgroundImg: null,
+      externalRefs: [{ externalId: '123' }]
+    })
+
+    await expect(updateArtist(1, { pixivUserId: '456' })).rejects.toThrow(
+      '修改 Pixiv UserID 前请显式清空或重新填写现有头像'
+    )
+    expect(transactionArtistUpdateMock).not.toHaveBeenCalled()
   })
 })

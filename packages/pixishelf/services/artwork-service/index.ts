@@ -32,6 +32,7 @@ import { appendScanRunItems, completeScanRunSummary, startScanRun } from '@/serv
 import { toApiImageSize } from '@/utils/image-size'
 import { buildVideoPosterUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
 import { requestArchiveArtworkMaintenance } from '@/services/archive/archive-maintenance-service'
+import { ARTIST_SELECT } from '@/schemas/models/artists'
 
 const publishedKeyframeSummaryInclude = {
   where: { status: 'PUBLISHED' as const },
@@ -104,6 +105,8 @@ async function queryArtworkRowsPage(params: ArtworksInfiniteQuerySchema, overfet
         artist."userId" as artist_userId,
         artist.bio as artist_bio,
         artist.avatar as artist_avatar,
+        artist."backgroundImg" as artist_background_img,
+        artist."isStarred" as artist_is_starred,
         artist."createdAt" as artist_createdAt,
         artist."updatedAt" as artist_updatedAt
       FROM "Artwork" a
@@ -127,7 +130,8 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
   if (rawArtworks.length === 0) return []
 
   const artworkIds = rawArtworks.map((a) => a.id)
-  const [allImages, allTags] = await Promise.all([
+  const artistIds = [...new Set(rawArtworks.map((artwork) => artwork.artist_id).filter(Boolean))] as number[]
+  const [allImages, allTags, artistExternalRefs, localArtistMappings] = await Promise.all([
     prisma.image.findMany({
       where: { artworkId: { in: artworkIds } },
       orderBy: { sortOrder: 'asc' },
@@ -136,6 +140,26 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
     prisma.artworkTag.findMany({
       where: { artworkId: { in: artworkIds } },
       include: { tag: true }
+    }),
+    prisma.artistExternalRef.findMany({
+      where: { artistId: { in: artistIds } },
+      select: {
+        id: true,
+        artistId: true,
+        providerKey: true,
+        externalId: true,
+        sourceName: true,
+        status: true,
+        lastAttemptAt: true,
+        lastSuccessAt: true,
+        lastErrorCode: true,
+        lastError: true,
+        lastSystemJobId: true
+      }
+    }),
+    prisma.localImportArtistMapping.findMany({
+      where: { artistId: { in: artistIds } },
+      select: { id: true, artistId: true }
     })
   ])
 
@@ -151,6 +175,18 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
     tags.push(tag)
     tagsByArtwork.set(tag.artworkId, tags)
   }
+  const externalRefsByArtist = new Map<number, typeof artistExternalRefs>()
+  for (const ref of artistExternalRefs) {
+    const refs = externalRefsByArtist.get(ref.artistId) ?? []
+    refs.push(ref)
+    externalRefsByArtist.set(ref.artistId, refs)
+  }
+  const localMappingsByArtist = new Map<number, Array<{ id: number }>>()
+  for (const mapping of localArtistMappings) {
+    const mappings = localMappingsByArtist.get(mapping.artistId) ?? []
+    mappings.push({ id: mapping.id })
+    localMappingsByArtist.set(mapping.artistId, mappings)
+  }
 
   return rawArtworks.map((raw) => {
     const artistObj = raw.artist_id
@@ -161,8 +197,12 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
           userId: raw.artist_userId,
           bio: raw.artist_bio,
           avatar: raw.artist_avatar,
+          backgroundImg: raw.artist_background_img,
+          isStarred: raw.artist_is_starred,
           createdAt: raw.artist_createdAt,
-          updatedAt: raw.artist_updatedAt
+          updatedAt: raw.artist_updatedAt,
+          externalRefs: externalRefsByArtist.get(raw.artist_id) ?? [],
+          localImportMappings: localMappingsByArtist.get(raw.artist_id) ?? []
         }
       : null
 
@@ -686,7 +726,7 @@ export async function getRandomArtworks(
         orderBy: { sortOrder: 'asc' },
         include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
       },
-      artist: true,
+      artist: { select: ARTIST_SELECT },
       artworkTags: { include: { tag: true } }
     }
   })
@@ -823,6 +863,9 @@ export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, bo
   const imageUrl = images[0]?.url ?? ''
   const isCoverVideo = images[0]?.mediaType === MediaType.VIDEO
   const artist = artwork.artist
+  const pixivUserId = artist?.externalRefs?.find(
+    (ref: { providerKey: string }) => ref.providerKey === 'pixiv'
+  )?.externalId
 
   return {
     id: artwork.id,
@@ -835,9 +878,9 @@ export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, bo
     author: artist
       ? {
           id: artist.id,
-          userId: artist.userId || '',
+          userId: pixivUserId || '',
           name: artist.name,
-          avatar: buildPixivArtistAvatarUrl(artist.userId, artist.avatar),
+          avatar: buildPixivArtistAvatarUrl(pixivUserId, artist.avatar),
           username: artist.username || ''
         }
       : null,
@@ -859,7 +902,7 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
         orderBy: { sortOrder: 'asc' },
         include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
       },
-      artist: true,
+      artist: { select: ARTIST_SELECT },
       artworkTags: { include: { tag: true } },
       series: {
         include: {

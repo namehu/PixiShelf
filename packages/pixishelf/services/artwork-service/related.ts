@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { NeighboringArtworksGetSchema } from '@/schemas/artwork.dto'
 import { transformSingleArtwork } from './utils'
 import { VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
+import { ARTIST_SELECT } from '@/schemas/models/artists'
 
 /**
  * 获取邻近作品（前后作品）
@@ -31,7 +32,7 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
       orderBy: { sortOrder: 'asc' } as const,
       include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
     },
-    artist: true,
+    artist: { select: ARTIST_SELECT },
     artworkTags: { include: { tag: true } }
   }
 
@@ -105,7 +106,7 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
         orderBy: { sortOrder: 'asc' },
         include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
       },
-      artist: true,
+      artist: { select: ARTIST_SELECT },
       artworkTags: { include: { tag: true } }
     }
   })

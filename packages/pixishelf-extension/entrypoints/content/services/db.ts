@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import { PixivArtworkData, PixivTagData, PixivUserData } from '../../../types/pixiv'
+import { PixivArtworkData, PixivTagData } from '../../../types/pixiv'
 
 export interface ArtworkItem {
   id: string
@@ -17,16 +17,8 @@ export interface TagItem {
   updatedAt: number
 }
 
-export interface UserItem {
-  uid: string // 用户ID (主键)
-  status: 'pending' | 'running' | 'fulfilled' | 'rejected'
-  data?: PixivUserData
-  error?: string
-  updatedAt: number
-}
-
 export type LogLevel = 'info' | 'success' | 'warn' | 'error'
-export type LogModule = 'artwork' | 'artist' | 'tag' | 'system'
+export type LogModule = 'artwork' | 'tag' | 'system'
 
 export interface LogEntry {
   id?: number
@@ -40,14 +32,13 @@ export class PixiShelfDB extends Dexie {
   tasks!: Table<ArtworkItem>
   logs!: Table<LogEntry>
   tags!: Table<TagItem>
-  users!: Table<UserItem>
 
   constructor() {
     super('PixiShelfDB')
     this.version(1).stores({
       tasks: 'id, status'
     })
-    
+
     // Add logs table in version 2
     this.version(2).stores({
       tasks: 'id, status',
@@ -67,6 +58,11 @@ export class PixiShelfDB extends Dexie {
       logs: '++id, module, level',
       tags: 'name, status',
       users: 'uid, status'
+    })
+
+    // 用户资料采集已迁入 PixiShelf Worker；升级时删除扩展遗留任务表。
+    this.version(5).stores({
+      users: null
     })
   }
 }

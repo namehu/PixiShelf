@@ -64,6 +64,16 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
             contains: search,
             mode: 'insensitive'
           }
+        },
+        {
+          externalRefs: {
+            some: {
+              OR: [
+                { externalId: { contains: search, mode: 'insensitive' } },
+                { sourceName: { contains: search, mode: 'insensitive' } }
+              ]
+            }
+          }
         }
       ]
     }
@@ -133,32 +143,6 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
         hasPrevPage: false
       }
     }
-  }
-}
-
-/**
- * 获取信息不完善（无头像且无背景图）的艺术家用户ID列表
- * @returns 用户ID列表
- */
-export async function getIncompleteArtistUserIds(): Promise<string[]> {
-  try {
-    const artists = await prisma.artist.findMany({
-      where: {
-        avatar: null,
-        backgroundImg: null,
-        userId: {
-          not: null
-        }
-      },
-      select: {
-        userId: true
-      }
-    })
-
-    return artists.map((artist) => artist.userId!).filter(Boolean)
-  } catch (error) {
-    logger.error('Error fetching incomplete artist user IDs:', error)
-    return []
   }
 }
 
@@ -387,28 +371,29 @@ export async function getDashboardArtists(
  * 创建艺术家
  */
 export async function createArtist(data: ArtistCreateSchema): Promise<ArtistResponseDto> {
-  // 1. 强制 username = name (如果 username 未提供或为空)
-  // 虽然前端已经处理了，但后端做个兜底
-  if (!data.username) {
-    data.username = data.name
-  }
-
-  // 2. 创建艺术家
-  const artist = await prisma.artist.create({
-    data
-  })
-
-  // 3. 检查 userId 是否为空，如果为空则生成 p_{id}
-  if (!artist.userId) {
-    const newUserId = `p_${artist.id}`
-    const updatedArtist = await prisma.artist.update({
-      where: { id: artist.id },
-      data: { userId: newUserId }
+  const { pixivUserId, ...artistInput } = data
+  return prisma.$transaction(async (transaction) => {
+    const artist = await transaction.artist.create({
+      data: {
+        ...artistInput,
+        username: artistInput.username || artistInput.name,
+        // 旧字段仅作为一个发布周期的回滚镜像；来源判断只读取 ArtistExternalRef。
+        userId: pixivUserId ?? null
+      }
     })
-    return ArtistResponseDto.parse(updatedArtist)
-  }
-
-  return ArtistResponseDto.parse(artist)
+    if (pixivUserId) {
+      await transaction.artistExternalRef.create({
+        data: {
+          artistId: artist.id,
+          providerKey: 'pixiv',
+          externalId: pixivUserId,
+          canonicalUrl: `https://www.pixiv.net/users/${pixivUserId}`
+        }
+      })
+    }
+    const created = await transaction.artist.findUniqueOrThrow({ where: { id: artist.id }, select: ARTIST_SELECT })
+    return ArtistResponseDto.parse(created)
+  })
 }
 
 /**
@@ -417,15 +402,77 @@ export async function createArtist(data: ArtistCreateSchema): Promise<ArtistResp
 export async function updateArtist(id: number, data: ArtistUpdateSchema['data']): Promise<ArtistResponseDto> {
   // 如果更新了 name 且没有显式提供 username，则同步更新 username
   // 注意：前端目前逻辑是 username 始终跟随 name，所以这里我们也可以强制同步
-  if (data.name && !data.username) {
-    data.username = data.name
-  }
-
-  const artist = await prisma.artist.update({
-    where: { id },
-    data
+  const { pixivUserId, ...artistInput } = data
+  return prisma.$transaction(async (transaction) => {
+    if (pixivUserId !== undefined) {
+      const current = await transaction.artist.findUniqueOrThrow({
+        where: { id },
+        select: {
+          avatar: true,
+          backgroundImg: true,
+          externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true } }
+        }
+      })
+      const currentPixivUserId = current.externalRefs[0]?.externalId ?? null
+      const identityChanged = currentPixivUserId !== null && currentPixivUserId !== pixivUserId
+      if (identityChanged && current.avatar && artistInput.avatar === undefined) {
+        throw new Error('修改 Pixiv UserID 前请显式清空或重新填写现有头像')
+      }
+      if (identityChanged && current.backgroundImg && artistInput.backgroundImg === undefined) {
+        throw new Error('修改 Pixiv UserID 前请显式清空或重新填写现有背景图')
+      }
+    }
+    await transaction.artist.update({
+      where: { id },
+      data: {
+        ...artistInput,
+        ...(artistInput.name && !artistInput.username ? { username: artistInput.name } : {}),
+        ...(pixivUserId !== undefined ? { userId: pixivUserId } : {})
+      }
+    })
+    if (pixivUserId === null) {
+      await transaction.artistExternalRef.deleteMany({ where: { artistId: id, providerKey: 'pixiv' } })
+    } else if (pixivUserId !== undefined) {
+      await transaction.artistExternalRef.upsert({
+        where: { artistId_providerKey: { artistId: id, providerKey: 'pixiv' } },
+        create: {
+          artistId: id,
+          providerKey: 'pixiv',
+          externalId: pixivUserId,
+          canonicalUrl: `https://www.pixiv.net/users/${pixivUserId}`
+        },
+        update: {
+          externalId: pixivUserId,
+          canonicalUrl: `https://www.pixiv.net/users/${pixivUserId}`,
+          sourceName: null,
+          status: null,
+          normalizedPayload: Prisma.DbNull,
+          payloadHash: null,
+          lastAttemptAt: null,
+          lastSuccessAt: null,
+          lastErrorCode: null,
+          lastError: null,
+          lastSystemJobId: null
+        }
+      })
+    }
+    const artist = await transaction.artist.findUniqueOrThrow({ where: { id }, select: ARTIST_SELECT })
+    return ArtistResponseDto.parse(artist)
   })
-  return ArtistResponseDto.parse(artist)
+}
+
+export async function adoptPixivSourceName(id: number): Promise<ArtistResponseDto> {
+  return prisma.$transaction(async (transaction) => {
+    const source = await transaction.artistExternalRef.findUnique({
+      where: { artistId_providerKey: { artistId: id, providerKey: 'pixiv' } },
+      select: { sourceName: true }
+    })
+    const sourceName = source?.sourceName?.trim()
+    if (!sourceName) throw new Error('该艺术家尚无可采用的 Pixiv 来源姓名')
+    await transaction.artist.update({ where: { id }, data: { name: sourceName, username: sourceName } })
+    const artist = await transaction.artist.findUniqueOrThrow({ where: { id }, select: ARTIST_SELECT })
+    return ArtistResponseDto.parse(artist)
+  })
 }
 
 /**

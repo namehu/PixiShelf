@@ -92,22 +92,6 @@ export interface IPixivService {
   clearProgress(): Promise<ServiceResult>
 }
 
-// 用户信息服务接口
-export interface IUserInfoService {
-  // 用户操作
-  addUserIds(userIds: string[]): Promise<ServiceResult>
-
-  // 数据处理
-  processUsers(userIds: string[]): Promise<void>
-
-  // 数据导出
-  generateUserSql(options?: SqlGenerationOptions): Promise<ServiceResult<string>>
-  downloadUserSqlFile(options?: SqlGenerationOptions & FileDownloadOptions): Promise<ServiceResult>
-
-  // 图片下载
-  downloadUserImages(request?: DownloadRequest): Promise<ServiceResult>
-}
-
 // 默认任务配置
 export const DEFAULT_TASK_CONFIG: TaskConfiguration = {
   concurrentRequests: 3,

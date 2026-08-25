@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 任务计划、中央 Worker、扫描、本地导入、归档及派生媒体任务的当前业务链路与状态边界
-last-verified: 2026-08-21
+last-verified: 2026-08-25
 sources:
   - packages/pixishelf/app/api/internal/scheduler/tick/route.ts
   - packages/pixishelf/services/background-task/
@@ -26,7 +26,7 @@ sources:
 
 1. Next.js App 是控制面：鉴权、校验、冻结输入、创建任务和查询状态；稳态下不执行长任务。
 2. PostgreSQL 的 `SystemJob` 是持久队列；Worker 从数据库 claim，不接收 App 的内存消息。
-3. 一个 Worker 进程运行两个 Dispatcher：`ARCHIVE_RESOLVE` 固定并发 1，`BACKGROUND_WRITER` 固定并发 1。两条 lane 可以各执行一个任务；20 类 writer 任务之间全局串行。
+3. 一个 Worker 进程运行两个 Dispatcher：`ARCHIVE_RESOLVE` 固定并发 1，`BACKGROUND_WRITER` 固定并发 1。两条 lane 可以各执行一个任务；21 类 writer 任务之间全局串行。
 4. 任务计划只负责创建 `SystemJob`。中央模式下页面中的 `HH:mm` 当前不决定释放时刻；所有已启用 DAILY 任务都在上海时间 `00:00-08:00` 窗口内物化，实际顺序由优先级决定。
 5. `SystemJob=COMPLETED` 只说明该 Executor 按其契约结束。若任务按项目记录失败，或父任务只负责创建子任务，仍必须查看 `result`、子任务和领域状态。
 6. 视频媒体探测和自动封面现在属于同一个 `VIDEO_MEDIA_PROBE` 工作流：先分类、探测，再在同一任务中处理全部待生成封面；批量封面不再拆成子任务，也没有 100 条封面上限。
@@ -72,7 +72,7 @@ flowchart LR
   subgraph Worker[一个 Central Worker 进程]
     RESOLVE[ARCHIVE_RESOLVE Dispatcher\n并发 1]
     WRITER[BACKGROUND_WRITER Dispatcher\n并发 1]
-    EXEC[21 类 job type\nSCAN v1/v2/v3，其余 v1]
+    EXEC[22 类 job type\nSCAN v1/v2/v3，其余 v1]
   end
 
   subgraph Storage[文件和外部资源]
@@ -90,7 +90,7 @@ flowchart LR
   CMD -->|事务写入| JOB
   CMD -->|必要时同事务写入| DOMAIN
   RESOLVE -->|claim ARCHIVE_RESOLVE_ITEM| JOB
-  WRITER -->|claim 其余 20 类| JOB
+  WRITER -->|claim 其余 21 类| JOB
   JOB --> LEASE
   RESOLVE --> EXEC
   WRITER --> EXEC
@@ -215,7 +215,7 @@ sequenceDiagram
 | `derived_media_gc`                 | 清理派生媒体           |    05:30 | 否       |     70 | 每次最多处理 100 条已登记且到期的 GC intent                      |
 | `derived_media_gc_reconciliation`  | 核对派生媒体目录       |    05:45 | 否       |     71 | 仅周一 dry-run，有界扫描最多 500 个 poster 目录项，不删除        |
 
-## 21 类 Worker 任务
+## 22 类 Worker 任务
 
 除 `ARCHIVE_RESOLVE_ITEM` 外，其他任务全部进入 `BACKGROUND_WRITER`。
 
@@ -241,10 +241,11 @@ sequenceDiagram
 | `SCAN_RUN_RETENTION_CLEANUP`       | 任务计划或立即运行                 | 是           | 否             | 删除符合保留策略的扫描审计历史                               |
 | `TRIGGER_LOG_RETENTION_CLEANUP`    | 任务计划或立即运行                 | 是           | 否             | 删除旧触发器日志                                             |
 | `DERIVED_MEDIA_GC`                 | 任务计划、立即运行或指定 intent    | 是           | 否             | 复核引用后隔离并删除已登记的派生媒体候选                     |
+| `PIXIV_ARTIST_ENRICHMENT`          | 艺术家管理页批量补全或单项重试     | 否           | DISCOVER 会    | 查询 Pixiv 用户资料，只填空图片并保存来源姓名                |
 | `PIXIV_TAG_ENRICHMENT`             | 标签管理页批量补全或单标签重试     | 否           | DISCOVER 会    | 查询公共 Pixiv 标签数据，只填空字段并保存本地封面            |
 
-生产 Registry 保持 21 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 20 类仍只支持 v1，因此 capability audit
-实际核对 23 个 job type/definition-version 组合及其 lane，而不是把 v2/v3 误算成新的任务类型。v1 承载既有
+生产 Registry 保持 22 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 21 类仍只支持 v1，因此 capability audit
+实际核对 24 个 job type/definition-version 组合及其 lane，而不是把 v2/v3 误算成新的任务类型。v1 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
 
 ## Pixiv 扫描链路
@@ -655,7 +656,8 @@ flowchart TD
 | App 入队、幂等和控制命令      | `packages/pixishelf/services/background-task/job-command-service.ts`、`manual-job-singleton.ts`  |
 | claim、优先级、lease、fence   | `packages/pixishelf-job-runtime/src/queue-repository.ts`                                         |
 | 双 Dispatcher 和 Worker 启动  | `packages/pixishelf-worker/src/main.ts`、`dispatcher.ts`                                         |
-| 21 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
+| 22 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
+| Pixiv 艺术家补全              | `packages/pixishelf-job-executors/src/pixiv-artist/`、`pixiv-artist-enrichment-service.ts`       |
 | Pixiv 标签补全                | `packages/pixishelf-job-executors/src/pixiv-tag/`、`pixiv-tag-enrichment-service.ts`             |
 | 扫描和本地导入                | `packages/pixishelf-job-executors/src/scan/`                                                     |
 | 归档解析、下载、发布、维护    | `packages/pixishelf-job-executors/src/archive/`                                                  |

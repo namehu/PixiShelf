@@ -8,6 +8,9 @@ import { useTRPC } from '@/lib/trpc'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ProDialog } from '@/components/shared/pro-dialog'
 import { Spinner } from '@/components/ui/spinner'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Info } from 'lucide-react'
 
 interface ArtistDialogProps {
   open: boolean
@@ -25,11 +28,14 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
   const [formData, setFormData] = useState({
     name: '',
     username: '',
-    userId: '',
+    pixivUserId: '',
     bio: '',
     avatar: '',
     backgroundImg: ''
   })
+  const [pixivIdentityTouched, setPixivIdentityTouched] = useState(false)
+  const [avatarTouched, setAvatarTouched] = useState(false)
+  const [backgroundTouched, setBackgroundTouched] = useState(false)
 
   // --- 编辑模式下加载详情 ---
   const { data: fullArtist, isLoading: isLoadingDetail } = useQuery(
@@ -46,21 +52,27 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
         setFormData({
           name: fullArtist.name,
           username: fullArtist.username || '',
-          userId: fullArtist.userId || '',
+          pixivUserId: fullArtist.pixivUserId || '',
           bio: fullArtist.bio || '',
           avatar: fullArtist.avatar || '',
           backgroundImg: fullArtist.backgroundImg || ''
         })
+        setPixivIdentityTouched(false)
+        setAvatarTouched(false)
+        setBackgroundTouched(false)
       } else if (!artist) {
         // 新增模式：重置为默认空值
         setFormData({
           name: '',
           username: '',
-          userId: '',
+          pixivUserId: '',
           bio: '',
           avatar: '',
           backgroundImg: ''
         })
+        setPixivIdentityTouched(false)
+        setAvatarTouched(false)
+        setBackgroundTouched(false)
       }
     }
   }, [fullArtist, artist, open])
@@ -104,11 +116,13 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
     }
     const payload = {
       name: formData.name.trim(),
-          username: formData.name.trim(), // 编辑提交时自动沿用姓名作为用户名
-      userId: formData.userId || undefined,
+      username: formData.name.trim(),
       bio: formData.bio || undefined,
-      avatar: formData.avatar,
-      backgroundImg: formData.backgroundImg
+      ...(!isEdit || pixivIdentityTouched
+        ? { pixivUserId: formData.pixivUserId.trim() ? formData.pixivUserId.trim() : null }
+        : {}),
+      ...(!isEdit || avatarTouched ? { avatar: formData.avatar || null } : {}),
+      ...(!isEdit || backgroundTouched ? { backgroundImg: formData.backgroundImg || null } : {})
     }
 
     if (isEdit && artist) {
@@ -123,6 +137,13 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
 
   const isLoading = isEdit ? isLoadingDetail : false
   const isSubmitting = updateMutation.isPending || createMutation.isPending
+  const ambiguousLegacyPixivId = isEdit && !fullArtist?.pixivUserId && /^[1-9][0-9]*$/.test(fullArtist?.userId ?? '')
+  const confirmedPixivIdentityChange =
+    isEdit &&
+    pixivIdentityTouched &&
+    Boolean(fullArtist?.pixivUserId) &&
+    formData.pixivUserId.trim() !== fullArtist?.pixivUserId &&
+    Boolean(fullArtist?.avatar || fullArtist?.backgroundImg)
 
   return (
     <ProDialog
@@ -162,12 +183,50 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
               id="artist-pixiv-user-id"
               name="artist-pixiv-user-id"
               autoComplete="off"
-              value={formData.userId}
-              onChange={(e) => setFormData({ ...formData, userId: e.target.value })}
-              placeholder="请输入 Pixiv UserID（可选，不填将自动生成）"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={formData.pixivUserId}
+              onChange={(e) => {
+                setPixivIdentityTouched(true)
+                setFormData({ ...formData, pixivUserId: e.target.value })
+              }}
+              placeholder="请输入已确认的 Pixiv UserID（可选）"
             />
-            <FieldDescription className="text-xs">如果不填写，系统将自动生成格式为 p_{'{id}'} 的 ID</FieldDescription>
+            <FieldDescription className="text-xs">
+              留空表示不绑定 Pixiv；新建艺术家不会再生成历史 p_ ID。
+            </FieldDescription>
           </Field>
+
+          {ambiguousLegacyPixivId && !pixivIdentityTouched ? (
+            <Alert variant="warning">
+              <Info aria-hidden="true" />
+              <AlertTitle>发现未确认的历史 ID</AlertTitle>
+              <AlertDescription className="flex flex-col items-start gap-2">
+                <span>旧字段中保存了 {fullArtist?.userId}，但缺少 Pixiv 来源证据，系统不会自动认领。</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setFormData((current) => ({ ...current, pixivUserId: fullArtist?.userId ?? '' }))
+                    setPixivIdentityTouched(true)
+                  }}
+                >
+                  确认它是 Pixiv UserID
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {confirmedPixivIdentityChange ? (
+            <Alert variant="warning">
+              <Info aria-hidden="true" />
+              <AlertTitle>现有图片属于原 Pixiv 身份</AlertTitle>
+              <AlertDescription>
+                更换或移除 Pixiv UserID 前，请在下方显式清空头像和背景图，或重新填写仍应保留的图片地址。
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
           {/* 简介 */}
           <Field className="gap-2">
@@ -192,7 +251,10 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
               type="url"
               autoComplete="url"
               value={formData.avatar}
-              onChange={(e) => setFormData({ ...formData, avatar: e.target.value })}
+              onChange={(e) => {
+                setAvatarTouched(true)
+                setFormData({ ...formData, avatar: e.target.value })
+              }}
               placeholder="请输入头像 URL（可选）"
             />
           </Field>
@@ -206,7 +268,10 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
               type="url"
               autoComplete="url"
               value={formData.backgroundImg}
-              onChange={(e) => setFormData({ ...formData, backgroundImg: e.target.value })}
+              onChange={(e) => {
+                setBackgroundTouched(true)
+                setFormData({ ...formData, backgroundImg: e.target.value })
+              }}
               placeholder="请输入背景图 URL（可选）"
             />
           </Field>

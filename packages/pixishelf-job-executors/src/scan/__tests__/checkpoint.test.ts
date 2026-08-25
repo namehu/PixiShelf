@@ -600,10 +600,17 @@ function pixivTransaction(existingImages: Array<{ id: number; path: string; sort
       findUnique: vi.fn(async () => null),
       upsert: artworkExternalRefUpsert
     },
+    artistExternalRef: {
+      findUnique: vi.fn(async () => null),
+      create: vi.fn(async () => ({ id: 'artist-ref-1' }))
+    },
     artworkSourceSnapshot: { upsert: artworkSourceSnapshotUpsert },
     pixivMetadataInventory: { findUnique: inventoryFindUnique },
     artwork: { findUnique: vi.fn(async () => null), create: artworkCreate },
-    artist: { upsert: vi.fn(async () => ({ id: 7 })) },
+    artist: {
+      findMany: vi.fn(async () => []),
+      create: vi.fn(async () => ({ id: 7 }))
+    },
     artworkTag: { deleteMany: vi.fn(async () => ({ count: 0 })), upsert: vi.fn(async () => ({})) },
     image: {
       findMany: vi.fn(async () => existingImages),

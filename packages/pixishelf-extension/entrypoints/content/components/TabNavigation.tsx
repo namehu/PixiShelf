@@ -11,7 +11,6 @@ interface Tab {
 
 const tabs: Tab[] = [
   { id: 'tags', label: '标签', icon: '🏷️' },
-  { id: 'users', label: '用户', icon: '👤' },
   { id: 'artworks', label: '作品', icon: '🎨' },
   { id: 'setting', label: '设置', icon: '⚙️' }
 ]
