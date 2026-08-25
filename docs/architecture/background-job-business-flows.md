@@ -241,7 +241,7 @@ sequenceDiagram
 | `SCAN_RUN_RETENTION_CLEANUP`       | 任务计划或立即运行                 | 是           | 否             | 删除符合保留策略的扫描审计历史                               |
 | `TRIGGER_LOG_RETENTION_CLEANUP`    | 任务计划或立即运行                 | 是           | 否             | 删除旧触发器日志                                             |
 | `DERIVED_MEDIA_GC`                 | 任务计划、立即运行或指定 intent    | 是           | 否             | 复核引用后隔离并删除已登记的派生媒体候选                     |
-| `PIXIV_ARTIST_ENRICHMENT`          | 艺术家管理页批量补全或单项重试     | 否           | DISCOVER 会    | 查询 Pixiv 用户资料，只填空图片并保存来源姓名                |
+| `PIXIV_ARTIST_ENRICHMENT`          | 艺术家管理页批量补全、显式刷新或单项重试 | 否      | DISCOVER 会    | 查询 Pixiv 用户资料；默认只填空图片，刷新模式安全替换已有图片 |
 | `PIXIV_TAG_ENRICHMENT`             | 标签管理页批量补全或单标签重试     | 否           | DISCOVER 会    | 查询公共 Pixiv 标签数据，只填空字段并保存本地封面            |
 
 生产 Registry 保持 22 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 21 类仍只支持 v1，因此 capability audit

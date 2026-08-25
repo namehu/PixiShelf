@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useTRPC } from '@/lib/trpc'
@@ -43,6 +45,7 @@ export function PixivArtistEnrichmentDialog({
   const queryClient = useQueryClient()
   const [submittedSelection, setSubmittedSelection] = useState<SelectedArtist[] | null>(null)
   const [submittedBatchId, setSubmittedBatchId] = useState<string | null>(null)
+  const [refreshExisting, setRefreshExisting] = useState(false)
   const trackedBatchId = useRef<string | null>(null)
   const reportedFinishedBatch = useRef<string | null>(null)
   const summaryQuery = useQuery(
@@ -94,7 +97,8 @@ export function PixivArtistEnrichmentDialog({
   const selectedArtistIds = displayedArtists.map((artist) => artist.id)
   const selectedMode = selectedArtistIds.length > 0
   const selectionExceedsLimit = selectedArtistIds.length > PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT
-  const nextBatchCount = Math.min(summary?.candidateCount ?? 0, PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT)
+  const availableCount = refreshExisting ? (summary?.eligibleCount ?? 0) : (summary?.candidateCount ?? 0)
+  const nextBatchCount = Math.min(availableCount, PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT)
   const submittedBatchFinished = Boolean(
     sessionBatchId &&
       !active &&
@@ -117,6 +121,7 @@ export function PixivArtistEnrichmentDialog({
     if (!nextOpen) {
       setSubmittedSelection(null)
       setSubmittedBatchId(null)
+      setRefreshExisting(false)
       trackedBatchId.current = null
       reportedFinishedBatch.current = null
     }
@@ -146,17 +151,38 @@ export function PixivArtistEnrichmentDialog({
           </Alert>
         ) : (
           <div className="grid gap-4">
-            <Alert variant={selectionExceedsLimit ? 'warning' : 'info'}>
+            <Alert variant={selectionExceedsLimit || refreshExisting ? 'warning' : 'info'}>
               <Info aria-hidden="true" />
-              <AlertTitle>{selectionExceedsLimit ? '选择数量超过限制' : '保护现有资料'}</AlertTitle>
+              <AlertTitle>
+                {selectionExceedsLimit ? '选择数量超过限制' : refreshExisting ? '刷新已有资料' : '保护现有资料'}
+              </AlertTitle>
               <AlertDescription>
                 {selectionExceedsLimit
                   ? `一次最多选择 ${PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT} 个艺术家。`
-                  : selectedMode
-                    ? '所选艺术家即使检查过也会重查；已有头像、背景图和主姓名不会被覆盖。'
-                    : `每批最多处理 ${PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT} 个未检查艺术家；来源姓名需手工采用。`}
+                  : refreshExisting
+                    ? selectedMode
+                      ? '将重新下载并替换所选艺术家的 Pixiv 头像和背景图；下载失败或 Pixiv 无对应图片时保留现有图片。主姓名不会被覆盖。'
+                      : `将按最久未检查顺序刷新下一批最多 ${PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT} 个 Pixiv 艺术家；下载失败或 Pixiv 无对应图片时保留现有图片。`
+                    : selectedMode
+                      ? '所选艺术家即使检查过也会重查；已有头像、背景图和主姓名不会被覆盖。'
+                      : `每批最多处理 ${PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT} 个未检查艺术家；来源姓名需手工采用。`}
               </AlertDescription>
             </Alert>
+
+            <FieldGroup className="gap-3">
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="pixiv-artist-refresh-existing"
+                  checked={refreshExisting}
+                  disabled={active || hasBatchSession}
+                  onCheckedChange={(checked) => setRefreshExisting(checked === true)}
+                />
+                <FieldContent>
+                  <FieldLabel htmlFor="pixiv-artist-refresh-existing">刷新已有资料</FieldLabel>
+                  <FieldDescription>使用 Pixiv 最新头像和背景图替换现有图片，主姓名仍需手工采用。</FieldDescription>
+                </FieldContent>
+              </Field>
+            </FieldGroup>
 
             {selectedMode ? (
               <SelectedArtistSummary artists={displayedArtists} />
@@ -218,16 +244,23 @@ export function PixivArtistEnrichmentDialog({
           ) : null}
           {!active && !hasBatchSession ? (
             <Button
-              onClick={() => startMutation.mutate({ artistIds: selectedMode ? selectedArtistIds : undefined })}
+              onClick={() =>
+                startMutation.mutate({
+                  artistIds: selectedMode ? selectedArtistIds : undefined,
+                  refreshExisting
+                })
+              }
               disabled={
                 startMutation.isPending ||
                 summaryQuery.isLoading ||
                 selectionExceedsLimit ||
-                (!selectedMode && !summary?.candidateCount)
+                (!selectedMode && !availableCount)
               }
             >
               {startMutation.isPending ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
-              {selectedMode ? `补全已选 ${selectedArtistIds.length} 项` : `开始下一批（${nextBatchCount} 个）`}
+              {selectedMode
+                ? `${refreshExisting ? '刷新' : '补全'}已选 ${selectedArtistIds.length} 项`
+                : `${refreshExisting ? '刷新' : '开始'}下一批（${nextBatchCount} 个）`}
             </Button>
           ) : null}
         </DialogFooter>

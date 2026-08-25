@@ -32,9 +32,9 @@ sources:
 
 `PIXIV_ARTIST_ENRICHMENT` 运行在 `BACKGROUND_WRITER`，只由管理员手工启动：
 
-1. `DISCOVER` 默认发现下一批最多 200 个 `providerKey=pixiv` 且尚未检查的身份；多选模式最多重查 200 个已确认身份；
+1. `DISCOVER` 默认发现下一批最多 200 个 `providerKey=pixiv` 且尚未检查的身份；多选模式最多重查 200 个已确认身份；管理员也可以显式开启“刷新已有资料”，按最久未检查顺序刷新下一批或只刷新所选身份；
 2. 每个 `ARTIST` 子任务冻结 Artist ID、外部引用 ID 和 Pixiv UserID，执行前与发布事务内都重新校验身份；
-3. Worker 查询 Pixiv 用户 Ajax 接口，保存来源姓名，并只在 Artist 对应字段仍为空时发布头像或背景图；
+3. Worker 查询 Pixiv 用户 Ajax 接口并保存来源姓名；默认模式只在 Artist 对应字段仍为空时发布头像或背景图，刷新模式会重新下载并替换已有图片；
 4. Pixiv 来源姓名不会覆盖 `Artist.name`，管理员可以在列表中逐项采用；
 5. 任务支持整批取消、单项重试和页面刷新后的进度恢复。默认批次跳过 `SUCCESS`、`PARTIAL`、`NO_DATA`、`FAILED` 等所有已检查状态。
 
@@ -45,18 +45,18 @@ sources:
 | `NO_DATA` | Pixiv 明确无此用户或响应中没有可用姓名和图片       |
 | `FAILED`  | 请求失败、重试耗尽、身份不一致或响应契约不符合预期 |
 
-429 使用 `Retry-After`，临时网络错误和 5xx 使用有界指数退避。404 记录为 `NO_DATA`。响应 UserID 与冻结身份不一致时安全失败；管理员在任务期间修改主姓名、头像、背景图或 Pixiv 身份时，旧任务不会覆盖新值。
+429 使用 `Retry-After`，临时网络错误和 5xx 使用有界指数退避。404 记录为 `NO_DATA`。响应 UserID 与冻结身份不一致时安全失败。刷新模式仅替换 Pixiv 实际返回且通过验证的图片；远端没有对应图片或下载失败时保留旧值。发布前还会比较任务读取时与事务内的图片字段，管理员在任务期间刚做的修改不会被旧任务覆盖。
 
 ## 图片存储与读取
 
 头像和背景图写入现有 `PIXISHELF_PUBLIC_DATA_PATH`：
 
 ```text
-pixiv_data/artists/<pixiv-user-id>/avatar.<真实扩展名>
-pixiv_data/artists/<pixiv-user-id>/background.<真实扩展名>
+pixiv_data/artists/<pixiv-user-id>/avatar-<sha256>.<真实扩展名>
+pixiv_data/artists/<pixiv-user-id>/background-<sha256>.<真实扩展名>
 ```
 
-Worker 仅接受 HTTPS `i.pximg.net`，每次重定向重新校验主机，并限制响应体、格式、像素数和尺寸。Sharp 验证成功后先写同目录临时文件，再原子发布。数据库只保存文件名；App 通过受 Session 保护的 `/api/pixiv-data/artists/...` 读取。App 对该目录只读，Worker 对同一挂载读写，因此 PostgreSQL 与 `pixiv_data` 必须位于同一备份和恢复检查点。
+Worker 仅接受 HTTPS `i.pximg.net`，每次重定向重新校验主机，并限制响应体、格式、像素数和尺寸。Sharp 验证成功后按内容哈希命名，先写同目录临时文件，再原子发布；相同内容直接复用，变化后的图片使用新 URL，避免旧缓存遮住刷新结果。数据库只保存文件名；App 通过受 Session 保护的 `/api/pixiv-data/artists/...` 读取。App 对该目录只读，Worker 对同一挂载读写，因此 PostgreSQL 与 `pixiv_data` 必须位于同一备份和恢复检查点。
 
 ## 扩展边界
 

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
@@ -80,7 +80,9 @@ export async function storePixivArtistImage(input: {
   if (path.dirname(artistRoot) !== artistsRoot) {
     throw new PixivArtistImageError('Pixiv 作者图片存储路径无效', 'PIXIV_IMAGE_PATH_INVALID')
   }
-  const fileName = `${input.kind}.${extension}`
+  // 内容寻址让刷新后的 URL 随图片变化，同时保证相同内容可以安全复用。
+  const digest = createHash('sha256').update(bytes).digest('hex')
+  const fileName = `${input.kind}-${digest}.${extension}`
   const destination = path.join(artistRoot, fileName)
   await fs.mkdir(artistRoot, { recursive: true })
   if (await isFile(destination)) return fileName

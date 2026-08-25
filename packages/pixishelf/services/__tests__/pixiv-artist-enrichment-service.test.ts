@@ -71,6 +71,24 @@ describe('Pixiv artist enrichment control service', () => {
     ).rejects.toThrow('一次最多选择 200 个艺术家')
   })
 
+  it('persists an explicit refresh policy for selected and bounded discovery batches', async () => {
+    mocks.enqueueSingleton.mockResolvedValue({ job: { id: 'root-1' }, reused: false })
+
+    await startPixivArtistEnrichment('admin-1', [7, 3], true)
+    expect(mocks.enqueueSingleton).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        payload: { mode: 'DISCOVER', force: true, artistIds: [3, 7], refreshExisting: true }
+      })
+    )
+
+    await startPixivArtistEnrichment('admin-1', undefined, true)
+    expect(mocks.enqueueSingleton).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        payload: { mode: 'DISCOVER', force: false, refreshExisting: true }
+      })
+    )
+  })
+
   it('freezes the confirmed external identity in a single-item retry', async () => {
     await retryPixivArtistEnrichment(7, 'admin-1')
     expect(mocks.lockSingleton).toHaveBeenCalledWith(mocks.transaction, 'PIXIV_ARTIST_ENRICHMENT')
@@ -111,6 +129,7 @@ describe('Pixiv artist enrichment control service', () => {
     mocks.prisma.systemJob.groupBy.mockResolvedValue([{ status: 'COMPLETED', _count: { _all: 4 } }])
     await expect(getPixivArtistEnrichmentSummary()).resolves.toMatchObject({
       candidateCount: 5,
+      eligibleCount: 9,
       providerCounts: { SUCCESS: 3, PARTIAL: 0, NO_DATA: 1, FAILED: 0 },
       children: { total: 4, completed: 4 }
     })

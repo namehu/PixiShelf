@@ -1,5 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import * as fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import sharp from 'sharp'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPixivArtistExecutorRegistrations } from '../executors.ts'
+
+const temporaryRoots: string[] = []
+
+afterEach(async () => {
+  await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })))
+})
 
 describe('Pixiv artist enrichment executor', () => {
   it('discovers at most 200 unchecked identities and freezes their ids in child payloads', async () => {
@@ -24,6 +34,29 @@ describe('Pixiv artist enrichment executor', () => {
         type: 'PIXIV_ARTIST_ENRICHMENT',
         payload: expect.objectContaining({ artistId: 1, expectedExternalRefId: 'ref-1', expectedPixivUserId: '101' })
       })
+    )
+  })
+
+  it('discovers checked identities and propagates the explicit refresh policy', async () => {
+    const findMany = vi.fn().mockResolvedValue([{ id: 'ref-1', artistId: 1, externalId: '101' }])
+    const enqueueChild = vi.fn().mockResolvedValue({ id: 'child', created: true })
+    const [registration] = createPixivArtistExecutorRegistrations({
+      database: { artistExternalRef: { findMany } } as never,
+      pixivDataRoot: '/pixiv-data'
+    })
+
+    await registration!.execute(
+      context({ mode: 'DISCOVER', force: false, refreshExisting: true }, { enqueueChild }) as never
+    )
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.not.objectContaining({ status: null }),
+        orderBy: [{ lastAttemptAt: { sort: 'asc', nulls: 'first' } }, { artistId: 'asc' }]
+      })
+    )
+    expect(enqueueChild).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ refreshExisting: true }) })
     )
   })
 
@@ -95,6 +128,173 @@ describe('Pixiv artist enrichment executor', () => {
     expect(refUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ sourceName: 'Pixiv Name', status: 'SUCCESS', lastSystemJobId: 'job-1' })
+      })
+    )
+  })
+
+  it('refreshes existing Pixiv images without replacing the main artist name', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pixishelf-pixiv-artist-executor-'))
+    temporaryRoots.push(root)
+    const image = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#224466' } })
+      .png()
+      .toBuffer()
+    const artistUpdate = vi.fn().mockResolvedValue(undefined)
+    const refUpdate = vi.fn().mockResolvedValue(undefined)
+    const complete = vi.fn().mockResolvedValue(undefined)
+    const database = {
+      artistExternalRef: {
+        findFirst: vi.fn().mockResolvedValue({
+          artist: { avatar: 'old-avatar.jpg', backgroundImg: 'old-background.jpg' }
+        })
+      }
+    }
+    const transaction = {
+      artistExternalRef: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'ref-1',
+          artist: { id: 1, avatar: 'old-avatar.jpg', backgroundImg: 'old-background.jpg' }
+        }),
+        update: refUpdate
+      },
+      artist: { update: artistUpdate }
+    }
+    const [registration] = createPixivArtistExecutorRegistrations({
+      database: database as never,
+      pixivDataRoot: root,
+      sleep: async () => undefined,
+      fetchImpl: (async (url: string | URL) =>
+        String(url).includes('/ajax/user/')
+          ? new Response(
+              JSON.stringify({
+                error: false,
+                body: {
+                  userId: '101',
+                  name: 'Latest Pixiv Name',
+                  imageBig: 'https://i.pximg.net/avatar.png',
+                  background: { url: 'https://i.pximg.net/background.png' }
+                }
+              }),
+              { status: 200 }
+            )
+          : new Response(Uint8Array.from(image), { status: 200 })) as typeof fetch,
+      now: () => new Date('2026-08-25T00:00:00.000Z')
+    })
+
+    await registration!.execute(
+      context(
+        {
+          mode: 'ARTIST',
+          artistId: 1,
+          expectedExternalRefId: 'ref-1',
+          expectedPixivUserId: '101',
+          force: true,
+          refreshExisting: true
+        },
+        {
+          finalizeInTransaction: async (operation: (scope: unknown) => Promise<void>) => {
+            await operation({
+              transaction,
+              executionStatus: 'RUNNING',
+              controlStatus: 'CONTINUE',
+              complete,
+              skip: vi.fn()
+            })
+            return { kind: 'transactionally-finalized' }
+          }
+        }
+      ) as never
+    )
+
+    expect(artistUpdate).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        avatar: expect.stringMatching(/^avatar-[a-f0-9]{64}\.png$/),
+        backgroundImg: expect.stringMatching(/^background-[a-f0-9]{64}\.png$/)
+      }
+    })
+    expect(artistUpdate.mock.calls[0]?.[0].data).not.toHaveProperty('name')
+    expect(refUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sourceName: 'Latest Pixiv Name',
+          normalizedPayload: expect.objectContaining({ refreshExisting: true, skippedConcurrentFields: [] })
+        })
+      })
+    )
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result: expect.objectContaining({ appliedFields: ['avatar', 'backgroundImg'], skippedConcurrentFields: [] })
+      })
+    )
+  })
+
+  it('does not overwrite an image changed after a refresh started', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pixishelf-pixiv-artist-executor-'))
+    temporaryRoots.push(root)
+    const image = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#224466' } })
+      .png()
+      .toBuffer()
+    const artistUpdate = vi.fn().mockResolvedValue(undefined)
+    const complete = vi.fn().mockResolvedValue(undefined)
+    const transaction = {
+      artistExternalRef: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'ref-1',
+          artist: { id: 1, avatar: 'new-manual-avatar.jpg', backgroundImg: null }
+        }),
+        update: vi.fn().mockResolvedValue(undefined)
+      },
+      artist: { update: artistUpdate }
+    }
+    const [registration] = createPixivArtistExecutorRegistrations({
+      database: {
+        artistExternalRef: {
+          findFirst: vi.fn().mockResolvedValue({ artist: { avatar: 'old-avatar.jpg', backgroundImg: null } })
+        }
+      } as never,
+      pixivDataRoot: root,
+      sleep: async () => undefined,
+      fetchImpl: (async (url: string | URL) =>
+        String(url).includes('/ajax/user/')
+          ? new Response(
+              JSON.stringify({
+                error: false,
+                body: { userId: '101', name: 'Pixiv Name', imageBig: 'https://i.pximg.net/avatar.png' }
+              }),
+              { status: 200 }
+            )
+          : new Response(Uint8Array.from(image), { status: 200 })) as typeof fetch
+    })
+
+    await registration!.execute(
+      context(
+        {
+          mode: 'ARTIST',
+          artistId: 1,
+          expectedExternalRefId: 'ref-1',
+          expectedPixivUserId: '101',
+          force: true,
+          refreshExisting: true
+        },
+        {
+          finalizeInTransaction: async (operation: (scope: unknown) => Promise<void>) => {
+            await operation({
+              transaction,
+              executionStatus: 'RUNNING',
+              controlStatus: 'CONTINUE',
+              complete,
+              skip: vi.fn()
+            })
+            return { kind: 'transactionally-finalized' }
+          }
+        }
+      ) as never
+    )
+
+    expect(artistUpdate).not.toHaveBeenCalled()
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result: expect.objectContaining({ appliedFields: [], skippedConcurrentFields: ['avatar'] })
       })
     )
   })

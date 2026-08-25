@@ -62,16 +62,20 @@ async function executeDiscovery(
 ): Promise<JobExecutionOutcome> {
   if (context.payload.mode !== 'DISCOVER') throw new Error('Expected a Pixiv artist discovery payload')
   const payload = context.payload
+  const refreshExisting = payload.refreshExisting === true
   try {
     await context.progress({ progress: 5, stage: 'DISCOVERING', message: '正在发现可从 Pixiv 补全的艺术家...' })
     const refs = await dependencies.database.artistExternalRef.findMany({
       where: {
         providerKey: PROVIDER_KEY,
         externalId: { not: '' },
-        ...(payload.force ? {} : { status: null }),
+        ...(payload.force || refreshExisting ? {} : { status: null }),
         ...(payload.artistIds ? { artistId: { in: payload.artistIds } } : {})
       },
-      orderBy: { artistId: 'asc' },
+      orderBy:
+        refreshExisting && !payload.artistIds
+          ? [{ lastAttemptAt: { sort: 'asc', nulls: 'first' } }, { artistId: 'asc' }]
+          : { artistId: 'asc' },
       take: PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT,
       select: { id: true, artistId: true, externalId: true }
     })
@@ -87,7 +91,8 @@ async function executeDiscovery(
           artistId: ref.artistId,
           expectedExternalRefId: ref.id,
           expectedPixivUserId: ref.externalId,
-          force: payload.force
+          force: payload.force,
+          ...(refreshExisting ? { refreshExisting: true } : {})
         },
         queuePriority: CHILD_QUEUE_PRIORITY,
         idempotencyKey: `pixiv-artist:${context.job.id}:artist:${ref.artistId}:v1`
@@ -98,7 +103,7 @@ async function executeDiscovery(
     return {
       kind: 'completed',
       result: { discovered: refs.length, enqueued, reused },
-      message: `艺术家发现完成：${refs.length} 个候选，创建 ${enqueued} 个补全任务`
+      message: `艺术家${refreshExisting ? '刷新' : '补全'}发现完成：${refs.length} 个候选，创建 ${enqueued} 个任务`
     }
   } catch (error) {
     if (context.signal.aborted) return { kind: 'released', message: 'Pixiv 艺术家发现已停止，等待恢复' }
@@ -112,6 +117,7 @@ async function executeArtist(
 ): Promise<JobExecutionOutcome> {
   if (context.payload.mode !== 'ARTIST') throw new Error('Expected a Pixiv artist item payload')
   const payload = context.payload
+  const refreshExisting = payload.refreshExisting === true
   const now = dependencies.now ?? (() => new Date())
   try {
     const eligible = await dependencies.database.artistExternalRef.findFirst({
@@ -145,9 +151,9 @@ async function executeArtist(
     const stored: { avatar: string | null; background: string | null } = { avatar: null, background: null }
     const imageFailures: Failure[] = []
     const downloads: Array<{ kind: 'avatar' | 'background'; url: string }> = []
-    if (isEmpty(eligible.artist.avatar) && normalized.avatarUrl)
+    if ((refreshExisting || isEmpty(eligible.artist.avatar)) && normalized.avatarUrl)
       downloads.push({ kind: 'avatar', url: normalized.avatarUrl })
-    if (isEmpty(eligible.artist.backgroundImg) && normalized.backgroundUrl) {
+    if ((refreshExisting || isEmpty(eligible.artist.backgroundImg)) && normalized.backgroundUrl) {
       downloads.push({ kind: 'background', url: normalized.backgroundUrl })
     }
     for (const [index, download] of downloads.entries()) {
@@ -192,13 +198,21 @@ async function executeArtist(
 
       const update: Prisma.ArtistUpdateInput = {}
       const appliedFields: string[] = []
-      if (isEmpty(ref.artist.avatar) && stored.avatar) {
+      const skippedConcurrentFields: string[] = []
+      if (canPublishImage(refreshExisting, eligible.artist.avatar, ref.artist.avatar) && stored.avatar) {
         update.avatar = stored.avatar
         appliedFields.push('avatar')
+      } else if (refreshExisting && stored.avatar && eligible.artist.avatar !== ref.artist.avatar) {
+        skippedConcurrentFields.push('avatar')
       }
-      if (isEmpty(ref.artist.backgroundImg) && stored.background) {
+      if (
+        canPublishImage(refreshExisting, eligible.artist.backgroundImg, ref.artist.backgroundImg) &&
+        stored.background
+      ) {
         update.backgroundImg = stored.background
         appliedFields.push('backgroundImg')
+      } else if (refreshExisting && stored.background && eligible.artist.backgroundImg !== ref.artist.backgroundImg) {
+        skippedConcurrentFields.push('backgroundImg')
       }
       if (Object.keys(update).length > 0) {
         await scope.transaction.artist.update({ where: { id: ref.artist.id }, data: update })
@@ -214,7 +228,9 @@ async function executeArtist(
             avatarAvailable: normalized.avatarUrl !== null,
             backgroundAvailable: normalized.backgroundUrl !== null,
             avatarFile: stored.avatar,
-            backgroundFile: stored.background
+            backgroundFile: stored.background,
+            refreshExisting,
+            skippedConcurrentFields
           },
           payloadHash,
           lastAttemptAt: checkedAt,
@@ -225,8 +241,11 @@ async function executeArtist(
         }
       })
       await scope.complete({
-        result: { artistId: ref.artist.id, status, appliedFields, payloadHash },
-        message: status === 'PARTIAL' ? 'Pixiv 艺术家资料已读取，部分图片保存失败' : 'Pixiv 艺术家补全完成'
+        result: { artistId: ref.artist.id, status, appliedFields, skippedConcurrentFields, payloadHash },
+        message:
+          status === 'PARTIAL'
+            ? 'Pixiv 艺术家资料已读取，部分图片保存失败'
+            : `Pixiv 艺术家${refreshExisting ? '刷新' : '补全'}完成`
       })
     })
   } catch (error) {
@@ -323,6 +342,10 @@ function retryOrFail(
 
 function isEmpty(value: string | null) {
   return value === null || value.trim().length === 0
+}
+
+function canPublishImage(refreshExisting: boolean, observed: string | null, current: string | null) {
+  return refreshExisting ? observed === current : isEmpty(current)
 }
 
 async function randomizedDelay(signal: AbortSignal, dependencies: PixivArtistExecutorDependencies) {

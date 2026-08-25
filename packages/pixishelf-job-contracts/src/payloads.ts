@@ -326,6 +326,7 @@ const pixivArtistEnrichmentDiscoverPayloadSchema = z
   .object({
     mode: z.literal('DISCOVER'),
     force: z.boolean().default(false),
+    refreshExisting: z.boolean().default(false),
     artistIds: z.array(positiveArtistIdSchema).min(1).max(PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT).optional()
   })
   .strict()
@@ -336,7 +337,8 @@ const pixivArtistEnrichmentArtistPayloadSchema = z
     artistId: positiveArtistIdSchema,
     expectedExternalRefId: boundedIdSchema,
     expectedPixivUserId: z.string().regex(/^[1-9][0-9]*$/),
-    force: z.boolean().default(false)
+    force: z.boolean().default(false),
+    refreshExisting: z.boolean().default(false)
   })
   .strict()
 

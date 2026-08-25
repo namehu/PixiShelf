@@ -121,7 +121,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 | Pixiv 来源一致性核对      | v1/v2 payload 隔离、分类/checkpoint、producer/DTO/UI/鉴权回归       | PostgreSQL + 临时目录：共享 SCAN 锁、空根/截断/取消/root 变化不生成 MISSING、重放幂等、只读领域边界    |
 | Pixiv 核对选定同步        | v2/v3 隔离、证据 canonicalization、选择/UI/DTO/鉴权/幂等回归        | PostgreSQL + 临时目录：stale/身份 CAS 零写入、部分成功、崩溃重放、取消终态、publisher 拥有权和成组保留 |
 | Pixiv 标签补全            | payload、只填空字段、状态、远端响应和封面安全校验                   | PostgreSQL + 临时目录：批量/子任务、限流重试、重启恢复、只读 App 挂载与鉴权图片路由                    |
-| Pixiv 艺术家补全          | 身份迁移、payload、只填空图片、来源姓名和远端响应安全校验           | PostgreSQL + 临时目录：批量上限、取消/重试、并发人工修改、身份变化与作者图片鉴权读取                   |
+| Pixiv 艺术家补全          | 身份迁移、payload、默认只填空与显式刷新图片、来源姓名和远端响应安全校验 | PostgreSQL + 临时目录：批量上限、取消/重试、并发人工修改、身份变化与作者图片鉴权读取                |
 | 媒体播放/派生媒体         | 组件/服务测试                                                       | 图片、视频、封面缺失、动画、FFmpeg 失败和实际浏览器抽样                                                |
 | Compose/Dockerfile/env    | Compose config、相关 package build                                  | 镜像构建、非 root 权限、挂载、migration、READY/capability 冒烟                                         |
 | 浏览器扩展                | compile + build                                                     | Chrome/Firefox 目标页面人工验证和权限检查                                                              |

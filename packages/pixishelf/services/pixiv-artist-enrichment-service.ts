@@ -61,6 +61,7 @@ export async function getPixivArtistEnrichmentSummary() {
   )
   return {
     candidateCount,
+    eligibleCount: candidateCount + Object.values(providerCounts).reduce((total, count) => total + count, 0),
     providerCounts,
     activeJob,
     latestBatch,
@@ -68,7 +69,11 @@ export async function getPixivArtistEnrichmentSummary() {
   }
 }
 
-export async function startPixivArtistEnrichment(requestedByUserId: string, artistIds?: number[]) {
+export async function startPixivArtistEnrichment(
+  requestedByUserId: string,
+  artistIds?: number[],
+  refreshExisting = false
+) {
   const selectedArtistIds = artistIds ? [...new Set(artistIds)].sort((left, right) => left - right) : undefined
   if (selectedArtistIds && selectedArtistIds.length > PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT) {
     throw new Error(`一次最多选择 ${PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT} 个艺术家`)
@@ -80,8 +85,13 @@ export async function startPixivArtistEnrichment(requestedByUserId: string, arti
     priority: 80,
     maxAttempts: 3,
     payload: selectedArtistIds?.length
-      ? { mode: 'DISCOVER', force: true, artistIds: selectedArtistIds }
-      : { mode: 'DISCOVER', force: false }
+      ? {
+          mode: 'DISCOVER',
+          force: true,
+          artistIds: selectedArtistIds,
+          ...(refreshExisting ? { refreshExisting: true } : {})
+        }
+      : { mode: 'DISCOVER', force: false, ...(refreshExisting ? { refreshExisting: true } : {}) }
   })
 }
 

@@ -68,10 +68,11 @@ export const artistRouter = router({
   startPixivEnrichment: adminProcedure
     .input(
       z.object({
-        artistIds: z.array(z.number().int().positive()).min(1).max(PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT).optional()
+        artistIds: z.array(z.number().int().positive()).min(1).max(PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT).optional(),
+        refreshExisting: z.boolean().default(false)
       })
     )
-    .mutation(({ input, ctx }) => startPixivArtistEnrichment(ctx.userId, input.artistIds)),
+    .mutation(({ input, ctx }) => startPixivArtistEnrichment(ctx.userId, input.artistIds, input.refreshExisting)),
 
   cancelPixivEnrichment: adminProcedure
     .input(z.object({ jobId: z.string().min(1).optional() }).optional())

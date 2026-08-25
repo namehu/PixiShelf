@@ -136,7 +136,20 @@ describe('job wire contracts', () => {
     expect(() => parseJobPayload('PIXIV_TAG_ENRICHMENT', { mode: 'TAG', tagId: 0, expectedName: 'tag' })).toThrow()
     expect(parseJobPayload('PIXIV_ARTIST_ENRICHMENT', { mode: 'DISCOVER' })).toEqual({
       mode: 'DISCOVER',
-      force: false
+      force: false,
+      refreshExisting: false
+    })
+    expect(
+      parseJobPayload('PIXIV_ARTIST_ENRICHMENT', {
+        mode: 'DISCOVER',
+        refreshExisting: true,
+        artistIds: [3, 7]
+      })
+    ).toEqual({
+      mode: 'DISCOVER',
+      force: false,
+      refreshExisting: true,
+      artistIds: [3, 7]
     })
     expect(
       parseJobPayload('PIXIV_ARTIST_ENRICHMENT', {
@@ -151,7 +164,8 @@ describe('job wire contracts', () => {
       artistId: 7,
       expectedExternalRefId: 'ref-7',
       expectedPixivUserId: '123',
-      force: true
+      force: true,
+      refreshExisting: false
     })
   })
 
