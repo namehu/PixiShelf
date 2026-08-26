@@ -63,47 +63,84 @@ async function executeDiscovery(
   if (context.payload.mode !== 'DISCOVER') throw new Error('Expected a Pixiv artist discovery payload')
   const payload = context.payload
   const refreshExisting = payload.refreshExisting === true
+  const candidateWhere = {
+    providerKey: PROVIDER_KEY,
+    externalId: { not: '' },
+    ...(payload.force || refreshExisting ? {} : { status: null }),
+    ...(payload.artistIds ? { artistId: { in: payload.artistIds } } : {})
+  } satisfies Prisma.ArtistExternalRefWhereInput
+  const candidateOrder: Prisma.ArtistExternalRefOrderByWithRelationInput[] =
+    refreshExisting && !payload.artistIds
+      ? [{ lastAttemptAt: { sort: 'asc', nulls: 'first' } }, { artistId: 'asc' }]
+      : [{ artistId: 'asc' }]
+  let discovered = 0
+  let enqueued = 0
+  let reused = 0
+  let pageCount = 0
+  let cursor: { artistId: number; lastAttemptAt: Date | null } | undefined
   try {
-    await context.progress({ progress: 5, stage: 'DISCOVERING', message: '正在发现可从 Pixiv 补全的艺术家...' })
-    const refs = await dependencies.database.artistExternalRef.findMany({
-      where: {
-        providerKey: PROVIDER_KEY,
-        externalId: { not: '' },
-        ...(payload.force || refreshExisting ? {} : { status: null }),
-        ...(payload.artistIds ? { artistId: { in: payload.artistIds } } : {})
-      },
-      orderBy:
-        refreshExisting && !payload.artistIds
-          ? [{ lastAttemptAt: { sort: 'asc', nulls: 'first' } }, { artistId: 'asc' }]
-          : { artistId: 'asc' },
-      take: PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT,
-      select: { id: true, artistId: true, externalId: true }
-    })
-    let enqueued = 0
-    let reused = 0
-    for (const ref of refs) {
+    await context.progress({ progress: 1, stage: 'DISCOVERING', message: '正在发现可从 Pixiv 补全的艺术家...' })
+    const totalCandidates = await dependencies.database.artistExternalRef.count({ where: candidateWhere })
+    while (true) {
       throwIfAborted(context.signal)
-      if (!/^[1-9][0-9]*$/.test(ref.externalId)) continue
-      const child = await context.enqueueChild({
-        type: 'PIXIV_ARTIST_ENRICHMENT',
-        payload: {
-          mode: 'ARTIST',
-          artistId: ref.artistId,
-          expectedExternalRefId: ref.id,
-          expectedPixivUserId: ref.externalId,
-          force: payload.force,
-          ...(refreshExisting ? { refreshExisting: true } : {})
-        },
-        queuePriority: CHILD_QUEUE_PRIORITY,
-        idempotencyKey: `pixiv-artist:${context.job.id}:artist:${ref.artistId}:v1`
+      const cursorWhere: Prisma.ArtistExternalRefWhereInput | undefined = cursor
+        ? refreshExisting && !payload.artistIds
+          ? cursor.lastAttemptAt === null
+            ? {
+                OR: [{ lastAttemptAt: null, artistId: { gt: cursor.artistId } }, { lastAttemptAt: { not: null } }]
+              }
+            : {
+                OR: [
+                  { lastAttemptAt: { gt: cursor.lastAttemptAt } },
+                  { lastAttemptAt: cursor.lastAttemptAt, artistId: { gt: cursor.artistId } }
+                ]
+              }
+          : { artistId: { gt: cursor.artistId } }
+        : undefined
+      const refs = await dependencies.database.artistExternalRef.findMany({
+        where: cursorWhere ? { AND: [candidateWhere, cursorWhere] } : candidateWhere,
+        orderBy: candidateOrder,
+        take: PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT,
+        select: { id: true, artistId: true, externalId: true, lastAttemptAt: true }
       })
-      if (child.created) enqueued += 1
-      else reused += 1
+      if (refs.length === 0) break
+      pageCount += 1
+      const lastRef = refs.at(-1)!
+      cursor = { artistId: lastRef.artistId, lastAttemptAt: lastRef.lastAttemptAt }
+      discovered += refs.length
+
+      for (const ref of refs) {
+        throwIfAborted(context.signal)
+        if (!/^[1-9][0-9]*$/.test(ref.externalId)) continue
+        const child = await context.enqueueChild({
+          type: 'PIXIV_ARTIST_ENRICHMENT',
+          payload: {
+            mode: 'ARTIST',
+            artistId: ref.artistId,
+            expectedExternalRefId: ref.id,
+            expectedPixivUserId: ref.externalId,
+            force: payload.force,
+            ...(refreshExisting ? { refreshExisting: true } : {})
+          },
+          queuePriority: CHILD_QUEUE_PRIORITY,
+          idempotencyKey: `pixiv-artist:${context.job.id}:artist:${ref.artistId}:v1`
+        })
+        if (child.created) enqueued += 1
+        else reused += 1
+      }
+      await context.progress({
+        progress: totalCandidates > 0 ? Math.min(95, Math.max(1, Math.floor((discovered / totalCandidates) * 95))) : 95,
+        stage: 'DISCOVERING',
+        message: `已发现 ${discovered}/${totalCandidates} 个艺术家，创建 ${enqueued} 个${refreshExisting ? '刷新' : '补全'}任务`,
+        data: { totalCandidates, pageCount, discovered, enqueued, reused }
+      })
+      // 200 只是稳定的数据库分页大小；默认补全和显式全量刷新都会物化全部候选。
+      if (discovered >= totalCandidates || refs.length < PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT) break
     }
     return {
       kind: 'completed',
-      result: { discovered: refs.length, enqueued, reused },
-      message: `艺术家${refreshExisting ? '刷新' : '补全'}发现完成：${refs.length} 个候选，创建 ${enqueued} 个任务`
+      result: { totalCandidates, pageCount, discovered, enqueued, reused },
+      message: `艺术家${refreshExisting ? '刷新' : '补全'}发现完成：${discovered} 个候选，创建 ${enqueued} 个任务`
     }
   } catch (error) {
     if (context.signal.aborted) return { kind: 'released', message: 'Pixiv 艺术家发现已停止，等待恢复' }

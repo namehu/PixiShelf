@@ -22,6 +22,8 @@ import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useTRPC } from '@/lib/trpc'
 
+const ACTIVE_BATCH_STATUSES = new Set(['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'])
+
 interface SelectedArtist {
   id: number
   name: string
@@ -62,7 +64,7 @@ export function PixivArtistEnrichmentDialog({
             ? '已有 Pixiv 艺术家补全任务正在运行'
             : selectedArtists.length
               ? `已创建 ${selectedArtists.length} 个艺术家的补全批次`
-              : 'Pixiv 艺术家补全任务已创建'
+              : `Pixiv 艺术家全量${refreshExisting ? '刷新' : '补全'}任务已创建`
         )
         if (!reused) {
           trackedBatchId.current = job.id
@@ -87,9 +89,15 @@ export function PixivArtistEnrichmentDialog({
   )
 
   const summary = summaryQuery.data
-  const progress = summary?.children.total
-    ? Math.round((summary.children.completed / summary.children.total) * 100)
-    : (summary?.activeJob?.progress ?? 0)
+  const discoveryActive = Boolean(
+    summary?.latestBatch?.stage === 'DISCOVERING' && ACTIVE_BATCH_STATUSES.has(summary.latestBatch.status)
+  )
+  const progress = discoveryActive
+    ? (summary?.latestBatch?.progress ?? 0)
+    : summary?.children.total
+      ? Math.round((summary.children.completed / summary.children.total) * 100)
+      : (summary?.activeJob?.progress ?? 0)
+  const activeMessage = discoveryActive ? summary?.latestBatch?.message : summary?.activeJob?.message
   const active = Boolean(summary?.activeJob)
   const sessionBatchId = submittedBatchId ?? trackedBatchId.current
   const hasBatchSession = submittedSelection !== null || Boolean(sessionBatchId) || active
@@ -98,7 +106,6 @@ export function PixivArtistEnrichmentDialog({
   const selectedMode = selectedArtistIds.length > 0
   const selectionExceedsLimit = selectedArtistIds.length > PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT
   const availableCount = refreshExisting ? (summary?.eligibleCount ?? 0) : (summary?.candidateCount ?? 0)
-  const nextBatchCount = Math.min(availableCount, PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT)
   const submittedBatchFinished = Boolean(
     sessionBatchId &&
       !active &&
@@ -136,7 +143,9 @@ export function PixivArtistEnrichmentDialog({
           <DialogDescription>
             {selectedMode
               ? `重新查询已选择的 ${selectedArtistIds.length} 个艺术家。`
-              : '查询尚未检查的 Pixiv 艺术家，补充来源姓名、头像和背景图。'}
+              : refreshExisting
+                ? '查询并连续刷新全部具有正式 Pixiv 身份的艺术家。'
+                : '查询并连续补全全部尚未检查的 Pixiv 艺术家。'}
           </DialogDescription>
         </DialogHeader>
 
@@ -162,10 +171,10 @@ export function PixivArtistEnrichmentDialog({
                   : refreshExisting
                     ? selectedMode
                       ? '将重新下载并替换所选艺术家的 Pixiv 头像和背景图；下载失败或 Pixiv 无对应图片时保留现有图片。主姓名不会被覆盖。'
-                      : `将按最久未检查顺序刷新下一批最多 ${PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT} 个 Pixiv 艺术家；下载失败或 Pixiv 无对应图片时保留现有图片。`
+                      : `当前 ${summary?.eligibleCount ?? 0} 个 Pixiv 艺术家会按最久未检查顺序全部排入持久队列；Worker 每次只处理一位，关闭页面不影响执行。下载失败或 Pixiv 无对应图片时保留现有图片。`
                     : selectedMode
                       ? '所选艺术家即使检查过也会重查；已有头像、背景图和主姓名不会被覆盖。'
-                      : `每批最多处理 ${PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT} 个未检查艺术家；来源姓名需手工采用。`}
+                      : `当前 ${summary?.candidateCount ?? 0} 个未检查艺术家会按每页 ${PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT} 个发现并全部排入持久队列；Worker 每次只处理一位，关闭页面不影响执行。来源姓名需手工采用。`}
               </AlertDescription>
             </Alert>
 
@@ -204,8 +213,9 @@ export function PixivArtistEnrichmentDialog({
                 </div>
                 <Progress value={progress} />
                 <p className="text-xs text-muted-foreground">
-                  {summary?.activeJob?.message || 'Worker 正在处理艺术家'}
+                  {activeMessage || 'Worker 正在处理艺术家'}
                   {summary?.children.total ? `（${summary.children.completed}/${summary.children.total}）` : ''}
+                  {' 关闭页面不影响后台执行。'}
                 </p>
               </div>
             ) : null}
@@ -260,7 +270,7 @@ export function PixivArtistEnrichmentDialog({
               {startMutation.isPending ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
               {selectedMode
                 ? `${refreshExisting ? '刷新' : '补全'}已选 ${selectedArtistIds.length} 项`
-                : `${refreshExisting ? '刷新' : '开始'}下一批（${nextBatchCount} 个）`}
+                : `连续${refreshExisting ? '刷新' : '补全'}全部（${availableCount} 个）`}
             </Button>
           ) : null}
         </DialogFooter>

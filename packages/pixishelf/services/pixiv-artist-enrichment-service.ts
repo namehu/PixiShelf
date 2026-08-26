@@ -9,11 +9,22 @@ import {
 } from '@/services/background-task'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 import { ACTIVE_JOB_STATUSES, PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
-import { Prisma } from '@pixishelf/db'
+import type { Prisma, PrismaClient } from '@pixishelf/db'
 
 const JOB_TYPE = 'PIXIV_ARTIST_ENRICHMENT' as const
 const PROVIDER_KEY = 'pixiv'
 const CANCEL_CONCURRENCY_RETRY_LIMIT = 3
+const CANCEL_EVENT_CHUNK_SIZE = 500
+const DIRECT_CANCEL_STATUSES = ['PENDING', 'RETRY_WAIT', 'PAUSED'] as const
+const INTERRUPT_CANCEL_STATUSES = ['RUNNING', 'PAUSING'] as const
+const DIRECT_CANCEL_STATUS_SET = new Set<string>(DIRECT_CANCEL_STATUSES)
+const INTERRUPT_CANCEL_STATUS_SET = new Set<string>(INTERRUPT_CANCEL_STATUSES)
+
+interface ActiveBatchChild {
+  id: string
+  status: string
+  attempt: number
+}
 
 export async function getPixivArtistEnrichmentSummary() {
   const [candidateCount, statusGroups, activeJob, latestBatch] = await Promise.all([
@@ -29,8 +40,12 @@ export async function getPixivArtistEnrichmentSummary() {
       select: { id: true, parentJobId: true, status: true, progress: true, stage: true, message: true, createdAt: true }
     }),
     prisma.systemJob.findFirst({
-      // DISCOVER 批次和单项重试都是一次独立的管理员操作；两者都需要在刷新后恢复完成状态。
-      where: { type: JOB_TYPE, parentJobId: null },
+      // 单项重试不应覆盖管理弹窗正在恢复的最近一次逻辑批次。
+      where: {
+        type: JOB_TYPE,
+        parentJobId: null,
+        payload: { path: ['mode'], equals: 'DISCOVER' }
+      },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -130,50 +145,122 @@ export async function retryPixivArtistEnrichment(artistId: number, requestedByUs
   })
 }
 
-export async function cancelPixivArtistEnrichment(requestedJobId?: string) {
+export async function cancelPixivArtistEnrichment(
+  requestedJobId?: string,
+  database: PrismaClient = prisma as unknown as PrismaClient
+) {
   const selectedJob = requestedJobId
-    ? await prisma.systemJob.findUnique({
+    ? await database.systemJob.findUnique({
         where: { id: requestedJobId, type: JOB_TYPE },
-        select: { id: true, parentJobId: true }
+        select: { id: true, parentJobId: true, status: true }
       })
-    : await prisma.systemJob.findFirst({
+    : await database.systemJob.findFirst({
         where: { type: JOB_TYPE, status: { in: [...ACTIVE_JOB_STATUSES] } },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, parentJobId: true }
+        select: { id: true, parentJobId: true, status: true }
       })
   if (!selectedJob) return { batchId: null, affectedCount: 0, job: null }
   const batchId = selectedJob.parentJobId ?? selectedJob.id
-  const activeJobs = await prisma.systemJob.findMany({
-    where: {
-      type: JOB_TYPE,
-      status: { in: [...ACTIVE_JOB_STATUSES] },
-      OR: [{ id: batchId }, { parentJobId: batchId }]
-    },
-    orderBy: [{ parentJobId: 'asc' }, { createdAt: 'asc' }],
-    select: { id: true }
-  })
+  const root =
+    selectedJob.id === batchId
+      ? selectedJob
+      : await database.systemJob.findUnique({
+          where: { id: batchId, type: JOB_TYPE },
+          select: { id: true, parentJobId: true, status: true }
+        })
   let affectedCount = 0
-  const root = activeJobs.find((job) => job.id === batchId)
-  if (root && (await cancelIfStillActive(root.id))) affectedCount += 1
-  const children = activeJobs.filter((job) => job.id !== batchId)
-  for (let offset = 0; offset < children.length; offset += 10) {
-    const results = await Promise.all(children.slice(offset, offset + 10).map((job) => cancelIfStillActive(job.id)))
-    affectedCount += results.filter(Boolean).length
+  // 先停止发现父任务。enqueueChild 会锁定并要求父任务仍为 RUNNING，因此父任务取消提交后，
+  // 子任务集合已经封闭，可以在下一事务中一次性取消而不会漏掉并发新建项。
+  if (root && ACTIVE_JOB_STATUSES.has(root.status) && root.status !== 'CANCELLING') {
+    if (await cancelIfStillActive(root.id, database)) affectedCount += 1
   }
-  return { batchId, affectedCount, job: await getJobById(selectedJob.id) }
+  affectedCount += await cancelActiveBatchChildren(batchId, database)
+
+  return { batchId, affectedCount, job: await getJobById(selectedJob.id, database) }
 }
 
-async function cancelIfStillActive(jobId: string) {
+async function cancelIfStillActive(jobId: string, database: PrismaClient) {
   for (let attempt = 1; attempt <= CANCEL_CONCURRENCY_RETRY_LIMIT; attempt += 1) {
     try {
-      await cancelJobCommand({ jobId })
+      await cancelJobCommand({ jobId }, database)
       return true
     } catch (error) {
-      const current = await prisma.systemJob.findUnique({ where: { id: jobId }, select: { status: true } })
+      const current = await database.systemJob.findUnique({ where: { id: jobId }, select: { status: true } })
       if (!current || !ACTIVE_JOB_STATUSES.has(current.status)) return false
       if (error instanceof BackgroundTaskError && error.code === 'CONCURRENT_MODIFICATION') continue
       throw error
     }
   }
   throw new BackgroundTaskError('CONCURRENT_MODIFICATION', 'Background job kept changing while cancelling the batch')
+}
+
+async function cancelActiveBatchChildren(batchId: string, database: PrismaClient) {
+  return database.$transaction(async (transaction) => {
+    const timestamp = new Date()
+    const activeChildren = await transaction.$queryRaw<ActiveBatchChild[]>`
+      SELECT "id", "status"::text AS "status", "attempt"
+      FROM "system_jobs"
+      WHERE "type" = ${JOB_TYPE}
+        AND "parentJobId" = ${batchId}
+        AND "status" IN ('PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING')
+      ORDER BY "createdAt" ASC, "id" ASC
+      FOR UPDATE
+    `
+    const direct = activeChildren.filter((job) => DIRECT_CANCEL_STATUS_SET.has(job.status))
+    const interrupt = activeChildren.filter((job) => INTERRUPT_CANCEL_STATUS_SET.has(job.status))
+
+    if (direct.length > 0) {
+      const updated = await transaction.systemJob.updateMany({
+        where: { id: { in: direct.map((job) => job.id) }, status: { in: [...DIRECT_CANCEL_STATUSES] } },
+        data: {
+          status: 'CANCELLED',
+          cancelRequestedAt: timestamp,
+          finishedAt: timestamp,
+          workerId: null,
+          leaseToken: null,
+          leaseExpiresAt: null,
+          heartbeatAt: null
+        }
+      })
+      if (updated.count !== direct.length) {
+        throw new BackgroundTaskError('CONCURRENT_MODIFICATION', 'Pixiv artist queued jobs changed while cancelling')
+      }
+    }
+
+    if (interrupt.length > 0) {
+      const updated = await transaction.systemJob.updateMany({
+        where: { id: { in: interrupt.map((job) => job.id) }, status: { in: [...INTERRUPT_CANCEL_STATUSES] } },
+        data: { status: 'CANCELLING', cancelRequestedAt: timestamp }
+      })
+      if (updated.count !== interrupt.length) {
+        throw new BackgroundTaskError('CONCURRENT_MODIFICATION', 'Pixiv artist running jobs changed while cancelling')
+      }
+    }
+
+    const directIds = new Set(direct.map((job) => job.id))
+    const events: Prisma.SystemJobEventCreateManyInput[] = []
+    for (const job of [...direct, ...interrupt]) {
+      events.push({
+        jobId: job.id,
+        type: 'job.cancel_requested',
+        level: 'INFO',
+        attempt: job.attempt,
+        message: 'Cancellation requested'
+      })
+      if (directIds.has(job.id)) {
+        events.push({
+          jobId: job.id,
+          type: 'job.cancelled',
+          level: 'INFO',
+          attempt: job.attempt,
+          message: 'Queued job cancelled before execution'
+        })
+      }
+    }
+    for (let offset = 0; offset < events.length; offset += CANCEL_EVENT_CHUNK_SIZE) {
+      await transaction.systemJobEvent.createMany({ data: events.slice(offset, offset + CANCEL_EVENT_CHUNK_SIZE) })
+    }
+
+    return direct.length + interrupt.length
+  })
 }

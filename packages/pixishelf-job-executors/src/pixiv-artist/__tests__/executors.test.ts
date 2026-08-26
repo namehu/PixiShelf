@@ -12,7 +12,7 @@ afterEach(async () => {
 })
 
 describe('Pixiv artist enrichment executor', () => {
-  it('discovers at most 200 unchecked identities and freezes their ids in child payloads', async () => {
+  it('discovers one page of unchecked identities and freezes their ids in child payloads', async () => {
     const refs = Array.from({ length: 200 }, (_, index) => ({
       id: `ref-${index + 1}`,
       artistId: index + 1,
@@ -21,11 +21,14 @@ describe('Pixiv artist enrichment executor', () => {
     const findMany = vi.fn().mockResolvedValue(refs)
     const enqueueChild = vi.fn().mockResolvedValue({ id: 'child', created: true })
     const [registration] = createPixivArtistExecutorRegistrations({
-      database: { artistExternalRef: { findMany } } as never,
+      database: { artistExternalRef: { count: vi.fn().mockResolvedValue(200), findMany } } as never,
       pixivDataRoot: '/pixiv-data'
     })
     const outcome = await registration!.execute(context({ mode: 'DISCOVER', force: false }, { enqueueChild }) as never)
-    expect(outcome).toMatchObject({ kind: 'completed', result: { discovered: 200, enqueued: 200 } })
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: { totalCandidates: 200, pageCount: 1, discovered: 200, enqueued: 200, reused: 0 }
+    })
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ status: null }), take: 200 })
     )
@@ -41,7 +44,7 @@ describe('Pixiv artist enrichment executor', () => {
     const findMany = vi.fn().mockResolvedValue([{ id: 'ref-1', artistId: 1, externalId: '101' }])
     const enqueueChild = vi.fn().mockResolvedValue({ id: 'child', created: true })
     const [registration] = createPixivArtistExecutorRegistrations({
-      database: { artistExternalRef: { findMany } } as never,
+      database: { artistExternalRef: { count: vi.fn().mockResolvedValue(1), findMany } } as never,
       pixivDataRoot: '/pixiv-data'
     })
 
@@ -58,6 +61,153 @@ describe('Pixiv artist enrichment executor', () => {
     expect(enqueueChild).toHaveBeenCalledWith(
       expect.objectContaining({ payload: expect.objectContaining({ refreshExisting: true }) })
     )
+  })
+
+  it('continues after the first 200 unchecked identities in a default batch', async () => {
+    const firstPage = Array.from({ length: 200 }, (_, index) => ({
+      id: `ref-${index + 1}`,
+      artistId: index + 1,
+      externalId: String(index + 101)
+    }))
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce([{ id: 'ref-201', artistId: 201, externalId: '301' }])
+    const enqueueChild = vi.fn().mockResolvedValue({ id: 'child', created: true })
+    const [registration] = createPixivArtistExecutorRegistrations({
+      database: { artistExternalRef: { count: vi.fn().mockResolvedValue(201), findMany } } as never,
+      pixivDataRoot: '/pixiv-data'
+    })
+
+    const outcome = await registration!.execute(context({ mode: 'DISCOVER', force: false }, { enqueueChild }) as never)
+
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: { totalCandidates: 201, pageCount: 2, discovered: 201, enqueued: 201, reused: 0 }
+    })
+    expect(findMany).toHaveBeenCalledTimes(2)
+    expect(findMany.mock.calls[1]?.[0]).toMatchObject({
+      where: { AND: [expect.anything(), { artistId: { gt: 200 } }] },
+      take: 200
+    })
+    expect(enqueueChild).toHaveBeenCalledTimes(201)
+  })
+
+  it('materializes more than 5000 refresh candidates as one logical batch in oldest-first pages', async () => {
+    const totalCandidates = 5_001
+    const attemptedAt = new Date('2026-08-01T00:00:00.000Z')
+    const findMany = vi
+      .fn()
+      .mockImplementation(({ where }: { where: { AND?: [{}, { OR?: Array<{ artistId?: { gt: number } }> }] } }) => {
+        const cursorArtistId = where.AND?.[1].OR?.find(({ artistId }) => artistId)?.artistId?.gt ?? 0
+        const start = cursorArtistId + 1
+        return Promise.resolve(
+          Array.from({ length: Math.min(200, totalCandidates - start + 1) }, (_, index) => ({
+            id: `ref-${start + index}`,
+            artistId: start + index,
+            externalId: String(start + index + 100),
+            lastAttemptAt: start + index <= 200 ? null : attemptedAt
+          }))
+        )
+      })
+    const enqueueChild = vi.fn().mockResolvedValue({ id: 'child', created: true })
+    const progress = vi.fn().mockResolvedValue(undefined)
+    const [registration] = createPixivArtistExecutorRegistrations({
+      database: { artistExternalRef: { count: vi.fn().mockResolvedValue(totalCandidates), findMany } } as never,
+      pixivDataRoot: '/pixiv-data'
+    })
+
+    const outcome = await registration!.execute(
+      context({ mode: 'DISCOVER', force: false, refreshExisting: true }, { enqueueChild, progress }) as never
+    )
+
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: { totalCandidates, pageCount: 26, discovered: totalCandidates, enqueued: totalCandidates, reused: 0 }
+    })
+    expect(findMany).toHaveBeenCalledTimes(26)
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({
+      orderBy: [{ lastAttemptAt: { sort: 'asc', nulls: 'first' } }, { artistId: 'asc' }],
+      take: 200
+    })
+    expect(findMany.mock.calls[1]?.[0]).toMatchObject({
+      where: {
+        AND: [
+          expect.anything(),
+          {
+            OR: [{ lastAttemptAt: null, artistId: { gt: 200 } }, { lastAttemptAt: { not: null } }]
+          }
+        ]
+      }
+    })
+    expect(findMany.mock.calls[2]?.[0]).toMatchObject({
+      where: {
+        AND: [
+          expect.anything(),
+          {
+            OR: [{ lastAttemptAt: { gt: attemptedAt } }, { lastAttemptAt: attemptedAt, artistId: { gt: 400 } }]
+          }
+        ]
+      }
+    })
+    expect(enqueueChild).toHaveBeenCalledTimes(totalCandidates)
+    expect(progress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        progress: 95,
+        data: { totalCandidates, pageCount: 26, discovered: totalCandidates, enqueued: totalCandidates, reused: 0 }
+      })
+    )
+  })
+
+  it('reuses every child when an exact-page discovery is retried idempotently', async () => {
+    const refs = Array.from({ length: 200 }, (_, index) => ({
+      id: `ref-${index + 1}`,
+      artistId: index + 1,
+      externalId: String(index + 101)
+    }))
+    const enqueueChild = vi.fn().mockResolvedValue({ id: 'existing-child', created: false })
+    const [registration] = createPixivArtistExecutorRegistrations({
+      database: {
+        artistExternalRef: { count: vi.fn().mockResolvedValue(200), findMany: vi.fn().mockResolvedValue(refs) }
+      } as never,
+      pixivDataRoot: '/pixiv-data'
+    })
+
+    await expect(
+      registration!.execute(context({ mode: 'DISCOVER', force: false }, { enqueueChild }) as never)
+    ).resolves.toMatchObject({
+      kind: 'completed',
+      result: { totalCandidates: 200, pageCount: 1, discovered: 200, enqueued: 0, reused: 200 }
+    })
+  })
+
+  it('stops discovery without materializing another page after cancellation', async () => {
+    const controller = new AbortController()
+    const firstPage = Array.from({ length: 200 }, (_, index) => ({
+      id: `ref-${index + 1}`,
+      artistId: index + 1,
+      externalId: String(index + 101)
+    }))
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce([{ id: 'ref-201', artistId: 201, externalId: '301' }])
+    const enqueueChild = vi.fn().mockImplementation(async () => {
+      if (enqueueChild.mock.calls.length === 200) controller.abort(new Error('cancelled'))
+      return { id: 'child', created: true }
+    })
+    const [registration] = createPixivArtistExecutorRegistrations({
+      database: { artistExternalRef: { count: vi.fn().mockResolvedValue(201), findMany } } as never,
+      pixivDataRoot: '/pixiv-data'
+    })
+
+    await expect(
+      registration!.execute(
+        context({ mode: 'DISCOVER', force: false }, { enqueueChild, signal: controller.signal }) as never
+      )
+    ).resolves.toEqual({ kind: 'released', message: 'Pixiv 艺术家发现已停止，等待恢复' })
+    expect(findMany).toHaveBeenCalledTimes(1)
+    expect(enqueueChild).toHaveBeenCalledTimes(200)
   })
 
   it('skips an item when its confirmed Pixiv identity changed', async () => {
