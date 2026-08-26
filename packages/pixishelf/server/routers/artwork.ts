@@ -44,6 +44,12 @@ import {
   retryPixivArtworkEnrichment,
   startPixivArtworkEnrichment
 } from '@/services/pixiv-artwork-enrichment-service'
+import {
+  getPixivArtworkSyncReport,
+  getPixivArtworkSyncSnapshot,
+  listPixivArtworkSyncReports,
+  PixivArtworkSyncReportReadError
+} from '@/services/pixiv-artwork-sync-report-service'
 
 /**
  * 作品路由
@@ -139,6 +145,34 @@ export const artworkRouter = router({
   retryPixivEnrichment: adminProcedure
     .input(z.object({ artworkId: z.number().int().positive() }))
     .mutation(({ input, ctx }) => retryPixivArtworkEnrichment(input.artworkId, ctx.userId)),
+
+  pixivSyncReportHistory: adminProcedure
+    .input(
+      z.object({
+        artworkId: z.number().int().positive(),
+        cursor: z.string().min(1).max(128).nullish(),
+        limit: z.number().int().min(1).max(50).default(20)
+      })
+    )
+    .query(({ input }) =>
+      withPixivSyncReportError(() =>
+        listPixivArtworkSyncReports({ ...input, cursor: input.cursor ?? undefined })
+      )
+    ),
+
+  pixivSyncReport: adminProcedure
+    .input(z.object({ artworkId: z.number().int().positive(), reportId: z.string().min(1).max(128) }))
+    .query(({ input }) => withPixivSyncReportError(() => getPixivArtworkSyncReport(input))),
+
+  pixivSyncSnapshot: adminProcedure
+    .input(
+      z.object({
+        artworkId: z.number().int().positive(),
+        reportId: z.string().min(1).max(128),
+        side: z.enum(['before', 'after'])
+      })
+    )
+    .query(({ input }) => withPixivSyncReportError(() => getPixivArtworkSyncSnapshot(input))),
 
   /**
    * 删除作品
@@ -340,3 +374,17 @@ export const artworkRouter = router({
     }
   })
 })
+
+async function withPixivSyncReportError<T>(operation: () => Promise<T>) {
+  try {
+    return await operation()
+  } catch (error) {
+    if (error instanceof PixivArtworkSyncReportReadError) {
+      throw new TRPCError({
+        code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : error.code === 'INVALID' ? 'BAD_REQUEST' : 'INTERNAL_SERVER_ERROR',
+        message: error.message
+      })
+    }
+    throw error
+  }
+}

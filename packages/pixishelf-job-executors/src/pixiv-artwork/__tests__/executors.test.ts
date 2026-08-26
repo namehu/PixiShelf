@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPixivArtworkExecutorRegistrations } from '../executors.ts'
+import type { PixivArtworkSyncTrackedState } from '../sync-report.ts'
 
 const temporaryRoots: string[] = []
 
@@ -134,6 +135,26 @@ describe('Pixiv artwork enrichment executor', () => {
     const tagUpdate = vi.fn().mockResolvedValue({ count: 0 })
     const tagRelationUpsert = vi.fn().mockResolvedValue(undefined)
     const complete = vi.fn().mockResolvedValue(undefined)
+    const beforeArtwork = trackedArtwork({
+      title: 'Manual title',
+      description: 'Old source description',
+      titleOverridden: true
+    })
+    const afterArtwork = trackedArtwork({
+      ...beforeArtwork,
+      description: 'Latest source description',
+      bookmarkCount: 99,
+      isAiGenerated: true,
+      originalUrl: 'https://i.pximg.net/original.jpg',
+      size: '1200x800',
+      sourceDate: new Date('2026-08-01T00:00:00.000Z'),
+      sourceUrl: 'https://www.pixiv.net/artworks/1001',
+      thumbnailUrl: 'https://i.pximg.net/regular.jpg',
+      xRestrict: '1',
+      pixivAiType: 2,
+      pixivType: 0,
+      sanityLevel: 6
+    })
     const observedArtwork = {
       title: 'Manual title',
       description: 'Old source description',
@@ -149,15 +170,25 @@ describe('Pixiv artwork enrichment executor', () => {
           artworkId: 1,
           providerKey: 'pixiv',
           externalId: '1001',
-          artwork: { ...observedArtwork, externalRefs: undefined }
+          onlineSnapshotHash: null,
+          onlineSnapshotPath: null,
+          artwork: beforeArtwork
         }),
         update: refUpdate
       },
-      artwork: { update: artworkUpdate },
+      artwork: { update: artworkUpdate, findUniqueOrThrow: vi.fn().mockResolvedValue(afterArtwork) },
       tag: {
         upsert: vi.fn().mockResolvedValueOnce({ id: 11 }).mockResolvedValueOnce({ id: 12 })
       },
-      artworkTag: { deleteMany: tagDelete, updateMany: tagUpdate, upsert: tagRelationUpsert }
+      artworkTag: {
+        findMany: vi
+          .fn()
+          .mockResolvedValueOnce([{ tag: { name: 'old-tag' } }])
+          .mockResolvedValueOnce([{ tag: { name: 'tag-a' } }, { tag: { name: 'tag-b' } }]),
+        deleteMany: tagDelete,
+        updateMany: tagUpdate,
+        upsert: tagRelationUpsert
+      }
     }
     const [registration] = createPixivArtworkExecutorRegistrations({
       database: {
@@ -215,6 +246,12 @@ describe('Pixiv artwork enrichment executor', () => {
     expect(complete).toHaveBeenCalledWith(
       expect.objectContaining({ result: expect.objectContaining({ appliedTextFields: ['description'], tagCount: 2 }) })
     )
+    const report = JSON.parse(await fs.readFile(path.join(root, 'artworks', '1001', 'sync-reports', 'job-1.json'), 'utf8'))
+    expect(report).toMatchObject({
+      changeKind: 'UPDATED',
+      tags: { added: ['tag-a', 'tag-b'], removed: ['old-tag'] },
+      snapshots: { before: null, changed: true }
+    })
   })
 
   it('keeps a concurrent manual title edit and records PARTIAL when adopting source text', async () => {
@@ -223,6 +260,28 @@ describe('Pixiv artwork enrichment executor', () => {
     const artworkUpdate = vi.fn().mockResolvedValue(undefined)
     const refUpdate = vi.fn().mockResolvedValue(undefined)
     const complete = vi.fn().mockResolvedValue(undefined)
+    const beforeArtwork = trackedArtwork({
+      title: 'New manual title',
+      description: 'Old description',
+      titleOverridden: true,
+      descriptionOverridden: true
+    })
+    const afterArtwork = trackedArtwork({
+      ...beforeArtwork,
+      description: 'Latest source description',
+      descriptionOverridden: false,
+      bookmarkCount: 99,
+      isAiGenerated: true,
+      originalUrl: 'https://i.pximg.net/original.jpg',
+      size: '1200x800',
+      sourceDate: new Date('2026-08-01T00:00:00.000Z'),
+      sourceUrl: 'https://www.pixiv.net/artworks/1001',
+      thumbnailUrl: 'https://i.pximg.net/regular.jpg',
+      xRestrict: '1',
+      pixivAiType: 2,
+      pixivType: 0,
+      sanityLevel: 6
+    })
     const observedArtwork = {
       title: 'Old title',
       description: 'Old description',
@@ -238,18 +297,16 @@ describe('Pixiv artwork enrichment executor', () => {
           artworkId: 1,
           providerKey: 'pixiv',
           externalId: '1001',
-          artwork: {
-            title: 'New manual title',
-            description: 'Old description',
-            titleOverridden: true,
-            descriptionOverridden: true
-          }
+          onlineSnapshotHash: null,
+          onlineSnapshotPath: null,
+          artwork: beforeArtwork
         }),
         update: refUpdate
       },
-      artwork: { update: artworkUpdate },
+      artwork: { update: artworkUpdate, findUniqueOrThrow: vi.fn().mockResolvedValue(afterArtwork) },
       tag: { upsert: vi.fn().mockResolvedValueOnce({ id: 11 }).mockResolvedValueOnce({ id: 12 }) },
       artworkTag: {
+        findMany: vi.fn().mockResolvedValue([]),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         upsert: vi.fn().mockResolvedValue(undefined)
@@ -291,6 +348,8 @@ describe('Pixiv artwork enrichment executor', () => {
     expect(complete).toHaveBeenCalledWith(
       expect.objectContaining({ result: expect.objectContaining({ skippedConcurrentFields: ['title'] }) })
     )
+    const report = JSON.parse(await fs.readFile(path.join(root, 'artworks', '1001', 'sync-reports', 'job-1.json'), 'utf8'))
+    expect(report).toMatchObject({ changeKind: 'PARTIAL', protectedFields: ['title'] })
   })
 
   it('does not publish NO_DATA after the Pixiv identity becomes ambiguous', async () => {
@@ -391,4 +450,28 @@ function pixivResponse() {
     }),
     { status: 200 }
   )
+}
+
+function trackedArtwork(overrides: Partial<PixivArtworkSyncTrackedState> = {}) {
+  return { ...trackedArtworkDefaults(), ...overrides }
+}
+
+function trackedArtworkDefaults(): PixivArtworkSyncTrackedState {
+  return {
+    title: 'Title',
+    description: null,
+    titleOverridden: false,
+    descriptionOverridden: false,
+    bookmarkCount: null,
+    isAiGenerated: null,
+    originalUrl: null,
+    size: null,
+    sourceDate: null,
+    sourceUrl: null,
+    thumbnailUrl: null,
+    xRestrict: null,
+    pixivAiType: null,
+    pixivType: null,
+    sanityLevel: null
+  }
 }

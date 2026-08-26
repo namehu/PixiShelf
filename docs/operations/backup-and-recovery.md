@@ -36,7 +36,7 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 | 业务数据库 | PostgreSQL custom-format dump                      | 包含领域数据、认证、队列、审计和 `_prisma_migrations`                  |
 | 原媒体     | `PIXISHELF_DATA_PATH` 对应的同时间点快照           | 不可重新生成，是最高优先级数据                                         |
 | 派生媒体   | `DERIVED_MEDIA_HOST_PATH` 对应的同时间点快照       | 多数可重建，但数据库保存发布指针和生成状态                             |
-| Pixiv data | `PIXISHELF_PUBLIC_DATA_PATH` 对应的同时间点快照    | 作者图片、标签封面和作品元数据快照；数据库保存最近路径、哈希与检查状态 |
+| Pixiv data | `PIXISHELF_PUBLIC_DATA_PATH` 对应的同时间点快照    | 作者图片、标签封面、作品元数据快照和同步报告；数据库保存最近路径、哈希与检查状态 |
 | 部署配置   | `build/.env`、实际 Compose、反向代理配置           | 含密钥和真实路径，必须加密或严格限制权限                               |
 | 程序版本   | App、Worker 的 tag、image ID 或 digest             | 不依赖可变 `latest` 猜测恢复版本                                       |
 | 备份清单   | 时间、实例、文件名、SHA-256、快照 ID、操作者、原因 | 用于证明各部分属于同一恢复点                                           |
@@ -113,7 +113,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 
 - `PIXISHELF_DATA_PATH`：原媒体；
 - `DERIVED_MEDIA_HOST_PATH`：封面、章节图、代表帧和其他派生媒体。
-- `PIXISHELF_PUBLIC_DATA_PATH`：Pixiv 作者图片、标签封面和作品元数据不可变快照。
+- `PIXISHELF_PUBLIC_DATA_PATH`：Pixiv 作者图片、标签封面、作品元数据不可变快照和按任务保存的同步报告。
 
 备份部署配置时至少保留实际 Compose、环境文件和反向代理配置。环境文件权限不得宽于仅管理员可读，例如：
 

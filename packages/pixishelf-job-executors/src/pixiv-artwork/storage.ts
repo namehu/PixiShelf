@@ -2,12 +2,22 @@ import { createHash, randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 
+import {
+  PIXIV_ARTWORK_SYNC_REPORT_MAX_BYTES,
+  pixivArtworkSyncReportSchema,
+  type PixivArtworkSyncReport
+} from '@pixishelf/job-contracts'
 import type { NormalizedPixivArtworkMetadata, PixivArtworkMetadataResponse } from './client.ts'
 
 export interface StoredPixivArtworkSnapshot {
   hash: string
   relativePath: string
   reused: boolean
+}
+
+export interface StoredPixivArtworkSyncReport {
+  relativePath: string
+  bytes: number
 }
 
 export class PixivArtworkSnapshotError extends Error {
@@ -69,6 +79,50 @@ export async function storePixivArtworkSnapshot(input: {
     return { hash, relativePath, reused: true }
   }
   return { hash, relativePath, reused: false }
+}
+
+export async function storePixivArtworkSyncReport(input: {
+  pixivDataRoot: string
+  pixivArtworkId: string
+  jobId: string
+  report: PixivArtworkSyncReport
+}): Promise<StoredPixivArtworkSyncReport> {
+  if (!/^[1-9][0-9]*$/.test(input.pixivArtworkId) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(input.jobId)) {
+    throw new PixivArtworkSnapshotError('Pixiv 作品同步报告路径无效', 'PIXIV_SYNC_REPORT_PATH_INVALID')
+  }
+  const report = pixivArtworkSyncReportSchema.parse(input.report)
+  if (report.pixivArtworkId !== input.pixivArtworkId || report.jobId !== input.jobId) {
+    throw new PixivArtworkSnapshotError('Pixiv 作品同步报告身份不一致', 'PIXIV_SYNC_REPORT_IDENTITY_MISMATCH')
+  }
+
+  const bytes = Buffer.from(`${stableStringify(report)}\n`, 'utf8')
+  if (bytes.byteLength > PIXIV_ARTWORK_SYNC_REPORT_MAX_BYTES) {
+    throw new PixivArtworkSnapshotError('Pixiv 作品同步报告超过大小限制', 'PIXIV_SYNC_REPORT_TOO_LARGE')
+  }
+
+  const relativePath = path.posix.join('artworks', input.pixivArtworkId, 'sync-reports', `${input.jobId}.json`)
+  const root = path.resolve(input.pixivDataRoot)
+  const directory = path.resolve(root, 'artworks', input.pixivArtworkId, 'sync-reports')
+  const destination = path.resolve(directory, `${input.jobId}.json`)
+  if (!isInside(root, directory) || path.dirname(destination) !== directory) {
+    throw new PixivArtworkSnapshotError('Pixiv 作品同步报告存储路径无效', 'PIXIV_SYNC_REPORT_PATH_INVALID')
+  }
+
+  await ensureSafeDirectory(root, ['artworks', input.pixivArtworkId, 'sync-reports'])
+  const existing = await lstatOrNull(destination)
+  if (existing && (existing.isSymbolicLink() || !existing.isFile())) {
+    throw new PixivArtworkSnapshotError('Pixiv 作品同步报告目标不是普通文件', 'PIXIV_SYNC_REPORT_PATH_UNSAFE')
+  }
+
+  const temporary = path.join(directory, `.${input.jobId}.${randomUUID()}.tmp`)
+  await fs.writeFile(temporary, bytes, { flag: 'wx' })
+  try {
+    await fs.rename(temporary, destination)
+  } catch (error) {
+    await fs.unlink(temporary).catch(() => undefined)
+    throw error
+  }
+  return { relativePath, bytes: bytes.byteLength }
 }
 
 async function ensureSafeDirectory(root: string, segments: string[]) {

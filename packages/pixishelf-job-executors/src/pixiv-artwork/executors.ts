@@ -16,13 +16,37 @@ import type {
 } from '@pixishelf/job-runtime'
 import { replacePixivSourceTags } from '../scan/pixiv-publisher.ts'
 import { fetchPixivArtworkMetadata, PixivArtworkRequestError } from './client.ts'
-import { PixivArtworkSnapshotError, storePixivArtworkSnapshot } from './storage.ts'
+import { PixivArtworkSnapshotError, storePixivArtworkSnapshot, storePixivArtworkSyncReport } from './storage.ts'
+import {
+  buildPixivArtworkSyncReport,
+  type PixivArtworkSyncTrackedState
+} from './sync-report.ts'
 
 const PROVIDER_KEY = 'pixiv'
 const CHILD_QUEUE_PRIORITY = 900
 const ERROR_MESSAGE_LIMIT = 2_000
 
 type PixivArtworkTransaction = Prisma.TransactionClient & QueueSqlExecutor
+
+const TRACKED_ARTWORK_SELECT = {
+  title: true,
+  description: true,
+  titleOverridden: true,
+  descriptionOverridden: true,
+  bookmarkCount: true,
+  isAiGenerated: true,
+  originalUrl: true,
+  size: true,
+  sourceDate: true,
+  sourceUrl: true,
+  thumbnailUrl: true,
+  xRestrict: true,
+  pixivAiType: true,
+  pixivType: true,
+  sanityLevel: true
+} as const
+
+type TrackedArtwork = Prisma.ArtworkGetPayload<{ select: typeof TRACKED_ARTWORK_SELECT }>
 
 export interface PixivArtworkExecutorDependencies {
   database: PrismaClient
@@ -241,8 +265,10 @@ async function executeArtwork(
           artworkId: true,
           providerKey: true,
           externalId: true,
+          onlineSnapshotHash: true,
+          onlineSnapshotPath: true,
           artwork: {
-            select: { title: true, description: true, titleOverridden: true, descriptionOverridden: true }
+            select: TRACKED_ARTWORK_SELECT
           }
         }
       })
@@ -257,6 +283,8 @@ async function executeArtwork(
       }
 
       const metadata = response.normalized
+      const beforeState = toTrackedArtworkState(ref.artwork)
+      const beforeTags = await listOwnedPixivSourceTags(scope.transaction, ref.artworkId, ref.id)
       const artworkUpdate: Prisma.ArtworkUpdateInput = {
         bookmarkCount: metadata.bookmarkCount,
         isAiGenerated: metadata.aiType === 2 ? true : metadata.aiType === 1 ? false : null,
@@ -310,6 +338,35 @@ async function executeArtwork(
       await scope.transaction.artwork.update({ where: { id: ref.artworkId }, data: artworkUpdate })
       await replacePixivSourceTags(scope.transaction, ref.artworkId, ref.id, metadata.tags)
       const status = skippedConcurrentFields.length > 0 ? 'PARTIAL' : 'SUCCESS'
+      const [afterArtwork, afterTags] = await Promise.all([
+        scope.transaction.artwork.findUniqueOrThrow({ where: { id: ref.artworkId }, select: TRACKED_ARTWORK_SELECT }),
+        listOwnedPixivSourceTags(scope.transaction, ref.artworkId, ref.id)
+      ])
+      const report = buildPixivArtworkSyncReport({
+        jobId: context.job.id,
+        artworkId: ref.artworkId,
+        externalRefId: ref.id,
+        pixivArtworkId: payload.expectedPixivArtworkId,
+        checkedAt,
+        refreshExisting: payload.adoptSourceText,
+        status,
+        beforeState,
+        afterState: toTrackedArtworkState(afterArtwork),
+        beforeTags,
+        afterTags,
+        protectedFields: skippedConcurrentFields as Array<'title' | 'description'>,
+        beforeSnapshot:
+          ref.onlineSnapshotHash && ref.onlineSnapshotPath
+            ? { hash: ref.onlineSnapshotHash, path: ref.onlineSnapshotPath }
+            : null,
+        afterSnapshot: { hash: snapshot.hash, path: snapshot.relativePath }
+      })
+      await storePixivArtworkSyncReport({
+        pixivDataRoot: dependencies.pixivDataRoot,
+        pixivArtworkId: payload.expectedPixivArtworkId,
+        jobId: context.job.id,
+        report
+      })
       await scope.transaction.artworkExternalRef.update({
         where: { id: ref.id },
         data: {
@@ -338,7 +395,13 @@ async function executeArtwork(
           tagCount: metadata.tags.length
         },
         message:
-          status === 'PARTIAL' ? 'Pixiv 作品资料已同步；任务期间发生的人工文本修改已保留' : 'Pixiv 作品资料同步完成'
+          status === 'PARTIAL'
+            ? 'Pixiv 作品资料已同步；任务期间发生的人工文本修改已保留'
+            : report.changeKind === 'UNCHANGED'
+              ? 'Pixiv 作品资料同步完成，内容无变化'
+              : report.changeKind === 'SNAPSHOT_ONLY'
+                ? 'Pixiv 作品资料同步完成，仅远端快照发生变化'
+                : 'Pixiv 作品资料同步完成并已记录变更'
       })
     })
   } catch (error) {
@@ -468,7 +531,11 @@ function classifyFailure(error: unknown): Failure {
     const retryable = ![
       'PIXIV_SNAPSHOT_PATH_INVALID',
       'PIXIV_SNAPSHOT_PATH_UNSAFE',
-      'PIXIV_SNAPSHOT_TOO_LARGE'
+      'PIXIV_SNAPSHOT_TOO_LARGE',
+      'PIXIV_SYNC_REPORT_PATH_INVALID',
+      'PIXIV_SYNC_REPORT_PATH_UNSAFE',
+      'PIXIV_SYNC_REPORT_IDENTITY_MISMATCH',
+      'PIXIV_SYNC_REPORT_TOO_LARGE'
     ].includes(error.code)
     return { code: error.code, message, retryable, jobErrorCode: 'PRECONDITION_FAILED' }
   }
@@ -517,6 +584,34 @@ async function randomizedDelay(signal: AbortSignal, dependencies: PixivArtworkEx
 
 function toDate(value: string | null): Date | null {
   return value ? new Date(value) : null
+}
+
+function toTrackedArtworkState(artwork: TrackedArtwork): PixivArtworkSyncTrackedState {
+  return {
+    title: artwork.title,
+    description: artwork.description,
+    titleOverridden: artwork.titleOverridden,
+    descriptionOverridden: artwork.descriptionOverridden,
+    bookmarkCount: artwork.bookmarkCount,
+    isAiGenerated: artwork.isAiGenerated,
+    originalUrl: artwork.originalUrl,
+    size: artwork.size,
+    sourceDate: artwork.sourceDate,
+    sourceUrl: artwork.sourceUrl,
+    thumbnailUrl: artwork.thumbnailUrl,
+    xRestrict: artwork.xRestrict,
+    pixivAiType: artwork.pixivAiType,
+    pixivType: artwork.pixivType,
+    sanityLevel: artwork.sanityLevel
+  }
+}
+
+async function listOwnedPixivSourceTags(transaction: PixivArtworkTransaction, artworkId: number, sourceRefId: string) {
+  const relations = await transaction.artworkTag.findMany({
+    where: { artworkId, provenance: 'SOURCE', sourceRefId },
+    select: { tag: { select: { name: true } } }
+  })
+  return relations.map((relation) => relation.tag.name)
 }
 
 function throwIfAborted(signal: AbortSignal) {

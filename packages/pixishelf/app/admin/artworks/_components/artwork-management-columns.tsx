@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ExternalLink, RefreshCw } from 'lucide-react'
+import { ExternalLink, FileClock, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ProColumnDef } from '@/components/shared/pro-table'
@@ -35,6 +35,7 @@ interface ArtworkManagementColumnHandlers {
   onDelete: (id: number) => void
   onRefresh: () => void
   onRetryPixiv: (artworkId: number) => void
+  onOpenPixivReport: (artwork: ArtworkResponseDto) => void
   retryingPixivArtworkId: number | null
 }
 
@@ -46,6 +47,7 @@ export function createArtworkManagementColumns({
   onDelete,
   onRefresh,
   onRetryPixiv,
+  onOpenPixivReport,
   retryingPixivArtworkId
 }: ArtworkManagementColumnHandlers): ProColumnDef<ArtworkResponseDto>[] {
   return [
@@ -174,10 +176,25 @@ export function createArtworkManagementColumns({
     {
       id: 'pixivSync',
       header: 'Pixiv 同步',
-      size: 130,
+      size: 168,
       cell: ({ row }) => (
         <div className="flex items-center gap-1">
           <PixivSyncBadge artwork={row.original} />
+          {row.original.pixivEligible ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpenPixivReport(row.original)
+              }}
+              aria-label={`查看作品 ${row.original.title} 的 Pixiv 同步记录`}
+              title="查看 Pixiv 同步记录"
+            >
+              <FileClock aria-hidden="true" />
+            </Button>
+          ) : null}
           {row.original.pixivSync?.status === 'FAILED' ? (
             <Button
               variant="ghost"

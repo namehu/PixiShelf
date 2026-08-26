@@ -44,6 +44,18 @@ pixiv_data/artworks/<pixiv-id>/metadata/<sha256>.json
 
 `artworks/.../metadata/*.json` 是 Worker 的内部恢复证据，不属于媒体展示接口；`/api/pixiv-data` 只允许既有作者图片和标签封面类型，不暴露作品 JSON。
 
+## 同步报告与可视化核对
+
+成功或部分成功的作品子任务还会原子写入一份按任务 ID 命名的报告：
+
+```text
+pixiv_data/artworks/<pixiv-id>/sync-reports/<job-id>.json
+```
+
+报告不复制远端响应，而是记录最终事务中实际发生的字段前后值、当前 Pixiv ref 拥有的 `SOURCE` 标签增删、人工编辑保护项，以及同步前后 metadata 快照引用。超长文本只保留预览、原始长度和 SHA-256；完整新值仍可从对应 metadata 快照核对。报告区分数据库有更新、仅稳定快照变化、完全无变化和部分更新。文件写入失败会使领域事务回滚并进入既有重试流程，因此不会把缺少报告的任务标为同步完成。
+
+作品管理页的 Pixiv 同步列可以打开报告抽屉，分页浏览该作品的完整有效报告历史，查看字段和标签差异，并按需懒加载同步前后的 `raw` 与 `normalized` JSON。App 不开放任意文件路径，也不改变 `/api/pixiv-data` 的图片边界；管理查询会重新确认唯一 Pixiv 身份、已完成任务、报告身份、固定目录、哈希文件名、文件大小和安全路径。报告功能上线前的旧任务显示为“暂无详细同步报告”，不会误判为内容无变化。
+
 ## 字段所有权与文本保护
 
 同步会更新当前 Pixiv 引用拥有的统计、来源 URL、尺寸、发布日期、限制级别、AI、作品类型和 sanity 字段，但不修改 Artist、Series、媒体、媒体顺序、`Artwork.likeCount`、本地 metadata 或 inventory。系列信息只留在磁盘快照中。
@@ -71,4 +83,4 @@ migration 只修正有精确证据的历史误标：作品必须只有一个 Pix
 
 引用状态统一为未检查、成功、部分成功、无数据和失败。成功或无数据会记录检查时间；失败保留错误码和可供单项重试的最近任务。磁盘已经发布但数据库事务失败时，重试会复用同内容文件并重新完成数据库发布。
 
-生产发布前必须创建 PostgreSQL 与 `PIXISHELF_PUBLIC_DATA_PATH` 的一致性备份，部署 migration，确认 Worker READY/capability 后再开放 App。先选择少量作品验证状态、字段所有权、标签差异和磁盘快照，再启动全部未检查作品；“刷新已有资料”也应先小批试跑。
+生产发布前必须创建 PostgreSQL 与 `PIXISHELF_PUBLIC_DATA_PATH` 的一致性备份，部署 migration，确认 Worker READY/capability 后再开放 App。先选择少量作品验证状态、字段所有权、标签差异、磁盘快照和同步报告抽屉，再启动全部未检查作品；“刷新已有资料”也应先小批试跑。

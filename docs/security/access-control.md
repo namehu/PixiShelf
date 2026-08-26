@@ -135,6 +135,8 @@ HTTP Route 新增文件写入、删除、迁移或任务控制时，应使用 Ro
 重试 `FULL_RECONCILE`；当前 Worker 不再解析或执行该模式，历史终态任务只保留查询和展示。生产升级门禁会
 阻断任何仍处于 `PENDING / RETRY_WAIT / RUNNING / PAUSING / PAUSED / CANCELLING` 的历史 FULL 任务。
 
+Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态目录直接下载。管理端只能提交作品 ID、报告 ID 与 `before/after` 标识；服务端从当前唯一 Pixiv 身份构造固定路径，并校验已完成任务、报告身份、路径边界、符号链接、文件类型和大小后返回解析后的 JSON。
+
 ## tRPC Router 矩阵
 
 所有标准 HTTP tRPC 调用先经过 Session 代理门禁。下表记录 procedure 自己使用的边界。
@@ -143,7 +145,7 @@ HTTP Route 新增文件写入、删除、迁移或任务控制时，应使用 Ro
 | ---------------- | --------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `auth`           | 当前账户 `me`                                                   | 无                                                                   | `authProcedure`                                                                    |
 | `artist`         | 详情、分页                                                      | 创建、修改、收藏、删除、Pixiv 补全/取消/重试、采用来源姓名           | 既有读写为 `authProcedure`；Pixiv 任务控制与采用来源姓名为 `adminProcedure`        |
-| `artwork`        | 详情、feed、相邻、随机、推荐、上传路径、Pixiv 同步汇总          | 创建、修改、删除、媒体增删与排序、Pixiv 同步/取消/重试               | 大多为 `authProcedure`；作品删除、视频重新探测和 Pixiv 任务控制为 `adminProcedure` |
+| `artwork`        | 详情、feed、相邻、随机、推荐、上传路径、Pixiv 同步汇总与受控报告/快照读取 | 创建、修改、删除、媒体增删与排序、Pixiv 同步/取消/重试               | 大多为 `authProcedure`；作品删除、视频重新探测、Pixiv 任务控制及报告 JSON 读取为 `adminProcedure` |
 | `search`         | 搜索建议                                                        | 无                                                                   | `authProcedure`                                                                    |
 | `tag`            | 查询、管理列表与 Pixiv 补全状态                                 | 创建、修改、删除、批量补全与单标签重试                               | 普通管理为 `authProcedure`；Pixiv 补全读写为 `adminProcedure`                      |
 | `series`         | `list`、`get`                                                   | 创建、修改、删除、成员增删与排序                                     | 读取为 `publicProcedure`，写入为 `authProcedure`；transport 仍需 Session           |

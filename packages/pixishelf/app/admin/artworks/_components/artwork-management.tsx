@@ -34,6 +34,7 @@ import { PixivArtworkEnrichmentDialog } from './pixiv-artwork-enrichment-dialog'
 import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 import { AdminImageVisibilitySwitch } from '../../_components/admin-image-visibility-switch'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { PixivArtworkSyncReportDrawer } from './pixiv-artwork-sync-report-drawer'
 
 export default function ArtworkManagement() {
   const router = useRouter()
@@ -42,6 +43,7 @@ export default function ArtworkManagement() {
   const queryClient = useQueryClient()
   const [batchImportOpen, setBatchImportOpen] = useState(false)
   const [pixivDialogOpen, setPixivDialogOpen] = useState(false)
+  const [pixivReportArtwork, setPixivReportArtwork] = useState<ArtworkResponseDto | null>(null)
   const [editorConfig, setEditorConfig] = useState<{ id: number | null; tab: 'info' | 'media' } | null>(null)
   const [copyInitialData, setCopyInitialData] = useState<{
     title: string
@@ -323,6 +325,7 @@ export default function ArtworkManagement() {
     onDelete: handleDelete,
     onRefresh: refreshTable,
     onRetryPixiv: (artworkId) => retryPixivMutation.mutate({ artworkId }),
+    onOpenPixivReport: setPixivReportArtwork,
     retryingPixivArtworkId: retryPixivMutation.isPending ? (retryPixivMutation.variables?.artworkId ?? null) : null
   })
 
@@ -515,6 +518,12 @@ export default function ArtworkManagement() {
             title: artwork.title,
             checked: artwork.pixivSync?.status != null
           }))}
+        />
+        <PixivArtworkSyncReportDrawer
+          artwork={pixivReportArtwork}
+          onOpenChange={(open) => {
+            if (!open) setPixivReportArtwork(null)
+          }}
         />
       </div>
     </AdminWorkbench>
