@@ -178,7 +178,6 @@ inventory 与 `SCAN@v3` Worker readiness。读取接口只返回相对 metadata 
 | `batchCreateArtworksAction`、`batchRegisterImagesAction` | `authActionClient`                        | 批量写入作品与媒体记录                                  |
 | `exportNoSeriesArtworksAction`                           | 无 Action 级 Session 复核                 | 读取并导出未归系列 Artwork 标识；依赖调用页面的代理保护 |
 | `updateTagStatsAction`                                   | 无 Action 级 Session 复核                 | 重建标签计数；依赖调用页面的代理保护                    |
-| `exportUntranslatedTagsAction`                           | 无 Action 级 Session 复核                 | 读取未翻译标签；依赖调用页面的代理保护                  |
 
 首次初始化页面只在 `hasUsers() === false` 时显示表单，但 `initAdminAction` 目前只检查同名账户是否存在，不复核“系统仍无任何账户”。修复前不得把初始化入口暴露到不可信网络。
 

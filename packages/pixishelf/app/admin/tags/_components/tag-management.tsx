@@ -3,13 +3,13 @@
 import { useState, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { RefreshCw, Download, Edit2, Trash, Search, RotateCcw, Plus, Sparkles } from 'lucide-react'
+import { RefreshCw, Edit2, Trash, Search, RotateCcw, Plus, Sparkles } from 'lucide-react'
 import type { TagManagementStats } from '@/types/tags'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { updateTagStatsAction, exportUntranslatedTagsAction } from '@/actions/tag-action'
+import { updateTagStatsAction } from '@/actions/tag-action'
 import { getTranslateName } from '@/utils/tags'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
@@ -54,49 +54,6 @@ interface TagListItem {
 }
 
 /**
- * 导出未翻译标签自定义 Hook
- */
-function useExportUntranslatedTags() {
-  const [isExporting, setIsExporting] = useState(false)
-
-  const handleExportUntranslated = async () => {
-    try {
-      setIsExporting(true)
-      const { data } = await exportUntranslatedTagsAction()
-
-      if (!data?.length) {
-        toast.info('没有需要导出的未翻译标签')
-        return
-      }
-
-      // 创建Blob并下载
-      const content = data.join('\n')
-      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `untranslated-tags-${new Date().toISOString().split('T')[0]}.txt`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
-
-      toast.success(`成功导出 ${data.length} 个未翻译标签`)
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '导出过程发生错误'
-      toast.error(errorMessage)
-    } finally {
-      setIsExporting(false)
-    }
-  }
-
-  return {
-    isExporting,
-    handleExportUntranslated
-  }
-}
-
-/**
  * 标签管理组件
  */
 export default function TagManagement() {
@@ -113,9 +70,6 @@ export default function TagManagement() {
 
   // 标签统计更新状态
   const [isUpdatingStats, setIsUpdatingStats] = useState(false)
-
-  // 导出未翻译标签状态
-  const { isExporting, handleExportUntranslated } = useExportUntranslatedTags()
 
   // 弹窗状态
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -444,20 +398,6 @@ export default function TagManagement() {
           <Button size="sm" onClick={() => setPixivDialogOpen(true)} className="flex-1 sm:flex-none">
             <Sparkles data-icon="inline-start" aria-hidden="true" />
             {selectedTagIds.length ? `补全已选 ${selectedTagIds.length} 项` : '从 Pixiv 补全'}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleExportUntranslated}
-            disabled={isExporting}
-            className="flex-1 sm:flex-none"
-          >
-            <Download
-              data-icon="inline-start"
-              className={isExporting ? 'animate-bounce' : undefined}
-              aria-hidden="true"
-            />
-            {isExporting ? '导出中…' : '导出未翻译'}
           </Button>
           <Button
             size="sm"

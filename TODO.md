@@ -6,7 +6,7 @@
 
 - [ ] 让 `initAdminAction` 在创建账户的同一原子边界内确认系统仍无用户，并覆盖并发初始化测试。
 - [ ] 为媒体替换、分块上传、章节增删等写 Route 增加 Route 内 Session 复核与未授权零写入测试。
-- [ ] 将 `exportNoSeriesArtworksAction`、`updateTagStatsAction`、`exportUntranslatedTagsAction` 迁移到受保护 Action Client。
+- [ ] 将 `exportNoSeriesArtworksAction`、`updateTagStatsAction` 迁移到受保护 Action Client。
 - [ ] 明确单一信任域账户政策；在没有角色模型前，用户管理和系统设置不得提供给不可信账户。
 - [ ] 限制 PostgreSQL 与 ImgProxy 的宿主机端口；评估 ImgProxy 签名 URL 或受保护转发。
 - [ ] 在反向代理清除外部 `x-user-session`/`x-pathname`，重写可信 `x-forwarded-for`，并检查生产 Cookie 安全属性。

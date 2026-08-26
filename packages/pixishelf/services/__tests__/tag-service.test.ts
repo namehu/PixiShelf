@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildTagManagementWhere, deleteTag, getUntranslatedTagNames, updateTag } from '../tag-service'
+import { buildTagManagementWhere, deleteTag, updateTag } from '../tag-service'
 
 const mocks = vi.hoisted(() => ({
   tagFindUniqueMock: vi.fn(),
@@ -136,16 +136,6 @@ describe('tag-service system tag protection', () => {
     expect(mocks.tagUpdateMock).toHaveBeenCalledWith({
       where: { id: 1 },
       data: { name_zh: '中文', name_en: null, description: '人工描述' }
-    })
-  })
-
-  it('exports untranslated tags only when both translation fields are null', async () => {
-    mocks.tagFindManyMock.mockResolvedValue([{ name: 'original' }])
-
-    await expect(getUntranslatedTagNames()).resolves.toEqual(['original'])
-    expect(mocks.tagFindManyMock).toHaveBeenCalledWith({
-      where: { name_zh: null, name_en: null },
-      select: { name: true }
     })
   })
 })

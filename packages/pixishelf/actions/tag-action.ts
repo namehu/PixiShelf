@@ -1,7 +1,6 @@
 'use server'
 
 import logger from '@/lib/logger'
-import { getUntranslatedTagNames } from '@/services/tag-service'
 import { rebuildTagArtworkCounts } from '@/services/tag-count-service'
 
 /**
@@ -29,21 +28,5 @@ export async function updateTagStatsAction() {
       error: 'Internal server error',
       message: error instanceof Error ? error.message : '未知错误'
     }
-  }
-}
-
-/**
- * 导出未翻译的标签
- * 返回标签名称列表
- */
-export async function exportUntranslatedTagsAction() {
-  try {
-    const data = await getUntranslatedTagNames()
-    return {
-      data
-    }
-  } catch (error) {
-    logger.error('❌ 导出未翻译标签失败:', error)
-    throw error
   }
 }

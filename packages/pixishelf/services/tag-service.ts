@@ -266,25 +266,6 @@ export async function getRandomTags(params: { page: number; pageSize: number }):
 }
 
 /**
- * 获取所有未翻译标签的名称
- * 用于导出功能
- */
-export async function getUntranslatedTagNames(): Promise<string[]> {
-  const tags = await prisma.tag.findMany({
-    // translateType 可能来自旧数据或人工清空操作，导出语义以实际两个翻译字段为准。
-    where: {
-      name_zh: null,
-      name_en: null
-    },
-    select: {
-      name: true
-    }
-  })
-
-  return tags.map((tag) => tag.name)
-}
-
-/**
  * 创建标签
  */
 export async function createTag(data: {
