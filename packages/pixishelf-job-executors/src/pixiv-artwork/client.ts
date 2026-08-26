@@ -11,7 +11,7 @@ const numericId = z.union([z.string(), z.number()])
 const tagSchema = z
   .object({
     tag: z.string(),
-    translation: nullableText
+    translation: z.union([z.string(), z.record(z.string(), z.string().nullable())]).nullable().optional()
   })
   .passthrough()
 
@@ -178,7 +178,7 @@ function normalizeBody(body: PixivArtworkBody, pixivArtworkId: string): Normaliz
     if (!tag || seenTags.has(tag)) continue
     seenTags.add(tag)
     tags.push(tag)
-    const translation = normalizeText(item.translation)
+    const translation = normalizeTagTranslation(item.translation)
     if (translation) tagTranslations[tag] = translation
   }
 
@@ -267,6 +267,16 @@ function assertNumericId(value: string) {
 function normalizeText(value: string | null | undefined): string | null {
   const normalized = value?.trim()
   return normalized || null
+}
+
+function normalizeTagTranslation(value: string | Record<string, string | null> | null | undefined): string | null {
+  if (typeof value === 'string') return normalizeText(value)
+  if (!value) return null
+  for (const translation of Object.values(value)) {
+    const normalized = normalizeText(translation)
+    if (normalized) return normalized
+  }
+  return null
 }
 
 function normalizeId(value: string | number | null | undefined): string | null {

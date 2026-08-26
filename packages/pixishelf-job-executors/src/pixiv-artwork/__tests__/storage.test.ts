@@ -47,6 +47,36 @@ describe('Pixiv artwork snapshot storage', () => {
     })
   })
 
+  it('ignores raw response volatility and live statistics when reusing a snapshot', async () => {
+    const root = await temporaryRoot()
+    const firstResponse = metadata('Title A', 'https://pixon.ads-pixiv.net/show?num=first', 'request-first')
+    firstResponse.normalized.bookmarkCount = 100
+    firstResponse.normalized.remoteLikeCount = 80
+    firstResponse.normalized.viewCount = 1_000
+    const first = await storePixivArtworkSnapshot({
+      pixivDataRoot: root,
+      pixivArtworkId: '123',
+      fetchedAt: new Date('2026-08-25T00:00:00.000Z'),
+      response: firstResponse
+    })
+    const secondResponse = metadata('Title A', 'https://pixon.ads-pixiv.net/show?num=second', 'request-second')
+    secondResponse.normalized.bookmarkCount = 101
+    secondResponse.normalized.remoteLikeCount = 81
+    secondResponse.normalized.viewCount = 1_001
+    const reused = await storePixivArtworkSnapshot({
+      pixivDataRoot: root,
+      pixivArtworkId: '123',
+      fetchedAt: new Date('2026-08-26T00:00:00.000Z'),
+      response: secondResponse
+    })
+
+    expect(reused).toEqual({ ...first, reused: true })
+    await expect(fs.readdir(path.join(root, 'artworks', '123', 'metadata'))).resolves.toEqual([`${first.hash}.json`])
+    const payload = JSON.parse(await fs.readFile(path.join(root, ...first.relativePath.split('/')), 'utf8'))
+    expect(payload.raw.body.zoneConfig.header.url).toBe('https://pixon.ads-pixiv.net/show?num=first')
+    expect(payload.raw.body.requestContext).toBe('request-first')
+  })
+
   it('rejects path traversal identities', async () => {
     const root = await temporaryRoot()
     await expect(
@@ -86,9 +116,16 @@ async function temporaryRoot() {
   return root
 }
 
-function metadata(title: string): PixivArtworkMetadataResponse {
+function metadata(title: string, zoneUrl?: string, requestContext?: string): PixivArtworkMetadataResponse {
   return {
-    raw: { body: { id: '123', title } },
+    raw: {
+      body: {
+        id: '123',
+        title,
+        ...(zoneUrl ? { zoneConfig: { header: { url: zoneUrl } } } : {}),
+        ...(requestContext ? { requestContext } : {})
+      }
+    },
     normalized: {
       id: '123',
       title,

@@ -28,9 +28,9 @@ describe('Pixiv artwork client', () => {
         },
         tags: {
           tags: [
-            { tag: '初音ミク', translation: 'Hatsune Miku' },
+            { tag: '初音ミク', translation: { en: 'Hatsune Miku' } },
             { tag: '初音ミク', translation: 'duplicate' },
-            { tag: 'VOCALOID' }
+            { tag: 'VOCALOID', translation: 'Vocaloid' }
           ]
         },
         seriesNavData: { seriesId: '9' }
@@ -48,7 +48,7 @@ describe('Pixiv artwork client', () => {
       title: 'Source title',
       description: 'Description',
       tags: ['初音ミク', 'VOCALOID'],
-      tagTranslations: { 初音ミク: 'Hatsune Miku' },
+      tagTranslations: { 初音ミク: 'Hatsune Miku', VOCALOID: 'Vocaloid' },
       canonicalUrl: 'https://www.pixiv.net/artworks/123',
       size: '1200x800',
       remoteLikeCount: 77,

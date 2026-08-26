@@ -48,7 +48,6 @@ export function PixivArtworkEnrichmentDialog({
   const [submittedSelection, setSubmittedSelection] = useState<SelectedArtwork[] | null>(null)
   const [submittedBatchId, setSubmittedBatchId] = useState<string | null>(null)
   const [refreshExisting, setRefreshExisting] = useState(false)
-  const [adoptSourceText, setAdoptSourceText] = useState(false)
   const trackedBatchId = useRef<string | null>(null)
   const reportedFinishedBatch = useRef<string | null>(null)
   const summaryQuery = useQuery(
@@ -64,7 +63,7 @@ export function PixivArtworkEnrichmentDialog({
           reused
             ? '已有 Pixiv 作品同步任务正在运行'
             : selectedArtworks.length
-              ? `已创建 ${selectedArtworks.length} 个作品的同步批次`
+              ? `已创建 ${selectedArtworks.length} 个作品的${refreshExisting ? '刷新' : '同步'}批次`
               : `Pixiv 作品全量${refreshExisting ? '刷新' : '同步'}任务已创建`
         )
         if (!reused) {
@@ -130,7 +129,6 @@ export function PixivArtworkEnrichmentDialog({
       setSubmittedSelection(null)
       setSubmittedBatchId(null)
       setRefreshExisting(false)
-      setAdoptSourceText(false)
       trackedBatchId.current = null
       reportedFinishedBatch.current = null
     }
@@ -169,23 +167,25 @@ export function PixivArtworkEnrichmentDialog({
                 <AlertDescription>当前 READY Worker 不支持 Pixiv 作品在线同步，请先部署新 Worker。</AlertDescription>
               </Alert>
             ) : (
-              <Alert variant={selectionExceedsLimit || refreshExisting || adoptSourceText ? 'warning' : 'info'}>
+              <Alert variant={selectionExceedsLimit || refreshExisting ? 'warning' : 'info'}>
                 <Info aria-hidden="true" />
                 <AlertTitle>
                   {selectionExceedsLimit
                     ? '选择数量超过限制'
-                    : adoptSourceText
-                      ? '采用 Pixiv 最新文本'
-                      : refreshExisting
-                        ? '刷新已有资料'
-                        : '保护人工文本'}
+                    : refreshExisting
+                      ? '刷新已有资料'
+                      : '按默认策略补全'}
                 </AlertTitle>
                 <AlertDescription>
                   {selectionExceedsLimit
                     ? `一次最多选择 ${PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT} 个作品。`
-                    : selectedMode
-                      ? '所选作品会逐个重新查询；Worker 每次只处理一个作品，关闭页面不影响执行。'
-                      : `当前 ${availableCount} 个作品会按每页 ${PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT} 个发现并全部排入持久队列；Worker 每次只处理一个作品。`}
+                    : refreshExisting
+                      ? selectedMode
+                        ? '将刷新所选作品的 Pixiv 来源资料、标签、标题和描述；任务期间新发生的人工修改仍会保留。'
+                        : `当前 ${availableCount} 个 Pixiv 作品会全部刷新，包括来源资料、标签、标题和描述；Worker 每次只处理一个作品。`
+                      : selectedMode
+                        ? '将按默认策略同步所选作品：更新来源资料和标签，仅更新未被人工修改的标题和描述。'
+                        : `当前 ${availableCount} 个未检查作品会按每页 ${PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT} 个发现并全部排入持久队列；已有人工标题和描述不会被覆盖。`}
                 </AlertDescription>
               </Alert>
             )}
@@ -200,19 +200,11 @@ export function PixivArtworkEnrichmentDialog({
                 />
                 <FieldContent>
                   <FieldLabel htmlFor="pixiv-artwork-refresh-existing">刷新已有资料</FieldLabel>
-                  <FieldDescription>连续处理全部 Pixiv 作品；未开启时只处理尚未检查的作品。</FieldDescription>
-                </FieldContent>
-              </Field>
-              <Field orientation="horizontal">
-                <Checkbox
-                  id="pixiv-artwork-adopt-source-text"
-                  checked={adoptSourceText}
-                  disabled={active || hasBatchSession}
-                  onCheckedChange={(checked) => setAdoptSourceText(checked === true)}
-                />
-                <FieldContent>
-                  <FieldLabel htmlFor="pixiv-artwork-adopt-source-text">采用最新 Pixiv 标题和描述</FieldLabel>
-                  <FieldDescription>更新标题和描述并恢复来源管理；任务期间新发生的人工修改仍会保留。</FieldDescription>
+                  <FieldDescription>
+                    {selectedMode
+                      ? '重新获取并刷新所选作品的全部 Pixiv 资料，包括标题和描述。'
+                      : '重新获取并刷新全部 Pixiv 作品的资料，包括标题和描述；未开启时只补全尚未检查的作品。'}
+                  </FieldDescription>
                 </FieldContent>
               </Field>
             </FieldGroup>
@@ -281,8 +273,7 @@ export function PixivArtworkEnrichmentDialog({
               onClick={() =>
                 startMutation.mutate({
                   artworkIds: selectedMode ? selectedArtworkIds : undefined,
-                  refreshExisting,
-                  adoptSourceText
+                  refreshExisting
                 })
               }
               disabled={
@@ -295,7 +286,7 @@ export function PixivArtworkEnrichmentDialog({
             >
               {startMutation.isPending ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
               {selectedMode
-                ? `同步已选 ${selectedArtworkIds.length} 项`
+                ? `${refreshExisting ? '刷新' : '同步'}已选 ${selectedArtworkIds.length} 项`
                 : `连续${refreshExisting ? '刷新' : '同步'}全部（${availableCount} 个）`}
             </Button>
           ) : null}

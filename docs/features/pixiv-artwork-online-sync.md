@@ -40,7 +40,7 @@ Worker 不使用 Cookie 或登录会话，只请求 `https://www.pixiv.net/ajax/
 pixiv_data/artworks/<pixiv-id>/metadata/<sha256>.json
 ```
 
-文件包含受 1 MB 上限约束的原始响应、规范化数据和首次抓取时间。SHA-256 由稳定内容计算；相同内容复用已有文件，内容变化创建新的不可变版本。数据库只在 `ArtworkExternalRef` 保存最近哈希、相对路径、状态、错误和任务时间。历史版本不自动清理。
+文件包含受 1 MB 上限约束的原始响应、规范化数据和首次抓取时间。SHA-256 只使用带版本号、显式枚举的稳定核心作品字段；完整原始响应以及浏览量、点赞数、收藏数等实时统计不参与哈希，快照仍保留首次命中该核心内容版本时的完整响应。`bookmarkCount` 继续按现有规则写回，`Artwork.likeCount` 等既有字段边界不变；实时统计不会单独制造快照版本。相同核心内容复用已有文件，核心内容变化创建新的不可变版本。数据库只在 `ArtworkExternalRef` 保存最近哈希、相对路径、状态、错误和任务时间。历史版本不自动清理。
 
 `artworks/.../metadata/*.json` 是 Worker 的内部恢复证据，不属于媒体展示接口；`/api/pixiv-data` 只允许既有作者图片和标签封面类型，不暴露作品 JSON。
 
@@ -50,8 +50,8 @@ pixiv_data/artworks/<pixiv-id>/metadata/<sha256>.json
 
 标题和描述遵守显式人工覆盖：
 
-- 默认模式只更新未被人工 override 的字段。
-- “采用最新 Pixiv 标题和描述”会用远端文本更新字段，并把对应 override 恢复为来源管理。
+- 默认补全只更新未被人工 override 的字段。
+- 开启“刷新已有资料”后，会刷新 Pixiv 来源负责的全部资料，包括用远端文本更新标题和描述，并把对应 override 恢复为来源管理。
 - App 编辑只有在文本值实际变化时才建立人工 override；保存未改动表单不会误标。
 - Worker 在请求前记录已观察值，最终事务中再次比较。期间发生的新人工编辑优先，冲突字段不覆盖，任务记为部分成功。
 
@@ -71,4 +71,4 @@ migration 只修正有精确证据的历史误标：作品必须只有一个 Pix
 
 引用状态统一为未检查、成功、部分成功、无数据和失败。成功或无数据会记录检查时间；失败保留错误码和可供单项重试的最近任务。磁盘已经发布但数据库事务失败时，重试会复用同内容文件并重新完成数据库发布。
 
-生产发布前必须创建 PostgreSQL 与 `PIXISHELF_PUBLIC_DATA_PATH` 的一致性备份，部署 migration，确认 Worker READY/capability 后再开放 App。先选择少量作品验证状态、字段所有权、标签差异和磁盘快照，再启动全部未检查作品；“采用最新文本”也应先小批试跑。
+生产发布前必须创建 PostgreSQL 与 `PIXISHELF_PUBLIC_DATA_PATH` 的一致性备份，部署 migration，确认 Worker READY/capability 后再开放 App。先选择少量作品验证状态、字段所有权、标签差异和磁盘快照，再启动全部未检查作品；“刷新已有资料”也应先小批试跑。

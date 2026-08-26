@@ -79,20 +79,37 @@ describe('PixivArtworkEnrichmentDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '同步已选 2 项' }))
 
-    expect(mocks.startInput).toEqual({ artworkIds: [3, 7], refreshExisting: false, adoptSourceText: false })
+    expect(mocks.startInput).toEqual({ artworkIds: [3, 7], refreshExisting: false })
   })
 
-  it('can continuously refresh all eligible artwork and adopt source text explicitly', () => {
+  it('refreshes all eligible artwork and source text with one aligned option', () => {
     mocks.summary = summary({ candidateCount: 0, eligibleCount: 5_001 })
     render(<PixivArtworkEnrichmentDialog open onOpenChange={vi.fn()} onStatusChanged={vi.fn()} selectedArtworks={[]} />)
 
     fireEvent.click(screen.getByRole('checkbox', { name: '刷新已有资料' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: '采用最新 Pixiv 标题和描述' }))
     expect(screen.getByText('查询并连续刷新全部具有唯一 Pixiv 身份的作品。')).toBeTruthy()
-    expect(screen.getByText(/当前 5001 个作品会按每页 200 个发现并全部排入持久队列/)).toBeTruthy()
+    expect(screen.getByText(/当前 5001 个 Pixiv 作品会全部刷新，包括来源资料、标签、标题和描述/)).toBeTruthy()
+    expect(screen.queryByRole('checkbox', { name: '采用最新 Pixiv 标题和描述' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '连续刷新全部（5001 个）' }))
 
-    expect(mocks.startInput).toEqual({ artworkIds: undefined, refreshExisting: true, adoptSourceText: true })
+    expect(mocks.startInput).toEqual({ artworkIds: undefined, refreshExisting: true })
+  })
+
+  it('applies the same refresh policy to explicitly selected artwork', () => {
+    render(
+      <PixivArtworkEnrichmentDialog
+        open
+        onOpenChange={vi.fn()}
+        onStatusChanged={vi.fn()}
+        selectedArtworks={selectedArtworks}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '刷新已有资料' }))
+    expect(screen.getByText(/刷新所选作品的 Pixiv 来源资料、标签、标题和描述/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '刷新已选 2 项' }))
+
+    expect(mocks.startInput).toEqual({ artworkIds: [3, 7], refreshExisting: true })
   })
 
   it('blocks enqueue until a capable READY Worker is available', () => {

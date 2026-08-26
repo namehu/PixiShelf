@@ -127,13 +127,10 @@ export const artworkRouter = router({
     .input(
       z.object({
         artworkIds: z.array(z.number().int().positive()).min(1).max(PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT).optional(),
-        refreshExisting: z.boolean().default(false),
-        adoptSourceText: z.boolean().default(false)
+        refreshExisting: z.boolean().default(false)
       })
     )
-    .mutation(({ input, ctx }) =>
-      startPixivArtworkEnrichment(ctx.userId, input.artworkIds, input.refreshExisting, input.adoptSourceText)
-    ),
+    .mutation(({ input, ctx }) => startPixivArtworkEnrichment(ctx.userId, input.artworkIds, input.refreshExisting)),
 
   cancelPixivEnrichment: adminProcedure
     .input(z.object({ jobId: z.string().min(1).optional() }).optional())

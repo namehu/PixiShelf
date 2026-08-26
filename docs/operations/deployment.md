@@ -112,7 +112,7 @@ sources:
 2. 使用目标 App 镜像执行 `prisma migrate deploy`，确认 `20260826143000_add_pixiv_artwork_online_sync` 已登记完成；不得用 `db:push` 代替；
 3. 先启动 Worker 并确认 capability 包含 `PIXIV_ARTWORK_ENRICHMENT@v1 / BACKGROUND_WRITER`，再开放包含新任务入口的 App；
 4. 先选择少量未检查作品，以默认模式核对来源字段、标题保护、精确 SOURCE 标签差异、数据库状态与磁盘快照；
-5. 再用少量作品验证“采用最新 Pixiv 标题和描述”，确认任务期间的新人工编辑不会被覆盖；
+5. 再用少量作品验证“刷新已有资料”，确认标题和描述会采用 Pixiv 当前值，同时任务期间的新人工编辑不会被覆盖；
 6. 上述证据通过后，才启动全部未检查作品。刷新全部会逐项处理所有有效 Pixiv 身份，可能持续较长时间，但 writer lane 并发仍为 1。
 
 ## 一键生产升级

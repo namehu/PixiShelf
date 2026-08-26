@@ -131,8 +131,7 @@ export async function getPixivArtworkEnrichmentSummary(database: PrismaClient = 
 export async function startPixivArtworkEnrichment(
   requestedByUserId: string,
   artworkIds?: number[],
-  refreshExisting = false,
-  adoptSourceText = false
+  refreshExisting = false
 ) {
   const selectedArtworkIds = artworkIds ? [...new Set(artworkIds)].sort((left, right) => left - right) : undefined
   if (selectedArtworkIds && selectedArtworkIds.length > PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT) {
@@ -148,7 +147,7 @@ export async function startPixivArtworkEnrichment(
     payload: {
       mode: 'DISCOVER',
       refreshExisting,
-      adoptSourceText,
+      adoptSourceText: refreshExisting,
       ...(selectedArtworkIds?.length ? { artworkIds: selectedArtworkIds } : {})
     }
   })

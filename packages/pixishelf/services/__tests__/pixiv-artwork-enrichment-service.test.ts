@@ -60,8 +60,8 @@ describe('Pixiv artwork enrichment control service', () => {
     mocks.transaction.systemJobEvent.createMany.mockResolvedValue({ count: 0 })
   })
 
-  it('starts continuous discovery and freezes refresh/adopt policies', async () => {
-    await startPixivArtworkEnrichment('admin-1', [7, 3, 7], true, true)
+  it('starts continuous discovery and maps refresh to source text replacement', async () => {
+    await startPixivArtworkEnrichment('admin-1', [7, 3, 7], true)
     expect(mocks.enqueueSingleton).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'PIXIV_ARTWORK_ENRICHMENT',

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 
-import type { PixivArtworkMetadataResponse } from './client.ts'
+import type { NormalizedPixivArtworkMetadata, PixivArtworkMetadataResponse } from './client.ts'
 
 export interface StoredPixivArtworkSnapshot {
   hash: string
@@ -34,7 +34,8 @@ export async function storePixivArtworkSnapshot(input: {
     raw: input.response.raw,
     normalized: input.response.normalized
   }
-  const hash = createHash('sha256').update(stableStringify(content)).digest('hex')
+  const hashContent = { version: 2, core: snapshotHashCore(input.response.normalized) }
+  const hash = createHash('sha256').update(stableStringify(hashContent)).digest('hex')
   const payload = { fetchedAt: input.fetchedAt.toISOString(), ...content }
   const bytes = Buffer.from(`${stableStringify(payload)}\n`, 'utf8')
   if (bytes.byteLength > 1_000_000) {
@@ -100,6 +101,32 @@ async function lstatOrNull(filePath: string) {
 function isInside(root: string, candidate: string) {
   const relative = path.relative(root, candidate)
   return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative)
+}
+
+function snapshotHashCore(metadata: NormalizedPixivArtworkMetadata) {
+  return {
+    id: metadata.id,
+    title: metadata.title,
+    description: metadata.description,
+    userId: metadata.userId,
+    userName: metadata.userName,
+    tags: metadata.tags,
+    tagTranslations: metadata.tagTranslations,
+    canonicalUrl: metadata.canonicalUrl,
+    originalUrl: metadata.originalUrl,
+    thumbnailUrl: metadata.thumbnailUrl,
+    width: metadata.width,
+    height: metadata.height,
+    size: metadata.size,
+    pageCount: metadata.pageCount,
+    xRestrict: metadata.xRestrict,
+    aiType: metadata.aiType,
+    illustType: metadata.illustType,
+    sanityLevel: metadata.sanityLevel,
+    createDate: metadata.createDate,
+    uploadDate: metadata.uploadDate,
+    series: metadata.series
+  }
 }
 
 function stableStringify(value: unknown): string {
