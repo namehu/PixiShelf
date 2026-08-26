@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
 import { LinkIcon, PlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
+import { createBrowserUuid } from '@/lib/browser-uuid'
 import type { AppRouter } from '@/server'
 import { useTRPC } from '@/lib/trpc'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -173,5 +174,5 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
 }
 
 function createIdempotencyKey() {
-  return `archive-intake:create:${crypto.randomUUID()}`
+  return `archive-intake:create:${createBrowserUuid()}`
 }

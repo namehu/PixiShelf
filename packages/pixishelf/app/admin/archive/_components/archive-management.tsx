@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
+import { createBrowserUuid } from '@/lib/browser-uuid'
 import {
   Archive,
   ChevronLeft,
@@ -1090,7 +1091,7 @@ function hasTaskFilters(value: TaskFilters): boolean {
 }
 
 function createIdempotencyKey(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`
+  return `${prefix}-${createBrowserUuid()}`
 }
 
 function formatTaskTime(value: Date | string): string {

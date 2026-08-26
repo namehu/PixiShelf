@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { LinkIcon, RotateCcwIcon } from 'lucide-react'
 import { toast } from 'sonner'
+import { createBrowserUuid } from '@/lib/browser-uuid'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -96,7 +97,7 @@ export function ArchiveReplaceDialog({
                 commandKeys.current,
                 'REPLACE',
                 payload,
-                () => `archive-intake:replace:${crypto.randomUUID()}`
+                () => `archive-intake:replace:${createBrowserUuid()}`
               )
             })
           }}

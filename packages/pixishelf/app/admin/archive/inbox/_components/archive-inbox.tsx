@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
+import { createBrowserUuid } from '@/lib/browser-uuid'
 import {
   ArchiveIcon,
   ArrowLeftIcon,
@@ -235,7 +236,7 @@ export function ArchiveInbox() {
       commandKeys.current,
       command,
       payload,
-      () => `archive-intake:${command.toLowerCase()}:${crypto.randomUUID()}`
+      () => `archive-intake:${command.toLowerCase()}:${createBrowserUuid()}`
     )
   }
 
