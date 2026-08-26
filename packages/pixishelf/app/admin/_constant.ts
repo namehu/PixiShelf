@@ -30,31 +30,10 @@ export const sections = [
   },
 
   {
-    title: '标签管理',
-    description: '管理图片标签和翻译',
-    href: '/admin/tags',
-    icon: Tags,
-    group: 'library'
-  },
-  {
     title: '作品管理',
     description: '管理作品信息',
     href: '/admin/artworks',
     icon: ImageIcon,
-    group: 'library'
-  },
-  {
-    title: '归档收件箱',
-    description: '持续添加、解析并选择归档链接',
-    href: '/admin/archive/inbox',
-    icon: Inbox,
-    group: 'library'
-  },
-  {
-    title: '归档任务',
-    description: '追踪并控制作品归档任务',
-    href: '/admin/archive',
-    icon: Archive,
     group: 'library'
   },
   {
@@ -69,6 +48,27 @@ export const sections = [
     description: '管理系列作品信息',
     href: '/admin/series',
     icon: AlbumIcon,
+    group: 'library'
+  },
+  {
+    title: '标签管理',
+    description: '管理图片标签和翻译',
+    href: '/admin/tags',
+    icon: Tags,
+    group: 'library'
+  },
+  {
+    title: '归档收件箱',
+    description: '持续添加、解析并选择归档链接',
+    href: '/admin/archive/inbox',
+    icon: Inbox,
+    group: 'library'
+  },
+  {
+    title: '归档任务',
+    description: '追踪并控制作品归档任务',
+    href: '/admin/archive',
+    icon: Archive,
     group: 'library'
   },
   {

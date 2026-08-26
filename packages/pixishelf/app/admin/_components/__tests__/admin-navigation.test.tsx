@@ -61,6 +61,17 @@ describe('AdminNav', () => {
     expect(within(navigation).getByText('概览')).toBeTruthy()
     expect(within(navigation).getByText('内容档案')).toBeTruthy()
     expect(within(navigation).getByText('系统工具')).toBeTruthy()
+    const libraryLinks = within(within(navigation).getByRole('group', { name: '内容档案' }))
+      .getAllByRole('link')
+      .map((link) => link.getAttribute('href'))
+    expect(libraryLinks).toEqual([
+      '/admin/artworks',
+      '/admin/artists',
+      '/admin/series',
+      '/admin/tags',
+      '/admin/archive/inbox',
+      '/admin/archive'
+    ])
     expect(within(navigation).getByRole('link', { name: '管理概览' }).getAttribute('href')).toBe('/admin')
     expect(within(navigation).getByRole('link', { name: '作品管理' }).getAttribute('aria-current')).toBe('page')
     expect(within(navigation).getByRole('link', { name: '作品管理' }).className).toContain('min-h-11')
