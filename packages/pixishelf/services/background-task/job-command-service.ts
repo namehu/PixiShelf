@@ -55,6 +55,9 @@ export const enqueueJobInputSchema = z.discriminatedUnion('triggerSource', [
 
 export const jobIdInputSchema = z.object({ jobId: z.string().min(1) })
 export const retryJobInputSchema = jobIdInputSchema.extend({ requestedByUserId: z.string().min(1).optional() })
+export const acknowledgeJobFailureInputSchema = jobIdInputSchema.extend({
+  requestedByUserId: z.string().min(1)
+})
 export const changeJobPriorityInputSchema = jobIdInputSchema.extend({ priority: z.number().int().min(0).max(999) })
 
 interface CommandDatabaseClient {
@@ -81,6 +84,27 @@ function assertStatus(job: SystemJobWireRecord, allowed: readonly JobStatus[], a
       `Cannot ${action} a ${job.status.toLowerCase()} background job`
     )
   }
+}
+
+async function acknowledgeJobFailure(
+  transaction: Prisma.TransactionClient,
+  input: {
+    jobId: string
+    acknowledgedAt: Date
+    acknowledgedByUserId?: string
+    source: 'MANUAL' | 'RETRY'
+  }
+) {
+  await transaction.systemJobFailureAcknowledgement.upsert({
+    where: { jobId: input.jobId },
+    create: {
+      jobId: input.jobId,
+      acknowledgedAt: input.acknowledgedAt,
+      acknowledgedByUserId: input.acknowledgedByUserId,
+      source: input.source
+    },
+    update: {}
+  })
 }
 
 function isFrozenScanSnapshotPayload(type: string, payload: unknown) {
@@ -549,6 +573,7 @@ export async function retryJobCommand(
       )
     }
     const priority = Math.min(job.queuePriority, 99)
+    const timestamp = now()
     const legacyProjection = deriveLegacyJobProjection(job.type, job.definitionVersion, retryPayload)
     const retried = await transaction.systemJob.create({
       data: {
@@ -562,7 +587,7 @@ export async function retryJobCommand(
         parentJobId: job.id,
         queuePriority: priority,
         effectivePriority: priority,
-        availableAt: now(),
+        availableAt: timestamp,
         maxAttempts: job.maxAttempts,
         ...legacyProjection
       },
@@ -589,7 +614,7 @@ export async function retryJobCommand(
          RETURNING "id"`,
         job.id,
         retried.id,
-        now()
+        timestamp
       )
       if (reboundItems.length !== 1) {
         throw new BackgroundTaskError(
@@ -597,6 +622,14 @@ export async function retryJobCommand(
           'Archive resolver job is not bound to a retryable intake item'
         )
       }
+    }
+    if (job.status === 'FAILED') {
+      await acknowledgeJobFailure(transaction, {
+        jobId: job.id,
+        acknowledgedAt: timestamp,
+        acknowledgedByUserId: requestedByUserId,
+        source: 'RETRY'
+      })
     }
     await writeJobEvent(transaction, {
       jobId: job.id,
@@ -613,6 +646,27 @@ export async function retryJobCommand(
       data: { retryOfJobId: job.id, priority }
     })
     return toJobDto(retried)
+  })
+}
+
+export async function acknowledgeJobFailureCommand(
+  input: z.input<typeof acknowledgeJobFailureInputSchema>,
+  client?: CommandDatabaseClient,
+  now: () => Date = () => new Date()
+) {
+  const parsed = acknowledgeJobFailureInputSchema.parse(input)
+  return commandDatabase(client).$transaction(async (transaction) => {
+    const job = requireJob(
+      await transaction.systemJob.findUnique({ where: { id: parsed.jobId }, select: systemJobWireSelect })
+    )
+    assertStatus(job, ['FAILED'], 'acknowledge the failure notification for')
+    await acknowledgeJobFailure(transaction, {
+      jobId: job.id,
+      acknowledgedAt: now(),
+      acknowledgedByUserId: parsed.requestedByUserId,
+      source: 'MANUAL'
+    })
+    return toJobDto(job)
   })
 }
 

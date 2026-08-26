@@ -61,6 +61,7 @@ describe('getJobDashboard', () => {
   it('uses fresh READY and STOPPING presence and normalizes pre-lane worker capabilities', async () => {
     const systemJob = {
       groupBy: vi.fn().mockResolvedValue([{ status: 'PENDING', _count: { _all: 3 } }]),
+      count: vi.fn().mockResolvedValue(0),
       findFirst: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([jobRecord()]).mockResolvedValue([])
     }
@@ -95,6 +96,7 @@ describe('getJobDashboard', () => {
   it('ignores stale READY and STOPPING worker presence', async () => {
     const systemJob = {
       groupBy: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
       findFirst: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValue([])
     }
@@ -123,6 +125,7 @@ describe('getJobDashboard', () => {
     const runningJob = jobRecord({ status: 'RUNNING' })
     const systemJob = {
       groupBy: vi.fn().mockResolvedValue([{ status: 'RUNNING', _count: { _all: 1 } }]),
+      count: vi.fn().mockResolvedValue(0),
       findFirst: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValueOnce([runningJob]).mockResolvedValueOnce([runningJob]).mockResolvedValue([])
     }
@@ -167,11 +170,13 @@ describe('getJobDashboard', () => {
           { parentJobId: parent.id, status: 'RUNNING', _count: { _all: 1 } },
           { parentJobId: parent.id, status: 'PENDING', _count: { _all: 6 } }
         ]),
+      count: vi.fn().mockResolvedValue(0),
       findMany: vi
         .fn()
         .mockResolvedValueOnce([child])
         .mockResolvedValueOnce([parent])
         .mockResolvedValueOnce([{ parentJobId: parent.id }])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([parent])
     }
     const workerInstance = { findMany: vi.fn().mockResolvedValue([]) }
@@ -211,11 +216,13 @@ describe('getJobDashboard', () => {
           { parentJobId: parent.id, status: 'COMPLETED', _count: { _all: 4 } },
           { parentJobId: parent.id, status: 'PENDING', _count: { _all: 6 } }
         ]),
+      count: vi.fn().mockResolvedValue(0),
       findMany: vi
         .fn()
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([parent])
         .mockResolvedValueOnce([{ parentJobId: parent.id }])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([parent])
     }
     const workerInstance = { findMany: vi.fn().mockResolvedValue([]) }
@@ -233,5 +240,39 @@ describe('getJobDashboard', () => {
       remainingCount: 6,
       currentJob: null
     })
+  })
+
+  it('returns an exact persisted failure-attention count and a bounded newest page', async () => {
+    const failed = jobRecord({ id: 'failed-visible', status: 'FAILED', error: 'probe failed' })
+    const systemJob = {
+      groupBy: vi.fn().mockResolvedValue([{ status: 'FAILED', _count: { _all: 27 } }]),
+      count: vi.fn().mockResolvedValue(27),
+      findMany: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([failed])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([failed])
+    }
+    const workerInstance = { findMany: vi.fn().mockResolvedValue([]) }
+
+    const result = await getJobDashboard({ systemJob, workerInstance } as never)
+
+    expect(result.unacknowledgedFailureCount).toBe(27)
+    expect(result.unacknowledgedFailures).toEqual([expect.objectContaining({ id: failed.id, status: 'FAILED' })])
+    expect(systemJob.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        definitionVersion: { gte: 1 },
+        status: 'FAILED',
+        failureAcknowledgement: { is: null },
+        NOT: expect.any(Object)
+      })
+    })
+    expect(systemJob.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: 'FAILED', failureAcknowledgement: { is: null } }),
+        take: 10
+      })
+    )
   })
 })

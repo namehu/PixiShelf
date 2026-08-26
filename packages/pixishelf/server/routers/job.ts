@@ -34,6 +34,7 @@ import { cancelPixivTagEnrichment } from '@/services/pixiv-tag-enrichment-servic
 import { cancelPixivArtistEnrichment } from '@/services/pixiv-artist-enrichment-service'
 import {
   assertLegacyBackgroundExecutionAllowed,
+  acknowledgeJobFailureCommand,
   BackgroundTaskError,
   cancelJobCommand,
   changeJobPriorityCommand,
@@ -679,6 +680,12 @@ export const jobRouter = router({
     .input(jobIdInputSchema)
     .mutation(({ input, ctx }) =>
       runBackgroundTaskCommand(() => retryJobCommand({ ...input, requestedByUserId: ctx.userId }))
+    ),
+
+  acknowledgeBackgroundJobFailure: adminProcedure
+    .input(jobIdInputSchema)
+    .mutation(({ input, ctx }) =>
+      runBackgroundTaskCommand(() => acknowledgeJobFailureCommand({ ...input, requestedByUserId: ctx.userId }))
     ),
 
   changeBackgroundJobPriority: adminProcedure

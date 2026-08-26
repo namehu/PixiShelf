@@ -567,6 +567,7 @@ model SystemJob {
   archiveImport           ArchiveImport?
   archiveIntakeItem       ArchiveIntakeItem?       @relation("ArchiveIntakeCurrentJob")
   keyframeSet             MediaVideoKeyframeSet?
+  failureAcknowledgement  SystemJobFailureAcknowledgement?
 
   @@unique([scheduledTaskId, scheduledForDate])
   @@index([type, status])
@@ -582,6 +583,17 @@ model SystemJob {
   @@index([scheduledTaskId, createdAt])
   @@index([createdAt])
   @@map("system_jobs")
+}
+
+model SystemJobFailureAcknowledgement {
+  jobId                  String                          @id
+  acknowledgedAt         DateTime                        @default(now())
+  acknowledgedByUserId   String?
+  source                 JobFailureAcknowledgementSource
+  job                    SystemJob                       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([acknowledgedAt])
+  @@map("system_job_failure_acknowledgements")
 }
 
 model SystemJobEvent {
@@ -1502,6 +1514,12 @@ enum JobTriggerSource {
   SYSTEM
   RETRY
   LEGACY
+}
+
+enum JobFailureAcknowledgementSource {
+  MANUAL
+  RETRY
+  MIGRATION
 }
 
 enum JobSkipReason {

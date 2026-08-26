@@ -59,7 +59,20 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
       ]
     }
   } satisfies Prisma.SystemJobWhereInput
-  const [groups, running, recent, workers, activePixivBatchParents] = await Promise.all([
+  const unacknowledgedFailureWhere = {
+    ...dashboardVisibleWhere,
+    status: 'FAILED',
+    failureAcknowledgement: { is: null }
+  } satisfies Prisma.SystemJobWhereInput
+  const [
+    groups,
+    running,
+    recent,
+    workers,
+    activePixivBatchParents,
+    unacknowledgedFailureCount,
+    unacknowledgedFailures
+  ] = await Promise.all([
     database.systemJob.groupBy({
       by: ['status'],
       where: dashboardVisibleWhere,
@@ -90,6 +103,13 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
       },
       select: { parentJobId: true },
       distinct: ['parentJobId']
+    }),
+    database.systemJob.count({ where: unacknowledgedFailureWhere }),
+    database.systemJob.findMany({
+      where: unacknowledgedFailureWhere,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 10,
+      select: systemJobWireSelect
     })
   ])
 
@@ -180,6 +200,8 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
     runningJobs,
     activeBatches,
     lanes,
+    unacknowledgedFailureCount,
+    unacknowledgedFailures: unacknowledgedFailures.map(toJobDto),
     recentJobs: recent.map(toJobDto),
     workers: workerDtos
   }

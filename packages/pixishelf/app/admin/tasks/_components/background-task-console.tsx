@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Ban,
+  BellOff,
   CheckCircle2,
   ChevronDown,
   Clock3,
@@ -57,6 +58,8 @@ export interface BackgroundDashboardView {
   activeCount: number
   runningJob: JobDto | null
   activeBatches: BackgroundBatchView[]
+  unacknowledgedFailureCount: number
+  unacknowledgedFailures: JobDto[]
   recentJobs: JobDto[]
   workers: WorkerHealthDto[]
 }
@@ -80,7 +83,6 @@ export function BackgroundTaskConsole() {
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const [open, setOpen] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
-  const [acknowledgedFailures, setAcknowledgedFailures] = useState<string[]>([])
   const [completedNotice, setCompletedNotice] = useState<JobDto | null>(null)
   const previousActiveJobIds = useRef<Set<string> | null>(null)
   const completedNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -114,21 +116,9 @@ export function BackgroundTaskConsole() {
     []
   )
 
-  const failedJobs = dashboard?.recentJobs.filter((job) => job.status === 'FAILED') ?? []
-  const unreadFailures = failedJobs.filter((job) => !acknowledgedFailures.includes(job.id))
-  const failedJobIds = failedJobs.map((job) => job.id).join('|')
-
-  useEffect(() => {
-    if (!open || !failedJobIds) return
-    const ids = failedJobIds.split('|')
-    setAcknowledgedFailures((current) => {
-      const next = [...new Set([...current, ...ids])]
-      return next.length === current.length ? current : next
-    })
-  }, [failedJobIds, open])
-
   const dashboardSelectedJob =
     dashboard?.recentJobs.find((job) => job.id === selectedJobId) ??
+    dashboard?.unacknowledgedFailures.find((job) => job.id === selectedJobId) ??
     (dashboard?.runningJob?.id === selectedJobId ? dashboard.runningJob : null)
   const detailQuery = useBackgroundJobDetail(selectedJobId, dashboardSelectedJob ?? null)
   const selectedJob = detailQuery.data
@@ -173,7 +163,7 @@ export function BackgroundTaskConsole() {
         dashboard={dashboard}
         loading={dashboardQuery.isPending}
         error={dashboardQuery.isError}
-        unreadFailureCount={unreadFailures.length}
+        unreadFailureCount={dashboard?.unacknowledgedFailureCount ?? 0}
         completedNotice={completedNotice}
         onOpen={() => setOpen(true)}
       />
@@ -344,6 +334,7 @@ export interface BackgroundControlsView {
   pause: { isPending: boolean; mutate: (input: { jobId: string }) => void }
   resume: { isPending: boolean; mutate: (input: { jobId: string }) => void }
   retry: { isPending: boolean; mutate: (input: { jobId: string }) => void }
+  acknowledge: { isPending: boolean; mutate: (input: { jobId: string }) => void }
   priority: { isPending: boolean; mutate: (input: { jobId: string; priority: number }) => void }
 }
 
@@ -374,6 +365,7 @@ export function BackgroundTaskConsoleView({
   const running = dashboard.runningJob
   const activeBatch = primaryActiveBatch(dashboard)
   const showingDetail = Boolean(selectedJobId ?? selectedJob?.id)
+  const unacknowledgedFailureIds = new Set(dashboard.unacknowledgedFailures.map((job) => job.id))
 
   return (
     <section aria-labelledby="background-console-title" className="min-w-0">
@@ -429,7 +421,11 @@ export function BackgroundTaskConsoleView({
               正在读取任务详情…
             </div>
           ) : selectedJob ? (
-            <JobDetail job={selectedJob} controls={controls} />
+            <JobDetail
+              job={selectedJob}
+              controls={controls}
+              failureNeedsAttention={unacknowledgedFailureIds.has(selectedJob.id)}
+            />
           ) : (
             <div className="p-5 text-sm text-muted-foreground">选择一条近期任务，查看控制项和结构化事件。</div>
           )}
@@ -444,10 +440,22 @@ export function BackgroundTaskConsoleView({
               onSelectJob={onSelectJob}
             />
           </div>
+          {dashboard.unacknowledgedFailureCount > 0 ? (
+            <div className="border-t">
+              <FailureAttentionList
+                jobs={dashboard.unacknowledgedFailures}
+                totalCount={dashboard.unacknowledgedFailureCount}
+                onSelectJob={onSelectJob}
+                onAcknowledge={(jobId) => controls.acknowledge.mutate({ jobId })}
+                acknowledging={controls.acknowledge.isPending}
+              />
+            </div>
+          ) : null}
           <div className="border-t">
             <RecentJobs
               jobs={dashboard.recentJobs}
               activeBatches={dashboard.activeBatches}
+              excludedJobIds={unacknowledgedFailureIds}
               selectedJobId={null}
               onSelectJob={onSelectJob}
             />
@@ -684,21 +692,93 @@ function WorkerInstanceCard({
   )
 }
 
+function FailureAttentionList({
+  jobs,
+  totalCount,
+  onSelectJob,
+  onAcknowledge,
+  acknowledging
+}: {
+  jobs: JobDto[]
+  totalCount: number
+  onSelectJob: (jobId: string) => void
+  onAcknowledge: (jobId: string) => void
+  acknowledging: boolean
+}) {
+  return (
+    <section aria-labelledby="failure-attention-title" className="min-w-0 p-4 sm:p-5">
+      <h3 id="failure-attention-title" className="flex items-center gap-2 text-sm font-semibold text-destructive">
+        <AlertTriangle className="size-4" aria-hidden="true" />
+        待处理失败（{totalCount}）
+      </h3>
+      <p className="mt-1 text-xs text-muted-foreground">失败记录会继续保留；忽略只会关闭这条提醒。</p>
+      {jobs.length > 0 ? (
+        <ul className="mt-3 flex flex-col gap-2">
+          {jobs.map((job) => (
+            <li key={job.id} className="min-w-0 rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{formatBackgroundJobType(job.type, job.payload)}</p>
+                  <p className="mt-1 select-text break-all font-mono text-[11px] text-muted-foreground">{job.id}</p>
+                  <p className="mt-1 break-words text-xs text-muted-foreground">
+                    {formatBackgroundDate(job.createdAt)}
+                    {job.errorCode ? ` · ${job.errorCode}` : ''}
+                  </p>
+                  {job.error ? (
+                    <p className="mt-1 line-clamp-2 break-words text-xs text-destructive">{job.error}</p>
+                  ) : null}
+                </div>
+                <AdminStatusBadge status="FAILED">失败</AdminStatusBadge>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={() => onSelectJob(job.id)}>
+                  查看详情
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={acknowledging}
+                  onClick={() => onAcknowledge(job.id)}
+                >
+                  {acknowledging ? (
+                    <Spinner data-icon="inline-start" aria-hidden="true" />
+                  ) : (
+                    <BellOff data-icon="inline-start" aria-hidden="true" />
+                  )}
+                  忽略提醒
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {totalCount > jobs.length ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          当前显示最近 {jobs.length} 项；逐条处理后会继续载入更早的失败。
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
 function RecentJobs({
   jobs,
   activeBatches,
+  excludedJobIds,
   selectedJobId,
   onSelectJob
 }: {
   jobs: JobDto[]
   activeBatches: BackgroundBatchView[]
+  excludedJobIds: ReadonlySet<string>
   selectedJobId: string | null
   onSelectJob: (jobId: string) => void
 }) {
   const batchByParentId = new Map(activeBatches.map((batch) => [batch.id, batch]))
   const visibleJobs = [
     ...activeBatches.map((batch) => batch.parentJob),
-    ...jobs.filter((job) => !batchByParentId.has(job.id))
+    ...jobs.filter((job) => !batchByParentId.has(job.id) && !excludedJobIds.has(job.id))
   ].slice(0, 10)
 
   return (
@@ -763,7 +843,15 @@ function RecentJobs({
   )
 }
 
-function JobDetail({ job, controls }: { job: JobDto; controls: BackgroundControlsView }) {
+function JobDetail({
+  job,
+  controls,
+  failureNeedsAttention
+}: {
+  job: JobDto
+  controls: BackgroundControlsView
+  failureNeedsAttention: boolean
+}) {
   const eventQuery = useBackgroundJobEvents(job)
   const [priority, setPriority] = useState(String(job.queuePriority))
   useEffect(() => setPriority(String(job.queuePriority)), [job.id, job.queuePriority])
@@ -772,6 +860,7 @@ function JobDetail({ job, controls }: { job: JobDto; controls: BackgroundControl
     controls.pause.isPending ||
     controls.resume.isPending ||
     controls.retry.isPending ||
+    controls.acknowledge.isPending ||
     controls.priority.isPending
   const priorityNumber = Number(priority)
   const priorityRange = job.triggerSource === 'MANUAL' || job.triggerSource === 'RETRY' ? [0, 99] : [100, 999]
@@ -794,7 +883,7 @@ function JobDetail({ job, controls }: { job: JobDto; controls: BackgroundControl
             {formatBackgroundDate(job.createdAt)}
           </p>
         </div>
-        <JobActions job={job} controls={controls} disabled={anyPending} />
+        <JobActions job={job} controls={controls} disabled={anyPending} failureNeedsAttention={failureNeedsAttention} />
       </div>
 
       {canChangePriority(job) ? (
@@ -873,7 +962,17 @@ function JobDetail({ job, controls }: { job: JobDto; controls: BackgroundControl
   )
 }
 
-function JobActions({ job, controls, disabled }: { job: JobDto; controls: BackgroundControlsView; disabled: boolean }) {
+function JobActions({
+  job,
+  controls,
+  disabled,
+  failureNeedsAttention
+}: {
+  job: JobDto
+  controls: BackgroundControlsView
+  disabled: boolean
+  failureNeedsAttention: boolean
+}) {
   return (
     <div className="flex flex-wrap gap-2">
       {canPauseJob(job) ? (
@@ -907,6 +1006,17 @@ function JobActions({ job, controls, disabled }: { job: JobDto; controls: Backgr
         >
           <RotateCcw data-icon="inline-start" aria-hidden="true" />
           重试
+        </Button>
+      ) : null}
+      {failureNeedsAttention ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={disabled}
+          onClick={() => controls.acknowledge.mutate({ jobId: job.id })}
+        >
+          <BellOff data-icon="inline-start" aria-hidden="true" />
+          忽略提醒
         </Button>
       ) : null}
       {canCancelJob(job) ? (

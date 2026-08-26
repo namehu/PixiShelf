@@ -609,6 +609,7 @@ flowchart TD
 - **取消**：排队任务可以直接取消；运行任务进入 `CANCELLING`，通过 AbortSignal 协作中止，再清理临时状态或登记 GC。
 - **Worker 关闭**：可恢复 Executor 释放当前 execution，保留检查点；下一次 claim 使用新的 execution token。
 - **重试**：只有可重试错误且 attempt 未耗尽时进入 `RETRY_WAIT`。永久路径错误、输入快照失效和明确前置条件不满足不会无限重试。
+- **失败提醒**：`SystemJob=FAILED` 是不可被“忽略”改写的执行事实；实例级 `SystemJobFailureAcknowledgement` 只记录管理员是否仍需关注该失败。执行动态按未确认失败精确计数，查看面板不会自动确认。管理员可以逐条忽略；成功创建重试任务时，原失败会在同一事务中确认为已处理，新重试若再次失败会产生新的提醒。
 - **逐项失败**：视频批量探测、章节图、动画识别等任务会继续处理其他项目；是否让父 job 失败由各 Executor 契约决定，不能只用 `SystemJob.status` 推断零失败。
 - **文件与数据库**：两者无法处于同一个数据库事务。当前实现使用 staging、短事务发布、fence、备份恢复和 GC intent 组合维持可恢复性。
 

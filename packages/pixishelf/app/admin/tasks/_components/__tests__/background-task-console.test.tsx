@@ -139,6 +139,8 @@ function createDashboard(overrides: Partial<BackgroundDashboardView> = {}): Back
     activeCount: 0,
     runningJob: null,
     activeBatches: [],
+    unacknowledgedFailureCount: 0,
+    unacknowledgedFailures: [],
     recentJobs: [],
     workers: [],
     ...overrides
@@ -175,7 +177,14 @@ function createPixivBatch(): BackgroundBatchView {
 
 function createControls(): BackgroundControlsView {
   const mutation = () => ({ isPending: false, mutate: vi.fn() })
-  return { cancel: mutation(), pause: mutation(), resume: mutation(), retry: mutation(), priority: mutation() }
+  return {
+    cancel: mutation(),
+    pause: mutation(),
+    resume: mutation(),
+    retry: mutation(),
+    acknowledge: mutation(),
+    priority: mutation()
+  }
 }
 
 describe('background task console', () => {
@@ -589,12 +598,18 @@ describe('background task console', () => {
     expect(screen.queryByText('队列空闲')).toBeNull()
 
     const running = createJob('RUNNING')
-    mocks.dashboardQuery.data = createDashboard({ runningJob: running, recentJobs: [running], queuedCount: 2 })
+    mocks.dashboardQuery.data = createDashboard({
+      runningJob: running,
+      recentJobs: [running],
+      queuedCount: 2,
+      unacknowledgedFailureCount: 1
+    })
     rerender(<BackgroundTaskConsole />)
 
     expect(screen.getByRole('button', { name: /打开执行动态，视频媒体探测/ })).toBeTruthy()
     expect(screen.getByText('42%')).toBeTruthy()
     expect(screen.getByText('+2 等待')).toBeTruthy()
+    expect(screen.getByText('· 1 失败')).toBeTruthy()
 
     const batch = createPixivBatch()
     mocks.dashboardQuery.data = createDashboard({
@@ -607,6 +622,76 @@ describe('background task console', () => {
     expect(screen.getByRole('button', { name: /打开执行动态，Pixiv 标签补全/ })).toBeTruthy()
     expect(screen.getByText('30%')).toBeTruthy()
     expect(screen.getByText('3/10')).toBeTruthy()
+  })
+
+  it('keeps an unacknowledged failure visible after opening the execution panel', () => {
+    const failed = createJob('FAILED', 'job-needs-attention')
+    mocks.dashboardQuery.data = createDashboard({
+      unacknowledgedFailureCount: 1,
+      unacknowledgedFailures: [failed],
+      recentJobs: [failed]
+    })
+
+    render(<BackgroundTaskConsole />)
+    const dock = screen.getByRole('button', { name: '1 项失败' })
+    fireEvent.click(dock)
+
+    expect(dock.isConnected).toBe(true)
+    expect(dock.textContent).toContain('1 项失败')
+    expect(screen.getByText('待处理失败（1）')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '忽略提醒' })).toBeTruthy()
+  })
+
+  it('offers per-job failure acknowledgement without duplicating it in recent records', () => {
+    const failed = createJob('FAILED', 'job-attention-action')
+    const controls = createControls()
+    const selectJob = vi.fn()
+    render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard({
+          unacknowledgedFailureCount: 12,
+          unacknowledgedFailures: [failed],
+          recentJobs: [failed]
+        })}
+        selectedJob={null}
+        selectedJobLoading={false}
+        onSelectJob={selectJob}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={controls}
+      />
+    )
+
+    expect(screen.getByText('当前显示最近 1 项；逐条处理后会继续载入更早的失败。')).toBeTruthy()
+    expect(screen.getAllByText('视频媒体探测与封面生成')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }))
+    expect(selectJob).toHaveBeenCalledWith(failed.id)
+    fireEvent.click(screen.getByRole('button', { name: '忽略提醒' }))
+    expect(controls.acknowledge.mutate).toHaveBeenCalledWith({ jobId: failed.id })
+  })
+
+  it('shows the acknowledgement action in an unacknowledged failed job detail', () => {
+    const failed = createJob('FAILED', 'job-attention-detail')
+    const controls = createControls()
+    render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard({
+          unacknowledgedFailureCount: 1,
+          unacknowledgedFailures: [failed],
+          recentJobs: [failed]
+        })}
+        selectedJobId={failed.id}
+        selectedJob={failed}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={controls}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '忽略提醒' }))
+    expect(controls.acknowledge.mutate).toHaveBeenCalledWith({ jobId: failed.id })
   })
 
   it('renders detail errors with an explicit retry while retaining the dashboard snapshot', () => {

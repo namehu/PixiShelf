@@ -2,6 +2,7 @@ import { Prisma } from '@pixishelf/db'
 import { describe, expect, it, vi } from 'vitest'
 import { BackgroundTaskError } from '../background-task-error'
 import {
+  acknowledgeJobFailureCommand,
   cancelJobCommand,
   changeJobPriorityCommand,
   enqueueJob,
@@ -24,6 +25,7 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
   const findScanRunItems = vi.fn().mockResolvedValue([])
   const queryRawUnsafe = vi.fn().mockResolvedValue([{ id: 'intake-1' }])
   const create = vi.fn().mockResolvedValue(records.at(-1))
+  const acknowledgementUpsert = vi.fn().mockResolvedValue({})
   let eventId = BigInt(0)
   const eventCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) =>
     eventRecord({
@@ -39,6 +41,7 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
     $queryRaw: queryRaw,
     $queryRawUnsafe: queryRawUnsafe,
     systemJob: { findUnique, updateMany, create },
+    systemJobFailureAcknowledgement: { upsert: acknowledgementUpsert },
     archiveIntakeItem: { updateMany: updateIntakeItems },
     scanRun: { findUnique: findScanRun, updateMany: updateScanRuns },
     scanRunItem: { updateMany: updateScanRunItems, findMany: findScanRunItems },
@@ -57,6 +60,7 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
     updateScanRunItems,
     findScanRunItems,
     create,
+    acknowledgementUpsert,
     eventCreate
   }
 }
@@ -688,6 +692,48 @@ describe('job commands', () => {
       })
     )
     expect(harness.eventCreate).toHaveBeenCalledTimes(2)
+    expect(harness.acknowledgementUpsert).toHaveBeenCalledWith({
+      where: { jobId: failed.id },
+      create: expect.objectContaining({
+        jobId: failed.id,
+        acknowledgedByUserId: 'admin-1',
+        source: 'RETRY'
+      }),
+      update: {}
+    })
+  })
+
+  it('acknowledges a failed job without mutating its execution history', async () => {
+    const timestamp = new Date('2026-08-26T02:00:00.000Z')
+    const failed = jobRecord({ status: 'FAILED', finishedAt: timestamp })
+    const harness = commandHarness([failed])
+
+    await expect(
+      acknowledgeJobFailureCommand({ jobId: failed.id, requestedByUserId: 'admin-1' }, harness.client, () => timestamp)
+    ).resolves.toMatchObject({ id: failed.id, status: 'FAILED' })
+
+    expect(harness.updateMany).not.toHaveBeenCalled()
+    expect(harness.acknowledgementUpsert).toHaveBeenCalledWith({
+      where: { jobId: failed.id },
+      create: {
+        jobId: failed.id,
+        acknowledgedAt: timestamp,
+        acknowledgedByUserId: 'admin-1',
+        source: 'MANUAL'
+      },
+      update: {}
+    })
+  })
+
+  it('rejects acknowledging a job that is not failed', async () => {
+    const completed = jobRecord({ status: 'COMPLETED', finishedAt: new Date() })
+    const harness = commandHarness([completed])
+
+    await expect(
+      acknowledgeJobFailureCommand({ jobId: completed.id, requestedByUserId: 'admin-1' }, harness.client)
+    ).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' })
+
+    expect(harness.acknowledgementUpsert).not.toHaveBeenCalled()
   })
 
   it('does not clone a terminal historical FULL_RECONCILE scan', async () => {

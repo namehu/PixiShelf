@@ -159,7 +159,18 @@ export function useBackgroundJobControls(onSuccess: (job?: JobDto) => void) {
   const pause = useMutation(trpc.job.pauseBackgroundJob.mutationOptions(common('暂停请求已提交')))
   const resume = useMutation(trpc.job.resumeBackgroundJob.mutationOptions(common('任务已重新排队')))
   const retry = useMutation(trpc.job.retryBackgroundJob.mutationOptions(common('重试任务已加入队列')))
+  const acknowledge = useMutation(
+    trpc.job.acknowledgeBackgroundJobFailure.mutationOptions({
+      onSuccess: () => {
+        toast.success('提醒已忽略，失败记录仍保留')
+        onSuccess()
+      },
+      onError: (error: { message: string }) => {
+        toast.error(`操作失败：${error.message}`)
+      }
+    })
+  )
   const priority = useMutation(trpc.job.changeBackgroundJobPriority.mutationOptions(common('队列优先级已更新')))
 
-  return { cancel, pause, resume, retry, priority }
+  return { cancel, pause, resume, retry, acknowledge, priority }
 }
