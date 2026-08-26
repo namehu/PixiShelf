@@ -110,7 +110,8 @@ describe('job wire contracts', () => {
     ).toThrow()
     expect(parseJobPayload('PIXIV_TAG_ENRICHMENT', { mode: 'DISCOVER' })).toEqual({
       mode: 'DISCOVER',
-      force: false
+      force: false,
+      refreshExisting: false
     })
     expect(
       parseJobPayload('PIXIV_TAG_ENRICHMENT', {
@@ -118,7 +119,14 @@ describe('job wire contracts', () => {
         force: true,
         tagIds: [3, 7]
       })
-    ).toEqual({ mode: 'DISCOVER', force: true, tagIds: [3, 7] })
+    ).toEqual({ mode: 'DISCOVER', force: true, refreshExisting: false, tagIds: [3, 7] })
+    expect(
+      parseJobPayload('PIXIV_TAG_ENRICHMENT', {
+        mode: 'DISCOVER',
+        refreshExisting: true,
+        tagIds: [3, 7]
+      })
+    ).toEqual({ mode: 'DISCOVER', force: false, refreshExisting: true, tagIds: [3, 7] })
     expect(() =>
       parseJobPayload('PIXIV_TAG_ENRICHMENT', {
         mode: 'DISCOVER',
@@ -132,7 +140,13 @@ describe('job wire contracts', () => {
         expectedName: '  original-tag  ',
         force: true
       })
-    ).toEqual({ mode: 'TAG', tagId: 7, expectedName: 'original-tag', force: true })
+    ).toEqual({
+      mode: 'TAG',
+      tagId: 7,
+      expectedName: 'original-tag',
+      force: true,
+      refreshExisting: false
+    })
     expect(() => parseJobPayload('PIXIV_TAG_ENRICHMENT', { mode: 'TAG', tagId: 0, expectedName: 'tag' })).toThrow()
     expect(parseJobPayload('PIXIV_ARTIST_ENRICHMENT', { mode: 'DISCOVER' })).toEqual({
       mode: 'DISCOVER',

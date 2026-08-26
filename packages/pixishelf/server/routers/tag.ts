@@ -247,10 +247,11 @@ export const tagRouter = router({
   startPixivEnrichment: adminProcedure
     .input(
       z.object({
-        tagIds: z.array(z.number().int().positive()).min(1).max(PIXIV_TAG_ENRICHMENT_BATCH_LIMIT).optional()
+        tagIds: z.array(z.number().int().positive()).min(1).max(PIXIV_TAG_ENRICHMENT_BATCH_LIMIT).optional(),
+        refreshExisting: z.boolean().default(false)
       })
     )
-    .mutation(({ input, ctx }) => startPixivTagEnrichment(ctx.userId, input.tagIds)),
+    .mutation(({ input, ctx }) => startPixivTagEnrichment(ctx.userId, input.tagIds, input.refreshExisting)),
 
   cancelPixivEnrichment: adminProcedure.mutation(() => cancelPixivTagEnrichment()),
 

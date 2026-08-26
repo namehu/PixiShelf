@@ -60,6 +60,7 @@ async function executeDiscovery(
 ): Promise<JobExecutionOutcome> {
   if (context.payload.mode !== 'DISCOVER') throw new Error('Expected a Pixiv tag discovery payload')
   const payload = context.payload
+  const refreshExisting = payload.refreshExisting === true
   let cursor = 0
   let discovered = 0
   let enqueued = 0
@@ -78,7 +79,7 @@ async function executeDiscovery(
           }
         },
         ...(payload.tagIds ? { id: { in: payload.tagIds } } : {}),
-        ...(payload.force ? {} : { externalMetadata: { none: { providerKey: PROVIDER_KEY } } })
+        ...(payload.force || refreshExisting ? {} : { externalMetadata: { none: { providerKey: PROVIDER_KEY } } })
       }
     })
     while (true) {
@@ -94,7 +95,7 @@ async function executeDiscovery(
               sourceRef: { is: { providerKey: PROVIDER_KEY } }
             }
           },
-          ...(payload.force ? {} : { externalMetadata: { none: { providerKey: PROVIDER_KEY } } })
+          ...(payload.force || refreshExisting ? {} : { externalMetadata: { none: { providerKey: PROVIDER_KEY } } })
         },
         orderBy: { id: 'asc' },
         take: PIXIV_TAG_ENRICHMENT_BATCH_LIMIT,
@@ -109,7 +110,13 @@ async function executeDiscovery(
         throwIfAborted(context.signal)
         const child = await context.enqueueChild({
           type: 'PIXIV_TAG_ENRICHMENT',
-          payload: { mode: 'TAG', tagId: tag.id, expectedName: tag.name, force: payload.force },
+          payload: {
+            mode: 'TAG',
+            tagId: tag.id,
+            expectedName: tag.name,
+            force: payload.force,
+            ...(refreshExisting ? { refreshExisting: true } : {})
+          },
           queuePriority: CHILD_QUEUE_PRIORITY,
           idempotencyKey: `pixiv-tag:${context.job.id}:tag:${tag.id}:v1`
         })
@@ -119,7 +126,7 @@ async function executeDiscovery(
       await context.progress({
         progress: totalCandidates > 0 ? Math.min(95, Math.max(1, Math.floor((discovered / totalCandidates) * 95))) : 95,
         stage: 'DISCOVERING',
-        message: `已发现 ${discovered}/${totalCandidates} 个标签，创建 ${enqueued} 个补全任务`,
+        message: `已发现 ${discovered}/${totalCandidates} 个标签，创建 ${enqueued} 个${refreshExisting ? '刷新' : '补全'}任务`,
         data: { totalCandidates, pageCount, discovered, enqueued, reused }
       })
       // 200 只是稳定的数据库分页大小；默认运行会物化发现阶段的全部候选。
@@ -128,7 +135,7 @@ async function executeDiscovery(
     return {
       kind: 'completed',
       result: { totalCandidates, pageCount, discovered, enqueued, reused },
-      message: `标签发现完成：${discovered} 个候选，创建 ${enqueued} 个补全任务`
+      message: `标签${refreshExisting ? '刷新' : '补全'}发现完成：${discovered} 个候选，创建 ${enqueued} 个任务`
     }
   } catch (error) {
     if (context.signal.aborted) return { kind: 'released', message: 'Pixiv 标签发现已停止，等待恢复' }
@@ -142,6 +149,7 @@ async function executeTag(
 ): Promise<JobExecutionOutcome> {
   if (context.payload.mode !== 'TAG') throw new Error('Expected a Pixiv tag item payload')
   const payload = context.payload
+  const refreshExisting = payload.refreshExisting === true
   const now = dependencies.now ?? (() => new Date())
   try {
     const eligible = await dependencies.database.tag.findFirst({
@@ -154,7 +162,14 @@ async function executeTag(
           some: { provenance: 'SOURCE', sourceRef: { is: { providerKey: PROVIDER_KEY } } }
         }
       },
-      select: { id: true }
+      select: {
+        id: true,
+        name_zh: true,
+        name_en: true,
+        abstract: true,
+        image: true,
+        translateType: true
+      }
     })
     if (!eligible) {
       return { kind: 'skipped', reason: 'PRECONDITION_NOT_MET', message: '标签已不存在或不再属于 Pixiv 来源' }
@@ -174,7 +189,7 @@ async function executeTag(
 
     let storedImage: string | null = null
     let imageFailure: Failure | null = null
-    if (normalized.imageUrl) {
+    if ((refreshExisting || isEmpty(eligible.image)) && normalized.imageUrl) {
       await context.progress({ progress: 65, stage: 'DOWNLOADING_IMAGE', message: '正在保存 Pixiv 标签封面' })
       try {
         storedImage = await storePixivTagImage({
@@ -192,7 +207,7 @@ async function executeTag(
     const checkedAt = now()
     const hasRemoteData = Object.values(normalized).some((value) => value !== null)
     const status = imageFailure ? 'PARTIAL' : hasRemoteData ? 'SUCCESS' : 'NO_DATA'
-    // 网络阶段结束后重新读取标签，并在 fencing 事务内只填空字段；用户或其他来源的新值永远优先。
+    // 网络阶段结束后重新读取标签；普通补全只填空，显式刷新也必须通过逐字段并发比较。
     return context.finalizeInTransaction<PixivTagTransaction>(async (scope) => {
       if (await finalizeControl(scope)) return
       const tag = await scope.transaction.tag.findFirst({
@@ -221,28 +236,54 @@ async function executeTag(
 
       const update: Prisma.TagUpdateInput = {}
       const appliedFields: string[] = []
-      const fillsZh = isEmpty(tag.name_zh) && normalized.nameZh !== null
-      const fillsEn = isEmpty(tag.name_en) && normalized.nameEn !== null
-      if (fillsZh) {
+      const skippedConcurrentFields: string[] = []
+      const translationsUnchanged =
+        eligible.name_zh === tag.name_zh &&
+        eligible.name_en === tag.name_en &&
+        eligible.translateType === tag.translateType
+      const publishesZh =
+        normalized.nameZh !== null &&
+        (refreshExisting ? translationsUnchanged : isEmpty(tag.name_zh))
+      const publishesEn =
+        normalized.nameEn !== null &&
+        (refreshExisting ? translationsUnchanged : isEmpty(tag.name_en))
+      if (publishesZh) {
         update.name_zh = normalized.nameZh
         appliedFields.push('name_zh')
       }
-      if (fillsEn) {
+      if (publishesEn) {
         update.name_en = normalized.nameEn
         appliedFields.push('name_en')
       }
-      if (isEmpty(tag.abstract) && normalized.abstract !== null) {
+      if (
+        refreshExisting &&
+        !translationsUnchanged &&
+        (normalized.nameZh !== null || normalized.nameEn !== null)
+      ) {
+        if (normalized.nameZh !== null) skippedConcurrentFields.push('name_zh')
+        if (normalized.nameEn !== null) skippedConcurrentFields.push('name_en')
+      }
+      if (
+        normalized.abstract !== null &&
+        (refreshExisting ? eligible.abstract === tag.abstract : isEmpty(tag.abstract))
+      ) {
         update.abstract = normalized.abstract
         appliedFields.push('abstract')
+      } else if (refreshExisting && normalized.abstract !== null && eligible.abstract !== tag.abstract) {
+        skippedConcurrentFields.push('abstract')
       }
-      if (isEmpty(tag.image) && storedImage !== null) {
+      if (storedImage !== null && (refreshExisting ? eligible.image === tag.image : isEmpty(tag.image))) {
         update.image = storedImage
         appliedFields.push('image')
+      } else if (refreshExisting && storedImage !== null && eligible.image !== tag.image) {
+        skippedConcurrentFields.push('image')
       }
-      if ((fillsZh || fillsEn) && tag.translateType === 'NONE') update.translateType = 'PIXIV'
+      if (publishesZh || publishesEn) {
+        if (refreshExisting || tag.translateType === 'NONE') update.translateType = 'PIXIV'
+      }
       if (Object.keys(update).length > 0) await scope.transaction.tag.update({ where: { id: tag.id }, data: update })
 
-      // 文本成功而封面失败仍记录 PARTIAL，下一次显式重试可以只补上尚缺的封面。
+      // 只有本次确实需要写入封面且保存失败才是 PARTIAL；已有封面的普通补全不会重复下载。
       await scope.transaction.tagExternalMetadata.upsert({
         where: { tagId_providerKey: { tagId: tag.id, providerKey: PROVIDER_KEY } },
         create: {
@@ -250,7 +291,7 @@ async function executeTag(
           providerKey: PROVIDER_KEY,
           lookupKey: payload.expectedName,
           status,
-          normalizedPayload: toNormalizedJson(normalized, storedImage),
+          normalizedPayload: toNormalizedJson(normalized, storedImage, refreshExisting, skippedConcurrentFields),
           payloadHash,
           lastAttemptAt: checkedAt,
           lastSuccessAt: checkedAt,
@@ -261,7 +302,7 @@ async function executeTag(
         update: {
           lookupKey: payload.expectedName,
           status,
-          normalizedPayload: toNormalizedJson(normalized, storedImage),
+          normalizedPayload: toNormalizedJson(normalized, storedImage, refreshExisting, skippedConcurrentFields),
           payloadHash,
           lastAttemptAt: checkedAt,
           lastSuccessAt: checkedAt,
@@ -275,10 +316,14 @@ async function executeTag(
           tagId: tag.id,
           status,
           appliedFields,
+          skippedConcurrentFields,
           payloadHash,
           imageStored: storedImage !== null
         },
-        message: status === 'PARTIAL' ? 'Pixiv 标签文本已补全，封面保存失败' : 'Pixiv 标签补全完成'
+        message:
+          status === 'PARTIAL'
+            ? `Pixiv 标签${refreshExisting ? '刷新' : '补全'}完成，封面保存失败`
+            : `Pixiv 标签${refreshExisting ? '刷新' : '补全'}完成`
       })
     })
   } catch (error) {
@@ -387,18 +432,25 @@ function hashNormalizedPayload(payload: NormalizedPixivTagMetadata) {
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex')
 }
 
-function toNormalizedJson(payload: NormalizedPixivTagMetadata, storedImage: string | null): Prisma.InputJsonObject {
+function toNormalizedJson(
+  payload: NormalizedPixivTagMetadata,
+  storedImage: string | null,
+  refreshExisting: boolean,
+  skippedConcurrentFields: string[]
+): Prisma.InputJsonObject {
   return {
     nameZh: payload.nameZh,
     nameEn: payload.nameEn,
     abstract: payload.abstract,
     imageAvailable: payload.imageUrl !== null,
-    imageFile: storedImage
+    imageFile: storedImage,
+    refreshExisting,
+    skippedConcurrentFields
   }
 }
 
-function isEmpty(value: string | null) {
-  return value === null || value.trim().length === 0
+function isEmpty(value: string | null | undefined) {
+  return value == null || value.trim().length === 0
 }
 
 async function randomizedDelay(signal: AbortSignal, dependencies: PixivTagExecutorDependencies) {

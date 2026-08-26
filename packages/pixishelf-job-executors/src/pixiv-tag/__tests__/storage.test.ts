@@ -58,4 +58,24 @@ describe('Pixiv tag image storage', () => {
       })
     ).rejects.toMatchObject({ code: 'PIXIV_IMAGE_INVALID' })
   })
+
+  it('classifies response-body timeout failures as image network errors', async () => {
+    const body = new ReadableStream({
+      pull(controller) {
+        controller.error(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+      }
+    })
+
+    await expect(
+      storePixivTagImage({
+        imageUrl: 'https://i.pximg.net/tag.png',
+        pixivDataRoot: 'unused',
+        signal: new AbortController().signal,
+        fetchImpl: (async () => new Response(body, { status: 200 })) as typeof fetch
+      })
+    ).rejects.toMatchObject({
+      code: 'PIXIV_IMAGE_NETWORK_ERROR',
+      message: 'Pixiv 标签封面下载超时或网络异常'
+    })
+  })
 })

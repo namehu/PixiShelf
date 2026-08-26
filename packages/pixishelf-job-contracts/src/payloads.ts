@@ -301,6 +301,7 @@ const pixivTagEnrichmentDiscoverPayloadSchema = z
   .object({
     mode: z.literal('DISCOVER'),
     force: z.boolean().default(false),
+    refreshExisting: z.boolean().default(false),
     // Persisted jobs created before the bounded-batch rollout may contain up to 1,000 selected IDs.
     // New producers enforce PIXIV_TAG_ENRICHMENT_BATCH_LIMIT without invalidating those queued payloads.
     tagIds: z.array(z.number().int().positive()).min(1).max(1_000).optional()
@@ -312,7 +313,8 @@ const pixivTagEnrichmentTagPayloadSchema = z
     mode: z.literal('TAG'),
     tagId: z.number().int().positive(),
     expectedName: z.string().trim().min(1).max(255),
-    force: z.boolean().default(false)
+    force: z.boolean().default(false),
+    refreshExisting: z.boolean().default(false)
   })
   .strict()
 

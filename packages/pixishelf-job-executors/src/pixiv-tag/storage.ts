@@ -64,7 +64,14 @@ export async function storePixivTagImage(input: {
   if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
     throw new PixivTagImageError('Pixiv 标签封面超过 8 MiB 限制', 'PIXIV_IMAGE_TOO_LARGE')
   }
-  const bytes = await readBoundedBody(response, MAX_IMAGE_BYTES)
+  let bytes: Buffer
+  try {
+    bytes = await readBoundedBody(response, MAX_IMAGE_BYTES)
+  } catch (error) {
+    if (input.signal.aborted) throw input.signal.reason instanceof Error ? input.signal.reason : error
+    if (error instanceof PixivTagImageError) throw error
+    throw new PixivTagImageError('Pixiv 标签封面下载超时或网络异常', 'PIXIV_IMAGE_NETWORK_ERROR')
+  }
   const metadata = await sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS, animated: false })
     .metadata()
     .catch(() => {

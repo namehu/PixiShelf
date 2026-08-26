@@ -83,6 +83,18 @@ describe('Pixiv tag enrichment control service', () => {
     )
   })
 
+  it('carries the explicit refresh flag for selected and full refresh batches', async () => {
+    mocks.enqueueSingleton.mockResolvedValue({ job: { id: 'root-1' }, reused: false })
+
+    await startPixivTagEnrichment('user-1', [7, 3], true)
+    await startPixivTagEnrichment('user-1', undefined, true)
+
+    expect(mocks.enqueueSingleton.mock.calls.map(([input]) => input.payload)).toEqual([
+      { mode: 'DISCOVER', force: true, tagIds: [3, 7], refreshExisting: true },
+      { mode: 'DISCOVER', force: false, refreshExisting: true }
+    ])
+  })
+
   it('rejects a selected batch larger than the bounded enrichment batch', async () => {
     await expect(
       startPixivTagEnrichment(
@@ -225,6 +237,7 @@ describe('Pixiv tag enrichment control service', () => {
     ])
 
     await expect(getPixivTagEnrichmentSummary()).resolves.toMatchObject({
+      eligibleCount: 5,
       candidateCount: 5,
       providerCounts: { SUCCESS: 3, PARTIAL: 0, NO_DATA: 0, FAILED: 1 },
       children: {

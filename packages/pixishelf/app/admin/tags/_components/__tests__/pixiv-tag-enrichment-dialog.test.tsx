@@ -47,6 +47,7 @@ const selectedTags = [
 
 function summary(overrides: Record<string, unknown> = {}) {
   return {
+    eligibleCount: 24,
     candidateCount: 10,
     providerCounts: { SUCCESS: 2, PARTIAL: 0, NO_DATA: 0, FAILED: 0 },
     activeJob: null,
@@ -78,7 +79,7 @@ describe('PixivTagEnrichmentDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '补全已选 2 项' }))
 
-    expect(mocks.startInput).toEqual({ tagIds: [3, 7] })
+    expect(mocks.startInput).toEqual({ tagIds: [3, 7], refreshExisting: false })
     expect(onBatchStarted).toHaveBeenCalledTimes(1)
     expect(screen.getByText('任务已提交')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /补全/ })).toBeNull()
@@ -122,7 +123,42 @@ describe('PixivTagEnrichmentDialog', () => {
       screen.getByText('当前 10 个候选会按每页 200 个发现并全部排入持久队列；关闭页面不影响执行，已有字段不会被覆盖。')
     ).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '连续补全全部（10 个）' }))
-    expect(mocks.startInput).toEqual({ tagIds: undefined })
+    expect(mocks.startInput).toEqual({ tagIds: undefined, refreshExisting: false })
+  })
+
+  it('explicitly refreshes existing text and covers for the selected tags', () => {
+    render(
+      <PixivTagEnrichmentDialog
+        open
+        onOpenChange={vi.fn()}
+        onBatchStarted={vi.fn()}
+        onStatusChanged={vi.fn()}
+        selectedTags={selectedTags}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '刷新已有资料' }))
+    expect(screen.getByText(/Pixiv 最新中文翻译、英文翻译、Pixpedia 简介和封面/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '刷新已选 2 项' }))
+
+    expect(mocks.startInput).toEqual({ tagIds: [3, 7], refreshExisting: true })
+  })
+
+  it('uses every eligible Pixiv tag for a full refresh', () => {
+    render(
+      <PixivTagEnrichmentDialog
+        open
+        onOpenChange={vi.fn()}
+        onBatchStarted={vi.fn()}
+        onStatusChanged={vi.fn()}
+        selectedTags={[]}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '刷新已有资料' }))
+    fireEvent.click(screen.getByRole('button', { name: '连续刷新全部（24 个）' }))
+
+    expect(mocks.startInput).toEqual({ tagIds: undefined, refreshExisting: true })
   })
 
   it('shows discovery progress for a 5000-tag logical batch before item execution starts', () => {

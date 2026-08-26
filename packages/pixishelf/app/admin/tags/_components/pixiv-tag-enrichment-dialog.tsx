@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useTRPC } from '@/lib/trpc'
@@ -46,6 +48,7 @@ export function PixivTagEnrichmentDialog({
   const queryClient = useQueryClient()
   const [submittedSelection, setSubmittedSelection] = useState<typeof selectedTags | null>(null)
   const [submittedBatchId, setSubmittedBatchId] = useState<string | null>(null)
+  const [refreshExisting, setRefreshExisting] = useState(false)
   const hasSubmitted = submittedSelection !== null
   const trackedBatchId = useRef<string | null>(null)
   const reportedFinishedBatch = useRef<string | null>(null)
@@ -63,8 +66,8 @@ export function PixivTagEnrichmentDialog({
           reused
             ? '已有 Pixiv 标签补全任务正在运行'
             : requestedTagIds.length
-              ? `已创建 ${requestedTagIds.length} 个标签的补全批次`
-              : 'Pixiv 标签全量补全任务已创建'
+              ? `已创建 ${requestedTagIds.length} 个标签的${refreshExisting ? '刷新' : '补全'}批次`
+              : `Pixiv 标签全量${refreshExisting ? '刷新' : '补全'}任务已创建`
         )
         if (!reused) {
           trackedBatchId.current = job.id
@@ -105,6 +108,7 @@ export function PixivTagEnrichmentDialog({
   const selectedTagIds = displayedTags.map((tag) => tag.id)
   const selectedMode = selectedTagIds.length > 0
   const selectionExceedsLimit = selectedMode && selectedTagIds.length > PIXIV_TAG_ENRICHMENT_BATCH_LIMIT
+  const availableCount = refreshExisting ? (summary?.eligibleCount ?? 0) : (summary?.candidateCount ?? 0)
   const submittedBatchFinished = Boolean(
     sessionBatchId &&
       !active &&
@@ -128,6 +132,7 @@ export function PixivTagEnrichmentDialog({
     if (!nextOpen) {
       setSubmittedSelection(null)
       setSubmittedBatchId(null)
+      setRefreshExisting(false)
       trackedBatchId.current = null
       reportedFinishedBatch.current = null
     }
@@ -142,7 +147,9 @@ export function PixivTagEnrichmentDialog({
           <DialogDescription>
             {selectedMode
               ? `重新查询已选择的 ${selectedTagIds.length} 个 Pixiv 来源标签。`
-              : '查询并连续补全全部尚未检查的 Pixiv 来源标签。'}
+              : refreshExisting
+                ? '查询并连续刷新全部 Pixiv 来源标签。'
+                : '查询并连续补全全部尚未检查的 Pixiv 来源标签。'}
           </DialogDescription>
         </DialogHeader>
 
@@ -157,19 +164,46 @@ export function PixivTagEnrichmentDialog({
           </Alert>
         ) : (
           <div className="grid gap-4">
-            <Alert variant={selectionExceedsLimit ? 'warning' : 'info'}>
+            <Alert variant={selectionExceedsLimit || refreshExisting ? 'warning' : 'info'}>
               <Info aria-hidden="true" />
               <AlertTitle>
-                {selectionExceedsLimit ? '选择数量超过限制' : selectedMode ? '仅填充空字段' : '连续补全全部待检查标签'}
+                {selectionExceedsLimit
+                  ? '选择数量超过限制'
+                  : refreshExisting
+                    ? '刷新已有资料'
+                    : selectedMode
+                      ? '仅填充空字段'
+                      : '连续补全全部待检查标签'}
               </AlertTitle>
               <AlertDescription>
                 {selectionExceedsLimit
                   ? `一次最多选择 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 个标签，当前已选择 ${selectedTagIds.length} 个。`
-                  : selectedMode
-                    ? '所选标签即使检查过也会重新查询，但已有翻译、人工描述和封面仍不会被覆盖。'
-                    : `当前 ${summary?.candidateCount ?? 0} 个候选会按每页 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 个发现并全部排入持久队列；关闭页面不影响执行，已有字段不会被覆盖。`}
+                  : refreshExisting
+                    ? selectedMode
+                      ? '将使用 Pixiv 最新中文翻译、英文翻译、Pixpedia 简介和封面刷新所选标签；Pixiv 未返回或下载失败的字段保留现值，标签原名和人工描述不变。'
+                      : `当前 ${summary?.eligibleCount ?? 0} 个 Pixiv 来源标签会全部排入持久队列；Pixiv 未返回或下载失败的字段保留现值，标签原名和人工描述不变。`
+                    : selectedMode
+                      ? '所选标签即使检查过也会重新查询，但已有翻译、Pixpedia 简介、人工描述和封面仍不会被覆盖。'
+                      : `当前 ${summary?.candidateCount ?? 0} 个候选会按每页 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 个发现并全部排入持久队列；关闭页面不影响执行，已有字段不会被覆盖。`}
               </AlertDescription>
             </Alert>
+
+            <FieldGroup className="gap-3">
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="pixiv-tag-refresh-existing"
+                  checked={refreshExisting}
+                  disabled={active || hasBatchSession}
+                  onCheckedChange={(checked) => setRefreshExisting(checked === true)}
+                />
+                <FieldContent>
+                  <FieldLabel htmlFor="pixiv-tag-refresh-existing">刷新已有资料</FieldLabel>
+                  <FieldDescription>
+                    使用 Pixiv 最新翻译、Pixpedia 简介和封面替换现值；标签原名和人工描述不变。
+                  </FieldDescription>
+                </FieldContent>
+              </Field>
+            </FieldGroup>
 
             {selectedMode ? (
               <SelectedTagSummary tags={displayedTags} />
@@ -238,20 +272,25 @@ export function PixivTagEnrichmentDialog({
           )}
           {!active && !hasBatchSession && (
             <Button
-              onClick={() => startMutation.mutate({ tagIds: selectedMode ? selectedTagIds : undefined })}
+              onClick={() =>
+                startMutation.mutate({
+                  tagIds: selectedMode ? selectedTagIds : undefined,
+                  refreshExisting
+                })
+              }
               disabled={
                 startMutation.isPending ||
                 summaryQuery.isLoading ||
                 selectionExceedsLimit ||
-                (!selectedMode && !summary?.candidateCount)
+                (!selectedMode && !availableCount)
               }
             >
               {startMutation.isPending ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
               {selectionExceedsLimit
                 ? `已选 ${selectedTagIds.length} 项（最多 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 项）`
                 : selectedMode
-                  ? `补全已选 ${selectedTagIds.length} 项`
-                  : `连续补全全部（${summary?.candidateCount ?? 0} 个）`}
+                  ? `${refreshExisting ? '刷新' : '补全'}已选 ${selectedTagIds.length} 项`
+                  : `连续${refreshExisting ? '刷新' : '补全'}全部（${availableCount} 个）`}
             </Button>
           )}
         </DialogFooter>

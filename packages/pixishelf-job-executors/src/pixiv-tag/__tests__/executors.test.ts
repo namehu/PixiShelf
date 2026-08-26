@@ -49,6 +49,35 @@ describe('Pixiv tag enrichment executor', () => {
     )
   })
 
+  it('discovers all eligible tags and propagates explicit refresh mode to children', async () => {
+    const count = vi.fn().mockResolvedValue(1)
+    const findMany = vi.fn().mockResolvedValue([{ id: 7, name: 'original' }])
+    const enqueueChild = vi.fn().mockResolvedValue({ id: 'child-1', created: true })
+    const [registration] = createPixivTagExecutorRegistrations({
+      database: { tag: { count, findMany } } as never,
+      pixivDataRoot: '/pixiv-data'
+    })
+
+    await registration!.execute(
+      context({ mode: 'DISCOVER', force: false, refreshExisting: true }, { enqueueChild }) as never
+    )
+
+    expect(count).toHaveBeenCalledWith({
+      where: expect.not.objectContaining({ externalMetadata: expect.anything() })
+    })
+    expect(enqueueChild).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: {
+          mode: 'TAG',
+          tagId: 7,
+          expectedName: 'original',
+          force: false,
+          refreshExisting: true
+        }
+      })
+    )
+  })
+
   it('reuses all 200 children when an exact-page discovery is retried idempotently', async () => {
     const page = Array.from({ length: 200 }, (_, index) => ({ id: index + 1, name: `tag-${index + 1}` }))
     const findMany = vi.fn().mockResolvedValue(page)
@@ -172,7 +201,16 @@ describe('Pixiv tag enrichment executor', () => {
       tagExternalMetadata: { upsert }
     }
     const database = {
-      tag: { findFirst: vi.fn().mockResolvedValue({ id: 7 }) }
+      tag: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 7,
+          name_zh: '人工中文',
+          name_en: null,
+          abstract: '人工描述之外的既有简介',
+          image: 'existing.jpg',
+          translateType: 'MANUAL'
+        })
+      }
     }
     const response = new Response(
       JSON.stringify({
@@ -221,7 +259,9 @@ describe('Pixiv tag enrichment executor', () => {
             nameEn: 'Pixiv English',
             abstract: 'Pixiv 简介',
             imageAvailable: false,
-            imageFile: null
+            imageFile: null,
+            refreshExisting: false,
+            skippedConcurrentFields: []
           },
           lastSystemJobId: 'job-1'
         }),
@@ -229,7 +269,165 @@ describe('Pixiv tag enrichment executor', () => {
       })
     )
   })
+
+  it('does not download a remote cover when ordinary enrichment already has one', async () => {
+    const upsert = vi.fn().mockResolvedValue(undefined)
+    const observedTag = {
+      id: 7,
+      name_zh: null,
+      name_en: null,
+      abstract: null,
+      image: 'existing.jpg',
+      translateType: 'NONE'
+    }
+    const transaction = {
+      tag: { findFirst: vi.fn().mockResolvedValue(observedTag), update: vi.fn() },
+      tagExternalMetadata: { upsert }
+    }
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: false,
+          body: {
+            tagTranslation: [],
+            pixpedia: { image: 'https://i.pximg.net/tag-cover.jpg' }
+          }
+        }),
+        { status: 200 }
+      )
+    )
+    const [registration] = createPixivTagExecutorRegistrations({
+      database: { tag: { findFirst: vi.fn().mockResolvedValue(observedTag) } } as never,
+      pixivDataRoot: '/pixiv-data',
+      fetchImpl: fetchImpl as typeof fetch,
+      sleep: async () => undefined
+    })
+
+    await registration!.execute(
+      context(
+        { mode: 'TAG', tagId: 7, expectedName: 'original', force: true },
+        { finalizeInTransaction: finalizeWith(transaction) }
+      ) as never
+    )
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(transaction.tag.update).not.toHaveBeenCalled()
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: expect.objectContaining({ status: 'SUCCESS', lastErrorCode: null }) })
+    )
+  })
+
+  it('explicitly refreshes translations and Pixpedia text while preserving manual description outside this model', async () => {
+    const update = vi.fn().mockResolvedValue(undefined)
+    const observedTag = {
+      id: 7,
+      name_zh: '旧中文',
+      name_en: 'Old English',
+      abstract: '旧简介',
+      image: 'existing.jpg',
+      translateType: 'MANUAL'
+    }
+    const transaction = {
+      tag: { findFirst: vi.fn().mockResolvedValue(observedTag), update },
+      tagExternalMetadata: { upsert: vi.fn().mockResolvedValue(undefined) }
+    }
+    const response = new Response(
+      JSON.stringify({
+        error: false,
+        body: {
+          tagTranslation: { original: { zh: '新中文', en: 'New English' } },
+          pixpedia: { abstract: '新简介' }
+        }
+      }),
+      { status: 200 }
+    )
+    const [registration] = createPixivTagExecutorRegistrations({
+      database: { tag: { findFirst: vi.fn().mockResolvedValue(observedTag) } } as never,
+      pixivDataRoot: '/pixiv-data',
+      fetchImpl: (async () => response) as typeof fetch,
+      sleep: async () => undefined
+    })
+
+    await registration!.execute(
+      context(
+        { mode: 'TAG', tagId: 7, expectedName: 'original', force: true, refreshExisting: true },
+        { finalizeInTransaction: finalizeWith(transaction) }
+      ) as never
+    )
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: {
+        name_zh: '新中文',
+        name_en: 'New English',
+        abstract: '新简介',
+        translateType: 'PIXIV'
+      }
+    })
+  })
+
+  it('does not overwrite translations changed after a refresh task started', async () => {
+    const update = vi.fn().mockResolvedValue(undefined)
+    const observedTag = {
+      id: 7,
+      name_zh: '旧中文',
+      name_en: 'Old English',
+      abstract: '旧简介',
+      image: 'existing.jpg',
+      translateType: 'MANUAL'
+    }
+    const currentTag = { ...observedTag, name_zh: '刚刚人工修改' }
+    const transaction = {
+      tag: { findFirst: vi.fn().mockResolvedValue(currentTag), update },
+      tagExternalMetadata: { upsert: vi.fn().mockResolvedValue(undefined) }
+    }
+    const response = new Response(
+      JSON.stringify({
+        error: false,
+        body: {
+          tagTranslation: { original: { zh: 'Pixiv 中文', en: 'Pixiv English' } },
+          pixpedia: null
+        }
+      }),
+      { status: 200 }
+    )
+    const [registration] = createPixivTagExecutorRegistrations({
+      database: { tag: { findFirst: vi.fn().mockResolvedValue(observedTag) } } as never,
+      pixivDataRoot: '/pixiv-data',
+      fetchImpl: (async () => response) as typeof fetch,
+      sleep: async () => undefined
+    })
+
+    await registration!.execute(
+      context(
+        { mode: 'TAG', tagId: 7, expectedName: 'original', force: true, refreshExisting: true },
+        { finalizeInTransaction: finalizeWith(transaction) }
+      ) as never
+    )
+
+    expect(update).not.toHaveBeenCalled()
+    expect(transaction.tagExternalMetadata.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          normalizedPayload: expect.objectContaining({ skippedConcurrentFields: ['name_zh', 'name_en'] })
+        })
+      })
+    )
+  })
 })
+
+function finalizeWith(transaction: unknown) {
+  return async (operation: (scope: unknown) => Promise<void>) => {
+    await operation({
+      transaction,
+      executionStatus: 'RUNNING',
+      controlStatus: 'CONTINUE',
+      complete: vi.fn(),
+      skip: vi.fn()
+    })
+    return { kind: 'transactionally-finalized' }
+  }
+}
 
 function context(payload: unknown, overrides: Record<string, unknown> = {}) {
   return {

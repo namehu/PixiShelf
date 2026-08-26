@@ -40,7 +40,8 @@ export const pixivTagCandidateWhere = {
 // 候选条件固定为“非系统 general 标签 + Pixiv SOURCE 关联”，避免把手工或其他来源标签送入 Pixiv 查询。
 
 export async function getPixivTagEnrichmentSummary() {
-  const [candidateCount, statusGroups, activeJob, latestBatch] = await Promise.all([
+  const [eligibleCount, candidateCount, statusGroups, activeJob, latestBatch] = await Promise.all([
+    prisma.tag.count({ where: pixivTagCandidateWhere }),
     prisma.tag.count({
       where: {
         ...pixivTagCandidateWhere,
@@ -97,6 +98,7 @@ export async function getPixivTagEnrichmentSummary() {
   )
 
   return {
+    eligibleCount,
     candidateCount,
     providerCounts,
     activeJob,
@@ -105,7 +107,11 @@ export async function getPixivTagEnrichmentSummary() {
   }
 }
 
-export async function startPixivTagEnrichment(requestedByUserId: string, tagIds?: number[]) {
+export async function startPixivTagEnrichment(
+  requestedByUserId: string,
+  tagIds?: number[],
+  refreshExisting = false
+) {
   const selectedTagIds = tagIds ? [...new Set(tagIds)].sort((left, right) => left - right) : undefined
   if (selectedTagIds && selectedTagIds.length > PIXIV_TAG_ENRICHMENT_BATCH_LIMIT) {
     throw new Error(`一次最多选择 ${PIXIV_TAG_ENRICHMENT_BATCH_LIMIT} 个标签`)
@@ -119,8 +125,8 @@ export async function startPixivTagEnrichment(requestedByUserId: string, tagIds?
     priority: 80,
     maxAttempts: 3,
     payload: selectedTagIds?.length
-      ? { mode: 'DISCOVER', force: true, tagIds: selectedTagIds }
-      : { mode: 'DISCOVER', force: false }
+      ? { mode: 'DISCOVER', force: true, tagIds: selectedTagIds, ...(refreshExisting ? { refreshExisting: true } : {}) }
+      : { mode: 'DISCOVER', force: false, ...(refreshExisting ? { refreshExisting: true } : {}) }
   })
 }
 
