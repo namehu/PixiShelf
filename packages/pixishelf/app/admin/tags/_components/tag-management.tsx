@@ -270,6 +270,14 @@ export default function TagManagement() {
       enableHiding: false
     },
     {
+      id: 'cover',
+      header: '封面',
+      size: 112,
+      cell: ({ row }) => (
+        <TagCoverThumbnail tag={row.original} checked={Boolean(row.original.pixivSync)} onPreview={setPreviewedCover} />
+      )
+    },
+    {
       header: '标签名称',
       accessorKey: 'name',
       cell: ({ row }) => (
@@ -302,14 +310,6 @@ export default function TagManagement() {
       accessorKey: 'artworkCount',
       enableSorting: true,
       size: 120
-    },
-    {
-      id: 'cover',
-      header: '封面',
-      size: 112,
-      cell: ({ row }) => (
-        <TagCoverThumbnail tag={row.original} checked={Boolean(row.original.pixivSync)} onPreview={setPreviewedCover} />
-      )
     },
     {
       id: 'pixivSync',
