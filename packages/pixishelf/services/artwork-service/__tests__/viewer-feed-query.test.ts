@@ -8,6 +8,7 @@ const {
   artworkTagFindManyMock,
   artistExternalRefFindManyMock,
   localArtistMappingFindManyMock,
+  artworkExternalRefFindManyMock,
   likeStatusMock
 } = vi.hoisted(() => ({
   queryRawMock: vi.fn(),
@@ -15,6 +16,7 @@ const {
   artworkTagFindManyMock: vi.fn(),
   artistExternalRefFindManyMock: vi.fn(),
   localArtistMappingFindManyMock: vi.fn(),
+  artworkExternalRefFindManyMock: vi.fn(),
   likeStatusMock: vi.fn()
 }))
 
@@ -25,7 +27,8 @@ vi.mock('@/lib/prisma', () => ({
     image: { findMany: imageFindManyMock },
     artworkTag: { findMany: artworkTagFindManyMock },
     artistExternalRef: { findMany: artistExternalRefFindManyMock },
-    localImportArtistMapping: { findMany: localArtistMappingFindManyMock }
+    localImportArtistMapping: { findMany: localArtistMappingFindManyMock },
+    artworkExternalRef: { findMany: artworkExternalRefFindManyMock }
   }
 }))
 vi.mock('@/services/like-service', () => ({ getUserArtworkLikeStatus: likeStatusMock }))
@@ -53,6 +56,7 @@ describe('getViewerFeed query shape', () => {
     artworkTagFindManyMock.mockReset().mockResolvedValue([])
     artistExternalRefFindManyMock.mockReset().mockResolvedValue([])
     localArtistMappingFindManyMock.mockReset().mockResolvedValue([])
+    artworkExternalRefFindManyMock.mockReset().mockResolvedValue([])
     likeStatusMock.mockReset().mockResolvedValue({})
   })
 
@@ -84,6 +88,9 @@ describe('getViewerFeed query shape', () => {
     expect(params.slice(-2)).toEqual([3, 0])
     expect(imageFindManyMock).toHaveBeenCalledOnce()
     expect(artworkTagFindManyMock).toHaveBeenCalledOnce()
+    expect(artworkExternalRefFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { artworkId: { in: [1, 2] } } })
+    )
     expect(likeStatusMock).toHaveBeenCalledWith('user-1', [1, 2])
     expect(result).toMatchObject({ page: 1, pageSize: 2, nextPage: 2 })
     expect(result.items).toHaveLength(2)

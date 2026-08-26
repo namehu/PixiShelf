@@ -6,13 +6,15 @@ const {
   imageFindManyMock,
   artworkTagFindManyMock,
   artistExternalRefFindManyMock,
-  localArtistMappingFindManyMock
+  localArtistMappingFindManyMock,
+  artworkExternalRefFindManyMock
 } = vi.hoisted(() => ({
   queryRawMock: vi.fn(),
   imageFindManyMock: vi.fn(),
   artworkTagFindManyMock: vi.fn(),
   artistExternalRefFindManyMock: vi.fn(),
-  localArtistMappingFindManyMock: vi.fn()
+  localArtistMappingFindManyMock: vi.fn(),
+  artworkExternalRefFindManyMock: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
@@ -22,7 +24,8 @@ vi.mock('@/lib/prisma', () => ({
     image: { findMany: imageFindManyMock },
     artworkTag: { findMany: artworkTagFindManyMock },
     artistExternalRef: { findMany: artistExternalRefFindManyMock },
-    localImportArtistMapping: { findMany: localArtistMappingFindManyMock }
+    localImportArtistMapping: { findMany: localArtistMappingFindManyMock },
+    artworkExternalRef: { findMany: artworkExternalRefFindManyMock }
   }
 }))
 
@@ -35,6 +38,7 @@ describe('getArtworksList video posters', () => {
     artworkTagFindManyMock.mockReset()
     artistExternalRefFindManyMock.mockReset().mockResolvedValue([])
     localArtistMappingFindManyMock.mockReset().mockResolvedValue([])
+    artworkExternalRefFindManyMock.mockReset().mockResolvedValue([])
   })
 
   it('loads video metadata and exposes the generated poster URL', async () => {
@@ -85,6 +89,9 @@ describe('getArtworksList video posters', () => {
 
     expect(imageFindManyMock).toHaveBeenCalledWith(
       expect.objectContaining({ include: expect.objectContaining({ videoMetadata: true }) })
+    )
+    expect(artworkExternalRefFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { artworkId: { in: [1] } } })
     )
     expect(result.items[0]?.images[0]).toMatchObject({
       path: '/artist/work/video.mp4',

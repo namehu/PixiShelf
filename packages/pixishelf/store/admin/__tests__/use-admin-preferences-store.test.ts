@@ -8,7 +8,8 @@ describe('useAdminPreferencesStore', () => {
   beforeEach(() => {
     useAdminPreferencesStore.setState({
       showArtistImages: true,
-      showTagCovers: true
+      showTagCovers: true,
+      showArtworkPixivSync: true
     })
     localStorage.clear()
   })
@@ -20,7 +21,8 @@ describe('useAdminPreferencesStore', () => {
     expect(JSON.parse(localStorage.getItem(ADMIN_PREFERENCES_STORAGE_KEY) ?? '')).toEqual({
       state: {
         showArtistImages: false,
-        showTagCovers: false
+        showTagCovers: false,
+        showArtworkPixivSync: true
       },
       version: 1
     })
@@ -42,7 +44,8 @@ describe('useAdminPreferencesStore', () => {
 
     expect(useAdminPreferencesStore.getState()).toMatchObject({
       showArtistImages: false,
-      showTagCovers: true
+      showTagCovers: true,
+      showArtworkPixivSync: true
     })
   })
 })

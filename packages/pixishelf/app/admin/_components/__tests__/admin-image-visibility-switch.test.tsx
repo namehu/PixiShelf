@@ -10,7 +10,8 @@ describe('AdminImageVisibilitySwitch', () => {
   beforeEach(() => {
     useAdminPreferencesStore.setState({
       showArtistImages: true,
-      showTagCovers: true
+      showTagCovers: true,
+      showArtworkPixivSync: true
     })
     localStorage.clear()
   })
@@ -50,7 +51,8 @@ describe('AdminImageVisibilitySwitch', () => {
     expect(tagSwitch.getAttribute('data-state')).toBe('unchecked')
     expect(JSON.parse(localStorage.getItem(ADMIN_PREFERENCES_STORAGE_KEY) ?? '').state).toEqual({
       showArtistImages: true,
-      showTagCovers: false
+      showTagCovers: false,
+      showArtworkPixivSync: true
     })
   })
 })
