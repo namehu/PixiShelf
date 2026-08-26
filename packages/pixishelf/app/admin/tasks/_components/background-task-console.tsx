@@ -56,8 +56,22 @@ export interface BackgroundDashboardView {
   queuedCount: number
   activeCount: number
   runningJob: JobDto | null
+  activeBatches: BackgroundBatchView[]
   recentJobs: JobDto[]
   workers: WorkerHealthDto[]
+}
+
+export interface BackgroundBatchView {
+  id: string
+  type: JobDto['type']
+  status: JobStatus
+  progress: number
+  totalCount: number
+  completedCount: number
+  remainingCount: number
+  failedCount: number
+  currentJob: JobDto | null
+  parentJob: JobDto
 }
 
 export function BackgroundTaskConsole() {
@@ -77,6 +91,7 @@ export function BackgroundTaskConsole() {
       dashboard.recentJobs.filter((job) => ACTIVE_JOB_STATUSES.includes(job.status)).map((job) => job.id)
     )
     if (dashboard.runningJob) activeIds.add(dashboard.runningJob.id)
+    dashboard.activeBatches.forEach((batch) => activeIds.add(batch.id))
 
     const previousIds = previousActiveJobIds.current
     if (previousIds) {
@@ -203,8 +218,14 @@ function BackgroundTaskDock({
   onOpen: () => void
 }) {
   const running = dashboard?.runningJob ?? null
+  const activeBatch = dashboard ? primaryActiveBatch(dashboard) : null
   const queuedCount = dashboard?.queuedCount ?? 0
-  const activeLabel = running ? formatBackgroundJobType(running.type, running.payload) : null
+  const activeLabel = activeBatch
+    ? formatBackgroundJobType(activeBatch.type, activeBatch.parentJob.payload)
+    : running
+      ? formatBackgroundJobType(running.type, running.payload)
+      : null
+  const progress = activeBatch?.progress ?? running?.progress
   const dockPosition =
     'fixed inset-x-4 bottom-[calc(var(--app-mobile-navigation-offset)+0.75rem)] z-40 lg:inset-x-auto lg:right-6 lg:bottom-6'
 
@@ -230,7 +251,7 @@ function BackgroundTaskDock({
     )
   }
 
-  if (running || queuedCount > 0) {
+  if (running || activeBatch || queuedCount > 0) {
     return (
       <div className={dockPosition}>
         <Button
@@ -241,8 +262,14 @@ function BackgroundTaskDock({
         >
           <Activity data-icon="inline-start" className="animate-pulse motion-reduce:animate-none" aria-hidden="true" />
           <span className="min-w-0 truncate">{activeLabel ?? `${queuedCount} 项等待`}</span>
-          {running ? <span className="font-semibold tabular-nums">{running.progress}%</span> : null}
-          {queuedCount > 0 && running ? <span className="opacity-80">+{queuedCount} 等待</span> : null}
+          {progress !== undefined ? <span className="font-semibold tabular-nums">{progress}%</span> : null}
+          {activeBatch ? (
+            <span className="opacity-80">
+              {activeBatch.completedCount}/{activeBatch.totalCount}
+            </span>
+          ) : queuedCount > 0 && running ? (
+            <span className="opacity-80">+{queuedCount} 等待</span>
+          ) : null}
           {unreadFailureCount > 0 ? <span className="opacity-80">· {unreadFailureCount} 失败</span> : null}
         </Button>
       </div>
@@ -345,6 +372,7 @@ export function BackgroundTaskConsoleView({
 }) {
   const workerSummary = getWorkerSummary(dashboard.workers)
   const running = dashboard.runningJob
+  const activeBatch = primaryActiveBatch(dashboard)
   const showingDetail = Boolean(selectedJobId ?? selectedJob?.id)
 
   return (
@@ -409,10 +437,20 @@ export function BackgroundTaskConsoleView({
       ) : (
         <div className="flex min-w-0 flex-col">
           <div className="p-4 sm:p-5">
-            <ExecutionSlot job={running} queuedCount={dashboard.queuedCount} onSelectJob={onSelectJob} />
+            <ExecutionSlot
+              job={running}
+              batch={activeBatch}
+              queuedCount={dashboard.queuedCount}
+              onSelectJob={onSelectJob}
+            />
           </div>
           <div className="border-t">
-            <RecentJobs jobs={dashboard.recentJobs} selectedJobId={null} onSelectJob={onSelectJob} />
+            <RecentJobs
+              jobs={dashboard.recentJobs}
+              activeBatches={dashboard.activeBatches}
+              selectedJobId={null}
+              onSelectJob={onSelectJob}
+            />
           </div>
           <details className="group border-t">
             <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 [&::-webkit-details-marker]:hidden">
@@ -434,16 +472,39 @@ export function BackgroundTaskConsoleView({
   )
 }
 
+function primaryActiveBatch(dashboard: BackgroundDashboardView) {
+  const runningJobId = dashboard.runningJob?.id
+  return (
+    dashboard.activeBatches.find((batch) => batch.currentJob?.id === runningJobId) ??
+    (dashboard.runningJob ? null : (dashboard.activeBatches[0] ?? null))
+  )
+}
+
+function formatBatchStatus(status: JobStatus) {
+  if (status === 'RUNNING') return '批次执行中'
+  if (status === 'PENDING') return '批次排队中'
+  if (status === 'RETRY_WAIT') return '批次等待重试'
+  if (status === 'PAUSING') return '批次暂停中'
+  if (status === 'PAUSED') return '批次已暂停'
+  if (status === 'CANCELLING') return '批次取消中'
+  return formatBackgroundJobStatus(status)
+}
+
 function ExecutionSlot({
   job,
+  batch,
   queuedCount,
   onSelectJob
 }: {
   job: JobDto | null
+  batch: BackgroundBatchView | null
   queuedCount: number
   onSelectJob: (jobId: string) => void
 }) {
-  const active = Boolean(job)
+  const visibleJob = batch?.parentJob ?? job
+  const detailJob = batch?.currentJob ?? visibleJob
+  const progress = batch?.progress ?? visibleJob?.progress ?? 0
+  const active = Boolean(visibleJob)
   return (
     <div
       className={cn(
@@ -469,25 +530,49 @@ function ExecutionSlot({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">唯一执行槽</span>
-            <AdminStatusBadge status={job?.status ?? 'IDLE'}>
-              {job ? formatBackgroundJobStatus(job.status) : '空闲'}
+            <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              {batch ? '补全批次' : '唯一执行槽'}
+            </span>
+            <AdminStatusBadge status={batch?.status ?? visibleJob?.status ?? 'IDLE'}>
+              {batch
+                ? formatBatchStatus(batch.status)
+                : visibleJob
+                  ? formatBackgroundJobStatus(visibleJob.status)
+                  : '空闲'}
             </AdminStatusBadge>
           </div>
-          {job ? (
+          {visibleJob ? (
             <>
-              <p className="mt-2 font-semibold">{formatBackgroundJobType(job.type, job.payload)}</p>
-              <p className="mt-1 select-text break-all font-mono text-xs text-muted-foreground">{job.id}</p>
+              <p className="mt-2 font-semibold">{formatBackgroundJobType(visibleJob.type, visibleJob.payload)}</p>
+              <p className="mt-1 select-text break-all font-mono text-xs text-muted-foreground">{visibleJob.id}</p>
               <div className="mt-3 flex items-center gap-3">
-                <Progress value={job.progress} className="h-2 flex-1" aria-label={`任务进度 ${job.progress}%`} />
-                <span className="text-xs font-semibold tabular-nums">{job.progress}%</span>
+                <Progress value={progress} className="h-2 flex-1" aria-label={`任务进度 ${progress}%`} />
+                <span className="text-xs font-semibold tabular-nums">{progress}%</span>
               </div>
-              {job.message ? (
-                <p className="mt-2 select-text break-words text-sm text-muted-foreground">{job.message}</p>
+              {batch ? (
+                <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                  <p>
+                    已处理 {batch.completedCount}/{batch.totalCount}，剩余 {batch.remainingCount}
+                    {batch.failedCount > 0 ? `，其中失败 ${batch.failedCount}` : ''}
+                  </p>
+                  <p className="select-text break-words">
+                    {batch.currentJob?.message ? `当前：${batch.currentJob.message}` : '等待 Worker 继续处理'}
+                  </p>
+                </div>
+              ) : visibleJob.message ? (
+                <p className="mt-2 select-text break-words text-sm text-muted-foreground">{visibleJob.message}</p>
               ) : null}
-              <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => onSelectJob(job.id)}>
-                查看当前任务
-              </Button>
+              {detailJob ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3"
+                  onClick={() => onSelectJob(detailJob.id)}
+                >
+                  {batch?.currentJob ? '查看当前子任务' : '查看当前任务'}
+                </Button>
+              ) : null}
             </>
           ) : (
             <p className="mt-2 text-sm text-muted-foreground">
@@ -601,47 +686,77 @@ function WorkerInstanceCard({
 
 function RecentJobs({
   jobs,
+  activeBatches,
   selectedJobId,
   onSelectJob
 }: {
   jobs: JobDto[]
+  activeBatches: BackgroundBatchView[]
   selectedJobId: string | null
   onSelectJob: (jobId: string) => void
 }) {
+  const batchByParentId = new Map(activeBatches.map((batch) => [batch.id, batch]))
+  const visibleJobs = [
+    ...activeBatches.map((batch) => batch.parentJob),
+    ...jobs.filter((job) => !batchByParentId.has(job.id))
+  ].slice(0, 10)
+
   return (
     <section aria-labelledby="recent-jobs-title" className="min-w-0 p-4 sm:p-5">
       <h3 id="recent-jobs-title" className="flex items-center gap-2 text-sm font-semibold">
         <ListOrdered className="size-4 text-primary" aria-hidden="true" />
         执行中、排队与近期记录
       </h3>
-      {jobs.length === 0 ? (
+      {visibleJobs.length === 0 ? (
         <p className="mt-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">还没有后台任务记录。</p>
       ) : (
         <ul className="mt-3 flex flex-col gap-2">
-          {jobs.map((job) => (
-            <li key={job.id}>
-              <button
-                type="button"
-                onClick={() => onSelectJob(job.id)}
-                aria-pressed={selectedJobId === job.id}
-                className={cn(
-                  'w-full min-w-0 rounded-lg border px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  selectedJobId === job.id && 'border-primary/40 bg-primary/[0.04]'
-                )}
-              >
-                <span className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-medium">{formatBackgroundJobType(job.type, job.payload)}</span>
-                  <AdminStatusBadge status={job.status}>{formatBackgroundJobStatus(job.status)}</AdminStatusBadge>
-                </span>
-                <span className="mt-1 block select-text break-all font-mono text-[11px] text-muted-foreground">
-                  {job.id}
-                </span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {formatBackgroundDate(job.createdAt)} · 优先级 {job.effectivePriority}
-                </span>
-              </button>
-            </li>
-          ))}
+          {visibleJobs.map((job) => {
+            const batch = batchByParentId.get(job.id)
+            const detailJobId = batch?.currentJob?.id ?? job.id
+            return (
+              <li key={job.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelectJob(detailJobId)}
+                  aria-pressed={selectedJobId === detailJobId}
+                  className={cn(
+                    'w-full min-w-0 rounded-lg border px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    selectedJobId === detailJobId && 'border-primary/40 bg-primary/[0.04]'
+                  )}
+                >
+                  <span className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-medium">{formatBackgroundJobType(job.type, job.payload)}</span>
+                    <AdminStatusBadge status={batch?.status ?? job.status}>
+                      {batch ? formatBatchStatus(batch.status) : formatBackgroundJobStatus(job.status)}
+                    </AdminStatusBadge>
+                  </span>
+                  <span className="mt-1 block select-text break-all font-mono text-[11px] text-muted-foreground">
+                    {job.id}
+                  </span>
+                  {batch ? (
+                    <span className="mt-2 block">
+                      <span className="flex items-center gap-3">
+                        <Progress
+                          value={batch.progress}
+                          className="h-1.5 flex-1"
+                          aria-label={`批次进度 ${batch.progress}%`}
+                        />
+                        <span className="text-xs font-semibold tabular-nums">{batch.progress}%</span>
+                      </span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        已处理 {batch.completedCount}/{batch.totalCount} · 剩余 {batch.remainingCount}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {formatBackgroundDate(job.createdAt)} · 优先级 {job.effectivePriority}
+                    </span>
+                  )}
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

@@ -142,14 +142,37 @@ describe('getJobDashboard', () => {
     ])
   })
 
-  it('counts an active Pixiv artist child as one operator-visible batch', async () => {
+  it('collapses active Pixiv children into one batch with aggregate progress', async () => {
+    const parent = jobRecord({
+      id: 'artist-batch',
+      type: 'PIXIV_ARTIST_ENRICHMENT',
+      status: 'COMPLETED',
+      progress: 100,
+      payload: { mode: 'DISCOVER' }
+    })
+    const child = jobRecord({
+      id: 'artist-child-4',
+      type: 'PIXIV_ARTIST_ENRICHMENT',
+      status: 'RUNNING',
+      progress: 30,
+      parentJobId: parent.id,
+      payload: { mode: 'ARTIST', artistId: 4 }
+    })
     const systemJob = {
-      groupBy: vi.fn().mockResolvedValue([{ status: 'COMPLETED', _count: { _all: 1 } }]),
+      groupBy: vi
+        .fn()
+        .mockResolvedValueOnce([{ status: 'COMPLETED', _count: { _all: 1 } }])
+        .mockResolvedValueOnce([
+          { parentJobId: parent.id, status: 'COMPLETED', _count: { _all: 3 } },
+          { parentJobId: parent.id, status: 'RUNNING', _count: { _all: 1 } },
+          { parentJobId: parent.id, status: 'PENDING', _count: { _all: 6 } }
+        ]),
       findMany: vi
         .fn()
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([jobRecord({ type: 'PIXIV_ARTIST_ENRICHMENT', status: 'COMPLETED' })])
-        .mockResolvedValueOnce([{ type: 'PIXIV_ARTIST_ENRICHMENT' }])
+        .mockResolvedValueOnce([child])
+        .mockResolvedValueOnce([parent])
+        .mockResolvedValueOnce([{ parentJobId: parent.id }])
+        .mockResolvedValueOnce([parent])
     }
     const workerInstance = { findMany: vi.fn().mockResolvedValue([]) }
 
@@ -157,5 +180,58 @@ describe('getJobDashboard', () => {
 
     expect(result.counts.RUNNING).toBe(1)
     expect(result.activeCount).toBe(1)
+    expect(result.queuedCount).toBe(0)
+    expect(result.activeBatches).toEqual([
+      expect.objectContaining({
+        id: parent.id,
+        status: 'RUNNING',
+        progress: 30,
+        totalCount: 10,
+        completedCount: 3,
+        remainingCount: 7,
+        currentJob: expect.objectContaining({ id: child.id }),
+        parentJob: expect.objectContaining({ id: parent.id })
+      })
+    ])
+  })
+
+  it('keeps a Pixiv batch visible while its remaining children are queued', async () => {
+    const parent = jobRecord({
+      id: 'tag-batch',
+      type: 'PIXIV_TAG_ENRICHMENT',
+      status: 'COMPLETED',
+      progress: 100,
+      payload: { mode: 'DISCOVER' }
+    })
+    const systemJob = {
+      groupBy: vi
+        .fn()
+        .mockResolvedValueOnce([{ status: 'COMPLETED', _count: { _all: 1 } }])
+        .mockResolvedValueOnce([
+          { parentJobId: parent.id, status: 'COMPLETED', _count: { _all: 4 } },
+          { parentJobId: parent.id, status: 'PENDING', _count: { _all: 6 } }
+        ]),
+      findMany: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([parent])
+        .mockResolvedValueOnce([{ parentJobId: parent.id }])
+        .mockResolvedValueOnce([parent])
+    }
+    const workerInstance = { findMany: vi.fn().mockResolvedValue([]) }
+
+    const result = await getJobDashboard({ systemJob, workerInstance } as never)
+
+    expect(result.queuedCount).toBe(1)
+    expect(result.activeCount).toBe(0)
+    expect(result.activeBatches[0]).toMatchObject({
+      id: parent.id,
+      status: 'PENDING',
+      progress: 40,
+      totalCount: 10,
+      completedCount: 4,
+      remainingCount: 6,
+      currentJob: null
+    })
   })
 })

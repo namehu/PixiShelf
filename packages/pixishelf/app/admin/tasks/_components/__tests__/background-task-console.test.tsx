@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   BackgroundTaskConsole,
   BackgroundTaskConsoleView,
+  type BackgroundBatchView,
   type BackgroundControlsView,
   type BackgroundDashboardView
 } from '../background-task-console'
@@ -132,7 +133,44 @@ function createWorker(
 
 function createDashboard(overrides: Partial<BackgroundDashboardView> = {}): BackgroundDashboardView {
   const counts = Object.fromEntries(statuses.map((status) => [status, 0])) as Record<JobStatus, number>
-  return { counts, queuedCount: 0, activeCount: 0, runningJob: null, recentJobs: [], workers: [], ...overrides }
+  return {
+    counts,
+    queuedCount: 0,
+    activeCount: 0,
+    runningJob: null,
+    activeBatches: [],
+    recentJobs: [],
+    workers: [],
+    ...overrides
+  }
+}
+
+function createPixivBatch(): BackgroundBatchView {
+  const parentJob = {
+    ...createJob('COMPLETED', 'pixiv-tag-batch'),
+    type: 'PIXIV_TAG_ENRICHMENT' as const,
+    payload: { mode: 'DISCOVER' }
+  }
+  const currentJob = {
+    ...createJob('RUNNING', 'pixiv-tag-child-4'),
+    type: 'PIXIV_TAG_ENRICHMENT' as const,
+    parentJobId: parentJob.id,
+    payload: { mode: 'TAG', tagId: 4, expectedName: '間ジグレ' },
+    progress: 10,
+    message: '准备查询标签 間ジグレ'
+  }
+  return {
+    id: parentJob.id,
+    type: parentJob.type,
+    status: 'RUNNING',
+    progress: 30,
+    totalCount: 10,
+    completedCount: 3,
+    remainingCount: 7,
+    failedCount: 0,
+    currentJob,
+    parentJob
+  }
 }
 
 function createControls(): BackgroundControlsView {
@@ -369,6 +407,37 @@ describe('background task console', () => {
     expect(selectJob).toHaveBeenCalledWith(null)
   })
 
+  it('keeps Pixiv enrichment visible as one stable batch with aggregate progress', () => {
+    const batch = createPixivBatch()
+    const selectJob = vi.fn()
+    render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard({
+          runningJob: batch.currentJob,
+          activeBatches: [batch],
+          recentJobs: [batch.parentJob],
+          activeCount: 1
+        })}
+        selectedJob={null}
+        selectedJobLoading={false}
+        onSelectJob={selectJob}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={createControls()}
+      />
+    )
+
+    expect(screen.getByText('补全批次')).toBeTruthy()
+    expect(screen.getAllByText('批次执行中')).toHaveLength(2)
+    expect(screen.getByText('已处理 3/10，剩余 7')).toBeTruthy()
+    expect(screen.getByText('当前：准备查询标签 間ジグレ')).toBeTruthy()
+    expect(screen.getByText('已处理 3/10 · 剩余 7')).toBeTruthy()
+    expect(screen.queryByText('已完成')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '查看当前子任务' }))
+    expect(selectJob).toHaveBeenCalledWith(batch.currentJob?.id)
+  })
+
   it('reports no worker, lifecycle states, and stale heartbeat semantics', () => {
     expect(getWorkerSummary([]).label).toBe('无 Worker')
     const now = new Date('2026-08-17T02:02:00.000Z').getTime()
@@ -526,6 +595,18 @@ describe('background task console', () => {
     expect(screen.getByRole('button', { name: /打开执行动态，视频媒体探测/ })).toBeTruthy()
     expect(screen.getByText('42%')).toBeTruthy()
     expect(screen.getByText('+2 等待')).toBeTruthy()
+
+    const batch = createPixivBatch()
+    mocks.dashboardQuery.data = createDashboard({
+      runningJob: batch.currentJob,
+      activeBatches: [batch],
+      activeCount: 1
+    })
+    rerender(<BackgroundTaskConsole />)
+
+    expect(screen.getByRole('button', { name: /打开执行动态，Pixiv 标签补全/ })).toBeTruthy()
+    expect(screen.getByText('30%')).toBeTruthy()
+    expect(screen.getByText('3/10')).toBeTruthy()
   })
 
   it('renders detail errors with an explicit retry while retaining the dashboard snapshot', () => {

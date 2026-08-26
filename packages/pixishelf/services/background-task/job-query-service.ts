@@ -7,6 +7,9 @@ import { isWorkerHeartbeatFresh } from './worker-heartbeat'
 
 type JobQueryClient = Pick<Prisma.TransactionClient, 'systemJob' | 'workerInstance'>
 
+const TERMINAL_JOB_STATUSES: JobStatus[] = ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED']
+const PIXIV_ENRICHMENT_TYPES = ['PIXIV_TAG_ENRICHMENT', 'PIXIV_ARTIST_ENRICHMENT'] as const
+
 function queryClient(client?: JobQueryClient) {
   return client ?? (prisma as unknown as JobQueryClient)
 }
@@ -56,7 +59,7 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
       ]
     }
   } satisfies Prisma.SystemJobWhereInput
-  const [groups, running, recent, workers, activeCollapsedPixivBatches] = await Promise.all([
+  const [groups, running, recent, workers, activePixivBatchParents] = await Promise.all([
     database.systemJob.groupBy({
       by: ['status'],
       where: dashboardVisibleWhere,
@@ -78,24 +81,68 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
     database.systemJob.findMany({
       where: {
         definitionVersion: { gte: 1 },
-        type: { in: ['PIXIV_TAG_ENRICHMENT', 'PIXIV_ARTIST_ENRICHMENT'] },
+        type: { in: [...PIXIV_ENRICHMENT_TYPES] },
         parentJobId: { not: null },
         status: { in: ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] },
         parentJob: {
           is: { status: { notIn: ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] } }
         }
       },
-      select: { type: true },
-      distinct: ['type']
+      select: { parentJobId: true },
+      distinct: ['parentJobId']
     })
   ])
+
+  const activeBatchParentIds = activePixivBatchParents.flatMap((job) => (job.parentJobId ? [job.parentJobId] : []))
+  const [batchParents, batchGroups] = activeBatchParentIds.length
+    ? await Promise.all([
+        database.systemJob.findMany({
+          where: { id: { in: activeBatchParentIds }, definitionVersion: { gte: 1 } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: systemJobWireSelect
+        }),
+        database.systemJob.groupBy({
+          by: ['parentJobId', 'status'],
+          where: {
+            definitionVersion: { gte: 1 },
+            parentJobId: { in: activeBatchParentIds }
+          },
+          _count: { _all: true }
+        })
+      ])
+    : [[], []]
 
   // 仅采用新鲜 worker 心跳，过期 presence 不会影响 READY/DRAINING 判定。
   const counts = Object.fromEntries(JOB_STATUS_VALUES.map((status) => [status, 0])) as Record<JobStatus, number>
   for (const group of groups) counts[group.status] = group._count._all
-  // Pixiv enrichment jobs fan out internally, but the operator started one batch. Count each active batch once.
-  counts.RUNNING += activeCollapsedPixivBatches.length
   const runningJobs = running.map(toJobDto)
+  const batchCounts = new Map<string, Record<JobStatus, number>>()
+  for (const group of batchGroups) {
+    if (!group.parentJobId) continue
+    const current = batchCounts.get(group.parentJobId) ?? createEmptyStatusCounts()
+    current[group.status] = group._count._all
+    batchCounts.set(group.parentJobId, current)
+  }
+  const activeBatches = batchParents.map((parent) => {
+    const parentJob = toJobDto(parent)
+    const childCounts = batchCounts.get(parent.id) ?? createEmptyStatusCounts()
+    const totalCount = JOB_STATUS_VALUES.reduce((total, status) => total + childCounts[status], 0)
+    const completedCount = TERMINAL_JOB_STATUSES.reduce((total, status) => total + childCounts[status], 0)
+    const status = collapsedBatchStatus(childCounts)
+    counts[status] += 1
+    return {
+      id: parent.id,
+      type: parent.type,
+      status,
+      progress: totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : parent.progress,
+      totalCount,
+      completedCount,
+      remainingCount: Math.max(0, totalCount - completedCount),
+      failedCount: childCounts.FAILED,
+      currentJob: runningJobs.find((job) => job.parentJobId === parent.id) ?? null,
+      parentJob
+    }
+  })
   const workerDtos = workers.map(toWorkerHealthDto)
   const timestamp = now()
   const freshWorkers = workerDtos.filter((worker) => isWorkerHeartbeatFresh(worker.heartbeatAt, timestamp))
@@ -131,10 +178,24 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
     activeCount: counts.RUNNING + counts.PAUSING + counts.CANCELLING,
     runningJob: runningJobs[0] ?? null,
     runningJobs,
+    activeBatches,
     lanes,
     recentJobs: recent.map(toJobDto),
     workers: workerDtos
   }
+}
+
+function createEmptyStatusCounts() {
+  return Object.fromEntries(JOB_STATUS_VALUES.map((status) => [status, 0])) as Record<JobStatus, number>
+}
+
+function collapsedBatchStatus(counts: Record<JobStatus, number>): JobStatus {
+  if (counts.CANCELLING > 0) return 'CANCELLING'
+  if (counts.PAUSING > 0) return 'PAUSING'
+  if (counts.RUNNING > 0) return 'RUNNING'
+  if (counts.PENDING > 0) return 'PENDING'
+  if (counts.RETRY_WAIT > 0) return 'RETRY_WAIT'
+  return 'PAUSED'
 }
 
 export async function getJobById(jobId: string, client?: JobQueryClient) {
