@@ -10,7 +10,7 @@
 
 - `Dockerfile`：Web/API 的 Next.js standalone 镜像，负责启动前执行数据库迁移。
 - `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和当前全部
-  22 个 job type；`SCAN` 支持 v1/v2/v3，其余 21 类只支持 v1，共 24 个 type/version 组合。
+  23 个 job type；`SCAN` 支持 v1/v2/v3，其余 22 类只支持 v1，共 25 个 type/version 组合。
 - `docker-compose.dev.yml`：本地构建与开发环境。
 - `docker-compose.deploy.yml`：使用预构建镜像的生产环境。
 - `.env.example`：部署变量模板；为防止新环境误消费，Central Dispatcher 开关仍安全地默认关闭。
@@ -33,7 +33,7 @@ Worker 需要以下挂载：
 
 - `PIXISHELF_DATA_PATH` → `/app/data:rw`：原始媒体、归档 staging 与发布目录；
 - `DERIVED_MEDIA_HOST_PATH` → `/app/.local-data/derived-media:rw`：视频代表帧等派生媒体；
-- `PIXISHELF_PUBLIC_DATA_PATH` → `/app/pixiv-data:rw`：既有 Pixiv 作者图片与标签封面目录；宿主机目录不迁移，容器内不进入 Next `public`；
+- `PIXISHELF_PUBLIC_DATA_PATH` → `/app/pixiv-data:rw`：Pixiv 作者图片、标签封面与作品元数据快照目录；宿主机目录不迁移，容器内不进入 Next `public`；
 - PostgreSQL：任务队列、租约、事件、领域检查点与最终发布状态。
 
 启动预检会验证数据库版本、原媒体、归档、派生媒体和 Pixiv data 目录的读写权限、FFmpeg 与 FFprobe。原始媒体目录必须可写，
@@ -135,9 +135,9 @@ WORKER_DISPATCH_ENABLED=false
 
 两个开关用途不同：`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 让 Next.js 只创建/控制统一队列任务；
 `WORKER_DISPATCH_ENABLED` 才允许通用 Worker claim。开关默认 false，避免镜像升级时意外开始消费。
-当前通用 Registry 已锁定 22 个 job type、24 个 type/version 组合，并校验 job type、definition version 和
+当前通用 Registry 已锁定 23 个 job type、25 个 type/version 组合，并校验 job type、definition version 和
 lane；任务清单中包括 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE` 四类高风险任务，
-`SCAN` 支持 v1/v2/v3，其余 21 类只支持 v1。新部署仍须先以
+`SCAN` 支持 v1/v2/v3，其余 22 类只支持 v1。新部署仍须先以
 `false/false` 暗启动并通过 READY/capability 门禁，然后才能恢复生产稳态的 `true/true`。
 `SCAN@v3` 专用于来源核对后的写入型 `AUDIT_APPLY`；只支持 v2 的旧 Worker 不会领取它。滚动部署的版本隔离不能
 替代发布门禁，开放新 App 写入口前仍必须确认目标 Worker 同时报告 SCAN v1/v2/v3。

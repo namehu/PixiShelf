@@ -52,7 +52,7 @@ WORKDIR /app
 RUN apk add --no-cache openssl ffmpeg tini \
     && addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 --ingroup nodejs pixishelfworker \
-    && mkdir -p /app/data /app/.local-data/derived-media /app/pixiv-data/tags /app/pixiv-data/artists \
+    && mkdir -p /app/data /app/.local-data/derived-media /app/pixiv-data/tags /app/pixiv-data/artists /app/pixiv-data/artworks \
     && chown -R pixishelfworker:nodejs /app
 
 COPY --from=builder --chown=pixishelfworker:nodejs /worker-runtime/package.json ./package.json

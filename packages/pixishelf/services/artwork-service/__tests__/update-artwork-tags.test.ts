@@ -1,20 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { artworkUpdate, artworkTagDeleteMany, artworkTagCreateMany, prismaMock } = vi.hoisted(() => {
-  const artworkUpdate = vi.fn()
-  const artworkTagDeleteMany = vi.fn()
-  const artworkTagCreateMany = vi.fn()
-  const tx = {
-    artwork: { update: artworkUpdate },
-    artworkTag: { deleteMany: artworkTagDeleteMany, createMany: artworkTagCreateMany }
+const { artworkFindUniqueOrThrow, artworkUpdate, artworkTagDeleteMany, artworkTagCreateMany, prismaMock } = vi.hoisted(
+  () => {
+    const artworkFindUniqueOrThrow = vi.fn()
+    const artworkUpdate = vi.fn()
+    const artworkTagDeleteMany = vi.fn()
+    const artworkTagCreateMany = vi.fn()
+    const tx = {
+      $queryRaw: vi.fn(),
+      artwork: { findUniqueOrThrow: artworkFindUniqueOrThrow, update: artworkUpdate },
+      artworkTag: { deleteMany: artworkTagDeleteMany, createMany: artworkTagCreateMany }
+    }
+    return {
+      artworkFindUniqueOrThrow,
+      artworkUpdate,
+      artworkTagDeleteMany,
+      artworkTagCreateMany,
+      prismaMock: { ...tx, $transaction: vi.fn((operation: (client: typeof tx) => unknown) => operation(tx)) }
+    }
   }
-  return {
-    artworkUpdate,
-    artworkTagDeleteMany,
-    artworkTagCreateMany,
-    prismaMock: { ...tx, $transaction: vi.fn((operation: (client: typeof tx) => unknown) => operation(tx)) }
-  }
-})
+)
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }))
@@ -26,6 +31,7 @@ import { updateArtwork } from '..'
 describe('updateArtwork tag provenance', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    artworkFindUniqueOrThrow.mockResolvedValue({ title: 'work', description: 'description' })
     artworkUpdate.mockResolvedValue({ id: 42, title: 'work' })
     artworkTagDeleteMany.mockResolvedValue({ count: 1 })
     artworkTagCreateMany.mockResolvedValue({ count: 1 })
@@ -36,7 +42,7 @@ describe('updateArtwork tag provenance', () => {
 
     expect(artworkUpdate).toHaveBeenCalledWith({
       where: { id: 42 },
-      data: expect.not.objectContaining({ artworkTags: expect.anything() })
+      data: expect.objectContaining({ title: 'updated', titleOverridden: true })
     })
     expect(artworkTagDeleteMany).toHaveBeenCalledWith({
       where: { artworkId: 42, provenance: { in: ['MANUAL', 'LEGACY'] } }
@@ -47,6 +53,28 @@ describe('updateArtwork tag provenance', () => {
         { artworkId: 42, tagId: 2, provenance: 'MANUAL' }
       ],
       skipDuplicates: true
+    })
+  })
+
+  it('does not create text overrides when the submitted values did not change', async () => {
+    await updateArtwork(42, { title: 'work', description: 'description' })
+
+    expect(artworkUpdate).toHaveBeenCalledWith({
+      where: { id: 42 },
+      data: { title: 'work', description: 'description' }
+    })
+  })
+
+  it('marks only text fields whose values actually changed', async () => {
+    await updateArtwork(42, { title: 'work', description: 'new description' })
+
+    expect(artworkUpdate).toHaveBeenCalledWith({
+      where: { id: 42 },
+      data: {
+        title: 'work',
+        description: 'new description',
+        descriptionOverridden: true
+      }
     })
   })
 })

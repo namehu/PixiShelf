@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 单实例的备份集合、恢复目标、验证演练和灾难恢复边界
-last-verified: 2026-08-20
+last-verified: 2026-08-26
 sources:
   - build/docker-compose.deploy.yml
   - build/.env.example
@@ -31,15 +31,15 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 
 ## 一套完整备份包含什么
 
-| 数据类别   | 必需内容                                           | 说明                                                  |
-| ---------- | -------------------------------------------------- | ----------------------------------------------------- |
-| 业务数据库 | PostgreSQL custom-format dump                      | 包含领域数据、认证、队列、审计和 `_prisma_migrations` |
-| 原媒体     | `PIXISHELF_DATA_PATH` 对应的同时间点快照           | 不可重新生成，是最高优先级数据                        |
-| 派生媒体   | `DERIVED_MEDIA_HOST_PATH` 对应的同时间点快照       | 多数可重建，但数据库保存发布指针和生成状态            |
-| Pixiv data | `PIXISHELF_PUBLIC_DATA_PATH` 对应的同时间点快照    | 作者图片和标签封面；数据库保存相对路径与检查状态      |
-| 部署配置   | `build/.env`、实际 Compose、反向代理配置           | 含密钥和真实路径，必须加密或严格限制权限              |
-| 程序版本   | App、Worker 的 tag、image ID 或 digest             | 不依赖可变 `latest` 猜测恢复版本                      |
-| 备份清单   | 时间、实例、文件名、SHA-256、快照 ID、操作者、原因 | 用于证明各部分属于同一恢复点                          |
+| 数据类别   | 必需内容                                           | 说明                                                                   |
+| ---------- | -------------------------------------------------- | ---------------------------------------------------------------------- |
+| 业务数据库 | PostgreSQL custom-format dump                      | 包含领域数据、认证、队列、审计和 `_prisma_migrations`                  |
+| 原媒体     | `PIXISHELF_DATA_PATH` 对应的同时间点快照           | 不可重新生成，是最高优先级数据                                         |
+| 派生媒体   | `DERIVED_MEDIA_HOST_PATH` 对应的同时间点快照       | 多数可重建，但数据库保存发布指针和生成状态                             |
+| Pixiv data | `PIXISHELF_PUBLIC_DATA_PATH` 对应的同时间点快照    | 作者图片、标签封面和作品元数据快照；数据库保存最近路径、哈希与检查状态 |
+| 部署配置   | `build/.env`、实际 Compose、反向代理配置           | 含密钥和真实路径，必须加密或严格限制权限                               |
+| 程序版本   | App、Worker 的 tag、image ID 或 digest             | 不依赖可变 `latest` 猜测恢复版本                                       |
+| 备份清单   | 时间、实例、文件名、SHA-256、快照 ID、操作者、原因 | 用于证明各部分属于同一恢复点                                           |
 
 数据库 dump、媒体快照和配置副本必须通过同一个备份清单关联。文件名相似或处于同一天，不足以证明它们来自同一时间点。
 
@@ -113,7 +113,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 
 - `PIXISHELF_DATA_PATH`：原媒体；
 - `DERIVED_MEDIA_HOST_PATH`：封面、章节图、代表帧和其他派生媒体。
-- `PIXISHELF_PUBLIC_DATA_PATH`：Pixiv 作者图片和标签封面。
+- `PIXISHELF_PUBLIC_DATA_PATH`：Pixiv 作者图片、标签封面和作品元数据不可变快照。
 
 备份部署配置时至少保留实际 Compose、环境文件和反向代理配置。环境文件权限不得宽于仅管理员可读，例如：
 
@@ -188,7 +188,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 - `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
 - 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
 - App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
-- 新 Worker READY、两个 lane、22 个 job type / 24 个 type-version 组合（`SCAN` v1/v2/v3，其余 v1）和同
+- 新 Worker READY、两个 lane、23 个 job type / 25 个 type-version 组合（`SCAN` v1/v2/v3，其余 v1）和同
   lane 单执行证据；
 - 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
 
@@ -202,7 +202,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 
 ### 只有数据库损坏
 
-不能仅恢复数据库后继续使用较新的媒体目录。较新的归档、替换、迁移或 Pixiv 标签封面可能与旧数据库无法对应；必须选择与 dump 配对的三个媒体快照，或逐项证明差异可通过领域恢复消除。
+不能仅恢复数据库后继续使用较新的媒体目录。较新的归档、替换、迁移、Pixiv 图片或作品元数据快照可能与旧数据库无法对应；必须选择与 dump 配对的三个媒体快照，或逐项证明差异可通过领域恢复消除。
 
 ### 只有原媒体损坏
 

@@ -232,7 +232,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       update: { rawMetadataJson: raw }
     })
   }
-  await replaceSourceTags(transaction, artworkId, ref.id, metadata.tags)
+  await replacePixivSourceTags(transaction, artworkId, ref.id, metadata.tags)
   const incomingIdentities = new Set<string>()
   for (const item of input.media) {
     const identity = normalizeMediaIdentity(item.relativePath)
@@ -405,7 +405,7 @@ function normalizeMediaIdentity(value: string) {
   return value.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/+/, '').normalize('NFC').toLocaleLowerCase('und')
 }
 
-async function replaceSourceTags(
+export async function replacePixivSourceTags(
   transaction: ScanTransaction,
   artworkId: number,
   sourceRefId: string,

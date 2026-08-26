@@ -29,6 +29,16 @@ export const ArtworkGetSchema = z.object({
 })
 export type ArtworkGetSchema = z.infer<typeof ArtworkGetSchema>
 
+export const ArtworkPixivStatusFilterSchema = z.enum([
+  'NO_IDENTITY',
+  'UNCHECKED',
+  'CHECKED',
+  'SUCCESS',
+  'PARTIAL',
+  'NO_DATA',
+  'FAILED'
+])
+
 function getSafeSortOption(sortBy: string | null): SortOption {
   const validOptions: SortOption[] = [
     'title_asc',
@@ -130,7 +140,8 @@ export const ArtworksInfiniteQuerySchema = z.object({
   externalId: z.string().nullish().optional(),
   exactMatch: z.boolean().optional().default(false),
   mediaCountMin: z.coerce.number().int().min(0).nullish(),
-  mediaCountMax: z.coerce.number().int().min(0).nullish()
+  mediaCountMax: z.coerce.number().int().min(0).nullish(),
+  pixivStatus: ArtworkPixivStatusFilterSchema.nullish()
 })
 
 export type ArtworksInfiniteQuerySchema = z.infer<typeof ArtworksInfiniteQuerySchema>
@@ -290,6 +301,20 @@ const ArtworkTagDtoTag = TagModel.pick({
 
 export type TArtworkTagDto = z.infer<typeof ArtworkTagDtoTag>
 
+const ArtworkExternalRefDto = z.object({
+  id: z.string(),
+  providerKey: z.string(),
+  externalId: z.string(),
+  status: z.enum(['SUCCESS', 'PARTIAL', 'NO_DATA', 'FAILED']).nullable(),
+  lastAttemptAt: z.date().nullable(),
+  lastSuccessAt: z.date().nullable(),
+  lastErrorCode: z.string().nullable(),
+  lastError: z.string().nullable(),
+  lastSystemJobId: z.string().nullable(),
+  onlineSnapshotHash: z.string().nullable(),
+  onlineSnapshotPath: z.string().nullable()
+})
+
 // ==========================================
 // 核心聚合 DTO
 // ==========================================
@@ -319,6 +344,8 @@ export const ArtworkResponseDto = ArtworkModel.extend({
     .default([]),
 
   tags: z.array(ArtworkTagDtoTag).default([]),
+
+  externalRefs: z.array(ArtworkExternalRefDto).default([]),
 
   /**
    * 总媒体大小
@@ -354,6 +381,26 @@ export const ArtworkResponseDto = ArtworkModel.extend({
     })
     .nullable()
     .optional()
+}).transform(({ externalRefs, ...artwork }) => {
+  const pixivRefs = externalRefs.filter((source) => source.providerKey === 'pixiv')
+  const pixiv = pixivRefs.length === 1 && /^[1-9][0-9]*$/.test(pixivRefs[0]!.externalId) ? pixivRefs[0]! : null
+  return {
+    ...artwork,
+    pixivEligible: pixiv !== null,
+    pixivArtworkId: pixiv?.externalId ?? null,
+    pixivSync: pixiv
+      ? {
+          status: pixiv.status,
+          lastAttemptAt: pixiv.lastAttemptAt?.toISOString() ?? null,
+          lastSuccessAt: pixiv.lastSuccessAt?.toISOString() ?? null,
+          lastErrorCode: pixiv.lastErrorCode,
+          lastError: pixiv.lastError,
+          lastSystemJobId: pixiv.lastSystemJobId,
+          onlineSnapshotHash: pixiv.onlineSnapshotHash,
+          onlineSnapshotPath: pixiv.onlineSnapshotPath
+        }
+      : null
+  }
 })
 
 // export type ArtistResponse = z.infer<typeof ArtistResponseDto>

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ProColumnDef } from '@/components/shared/pro-table'
@@ -10,6 +10,7 @@ import { getPreferredTagName } from '@/components/artwork/preferred-tag'
 import { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { ArtworkRowActions } from './artwork-row-actions'
 import { Badge } from '@/components/ui/badge'
+import { Spinner } from '@/components/ui/spinner'
 
 function PreferredTagCell({ artwork }: { artwork: ArtworkResponseDto }) {
   const preferredTags = usePreferredTags()
@@ -33,6 +34,8 @@ interface ArtworkManagementColumnHandlers {
   onOpenImageManager: (item: ArtworkResponseDto) => void
   onDelete: (id: number) => void
   onRefresh: () => void
+  onRetryPixiv: (artworkId: number) => void
+  retryingPixivArtworkId: number | null
 }
 
 export function createArtworkManagementColumns({
@@ -41,7 +44,9 @@ export function createArtworkManagementColumns({
   onCopy,
   onOpenImageManager,
   onDelete,
-  onRefresh
+  onRefresh,
+  onRetryPixiv,
+  retryingPixivArtworkId
 }: ArtworkManagementColumnHandlers): ProColumnDef<ArtworkResponseDto>[] {
   return [
     {
@@ -166,6 +171,29 @@ export function createArtworkManagementColumns({
       headerClassName: 'hidden sm:table-cell',
       cellClassName: 'hidden sm:table-cell'
     },
+    {
+      id: 'pixivSync',
+      header: 'Pixiv 同步',
+      size: 130,
+      cell: ({ row }) => (
+        <div className="flex items-center gap-1">
+          <PixivSyncBadge artwork={row.original} />
+          {row.original.pixivSync?.status === 'FAILED' ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              disabled={retryingPixivArtworkId !== null}
+              onClick={() => onRetryPixiv(row.original.id)}
+              aria-label={`重新同步作品 ${row.original.title}`}
+              title="重新从 Pixiv 同步"
+            >
+              {retryingPixivArtworkId === row.original.id ? <Spinner /> : <RefreshCw aria-hidden="true" />}
+            </Button>
+          ) : null}
+        </div>
+      )
+    },
 
     {
       id: 'actions',
@@ -184,4 +212,21 @@ export function createArtworkManagementColumns({
       )
     }
   ]
+}
+
+function PixivSyncBadge({ artwork }: { artwork: ArtworkResponseDto }) {
+  if (!artwork.pixivEligible) return <span className="text-muted-foreground">—</span>
+  const status = artwork.pixivSync?.status
+  if (!status) return <Badge variant="outline">未检查</Badge>
+  const display = {
+    SUCCESS: { label: '成功', variant: 'success' as const },
+    PARTIAL: { label: '部分成功', variant: 'warning' as const },
+    NO_DATA: { label: '无数据', variant: 'secondary' as const },
+    FAILED: { label: '失败', variant: 'destructive' as const }
+  }[status]
+  return (
+    <Badge variant={display.variant} title={artwork.pixivSync?.lastError ?? undefined}>
+      {display.label}
+    </Badge>
+  )
 }

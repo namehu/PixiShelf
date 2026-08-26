@@ -28,7 +28,7 @@ sources:
 
 ## 数据来源与发布规则
 
-Worker 只访问 Pixiv 公共标签 Ajax 接口，不使用 Cookie、登录会话或浏览器扩展凭据。规范化结果包含：
+Worker 只访问 Pixiv 公共标签 Ajax 接口，不使用 Cookie 或登录会话。规范化结果包含：
 
 - 中文翻译 `name_zh`；
 - 英文翻译 `name_en`；

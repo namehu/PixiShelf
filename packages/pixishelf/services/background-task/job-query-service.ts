@@ -8,7 +8,7 @@ import { isWorkerHeartbeatFresh } from './worker-heartbeat'
 type JobQueryClient = Pick<Prisma.TransactionClient, 'systemJob' | 'workerInstance'>
 
 const TERMINAL_JOB_STATUSES: JobStatus[] = ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED']
-const PIXIV_ENRICHMENT_TYPES = ['PIXIV_TAG_ENRICHMENT', 'PIXIV_ARTIST_ENRICHMENT'] as const
+const PIXIV_ENRICHMENT_TYPES = ['PIXIV_TAG_ENRICHMENT', 'PIXIV_ARTIST_ENRICHMENT', 'PIXIV_ARTWORK_ENRICHMENT'] as const
 
 function queryClient(client?: JobQueryClient) {
   return client ?? (prisma as unknown as JobQueryClient)
@@ -55,7 +55,8 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
     NOT: {
       OR: [
         { type: 'PIXIV_TAG_ENRICHMENT', parentJobId: { not: null } },
-        { type: 'PIXIV_ARTIST_ENRICHMENT', parentJobId: { not: null } }
+        { type: 'PIXIV_ARTIST_ENRICHMENT', parentJobId: { not: null } },
+        { type: 'PIXIV_ARTWORK_ENRICHMENT', parentJobId: { not: null } }
       ]
     }
   } satisfies Prisma.SystemJobWhereInput

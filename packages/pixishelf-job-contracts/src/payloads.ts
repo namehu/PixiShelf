@@ -40,8 +40,10 @@ export const calendarDateSchema = z
   }, 'Expected a valid calendar date')
 
 const boundedIdSchema = z.string().trim().min(1).max(128)
+const positiveArtworkIdSchema = z.number().int().positive()
 const positiveTagIdSchema = z.number().int().positive()
 const positiveArtistIdSchema = z.number().int().positive()
+export const PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT = 200
 export const PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT = 200
 export const PIXIV_TAG_ENRICHMENT_BATCH_LIMIT = 200
 const uniquePositiveTagIdsSchema = (maximum: number) =>
@@ -350,6 +352,36 @@ export const pixivArtistEnrichmentPayloadSchema = z.discriminatedUnion('mode', [
 ])
 export type PixivArtistEnrichmentPayload = z.infer<typeof pixivArtistEnrichmentPayloadSchema>
 
+const pixivArtworkEnrichmentDiscoverPayloadSchema = z
+  .object({
+    mode: z.literal('DISCOVER'),
+    refreshExisting: z.boolean().default(false),
+    adoptSourceText: z.boolean().default(false),
+    artworkIds: z
+      .array(positiveArtworkIdSchema)
+      .min(1)
+      .max(PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT)
+      .refine((values) => new Set(values).size === values.length, 'Expected unique artwork ids')
+      .optional()
+  })
+  .strict()
+
+const pixivArtworkEnrichmentArtworkPayloadSchema = z
+  .object({
+    mode: z.literal('ARTWORK'),
+    artworkId: positiveArtworkIdSchema,
+    expectedExternalRefId: boundedIdSchema,
+    expectedPixivArtworkId: z.string().regex(/^[1-9][0-9]*$/),
+    adoptSourceText: z.boolean().default(false)
+  })
+  .strict()
+
+export const pixivArtworkEnrichmentPayloadSchema = z.discriminatedUnion('mode', [
+  pixivArtworkEnrichmentDiscoverPayloadSchema,
+  pixivArtworkEnrichmentArtworkPayloadSchema
+])
+export type PixivArtworkEnrichmentPayload = z.infer<typeof pixivArtworkEnrichmentPayloadSchema>
+
 export const JOB_PAYLOAD_SCHEMAS = {
   SCAN: scanPayloadSchema,
   LOCAL_DIRECTORY_IMPORT: localDirectoryImportPayloadSchema,
@@ -371,6 +403,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   SCAN_RUN_RETENTION_CLEANUP: emptyJobPayloadSchema,
   TRIGGER_LOG_RETENTION_CLEANUP: emptyJobPayloadSchema,
   DERIVED_MEDIA_GC: derivedMediaGcPayloadSchema,
+  PIXIV_ARTWORK_ENRICHMENT: pixivArtworkEnrichmentPayloadSchema,
   PIXIV_ARTIST_ENRICHMENT: pixivArtistEnrichmentPayloadSchema,
   PIXIV_TAG_ENRICHMENT: pixivTagEnrichmentPayloadSchema
 } satisfies Record<JobType, z.ZodType>

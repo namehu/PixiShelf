@@ -20,6 +20,10 @@ export function transformSingleArtwork(artwork: any) {
   const { images, totalMediaSize, imageCount, hasVideo, mediaCount } = transformImages(artwork.images, _count)
 
   // 构建响应对象
+  const pixivRefs = (artwork.externalRefs ?? []).filter(
+    (source: { providerKey?: string }) => source.providerKey === 'pixiv'
+  )
+  const pixiv = pixivRefs.length === 1 && /^[1-9][0-9]*$/.test(pixivRefs[0]?.externalId ?? '') ? pixivRefs[0] : null
   const result = {
     ...artwork,
     sourceDate: artwork.sourceDate ? dayjs(artwork.sourceDate).utc().format('YYYY-MM-DD HH:mm:ss') : null,
@@ -34,6 +38,20 @@ export function transformSingleArtwork(artwork: any) {
     mediaCount,
     isVideo: hasVideo,
     totalMediaSize,
+    pixivEligible: pixiv !== null,
+    pixivArtworkId: pixiv?.externalId ?? null,
+    pixivSync: pixiv
+      ? {
+          status: pixiv.status ?? null,
+          lastAttemptAt: pixiv.lastAttemptAt?.toISOString?.() ?? pixiv.lastAttemptAt ?? null,
+          lastSuccessAt: pixiv.lastSuccessAt?.toISOString?.() ?? pixiv.lastSuccessAt ?? null,
+          lastErrorCode: pixiv.lastErrorCode ?? null,
+          lastError: pixiv.lastError ?? null,
+          lastSystemJobId: pixiv.lastSystemJobId ?? null,
+          onlineSnapshotHash: pixiv.onlineSnapshotHash ?? null,
+          onlineSnapshotPath: pixiv.onlineSnapshotPath ?? null
+        }
+      : null,
     descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
     artist: artwork.artist
       ? {
@@ -46,6 +64,7 @@ export function transformSingleArtwork(artwork: any) {
   // 清理不需要输出到前端的临时字段 (虽然 JS 中 delete 性能一般，但在这里为了通过类型检查或减少 payload 可行)
   delete result.artworkTags
   delete result._count
+  delete result.externalRefs
 
   return result
 }

@@ -126,7 +126,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 ```
 
 Worker 必须通过 READY 和 capability 检查。后台任务页面应只显示一个当前 READY 实例。
-当前 capability inventory 为 22 个 job type；`SCAN` 支持 v1/v2/v3，其余 21 类只支持 v1，共 24 个
+当前 capability inventory 为 23 个 job type；`SCAN` 支持 v1/v2/v3，其余 22 类只支持 v1，共 25 个
 type/version 组合。READY 必须覆盖
 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个 lane。
 
@@ -189,17 +189,9 @@ pnpm test:integration
 pnpm build
 ```
 
-浏览器扩展：
-
-```bash
-cd packages/pixishelf-extension
-pnpm compile
-pnpm build
-```
-
 CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类型/测试/构建，以及在 job 包 `dist`
 生成前执行 Web lint、typecheck、单元测试和 production build。主应用因此直接消费 workspace 源码，独立
-`dist` 构建只保留为独立编译产物和类型声明的契约验证。CI 尚不能替代本地执行 Web 集成/E2E 和扩展验证。
+`dist` 构建只保留为独立编译产物和类型声明的契约验证。CI 尚不能替代本地执行 Web 集成/E2E 和部署冒烟。
 
 ## 生产部署
 
@@ -231,7 +223,6 @@ packages/
 ├── pixishelf-job-runtime/     队列与 Worker 运行时
 ├── pixishelf-job-executors/   后台任务实现
 ├── pixishelf-worker/          通用 Worker 进程
-├── pixishelf-extension/       WXT 浏览器扩展
 └── zip-convert/               Pixiv zip/APNG 转换工具
 
 build/                         Dockerfile、Compose 和环境模板

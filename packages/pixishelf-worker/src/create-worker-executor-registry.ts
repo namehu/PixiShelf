@@ -10,6 +10,7 @@ import {
   createNodeMigrationFileSystem,
   createNodePendingReplaceFileSystem,
   createPendingReplaceExecutorRegistrations,
+  createPixivArtworkExecutorRegistrations,
   createPixivArtistExecutorRegistrations,
   createPixivTagExecutorRegistrations,
   createPrismaMigrationDatabase,
@@ -100,6 +101,12 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
   }
   for (const definition of createPixivTagExecutorRegistrations({
     // 注册在统一后台写入注册表中，确保能力审计和线上执行器清单一致。
+    database: input.database,
+    pixivDataRoot: resolved.pixivDataRoot
+  })) {
+    registry.register(definition)
+  }
+  for (const definition of createPixivArtworkExecutorRegistrations({
     database: input.database,
     pixivDataRoot: resolved.pixivDataRoot
   })) {

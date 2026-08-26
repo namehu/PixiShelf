@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 任务计划、中央 Worker、扫描、本地导入、归档及派生媒体任务的当前业务链路与状态边界
-last-verified: 2026-08-25
+last-verified: 2026-08-26
 sources:
   - packages/pixishelf/app/api/internal/scheduler/tick/route.ts
   - packages/pixishelf/services/background-task/
@@ -26,7 +26,7 @@ sources:
 
 1. Next.js App 是控制面：鉴权、校验、冻结输入、创建任务和查询状态；稳态下不执行长任务。
 2. PostgreSQL 的 `SystemJob` 是持久队列；Worker 从数据库 claim，不接收 App 的内存消息。
-3. 一个 Worker 进程运行两个 Dispatcher：`ARCHIVE_RESOLVE` 固定并发 1，`BACKGROUND_WRITER` 固定并发 1。两条 lane 可以各执行一个任务；21 类 writer 任务之间全局串行。
+3. 一个 Worker 进程运行两个 Dispatcher：`ARCHIVE_RESOLVE` 固定并发 1，`BACKGROUND_WRITER` 固定并发 1。两条 lane 可以各执行一个任务；22 类 writer 任务之间全局串行。
 4. 任务计划只负责创建 `SystemJob`。中央模式下页面中的 `HH:mm` 当前不决定释放时刻；所有已启用 DAILY 任务都在上海时间 `00:00-08:00` 窗口内物化，实际顺序由优先级决定。
 5. `SystemJob=COMPLETED` 只说明该 Executor 按其契约结束。若任务按项目记录失败，或父任务只负责创建子任务，仍必须查看 `result`、子任务和领域状态。
 6. 视频媒体探测和自动封面现在属于同一个 `VIDEO_MEDIA_PROBE` 工作流：先分类、探测，再在同一任务中处理全部待生成封面；批量封面不再拆成子任务，也没有 100 条封面上限。
@@ -72,7 +72,7 @@ flowchart LR
   subgraph Worker[一个 Central Worker 进程]
     RESOLVE[ARCHIVE_RESOLVE Dispatcher\n并发 1]
     WRITER[BACKGROUND_WRITER Dispatcher\n并发 1]
-    EXEC[22 类 job type\nSCAN v1/v2/v3，其余 v1]
+    EXEC[23 类 job type\nSCAN v1/v2/v3，其余 v1]
   end
 
   subgraph Storage[文件和外部资源]
@@ -90,7 +90,7 @@ flowchart LR
   CMD -->|事务写入| JOB
   CMD -->|必要时同事务写入| DOMAIN
   RESOLVE -->|claim ARCHIVE_RESOLVE_ITEM| JOB
-  WRITER -->|claim 其余 21 类| JOB
+  WRITER -->|claim 其余 22 类| JOB
   JOB --> LEASE
   RESOLVE --> EXEC
   WRITER --> EXEC
@@ -215,7 +215,7 @@ sequenceDiagram
 | `derived_media_gc`                 | 清理派生媒体           |    05:30 | 否       |     70 | 每次最多处理 100 条已登记且到期的 GC intent                      |
 | `derived_media_gc_reconciliation`  | 核对派生媒体目录       |    05:45 | 否       |     71 | 仅周一 dry-run，有界扫描最多 500 个 poster 目录项，不删除        |
 
-## 22 类 Worker 任务
+## 23 类 Worker 任务
 
 除 `ARCHIVE_RESOLVE_ITEM` 外，其他任务全部进入 `BACKGROUND_WRITER`。
 
@@ -243,12 +243,39 @@ sequenceDiagram
 | `DERIVED_MEDIA_GC`                 | 任务计划、立即运行或指定 intent          | 是           | 否             | 复核引用后隔离并删除已登记的派生媒体候选                      |
 | `PIXIV_ARTIST_ENRICHMENT`          | 艺术家管理页批量补全、显式刷新或单项重试 | 否           | DISCOVER 会    | 查询 Pixiv 用户资料；默认只填空图片，刷新模式安全替换已有图片 |
 | `PIXIV_TAG_ENRICHMENT`             | 标签管理页批量补全或单标签重试           | 否           | DISCOVER 会    | 查询公共 Pixiv 标签数据，只填空字段并保存本地封面             |
+| `PIXIV_ARTWORK_ENRICHMENT`         | 作品管理页连续同步、选中同步或单项重试   | 否           | DISCOVER 会    | 查询已有 Pixiv 作品；保存磁盘快照并精确同步来源字段和标签     |
 
-标签和艺术家补全的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家的显式刷新同样覆盖全部 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
+标签、艺术家和作品同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家和作品的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
 
-生产 Registry 保持 22 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 21 类仍只支持 v1，因此 capability audit
-实际核对 24 个 job type/definition-version 组合及其 lane，而不是把 v2/v3 误算成新的任务类型。v1 承载既有
+生产 Registry 保持 23 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 22 类仍只支持 v1，因此 capability audit
+实际核对 25 个 job type/definition-version 组合及其 lane，而不是把 v2/v3 误算成新的任务类型。v1 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
+
+## Pixiv 作品在线同步链路
+
+```mermaid
+flowchart TD
+  ENTRY[作品管理页] --> MODE{启动模式}
+  MODE -->|普通| UNCHECKED[全部未检查且身份唯一的 Pixiv 作品]
+  MODE -->|刷新| ALL[全部有效 Pixiv 作品\n最久未检查优先]
+  MODE -->|显式选择| SELECTED[最多 200 项]
+  UNCHECKED --> DISCOVER[DISCOVER 按稳定游标每页 200]
+  ALL --> DISCOVER
+  SELECTED --> DISCOVER
+  DISCOVER --> CHILD[每个 Artwork 幂等物化一个低优先级子任务]
+  CHILD --> VERIFY[领取时复核唯一 Pixiv ref]
+  VERIFY --> FETCH[无 Cookie 请求 Pixiv\n12 秒 / 1 MB / 安全重定向]
+  FETCH --> SNAPSHOT[按 SHA-256 原子保存不可变 JSON 快照]
+  SNAPSHOT --> FENCE[短事务锁定 Artwork 与 ref\n再次复核身份和人工文本]
+  FENCE --> FIELDS[写来源字段和同步状态]
+  FENCE --> TAGS[精确替换当前 ref 拥有的 SOURCE 标签]
+  FIELDS --> DONE[成功 / 部分成功 / 无数据 / 失败]
+  TAGS --> DONE
+```
+
+网络请求和文件写入不在数据库事务中。最终发布只更新当前 Pixiv ref 能证明拥有的字段；Artist、Series、媒体、媒体顺序、`Artwork.likeCount` 和本地 metadata 不变。默认保护人工标题和描述，显式“采用最新文本”也使用请求前观测值做并发比较；管理员在任务期间的新编辑优先并令结果进入部分成功。远端标签数组不完整、作品 ID 不符或身份改变时，标签零写入。
+
+快照写入 `pixiv_data/artworks/<pixiv-id>/metadata/<sha256>.json`，数据库仅保存最近哈希和相对路径。作品 JSON 不通过媒体 Route 暴露；完整字段所有权、失败状态和上线规则见 [Pixiv 作品在线同步](../features/pixiv-artwork-online-sync.md)。
 
 ## Pixiv 扫描链路
 
@@ -593,15 +620,16 @@ flowchart TD
 
 ## 父子任务和完成语义
 
-| 父流程              | 子任务                                                  | 父任务 `COMPLETED` 表示                | 还必须检查                                 |
-| ------------------- | ------------------------------------------------------- | -------------------------------------- | ------------------------------------------ |
-| 视频探测与封面      | 无                                                      | 分类、探测和本轮全部自动封面候选已尝试 | `result` 中单项失败及 `MediaVideoMetadata` |
-| 代表帧计划发现      | 每视频一个 `VIDEO_KEYFRAME_GENERATION`                  | 候选发现和子任务物化完成               | 所有 `parentJobId` 子任务和 keyframe set   |
-| 归档维护 reconcile  | 每目标一个 `ARCHIVE_MAINTENANCE`                        | 维护 intent 发现和子任务物化完成       | CLEAN/TRASH/RESTORE/PURGE 子任务           |
-| 归档收件 submission | 每 URL 一个独立 resolver job，但不是 SystemJob 父子关系 | submission 本身没有统一执行终态        | 每个 IntakeItem 和 currentSystemJobId      |
-| 本地导入/扫描       | 无                                                      | Executor 已按 ScanRun 汇总结束         | ScanRun、ScanRunItem 和 job result         |
+| 父流程                 | 子任务                                                  | 父任务 `COMPLETED` 表示                | 还必须检查                                 |
+| ---------------------- | ------------------------------------------------------- | -------------------------------------- | ------------------------------------------ |
+| 视频探测与封面         | 无                                                      | 分类、探测和本轮全部自动封面候选已尝试 | `result` 中单项失败及 `MediaVideoMetadata` |
+| 代表帧计划发现         | 每视频一个 `VIDEO_KEYFRAME_GENERATION`                  | 候选发现和子任务物化完成               | 所有 `parentJobId` 子任务和 keyframe set   |
+| 归档维护 reconcile     | 每目标一个 `ARCHIVE_MAINTENANCE`                        | 维护 intent 发现和子任务物化完成       | CLEAN/TRASH/RESTORE/PURGE 子任务           |
+| 归档收件 submission    | 每 URL 一个独立 resolver job，但不是 SystemJob 父子关系 | submission 本身没有统一执行终态        | 每个 IntakeItem 和 currentSystemJobId      |
+| 本地导入/扫描          | 无                                                      | Executor 已按 ScanRun 汇总结束         | ScanRun、ScanRunItem 和 job result         |
+| Pixiv 标签/艺术家/作品 | 每个领域实体一个对应补全子任务                          | 全量候选发现和子任务物化完成           | 当前批次的全部子任务终态和领域同步状态     |
 
-任务列表如果只显示父任务，会造成“父任务完成但业务还没完成”的误解。展示层应对代表帧和归档 reconcile 明确显示子任务汇总；视频探测应直接显示同一 result 内的 probe/poster 分段统计。
+任务列表如果只显示父任务，会造成“父任务完成但业务还没完成”的误解。展示层应对代表帧、归档 reconcile 和三类 Pixiv 补全明确显示子任务汇总；视频探测应直接显示同一 result 内的 probe/poster 分段统计。
 
 ## 失败、暂停、取消和重试
 
@@ -659,9 +687,10 @@ flowchart TD
 | App 入队、幂等和控制命令      | `packages/pixishelf/services/background-task/job-command-service.ts`、`manual-job-singleton.ts`  |
 | claim、优先级、lease、fence   | `packages/pixishelf-job-runtime/src/queue-repository.ts`                                         |
 | 双 Dispatcher 和 Worker 启动  | `packages/pixishelf-worker/src/main.ts`、`dispatcher.ts`                                         |
-| 22 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
+| 23 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
 | Pixiv 艺术家补全              | `packages/pixishelf-job-executors/src/pixiv-artist/`、`pixiv-artist-enrichment-service.ts`       |
 | Pixiv 标签补全                | `packages/pixishelf-job-executors/src/pixiv-tag/`、`pixiv-tag-enrichment-service.ts`             |
+| Pixiv 作品在线同步            | `packages/pixishelf-job-executors/src/pixiv-artwork/`、`pixiv-artwork-enrichment-service.ts`     |
 | 扫描和本地导入                | `packages/pixishelf-job-executors/src/scan/`                                                     |
 | 归档解析、下载、发布、维护    | `packages/pixishelf-job-executors/src/archive/`                                                  |
 | 视频探测、封面和 GC           | `packages/pixishelf-job-executors/src/video-media/`                                              |

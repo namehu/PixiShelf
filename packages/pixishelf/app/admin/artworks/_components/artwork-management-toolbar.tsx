@@ -1,7 +1,7 @@
 'use client'
 
 import { Dispatch, SetStateAction } from 'react'
-import { ChevronDown, Copy, Download, FileText, FolderInput, FolderSync, Plus, Sliders } from 'lucide-react'
+import { ChevronDown, Copy, Download, FileText, FolderInput, FolderSync, Plus, Sliders, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -38,6 +38,8 @@ interface ArtworkManagementToolbarProps {
   onMigrationClick: () => void
   onOpenLogs: () => void
   onTogglePendingReplaceCopyMode: () => void
+  selectedPixivCount: number
+  onPixivSync: () => void
 }
 
 export function ArtworkManagementToolbar({
@@ -54,7 +56,9 @@ export function ArtworkManagementToolbar({
   onExportNoSeries,
   onMigrationClick,
   onOpenLogs,
-  onTogglePendingReplaceCopyMode
+  onTogglePendingReplaceCopyMode,
+  selectedPixivCount,
+  onPixivSync
 }: ArtworkManagementToolbarProps) {
   const transferModeLabel = migrationSafety.transferMode === 'move' ? '移动' : '复制'
 
@@ -63,6 +67,21 @@ export function ArtworkManagementToolbar({
       <Button variant="default" size="sm" className="flex-1 sm:flex-none" onClick={onCreate}>
         <Plus data-icon="inline-start" aria-hidden="true" />
         新增作品
+      </Button>
+
+      <Button
+        variant="outline"
+        size="sm"
+        className="flex-1 sm:flex-none"
+        onClick={onPixivSync}
+        disabled={selectedCount > 0 && selectedPixivCount === 0}
+      >
+        <Sparkles data-icon="inline-start" aria-hidden="true" />
+        {selectedPixivCount
+          ? `同步已选 ${selectedPixivCount} 项`
+          : selectedCount > 0
+            ? '所选无可同步作品'
+            : '从 Pixiv 同步'}
       </Button>
 
       <DropdownMenu modal={false}>

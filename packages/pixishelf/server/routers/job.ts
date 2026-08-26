@@ -32,6 +32,7 @@ import { z } from 'zod'
 import type { JobDto } from '@pixishelf/job-contracts'
 import { cancelPixivTagEnrichment } from '@/services/pixiv-tag-enrichment-service'
 import { cancelPixivArtistEnrichment } from '@/services/pixiv-artist-enrichment-service'
+import { cancelPixivArtworkEnrichment } from '@/services/pixiv-artwork-enrichment-service'
 import {
   assertLegacyBackgroundExecutionAllowed,
   acknowledgeJobFailureCommand,
@@ -655,6 +656,11 @@ export const jobRouter = router({
   cancelBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input }) =>
     runBackgroundTaskCommand(async () => {
       const job = await getJobById(input.jobId)
+      if (job?.type === 'PIXIV_ARTWORK_ENRICHMENT') {
+        const cancelled = await cancelPixivArtworkEnrichment(input.jobId)
+        if (!cancelled.job) throw new BackgroundTaskError('JOB_NOT_FOUND', 'Background job not found')
+        return cancelled.job
+      }
       if (job?.type === 'PIXIV_ARTIST_ENRICHMENT') {
         const cancelled = await cancelPixivArtistEnrichment(input.jobId)
         if (!cancelled.job) throw new BackgroundTaskError('JOB_NOT_FOUND', 'Background job not found')

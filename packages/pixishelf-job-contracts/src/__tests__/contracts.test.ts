@@ -34,6 +34,7 @@ describe('job wire contracts', () => {
         'ARCHIVE_IMPORT',
         'ARCHIVE_MAINTENANCE',
         'ARCHIVE_INTAKE_RETENTION_CLEANUP',
+        'PIXIV_ARTWORK_ENRICHMENT',
         'PIXIV_ARTIST_ENRICHMENT',
         'PIXIV_TAG_ENRICHMENT'
       ])
@@ -148,6 +149,44 @@ describe('job wire contracts', () => {
       refreshExisting: false
     })
     expect(() => parseJobPayload('PIXIV_TAG_ENRICHMENT', { mode: 'TAG', tagId: 0, expectedName: 'tag' })).toThrow()
+    expect(parseJobPayload('PIXIV_ARTWORK_ENRICHMENT', { mode: 'DISCOVER' })).toEqual({
+      mode: 'DISCOVER',
+      refreshExisting: false,
+      adoptSourceText: false
+    })
+    expect(
+      parseJobPayload('PIXIV_ARTWORK_ENRICHMENT', {
+        mode: 'DISCOVER',
+        refreshExisting: true,
+        adoptSourceText: true,
+        artworkIds: [3, 7]
+      })
+    ).toEqual({
+      mode: 'DISCOVER',
+      refreshExisting: true,
+      adoptSourceText: true,
+      artworkIds: [3, 7]
+    })
+    expect(
+      parseJobPayload('PIXIV_ARTWORK_ENRICHMENT', {
+        mode: 'ARTWORK',
+        artworkId: 7,
+        expectedExternalRefId: 'ref-7',
+        expectedPixivArtworkId: '123'
+      })
+    ).toEqual({
+      mode: 'ARTWORK',
+      artworkId: 7,
+      expectedExternalRefId: 'ref-7',
+      expectedPixivArtworkId: '123',
+      adoptSourceText: false
+    })
+    expect(() =>
+      parseJobPayload('PIXIV_ARTWORK_ENRICHMENT', {
+        mode: 'DISCOVER',
+        artworkIds: Array.from({ length: 201 }, (_, index) => index + 1)
+      })
+    ).toThrow()
     expect(parseJobPayload('PIXIV_ARTIST_ENRICHMENT', { mode: 'DISCOVER' })).toEqual({
       mode: 'DISCOVER',
       force: false,

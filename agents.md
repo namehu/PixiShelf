@@ -10,7 +10,6 @@ PixiShelf is a pnpm workspace for a personal web gallery that manages local imag
 - `packages/pixishelf-db`: Prisma schema, migrations, generated database client, and schema guards.
 - `packages/pixishelf-job-contracts`, `packages/pixishelf-job-runtime`, `packages/pixishelf-job-executors`: shared background-job contracts, runtime, and executor implementations.
 - `packages/pixishelf-worker`: standalone Central Dispatcher Worker with separate archive-resolve and background-writer lanes.
-- `packages/pixishelf-extension`: WXT browser extension for PixiShelf download workflows.
 - `packages/zip-convert`: Express/Node utilities for converting Pixiv zip/APNG assets.
 - `build`: Docker Compose and deployment assets.
 - `docs`, `scripts`, `data`, `todos`: supporting documentation and project utilities.
@@ -50,16 +49,6 @@ pnpm db:generate
 pnpm db:push
 pnpm db:migrate
 pnpm db:studio
-```
-
-Browser extension commands:
-
-```bash
-cd packages/pixishelf-extension
-pnpm dev
-pnpm build
-pnpm compile
-pnpm zip
 ```
 
 Utility services:
@@ -150,14 +139,6 @@ pnpm build
 ```
 
 - `pnpm build` for `packages/pixishelf` runs Next.js/Turbopack and may hang indefinitely under the filesystem/process sandbox. When verifying the main app build, run it with escalated permissions up front instead of waiting on a sandboxed build.
-- For extension changes:
-
-```bash
-cd packages/pixishelf-extension
-pnpm compile
-pnpm build
-```
-
 - If a check cannot run because services, environment variables, or network access are missing, report that clearly.
 - For migration, storage, deployment, bulk replacement, or destructive workflow changes, follow
   `docs/operations/backup-and-recovery.md` and record the required consistent checkpoint or recovery evidence.

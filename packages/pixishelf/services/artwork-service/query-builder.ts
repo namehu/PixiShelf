@@ -25,7 +25,8 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     exactMatch,
     mediaCountMin,
     mediaCountMax,
-    excludeTags
+    excludeTags,
+    pixivStatus
   } = params
 
   let whereSQL = 'WHERE a."deletedAt" IS NULL'
@@ -219,6 +220,50 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     whereSQL += ` AND a."imageCount" <= $${paramIndex}`
     sqlParams.push(mediaCountMax)
     paramIndex++
+  }
+
+  if (pixivStatus) {
+    const uniqueNumericPixivRef = `(
+      SELECT COUNT(*)
+      FROM "artwork_external_refs" pixiv_ref_count
+      WHERE pixiv_ref_count."artworkId" = a.id
+        AND pixiv_ref_count."providerKey" = 'pixiv'
+    ) = 1 AND EXISTS (
+      SELECT 1
+      FROM "artwork_external_refs" pixiv_ref_identity
+      WHERE pixiv_ref_identity."artworkId" = a.id
+        AND pixiv_ref_identity."providerKey" = 'pixiv'
+        AND pixiv_ref_identity."externalId" ~ '^[1-9][0-9]*$'
+    )`
+    if (pixivStatus === 'NO_IDENTITY') {
+      whereSQL += ` AND NOT (${uniqueNumericPixivRef})`
+    } else {
+      whereSQL += ` AND ${uniqueNumericPixivRef}`
+      if (pixivStatus === 'UNCHECKED') {
+        whereSQL += ` AND EXISTS (
+          SELECT 1 FROM "artwork_external_refs" pixiv_ref
+          WHERE pixiv_ref."artworkId" = a.id
+            AND pixiv_ref."providerKey" = 'pixiv'
+            AND pixiv_ref."status" IS NULL
+        )`
+      } else if (pixivStatus === 'CHECKED') {
+        whereSQL += ` AND EXISTS (
+          SELECT 1 FROM "artwork_external_refs" pixiv_ref
+          WHERE pixiv_ref."artworkId" = a.id
+            AND pixiv_ref."providerKey" = 'pixiv'
+            AND pixiv_ref."status" IS NOT NULL
+        )`
+      } else {
+        whereSQL += ` AND EXISTS (
+          SELECT 1 FROM "artwork_external_refs" pixiv_ref
+          WHERE pixiv_ref."artworkId" = a.id
+            AND pixiv_ref."providerKey" = 'pixiv'
+            AND pixiv_ref."status" = $${paramIndex}::"ArtworkExternalRefStatus"
+        )`
+        sqlParams.push(pixivStatus)
+        paramIndex++
+      }
+    }
   }
 
   return { whereSQL, sqlParams, paramIndex }

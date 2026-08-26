@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-08-25（艺术家来源身份与 Pixiv 资料补全）
+最后核验：2026-08-26（Pixiv 作品在线同步）
 
 ## 状态约定
 
@@ -34,9 +34,10 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | ------------------------------------------------------------------- | --------- | --------------------------------------------- |
 | [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令              |
 | [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标        |
-| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、22 类 Worker 任务、领域状态和流程图 |
+| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、23 类 Worker 任务、领域状态和流程图 |
 | [Pixiv 标签补全](./features/pixiv-tag-enrichment.md)                | `current` | 候选规则、只填空字段、任务状态和封面存储      |
 | [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)           | `current` | 外部身份、补全规则、任务状态与作者图片存储    |
+| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)       | `current` | 已有作品在线同步、来源所有权和磁盘快照        |
 | [归档收件箱](./features/archive-intake.md)                          | `current` | 持久收件、双通道、批量操作、维护和保留策略    |
 | [领域语境](../CONTEXT.md)                                           | `current` | 作品、媒体、来源、归档与本地身份术语          |
 | [当前架构](./architecture/current-architecture.md)                  | `current` | Workspace、运行组件、依赖方向和关键数据流     |
@@ -66,18 +67,19 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 功能规格、草案与实施归档
 
-| 文档                                                      | 状态         | 权威范围与后续处理                                         |
-| --------------------------------------------------------- | ------------ | ---------------------------------------------------------- |
-| [归档收件箱](./features/archive-intake.md)                | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界         |
-| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md) | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则             |
-| [归档收件队列设计](./design/archive-intake-queue.md)      | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
-| [多来源 URL 归档](./design/multi-source-url-archive.md)   | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
-| [视频代表帧生成](./design/video-keyframe-generation.md)   | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
-| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)    | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记        |
-| [界面设计升级计划](./pixishelf-design-upgrade-plan.md)    | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
-| [媒体类型建模技术债](../todos/媒体类型后缀匹配技术债.md)  | `draft`      | 媒体类型结构化的待实施方案，后续迁入 `docs/features/`      |
-| [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)      | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格         |
-| `todos/多媒体设计.md`（已删除）                           | `deprecated` | 对话式建议且包含旧路径；2026-08-18 清理，历史可从 Git 追溯 |
+| 文档                                                          | 状态         | 权威范围与后续处理                                         |
+| ------------------------------------------------------------- | ------------ | ---------------------------------------------------------- |
+| [归档收件箱](./features/archive-intake.md)                    | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界         |
+| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)     | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则             |
+| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md) | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护            |
+| [归档收件队列设计](./design/archive-intake-queue.md)          | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
+| [多来源 URL 归档](./design/multi-source-url-archive.md)       | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
+| [视频代表帧生成](./design/video-keyframe-generation.md)       | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
+| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)        | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记        |
+| [界面设计升级计划](./pixishelf-design-upgrade-plan.md)        | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
+| [媒体类型建模技术债](../todos/媒体类型后缀匹配技术债.md)      | `draft`      | 媒体类型结构化的待实施方案，后续迁入 `docs/features/`      |
+| [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)          | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格         |
+| `todos/多媒体设计.md`（已删除）                               | `deprecated` | 对话式建议且包含旧路径；2026-08-18 清理，历史可从 Git 追溯 |
 
 ## ADR
 
@@ -113,7 +115,6 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [Webhook 扫描](../packages/pixishelf/docs/webhook-features.md)            | `current` | 扫描 Webhook 负载契约；权限边界以安全矩阵为准  |
 | [ProTable](../packages/pixishelf/components/shared/pro-table/readme.md)   | `current` | 共置组件使用说明                               |
 | [Pixiv 信息提取脚本](../packages/pixishelf/scripts/extract-pixiv-info.md) | `current` | 共置脚本输入、输出与用法                       |
-| [浏览器扩展](../packages/pixishelf-extension/README.md)                   | `current` | Pixiv 标签与作品采集、任务持久化及导出说明     |
 | [Zip Convert](../packages/zip-convert/README.md)                          | `draft`   | 工具用法存在，尚未核验测试与平台边界           |
 | [辅助脚本](../scripts/README.md)                                          | `draft`   | 使用前需核验脚本、参数和基准数据               |
 

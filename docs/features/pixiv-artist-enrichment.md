@@ -62,6 +62,6 @@ pixiv_data/artists/<pixiv-user-id>/background-<sha256>.<真实扩展名>
 
 Worker 仅接受 HTTPS `i.pximg.net`，每次重定向重新校验主机，并限制响应体、格式、像素数和尺寸。Sharp 验证成功后按内容哈希命名，先写同目录临时文件，再原子发布；相同内容直接复用，变化后的图片使用新 URL，避免旧缓存遮住刷新结果。数据库只保存文件名；App 通过受 Session 保护的 `/api/pixiv-data/artists/...` 读取。App 对该目录只读，Worker 对同一挂载读写，因此 PostgreSQL 与 `pixiv_data` 必须位于同一备份和恢复检查点。
 
-## 扩展边界
+## 边界
 
-浏览器扩展不再提供用户 ID 采集、作者图片下载或 Artist SQL 生成。这些能力由 Next 管理页、正式外部身份表和持久 Worker 任务统一承担。E-Hentai 本期只保留未来 Provider 扩展能力，不把 `artist/group` 标签转换成 Artist；Artwork 与 Artist 的单一关联也不在本期改造。
+E-Hentai 本期只保留未来 Provider 扩展能力，不把 `artist/group` 标签转换成 Artist；Artwork 与 Artist 的单一关联也不在本期改造。

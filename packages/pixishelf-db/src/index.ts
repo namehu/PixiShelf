@@ -2,7 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
 
-const latestRequiredMigration = '20260824130000_add_tag_external_metadata'
+const latestRequiredMigration = '20260826143000_add_pixiv_artwork_online_sync'
 
 const requiredQueueObjects = [
   'archive_intake_items',

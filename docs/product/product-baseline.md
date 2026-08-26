@@ -108,7 +108,7 @@ PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档�
 - Docker Compose/NAS/Linux 生产部署；
 - PostgreSQL、宿主机文件系统、ImgProxy 和单通用 Worker；
 - 通过受控反向代理和 HTTPS 访问；
-- Chrome/现代浏览器 Web 界面，扩展能力按其包级说明维护。
+- Chrome/现代浏览器 Web 界面；Pixiv 资料补全和作品同步由 App 与通用 Worker 提供。
 
 当前两年内的非目标：
 

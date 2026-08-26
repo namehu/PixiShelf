@@ -37,6 +37,13 @@ import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/di
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
 import { ArtworkSourceEnum } from '@/schemas/models'
+import { PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
+import {
+  cancelPixivArtworkEnrichment,
+  getPixivArtworkEnrichmentSummary,
+  retryPixivArtworkEnrichment,
+  startPixivArtworkEnrichment
+} from '@/services/pixiv-artwork-enrichment-service'
 
 /**
  * 作品路由
@@ -113,6 +120,28 @@ export const artworkRouter = router({
     .mutation(async ({ input }) => {
       return updateArtwork(input.id, input.data)
     }),
+
+  pixivEnrichmentSummary: adminProcedure.query(() => getPixivArtworkEnrichmentSummary()),
+
+  startPixivEnrichment: adminProcedure
+    .input(
+      z.object({
+        artworkIds: z.array(z.number().int().positive()).min(1).max(PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT).optional(),
+        refreshExisting: z.boolean().default(false),
+        adoptSourceText: z.boolean().default(false)
+      })
+    )
+    .mutation(({ input, ctx }) =>
+      startPixivArtworkEnrichment(ctx.userId, input.artworkIds, input.refreshExisting, input.adoptSourceText)
+    ),
+
+  cancelPixivEnrichment: adminProcedure
+    .input(z.object({ jobId: z.string().min(1).optional() }).optional())
+    .mutation(({ input }) => cancelPixivArtworkEnrichment(input?.jobId)),
+
+  retryPixivEnrichment: adminProcedure
+    .input(z.object({ artworkId: z.number().int().positive() }))
+    .mutation(({ input, ctx }) => retryPixivArtworkEnrichment(input.artworkId, ctx.userId)),
 
   /**
    * 删除作品

@@ -8,8 +8,11 @@ interface AdminPreferencesState {
   showArtistImages: boolean
   /** 标签管理页是否展示标签封面。 */
   showTagCovers: boolean
+  /** 作品管理页是否展示 Pixiv 同步状态列。 */
+  showArtworkPixivSync: boolean
   setShowArtistImages: (show: boolean) => void
   setShowTagCovers: (show: boolean) => void
+  setShowArtworkPixivSync: (show: boolean) => void
 }
 
 export const useAdminPreferencesStore = create<AdminPreferencesState>()(
@@ -17,8 +20,10 @@ export const useAdminPreferencesStore = create<AdminPreferencesState>()(
     (set) => ({
       showArtistImages: true,
       showTagCovers: true,
+      showArtworkPixivSync: true,
       setShowArtistImages: (showArtistImages) => set({ showArtistImages }),
-      setShowTagCovers: (showTagCovers) => set({ showTagCovers })
+      setShowTagCovers: (showTagCovers) => set({ showTagCovers }),
+      setShowArtworkPixivSync: (showArtworkPixivSync) => set({ showArtworkPixivSync })
     }),
     {
       name: ADMIN_PREFERENCES_STORAGE_KEY,
@@ -27,7 +32,8 @@ export const useAdminPreferencesStore = create<AdminPreferencesState>()(
       // 只持久化用户配置；action 是运行时函数，无法也无需写入 localStorage。
       partialize: (state) => ({
         showArtistImages: state.showArtistImages,
-        showTagCovers: state.showTagCovers
+        showTagCovers: state.showTagCovers,
+        showArtworkPixivSync: state.showArtworkPixivSync
       }),
       // Next.js 会预渲染客户端组件；挂载后再读取 localStorage，避免 hydration 不一致。
       skipHydration: true

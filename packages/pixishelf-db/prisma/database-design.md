@@ -1,7 +1,7 @@
 ---
 status: current
 scope: Prisma Schema 之外由 migration 实现的扩展、触发器、索引和维护约束
-last-verified: 2026-08-20
+last-verified: 2026-08-26
 sources:
   - schema.prisma
   - migrations/
@@ -200,7 +200,7 @@ Image。apply 的 stale 或身份冲突在这些领域写入之前终止。
 `scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择
 任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
 
-Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。当前加入 Pixiv 标签与艺术家补全后为 22 个 job type；`SCAN` 同时注册 v1/v2/v3，其余 21 类仍只注册 v1，因此共有 24 个 job type/definition-version 组合。v1 承载既有扫描，v2 只读核对，v3 选定写入；滚动部署中的旧 v2 Worker 不会领取 v3。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
+Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。当前加入 Pixiv 标签、艺术家补全与作品在线同步后为 23 个 job type；`SCAN` 同时注册 v1/v2/v3，其余 22 类仍只注册 v1，因此共有 25 个 job type/definition-version 组合。v1 承载既有扫描，v2 只读核对，v3 选定写入；滚动部署中的旧 v2 Worker 不会领取 v3。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
 
 ### 3.7 归档收件与 Provider 请求治理
 
@@ -279,3 +279,4 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 | `20260820200000` | 以 expand-only 方式增加来源核对 operation/count、冻结证据、root dev/inode、独立 sighting marker 和持久差异明细；不改写领域或媒体数据            |
 | `20260820210000` | 为来源核对选定同步增加父核对证据、冻结 CAS 字段、逐项 outcome/reason/retryable、完整性 CHECK 和恢复/查询索引；历史行保持兼容                    |
 | `20260825103000` | 增加艺术家多 Provider 外部身份、同步状态与 Pixiv 强证据回填；保留旧 `Artist.userId` 作为一个发布周期的回滚镜像                                  |
+| `20260826143000` | 为 Pixiv 作品外部引用增加在线同步状态、任务与磁盘快照指针；只在唯一来源及数据库快照精确匹配时清除误标文本 override                              |

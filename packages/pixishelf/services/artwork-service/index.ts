@@ -131,7 +131,7 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
 
   const artworkIds = rawArtworks.map((a) => a.id)
   const artistIds = [...new Set(rawArtworks.map((artwork) => artwork.artist_id).filter(Boolean))] as number[]
-  const [allImages, allTags, artistExternalRefs, localArtistMappings] = await Promise.all([
+  const [allImages, allTags, artistExternalRefs, localArtistMappings, artworkExternalRefs] = await Promise.all([
     prisma.image.findMany({
       where: { artworkId: { in: artworkIds } },
       orderBy: { sortOrder: 'asc' },
@@ -160,6 +160,23 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
     prisma.localImportArtistMapping.findMany({
       where: { artistId: { in: artistIds } },
       select: { id: true, artistId: true }
+    }),
+    prisma.artworkExternalRef.findMany({
+      where: { artworkId: { in: artworkIds } },
+      select: {
+        id: true,
+        artworkId: true,
+        providerKey: true,
+        externalId: true,
+        status: true,
+        lastAttemptAt: true,
+        lastSuccessAt: true,
+        lastErrorCode: true,
+        lastError: true,
+        lastSystemJobId: true,
+        onlineSnapshotHash: true,
+        onlineSnapshotPath: true
+      }
     })
   ])
 
@@ -186,6 +203,12 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
     const mappings = localMappingsByArtist.get(mapping.artistId) ?? []
     mappings.push({ id: mapping.id })
     localMappingsByArtist.set(mapping.artistId, mappings)
+  }
+  const externalRefsByArtwork = new Map<number, typeof artworkExternalRefs>()
+  for (const ref of artworkExternalRefs) {
+    const refs = externalRefsByArtwork.get(ref.artworkId) ?? []
+    refs.push(ref)
+    externalRefsByArtwork.set(ref.artworkId, refs)
   }
 
   return rawArtworks.map((raw) => {
@@ -214,6 +237,7 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
       artist: artistObj,
       images: artworkImages,
       artworkTags: artworkTags,
+      externalRefs: externalRefsByArtwork.get(raw.id) ?? [],
       imageCount: raw.imageCount,
       _count: { images: raw.imageCount }
     }
@@ -395,9 +419,6 @@ export async function updateArtwork(
 
   const updateData: Prisma.ArtworkUpdateInput = { ...rest }
 
-  if (data.title !== undefined) updateData.titleOverridden = true
-  if (data.description !== undefined) updateData.descriptionOverridden = true
-
   if (sourceDate !== undefined) {
     updateData.sourceDate = typeof sourceDate === 'string' ? new Date(sourceDate) : sourceDate
   }
@@ -407,6 +428,17 @@ export async function updateArtwork(
   }
 
   return prisma.$transaction(async (tx) => {
+    if (data.title !== undefined || data.description !== undefined) {
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Artwork" WHERE "id" = ${id} FOR UPDATE`)
+      const current = await tx.artwork.findUniqueOrThrow({
+        where: { id },
+        select: { title: true, description: true }
+      })
+      if (data.title !== undefined && data.title !== current.title) updateData.titleOverridden = true
+      if (data.description !== undefined && data.description !== current.description) {
+        updateData.descriptionOverridden = true
+      }
+    }
     const artwork = await tx.artwork.update({ where: { id }, data: updateData })
     if (tags !== undefined) {
       await tx.artworkTag.deleteMany({
@@ -903,6 +935,21 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
         include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
       },
       artist: { select: ARTIST_SELECT },
+      externalRefs: {
+        select: {
+          id: true,
+          providerKey: true,
+          externalId: true,
+          status: true,
+          lastAttemptAt: true,
+          lastSuccessAt: true,
+          lastErrorCode: true,
+          lastError: true,
+          lastSystemJobId: true,
+          onlineSnapshotHash: true,
+          onlineSnapshotPath: true
+        }
+      },
       artworkTags: { include: { tag: true } },
       series: {
         include: {

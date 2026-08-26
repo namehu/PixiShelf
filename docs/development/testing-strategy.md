@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 的测试分层、变更验证矩阵、CI 实际覆盖和已知质量缺口
-last-verified: 2026-08-20
+last-verified: 2026-08-26
 sources:
   - package.json
   - packages/*/package.json
@@ -83,15 +83,6 @@ CI 在任何 job 包 `dist` 生成前完成 Web lint、typecheck、unit test 和
 workspace 源码；随后独立构建 job-contracts、job-runtime、job-executors 的 `dist`，再打包 Worker，验证
 独立编译输出、类型声明和依赖顺序没有漂移。
 
-### 浏览器扩展
-
-```bash
-pnpm --filter @pixishelf/extension compile
-pnpm --filter @pixishelf/extension build
-```
-
-扩展当前没有自动化测试脚本，compile/build 不能替代实际 Pixiv 页面上的人工回归。
-
 ### Compose 与 Worker 运行门禁
 
 ```bash
@@ -101,39 +92,37 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/capability-audit.cjs
 ```
 
-健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 22 个 job type、24 个 type/version 组合
+健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 23 个 job type、25 个 type/version 组合
 （`SCAN` v1/v2/v3、其余 v1）的 type/version/lane 已注册；二者都不能代替领域功能测试。
 
 ## 变更验证矩阵
 
-| 变更类型                  | 最小验证                                                                          | 需要追加的验证                                                                                               |
-| ------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| 纯文档                    | 链接、代码围栏、Prettier、`git diff --check`                                      | 命令和路径涉及部署时解析 Compose/脚本                                                                        |
-| 局部 UI/组件              | 主应用 lint、typecheck、聚焦组件测试                                              | 涉及共享 shell、播放器或导航时运行相关组件组和视口人工检查                                                   |
-| Service、tRPC、HTTP Route | lint、typecheck、聚焦服务/route 测试                                              | 修改鉴权、幂等或事务时加入失败路径和 PostgreSQL 测试                                                         |
-| 认证与接口边界            | lint、typecheck、无凭证/错误凭证/有效凭证聚焦测试                                 | 公共路径、Token、信任头、越界资源、限流和未授权零写入测试                                                    |
-| Prisma Schema/migration   | db validate/generate、DB 测试、从空库 `db:deploy`、migration status               | 生产数据副本演练、回滚/前向修复方案和 Worker 依赖链测试                                                      |
-| Job contract/payload      | Worker 依赖链 typecheck/test/build                                                | 版本兼容、旧 payload fixture、无效 payload 和重试测试                                                        |
-| Queue/runtime/lease       | Worker 依赖链测试                                                                 | PostgreSQL 同 lane 竞争、resolver+writer 并行、重启、过期租约、终态竞争和取消测试                            |
-| Executor/文件操作         | 聚焦 Executor 测试、Worker 依赖链                                                 | 临时目录 fixture、失败注入、hash/checkpoint、恢复和不越界路径测试                                            |
-| 扫描/导入/迁移            | 主应用或 Executor 单测                                                            | `test:integration`、真实 fixture、审计记录和重复执行测试                                                     |
-| Pixiv metadata inventory  | 指纹分类、DTO/UI nullable 单测                                                    | PostgreSQL + 临时目录：基线中断、跨 Run 重试、root/source CAS、10k unchanged 零 hash                         |
-| Pixiv 来源一致性核对      | v1/v2 payload 隔离、分类/checkpoint、producer/DTO/UI/鉴权回归                     | PostgreSQL + 临时目录：共享 SCAN 锁、空根/截断/取消/root 变化不生成 MISSING、重放幂等、只读领域边界          |
-| Pixiv 核对选定同步        | v2/v3 隔离、证据 canonicalization、选择/UI/DTO/鉴权/幂等回归                      | PostgreSQL + 临时目录：stale/身份 CAS 零写入、部分成功、崩溃重放、取消终态、publisher 拥有权和成组保留       |
-| Pixiv 标签补全            | payload、只填空字段、全量分页、状态、远端响应和封面安全校验                       | PostgreSQL + 临时目录：5000+ 子任务、claim/整批取消竞态、限流重试、重启恢复、鉴权图片路由                    |
-| Pixiv 艺术家补全          | 身份迁移、payload、全量分页、默认只填空与显式刷新图片、来源姓名和远端响应安全校验 | PostgreSQL + 临时目录：5000+ 子任务、claim/整批取消竞态、取消/重试、并发人工修改、身份变化与作者图片鉴权读取 |
-| 媒体播放/派生媒体         | 组件/服务测试                                                                     | 图片、视频、封面缺失、动画、FFmpeg 失败和实际浏览器抽样                                                      |
-| Compose/Dockerfile/env    | Compose config、相关 package build                                                | 镜像构建、非 root 权限、挂载、migration、READY/capability 冒烟                                               |
-| 浏览器扩展                | compile + build                                                                   | Chrome/Firefox 目标页面人工验证和权限检查                                                                    |
-| zip-convert               | 启动或工具级聚焦验证                                                              | 当前缺少可靠自动化测试，必须记录 fixture 和人工结果                                                          |
+| 变更类型                  | 最小验证                                                                           | 需要追加的验证                                                                                               |
+| ------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 纯文档                    | 链接、代码围栏、Prettier、`git diff --check`                                       | 命令和路径涉及部署时解析 Compose/脚本                                                                        |
+| 局部 UI/组件              | 主应用 lint、typecheck、聚焦组件测试                                               | 涉及共享 shell、播放器或导航时运行相关组件组和视口人工检查                                                   |
+| Service、tRPC、HTTP Route | lint、typecheck、聚焦服务/route 测试                                               | 修改鉴权、幂等或事务时加入失败路径和 PostgreSQL 测试                                                         |
+| 认证与接口边界            | lint、typecheck、无凭证/错误凭证/有效凭证聚焦测试                                  | 公共路径、Token、信任头、越界资源、限流和未授权零写入测试                                                    |
+| Prisma Schema/migration   | db validate/generate、DB 测试、从空库 `db:deploy`、migration status                | 生产数据副本演练、回滚/前向修复方案和 Worker 依赖链测试                                                      |
+| Job contract/payload      | Worker 依赖链 typecheck/test/build                                                 | 版本兼容、旧 payload fixture、无效 payload 和重试测试                                                        |
+| Queue/runtime/lease       | Worker 依赖链测试                                                                  | PostgreSQL 同 lane 竞争、resolver+writer 并行、重启、过期租约、终态竞争和取消测试                            |
+| Executor/文件操作         | 聚焦 Executor 测试、Worker 依赖链                                                  | 临时目录 fixture、失败注入、hash/checkpoint、恢复和不越界路径测试                                            |
+| 扫描/导入/迁移            | 主应用或 Executor 单测                                                             | `test:integration`、真实 fixture、审计记录和重复执行测试                                                     |
+| Pixiv metadata inventory  | 指纹分类、DTO/UI nullable 单测                                                     | PostgreSQL + 临时目录：基线中断、跨 Run 重试、root/source CAS、10k unchanged 零 hash                         |
+| Pixiv 来源一致性核对      | v1/v2 payload 隔离、分类/checkpoint、producer/DTO/UI/鉴权回归                      | PostgreSQL + 临时目录：共享 SCAN 锁、空根/截断/取消/root 变化不生成 MISSING、重放幂等、只读领域边界          |
+| Pixiv 核对选定同步        | v2/v3 隔离、证据 canonicalization、选择/UI/DTO/鉴权/幂等回归                       | PostgreSQL + 临时目录：stale/身份 CAS 零写入、部分成功、崩溃重放、取消终态、publisher 拥有权和成组保留       |
+| Pixiv 标签补全            | payload、只填空字段、全量分页、状态、远端响应和封面安全校验                        | PostgreSQL + 临时目录：5000+ 子任务、claim/整批取消竞态、限流重试、重启恢复、鉴权图片路由                    |
+| Pixiv 艺术家补全          | 身份迁移、payload、全量分页、默认只填空与显式刷新图片、来源姓名和远端响应安全校验  | PostgreSQL + 临时目录：5000+ 子任务、claim/整批取消竞态、取消/重试、并发人工修改、身份变化与作者图片鉴权读取 |
+| Pixiv 作品在线同步        | migration、payload、全量分页、远端响应、磁盘快照、来源字段、文本保护和精确标签同步 | PostgreSQL + 临时目录：5000+ 子任务、claim/整批取消竞态、身份/人工编辑 CAS、文件成功而数据库失败后的恢复     |
+| 媒体播放/派生媒体         | 组件/服务测试                                                                      | 图片、视频、封面缺失、动画、FFmpeg 失败和实际浏览器抽样                                                      |
+| Compose/Dockerfile/env    | Compose config、相关 package build                                                 | 镜像构建、非 root 权限、挂载、migration、READY/capability 冒烟                                               |
+| zip-convert               | 启动或工具级聚焦验证                                                               | 当前缺少可靠自动化测试，必须记录 fixture 和人工结果                                                          |
 
 “最小验证”是进入评审前的底线。跨多个类型的变更需要合并各行要求，而不是只选择最轻的一行。
 
-本期增量验证覆盖 62 条 migration 的 Schema/静态契约、数据库测试 68/68（另有 1 项按环境条件跳过）、
-contracts 13/13、Pixiv 艺术家 Executor 与扫描 checkpoint 24/24、Worker 84/84，以及 App 受影响服务/DTO/
-任务汇总 17/17。Next.js typecheck、lint 与 production build 通过，静态页面生成 35/35；扩展 compile/build 和
-Worker build 通过。Windows 主机上的 Executor 全量套件另有一个既有归档符号链接用例受权限环境影响失败，
-本期 Executor 聚焦套件已通过。该记录不替代隔离 PostgreSQL migration 链、生产数据副本、真实浏览器或部署冒烟。
+Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client/文件安全、领域写回、201/5001 全量发现、
+批量取消、App 状态筛选和任务恢复，以及 Worker/Next production build；聚焦单测不能替代隔离 PostgreSQL、
+生产数据副本、真实浏览器或 Compose READY/capability 冒烟。
 
 ## 数据库与文件测试原则
 
@@ -177,7 +166,7 @@ Worker build 通过。Windows 主机上的 Executor 全量套件另有一个既�
 8. 运行主应用 lint 和 typecheck；
 9. 运行主应用 `test:unit`。
 
-Worker 测试和 capability 门禁包含双 lane contract，以及 22 个 job type、24 个 type/version 组合（`SCAN`
+Worker 测试和 capability 门禁包含双 lane contract，以及 23 个 job type、25 个 type/version 组合（`SCAN`
 v1/v2/v3、其余 v1）的精确 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切
 演练。v3 的独立领取测试同时证明只声明 SCAN v2 的旧 Worker 不会领取 `AUDIT_APPLY`。
 
@@ -186,12 +175,11 @@ CI 当前没有明确执行：
 - 主应用 `test:integration`；
 - `.e2e.test.*`；
 - 主应用生产 build；
-- 浏览器扩展 compile/build；
 - zip-convert 验证；
 - Docker Compose/镜像运行冒烟；
 - 真实浏览器登录、反向代理和媒体播放。
 
-这些是已知缺口，不应在发布说明中声称已由 CI 覆盖。后续提高 CI 门禁时，应评估主应用集成测试和生产 build，再逐步补扩展构建与真实浏览器 E2E。
+这些是已知缺口，不应在发布说明中声称已由 CI 覆盖。后续提高 CI 门禁时，应评估主应用集成测试和 production build，再逐步补真实浏览器 E2E。
 
 ## 完成标准
 

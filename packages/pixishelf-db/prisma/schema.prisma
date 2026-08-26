@@ -137,28 +137,45 @@ model Artwork {
   @@index([archiveLifecycleState])
 }
 
+enum ArtworkExternalRefStatus {
+  SUCCESS
+  PARTIAL
+  NO_DATA
+  FAILED
+}
+
 model ArtworkExternalRef {
-  id                  String                   @id @default(cuid())
-  artworkId           Int
-  providerKey         String                   @db.VarChar(50)
-  externalId          String
-  canonicalUrl        String                   @db.Text
-  locator             Json
-  metadataHash        String?
-  lastSeenScanRunId   String?                  @db.VarChar(30)
-  fetchedAt           DateTime?
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
-  artwork             Artwork                  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
-  snapshots           ArtworkSourceSnapshot[]
-  sourceTags          ArtworkTag[]
-  archiveImports      ArchiveImport[]
-  archiveRevisions    ArchiveRevision[]
-  pixivMetadataInputs PixivMetadataInventory[]
+  id                   String                    @id @default(cuid())
+  artworkId            Int
+  providerKey          String                    @db.VarChar(50)
+  externalId           String
+  canonicalUrl         String                    @db.Text
+  locator              Json
+  metadataHash         String?
+  status               ArtworkExternalRefStatus?
+  lastAttemptAt        DateTime?
+  lastSuccessAt        DateTime?
+  lastErrorCode        String?                   @db.VarChar(80)
+  lastError            String?                   @db.Text
+  lastSystemJobId      String?
+  onlineSnapshotHash   String?                   @db.VarChar(64)
+  onlineSnapshotPath   String?                   @db.Text
+  lastSeenScanRunId    String?                   @db.VarChar(30)
+  fetchedAt            DateTime?
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  artwork              Artwork                   @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  snapshots            ArtworkSourceSnapshot[]
+  sourceTags           ArtworkTag[]
+  archiveImports       ArchiveImport[]
+  archiveRevisions     ArchiveRevision[]
+  pixivMetadataInputs  PixivMetadataInventory[]
 
   @@unique([providerKey, externalId])
   @@index([artworkId])
   @@index([providerKey, fetchedAt])
+  @@index([providerKey, status, lastAttemptAt])
+  @@index([lastSystemJobId])
   @@index([lastSeenScanRunId])
   @@index([providerKey, createdAt, lastSeenScanRunId], map: "artwork_external_refs_reconcile_sweep_idx")
   @@map("artwork_external_refs")

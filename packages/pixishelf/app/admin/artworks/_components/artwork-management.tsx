@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { toast } from 'sonner'
@@ -11,10 +11,10 @@ import { confirm } from '@/components/shared/global-confirm'
 import { useQueryStates, parseAsString, parseAsInteger, parseAsBoolean } from 'nuqs'
 import { ProTable, type ActionType } from '@/components/shared/pro-table'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { RowSelectionState } from '@tanstack/react-table'
+import { RowSelectionState, VisibilityState } from '@tanstack/react-table'
 import { BatchImportDialog } from './batch-import-dialog'
 import { ArtworkUnifiedEditor } from './artwork-unified-editor'
-import { ArtworkResponseDto } from '@/schemas/artwork.dto'
+import { ArtworkPixivStatusFilterSchema, type ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { OSource } from '@/enums/e-source'
 import { ArtworkManagementToolbar } from './artwork-management-toolbar'
 import { ArtworkFilterPanel } from '@/components/artwork/artwork-filter'
@@ -30,6 +30,10 @@ import {
   MEDIA_TYPE_OPTIONS,
   normalizeAudioFilter
 } from './artwork-management-utils'
+import { PixivArtworkEnrichmentDialog } from './pixiv-artwork-enrichment-dialog'
+import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
+import { AdminImageVisibilitySwitch } from '../../_components/admin-image-visibility-switch'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 export default function ArtworkManagement() {
   const router = useRouter()
@@ -37,6 +41,7 @@ export default function ArtworkManagement() {
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
   const [batchImportOpen, setBatchImportOpen] = useState(false)
+  const [pixivDialogOpen, setPixivDialogOpen] = useState(false)
   const [editorConfig, setEditorConfig] = useState<{ id: number | null; tab: 'info' | 'media' } | null>(null)
   const [copyInitialData, setCopyInitialData] = useState<{
     title: string
@@ -54,8 +59,15 @@ export default function ArtworkManagement() {
   })
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const tableActionRef = useRef<ActionType | undefined>(undefined)
+  const loadedArtworksRef = useRef(new Map<number, ArtworkResponseDto>())
+  const showArtworkPixivSync = useAdminPreferencesStore((state) => state.showArtworkPixivSync)
+  const columnVisibility = useMemo<VisibilityState>(() => ({ pixivSync: showArtworkPixivSync }), [showArtworkPixivSync])
 
   const selectedRowKeys = Object.keys(rowSelection)
+  const selectedPixivArtworks = selectedRowKeys
+    .map(Number)
+    .map((id) => loadedArtworksRef.current.get(id))
+    .filter((artwork): artwork is ArtworkResponseDto => Boolean(artwork?.pixivEligible))
 
   const [searchState, setSearchState] = useQueryStates({
     id: parseAsInteger,
@@ -72,6 +84,7 @@ export default function ArtworkManagement() {
     hasAudio: parseAsString.withDefault('all'),
     mediaCountMin: parseAsInteger,
     mediaCountMax: parseAsInteger,
+    pixivStatus: parseAsString,
     copyMode: parseAsString,
     page: parseAsInteger.withDefault(1),
     pageSize: parseAsInteger.withDefault(20)
@@ -126,6 +139,7 @@ export default function ArtworkManagement() {
       hasAudio: null,
       mediaCountMin: null,
       mediaCountMax: null,
+      pixivStatus: null,
       page: 1,
       pageSize: 20
     })
@@ -139,6 +153,16 @@ export default function ArtworkManagement() {
         queryClient.invalidateQueries({ queryKey: trpc.artwork.cardList.queryKey() })
         setRowSelection({})
       }
+    })
+  )
+
+  const retryPixivMutation = useMutation(
+    trpc.artwork.retryPixivEnrichment.mutationOptions({
+      onSuccess: () => {
+        toast.success('Pixiv 作品重试任务已创建')
+        refreshTable()
+      },
+      onError: (error) => toast.error(error.message)
     })
   )
 
@@ -297,12 +321,15 @@ export default function ArtworkManagement() {
     onCopy: handleCopy,
     onOpenImageManager: handleOpenImageManager,
     onDelete: handleDelete,
-    onRefresh: refreshTable
+    onRefresh: refreshTable,
+    onRetryPixiv: (artworkId) => retryPixivMutation.mutate({ artworkId }),
+    retryingPixivArtworkId: retryPixivMutation.isPending ? (retryPixivMutation.variables?.artworkId ?? null) : null
   })
 
   const request = useCallback(
     async (params: { pageSize: number; current: number }) => {
       const hasAudioFilter = normalizeAudioFilter(searchState.hasAudio)
+      const parsedPixivStatus = ArtworkPixivStatusFilterSchema.safeParse(searchState.pixivStatus)
       const res = await trpcClient.artwork.list.query({
         cursor: params.current,
         pageSize: params.pageSize,
@@ -319,9 +346,13 @@ export default function ArtworkManagement() {
         sources: searchState.sources,
         hasAudio: hasAudioFilter === 'all' ? undefined : hasAudioFilter,
         mediaCountMin: searchState.mediaCountMin,
-        mediaCountMax: searchState.mediaCountMax
+        mediaCountMax: searchState.mediaCountMax,
+        pixivStatus: parsedPixivStatus.success ? parsedPixivStatus.data : undefined
       })
       const { items, total } = res
+      for (const artwork of items) {
+        loadedArtworksRef.current.set(artwork.id, artwork as unknown as ArtworkResponseDto)
+      }
 
       return { data: items, total, success: true }
     },
@@ -370,6 +401,8 @@ export default function ArtworkManagement() {
               copyMode: searchState.copyMode === 'pending-replace' ? null : 'pending-replace'
             })
           }
+          selectedPixivCount={selectedPixivArtworks.length}
+          onPixivSync={() => setPixivDialogOpen(true)}
         />
       }
     >
@@ -386,28 +419,63 @@ export default function ArtworkManagement() {
           onPaginationChange={handlePaginationChange}
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}
+          columnVisibility={columnVisibility}
+          toolBarRender={() => (
+            <AdminImageVisibilitySwitch
+              id="artwork-pixiv-sync-column-visibility"
+              label="显示 Pixiv 同步状态"
+              preference="artwork-pixiv-sync"
+            />
+          )}
           renderExpandedRow={(artwork) => (
             <ArtworkRowMediaPreview artworkId={(artwork as ArtworkResponseDto).id} onSuccess={refreshTable} />
           )}
           searchRender={() => (
-            <ArtworkFilterPanel
-              inlineLabels
-              localSearch={localSearch}
-              setLocalSearch={setLocalSearch}
-              advancedSearchOpen={isAdvancedSearchOpen.advancedSearch}
-              onAdvancedSearchOpenChange={(advancedSearch) => setIsAdvancedSearchOpen({ advancedSearch })}
-              mediaTypeOptions={MEDIA_TYPE_OPTIONS}
-              sourceOptions={OSource}
-              onSearchTags={async (query) => {
-                const res = await trpcClient.tag.list.query({ query, pageSize: 20 })
-                return (res as any).items.map((tag: any) => ({
-                  label: tag.name_zh ? `${tag.name} (${tag.name_zh})` : tag.name,
-                  value: tag.name
-                }))
-              }}
-              onSearch={handleSearch}
-              onReset={handleReset}
-            />
+            <div className="grid w-full gap-3">
+              <div className="flex justify-end">
+                <Select
+                  value={searchState.pixivStatus || 'all'}
+                  onValueChange={(value) => {
+                    setRowSelection({})
+                    setSearchState({ pixivStatus: value === 'all' ? null : value, page: 1 })
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[180px]" aria-label="筛选 Pixiv 同步状态">
+                    <SelectValue placeholder="Pixiv 同步状态" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="all">全部同步状态</SelectItem>
+                      <SelectItem value="NO_IDENTITY">无 Pixiv 身份</SelectItem>
+                      <SelectItem value="UNCHECKED">待检查</SelectItem>
+                      <SelectItem value="CHECKED">已检查</SelectItem>
+                      <SelectItem value="SUCCESS">成功</SelectItem>
+                      <SelectItem value="PARTIAL">部分成功</SelectItem>
+                      <SelectItem value="NO_DATA">无数据</SelectItem>
+                      <SelectItem value="FAILED">失败</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+              <ArtworkFilterPanel
+                inlineLabels
+                localSearch={localSearch}
+                setLocalSearch={setLocalSearch}
+                advancedSearchOpen={isAdvancedSearchOpen.advancedSearch}
+                onAdvancedSearchOpenChange={(advancedSearch) => setIsAdvancedSearchOpen({ advancedSearch })}
+                mediaTypeOptions={MEDIA_TYPE_OPTIONS}
+                sourceOptions={OSource}
+                onSearchTags={async (query) => {
+                  const res = await trpcClient.tag.list.query({ query, pageSize: 20 })
+                  return (res as any).items.map((tag: any) => ({
+                    label: tag.name_zh ? `${tag.name} (${tag.name_zh})` : tag.name,
+                    value: tag.name
+                  }))
+                }}
+                onSearch={handleSearch}
+                onReset={handleReset}
+              />
+            </div>
           )}
         />
 
@@ -435,6 +503,19 @@ export default function ArtworkManagement() {
           migrationLogger={migrationLogger}
         />
         <BatchImportDialog open={batchImportOpen} onOpenChange={setBatchImportOpen} onSuccess={refreshTable} />
+        <PixivArtworkEnrichmentDialog
+          open={pixivDialogOpen}
+          onOpenChange={setPixivDialogOpen}
+          onStatusChanged={() => {
+            refreshTable()
+            setRowSelection({})
+          }}
+          selectedArtworks={selectedPixivArtworks.map((artwork) => ({
+            id: artwork.id,
+            title: artwork.title,
+            checked: artwork.pixivSync?.status != null
+          }))}
+        />
       </div>
     </AdminWorkbench>
   )

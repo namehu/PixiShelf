@@ -277,6 +277,26 @@ describe('buildArtworkWhereClause', () => {
     expect(sqlParams[0]).toEqual(['common'])
     expect(sqlParams[1]).toEqual(['common'])
   })
+
+  it('filters unchecked Pixiv artwork by one and only one valid provider identity', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({ pixivStatus: 'UNCHECKED' })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('pixiv_ref_count."providerKey" = \'pixiv\'')
+    expect(whereSQL).toContain(') = 1 AND EXISTS (')
+    expect(whereSQL).toContain('pixiv_ref_identity."externalId" ~ \'^[1-9][0-9]*$\'')
+    expect(whereSQL).toContain('pixiv_ref."status" IS NULL')
+    expect(sqlParams).toEqual([])
+  })
+
+  it('binds an exact Pixiv synchronization status after preceding filters', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({ artistId: 9, pixivStatus: 'FAILED' })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+
+    expect(whereSQL).toContain('a."artistId" = $1')
+    expect(whereSQL).toContain('pixiv_ref."status" = $2::"ArtworkExternalRefStatus"')
+    expect(sqlParams).toEqual([9, 'FAILED'])
+  })
 })
 
 describe('getArtworksList sort mapping', () => {
