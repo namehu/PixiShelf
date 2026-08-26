@@ -18,10 +18,10 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
-import { Switch } from '@/components/ui/switch'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
+import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
+import { AdminImageVisibilitySwitch } from '../../_components/admin-image-visibility-switch'
 import { PixivArtistEnrichmentDialog } from './pixiv-artist-enrichment-dialog'
 
 type ArtistListItem = ArtistResponseDto
@@ -79,10 +79,11 @@ export function ArtistManagement() {
   const [editingArtist, setEditingArtist] = useState<ArtistListItem | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
-    avatar: true,
-    backgroundImg: true
-  })
+  const showArtistImages = useAdminPreferencesStore((state) => state.showArtistImages)
+  const columnVisibility = useMemo<VisibilityState>(
+    () => ({ avatar: showArtistImages, backgroundImg: showArtistImages }),
+    [showArtistImages]
+  )
   const loadedArtistsRef = useRef(new Map<number, ArtistListItem>())
   const selectedArtistIds = Object.keys(rowSelection).map(Number)
   const selectedArtists = selectedArtistIds
@@ -453,7 +454,6 @@ export function ArtistManagement() {
         sorting={sorting}
         onSortingChange={handleSortingChange}
         columnVisibility={columnVisibility}
-        onColumnVisibilityChange={setColumnVisibility}
         rowSelection={rowSelection}
         onRowSelectionChange={setRowSelection}
         headerTitle="艺术家列表"
@@ -467,18 +467,11 @@ export function ArtistManagement() {
                 </Button>
               </>
             ) : null}
-            <div className="flex items-center gap-2">
-              <Switch
-                id="artist-image-column-visibility"
-                checked={columnVisibility.avatar !== false && columnVisibility.backgroundImg !== false}
-                onCheckedChange={(checked) =>
-                  setColumnVisibility((current) => ({ ...current, avatar: checked, backgroundImg: checked }))
-                }
-              />
-              <Label htmlFor="artist-image-column-visibility" className="cursor-pointer">
-                显示图片
-              </Label>
-            </div>
+            <AdminImageVisibilitySwitch
+              id="artist-image-column-visibility"
+              label="显示图片"
+              preference="artist-images"
+            />
           </>
         )}
         searchRender={() => (

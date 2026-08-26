@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { RefreshCw, Download, Edit2, Trash, Search, RotateCcw, Plus, Sparkles } from 'lucide-react'
@@ -18,8 +18,7 @@ import { useMutation } from '@tanstack/react-query'
 import { confirm } from '@/components/shared/global-confirm'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
+import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 
 // 导入子组件
 import { TagStatsCards } from './tag-stats-cards'
@@ -28,6 +27,7 @@ import { PixivTagEnrichmentDialog } from './pixiv-tag-enrichment-dialog'
 import { Spinner } from '@/components/ui/spinner'
 import { TagCoverPreviewDialog, TagCoverThumbnail, type TagCoverTarget } from './tag-cover'
 import { AdminWorkbench } from '../../_components/admin-workbench'
+import { AdminImageVisibilitySwitch } from '../../_components/admin-image-visibility-switch'
 
 // 定义 TagListItem 类型，匹配后端返回的数据结构
 interface TagListItem {
@@ -122,7 +122,8 @@ export default function TagManagement() {
   const [editingTag, setEditingTag] = useState<TagListItem | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({ cover: true })
+  const showTagCovers = useAdminPreferencesStore((state) => state.showTagCovers)
+  const columnVisibility = useMemo<VisibilityState>(() => ({ cover: showTagCovers }), [showTagCovers])
   const [previewedCover, setPreviewedCover] = useState<TagCoverTarget | null>(null)
   const loadedTagsRef = useRef(new Map<number, TagListItem>())
   const selectedTagIds = Object.keys(rowSelection).map(Number)
@@ -489,21 +490,15 @@ export default function TagManagement() {
                   </Button>
                 </>
               ) : null}
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="tag-cover-column-visibility"
-                  checked={columnVisibility.cover !== false}
-                  onCheckedChange={(checked) => setColumnVisibility((current) => ({ ...current, cover: checked }))}
-                />
-                <Label htmlFor="tag-cover-column-visibility" className="cursor-pointer">
-                  显示封面
-                </Label>
-              </div>
+              <AdminImageVisibilitySwitch
+                id="tag-cover-column-visibility"
+                label="显示封面"
+                preference="tag-covers"
+              />
             </>
           )}
           columns={columns}
           columnVisibility={columnVisibility}
-          onColumnVisibilityChange={setColumnVisibility}
           request={request}
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}
