@@ -3,9 +3,9 @@ import { router, authProcedure, adminProcedure } from '@/server/trpc'
 import * as tagService from '@/services/tag-service'
 import { prisma } from '@/lib/prisma'
 import { TagManagementStats } from '@/types/tags'
-import { Prisma } from '@pixishelf/db'
 import { PIXIV_TAG_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
 import { buildPixivTagImageUrl } from '@/lib/pixiv-data'
+import { TagPixivStatusFilterSchema } from '@/schemas/tag.dto'
 import {
   cancelPixivTagEnrichment,
   getPixivTagEnrichmentSummary,
@@ -109,35 +109,18 @@ export const tagRouter = router({
         limit: z.number().min(1).max(100).default(30),
         search: z.string().optional(),
         filter: z.enum(['all', 'translated', 'untranslated']).default('all'),
+        pixivStatus: TagPixivStatusFilterSchema.optional(),
         sort: z.enum(['name', 'name_zh', 'name_en', 'artworkCount', 'createdAt', 'updatedAt']).default('artworkCount'),
         order: z.enum(['asc', 'desc']).default('desc')
       })
     )
     .query(async ({ input }) => {
-      const { page, limit, search, filter, sort, order } = input
-
-      // 构建where条件
-      const andConditions: Prisma.TagWhereInput[] = []
-
-      // 搜索条件
-      if (search) {
-        andConditions.push({
-          OR: [
-            { name: { contains: search, mode: 'insensitive' } },
-            { name_zh: { contains: search, mode: 'insensitive' } },
-            { name_en: { contains: search, mode: 'insensitive' } }
-          ]
-        })
-      }
-
-      // 筛选条件
-      if (filter === 'translated') {
-        andConditions.push({ OR: [{ name_zh: { not: null } }, { name_en: { not: null } }] })
-      } else if (filter === 'untranslated') {
-        // “未翻译”要求中英文都为空，与自动补全对任一字段成功的语义保持一致。
-        andConditions.push({ AND: [{ name_zh: null }, { name_en: null }] })
-      }
-      const whereConditions: Prisma.TagWhereInput = andConditions.length > 0 ? { AND: andConditions } : {}
+      const { page, limit, search, filter, pixivStatus, sort, order } = input
+      const whereConditions = tagService.buildTagManagementWhere({
+        search,
+        translationStatus: filter,
+        pixivStatus
+      })
 
       // 计算偏移量
       const skip = (page - 1) * limit

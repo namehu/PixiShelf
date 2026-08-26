@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { deleteTag, getUntranslatedTagNames, updateTag } from '../tag-service'
+import { buildTagManagementWhere, deleteTag, getUntranslatedTagNames, updateTag } from '../tag-service'
 
 const mocks = vi.hoisted(() => ({
   tagFindUniqueMock: vi.fn(),
@@ -20,6 +20,53 @@ vi.mock('@/lib/prisma', () => ({
     }
   }
 }))
+
+describe('tag management Pixiv enrichment filters', () => {
+  const sourceCandidate = {
+    namespace: 'general',
+    isSystem: false,
+    artworkTags: {
+      some: {
+        provenance: 'SOURCE',
+        sourceRef: { is: { providerKey: 'pixiv' } }
+      }
+    }
+  }
+
+  it.each([
+    ['NO_IDENTITY', { NOT: sourceCandidate }],
+    ['UNCHECKED', { ...sourceCandidate, externalMetadata: { none: { providerKey: 'pixiv' } } }],
+    ['CHECKED', { ...sourceCandidate, externalMetadata: { some: { providerKey: 'pixiv' } } }],
+    ['SUCCESS', { ...sourceCandidate, externalMetadata: { some: { providerKey: 'pixiv', status: 'SUCCESS' } } }],
+    ['PARTIAL', { ...sourceCandidate, externalMetadata: { some: { providerKey: 'pixiv', status: 'PARTIAL' } } }],
+    ['NO_DATA', { ...sourceCandidate, externalMetadata: { some: { providerKey: 'pixiv', status: 'NO_DATA' } } }],
+    ['FAILED', { ...sourceCandidate, externalMetadata: { some: { providerKey: 'pixiv', status: 'FAILED' } } }]
+  ] as const)('builds the %s database predicate before pagination', (pixivStatus, condition) => {
+    expect(buildTagManagementWhere({ translationStatus: 'all', pixivStatus })).toEqual({ AND: [condition] })
+  })
+
+  it('combines translation and Pixiv filters', () => {
+    expect(
+      buildTagManagementWhere({
+        search: 'miku',
+        translationStatus: 'untranslated',
+        pixivStatus: 'PARTIAL'
+      })
+    ).toEqual({
+      AND: [
+        {
+          OR: [
+            { name: { contains: 'miku', mode: 'insensitive' } },
+            { name_zh: { contains: 'miku', mode: 'insensitive' } },
+            { name_en: { contains: 'miku', mode: 'insensitive' } }
+          ]
+        },
+        { AND: [{ name_zh: null }, { name_en: null }] },
+        { ...sourceCandidate, externalMetadata: { some: { providerKey: 'pixiv', status: 'PARTIAL' } } }
+      ]
+    })
+  })
+})
 
 describe('tag-service system tag protection', () => {
   beforeEach(() => {

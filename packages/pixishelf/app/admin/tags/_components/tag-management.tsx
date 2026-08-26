@@ -28,6 +28,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { TagCoverPreviewDialog, TagCoverThumbnail, type TagCoverTarget } from './tag-cover'
 import { AdminWorkbench } from '../../_components/admin-workbench'
 import { AdminImageVisibilitySwitch } from '../../_components/admin-image-visibility-switch'
+import { TagPixivStatusFilterSchema } from '@/schemas/tag.dto'
 
 // 定义 TagListItem 类型，匹配后端返回的数据结构
 interface TagListItem {
@@ -135,6 +136,7 @@ export default function TagManagement() {
   const [searchState, setSearchState] = useQueryStates({
     name: parseAsString,
     filter: parseAsString.withDefault('all'),
+    pixivStatus: parseAsString,
     page: parseAsInteger.withDefault(1),
     pageSize: parseAsInteger.withDefault(20)
   })
@@ -160,6 +162,7 @@ export default function TagManagement() {
     setSearchState({
       name: null,
       filter: 'all',
+      pixivStatus: null,
       page: 1,
       pageSize: 20
     })
@@ -387,6 +390,7 @@ export default function TagManagement() {
         sortField = sort[0].id
         sortOrder = sort[0].desc ? 'desc' : 'asc'
       }
+      const parsedPixivStatus = TagPixivStatusFilterSchema.safeParse(searchState.pixivStatus)
 
       // 调用 TRPC
       const res = await trpcClient.tag.management.query({
@@ -394,6 +398,7 @@ export default function TagManagement() {
         limit: params.pageSize,
         search: searchState.name || undefined,
         filter: (searchState.filter as any) || 'all',
+        pixivStatus: parsedPixivStatus.success ? parsedPixivStatus.data : undefined,
         sort: sortField as any,
         order: sortOrder as any
       })
@@ -533,6 +538,29 @@ export default function TagManagement() {
                     <SelectItem value="all">全部</SelectItem>
                     <SelectItem value="translated">已翻译</SelectItem>
                     <SelectItem value="untranslated">未翻译</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Select
+                value={searchState.pixivStatus || 'all'}
+                onValueChange={(value) => {
+                  setRowSelection({})
+                  setSearchState({ pixivStatus: value === 'all' ? null : value, page: 1 })
+                }}
+              >
+                <SelectTrigger className="h-8 w-full md:w-[160px]" aria-label="筛选 Pixiv 补全状态">
+                  <SelectValue placeholder="Pixiv 补全状态" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="all">全部补全状态</SelectItem>
+                    <SelectItem value="NO_IDENTITY">非 Pixiv 来源</SelectItem>
+                    <SelectItem value="UNCHECKED">待检查</SelectItem>
+                    <SelectItem value="CHECKED">已检查</SelectItem>
+                    <SelectItem value="SUCCESS">成功</SelectItem>
+                    <SelectItem value="PARTIAL">部分成功</SelectItem>
+                    <SelectItem value="NO_DATA">无数据</SelectItem>
+                    <SelectItem value="FAILED">失败</SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>

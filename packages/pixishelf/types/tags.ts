@@ -1,3 +1,5 @@
+import type { TagPixivStatusFilter } from '@/schemas/tag.dto'
+
 // ============================================================================
 // 标签广场相关类型定义
 // ============================================================================
@@ -36,6 +38,8 @@ export interface TagManagementParams {
   search?: string
   /** 筛选条件 */
   filter?: 'all' | 'translated' | 'untranslated'
+  /** Pixiv 补全状态 */
+  pixivStatus?: TagPixivStatusFilter
   /** 排序字段 */
   sort?: 'name' | 'name_zh' | 'name_en' | 'artworkCount' | 'createdAt' | 'updatedAt'
   /** 排序方向 */

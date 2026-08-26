@@ -1,12 +1,74 @@
 import { prisma } from '@/lib/prisma'
 import { TAG_SELECT } from '@/schemas/models/tags'
-import { TTagResponseDto, TagResponseDto } from '@/schemas/tag.dto'
+import { TTagResponseDto, TagResponseDto, type TagPixivStatusFilter } from '@/schemas/tag.dto'
 import { Prisma } from '@prisma/client'
 
 // 定义列表查询的返回结构
 export interface TagListResult {
   items: any[]
   nextCursor: number | undefined
+}
+
+const pixivTagCandidateWhere = {
+  namespace: 'general',
+  isSystem: false,
+  artworkTags: {
+    some: {
+      provenance: 'SOURCE',
+      sourceRef: { is: { providerKey: 'pixiv' } }
+    }
+  }
+} satisfies Prisma.TagWhereInput
+
+export function buildTagManagementWhere(input: {
+  search?: string
+  translationStatus: 'all' | 'translated' | 'untranslated'
+  pixivStatus?: TagPixivStatusFilter
+}): Prisma.TagWhereInput {
+  const conditions: Prisma.TagWhereInput[] = []
+
+  if (input.search) {
+    conditions.push({
+      OR: [
+        { name: { contains: input.search, mode: 'insensitive' } },
+        { name_zh: { contains: input.search, mode: 'insensitive' } },
+        { name_en: { contains: input.search, mode: 'insensitive' } }
+      ]
+    })
+  }
+
+  if (input.translationStatus === 'translated') {
+    conditions.push({ OR: [{ name_zh: { not: null } }, { name_en: { not: null } }] })
+  } else if (input.translationStatus === 'untranslated') {
+    conditions.push({ AND: [{ name_zh: null }, { name_en: null }] })
+  }
+
+  if (input.pixivStatus) {
+    switch (input.pixivStatus) {
+      case 'NO_IDENTITY':
+        conditions.push({ NOT: pixivTagCandidateWhere })
+        break
+      case 'UNCHECKED':
+        conditions.push({
+          ...pixivTagCandidateWhere,
+          externalMetadata: { none: { providerKey: 'pixiv' } }
+        })
+        break
+      case 'CHECKED':
+        conditions.push({
+          ...pixivTagCandidateWhere,
+          externalMetadata: { some: { providerKey: 'pixiv' } }
+        })
+        break
+      default:
+        conditions.push({
+          ...pixivTagCandidateWhere,
+          externalMetadata: { some: { providerKey: 'pixiv', status: input.pixivStatus } }
+        })
+    }
+  }
+
+  return conditions.length > 0 ? { AND: conditions } : {}
 }
 
 /**

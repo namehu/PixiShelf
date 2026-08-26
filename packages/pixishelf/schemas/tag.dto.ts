@@ -19,6 +19,18 @@ export const TagResponseDto = TagModel.pick(TAG_SELECT).extend({
 
 export type TTagResponseDto = z.infer<typeof TagResponseDto>
 
+export const TagPixivStatusFilterSchema = z.enum([
+  'NO_IDENTITY',
+  'UNCHECKED',
+  'CHECKED',
+  'SUCCESS',
+  'PARTIAL',
+  'NO_DATA',
+  'FAILED'
+])
+
+export type TagPixivStatusFilter = z.infer<typeof TagPixivStatusFilterSchema>
+
 /**
  * 随机标签 DTO
  * 包含：标签 ID + 名称 + 中文名称
