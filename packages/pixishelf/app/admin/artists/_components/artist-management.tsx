@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useState, useCallback, useMemo, useRef } from 'react'
 import { useTRPCClient, useTRPC } from '@/lib/trpc'
 import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { Input } from '@/components/ui/input'
@@ -13,7 +13,6 @@ import { confirm } from '@/components/shared/global-confirm'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import Link from 'next/link'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -22,6 +21,12 @@ import { Spinner } from '@/components/ui/spinner'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
 import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 import { AdminImageVisibilitySwitch } from '../../_components/admin-image-visibility-switch'
+import {
+  ArtistAvatarThumbnail,
+  ArtistBackgroundThumbnail,
+  ArtistImagePreviewDialog,
+  type ArtistImagePreviewTarget
+} from './artist-image-preview'
 import { PixivArtistEnrichmentDialog } from './pixiv-artist-enrichment-dialog'
 
 type ArtistListItem = ArtistResponseDto
@@ -79,6 +84,7 @@ export function ArtistManagement() {
   const [editingArtist, setEditingArtist] = useState<ArtistListItem | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [previewedImage, setPreviewedImage] = useState<ArtistImagePreviewTarget | null>(null)
   const showArtistImages = useAdminPreferencesStore((state) => state.showArtistImages)
   const columnVisibility = useMemo<VisibilityState>(
     () => ({ avatar: showArtistImages, backgroundImg: showArtistImages }),
@@ -298,22 +304,25 @@ export function ArtistManagement() {
         accessorKey: 'avatar',
         header: '头像',
         size: 76,
-        cell: ({ row }) => {
-          const avatar = row.getValue('avatar') as string
-          const name = row.getValue('name') as string
-          return (
-            <Avatar>
-              <AvatarImage src={avatar} alt={name} className="size-8" />
-              <AvatarFallback>{name?.substring(0, 2).toUpperCase()}</AvatarFallback>
-            </Avatar>
-          )
-        }
+        cell: ({ row }) => (
+          <ArtistAvatarThumbnail
+            name={row.original.name}
+            image={row.original.avatar}
+            onPreview={setPreviewedImage}
+          />
+        )
       },
       {
         accessorKey: 'backgroundImg',
         header: '背景图',
         size: 112,
-        cell: ({ row }) => <ArtistBackgroundThumbnail name={row.original.name} image={row.original.backgroundImg} />
+        cell: ({ row }) => (
+          <ArtistBackgroundThumbnail
+            name={row.original.name}
+            image={row.original.backgroundImg}
+            onPreview={setPreviewedImage}
+          />
+        )
       },
       {
         accessorKey: 'name',
@@ -572,36 +581,11 @@ export function ArtistManagement() {
           checked: artist.pixivSync?.status != null
         }))}
       />
+      <ArtistImagePreviewDialog
+        target={previewedImage}
+        onOpenChange={(open) => !open && setPreviewedImage(null)}
+      />
     </div>
-  )
-}
-
-function ArtistBackgroundThumbnail({ name, image }: { name: string; image: string | null }) {
-  const [loadFailed, setLoadFailed] = useState(false)
-
-  useEffect(() => setLoadFailed(false), [image])
-
-  if (!image || loadFailed) {
-    return (
-      <span
-        className="inline-flex h-11 w-20 rounded-md border border-dashed bg-muted/30"
-        aria-label={`艺术家 ${name} 没有背景图`}
-      />
-    )
-  }
-
-  return (
-    <span className="relative inline-flex h-11 w-20 overflow-hidden rounded-md border bg-muted">
-      {/* 背景图既可能是受 Session 保护的站内 API，也可能是管理员维护的外部 URL。 */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={image}
-        alt={`艺术家 ${name} 的背景图`}
-        className="size-full object-cover"
-        loading="lazy"
-        onError={() => setLoadFailed(true)}
-      />
-    </span>
   )
 }
 
