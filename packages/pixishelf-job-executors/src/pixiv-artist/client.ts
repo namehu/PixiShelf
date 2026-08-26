@@ -3,6 +3,8 @@ import { z } from 'zod'
 const MAX_RESPONSE_BYTES = 1_000_000
 const REQUEST_TIMEOUT_MS = 12_000
 const PIXIV_API_HOST = 'www.pixiv.net'
+const PIXIV_STATIC_HOST = 's.pximg.net'
+const DEFAULT_AVATAR_PATHS = new Set(['/common/images/no_profile.png', '/common/images/no_profile_s.png'])
 
 const responseSchema = z
   .object({
@@ -97,7 +99,7 @@ export async function fetchPixivArtistMetadata(input: {
     }
     return {
       sourceName: normalizeText(parsed.data.body.name),
-      avatarUrl: normalizeText(parsed.data.body.imageBig) ?? normalizeText(parsed.data.body.image),
+      avatarUrl: normalizeAvatarUrl(parsed.data.body.imageBig) ?? normalizeAvatarUrl(parsed.data.body.image),
       backgroundUrl: normalizeText(parsed.data.body.background?.url)
     }
   }
@@ -153,6 +155,25 @@ function assertPixivApiUrl(url: URL) {
 function normalizeText(value: string | null | undefined): string | null {
   const normalized = value?.trim()
   return normalized || null
+}
+
+function normalizeAvatarUrl(value: string | null | undefined): string | null {
+  const normalized = normalizeText(value)
+  if (!normalized) return null
+  try {
+    const url = new URL(normalized)
+    if (
+      url.protocol === 'https:' &&
+      url.hostname === PIXIV_STATIC_HOST &&
+      (!url.port || url.port === '443') &&
+      DEFAULT_AVATAR_PATHS.has(url.pathname)
+    ) {
+      return null
+    }
+  } catch {
+    // 非法 URL 继续交给图片存储层的来源校验统一拒绝。
+  }
+  return normalized
 }
 
 function emptyMetadata(): NormalizedPixivArtistMetadata {

@@ -29,6 +29,28 @@ describe('Pixiv artist client', () => {
     })
   })
 
+  it('treats Pixiv default profile images as no custom avatar', async () => {
+    await expect(
+      fetchPixivArtistMetadata({
+        pixivUserId: '123',
+        signal: new AbortController().signal,
+        fetchImpl: (async () =>
+          new Response(
+            JSON.stringify({
+              error: false,
+              body: {
+                userId: '123',
+                name: 'Artist',
+                image: 'https://s.pximg.net/common/images/no_profile_s.png',
+                imageBig: 'https://s.pximg.net/common/images/no_profile.png'
+              }
+            }),
+            { status: 200 }
+          )) as typeof fetch
+      })
+    ).resolves.toEqual({ sourceName: 'Artist', avatarUrl: null, backgroundUrl: null })
+  })
+
   it('treats 404 as checked with no data', async () => {
     await expect(
       fetchPixivArtistMetadata({
