@@ -89,8 +89,7 @@ function useMeasuredMediaContainer() {
     if (!containerRef.current) return
 
     const rect = containerRef.current.getBoundingClientRect()
-    const horizontalInset = window.innerWidth >= 640 ? 16 : 0
-    const nextWidth = Math.max(1, rect.width - horizontalInset)
+    const nextWidth = Math.max(1, rect.width)
     const nextScrollMargin = rect.top + window.scrollY
 
     setContainerWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
@@ -455,7 +454,7 @@ function PreviewContextMenu({
 
 function SingleVideoArtworkMedia({ media }: { media: ArtworkImageResponseDto }) {
   return (
-    <div className="w-full sm:px-2" data-testid="artwork-video-container">
+    <div className="w-full" data-testid="artwork-video-container">
       <LazyMedia media={media} index={0} />
     </div>
   )
@@ -577,7 +576,7 @@ function VirtualizedArtworkMediaList({
               key={virtualItem.key}
               ref={virtualizer.measureElement}
               data-index={index}
-              className="absolute left-0 right-0 top-0 sm:left-2 sm:right-2"
+              className="absolute left-0 right-0 top-0"
               style={{
                 transform: `translateY(${virtualItem.start - scrollMargin}px)`
               }}

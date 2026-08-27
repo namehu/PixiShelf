@@ -161,6 +161,9 @@ describe('ArtworkImages', () => {
 
     expect(screen.getAllByTestId('lazy-media')).toHaveLength(19)
     expect(screen.queryByRole('button', { name: /查看剩余/i })).toBeNull()
+    expect((screen.getByTestId('artwork-images-container').children[0] as HTMLElement).className).not.toContain(
+      'sm:left-2'
+    )
   })
 
   it('renders the first 20 media and the expand button initially', () => {
@@ -334,7 +337,7 @@ describe('ArtworkImages', () => {
 
     render(<ArtworkImages images={images} artworkId={1} />)
 
-    expect(screen.getByTestId('artwork-video-container')).toBeTruthy()
+    expect(screen.getByTestId('artwork-video-container').className).not.toContain('sm:px-2')
     expect(screen.getByTestId('lazy-media').getAttribute('data-src')).toBe('/path/to/video.mp4')
     expect(screen.queryByTestId('artwork-images-container')).toBeNull()
     expect(virtualizerMocks.useWindowVirtualizer).not.toHaveBeenCalled()
