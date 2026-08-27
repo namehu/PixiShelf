@@ -14,6 +14,8 @@ export interface VideoOptimizationJobView {
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   attempt?: number
+  failureNeedsAttention?: boolean
+  retryAllowed?: boolean
 }
 
 export const ACTIVE_VIDEO_OPTIMIZATION_STATUSES = ['PENDING', 'RUNNING', 'CANCELLING']

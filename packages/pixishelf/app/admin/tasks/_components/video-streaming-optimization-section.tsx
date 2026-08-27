@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 interface VideoOptimizationQueueView {
   capacity: number
   active: VideoOptimizationJobView[]
+  failureAttentionCount: number
   recent: VideoOptimizationJobView[]
 }
 
@@ -71,7 +72,7 @@ export function VideoStreamingOptimizationSection() {
   const recent = queue?.recent ?? []
   const runningCount = active.filter((job) => job.status === 'RUNNING' || job.status === 'CANCELLING').length
   const pendingCount = active.filter((job) => job.status === 'PENDING').length
-  const failedCount = recent.filter((job) => job.status === 'FAILED').length
+  const failedCount = queue?.failureAttentionCount ?? 0
 
   return (
     <TaskSection
@@ -116,7 +117,7 @@ export function VideoStreamingOptimizationSection() {
             key={job.id}
             job={job}
             onRetry={
-              job.targetImageId && ['FAILED', 'CANCELLED'].includes(job.status)
+              job.targetImageId && job.retryAllowed
                 ? () => retryMutation.mutate({ imageId: job.targetImageId! })
                 : undefined
             }
@@ -167,6 +168,9 @@ function OptimizationJobRow({
             <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
               <AdminStatusBadge status={job.status}>{getStatusLabel(job)}</AdminStatusBadge>
               {job.attempt && job.attempt > 1 ? <Badge variant="outline">第 {job.attempt} 次执行</Badge> : null}
+              {job.status === 'FAILED' && !job.failureNeedsAttention ? (
+                <Badge variant="outline">历史记录</Badge>
+              ) : null}
             </div>
             <p className="break-all font-mono text-xs text-muted-foreground" title={job.targetPath ?? undefined}>
               媒体 #{job.targetImageId ?? '-'} · {job.targetPath || '路径未知'}

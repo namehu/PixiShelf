@@ -74,7 +74,7 @@ describe('video streaming optimization job router', () => {
       reused: false
     })
     mocks.cancel.mockResolvedValue({ changed: true, job: { id: 'job-7', status: 'CANCELLED' } })
-    mocks.listQueue.mockResolvedValue({ capacity: 100, active: [], recent: [] })
+    mocks.listQueue.mockResolvedValue({ capacity: 100, active: [], failureAttentionCount: 0, recent: [] })
   })
 
   it('adds the requested video to the persistent queue', async () => {
@@ -161,6 +161,7 @@ describe('video streaming optimization job router', () => {
     await expect(caller.getVideoStreamingOptimizationQueue()).resolves.toEqual({
       capacity: 100,
       active: [],
+      failureAttentionCount: 0,
       recent: []
     })
   })

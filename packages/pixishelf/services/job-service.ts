@@ -667,16 +667,52 @@ export async function listVideoStreamingOptimizationQueue(recentLimit = 20) {
         status: { in: VIDEO_STREAMING_OPTIMIZATION_TERMINAL_STATUSES }
       },
       orderBy: { updatedAt: 'desc' },
-      take: recentLimit
+      take: recentLimit,
+      include: {
+        failureAcknowledgement: { select: { jobId: true } }
+      }
     })
   ])
   const pendingIds = activeJobs.filter((job) => job.status === JobStatus.PENDING).map((job) => job.id)
   const pendingPositions = new Map(pendingIds.map((id, index) => [id, index + 1]))
+  const activeTargetImageIds = new Set(
+    activeJobs.flatMap((job) => (job.targetImageId === null ? [] : [job.targetImageId]))
+  )
+  const latestTerminalJobIdsByImageId = new Map<number, string>()
+
+  for (const job of recentJobs) {
+    if (job.targetImageId !== null && !latestTerminalJobIdsByImageId.has(job.targetImageId)) {
+      latestTerminalJobIdsByImageId.set(job.targetImageId, job.id)
+    }
+  }
+
+  const recent = recentJobs.map(({ failureAcknowledgement, ...job }) => {
+    const hasActiveSuccessor = job.targetImageId !== null && activeTargetImageIds.has(job.targetImageId)
+    const isLatestTerminalJob =
+      job.targetImageId === null || latestTerminalJobIdsByImageId.get(job.targetImageId) === job.id
+    const failureNeedsAttention =
+      job.status === JobStatus.FAILED &&
+      failureAcknowledgement === null &&
+      isLatestTerminalJob &&
+      !hasActiveSuccessor
+
+    return {
+      ...job,
+      queuePosition: null as number | null,
+      failureNeedsAttention,
+      retryAllowed:
+        job.targetImageId !== null &&
+        isLatestTerminalJob &&
+        !hasActiveSuccessor &&
+        (job.status === JobStatus.CANCELLED || failureNeedsAttention)
+    }
+  })
 
   return {
     capacity: VIDEO_STREAMING_OPTIMIZATION_QUEUE_CAPACITY,
     active: activeJobs.map((job) => ({ ...job, queuePosition: pendingPositions.get(job.id) ?? null })),
-    recent: recentJobs.map((job) => ({ ...job, queuePosition: null as number | null }))
+    failureAttentionCount: recent.filter((job) => job.failureNeedsAttention).length,
+    recent
   }
 }
 

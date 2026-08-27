@@ -47,6 +47,7 @@ import {
   getLatestLocalDirectoryImportJob,
   getActiveMigrationJob,
   getActiveScanJob,
+  listVideoStreamingOptimizationQueue,
   finalizePendingReplaceJob
 } from '../job-service'
 
@@ -266,6 +267,67 @@ describe('job locking and video optimization queue', () => {
       queuePosition: 2
     })
     expect(mocks.create).not.toHaveBeenCalled()
+  })
+
+  it('counts only current unacknowledged video optimization failures as needing attention', async () => {
+    mocks.globalFindMany
+      .mockResolvedValueOnce([{ id: 'job-active', status: 'RUNNING', targetImageId: 3 }])
+      .mockResolvedValueOnce([
+        {
+          id: 'job-success-1',
+          status: 'COMPLETED',
+          targetImageId: 1,
+          failureAcknowledgement: null
+        },
+        {
+          id: 'job-old-failure-1',
+          status: 'FAILED',
+          targetImageId: 1,
+          failureAcknowledgement: null
+        },
+        {
+          id: 'job-acknowledged-failure-2',
+          status: 'FAILED',
+          targetImageId: 2,
+          failureAcknowledgement: { jobId: 'job-acknowledged-failure-2' }
+        },
+        {
+          id: 'job-retrying-failure-3',
+          status: 'FAILED',
+          targetImageId: 3,
+          failureAcknowledgement: null
+        },
+        {
+          id: 'job-current-failure-4',
+          status: 'FAILED',
+          targetImageId: 4,
+          failureAcknowledgement: null
+        },
+        {
+          id: 'job-old-failure-4',
+          status: 'FAILED',
+          targetImageId: 4,
+          failureAcknowledgement: null
+        }
+      ])
+
+    const queue = await listVideoStreamingOptimizationQueue()
+
+    expect(queue.failureAttentionCount).toBe(1)
+    expect(queue.recent).toEqual([
+      expect.objectContaining({ id: 'job-success-1', failureNeedsAttention: false, retryAllowed: false }),
+      expect.objectContaining({ id: 'job-old-failure-1', failureNeedsAttention: false, retryAllowed: false }),
+      expect.objectContaining({ id: 'job-acknowledged-failure-2', failureNeedsAttention: false, retryAllowed: false }),
+      expect.objectContaining({ id: 'job-retrying-failure-3', failureNeedsAttention: false, retryAllowed: false }),
+      expect.objectContaining({ id: 'job-current-failure-4', failureNeedsAttention: true, retryAllowed: true }),
+      expect.objectContaining({ id: 'job-old-failure-4', failureNeedsAttention: false, retryAllowed: false })
+    ])
+    expect(mocks.globalFindMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        include: { failureAcknowledgement: { select: { jobId: true } } }
+      })
+    )
   })
 
   it('rejects a new item when the persistent queue reaches its active capacity', async () => {
