@@ -72,7 +72,7 @@ flowchart LR
   subgraph Worker[一个 Central Worker 进程]
     RESOLVE[ARCHIVE_RESOLVE Dispatcher\n并发 1]
     WRITER[BACKGROUND_WRITER Dispatcher\n并发 1]
-    EXEC[23 类 job type\nSCAN v1/v2/v3，其余 v1]
+    EXEC[25 类 job type\nSCAN v1/v2/v3，其余 v1]
   end
 
   subgraph Storage[文件和外部资源]
@@ -90,7 +90,7 @@ flowchart LR
   CMD -->|事务写入| JOB
   CMD -->|必要时同事务写入| DOMAIN
   RESOLVE -->|claim ARCHIVE_RESOLVE_ITEM| JOB
-  WRITER -->|claim 其余 23 类| JOB
+  WRITER -->|claim 其余 24 类| JOB
   JOB --> LEASE
   RESOLVE --> EXEC
   WRITER --> EXEC
@@ -215,7 +215,7 @@ sequenceDiagram
 | `derived_media_gc`                 | 清理派生媒体           |    05:30 | 否       |     70 | 每次最多处理 100 条已登记且到期的 GC intent                      |
 | `derived_media_gc_reconciliation`  | 核对派生媒体目录       |    05:45 | 否       |     71 | 仅周一 dry-run，有界扫描最多 500 个 poster 目录项，不删除        |
 
-## 24 类 Worker 任务
+## 25 类 Worker 任务
 
 除 `ARCHIVE_RESOLVE_ITEM` 外，其他任务全部进入 `BACKGROUND_WRITER`。
 
@@ -245,11 +245,12 @@ sequenceDiagram
 | `PIXIV_ARTIST_ENRICHMENT`          | 艺术家管理页批量补全、显式刷新或单项重试 | 否           | DISCOVER 会    | 查询 Pixiv 用户资料；默认只填空图片，刷新模式安全替换已有图片 |
 | `PIXIV_TAG_ENRICHMENT`             | 标签管理页批量补全或单标签重试           | 否           | DISCOVER 会    | 查询公共 Pixiv 标签数据，只填空字段并保存本地封面             |
 | `PIXIV_ARTWORK_ENRICHMENT`         | 作品管理页连续同步、选中同步或单项重试   | 否           | DISCOVER 会    | 查询已有 Pixiv 作品；保存磁盘快照并精确同步来源字段和标签     |
+| `PIXIV_SERIES_RECONCILIATION`      | 系列管理页连续核对、显式刷新或任务重试   | 否           | DISCOVER 会    | 复用作品快照或在线资料，精确同步系列身份、成员关系和顺序     |
 
-标签、艺术家和作品同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家和作品的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
+标签、艺术家、作品和系列同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家、作品和系列的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
 
-生产 Registry 保持 24 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 23 类仍只支持 v1，因此 capability audit
-实际核对 26 个 job type/definition-version 组合及其 lane，而不是把 v2/v3 误算成新的任务类型。v1 承载既有
+生产 Registry 保持 25 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 24 类仍只支持 v1，因此 capability audit
+实际核对 27 个 job type/definition-version 组合及其 lane，而不是把 v2/v3 误算成新的任务类型。v1 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
 
 ## Pixiv 作品在线同步链路
@@ -688,7 +689,7 @@ flowchart TD
 | App 入队、幂等和控制命令      | `packages/pixishelf/services/background-task/job-command-service.ts`、`manual-job-singleton.ts`  |
 | claim、优先级、lease、fence   | `packages/pixishelf-job-runtime/src/queue-repository.ts`                                         |
 | 双 Dispatcher 和 Worker 启动  | `packages/pixishelf-worker/src/main.ts`、`dispatcher.ts`                                         |
-| 23 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
+| 25 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
 | Pixiv 艺术家补全              | `packages/pixishelf-job-executors/src/pixiv-artist/`、`pixiv-artist-enrichment-service.ts`       |
 | Pixiv 标签补全                | `packages/pixishelf-job-executors/src/pixiv-tag/`、`pixiv-tag-enrichment-service.ts`             |
 | Pixiv 作品在线同步            | `packages/pixishelf-job-executors/src/pixiv-artwork/`、`pixiv-artwork-enrichment-service.ts`     |

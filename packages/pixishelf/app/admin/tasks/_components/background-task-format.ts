@@ -25,6 +25,7 @@ const typeLabels: Partial<Record<JobType, string>> = {
   PENDING_REPLACE: '待替换媒体',
   PIXIV_ARTWORK_ENRICHMENT: 'Pixiv 作品在线同步',
   PIXIV_ARTIST_ENRICHMENT: 'Pixiv 艺术家补全',
+  PIXIV_SERIES_RECONCILIATION: 'Pixiv 系列核对',
   PIXIV_AI_DERIVED_TAG_SYNC: '校准 Pixiv AI 派生标签',
   PIXIV_TAG_ENRICHMENT: 'Pixiv 标签补全',
   REFILL_META_SOURCE: '补全来源元数据',

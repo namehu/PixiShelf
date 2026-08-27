@@ -191,7 +191,7 @@ function metadata(title: string, zoneUrl?: string, requestContext?: string): Pix
       sanityLevel: null,
       createDate: null,
       uploadDate: null,
-      series: null
+      series: { state: 'NONE' }
     }
   }
 }

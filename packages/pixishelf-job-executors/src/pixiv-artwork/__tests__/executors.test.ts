@@ -178,6 +178,10 @@ describe('Pixiv artwork enrichment executor', () => {
         update: refUpdate
       },
       artwork: { update: artworkUpdate, findUniqueOrThrow: vi.fn().mockResolvedValue(afterArtwork) },
+      seriesArtwork: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        delete: vi.fn()
+      },
       tag: {
         upsert: vi.fn().mockResolvedValueOnce({ id: 11 }).mockResolvedValueOnce({ id: 12 }),
         findFirst: vi.fn().mockResolvedValue({ id: 99 })
@@ -316,6 +320,10 @@ describe('Pixiv artwork enrichment executor', () => {
         update: refUpdate
       },
       artwork: { update: artworkUpdate, findUniqueOrThrow: vi.fn().mockResolvedValue(afterArtwork) },
+      seriesArtwork: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        delete: vi.fn()
+      },
       tag: {
         upsert: vi.fn().mockResolvedValueOnce({ id: 11 }).mockResolvedValueOnce({ id: 12 }),
         findFirst: vi.fn().mockResolvedValue({ id: 99 })
@@ -461,6 +469,7 @@ function pixivResponse() {
         aiType: 2,
         illustType: 0,
         sl: 6,
+        seriesNavData: null,
         urls: {
           original: 'https://i.pximg.net/original.jpg',
           regular: 'https://i.pximg.net/regular.jpg'

@@ -26,6 +26,7 @@ import {
   buildPixivArtworkSyncReport,
   type PixivArtworkSyncTrackedState
 } from './sync-report.ts'
+import { observePixivSeriesState, reconcilePixivArtworkSeries } from './series-sync.ts'
 
 const PROVIDER_KEY = 'pixiv'
 const CHILD_QUEUE_PRIORITY = 900
@@ -228,6 +229,10 @@ async function executeArtwork(
     })
     const checkedAt = now()
     if (!response) return finalizeNoData(context, payload, checkedAt)
+    const observedSeries =
+      response.normalized.series.state === 'PRESENT'
+        ? await observePixivSeriesState(dependencies.database, response.normalized.series.id, payload.artworkId)
+        : null
 
     await context.progress({ progress: 60, stage: 'STORING_SNAPSHOT', message: '正在保存 Pixiv 作品资料快照' })
     const snapshot = await storePixivArtworkSnapshot({
@@ -357,7 +362,16 @@ async function executeArtwork(
         sourceTags: metadata.tags,
         isAiGenerated
       })
-      const status = skippedConcurrentFields.length > 0 ? 'PARTIAL' : 'SUCCESS'
+      const seriesSync = await reconcilePixivArtworkSeries(scope.transaction, {
+        artworkId: ref.artworkId,
+        artworkExternalRefId: ref.id,
+        observation: metadata.series,
+        checkedAt,
+        jobId: context.job.id,
+        refreshExisting: payload.adoptSourceText,
+        observedSeries
+      })
+      const status = skippedConcurrentFields.length > 0 || seriesSync.status === 'PARTIAL' ? 'PARTIAL' : 'SUCCESS'
       const [afterArtwork, afterTags] = await Promise.all([
         scope.transaction.artwork.findUniqueOrThrow({ where: { id: ref.artworkId }, select: TRACKED_ARTWORK_SELECT }),
         listOwnedPixivSourceTags(scope.transaction, ref.artworkId, ref.id)
@@ -412,7 +426,8 @@ async function executeArtwork(
           snapshotHash: snapshot.hash,
           snapshotPath: snapshot.relativePath,
           snapshotReused: snapshot.reused,
-          tagCount: metadata.tags.length
+          tagCount: metadata.tags.length,
+          seriesSync
         },
         message:
           status === 'PARTIAL'
@@ -446,7 +461,12 @@ async function executeArtwork(
           lastAttemptAt: attemptedAt,
           lastErrorCode: failure.code,
           lastError: failure.message,
-          lastSystemJobId: context.job.id
+          lastSystemJobId: context.job.id,
+          seriesSyncStatus: 'FAILED',
+          seriesLastAttemptAt: attemptedAt,
+          seriesLastErrorCode: failure.code,
+          seriesLastError: failure.message,
+          seriesLastSystemJobId: context.job.id
         }
       })
     })
@@ -496,7 +516,13 @@ function finalizeNoData(
         lastSuccessAt: checkedAt,
         lastErrorCode: null,
         lastError: null,
-        lastSystemJobId: context.job.id
+        lastSystemJobId: context.job.id,
+        seriesSyncStatus: 'NO_DATA',
+        seriesLastAttemptAt: checkedAt,
+        seriesLastSuccessAt: checkedAt,
+        seriesLastErrorCode: null,
+        seriesLastError: null,
+        seriesLastSystemJobId: context.job.id
       }
     })
     if (result.count !== 1) {

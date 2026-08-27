@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { confirm } from '@/components/shared/global-confirm'
 import { PageState } from '@/components/layout/page-state'
 import { AdminTableFrame, AdminWorkbench } from '../../../_components/admin-workbench'
+import { Badge } from '@/components/ui/badge'
 
 interface Props {
   seriesId: number
@@ -41,9 +42,13 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
   )
 
   const handleRemove = (artworkId: number) => {
+    const artwork = series?.artworks.find((item) => item.id === artworkId)
+    const sourceOwned = artwork?.seriesMembership.provenance === 'SOURCE'
     confirm({
       title: '从系列中移除该作品？',
-      description: '作品本身不会被删除，只会解除与当前系列的关联。',
+      description: sourceOwned
+        ? '作品本身不会被删除。该 Pixiv 来源成员会被本地排除，之后的普通核对不会自动加回。'
+        : '作品本身不会被删除，只会解除与当前系列的关联。',
       confirmText: '确认移除',
       onConfirm: () => removeMutation.mutate({ seriesId, artworkId })
     })
@@ -109,6 +114,7 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
               <TableHead className="w-[100px]">排序</TableHead>
               <TableHead>缩略图</TableHead>
               <TableHead>标题</TableHead>
+              <TableHead>关系来源</TableHead>
               <TableHead>ID</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
@@ -150,6 +156,9 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
                   </Avatar>
                 </TableCell>
                 <TableCell>{artwork.title}</TableCell>
+                <TableCell>
+                  <MembershipBadge membership={artwork.seriesMembership} />
+                </TableCell>
                 <TableCell>{artwork.id}</TableCell>
                 <TableCell>
                   <Button
@@ -166,7 +175,7 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
             ))}
             {series.artworks.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center">
+                <TableCell colSpan={6} className="text-center">
                   暂无作品
                 </TableCell>
               </TableRow>
@@ -184,4 +193,21 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
       />
     </AdminWorkbench>
   )
+}
+
+function MembershipBadge({
+  membership
+}: {
+  membership: { provenance: 'SOURCE' | 'MANUAL' | 'LEGACY'; orderOverridden: boolean }
+}) {
+  if (membership.provenance === 'SOURCE') {
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        <Badge variant="secondary">Pixiv 来源</Badge>
+        {membership.orderOverridden ? <Badge variant="outline">本地排序</Badge> : null}
+      </div>
+    )
+  }
+  if (membership.provenance === 'MANUAL') return <Badge variant="outline">手工添加</Badge>
+  return <Badge variant="muted">历史关系</Badge>
 }

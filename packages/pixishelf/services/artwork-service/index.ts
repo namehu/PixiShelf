@@ -538,9 +538,8 @@ export async function getNoSeriesArtworkExternalIds(): Promise<string[]> {
   const artworks = await prisma.artwork.findMany({
     where: {
       deletedAt: null,
-      seriesId: null,
       seriesArtworks: {
-        none: {}
+        none: { excludedAt: null }
       },
       externalId: {
         not: null
@@ -951,12 +950,18 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
         }
       },
       artworkTags: { include: { tag: true } },
-      series: {
+      seriesArtworks: {
+        where: { excludedAt: null },
+        orderBy: { seriesId: 'asc' },
         include: {
-          seriesArtworks: {
-            where: { artwork: { deletedAt: null } },
-            orderBy: { sortOrder: 'asc' },
-            include: { artwork: { select: { id: true, title: true } } }
+          series: {
+            include: {
+              seriesArtworks: {
+                where: { excludedAt: null, artwork: { deletedAt: null } },
+                orderBy: { sortOrder: 'asc' },
+                include: { artwork: { select: { id: true, title: true } } }
+              }
+            }
           }
         }
       }
@@ -970,24 +975,26 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
 
   const { images: enhancedImages, totalMediaSize, imageCount } = transformImages(artwork.images)
 
-  let seriesData = null
-  if (artwork.series) {
-    const currentItem = artwork.series.seriesArtworks.find((sa) => sa.artworkId === id)
+  const seriesData = artwork.seriesArtworks.flatMap((membership) => {
+    const currentItem = membership.series.seriesArtworks.find((item) => item.artworkId === id)
     if (currentItem) {
-      const currentIndex = artwork.series.seriesArtworks.indexOf(currentItem)
-      const prev = currentIndex > 0 ? artwork.series.seriesArtworks[currentIndex - 1] : null
+      const currentIndex = membership.series.seriesArtworks.indexOf(currentItem)
+      const prev = currentIndex > 0 ? membership.series.seriesArtworks[currentIndex - 1] : null
       const next =
-        currentIndex < artwork.series.seriesArtworks.length - 1 ? artwork.series.seriesArtworks[currentIndex + 1] : null
+        currentIndex < membership.series.seriesArtworks.length - 1
+          ? membership.series.seriesArtworks[currentIndex + 1]
+          : null
 
-      seriesData = {
-        id: artwork.series.id,
-        title: artwork.series.title,
+      return [{
+        id: membership.series.id,
+        title: membership.series.title,
         order: currentItem.sortOrder,
         prev: prev ? { id: prev.artwork.id, title: prev.artwork.title } : null,
         next: next ? { id: next.artwork.id, title: next.artwork.title } : null
-      }
+      }]
     }
-  }
+    return []
+  })
 
   return ArtworkResponseDto.parse({
     ...artwork,
@@ -997,6 +1004,7 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
     totalMediaSize,
     artist: artwork.artist,
     artworkTags: undefined,
+    seriesArtworks: undefined,
     series: seriesData
   })
 }

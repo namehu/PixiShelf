@@ -7,14 +7,14 @@ import {
 import { PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
 
 describe('production Worker capability audit', () => {
-  it('accepts exactly one fresh READY Worker with 24 job types and SCAN v1/v2/v3', async () => {
+  it('accepts exactly one fresh READY Worker with 25 job types and SCAN v1/v2/v3', async () => {
     const findMany = vi.fn().mockResolvedValue([{ capabilities: [...PRODUCTION_WORKER_CAPABILITIES].reverse() }])
     await expect(
       auditProductionWorkerCapabilities(database(findMany), {
         now: new Date('2026-08-17T01:00:00.000Z'),
         freshnessMs: 60_000
       })
-    ).resolves.toEqual({ readyWorkers: 1, capabilities: 24 })
+    ).resolves.toEqual({ readyWorkers: 1, capabilities: 25 })
     expect(findMany).toHaveBeenCalledWith({
       where: { status: 'READY', heartbeatAt: { gte: new Date('2026-08-17T00:59:00.000Z') } },
       orderBy: { workerId: 'asc' },
@@ -30,7 +30,7 @@ describe('production Worker capability audit', () => {
 
     await expect(
       auditProductionWorkerCapabilities(database(vi.fn().mockResolvedValue([{ capabilities: previousInventory }])))
-    ).rejects.toThrow('24-job/26-version dual-lane release')
+    ).rejects.toThrow('25-job/27-version dual-lane release')
   })
 
   it('rejects missing, duplicate, or mismatched online inventories', async () => {
@@ -74,7 +74,7 @@ describe('production Worker capability audit', () => {
 
     expect(exitCode).toBe(0)
     expect(writeOutput).toHaveBeenCalledWith(
-      'Worker capability audit passed: 1 READY Worker, 24 job types / 26 versions (SCAN v1/v2/v3)'
+      'Worker capability audit passed: 1 READY Worker, 25 job types / 27 versions (SCAN v1/v2/v3)'
     )
   })
 

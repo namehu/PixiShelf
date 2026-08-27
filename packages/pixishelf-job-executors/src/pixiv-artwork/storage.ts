@@ -44,7 +44,7 @@ export async function storePixivArtworkSnapshot(input: {
     raw: input.response.raw,
     normalized: input.response.normalized
   }
-  const hashContent = { version: 2, core: snapshotHashCore(input.response.normalized) }
+  const hashContent = { version: 3, core: snapshotHashCore(input.response.normalized) }
   const hash = createHash('sha256').update(stableStringify(hashContent)).digest('hex')
   const payload = { fetchedAt: input.fetchedAt.toISOString(), ...content }
   const bytes = Buffer.from(`${stableStringify(payload)}\n`, 'utf8')

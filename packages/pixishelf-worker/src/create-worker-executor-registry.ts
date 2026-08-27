@@ -12,6 +12,7 @@ import {
   createPendingReplaceExecutorRegistrations,
   createPixivArtworkExecutorRegistrations,
   createPixivArtistExecutorRegistrations,
+  createPixivSeriesExecutorRegistrations,
   createPixivTagExecutorRegistrations,
   createPrismaMigrationDatabase,
   createPrismaPendingReplaceDatabase,
@@ -107,6 +108,12 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
     registry.register(definition)
   }
   for (const definition of createPixivArtworkExecutorRegistrations({
+    database: input.database,
+    pixivDataRoot: resolved.pixivDataRoot
+  })) {
+    registry.register(definition)
+  }
+  for (const definition of createPixivSeriesExecutorRegistrations({
     database: input.database,
     pixivDataRoot: resolved.pixivDataRoot
   })) {

@@ -33,7 +33,7 @@ describe('Pixiv artwork client', () => {
             { tag: 'VOCALOID', translation: 'Vocaloid' }
           ]
         },
-        seriesNavData: { seriesId: '9' }
+        seriesNavData: { seriesId: '9', title: '  Manga series  ', order: '4' }
       })
     }) as typeof fetch
 
@@ -54,8 +54,31 @@ describe('Pixiv artwork client', () => {
       remoteLikeCount: 77,
       aiType: 2,
       createDate: '2026-08-01T03:00:00.000Z',
-      series: { seriesId: '9' }
+      series: { state: 'PRESENT', id: '9', title: 'Manga series', order: 4 }
     })
+  })
+
+  it.each([
+    ['explicit no-series', null, { state: 'NONE' }],
+    ['invalid series payload', { seriesId: 'invalid' }, { state: 'UNKNOWN' }]
+  ])('distinguishes %s from a valid series declaration', async (_name, seriesNavData, expected) => {
+    const result = await fetchPixivArtworkMetadata({
+      pixivArtworkId: '123',
+      signal: new AbortController().signal,
+      fetchImpl: (async () => response({ id: '123', tags: { tags: [] }, seriesNavData })) as typeof fetch
+    })
+
+    expect(result?.normalized.series).toEqual(expected)
+  })
+
+  it('keeps a missing series field unknown so it cannot remove membership', async () => {
+    const result = await fetchPixivArtworkMetadata({
+      pixivArtworkId: '123',
+      signal: new AbortController().signal,
+      fetchImpl: (async () => response({ id: '123', tags: { tags: [] } })) as typeof fetch
+    })
+
+    expect(result?.normalized.series).toEqual({ state: 'UNKNOWN' })
   })
 
   it('returns no data for 404', async () => {

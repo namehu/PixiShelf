@@ -372,15 +372,16 @@ export const ArtworkResponseDto = ArtworkModel.extend({
    * 系列信息
    */
   series: z
-    .object({
-      id: z.number(),
-      title: z.string(),
-      order: z.number(),
-      prev: z.object({ id: z.number(), title: z.string() }).nullable(),
-      next: z.object({ id: z.number(), title: z.string() }).nullable()
-    })
-    .nullable()
-    .optional()
+    .array(
+      z.object({
+        id: z.number(),
+        title: z.string(),
+        order: z.number(),
+        prev: z.object({ id: z.number(), title: z.string() }).nullable(),
+        next: z.object({ id: z.number(), title: z.string() }).nullable()
+      })
+    )
+    .default([])
 }).transform(({ externalRefs, ...artwork }) => {
   const pixivRefs = externalRefs.filter((source) => source.providerKey === 'pixiv')
   const pixiv = pixivRefs.length === 1 && /^[1-9][0-9]*$/.test(pixivRefs[0]!.externalId) ? pixivRefs[0]! : null

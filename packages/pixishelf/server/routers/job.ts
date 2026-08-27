@@ -33,6 +33,7 @@ import type { JobDto } from '@pixishelf/job-contracts'
 import { cancelPixivTagEnrichment } from '@/services/pixiv-tag-enrichment-service'
 import { cancelPixivArtistEnrichment } from '@/services/pixiv-artist-enrichment-service'
 import { cancelPixivArtworkEnrichment } from '@/services/pixiv-artwork-enrichment-service'
+import { cancelPixivSeriesReconciliation } from '@/services/pixiv-series-reconciliation-service'
 import {
   cancelPixivAiDerivedTagSync,
   getLatestPixivAiDerivedTagSyncJob,
@@ -683,6 +684,11 @@ export const jobRouter = router({
       }
       if (job?.type === 'PIXIV_ARTIST_ENRICHMENT') {
         const cancelled = await cancelPixivArtistEnrichment(input.jobId)
+        if (!cancelled.job) throw new BackgroundTaskError('JOB_NOT_FOUND', 'Background job not found')
+        return cancelled.job
+      }
+      if (job?.type === 'PIXIV_SERIES_RECONCILIATION') {
+        const cancelled = await cancelPixivSeriesReconciliation(input.jobId)
         if (!cancelled.job) throw new BackgroundTaskError('JOB_NOT_FOUND', 'Background job not found')
         return cancelled.job
       }

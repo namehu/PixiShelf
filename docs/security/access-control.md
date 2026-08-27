@@ -148,7 +148,7 @@ Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态
 | `artwork`        | 详情、feed、相邻、随机、推荐、上传路径、Pixiv 同步汇总与受控报告/快照读取 | 创建、修改、删除、媒体增删与排序、Pixiv 同步/取消/重试               | 大多为 `authProcedure`；作品删除、视频重新探测、Pixiv 任务控制及报告 JSON 读取为 `adminProcedure` |
 | `search`         | 搜索建议                                                        | 无                                                                   | `authProcedure`                                                                    |
 | `tag`            | 查询、管理列表与 Pixiv 补全状态                                 | 创建、修改、删除、批量补全与单标签重试                               | 普通管理为 `authProcedure`；Pixiv 补全读写为 `adminProcedure`                      |
-| `series`         | `list`、`get`                                                   | 创建、修改、删除、成员增删与排序                                     | 读取为 `publicProcedure`，写入为 `authProcedure`；transport 仍需 Session           |
+| `series`         | `list`、`get`、Pixiv 系列核对汇总                               | 创建、修改、删除、成员增删与排序、Pixiv 系列核对/取消/重试            | 普通读取为 `publicProcedure`、普通写入为 `authProcedure`；Pixiv 任务控制为 `adminProcedure` |
 | `setting`        | 健康、扫描路径、系统设置                                        | 修改扫描路径和系统设置                                               | 全部 `authProcedure`                                                               |
 | `user`           | 全部账户                                                        | 创建、删除其他账户                                                   | 全部 `authProcedure`；新增账户拥有同等管理员能力                                   |
 | `userSetting`    | 当前账户设置                                                    | 写入主要通过 Server Action                                           | `authProcedure`，以 `userId` 限定当前账户                                          |

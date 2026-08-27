@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-08-26（Pixiv 作品在线同步）
+最后核验：2026-08-27（Pixiv 系列来源身份与核对）
 
 ## 状态约定
 
@@ -34,10 +34,11 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | ------------------------------------------------------------------- | --------- | --------------------------------------------- |
 | [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令              |
 | [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标        |
-| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、23 类 Worker 任务、领域状态和流程图 |
+| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、25 类 Worker 任务、领域状态和流程图 |
 | [Pixiv 标签补全](./features/pixiv-tag-enrichment.md)                | `current` | 候选规则、只填空字段、任务状态和封面存储      |
 | [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)           | `current` | 外部身份、补全规则、任务状态与作者图片存储    |
 | [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)       | `current` | 已有作品在线同步、来源所有权和磁盘快照        |
+| [Pixiv 系列来源与核对](./features/pixiv-series-sync.md)            | `current` | 系列外部身份、成员所有权、连续核对与多系列导航 |
 | [归档收件箱](./features/archive-intake.md)                          | `current` | 持久收件、双通道、批量操作、维护和保留策略    |
 | [领域语境](../CONTEXT.md)                                           | `current` | 作品、媒体、来源、归档与本地身份术语          |
 | [当前架构](./architecture/current-architecture.md)                  | `current` | Workspace、运行组件、依赖方向和关键数据流     |
@@ -72,6 +73,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [归档收件箱](./features/archive-intake.md)                    | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界         |
 | [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)     | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则             |
 | [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md) | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护            |
+| [Pixiv 系列来源与同步设计](./design/pixiv-series-source-sync.md) | `historical` | 本期实施前的系列身份、成员所有权和同步方案                   |
 | [归档收件队列设计](./design/archive-intake-queue.md)          | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
 | [多来源 URL 归档](./design/multi-source-url-archive.md)       | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
 | [视频代表帧生成](./design/video-keyframe-generation.md)       | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |

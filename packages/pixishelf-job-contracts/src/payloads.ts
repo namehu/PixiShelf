@@ -48,6 +48,7 @@ const positiveTagIdSchema = z.number().int().positive()
 const positiveArtistIdSchema = z.number().int().positive()
 export const PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT = 200
 export const PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT = 200
+export const PIXIV_SERIES_RECONCILIATION_BATCH_LIMIT = 200
 export const PIXIV_TAG_ENRICHMENT_BATCH_LIMIT = 200
 const uniquePositiveTagIdsSchema = (maximum: number) =>
   z
@@ -385,6 +386,35 @@ export const pixivArtworkEnrichmentPayloadSchema = z.discriminatedUnion('mode', 
 ])
 export type PixivArtworkEnrichmentPayload = z.infer<typeof pixivArtworkEnrichmentPayloadSchema>
 
+const pixivSeriesReconciliationDiscoverPayloadSchema = z
+  .object({
+    mode: z.literal('DISCOVER'),
+    refreshExisting: z.boolean().default(false),
+    artworkIds: z
+      .array(positiveArtworkIdSchema)
+      .min(1)
+      .max(PIXIV_SERIES_RECONCILIATION_BATCH_LIMIT)
+      .refine((values) => new Set(values).size === values.length, 'Expected unique artwork ids')
+      .optional()
+  })
+  .strict()
+
+const pixivSeriesReconciliationArtworkPayloadSchema = z
+  .object({
+    mode: z.literal('ARTWORK'),
+    artworkId: positiveArtworkIdSchema,
+    expectedExternalRefId: boundedIdSchema,
+    expectedPixivArtworkId: z.string().regex(/^[1-9][0-9]*$/),
+    refreshExisting: z.boolean().default(false)
+  })
+  .strict()
+
+export const pixivSeriesReconciliationPayloadSchema = z.discriminatedUnion('mode', [
+  pixivSeriesReconciliationDiscoverPayloadSchema,
+  pixivSeriesReconciliationArtworkPayloadSchema
+])
+export type PixivSeriesReconciliationPayload = z.infer<typeof pixivSeriesReconciliationPayloadSchema>
+
 export const JOB_PAYLOAD_SCHEMAS = {
   SCAN: scanPayloadSchema,
   LOCAL_DIRECTORY_IMPORT: localDirectoryImportPayloadSchema,
@@ -409,6 +439,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   DERIVED_MEDIA_GC: derivedMediaGcPayloadSchema,
   PIXIV_ARTWORK_ENRICHMENT: pixivArtworkEnrichmentPayloadSchema,
   PIXIV_ARTIST_ENRICHMENT: pixivArtistEnrichmentPayloadSchema,
+  PIXIV_SERIES_RECONCILIATION: pixivSeriesReconciliationPayloadSchema,
   PIXIV_TAG_ENRICHMENT: pixivTagEnrichmentPayloadSchema
 } satisfies Record<JobType, z.ZodType>
 

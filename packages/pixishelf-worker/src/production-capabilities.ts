@@ -20,6 +20,7 @@ const PRODUCTION_JOB_TYPES = [
   'PIXIV_AI_DERIVED_TAG_SYNC',
   'PIXIV_ARTIST_ENRICHMENT',
   'PIXIV_ARTWORK_ENRICHMENT',
+  'PIXIV_SERIES_RECONCILIATION',
   'PIXIV_TAG_ENRICHMENT',
   'REFILL_META_SOURCE',
   'SCAN',
@@ -64,6 +65,6 @@ export function assertProductionWorkerCapabilities(
   const actual = canonicalWorkerCapabilities(capabilities)
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error('Production Worker capability inventory drifted from the 24-job/26-version dual-lane release')
+    throw new Error('Production Worker capability inventory drifted from the 25-job/27-version dual-lane release')
   }
 }

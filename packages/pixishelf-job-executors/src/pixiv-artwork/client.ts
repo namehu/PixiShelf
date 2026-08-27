@@ -8,6 +8,14 @@ const nullableText = z.string().nullable().optional()
 const nullableNumber = z.number().finite().nullable().optional()
 const numericId = z.union([z.string(), z.number()])
 
+const seriesNavSchema = z
+  .object({
+    seriesId: numericId,
+    title: nullableText,
+    order: z.union([z.string(), z.number()]).nullable().optional()
+  })
+  .passthrough()
+
 const tagSchema = z
   .object({
     tag: z.string(),
@@ -74,8 +82,13 @@ export interface NormalizedPixivArtworkMetadata {
   sanityLevel: number | null
   createDate: string | null
   uploadDate: string | null
-  series: unknown | null
+  series: NormalizedPixivArtworkSeries
 }
+
+export type NormalizedPixivArtworkSeries =
+  | { state: 'PRESENT'; id: string; title: string | null; order: number | null }
+  | { state: 'NONE' }
+  | { state: 'UNKNOWN' }
 
 export interface PixivArtworkMetadataResponse {
   raw: unknown
@@ -209,7 +222,22 @@ function normalizeBody(body: PixivArtworkBody, pixivArtworkId: string): Normaliz
     sanityLevel: normalizeInteger(body.sl),
     createDate: normalizeDate(body.createDate),
     uploadDate: normalizeDate(body.uploadDate),
-    series: body.seriesNavData ?? null
+    series: normalizePixivArtworkSeries(body.seriesNavData)
+  }
+}
+
+export function normalizePixivArtworkSeries(value: unknown): NormalizedPixivArtworkSeries {
+  if (value === undefined) return { state: 'UNKNOWN' }
+  if (value === null) return { state: 'NONE' }
+  const parsed = seriesNavSchema.safeParse(value)
+  if (!parsed.success) return { state: 'UNKNOWN' }
+  const id = normalizeId(parsed.data.seriesId)
+  if (!id) return { state: 'UNKNOWN' }
+  return {
+    state: 'PRESENT',
+    id,
+    title: normalizeText(parsed.data.title),
+    order: normalizeIntegerLike(parsed.data.order)
   }
 }
 
@@ -287,6 +315,13 @@ function normalizeId(value: string | number | null | undefined): string | null {
 
 function normalizeInteger(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) ? value : null
+}
+
+function normalizeIntegerLike(value: string | number | null | undefined): number | null {
+  if (typeof value === 'number') return normalizeInteger(value)
+  if (typeof value !== 'string' || !/^[0-9]+$/.test(value)) return null
+  const numeric = Number(value)
+  return Number.isSafeInteger(numeric) ? numeric : null
 }
 
 function normalizeDate(value: string | null | undefined): string | null {

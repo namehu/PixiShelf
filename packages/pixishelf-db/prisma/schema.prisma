@@ -162,6 +162,12 @@ model ArtworkExternalRef {
   onlineSnapshotPath   String?                   @db.Text
   lastSeenScanRunId    String?                   @db.VarChar(30)
   fetchedAt            DateTime?
+  seriesSyncStatus     SeriesExternalRefStatus?
+  seriesLastAttemptAt  DateTime?
+  seriesLastSuccessAt  DateTime?
+  seriesLastErrorCode  String?                   @db.VarChar(80)
+  seriesLastError      String?                   @db.Text
+  seriesLastSystemJobId String?
   createdAt            DateTime                  @default(now())
   updatedAt            DateTime                  @updatedAt
   artwork              Artwork                   @relation(fields: [artworkId], references: [id], onDelete: Cascade)
@@ -170,12 +176,15 @@ model ArtworkExternalRef {
   archiveImports       ArchiveImport[]
   archiveRevisions     ArchiveRevision[]
   pixivMetadataInputs  PixivMetadataInventory[]
+  seriesMemberships    SeriesArtwork[]           @relation("SeriesArtworkSourceRef")
 
   @@unique([providerKey, externalId])
   @@index([artworkId])
   @@index([providerKey, fetchedAt])
   @@index([providerKey, status, lastAttemptAt])
+  @@index([providerKey, seriesSyncStatus, seriesLastAttemptAt])
   @@index([lastSystemJobId])
+  @@index([seriesLastSystemJobId])
   @@index([lastSeenScanRunId])
   @@index([providerKey, createdAt, lastSeenScanRunId], map: "artwork_external_refs_reconcile_sweep_idx")
   @@map("artwork_external_refs")
@@ -1712,19 +1721,56 @@ enum ChapterPreviewStatus {
 }
 
 model Series {
-  id             Int             @id @default(autoincrement())
-  title          String
-  description    String?
-  coverImageUrl  String?
-  source         String          @default("LOCAL") // 用于区分数据来源，'LOCAL'是自己建的，'PIXIV'是导入的
-  externalId     String? // 用于存原来的Pixiv 系列 ID，比如 '123456'
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  artworks       Artwork[]
-  seriesArtworks SeriesArtwork[]
+  id                    Int                 @id @default(autoincrement())
+  title                 String
+  description           String?
+  coverImageUrl         String?
+  source                String              @default("LOCAL") // 兼容期历史来源字段；正式来源身份以 SeriesExternalRef 为准
+  externalId            String? // 兼容期历史 Pixiv 系列 ID
+  titleOverridden       Boolean             @default(false)
+  descriptionOverridden Boolean             @default(false)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  artworks              Artwork[]
+  seriesArtworks        SeriesArtwork[]
+  externalRefs          SeriesExternalRef[]
 
   // 这个索引让数据库知道：同一个来源下的同一个外部ID，只能有一条记录
   @@unique([source, externalId])
+}
+
+enum SeriesExternalRefStatus {
+  SUCCESS
+  PARTIAL
+  NO_DATA
+  FAILED
+}
+
+model SeriesExternalRef {
+  id                  String                   @id @default(cuid())
+  seriesId            Int
+  providerKey         String                   @db.VarChar(50)
+  externalId          String
+  canonicalUrl        String?                  @db.Text
+  sourceTitle         String?
+  status              SeriesExternalRefStatus?
+  lastAttemptAt       DateTime?
+  lastSuccessAt       DateTime?
+  lastErrorCode       String?                  @db.VarChar(80)
+  lastError           String?                  @db.Text
+  lastSystemJobId     String?
+  observedMemberCount Int?
+  localMemberCount    Int?
+  missingMemberCount  Int?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  series              Series                   @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  @@unique([providerKey, externalId])
+  @@unique([seriesId, providerKey])
+  @@index([providerKey, status, lastAttemptAt])
+  @@index([lastSystemJobId])
+  @@map("series_external_refs")
 }
 
 // 定义枚举
@@ -1741,13 +1787,27 @@ enum ArtworkSource {
 }
 
 model SeriesArtwork {
-  seriesId  Int
-  artworkId Int
-  sortOrder Int
-  series    Series  @relation(fields: [seriesId], references: [id], onDelete: Cascade)
-  artwork   Artwork @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  seriesId        Int
+  artworkId       Int
+  sortOrder       Int
+  sourceOrder     Int?
+  orderOverridden Boolean                 @default(false)
+  excludedAt      DateTime?
+  provenance      SeriesArtworkProvenance @default(LEGACY)
+  sourceRefId     String?                 @unique
+  series          Series                  @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  artwork         Artwork                 @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  sourceRef       ArtworkExternalRef?     @relation("SeriesArtworkSourceRef", fields: [sourceRefId], references: [id], onDelete: Cascade)
 
   @@unique([seriesId, artworkId])
   @@index([seriesId])
   @@index([artworkId])
+  @@index([provenance])
+  @@index([seriesId, excludedAt, sortOrder])
+}
+
+enum SeriesArtworkProvenance {
+  SOURCE
+  MANUAL
+  LEGACY
 }

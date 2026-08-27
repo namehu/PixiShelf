@@ -37,6 +37,7 @@ describe('job wire contracts', () => {
         'PIXIV_AI_DERIVED_TAG_SYNC',
         'PIXIV_ARTWORK_ENRICHMENT',
         'PIXIV_ARTIST_ENRICHMENT',
+        'PIXIV_SERIES_RECONCILIATION',
         'PIXIV_TAG_ENRICHMENT'
       ])
     )
@@ -187,6 +188,30 @@ describe('job wire contracts', () => {
     })
     expect(() =>
       parseJobPayload('PIXIV_ARTWORK_ENRICHMENT', {
+        mode: 'DISCOVER',
+        artworkIds: Array.from({ length: 201 }, (_, index) => index + 1)
+      })
+    ).toThrow()
+    expect(parseJobPayload('PIXIV_SERIES_RECONCILIATION', { mode: 'DISCOVER' })).toEqual({
+      mode: 'DISCOVER',
+      refreshExisting: false
+    })
+    expect(
+      parseJobPayload('PIXIV_SERIES_RECONCILIATION', {
+        mode: 'ARTWORK',
+        artworkId: 7,
+        expectedExternalRefId: 'ref-7',
+        expectedPixivArtworkId: '123'
+      })
+    ).toEqual({
+      mode: 'ARTWORK',
+      artworkId: 7,
+      expectedExternalRefId: 'ref-7',
+      expectedPixivArtworkId: '123',
+      refreshExisting: false
+    })
+    expect(() =>
+      parseJobPayload('PIXIV_SERIES_RECONCILIATION', {
         mode: 'DISCOVER',
         artworkIds: Array.from({ length: 201 }, (_, index) => index + 1)
       })

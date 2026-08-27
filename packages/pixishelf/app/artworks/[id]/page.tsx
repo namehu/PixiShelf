@@ -78,7 +78,9 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
 
           <ArtworkImages images={data.images} artworkId={data.id} />
           <ArtworkDes description={data.description} className="mt-8" />
-          {data.series && <SeriesNav series={data.series} />}
+          {data.series.map((series) => (
+            <SeriesNav key={series.id} series={series} />
+          ))}
           {artistId && <RelatedArtworks artistId={artistId} currentArtworkId={data.id} />}
         </article>
       </PageContainer>

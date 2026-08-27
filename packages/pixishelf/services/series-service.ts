@@ -1,15 +1,32 @@
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import { transformSingleArtwork } from '@/services/artwork-service/utils'
 import { ARTIST_SELECT } from '@/schemas/models/artists'
 import { resolveMediaCoverUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
 
-export async function getSeriesList(params: { page: number; pageSize: number; query?: string }) {
-  const { page, pageSize, query } = params
+export async function getSeriesList(params: {
+  page: number
+  pageSize: number
+  query?: string
+  source?: 'ALL' | 'PIXIV' | 'LOCAL'
+  pixivStatus?: 'UNCHECKED' | 'SUCCESS' | 'PARTIAL' | 'NO_DATA' | 'FAILED'
+}) {
+  const { page, pageSize, query, source = 'ALL', pixivStatus } = params
   const skip = (page - 1) * pageSize
 
-  const where: any = {}
+  const where: Prisma.SeriesWhereInput = {}
   if (query) {
     where.title = { contains: query } // SQLite/Postgres compatible simple search
+  }
+  if (source === 'PIXIV') where.externalRefs = { some: { providerKey: 'pixiv' } }
+  if (source === 'LOCAL') where.externalRefs = { none: { providerKey: 'pixiv' } }
+  if (pixivStatus) {
+    where.externalRefs = {
+      some: {
+        providerKey: 'pixiv',
+        status: pixivStatus === 'UNCHECKED' ? null : pixivStatus
+      }
+    }
   }
 
   const [items, total] = await Promise.all([
@@ -18,12 +35,16 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
       skip,
       take: pageSize,
       include: {
+        externalRefs: {
+          where: { providerKey: 'pixiv' },
+          take: 1
+        },
         _count: {
-          select: { seriesArtworks: { where: { artwork: { deletedAt: null } } } }
+          select: { seriesArtworks: { where: { excludedAt: null, artwork: { deletedAt: null } } } }
         },
         // 获取系列顺序中的第一张作品作为封面兜底
         seriesArtworks: {
-          where: { artwork: { deletedAt: null } },
+          where: { excludedAt: null, artwork: { deletedAt: null } },
           take: 1,
           orderBy: { sortOrder: 'asc' },
           include: {
@@ -49,6 +70,7 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
     let derivedCover = null
     const firstSeriesArtwork = item.seriesArtworks[0]
     const seriesFields = stripSeriesListRelations(item)
+    const pixivRef = item.externalRefs[0] ?? null
 
     if (firstSeriesArtwork?.artwork) {
       const transformed = transformSingleArtwork({
@@ -64,6 +86,16 @@ export async function getSeriesList(params: { page: number; pageSize: number; qu
 
     return {
       ...seriesFields,
+      sourceKind: pixivRef ? ('PIXIV' as const) : ('LOCAL' as const),
+      pixivSource: pixivRef
+        ? {
+            externalId: pixivRef.externalId,
+            sourceTitle: pixivRef.sourceTitle,
+            status: pixivRef.status,
+            lastAttemptAt: pixivRef.lastAttemptAt,
+            lastError: pixivRef.lastError
+          }
+        : null,
       coverImageUrl: resolveMediaCoverUrl(item.coverImageUrl ? { path: item.coverImageUrl } : null) || derivedCover,
       artworkCount: item._count.seriesArtworks
     }
@@ -77,7 +109,7 @@ export async function getSeriesDetail(id: number) {
     where: { id },
     include: {
       seriesArtworks: {
-        where: { artwork: { deletedAt: null } },
+        where: { excludedAt: null, artwork: { deletedAt: null } },
         include: {
           artwork: {
             include: {
@@ -108,7 +140,12 @@ export async function getSeriesDetail(id: number) {
 
     return {
       ...transformed,
-      seriesOrder: sa.sortOrder
+      seriesOrder: sa.sortOrder,
+      seriesMembership: {
+        provenance: sa.provenance,
+        sourceOrder: sa.sourceOrder,
+        orderOverridden: sa.orderOverridden
+      }
     }
   })
 
@@ -125,12 +162,13 @@ export async function getSeriesDetail(id: number) {
   return { ...seriesFields, artworks, coverImageUrl }
 }
 
-function stripSeriesListRelations<T extends { _count: unknown; seriesArtworks: unknown }>(
+function stripSeriesListRelations<T extends { _count: unknown; seriesArtworks: unknown; externalRefs: unknown }>(
   item: T
-): Omit<T, '_count' | 'seriesArtworks'> {
+): Omit<T, '_count' | 'seriesArtworks' | 'externalRefs'> {
   const copy = { ...item }
   delete copy._count
   delete copy.seriesArtworks
+  delete copy.externalRefs
   return copy
 }
 
@@ -139,22 +177,27 @@ export async function createSeries(data: { title: string; description?: string; 
 }
 
 export async function updateSeries(id: number, data: { title?: string; description?: string; coverImageUrl?: string }) {
+  const current = await prisma.series.findUniqueOrThrow({ where: { id } })
+  const update: Prisma.SeriesUpdateInput = {}
+  if (data.title !== undefined && data.title !== current.title) {
+    update.title = data.title
+    update.titleOverridden = true
+  }
+  if (data.description !== undefined && data.description !== current.description) {
+    update.description = data.description
+    update.descriptionOverridden = true
+  }
+  if (data.coverImageUrl !== undefined && data.coverImageUrl !== current.coverImageUrl) {
+    update.coverImageUrl = data.coverImageUrl
+  }
   return prisma.series.update({
     where: { id },
-    data
+    data: update
   })
 }
 
 export async function deleteSeries(id: number) {
-  return prisma.$transaction(async (tx) => {
-    // 取消作品关联（将 seriesId 置为 null）
-    // 注意：SeriesArtwork 会因级联关系自动删除；若要保留作品本身，需手动更新 Artwork.seriesId
-    await tx.artwork.updateMany({
-      where: { seriesId: id },
-      data: { seriesId: null }
-    })
-    return tx.series.delete({ where: { id } })
-  })
+  return prisma.series.delete({ where: { id } })
 }
 
 export async function addArtworkToSeries(seriesId: number, artworkId: number) {
@@ -163,7 +206,14 @@ export async function addArtworkToSeries(seriesId: number, artworkId: number) {
     const exists = await tx.seriesArtwork.findUnique({
       where: { seriesId_artworkId: { seriesId, artworkId } }
     })
-    if (exists) return exists
+    if (exists) {
+      return exists.excludedAt
+        ? tx.seriesArtwork.update({
+            where: { seriesId_artworkId: { seriesId, artworkId } },
+            data: { excludedAt: null }
+          })
+        : exists
+    }
 
     // 获取当前最大排序值
     const maxOrder = await tx.seriesArtwork.aggregate({
@@ -177,44 +227,41 @@ export async function addArtworkToSeries(seriesId: number, artworkId: number) {
       data: {
         seriesId,
         artworkId,
-        sortOrder: nextOrder
+        sortOrder: nextOrder,
+        provenance: 'MANUAL'
       }
     })
-
-    // 更新作品反范式字段
-    await tx.artwork.update({
-      where: { id: artworkId },
-      data: { seriesId }
-    })
-
     return sa
   })
 }
 
 export async function removeArtworkFromSeries(seriesId: number, artworkId: number) {
   return prisma.$transaction(async (tx) => {
-    try {
-      await tx.seriesArtwork.delete({
-        where: { seriesId_artworkId: { seriesId, artworkId } }
-      })
-    } catch (_e) {
-      // 未找到则跳过
-    }
-    await tx.artwork.update({
-      where: { id: artworkId },
-      data: { seriesId: null }
+    const membership = await tx.seriesArtwork.findUnique({
+      where: { seriesId_artworkId: { seriesId, artworkId } }
     })
+    if (!membership) return
+    if (membership.provenance === 'SOURCE') {
+      await tx.seriesArtwork.update({
+        where: { seriesId_artworkId: { seriesId, artworkId } },
+        data: { excludedAt: new Date() }
+      })
+      return
+    }
+    await tx.seriesArtwork.delete({ where: { seriesId_artworkId: { seriesId, artworkId } } })
   })
 }
 
 export async function reorderArtworks(seriesId: number, artworkIds: number[]) {
   // artworkIds 为新的排序顺序
-  return prisma.$transaction(
-    artworkIds.map((id, index) =>
-      prisma.seriesArtwork.update({
-        where: { seriesId_artworkId: { seriesId, artworkId: id } },
-        data: { sortOrder: index + 1 }
-      })
+  return prisma.$transaction((tx) =>
+    Promise.all(
+      artworkIds.map((id, index) =>
+        tx.seriesArtwork.update({
+          where: { seriesId_artworkId: { seriesId, artworkId: id } },
+          data: { sortOrder: index + 1, orderOverridden: true }
+        })
+      )
     )
   )
 }
