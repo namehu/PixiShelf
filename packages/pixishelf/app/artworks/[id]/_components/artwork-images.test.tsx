@@ -202,7 +202,12 @@ describe('ArtworkImages', () => {
 
     expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
     const trigger = screen.getByRole('button', { name: /打开媒体快捷导航，当前第 1 张，共 120 张/ })
-    expect(trigger.textContent).toContain('1/120')
+    const counter = trigger.querySelector('.font-utility')
+    expect(counter?.className).toContain('flex-col')
+    expect(counter?.className).toContain('text-[10px]')
+    expect(within(trigger).getByText('1')).toBeTruthy()
+    expect(within(trigger).getByText('120')).toBeTruthy()
+    expect(trigger.className).toContain('size-11')
     expect(trigger.parentElement?.parentElement?.className).toContain('var(--app-mobile-navigation-offset)')
     fireEvent.click(trigger)
 
@@ -216,7 +221,9 @@ describe('ArtworkImages', () => {
     render(<ArtworkImages images={generateImages(600)} artworkId={1} />)
 
     expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
-    expect(screen.getByLabelText('当前第 1 张，共 600 张').textContent).toContain('1/600')
+    const counter = screen.getByLabelText('当前第 1 张，共 600 张')
+    expect(within(counter).getByText('1')).toBeTruthy()
+    expect(within(counter).getByText('600')).toBeTruthy()
   })
 
   it('opens adaptive and original preview actions on image long press', () => {

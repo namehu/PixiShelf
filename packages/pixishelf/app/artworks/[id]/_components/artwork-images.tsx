@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
-import { ChevronUpIcon } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 import LazyMedia from './lazy-media'
 import { useLongPress } from '@/hooks/use-long-press'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -357,10 +357,10 @@ function MediaAnchorNavigation({
 
   const displayedIndex = Math.min(Math.max(currentIndex, 0), total - 1) + 1
   const counter = (
-    <span className="font-utility text-sm font-semibold tabular-nums">
-      {displayedIndex}
-      <span className="mx-1 font-normal opacity-60">/</span>
-      {total}
+    <span className="font-utility flex flex-col items-center justify-center gap-0.5 text-[10px] leading-none tabular-nums">
+      <span className="font-semibold">{displayedIndex}</span>
+      <Separator className="w-3 bg-primary-foreground/35" />
+      <span className="font-normal opacity-70">{total}</span>
     </span>
   )
 
@@ -371,16 +371,12 @@ function MediaAnchorNavigation({
           <PopoverTrigger asChild>
             <Button
               type="button"
-              className="h-11 min-w-[5.5rem] rounded-full px-3 shadow-floating"
+              size="icon"
+              className="size-11 rounded-full shadow-floating"
               aria-label={`${open ? '关闭' : '打开'}媒体快捷导航，当前第 ${displayedIndex} 张，共 ${total} 张`}
               aria-expanded={open}
             >
               {counter}
-              <ChevronUpIcon
-                data-icon="inline-end"
-                aria-hidden="true"
-                className={cn('transition-transform duration-(--motion-fast)', open && 'rotate-180')}
-              />
             </Button>
           </PopoverTrigger>
           <PopoverContent
@@ -394,7 +390,7 @@ function MediaAnchorNavigation({
         </Popover>
       ) : (
         <Badge
-          className="h-11 min-w-[5.5rem] px-3 shadow-floating"
+          className="size-11 p-0 shadow-floating"
           aria-label={`当前第 ${displayedIndex} 张，共 ${total} 张`}
         >
           {counter}
