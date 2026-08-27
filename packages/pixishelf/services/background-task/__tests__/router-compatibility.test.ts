@@ -16,6 +16,7 @@ const videoOptimizationQueueSource = readFileSync(
   'utf8'
 )
 const pendingReplaceServiceSource = readFileSync(join(serviceRoot, '..', 'pending-replace-service', 'index.ts'), 'utf8')
+const pixivAiDerivedTagServiceSource = readFileSync(join(serviceRoot, '..', 'pixiv-ai-derived-tag-service.ts'), 'utf8')
 const schedulerRouteSource = readFileSync(
   join(serviceRoot, '..', '..', 'app', 'api', 'internal', 'scheduler', 'tick', 'route.ts'),
   'utf8'
@@ -27,6 +28,8 @@ describe('unified background task router integration', () => {
       'startRefillMetaSource',
       'cancelRefillMetaSource',
       'startMediaDerivedTagSync',
+      'startPixivAiDerivedTagSync',
+      'cancelPixivAiDerivedTagSync',
       'startWebpAnimationScan',
       'startVideoMediaProbe',
       'cancelVideoMediaProbe',
@@ -127,6 +130,12 @@ describe('unified background task router integration', () => {
     for (const type of ['REFILL_META_SOURCE', 'MEDIA_DERIVED_TAG_SYNC']) {
       expect(routerSource).toContain(`type: '${type}'`)
     }
+    expect(pixivAiDerivedTagServiceSource).toContain(
+      "PIXIV_AI_DERIVED_TAG_SYNC_JOB_TYPE = 'PIXIV_AI_DERIVED_TAG_SYNC'"
+    )
+    expect(pixivAiDerivedTagServiceSource).toContain('type: PIXIV_AI_DERIVED_TAG_SYNC_JOB_TYPE')
+    expect(pixivAiDerivedTagServiceSource).toContain('enqueueSingletonManualJobWithResult({')
+    expect(pixivAiDerivedTagServiceSource).toContain('requestedByUserId')
     expect(routerSource).toMatch(
       /if \(isCentralDispatcherCutoverEnabled\(\)\)[\s\S]*?type: 'REFILL_META_SOURCE'[\s\S]*?requestedByUserId: ctx\.userId/
     )

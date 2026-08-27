@@ -1,6 +1,7 @@
 export * from './executors.ts'
 export * from './archive-intake-retention-cleanup.ts'
 export * from './media-derived-tag-sync.ts'
+export * from './pixiv-ai-derived-tag-sync.ts'
 export * from './refill-meta-source.ts'
 export * from './scan-run-cleanup.ts'
 export * from './trigger-log-cleanup.ts'

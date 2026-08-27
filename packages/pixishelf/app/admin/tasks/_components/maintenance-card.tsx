@@ -39,6 +39,24 @@ interface MediaDerivedTagSyncResult {
   image?: MediaDerivedTagSyncStats
 }
 
+interface PixivAiDerivedTagSyncResult {
+  dryRun?: boolean
+  scannedArtworks?: number
+  aiGeneratedArtworks?: number
+  nonAiArtworks?: number
+  unknownAiArtworks?: number
+  wouldCreateDerivedRelations?: number
+  wouldConvertSourceRelations?: number
+  wouldConvertLegacyRelations?: number
+  wouldRemoveStaleDerivedRelations?: number
+  protectedManualRelations?: number
+  protectedOtherSourceRelations?: number
+  appliedCreatedRelations?: number
+  appliedConvertedRelations?: number
+  appliedRemovedRelations?: number
+  finalDerivedRelations?: number
+}
+
 interface WebpAnimationScanFailedSample {
   id: number
   path: string
@@ -95,6 +113,10 @@ interface VideoChapterPreviewResult {
 
 function toMediaDerivedTagSyncResult(result: unknown): MediaDerivedTagSyncResult | null {
   return result && typeof result === 'object' ? (result as MediaDerivedTagSyncResult) : null
+}
+
+function toPixivAiDerivedTagSyncResult(result: unknown): PixivAiDerivedTagSyncResult | null {
+  return result && typeof result === 'object' ? (result as PixivAiDerivedTagSyncResult) : null
 }
 
 function toWebpAnimationScanResult(result: unknown): WebpAnimationScanResult | null {
@@ -159,6 +181,59 @@ export function requestStandaloneTaskTrigger(task: ScheduledTaskView, onTrigger:
     variant: 'destructive',
     onConfirm: onTrigger
   })
+}
+
+export function requestPixivAiDerivedTagSync(dryRun: boolean, onTrigger: () => void) {
+  if (dryRun) {
+    onTrigger()
+    return
+  }
+  confirm({
+    title: '执行 Pixiv AI 标签历史回填？',
+    description:
+      '任务会按 500 条分批校准 AI生成 派生标签；人工标签和其他来源标签不会被改写。正式执行前应先完成只读预检并确认已有可恢复备份。',
+    confirmText: '执行回填',
+    onConfirm: onTrigger
+  })
+}
+
+export function PixivAiDerivedTagSyncFeedback({ result }: { result: PixivAiDerivedTagSyncResult | null }) {
+  if (!result) return null
+  const converted = (result.wouldConvertSourceRelations ?? 0) + (result.wouldConvertLegacyRelations ?? 0)
+  const protectedRelations = (result.protectedManualRelations ?? 0) + (result.protectedOtherSourceRelations ?? 0)
+  return (
+    <div className="flex flex-col gap-2 text-sm text-muted-foreground">
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        <span>
+          模式：
+          <strong className="font-medium text-foreground">{result.dryRun ? '只读预检' : '正式回填'}</strong>
+        </span>
+        <span>
+          已核对：<strong className="font-medium text-foreground">{result.scannedArtworks ?? 0}</strong>
+        </span>
+        <span>
+          AI 作品：<strong className="font-medium text-foreground">{result.aiGeneratedArtworks ?? 0}</strong>
+        </span>
+        <span>
+          状态未知：<strong className="font-medium text-foreground">{result.unknownAiArtworks ?? 0}</strong>
+        </span>
+      </div>
+      <p>
+        计划新增 <strong className="font-medium text-foreground">{result.wouldCreateDerivedRelations ?? 0}</strong>，
+        转换 <strong className="font-medium text-foreground">{converted}</strong>，移除过期{' '}
+        <strong className="font-medium text-foreground">{result.wouldRemoveStaleDerivedRelations ?? 0}</strong>；保护人工或其他来源{' '}
+        <strong className="font-medium text-foreground">{protectedRelations}</strong>。
+      </p>
+      {!result.dryRun ? (
+        <p>
+          实际新增 <strong className="font-medium text-foreground">{result.appliedCreatedRelations ?? 0}</strong>，
+          转换 <strong className="font-medium text-foreground">{result.appliedConvertedRelations ?? 0}</strong>，移除{' '}
+          <strong className="font-medium text-foreground">{result.appliedRemovedRelations ?? 0}</strong>；最终派生关系{' '}
+          <strong className="font-medium text-foreground">{result.finalDerivedRelations ?? 0}</strong>。
+        </p>
+      ) : null}
+    </div>
+  )
 }
 
 export function StandaloneTaskFeedback({ task }: { task: ScheduledTaskView }) {
@@ -272,6 +347,14 @@ export function MaintenanceCard() {
   const mediaTagJob = mediaTagJobQuery.data as JobView | null | undefined
   const refetchMediaTagJob = mediaTagJobQuery.refetch
 
+  const pixivAiTagJobQuery = useQuery(
+    trpc.job.getPixivAiDerivedTagSyncStatus.queryOptions(undefined, {
+      refetchInterval: pollCancellable
+    })
+  )
+  const pixivAiTagJob = pixivAiTagJobQuery.data as JobView | null | undefined
+  const refetchPixivAiTagJob = pixivAiTagJobQuery.refetch
+
   const webpScanJobQuery = useQuery(
     trpc.job.getWebpAnimationScanStatus.queryOptions(undefined, {
       refetchInterval: pollCancellable
@@ -348,6 +431,30 @@ export function MaintenanceCard() {
       },
       onError: (error) => {
         toast.error(`启动失败：${error.message}`)
+      }
+    })
+  )
+
+  const startPixivAiTagMutation = useMutation(
+    trpc.job.startPixivAiDerivedTagSync.mutationOptions({
+      onSuccess: (_data, variables) => {
+        toast.success(variables.dryRun ? 'Pixiv AI 标签只读预检已启动' : 'Pixiv AI 标签历史回填已启动')
+        refetchPixivAiTagJob()
+      },
+      onError: (error) => {
+        toast.error(`启动失败：${error.message}`)
+      }
+    })
+  )
+
+  const cancelPixivAiTagMutation = useMutation(
+    trpc.job.cancelPixivAiDerivedTagSync.mutationOptions({
+      onSuccess: () => {
+        toast.info('正在取消 Pixiv AI 标签校准任务…')
+        refetchPixivAiTagJob()
+      },
+      onError: (error) => {
+        toast.error(`取消失败：${error.message}`)
       }
     })
   )
@@ -434,6 +541,9 @@ export function MaintenanceCard() {
   const isRunning = activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)
   const isCancelling = activeJob?.status === 'CANCELLING'
   const isMediaTagRunning = mediaTagJob && ['PENDING', 'RUNNING'].includes(mediaTagJob.status)
+  const isPixivAiTagRunning =
+    pixivAiTagJob && ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'].includes(pixivAiTagJob.status)
+  const isPixivAiTagCancelling = pixivAiTagJob?.status === 'CANCELLING'
   const isWebpScanRunning = webpScanJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(webpScanJob.status)
   const isVideoProbeRunning = videoProbeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(videoProbeJob.status)
   const isVideoProbeCancelling = videoProbeJob?.status === 'CANCELLING'
@@ -441,6 +551,7 @@ export function MaintenanceCard() {
     chapterPreviewJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(chapterPreviewJob.status)
   const isChapterPreviewCancelling = chapterPreviewJob?.status === 'CANCELLING'
   const mediaTagResult = toMediaDerivedTagSyncResult(mediaTagJob?.result)
+  const pixivAiTagResult = toPixivAiDerivedTagSyncResult(pixivAiTagJob?.result)
   const webpScanResult = toWebpAnimationScanResult(webpScanJob?.result)
   const videoProbeResult = toVideoMediaProbeResult(videoProbeJob?.result)
   const chapterPreviewResult = toVideoChapterPreviewResult(chapterPreviewJob?.result)
@@ -572,6 +683,61 @@ export function MaintenanceCard() {
                   </p>
                 </div>
               }
+            />
+          </TaskSection>
+
+          <TaskSection
+            id="pixiv-ai-derived-tag-sync"
+            category="手动任务"
+            icon={Tags}
+            title="校准 Pixiv AI 标签"
+            description="依据 pixivAiType 校准 AI生成 派生标签；支持只读预检，并保护人工与其他来源标签。"
+            summary={getJobSummary(pixivAiTagJob, Boolean(isPixivAiTagRunning))}
+            tone={getJobTone(pixivAiTagJob, Boolean(isPixivAiTagRunning))}
+            action={
+              isPixivAiTagRunning ? (
+                <Button
+                  variant="destructive"
+                  onClick={() =>
+                    confirmTaskCancellation('校准 Pixiv AI 标签', () => cancelPixivAiTagMutation.mutate())
+                  }
+                  disabled={isPixivAiTagCancelling || cancelPixivAiTagMutation.isPending}
+                >
+                  {isPixivAiTagCancelling ? '正在取消…' : '取消任务'}
+                </Button>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      requestPixivAiDerivedTagSync(true, () => startPixivAiTagMutation.mutate({ dryRun: true }))
+                    }
+                    disabled={startPixivAiTagMutation.isPending}
+                  >
+                    {startPixivAiTagMutation.isPending && startPixivAiTagMutation.variables?.dryRun ? (
+                      <Spinner data-icon="inline-start" aria-hidden="true" />
+                    ) : null}
+                    只读预检
+                  </Button>
+                  <Button
+                    onClick={() =>
+                      requestPixivAiDerivedTagSync(false, () => startPixivAiTagMutation.mutate({ dryRun: false }))
+                    }
+                    disabled={startPixivAiTagMutation.isPending}
+                  >
+                    {startPixivAiTagMutation.isPending && !startPixivAiTagMutation.variables?.dryRun ? (
+                      <Spinner data-icon="inline-start" aria-hidden="true" />
+                    ) : null}
+                    执行回填
+                  </Button>
+                </div>
+              )
+            }
+          >
+            <JobStatus
+              job={pixivAiTagJob}
+              isRunning={Boolean(isPixivAiTagRunning)}
+              completeContent={<PixivAiDerivedTagSyncFeedback result={pixivAiTagResult} />}
             />
           </TaskSection>
         </TaskGroup>

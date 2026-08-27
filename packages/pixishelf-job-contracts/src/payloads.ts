@@ -19,6 +19,9 @@ export type JobPayloadEnvelope = z.infer<typeof jobPayloadEnvelopeSchema>
 
 export const emptyJobPayloadSchema = z.object({}).strict()
 
+export const pixivAiDerivedTagSyncPayloadSchema = z.object({ dryRun: z.boolean().default(true) }).strict()
+export type PixivAiDerivedTagSyncPayload = z.infer<typeof pixivAiDerivedTagSyncPayloadSchema>
+
 export const relativePathSchema = z
   .string()
   .trim()
@@ -389,6 +392,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   PENDING_REPLACE: pendingReplacePayloadSchema,
   REFILL_META_SOURCE: emptyJobPayloadSchema,
   MEDIA_DERIVED_TAG_SYNC: emptyJobPayloadSchema,
+  PIXIV_AI_DERIVED_TAG_SYNC: pixivAiDerivedTagSyncPayloadSchema,
   WEBP_ANIMATION_SCAN: emptyJobPayloadSchema,
   VIDEO_MEDIA_PROBE: videoMediaProbePayloadSchema,
   VIDEO_POSTER_GENERATION: targetImagePayloadSchema,

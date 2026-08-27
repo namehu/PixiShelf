@@ -95,6 +95,7 @@ describe('parseMetadataFile', () => {
       bookmark: 722,
       metadataFormat: 'json',
       pixivAiType: 1,
+      ai: 'No',
       pixivType: 1,
       sanityLevel: 2
     })

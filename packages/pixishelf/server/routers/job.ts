@@ -34,6 +34,11 @@ import { cancelPixivTagEnrichment } from '@/services/pixiv-tag-enrichment-servic
 import { cancelPixivArtistEnrichment } from '@/services/pixiv-artist-enrichment-service'
 import { cancelPixivArtworkEnrichment } from '@/services/pixiv-artwork-enrichment-service'
 import {
+  cancelPixivAiDerivedTagSync,
+  getLatestPixivAiDerivedTagSyncJob,
+  startPixivAiDerivedTagSync
+} from '@/services/pixiv-ai-derived-tag-service'
+import {
   assertLegacyBackgroundExecutionAllowed,
   acknowledgeJobFailureCommand,
   BackgroundTaskError,
@@ -274,6 +279,21 @@ export const jobRouter = router({
     }
     const job = await JobService.getLatestMediaDerivedTagSyncJob()
     return job ? toJobDto(job as SystemJobWireRecord) : null
+  }),
+
+  startPixivAiDerivedTagSync: adminProcedure
+    .input(z.object({ dryRun: z.boolean() }).strict())
+    .mutation(async ({ ctx, input }) => {
+      const result = await startPixivAiDerivedTagSync(ctx.userId, input)
+      return { jobId: result.job.id, reused: result.reused }
+    }),
+
+  getPixivAiDerivedTagSyncStatus: authProcedure.query(async () => {
+    return getLatestPixivAiDerivedTagSyncJob()
+  }),
+
+  cancelPixivAiDerivedTagSync: adminProcedure.mutation(async () => {
+    return cancelPixivAiDerivedTagSync()
   }),
 
   startWebpAnimationScan: adminProcedure.mutation(async ({ ctx }) => {

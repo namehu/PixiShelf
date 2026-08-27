@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createMaintenanceExecutorRegistrations } from '../executors.js'
 
 describe('maintenance executor registrations', () => {
-  it('registers exactly the six v1 empty-payload maintenance definitions', () => {
+  it('registers the six empty-payload definitions and the Pixiv AI maintenance definition', () => {
     const definitions = createMaintenanceExecutorRegistrations({ database: {} as never, scanRoot: '/scan' })
     expect(definitions.map(({ jobType, definitionVersion }) => ({ jobType, definitionVersion }))).toEqual([
       { jobType: 'ARCHIVE_INTAKE_RETENTION_CLEANUP', definitionVersion: 1 },
@@ -10,11 +10,16 @@ describe('maintenance executor registrations', () => {
       { jobType: 'SCAN_RUN_RETENTION_CLEANUP', definitionVersion: 1 },
       { jobType: 'REFILL_META_SOURCE', definitionVersion: 1 },
       { jobType: 'MEDIA_DERIVED_TAG_SYNC', definitionVersion: 1 },
+      { jobType: 'PIXIV_AI_DERIVED_TAG_SYNC', definitionVersion: 1 },
       { jobType: 'WEBP_ANIMATION_SCAN', definitionVersion: 1 }
     ])
-    for (const definition of definitions) {
+    for (const definition of definitions.filter(({ jobType }) => jobType !== 'PIXIV_AI_DERIVED_TAG_SYNC')) {
       expect(definition.parsePayload?.({})).toEqual({})
       expect(() => definition.parsePayload?.({ unexpected: true })).toThrow()
     }
+    const pixivAi = definitions.find(({ jobType }) => jobType === 'PIXIV_AI_DERIVED_TAG_SYNC')!
+    expect(pixivAi.parsePayload?.({})).toEqual({ dryRun: true })
+    expect(pixivAi.parsePayload?.({ dryRun: false })).toEqual({ dryRun: false })
+    expect(() => pixivAi.parsePayload?.({ dryRun: false, unexpected: true })).toThrow()
   })
 })

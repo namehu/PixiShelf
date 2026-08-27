@@ -331,6 +331,8 @@ function normalizeArtworkId(value: unknown): string {
 
 function normalizeAiFlag(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined
+  if (value === 2 || value === '2') return 'Yes'
+  if (value === 1 || value === '1') return 'No'
   if (value === 0 || value === false) return 'No'
   return 'Yes'
 }

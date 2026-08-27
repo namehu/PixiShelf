@@ -1,3 +1,4 @@
+export * from './ai-derived-tag.ts'
 export * from './client.ts'
 export * from './executors.ts'
 export * from './storage.ts'

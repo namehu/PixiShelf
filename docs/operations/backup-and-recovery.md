@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 单实例的备份集合、恢复目标、验证演练和灾难恢复边界
-last-verified: 2026-08-26
+last-verified: 2026-08-27
 sources:
   - build/docker-compose.deploy.yml
   - build/.env.example
@@ -188,11 +188,15 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 - `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
 - 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
 - App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
-- 新 Worker READY、两个 lane、23 个 job type / 25 个 type-version 组合（`SCAN` v1/v2/v3，其余 v1）和同
+- 新 Worker READY、两个 lane、24 个 job type / 26 个 type-version 组合（`SCAN` v1/v2/v3，其余 v1）和同
   lane 单执行证据；
 - 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
 
 旧 `ArchivePreviewSession` 不要求在切换中转换；它由 30 天收件保留任务过期清理。收件历史清理不是备份策略，也不会删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision` 或媒体。
+
+### Pixiv AI 派生标签历史回填
+
+`PIXIV_AI_DERIVED_TAG_SYNC` 的只读预检不会修改数据库，可以在正常读流量下运行。正式回填会分批修改 `ArtworkTag.provenance`、补建或删除派生关系，属于大批量领域关系变更；执行前必须完成 PostgreSQL 一致性备份并记录任务预检结果。恢复单位是数据库检查点，不需要回滚媒体目录；不要用反向脚本猜测原 provenance。若正式任务中断，保持 App/Worker 版本不变后重试同一模式即可，任务的唯一约束和 provenance 条件会跳过已完成或被人工接管的关系。
 
 ## 局部故障边界
 

@@ -134,6 +134,7 @@ describe('Pixiv artwork enrichment executor', () => {
     const tagDelete = vi.fn().mockResolvedValue({ count: 1 })
     const tagUpdate = vi.fn().mockResolvedValue({ count: 0 })
     const tagRelationUpsert = vi.fn().mockResolvedValue(undefined)
+    const aiRelationUpdate = vi.fn().mockResolvedValue(undefined)
     const complete = vi.fn().mockResolvedValue(undefined)
     const beforeArtwork = trackedArtwork({
       title: 'Manual title',
@@ -178,7 +179,8 @@ describe('Pixiv artwork enrichment executor', () => {
       },
       artwork: { update: artworkUpdate, findUniqueOrThrow: vi.fn().mockResolvedValue(afterArtwork) },
       tag: {
-        upsert: vi.fn().mockResolvedValueOnce({ id: 11 }).mockResolvedValueOnce({ id: 12 })
+        upsert: vi.fn().mockResolvedValueOnce({ id: 11 }).mockResolvedValueOnce({ id: 12 }),
+        findFirst: vi.fn().mockResolvedValue({ id: 99 })
       },
       artworkTag: {
         findMany: vi
@@ -187,7 +189,13 @@ describe('Pixiv artwork enrichment executor', () => {
           .mockResolvedValueOnce([{ tag: { name: 'tag-a' } }, { tag: { name: 'tag-b' } }]),
         deleteMany: tagDelete,
         updateMany: tagUpdate,
-        upsert: tagRelationUpsert
+        upsert: tagRelationUpsert,
+        findUnique: vi
+          .fn()
+          .mockResolvedValueOnce({ id: 98, provenance: 'SOURCE', sourceRefId: 'ref-1' })
+          .mockResolvedValueOnce({ id: 99, provenance: 'DERIVED', sourceRefId: null }),
+        create: vi.fn().mockResolvedValue(undefined),
+        update: aiRelationUpdate
       }
     }
     const [registration] = createPixivArtworkExecutorRegistrations({
@@ -234,6 +242,10 @@ describe('Pixiv artwork enrichment executor', () => {
       where: { artworkId: 1, provenance: 'SOURCE', sourceRefId: 'ref-1', tagId: { notIn: [11, 12] } }
     })
     expect(tagRelationUpsert).toHaveBeenCalledTimes(2)
+    expect(aiRelationUpdate).toHaveBeenCalledWith({
+      where: { id: 98 },
+      data: { provenance: 'DERIVED', sourceRefId: null }
+    })
     expect(refUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -304,12 +316,20 @@ describe('Pixiv artwork enrichment executor', () => {
         update: refUpdate
       },
       artwork: { update: artworkUpdate, findUniqueOrThrow: vi.fn().mockResolvedValue(afterArtwork) },
-      tag: { upsert: vi.fn().mockResolvedValueOnce({ id: 11 }).mockResolvedValueOnce({ id: 12 }) },
+      tag: {
+        upsert: vi.fn().mockResolvedValueOnce({ id: 11 }).mockResolvedValueOnce({ id: 12 }),
+        findFirst: vi.fn().mockResolvedValue({ id: 99 })
+      },
       artworkTag: {
         findMany: vi.fn().mockResolvedValue([]),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
-        upsert: vi.fn().mockResolvedValue(undefined)
+        upsert: vi.fn().mockResolvedValue(undefined),
+        findUnique: vi
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({ id: 99, provenance: 'DERIVED', sourceRefId: null }),
+        create: vi.fn().mockResolvedValue(undefined)
       }
     }
     const [registration] = createPixivArtworkExecutorRegistrations({

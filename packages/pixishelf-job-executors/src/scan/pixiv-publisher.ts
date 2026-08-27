@@ -3,6 +3,11 @@ import { ScanExecutorError } from './errors.ts'
 import type { DiscoveredMediaFile } from './discovery.ts'
 import type { ScanMetadata } from './metadata.ts'
 import type { ScanTransaction } from './types.ts'
+import {
+  normalizeImportedPixivSourceTags,
+  reconcilePixivAiGeneratedTag,
+  resolvePixivAiGenerated
+} from '../pixiv-artwork/ai-derived-tag.ts'
 
 export type ExistingArtworkPolicy = 'SKIP' | 'REFRESH'
 
@@ -31,6 +36,7 @@ export interface PixivPublishIdentityExpectation {
 
 export async function publishPixivArtwork(input: PixivPublishInput) {
   const { transaction, metadata } = input
+  const isAiGenerated = resolvePixivAiGenerated(metadata.pixivAiType, metadata.isAiGenerated)
 
   // 已完成项是按 checkpoint 幂等重放的：命中过往 SUCCESS/SKIPPED 的结果时直接返回，避免在重试/重放场景重复写入 side effect。
   const existingItem = await transaction.scanRunItem.findUnique({
@@ -92,7 +98,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
   // Artwork 级 externalId/source/createdVia 只在新建时写入；刷新仅更新来源派生数据，不迁移本地身份和 ownership。
   const sourceArtworkData = {
     bookmarkCount: metadata.bookmarkCount,
-    isAiGenerated: metadata.isAiGenerated,
+    isAiGenerated,
     originalUrl: metadata.original,
     size: metadata.size,
     sourceDate: metadata.sourceDate,
@@ -232,7 +238,14 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       update: { rawMetadataJson: raw }
     })
   }
-  await replacePixivSourceTags(transaction, artworkId, ref.id, metadata.tags)
+  const sourceTags = normalizeImportedPixivSourceTags(metadata.tags, isAiGenerated)
+  await replacePixivSourceTags(transaction, artworkId, ref.id, sourceTags)
+  await reconcilePixivAiGeneratedTag(transaction, {
+    artworkId,
+    sourceRefId: ref.id,
+    sourceTags,
+    isAiGenerated
+  })
   const incomingIdentities = new Set<string>()
   for (const item of input.media) {
     const identity = normalizeMediaIdentity(item.relativePath)
@@ -390,7 +403,7 @@ function normalizedPixivMetadata(metadata: ScanMetadata) {
     original: metadata.original,
     thumbnail: metadata.thumbnail,
     xRestrict: metadata.xRestrict,
-    isAiGenerated: metadata.isAiGenerated,
+    isAiGenerated: resolvePixivAiGenerated(metadata.pixivAiType, metadata.isAiGenerated),
     size: metadata.size,
     bookmarkCount: metadata.bookmarkCount,
     sourceDate: metadata.sourceDate?.toISOString() ?? null,

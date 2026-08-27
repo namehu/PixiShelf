@@ -1,12 +1,13 @@
 ---
 status: current
 scope: 已有 Pixiv 作品的在线元数据同步、来源字段所有权、磁盘快照与持久任务
-last-verified: 2026-08-26
+last-verified: 2026-08-27
 sources:
   - packages/pixishelf-db/prisma/schema.prisma
   - packages/pixishelf/server/routers/artwork.ts
   - packages/pixishelf/services/pixiv-artwork-enrichment-service.ts
   - packages/pixishelf-job-executors/src/pixiv-artwork/
+  - packages/pixishelf-job-executors/src/maintenance/pixiv-ai-derived-tag-sync.ts
   - packages/pixishelf-job-executors/src/scan/pixiv-publisher.ts
 ---
 
@@ -60,6 +61,8 @@ pixiv_data/artworks/<pixiv-id>/sync-reports/<job-id>.json
 
 同步会更新当前 Pixiv 引用拥有的统计、来源 URL、尺寸、发布日期、限制级别、AI、作品类型和 sanity 字段，但不修改 Artist、Series、媒体、媒体顺序、`Artwork.likeCount`、本地 metadata 或 inventory。系列信息只留在磁盘快照中。
 
+Pixiv 的 AI 判定以 `aiType` 为准：`2` 表示 AI 生成，`1` 表示非 AI；只有旧数据缺少 `aiType` 时才回退到历史 `isAiGenerated`。本地 downloader metadata 中的 `AI生成` 是对 `aiType=2` 的重复表达，不属于 Pixiv API 的真实标签集合。
+
 标题和描述遵守显式人工覆盖：
 
 - 默认补全只更新未被人工 override 的字段。
@@ -79,8 +82,21 @@ migration 只修正有精确证据的历史误标：作品必须只有一个 Pix
 
 因此同步不是“清空作品全部标签”，也不是只增不减；它只精确替换当前 Pixiv 引用能够证明拥有的集合。响应不完整或身份校验失败时标签零写入。
 
+`AI生成` 使用独立的 `DERIVED` 关系和固定 `systemKey=pixiv:ai-generated`，由 `aiType=2` 维护。扫描导入会从 downloader 标签数组中剔除这项重复的 `SOURCE` 表达，再建立派生关系；在线同步不会因为 Pixiv API 的标签数组没有 `AI生成` 而把它记录为来源移除。如果未来 Pixiv API 确实把同名标签放进完整远端标签数组，则按普通 Pixiv `SOURCE` 标签处理。`MANUAL`、其他 Provider 的 `SOURCE` 关系始终受保护。
+
+## 历史数据校准
+
+后台任务页提供 `PIXIV_AI_DERIVED_TAG_SYNC` 的两阶段入口，处理已有大量作品时不需要一次性加载全库：
+
+- “只读预检”按 Artwork ID 每批 500 条读取，仅统计会创建、转换、移除和受保护的关系，不写数据库；
+- “执行回填”使用同样的稳定游标分批提交，把当前 Pixiv 引用拥有的 `SOURCE` 或 `LEGACY` 同名关系转换为 `DERIVED`，为缺失关系的 AI 作品补建派生标签，并删除明确非 AI 作品上过期的 `DERIVED` 关系；
+- `MANUAL` 和其他来源拥有的 `SOURCE` 关系不会转换或删除；AI 状态未知的作品不变；已软删除作品不参与；
+- 每批都经过 Worker lease fence，任务可取消、可观察、可安全重试。创建关系使用唯一约束去重，转换和删除再次限定原 provenance，避免覆盖并发人工编辑。
+
+该校准只修改既有 `Tag` / `ArtworkTag` 数据，不新增数据库字段，因此没有 Prisma migration。正式回填前必须取得一致性数据库备份，先运行只读预检并保存结果；部署时 App 只会在新鲜 READY Worker 明确报告 `PIXIV_AI_DERIVED_TAG_SYNC@v1 / BACKGROUND_WRITER` 后允许入队。
+
 ## 状态与发布
 
 引用状态统一为未检查、成功、部分成功、无数据和失败。成功或无数据会记录检查时间；失败保留错误码和可供单项重试的最近任务。磁盘已经发布但数据库事务失败时，重试会复用同内容文件并重新完成数据库发布。
 
-生产发布前必须创建 PostgreSQL 与 `PIXISHELF_PUBLIC_DATA_PATH` 的一致性备份，部署 migration，确认 Worker READY/capability 后再开放 App。先选择少量作品验证状态、字段所有权、标签差异、磁盘快照和同步报告抽屉，再启动全部未检查作品；“刷新已有资料”也应先小批试跑。
+生产发布前必须创建 PostgreSQL 与 `PIXISHELF_PUBLIC_DATA_PATH` 的一致性备份，部署 migration，确认 Worker READY/capability 后再开放 App。先选择少量作品验证状态、字段所有权、AI 派生标签、标签差异、磁盘快照和同步报告抽屉，再启动全部未检查作品；“刷新已有资料”也应先小批试跑。历史 AI 标签校准先执行只读预检，核对受影响数量和保护项后再正式回填。

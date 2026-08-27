@@ -34,6 +34,7 @@ describe('job wire contracts', () => {
         'ARCHIVE_IMPORT',
         'ARCHIVE_MAINTENANCE',
         'ARCHIVE_INTAKE_RETENTION_CLEANUP',
+        'PIXIV_AI_DERIVED_TAG_SYNC',
         'PIXIV_ARTWORK_ENRICHMENT',
         'PIXIV_ARTIST_ENRICHMENT',
         'PIXIV_TAG_ENRICHMENT'
@@ -53,6 +54,9 @@ describe('job wire contracts', () => {
     expect(executionLaneForJobType('ARCHIVE_INTAKE_RETENTION_CLEANUP')).toBe('BACKGROUND_WRITER')
     expect(parseJobPayload('ARCHIVE_INTAKE_RETENTION_CLEANUP', {})).toEqual({})
     expect(() => parseJobPayload('ARCHIVE_INTAKE_RETENTION_CLEANUP', { retentionDays: 7 })).toThrow()
+    expect(parseJobPayload('PIXIV_AI_DERIVED_TAG_SYNC', {})).toEqual({ dryRun: true })
+    expect(parseJobPayload('PIXIV_AI_DERIVED_TAG_SYNC', { dryRun: false })).toEqual({ dryRun: false })
+    expect(() => parseJobPayload('PIXIV_AI_DERIVED_TAG_SYNC', { dryRun: false, unexpected: true })).toThrow()
     expect(parseJobPayload('ARCHIVE_RESOLVE_ITEM', { intakeItemId: 'intake-1' })).toEqual({
       intakeItemId: 'intake-1'
     })

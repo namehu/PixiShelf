@@ -208,6 +208,8 @@ function normalizeTags(value: unknown): string[] {
 
 function normalizeAi(value: unknown): boolean | null {
   if (value === undefined || value === null || value === '') return null
+  if (value === 2 || value === '2') return true
+  if (value === 1 || value === '1') return false
   return !(value === false || value === 0 || String(value).toLowerCase() === 'no')
 }
 

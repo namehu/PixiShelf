@@ -10,6 +10,8 @@ vi.mock('../video-streaming-optimization-section', () => ({ VideoStreamingOptimi
 
 import {
   getStandaloneTaskActionLabel,
+  PixivAiDerivedTagSyncFeedback,
+  requestPixivAiDerivedTagSync,
   requestStandaloneTaskTrigger,
   shouldPollStandaloneTasks,
   StandaloneTaskFeedback
@@ -43,6 +45,50 @@ function task(overrides: Partial<ScheduledTaskView> = {}): ScheduledTaskView {
 }
 
 describe('maintenance standalone tasks', () => {
+  it('starts the Pixiv AI dry run immediately and confirms the formal backfill', () => {
+    const dryRun = vi.fn()
+    const formal = vi.fn()
+
+    requestPixivAiDerivedTagSync(true, dryRun)
+    expect(dryRun).toHaveBeenCalledOnce()
+    expect(mocks.confirm).not.toHaveBeenCalled()
+
+    requestPixivAiDerivedTagSync(false, formal)
+    expect(formal).not.toHaveBeenCalled()
+    expect(mocks.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '执行 Pixiv AI 标签历史回填？', confirmText: '执行回填' })
+    )
+    mocks.confirm.mock.calls[0]![0].onConfirm()
+    expect(formal).toHaveBeenCalledOnce()
+  })
+
+  it('shows Pixiv AI audit and applied reconciliation counters', () => {
+    render(
+      <PixivAiDerivedTagSyncFeedback
+        result={{
+          dryRun: false,
+          scannedArtworks: 10_200,
+          aiGeneratedArtworks: 420,
+          unknownAiArtworks: 3,
+          wouldCreateDerivedRelations: 20,
+          wouldConvertSourceRelations: 390,
+          wouldConvertLegacyRelations: 2,
+          wouldRemoveStaleDerivedRelations: 4,
+          protectedManualRelations: 1,
+          protectedOtherSourceRelations: 2,
+          appliedCreatedRelations: 20,
+          appliedConvertedRelations: 392,
+          appliedRemovedRelations: 4,
+          finalDerivedRelations: 415
+        }}
+      />
+    )
+
+    for (const text of ['正式回填', '10200', '420', '计划新增', '实际新增', '415']) {
+      expect(screen.getByText(text, { exact: false })).toBeTruthy()
+    }
+  })
+
   it('requires destructive confirmation before running registered due GC', () => {
     const onTrigger = vi.fn()
 

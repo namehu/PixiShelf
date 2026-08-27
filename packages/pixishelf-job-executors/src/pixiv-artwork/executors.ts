@@ -15,6 +15,11 @@ import type {
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
 import { replacePixivSourceTags } from '../scan/pixiv-publisher.ts'
+import {
+  PIXIV_AI_GENERATED_TAG,
+  reconcilePixivAiGeneratedTag,
+  resolvePixivAiGenerated
+} from './ai-derived-tag.ts'
 import { fetchPixivArtworkMetadata, PixivArtworkRequestError } from './client.ts'
 import { PixivArtworkSnapshotError, storePixivArtworkSnapshot, storePixivArtworkSyncReport } from './storage.ts'
 import {
@@ -283,11 +288,20 @@ async function executeArtwork(
       }
 
       const metadata = response.normalized
+      const isAiGenerated = resolvePixivAiGenerated(metadata.aiType, null)
+      if (isAiGenerated === true && !metadata.tags.includes(PIXIV_AI_GENERATED_TAG.name)) {
+        await reconcilePixivAiGeneratedTag(scope.transaction, {
+          artworkId: ref.artworkId,
+          sourceRefId: ref.id,
+          sourceTags: metadata.tags,
+          isAiGenerated
+        })
+      }
       const beforeState = toTrackedArtworkState(ref.artwork)
       const beforeTags = await listOwnedPixivSourceTags(scope.transaction, ref.artworkId, ref.id)
       const artworkUpdate: Prisma.ArtworkUpdateInput = {
         bookmarkCount: metadata.bookmarkCount,
-        isAiGenerated: metadata.aiType === 2 ? true : metadata.aiType === 1 ? false : null,
+        isAiGenerated,
         originalUrl: metadata.originalUrl,
         size: metadata.size,
         sourceDate: toDate(metadata.createDate ?? metadata.uploadDate),
@@ -337,6 +351,12 @@ async function executeArtwork(
 
       await scope.transaction.artwork.update({ where: { id: ref.artworkId }, data: artworkUpdate })
       await replacePixivSourceTags(scope.transaction, ref.artworkId, ref.id, metadata.tags)
+      await reconcilePixivAiGeneratedTag(scope.transaction, {
+        artworkId: ref.artworkId,
+        sourceRefId: ref.id,
+        sourceTags: metadata.tags,
+        isAiGenerated
+      })
       const status = skippedConcurrentFields.length > 0 ? 'PARTIAL' : 'SUCCESS'
       const [afterArtwork, afterTags] = await Promise.all([
         scope.transaction.artwork.findUniqueOrThrow({ where: { id: ref.artworkId }, select: TRACKED_ARTWORK_SELECT }),

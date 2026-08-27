@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前调用者、页面、HTTP、tRPC、Server Action、服务网络和存储权限边界
-last-verified: 2026-08-26
+last-verified: 2026-08-27
 sources:
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/lib/auth/
@@ -159,7 +159,7 @@ Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态
 | `archiveInbox`   | 持久收件列表与汇总                                              | 创建/修正、暂停/恢复、重试/取消、批量归档入队                        | 读取 `authProcedure`，写入/控制 `adminProcedure`                                   |
 | `archive`        | 分页任务、项目、统计和批量结果                                  | 单项操作、重试和 `PAUSE/RESUME/CANCEL/RETRY` 批量控制                | 读取 `authProcedure`，写入/控制 `adminProcedure`                                   |
 | `pendingReplace` | 预览与状态                                                      | 绑定、排序、执行、取消、恢复、清理备份                               | 全部 `adminProcedure`                                                              |
-| `job`            | 多类状态、待处理失败和队列读取                                  | 创建、取消、重试、逐条确认失败提醒、优先级、scheduler 与中央任务控制 | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`                |
+| `job`            | 多类状态、待处理失败、队列与 Pixiv AI 校准状态读取               | 创建、取消、重试、逐条确认失败提醒、优先级、scheduler、Pixiv AI 预检/回填与中央任务控制 | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`                |
 
 由于当前所有账户等权，`authProcedure` 与 `adminProcedure` 的运行时能力相同。任何未来角色分离都必须先审查表中使用 `authProcedure` 的用户管理、系统设置、目录写入和删除操作，不能只给 `adminProcedure` 增加角色判断后宣布完成。
 

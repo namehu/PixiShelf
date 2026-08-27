@@ -1,7 +1,13 @@
-import { emptyJobPayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import {
+  emptyJobPayloadSchema,
+  JOB_DEFINITION_VERSION,
+  pixivAiDerivedTagSyncPayloadSchema,
+  type PixivAiDerivedTagSyncPayload
+} from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, ExecutorDefinition, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { cleanupArchiveIntakeHistory } from './archive-intake-retention-cleanup.ts'
 import { syncAllMediaDerivedTags } from './media-derived-tag-sync.ts'
+import { syncPixivAiDerivedTags } from './pixiv-ai-derived-tag-sync.ts'
 import { refillMetaSource } from './refill-meta-source.ts'
 import { cleanupScanRunHistory } from './scan-run-cleanup.ts'
 import { cleanupTriggerLogs } from './trigger-log-cleanup.ts'
@@ -48,6 +54,20 @@ export function createMaintenanceExecutorRegistrations(
     definition('MEDIA_DERIVED_TAG_SYNC', (context) =>
       syncAllMediaDerivedTags(operationInput(context, dependencies.database))
     ) as ExecutorDefinition,
+    {
+      jobType: 'PIXIV_AI_DERIVED_TAG_SYNC',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      parsePayload: (payload) => pixivAiDerivedTagSyncPayloadSchema.parse(payload),
+      execute: async (context: ExecutionContext<PixivAiDerivedTagSyncPayload, EnqueuedChildJob>) => ({
+        kind: 'completed',
+        result: await syncPixivAiDerivedTags({
+          ...operationInput(context, dependencies.database),
+          payload: context.payload
+        }),
+        message: 'PIXIV_AI_DERIVED_TAG_SYNC completed'
+      })
+    } as ExecutorDefinition,
     definition('WEBP_ANIMATION_SCAN', (context) =>
       scanWebpAnimations({
         ...operationInput(context, dependencies.database),
@@ -80,7 +100,10 @@ function definition<TResult>(
   }
 }
 
-function operationInput(context: ExecutionContext<EmptyPayload, EnqueuedChildJob>, database: MaintenanceDatabase) {
+function operationInput<TPayload extends Record<string, unknown>>(
+  context: ExecutionContext<TPayload, EnqueuedChildJob>,
+  database: MaintenanceDatabase
+) {
   const mutate: RunMaintenanceMutation = <T>(operation: (transaction: MaintenanceTransaction) => Promise<T>) =>
     context.mutateInTransaction<MaintenanceTransaction & QueueSqlExecutor, T>((transaction) => operation(transaction))
   return {

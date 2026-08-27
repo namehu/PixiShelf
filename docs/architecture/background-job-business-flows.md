@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 任务计划、中央 Worker、扫描、本地导入、归档及派生媒体任务的当前业务链路与状态边界
-last-verified: 2026-08-26
+last-verified: 2026-08-27
 sources:
   - packages/pixishelf/app/api/internal/scheduler/tick/route.ts
   - packages/pixishelf/services/background-task/
@@ -90,7 +90,7 @@ flowchart LR
   CMD -->|事务写入| JOB
   CMD -->|必要时同事务写入| DOMAIN
   RESOLVE -->|claim ARCHIVE_RESOLVE_ITEM| JOB
-  WRITER -->|claim 其余 22 类| JOB
+  WRITER -->|claim 其余 23 类| JOB
   JOB --> LEASE
   RESOLVE --> EXEC
   WRITER --> EXEC
@@ -215,7 +215,7 @@ sequenceDiagram
 | `derived_media_gc`                 | 清理派生媒体           |    05:30 | 否       |     70 | 每次最多处理 100 条已登记且到期的 GC intent                      |
 | `derived_media_gc_reconciliation`  | 核对派生媒体目录       |    05:45 | 否       |     71 | 仅周一 dry-run，有界扫描最多 500 个 poster 目录项，不删除        |
 
-## 23 类 Worker 任务
+## 24 类 Worker 任务
 
 除 `ARCHIVE_RESOLVE_ITEM` 外，其他任务全部进入 `BACKGROUND_WRITER`。
 
@@ -227,6 +227,7 @@ sequenceDiagram
 | `PENDING_REPLACE`                  | 批量替换管理                             | 否           | 否             | DISCOVER/BATCH/RESTORE/CLEANUP，持久快照和备份后替换媒体      |
 | `REFILL_META_SOURCE`               | 后台维护手动入口                         | 否           | 否             | 为缺少 `metaSource` 的旧作品查找对应元数据文件并补字段        |
 | `MEDIA_DERIVED_TAG_SYNC`           | 后台维护手动入口                         | 否           | 否             | 重算 `media:webp`、`media:video`、`media:image` 派生标签关系  |
+| `PIXIV_AI_DERIVED_TAG_SYNC`        | 后台维护的预检与回填入口                 | 否           | 否             | 分批核对并校准 Pixiv `AI生成` 派生标签，不覆盖人工关系        |
 | `WEBP_ANIMATION_SCAN`              | 任务计划或立即运行                       | 是           | 否             | 内容探测并更新图片 mediaType/动画状态                         |
 | `VIDEO_MEDIA_PROBE`                | 任务计划、立即运行、单视频重探测         | 是           | 否             | 分类、视频元数据探测、同任务批量生成自动封面                  |
 | `VIDEO_POSTER_GENERATION`          | 单视频显式封面生成                       | 否           | 否             | 为一个视频生成并发布自动封面                                  |
@@ -247,8 +248,8 @@ sequenceDiagram
 
 标签、艺术家和作品同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家和作品的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
 
-生产 Registry 保持 23 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 22 类仍只支持 v1，因此 capability audit
-实际核对 25 个 job type/definition-version 组合及其 lane，而不是把 v2/v3 误算成新的任务类型。v1 承载既有
+生产 Registry 保持 24 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 23 类仍只支持 v1，因此 capability audit
+实际核对 26 个 job type/definition-version 组合及其 lane，而不是把 v2/v3 误算成新的任务类型。v1 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
 
 ## Pixiv 作品在线同步链路
