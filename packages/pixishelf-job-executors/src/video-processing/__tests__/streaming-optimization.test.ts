@@ -138,12 +138,21 @@ describe('streaming optimization central executor core', () => {
     await prepared.discard()
   })
 
-  it('accepts container-derived frame counts, indexes, and video codec tags changing after remux', async () => {
+  it('accepts container-derived frame counts changing when packet counts remain equal after remux', async () => {
     const root = await createVideoRoot()
     const runner = createFingerprintRunner(
       {
         streams: [
-          { index: 4, codec_type: 'video', codec_name: 'h264', codec_tag_string: 'avc1', width: 1920, height: 1080 }
+          {
+            index: 4,
+            codec_type: 'video',
+            codec_name: 'h264',
+            codec_tag_string: 'avc1',
+            nb_frames: '7718',
+            nb_read_packets: '7718',
+            width: 1920,
+            height: 1080
+          }
         ],
         format: { duration: '10' }
       },
@@ -154,7 +163,8 @@ describe('streaming optimization central executor core', () => {
             codec_type: 'video',
             codec_name: 'h264',
             codec_tag_string: 'avc3',
-            nb_frames: '000250',
+            nb_frames: '7717',
+            nb_read_packets: '007718',
             width: 1920,
             height: 1080
           }
@@ -197,15 +207,15 @@ describe('streaming optimization central executor core', () => {
     await prepared.discard()
   })
 
-  it('reports a known frame-count change as an actionable permanent mismatch', async () => {
+  it('reports an actual packet-count change as an actionable permanent mismatch', async () => {
     const root = await createVideoRoot()
     const runner = createFingerprintRunner(
       {
-        streams: [{ codec_type: 'video', codec_name: 'h264', nb_frames: '49', width: 1920, height: 1080 }],
+        streams: [{ codec_type: 'video', codec_name: 'h264', nb_read_packets: '49', width: 1920, height: 1080 }],
         format: { duration: '10' }
       },
       {
-        streams: [{ codec_type: 'video', codec_name: 'h264', nb_frames: '50', width: 1920, height: 1080 }],
+        streams: [{ codec_type: 'video', codec_name: 'h264', nb_read_packets: '50', width: 1920, height: 1080 }],
         format: { duration: '10' }
       }
     )
@@ -213,7 +223,7 @@ describe('streaming optimization central executor core', () => {
     await expect(prepare(root, { runner })).rejects.toMatchObject({
       name: 'VideoProcessingPermanentError',
       code: 'OUTPUT_MISMATCH',
-      message: 'Optimized media streams differ from the source (stream 0 nb_frames: source="49", optimized="50")'
+      message: 'Optimized media streams differ from the source (stream 0 nb_read_packets: source="49", optimized="50")'
     })
   })
 
@@ -238,8 +248,9 @@ describe('streaming optimization central executor core', () => {
     let probeCount = 0
     const runner: VideoProcessRunner = async (request) => {
       if (request.command === 'ffprobe') {
+        expect(request.args).toContain('-count_packets')
         expect(request.args).toContain(
-          'format=duration:stream=index,codec_type,codec_name,codec_tag_string,nb_frames,width,height,channels:chapter'
+          'format=duration:stream=index,codec_type,codec_name,codec_tag_string,nb_frames,nb_read_packets,width,height,channels:chapter'
         )
         return { stdout: probeCount++ === 0 ? sourceFingerprint : optimizedFingerprint, stderr: '' }
       }

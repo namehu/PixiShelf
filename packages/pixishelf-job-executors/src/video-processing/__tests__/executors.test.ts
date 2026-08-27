@@ -121,11 +121,11 @@ describe('video processing executor registrations', () => {
   it('fails a deterministic streaming output mismatch without scheduling a retry', async () => {
     let probeCount = 0
     const sourceFingerprint = JSON.stringify({
-      streams: [{ codec_type: 'video', codec_name: 'h264', nb_frames: '49', width: 640, height: 360 }],
+      streams: [{ codec_type: 'video', codec_name: 'h264', nb_read_packets: '49', width: 640, height: 360 }],
       format: { duration: '4' }
     })
     const optimizedFingerprint = JSON.stringify({
-      streams: [{ codec_type: 'video', codec_name: 'h264', nb_frames: '50', width: 640, height: 360 }],
+      streams: [{ codec_type: 'video', codec_name: 'h264', nb_read_packets: '50', width: 640, height: 360 }],
       format: { duration: '4' }
     })
     const processRunner: VideoProcessRunner = async (request) => {
@@ -140,7 +140,7 @@ describe('video processing executor registrations', () => {
     await expect(harness.execute()).resolves.toMatchObject({
       kind: 'failed',
       errorCode: 'PRECONDITION_FAILED',
-      error: expect.stringContaining('stream 0 nb_frames')
+      error: expect.stringContaining('stream 0 nb_read_packets')
     })
     expect(harness.finalizeInTransaction).not.toHaveBeenCalled()
   })

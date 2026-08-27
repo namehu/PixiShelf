@@ -19,6 +19,7 @@ interface MediaStreamFingerprint {
   codec_name?: string
   codec_tag_string?: string
   nb_frames?: string
+  nb_read_packets?: string
   width?: number
   height?: number
   channels?: number
@@ -334,8 +335,9 @@ async function probeMediaFingerprint(input: {
       'error',
       '-print_format',
       'json',
+      '-count_packets',
       '-show_entries',
-      'format=duration:stream=index,codec_type,codec_name,codec_tag_string,nb_frames,width,height,channels:chapter',
+      'format=duration:stream=index,codec_type,codec_name,codec_tag_string,nb_frames,nb_read_packets,width,height,channels:chapter',
       input.filePath
     ],
     timeoutMs: input.timeoutMs,
@@ -378,12 +380,12 @@ function assertCompatibleFingerprints(source: MediaFingerprint, optimized: Media
       }
     }
     if (
-      sourceStream.nb_frames !== null &&
-      optimizedStream.nb_frames !== null &&
-      sourceStream.nb_frames !== optimizedStream.nb_frames
+      sourceStream.nb_read_packets !== null &&
+      optimizedStream.nb_read_packets !== null &&
+      sourceStream.nb_read_packets !== optimizedStream.nb_read_packets
     ) {
       throw outputMismatch(
-        `Optimized media streams differ from the source (stream ${index} nb_frames: source=${JSON.stringify(sourceStream.nb_frames)}, optimized=${JSON.stringify(optimizedStream.nb_frames)})`
+        `Optimized media streams differ from the source (stream ${index} nb_read_packets: source=${JSON.stringify(sourceStream.nb_read_packets)}, optimized=${JSON.stringify(optimizedStream.nb_read_packets)})`
       )
     }
   }
@@ -400,14 +402,14 @@ function normalizeComparableStreams(fingerprint: MediaFingerprint) {
       // while generic data streams still need the tag to preserve their identity.
       codec_tag_string:
         stream.codec_type === 'audio' || stream.codec_type === 'video' ? null : (stream.codec_tag_string ?? null),
-      nb_frames: normalizeFrameCount(stream.nb_frames),
+      nb_read_packets: normalizePacketCount(stream.nb_read_packets),
       width: stream.width ?? null,
       height: stream.height ?? null,
       channels: stream.channels ?? null
     }))
 }
 
-function normalizeFrameCount(value: string | undefined): string | null {
+function normalizePacketCount(value: string | undefined): string | null {
   if (!value || !/^\d+$/.test(value)) return null
   return BigInt(value).toString()
 }
