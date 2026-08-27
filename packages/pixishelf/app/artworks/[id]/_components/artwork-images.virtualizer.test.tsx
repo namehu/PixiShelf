@@ -12,6 +12,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/ui/popover', () => ({
   Popover: ({ children }: { children: React.ReactNode }) => children,
   PopoverAnchor: () => null,
+  PopoverTrigger: ({ children }: { children: React.ReactNode }) => children,
   PopoverContent: () => null
 }))
 

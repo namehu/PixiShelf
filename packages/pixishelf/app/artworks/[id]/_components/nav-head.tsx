@@ -1,17 +1,22 @@
 'use client'
 
-import { ArtworkResponseDto } from '@/schemas/artwork.dto'
-import { ChevronLeftIcon, FullscreenIcon, ListOrdered, Settings2 } from 'lucide-react'
-import MediaCounter from './media-counter'
-import { useArtworkStore } from '@/store/use-artwork-store'
-import { useEffect, useMemo, useState } from 'react'
-import { getMediaInfo } from '@/lib/media'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { ChevronLeftIcon, EllipsisIcon, FullscreenIcon, ListOrderedIcon, Settings2Icon } from 'lucide-react'
 import { useSafeBack } from '@/hooks/use-safe-back'
 import PageToolbar from '@/components/layout/page-toolbar'
-import MediaOrderReviewDialog from './media-order-review-dialog'
-import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
+import { useArtworkStore } from '@/store/use-artwork-store'
+import MediaOrderReviewDialog from './media-order-review-dialog'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
@@ -34,8 +39,6 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
     }
   }, [data, setTotal, setCurrentIndex])
 
-  const { ext, isVideo } = useMemo(() => getMediaInfo(data?.images?.[0]?.path || ''), [data])
-
   return (
     <>
       <PageToolbar
@@ -47,57 +50,56 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
           </Button>
         }
         actions={
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" asChild className="size-11">
-              <Link
-                href={{
-                  pathname: '/admin/artworks',
-                  query: {
-                    id: data.id,
-                    edit: data.id,
-                    tab: 'media',
-                    returnTo: `/artworks/${data.id}`
-                  }
-                }}
-                aria-label="管理当前作品"
-                title="管理当前作品"
-              >
-                <Settings2 aria-hidden="true" />
-              </Link>
-            </Button>
-            {data.images.length > 1 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                onClick={() => setOrderReviewOpen(true)}
                 className="size-11"
-                aria-label="顺序校对"
-                title="顺序校对"
+                aria-label="更多作品操作"
               >
-                <ListOrdered aria-hidden="true" />
+                <EllipsisIcon data-icon="inline-start" aria-hidden="true" />
               </Button>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                setImages(data.images)
-                router.push('/artworks/preview')
-              }}
-              className="size-11"
-              aria-label="全屏预览"
-            >
-              <FullscreenIcon aria-hidden="true" />
-            </Button>
-          </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuGroup>
+                <DropdownMenuItem asChild>
+                  <Link
+                    href={{
+                      pathname: '/admin/artworks',
+                      query: {
+                        id: data.id,
+                        edit: data.id,
+                        tab: 'media',
+                        returnTo: `/artworks/${data.id}`
+                      }
+                    }}
+                  >
+                    <Settings2Icon aria-hidden="true" />
+                    管理当前作品
+                  </Link>
+                </DropdownMenuItem>
+                {data.images.length > 1 && (
+                  <DropdownMenuItem onSelect={() => setOrderReviewOpen(true)}>
+                    <ListOrderedIcon aria-hidden="true" />
+                    顺序校对
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setImages(data.images)
+                    router.push('/artworks/preview')
+                  }}
+                >
+                  <FullscreenIcon aria-hidden="true" />
+                  全屏预览
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         }
-      >
-        <div className="flex justify-center">
-          <MediaCounter hasVideo={isVideo} ext={ext} />
-        </div>
-      </PageToolbar>
+      />
 
       {orderReviewOpen && (
         <MediaOrderReviewDialog
