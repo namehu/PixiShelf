@@ -35,9 +35,7 @@ describe('streaming optimization central executor core', () => {
 
   it('does not exclude text data streams when there are no matching chapters', () => {
     const args = buildStreamingRemuxArgs('source.mp4', 'temporary.mp4', {
-      streams: [
-        { index: 3, codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'text', nb_frames: '2' }
-      ],
+      streams: [{ index: 3, codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'text', nb_frames: '2' }],
       chapters: []
     })
 
@@ -140,6 +138,85 @@ describe('streaming optimization central executor core', () => {
     await prepared.discard()
   })
 
+  it('accepts container-derived frame counts, indexes, and video codec tags changing after remux', async () => {
+    const root = await createVideoRoot()
+    const runner = createFingerprintRunner(
+      {
+        streams: [
+          { index: 4, codec_type: 'video', codec_name: 'h264', codec_tag_string: 'avc1', width: 1920, height: 1080 }
+        ],
+        format: { duration: '10' }
+      },
+      {
+        streams: [
+          {
+            index: 0,
+            codec_type: 'video',
+            codec_name: 'h264',
+            codec_tag_string: 'avc3',
+            nb_frames: '000250',
+            width: 1920,
+            height: 1080
+          }
+        ],
+        format: { duration: '10' }
+      }
+    )
+
+    const prepared = await prepare(root, { runner })
+
+    await prepared.discard()
+  })
+
+  it('accepts a recreated native chapter data track moving behind preserved media streams', async () => {
+    const root = await createVideoRoot()
+    const chapters = [{ id: 0, start_time: '0.000000', end_time: '10.000000', tags: { title: 'Chapter 1' } }]
+    const runner = createFingerprintRunner(
+      {
+        streams: [
+          { index: 0, codec_type: 'video', codec_name: 'h264', codec_tag_string: 'avc1', width: 1920, height: 1080 },
+          { index: 1, codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'text', nb_frames: '1' },
+          { index: 2, codec_type: 'audio', codec_name: 'aac', codec_tag_string: 'mp4a', channels: 2 }
+        ],
+        chapters,
+        format: { duration: '10' }
+      },
+      {
+        streams: [
+          { index: 0, codec_type: 'video', codec_name: 'h264', codec_tag_string: 'avc1', width: 1920, height: 1080 },
+          { index: 1, codec_type: 'audio', codec_name: 'aac', codec_tag_string: 'mp4a', channels: 2 },
+          { index: 2, codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'text', nb_frames: '1' }
+        ],
+        chapters,
+        format: { duration: '10' }
+      }
+    )
+
+    const prepared = await prepare(root, { runner })
+
+    await prepared.discard()
+  })
+
+  it('reports a known frame-count change as an actionable permanent mismatch', async () => {
+    const root = await createVideoRoot()
+    const runner = createFingerprintRunner(
+      {
+        streams: [{ codec_type: 'video', codec_name: 'h264', nb_frames: '49', width: 1920, height: 1080 }],
+        format: { duration: '10' }
+      },
+      {
+        streams: [{ codec_type: 'video', codec_name: 'h264', nb_frames: '50', width: 1920, height: 1080 }],
+        format: { duration: '10' }
+      }
+    )
+
+    await expect(prepare(root, { runner })).rejects.toMatchObject({
+      name: 'VideoProcessingPermanentError',
+      code: 'OUTPUT_MISMATCH',
+      message: 'Optimized media streams differ from the source (stream 0 nb_frames: source="49", optimized="50")'
+    })
+  })
+
   it('probes stream identity and chapters and rejects chapter loss after remux', async () => {
     const root = await createVideoRoot()
     const sourceFingerprint = JSON.stringify({
@@ -232,6 +309,22 @@ function createRunner(remux?: (source: string, output: string) => Promise<unknow
     const source = request.args[request.args.indexOf('-i') + 1]!
     const output = request.args.at(-1)!
     await (remux ? remux(source, output) : fs.copyFile(source, output))
+    return { stdout: '', stderr: '' }
+  }
+}
+
+function createFingerprintRunner(sourceFingerprint: object, optimizedFingerprint: object): VideoProcessRunner {
+  let probeCount = 0
+  return async (request) => {
+    if (request.command === 'ffprobe') {
+      return {
+        stdout: JSON.stringify(probeCount++ === 0 ? sourceFingerprint : optimizedFingerprint),
+        stderr: ''
+      }
+    }
+    const source = request.args[request.args.indexOf('-i') + 1]!
+    const output = request.args.at(-1)!
+    await fs.copyFile(source, output)
     return { stdout: '', stderr: '' }
   }
 }

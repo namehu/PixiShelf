@@ -356,24 +356,64 @@ function assertContainsVideoStream(fingerprint: MediaFingerprint, label: string)
 
 function assertCompatibleFingerprints(source: MediaFingerprint, optimized: MediaFingerprint) {
   assertContainsVideoStream(optimized, 'Optimized file')
-  const normalize = (stream: MediaStreamFingerprint) => ({
-    index: stream.index ?? null,
-    codec_type: stream.codec_type ?? null,
-    codec_name: stream.codec_name ?? null,
-    codec_tag_string: stream.codec_tag_string ?? null,
-    nb_frames: stream.nb_frames ?? null,
-    width: stream.width ?? null,
-    height: stream.height ?? null,
-    channels: stream.channels ?? null
-  })
-  const sourceStreams = (source.streams ?? []).map(normalize)
-  const optimizedStreams = (optimized.streams ?? []).map(normalize)
-  if (JSON.stringify(sourceStreams) !== JSON.stringify(optimizedStreams)) {
-    throw new Error('Optimized media streams differ from the source')
-  }
   if (JSON.stringify(source.chapters ?? []) !== JSON.stringify(optimized.chapters ?? [])) {
-    throw new Error('Optimized media chapters differ from the source')
+    throw outputMismatch('Optimized media chapters differ from the source')
   }
+  const sourceStreams = normalizeComparableStreams(source)
+  const optimizedStreams = normalizeComparableStreams(optimized)
+  if (sourceStreams.length !== optimizedStreams.length) {
+    throw outputMismatch(
+      `Optimized media streams differ from the source (stream count: source=${sourceStreams.length}, optimized=${optimizedStreams.length})`
+    )
+  }
+  for (let index = 0; index < sourceStreams.length; index += 1) {
+    const sourceStream = sourceStreams[index]!
+    const optimizedStream = optimizedStreams[index]!
+    const fields = ['codec_type', 'codec_name', 'codec_tag_string', 'width', 'height', 'channels'] as const
+    for (const field of fields) {
+      if (sourceStream[field] !== optimizedStream[field]) {
+        throw outputMismatch(
+          `Optimized media streams differ from the source (stream ${index} ${field}: source=${JSON.stringify(sourceStream[field])}, optimized=${JSON.stringify(optimizedStream[field])})`
+        )
+      }
+    }
+    if (
+      sourceStream.nb_frames !== null &&
+      optimizedStream.nb_frames !== null &&
+      sourceStream.nb_frames !== optimizedStream.nb_frames
+    ) {
+      throw outputMismatch(
+        `Optimized media streams differ from the source (stream ${index} nb_frames: source=${JSON.stringify(sourceStream.nb_frames)}, optimized=${JSON.stringify(optimizedStream.nb_frames)})`
+      )
+    }
+  }
+}
+
+function normalizeComparableStreams(fingerprint: MediaFingerprint) {
+  const chapterTrackIndexes = new Set(findNativeMp4ChapterTrackIndexes(fingerprint))
+  return (fingerprint.streams ?? [])
+    .filter((stream) => !chapterTrackIndexes.has(stream.index ?? -1))
+    .map((stream) => ({
+      codec_type: stream.codec_type ?? null,
+      codec_name: stream.codec_name ?? null,
+      // Audio/video codec tags are container representations (for example avc1/avc3),
+      // while generic data streams still need the tag to preserve their identity.
+      codec_tag_string:
+        stream.codec_type === 'audio' || stream.codec_type === 'video' ? null : (stream.codec_tag_string ?? null),
+      nb_frames: normalizeFrameCount(stream.nb_frames),
+      width: stream.width ?? null,
+      height: stream.height ?? null,
+      channels: stream.channels ?? null
+    }))
+}
+
+function normalizeFrameCount(value: string | undefined): string | null {
+  if (!value || !/^\d+$/.test(value)) return null
+  return BigInt(value).toString()
+}
+
+function outputMismatch(message: string) {
+  return new VideoProcessingPermanentError('OUTPUT_MISMATCH', message)
 }
 
 function findNativeMp4ChapterTrackIndexes(fingerprint: MediaFingerprint | undefined): number[] {

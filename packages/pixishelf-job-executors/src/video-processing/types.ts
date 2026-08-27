@@ -50,6 +50,7 @@ export class VideoProcessingPermanentError extends Error {
       | 'UNSUPPORTED_CONTAINER'
       | 'PATH_OUTSIDE_ALLOWED_ROOT'
       | 'INVALID_CHAPTER_MANIFEST'
+      | 'OUTPUT_MISMATCH'
       | 'SOURCE_CHANGED'
       | 'READ_ONLY_SOURCE',
     message: string

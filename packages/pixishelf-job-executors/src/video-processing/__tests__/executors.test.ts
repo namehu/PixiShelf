@@ -118,6 +118,33 @@ describe('video processing executor registrations', () => {
     expect(harness.finalizeInTransaction).toHaveBeenCalledOnce()
   })
 
+  it('fails a deterministic streaming output mismatch without scheduling a retry', async () => {
+    let probeCount = 0
+    const sourceFingerprint = JSON.stringify({
+      streams: [{ codec_type: 'video', codec_name: 'h264', nb_frames: '49', width: 640, height: 360 }],
+      format: { duration: '4' }
+    })
+    const optimizedFingerprint = JSON.stringify({
+      streams: [{ codec_type: 'video', codec_name: 'h264', nb_frames: '50', width: 640, height: 360 }],
+      format: { duration: '4' }
+    })
+    const processRunner: VideoProcessRunner = async (request) => {
+      if (request.command === 'ffprobe') {
+        return { stdout: probeCount++ === 0 ? sourceFingerprint : optimizedFingerprint, stderr: '' }
+      }
+      await fs.copyFile(request.args[request.args.indexOf('-i') + 1]!, request.args.at(-1)!)
+      return { stdout: '', stderr: '' }
+    }
+    const harness = await createHarness('RUNNING', { processRunner })
+
+    await expect(harness.execute()).resolves.toMatchObject({
+      kind: 'failed',
+      errorCode: 'PRECONDITION_FAILED',
+      error: expect.stringContaining('stream 0 nb_frames')
+    })
+    expect(harness.finalizeInTransaction).not.toHaveBeenCalled()
+  })
+
   it('does not settle a chapter job twice when final fence failure races worker abort', async () => {
     executorMocks.generateChapterPreviews.mockResolvedValueOnce({ generated: 1, failed: 0 })
     const controller = new AbortController()
@@ -167,7 +194,13 @@ describe('video processing executor registrations', () => {
 
 async function createHarness(
   executionStatus: 'RUNNING' | 'PAUSING' | 'CANCELLING',
-  options: { signal?: AbortSignal; rejectFinalRecheck?: boolean; failRestore?: boolean; missingSource?: boolean } = {}
+  options: {
+    signal?: AbortSignal
+    rejectFinalRecheck?: boolean
+    failRestore?: boolean
+    missingSource?: boolean
+    processRunner?: VideoProcessRunner
+  } = {}
 ) {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'pixishelf-stream-executor-'))
   roots.push(base)
@@ -190,7 +223,7 @@ async function createHarness(
   const database = {
     image: { findUnique: vi.fn().mockResolvedValue({ id: 7, path: 'video.mp4', mediaType: 'VIDEO' }) }
   } as unknown as VideoProcessingDatabase
-  const processRunner = vi.fn(runner())
+  const processRunner = vi.fn(options.processRunner ?? runner())
   const registration = createVideoProcessingExecutorRegistrations({
     database,
     config: { scanRoot: scan, chapterPreviewRoot: previews, ffmpegThreads: 1 },
