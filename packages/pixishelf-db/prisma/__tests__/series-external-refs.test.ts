@@ -32,11 +32,13 @@ describe('series external identity migration', () => {
     expect(migration).toContain('ON DELETE CASCADE')
   })
 
-  it('classifies supported LOCAL writes as manual and claims PIXIV only with exact evidence', () => {
+  it('classifies supported LOCAL writes as manual and claims only unambiguous legacy PIXIV identities', () => {
     expect(migration).toContain("upper(btrim(series.\"source\")) = 'LOCAL'")
-    expect(migration).toContain('raw_metadata."rawMetadataJson" ->> \'seriesId\' = series."externalId"')
+    expect(migration).toContain('unique_legacy_external_ids AS MATERIALIZED')
+    expect(migration).toContain('single_membership_artworks AS MATERIALIZED')
     expect(migration).toContain('HAVING count(*) = 1')
-    expect(migration).toContain('artwork_ref."providerKey" = \'pixiv\'')
+    expect(migration).toContain('min("externalId") ~ \'^[1-9][0-9]*$\'')
+    expect(migration).not.toContain('ArtworkRawMetadata')
     expect(migration).toContain('"provenance" = \'SOURCE\'')
   })
 
@@ -44,6 +46,8 @@ describe('series external identity migration', () => {
     expect(audit).toContain('multi_series_artwork_count')
     expect(audit).toContain('direct_only_count')
     expect(audit).toContain('strong_series_count')
+    expect(audit).toContain('strong_membership_count')
+    expect(audit).not.toContain('ArtworkRawMetadata')
     expect(audit).not.toMatch(/^\s*(?:INSERT|UPDATE|DELETE|ALTER|DROP)\b/im)
     expect(verification).toContain('invalid_source_membership_count')
     expect(verification).not.toMatch(/^\s*(?:INSERT|UPDATE|DELETE|ALTER|DROP)\b/im)

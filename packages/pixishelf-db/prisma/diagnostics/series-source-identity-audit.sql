@@ -86,29 +86,64 @@ ORDER BY artwork_id
 LIMIT 200;
 
 -- 6. Strong automatic Pixiv identity candidates available to the migration.
+-- The legacy Series provider/id pair is explicit evidence; every member must
+-- additionally have one numeric Pixiv ref and no second Series membership.
 WITH unique_pixiv_refs AS MATERIALIZED (
   SELECT "artworkId", min(id) AS id
   FROM "artwork_external_refs"
   WHERE "providerKey" = 'pixiv'
   GROUP BY "artworkId"
   HAVING count(*) = 1
+    AND min("externalId") ~ '^[1-9][0-9]*$'
+),
+single_membership_artworks AS MATERIALIZED (
+  SELECT "artworkId"
+  FROM "SeriesArtwork"
+  GROUP BY "artworkId"
+  HAVING count(*) = 1
+),
+unique_legacy_external_ids AS MATERIALIZED (
+  SELECT "externalId"
+  FROM "Series"
+  WHERE upper(btrim(source)) = 'PIXIV'
+    AND "externalId" ~ '^[1-9][0-9]*$'
+  GROUP BY "externalId"
+  HAVING count(*) = 1
 ),
 strong_candidates AS MATERIALIZED (
-  SELECT DISTINCT
+  SELECT
     series.id AS series_id,
     series.title,
-    series."externalId" AS pixiv_series_id
+    series."externalId" AS pixiv_series_id,
+    (
+      SELECT count(*)
+      FROM "SeriesArtwork" membership
+      WHERE membership."seriesId" = series.id
+    ) AS membership_count
   FROM "Series" series
-  JOIN "SeriesArtwork" membership ON membership."seriesId" = series.id
-  JOIN unique_pixiv_refs pixiv_ref ON pixiv_ref."artworkId" = membership."artworkId"
-  JOIN "ArtworkRawMetadata" raw_metadata ON raw_metadata."artworkId" = membership."artworkId"
+  JOIN unique_legacy_external_ids unique_id
+    ON unique_id."externalId" = series."externalId"
   WHERE upper(btrim(series.source)) = 'PIXIV'
-    AND series."externalId" ~ '^[1-9][0-9]*$'
-    AND raw_metadata."rawMetadataJson" ->> 'seriesId' = series."externalId"
+    AND EXISTS (
+      SELECT 1
+      FROM "SeriesArtwork" membership
+      WHERE membership."seriesId" = series.id
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM "SeriesArtwork" membership
+      LEFT JOIN unique_pixiv_refs pixiv_ref
+        ON pixiv_ref."artworkId" = membership."artworkId"
+      LEFT JOIN single_membership_artworks single_membership
+        ON single_membership."artworkId" = membership."artworkId"
+      WHERE membership."seriesId" = series.id
+        AND (pixiv_ref.id IS NULL OR single_membership."artworkId" IS NULL)
+    )
 )
 SELECT
   count(*) AS strong_series_count,
-  count(DISTINCT pixiv_series_id) AS strong_unique_external_id_count
+  count(DISTINCT pixiv_series_id) AS strong_unique_external_id_count,
+  coalesce(sum(membership_count), 0) AS strong_membership_count
 FROM strong_candidates;
 
 -- 7. Legacy PIXIV rows that cannot be claimed automatically by database evidence.
@@ -118,16 +153,43 @@ WITH unique_pixiv_refs AS MATERIALIZED (
   WHERE "providerKey" = 'pixiv'
   GROUP BY "artworkId"
   HAVING count(*) = 1
+    AND min("externalId") ~ '^[1-9][0-9]*$'
+),
+single_membership_artworks AS MATERIALIZED (
+  SELECT "artworkId"
+  FROM "SeriesArtwork"
+  GROUP BY "artworkId"
+  HAVING count(*) = 1
+),
+unique_legacy_external_ids AS MATERIALIZED (
+  SELECT "externalId"
+  FROM "Series"
+  WHERE upper(btrim(source)) = 'PIXIV'
+    AND "externalId" ~ '^[1-9][0-9]*$'
+  GROUP BY "externalId"
+  HAVING count(*) = 1
 ),
 strong_series AS MATERIALIZED (
-  SELECT DISTINCT series.id
+  SELECT series.id
   FROM "Series" series
-  JOIN "SeriesArtwork" membership ON membership."seriesId" = series.id
-  JOIN unique_pixiv_refs pixiv_ref ON pixiv_ref."artworkId" = membership."artworkId"
-  JOIN "ArtworkRawMetadata" raw_metadata ON raw_metadata."artworkId" = membership."artworkId"
+  JOIN unique_legacy_external_ids unique_id
+    ON unique_id."externalId" = series."externalId"
   WHERE upper(btrim(series.source)) = 'PIXIV'
-    AND series."externalId" ~ '^[1-9][0-9]*$'
-    AND raw_metadata."rawMetadataJson" ->> 'seriesId' = series."externalId"
+    AND EXISTS (
+      SELECT 1
+      FROM "SeriesArtwork" membership
+      WHERE membership."seriesId" = series.id
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM "SeriesArtwork" membership
+      LEFT JOIN unique_pixiv_refs pixiv_ref
+        ON pixiv_ref."artworkId" = membership."artworkId"
+      LEFT JOIN single_membership_artworks single_membership
+        ON single_membership."artworkId" = membership."artworkId"
+      WHERE membership."seriesId" = series.id
+        AND (pixiv_ref.id IS NULL OR single_membership."artworkId" IS NULL)
+    )
 )
 SELECT series.id, series.title, series.source, series."externalId"
 FROM "Series" series

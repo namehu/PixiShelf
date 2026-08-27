@@ -76,37 +76,53 @@ FROM "Series" series
 WHERE series.id = membership."seriesId"
   AND upper(btrim(series."source")) = 'LOCAL';
 
--- Claim an old PIXIV Series only when the external id is unique and at least
--- one member has both a unique Pixiv ArtworkExternalRef and matching retained
--- downloader metadata. Disk-only online snapshots are handled by the Worker.
-WITH eligible_series AS MATERIALIZED (
+-- The legacy Series row already records an explicit PIXIV provider identity.
+-- Claim it only when that numeric external id is globally unique, every member
+-- has exactly one numeric Pixiv ArtworkExternalRef, and no member belongs to a
+-- second Series. Ambiguous rows remain LEGACY for explicit administrator review.
+WITH unique_pixiv_refs AS MATERIALIZED (
+  SELECT "artworkId", min(id) AS id
+  FROM "artwork_external_refs"
+  WHERE "providerKey" = 'pixiv'
+  GROUP BY "artworkId"
+  HAVING count(*) = 1
+    AND min("externalId") ~ '^[1-9][0-9]*$'
+),
+single_membership_artworks AS MATERIALIZED (
+  SELECT "artworkId"
+  FROM "SeriesArtwork"
+  GROUP BY "artworkId"
+  HAVING count(*) = 1
+),
+unique_legacy_external_ids AS MATERIALIZED (
+  SELECT "externalId"
+  FROM "Series"
+  WHERE upper(btrim("source")) = 'PIXIV'
+    AND "externalId" ~ '^[1-9][0-9]*$'
+  GROUP BY "externalId"
+  HAVING count(*) = 1
+),
+eligible_series AS MATERIALIZED (
   SELECT series.id AS "seriesId", series."externalId"
   FROM "Series" series
+  JOIN unique_legacy_external_ids unique_id
+    ON unique_id."externalId" = series."externalId"
   WHERE upper(btrim(series."source")) = 'PIXIV'
-    AND series."externalId" ~ '^[1-9][0-9]*$'
     AND EXISTS (
       SELECT 1
       FROM "SeriesArtwork" membership
-      JOIN "artwork_external_refs" artwork_ref
-        ON artwork_ref."artworkId" = membership."artworkId"
-       AND artwork_ref."providerKey" = 'pixiv'
-      JOIN "ArtworkRawMetadata" raw_metadata
-        ON raw_metadata."artworkId" = membership."artworkId"
       WHERE membership."seriesId" = series.id
-        AND raw_metadata."rawMetadataJson" ->> 'seriesId' = series."externalId"
-        AND (
-          SELECT count(*)
-          FROM "artwork_external_refs" sibling_ref
-          WHERE sibling_ref."artworkId" = membership."artworkId"
-            AND sibling_ref."providerKey" = 'pixiv'
-        ) = 1
     )
-),
-unique_external_ids AS MATERIALIZED (
-  SELECT "externalId"
-  FROM eligible_series
-  GROUP BY "externalId"
-  HAVING count(*) = 1
+    AND NOT EXISTS (
+      SELECT 1
+      FROM "SeriesArtwork" membership
+      LEFT JOIN unique_pixiv_refs pixiv_ref
+        ON pixiv_ref."artworkId" = membership."artworkId"
+      LEFT JOIN single_membership_artworks single_membership
+        ON single_membership."artworkId" = membership."artworkId"
+      WHERE membership."seriesId" = series.id
+        AND (pixiv_ref.id IS NULL OR single_membership."artworkId" IS NULL)
+    )
 )
 INSERT INTO "series_external_refs" (
   "id",
@@ -123,9 +139,7 @@ SELECT
   eligible."externalId",
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
-FROM eligible_series eligible
-JOIN unique_external_ids unique_id
-  ON unique_id."externalId" = eligible."externalId";
+FROM eligible_series eligible;
 
 WITH unique_pixiv_refs AS MATERIALIZED (
   SELECT "artworkId", min(id) AS id
@@ -133,38 +147,17 @@ WITH unique_pixiv_refs AS MATERIALIZED (
   WHERE "providerKey" = 'pixiv'
   GROUP BY "artworkId"
   HAVING count(*) = 1
-),
-source_memberships AS MATERIALIZED (
-  SELECT
-    membership."seriesId",
-    membership."artworkId",
-    artwork_ref.id AS "sourceRefId",
-    CASE
-      WHEN raw_metadata."rawMetadataJson" ->> 'seriesOrder' ~ '^[0-9]+$'
-        THEN (raw_metadata."rawMetadataJson" ->> 'seriesOrder')::INTEGER
-      ELSE NULL
-    END AS "sourceOrder"
-  FROM "SeriesArtwork" membership
-  JOIN "series_external_refs" series_ref
-    ON series_ref."seriesId" = membership."seriesId"
-   AND series_ref."providerKey" = 'pixiv'
-  JOIN unique_pixiv_refs unique_ref
-    ON unique_ref."artworkId" = membership."artworkId"
-  JOIN "artwork_external_refs" artwork_ref
-    ON artwork_ref.id = unique_ref.id
-  JOIN "ArtworkRawMetadata" raw_metadata
-    ON raw_metadata."artworkId" = membership."artworkId"
-  WHERE raw_metadata."rawMetadataJson" ->> 'seriesId' = series_ref."externalId"
+    AND min("externalId") ~ '^[1-9][0-9]*$'
 )
 UPDATE "SeriesArtwork" membership
 SET
   "provenance" = 'SOURCE',
-  "sourceRefId" = source_membership."sourceRefId",
-  "sourceOrder" = source_membership."sourceOrder",
-  "sortOrder" = coalesce(source_membership."sourceOrder", membership."sortOrder")
-FROM source_memberships source_membership
-WHERE membership."seriesId" = source_membership."seriesId"
-  AND membership."artworkId" = source_membership."artworkId";
+  "sourceRefId" = unique_ref.id
+FROM "series_external_refs" series_ref,
+     unique_pixiv_refs unique_ref
+WHERE series_ref."seriesId" = membership."seriesId"
+  AND series_ref."providerKey" = 'pixiv'
+  AND unique_ref."artworkId" = membership."artworkId";
 
 CREATE UNIQUE INDEX "SeriesArtwork_sourceRefId_key"
   ON "SeriesArtwork"("sourceRefId");

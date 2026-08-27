@@ -75,8 +75,10 @@ Pixiv 标题默认只在 `titleOverridden=false` 时更新。管理端只有标�
 ## 迁移与发布
 
 上线前运行 `series-source-identity-audit.sql`。Migration 只把 `source=LOCAL` 的既有关系认定为 `MANUAL`；旧 Pixiv 系列
-只有在 external ID 唯一、成员作品具有唯一 Pixiv 引用且保留的 metadata 明确声明同一系列 ID 时，才自动建立
-`SeriesExternalRef` 和 `SOURCE` 关系，其余数据保守保留。
+只有在旧记录明确声明 `source=PIXIV`、数字 external ID 全局唯一、每个成员作品都具有唯一数字 Pixiv 引用，且成员作品
+不存在第二条系列关系时，才自动建立 `SeriesExternalRef` 并将整个系列的既有关系认领为 `SOURCE`。生产不要求
+`ArtworkRawMetadata`：在线作品响应保存在 `pixiv_data` 磁盘快照，数据库旧表可能为空。重复系列 ID、多 Pixiv 引用、
+多系列成员和无成员系列仍保守保留为 `LEGACY`，等待管理员核对。
 
 发布顺序为：一致性备份 → `prisma migrate deploy` → `series-external-ref-verification.sql` → Worker → READY/capability →
 App。先少量核对并验证多系列导航、来源关系和本地排除，再启动全部未检查作品。
