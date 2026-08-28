@@ -149,7 +149,15 @@ describe('archive module', () => {
       completedItems: 1,
       failedItems: 1,
       totalItems: 2,
-      systemJob: { id: 'job-failed', status: 'FAILED', attempt: 3, queuePriority: 10, maxAttempts: 3 }
+      systemJob: {
+        id: 'job-failed',
+        status: 'FAILED',
+        attempt: 3,
+        queuePriority: 10,
+        maxAttempts: 3,
+        definitionVersion: 2,
+        payload: { archiveImportId: 'import-central', defaultTagIds: [2, 5] }
+      }
     }
     prismaMock.archiveImport.findUnique
       .mockResolvedValueOnce(task)
@@ -164,12 +172,12 @@ describe('archive module', () => {
     expect(prismaMock.systemJob.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         type: 'ARCHIVE_IMPORT',
-        definitionVersion: 1,
+        definitionVersion: 2,
         status: 'PENDING',
         triggerSource: 'RETRY',
         requestedByUserId: 'admin-1',
         parentJobId: 'job-failed',
-        payload: { archiveImportId: 'import-central' }
+        payload: { archiveImportId: 'import-central', defaultTagIds: [2, 5] }
       })
     })
     const retryJobId = prismaMock.systemJob.create.mock.calls[0]![0].data.id
@@ -578,7 +586,15 @@ describe('archive module', () => {
       completedItems: 98,
       failedItems: 2,
       totalItems: 100,
-      systemJob: { id: 'job-1', status: 'FAILED', queuePriority: 10, maxAttempts: 3, attempt: 1 }
+      systemJob: {
+        id: 'job-1',
+        status: 'FAILED',
+        queuePriority: 10,
+        maxAttempts: 3,
+        attempt: 1,
+        definitionVersion: 1,
+        payload: { archiveImportId: 'import-1' }
+      }
     }
     prismaMock.archiveImport.findUnique
       .mockResolvedValueOnce(task)
@@ -609,7 +625,15 @@ describe('archive module', () => {
       completedItems: 0,
       failedItems: 1,
       totalItems: 1,
-      systemJob: { id: 'job-1', status: 'FAILED', queuePriority: 10, maxAttempts: 3, attempt: 1 }
+      systemJob: {
+        id: 'job-1',
+        status: 'FAILED',
+        queuePriority: 10,
+        maxAttempts: 3,
+        attempt: 1,
+        definitionVersion: 1,
+        payload: { archiveImportId: 'import-1' }
+      }
     }
     prismaMock.archiveImport.findUnique
       .mockResolvedValueOnce(task)

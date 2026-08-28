@@ -31,7 +31,8 @@ describe('system setting service', () => {
 
     await expect(getSystemSettings()).resolves.toEqual({
       replace_default_tag_ids: [],
-      local_import_default_tag_ids: []
+      local_import_default_tag_ids: [],
+      archive_default_tag_ids: []
     })
   })
 
@@ -46,13 +47,19 @@ describe('system setting service', () => {
         key: 'local_import_default_tag_ids',
         value: '[4,5]',
         type: 'json'
+      },
+      {
+        key: 'archive_default_tag_ids',
+        value: '[6,7]',
+        type: 'json'
       }
     ])
     settingUpsertMock.mockResolvedValue({})
 
     const result = await upsertSystemSettings({
       replace_default_tag_ids: [1, 2, 3],
-      local_import_default_tag_ids: [4, 5]
+      local_import_default_tag_ids: [4, 5],
+      archive_default_tag_ids: [6, 7]
     })
 
     expect(settingUpsertMock).toHaveBeenCalledWith({
@@ -79,9 +86,43 @@ describe('system setting service', () => {
         type: 'json'
       }
     })
+    expect(settingUpsertMock).toHaveBeenCalledWith({
+      where: { key: 'archive_default_tag_ids' },
+      update: {
+        value: '[6,7]',
+        type: 'json'
+      },
+      create: {
+        key: 'archive_default_tag_ids',
+        value: '[6,7]',
+        type: 'json'
+      }
+    })
     expect(result).toEqual({
       replace_default_tag_ids: [1, 2, 3],
-      local_import_default_tag_ids: [4, 5]
+      local_import_default_tag_ids: [4, 5],
+      archive_default_tag_ids: [6, 7]
     })
+  })
+
+  it('does not clear archive defaults when an older client omits the new field', async () => {
+    settingFindManyMock.mockResolvedValue([
+      { key: 'replace_default_tag_ids', value: '[1]', type: 'json' },
+      { key: 'local_import_default_tag_ids', value: '[2]', type: 'json' },
+      { key: 'archive_default_tag_ids', value: '[3]', type: 'json' }
+    ])
+    settingUpsertMock.mockResolvedValue({})
+
+    await expect(
+      upsertSystemSettings({ replace_default_tag_ids: [1], local_import_default_tag_ids: [2] })
+    ).resolves.toEqual({
+      replace_default_tag_ids: [1],
+      local_import_default_tag_ids: [2],
+      archive_default_tag_ids: [3]
+    })
+    expect(settingUpsertMock).toHaveBeenCalledTimes(2)
+    expect(settingUpsertMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ where: { key: 'archive_default_tag_ids' } })
+    )
   })
 })

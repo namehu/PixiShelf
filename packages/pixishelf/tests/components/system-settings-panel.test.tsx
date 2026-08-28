@@ -68,7 +68,8 @@ vi.mock('@tanstack/react-query', () => ({
         data: {
           settings: {
             replace_default_tag_ids: [1, 2],
-            local_import_default_tag_ids: [4]
+            local_import_default_tag_ids: [4],
+            archive_default_tag_ids: [5]
           }
         },
         isLoading: false
@@ -80,7 +81,8 @@ vi.mock('@tanstack/react-query', () => ({
         items: [
           { id: 1, name: 'tag-a' },
           { id: 2, name: 'tag-b' },
-          { id: 4, name: 'tag-local' }
+          { id: 4, name: 'tag-local' },
+          { id: 5, name: 'tag-archive' }
         ]
       },
       isLoading: false
@@ -115,6 +117,7 @@ describe('SystemSettingsPanel', () => {
     expect(screen.getByText('tag-a')).toBeTruthy()
     expect(screen.getByText('tag-b')).toBeTruthy()
     expect(screen.getByText('tag-local')).toBeTruthy()
+    expect(screen.getByText('tag-archive')).toBeTruthy()
 
     fireEvent.click(screen.getByText('choose 搜索并选择全量替换默认标签...'))
     act(() => {
@@ -124,8 +127,20 @@ describe('SystemSettingsPanel', () => {
     expect(testState.mutationCalls).toEqual([
       {
         replace_default_tag_ids: [3],
-        local_import_default_tag_ids: [4]
+        local_import_default_tag_ids: [4],
+        archive_default_tag_ids: [5]
       }
     ])
+
+    fireEvent.click(screen.getByText('choose 搜索并选择归档默认标签...'))
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+
+    expect(testState.mutationCalls.at(-1)).toEqual({
+      replace_default_tag_ids: [3],
+      local_import_default_tag_ids: [4],
+      archive_default_tag_ids: [3]
+    })
   })
 })

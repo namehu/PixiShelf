@@ -262,6 +262,15 @@ export const videoKeyframeGenerationPayloadSchema = targetImagePayloadSchema.ext
 export const archiveImportPayloadSchema = z.object({
   archiveImportId: z.string().min(1)
 })
+export type ArchiveImportPayload = z.infer<typeof archiveImportPayloadSchema>
+
+export const archiveImportV2PayloadSchema = z
+  .object({
+    archiveImportId: boundedIdSchema,
+    defaultTagIds: uniquePositiveTagIdsSchema(100)
+  })
+  .strict()
+export type ArchiveImportV2Payload = z.infer<typeof archiveImportV2PayloadSchema>
 
 const cleanArchiveStagingPayloadSchema = z
   .object({ action: z.literal('CLEAN_STAGING'), archiveImportId: boundedIdSchema })

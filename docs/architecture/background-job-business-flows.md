@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 任务计划、中央 Worker、扫描、本地导入、归档及派生媒体任务的当前业务链路与状态边界
-last-verified: 2026-08-27
+last-verified: 2026-08-28
 sources:
   - packages/pixishelf/app/api/internal/scheduler/tick/route.ts
   - packages/pixishelf/services/background-task/
@@ -26,7 +26,7 @@ sources:
 
 1. Next.js App 是控制面：鉴权、校验、冻结输入、创建任务和查询状态；稳态下不执行长任务。
 2. PostgreSQL 的 `SystemJob` 是持久队列；Worker 从数据库 claim，不接收 App 的内存消息。
-3. 一个 Worker 进程运行两个 Dispatcher：`ARCHIVE_RESOLVE` 固定并发 1，`BACKGROUND_WRITER` 固定并发 1。两条 lane 可以各执行一个任务；22 类 writer 任务之间全局串行。
+3. 一个 Worker 进程运行两个 Dispatcher：`ARCHIVE_RESOLVE` 固定并发 1，`BACKGROUND_WRITER` 固定并发 1。两条 lane 可以各执行一个任务；24 类 writer 任务之间全局串行。
 4. 任务计划只负责创建 `SystemJob`。中央模式下页面中的 `HH:mm` 当前不决定释放时刻；所有已启用 DAILY 任务都在上海时间 `00:00-08:00` 窗口内物化，实际顺序由优先级决定。
 5. `SystemJob=COMPLETED` 只说明该 Executor 按其契约结束。若任务按项目记录失败，或父任务只负责创建子任务，仍必须查看 `result`、子任务和领域状态。
 6. 视频媒体探测和自动封面现在属于同一个 `VIDEO_MEDIA_PROBE` 工作流：先分类、探测，再在同一任务中处理全部待生成封面；批量封面不再拆成子任务，也没有 100 条封面上限。
@@ -249,8 +249,8 @@ sequenceDiagram
 
 标签、艺术家、作品和系列同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家、作品和系列的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
 
-生产 Registry 保持 25 个 job type。`SCAN` 同时支持 v1/v2/v3，其余 24 类仍只支持 v1，因此 capability audit
-实际核对 27 个 job type/definition-version 组合及其 lane，而不是把 v2/v3 误算成新的任务类型。v1 承载既有
+生产 Registry 保持 25 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 23 类仍只支持 v1，因此 capability audit
+实际核对 28 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
 
 ## Pixiv 作品在线同步链路
@@ -455,6 +455,7 @@ flowchart TD
 - submission 只是审计分组，不是必须全部解析完才能继续的封闭批次。
 - `ARCHIVE_RESOLVE_ITEM` 只做远端解析和数据库冻结，不写媒体目录；因此可以和一个 writer 任务并行。
 - `ARCHIVE_IMPORT` 才下载媒体和发布归档，必须和扫描、本地导入、视频任务共用串行 writer lane。
+- “归档默认标签”在 App 创建 `ARCHIVE_IMPORT@v2` 时冻结 ID；Worker 发布归档作品时保留来源标签，并把仍存在的默认标签以 `MANUAL` provenance 幂等追加。旧 `ARCHIVE_IMPORT@v1` 继续按空默认标签执行，避免历史队列失效。
 - 归档 `manifest.json` 是 Worker 在归档 staging/revision 中生成的发布清单。它不会出现在普通 `local-imports` 发现链路中，也不会触发本地导入默认标签。
 - 网络下载和 FFmpeg/文件流不放进长数据库事务。最终领域发布使用短 fenced transaction，避免失去 lease 的旧执行者发布结果。
 

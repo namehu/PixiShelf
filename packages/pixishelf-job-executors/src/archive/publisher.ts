@@ -20,7 +20,8 @@ export async function publishArchiveImportInTransaction(
   transaction: ArchiveTransaction,
   archiveImportId: string,
   paths: ArchiveStoragePaths,
-  now: Date
+  now: Date,
+  defaultTagIds: readonly number[]
 ): Promise<ArchivePublishResult> {
   await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
   const archiveImport = await transaction.archiveImport.findUnique({
@@ -131,6 +132,7 @@ export async function publishArchiveImportInTransaction(
   })
 
   await replaceSourceTags(transaction, artwork.id, externalRef.id, metadata)
+  await appendArchiveDefaultTags(transaction, artwork.id, defaultTagIds)
   await syncArtworkRelationships(transaction, artwork.id, archiveImport.providerKey, metadata.relationships)
   await transaction.image.deleteMany({ where: { artworkId: artwork.id } })
   await transaction.image.createMany({
@@ -189,6 +191,23 @@ export async function publishArchiveImportInTransaction(
     throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import changed during publication', { recoverable: true })
   }
   return { artworkId: artwork.id, revisionId: revision.id, archivePath: paths.finalRelativePath }
+}
+
+export async function appendArchiveDefaultTags(
+  transaction: ArchiveTransaction,
+  artworkId: number,
+  defaultTagIds: readonly number[]
+) {
+  if (defaultTagIds.length === 0) return
+  const tags = await transaction.tag.findMany({
+    where: { id: { in: [...defaultTagIds] } },
+    select: { id: true }
+  })
+  if (tags.length === 0) return
+  await transaction.artworkTag.createMany({
+    data: tags.map((tag) => ({ artworkId, tagId: tag.id, provenance: 'MANUAL' as const })),
+    skipDuplicates: true
+  })
 }
 
 async function replaceSourceTags(

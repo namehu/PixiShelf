@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { archiveImportPayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_IMPORT_DEFINITION_VERSION,
+  archiveImportV2PayloadSchema
+} from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -13,6 +16,7 @@ import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from './archive-coordination'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
 import { archiveTaskActionIneligibility, recoverAppliedArchiveTaskAction } from './archive-task-action-policy'
 import { archiveWireErrorMessage, redactArchiveText, redactArchiveUrl } from './archive-redaction'
+import { archiveImportDefaultTagIdsForRetry } from './archive-job-payload'
 
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
 
@@ -176,6 +180,7 @@ async function applyTaskAction(
     // RETRY 新建 SystemJob 并用 parentJobId 保留重试链；旧 job 继续作为历史审计记录。
     const nextJobId = uuid()
     const priority = Math.min(99, Math.max(0, task.systemJob.queuePriority))
+    const defaultTagIds = archiveImportDefaultTagIdsForRetry(task.systemJob, task.id)
     await transaction.archiveImportItem.updateMany({
       where: { archiveImportId: task.id, status: { not: 'COMPLETED' } },
       data: resetArchiveImportItem()
@@ -185,12 +190,15 @@ async function applyTaskAction(
         id: nextJobId,
         type: 'ARCHIVE_IMPORT',
         executionLane: 'BACKGROUND_WRITER',
-        definitionVersion: JOB_DEFINITION_VERSION,
+        definitionVersion: ARCHIVE_IMPORT_DEFINITION_VERSION,
         status: 'PENDING',
         triggerSource: 'RETRY',
         requestedByUserId,
         parentJobId: task.systemJobId,
-        payload: archiveImportPayloadSchema.parse({ archiveImportId: task.id }),
+        payload: archiveImportV2PayloadSchema.parse({
+          archiveImportId: task.id,
+          defaultTagIds
+        }),
         queuePriority: priority,
         effectivePriority: priority,
         availableAt: timestamp,

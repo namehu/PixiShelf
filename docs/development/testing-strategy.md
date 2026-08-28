@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 的测试分层、变更验证矩阵、CI 实际覆盖和已知质量缺口
-last-verified: 2026-08-27
+last-verified: 2026-08-28
 sources:
   - package.json
   - packages/*/package.json
@@ -92,8 +92,8 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/capability-audit.cjs
 ```
 
-健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 25 个 job type、27 个 type/version 组合
-（`SCAN` v1/v2/v3、其余 v1）的 type/version/lane 已注册；二者都不能代替领域功能测试。
+健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 25 个 job type、28 个 type/version 组合
+（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、其余 v1）的 type/version/lane 已注册；二者都不能代替领域功能测试。
 
 ## 变更验证矩阵
 
@@ -166,8 +166,8 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 8. 运行主应用 lint 和 typecheck；
 9. 运行主应用 `test:unit`。
 
-Worker 测试和 capability 门禁包含双 lane contract，以及 25 个 job type、27 个 type/version 组合（`SCAN`
-v1/v2/v3、其余 v1）的精确 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切
+Worker 测试和 capability 门禁包含双 lane contract，以及 25 个 job type、28 个 type/version 组合（`SCAN`
+v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、其余 v1）的精确 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切
 演练。v3 的独立领取测试同时证明只声明 SCAN v2 的旧 Worker 不会领取 `AUDIT_APPLY`。
 
 CI 当前没有明确执行：

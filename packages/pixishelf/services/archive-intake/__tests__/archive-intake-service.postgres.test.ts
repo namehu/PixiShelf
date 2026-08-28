@@ -597,7 +597,12 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     }
     const result = await enqueueArchiveIntakeMany(enqueueInput, requestedByUserId, {
       database,
-      now: () => now
+      now: () => now,
+      systemSettings: {
+        replace_default_tag_ids: [],
+        local_import_default_tag_ids: [],
+        archive_default_tag_ids: [9, 2, 9]
+      }
     })
     expect(result?.items).toEqual(
       expect.arrayContaining([
@@ -611,6 +616,14 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     await expect(
       database.archiveImportItem.count({ where: { archiveImport: { externalId: 'new-identity' } } })
     ).resolves.toBe(1)
+    const createdImport = await database.archiveImport.findFirstOrThrow({
+      where: { providerKey: 'test-provider', externalId: 'new-identity' },
+      include: { systemJob: true }
+    })
+    expect(createdImport.systemJob).toMatchObject({
+      definitionVersion: 2,
+      payload: { archiveImportId: createdImport.id, defaultTagIds: [2, 9] }
+    })
     await expect(
       database.archiveIntakeItem.findUniqueOrThrow({ where: { id: readyItems.items[0]!.id } })
     ).resolves.toMatchObject({

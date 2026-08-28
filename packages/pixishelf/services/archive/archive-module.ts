@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { archiveImportPayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_IMPORT_DEFINITION_VERSION,
+  archiveImportV2PayloadSchema
+} from '@pixishelf/job-contracts'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
@@ -8,6 +11,7 @@ import { ArchiveError } from './errors'
 import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from './archive-coordination'
 import type { ArchiveItemStatusFilter, ArchiveTaskAction } from './types'
 import { requestArchiveArtworkMaintenance, requestArchiveStagingCleanup } from './archive-maintenance-service'
+import { archiveImportDefaultTagIdsForRetry } from './archive-job-payload'
 
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const ARCHIVE_IMPORT_JOB_TYPE = 'ARCHIVE_IMPORT'
@@ -204,16 +208,20 @@ export class ArchiveModule {
         })
       }
       const priority = Math.min(99, Math.max(0, current.systemJob.queuePriority))
+      const defaultTagIds = archiveImportDefaultTagIdsForRetry(current.systemJob, current.id)
       await tx.systemJob.create({
         data: {
           id: nextJobId,
           type: ARCHIVE_IMPORT_JOB_TYPE,
-          definitionVersion: JOB_DEFINITION_VERSION,
+          definitionVersion: ARCHIVE_IMPORT_DEFINITION_VERSION,
           status: 'PENDING',
           triggerSource: 'RETRY',
           requestedByUserId: options.requestedByUserId,
           parentJobId: current.systemJobId,
-          payload: archiveImportPayloadSchema.parse({ archiveImportId: current.id }),
+          payload: archiveImportV2PayloadSchema.parse({
+            archiveImportId: current.id,
+            defaultTagIds
+          }),
           queuePriority: priority,
           effectivePriority: priority,
           availableAt: new Date(),

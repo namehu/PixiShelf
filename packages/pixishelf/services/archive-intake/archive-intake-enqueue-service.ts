@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { archiveImportPayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import { ARCHIVE_IMPORT_DEFINITION_VERSION, archiveImportV2PayloadSchema } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -10,6 +10,8 @@ import { redactArchiveText } from '@/services/archive/archive-redaction'
 import { buildArchiveStorageRelativePaths } from '@/services/archive/storage'
 import type { ResolvedArchive } from '@/services/archive/types'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
+import { getSystemSettings } from '@/services/setting.service'
+import type { SystemSettingsWithDefaults } from '@/schemas/system-setting.dto'
 
 export const enqueueArchiveIntakeManySchema = z
   .object({
@@ -35,6 +37,7 @@ export interface ArchiveIntakeEnqueueDependencies {
   database?: PrismaClient
   now?: () => Date
   uuid?: () => string
+  systemSettings?: SystemSettingsWithDefaults
 }
 
 export async function enqueueArchiveIntakeMany(
@@ -50,6 +53,8 @@ export async function enqueueArchiveIntakeMany(
   const requestOptions = parsed.items
     .map((item) => ({ itemId: item.itemId, quality: item.quality }))
     .sort((left, right) => left.itemId.localeCompare(right.itemId))
+  const settings = dependencies.systemSettings ?? (await getSystemSettings())
+  const defaultTagIds = [...new Set(settings.archive_default_tag_ids)].sort((left, right) => left - right)
 
   return runArchiveBulkOperation(
     {
@@ -65,7 +70,8 @@ export async function enqueueArchiveIntakeMany(
         quality: qualityByItemId.get(itemId) ?? 'ORIGINAL',
         requestedByUserId,
         timestamp: now(),
-        uuid
+        uuid,
+        defaultTagIds
       }),
     { database, now },
     (transaction, itemId, error) =>
@@ -81,9 +87,10 @@ async function enqueueOne(
     requestedByUserId: string
     timestamp: Date
     uuid: () => string
+    defaultTagIds: number[]
   }
 ): Promise<ArchiveBulkTargetResult> {
-  const { quality, requestedByUserId, timestamp, uuid } = options
+  const { quality, requestedByUserId, timestamp, uuid, defaultTagIds } = options
   const item = await transaction.archiveIntakeItem.findUnique({ where: { id: itemId } })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
   if (item.status === 'ENQUEUED' && item.archiveImportId) {
@@ -161,11 +168,11 @@ async function enqueueOne(
       id: jobId,
       type: 'ARCHIVE_IMPORT',
       executionLane: 'BACKGROUND_WRITER',
-      definitionVersion: JOB_DEFINITION_VERSION,
+      definitionVersion: ARCHIVE_IMPORT_DEFINITION_VERSION,
       status: 'PENDING',
       triggerSource: 'MANUAL',
       requestedByUserId,
-      payload: archiveImportPayloadSchema.parse({ archiveImportId: importId }),
+      payload: archiveImportV2PayloadSchema.parse({ archiveImportId: importId, defaultTagIds }),
       queuePriority: 10,
       effectivePriority: 10,
       availableAt: timestamp,

@@ -6,11 +6,13 @@ import {
   JOB_DEFINITION_VERSION,
   SCAN_AUDIT_APPLY_DEFINITION_VERSION,
   SCAN_DEFINITION_VERSION,
+  ARCHIVE_IMPORT_DEFINITION_VERSION,
   JOB_PAYLOAD_SCHEMAS,
   JOB_TYPE_VALUES,
   MEDIA_FILE_EXTENSIONS,
   TERMINAL_JOB_STATUSES,
   VIDEO_FILE_EXTENSIONS,
+  archiveImportV2PayloadSchema,
   bigintStringSchema,
   canonicalizeAuditApplyInputs,
   jobEventDtoSchema,
@@ -49,6 +51,7 @@ describe('job wire contracts', () => {
     expect(JOB_DEFINITION_VERSION).toBe(1)
     expect(SCAN_DEFINITION_VERSION).toBe(2)
     expect(SCAN_AUDIT_APPLY_DEFINITION_VERSION).toBe(3)
+    expect(ARCHIVE_IMPORT_DEFINITION_VERSION).toBe(2)
     expect(executionLaneForJobType('ARCHIVE_RESOLVE_ITEM')).toBe('ARCHIVE_RESOLVE')
     expect(executionLaneForJobType('ARCHIVE_IMPORT')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_MAINTENANCE')).toBe('BACKGROUND_WRITER')
@@ -88,6 +91,18 @@ describe('job wire contracts', () => {
     expect(MEDIA_FILE_EXTENSIONS).toEqual(expect.arrayContaining([...VIDEO_FILE_EXTENSIONS]))
     expect(Object.isFrozen(VIDEO_FILE_EXTENSIONS)).toBe(true)
     expect(Object.isFrozen(MEDIA_FILE_EXTENSIONS)).toBe(true)
+  })
+
+  it('freezes canonical default tag ids in ARCHIVE_IMPORT v2 while keeping v1 compatible', () => {
+    expect(parseJobPayload('ARCHIVE_IMPORT', { archiveImportId: 'import-1' })).toEqual({ archiveImportId: 'import-1' })
+    expect(archiveImportV2PayloadSchema.parse({ archiveImportId: 'import-1', defaultTagIds: [9, 2, 5] })).toEqual({
+      archiveImportId: 'import-1',
+      defaultTagIds: [2, 5, 9]
+    })
+    expect(() => archiveImportV2PayloadSchema.parse({ archiveImportId: 'import-1' })).toThrow()
+    expect(() =>
+      archiveImportV2PayloadSchema.parse({ archiveImportId: 'import-1', defaultTagIds: [2, 2] })
+    ).toThrow()
   })
 
   it('rejects absolute and traversing payload paths', () => {

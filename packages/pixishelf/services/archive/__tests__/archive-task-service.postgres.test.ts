@@ -135,6 +135,8 @@ describePostgres('archive task PostgreSQL contracts', () => {
     expect(projectRetryState(bulkState)).toEqual(projectRetryState(singleState))
     expect(bulkState.systemJob).toMatchObject({
       parentJobId: bulk.jobId,
+      definitionVersion: 2,
+      payload: { archiveImportId: bulk.importId, defaultTagIds: [] },
       queuePriority: 12,
       effectivePriority: 12,
       progress: 50,

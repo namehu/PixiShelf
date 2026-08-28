@@ -1,5 +1,11 @@
 import { setTimeout as delay } from 'node:timers/promises'
-import { archiveImportPayloadSchema, type JobErrorCode } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_IMPORT_DEFINITION_VERSION,
+  archiveImportPayloadSchema,
+  archiveImportV2PayloadSchema,
+  type ArchiveImportV2Payload,
+  type JobErrorCode
+} from '@pixishelf/job-contracts'
 import { Prisma } from '@pixishelf/db'
 import type {
   EnqueuedChildJob,
@@ -32,7 +38,7 @@ const PARTIAL_FAILED_STAGING_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 const DEFAULT_MEDIA_CONCURRENCY = 2
 const DEFAULT_MAX_MEDIA_ATTEMPTS = 3
 
-type ArchiveImportPayload = { archiveImportId: string }
+type ArchiveImportPayload = ArchiveImportV2Payload
 type ArchiveExecutionResult = { artworkId: number; revisionId: string; archivePath: string }
 type ArchiveExecutorContext = ExecutionContext<ArchiveImportPayload, EnqueuedChildJob>
 
@@ -59,7 +65,14 @@ export function createArchiveExecutorRegistrations(
       jobType: 'ARCHIVE_IMPORT',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: 1,
-      parsePayload: (payload) => archiveImportPayloadSchema.parse(payload),
+      parsePayload: (payload) => ({ ...archiveImportPayloadSchema.parse(payload), defaultTagIds: [] }),
+      execute: (context) => executeArchiveImport(context, dependencies)
+    },
+    {
+      jobType: 'ARCHIVE_IMPORT',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: ARCHIVE_IMPORT_DEFINITION_VERSION,
+      parsePayload: (payload) => archiveImportV2PayloadSchema.parse(payload),
       execute: (context) => executeArchiveImport(context, dependencies)
     }
   ]
@@ -180,7 +193,13 @@ export async function executeArchiveImport(
     finalizationStarted = true
     return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
       if (await finalizeRequestedArchiveControl(scope, archiveImportId, now())) return
-      const result = await publishArchiveImportInTransaction(scope.transaction, archiveImportId, paths, now())
+      const result = await publishArchiveImportInTransaction(
+        scope.transaction,
+        archiveImportId,
+        paths,
+        now(),
+        context.payload.defaultTagIds
+      )
       await scope.complete({ result, message: 'Archive import published' })
     })
   } catch (error) {

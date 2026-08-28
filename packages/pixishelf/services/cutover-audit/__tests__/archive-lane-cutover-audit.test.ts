@@ -19,7 +19,8 @@ describe('archive lane cutover audit', () => {
           { type: 'SCAN', definitionVersion: 1, status: 'PENDING', count: BigInt(4) },
           { type: 'SCAN', definitionVersion: 2, status: 'RETRY_WAIT', count: BigInt(3) },
           { type: 'SCAN', definitionVersion: 3, status: 'PAUSED', count: BigInt(2) },
-          { type: 'ARCHIVE_IMPORT', definitionVersion: 1, status: 'PAUSED', count: BigInt(2) }
+          { type: 'ARCHIVE_IMPORT', definitionVersion: 1, status: 'PAUSED', count: BigInt(2) },
+          { type: 'ARCHIVE_IMPORT', definitionVersion: 2, status: 'PENDING', count: BigInt(2) }
         ]
       }
       if (sql.includes('COUNT(*)')) return [{ count: BigInt(0) }]

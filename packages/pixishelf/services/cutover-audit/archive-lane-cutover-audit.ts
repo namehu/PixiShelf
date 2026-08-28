@@ -1,4 +1,5 @@
 import {
+  ARCHIVE_IMPORT_DEFINITION_VERSION,
   JOB_DEFINITION_VERSION,
   JOB_TYPE_VALUES,
   SCAN_AUDIT_APPLY_DEFINITION_VERSION,
@@ -125,11 +126,17 @@ async function readInfrastructureChecks(
 }
 
 function supportsProductionDefinition(jobType: string, definitionVersion: number): boolean {
-  return jobType === 'SCAN'
-    ? definitionVersion === JOB_DEFINITION_VERSION ||
-        definitionVersion === SCAN_DEFINITION_VERSION ||
-        definitionVersion === SCAN_AUDIT_APPLY_DEFINITION_VERSION
-    : definitionVersion === JOB_DEFINITION_VERSION
+  if (jobType === 'SCAN') {
+    return (
+      definitionVersion === JOB_DEFINITION_VERSION ||
+      definitionVersion === SCAN_DEFINITION_VERSION ||
+      definitionVersion === SCAN_AUDIT_APPLY_DEFINITION_VERSION
+    )
+  }
+  if (jobType === 'ARCHIVE_IMPORT') {
+    return definitionVersion === JOB_DEFINITION_VERSION || definitionVersion === ARCHIVE_IMPORT_DEFINITION_VERSION
+  }
+  return definitionVersion === JOB_DEFINITION_VERSION
 }
 
 async function readCountedCheck(

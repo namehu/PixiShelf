@@ -9,6 +9,10 @@ export const SCAN_DEFINITION_VERSION = 2 as const
 // that advertised v2 cannot claim a write-capable task it only knows how to reject.
 export const SCAN_AUDIT_APPLY_DEFINITION_VERSION = 3 as const
 
+// ARCHIVE_IMPORT@v2 freezes system-configured default tags in the durable payload.
+// Keeping it separate prevents an older v1 Worker from silently discarding the tags.
+export const ARCHIVE_IMPORT_DEFINITION_VERSION = 2 as const
+
 // All transactions that create or retire singleton SCAN work coordinate on
 // this namespace plus PostgreSQL hashtext('SCAN').
 export const SINGLETON_JOB_ADVISORY_LOCK_NAMESPACE = 80_432_028 as const

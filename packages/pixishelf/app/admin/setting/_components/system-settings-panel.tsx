@@ -15,17 +15,20 @@ export function SystemSettingsPanel() {
   const lastAppliedPersistedSettingsKeyRef = useRef<string | null>(null)
   const [replaceDefaultTagIds, setReplaceDefaultTagIds] = useState<number[]>([])
   const [localImportDefaultTagIds, setLocalImportDefaultTagIds] = useState<number[]>([])
+  const [archiveDefaultTagIds, setArchiveDefaultTagIds] = useState<number[]>([])
 
   const systemSettingsQuery = useQuery(trpc.setting.getSystemSettings.queryOptions())
   const persistedReplaceTagIds = systemSettingsQuery.data?.settings.replace_default_tag_ids
   const persistedLocalImportTagIds = systemSettingsQuery.data?.settings.local_import_default_tag_ids
+  const persistedArchiveTagIds = systemSettingsQuery.data?.settings.archive_default_tag_ids
   const persistedSettingsKey = useMemo(
-    () => `${(persistedReplaceTagIds ?? []).join(',')}|${(persistedLocalImportTagIds ?? []).join(',')}`,
-    [persistedLocalImportTagIds, persistedReplaceTagIds]
+    () =>
+      `${(persistedReplaceTagIds ?? []).join(',')}|${(persistedLocalImportTagIds ?? []).join(',')}|${(persistedArchiveTagIds ?? []).join(',')}`,
+    [persistedArchiveTagIds, persistedLocalImportTagIds, persistedReplaceTagIds]
   )
   const selectedTagIds = useMemo(
-    () => Array.from(new Set([...replaceDefaultTagIds, ...localImportDefaultTagIds])),
-    [localImportDefaultTagIds, replaceDefaultTagIds]
+    () => Array.from(new Set([...replaceDefaultTagIds, ...localImportDefaultTagIds, ...archiveDefaultTagIds])),
+    [archiveDefaultTagIds, localImportDefaultTagIds, replaceDefaultTagIds]
   )
   const selectedTagsQuery = useQuery(
     trpc.tag.getByIds.queryOptions(
@@ -56,7 +59,8 @@ export function SystemSettingsPanel() {
     lastAppliedPersistedSettingsKeyRef.current = persistedSettingsKey
     setReplaceDefaultTagIds(persistedReplaceTagIds ?? [])
     setLocalImportDefaultTagIds(persistedLocalImportTagIds ?? [])
-  }, [persistedLocalImportTagIds, persistedReplaceTagIds, persistedSettingsKey])
+    setArchiveDefaultTagIds(persistedArchiveTagIds ?? [])
+  }, [persistedArchiveTagIds, persistedLocalImportTagIds, persistedReplaceTagIds, persistedSettingsKey])
 
   useEffect(() => {
     return () => {
@@ -66,7 +70,11 @@ export function SystemSettingsPanel() {
     }
   }, [])
 
-  const scheduleSave = (nextReplaceTagIds: number[], nextLocalImportTagIds: number[]) => {
+  const scheduleSave = (
+    nextReplaceTagIds: number[],
+    nextLocalImportTagIds: number[],
+    nextArchiveTagIds: number[]
+  ) => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current)
     }
@@ -74,7 +82,8 @@ export function SystemSettingsPanel() {
     saveTimer.current = setTimeout(() => {
       updateMutation.mutate({
         replace_default_tag_ids: nextReplaceTagIds,
-        local_import_default_tag_ids: nextLocalImportTagIds
+        local_import_default_tag_ids: nextLocalImportTagIds,
+        archive_default_tag_ids: nextArchiveTagIds
       })
     }, 500)
   }
@@ -114,7 +123,7 @@ export function SystemSettingsPanel() {
       .filter((id) => Number.isInteger(id) && id > 0)
 
     setReplaceDefaultTagIds(nextIds)
-    scheduleSave(nextIds, localImportDefaultTagIds)
+    scheduleSave(nextIds, localImportDefaultTagIds, archiveDefaultTagIds)
   }
 
   const handleLocalImportDefaultTagsChange = (options: Option[]) => {
@@ -123,7 +132,16 @@ export function SystemSettingsPanel() {
       .filter((id) => Number.isInteger(id) && id > 0)
 
     setLocalImportDefaultTagIds(nextIds)
-    scheduleSave(replaceDefaultTagIds, nextIds)
+    scheduleSave(replaceDefaultTagIds, nextIds, archiveDefaultTagIds)
+  }
+
+  const handleArchiveDefaultTagsChange = (options: Option[]) => {
+    const nextIds = options
+      .map((item) => Number(item.value))
+      .filter((id) => Number.isInteger(id) && id > 0)
+
+    setArchiveDefaultTagIds(nextIds)
+    scheduleSave(replaceDefaultTagIds, localImportDefaultTagIds, nextIds)
   }
 
   return (
@@ -170,6 +188,26 @@ export function SystemSettingsPanel() {
             />
             <div className="mt-2 text-xs text-muted-foreground">
               {updateMutation.isPending ? '保存中...' : `当前已选择 ${localImportDefaultTagIds.length} 个默认标签`}
+            </div>
+          </div>
+        </PreferenceItem>
+
+        <PreferenceItem
+          title="归档默认标签"
+          description="选择默认追加的标签。作品从归档收件箱导入并发布成功后，会自动补上这些标签"
+        >
+          <div className="w-full sm:max-w-xl">
+            <MultipleSelector
+              value={selectedTagOptionsById(archiveDefaultTagIds)}
+              onSearch={handleSearchTag}
+              onChange={handleArchiveDefaultTagsChange}
+              triggerSearchOnFocus
+              placeholder="搜索并选择归档默认标签..."
+              disabled={systemSettingsQuery.isLoading || updateMutation.isPending}
+              emptyIndicator={<p className="py-4 text-center text-sm text-muted-foreground">暂无可选标签</p>}
+            />
+            <div className="mt-2 text-xs text-muted-foreground">
+              {updateMutation.isPending ? '保存中...' : `当前已选择 ${archiveDefaultTagIds.length} 个默认标签`}
             </div>
           </div>
         </PreferenceItem>

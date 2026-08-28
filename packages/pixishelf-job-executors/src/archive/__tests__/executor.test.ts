@@ -120,11 +120,19 @@ describe('archive executor', () => {
     publishMock.mockResolvedValue({ artworkId: 42, revisionId: 'import-1', archivePath: 'sources/test/42' })
   })
 
-  it('exports only the ARCHIVE_IMPORT v1 registration', () => {
+  it('registers backward-compatible ARCHIVE_IMPORT v1 and frozen-default-tag v2 executors', () => {
     const registrations = createArchiveExecutorRegistrations(dependencies(createTransaction()))
-    expect(registrations).toHaveLength(1)
+    expect(registrations).toHaveLength(2)
     expect(registrations[0]).toMatchObject({ jobType: 'ARCHIVE_IMPORT', definitionVersion: 1 })
-    expect(registrations[0]!.parsePayload?.({ archiveImportId: 'import-1' })).toEqual({ archiveImportId: 'import-1' })
+    expect(registrations[0]!.parsePayload?.({ archiveImportId: 'import-1' })).toEqual({
+      archiveImportId: 'import-1',
+      defaultTagIds: []
+    })
+    expect(registrations[1]).toMatchObject({ jobType: 'ARCHIVE_IMPORT', definitionVersion: 2 })
+    expect(registrations[1]!.parsePayload?.({ archiveImportId: 'import-1', defaultTagIds: [5, 2] })).toEqual({
+      archiveImportId: 'import-1',
+      defaultTagIds: [2, 5]
+    })
     expect(() => registrations[0]!.parsePayload?.({ archiveImportId: '' })).toThrow()
   })
 
@@ -146,9 +154,26 @@ describe('archive executor', () => {
       transaction,
       'import-1',
       expect.objectContaining({ stagingRelativePath: '.archive-staging/import-1' }),
-      expect.any(Date)
+      expect.any(Date),
+      []
     )
     expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
+  })
+
+  it('passes frozen v2 default tags into the fenced archive publication', async () => {
+    const transaction = createTransaction()
+    const context = createContext(transaction)
+    context.payload.defaultTagIds = [2, 5]
+
+    await executeArchiveImport(context, dependencies(transaction))
+
+    expect(publishMock).toHaveBeenCalledWith(
+      transaction,
+      'import-1',
+      expect.any(Object),
+      expect.any(Date),
+      [2, 5]
+    )
   })
 
   it('reconciles stale aggregate counts from durable item checkpoints before execution', async () => {
@@ -534,7 +559,7 @@ function createContext(
       definitionVersion: 1,
       status: 'RUNNING',
       triggerSource: 'MANUAL',
-      payload: { archiveImportId: 'import-1' },
+      payload: { archiveImportId: 'import-1', defaultTagIds: [] },
       attempt: 1,
       maxAttempts: 3,
       effectivePriority: 10,
@@ -549,7 +574,7 @@ function createContext(
       updatedAt: new Date(),
       executionToken: '11111111-1111-4111-8111-111111111111'
     },
-    payload: { archiveImportId: 'import-1' },
+    payload: { archiveImportId: 'import-1', defaultTagIds: [] },
     signal,
     progress: vi.fn(async () => undefined),
     enqueueChild: vi.fn(async () => ({ id: 'child', created: true })),
@@ -563,7 +588,10 @@ function createContext(
     logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     __scope: scope
   }
-  return context as unknown as ExecutionContext<{ archiveImportId: string }, EnqueuedChildJob> & {
+  return context as unknown as ExecutionContext<
+    { archiveImportId: string; defaultTagIds: number[] },
+    EnqueuedChildJob
+  > & {
     finalizeInTransaction: ReturnType<typeof vi.fn>
     __scope: typeof scope
   }
