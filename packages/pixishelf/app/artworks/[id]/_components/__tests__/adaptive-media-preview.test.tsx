@@ -210,6 +210,21 @@ describe('AdaptiveMediaPreview', () => {
     expect(canPreloadAdaptiveNeighbor(media, { isMobile: false, saveData: true })).toBe(false)
   })
 
+  it('treats a confirmed static WebP as an ordinary preview image', () => {
+    const media = {
+      ...createMedia(0, '/static.webp'),
+      webpAnimationStatus: 1,
+      isAnimated: false
+    }
+
+    expect(canPreloadAdaptiveNeighbor(media, { isMobile: false, saveData: false })).toBe(true)
+
+    render(<AdaptiveMediaPreview images={[media]} initialIndex={0} open onClose={vi.fn()} />)
+
+    expect(screen.queryByText('动图静态预览')).toBeNull()
+    expect(screen.getByText('上下切换 · 双指或双击缩放')).toBeTruthy()
+  })
+
   it('keeps slide navigation disabled while zoomed and restores the final index on close', () => {
     const onClose = vi.fn()
     const backSpy = vi.spyOn(history, 'back').mockImplementation(() => undefined)

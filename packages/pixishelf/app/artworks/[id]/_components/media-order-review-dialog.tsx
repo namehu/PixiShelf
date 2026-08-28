@@ -49,6 +49,7 @@ import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useTRPCClient } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
+import { isConfirmedStaticWebp } from '@/lib/media-animation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
@@ -101,6 +102,7 @@ function isVideoMedia(media: ArtworkImageResponseDto) {
 }
 
 function isAnimatedMedia(media: ArtworkImageResponseDto) {
+  if (isConfirmedStaticWebp(media)) return false
   return Boolean(media.isAnimated) || isApngFile(media.path) || isGifFile(media.path) || isWebpFile(media.path)
 }
 

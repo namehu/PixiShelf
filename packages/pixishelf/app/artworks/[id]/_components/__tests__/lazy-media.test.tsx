@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import LazyMedia from '../lazy-media'
 
-const playerMocks = vi.hoisted(() => ({ props: vi.fn() }))
+const playerMocks = vi.hoisted(() => ({ props: vi.fn(), animatedProps: vi.fn(), imageProps: vi.fn() }))
 const enqueue = vi.hoisted(() => vi.fn())
 const cancel = vi.hoisted(() => vi.fn())
 const optimizationState = vi.hoisted(() => ({
@@ -21,8 +21,18 @@ vi.mock('@/components/players/video-player', () => ({
   }
 }))
 vi.mock('@/components/players/apng-player', () => ({ default: () => null }))
-vi.mock('@/components/players/animated-webp-player', () => ({ default: () => null }))
-vi.mock('next/image', () => ({ default: () => null }))
+vi.mock('@/components/players/animated-webp-player', () => ({
+  default: (props: { isAnimated?: boolean }) => {
+    playerMocks.animatedProps(props)
+    return <div data-testid="animated-image-player" />
+  }
+}))
+vi.mock('next/image', () => ({
+  default: (props: { src: string }) => {
+    playerMocks.imageProps(props)
+    return <div data-testid="static-image" />
+  }
+}))
 vi.mock('react-intersection-observer', () => ({ useOnInView: () => vi.fn() }))
 vi.mock('@/store/use-artwork-store', () => ({
   useArtworkStore: (selector: (state: { setCurrentIndex: ReturnType<typeof vi.fn> }) => unknown) =>
@@ -52,6 +62,8 @@ describe('LazyMedia video cache version', () => {
     enqueue.mockReset()
     cancel.mockReset()
     playerMocks.props.mockReset()
+    playerMocks.animatedProps.mockReset()
+    playerMocks.imageProps.mockReset()
   })
 
   it('uses image updatedAt to version the immutable video URL', () => {
@@ -94,5 +106,57 @@ describe('LazyMedia video cache version', () => {
     expect(screen.getByText('优化处理中')).toBeTruthy()
     expect(screen.getByText('排队中 · 第 3 位')).toBeTruthy()
     expect(screen.getByRole('button', { name: '取消排队' })).toBeTruthy()
+  })
+
+  it('renders a confirmed static WebP as an ordinary image', () => {
+    render(
+      <LazyMedia
+        media={{
+          ...media,
+          path: '/artist/work/static.webp',
+          mediaType: 'image',
+          webpAnimationStatus: 1,
+          isAnimated: false
+        }}
+        index={0}
+      />
+    )
+
+    expect(screen.getByTestId('static-image')).toBeTruthy()
+    expect(screen.queryByTestId('animated-image-player')).toBeNull()
+  })
+
+  it('keeps animated and pending WebP files on the on-demand player path', () => {
+    const { rerender } = render(
+      <LazyMedia
+        media={{
+          ...media,
+          path: '/artist/work/animated.webp',
+          mediaType: 'image',
+          webpAnimationStatus: 2,
+          isAnimated: true
+        }}
+        index={0}
+      />
+    )
+
+    expect(screen.getByTestId('animated-image-player')).toBeTruthy()
+    expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0].isAnimated).toBe(true)
+
+    rerender(
+      <LazyMedia
+        media={{
+          ...media,
+          path: '/artist/work/pending.webp',
+          mediaType: 'image',
+          webpAnimationStatus: 0,
+          isAnimated: false
+        }}
+        index={0}
+      />
+    )
+
+    expect(screen.getByTestId('animated-image-player')).toBeTruthy()
+    expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0].isAnimated).toBe(false)
   })
 })

@@ -285,6 +285,7 @@ describe('ArtworkImages', () => {
     const images = generateImages(1).map((image) => ({
       ...image,
       path: '/path/to/animation.webp',
+      webpAnimationStatus: 0,
       isAnimated: undefined
     }))
     render(<ArtworkImages images={images} artworkId={1} />)
@@ -295,6 +296,22 @@ describe('ArtworkImages', () => {
     fireEvent.click(webpMedia)
 
     expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
+  })
+
+  it('opens the adaptive preview when WebP metadata confirms a static image', () => {
+    const images = generateImages(1).map((image) => ({
+      ...image,
+      path: '/path/to/static.webp',
+      webpAnimationStatus: 1,
+      isAnimated: false
+    }))
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    const webpMedia = screen.getByTestId('lazy-media')
+    fireEvent.mouseDown(webpMedia)
+    fireEvent.mouseUp(webpMedia)
+
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('0')
   })
 
   it('cancels both click preview and long press when the finger scrolls', () => {

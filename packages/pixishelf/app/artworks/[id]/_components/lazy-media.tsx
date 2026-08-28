@@ -9,6 +9,7 @@ import Image from 'next/image'
 import { memo, useMemo } from 'react'
 import { useOnInView } from 'react-intersection-observer'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
+import { isConfirmedStaticWebp } from '@/lib/media-animation'
 import { combinationApiResource } from '@/utils/combination-static'
 import { Loader2, X } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
@@ -126,7 +127,7 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
       return <ApngPlayer src={src} alt={`Artwork animation ${index + 1}`} />
     }
 
-    if (isWebpFile(src) || (isGifFile(src) && media.isAnimated)) {
+    if ((isWebpFile(src) && !isConfirmedStaticWebp(media)) || (isGifFile(src) && media.isAnimated)) {
       const formatLabel = isGifFile(src) ? 'GIF' : 'WEBP'
       return (
         <AnimatedWebpPlayer

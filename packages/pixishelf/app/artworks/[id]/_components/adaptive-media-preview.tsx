@@ -9,6 +9,7 @@ import type { Swiper as SwiperType } from 'swiper'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
+import { isConfirmedStaticWebp } from '@/lib/media-animation'
 import { withMediaVersion } from '@/lib/media-url'
 import { canPreloadAdaptedImage, readMediaPreloadEnvironment, type MediaPreloadEnvironment } from '@/lib/media-preload'
 
@@ -37,6 +38,7 @@ function createHistoryToken() {
 }
 
 function isAnimatedMedia(media: ArtworkImageResponseDto) {
+  if (isConfirmedStaticWebp(media)) return false
   return Boolean(media.isAnimated) || isApngFile(media.path) || isGifFile(media.path) || isWebpFile(media.path)
 }
 

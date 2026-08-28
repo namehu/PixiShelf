@@ -13,6 +13,7 @@ import { useArtworkStore } from '@/store/use-artwork-store'
 import { useArtworkMediaAnchorInterval } from '@/components/user-setting'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
+import { isConfirmedStaticWebp } from '@/lib/media-animation'
 import { cn } from '@/lib/utils'
 import AdaptiveMediaPreview from './adaptive-media-preview'
 import { ArtworkVideoOptimizationProvider } from './artwork-video-optimization-context'
@@ -61,7 +62,8 @@ function isVideoMedia(media: ArtworkImageResponseDto) {
 }
 
 function usesInteractiveMediaPlayer(media: ArtworkImageResponseDto) {
-  if (isVideoMedia(media) || isWebpFile(media.path)) return true
+  if (isVideoMedia(media)) return true
+  if (isWebpFile(media.path)) return !isConfirmedStaticWebp(media)
   if (!media.isAnimated) return false
 
   return isApngFile(media.path) || isGifFile(media.path) || /\.png$/i.test(media.path)
