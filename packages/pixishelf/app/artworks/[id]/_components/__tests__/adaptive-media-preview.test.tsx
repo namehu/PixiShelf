@@ -77,7 +77,7 @@ vi.mock('swiper/react', () => ({
     props.onSwiper(swiperMocks.instance)
 
     return (
-      <div className={props.className} data-testid={props['data-testid']}>
+      <div className={props.className} data-testid={props['data-testid']} data-direction={props.direction}>
         {props.children}
         <button
           type="button"
@@ -153,6 +153,8 @@ describe('AdaptiveMediaPreview', () => {
     expect(images[1]!.getAttribute('src')).not.toContain('/api/image')
     expect(images[1]!.getAttribute('data-quality')).toBe('90')
     expect(images[1]!.getAttribute('data-priority')).toBe('true')
+    expect(screen.getByTestId('adaptive-media-preview-swiper').getAttribute('data-direction')).toBe('vertical')
+    expect(screen.getByText('上下切换 · 双指或双击缩放')).toBeTruthy()
   })
 
   it('moves the eager neighbor window after the active image has loaded', () => {

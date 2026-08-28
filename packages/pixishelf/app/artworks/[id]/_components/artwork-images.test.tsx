@@ -4,6 +4,7 @@ import React from 'react'
 import ArtworkImages, { buildMediaAnchorIndexes } from './artwork-images'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useUserSettingsStore } from '@/components/user-setting'
+import { useArtworkStore } from '@/store/use-artwork-store'
 
 const virtualizerMocks = vi.hoisted(() => ({
   useWindowVirtualizer: vi.fn(),
@@ -22,15 +23,34 @@ vi.mock('next/navigation', () => ({
 }))
 
 let popoverOpen = false
+let popoverOpenChange: ((open: boolean) => void) | undefined
 
 vi.mock('@/components/ui/popover', () => ({
-  Popover: ({ children, open }: { children: React.ReactNode; open?: boolean }) => {
+  Popover: ({
+    children,
+    open,
+    onOpenChange
+  }: {
+    children: React.ReactNode
+    open?: boolean
+    onOpenChange?: (open: boolean) => void
+  }) => {
     popoverOpen = !!open
+    popoverOpenChange = onOpenChange
     return <div>{children}</div>
   },
   PopoverAnchor: (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
-  PopoverContent: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) =>
-    popoverOpen ? <div {...props}>{children}</div> : null
+  PopoverTrigger: ({ children }: { children: React.ReactElement<{ onClick?: React.MouseEventHandler }> }) => {
+    const open = popoverOpen
+    const onOpenChange = popoverOpenChange
+    return React.cloneElement(children, {
+      onClick: (event) => {
+        children.props.onClick?.(event)
+        onOpenChange?.(!open)
+      }
+    })
+  },
+  PopoverContent: ({ children }: { children: React.ReactNode }) => (popoverOpen ? <div>{children}</div> : null)
 }))
 
 vi.mock('./lazy-media', () => ({
@@ -96,6 +116,7 @@ describe('ArtworkImages', () => {
     virtualizerMocks.scrollToIndex.mockClear()
     virtualizerMocks.measureElement.mockClear()
     useUserSettingsStore.getState().hydrateSettings({ artwork_media_anchor_interval: 50 })
+    useArtworkStore.getState().setCurrentIndex(0)
   })
 
   afterEach(() => {
@@ -140,6 +161,9 @@ describe('ArtworkImages', () => {
 
     expect(screen.getAllByTestId('lazy-media')).toHaveLength(19)
     expect(screen.queryByRole('button', { name: /查看剩余/i })).toBeNull()
+    expect((screen.getByTestId('artwork-images-container').children[0] as HTMLElement).className).not.toContain(
+      'sm:left-2'
+    )
   })
 
   it('renders the first 20 media and the expand button initially', () => {
@@ -164,6 +188,7 @@ describe('ArtworkImages', () => {
   it('automatically expands and jumps when selecting an anchor after the preview range', async () => {
     render(<ArtworkImages images={generateImages(120)} artworkId={1} />)
 
+    fireEvent.click(screen.getByRole('button', { name: /打开媒体快捷导航/ }))
     fireEvent.click(screen.getByRole('button', { name: '跳转到第 50 张媒体' }))
 
     await waitFor(() => {
@@ -175,19 +200,23 @@ describe('ArtworkImages', () => {
     })
   })
 
-  it('opens and closes the mobile anchor panel explicitly', () => {
+  it('combines the three-digit media count with the bottom-right anchor trigger', () => {
     render(<ArtworkImages images={generateImages(120)} artworkId={1} />)
 
-    expect(screen.getAllByRole('navigation', { name: '作品媒体快捷导航' })).toHaveLength(1)
-    const mobileTrigger = screen.getByRole('button', { name: '打开媒体快捷导航' })
-    expect(mobileTrigger.className).toContain('var(--app-mobile-navigation-offset)')
-    fireEvent.click(mobileTrigger)
+    expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
+    const trigger = screen.getByRole('button', { name: /打开媒体快捷导航，当前第 1 张，共 120 张/ })
+    const counter = trigger.querySelector('.font-utility')
+    expect(counter?.className).toContain('flex-col')
+    expect(counter?.className).toContain('text-[10px]')
+    expect(within(trigger).getByText('1')).toBeTruthy()
+    expect(within(trigger).getByText('120')).toBeTruthy()
+    expect(trigger.className).toContain('size-11')
+    expect(trigger.parentElement?.parentElement?.className).toContain('var(--app-mobile-navigation-offset)')
+    fireEvent.click(trigger)
 
-    const navigations = screen.getAllByRole('navigation', { name: '作品媒体快捷导航' })
-    expect(navigations).toHaveLength(2)
-    expect(navigations[1]!.className).toContain('var(--app-mobile-navigation-offset)')
-    fireEvent.click(within(navigations[1]!).getByRole('button', { name: '跳转到第 50 张媒体' }))
-    expect(screen.queryByRole('button', { name: '关闭媒体快捷导航' })).toBeNull()
+    const navigation = screen.getByRole('navigation', { name: '作品媒体快捷导航' })
+    fireEvent.click(within(navigation).getByRole('button', { name: '跳转到第 50 张媒体' }))
+    expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
   })
 
   it('does not show navigation when the setting is disabled', () => {
@@ -195,6 +224,9 @@ describe('ArtworkImages', () => {
     render(<ArtworkImages images={generateImages(600)} artworkId={1} />)
 
     expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
+    const counter = screen.getByLabelText('当前第 1 张，共 600 张')
+    expect(within(counter).getByText('1')).toBeTruthy()
+    expect(within(counter).getByText('600')).toBeTruthy()
   })
 
   it('opens adaptive and original preview actions on image long press', () => {
@@ -305,7 +337,7 @@ describe('ArtworkImages', () => {
 
     render(<ArtworkImages images={images} artworkId={1} />)
 
-    expect(screen.getByTestId('artwork-video-container')).toBeTruthy()
+    expect(screen.getByTestId('artwork-video-container').className).not.toContain('sm:px-2')
     expect(screen.getByTestId('lazy-media').getAttribute('data-src')).toBe('/path/to/video.mp4')
     expect(screen.queryByTestId('artwork-images-container')).toBeNull()
     expect(virtualizerMocks.useWindowVirtualizer).not.toHaveBeenCalled()

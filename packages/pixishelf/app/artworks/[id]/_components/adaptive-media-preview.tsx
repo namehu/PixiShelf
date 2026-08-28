@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ChevronDownIcon, ChevronUpIcon, XIcon } from 'lucide-react'
 import { Keyboard, Virtual, Zoom } from 'swiper/modules'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import type { Swiper as SwiperType } from 'swiper'
@@ -183,7 +183,7 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
         onPointerDownOutside={(event) => event.preventDefault()}
       >
         <DialogTitle className="sr-only">适配尺寸媒体预览</DialogTitle>
-        <DialogDescription className="sr-only">左右滑动切换媒体，双指或双击缩放图片。</DialogDescription>
+        <DialogDescription className="sr-only">上下滑动切换媒体，双指或双击缩放图片。</DialogDescription>
 
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/75 via-black/35 to-transparent px-3 pb-8 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-5">
           <div
@@ -198,14 +198,14 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
             className="pointer-events-auto flex size-11 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             aria-label="关闭适配尺寸预览"
           >
-            <X className="size-6" />
+            <XIcon className="size-6" />
           </button>
         </div>
 
         <Swiper
           modules={[Keyboard, Virtual, Zoom]}
           initialSlide={safeInitialIndex}
-          direction="horizontal"
+          direction="vertical"
           keyboard={{ enabled: true, onlyInViewport: false }}
           virtual={{ addSlidesBefore: 1, addSlidesAfter: 1 }}
           zoom={{ minRatio: 1, maxRatio: 3, toggle: true }}
@@ -258,7 +258,7 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
         </Swiper>
 
         {images.length > 1 && (
-          <div className="pointer-events-none absolute inset-x-4 top-1/2 z-20 hidden -translate-y-1/2 items-center justify-between sm:flex">
+          <div className="pointer-events-none absolute right-4 top-1/2 z-20 hidden -translate-y-1/2 flex-col gap-2 sm:flex">
             <button
               type="button"
               onClick={() => swiperRef.current?.slidePrev()}
@@ -266,7 +266,7 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
               className="pointer-events-auto flex size-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-25"
               aria-label="上一张媒体"
             >
-              <ChevronLeft className="size-7" aria-hidden="true" />
+              <ChevronUpIcon className="size-7" aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -275,7 +275,7 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
               className="pointer-events-auto flex size-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-colors hover:bg-white/20 disabled:pointer-events-none disabled:opacity-25"
               aria-label="下一张媒体"
             >
-              <ChevronRight className="size-7" aria-hidden="true" />
+              <ChevronDownIcon className="size-7" aria-hidden="true" />
             </button>
           </div>
         )}
@@ -286,7 +286,7 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
               ? `${zoomScale.toFixed(1)}× · 拖动查看，缩小后切换`
               : activeAnimated
                 ? '静态适配预览 · 长按原媒体可查看原文件'
-                : '左右切换 · 双指或双击缩放'}
+                : '上下切换 · 双指或双击缩放'}
           </span>
         </div>
       </DialogContent>

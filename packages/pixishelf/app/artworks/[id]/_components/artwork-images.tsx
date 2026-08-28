@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
-import { ListTree, X } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 import LazyMedia from './lazy-media'
 import { useLongPress } from '@/hooks/use-long-press'
-import { Popover, PopoverContent, PopoverAnchor } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useRouter } from 'next/navigation'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import { useArtworkMediaAnchorInterval } from '@/components/user-setting'
@@ -88,8 +89,7 @@ function useMeasuredMediaContainer() {
     if (!containerRef.current) return
 
     const rect = containerRef.current.getBoundingClientRect()
-    const horizontalInset = window.innerWidth >= 640 ? 16 : 0
-    const nextWidth = Math.max(1, rect.width - horizontalInset)
+    const nextWidth = Math.max(1, rect.width)
     const nextScrollMargin = rect.top + window.scrollY
 
     setContainerWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
@@ -294,13 +294,11 @@ function ExpandRemainingMediaButton({ remainingCount, onExpand }: { remainingCou
 function MediaAnchorList({
   indexes,
   activeIndex,
-  onSelect,
-  className
+  onSelect
 }: {
   indexes: number[]
   activeIndex: number
   onSelect: (index: number) => void
-  className?: string
 }) {
   const activeButtonRef = useRef<HTMLButtonElement>(null)
 
@@ -309,13 +307,7 @@ function MediaAnchorList({
   }, [activeIndex])
 
   return (
-    <nav
-      aria-label="作品媒体快捷导航"
-      className={cn(
-        'max-h-[70dvh] overflow-y-auto rounded-surface border border-border bg-surface-raised/95 p-1.5 shadow-floating backdrop-blur',
-        className
-      )}
-    >
+    <nav aria-label="作品媒体快捷导航">
       <div className="flex flex-col gap-0.5">
         {indexes.map((index) => {
           const isActive = index === activeIndex
@@ -346,46 +338,64 @@ function MediaAnchorList({
 function MediaAnchorNavigation({
   indexes,
   activeIndex,
-  isMobileOpen,
-  onMobileOpenChange,
+  currentIndex,
+  total,
+  open,
+  onOpenChange,
   onSelect
 }: {
   indexes: number[]
   activeIndex: number
-  isMobileOpen: boolean
-  onMobileOpenChange: (open: boolean) => void
+  currentIndex: number
+  total: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSelect: (index: number) => void
 }) {
-  if (indexes.length === 0) return null
+  if (total <= 1) return null
+
+  const displayedIndex = Math.min(Math.max(currentIndex, 0), total - 1) + 1
+  const counter = (
+    <span className="font-utility flex flex-col items-center justify-center gap-0.5 text-[10px] leading-none tabular-nums">
+      <span className="font-semibold">{displayedIndex}</span>
+      <Separator className="w-3 bg-primary-foreground/35" />
+      <span className="font-normal opacity-70">{total}</span>
+    </span>
+  )
 
   return (
-    <>
-      <MediaAnchorList
-        indexes={indexes}
-        activeIndex={activeIndex}
-        onSelect={onSelect}
-        className="fixed right-4 top-1/2 z-40 hidden -translate-y-1/2 md:block"
-      />
-
-      <button
-        type="button"
-        aria-label={isMobileOpen ? '关闭媒体快捷导航' : '打开媒体快捷导航'}
-        aria-expanded={isMobileOpen}
-        onClick={() => onMobileOpenChange(!isMobileOpen)}
-        className="fixed right-4 bottom-[calc(var(--app-mobile-navigation-offset)+1rem)] z-40 flex h-11 w-11 items-center justify-center rounded-full bg-foreground text-background shadow-floating md:hidden"
-      >
-        {isMobileOpen ? <X className="h-5 w-5" /> : <ListTree className="h-5 w-5" />}
-      </button>
-
-      {isMobileOpen && (
-        <MediaAnchorList
-          indexes={indexes}
-          activeIndex={activeIndex}
-          onSelect={onSelect}
-          className="fixed right-4 bottom-[calc(var(--app-mobile-navigation-offset)+4rem)] z-40 md:hidden"
-        />
+    <div className="fixed right-4 bottom-[calc(var(--app-mobile-navigation-offset)+1rem)] z-40">
+      {indexes.length > 0 ? (
+        <Popover open={open} onOpenChange={onOpenChange}>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              className="size-11 rounded-full shadow-floating"
+              aria-label={`${open ? '关闭' : '打开'}媒体快捷导航，当前第 ${displayedIndex} 张，共 ${total} 张`}
+              aria-expanded={open}
+            >
+              {counter}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            side="top"
+            align="end"
+            sideOffset={8}
+            className="max-h-[70dvh] w-auto overflow-y-auto p-1.5"
+          >
+            <MediaAnchorList indexes={indexes} activeIndex={activeIndex} onSelect={onSelect} />
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <Badge
+          className="size-11 p-0 shadow-floating"
+          aria-label={`当前第 ${displayedIndex} 张，共 ${total} 张`}
+        >
+          {counter}
+        </Badge>
       )}
-    </>
+    </div>
   )
 }
 
@@ -444,7 +454,7 @@ function PreviewContextMenu({
 
 function SingleVideoArtworkMedia({ media }: { media: ArtworkImageResponseDto }) {
   return (
-    <div className="w-full sm:px-2" data-testid="artwork-video-container">
+    <div className="w-full" data-testid="artwork-video-container">
       <LazyMedia media={media} index={0} />
     </div>
   )
@@ -464,7 +474,7 @@ function VirtualizedArtworkMediaList({
   onOpenAdaptivePreview: (index: number) => void
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const [isMobileNavigationOpen, setIsMobileNavigationOpen] = useState(false)
+  const [isNavigationOpen, setIsNavigationOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
   const pendingScrollIndexRef = useRef<number | null>(null)
   const anchorInterval = useArtworkMediaAnchorInterval()
@@ -496,7 +506,7 @@ function VirtualizedArtworkMediaList({
     if (returnIndex === null) return
 
     setCurrentIndex(returnIndex)
-    setIsMobileNavigationOpen(false)
+    setIsNavigationOpen(false)
 
     if (!isExpanded && returnIndex >= MAX_PREVIEW_IMAGES) {
       setIsExpanded(true)
@@ -534,7 +544,7 @@ function VirtualizedArtworkMediaList({
   const handleAnchorSelect = useCallback(
     (index: number) => {
       setCurrentIndex(index)
-      setIsMobileNavigationOpen(false)
+      setIsNavigationOpen(false)
 
       if (!isExpanded && index >= MAX_PREVIEW_IMAGES) {
         pendingScrollIndexRef.current = index
@@ -566,7 +576,7 @@ function VirtualizedArtworkMediaList({
               key={virtualItem.key}
               ref={virtualizer.measureElement}
               data-index={index}
-              className="absolute left-0 right-0 top-0 sm:left-2 sm:right-2"
+              className="absolute left-0 right-0 top-0"
               style={{
                 transform: `translateY(${virtualItem.start - scrollMargin}px)`
               }}
@@ -589,8 +599,10 @@ function VirtualizedArtworkMediaList({
       <MediaAnchorNavigation
         indexes={anchorIndexes}
         activeIndex={activeAnchorIndex}
-        isMobileOpen={isMobileNavigationOpen}
-        onMobileOpenChange={setIsMobileNavigationOpen}
+        currentIndex={currentIndex}
+        total={images.length}
+        open={isNavigationOpen}
+        onOpenChange={setIsNavigationOpen}
         onSelect={handleAnchorSelect}
       />
     </>
