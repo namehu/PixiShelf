@@ -30,6 +30,10 @@ vi.mock('@/components/shared/multiple-selector', () => ({
   )
 }))
 
+vi.mock('@/app/admin/setting/_components/archive-default-tag-backfill-control', () => ({
+  ArchiveDefaultTagBackfillControl: () => <div>archive backfill control</div>
+}))
+
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
     setting: {

@@ -1,11 +1,14 @@
 import {
+  archiveDefaultTagBackfillPayloadSchema,
   emptyJobPayloadSchema,
   JOB_DEFINITION_VERSION,
   pixivAiDerivedTagSyncPayloadSchema,
+  type ArchiveDefaultTagBackfillPayload,
   type PixivAiDerivedTagSyncPayload
 } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, ExecutorDefinition, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { cleanupArchiveIntakeHistory } from './archive-intake-retention-cleanup.ts'
+import { executeArchiveDefaultTagBackfill } from './archive-default-tag-backfill.ts'
 import { syncAllMediaDerivedTags } from './media-derived-tag-sync.ts'
 import { syncPixivAiDerivedTags } from './pixiv-ai-derived-tag-sync.ts'
 import { refillMetaSource } from './refill-meta-source.ts'
@@ -54,6 +57,14 @@ export function createMaintenanceExecutorRegistrations(
     definition('MEDIA_DERIVED_TAG_SYNC', (context) =>
       syncAllMediaDerivedTags(operationInput(context, dependencies.database))
     ) as ExecutorDefinition,
+    {
+      jobType: 'ARCHIVE_DEFAULT_TAG_BACKFILL',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      parsePayload: (payload) => archiveDefaultTagBackfillPayloadSchema.parse(payload),
+      execute: (context: ExecutionContext<ArchiveDefaultTagBackfillPayload, EnqueuedChildJob>) =>
+        executeArchiveDefaultTagBackfill(context, dependencies.now ? { now: dependencies.now } : {})
+    } as ExecutorDefinition,
     {
       jobType: 'PIXIV_AI_DERIVED_TAG_SYNC',
       executionLane: 'BACKGROUND_WRITER',

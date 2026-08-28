@@ -1,6 +1,14 @@
-import { authProcedure, router } from '@/server/trpc'
+import { TRPCError } from '@trpc/server'
+import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import { getScanPath, getSystemSettings, setScanPath, upsertSystemSettings } from '@/services/setting.service'
 import { systemSettingsResponseDTO, updateSystemSettingsSchema } from '@/schemas/system-setting.dto'
+import {
+  ArchiveDefaultTagBackfillServiceError,
+  cancelArchiveDefaultTagBackfill,
+  getArchiveDefaultTagBackfillStatus,
+  previewArchiveDefaultTagBackfill,
+  startArchiveDefaultTagBackfill
+} from '@/services/archive-default-tag-backfill-service'
 import z from 'zod'
 
 export const settingRouter = router({
@@ -36,5 +44,37 @@ export const settingRouter = router({
   updateSystemSettings: authProcedure.input(updateSystemSettingsSchema).mutation(async ({ input }) => {
     const settings = await upsertSystemSettings(input)
     return systemSettingsResponseDTO.parse({ settings })
-  })
+  }),
+
+  getArchiveDefaultTagBackfillStatus: authProcedure.query(() => getArchiveDefaultTagBackfillStatus()),
+
+  previewArchiveDefaultTagBackfill: adminProcedure.query(() => previewArchiveDefaultTagBackfill()),
+
+  startArchiveDefaultTagBackfill: adminProcedure
+    .input(z.object({ snapshotDigest: z.string().regex(/^[a-f0-9]{64}$/) }).strict())
+    .mutation(async ({ input, ctx }) => {
+      try {
+        return await startArchiveDefaultTagBackfill({
+          requestedByUserId: ctx.userId,
+          snapshotDigest: input.snapshotDigest
+        })
+      } catch (error) {
+        throwArchiveDefaultTagBackfillError(error)
+      }
+    }),
+
+  cancelArchiveDefaultTagBackfill: adminProcedure
+    .input(z.object({ jobId: z.string().min(1) }).strict())
+    .mutation(async ({ input }) => cancelArchiveDefaultTagBackfill(input.jobId))
 })
+
+function throwArchiveDefaultTagBackfillError(error: unknown): never {
+  if (error instanceof ArchiveDefaultTagBackfillServiceError) {
+    throw new TRPCError({
+      code: error.code === 'STALE_PREVIEW' ? 'CONFLICT' : 'PRECONDITION_FAILED',
+      message: error.message
+    })
+  }
+  if (error instanceof Error) throw error
+  throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: '历史归档标签补全启动失败' })
+}

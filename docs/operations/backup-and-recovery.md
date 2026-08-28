@@ -31,15 +31,15 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 
 ## 一套完整备份包含什么
 
-| 数据类别   | 必需内容                                           | 说明                                                                   |
-| ---------- | -------------------------------------------------- | ---------------------------------------------------------------------- |
-| 业务数据库 | PostgreSQL custom-format dump                      | 包含领域数据、认证、队列、审计和 `_prisma_migrations`                  |
-| 原媒体     | `PIXISHELF_DATA_PATH` 对应的同时间点快照           | 不可重新生成，是最高优先级数据                                         |
-| 派生媒体   | `DERIVED_MEDIA_HOST_PATH` 对应的同时间点快照       | 多数可重建，但数据库保存发布指针和生成状态                             |
+| 数据类别   | 必需内容                                           | 说明                                                                             |
+| ---------- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 业务数据库 | PostgreSQL custom-format dump                      | 包含领域数据、认证、队列、审计和 `_prisma_migrations`                            |
+| 原媒体     | `PIXISHELF_DATA_PATH` 对应的同时间点快照           | 不可重新生成，是最高优先级数据                                                   |
+| 派生媒体   | `DERIVED_MEDIA_HOST_PATH` 对应的同时间点快照       | 多数可重建，但数据库保存发布指针和生成状态                                       |
 | Pixiv data | `PIXISHELF_PUBLIC_DATA_PATH` 对应的同时间点快照    | 作者图片、标签封面、作品元数据快照和同步报告；数据库保存最近路径、哈希与检查状态 |
-| 部署配置   | `build/.env`、实际 Compose、反向代理配置           | 含密钥和真实路径，必须加密或严格限制权限                               |
-| 程序版本   | App、Worker 的 tag、image ID 或 digest             | 不依赖可变 `latest` 猜测恢复版本                                       |
-| 备份清单   | 时间、实例、文件名、SHA-256、快照 ID、操作者、原因 | 用于证明各部分属于同一恢复点                                           |
+| 部署配置   | `build/.env`、实际 Compose、反向代理配置           | 含密钥和真实路径，必须加密或严格限制权限                                         |
+| 程序版本   | App、Worker 的 tag、image ID 或 digest             | 不依赖可变 `latest` 猜测恢复版本                                                 |
+| 备份清单   | 时间、实例、文件名、SHA-256、快照 ID、操作者、原因 | 用于证明各部分属于同一恢复点                                                     |
 
 数据库 dump、媒体快照和配置副本必须通过同一个备份清单关联。文件名相似或处于同一天，不足以证明它们来自同一时间点。
 
@@ -188,7 +188,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 - `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
 - 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
 - App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
-- 新 Worker READY、两个 lane、25 个 job type / 28 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2，其余 v1）和同
+- 新 Worker READY、两个 lane、26 个 job type / 29 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2，其余 24 类 v1）和同
   lane 单执行证据；
 - 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
 
@@ -197,6 +197,10 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 ### Pixiv AI 派生标签历史回填
 
 `PIXIV_AI_DERIVED_TAG_SYNC` 的只读预检不会修改数据库，可以在正常读流量下运行。正式回填会分批修改 `ArtworkTag.provenance`、补建或删除派生关系，属于大批量领域关系变更；执行前必须完成 PostgreSQL 一致性备份并记录任务预检结果。恢复单位是数据库检查点，不需要回滚媒体目录；不要用反向脚本猜测原 provenance。若正式任务中断，保持 App/Worker 版本不变后重试同一模式即可，任务的唯一约束和 provenance 条件会跳过已完成或被人工接管的关系。
+
+### 历史归档默认标签补全
+
+`ARCHIVE_DEFAULT_TAG_BACKFILL` 的弹窗预览只读；点击确认后会分批新增 `ArtworkTag` 关系，属于大批量领域关系变更。正式执行前必须完成 PostgreSQL 一致性备份并记录预览摘要、冻结的标签 ID、作品 ID 上界和任务 ID。该任务不修改媒体文件，恢复单位是数据库检查点，不要求为本次操作单独回滚媒体目录。取消会保留已经提交的关系；修正配置后重新运行会依靠唯一约束跳过已存在关系。若需要撤销已提交结果，必须恢复数据库检查点，不能按标签 ID 反向删除，因为同一 `MANUAL` 关系可能已被后续人工操作继续使用。
 
 ## 局部故障边界
 

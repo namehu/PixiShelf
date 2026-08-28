@@ -1,5 +1,6 @@
 export * from './executors.ts'
 export * from './archive-intake-retention-cleanup.ts'
+export * from './archive-default-tag-backfill.ts'
 export * from './media-derived-tag-sync.ts'
 export * from './pixiv-ai-derived-tag-sync.ts'
 export * from './refill-meta-source.ts'

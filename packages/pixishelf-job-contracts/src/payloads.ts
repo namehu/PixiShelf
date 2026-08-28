@@ -272,6 +272,53 @@ export const archiveImportV2PayloadSchema = z
   .strict()
 export type ArchiveImportV2Payload = z.infer<typeof archiveImportV2PayloadSchema>
 
+const archiveDefaultTagBackfillTagIdsSchema = z
+  .array(positiveTagIdSchema)
+  .min(1)
+  .max(100)
+  .refine((values) => new Set(values).size === values.length, 'Expected unique tag ids')
+  .transform((values) => [...values].sort((left, right) => left - right))
+
+const nonnegativeSafeIntegerSchema = z.number().int().nonnegative().safe()
+
+export const archiveDefaultTagBackfillPayloadSchema = z
+  .object({
+    defaultTagIds: archiveDefaultTagBackfillTagIdsSchema,
+    targetMaxArtworkId: nonnegativeSafeIntegerSchema,
+    targetArtworkCount: nonnegativeSafeIntegerSchema,
+    expectedExistingRelations: nonnegativeSafeIntegerSchema,
+    expectedMissingRelations: nonnegativeSafeIntegerSchema,
+    snapshotDigest: sha256DigestSchema
+  })
+  .strict()
+export type ArchiveDefaultTagBackfillPayload = z.infer<typeof archiveDefaultTagBackfillPayloadSchema>
+
+export const archiveDefaultTagBackfillCheckpointSchema = z
+  .object({
+    kind: z.literal('CHECKPOINT'),
+    afterArtworkId: nonnegativeSafeIntegerSchema,
+    processedArtworks: nonnegativeSafeIntegerSchema,
+    addedRelations: nonnegativeSafeIntegerSchema,
+    existingRelations: nonnegativeSafeIntegerSchema,
+    skippedTagIds: z.array(positiveTagIdSchema).max(100)
+  })
+  .strict()
+export type ArchiveDefaultTagBackfillCheckpoint = z.infer<typeof archiveDefaultTagBackfillCheckpointSchema>
+
+export const archiveDefaultTagBackfillResultSchema = z
+  .object({
+    kind: z.literal('COMPLETED'),
+    targetArtworks: nonnegativeSafeIntegerSchema,
+    processedArtworks: nonnegativeSafeIntegerSchema,
+    addedRelations: nonnegativeSafeIntegerSchema,
+    existingRelations: nonnegativeSafeIntegerSchema,
+    skippedArtworks: nonnegativeSafeIntegerSchema,
+    failedArtworks: nonnegativeSafeIntegerSchema,
+    skippedTagIds: z.array(positiveTagIdSchema).max(100)
+  })
+  .strict()
+export type ArchiveDefaultTagBackfillResult = z.infer<typeof archiveDefaultTagBackfillResultSchema>
+
 const cleanArchiveStagingPayloadSchema = z
   .object({ action: z.literal('CLEAN_STAGING'), archiveImportId: boundedIdSchema })
   .strict()
@@ -441,6 +488,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   VIDEO_KEYFRAME_GENERATION: videoKeyframeGenerationPayloadSchema,
   ARCHIVE_RESOLVE_ITEM: archiveResolveItemPayloadSchema,
   ARCHIVE_IMPORT: archiveImportPayloadSchema,
+  ARCHIVE_DEFAULT_TAG_BACKFILL: archiveDefaultTagBackfillPayloadSchema,
   ARCHIVE_MAINTENANCE: archiveMaintenancePayloadSchema,
   ARCHIVE_INTAKE_RETENTION_CLEANUP: emptyJobPayloadSchema,
   SCAN_RUN_RETENTION_CLEANUP: emptyJobPayloadSchema,

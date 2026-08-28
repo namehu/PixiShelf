@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-08-27（Pixiv 系列来源身份与核对）
+最后核验：2026-08-28（历史归档默认标签补全）
 
 ## 状态约定
 
@@ -30,25 +30,26 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
-| 文档                                                                | 状态      | 权威范围                                      |
-| ------------------------------------------------------------------- | --------- | --------------------------------------------- |
-| [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令              |
-| [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标        |
-| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、25 类 Worker 任务、领域状态和流程图 |
-| [Pixiv 标签补全](./features/pixiv-tag-enrichment.md)                | `current` | 候选规则、只填空字段、任务状态和封面存储      |
-| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)           | `current` | 外部身份、补全规则、任务状态与作者图片存储    |
-| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)       | `current` | 已有作品在线同步、来源所有权和磁盘快照        |
-| [Pixiv 系列来源与核对](./features/pixiv-series-sync.md)            | `current` | 系列外部身份、成员所有权、连续核对与多系列导航 |
-| [归档收件箱](./features/archive-intake.md)                          | `current` | 持久收件、双通道、批量操作、维护和保留策略    |
-| [领域语境](../CONTEXT.md)                                           | `current` | 作品、媒体、来源、归档与本地身份术语          |
-| [当前架构](./architecture/current-architecture.md)                  | `current` | Workspace、运行组件、依赖方向和关键数据流     |
-| [权限与接口边界](./security/access-control.md)                      | `current` | 调用者、页面、API、服务、凭据和存储权限       |
-| [测试策略](./development/testing-strategy.md)                       | `current` | 测试分层、变更验证矩阵、CI 覆盖与已知缺口     |
-| [部署基线](./operations/deployment.md)                              | `current` | 当前 Compose 服务、升级顺序、验证和回滚入口   |
-| [备份与恢复](./operations/backup-and-recovery.md)                   | `current` | 完整备份集合、恢复目标、演练和灾难恢复边界    |
-| [Build 与部署资产](../build/README.md)                              | `current` | Dockerfile、Compose、挂载和 Worker 运行边界   |
-| [当前待办](../TODO.md)                                              | `current` | 稳定观察期和下一阶段可执行事项                |
-| [代理规则](../agents.md)                                            | `current` | 人与 AI 修改仓库时必须遵守的工程约束          |
+| 文档                                                                | 状态      | 权威范围                                       |
+| ------------------------------------------------------------------- | --------- | ---------------------------------------------- |
+| [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令               |
+| [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标         |
+| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、26 类 Worker 任务、领域状态和流程图  |
+| [历史归档默认标签补全](./features/archive-default-tag-backfill.md)  | `current` | 冻结预览、追加语义、分批让行、取消与恢复       |
+| [Pixiv 标签补全](./features/pixiv-tag-enrichment.md)                | `current` | 候选规则、只填空字段、任务状态和封面存储       |
+| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)           | `current` | 外部身份、补全规则、任务状态与作者图片存储     |
+| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)       | `current` | 已有作品在线同步、来源所有权和磁盘快照         |
+| [Pixiv 系列来源与核对](./features/pixiv-series-sync.md)             | `current` | 系列外部身份、成员所有权、连续核对与多系列导航 |
+| [归档收件箱](./features/archive-intake.md)                          | `current` | 持久收件、双通道、批量操作、维护和保留策略     |
+| [领域语境](../CONTEXT.md)                                           | `current` | 作品、媒体、来源、归档与本地身份术语           |
+| [当前架构](./architecture/current-architecture.md)                  | `current` | Workspace、运行组件、依赖方向和关键数据流      |
+| [权限与接口边界](./security/access-control.md)                      | `current` | 调用者、页面、API、服务、凭据和存储权限        |
+| [测试策略](./development/testing-strategy.md)                       | `current` | 测试分层、变更验证矩阵、CI 覆盖与已知缺口      |
+| [部署基线](./operations/deployment.md)                              | `current` | 当前 Compose 服务、升级顺序、验证和回滚入口    |
+| [备份与恢复](./operations/backup-and-recovery.md)                   | `current` | 完整备份集合、恢复目标、演练和灾难恢复边界     |
+| [Build 与部署资产](../build/README.md)                              | `current` | Dockerfile、Compose、挂载和 Worker 运行边界    |
+| [当前待办](../TODO.md)                                              | `current` | 稳定观察期和下一阶段可执行事项                 |
+| [代理规则](../agents.md)                                            | `current` | 人与 AI 修改仓库时必须遵守的工程约束           |
 
 ## 架构与性能
 
@@ -68,20 +69,21 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 功能规格、草案与实施归档
 
-| 文档                                                          | 状态         | 权威范围与后续处理                                         |
-| ------------------------------------------------------------- | ------------ | ---------------------------------------------------------- |
-| [归档收件箱](./features/archive-intake.md)                    | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界         |
-| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)     | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则             |
-| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md) | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护            |
-| [Pixiv 系列来源与同步设计](./design/pixiv-series-source-sync.md) | `historical` | 本期实施前的系列身份、成员所有权和同步方案                   |
-| [归档收件队列设计](./design/archive-intake-queue.md)          | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
-| [多来源 URL 归档](./design/multi-source-url-archive.md)       | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
-| [视频代表帧生成](./design/video-keyframe-generation.md)       | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
-| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)        | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记        |
-| [界面设计升级计划](./pixishelf-design-upgrade-plan.md)        | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
-| [媒体类型建模技术债](../todos/媒体类型后缀匹配技术债.md)      | `draft`      | 媒体类型结构化的待实施方案，后续迁入 `docs/features/`      |
-| [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)          | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格         |
-| `todos/多媒体设计.md`（已删除）                               | `deprecated` | 对话式建议且包含旧路径；2026-08-18 清理，历史可从 Git 追溯 |
+| 文档                                                               | 状态         | 权威范围与后续处理                                         |
+| ------------------------------------------------------------------ | ------------ | ---------------------------------------------------------- |
+| [归档收件箱](./features/archive-intake.md)                         | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界         |
+| [历史归档默认标签补全](./features/archive-default-tag-backfill.md) | `current`    | 当前历史归档标签补全范围、快照和恢复边界                   |
+| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)          | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则             |
+| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)      | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护            |
+| [Pixiv 系列来源与同步设计](./design/pixiv-series-source-sync.md)   | `historical` | 本期实施前的系列身份、成员所有权和同步方案                 |
+| [归档收件队列设计](./design/archive-intake-queue.md)               | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
+| [多来源 URL 归档](./design/multi-source-url-archive.md)            | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
+| [视频代表帧生成](./design/video-keyframe-generation.md)            | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
+| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)             | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记        |
+| [界面设计升级计划](./pixishelf-design-upgrade-plan.md)             | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
+| [媒体类型建模技术债](../todos/媒体类型后缀匹配技术债.md)           | `draft`      | 媒体类型结构化的待实施方案，后续迁入 `docs/features/`      |
+| [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)               | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格         |
+| `todos/多媒体设计.md`（已删除）                                    | `deprecated` | 对话式建议且包含旧路径；2026-08-18 清理，历史可从 Git 追溯 |
 
 ## ADR
 

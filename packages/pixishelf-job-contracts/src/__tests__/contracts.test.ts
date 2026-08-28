@@ -34,6 +34,7 @@ describe('job wire contracts', () => {
         'VIDEO_KEYFRAME_GENERATION',
         'ARCHIVE_RESOLVE_ITEM',
         'ARCHIVE_IMPORT',
+        'ARCHIVE_DEFAULT_TAG_BACKFILL',
         'ARCHIVE_MAINTENANCE',
         'ARCHIVE_INTAKE_RETENTION_CLEANUP',
         'PIXIV_AI_DERIVED_TAG_SYNC',
@@ -54,6 +55,7 @@ describe('job wire contracts', () => {
     expect(ARCHIVE_IMPORT_DEFINITION_VERSION).toBe(2)
     expect(executionLaneForJobType('ARCHIVE_RESOLVE_ITEM')).toBe('ARCHIVE_RESOLVE')
     expect(executionLaneForJobType('ARCHIVE_IMPORT')).toBe('BACKGROUND_WRITER')
+    expect(executionLaneForJobType('ARCHIVE_DEFAULT_TAG_BACKFILL')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_MAINTENANCE')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_INTAKE_RETENTION_CLEANUP')).toBe('BACKGROUND_WRITER')
     expect(parseJobPayload('ARCHIVE_INTAKE_RETENTION_CLEANUP', {})).toEqual({})
@@ -100,8 +102,37 @@ describe('job wire contracts', () => {
       defaultTagIds: [2, 5, 9]
     })
     expect(() => archiveImportV2PayloadSchema.parse({ archiveImportId: 'import-1' })).toThrow()
+    expect(() => archiveImportV2PayloadSchema.parse({ archiveImportId: 'import-1', defaultTagIds: [2, 2] })).toThrow()
+  })
+
+  it('freezes a bounded historical archive default-tag backfill snapshot', () => {
+    const digest = 'c'.repeat(64)
+    expect(
+      parseJobPayload('ARCHIVE_DEFAULT_TAG_BACKFILL', {
+        defaultTagIds: [9, 2, 5],
+        targetMaxArtworkId: 120,
+        targetArtworkCount: 10,
+        expectedExistingRelations: 4,
+        expectedMissingRelations: 26,
+        snapshotDigest: digest
+      })
+    ).toEqual({
+      defaultTagIds: [2, 5, 9],
+      targetMaxArtworkId: 120,
+      targetArtworkCount: 10,
+      expectedExistingRelations: 4,
+      expectedMissingRelations: 26,
+      snapshotDigest: digest
+    })
     expect(() =>
-      archiveImportV2PayloadSchema.parse({ archiveImportId: 'import-1', defaultTagIds: [2, 2] })
+      parseJobPayload('ARCHIVE_DEFAULT_TAG_BACKFILL', {
+        defaultTagIds: [2, 2],
+        targetMaxArtworkId: 120,
+        targetArtworkCount: 10,
+        expectedExistingRelations: 4,
+        expectedMissingRelations: 16,
+        snapshotDigest: digest
+      })
     ).toThrow()
   })
 

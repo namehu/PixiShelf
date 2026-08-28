@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { PreferenceItem } from '@/app/settings/_components/preference-item'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
+import { ArchiveDefaultTagBackfillControl } from './archive-default-tag-backfill-control'
 
 export function SystemSettingsPanel() {
   const trpc = useTRPC()
@@ -16,6 +17,7 @@ export function SystemSettingsPanel() {
   const [replaceDefaultTagIds, setReplaceDefaultTagIds] = useState<number[]>([])
   const [localImportDefaultTagIds, setLocalImportDefaultTagIds] = useState<number[]>([])
   const [archiveDefaultTagIds, setArchiveDefaultTagIds] = useState<number[]>([])
+  const [saveScheduled, setSaveScheduled] = useState(false)
 
   const systemSettingsQuery = useQuery(trpc.setting.getSystemSettings.queryOptions())
   const persistedReplaceTagIds = systemSettingsQuery.data?.settings.replace_default_tag_ids
@@ -25,6 +27,10 @@ export function SystemSettingsPanel() {
     () =>
       `${(persistedReplaceTagIds ?? []).join(',')}|${(persistedLocalImportTagIds ?? []).join(',')}|${(persistedArchiveTagIds ?? []).join(',')}`,
     [persistedArchiveTagIds, persistedLocalImportTagIds, persistedReplaceTagIds]
+  )
+  const archiveSettingsDirty = useMemo(
+    () => canonicalIds(archiveDefaultTagIds) !== canonicalIds(persistedArchiveTagIds ?? []),
+    [archiveDefaultTagIds, persistedArchiveTagIds]
   )
   const selectedTagIds = useMemo(
     () => Array.from(new Set([...replaceDefaultTagIds, ...localImportDefaultTagIds, ...archiveDefaultTagIds])),
@@ -47,6 +53,9 @@ export function SystemSettingsPanel() {
       },
       onError: (error) => {
         toast.error(`系统设置保存失败: ${error.message}`)
+      },
+      onSettled: () => {
+        setSaveScheduled(false)
       }
     })
   )
@@ -70,16 +79,14 @@ export function SystemSettingsPanel() {
     }
   }, [])
 
-  const scheduleSave = (
-    nextReplaceTagIds: number[],
-    nextLocalImportTagIds: number[],
-    nextArchiveTagIds: number[]
-  ) => {
+  const scheduleSave = (nextReplaceTagIds: number[], nextLocalImportTagIds: number[], nextArchiveTagIds: number[]) => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current)
     }
+    setSaveScheduled(true)
 
     saveTimer.current = setTimeout(() => {
+      saveTimer.current = null
       updateMutation.mutate({
         replace_default_tag_ids: nextReplaceTagIds,
         local_import_default_tag_ids: nextLocalImportTagIds,
@@ -99,8 +106,7 @@ export function SystemSettingsPanel() {
       ])
     )
 
-    return (ids: number[]): Option[] =>
-      ids.map((id) => tagMap.get(id) || { value: id.toString(), label: `#${id}` })
+    return (ids: number[]): Option[] => ids.map((id) => tagMap.get(id) || { value: id.toString(), label: `#${id}` })
   }, [selectedTagsQuery.data?.items])
 
   const handleSearchTag = async (query: string): Promise<Option[]> => {
@@ -118,27 +124,21 @@ export function SystemSettingsPanel() {
   }
 
   const handleDefaultTagsChange = (options: Option[]) => {
-    const nextIds = options
-      .map((item) => Number(item.value))
-      .filter((id) => Number.isInteger(id) && id > 0)
+    const nextIds = options.map((item) => Number(item.value)).filter((id) => Number.isInteger(id) && id > 0)
 
     setReplaceDefaultTagIds(nextIds)
     scheduleSave(nextIds, localImportDefaultTagIds, archiveDefaultTagIds)
   }
 
   const handleLocalImportDefaultTagsChange = (options: Option[]) => {
-    const nextIds = options
-      .map((item) => Number(item.value))
-      .filter((id) => Number.isInteger(id) && id > 0)
+    const nextIds = options.map((item) => Number(item.value)).filter((id) => Number.isInteger(id) && id > 0)
 
     setLocalImportDefaultTagIds(nextIds)
     scheduleSave(replaceDefaultTagIds, nextIds, archiveDefaultTagIds)
   }
 
   const handleArchiveDefaultTagsChange = (options: Option[]) => {
-    const nextIds = options
-      .map((item) => Number(item.value))
-      .filter((id) => Number.isInteger(id) && id > 0)
+    const nextIds = options.map((item) => Number(item.value)).filter((id) => Number.isInteger(id) && id > 0)
 
     setArchiveDefaultTagIds(nextIds)
     scheduleSave(replaceDefaultTagIds, localImportDefaultTagIds, nextIds)
@@ -209,9 +209,17 @@ export function SystemSettingsPanel() {
             <div className="mt-2 text-xs text-muted-foreground">
               {updateMutation.isPending ? '保存中...' : `当前已选择 ${archiveDefaultTagIds.length} 个默认标签`}
             </div>
+            <ArchiveDefaultTagBackfillControl
+              hasDefaultTags={archiveDefaultTagIds.length > 0}
+              settingSaving={saveScheduled || updateMutation.isPending || archiveSettingsDirty}
+            />
           </div>
         </PreferenceItem>
       </div>
     </div>
   )
+}
+
+function canonicalIds(ids: number[]) {
+  return [...ids].sort((left, right) => left - right).join(',')
 }

@@ -219,10 +219,10 @@ sequenceDiagram
 | Lane                | 固定并发 | 工作范围                                                  |
 | ------------------- | -------- | --------------------------------------------------------- |
 | `ARCHIVE_RESOLVE`   | 1        | 仅 `ARCHIVE_RESOLVE_ITEM`，不写原媒体、派生媒体或 staging |
-| `BACKGROUND_WRITER` | 1        | 其余 24 类 job；所有媒体、扫描、迁移、替换和维护写操作    |
+| `BACKGROUND_WRITER` | 1        | 其余 25 类 job；所有媒体、扫描、迁移、替换和维护写操作    |
 
-两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 25 个 job type：`SCAN` 同时注册
-v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 23 类只注册 v1，共 28 个 job type/definition-version 组合。capability audit 精确验证 type、
+两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 26 个 job type：`SCAN` 同时注册
+v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 24 类只注册 v1，共 29 个 job type/definition-version 组合。capability audit 精确验证 type、
 version 与 lane。`SCAN@v1` 承载既有设置页扫描、单作品扫描和 Webhook；`SCAN@v2` 只执行只读
 `CONSISTENCY_AUDIT`；`SCAN@v3` 只执行写入型 `AUDIT_APPLY`。这个版本隔离保证滚动部署中的旧 v2 Worker 不会领取
 v3 apply；生产开放新写入口前仍须确认新 Worker 同时报告 SCAN v1/v2/v3。归档解析主要等待 HTTP 和 PostgreSQL，
@@ -269,8 +269,8 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 1. 外部来源引用不能定义本地 Artwork 身份。
 2. 同一时间每个执行 lane 最多一个任务；只允许一个 resolver 和一个 writer，所有媒体写仍全局串行。
 3. 通用 Worker 未通过 READY 和 capability 检查时不得恢复调度。
-4. 生产 capability inventory 固定为 25 个 job type、28 个 type/version 组合；`SCAN` 支持 v1/v2/v3，
-   `ARCHIVE_IMPORT` 支持 v1/v2，其余 23 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
+4. 生产 capability inventory 固定为 26 个 job type、29 个 type/version 组合；`SCAN` 支持 v1/v2/v3，
+   `ARCHIVE_IMPORT` 支持 v1/v2，其余 24 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
 5. 普通启动和升级使用 `prisma migrate deploy`，不得用 `db:push` 替代 migration 历史。
 6. 原媒体、派生媒体、Pixiv data 和数据库需要在一致时间点备份和恢复。
 7. 网络下载、FFmpeg 和文件复制不得放在长数据库事务中。
