@@ -13,7 +13,7 @@ import { useArtworkStore } from '@/store/use-artwork-store'
 import { useArtworkMediaAnchorInterval } from '@/components/user-setting'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
-import { isConfirmedStaticWebp } from '@/lib/media-animation'
+import { hasReliableSingleFrameDimensions, isConfirmedStaticWebp } from '@/lib/media-animation'
 import { cn } from '@/lib/utils'
 import AdaptiveMediaPreview from './adaptive-media-preview'
 import { ArtworkVideoOptimizationProvider } from './artwork-video-optimization-context'
@@ -44,9 +44,9 @@ export function buildMediaAnchorIndexes(total: number, interval: number) {
   return indexes
 }
 
-function getEstimatedMediaHeight(media: ArtworkImageResponseDto, containerWidth: number) {
+export function getEstimatedMediaHeight(media: ArtworkImageResponseDto, containerWidth: number) {
   const width = containerWidth || 656
-  if (media.width && media.height && media.width > 0 && media.height > 0) {
+  if (hasReliableSingleFrameDimensions(media) && media.width && media.height && media.width > 0 && media.height > 0) {
     return Math.max(1, (width * media.height) / media.width)
   }
 

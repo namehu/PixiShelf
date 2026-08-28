@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import React from 'react'
-import ArtworkImages, { buildMediaAnchorIndexes } from './artwork-images'
+import ArtworkImages, { buildMediaAnchorIndexes, getEstimatedMediaHeight } from './artwork-images'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useUserSettingsStore } from '@/components/user-setting'
 import { useArtworkStore } from '@/store/use-artwork-store'
@@ -145,6 +145,13 @@ describe('ArtworkImages', () => {
       hasChapters: false,
       chaptersUrl: null
     }))
+
+  it('does not reserve cumulative frame height for animated or pending WebP media', () => {
+    const media = { ...generateImages(1)[0]!, path: '/animated.webp', width: 696, height: 81000 }
+
+    expect(getEstimatedMediaHeight({ ...media, webpAnimationStatus: 2, isAnimated: true }, 375)).toBe(300)
+    expect(getEstimatedMediaHeight({ ...media, webpAnimationStatus: 0, isAnimated: false }, 375)).toBe(300)
+  })
 
   it('builds anchors from the first item through the last item without duplicates', () => {
     expect(buildMediaAnchorIndexes(120, 50)).toEqual([0, 49, 99, 119])

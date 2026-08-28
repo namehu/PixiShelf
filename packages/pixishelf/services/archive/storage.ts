@@ -201,7 +201,7 @@ export async function storeRemoteMedia(input: {
     byteCount: BigInt(byteCount),
     mimeType,
     width: metadata.width,
-    height: metadata.height,
+    height: metadata.pageHeight ?? metadata.height,
     sha256: hash.digest('hex')
   }
 }

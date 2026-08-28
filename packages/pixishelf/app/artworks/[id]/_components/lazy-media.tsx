@@ -9,7 +9,7 @@ import Image from 'next/image'
 import { memo, useMemo } from 'react'
 import { useOnInView } from 'react-intersection-observer'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
-import { isConfirmedStaticWebp } from '@/lib/media-animation'
+import { hasReliableSingleFrameDimensions, isConfirmedStaticWebp } from '@/lib/media-animation'
 import { combinationApiResource } from '@/utils/combination-static'
 import { Loader2, X } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
@@ -28,7 +28,9 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
   const src = media.path
-  const hasDimensions = Boolean(media.width && media.height && media.width > 0 && media.height > 0)
+  const hasDimensions =
+    hasReliableSingleFrameDimensions(media) &&
+    Boolean(media.width && media.height && media.width > 0 && media.height > 0)
   const aspectRatio = hasDimensions ? `${media.width} / ${media.height}` : undefined
   const videoSettingActions = useMemo<VideoPlayerSettingAction[]>(() => {
     if (!canManage || !isVideoFile(src)) return []

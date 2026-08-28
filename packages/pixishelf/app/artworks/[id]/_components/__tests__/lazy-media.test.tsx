@@ -159,4 +159,40 @@ describe('LazyMedia video cache version', () => {
     expect(screen.getByTestId('animated-image-player')).toBeTruthy()
     expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0].isAnimated).toBe(false)
   })
+
+  it('does not use stacked animation metadata as the visible aspect ratio', () => {
+    const { container, rerender } = render(
+      <LazyMedia
+        media={{
+          ...media,
+          path: '/artist/work/animated.webp',
+          width: 696,
+          height: 81000,
+          mediaType: 'image',
+          webpAnimationStatus: 2,
+          isAnimated: true
+        }}
+        index={0}
+      />
+    )
+
+    expect((container.firstElementChild as HTMLElement).style.aspectRatio).toBe('')
+
+    rerender(
+      <LazyMedia
+        media={{
+          ...media,
+          path: '/artist/work/pending.webp',
+          width: 696,
+          height: 81000,
+          mediaType: 'image',
+          webpAnimationStatus: 0,
+          isAnimated: false
+        }}
+        index={0}
+      />
+    )
+
+    expect((container.firstElementChild as HTMLElement).style.aspectRatio).toBe('')
+  })
 })
