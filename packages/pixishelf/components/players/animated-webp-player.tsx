@@ -1,7 +1,7 @@
 'use client'
 
-import { InfoIcon, Loader2Icon, PlayIcon } from 'lucide-react'
-import { useMemo, useState, type KeyboardEvent } from 'react'
+import { InfoIcon, Loader2Icon, PauseIcon, PlayIcon } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { withMediaVersion } from '@/lib/media-url'
 import { combinationApiResource } from '@/utils/combination-static'
@@ -53,25 +53,56 @@ export default function AnimatedWebpPlayer({
   const [isPlaying, setIsPlaying] = useState(false)
   const [isLoadingAnimation, setIsLoadingAnimation] = useState(false)
   const [animationFailed, setAnimationFailed] = useState(false)
+  const containerRef = useRef<HTMLButtonElement>(null)
   const originalSrc = useMemo(() => withMediaVersion(combinationApiResource(src), updatedAt), [src, updatedAt])
   const posterSrc = useMemo(() => withMediaVersion(getStaticWebpPosterUrl(src), updatedAt), [src, updatedAt])
   const fileSize = formatFileSize(size)
-  const canStartPlayback = isAnimated && !isPlaying
 
-  const handlePlay = () => {
-    if (!canStartPlayback) return
+  const pausePlayback = useCallback(() => {
+    setIsPlaying(false)
+    setIsLoadingAnimation(false)
+  }, [])
+
+  const handleTogglePlayback = () => {
+    if (isPlaying) {
+      pausePlayback()
+      return
+    }
 
     setAnimationFailed(false)
     setIsLoadingAnimation(true)
     setIsPlaying(true)
   }
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return
+  useEffect(() => {
+    if (isAnimated) return
+    pausePlayback()
+  }, [isAnimated, pausePlayback])
 
-    event.preventDefault()
-    handlePlay()
-  }
+  useEffect(() => {
+    if (!isPlaying || typeof IntersectionObserver === 'undefined') return
+
+    const container = containerRef.current
+    if (!container) return
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry && !entry.isIntersecting) pausePlayback()
+    })
+    observer.observe(container)
+
+    return () => observer.disconnect()
+  }, [isPlaying, pausePlayback])
+
+  useEffect(() => {
+    if (!isPlaying) return
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) pausePlayback()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [isPlaying, pausePlayback])
 
   const handleAnimationLoad = () => {
     setIsLoadingAnimation(false)
@@ -83,20 +114,8 @@ export default function AnimatedWebpPlayer({
     setIsPlaying(false)
   }
 
-  return (
-    <div
-      className={cn(
-        'relative w-full bg-neutral-100',
-        fillContainer && 'h-full',
-        canStartPlayback && 'cursor-pointer',
-        className
-      )}
-      role={canStartPlayback ? 'button' : undefined}
-      tabIndex={canStartPlayback ? 0 : undefined}
-      aria-label={canStartPlayback ? `播放 ${formatLabel} 动图` : undefined}
-      onClick={handlePlay}
-      onKeyDown={handleKeyDown}
-    >
+  const content = (
+    <>
       <img
         src={posterSrc}
         alt={alt}
@@ -120,7 +139,8 @@ export default function AnimatedWebpPlayer({
       )}
 
       <div className="absolute right-2 top-2 flex h-5 items-center gap-1 rounded-sm bg-[#ff2f4d] px-2 text-[10px] font-semibold leading-none tabular-nums text-white shadow-sm">
-        {canStartPlayback && <PlayIcon className="h-3 w-3 fill-current" />}
+        {isAnimated &&
+          (isPlaying ? <PauseIcon className="size-3 fill-current" /> : <PlayIcon className="size-3 fill-current" />)}
         <span>{formatLabel}</span>
         {!isPlaying && fileSize && <span>{fileSize}</span>}
       </div>
@@ -139,6 +159,31 @@ export default function AnimatedWebpPlayer({
           <span>动图加载失败，已保留静态预览</span>
         </div>
       )}
-    </div>
+    </>
+  )
+
+  const containerClassName = cn(
+    'relative w-full bg-neutral-100',
+    fillContainer && 'h-full',
+    isAnimated && 'cursor-pointer',
+    className
+  )
+
+  if (!isAnimated) {
+    return <div className={containerClassName}>{content}</div>
+  }
+
+  return (
+    <button
+      ref={containerRef}
+      type="button"
+      className={cn(containerClassName, 'block border-0 p-0 text-left')}
+      aria-label={`${isPlaying ? '暂停' : '播放'} ${formatLabel} 动图`}
+      aria-pressed={isPlaying}
+      aria-busy={isLoadingAnimation}
+      onClick={handleTogglePlayback}
+    >
+      {content}
+    </button>
   )
 }
