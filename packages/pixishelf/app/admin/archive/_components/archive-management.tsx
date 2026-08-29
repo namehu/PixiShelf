@@ -1,13 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
 import { createBrowserUuid } from '@/lib/browser-uuid'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import {
   Archive,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CirclePause,
@@ -51,6 +53,7 @@ import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { ArchiveAddDialog } from './archive-add-dialog'
 import { ArchiveBulkResultDialog } from './archive-bulk-result-dialog'
 import { ArchiveItemDrawer } from './archive-item-drawer'
+import { ArchivePublishedMediaPreview } from './archive-published-media-preview'
 import { ArchiveSubmissionBadge } from './archive-submission-badge'
 import {
   archiveLaneStatusLabel,
@@ -75,6 +78,7 @@ import {
 
 const PAGE_SIZE = 50
 const ACTIVE_STATUSES = new Set(['PENDING', 'RUNNING', 'CANCELLING'])
+const EMPTY_TASK_IDS = new Set<string>()
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type ArchiveTaskOutput = RouterOutputs['archive']['listTasks']['items'][number]
@@ -96,6 +100,21 @@ interface TaskFilters {
   search: string
 }
 
+interface ArchivePublishedMediaTaskLike {
+  publishedArtwork?: {
+    archiveLifecycleState?: string | null
+    deletedAt?: unknown
+  } | null
+}
+
+export function canExpandArchivePublishedMedia(task: ArchivePublishedMediaTaskLike) {
+  return Boolean(
+    task.publishedArtwork &&
+      task.publishedArtwork.archiveLifecycleState === 'ACTIVE' &&
+      task.publishedArtwork.deletedAt === null
+  )
+}
+
 const EMPTY_FILTERS: TaskFilters = {
   status: 'ALL',
   providerKey: '',
@@ -108,11 +127,13 @@ export function ArchiveManagement() {
   const trpc = useTRPC()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const isDesktopLayout = useMediaQuery('(min-width: 768px)')
   const requestedTaskId = archiveTaskDeepLinkId(searchParams.get('taskId'))
   const [filters, setFilters] = useState<TaskFilters>(EMPTY_FILTERS)
   const [draftFilters, setDraftFilters] = useState<TaskFilters>(EMPTY_FILTERS)
   const [cursorState, setCursorState] = useState<ArchiveTaskCursorState>(resetArchiveTaskBrowseState)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set())
   const [detailTask, setDetailTask] = useState<ArchiveTaskOutput | null>(null)
   const [detailRefreshVersion, setDetailRefreshVersion] = useState(0)
   const [bulkOperation, setBulkOperation] = useState<ArchiveBulkOperation | null>(null)
@@ -161,6 +182,14 @@ export function ArchiveManagement() {
   const tasks = tasksQuery.data?.items ?? []
   const currentPageIds = useMemo(() => tasks.map((task) => task.id), [tasks])
   const selectionState = currentPageSelectionState(selectedTaskIds, currentPageIds)
+  const toggleTaskExpanded = (taskId: string) => {
+    setExpandedTaskIds((current) => {
+      const next = new Set(current)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+  }
 
   useEffect(() => {
     setSelectedTaskIds((current) => {
@@ -361,6 +390,7 @@ export function ArchiveManagement() {
                 <ArchiveTaskTable
                   tasks={tasks}
                   selectedTaskIds={selectedTaskIds}
+                  expandedTaskIds={isDesktopLayout ? expandedTaskIds : EMPTY_TASK_IDS}
                   selectionState={selectionState.checked}
                   pendingActions={pendingSingleActions}
                   onToggleAll={(checked) =>
@@ -369,6 +399,7 @@ export function ArchiveManagement() {
                   onToggleTask={(taskId, checked) =>
                     setSelectedTaskIds((current) => toggleTaskSelection(current, taskId, checked))
                   }
+                  onToggleExpanded={toggleTaskExpanded}
                   onViewItems={setDetailTask}
                   onAction={(task, action) =>
                     requestSingleTaskAction(task, action, (confirmedAction) =>
@@ -395,10 +426,12 @@ export function ArchiveManagement() {
                     key={task.id}
                     task={task}
                     selected={selectedTaskIds.has(task.id)}
+                    expanded={!isDesktopLayout && expandedTaskIds.has(task.id)}
                     pendingActions={pendingSingleActions}
                     onToggle={(checked) =>
                       setSelectedTaskIds((current) => toggleTaskSelection(current, task.id, checked))
                     }
+                    onToggleExpanded={() => toggleTaskExpanded(task.id)}
                     onViewItems={() => setDetailTask(task)}
                     onAction={(action) =>
                       requestSingleTaskAction(task, action, (confirmedAction) =>
@@ -486,7 +519,7 @@ export function ArchiveManagement() {
   )
 }
 
-function WorkerLaneStrip({
+export function WorkerLaneStrip({
   dashboard,
   loading
 }: {
@@ -495,9 +528,9 @@ function WorkerLaneStrip({
 }) {
   if (loading) {
     return (
-      <div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-12 w-full" />
+      <div className="flex flex-wrap gap-2 rounded-lg border px-3 py-2">
+        <Skeleton className="h-7 w-56" />
+        <Skeleton className="h-7 w-56" />
       </div>
     )
   }
@@ -515,21 +548,16 @@ function WorkerLaneStrip({
   }
   return (
     <section
-      className="grid overflow-hidden rounded-lg border bg-background sm:grid-cols-2"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-background px-3 py-2"
       aria-label="Worker 执行通道"
     >
       {dashboard.lanes.map((lane) => (
-        <div
-          key={lane.executionLane}
-          className="flex min-w-0 items-center gap-3 border-b px-4 py-3 last:border-b-0 sm:border-r sm:border-b-0 sm:last:border-r-0"
-        >
+        <div key={lane.executionLane} className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">{laneNames[lane.executionLane] ?? lane.executionLane}</span>
           <LaneStatusBadge status={lane.status} />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">{laneNames[lane.executionLane] ?? lane.executionLane}</p>
-            <p className="truncate font-mono text-xs text-muted-foreground">
-              {lane.runningJob ? `${lane.runningJob.type} · ${lane.runningJob.progress}%` : '等待领取任务'}
-            </p>
-          </div>
+          <span className="max-w-64 truncate font-mono text-xs text-muted-foreground">
+            {lane.runningJob ? `${lane.runningJob.type} · ${lane.runningJob.progress}%` : '等待领取任务'}
+          </span>
         </div>
       ))}
     </section>
@@ -656,22 +684,26 @@ function TaskFiltersForm({
   )
 }
 
-function ArchiveTaskTable({
+export function ArchiveTaskTable({
   tasks,
   selectedTaskIds,
+  expandedTaskIds,
   selectionState,
   pendingActions,
   onToggleAll,
   onToggleTask,
+  onToggleExpanded,
   onViewItems,
   onAction
 }: {
   tasks: ArchiveTaskOutput[]
   selectedTaskIds: ReadonlySet<string>
+  expandedTaskIds: ReadonlySet<string>
   selectionState: boolean | 'indeterminate'
   pendingActions: ReadonlySet<string>
   onToggleAll: (checked: boolean) => void
   onToggleTask: (taskId: string, checked: boolean) => void
+  onToggleExpanded: (taskId: string) => void
   onViewItems: (task: ArchiveTaskOutput) => void
   onAction: (task: ArchiveTaskOutput, action: SingleTaskAction) => void
 }) {
@@ -679,6 +711,7 @@ function ArchiveTaskTable({
     <Table>
       <TableHeader>
         <TableRow>
+          <TableHead className="w-11" />
           <TableHead className="w-10">
             <Checkbox
               checked={selectionState}
@@ -688,72 +721,101 @@ function ArchiveTaskTable({
           </TableHead>
           <TableHead>作品 / 来源</TableHead>
           <TableHead>状态 / 质量</TableHead>
-          <TableHead className="min-w-40">进度</TableHead>
-          <TableHead>图片</TableHead>
+          <TableHead className="w-32 min-w-32">进度</TableHead>
+          <TableHead>
+            <span aria-label="图片数量，顺序为成功、失败、总数">成功 / 失败 / 总数</span>
+          </TableHead>
           <TableHead>创建时间</TableHead>
           <TableHead className="text-right">操作</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {tasks.map((task) => (
-          <TableRow key={task.id} data-state={selectedTaskIds.has(task.id) ? 'selected' : undefined}>
-            <TableCell>
-              <Checkbox
-                checked={selectedTaskIds.has(task.id)}
-                onCheckedChange={(checked) => onToggleTask(task.id, Boolean(checked))}
-                aria-label={`选择 ${task.title || `${task.providerKey} ${task.externalId}`}`}
-              />
-            </TableCell>
-            <TableCell className="max-w-80 whitespace-normal">
-              <TaskIdentity task={task} />
-            </TableCell>
-            <TableCell>
-              <TaskStatus task={task} />
-            </TableCell>
-            <TableCell>
-              <TaskProgress task={task} />
-            </TableCell>
-            <TableCell>
-              <button
-                type="button"
-                className="rounded-sm text-left text-xs tabular-nums outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onViewItems(task)}
-              >
-                成功 {task.completedItems} · 失败 {task.failedItems}
-                <br />共 {task.totalItems} 张
-              </button>
-            </TableCell>
-            <TableCell className="text-xs text-muted-foreground">{formatTaskTime(task.createdAt)}</TableCell>
-            <TableCell>
-              <TaskActions
-                task={task}
-                pendingActions={pendingActions}
-                onViewItems={() => onViewItems(task)}
-                onAction={(action) => onAction(task, action)}
-              />
-            </TableCell>
-          </TableRow>
-        ))}
+        {tasks.map((task) => {
+          const canExpand = canExpandArchivePublishedMedia(task)
+          const expanded = canExpand && expandedTaskIds.has(task.id)
+          return (
+            <Fragment key={task.id}>
+              <TableRow data-state={selectedTaskIds.has(task.id) ? 'selected' : undefined}>
+                <TableCell>
+                  {canExpand && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onToggleExpanded(task.id)}
+                      className="size-7 text-muted-foreground hover:text-foreground"
+                      aria-label={expanded ? '收起已发布媒体' : '展开已发布媒体'}
+                      aria-expanded={expanded}
+                    >
+                      {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+                    </Button>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Checkbox
+                    checked={selectedTaskIds.has(task.id)}
+                    onCheckedChange={(checked) => onToggleTask(task.id, Boolean(checked))}
+                    aria-label={`选择 ${task.title || `${task.providerKey} ${task.externalId}`}`}
+                  />
+                </TableCell>
+                <TableCell className="max-w-80 whitespace-normal">
+                  <TaskIdentity task={task} />
+                </TableCell>
+                <TableCell>
+                  <TaskStatus task={task} />
+                </TableCell>
+                <TableCell className="w-32">
+                  <TaskProgress task={task} compact />
+                </TableCell>
+                <TableCell>
+                  <ArchiveImageCounts task={task} />
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">{formatTaskTime(task.createdAt)}</TableCell>
+                <TableCell>
+                  <TaskActions
+                    task={task}
+                    pendingActions={pendingActions}
+                    onViewItems={() => onViewItems(task)}
+                    onAction={(action) => onAction(task, action)}
+                  />
+                </TableCell>
+              </TableRow>
+              {expanded && task.publishedArtwork && (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={8} className="bg-muted/10 p-0">
+                    <ArchivePublishedMediaPreview artworkId={task.publishedArtwork.id} />
+                  </TableCell>
+                </TableRow>
+              )}
+            </Fragment>
+          )
+        })}
       </TableBody>
     </Table>
   )
 }
 
-function ArchiveTaskCard({
+export function ArchiveTaskCard({
   task,
   selected,
+  expanded,
   pendingActions,
   onToggle,
+  onToggleExpanded,
   onViewItems,
   onAction
 }: {
   task: ArchiveTaskOutput
   selected: boolean
+  expanded: boolean
   pendingActions: ReadonlySet<string>
   onToggle: (checked: boolean) => void
+  onToggleExpanded: () => void
   onViewItems: () => void
   onAction: (action: SingleTaskAction) => void
 }) {
+  const canExpand = canExpandArchivePublishedMedia(task)
+  const showExpanded = canExpand && expanded
   return (
     <Card
       data-state={selected ? 'selected' : undefined}
@@ -776,16 +838,32 @@ function ArchiveTaskCard({
         <TaskStatus task={task} />
         <TaskProgress task={task} />
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-          <button
-            type="button"
-            className="rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={onViewItems}
-          >
-            成功 {task.completedItems} · 失败 {task.failedItems} · 共 {task.totalItems} 张
-          </button>
+          <div className="flex items-center gap-2">
+            <span>图片</span>
+            <ArchiveImageCounts task={task} />
+          </div>
           <span>{formatTaskTime(task.createdAt)}</span>
         </div>
+        {canExpand && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onToggleExpanded}
+            className="w-fit -translate-x-3 text-muted-foreground hover:text-foreground"
+            aria-label={showExpanded ? '收起已发布媒体' : '展开已发布媒体'}
+            aria-expanded={showExpanded}
+          >
+            {showExpanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+            {showExpanded ? '收起已发布媒体' : '查看已发布媒体'}
+          </Button>
+        )}
       </CardContent>
+      {showExpanded && task.publishedArtwork && (
+        <div className="border-t bg-muted/10">
+          <ArchivePublishedMediaPreview artworkId={task.publishedArtwork.id} />
+        </div>
+      )}
     </Card>
   )
 }
@@ -825,12 +903,35 @@ function TaskStatus({ task }: { task: ArchiveTaskOutput }) {
   )
 }
 
-function TaskProgress({ task }: { task: ArchiveTaskOutput }) {
+export function ArchiveImageCounts({
+  task
+}: {
+  task: Pick<ArchiveTaskOutput, 'completedItems' | 'failedItems' | 'totalItems'>
+}) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 whitespace-nowrap text-xs tabular-nums"
+      aria-label={`图片数量：成功 ${task.completedItems}，失败 ${task.failedItems}，总数 ${task.totalItems}`}
+    >
+      <span>{task.completedItems}</span>
+      <span aria-hidden="true" className="text-muted-foreground">
+        /
+      </span>
+      <span className="text-destructive">{task.failedItems}</span>
+      <span aria-hidden="true" className="text-muted-foreground">
+        /
+      </span>
+      <span>{task.totalItems}</span>
+    </span>
+  )
+}
+
+function TaskProgress({ task, compact = false }: { task: ArchiveTaskOutput; compact?: boolean }) {
   const displayStatus = archiveTaskDisplayStatus(task)
   return (
-    <div className="flex min-w-36 flex-col gap-1.5">
+    <div className={compact ? 'flex w-32 min-w-0 flex-col gap-1.5' : 'flex w-full min-w-0 flex-col gap-1.5'}>
       <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span className="max-w-32 truncate">
+        <span className={compact ? 'max-w-20 min-w-0 flex-1 truncate' : 'min-w-0 flex-1 truncate'}>
           {task.message || archiveTaskStatusLabel(displayStatus, task.errorCode)}
         </span>
         <span className="tabular-nums">{task.progress}%</span>
@@ -867,9 +968,6 @@ function TaskActions({
   const active = ACTIVE_STATUSES.has(displayStatus)
   return (
     <div className="flex justify-end gap-1">
-      <Button variant="ghost" size="icon" onClick={onViewItems} aria-label="查看图片明细" title="图片明细">
-        <Images data-icon="inline-start" aria-hidden="true" />
-      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" aria-label="打开任务操作菜单">
