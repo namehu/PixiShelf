@@ -138,6 +138,7 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
           size={media.size}
           isAnimated={Boolean(media.isAnimated)}
           formatLabel={formatLabel}
+          controlMode={isWebpFile(src) ? 'badge' : 'surface'}
         />
       )
     }

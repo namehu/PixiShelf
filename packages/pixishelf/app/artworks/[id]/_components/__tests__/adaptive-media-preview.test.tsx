@@ -225,6 +225,73 @@ describe('AdaptiveMediaPreview', () => {
     expect(screen.getByText('上下切换 · 双指或双击缩放')).toBeTruthy()
   })
 
+  it('plays a confirmed animated WebP from the bottom control without an internal badge', () => {
+    const media = {
+      ...createMedia(0, '/animated.webp'),
+      webpAnimationStatus: 2,
+      isAnimated: true
+    }
+
+    render(<AdaptiveMediaPreview images={[media]} initialIndex={0} open onClose={vi.fn()} />)
+
+    const playButton = screen.getByRole('button', { name: '播放 WEBP 动图' })
+    expect(playButton.getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getAllByRole('button', { name: /WEBP 动图/ })).toHaveLength(1)
+    expect(screen.queryByText('动图静态预览')).toBeNull()
+    expect(screen.queryByText('1.0MB')).toBeNull()
+    expect(screen.getAllByAltText('作品 WEBP 动图 1')).toHaveLength(1)
+    expect(screen.getByAltText('作品 WEBP 动图 1').parentElement?.classList.contains('swiper-zoom-target')).toBe(
+      true
+    )
+
+    fireEvent.click(playButton)
+
+    expect(screen.getByRole('button', { name: '暂停 WEBP 动图' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getAllByAltText('作品 WEBP 动图 1')).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('button', { name: '模拟缩放' }))
+    expect(screen.getByRole('button', { name: '暂停 WEBP 动图' })).toBeTruthy()
+    expect(screen.getByText('2.0× · 拖动查看，缩小后切换')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '暂停 WEBP 动图' }))
+    expect(screen.getByRole('button', { name: '播放 WEBP 动图' })).toBeTruthy()
+    expect(screen.getAllByAltText('作品 WEBP 动图 1')).toHaveLength(1)
+  })
+
+  it('stops the active WebP and keeps other slides static when switching media', () => {
+    const images = [
+      { ...createMedia(0, '/animated-1.webp'), webpAnimationStatus: 2, isAnimated: true },
+      createMedia(1),
+      { ...createMedia(2, '/animated-3.webp'), webpAnimationStatus: 2, isAnimated: true }
+    ]
+
+    render(<AdaptiveMediaPreview images={images} initialIndex={0} open onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
+    expect(screen.getAllByAltText('作品 WEBP 动图 1')).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('button', { name: '模拟切换' }))
+
+    expect(screen.getByText('3 / 3')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '播放 WEBP 动图' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.queryAllByAltText('作品 WEBP 动图 1')).toHaveLength(0)
+    expect(screen.getAllByAltText('作品 WEBP 动图 3')).toHaveLength(1)
+  })
+
+  it('does not offer playback while WebP animation detection is pending', () => {
+    const media = {
+      ...createMedia(0, '/pending.webp'),
+      webpAnimationStatus: 0,
+      isAnimated: false
+    }
+
+    render(<AdaptiveMediaPreview images={[media]} initialIndex={0} open onClose={vi.fn()} />)
+
+    expect(screen.queryByRole('button', { name: /WEBP 动图/ })).toBeNull()
+    expect(screen.getByText('动图静态预览')).toBeTruthy()
+    expect(screen.getByText('静态适配预览 · 长按原媒体可查看原文件')).toBeTruthy()
+  })
+
   it('keeps slide navigation disabled while zoomed and restores the final index on close', () => {
     const onClose = vi.fn()
     const backSpy = vi.spyOn(history, 'back').mockImplementation(() => undefined)

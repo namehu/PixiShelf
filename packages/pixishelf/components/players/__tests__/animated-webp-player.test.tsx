@@ -74,6 +74,61 @@ describe('AnimatedWebpPlayer', () => {
     expect(screen.getAllByRole('img')).toHaveLength(1)
   })
 
+  it('uses only the badge as the playback control without bubbling preview gestures', () => {
+    const parentMouseDown = vi.fn()
+    const parentMouseUp = vi.fn()
+    const parentClick = vi.fn()
+
+    render(
+      <div onMouseDown={parentMouseDown} onMouseUp={parentMouseUp} onClick={parentClick}>
+        <AnimatedWebpPlayer src="/sample.webp" isAnimated controlMode="badge" />
+      </div>
+    )
+
+    const badge = screen.getByRole('button', { name: '播放 WEBP 动图' })
+    fireEvent.mouseDown(badge)
+    fireEvent.mouseUp(badge)
+    fireEvent.click(badge)
+
+    expect(parentMouseDown).not.toHaveBeenCalled()
+    expect(parentMouseUp).not.toHaveBeenCalled()
+    expect(parentClick).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '暂停 WEBP 动图' })).toBeTruthy()
+    expect(screen.getAllByRole('img')).toHaveLength(2)
+  })
+
+  it('supports externally controlled playback without rendering an internal badge', () => {
+    const onPlayingChange = vi.fn()
+    const { rerender } = render(
+      <AnimatedWebpPlayer
+        src="/sample.webp"
+        isAnimated
+        controlMode="external"
+        playing={false}
+        onPlayingChange={onPlayingChange}
+      />
+    )
+
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByText('WEBP')).toBeNull()
+    expect(screen.getAllByRole('img')).toHaveLength(1)
+
+    rerender(
+      <AnimatedWebpPlayer
+        src="/sample.webp"
+        isAnimated
+        controlMode="external"
+        playing
+        onPlayingChange={onPlayingChange}
+      />
+    )
+    expect(screen.getAllByRole('img')).toHaveLength(2)
+
+    fireEvent.error(screen.getAllByRole('img')[1]!)
+    expect(onPlayingChange).toHaveBeenCalledWith(false)
+    expect(screen.getAllByRole('img')).toHaveLength(1)
+  })
+
   it('keeps non-animated pending media non-interactive', () => {
     render(<AnimatedWebpPlayer src="/pending.webp" isAnimated={false} />)
 

@@ -13,7 +13,7 @@ import { useArtworkStore } from '@/store/use-artwork-store'
 import { useArtworkMediaAnchorInterval } from '@/components/user-setting'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
-import { hasReliableSingleFrameDimensions, isConfirmedStaticWebp } from '@/lib/media-animation'
+import { hasReliableSingleFrameDimensions } from '@/lib/media-animation'
 import { cn } from '@/lib/utils'
 import AdaptiveMediaPreview from './adaptive-media-preview'
 import { ArtworkVideoOptimizationProvider } from './artwork-video-optimization-context'
@@ -61,9 +61,9 @@ function isVideoMedia(media: ArtworkImageResponseDto) {
   return media.mediaType === 'video' || isVideoFile(media.path)
 }
 
-function usesInteractiveMediaPlayer(media: ArtworkImageResponseDto) {
+function keepsSurfacePlaybackControl(media: ArtworkImageResponseDto) {
   if (isVideoMedia(media)) return true
-  if (isWebpFile(media.path)) return !isConfirmedStaticWebp(media)
+  if (isWebpFile(media.path)) return false
   if (!media.isAnimated) return false
 
   return isApngFile(media.path) || isGifFile(media.path) || /\.png$/i.test(media.path)
@@ -267,7 +267,7 @@ function ArtworkMediaItem({
       <PreviewableMedia
         index={index}
         enabled={!isVideoMedia(media)}
-        tapPreviewEnabled={canPreviewFullSize(media) && !usesInteractiveMediaPlayer(media)}
+        tapPreviewEnabled={canPreviewFullSize(media) && !keepsSurfacePlaybackControl(media)}
         onOpenMenu={onOpenPreviewMenu}
         onPreview={onOpenAdaptivePreview}
       >

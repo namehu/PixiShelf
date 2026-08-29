@@ -22,7 +22,7 @@ vi.mock('@/components/players/video-player', () => ({
 }))
 vi.mock('@/components/players/apng-player', () => ({ default: () => null }))
 vi.mock('@/components/players/animated-webp-player', () => ({
-  default: (props: { isAnimated?: boolean }) => {
+  default: (props: { isAnimated?: boolean; controlMode?: string }) => {
     playerMocks.animatedProps(props)
     return <div data-testid="animated-image-player" />
   }
@@ -142,6 +142,7 @@ describe('LazyMedia video cache version', () => {
 
     expect(screen.getByTestId('animated-image-player')).toBeTruthy()
     expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0].isAnimated).toBe(true)
+    expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0].controlMode).toBe('badge')
 
     rerender(
       <LazyMedia
@@ -158,6 +159,7 @@ describe('LazyMedia video cache version', () => {
 
     expect(screen.getByTestId('animated-image-player')).toBeTruthy()
     expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0].isAnimated).toBe(false)
+    expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0].controlMode).toBe('badge')
   })
 
   it('does not use stacked animation metadata as the visible aspect ratio', () => {

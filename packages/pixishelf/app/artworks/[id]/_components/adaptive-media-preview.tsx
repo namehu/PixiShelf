@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
-import { ChevronDownIcon, ChevronUpIcon, XIcon } from 'lucide-react'
+import { ChevronDownIcon, ChevronUpIcon, PauseIcon, PlayIcon, XIcon } from 'lucide-react'
 import { Keyboard, Virtual, Zoom } from 'swiper/modules'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import type { Swiper as SwiperType } from 'swiper'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
+import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
+import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
 import { isConfirmedStaticWebp } from '@/lib/media-animation'
@@ -42,6 +44,10 @@ function isAnimatedMedia(media: ArtworkImageResponseDto) {
   return Boolean(media.isAnimated) || isApngFile(media.path) || isGifFile(media.path) || isWebpFile(media.path)
 }
 
+function isPlayableAnimatedWebp(media: ArtworkImageResponseDto) {
+  return isWebpFile(media.path) && media.isAnimated === true
+}
+
 export function canPreloadAdaptiveNeighbor(media: ArtworkImageResponseDto, environment: AdaptivePreloadEnvironment) {
   return canPreloadAdaptedImage({ ...media, isAnimated: isAnimatedMedia(media) }, environment)
 }
@@ -54,6 +60,7 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
   const safeInitialIndex = clampIndex(initialIndex, images.length)
   const [currentIndex, setCurrentIndex] = useState(safeInitialIndex)
   const [zoomScale, setZoomScale] = useState(1)
+  const [isWebpPlaying, setIsWebpPlaying] = useState(false)
   const [loadedIndexes, setLoadedIndexes] = useState<Set<number>>(() => new Set())
   const [preloadEnvironment, setPreloadEnvironment] = useState<AdaptivePreloadEnvironment>({
     isMobile: true,
@@ -80,6 +87,7 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
 
     openRef.current = false
     historyClosePendingRef.current = false
+    setIsWebpPlaying(false)
     onCloseRef.current(currentIndexRef.current)
   }, [])
 
@@ -102,6 +110,7 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
     currentIndexRef.current = nextIndex
     setCurrentIndex(nextIndex)
     setZoomScale(1)
+    setIsWebpPlaying(false)
     setLoadedIndexes(new Set())
     setPreloadEnvironment(readMediaPreloadEnvironment())
     openRef.current = true
@@ -136,6 +145,10 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
 
   const activeMedia = images[currentIndex]
   const activeAnimated = useMemo(() => (activeMedia ? isAnimatedMedia(activeMedia) : false), [activeMedia])
+  const activePlayableWebp = useMemo(
+    () => (activeMedia ? isPlayableAnimatedWebp(activeMedia) : false),
+    [activeMedia]
+  )
   const eagerNeighborIndexes = useMemo(() => {
     const indexes = new Set<number>()
     if (!loadedIndexes.has(currentIndex)) return indexes
@@ -162,6 +175,7 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
       currentIndexRef.current = nextIndex
       setCurrentIndex(nextIndex)
       setZoomScale(1)
+      setIsWebpPlaying(false)
       swiper.allowSlideNext = true
       swiper.allowSlidePrev = true
     },
@@ -185,7 +199,9 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
         onPointerDownOutside={(event) => event.preventDefault()}
       >
         <DialogTitle className="sr-only">适配尺寸媒体预览</DialogTitle>
-        <DialogDescription className="sr-only">上下滑动切换媒体，双指或双击缩放图片。</DialogDescription>
+        <DialogDescription className="sr-only">
+          上下滑动切换媒体，双指或双击缩放图片；WebP 动图可通过底部按钮播放或暂停。
+        </DialogDescription>
 
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/75 via-black/35 to-transparent px-3 pb-8 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-5">
           <div
@@ -226,6 +242,8 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
         >
           {images.map((media, index) => {
             const animated = isAnimatedMedia(media)
+            const playableAnimatedWebp = isPlayableAnimatedWebp(media)
+            const showAnimatedWebpPlayer = index === currentIndex && playableAnimatedWebp
             const eager = index === currentIndex || eagerNeighborIndexes.has(index)
             const priority = index === safeInitialIndex
 
@@ -236,19 +254,36 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
                 className="flex h-full items-center justify-center overflow-hidden"
               >
                 <div className="swiper-zoom-container relative h-full w-full px-0 py-16 sm:px-12 sm:py-20">
-                  <Image
-                    src={withMediaVersion(media.path, media.updatedAt)}
-                    alt={`作品媒体 ${index + 1}`}
-                    fill
-                    sizes="100vw"
-                    quality={90}
-                    priority={priority}
-                    loading={priority ? undefined : eager ? 'eager' : 'lazy'}
-                    draggable={false}
-                    className="select-none object-contain"
-                    onLoad={() => handleImageLoad(index)}
-                  />
-                  {animated && (
+                  {showAnimatedWebpPlayer ? (
+                    <AnimatedWebpPlayer
+                      src={media.path}
+                      alt={`作品 WEBP 动图 ${index + 1}`}
+                      size={media.size}
+                      isAnimated
+                      updatedAt={media.updatedAt}
+                      fillContainer
+                      posterLoading="eager"
+                      controlMode="external"
+                      playing={isWebpPlaying}
+                      onPlayingChange={setIsWebpPlaying}
+                      onPosterLoad={() => handleImageLoad(index)}
+                      className="swiper-zoom-target select-none bg-transparent"
+                    />
+                  ) : (
+                    <Image
+                      src={withMediaVersion(media.path, media.updatedAt)}
+                      alt={`作品媒体 ${index + 1}`}
+                      fill
+                      sizes="100vw"
+                      quality={90}
+                      priority={priority}
+                      loading={priority ? undefined : eager ? 'eager' : 'lazy'}
+                      draggable={false}
+                      className="swiper-zoom-target select-none object-contain"
+                      onLoad={() => handleImageLoad(index)}
+                    />
+                  )}
+                  {animated && !playableAnimatedWebp && (
                     <span className="pointer-events-none absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-xs text-white/85 backdrop-blur-md">
                       动图静态预览
                     </span>
@@ -282,11 +317,25 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
           </div>
         )}
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center bg-gradient-to-t from-black/65 to-transparent px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-10">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center justify-center gap-2 bg-gradient-to-t from-black/65 to-transparent px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-10">
+          {activePlayableWebp && (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="pointer-events-auto rounded-full shadow-lg"
+              aria-label={`${isWebpPlaying ? '暂停' : '播放'} WEBP 动图`}
+              aria-pressed={isWebpPlaying}
+              onClick={() => setIsWebpPlaying((playing) => !playing)}
+            >
+              {isWebpPlaying ? <PauseIcon data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
+              {isWebpPlaying ? '暂停 WEBP' : '播放 WEBP'}
+            </Button>
+          )}
           <span className="rounded-full bg-black/35 px-3 py-1 text-xs text-white/75 backdrop-blur-md">
             {zoomScale > 1.01
               ? `${zoomScale.toFixed(1)}× · 拖动查看，缩小后切换`
-              : activeAnimated
+              : activeAnimated && !activePlayableWebp
                 ? '静态适配预览 · 长按原媒体可查看原文件'
                 : '上下切换 · 双指或双击缩放'}
           </span>

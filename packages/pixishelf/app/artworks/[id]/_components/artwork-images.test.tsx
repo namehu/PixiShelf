@@ -288,7 +288,7 @@ describe('ArtworkImages', () => {
     expect(screen.queryByText('查看原始文件')).toBeNull()
   })
 
-  it('leaves WebP clicks to the animation player even when animation metadata is pending', () => {
+  it('opens adaptive preview for WebP media even when animation metadata is pending', () => {
     const images = generateImages(1).map((image) => ({
       ...image,
       path: '/path/to/animation.webp',
@@ -300,9 +300,8 @@ describe('ArtworkImages', () => {
     const webpMedia = screen.getByTestId('lazy-media')
     fireEvent.mouseDown(webpMedia)
     fireEvent.mouseUp(webpMedia)
-    fireEvent.click(webpMedia)
 
-    expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('0')
   })
 
   it('opens the adaptive preview when WebP metadata confirms a static image', () => {
