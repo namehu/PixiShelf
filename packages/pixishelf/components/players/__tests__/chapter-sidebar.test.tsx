@@ -96,7 +96,7 @@ describe('ChapterSidebar', () => {
     expect(screen.getByLabelText('音频状态未知')).toBeDefined()
   })
 
-  it('lets user scrolling win and only restores an offscreen active item after 1000ms', () => {
+  it('lets user scrolling win and only restores an offscreen active item after 5000ms', () => {
     vi.useFakeTimers()
     const scrollIntoView = vi.fn()
     Element.prototype.scrollIntoView = scrollIntoView
@@ -126,7 +126,7 @@ describe('ChapterSidebar', () => {
       />
     )
 
-    act(() => vi.advanceTimersByTime(999))
+    act(() => vi.advanceTimersByTime(4999))
     expect(scrollIntoView).not.toHaveBeenCalled()
     act(() => vi.advanceTimersByTime(1))
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })

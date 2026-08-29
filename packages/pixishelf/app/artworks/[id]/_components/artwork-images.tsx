@@ -27,6 +27,7 @@ const MAX_PREVIEW_IMAGES = 20
 const NAV_HEIGHT = 64
 
 type PreviewMenuState = { x: number; y: number; index: number }
+type AdaptivePreviewState = { index: number; initialPreviewSrc?: string }
 
 export function buildMediaAnchorIndexes(total: number, interval: number) {
   if (interval <= 0 || total < interval * 2) return []
@@ -214,11 +215,17 @@ function PreviewableMedia({
   enabled: boolean
   tapPreviewEnabled: boolean
   onOpenMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
-  onPreview: (index: number) => void
+  onPreview: (index: number, initialPreviewSrc?: string) => void
 }) {
   const { ...longPressProps } = useLongPress({
     onLongPress: (e) => onOpenMenu(e, index),
-    onClick: tapPreviewEnabled ? () => onPreview(index) : undefined,
+    onClick: tapPreviewEnabled
+      ? (event) => {
+          const image = event.currentTarget.querySelector('img')
+          const initialPreviewSrc = image?.currentSrc || image?.src || undefined
+          onPreview(index, initialPreviewSrc)
+        }
+      : undefined,
     threshold: 500
   })
 
@@ -253,7 +260,7 @@ function ArtworkMediaItem({
   remainingCount: number
   onExpand: () => void
   onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
-  onOpenAdaptivePreview: (index: number) => void
+  onOpenAdaptivePreview: (index: number, initialPreviewSrc?: string) => void
   highlighted: boolean
 }) {
   return (
@@ -322,10 +329,10 @@ function MediaAnchorList({
               aria-label={`跳转到第 ${index + 1} 张媒体`}
               onClick={() => onSelect(index)}
               className={cn(
-                'font-utility flex size-11 items-center justify-center rounded-md px-2 text-center text-xs tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+                'font-utility flex size-9 items-center justify-center rounded-full px-1 text-center text-xs tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary-foreground/50',
                 isActive
-                  ? 'bg-foreground font-semibold text-background'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  ? 'bg-primary-foreground font-semibold text-primary'
+                  : 'text-primary-foreground/75 hover:bg-primary-foreground/15 hover:text-primary-foreground'
               )}
             >
               {index + 1}
@@ -384,7 +391,8 @@ function MediaAnchorNavigation({
             side="top"
             align="end"
             sideOffset={8}
-            className="max-h-[70dvh] w-auto overflow-y-auto p-1.5"
+            data-testid="media-anchor-popover"
+            className="max-h-[70dvh] w-11 overflow-y-auto rounded-full border-primary/20 bg-primary p-1 text-primary-foreground shadow-floating"
           >
             <MediaAnchorList indexes={indexes} activeIndex={activeIndex} onSelect={onSelect} />
           </PopoverContent>
@@ -473,7 +481,7 @@ function VirtualizedArtworkMediaList({
   returnIndex: number | null
   onReturnHandled: () => void
   onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
-  onOpenAdaptivePreview: (index: number) => void
+  onOpenAdaptivePreview: (index: number, initialPreviewSrc?: string) => void
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isNavigationOpen, setIsNavigationOpen] = useState(false)
@@ -612,16 +620,18 @@ function VirtualizedArtworkMediaList({
 }
 
 export default function ArtworkImages({ images }: ArtworkImagesProps) {
-  const [previewIndex, setPreviewIndex] = useState<number | null>(null)
+  const [previewState, setPreviewState] = useState<AdaptivePreviewState | null>(null)
   const [returnIndex, setReturnIndex] = useState<number | null>(null)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const adaptivePreviewImages = useMemo(() => images.filter((media) => !isVideoMedia(media)), [images])
   const openAdaptivePreview = useCallback(
-    (originalIndex: number) => {
+    (originalIndex: number, initialPreviewSrc?: string) => {
       const media = images[originalIndex]
       if (!media || isVideoMedia(media)) return
       const filteredIndex = adaptivePreviewImages.findIndex((candidate) => candidate.id === media.id)
-      if (filteredIndex >= 0) setPreviewIndex(filteredIndex)
+      if (filteredIndex >= 0) {
+        setPreviewState({ index: filteredIndex, ...(initialPreviewSrc ? { initialPreviewSrc } : {}) })
+      }
     },
     [adaptivePreviewImages, images]
   )
@@ -632,7 +642,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
     (finalIndex: number) => {
       const returnedMedia = adaptivePreviewImages[finalIndex]
       const originalIndex = returnedMedia ? images.findIndex((media) => media.id === returnedMedia.id) : -1
-      setPreviewIndex(null)
+      setPreviewState(null)
       if (originalIndex < 0) return
       setCurrentIndex(originalIndex)
       setReturnIndex(originalIndex)
@@ -668,10 +678,11 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
         onPreview={previewSelectedMedia}
         onViewOriginal={viewOriginalSelectedMedia}
       />
-      {previewIndex !== null && (
+      {previewState !== null && (
         <AdaptiveMediaPreview
           images={adaptivePreviewImages}
-          initialIndex={previewIndex}
+          initialIndex={previewState.index}
+          initialPreviewSrc={previewState.initialPreviewSrc}
           open
           onClose={handlePreviewClose}
         />

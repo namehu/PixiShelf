@@ -14,6 +14,7 @@ import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
 import { isConfirmedStaticWebp } from '@/lib/media-animation'
 import { withMediaVersion } from '@/lib/media-url'
 import { canPreloadAdaptedImage, readMediaPreloadEnvironment, type MediaPreloadEnvironment } from '@/lib/media-preload'
+import { cn } from '@/lib/utils'
 
 import 'swiper/css'
 import 'swiper/css/zoom'
@@ -25,6 +26,7 @@ export type AdaptivePreloadEnvironment = MediaPreloadEnvironment
 interface AdaptiveMediaPreviewProps {
   images: ArtworkImageResponseDto[]
   initialIndex: number
+  initialPreviewSrc?: string
   open: boolean
   onClose: (finalIndex: number) => void
 }
@@ -56,12 +58,18 @@ function clampIndex(index: number, length: number) {
   return Math.min(Math.max(index, 0), Math.max(0, length - 1))
 }
 
-export default function AdaptiveMediaPreview({ images, initialIndex, open, onClose }: AdaptiveMediaPreviewProps) {
+export default function AdaptiveMediaPreview({
+  images,
+  initialIndex,
+  initialPreviewSrc,
+  open,
+  onClose
+}: AdaptiveMediaPreviewProps) {
   const safeInitialIndex = clampIndex(initialIndex, images.length)
   const [currentIndex, setCurrentIndex] = useState(safeInitialIndex)
   const [zoomScale, setZoomScale] = useState(1)
   const [isWebpPlaying, setIsWebpPlaying] = useState(false)
-  const [loadedIndexes, setLoadedIndexes] = useState<Set<number>>(() => new Set())
+  const [decodedIndexes, setDecodedIndexes] = useState<Set<number>>(() => new Set())
   const [preloadEnvironment, setPreloadEnvironment] = useState<AdaptivePreloadEnvironment>({
     isMobile: true,
     saveData: false
@@ -111,7 +119,7 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
     setCurrentIndex(nextIndex)
     setZoomScale(1)
     setIsWebpPlaying(false)
-    setLoadedIndexes(new Set())
+    setDecodedIndexes(new Set())
     setPreloadEnvironment(readMediaPreloadEnvironment())
     openRef.current = true
     historyClosePendingRef.current = false
@@ -151,23 +159,36 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
   )
   const eagerNeighborIndexes = useMemo(() => {
     const indexes = new Set<number>()
-    if (!loadedIndexes.has(currentIndex)) return indexes
-
     for (const index of [currentIndex - 1, currentIndex + 1]) {
       const media = images[index]
       if (media && canPreloadAdaptiveNeighbor(media, preloadEnvironment)) indexes.add(index)
     }
     return indexes
-  }, [currentIndex, images, loadedIndexes, preloadEnvironment])
+  }, [currentIndex, images, preloadEnvironment])
 
-  const handleImageLoad = useCallback((index: number) => {
-    setLoadedIndexes((current) => {
+  const markImageDecoded = useCallback((index: number) => {
+    setDecodedIndexes((current) => {
       if (current.has(index)) return current
       const next = new Set(current)
       next.add(index)
       return next
     })
   }, [])
+
+  const handleImageLoad = useCallback(
+    (index: number, image?: HTMLImageElement) => {
+      if (!image?.decode) {
+        markImageDecoded(index)
+        return
+      }
+
+      void image
+        .decode()
+        .catch(() => undefined)
+        .then(() => markImageDecoded(index))
+    },
+    [markImageDecoded]
+  )
 
   const handleSlideChange = useCallback(
     (swiper: SwiperType) => {
@@ -246,6 +267,8 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
             const showAnimatedWebpPlayer = index === currentIndex && playableAnimatedWebp
             const eager = index === currentIndex || eagerNeighborIndexes.has(index)
             const priority = index === safeInitialIndex
+            const decoded = decodedIndexes.has(index)
+            const showInitialPreview = index === safeInitialIndex && Boolean(initialPreviewSrc)
 
             return (
               <SwiperSlide
@@ -254,6 +277,23 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
                 className="flex h-full items-center justify-center overflow-hidden"
               >
                 <div className="swiper-zoom-container relative h-full w-full px-0 py-16 sm:px-12 sm:py-20">
+                  {showInitialPreview && initialPreviewSrc && (
+                    <Image
+                      src={initialPreviewSrc}
+                      alt=""
+                      aria-hidden="true"
+                      data-testid="adaptive-preview-placeholder"
+                      data-ready={decoded ? 'true' : 'false'}
+                      fill
+                      unoptimized
+                      sizes="100vw"
+                      draggable={false}
+                      className={cn(
+                        'pointer-events-none absolute inset-0 select-none object-contain motion-safe:transition-opacity motion-safe:duration-(--motion-base)',
+                        decoded ? 'opacity-0' : 'opacity-100'
+                      )}
+                    />
+                  )}
                   {showAnimatedWebpPlayer ? (
                     <AnimatedWebpPlayer
                       src={media.path}
@@ -266,8 +306,11 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
                       controlMode="external"
                       playing={isWebpPlaying}
                       onPlayingChange={setIsWebpPlaying}
-                      onPosterLoad={() => handleImageLoad(index)}
-                      className="swiper-zoom-target select-none bg-transparent"
+                      onPosterLoad={() => markImageDecoded(index)}
+                      className={cn(
+                        'swiper-zoom-target select-none bg-transparent motion-safe:transition-opacity motion-safe:duration-(--motion-base)',
+                        showInitialPreview && !decoded && 'opacity-0'
+                      )}
                     />
                   ) : (
                     <Image
@@ -279,8 +322,11 @@ export default function AdaptiveMediaPreview({ images, initialIndex, open, onClo
                       priority={priority}
                       loading={priority ? undefined : eager ? 'eager' : 'lazy'}
                       draggable={false}
-                      className="swiper-zoom-target select-none object-contain"
-                      onLoad={() => handleImageLoad(index)}
+                      className={cn(
+                        'swiper-zoom-target select-none object-contain motion-safe:transition-opacity motion-safe:duration-(--motion-base)',
+                        showInitialPreview && !decoded && 'opacity-0'
+                      )}
+                      onLoad={(event) => handleImageLoad(index, event.currentTarget)}
                     />
                   )}
                   {animated && !playableAnimatedWebp && (

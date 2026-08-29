@@ -50,12 +50,34 @@ vi.mock('@/components/ui/popover', () => ({
       }
     })
   },
-  PopoverContent: ({ children }: { children: React.ReactNode }) => (popoverOpen ? <div>{children}</div> : null)
+  PopoverContent: ({
+    children,
+    className,
+    side,
+    align,
+    sideOffset,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement> & {
+    side?: string
+    align?: string
+    sideOffset?: number
+  }) => {
+    void side
+    void align
+    void sideOffset
+    return popoverOpen ? (
+      <div className={className} {...props}>
+        {children}
+      </div>
+    ) : null
+  }
 }))
 
 vi.mock('./lazy-media', () => ({
   default: ({ media, index }: { media: { path: string }; index: number }) => (
     <div data-testid="lazy-media" data-src={media.path} data-index={index}>
+      {/* oxlint-disable-next-line nextjs/no-img-element */}
+      <img src={media.path} alt="" />
       Image {index + 1}
     </div>
   )
@@ -65,13 +87,20 @@ vi.mock('./adaptive-media-preview', () => ({
   default: ({
     images,
     initialIndex,
+    initialPreviewSrc,
     onClose
   }: {
     images: Array<{ path: string }>
     initialIndex: number
+    initialPreviewSrc?: string
     onClose: (finalIndex: number) => void
   }) => (
-    <div data-testid="adaptive-media-preview" data-initial-index={initialIndex} data-media-count={images.length}>
+    <div
+      data-testid="adaptive-media-preview"
+      data-initial-index={initialIndex}
+      data-initial-preview-src={initialPreviewSrc}
+      data-media-count={images.length}
+    >
       <button type="button" onClick={() => onClose(initialIndex)}>
         关闭适配预览
       </button>
@@ -222,6 +251,17 @@ describe('ArtworkImages', () => {
     fireEvent.click(trigger)
 
     const navigation = screen.getByRole('navigation', { name: '作品媒体快捷导航' })
+    const popover = screen.getByTestId('media-anchor-popover')
+    expect(popover.className).toContain('w-11')
+    expect(popover.className).toContain('rounded-full')
+    expect(popover.className).toContain('bg-primary')
+    expect(popover.className).toContain('shadow-floating')
+    expect(within(navigation).getByRole('button', { name: '跳转到第 1 张媒体' }).className).toContain(
+      'bg-primary-foreground'
+    )
+    expect(within(navigation).getByRole('button', { name: '跳转到第 50 张媒体' }).className).toContain(
+      'text-primary-foreground/75'
+    )
     fireEvent.click(within(navigation).getByRole('button', { name: '跳转到第 50 张媒体' }))
     expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
   })
@@ -285,6 +325,9 @@ describe('ArtworkImages', () => {
     fireEvent.mouseUp(firstMedia)
 
     expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('0')
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-preview-src')).toContain(
+      '/path/to/image-1.jpg'
+    )
     expect(screen.queryByText('查看原始文件')).toBeNull()
   })
 

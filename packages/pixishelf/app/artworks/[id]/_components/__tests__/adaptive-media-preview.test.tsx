@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import AdaptiveMediaPreview, { canPreloadAdaptiveNeighbor } from '../adaptive-media-preview'
@@ -23,7 +23,10 @@ vi.mock('next/image', () => ({
     loading,
     quality,
     priority,
-    onLoad
+    onLoad,
+    unoptimized,
+    'data-testid': testId,
+    'data-ready': ready
   }: {
     src: string
     alt: string
@@ -32,6 +35,9 @@ vi.mock('next/image', () => ({
     quality?: number
     priority?: boolean
     onLoad?: React.ReactEventHandler<HTMLImageElement>
+    unoptimized?: boolean
+    'data-testid'?: string
+    'data-ready'?: string
   }) => {
     // oxlint-disable-next-line nextjs/no-img-element
     return (
@@ -42,6 +48,9 @@ vi.mock('next/image', () => ({
         loading={loading}
         data-quality={quality}
         data-priority={priority ? 'true' : undefined}
+        data-unoptimized={unoptimized ? 'true' : undefined}
+        data-testid={testId}
+        data-ready={ready}
         onLoad={onLoad}
       />
     )
@@ -157,7 +166,7 @@ describe('AdaptiveMediaPreview', () => {
     expect(screen.getByText('上下切换 · 双指或双击缩放')).toBeTruthy()
   })
 
-  it('moves the eager neighbor window after the active image has loaded', () => {
+  it('preheats only the eligible adjacent images and moves the window with the active slide', () => {
     render(
       <AdaptiveMediaPreview
         images={[createMedia(0), createMedia(1), createMedia(2), createMedia(3)]}
@@ -168,14 +177,40 @@ describe('AdaptiveMediaPreview', () => {
     )
 
     const images = screen.getAllByRole('img')
-    expect(images.map((image) => image.getAttribute('loading'))).toEqual(['lazy', null, 'lazy', 'lazy'])
-
-    fireEvent.load(images[1]!)
     expect(images.map((image) => image.getAttribute('loading'))).toEqual(['eager', null, 'eager', 'lazy'])
 
-    fireEvent.load(images[2]!)
     fireEvent.click(screen.getByRole('button', { name: '模拟切换' }))
     expect(images.map((image) => image.getAttribute('loading'))).toEqual(['lazy', null, 'eager', 'eager'])
+  })
+
+  it('shows the cached transition image immediately and fades it after the target image decodes', async () => {
+    render(
+      <AdaptiveMediaPreview
+        images={[createMedia(0)]}
+        initialIndex={0}
+        initialPreviewSrc="/cached-preview.jpg"
+        open
+        onClose={vi.fn()}
+      />
+    )
+
+    const placeholder = screen.getByTestId('adaptive-preview-placeholder')
+    const target = screen.getByAltText('作品媒体 1')
+    const decode = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(target, 'decode', { configurable: true, value: decode })
+
+    expect(placeholder.getAttribute('src')).toBe('/cached-preview.jpg')
+    expect(placeholder.getAttribute('data-unoptimized')).toBe('true')
+    expect(placeholder.getAttribute('data-ready')).toBe('false')
+    expect(placeholder.className).toContain('opacity-100')
+    expect(target.className).toContain('opacity-0')
+
+    fireEvent.load(target)
+
+    await waitFor(() => expect(decode).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(placeholder.getAttribute('data-ready')).toBe('true'))
+    expect(placeholder.className).toContain('opacity-0')
+    expect(target.className).not.toContain('opacity-0')
   })
 
   it('never combines priority with lazy loading after moving away from the initial slide', () => {

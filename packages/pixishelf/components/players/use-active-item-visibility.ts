@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, type HTMLAttributes } from 'react'
 
-const USER_SCROLL_COOLDOWN_MS = 1000
+const DEFAULT_USER_SCROLL_COOLDOWN_MS = 1000
 const SCROLL_KEYS = new Set([
   'ArrowLeft',
   'ArrowRight',
@@ -15,7 +15,12 @@ const SCROLL_KEYS = new Set([
   ' '
 ])
 
-export function useActiveItemVisibility(activeId?: string) {
+interface UseActiveItemVisibilityOptions {
+  userScrollCooldownMs?: number
+}
+
+export function useActiveItemVisibility(activeId?: string, options: UseActiveItemVisibilityOptions = {}) {
+  const userScrollCooldownMs = options.userScrollCooldownMs ?? DEFAULT_USER_SCROLL_COOLDOWN_MS
   const viewportRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<Record<string, HTMLElement | null>>({})
   const activeIdRef = useRef(activeId)
@@ -39,9 +44,9 @@ export function useActiveItemVisibility(activeId?: string) {
       itemRect.bottom > viewportRect.bottom
 
     if (!outside) return
-    programmaticScrollUntilRef.current = Date.now() + USER_SCROLL_COOLDOWN_MS
+    programmaticScrollUntilRef.current = Date.now() + userScrollCooldownMs
     item.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
-  }, [])
+  }, [userScrollCooldownMs])
 
   const scheduleAfterUserScroll = useCallback(() => {
     lastUserScrollAtRef.current = Date.now()
@@ -49,12 +54,12 @@ export function useActiveItemVisibility(activeId?: string) {
     reconcileTimerRef.current = setTimeout(() => {
       reconcileTimerRef.current = null
       ensureActiveVisible()
-    }, USER_SCROLL_COOLDOWN_MS)
-  }, [ensureActiveVisible])
+    }, userScrollCooldownMs)
+  }, [ensureActiveVisible, userScrollCooldownMs])
 
   useEffect(() => {
     activeIdRef.current = activeId
-    const remaining = USER_SCROLL_COOLDOWN_MS - (Date.now() - lastUserScrollAtRef.current)
+    const remaining = userScrollCooldownMs - (Date.now() - lastUserScrollAtRef.current)
     if (remaining > 0) {
       if (reconcileTimerRef.current) clearTimeout(reconcileTimerRef.current)
       reconcileTimerRef.current = setTimeout(() => {
@@ -64,7 +69,7 @@ export function useActiveItemVisibility(activeId?: string) {
       return
     }
     ensureActiveVisible()
-  }, [activeId, ensureActiveVisible])
+  }, [activeId, ensureActiveVisible, userScrollCooldownMs])
 
   useEffect(
     () => () => {

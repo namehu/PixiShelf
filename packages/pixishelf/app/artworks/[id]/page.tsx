@@ -78,6 +78,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
             )}
           </PageContainer>
 
+          <div id={`artwork-media-start-${data.id}`} aria-hidden="true" className="h-px" />
           <ArtworkImages images={data.images} artworkId={data.id} />
           <PageContainer size="reading">
             <ArtworkDes description={data.description} className="mt-8" />

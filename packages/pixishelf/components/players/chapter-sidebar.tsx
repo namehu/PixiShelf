@@ -26,7 +26,9 @@ export default function ChapterSidebar({
   tone = 'dark',
   layout = 'grid'
 }: ChapterSidebarProps) {
-  const { viewportRef, setItemRef, interactionProps } = useActiveItemVisibility(currentChapterId)
+  const { viewportRef, setItemRef, interactionProps } = useActiveItemVisibility(currentChapterId, {
+    userScrollCooldownMs: 5000
+  })
 
   if (chapters.length === 0) {
     return null

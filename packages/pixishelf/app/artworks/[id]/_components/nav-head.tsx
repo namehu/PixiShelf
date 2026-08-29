@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { ChevronLeftIcon, EllipsisIcon, FullscreenIcon, ListOrderedIcon, Settings2Icon } from 'lucide-react'
 import { useSafeBack } from '@/hooks/use-safe-back'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import PageToolbar from '@/components/layout/page-toolbar'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,10 +22,12 @@ import MediaOrderReviewDialog from './media-order-review-dialog'
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
   const safeBack = useSafeBack('/artworks')
+  const isDesktop = useMediaQuery('(min-width: 1024px)')
   const setImages = useArtworkStore((state) => state.setImages)
   const setTotal = useArtworkStore((state) => state.setTotal)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const [orderReviewOpen, setOrderReviewOpen] = useState(false)
+  const [showScrolledTitle, setShowScrolledTitle] = useState(false)
 
   // 2. 确保页面滚动顶部
   useEffect(() => {
@@ -39,10 +42,28 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
     }
   }, [data, setTotal, setCurrentIndex])
 
+  useEffect(() => {
+    const marker = document.getElementById(`artwork-media-start-${data.id}`)
+    if (!marker || typeof IntersectionObserver === 'undefined') return
+
+    const toolbarBottom = isDesktop ? 128 : 56
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return
+        setShowScrolledTitle(entry.boundingClientRect.top <= toolbarBottom)
+      },
+      { rootMargin: `-${toolbarBottom}px 0px 0px 0px`, threshold: 0 }
+    )
+
+    observer.observe(marker)
+    return () => observer.disconnect()
+  }, [data.id, isDesktop])
+
   return (
     <>
       <PageToolbar
         containerSize="reading"
+        contentClassName="relative"
         leading={
           <Button variant="ghost" size="sm" onClick={safeBack} aria-label="返回作品列表" className="-ml-2 min-h-11">
             <ChevronLeftIcon data-icon="inline-start" aria-hidden="true" />
@@ -99,7 +120,16 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
             </DropdownMenuContent>
           </DropdownMenu>
         }
-      />
+      >
+        {showScrolledTitle && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-16 truncate text-center text-sm font-medium text-foreground sm:inset-x-24"
+          >
+            {data.title}
+          </span>
+        )}
+      </PageToolbar>
 
       {orderReviewOpen && (
         <MediaOrderReviewDialog

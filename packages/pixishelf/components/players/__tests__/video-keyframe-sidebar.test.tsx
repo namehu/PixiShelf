@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import VideoKeyframeSidebar from '../video-keyframe-sidebar'
 import type { NormalizedVideoKeyframe } from '../video-keyframes'
@@ -20,7 +20,10 @@ beforeAll(() => {
 })
 
 describe('VideoKeyframeSidebar', () => {
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   it('renders image-and-time cards without inventing chapter titles', () => {
     const onKeyframeClick = vi.fn()
@@ -40,5 +43,39 @@ describe('VideoKeyframeSidebar', () => {
 
     fireEvent.click(active)
     expect(onKeyframeClick).toHaveBeenCalledWith(keyframes[1])
+  })
+
+  it('keeps the default one-second user-scroll cooldown', () => {
+    vi.useFakeTimers()
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    const { container, rerender } = render(
+      <VideoKeyframeSidebar
+        keyframes={keyframes}
+        currentKeyframeId="frame-1"
+        onKeyframeClick={vi.fn()}
+        layout="horizontal"
+      />
+    )
+    const viewport = container.querySelector<HTMLElement>('[data-keyframe-layout="horizontal"] > div')!
+    const secondFrame = screen.getByRole('button', { name: '跳转到画面 01:05' })
+    viewport.getBoundingClientRect = () => ({ left: 0, right: 100, top: 0, bottom: 100 }) as DOMRect
+    secondFrame.getBoundingClientRect = () => ({ left: 180, right: 280, top: 0, bottom: 100 }) as DOMRect
+    scrollIntoView.mockClear()
+
+    fireEvent.wheel(viewport)
+    rerender(
+      <VideoKeyframeSidebar
+        keyframes={keyframes}
+        currentKeyframeId="frame-2"
+        onKeyframeClick={vi.fn()}
+        layout="horizontal"
+      />
+    )
+
+    act(() => vi.advanceTimersByTime(999))
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
   })
 })
