@@ -239,9 +239,10 @@ Trash is retained for seven days. Permanent cleanup only handles fully `TRASHED`
 - Archive import is administrator-only and writes to the existing global library.
 - Accept only registered provider HTTPS hosts.
 - Validate every redirect and reject loopback, private, link-local, multicast, and cloud-metadata destinations after DNS resolution.
-- When a configured HTTP(S) proxy uses Clash-style `198.18.0.0/15` synthetic DNS addresses, send the
-  request through the proxy CONNECT tunnel; never treat that range as a generally public destination,
-  and continue rejecting every other non-public address.
+- When a configured HTTP(S) proxy uses Clash/Mihomo-style `198.18.0.0/15` or
+  `fdfe:dcba:9876::/64` synthetic DNS addresses, send the request through the proxy CONNECT tunnel;
+  never treat those ranges as generally public destinations, and continue rejecting every other
+  non-public address.
 - Apply connect, header, body, and overall timeouts plus response-size limits.
 - Sanitize every remote path segment and keep final paths under the resolved media root.
 - Never log Cookie values, authorization headers, full gallery locators, or unredacted provider tokens.

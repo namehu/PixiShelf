@@ -3,16 +3,15 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { prismaCommandRequiresDatabaseUrl } from './prisma-command.mjs'
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const packageDirectory = path.resolve(scriptDirectory, '..')
+const prismaArguments = process.argv.slice(2)
 
 const childEnvironment = { ...process.env }
-if (!childEnvironment.DATABASE_URL?.trim()) {
-  const envCandidates = [
-    path.join(packageDirectory, '.env'),
-    path.resolve(packageDirectory, '../pixishelf/.env.local')
-  ]
+if (prismaCommandRequiresDatabaseUrl(prismaArguments) && !childEnvironment.DATABASE_URL?.trim()) {
+  const envCandidates = [path.join(packageDirectory, '.env'), path.resolve(packageDirectory, '../pixishelf/.env.local')]
   const loaded = envCandidates.find((candidate) => loadDatabaseUrl(candidate, childEnvironment))
   if (!loaded) {
     console.error(
@@ -25,7 +24,7 @@ if (!childEnvironment.DATABASE_URL?.trim()) {
 
 const require = createRequire(import.meta.url)
 const prismaCli = require.resolve('prisma')
-const result = spawnSync(process.execPath, [prismaCli, ...process.argv.slice(2)], {
+const result = spawnSync(process.execPath, [prismaCli, ...prismaArguments], {
   cwd: packageDirectory,
   env: childEnvironment,
   stdio: 'inherit'

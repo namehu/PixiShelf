@@ -12,6 +12,11 @@ import { ArchiveError, type ArchiveErrorStage, withArchiveErrorContext } from '.
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_BODY_LIMIT = 8 * 1024 * 1024
 const MAX_REDIRECTS = 5
+const PROXY_SYNTHETIC_IPV6_ADDRESSES = new net.BlockList()
+
+// Mihomo's default IPv6 fake-IP range. It is safe only when the request is sent
+// through an explicitly configured proxy that resolves the CONNECT hostname.
+PROXY_SYNTHETIC_IPV6_ADDRESSES.addSubnet('fdfe:dcba:9876::', 64, 'ipv6')
 
 export interface SafeHttpResponse {
   status: number
@@ -257,9 +262,11 @@ export function isPublicNetworkAddress(address: string): boolean {
 }
 
 function isProxySyntheticAddress(address: string): boolean {
-  if (!net.isIPv4(address)) return false
-  const [a = 0, b = 0] = address.split('.').map(Number)
-  return a === 198 && (b === 18 || b === 19)
+  if (net.isIPv4(address)) {
+    const [a = 0, b = 0] = address.split('.').map(Number)
+    return a === 198 && (b === 18 || b === 19)
+  }
+  return net.isIPv6(address) && PROXY_SYNTHETIC_IPV6_ADDRESSES.check(address, 'ipv6')
 }
 
 function shouldBypassProxy(target: URL, noProxy: string | undefined): boolean {

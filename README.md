@@ -95,9 +95,10 @@ PostgreSQL 应显示 `healthy`，`http://127.0.0.1:5431/health` 应返回 200。
 
 ### 4. 生成 Prisma Client 并部署迁移
 
-`@pixishelf/db` 的数据库脚本优先使用当前终端显式提供的 `DATABASE_URL`；未提供时会读取
-`packages/pixishelf/.env.local`。宿主机运行时必须确认该文件使用 `127.0.0.1:5432` 或
-`localhost:5432`，不要误用 Docker 容器内部的 `postgres:5432` 地址。
+`db:generate` 只生成 Prisma Client，不要求数据库地址。其他需要数据库连接的 `@pixishelf/db` 脚本
+优先使用当前终端显式提供的 `DATABASE_URL`；未提供时会读取 `packages/pixishelf/.env.local`。宿主机运行时
+必须确认该文件使用 `127.0.0.1:5432` 或 `localhost:5432`，不要误用 Docker 容器内部的
+`postgres:5432` 地址。
 
 PowerShell：
 

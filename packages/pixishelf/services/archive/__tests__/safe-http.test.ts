@@ -69,17 +69,23 @@ describe('archive safe HTTP network policy', () => {
     ).toThrowError(expect.objectContaining({ code: 'SSRF_BLOCKED', message: '链接主机不在归档 Provider 的允许列表中' }))
   })
 
-  it('routes a Clash fake IP only through an explicitly configured HTTP proxy', () => {
+  it('routes Clash and Mihomo fake IPs only through an explicitly configured HTTP proxy', () => {
     const target = new URL('https://e-hentai.org/g/123/token/')
     const proxy = resolveArchiveProxyUrl(target, { HTTPS_PROXY: 'http://127.0.0.1:7890' })
-    const fakeIp = [{ address: '198.18.0.53', family: 4 }]
+    const fakeIps = [
+      { address: '198.18.0.53', family: 4 },
+      { address: 'fdfe:dcba:9876::3c', family: 6 }
+    ]
 
     expect(proxy?.origin).toBe('http://127.0.0.1:7890')
-    expect(() => assertSafeResolvedAddresses(fakeIp, proxy)).not.toThrow()
-    expect(() => assertSafeResolvedAddresses(fakeIp, null)).toThrowError(
+    expect(() => assertSafeResolvedAddresses(fakeIps, proxy)).not.toThrow()
+    expect(() => assertSafeResolvedAddresses(fakeIps, null)).toThrowError(
       expect.objectContaining({ code: 'SSRF_BLOCKED' })
     )
     expect(() => assertSafeResolvedAddresses([{ address: '127.0.0.1', family: 4 }], proxy)).toThrowError(
+      expect.objectContaining({ code: 'SSRF_BLOCKED' })
+    )
+    expect(() => assertSafeResolvedAddresses([{ address: 'fdfe:dcba:9876:1::1', family: 6 }], proxy)).toThrowError(
       expect.objectContaining({ code: 'SSRF_BLOCKED' })
     )
   })
