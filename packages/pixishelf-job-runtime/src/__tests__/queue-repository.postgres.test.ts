@@ -625,7 +625,7 @@ describePostgres('PostgresQueueRepository integration', () => {
       })
     ).toEqual({
       parentJobId: parent.id,
-      payload: { force: false },
+      payload: { mode: 'INCREMENTAL', force: false },
       triggerSource: 'SYSTEM'
     })
 
