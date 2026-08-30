@@ -15,6 +15,7 @@ import { Prisma } from '@pixishelf/db'
 import { z } from 'zod'
 import { BackgroundTaskError } from './background-task-error'
 import { writeJobEvent } from './job-event-service'
+import { jobPayloadsHaveSameSemantics } from './job-payload-semantics'
 import { systemJobWireSelect, toJobDto, type SystemJobWireRecord } from './job-serialization'
 import { FULL_SCAN_RETIRED_MESSAGE, isRetiredFullReconcilePayload } from '@/services/scan-source-policy'
 
@@ -115,15 +116,6 @@ function isFrozenScanSnapshotPayload(type: string, payload: unknown) {
   return payload.mode === 'CLIENT_LIST' || payload.mode === 'ARTWORK_RESCAN'
 }
 
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  return `{${Object.entries(value)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalJson(nested)}`)
-    .join(',')}}`
-}
-
 function assertIdempotencySemantics(existing: SystemJobWireRecord, input: ParsedEnqueueInput, payload: unknown) {
   const expectedRequestedByUserId = input.triggerSource === 'MANUAL' ? input.requestedByUserId : null
   const expectedScheduledTaskId = input.triggerSource === 'SCHEDULE' ? input.scheduledTaskId : null
@@ -139,7 +131,7 @@ function assertIdempotencySemantics(existing: SystemJobWireRecord, input: Parsed
     existing.scheduledForDate === expectedScheduledForDate &&
     existing.queuePriority === input.priority &&
     existing.maxAttempts === input.maxAttempts &&
-    canonicalJson(existing.payload) === canonicalJson(payload) &&
+    jobPayloadsHaveSameSemantics(input.type, input.definitionVersion, existing.payload, payload) &&
     existing.deadlineAt?.toISOString() === input.deadlineAt?.toISOString() &&
     (input.availableAt === undefined || existing.availableAt?.toISOString() === input.availableAt.toISOString())
 

@@ -262,6 +262,35 @@ describe('enqueueJob', () => {
     expect(advisoryQuery.values).toContain(existing.idempotencyKey)
   })
 
+  it('reuses a legacy idempotent payload after normalizing newly defaulted fields', async () => {
+    const existing = jobRecord({
+      type: 'VIDEO_MEDIA_PROBE',
+      triggerSource: 'MANUAL',
+      requestedByUserId: 'user-1',
+      payload: { force: false },
+      idempotencyKey: 'manual-probe-legacy-defaults',
+      queuePriority: 10,
+      effectivePriority: 10
+    })
+    const harness = commandHarness([existing])
+
+    await expect(
+      enqueueJob(
+        {
+          type: 'VIDEO_MEDIA_PROBE',
+          triggerSource: 'MANUAL',
+          requestedByUserId: 'user-1',
+          payload: { force: false },
+          idempotencyKey: 'manual-probe-legacy-defaults',
+          priority: 10
+        },
+        harness.client
+      )
+    ).resolves.toMatchObject({ id: existing.id })
+    expect(harness.create).not.toHaveBeenCalled()
+    expect(harness.eventCreate).not.toHaveBeenCalled()
+  })
+
   it('rejects reuse of an idempotency key with different payload semantics', async () => {
     const existing = jobRecord({
       type: 'VIDEO_MEDIA_PROBE',

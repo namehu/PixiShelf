@@ -11,6 +11,7 @@ import { Prisma } from '@pixishelf/db'
 import { z } from 'zod'
 import { BackgroundTaskError } from './background-task-error'
 import { enqueueJob, manualEnqueueJobRequestSchema } from './job-command-service'
+import { jobPayloadsHaveSameSemantics } from './job-payload-semantics'
 import { systemJobWireSelect, toJobDto, type SystemJobWireRecord } from './job-serialization'
 
 const singletonManualJobInputSchema = manualEnqueueJobRequestSchema.extend({
@@ -46,15 +47,6 @@ export async function lockSingletonJobType(
   )
 }
 
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  return `{${Object.entries(value)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalJson(nested)}`)
-    .join(',')}}`
-}
-
 function optionalDateMatches(actual: Date | null, expected: Date | undefined): boolean {
   return actual?.toISOString() === expected?.toISOString() || (actual === null && expected === undefined)
 }
@@ -75,7 +67,7 @@ function hasSameSingletonSemantics(
     existing.maxAttempts === input.maxAttempts &&
     (input.availableAt === undefined || optionalDateMatches(existing.availableAt, input.availableAt)) &&
     optionalDateMatches(existing.deadlineAt, input.deadlineAt) &&
-    canonicalJson(existing.payload) === canonicalJson(payload)
+    jobPayloadsHaveSameSemantics(input.type, input.definitionVersion, existing.payload, payload)
   )
 }
 
