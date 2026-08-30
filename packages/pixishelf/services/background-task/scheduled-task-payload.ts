@@ -5,6 +5,7 @@ interface ScheduledTaskPayloadOptions {
   scheduleKey?: string
   taskConfig?: unknown
   chapterPreviewMode?: 'FULL' | 'INCREMENTAL'
+  videoProbeMode?: 'INCREMENTAL' | 'RECHECK_HAS_AUDIO'
 }
 
 export interface ScheduledTaskJobDefinition {
@@ -30,7 +31,10 @@ export function buildScheduledTaskJobDefinition(
       candidate = {}
       break
     case 'VIDEO_MEDIA_PROBE':
-      candidate = { force: false }
+      candidate = {
+        mode: options.videoProbeMode ?? 'INCREMENTAL',
+        force: options.videoProbeMode === 'RECHECK_HAS_AUDIO'
+      }
       break
     case 'DERIVED_MEDIA_GC':
       candidate =

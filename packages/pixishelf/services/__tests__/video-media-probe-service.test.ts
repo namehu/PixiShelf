@@ -13,7 +13,9 @@ const {
   mediaVideoMetadataUpdateManyMock,
   mediaVideoMetadataUpdateMock,
   mediaVideoMetadataUpsertMock,
+  mediaChapterPreviewUpsertMock,
   readFileMock,
+  transactionMock,
   updateManyMock
 } = vi.hoisted(() => ({
   countMock: vi.fn(),
@@ -28,22 +30,27 @@ const {
   mediaVideoMetadataUpdateManyMock: vi.fn(),
   mediaVideoMetadataUpdateMock: vi.fn(),
   mediaVideoMetadataUpsertMock: vi.fn(),
+  mediaChapterPreviewUpsertMock: vi.fn(),
   readFileMock: vi.fn(),
+  transactionMock: vi.fn(),
   updateManyMock: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
 
 vi.mock('node:child_process', () => ({
+  default: { execFile: execFileMock },
   execFile: execFileMock
 }))
 
 vi.mock('node:fs/promises', () => ({
+  default: { readFile: readFileMock },
   readFile: readFileMock
 }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $transaction: transactionMock,
     image: {
       count: countMock,
       findFirst: findFirstMock,
@@ -59,6 +66,9 @@ vi.mock('@/lib/prisma', () => ({
       upsert: mediaVideoMetadataUpsertMock,
       updateMany: mediaVideoMetadataUpdateManyMock,
       update: mediaVideoMetadataUpdateMock
+    },
+    mediaChapterPreview: {
+      upsert: mediaChapterPreviewUpsertMock
     }
   }
 }))
@@ -85,6 +95,8 @@ describe('video-media-probe-service', () => {
     mediaVideoMetadataUpsertMock.mockReset().mockResolvedValue({})
     mediaVideoMetadataUpdateManyMock.mockReset().mockResolvedValue({ count: 0 })
     mediaVideoMetadataUpdateMock.mockReset().mockResolvedValue({})
+    mediaChapterPreviewUpsertMock.mockReset().mockResolvedValue({})
+    transactionMock.mockReset().mockImplementation(async (operations: Promise<unknown>[]) => Promise.all(operations))
     readFileMock.mockReset().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
     execFileMock.mockReset().mockImplementation((file, args, options, callback) => {
       callback(null, { stdout: '{}', stderr: '' })
@@ -166,29 +178,52 @@ describe('video-media-probe-service', () => {
   })
 
   it('uses matching companion chapters metadata to mark generated silent audio as silent', async () => {
-    readFileMock.mockResolvedValueOnce(JSON.stringify({ video: 'output.mp4', hasAudio: false }))
-    execFileMock.mockImplementationOnce((file, args, options, callback) => {
-      callback(null, {
-        stdout: JSON.stringify({
-          streams: [
-            { codec_type: 'video', codec_name: 'h264', avg_frame_rate: '30/1' },
-            { codec_type: 'audio', codec_name: 'aac', channels: 2, nb_read_packets: '240' }
-          ],
-          format: { duration: '8' }
-        }),
-        stderr: ''
+    readFileMock.mockResolvedValueOnce(
+      JSON.stringify({
+        version: 2,
+        video: 'output.mp4',
+        duration: 8,
+        hasAudio: false,
+        chapters: [
+          { index: 1, start: 0, end: 4, duration: 4 },
+          { index: 2, start: 4, end: 8, duration: 4 }
+        ]
       })
-    })
+    )
+    execFileMock
+      .mockImplementationOnce((file, args, options, callback) => {
+        callback(null, {
+          stdout: JSON.stringify({
+            streams: [
+              { codec_type: 'video', codec_name: 'h264', avg_frame_rate: '30/1' },
+              { codec_type: 'audio', codec_name: 'aac', channels: 2, nb_read_packets: '240' }
+            ],
+            format: { duration: '8' }
+          }),
+          stderr: ''
+        })
+      })
+      .mockImplementationOnce((file, args, options, callback) => {
+        callback(null, { stdout: '', stderr: 'max_volume: -91.0 dB' })
+      })
+      .mockImplementationOnce((file, args, options, callback) => {
+        callback(null, { stdout: '', stderr: 'max_volume: -inf dB' })
+      })
 
-    await expect(probeVideoFile('/scan-root/artist/work/output.mp4')).resolves.toEqual({
+    const result = await probeVideoFile('/scan-root/artist/work/output.mp4')
+
+    expect(result).toMatchObject({
       hasAudio: false,
       audioCodec: null,
       audioChannels: null,
       videoCodec: 'h264',
       duration: 8,
-      fps: 30
+      fps: 30,
+      chapterAudio: {
+        chapters: [{ hasAudibleAudio: false }, { hasAudibleAudio: false }]
+      }
     })
-    expect(execFileMock).toHaveBeenCalledTimes(1)
+    expect(execFileMock).toHaveBeenCalledTimes(3)
   })
 
   it('ignores companion chapters metadata for a different video file', async () => {
@@ -339,7 +374,7 @@ describe('video-media-probe-service', () => {
     expect(execFileMock).toHaveBeenCalledTimes(2)
   })
 
-  it('falls back to ffprobe audio metadata when deep audio sampling fails', async () => {
+  it('fails instead of falling back to stream presence when deep audio sampling fails', async () => {
     execFileMock
       .mockImplementationOnce((file, args, options, callback) => {
         callback(null, {
@@ -357,11 +392,7 @@ describe('video-media-probe-service', () => {
         callback(new Error('ffmpeg failed'), '', 'ffmpeg failed')
       })
 
-    await expect(probeVideoFile('/scan-root/artist/work/probe-fallback.mp4')).resolves.toMatchObject({
-      hasAudio: true,
-      audioCodec: 'aac',
-      audioChannels: 2
-    })
+    await expect(probeVideoFile('/scan-root/artist/work/probe-fallback.mp4')).rejects.toThrow('ffmpeg failed')
   })
 
   it('continues after per-file probe failures and records failed samples', async () => {
@@ -480,7 +511,7 @@ describe('video-media-probe-service', () => {
     })
     expect(mediaVideoMetadataFindManyMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { probeStatus: 'PENDING' }
+        where: expect.objectContaining({ probeStatus: 'PENDING' })
       })
     )
     expect(result).toMatchObject({
@@ -496,6 +527,111 @@ describe('video-media-probe-service', () => {
     expect(mediaVideoMetadataUpdateManyMock).toHaveBeenCalledWith({
       where: { probeStatus: 'FAILED' },
       data: { probeStatus: 'PENDING' }
+    })
+  })
+
+  it('rechecks only rows that were marked hasAudio=true and skips media classification', async () => {
+    const checkpointCreatedAt = new Date('2026-08-30T00:00:00.000Z')
+    mediaVideoMetadataCountMock.mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+    mediaVideoMetadataFindManyMock
+      .mockResolvedValueOnce([{ imageId: 7, image: { path: '/artist/work/silent.mp4' } }])
+      .mockResolvedValueOnce([])
+    execFileMock.mockImplementationOnce((file, args, options, callback) => {
+      callback(null, {
+        stdout: JSON.stringify({
+          streams: [{ codec_type: 'video', codec_name: 'h264', avg_frame_rate: '30/1' }],
+          format: { duration: '8' }
+        }),
+        stderr: ''
+      })
+    })
+
+    const result = await runVideoMediaProbeJob({
+      scanPath: '/scan-root',
+      mode: 'RECHECK_HAS_AUDIO',
+      force: true,
+      checkpointCreatedAt
+    })
+
+    expect(findManyMock).not.toHaveBeenCalled()
+    expect(mediaVideoMetadataUpdateManyMock).not.toHaveBeenCalled()
+    expect(mediaVideoMetadataFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          hasAudio: true,
+          OR: [
+            { probeStatus: { in: ['PENDING', 'PROBING', 'FAILED'] } },
+            {
+              probeStatus: 'COMPLETED',
+              OR: [{ probeUpdatedAt: null }, { probeUpdatedAt: { lt: checkpointCreatedAt } }]
+            }
+          ],
+          imageId: { gt: 0 }
+        }
+      })
+    )
+    expect(result).toMatchObject({ mode: 'RECHECK_HAS_AUDIO', processed: 1, failed: 0, remainingPending: 0 })
+  })
+
+  it('requires force for the compatibility audio recalibration path', async () => {
+    await expect(
+      runVideoMediaProbeJob({ scanPath: '/scan-root', mode: 'RECHECK_HAS_AUDIO', force: false })
+    ).rejects.toThrow('Audio recalibration must be an explicit force run')
+  })
+
+  it('persists chapter measurements without writing executor-only data to video metadata', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 12,
+      path: '/artist/work/output.mp4',
+      mediaType: 'VIDEO'
+    })
+    readFileMock.mockResolvedValueOnce(
+      JSON.stringify({
+        version: 2,
+        video: 'output.mp4',
+        duration: 8,
+        hasAudio: true,
+        chapters: [
+          { index: 1, start: 0, end: 4, duration: 4 },
+          { index: 2, start: 4, end: 8, duration: 4 }
+        ]
+      })
+    )
+    execFileMock
+      .mockImplementationOnce((file, args, options, callback) => {
+        callback(null, {
+          stdout: JSON.stringify({
+            streams: [
+              { codec_type: 'video', codec_name: 'h264', avg_frame_rate: '30/1' },
+              { codec_type: 'audio', codec_name: 'aac', channels: 2, nb_read_packets: '240' }
+            ],
+            format: { duration: '8' }
+          }),
+          stderr: ''
+        })
+      })
+      .mockImplementationOnce((file, args, options, callback) => {
+        callback(null, { stdout: '', stderr: 'max_volume: -91.0 dB' })
+      })
+      .mockImplementationOnce((file, args, options, callback) => {
+        callback(null, { stdout: '', stderr: 'max_volume: -91.0 dB' })
+      })
+
+    await expect(reprobeVideoMediaByImageId(12, '/scan-root')).resolves.toMatchObject({
+      hasAudio: false,
+      chapterAudio: { chapters: [{ hasAudibleAudio: false }, { hasAudibleAudio: false }] }
+    })
+
+    expect(mediaChapterPreviewUpsertMock).toHaveBeenCalledTimes(2)
+    expect(mediaChapterPreviewUpsertMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        update: expect.objectContaining({ hasAudibleAudio: false, audioProbeError: null })
+      })
+    )
+    expect(mediaVideoMetadataUpdateMock).toHaveBeenLastCalledWith({
+      where: { imageId: 12 },
+      data: expect.not.objectContaining({ chapterAudio: expect.anything() })
     })
   })
 
@@ -601,7 +737,9 @@ describe('video-media-probe-service', () => {
     })
 
     findFirstMock.mockResolvedValueOnce({ id: 13, path: '/artist/work/absolute.mp4', mediaType: 'VIDEO' })
-    await expect(resolveVideoImageForReprobePath('C:\\scan-root\\artist\\work\\absolute.mp4', 'C:\\scan-root')).resolves.toMatchObject({
+    await expect(
+      resolveVideoImageForReprobePath('C:\\scan-root\\artist\\work\\absolute.mp4', 'C:\\scan-root')
+    ).resolves.toMatchObject({
       id: 13
     })
     expect(findFirstMock).toHaveBeenLastCalledWith({

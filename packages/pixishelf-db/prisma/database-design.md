@@ -111,6 +111,9 @@ Artist，同一 Artist 在一个 Provider 下也不能同时保存多个身份�
 - `prisma/diagnostics/media-filter.sql` 提供生产只读分布检查以及 `EXPLAIN (ANALYZE, BUFFERS)`。
 - (`artworkId`, `mediaType`) 与 (`artworkId`, `sortOrder`, `id`) 目前仅为候选索引。只有生产执行计划证明现有单列/唯一索引不足时才创建，避免增加无依据的写入和存储成本。
 - 历史字段 `Image.webpAnimationStatus` 继续作为动画内容探测状态使用，现覆盖 WebP、GIF、PNG/APNG；探测任务同时把 `mediaType` 纠正为 `IMAGE` 或 `ANIMATION`。
+- `MediaVideoMetadata.hasAudio` 表示 FFmpeg 实测存在可听内容，不表示容器仅存在音频流。阈值固定为 `max_volume > -50 dB`。
+- `MediaChapterPreview.hasAudibleAudio` 保存章节级可听结果；`audioChaptersHash` 将结果绑定到章节清单，避免仅补音频时把旧截图错误标成当前；`audioProbeError` 保存失败原因。三个字段均可空，以兼容旧清单和滚动部署。
+- 章节 API 只在 `audioChaptersHash` 匹配当前清单时使用数据库结果。未校准或失败的 v1/v2 音频声明按未知处理；v3 清单可作为初始值，当前 hash 的数据库实测拥有最高优先级。
 
 ### 3.5 后台任务队列与执行 lane 索引
 

@@ -142,4 +142,15 @@ describe('normalizeVideoChapterManifest audio state', () => {
 
     expect(normalized.chapters[0]?.hasAudio).toBeUndefined()
   })
+
+  it('accepts v3 manifests and keeps their audible chapter result', () => {
+    const normalized = normalizeVideoChapterManifest({
+      version: 3,
+      duration: 10,
+      hasAudio: true,
+      chapters: [{ index: 1, title: 'Audible', start: 0, end: 10, duration: 10, audio: { hasAudio: true } }]
+    })
+
+    expect(normalized.chapters[0]?.hasAudio).toBe(true)
+  })
 })

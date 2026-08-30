@@ -146,9 +146,16 @@ describe('job wire contracts', () => {
   it('requires force for durable single-image reprobe and bounds explicit GC batches', () => {
     expect(parseJobPayload('VIDEO_MEDIA_PROBE', { imageId: 7, force: true })).toEqual({
       imageId: 7,
+      mode: 'INCREMENTAL',
       force: true
     })
     expect(() => parseJobPayload('VIDEO_MEDIA_PROBE', { imageId: 7, force: false })).toThrow()
+    expect(parseJobPayload('VIDEO_MEDIA_PROBE', { mode: 'RECHECK_HAS_AUDIO', force: true })).toEqual({
+      mode: 'RECHECK_HAS_AUDIO',
+      force: true
+    })
+    expect(() => parseJobPayload('VIDEO_MEDIA_PROBE', { mode: 'RECHECK_HAS_AUDIO', force: false })).toThrow()
+    expect(() => parseJobPayload('VIDEO_MEDIA_PROBE', { mode: 'RECHECK_HAS_AUDIO', force: true, imageId: 7 })).toThrow()
     expect(
       parseJobPayload('DERIVED_MEDIA_GC', {
         entryIds: Array.from({ length: 1_000 }, (_, index) => `gc-${index}`),

@@ -6,13 +6,16 @@ const {
   completeJobMock,
   createScanRunRetentionCleanupJobMock,
   createTriggerLogRetentionCleanupJobMock,
+  createVideoMediaProbeJobMock,
   createVideoChapterPreviewGenerationJobMock,
   failJobMock,
   getActiveJobByTypeMock,
   getJobMock,
   getScanPathMock,
   markAsCancelledMock,
+  runVideoMediaProbeJobMock,
   runVideoChapterPreviewGenerationJobMock,
+  runVideoPosterGenerationJobMock,
   updateProgressMock,
   enqueueVideoKeyframeBatchMock
 } = vi.hoisted(() => ({
@@ -21,13 +24,16 @@ const {
   completeJobMock: vi.fn(),
   createScanRunRetentionCleanupJobMock: vi.fn(),
   createTriggerLogRetentionCleanupJobMock: vi.fn(),
+  createVideoMediaProbeJobMock: vi.fn(),
   createVideoChapterPreviewGenerationJobMock: vi.fn(),
   failJobMock: vi.fn(),
   getActiveJobByTypeMock: vi.fn(),
   getJobMock: vi.fn(),
   getScanPathMock: vi.fn(),
   markAsCancelledMock: vi.fn(),
+  runVideoMediaProbeJobMock: vi.fn(),
   runVideoChapterPreviewGenerationJobMock: vi.fn(),
+  runVideoPosterGenerationJobMock: vi.fn(),
   updateProgressMock: vi.fn(),
   enqueueVideoKeyframeBatchMock: vi.fn()
 }))
@@ -38,6 +44,7 @@ vi.mock('@/services/job-service', () => ({
   completeJob: completeJobMock,
   createScanRunRetentionCleanupJob: createScanRunRetentionCleanupJobMock,
   createTriggerLogRetentionCleanupJob: createTriggerLogRetentionCleanupJobMock,
+  createVideoMediaProbeJob: createVideoMediaProbeJobMock,
   createVideoChapterPreviewGenerationJob: createVideoChapterPreviewGenerationJobMock,
   failJob: failJobMock,
   getActiveJobByType: getActiveJobByTypeMock,
@@ -60,7 +67,7 @@ vi.mock('@/services/setting.service', () => ({
 }))
 
 vi.mock('@/services/video-media-probe-service', () => ({
-  runVideoMediaProbeJob: vi.fn()
+  runVideoMediaProbeJob: runVideoMediaProbeJobMock
 }))
 
 vi.mock('@/services/video-chapter-preview-service', () => ({
@@ -68,7 +75,7 @@ vi.mock('@/services/video-chapter-preview-service', () => ({
 }))
 
 vi.mock('@/services/video-poster-service', () => ({
-  runVideoPosterGenerationJob: vi.fn()
+  runVideoPosterGenerationJob: runVideoPosterGenerationJobMock
 }))
 
 vi.mock('@/services/video-keyframe-queue', () => ({
@@ -92,12 +99,25 @@ describe('scheduled-task-registry', () => {
     completeJobMock.mockReset().mockResolvedValue(undefined)
     createScanRunRetentionCleanupJobMock.mockReset().mockResolvedValue({ id: 'job-cleanup' })
     createTriggerLogRetentionCleanupJobMock.mockReset().mockResolvedValue({ id: 'job-trigger-cleanup' })
+    createVideoMediaProbeJobMock.mockReset().mockResolvedValue({ id: 'job-video-probe' })
     createVideoChapterPreviewGenerationJobMock.mockReset().mockResolvedValue({ id: 'job-chapter-preview' })
     failJobMock.mockReset().mockResolvedValue(undefined)
     getActiveJobByTypeMock.mockReset().mockResolvedValue(null)
     getJobMock.mockReset().mockResolvedValue({ id: 'job-chapter-preview', status: 'RUNNING' })
     getScanPathMock.mockReset().mockResolvedValue('C:/scan')
     markAsCancelledMock.mockReset().mockResolvedValue(undefined)
+    runVideoMediaProbeJobMock.mockReset().mockImplementation(async ({ mode = 'INCREMENTAL' } = {}) => ({
+      mode,
+      classifiedVideos: 0,
+      classifiedImages: 0,
+      classifiedAnimations: 0,
+      unknown: 0,
+      metadataRowsCreated: 0,
+      processed: 0,
+      failed: 0,
+      remainingPending: 0,
+      failedSamples: []
+    }))
     runVideoChapterPreviewGenerationJobMock.mockReset().mockResolvedValue({
       mode: 'INCREMENTAL',
       pending: 0,
@@ -109,6 +129,14 @@ describe('scheduled-task-registry', () => {
       failedSamples: []
     })
     updateProgressMock.mockReset().mockResolvedValue(undefined)
+    runVideoPosterGenerationJobMock.mockReset().mockResolvedValue({
+      pending: 0,
+      processed: 0,
+      generated: 0,
+      failed: 0,
+      remainingPending: 0,
+      failedSamples: []
+    })
     enqueueVideoKeyframeBatchMock.mockReset().mockResolvedValue({ jobId: 'job-keyframes', status: 'PENDING' })
   })
 
@@ -348,6 +376,23 @@ describe('scheduled-task-registry', () => {
 
     await vi.waitFor(() => {
       expect(runVideoChapterPreviewGenerationJobMock).toHaveBeenCalledWith(expect.objectContaining({ mode: 'FULL' }))
+    })
+  })
+
+  it('runs audio recalibration without generating completed posters', async () => {
+    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.VIDEO_MEDIA_PROBE)
+
+    await handler?.start({ trigger: 'manual', videoProbeMode: 'RECHECK_HAS_AUDIO' })
+
+    await vi.waitFor(() => {
+      expect(runVideoMediaProbeJobMock).toHaveBeenCalledWith(
+        expect.objectContaining({ mode: 'RECHECK_HAS_AUDIO', force: true })
+      )
+      expect(runVideoPosterGenerationJobMock).not.toHaveBeenCalled()
+      expect(completeJobMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ mode: 'RECHECK_HAS_AUDIO', trigger: 'manual' })
+      )
     })
   })
 })

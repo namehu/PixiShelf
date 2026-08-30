@@ -336,6 +336,9 @@ model MediaChapterPreview {
   previewPath      String?
   previewUpdatedAt DateTime?
   error            String?              @db.Text
+  hasAudibleAudio   Boolean?
+  audioChaptersHash String?
+  audioProbeError   String?              @db.Text
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 

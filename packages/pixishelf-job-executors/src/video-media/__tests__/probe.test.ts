@@ -13,6 +13,7 @@ vi.mock('../poster.js', () => ({ generatePendingVideoPoster: mocks.generatePoste
 
 import type { VideoMediaProbePayload } from '../executors.js'
 import { executeVideoMediaProbe } from '../probe.js'
+import { VideoChapterAudioProbeError } from '../types.js'
 
 describe('video media probe workflow', () => {
   beforeEach(() => {
@@ -40,7 +41,7 @@ describe('video media probe workflow', () => {
       posterPages: chunk(posters, 20),
       posterTotal: posters.length
     })
-    const context = fixture.context({ force: false })
+    const context = fixture.context({ mode: 'INCREMENTAL', force: false })
 
     const outcome = await executeVideoMediaProbe(context, fixture.dependencies)
 
@@ -68,7 +69,7 @@ describe('video media probe workflow', () => {
   it('never mixes completed-poster integrity checks into the pending poster workflow', async () => {
     const fixture = probeFixture({ probeRows: [], posterPages: [], posterTotal: 0 })
 
-    await executeVideoMediaProbe(fixture.context({ force: false }), fixture.dependencies)
+    await executeVideoMediaProbe(fixture.context({ mode: 'INCREMENTAL', force: false }), fixture.dependencies)
 
     expect(fixture.posterQueries()).toHaveLength(1)
     const query = fixture.posterQueries()[0]
@@ -89,7 +90,10 @@ describe('video media probe workflow', () => {
         : { kind: 'generated', imageId: payload.imageId, posterPath: `${payload.imageId}.webp` }
     )
 
-    const outcome = await executeVideoMediaProbe(fixture.context({ force: false }), fixture.dependencies)
+    const outcome = await executeVideoMediaProbe(
+      fixture.context({ mode: 'INCREMENTAL', force: false }),
+      fixture.dependencies
+    )
 
     expect(mocks.generatePoster).toHaveBeenCalledTimes(3)
     expect(outcome).toMatchObject({
@@ -108,7 +112,7 @@ describe('video media probe workflow', () => {
       posterPages: [[posterRow(7)]],
       posterTotal: 1
     })
-    const context = fixture.context({ force: true, imageId: 7 })
+    const context = fixture.context({ mode: 'INCREMENTAL', force: true, imageId: 7 })
 
     const outcome = await executeVideoMediaProbe(context, fixture.dependencies)
 
@@ -139,14 +143,79 @@ describe('video media probe workflow', () => {
     mocks.processProbe.mockRejectedValueOnce(new Error('ffprobe failed'))
 
     await expect(
-      executeVideoMediaProbe(failing.context({ force: true, imageId: 7 }), failing.dependencies)
+      executeVideoMediaProbe(failing.context({ mode: 'INCREMENTAL', force: true, imageId: 7 }), failing.dependencies)
     ).resolves.toMatchObject({ kind: 'retry', error: 'ffprobe failed' })
     expect(mocks.generatePoster).not.toHaveBeenCalled()
 
     const missing = probeFixture({ probeRows: [], posterPages: [], posterTotal: 0 })
     await expect(
-      executeVideoMediaProbe(missing.context({ force: true, imageId: 999 }), missing.dependencies)
+      executeVideoMediaProbe(missing.context({ mode: 'INCREMENTAL', force: true, imageId: 999 }), missing.dependencies)
     ).resolves.toEqual({ kind: 'skipped', reason: 'PRECONDITION_NOT_MET', message: 'Video image was not found' })
+  })
+
+  it('rechecks only existing hasAudio=true rows and skips poster processing', async () => {
+    const fixture = probeFixture({ probeRows: [probeRow(8)], posterPages: [], posterTotal: 0 })
+    const context = fixture.context({ mode: 'RECHECK_HAS_AUDIO', force: true })
+
+    const outcome = await executeVideoMediaProbe(context, fixture.dependencies)
+
+    const probeQuery = fixture.metadataFindMany.mock.calls.find(([query]) => !query.where.posterStatus)?.[0]
+    expect(probeQuery.where).toMatchObject({
+      hasAudio: true,
+      OR: [
+        { probeStatus: { in: ['PENDING', 'PROBING', 'FAILED'] } },
+        {
+          probeStatus: 'COMPLETED',
+          OR: [{ probeUpdatedAt: null }, { probeUpdatedAt: { lt: new Date('2026-08-30T00:00:00.000Z') } }]
+        }
+      ]
+    })
+    expect(fixture.posterQueries()).toHaveLength(0)
+    expect(mocks.generatePoster).not.toHaveBeenCalled()
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: { mode: 'RECHECK_HAS_AUDIO', probe: { processed: 1 }, poster: { processed: 0 } }
+    })
+  })
+
+  it('persists a current-hash chapter audio failure without changing preview status', async () => {
+    const fixture = probeFixture({ probeRows: [probeRow(9)], posterPages: [], posterTotal: 0 })
+    mocks.processProbe.mockRejectedValueOnce(
+      new VideoChapterAudioProbeError('decoder failed', {
+        chaptersHash: 'current-hash',
+        chapters: [
+          { chapterOrder: 0, chapterIndex: 1, chapterStart: 0 },
+          { chapterOrder: 1, chapterIndex: 2, chapterStart: 5 }
+        ]
+      })
+    )
+
+    const outcome = await executeVideoMediaProbe(
+      fixture.context({ mode: 'INCREMENTAL', force: false }),
+      fixture.dependencies
+    )
+
+    expect(fixture.chapterPreviewUpsert).toHaveBeenCalledTimes(2)
+    expect(fixture.chapterPreviewUpsert).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        create: expect.objectContaining({
+          status: 'PENDING',
+          hasAudibleAudio: null,
+          audioChaptersHash: 'current-hash',
+          audioProbeError: 'decoder failed'
+        }),
+        update: {
+          hasAudibleAudio: null,
+          audioChaptersHash: 'current-hash',
+          audioProbeError: 'decoder failed'
+        }
+      })
+    )
+    expect(outcome).toMatchObject({
+      kind: 'completed',
+      result: { probe: { processed: 0, failed: 1 }, poster: { processed: 0 } }
+    })
   })
 })
 
@@ -190,13 +259,15 @@ function probeFixture(options: {
   })
   const metadataUpsert = vi.fn().mockResolvedValue(undefined)
   const metadataUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
+  const chapterPreviewUpsert = vi.fn().mockResolvedValue(undefined)
   const transaction = {
     image: { updateMany: vi.fn() },
     mediaVideoMetadata: {
       createMany: vi.fn().mockResolvedValue({ count: 0 }),
       updateMany: metadataUpdateMany,
       upsert: metadataUpsert
-    }
+    },
+    mediaChapterPreview: { upsert: chapterPreviewUpsert }
   }
   const dependencies = {
     database: {
@@ -210,6 +281,8 @@ function probeFixture(options: {
     dependencies,
     imageFindMany,
     metadataUpsert,
+    metadataFindMany,
+    chapterPreviewUpsert,
     posterQueries: () =>
       metadataFindMany.mock.calls.map(([query]) => query).filter((query) => query.where?.posterStatus),
     context(payload: VideoMediaProbePayload) {
@@ -218,7 +291,8 @@ function probeFixture(options: {
           id: 'probe-job',
           executionToken: '00000000-0000-4000-8000-000000000001',
           attempt: 1,
-          maxAttempts: 3
+          maxAttempts: 3,
+          createdAt: new Date('2026-08-30T00:00:00.000Z')
         },
         payload,
         signal: new AbortController().signal,

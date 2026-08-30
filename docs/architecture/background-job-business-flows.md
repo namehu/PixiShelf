@@ -480,20 +480,24 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  START[VIDEO_MEDIA_PROBE force=false\n或定向 force=true + imageId] --> CLASSIFY{是否定向重探测?}
+  START[VIDEO_MEDIA_PROBE\nINCREMENTAL / RECHECK_HAS_AUDIO] --> MODE{是否存量音频校准?}
+  MODE -->|是| RECHECK[只选任务创建时 hasAudio=true\n且未经过本任务检查点的记录]
+  MODE -->|否| CLASSIFY{是否定向重探测?}
   CLASSIFY -->|否| UNKNOWN[每批 500 条按扩展名分类 UNKNOWN 媒体]
   UNKNOWN --> ENSURE[为全部 VIDEO 补齐 MediaVideoMetadata]
   CLASSIFY -->|是| TARGET[确认目标存在且为视频\n把 probeStatus 重置为 PENDING]
   ENSURE --> PROBEQ[选择 PENDING/PROBING\nforce 时还包含 FAILED]
   TARGET --> PROBEQ
+  RECHECK --> PROBEQ
   PROBEQ --> PROBE[每批 20 条，先 CAS 为 PROBING]
-  PROBE --> FFPROBE[解析安全源路径，执行 FFprobe/FFmpeg]
-  FFPROBE -->|成功| PC[写时长、帧率、视频/音频编码等\nprobeStatus=COMPLETED]
+  PROBE --> FFPROBE[FFprobe 确认流\nFFmpeg 按章节或首中尾检测 max_volume]
+  FFPROBE -->|成功| PC[hasAudio=可听章节 OR\n写章节 hash 实测并置 COMPLETED]
   FFPROBE -->|单项失败| PF[probeStatus=FAILED\n记录失败样本并继续]
   PC --> MORE{还有探测候选?}
   PF --> MORE
   MORE -->|是| PROBE
-  MORE -->|否| POSTERQ[选择 probeStatus=COMPLETED\n无人工封面且 posterStatus 为 PENDING/FAILED/GENERATING]
+  MORE -->|否且为校准| RESULT
+  MORE -->|否且为增量| POSTERQ[选择 probeStatus=COMPLETED\n无人工封面且 posterStatus 为 PENDING/FAILED/GENERATING]
   POSTERQ --> POSTER[每批 20 条，循环到候选为空]
   POSTER --> CLAIM[锁定视频封面并 CAS 为 GENERATING]
   CLAIM --> TEMP[登记 attempt 输出和临时文件 GC intent]
@@ -528,6 +532,10 @@ flowchart TD
 - 非定向批量任务允许单视频 probe/poster 失败后继续，最终 job 可以是 `COMPLETED`，但 `result.probe.failed`、`result.poster.failed` 和 `failedSamples` 必须如实展示。
 - 定向 `force=true + imageId` 重探测如果 probe 失败，会先进入该 job 的重试/失败流程，不继续为这个目标生成封面。
 - 有 `manualPosterTimestamp` 的视频不会被自动封面覆盖。
+- `hasAudio` 的业务语义是检测到可听内容；音频流存在但 `max_volume=-inf` 或不高于 `-50 dB` 时为 false。
+- 匹配章节清单时，20 秒以内扫描整章；更长章节在 25%/75% 附近各扫描 10 秒。无章节时扫描首、中、尾各最多 10 秒。
+- FFmpeg 采样失败会使该视频探测失败并可重试，不会以“存在音频流”为 true 兜底。
+- `RECHECK_HAS_AUDIO` 不进入封面阶段；已完成且在当前 job 创建时间之后校准的真实有声记录不会在 job 重试时重复处理。
 - 批量候选不包含已经 `COMPLETED` 的封面，因此普通探测不巡检几千个历史封面文件是否仍存在。显式单视频封面 Executor 会检查目标 `COMPLETED` 文件是否缺失并重新生成。
 - 已发布封面的旧路径、attempt 临时路径通过 `DerivedMediaGcEntry` 管理，不由视频探测直接扫描删除。
 

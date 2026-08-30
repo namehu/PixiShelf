@@ -5,10 +5,13 @@ import { probeVideoMetadata } from './media-process.ts'
 import { resolveVideoSource } from './paths.ts'
 import { generatePendingVideoPoster } from './poster.ts'
 import {
+  VideoChapterAudioProbeError,
   VideoMediaPermanentError,
+  type VideoChapterAudioReference,
   type VideoMediaDatabase,
   type VideoMediaRuntimeConfig,
-  type VideoMediaTransaction
+  type VideoMediaTransaction,
+  type VideoProbeMetadata
 } from './types.ts'
 
 const CLASSIFICATION_BATCH_SIZE = 500
@@ -17,6 +20,7 @@ const POSTER_BATCH_SIZE = 20
 const FAILED_SAMPLE_LIMIT = 20
 
 export interface VideoMediaProbeResult {
+  mode: 'INCREMENTAL' | 'RECHECK_HAS_AUDIO'
   classification: {
     videos: number
     images: number
@@ -37,18 +41,36 @@ export async function executeVideoMediaProbe(
 ): Promise<JobExecutionOutcome<VideoMediaProbeResult>> {
   let activeImageId: number | null = null
   try {
-    const classification = context.payload.imageId
-      ? await prepareTargetedVideoProbe(context, dependencies.database, context.payload.imageId)
-      : await classifyUnknownMedia(context, dependencies.database)
-    if (!context.payload.imageId) await ensureMissingVideoMetadata(context, dependencies.database)
+    const recheckHasAudio = context.payload.mode === 'RECHECK_HAS_AUDIO'
+    const classification = recheckHasAudio
+      ? emptyClassification()
+      : context.payload.imageId
+        ? await prepareTargetedVideoProbe(context, dependencies.database, context.payload.imageId)
+        : await classifyUnknownMedia(context, dependencies.database)
+    if (!context.payload.imageId && !recheckHasAudio) {
+      await ensureMissingVideoMetadata(context, dependencies.database)
+    }
     const statuses = context.payload.force
       ? (['PENDING', 'PROBING', 'FAILED'] as const)
       : (['PENDING', 'PROBING'] as const)
     const targetWhere = context.payload.imageId ? { imageId: context.payload.imageId } : {}
+    const probeWhere: Prisma.MediaVideoMetadataWhereInput = recheckHasAudio
+      ? {
+          hasAudio: true,
+          OR: [
+            { probeStatus: { in: ['PENDING', 'PROBING', 'FAILED'] } },
+            {
+              probeStatus: 'COMPLETED',
+              OR: [{ probeUpdatedAt: null }, { probeUpdatedAt: { lt: context.job.createdAt } }]
+            }
+          ]
+        }
+      : { probeStatus: { in: [...statuses] }, ...targetWhere }
     const total = await dependencies.database.mediaVideoMetadata.count({
-      where: { probeStatus: { in: [...statuses] }, ...targetWhere }
+      where: probeWhere
     })
     const result: VideoMediaProbeResult = {
+      mode: context.payload.mode,
       classification: {
         videos: classification.classifiedVideos,
         images: classification.classifiedImages,
@@ -65,7 +87,7 @@ export async function executeVideoMediaProbe(
       throwIfAborted(context.signal)
       const batch = await dependencies.database.mediaVideoMetadata.findMany({
         where: {
-          probeStatus: { in: [...statuses] },
+          ...probeWhere,
           imageId: context.payload.imageId ?? { gt: cursor }
         },
         orderBy: { imageId: 'asc' },
@@ -85,7 +107,7 @@ export async function executeVideoMediaProbe(
           async (transaction) =>
             (
               await transaction.mediaVideoMetadata.updateMany({
-                where: { imageId: item.imageId, probeStatus: { in: [...statuses] } },
+                where: { imageId: item.imageId, ...probeWhere },
                 data: { probeStatus: 'PROBING', probeUpdatedAt: new Date(), probeError: null }
               })
             ).count === 1
@@ -101,10 +123,14 @@ export async function executeVideoMediaProbe(
             ...(dependencies.config.ffprobePath ? { ffprobePath: dependencies.config.ffprobePath } : {}),
             ...(dependencies.config.ffmpegPath ? { ffmpegPath: dependencies.config.ffmpegPath } : {})
           })
+          if (metadata.chapterAudio) {
+            await persistChapterAudioMeasurements(context, item.imageId, metadata.chapterAudio)
+          }
           await context.mutateInTransaction<VideoMediaTransaction & QueueSqlExecutor>(async (transaction) => {
+            const { chapterAudio: _chapterAudio, ...videoMetadata } = metadata
             const updated = await transaction.mediaVideoMetadata.updateMany({
               where: { imageId: item.imageId, probeStatus: 'PROBING' },
-              data: { probeStatus: 'COMPLETED', probeUpdatedAt: new Date(), probeError: null, ...metadata }
+              data: { probeStatus: 'COMPLETED', probeUpdatedAt: new Date(), probeError: null, ...videoMetadata }
             })
             if (updated.count !== 1) throw new Error('Video probe checkpoint changed before completion')
           })
@@ -113,6 +139,9 @@ export async function executeVideoMediaProbe(
         } catch (error) {
           if (context.signal.aborted) throw error
           const message = error instanceof Error ? error.message : 'Unknown video probe failure'
+          if (error instanceof VideoChapterAudioProbeError) {
+            await persistChapterAudioFailure(context, item.imageId, error.chapterAudio, message)
+          }
           await context.mutateInTransaction<VideoMediaTransaction & QueueSqlExecutor>(async (transaction) => {
             await transaction.mediaVideoMetadata.updateMany({
               where: { imageId: item.imageId, probeStatus: 'PROBING' },
@@ -134,7 +163,7 @@ export async function executeVideoMediaProbe(
       }
     }
     result.probe.remaining = await dependencies.database.mediaVideoMetadata.count({
-      where: { probeStatus: { in: [...statuses] }, ...targetWhere }
+      where: probeWhere
     })
     if (context.payload.imageId && result.probe.failed > 0) {
       const message = result.failedSamples[0]?.error ?? 'Targeted video probe failed'
@@ -148,11 +177,13 @@ export async function executeVideoMediaProbe(
           }
         : { kind: 'failed', errorCode: 'INTERNAL_ERROR', error: message, message: '单视频媒体重探测失败' }
     }
-    await processPendingPosters(context, dependencies, result)
+    if (!recheckHasAudio) await processPendingPosters(context, dependencies, result)
     return {
       kind: 'completed',
       result,
-      message: `视频媒体探测与封面生成完成：探测成功 ${result.probe.processed}，封面生成 ${result.poster.generated}，失败 ${result.probe.failed + result.poster.failed}`
+      message: recheckHasAudio
+        ? `视频音频标记校准完成：成功 ${result.probe.processed}，失败 ${result.probe.failed}，剩余 ${result.probe.remaining}`
+        : `视频媒体探测与封面生成完成：探测成功 ${result.probe.processed}，封面生成 ${result.poster.generated}，失败 ${result.probe.failed + result.poster.failed}`
     }
   } catch (error) {
     if (context.signal.aborted) {
@@ -185,6 +216,78 @@ export async function executeVideoMediaProbe(
           message: '视频媒体探测异常，等待重试'
         }
       : { kind: 'failed', errorCode: 'INTERNAL_ERROR', error: message, message: '视频媒体探测失败' }
+  }
+}
+
+async function persistChapterAudioMeasurements(
+  context: ProbeContext,
+  imageId: number,
+  chapterAudio: NonNullable<VideoProbeMetadata['chapterAudio']>
+) {
+  await persistChapterAudioInBatches(context, imageId, chapterAudio, (chapter) => ({
+    hasAudibleAudio: chapter.hasAudibleAudio,
+    audioProbeError: null
+  }))
+}
+
+async function persistChapterAudioFailure(
+  context: ProbeContext,
+  imageId: number,
+  chapterAudio: VideoChapterAudioReference,
+  message: string
+) {
+  await persistChapterAudioInBatches(context, imageId, chapterAudio, () => ({
+    hasAudibleAudio: null,
+    audioProbeError: message
+  }))
+}
+
+async function persistChapterAudioInBatches<TChapter extends VideoChapterAudioReference['chapters'][number]>(
+  context: ProbeContext,
+  imageId: number,
+  chapterAudio: { chaptersHash: string; chapters: TChapter[] },
+  resultForChapter: (chapter: TChapter) => {
+    hasAudibleAudio: boolean | null
+    audioProbeError: string | null
+  }
+) {
+  for (let offset = 0; offset < chapterAudio.chapters.length; offset += 50) {
+    const batch = chapterAudio.chapters.slice(offset, offset + 50)
+    await context.mutateInTransaction<VideoMediaTransaction & QueueSqlExecutor>(async (transaction) => {
+      for (const chapter of batch) {
+        const result = resultForChapter(chapter)
+        await transaction.mediaChapterPreview.upsert({
+          where: { imageId_chapterOrder: { imageId, chapterOrder: chapter.chapterOrder } },
+          create: {
+            imageId,
+            chapterOrder: chapter.chapterOrder,
+            chapterIndex: chapter.chapterIndex,
+            chaptersHash: chapterAudio.chaptersHash,
+            chapterStart: chapter.chapterStart,
+            captureTime: chapter.chapterStart,
+            status: 'PENDING',
+            hasAudibleAudio: result.hasAudibleAudio,
+            audioChaptersHash: chapterAudio.chaptersHash,
+            audioProbeError: result.audioProbeError
+          },
+          update: {
+            hasAudibleAudio: result.hasAudibleAudio,
+            audioChaptersHash: chapterAudio.chaptersHash,
+            audioProbeError: result.audioProbeError
+          }
+        })
+      }
+    })
+  }
+}
+
+function emptyClassification() {
+  return {
+    classifiedVideos: 0,
+    classifiedImages: 0,
+    classifiedAnimations: 0,
+    unknown: 0,
+    metadataRowsCreated: 0
   }
 }
 

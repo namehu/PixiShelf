@@ -25,6 +25,7 @@ import { confirm } from '@/components/shared/global-confirm'
 import { BackgroundTaskConsole } from './background-task-console'
 import { useScheduledTaskDrafts } from './use-scheduled-task-drafts'
 import { useTaskPolling } from './use-task-polling'
+import { VideoProbeTaskActions, type VideoMediaProbeResult } from './video-probe-task-actions'
 
 interface MediaDerivedTagSyncStats {
   expectedArtworks?: number
@@ -73,33 +74,6 @@ interface WebpAnimationScanResult {
   failedSamples?: WebpAnimationScanFailedSample[]
 }
 
-interface VideoMediaProbeFailedSample {
-  stage: 'PROBE' | 'POSTER'
-  imageId: number
-  path: string
-  error: string
-}
-
-interface VideoMediaProbeResult {
-  classification?: {
-    videos?: number
-    images?: number
-    animations?: number
-    unknown?: number
-    metadataRowsCreated?: number
-  }
-  probe?: { total?: number; processed?: number; failed?: number; remaining?: number }
-  poster?: {
-    total?: number
-    processed?: number
-    generated?: number
-    skipped?: number
-    failed?: number
-    remaining?: number
-  }
-  failedSamples?: VideoMediaProbeFailedSample[]
-}
-
 interface VideoChapterPreviewResult {
   mode?: 'FULL' | 'INCREMENTAL'
   pending?: number
@@ -107,6 +81,10 @@ interface VideoChapterPreviewResult {
   reused?: number
   generated?: number
   failed?: number
+  audioProcessed?: number
+  audioAudible?: number
+  audioSilent?: number
+  audioFailed?: number
   orphanedFilesDeleted?: number
   failedSamples?: Array<{ imageId: number; path: string; chapterOrder: number | null; error: string }>
 }
@@ -522,7 +500,9 @@ export function MaintenanceCard() {
             ? '章节截图增量任务已启动'
             : variables.chapterPreviewMode === 'FULL'
               ? '章节截图全量任务已启动'
-              : '计划任务已手动触发'
+              : variables.videoProbeMode === 'RECHECK_HAS_AUDIO'
+                ? '视频音频标记校准任务已启动'
+                : '计划任务已手动触发'
         )
         refetchScheduledTasks()
         refetchWebpScanJob()
@@ -562,9 +542,14 @@ export function MaintenanceCard() {
     updateScheduledTaskMutation.mutate(getScheduledTaskUpdate(task, draft))
   }
 
-  const handleTriggerScheduledTask = (task: ScheduledTaskView, chapterPreviewMode?: 'FULL' | 'INCREMENTAL') => {
-    setTriggeringTaskKey(chapterPreviewMode ? `${task.key}:${chapterPreviewMode}` : task.key)
-    triggerScheduledTaskMutation.mutate({ key: task.key, chapterPreviewMode })
+  const handleTriggerScheduledTask = (
+    task: ScheduledTaskView,
+    chapterPreviewMode?: 'FULL' | 'INCREMENTAL',
+    videoProbeMode?: 'INCREMENTAL' | 'RECHECK_HAS_AUDIO'
+  ) => {
+    const mode = chapterPreviewMode ?? videoProbeMode
+    setTriggeringTaskKey(mode ? `${task.key}:${mode}` : task.key)
+    triggerScheduledTaskMutation.mutate({ key: task.key, chapterPreviewMode, videoProbeMode })
   }
 
   const confirmTaskCancellation = (taskName: string, onConfirm: () => void) => {
@@ -838,17 +823,12 @@ export function MaintenanceCard() {
                   {isVideoProbeCancelling ? '正在取消…' : '取消任务'}
                 </Button>
               ) : (
-                <Button
-                  onClick={() => videoScheduledTask && handleTriggerScheduledTask(videoScheduledTask)}
-                  disabled={!videoScheduledTask || triggerScheduledTaskMutation.isPending}
-                >
-                  {triggeringTaskKey === videoScheduledTask?.key ? (
-                    <Spinner data-icon="inline-start" aria-hidden="true" />
-                  ) : (
-                    <PlayCircle data-icon="inline-start" aria-hidden="true" />
-                  )}
-                  立即执行
-                </Button>
+                <VideoProbeTaskActions
+                  task={videoScheduledTask}
+                  isPending={triggerScheduledTaskMutation.isPending}
+                  triggeringTaskKey={triggeringTaskKey}
+                  onTrigger={(task, mode) => handleTriggerScheduledTask(task, undefined, mode)}
+                />
               )
             }
           >
@@ -894,6 +874,12 @@ export function MaintenanceCard() {
                   <div className="flex flex-col gap-1.5">
                     <p className="text-sm font-medium text-foreground">本次新分类 UNKNOWN 媒体：</p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                      <span>
+                        模式：{' '}
+                        <strong className="text-foreground font-medium">
+                          {videoProbeResult?.mode === 'RECHECK_HAS_AUDIO' ? '校准现有有音频' : '增量'}
+                        </strong>
+                      </span>
                       <span>
                         视频：{' '}
                         <strong className="text-foreground font-medium">
@@ -1101,6 +1087,24 @@ export function MaintenanceCard() {
                     <span>
                       失败：
                       <strong className="font-medium text-destructive">{chapterPreviewResult?.failed ?? 0}</strong>
+                    </span>
+                    <span>
+                      音频检测：{' '}
+                      <strong className="font-medium text-foreground">
+                        {chapterPreviewResult?.audioProcessed ?? 0}
+                      </strong>
+                    </span>
+                    <span>
+                      有声：{' '}
+                      <strong className="font-medium text-foreground">{chapterPreviewResult?.audioAudible ?? 0}</strong>
+                    </span>
+                    <span>
+                      静音：{' '}
+                      <strong className="font-medium text-foreground">{chapterPreviewResult?.audioSilent ?? 0}</strong>
+                    </span>
+                    <span>
+                      音频失败：{' '}
+                      <strong className="font-medium text-destructive">{chapterPreviewResult?.audioFailed ?? 0}</strong>
                     </span>
                     {chapterPreviewResult?.mode !== 'INCREMENTAL' && (
                       <span>

@@ -1,5 +1,10 @@
 import * as fs from 'node:fs/promises'
 import sharp from 'sharp'
+import {
+  buildChapterAudioSampleWindows,
+  isAudibleMaxVolume,
+  parseVolumedetectMaxVolume
+} from '../video-audio/detection.ts'
 import { createChapterManifestHash, readChapterManifest } from './chapter-manifest.ts'
 import { assertNoFinalSymlink, resolveCreatablePathWithinRoot, resolveExistingPathWithinRoot } from './paths.ts'
 import { throwIfAborted } from './process-runner.ts'
@@ -29,6 +34,10 @@ export interface VideoChapterPreviewGenerationResult {
   reused: number
   generated: number
   failed: number
+  audioProcessed: number
+  audioAudible: number
+  audioSilent: number
+  audioFailed: number
   gcEntriesCreated: number
   orphanedFilesDeleted: 0
   deferredCleanup: true
@@ -56,6 +65,10 @@ export async function generateVideoChapterPreviews(input: {
     reused: 0,
     generated: 0,
     failed: 0,
+    audioProcessed: 0,
+    audioAudible: 0,
+    audioSilent: 0,
+    audioFailed: 0,
     gcEntriesCreated: 0,
     orphanedFilesDeleted: 0,
     deferredCleanup: true,
@@ -90,7 +103,9 @@ export async function generateVideoChapterPreviews(input: {
             chapterIndex: true,
             chaptersHash: true,
             status: true,
-            previewPath: true
+            previewPath: true,
+            hasAudibleAudio: true,
+            audioChaptersHash: true
           }
         }
       }
@@ -150,17 +165,110 @@ export async function generateVideoChapterPreviews(input: {
           })
         )
 
+        let sourcePath: string | null = null
+        let hasReadableAudioStream: boolean | null = null
         for (const [chapterOrder, chapter] of manifest.chapters.entries()) {
           throwIfAborted(input.signal)
           const expectedPath = buildChapterPreviewRelativePath(video.id, chaptersHash, chapterOrder)
           const current = previews.get(chapterOrder)
-          if (
+          const canReusePreview =
             current?.status === 'COMPLETED' &&
             current.chaptersHash === chaptersHash &&
             current.previewPath === expectedPath &&
             (await isValidWebpAtRoot(input.config.chapterPreviewRoot, expectedPath))
-          ) {
+          const canReuseAudio =
+            current?.audioChaptersHash === chaptersHash && typeof current.hasAudibleAudio === 'boolean'
+          if (canReusePreview && canReuseAudio) {
             result.reused += 1
+            continue
+          }
+
+          sourcePath ??= await resolveExistingPathWithinRoot(input.config.scanRoot, video.path)
+          if (!canReuseAudio) {
+            result.audioProcessed += 1
+            try {
+              const before = await sourceFingerprint(sourcePath)
+              hasReadableAudioStream ??= await detectReadableAudioStream({
+                sourcePath,
+                timeoutMs: processTimeoutMs,
+                signal: input.signal,
+                processRunner: input.processRunner,
+                ...(input.config.ffprobePath ? { ffprobePath: input.config.ffprobePath } : {})
+              })
+              const hasAudibleAudio = hasReadableAudioStream
+                ? await detectChapterAudibility({
+                    sourcePath,
+                    chapterStart: chapter.start,
+                    chapterEnd: chapter.end,
+                    timeoutMs: processTimeoutMs,
+                    signal: input.signal,
+                    processRunner: input.processRunner,
+                    ...(input.config.ffmpegPath ? { ffmpegPath: input.config.ffmpegPath } : {})
+                  })
+                : false
+              await assertSourceUnchanged(sourcePath, before)
+              await input.mutate((transaction) =>
+                transaction.mediaChapterPreview.upsert({
+                  where: { imageId_chapterOrder: { imageId: video.id, chapterOrder } },
+                  create: {
+                    imageId: video.id,
+                    chapterOrder,
+                    chapterIndex: chapter.index,
+                    chaptersHash,
+                    chapterStart: chapter.start,
+                    captureTime: chapter.start,
+                    status: 'PENDING',
+                    hasAudibleAudio,
+                    audioChaptersHash: chaptersHash,
+                    audioProbeError: null
+                  },
+                  update: { hasAudibleAudio, audioChaptersHash: chaptersHash, audioProbeError: null }
+                })
+              )
+              if (hasAudibleAudio) result.audioAudible += 1
+              else result.audioSilent += 1
+            } catch (error) {
+              if (input.signal.aborted) throw error
+              const message = errorMessage(error)
+              result.audioFailed += 1
+              pushFailure(result, { imageId: video.id, path: video.path, chapterOrder, error: message })
+              await input.mutate((transaction) =>
+                transaction.mediaChapterPreview.upsert({
+                  where: { imageId_chapterOrder: { imageId: video.id, chapterOrder } },
+                  create: {
+                    imageId: video.id,
+                    chapterOrder,
+                    chapterIndex: chapter.index,
+                    chaptersHash,
+                    chapterStart: chapter.start,
+                    captureTime: chapter.start,
+                    status: 'PENDING',
+                    hasAudibleAudio: null,
+                    audioChaptersHash: chaptersHash,
+                    audioProbeError: message
+                  },
+                  update: {
+                    hasAudibleAudio: null,
+                    audioChaptersHash: chaptersHash,
+                    audioProbeError: message
+                  }
+                })
+              )
+            }
+          }
+
+          if (canReusePreview) {
+            result.reused += 1
+            await input.progress({
+              percentage: Math.min(95, 5 + Math.floor((90 * result.audioProcessed) / (result.audioProcessed + 50))),
+              stage: 'AUDIO_PROBE',
+              message: `已检测 ${result.audioProcessed} 个章节音频`,
+              data: {
+                audioAudible: result.audioAudible,
+                audioSilent: result.audioSilent,
+                audioFailed: result.audioFailed
+              }
+            })
             continue
           }
           result.pending += 1
@@ -211,7 +319,6 @@ export async function generateVideoChapterPreviews(input: {
               jobId: input.jobId,
               attempt: input.attempt
             })
-            const sourcePath = await resolveExistingPathWithinRoot(input.config.scanRoot, video.path)
             const before = await sourceFingerprint(sourcePath)
             const captured = await extractRepresentativeChapterPreview({
               sourcePath,
@@ -291,8 +398,8 @@ export async function generateVideoChapterPreviews(input: {
   await input.progress({
     percentage: 100,
     stage: 'COMPLETE',
-    message: `章节预览完成：生成 ${result.generated}，失败 ${result.failed}，复用 ${result.reused}`,
-    data: { gcEntriesCreated: result.gcEntriesCreated }
+    message: `章节预览完成：生成 ${result.generated}，失败 ${result.failed}，复用 ${result.reused}；音频检测 ${result.audioProcessed}，失败 ${result.audioFailed}`,
+    data: { gcEntriesCreated: result.gcEntriesCreated, audioFailed: result.audioFailed }
   })
   return result
 }
@@ -301,7 +408,14 @@ async function canReuseIncrementalChapterPreviews(input: {
   imageId: number
   chaptersHash: string
   chapterCount: number
-  previews: Array<{ chapterOrder: number; chaptersHash: string; status: string; previewPath: string | null }>
+  previews: Array<{
+    chapterOrder: number
+    chaptersHash: string
+    status: string
+    previewPath: string | null
+    hasAudibleAudio: boolean | null
+    audioChaptersHash: string | null
+  }>
   previewRoot: string
 }) {
   if (input.chapterCount > MAX_CHAPTERS_PER_VIDEO || input.previews.length !== input.chapterCount) return false
@@ -316,7 +430,9 @@ async function canReuseIncrementalChapterPreviews(input: {
       !preview ||
       preview.status !== 'COMPLETED' ||
       preview.chaptersHash !== input.chaptersHash ||
-      preview.previewPath !== expectedPath
+      preview.previewPath !== expectedPath ||
+      preview.audioChaptersHash !== input.chaptersHash ||
+      typeof preview.hasAudibleAudio !== 'boolean'
     ) {
       return false
     }
@@ -326,6 +442,89 @@ async function canReuseIncrementalChapterPreviews(input: {
   return everyWithConcurrency(expectedPaths, WEBP_VALIDATION_CONCURRENCY, (relativePath) =>
     isValidWebpAtRoot(input.previewRoot, relativePath)
   )
+}
+
+async function detectReadableAudioStream(input: {
+  sourcePath: string
+  ffprobePath?: string
+  timeoutMs: number
+  signal: AbortSignal
+  processRunner: VideoProcessRunner
+}) {
+  const output = await input.processRunner({
+    command: input.ffprobePath ?? 'ffprobe',
+    args: [
+      '-v',
+      'error',
+      '-select_streams',
+      'a:0',
+      '-count_packets',
+      '-show_entries',
+      'stream=nb_read_packets',
+      '-of',
+      'json',
+      input.sourcePath
+    ],
+    timeoutMs: input.timeoutMs,
+    signal: input.signal
+  })
+  let parsed: { streams?: Array<{ nb_read_packets?: string }> }
+  try {
+    parsed = JSON.parse(output.stdout) as { streams?: Array<{ nb_read_packets?: string }> }
+  } catch {
+    throw new Error('FFprobe returned invalid chapter audio stream JSON')
+  }
+  const stream = parsed.streams?.[0]
+  if (!stream) return false
+  if (stream.nb_read_packets === undefined) return true
+  const packetCount = Number(stream.nb_read_packets)
+  return !Number.isFinite(packetCount) || packetCount > 0
+}
+
+async function detectChapterAudibility(input: {
+  sourcePath: string
+  chapterStart: number
+  chapterEnd: number
+  ffmpegPath?: string
+  timeoutMs: number
+  signal: AbortSignal
+  processRunner: VideoProcessRunner
+}) {
+  const windows = buildChapterAudioSampleWindows(input.chapterStart, input.chapterEnd)
+  if (windows.length === 0) throw new Error('Chapter audio bounds are invalid')
+
+  for (const window of windows) {
+    const output = await input.processRunner({
+      command: input.ffmpegPath ?? 'ffmpeg',
+      args: [
+        '-nostdin',
+        '-hide_banner',
+        '-v',
+        'info',
+        '-ss',
+        window.start.toFixed(3),
+        '-t',
+        window.duration.toFixed(3),
+        '-i',
+        input.sourcePath,
+        '-vn',
+        '-map',
+        '0:a:0',
+        '-af',
+        'volumedetect',
+        '-f',
+        'null',
+        '-'
+      ],
+      timeoutMs: input.timeoutMs,
+      signal: input.signal
+    })
+    const maxVolume = parseVolumedetectMaxVolume(output.stderr)
+    if (maxVolume === null) throw new Error('FFmpeg did not report a valid chapter audio volume')
+    if (isAudibleMaxVolume(maxVolume)) return true
+  }
+
+  return false
 }
 
 async function everyWithConcurrency<T>(

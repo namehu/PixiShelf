@@ -95,7 +95,9 @@ PostgreSQL 应显示 `healthy`，`http://127.0.0.1:5431/health` 应返回 200。
 
 ### 4. 生成 Prisma Client 并部署迁移
 
-Prisma CLI 不会自动读取 `.env.local`，需要在当前终端显式提供宿主机数据库地址。
+`@pixishelf/db` 的数据库脚本优先使用当前终端显式提供的 `DATABASE_URL`；未提供时会读取
+`packages/pixishelf/.env.local`。宿主机运行时必须确认该文件使用 `127.0.0.1:5432` 或
+`localhost:5432`，不要误用 Docker 容器内部的 `postgres:5432` 地址。
 
 PowerShell：
 
@@ -103,7 +105,7 @@ PowerShell：
 $env:DATABASE_URL='postgresql://pixishelf:password@127.0.0.1:5432/pixishelf?connection_limit=20&pool_timeout=20'
 pnpm --filter @pixishelf/db db:generate
 pnpm --filter @pixishelf/db db:deploy
-pnpm --filter @pixishelf/db exec prisma migrate status --schema prisma/schema.prisma
+pnpm --filter @pixishelf/db db:status
 ```
 
 Bash：
@@ -112,7 +114,7 @@ Bash：
 export DATABASE_URL='postgresql://pixishelf:password@127.0.0.1:5432/pixishelf?connection_limit=20&pool_timeout=20'
 pnpm --filter @pixishelf/db db:generate
 pnpm --filter @pixishelf/db db:deploy
-pnpm --filter @pixishelf/db exec prisma migrate status --schema prisma/schema.prisma
+pnpm --filter @pixishelf/db db:status
 ```
 
 普通启动和升级必须使用 `db:deploy`。`db:migrate` 只用于开发者创建 migration；`db:push` 只允许用于明确可丢弃的实验数据库，不能替代正式 migration 历史。

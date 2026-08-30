@@ -20,8 +20,15 @@ describe('scheduled task payload mapping', () => {
 
   it('maps media probe and chapter preview behavior explicitly', () => {
     expect(buildScheduledTaskJobDefinition('VIDEO_MEDIA_PROBE', { trigger: 'schedule' }).payload).toEqual({
+      mode: 'INCREMENTAL',
       force: false
     })
+    expect(
+      buildScheduledTaskJobDefinition('VIDEO_MEDIA_PROBE', {
+        trigger: 'manual',
+        videoProbeMode: 'RECHECK_HAS_AUDIO'
+      }).payload
+    ).toEqual({ mode: 'RECHECK_HAS_AUDIO', force: true })
     expect(
       buildScheduledTaskJobDefinition('VIDEO_CHAPTER_PREVIEW_GENERATION', { trigger: 'schedule' }).payload
     ).toEqual({

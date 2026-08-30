@@ -112,7 +112,7 @@ describe('validateChapterManifest', () => {
   it('should reject unsupported version', async () => {
     await expect(
       validateChapterManifest({
-        version: 3,
+        version: 4,
         duration: 20,
         chapters: [{ index: 1, title: 'Opening', start: 0, end: 20, duration: 20 }]
       })
@@ -318,6 +318,126 @@ describe('discoverChaptersForVideo', () => {
       previewCaptureTime: null,
       previewUpdatedAt: null
     })
+  })
+
+  it('overrides legacy chapter audio with a current database measurement', async () => {
+    const rawManifest = {
+      version: 2 as const,
+      video: 'video.mp4',
+      duration: 5,
+      hasAudio: true,
+      chapters: [
+        {
+          index: 1,
+          title: 'Silent',
+          start: 0,
+          end: 5,
+          duration: 5,
+          audio: { hasAudio: true, hasAudioStream: true }
+        }
+      ]
+    }
+    await writeManifestFile(tempDir, '/artist/artwork/video.chapters.json', rawManifest)
+    const manifestHash = createChapterManifestHash(await validateChapterManifest(rawManifest))
+    findUniqueMock.mockResolvedValue({
+      id: 1,
+      path: '/artist/artwork/video.mp4',
+      chaptersPath: '/artist/artwork/video.chapters.json',
+      chapterPreviews: [
+        {
+          chapterOrder: 0,
+          chaptersHash: manifestHash,
+          status: 'COMPLETED',
+          previewPath: '1/hash/0.webp',
+          captureTime: 1,
+          previewUpdatedAt: new Date(),
+          hasAudibleAudio: false,
+          audioChaptersHash: manifestHash,
+          audioProbeError: null
+        }
+      ]
+    })
+
+    const manifest = await getVideoChapterManifestByImageId(1)
+
+    expect(manifest?.chapters[0]?.audio).toMatchObject({ hasAudio: false, hasAudioStream: true })
+    expect(manifest?.hasAudio).toBe(false)
+  })
+
+  it('hides unmeasured v2 audio claims but preserves v3 audibility metadata', async () => {
+    for (const version of [2, 3] as const) {
+      await writeManifestFile(tempDir, '/artist/artwork/video.chapters.json', {
+        version,
+        video: 'video.mp4',
+        duration: 5,
+        hasAudio: true,
+        chapters: [
+          {
+            index: 1,
+            title: 'Chapter',
+            start: 0,
+            end: 5,
+            duration: 5,
+            audio: { hasAudio: true, hasAudioStream: true }
+          }
+        ]
+      })
+      findUniqueMock.mockResolvedValue({
+        id: 1,
+        path: '/artist/artwork/video.mp4',
+        chaptersPath: '/artist/artwork/video.chapters.json',
+        chapterPreviews: []
+      })
+
+      const manifest = await getVideoChapterManifestByImageId(1)
+
+      expect(manifest?.chapters[0]?.audio?.hasAudio).toBe(version === 3 ? true : undefined)
+      expect(manifest?.hasAudio).toBe(version === 3 ? true : undefined)
+    }
+  })
+
+  it('returns unknown v3 audio when the current database probe failed', async () => {
+    const rawManifest = {
+      version: 3 as const,
+      video: 'video.mp4',
+      duration: 5,
+      hasAudio: true,
+      chapters: [
+        {
+          index: 1,
+          title: 'Chapter',
+          start: 0,
+          end: 5,
+          duration: 5,
+          audio: { hasAudio: true, hasAudioStream: true }
+        }
+      ]
+    }
+    await writeManifestFile(tempDir, '/artist/artwork/video.chapters.json', rawManifest)
+    const manifestHash = createChapterManifestHash(await validateChapterManifest(rawManifest))
+    findUniqueMock.mockResolvedValue({
+      id: 1,
+      path: '/artist/artwork/video.mp4',
+      chaptersPath: '/artist/artwork/video.chapters.json',
+      chapterPreviews: [
+        {
+          chapterOrder: 0,
+          chaptersHash: manifestHash,
+          status: 'COMPLETED',
+          previewPath: '1/hash/0.webp',
+          captureTime: 1,
+          previewUpdatedAt: new Date(),
+          hasAudibleAudio: null,
+          audioChaptersHash: manifestHash,
+          audioProbeError: 'decoder failed'
+        }
+      ]
+    })
+
+    const manifest = await getVideoChapterManifestByImageId(1)
+
+    expect(manifest?.hasAudio).toBeUndefined()
+    expect(manifest?.chapters[0]?.audio?.hasAudio).toBeUndefined()
   })
 
   it('should return null when image has no chapters path', async () => {

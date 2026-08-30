@@ -218,12 +218,20 @@ export const targetImagePayloadSchema = z.object({
 
 export const videoMediaProbePayloadSchema = z
   .object({
+    mode: z.enum(['INCREMENTAL', 'RECHECK_HAS_AUDIO']).default('INCREMENTAL'),
     force: z.boolean().default(false),
     imageId: z.number().int().positive().optional()
   })
   .superRefine((payload, context) => {
     if (payload.imageId !== undefined && !payload.force) {
       context.addIssue({ code: 'custom', path: ['force'], message: 'A targeted video reprobe must set force=true' })
+    }
+    if (payload.mode === 'RECHECK_HAS_AUDIO' && (!payload.force || payload.imageId !== undefined)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['mode'],
+        message: 'An audio recheck must set force=true and cannot target a single image'
+      })
     }
   })
 

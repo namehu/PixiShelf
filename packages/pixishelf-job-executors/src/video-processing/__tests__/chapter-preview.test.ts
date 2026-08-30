@@ -171,6 +171,8 @@ describe('chapter preview central executor core', () => {
       chapterOrder: 1,
       chapterIndex: 2,
       chaptersHash: hash,
+      hasAudibleAudio: true,
+      audioChaptersHash: hash,
       status: 'COMPLETED',
       previewPath: `1/${hash}/1.webp`
     })
@@ -251,6 +253,117 @@ describe('chapter preview central executor core', () => {
     await expect(fs.access(`${expectedPath}.job-chapter-job-a2.backup.webp`)).rejects.toThrow()
   })
 
+  it('measures missing chapter audio without regenerating a healthy preview', async () => {
+    const root = await createRoot()
+    const manifest = chapterManifest()
+    const hash = createChapterManifestHash(manifest)
+    await writeManifestAndPreview(root, 1, 'one.json', manifest, hash)
+    await fs.writeFile(path.join(root.scan, '1.mp4'), 'source-video')
+    const record = video(1, 'one.json', hash)
+    record.chapterPreviews[0]!.hasAudibleAudio = null
+    record.chapterPreviews[0]!.audioChaptersHash = null
+    const database = {
+      image: { findMany: vi.fn().mockResolvedValueOnce([record]).mockResolvedValueOnce([]) }
+    } as unknown as VideoProcessingDatabase
+    const transaction = transactionMock()
+    const processRunner = vi.fn(async (request: { command: string }) =>
+      request.command === 'ffprobe'
+        ? { stdout: JSON.stringify({ streams: [{ nb_read_packets: '120' }] }), stderr: '' }
+        : { stdout: '', stderr: 'max_volume: -91.0 dB' }
+    )
+
+    const result = await generateVideoChapterPreviews({
+      jobId: 'chapter-job',
+      attempt: 1,
+      mode: 'INCREMENTAL',
+      database,
+      config: { scanRoot: root.scan, chapterPreviewRoot: root.previews, ffmpegThreads: 1 },
+      processRunner,
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      mutate: (operation) => operation(transaction)
+    })
+
+    expect(result).toMatchObject({ generated: 0, reused: 1, audioProcessed: 1, audioSilent: 1, audioFailed: 0 })
+    expect(processRunner).toHaveBeenCalledTimes(2)
+    expect(transaction.mediaChapterPreview.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: { hasAudibleAudio: false, audioChaptersHash: hash, audioProbeError: null }
+      })
+    )
+  })
+
+  it('stores silent chapter audio without running volumedetect when the video has no audio stream', async () => {
+    const root = await createRoot()
+    const manifest = chapterManifest()
+    const hash = createChapterManifestHash(manifest)
+    await writeManifestAndPreview(root, 1, 'one.json', manifest, hash)
+    await fs.writeFile(path.join(root.scan, '1.mp4'), 'source-video')
+    const record = video(1, 'one.json', hash)
+    record.chapterPreviews[0]!.hasAudibleAudio = null
+    record.chapterPreviews[0]!.audioChaptersHash = null
+    const database = {
+      image: { findMany: vi.fn().mockResolvedValueOnce([record]).mockResolvedValueOnce([]) }
+    } as unknown as VideoProcessingDatabase
+    const transaction = transactionMock()
+    const processRunner = vi.fn().mockResolvedValue({ stdout: JSON.stringify({ streams: [] }), stderr: '' })
+
+    const result = await generateVideoChapterPreviews({
+      jobId: 'chapter-job',
+      attempt: 1,
+      mode: 'INCREMENTAL',
+      database,
+      config: { scanRoot: root.scan, chapterPreviewRoot: root.previews, ffmpegThreads: 1 },
+      processRunner,
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      mutate: (operation) => operation(transaction)
+    })
+
+    expect(result).toMatchObject({ generated: 0, reused: 1, audioProcessed: 1, audioSilent: 1, audioFailed: 0 })
+    expect(processRunner).toHaveBeenCalledOnce()
+    expect(processRunner).toHaveBeenCalledWith(expect.objectContaining({ command: 'ffprobe' }))
+  })
+
+  it('records an audio probe error without invalidating a healthy chapter preview', async () => {
+    const root = await createRoot()
+    const manifest = chapterManifest()
+    const hash = createChapterManifestHash(manifest)
+    await writeManifestAndPreview(root, 1, 'one.json', manifest, hash)
+    await fs.writeFile(path.join(root.scan, '1.mp4'), 'source-video')
+    const record = video(1, 'one.json', hash)
+    record.chapterPreviews[0]!.hasAudibleAudio = null
+    record.chapterPreviews[0]!.audioChaptersHash = null
+    const database = {
+      image: { findMany: vi.fn().mockResolvedValueOnce([record]).mockResolvedValueOnce([]) }
+    } as unknown as VideoProcessingDatabase
+    const transaction = transactionMock()
+    const processRunner = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: JSON.stringify({ streams: [{ nb_read_packets: '120' }] }), stderr: '' })
+      .mockRejectedValueOnce(new Error('decoder failed'))
+
+    const result = await generateVideoChapterPreviews({
+      jobId: 'chapter-job',
+      attempt: 1,
+      mode: 'INCREMENTAL',
+      database,
+      config: { scanRoot: root.scan, chapterPreviewRoot: root.previews, ffmpegThreads: 1 },
+      processRunner,
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      mutate: (operation) => operation(transaction)
+    })
+
+    expect(result).toMatchObject({ generated: 0, reused: 1, audioProcessed: 1, audioFailed: 1 })
+    expect(transaction.mediaChapterPreview.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: { hasAudibleAudio: null, audioChaptersHash: hash, audioProbeError: 'decoder failed' }
+      })
+    )
+    expect(transaction.mediaChapterPreview.update).not.toHaveBeenCalled()
+  })
+
   it('restores the previous preview when the fenced mutation final recheck fails after its callback', async () => {
     const root = await createRoot()
     const manifest = chapterManifest()
@@ -318,6 +431,8 @@ function video(id: number, chaptersPath: string, hash: string, status = 'COMPLET
         chapterOrder: 0,
         chapterIndex: 1,
         chaptersHash: hash,
+        hasAudibleAudio: true as boolean | null,
+        audioChaptersHash: hash as string | null,
         status,
         previewPath: `${id}/${hash}/0.webp`
       }

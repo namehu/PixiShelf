@@ -165,6 +165,7 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
 export interface StartScheduledTaskOptions {
   trigger: 'manual' | 'schedule'
   chapterPreviewMode?: VideoChapterPreviewGenerationMode
+  videoProbeMode?: 'INCREMENTAL' | 'RECHECK_HAS_AUDIO'
   taskConfig?: unknown
 }
 
@@ -340,6 +341,9 @@ async function startVideoMediaProbeTask(options: StartScheduledTaskOptions): Pro
     try {
       const result = await runVideoMediaProbeJob({
         scanPath,
+        mode: options.videoProbeMode ?? 'INCREMENTAL',
+        force: options.videoProbeMode === 'RECHECK_HAS_AUDIO',
+        checkpointCreatedAt: job.createdAt,
         checkCancelled: async () => {
           const current = await JobService.getJob(job.id)
           return current?.status === 'CANCELLING' || current?.status === 'CANCELLED'
@@ -352,21 +356,26 @@ async function startVideoMediaProbeTask(options: StartScheduledTaskOptions): Pro
           )
         }
       })
-      await JobService.updateProgress(job.id, 50, '媒体探测完成，正在生成视频封面...')
-      const posterResult = await runVideoPosterGenerationJob({
-        scanPath,
-        checkCancelled: async () => {
-          const current = await JobService.getJob(job.id)
-          return current?.status === 'CANCELLING' || current?.status === 'CANCELLED'
-        },
-        onProgress: async (progress) => {
-          await JobService.updateProgress(
-            job.id,
-            50 + Math.round(progress.percentage / 2),
-            `生成封面：${progress.message}`
-          )
-        }
-      })
+      const posterResult =
+        options.videoProbeMode === 'RECHECK_HAS_AUDIO'
+          ? { pending: 0, processed: 0, generated: 0, failed: 0, remainingPending: 0, failedSamples: [] }
+          : await (async () => {
+              await JobService.updateProgress(job.id, 50, '媒体探测完成，正在生成视频封面...')
+              return runVideoPosterGenerationJob({
+                scanPath,
+                checkCancelled: async () => {
+                  const current = await JobService.getJob(job.id)
+                  return current?.status === 'CANCELLING' || current?.status === 'CANCELLED'
+                },
+                onProgress: async (progress) => {
+                  await JobService.updateProgress(
+                    job.id,
+                    50 + Math.round(progress.percentage / 2),
+                    `生成封面：${progress.message}`
+                  )
+                }
+              })
+            })()
       const current = await JobService.getJob(job.id)
       if (current?.status === 'CANCELLING' || current?.status === 'CANCELLED') {
         await JobService.markAsCancelled(job.id)

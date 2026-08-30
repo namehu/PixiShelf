@@ -26,6 +26,35 @@ export interface VideoProbeMetadata {
   videoCodec: string | null
   duration: number | null
   fps: number | null
+  chapterAudio?: {
+    chaptersHash: string
+    chapters: Array<{
+      chapterOrder: number
+      chapterIndex: number
+      chapterStart: number
+      hasAudibleAudio: boolean
+    }>
+  }
+}
+
+export interface VideoChapterAudioReference {
+  chaptersHash: string
+  chapters: Array<{
+    chapterOrder: number
+    chapterIndex: number
+    chapterStart: number
+  }>
+}
+
+export class VideoChapterAudioProbeError extends Error {
+  constructor(
+    message: string,
+    readonly chapterAudio: VideoChapterAudioReference,
+    cause?: unknown
+  ) {
+    super(message, { cause })
+    this.name = 'VideoChapterAudioProbeError'
+  }
 }
 
 export class VideoMediaPermanentError extends Error {

@@ -30,7 +30,7 @@ export interface VideoChapter {
 }
 
 export interface VideoChapterManifest {
-  version: 1 | 2
+  version: 1 | 2 | 3
   duration: number
   chapters: VideoChapter[]
   generatedAt?: string
@@ -69,7 +69,7 @@ const chapterItemSchema = z.looseObject({
 })
 
 const chapterManifestSchema = z.looseObject({
-  version: z.union([z.literal(1), z.literal(2)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   duration: z.number(),
   generatedAt: z.string().optional(),
   video: z.string().optional(),
@@ -231,7 +231,10 @@ export async function getVideoChapterManifestByImageId(imageId: number): Promise
           status: true,
           previewPath: true,
           captureTime: true,
-          previewUpdatedAt: true
+          previewUpdatedAt: true,
+          hasAudibleAudio: true,
+          audioChaptersHash: true,
+          audioProbeError: true
         }
       }
     }
@@ -256,26 +259,46 @@ export async function getVideoChapterManifestByImageId(imageId: number): Promise
 
   const chaptersHash = createChapterManifestHash(manifest)
   const previewsByOrder = new Map((image.chapterPreviews ?? []).map((preview) => [preview.chapterOrder, preview]))
+  const currentAudioValues: boolean[] = []
+  let hasCurrentAudioFailure = false
   const chapters = manifest.chapters.map((chapter, chapterOrder) => {
     const preview = previewsByOrder.get(chapterOrder)
     const isCurrent = preview?.chaptersHash === chaptersHash
+    const measuredAudio = preview?.hasAudibleAudio
+    const hasCurrentAudioState = preview?.audioChaptersHash === chaptersHash
+    const hasCurrentAudioProbe = hasCurrentAudioState && typeof measuredAudio === 'boolean'
     const isReady = isCurrent && preview.status === 'COMPLETED' && Boolean(preview.previewPath)
     const previewUpdatedAt = isReady ? preview.previewUpdatedAt : null
+    const audio = { ...(chapter.audio ?? {}) }
+    if (hasCurrentAudioProbe && typeof measuredAudio === 'boolean') {
+      audio.hasAudio = measuredAudio
+      currentAudioValues.push(measuredAudio)
+    } else if (hasCurrentAudioState) {
+      delete audio.hasAudio
+      hasCurrentAudioFailure = true
+    } else if (manifest.version < 3) {
+      delete audio.hasAudio
+    }
 
     return {
       ...chapter,
+      ...(Object.keys(audio).length > 0 ? { audio } : {}),
       previewStatus: isCurrent ? preview.status : 'PENDING',
-      previewUrl: isReady
-        ? buildChapterPreviewUrl(preview.previewPath!, previewUpdatedAt)
-        : null,
+      previewUrl: isReady ? buildChapterPreviewUrl(preview.previewPath!, previewUpdatedAt) : null,
       previewCaptureTime: isCurrent ? preview.captureTime : null,
       previewUpdatedAt: previewUpdatedAt?.toISOString() ?? null
     }
   })
+  const responseManifest = { ...manifest }
+  if (currentAudioValues.length === manifest.chapters.length) {
+    responseManifest.hasAudio = currentAudioValues.some(Boolean)
+  } else if (manifest.version < 3 || hasCurrentAudioFailure) {
+    delete responseManifest.hasAudio
+  }
 
   return {
     source: 'chapters-file',
-    ...manifest,
+    ...responseManifest,
     chapters
   }
 }

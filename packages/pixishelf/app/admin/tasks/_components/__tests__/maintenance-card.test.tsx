@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ confirm: vi.fn() }))
@@ -17,6 +17,7 @@ import {
   StandaloneTaskFeedback
 } from '../maintenance-card'
 import type { ScheduledTaskView } from '../task-ui'
+import { VideoProbeTaskActions } from '../video-probe-task-actions'
 
 afterEach(() => {
   cleanup()
@@ -45,6 +46,19 @@ function task(overrides: Partial<ScheduledTaskView> = {}): ScheduledTaskView {
 }
 
 describe('maintenance standalone tasks', () => {
+  it('offers incremental probing and has-audio recalibration as distinct actions', () => {
+    const onTrigger = vi.fn()
+    const videoTask = task({ key: 'video_media_probe', type: 'VIDEO_MEDIA_PROBE', name: '视频媒体探测' })
+
+    render(<VideoProbeTaskActions task={videoTask} isPending={false} triggeringTaskKey={null} onTrigger={onTrigger} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '增量执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '校准现有有音频' }))
+
+    expect(onTrigger).toHaveBeenNthCalledWith(1, videoTask, 'INCREMENTAL')
+    expect(onTrigger).toHaveBeenNthCalledWith(2, videoTask, 'RECHECK_HAS_AUDIO')
+  })
+
   it('starts the Pixiv AI dry run immediately and confirms the formal backfill', () => {
     const dryRun = vi.fn()
     const formal = vi.fn()

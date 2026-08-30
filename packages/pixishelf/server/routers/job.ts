@@ -638,7 +638,8 @@ export const jobRouter = router({
     .input(
       z.object({
         key: z.string().min(1),
-        chapterPreviewMode: z.enum(['FULL', 'INCREMENTAL']).optional()
+        chapterPreviewMode: z.enum(['FULL', 'INCREMENTAL']).optional(),
+        videoProbeMode: z.enum(['INCREMENTAL', 'RECHECK_HAS_AUDIO']).optional()
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -646,6 +647,7 @@ export const jobRouter = router({
         return await runBackgroundTaskCommand(() =>
           triggerScheduledTaskNow(input.key, {
             chapterPreviewMode: input.chapterPreviewMode,
+            videoProbeMode: input.videoProbeMode,
             requestedByUserId: ctx.userId
           })
         )

@@ -52,6 +52,8 @@ pnpm db:migrate
 pnpm db:studio
 ```
 
+这些脚本优先使用当前终端的 `DATABASE_URL`；未设置时会读取本目录的 `.env.local`。
+
 普通启动和升级使用 `db:deploy`；`db:migrate` 只用于创建新 migration，`db:push` 不得用于共享、长期或生产数据库。
 
 ## 认证与任务边界

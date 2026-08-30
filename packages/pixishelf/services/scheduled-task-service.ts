@@ -217,7 +217,11 @@ export async function updateScheduledTask(input: {
 
 export async function triggerScheduledTaskNow(
   key: string,
-  options: { chapterPreviewMode?: VideoChapterPreviewGenerationMode; requestedByUserId?: string } = {}
+  options: {
+    chapterPreviewMode?: VideoChapterPreviewGenerationMode
+    videoProbeMode?: 'INCREMENTAL' | 'RECHECK_HAS_AUDIO'
+    requestedByUserId?: string
+  } = {}
 ) {
   await ensureDefaultScheduledTasks()
   const task = await prisma.scheduledTask.findUnique({ where: { key } })
@@ -233,7 +237,8 @@ export async function triggerScheduledTaskNow(
       trigger: 'manual',
       scheduleKey: task.key,
       taskConfig: task.config,
-      chapterPreviewMode: options.chapterPreviewMode
+      chapterPreviewMode: options.chapterPreviewMode,
+      videoProbeMode: options.videoProbeMode
     })
     const job = await enqueueSingletonManualJob(
       {
@@ -282,7 +287,8 @@ export async function triggerScheduledTaskNow(
   const result = await handler.start({
     trigger: 'manual',
     taskConfig: task.config,
-    ...(options.chapterPreviewMode ? { chapterPreviewMode: options.chapterPreviewMode } : {})
+    ...(options.chapterPreviewMode ? { chapterPreviewMode: options.chapterPreviewMode } : {}),
+    ...(options.videoProbeMode ? { videoProbeMode: options.videoProbeMode } : {})
   })
   await prisma.scheduledTask.update({
     where: { key },

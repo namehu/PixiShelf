@@ -16,7 +16,7 @@ export interface VideoChapter {
 }
 
 export interface VideoChapterManifest {
-  version: 1 | 2
+  version: 1 | 2 | 3
   duration: number
   chapters: VideoChapter[]
   [key: string]: unknown
@@ -41,9 +41,9 @@ export function createChapterManifestHash(manifest: VideoChapterManifest) {
   return createHash('sha256').update(JSON.stringify(manifest)).digest('hex')
 }
 
-function parseChapterManifest(value: unknown): VideoChapterManifest {
+export function parseChapterManifest(value: unknown): VideoChapterManifest {
   if (!isRecord(value) || !Array.isArray(value.chapters)) invalidManifest()
-  if (value.version !== 1 && value.version !== 2) invalidManifest()
+  if (value.version !== 1 && value.version !== 2 && value.version !== 3) invalidManifest()
   const duration = numberValue(value.duration)
   if (duration <= 0 || value.chapters.length === 0 || value.chapters.length > MAX_MANIFEST_CHAPTERS) {
     invalidManifest()

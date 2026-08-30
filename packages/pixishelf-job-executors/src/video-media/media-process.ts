@@ -2,11 +2,23 @@ import * as childProcess from 'node:child_process'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
-import { VideoMediaPermanentError, VideoMediaProcessError, type VideoProbeMetadata } from './types.ts'
+import {
+  buildChapterAudioSamplePlans,
+  buildUnchapteredAudioSampleWindows,
+  isAudibleMaxVolume,
+  parseCompanionAudioManifest,
+  parseVolumedetectMaxVolume,
+  type AudioSampleWindow
+} from '../video-audio/detection.ts'
+import { createChapterManifestHash, parseChapterManifest } from '../video-processing/chapter-manifest.ts'
+import {
+  VideoChapterAudioProbeError,
+  VideoMediaPermanentError,
+  VideoMediaProcessError,
+  type VideoProbeMetadata
+} from './types.ts'
 
 const MAX_PROCESS_OUTPUT_BYTES = 2 * 1024 * 1024
-const AUDIO_SAMPLE_SECONDS = 10
-const AUDIBLE_MAX_VOLUME_THRESHOLD_DB = -50
 
 interface ProbeStream {
   codec_type?: string
@@ -46,25 +58,66 @@ export async function probeVideoMetadata(input: {
   if (!video) throw new VideoMediaPermanentError('NOT_A_VIDEO', 'FFprobe did not find a video stream')
   const audio = streams.find(isReadableAudioStream)
   const duration = parseNumber(parsed.format?.duration) ?? parseNumber(video.duration)
-  const companionHasAudio = await readCompanionAudioMetadata(input.sourcePath)
-  const sampledHasAudio =
-    audio && companionHasAudio === null
-      ? await detectAudibleAudio({
-          sourcePath: input.sourcePath,
-          duration,
-          timeoutMs: input.timeoutMs,
-          signal: input.signal,
-          ...(input.ffmpegPath ? { ffmpegPath: input.ffmpegPath } : {})
+  const companion = await readCompanionChapterManifest(input.sourcePath)
+  let hasAudio = false
+  let chapterAudio: VideoProbeMetadata['chapterAudio']
+
+  if (companion) {
+    const chapters = []
+    const plans = buildChapterAudioSamplePlans(companion.audio.chapters)
+    try {
+      for (const plan of plans) {
+        const hasAudibleAudio = audio
+          ? await detectAudibleAudioWindows({
+              sourcePath: input.sourcePath,
+              windows: plan.windows,
+              timeoutMs: input.timeoutMs,
+              signal: input.signal,
+              ...(input.ffmpegPath ? { ffmpegPath: input.ffmpegPath } : {})
+            })
+          : false
+        chapters.push({
+          chapterOrder: plan.chapterOrder,
+          chapterIndex: plan.index,
+          chapterStart: plan.start,
+          hasAudibleAudio
         })
-      : null
-  const hasAudio = Boolean(audio) && companionHasAudio !== false && sampledHasAudio !== false
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown chapter audio probe failure'
+      throw new VideoChapterAudioProbeError(
+        message,
+        {
+          chaptersHash: companion.chaptersHash,
+          chapters: plans.map((plan) => ({
+            chapterOrder: plan.chapterOrder,
+            chapterIndex: plan.index,
+            chapterStart: plan.start
+          }))
+        },
+        error
+      )
+    }
+    hasAudio = chapters.some((chapter) => chapter.hasAudibleAudio)
+    chapterAudio = { chaptersHash: companion.chaptersHash, chapters }
+  } else if (audio) {
+    hasAudio = await detectAudibleAudioWindows({
+      sourcePath: input.sourcePath,
+      windows: buildUnchapteredAudioSampleWindows(duration),
+      timeoutMs: input.timeoutMs,
+      signal: input.signal,
+      ...(input.ffmpegPath ? { ffmpegPath: input.ffmpegPath } : {})
+    })
+  }
+
   return {
     hasAudio,
-    audioCodec: hasAudio ? audio?.codec_name ?? null : null,
+    audioCodec: hasAudio ? (audio?.codec_name ?? null) : null,
     audioChannels: hasAudio && typeof audio?.channels === 'number' ? audio.channels : null,
     videoCodec: video.codec_name ?? null,
     duration,
-    fps: parseFps(video.avg_frame_rate) ?? parseFps(video.r_frame_rate)
+    fps: parseFps(video.avg_frame_rate) ?? parseFps(video.r_frame_rate),
+    ...(chapterAudio ? { chapterAudio } : {})
   }
 }
 
@@ -162,71 +215,59 @@ export function runMediaProcess(
   })
 }
 
-async function detectAudibleAudio(input: {
+async function detectAudibleAudioWindows(input: {
   sourcePath: string
-  duration: number | null
+  windows: readonly AudioSampleWindow[]
   ffmpegPath?: string
   timeoutMs: number
   signal: AbortSignal
-}): Promise<boolean | null> {
-  for (const window of audioWindows(input.duration)) {
-    try {
-      const output = await runMediaProcess(
-        input.ffmpegPath ?? 'ffmpeg',
-        [
-          '-nostdin',
-          '-hide_banner',
-          '-v',
-          'info',
-          '-ss',
-          formatSeconds(window.start),
-          '-t',
-          formatSeconds(window.duration),
-          '-i',
-          input.sourcePath,
-          '-vn',
-          '-map',
-          '0:a:0',
-          '-af',
-          'volumedetect',
-          '-f',
-          'null',
-          '-'
-        ],
-        { timeoutMs: input.timeoutMs, signal: input.signal }
-      )
-      const match = output.stderr.match(/max_volume:\s*(-?(?:\d+(?:\.\d+)?|\.\d+))\s*dB/i)
-      if (!match) return null
-      const volume = Number(match[1])
-      if (!Number.isFinite(volume)) return null
-      if (volume > AUDIBLE_MAX_VOLUME_THRESHOLD_DB) return true
-    } catch (error) {
-      if (input.signal.aborted) throw error
-      return null
+}): Promise<boolean> {
+  for (const window of input.windows) {
+    const output = await runMediaProcess(
+      input.ffmpegPath ?? 'ffmpeg',
+      [
+        '-nostdin',
+        '-hide_banner',
+        '-v',
+        'info',
+        '-ss',
+        formatSeconds(window.start),
+        '-t',
+        formatSeconds(window.duration),
+        '-i',
+        input.sourcePath,
+        '-vn',
+        '-map',
+        '0:a:0',
+        '-af',
+        'volumedetect',
+        '-f',
+        'null',
+        '-'
+      ],
+      { timeoutMs: input.timeoutMs, signal: input.signal }
+    )
+    const volume = parseVolumedetectMaxVolume(output.stderr)
+    if (volume === null) {
+      throw new VideoMediaProcessError('EXTERNAL_PROCESS_FAILED', 'FFmpeg did not report a valid audio volume')
     }
+    if (isAudibleMaxVolume(volume)) return true
   }
   return false
 }
 
-async function readCompanionAudioMetadata(sourcePath: string): Promise<boolean | null> {
+async function readCompanionChapterManifest(sourcePath: string) {
   const parsedPath = path.parse(sourcePath)
   try {
     const raw = await fs.readFile(path.join(parsedPath.dir, `${parsedPath.name}.chapters.json`), 'utf8')
-    const parsed = JSON.parse(raw) as { video?: unknown; hasAudio?: unknown }
-    return parsed.video === parsedPath.base && typeof parsed.hasAudio === 'boolean' ? parsed.hasAudio : null
+    const value = JSON.parse(raw) as unknown
+    const audio = parseCompanionAudioManifest(value, parsedPath.base)
+    if (!audio) return null
+    const manifest = parseChapterManifest(value)
+    return { audio, chaptersHash: createChapterManifestHash(manifest) }
   } catch {
     return null
   }
-}
-
-function audioWindows(duration: number | null) {
-  if (duration === null || duration <= 0) return [{ start: 0, duration: AUDIO_SAMPLE_SECONDS }]
-  if (duration <= AUDIO_SAMPLE_SECONDS * 3) return [{ start: 0, duration }]
-  return [
-    { start: 0, duration: AUDIO_SAMPLE_SECONDS },
-    { start: Math.max(0, duration / 2 - AUDIO_SAMPLE_SECONDS / 2), duration: AUDIO_SAMPLE_SECONDS },
-    { start: Math.max(0, duration - AUDIO_SAMPLE_SECONDS), duration: AUDIO_SAMPLE_SECONDS }
-  ]
 }
 
 function isReadableAudioStream(stream: ProbeStream) {
@@ -245,7 +286,9 @@ function parseFps(value?: string): number | null {
   const [numeratorRaw, denominatorRaw] = value.split('/')
   const numerator = Number(numeratorRaw)
   const denominator = denominatorRaw === undefined ? 1 : Number(denominatorRaw)
-  return Number.isFinite(numerator) && Number.isFinite(denominator) && denominator !== 0 ? numerator / denominator : null
+  return Number.isFinite(numerator) && Number.isFinite(denominator) && denominator !== 0
+    ? numerator / denominator
+    : null
 }
 
 function formatSeconds(value: number) {

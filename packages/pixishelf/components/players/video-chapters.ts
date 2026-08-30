@@ -23,7 +23,7 @@ const VideoChapterSchema = z.looseObject({
 
 const VideoChapterManifestSchema = z.looseObject({
   source: z.enum(['chapters-file', 'mp4-embedded', 'database']).optional(),
-  version: z.union([z.literal(1), z.literal(2)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   duration: z.number().nonnegative(),
   hasAudio: z.boolean().optional(),
   chapters: z.array(VideoChapterSchema)
