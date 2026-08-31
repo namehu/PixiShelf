@@ -10,12 +10,12 @@ import {
   ArchiveIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
+  ChevronDownIcon,
   CirclePauseIcon,
   CirclePlayIcon,
   ExternalLinkIcon,
   InboxIcon,
   ListFilterIcon,
-  RefreshCwIcon,
   RotateCcwIcon,
   SearchIcon,
   Trash2Icon
@@ -23,7 +23,7 @@ import {
 import { toast } from 'sonner'
 import type { AppRouter } from '@/server'
 import { useTRPC } from '@/lib/trpc'
-import { AdminTableFrame } from '@/app/admin/_components/admin-workbench'
+import { AdminSection, AdminSectionHeader, AdminTableFrame } from '@/app/admin/_components/admin-workbench'
 import { ArchiveAddDialog } from '@/app/admin/archive/_components/archive-add-dialog'
 import {
   ArchiveBulkResultDialog,
@@ -75,6 +75,7 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -106,6 +107,7 @@ export function ArchiveInbox() {
   const [submissionDraft, setSubmissionDraft] = useState('')
   const [search, setSearch] = useState('')
   const [submissionId, setSubmissionId] = useState('')
+  const [providerDraft, setProviderDraft] = useState('ALL')
   const [providerKey, setProviderKey] = useState('ALL')
   const [selection, setSelection] = useState<ArchiveIntakeSelectionState>(createEmptySelection)
   const [operation, setOperation] = useState<ArchiveBulkOperationView | null>(null)
@@ -278,7 +280,7 @@ export function ArchiveInbox() {
   }
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-6">
+    <div className="mx-auto flex max-w-7xl flex-col gap-8 pt-6">
       <ArchiveQueueControlPanel
         summary={summaryQuery.data}
         lanes={dashboardQuery.data?.lanes ?? []}
@@ -290,264 +292,252 @@ export function ArchiveInbox() {
         onRetry={() => void refreshInbox()}
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>收件队列</CardTitle>
-          <CardDescription>活动项按真实 FIFO 顺序排列；历史视图按最近更新时间排列。</CardDescription>
-          <CardAction>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={() => void refreshInbox()} disabled={listQuery.isFetching}>
-                <RefreshCwIcon data-icon="inline-start" />
-                刷新
-              </Button>
-              <ArchiveAddDialog
-                trigger={
-                  <Button size="sm">
-                    <InboxIcon data-icon="inline-start" />
-                    添加链接
-                  </Button>
-                }
-              />
-            </div>
-          </CardAction>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-5">
-          <Tabs
-            value={view}
-            onValueChange={(nextView) => {
-              setView(nextView as IntakeView)
-              resetPaging()
-            }}
-          >
-            <TabsList className="max-w-full overflow-x-auto">
-              <TabsTrigger value="ACTIVE">待处理</TabsTrigger>
-              <TabsTrigger value="FAILED">失败</TabsTrigger>
-              <TabsTrigger value="ENQUEUED">已入队</TabsTrigger>
-              <TabsTrigger value="CANCELLED">已取消 / 重复</TabsTrigger>
-            </TabsList>
-            <TabsContent value={view} className="flex flex-col gap-5">
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  setSearch(searchDraft.trim())
-                  setSubmissionId(submissionDraft.trim())
-                  resetPaging()
-                }}
-              >
-                <FieldGroup className="gap-3 lg:flex-row lg:items-end">
-                  <Field>
-                    <FieldLabel htmlFor="archive-inbox-search">标题或链接</FieldLabel>
-                    <InputGroup>
-                      <InputGroupInput
-                        id="archive-inbox-search"
-                        name="archive-inbox-search"
-                        value={searchDraft}
-                        onChange={(event) => setSearchDraft(event.target.value)}
-                        placeholder="搜索脱敏链接、标题或作品 ID…"
-                        maxLength={500}
-                        autoComplete="off"
-                      />
-                      <InputGroupAddon align="inline-end">
-                        <SearchIcon />
-                      </InputGroupAddon>
-                    </InputGroup>
-                  </Field>
-                  <Field className="lg:max-w-48">
-                    <FieldLabel htmlFor="archive-inbox-provider">来源</FieldLabel>
-                    <Select
-                      value={providerKey}
-                      onValueChange={(nextProvider) => {
-                        setProviderKey(nextProvider)
-                        resetPaging()
-                      }}
-                    >
-                      <SelectTrigger id="archive-inbox-provider" className="w-full">
-                        <SelectValue placeholder="全部来源" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="ALL">全部来源</SelectItem>
-                          <SelectItem value="e-hentai">E-Hentai</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field className="lg:max-w-64">
-                    <FieldLabel htmlFor="archive-inbox-submission">本次加入 ID</FieldLabel>
-                    <InputGroup>
-                      <InputGroupInput
-                        id="archive-inbox-submission"
-                        name="archive-inbox-submission"
-                        value={submissionDraft}
-                        onChange={(event) => setSubmissionDraft(event.target.value)}
-                        placeholder="筛选本次加入 ID…"
-                        maxLength={128}
-                        autoComplete="off"
-                      />
-                    </InputGroup>
-                  </Field>
-                  <Button type="submit" variant="outline">
-                    <ListFilterIcon data-icon="inline-start" />
-                    应用筛选
-                  </Button>
-                </FieldGroup>
-              </form>
-
-              {selectableItems.length ? (
-                <div className="sticky top-2 flex flex-col gap-3 rounded-lg border bg-background p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                  <label className="flex items-center gap-2 text-sm font-medium">
-                    <Checkbox
-                      checked={allSelectableChecked ? true : selection.selectedIds.size > 0 ? 'indeterminate' : false}
-                      onCheckedChange={(checked) => {
-                        setSelection((current) => {
-                          let next = current
-                          for (const item of selectableItems) {
-                            next = updateArchiveIntakeSelection(next, item.id, checked === true)
-                          }
-                          return next
-                        })
-                      }}
-                      aria-label="选择当前页可操作项目"
+      <AdminSection className="gap-5" aria-labelledby="archive-inbox-list-title">
+        <AdminSectionHeader
+          title={<span id="archive-inbox-list-title">收件队列</span>}
+          description="待处理项目按加入顺序推进；历史记录按最近更新时间排列。"
+          actions={
+            <ArchiveAddDialog
+              trigger={
+                <Button className="min-h-11 sm:min-h-9">
+                  <InboxIcon data-icon="inline-start" />
+                  添加链接
+                </Button>
+              }
+            />
+          }
+        />
+        <Tabs
+          value={view}
+          onValueChange={(nextView) => {
+            setView(nextView as IntakeView)
+            resetPaging()
+          }}
+        >
+          <TabsList className="h-11 max-w-full overflow-x-auto sm:h-9">
+            <TabsTrigger value="ACTIVE">待处理</TabsTrigger>
+            <TabsTrigger value="FAILED">失败</TabsTrigger>
+            <TabsTrigger value="ENQUEUED">已入队</TabsTrigger>
+            <TabsTrigger value="CANCELLED">已取消 / 重复</TabsTrigger>
+          </TabsList>
+          <TabsContent value={view} className="flex flex-col gap-5">
+            <form
+              aria-label="筛选收件项目"
+              onSubmit={(event) => {
+                event.preventDefault()
+                setSearch(searchDraft.trim())
+                setSubmissionId(submissionDraft.trim())
+                setProviderKey(providerDraft)
+                resetPaging()
+              }}
+            >
+              <FieldGroup className="gap-3 lg:flex-row lg:items-end">
+                <Field>
+                  <FieldLabel htmlFor="archive-inbox-search">标题或链接</FieldLabel>
+                  <InputGroup className="min-h-11 sm:min-h-9">
+                    <InputGroupInput
+                      id="archive-inbox-search"
+                      name="archive-inbox-search"
+                      value={searchDraft}
+                      onChange={(event) => setSearchDraft(event.target.value)}
+                      placeholder="搜索脱敏链接、标题或作品 ID…"
+                      maxLength={500}
+                      autoComplete="off"
                     />
-                    已选择当前页 {selection.selectedIds.size} 项
-                  </label>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Select
-                      value="KEEP"
-                      onValueChange={(quality) => {
-                        if (quality === 'KEEP') return
-                        setSelection((current) => {
-                          const qualityById = new Map(current.qualityById)
-                          for (const itemId of current.selectedIds) qualityById.set(itemId, quality as ArchiveQuality)
-                          return { ...current, qualityById }
-                        })
-                      }}
-                    >
-                      <SelectTrigger size="sm">
-                        <SelectValue placeholder="统一质量" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="KEEP">统一质量</SelectItem>
-                          <SelectItem value="ORIGINAL">原图</SelectItem>
-                          <SelectItem value="DISPLAY">展示图</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <Button size="sm" onClick={enqueueSelected} disabled={!actionCounts.enqueue || anyMutationPending}>
-                      {enqueueMutation.isPending ? (
-                        <Spinner data-icon="inline-start" />
-                      ) : (
-                        <ArchiveIcon data-icon="inline-start" />
-                      )}
-                      入队 {actionCounts.enqueue}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={retrySelected}
-                      disabled={!actionCounts.retry || anyMutationPending}
-                    >
-                      {retryMutation.isPending ? (
-                        <Spinner data-icon="inline-start" />
-                      ) : (
-                        <RotateCcwIcon data-icon="inline-start" />
-                      )}
-                      重试 {actionCounts.retry}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => setCancelConfirmationOpen(true)}
-                      disabled={!actionCounts.cancel || anyMutationPending}
-                    >
-                      <Trash2Icon data-icon="inline-start" />
-                      取消 {actionCounts.cancel}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
+                    <InputGroupAddon align="inline-end">
+                      <SearchIcon />
+                    </InputGroupAddon>
+                  </InputGroup>
+                </Field>
+                <Field className="lg:max-w-48">
+                  <FieldLabel htmlFor="archive-inbox-provider">来源</FieldLabel>
+                  <Select value={providerDraft} onValueChange={setProviderDraft}>
+                    <SelectTrigger id="archive-inbox-provider" className="min-h-11 w-full sm:min-h-9">
+                      <SelectValue placeholder="全部来源" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="ALL">全部来源</SelectItem>
+                        <SelectItem value="e-hentai">E-Hentai</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field className="lg:max-w-64">
+                  <FieldLabel htmlFor="archive-inbox-submission">批次 ID</FieldLabel>
+                  <InputGroup className="min-h-11 sm:min-h-9">
+                    <InputGroupInput
+                      id="archive-inbox-submission"
+                      name="archive-inbox-submission"
+                      value={submissionDraft}
+                      onChange={(event) => setSubmissionDraft(event.target.value)}
+                      placeholder="筛选一次添加的项目…"
+                      maxLength={128}
+                      autoComplete="off"
+                    />
+                  </InputGroup>
+                </Field>
+                <Button type="submit" variant="outline" className="min-h-11 sm:min-h-9">
+                  <ListFilterIcon data-icon="inline-start" />
+                  应用筛选
+                </Button>
+              </FieldGroup>
+            </form>
 
-              {listQuery.isPending ? (
-                <InboxLoading />
-              ) : listQuery.isError ? (
-                <Alert variant="destructive">
-                  <AlertTitle>收件队列加载失败</AlertTitle>
-                  <AlertDescription>
-                    <p>{archiveClientErrorMessage(listQuery.error, '收件队列暂时无法加载，请稍后重试。')}</p>
-                    <Button variant="outline" size="sm" onClick={() => void listQuery.refetch()}>
-                      重新加载
-                    </Button>
-                  </AlertDescription>
-                </Alert>
-              ) : items.length ? (
-                <>
-                  <DesktopIntakeTable
-                    items={items}
-                    selection={selection}
-                    onSelectionChange={setSelection}
-                    onReplace={setReplacementItemId}
-                  />
-                  <MobileIntakeList
-                    items={items}
-                    selection={selection}
-                    onSelectionChange={setSelection}
-                    onReplace={setReplacementItemId}
-                  />
-                </>
-              ) : (
-                <Empty className="border">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <InboxIcon />
-                    </EmptyMedia>
-                    <EmptyTitle>这个视图还没有项目</EmptyTitle>
-                    <EmptyDescription>
-                      {view === 'ACTIVE'
-                        ? '添加链接后，解析项目会按顺序出现在这里。'
-                        : '调整筛选或切换视图查看其他记录。'}
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              )}
-
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-muted-foreground">每页最多 50 项；选择只作用于当前页。</p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!previousCursors.length || listQuery.isFetching}
-                    onClick={() => {
-                      setPreviousCursors((current) => {
-                        const next = [...current]
-                        setCursor(next.pop())
+            {selectableItems.length ? (
+              <div className="sticky top-2 flex flex-col gap-3 rounded-lg border bg-background p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <Checkbox
+                    checked={allSelectableChecked ? true : selection.selectedIds.size > 0 ? 'indeterminate' : false}
+                    onCheckedChange={(checked) => {
+                      setSelection((current) => {
+                        let next = current
+                        for (const item of selectableItems) {
+                          next = updateArchiveIntakeSelection(next, item.id, checked === true)
+                        }
                         return next
                       })
                     }}
-                  >
-                    <ArrowLeftIcon data-icon="inline-start" />
-                    上一页
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!listQuery.data?.nextCursor || listQuery.isFetching}
-                    onClick={() => {
-                      if (!listQuery.data?.nextCursor) return
-                      setPreviousCursors((current) => [...current, cursor])
-                      setCursor(listQuery.data.nextCursor)
+                    aria-label="选择当前页可操作项目"
+                  />
+                  已选择当前页 {selection.selectedIds.size} 项
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    value="KEEP"
+                    onValueChange={(quality) => {
+                      if (quality === 'KEEP') return
+                      setSelection((current) => {
+                        const qualityById = new Map(current.qualityById)
+                        for (const itemId of current.selectedIds) qualityById.set(itemId, quality as ArchiveQuality)
+                        return { ...current, qualityById }
+                      })
                     }}
                   >
-                    下一页
-                    <ArrowRightIcon data-icon="inline-end" />
+                    <SelectTrigger size="sm">
+                      <SelectValue placeholder="统一质量" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="KEEP">统一质量</SelectItem>
+                        <SelectItem value="ORIGINAL">原图</SelectItem>
+                        <SelectItem value="DISPLAY">展示图</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" onClick={enqueueSelected} disabled={!actionCounts.enqueue || anyMutationPending}>
+                    {enqueueMutation.isPending ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <ArchiveIcon data-icon="inline-start" />
+                    )}
+                    入队 {actionCounts.enqueue}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={retrySelected}
+                    disabled={!actionCounts.retry || anyMutationPending}
+                  >
+                    {retryMutation.isPending ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <RotateCcwIcon data-icon="inline-start" />
+                    )}
+                    重试 {actionCounts.retry}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => setCancelConfirmationOpen(true)}
+                    disabled={!actionCounts.cancel || anyMutationPending}
+                  >
+                    <Trash2Icon data-icon="inline-start" />
+                    取消 {actionCounts.cancel}
                   </Button>
                 </div>
               </div>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+            ) : null}
+
+            {listQuery.isPending ? (
+              <InboxLoading />
+            ) : listQuery.isError ? (
+              <Alert variant="destructive">
+                <AlertTitle>收件队列加载失败</AlertTitle>
+                <AlertDescription>
+                  <p>{archiveClientErrorMessage(listQuery.error, '收件队列暂时无法加载，请稍后重试。')}</p>
+                  <Button variant="outline" size="sm" onClick={() => void listQuery.refetch()}>
+                    重新加载
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            ) : items.length ? (
+              <>
+                <DesktopIntakeTable
+                  items={items}
+                  selection={selection}
+                  onSelectionChange={setSelection}
+                  onReplace={setReplacementItemId}
+                />
+                <MobileIntakeList
+                  items={items}
+                  selection={selection}
+                  onSelectionChange={setSelection}
+                  onReplace={setReplacementItemId}
+                />
+              </>
+            ) : (
+              <Empty className="border">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <InboxIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>这个视图还没有项目</EmptyTitle>
+                  <EmptyDescription>
+                    {view === 'ACTIVE'
+                      ? '添加链接后，解析项目会按顺序出现在这里。'
+                      : '调整筛选或切换视图查看其他记录。'}
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
+
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">每页最多 50 项；选择只作用于当前页。</p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!previousCursors.length || listQuery.isFetching}
+                  onClick={() => {
+                    setPreviousCursors((current) => {
+                      const next = [...current]
+                      setCursor(next.pop())
+                      return next
+                    })
+                  }}
+                >
+                  <ArrowLeftIcon data-icon="inline-start" />
+                  上一页
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!listQuery.data?.nextCursor || listQuery.isFetching}
+                  onClick={() => {
+                    if (!listQuery.data?.nextCursor) return
+                    setPreviousCursors((current) => [...current, cursor])
+                    setCursor(listQuery.data.nextCursor)
+                  }}
+                >
+                  下一页
+                  <ArrowRightIcon data-icon="inline-end" />
+                </Button>
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </AdminSection>
 
       <AlertDialog open={cancelConfirmationOpen} onOpenChange={setCancelConfirmationOpen}>
         <AlertDialogContent>
@@ -698,7 +688,7 @@ function LocatedIntakeItemDialog({
   )
 }
 
-function ArchiveQueueControlPanel({
+export function ArchiveQueueControlPanel({
   summary,
   lanes,
   loading,
@@ -717,16 +707,19 @@ function ArchiveQueueControlPanel({
   onResume: () => void
   onRetry: () => void
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false)
+
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-4 w-72 max-w-full" />
+      <Card className="gap-4 py-4" aria-label="正在读取处理状态">
+        <CardHeader className="px-4 sm:px-5">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-4 w-64 max-w-full" />
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Skeleton className="h-2 w-full" />
-          <Skeleton className="h-16 w-full" />
+        <CardContent className="grid grid-cols-3 gap-4 px-4 sm:px-5">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
         </CardContent>
       </Card>
     )
@@ -734,10 +727,10 @@ function ArchiveQueueControlPanel({
   if (error || !summary) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>解析控制面加载失败</AlertTitle>
-        <AlertDescription>
-          <p>无法确认容量、暂停状态或 Worker 通道，请刷新后再执行队列操作。</p>
-          <Button variant="outline" size="sm" onClick={onRetry}>
+        <AlertTitle>处理状态加载失败</AlertTitle>
+        <AlertDescription className="flex flex-col items-start gap-3">
+          <p>暂时无法确认处理状态。收件记录不受影响，请重新加载状态信息。</p>
+          <Button variant="outline" size="sm" className="min-h-11 sm:min-h-8" onClick={onRetry}>
             重新加载
           </Button>
         </AlertDescription>
@@ -745,71 +738,141 @@ function ArchiveQueueControlPanel({
     )
   }
   const utilization = summary.capacity ? Math.round((summary.activeCount / summary.capacity) * 100) : 0
+  const resolveLane = lanes.find((lane) => lane.executionLane === 'ARCHIVE_RESOLVE')
+  const writerLane = lanes.find((lane) => lane.executionLane === 'BACKGROUND_WRITER')
+  const hasLaneError = lanes.some((lane) => lane.status === 'ERROR')
+  const statusDescription = hasLaneError
+    ? '处理通道出现异常，请展开运行详情检查。'
+    : summary.paused
+      ? '自动解析已暂停，已添加的项目仍会保留。'
+      : summary.currentItem
+        ? `正在处理 #${summary.currentItem.queueOrder} · ${summary.currentItem.resolvedTitle || '远端作品'}`
+        : summary.queuedCount
+          ? `${summary.queuedCount} 个项目正在等待处理。`
+          : '当前没有待处理项目。'
+
   return (
-    <Card>
-      <CardHeader>
+    <Card className="gap-0 py-0" role="region" aria-labelledby="archive-processing-status-title">
+      <CardHeader className="gap-2 px-4 py-4 sm:px-5">
         <CardTitle className="flex flex-wrap items-center gap-2">
-          解析控制面
-          <Badge variant={summary.paused ? 'warning' : 'success'}>{summary.paused ? '队列已暂停' : '持续领取'}</Badge>
+          <span id="archive-processing-status-title">处理状态</span>
+          <Badge variant={hasLaneError ? 'destructive' : summary.paused ? 'warning' : 'success'}>
+            {hasLaneError ? '通道异常' : summary.paused ? '已暂停' : '运行正常'}
+          </Badge>
         </CardTitle>
-        <CardDescription>解析与媒体写入各占一个固定串行通道，二者可同时推进。</CardDescription>
+        <CardDescription className="max-w-3xl">{statusDescription}</CardDescription>
         <CardAction>
-          <Button size="sm" variant="outline" onClick={summary.paused ? onResume : onPause} disabled={pausePending}>
-            {pausePending ? (
-              <Spinner data-icon="inline-start" />
-            ) : summary.paused ? (
-              <CirclePlayIcon data-icon="inline-start" />
-            ) : (
-              <CirclePauseIcon data-icon="inline-start" />
-            )}
-            {summary.paused ? '恢复解析' : '暂停解析'}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="min-h-11 sm:min-h-8"
+            aria-expanded={detailsOpen}
+            aria-controls="archive-processing-details"
+            onClick={() => setDetailsOpen((open) => !open)}
+          >
+            {detailsOpen ? '收起详情' : '运行详情'}
+            <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-col gap-5">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-4 text-sm">
-            <span className="text-muted-foreground">活动容量</span>
-            <span className="font-mono tabular-nums">
-              {summary.activeCount} / {summary.capacity}
-            </span>
-          </div>
-          <Progress value={utilization} aria-label={`收件箱容量已使用 ${utilization}%`} />
-        </div>
-        <dl className="grid gap-x-6 gap-y-4 border-y py-4 sm:grid-cols-2 lg:grid-cols-5">
+      <CardContent className="flex flex-col gap-4 px-4 pb-4 sm:px-5">
+        <dl className="grid grid-cols-3 gap-4" aria-label="处理摘要">
           <QueueDatum label="等待" value={summary.queuedCount} />
-          <QueueDatum label="当前解析" value={summary.currentItem ? `#${summary.currentItem.queueOrder}` : '空闲'} />
-          <QueueDatum label="最老等待" value={formatAge(summary.oldestWaitingAt)} />
           <QueueDatum label="24h 失败" value={summary.recentFailedCount} />
-          <QueueDatum label="剩余容量" value={summary.remainingCapacity} />
+          <QueueDatum label="活动容量" value={`${summary.activeCount} / ${summary.capacity}`} />
         </dl>
-        {summary.currentItem ? (
-          <div className="flex min-w-0 items-start gap-3 rounded-lg bg-muted/50 p-3">
-            <span className="mt-1 size-2 shrink-0 rounded-full bg-primary motion-safe:animate-pulse motion-reduce:animate-none" />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{summary.currentItem.resolvedTitle || '正在解析远端作品'}</p>
-              <p className="truncate font-mono text-xs text-muted-foreground">{summary.currentItem.submittedUrl}</p>
+
+        {detailsOpen ? (
+          <div id="archive-processing-details" className="flex flex-col gap-4">
+            <Separator />
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <section className="flex min-w-0 flex-col gap-3" aria-labelledby="archive-pipeline-title">
+                <div>
+                  <h3 id="archive-pipeline-title" className="text-sm font-medium">
+                    处理路径
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">链接解析和媒体写入可同时推进。</p>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <QueueLane lane={resolveLane} label="链接解析" description="提取作品信息并判断是否需要归档" />
+                  <QueueLane lane={writerLane} label="媒体写入" description="下载文件并写入本地媒体库" />
+                </div>
+                {summary.currentItem ? (
+                  <div className="min-w-0 rounded-md bg-muted/50 px-3 py-2.5">
+                    <p className="truncate text-sm font-medium">
+                      #{summary.currentItem.queueOrder} · {summary.currentItem.resolvedTitle || '正在解析远端作品'}
+                    </p>
+                    <p className="truncate font-mono text-xs text-muted-foreground">
+                      {summary.currentItem.submittedUrl}
+                    </p>
+                  </div>
+                ) : null}
+              </section>
+              <section className="flex flex-col gap-3" aria-labelledby="archive-capacity-title">
+                <div className="flex items-end justify-between gap-4">
+                  <div>
+                    <h3 id="archive-capacity-title" className="text-sm font-medium">
+                      收件容量
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground">已使用 {utilization}%</p>
+                  </div>
+                  <span className="shrink-0 font-mono text-sm font-medium tabular-nums">
+                    {summary.activeCount} / {summary.capacity}
+                  </span>
+                </div>
+                <Progress value={utilization} aria-label={`收件箱容量已使用 ${utilization}%`} />
+                <dl className="grid grid-cols-2 gap-3">
+                  <QueueDatum label="最老等待" value={formatAge(summary.oldestWaitingAt)} />
+                  <QueueDatum label="剩余容量" value={summary.remainingCapacity} />
+                </dl>
+              </section>
+            </div>
+            <Separator />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="max-w-2xl text-xs leading-5 text-muted-foreground">
+                暂停只用于排查来源或处理通道故障；正常收件无需手动干预。
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="min-h-11 sm:min-h-8"
+                onClick={summary.paused ? onResume : onPause}
+                disabled={pausePending}
+              >
+                {pausePending ? (
+                  <Spinner data-icon="inline-start" />
+                ) : summary.paused ? (
+                  <CirclePlayIcon data-icon="inline-start" />
+                ) : (
+                  <CirclePauseIcon data-icon="inline-start" />
+                )}
+                {summary.paused ? '恢复解析' : '暂停解析'}
+              </Button>
             </div>
           </div>
         ) : null}
-        <div className="grid gap-3 sm:grid-cols-2">
-          {lanes.map((lane) => (
-            <div key={lane.executionLane} className="flex items-center justify-between gap-3 rounded-lg border p-3">
-              <div className="min-w-0">
-                <p className="font-mono text-xs text-muted-foreground">
-                  {lane.executionLane === 'ARCHIVE_RESOLVE' ? 'ARCHIVE_RESOLVE' : 'BACKGROUND_WRITER'}
-                </p>
-                <p className="truncate text-sm font-medium">
-                  {lane.runningJob?.message ||
-                    (lane.executionLane === 'ARCHIVE_RESOLVE' ? '链接与元数据解析' : '归档下载及媒体写入')}
-                </p>
-              </div>
-              <LaneBadge status={lane.status} />
-            </div>
-          ))}
-        </div>
       </CardContent>
     </Card>
+  )
+}
+
+function QueueLane({
+  lane,
+  label,
+  description
+}: {
+  lane: RouterOutputs['job']['backgroundDashboard']['lanes'][number] | undefined
+  label: string
+  description: string
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-2 rounded-md bg-muted/50 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium">{label}</p>
+        {lane ? <LaneBadge status={lane.status} /> : <Badge variant="muted">不可用</Badge>}
+      </div>
+      <p className="text-xs leading-5 text-muted-foreground">{lane?.runningJob?.message || description}</p>
+    </div>
   )
 }
 

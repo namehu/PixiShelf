@@ -1,7 +1,7 @@
 ---
 status: draft
 scope: 不改变业务契约的分阶段界面设计升级计划
-last-verified: 2026-08-18
+last-verified: 2026-08-31
 ---
 
 # PixiShelf Design Upgrade Plan
@@ -101,6 +101,89 @@ Admin workbench:
 On mobile, the admin sidebar becomes a current-module header plus navigation Sheet; desktop-only batch work displays an explicit compact-screen limitation instead of a crushed two-column dialog.
 
 The signature element is the **archive index rail**: one restrained horizontal toolbar that joins collection identity, result count, active filters, and the primary viewing action. Its thin blue active marker and monospaced counts recur across gallery and workbench shells. This supplies product identity without gradients, blobs, excessive cards, or ornamental dashboard graphics.
+
+### 2026-08-31 Interaction Recalibration
+
+The first upgrade established useful tokens and components, but several pages still compose every available fact into the
+first viewport. The result is technically complete and visually consistent while remaining slow to scan. The next pass
+therefore treats **subtraction and decision order** as design-system rules, not page-level polish.
+
+The `ui-ux-pro-max` search was calibrated to variance `3/10`, motion `2/10`, and density `6/10`. Its applicable result is
+Minimalism / Swiss Style: functional grid, high contrast, restrained motion, and low decoration. Its suggested marketing
+page pattern, red accent, and webfont pairing are not applicable to this self-hosted Chinese workbench. PixiShelf keeps the
+existing semantic blue, CJK-capable system font stack, and current product terminology.
+
+#### Decision order
+
+Every page and major section presents information in this order:
+
+1. **Purpose:** where the user is and what can be completed here.
+2. **Primary action:** the single most likely next step.
+3. **Attention:** failures, blockers, destructive consequences, or capacity pressure.
+4. **Working content:** collection, queue, form, table, or media.
+5. **Diagnostics:** implementation topology, IDs, progress internals, and maintenance controls on demand.
+
+Normal state must be quieter than exceptional state. A healthy subsystem is summarized in one short line; it does not earn
+a dashboard simply because the data exists. Technical explanations belong in help text, expandable details, or dedicated
+diagnostic pages.
+
+#### Surface budget
+
+- Page canvas is the default surface. Use whitespace and section rhythm before adding a container.
+- A bounded surface is justified for an input task, selection toolbar, status summary, dialog, or data region that needs an
+  explicit edge.
+- Do not nest bordered cards to express hierarchy. Within a bounded surface, use spacing, muted fills, and `Separator`.
+- One viewport should normally contain at most one visually dominant bounded surface before its working content.
+- Shadows communicate floating or transient elevation. They do not decorate ordinary page sections.
+
+#### Action budget
+
+- Each page has one persistent primary action. Contextual bulk actions may become primary only while a selection exists.
+- Refresh is not a persistent action when data already polls or revalidates; show retry when loading fails.
+- Rare maintenance controls are disclosed beside their explanation, not promoted into the page header.
+- Destructive actions remain separated, explicitly labelled, and confirmed. Icon-only controls require an accessible name.
+- A control group uses one application model: either draft-and-apply or immediate updates, never a mixture within one form.
+
+#### Status and data density
+
+- Default summaries answer: **is it healthy, what is happening, what needs attention, and is there room?**
+- Badges are reserved for categorical state. Labels and numeric values use normal text rather than becoming chips.
+- Normal status uses one badge at most; warnings and failures may add emphasis but never rely on color alone.
+- User-facing names replace infrastructure identifiers. Raw lane names, internal enum values, and queue mechanics appear only
+  in diagnostics or copyable utility text.
+- Tables remain dense on desktop, but filters, bulk actions, pagination, and empty states are separate visual layers.
+
+#### Responsive and motion rules
+
+- At `375px`, purpose, primary action, and working content remain available without horizontal document scrolling.
+- Secondary controls wrap or move below the working content before labels are truncated.
+- Touch-relevant controls target at least `44px` where the compact desktop density is not required.
+- Motion only explains opening, selection, or navigation state. No entrance choreography is added to admin pages.
+- All state remains correct with reduced motion and with transitions interrupted.
+
+#### Page archetypes
+
+- **Gallery:** media first, compact index rail, cardless artwork grid, controls secondary to artwork.
+- **Workbench list:** compact page header, optional status summary, section header with one primary action, filters, contextual
+  selection toolbar, then table/list.
+- **Workbench detail:** identity and state, main edit task, related records, diagnostics last.
+- **Settings/form:** reading-width grouping, visible labels and helper text, one save action, advanced options disclosed.
+- **Operational dashboard:** exceptions and blocked work first; healthy metrics collapse into a summary rather than a card grid.
+
+#### Archive inbox pilot
+
+`/admin/archive/inbox` is the first recalibrated workbench list:
+
+- remove the redundant eyebrow and queue jargon from the page header;
+- reduce the processing control panel to health, current activity, waiting, failures, and capacity;
+- place lane topology, progress internals, and pause/resume under `运行详情`;
+- retain `添加链接` as the only persistent primary action;
+- remove normal-state manual refresh because the page already polls, while preserving explicit retry on failure;
+- apply source, text, and batch-ID filters together instead of mixing instant and submitted changes;
+- use a section boundary for the queue instead of a second large card.
+
+The same audit order should next be applied to admin tasks, scan history, settings, and management tables before changing
+gallery aesthetics again. This prevents a palette or component rewrite from masking unresolved interaction hierarchy.
 
 ## 3. Baseline Findings
 

@@ -9,11 +9,7 @@ export const metadata = {
 
 export default function ArchiveInboxPage() {
   return (
-    <AdminWorkbench
-      title="归档收件箱"
-      description="持续添加作品链接，在真实 FIFO 队列中解析、判断并批量归档。"
-      eyebrow="链接归档"
-    >
+    <AdminWorkbench title="归档收件箱" description="粘贴作品链接；解析、判断和归档会在后台继续进行。" eyebrow={null}>
       <Suspense fallback={<ArchiveInboxFallback />}>
         <ArchiveInbox />
       </Suspense>
@@ -23,8 +19,8 @@ export default function ArchiveInboxPage() {
 
 function ArchiveInboxFallback() {
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-6">
-      <Skeleton className="h-64 w-full" />
+    <div className="mx-auto flex max-w-7xl flex-col gap-8 pt-6">
+      <Skeleton className="h-32 w-full" />
       <Skeleton className="h-96 w-full" />
     </div>
   )
