@@ -22,6 +22,7 @@ import {
 const tasks = [
   { id: 'pending', status: 'PENDING' },
   { id: 'running', status: 'RUNNING' },
+  { id: 'retry-wait', status: 'PENDING', systemJobStatus: 'RETRY_WAIT' },
   { id: 'paused', status: 'PAUSED' },
   { id: 'failed', status: 'FAILED' },
   { id: 'cancelled', status: 'CANCELLED' },
@@ -32,9 +33,9 @@ describe('archive task bulk action eligibility', () => {
   const selected = new Set(tasks.map((task) => task.id))
 
   it('uses the same status whitelist as the server action contract', () => {
-    expect(eligibleArchiveTaskIds(tasks, selected, 'PAUSE')).toEqual(['pending', 'running'])
+    expect(eligibleArchiveTaskIds(tasks, selected, 'PAUSE')).toEqual(['pending', 'running', 'retry-wait'])
     expect(eligibleArchiveTaskIds(tasks, selected, 'RESUME')).toEqual(['paused'])
-    expect(eligibleArchiveTaskIds(tasks, selected, 'CANCEL')).toEqual(['pending', 'running', 'paused'])
+    expect(eligibleArchiveTaskIds(tasks, selected, 'CANCEL')).toEqual(['pending', 'running', 'retry-wait', 'paused'])
     expect(eligibleArchiveTaskIds(tasks, selected, 'RETRY')).toEqual(['failed', 'cancelled'])
   })
 
@@ -47,6 +48,13 @@ describe('archive task bulk action eligibility', () => {
     expect(archiveTaskDisplayStatus(drifted[0]!)).toBe('PAUSED')
     expect(eligibleArchiveTaskIds(drifted, new Set(['drifted']), 'RESUME')).toEqual(['drifted'])
     expect(eligibleArchiveTaskIds(drifted, new Set(['drifted']), 'PAUSE')).toEqual([])
+  })
+
+  it('exposes a recovered worker lease as waiting for retry instead of downloading', () => {
+    const recovered = { id: 'recovered', status: 'RUNNING', systemJobStatus: 'RETRY_WAIT' }
+    expect(archiveTaskDisplayStatus(recovered)).toBe('RETRY_WAIT')
+    expect(eligibleArchiveTaskIds([recovered], new Set(['recovered']), 'PAUSE')).toEqual(['recovered'])
+    expect(eligibleArchiveTaskIds([recovered], new Set(['recovered']), 'CANCEL')).toEqual(['recovered'])
   })
 
   it('uses a stable payload identity independent of selection order', () => {
@@ -112,6 +120,7 @@ describe('task detail deep links', () => {
 describe('polling and labels', () => {
   it('polls quickly only while the current page has active tasks', () => {
     expect(archiveTaskPollingInterval([{ status: 'RUNNING' }])).toBe(1_500)
+    expect(archiveTaskPollingInterval([{ status: 'PENDING', systemJobStatus: 'RETRY_WAIT' }])).toBe(1_500)
     expect(archiveTaskPollingInterval([{ status: 'COMPLETED' }])).toBe(8_000)
     expect(archiveTaskPollingInterval([{ status: 'RUNNING', systemJobStatus: 'PAUSED' }])).toBe(8_000)
   })
@@ -119,6 +128,7 @@ describe('polling and labels', () => {
   it('maps partial failures and lane states to user-facing labels', () => {
     expect(archiveTaskStatusLabel('FAILED', 'PARTIAL_FAILURE')).toBe('部分失败')
     expect(archiveTaskStatusLabel('PAUSED')).toBe('已暂停')
+    expect(archiveTaskStatusLabel('RETRY_WAIT')).toBe('等待重试')
     expect(archiveLaneStatusLabel('DRAINING')).toBe('停止领取')
   })
 

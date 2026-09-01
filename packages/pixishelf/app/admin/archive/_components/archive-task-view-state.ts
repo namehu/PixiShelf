@@ -1,4 +1,4 @@
-export const ARCHIVE_TASK_ACTIVE_STATUSES = ['PENDING', 'RUNNING', 'CANCELLING'] as const
+export const ARCHIVE_TASK_ACTIVE_STATUSES = ['PENDING', 'RUNNING', 'RETRY_WAIT', 'CANCELLING'] as const
 
 export type ArchiveTaskBulkAction = 'PAUSE' | 'RESUME' | 'CANCEL' | 'RETRY'
 
@@ -14,15 +14,16 @@ export interface ArchiveTaskStatusLike extends ArchiveTaskStateLike {
 export type ArchiveMaintenanceRetryAction = 'DELETE_ARCHIVE' | 'RESTORE_ARCHIVE'
 
 const ELIGIBLE_STATUSES: Record<ArchiveTaskBulkAction, ReadonlySet<string>> = {
-  PAUSE: new Set(['PENDING', 'RUNNING']),
+  PAUSE: new Set(['PENDING', 'RUNNING', 'RETRY_WAIT']),
   RESUME: new Set(['PAUSED']),
-  CANCEL: new Set(['PENDING', 'RUNNING', 'PAUSED']),
+  CANCEL: new Set(['PENDING', 'RUNNING', 'RETRY_WAIT', 'PAUSED']),
   RETRY: new Set(['FAILED', 'CANCELLED'])
 }
 
 const TASK_STATUS_LABELS: Record<string, string> = {
   PENDING: '排队中',
   RUNNING: '下载中',
+  RETRY_WAIT: '等待重试',
   PAUSED: '已暂停',
   CANCELLING: '正在取消',
   COMPLETED: '已发布',
@@ -43,6 +44,7 @@ export function archiveTaskStatusLabel(status: string, errorCode?: string | null
 }
 
 export function archiveTaskDisplayStatus(task: ArchiveTaskStateLike): string {
+  if (['PENDING', 'RUNNING'].includes(task.status) && task.systemJobStatus === 'RETRY_WAIT') return 'RETRY_WAIT'
   return task.status === 'RUNNING' && task.systemJobStatus === 'PAUSED' ? 'PAUSED' : task.status
 }
 

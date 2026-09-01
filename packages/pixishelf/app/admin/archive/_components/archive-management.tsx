@@ -77,7 +77,7 @@ import {
 } from './archive-task-view-state'
 
 const PAGE_SIZE = 50
-const ACTIVE_STATUSES = new Set(['PENDING', 'RUNNING', 'CANCELLING'])
+const ACTIVE_STATUSES = new Set(['PENDING', 'RUNNING', 'RETRY_WAIT', 'CANCELLING'])
 const EMPTY_TASK_IDS = new Set<string>()
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
@@ -980,7 +980,7 @@ function TaskActions({
               <Images aria-hidden="true" />
               图片明细
             </DropdownMenuItem>
-            {displayStatus === 'RUNNING' && (
+            {['RUNNING', 'RETRY_WAIT'].includes(displayStatus) && (
               <DropdownMenuItem disabled={isPending('PAUSE')} onSelect={() => onAction('PAUSE')}>
                 {isPending('PAUSE') ? <Spinner /> : <CirclePause aria-hidden="true" />}暂停任务
               </DropdownMenuItem>

@@ -214,6 +214,7 @@ interface JobResourceLeaseRow {
 
 interface ExecutingJobRow {
   id: string
+  type: string
   status: 'RUNNING' | 'PAUSING' | 'CANCELLING'
   workerId: string | null
   leaseToken: string | null
@@ -1319,7 +1320,7 @@ export class PostgresQueueRepository {
 
     const executingJobs = await transaction.$queryRawUnsafe<ExecutingJobRow[]>(
       `SELECT
-         "id", "status", "workerId", "leaseToken"::text AS "leaseToken",
+         "id", "type", "status", "workerId", "leaseToken"::text AS "leaseToken",
          "leaseExpiresAt", "attempt", "maxAttempts"
        FROM "system_jobs"
        WHERE "definitionVersion" > 0
@@ -1407,6 +1408,12 @@ export class PostgresQueueRepository {
              THEN 'The previous worker execution lease expired before completion.'
            ELSE NULL
          END,
+         "message" = CASE
+           WHEN $6 = 'RETRY_WAIT' THEN 'Retry scheduled after worker lease expiry'
+           WHEN $6 = 'FAILED' THEN 'Job failed after final worker lease expired'
+           WHEN $6 = 'PAUSED' THEN 'Pause confirmed after worker lease expiry'
+           ELSE 'Cancellation confirmed after worker lease expiry'
+         END,
          "updatedAt" = $5
        WHERE "id" = $1
          AND "workerId" IS NOT DISTINCT FROM $2
@@ -1454,6 +1461,69 @@ export class PostgresQueueRepository {
            AND "status" IN ('QUEUED', 'RESOLVING')`,
         executingJob.id,
         intakeStatus,
+        now
+      )
+    }
+
+    if (executionLane === 'BACKGROUND_WRITER' && executingJob.type === 'ARCHIVE_IMPORT') {
+      await transaction.$executeRawUnsafe(
+        `UPDATE "archive_import_items" AS item
+         SET "status" = 'PENDING'::"ArchiveImportItemStatus",
+             "startedAt" = NULL,
+             "finishedAt" = NULL,
+             "updatedAt" = $2
+         FROM "archive_imports" AS archive_import
+         WHERE archive_import."systemJobId" = $1
+           AND item."archiveImportId" = archive_import."id"
+           AND item."status" = 'DOWNLOADING'::"ArchiveImportItemStatus"`,
+        executingJob.id,
+        now
+      )
+      const archiveImportStatus =
+        recoveredStatus === 'RETRY_WAIT'
+          ? 'PENDING'
+          : recoveredStatus === 'FAILED'
+            ? 'FAILED'
+            : recoveredStatus === 'PAUSED'
+              ? 'PAUSED'
+              : 'CANCELLED'
+      await transaction.$executeRawUnsafe(
+        `UPDATE "archive_imports" AS archive_import
+         SET "status" = $2::"ArchiveImportStatus",
+             "completedItems" = item_counts."completedItems",
+             "failedItems" = item_counts."failedItems",
+             "finishedAt" = CASE WHEN $2 IN ('FAILED', 'CANCELLED') THEN $3 ELSE NULL END,
+             "retainUntil" = CASE
+               WHEN $2 = 'FAILED' AND item_counts."completedItems" > 0 THEN $3 + INTERVAL '30 days'
+               WHEN $2 IN ('FAILED', 'CANCELLED') THEN $3 + INTERVAL '7 days'
+               ELSE NULL
+             END,
+             "errorCode" = CASE
+               WHEN $2 IN ('PENDING', 'FAILED') THEN 'WORKER_LEASE_EXPIRED'
+               WHEN $2 = 'CANCELLED' THEN 'CANCELLED'
+               ELSE archive_import."errorCode"
+             END,
+             "errorMessage" = CASE
+               WHEN $2 IN ('PENDING', 'FAILED') THEN 'The archive worker lease expired before completion.'
+               WHEN $2 = 'CANCELLED' THEN 'Archive import cancelled'
+               ELSE archive_import."errorMessage"
+             END,
+             "updatedAt" = $3
+         FROM (
+           SELECT
+             candidate."id",
+             COUNT(item."id") FILTER (WHERE item."status" = 'COMPLETED')::integer AS "completedItems",
+             COUNT(item."id") FILTER (WHERE item."status" = 'FAILED')::integer AS "failedItems"
+           FROM "archive_imports" AS candidate
+           LEFT JOIN "archive_import_items" AS item ON item."archiveImportId" = candidate."id"
+           WHERE candidate."systemJobId" = $1
+           GROUP BY candidate."id"
+         ) AS item_counts
+         WHERE archive_import."id" = item_counts."id"
+           AND archive_import."systemJobId" = $1
+           AND archive_import."status" IN ('PENDING', 'RUNNING', 'CANCELLING')`,
+        executingJob.id,
+        archiveImportStatus,
         now
       )
     }

@@ -40,6 +40,19 @@ export interface ResolvedNetworkAddress {
   family: number
 }
 
+interface DestroyableArchiveConnection {
+  on(event: 'error', listener: (error: Error) => void): unknown
+  destroy(error?: Error): unknown
+}
+
+export interface ArchiveConnectionDestroyTarget {
+  connection: DestroyableArchiveConnection | null
+  error?: Error
+}
+
+const guardedArchiveConnections = new WeakSet<object>()
+const ignoreDisposedArchiveConnectionError = () => undefined
+
 export class SafeHttpClient {
   constructor(
     private readonly allowedHostSuffixes: readonly string[],
@@ -309,6 +322,26 @@ export function createPinnedLookup(selected: ResolvedNetworkAddress): NonNullabl
   }
 }
 
+export function destroyArchiveConnectionsWithoutUnhandledErrors(
+  targets: readonly ArchiveConnectionDestroyTarget[]
+): void {
+  const connections = targets
+    .map((target) => target.connection)
+    .filter((connection): connection is DestroyableArchiveConnection => connection !== null)
+
+  // A primary socket error can consume a once('error') listener before cleanup
+  // destroys related streams. Guard every connection first because destroy()
+  // can synchronously propagate another error to a sibling connection.
+  for (const connection of connections) {
+    if (guardedArchiveConnections.has(connection)) continue
+    connection.on('error', ignoreDisposedArchiveConnectionError)
+    guardedArchiveConnections.add(connection)
+  }
+  for (const target of targets) {
+    target.connection?.destroy(target.error)
+  }
+}
+
 function sendProxiedRequest(
   url: URL,
   proxyUrl: URL,
@@ -329,15 +362,16 @@ function sendProxiedRequest(
     let settled = false
     let connectionStage: ArchiveErrorStage = 'PROXY_CONNECT'
 
-    const destroyConnections = (error: Error) => {
-      upstreamRequest?.destroy(error)
-      responseStream?.destroy(error)
-      tunnelSocket?.destroy(error)
-      // 原始 CONNECT 套接字没有独立的错误消费通道。将错误传给 destroy() 可能会在
-      // 请求 Promise 已被拒绝后，以未捕获套接字错误的形式冒泡。
-      proxySocket?.destroy()
-      proxyRequest.destroy(error)
-    }
+    const destroyConnections = (error: Error) =>
+      destroyArchiveConnectionsWithoutUnhandledErrors([
+        { connection: upstreamRequest, error },
+        { connection: responseStream, error },
+        { connection: tunnelSocket, error },
+        // The raw CONNECT socket is also owned by the TLS stream. Close it
+        // without injecting another error into the shared socket chain.
+        { connection: proxySocket },
+        { connection: proxyRequest, error }
+      ])
     const removeAbortListener = () => options.signal?.removeEventListener('abort', onAbort)
     const fail = (error: unknown) => {
       if (settled) return

@@ -269,6 +269,75 @@ describePostgres('PostgresQueueRepository integration', () => {
   })
 
   it.each([
+    [2, 'RETRY_WAIT', 'PENDING', null],
+    [1, 'FAILED', 'FAILED', 30]
+  ] as const)(
+    'recovers an expired archive writer lease with maxAttempts=%i into SystemJob %s and ArchiveImport %s',
+    async (maxAttempts, jobStatus, importStatus, retentionDays) => {
+      const jobId = await seedJob({
+        type: 'ARCHIVE_IMPORT',
+        executionLane: 'BACKGROUND_WRITER',
+        effectivePriority: 10,
+        maxAttempts
+      })
+      const archiveImportId = await seedArchiveImport(jobId, { cleanupRequestedAt: null })
+      await client().archiveImport.update({
+        where: { id: archiveImportId },
+        data: { status: 'RUNNING', totalItems: 4, completedItems: 1, failedItems: 1, startedAt: clock.now() }
+      })
+      await client().archiveImportItem.createMany({
+        data: [
+          archiveImportItem(archiveImportId, 0, 'COMPLETED'),
+          archiveImportItem(archiveImportId, 1, 'FAILED'),
+          { ...archiveImportItem(archiveImportId, 2, 'DOWNLOADING'), startedAt: clock.now() },
+          archiveImportItem(archiveImportId, 3, 'PENDING')
+        ]
+      })
+      const repository = createRepository(clock, 1_000)
+      expect((await repository.claim('queue-kernel-archive-writer-recovery', archiveWriterCapabilities))?.id).toBe(
+        jobId
+      )
+
+      clock.advance(1_001)
+      await expect(repository.recoverExpiredExecution('BACKGROUND_WRITER')).resolves.toMatchObject({
+        jobId,
+        status: jobStatus
+      })
+      expect(await client().systemJob.findUniqueOrThrow({ where: { id: jobId }, select: { message: true } })).toEqual({
+        message:
+          jobStatus === 'RETRY_WAIT'
+            ? 'Retry scheduled after worker lease expiry'
+            : 'Job failed after final worker lease expired'
+      })
+
+      const recovered = await client().archiveImport.findUniqueOrThrow({ where: { id: archiveImportId } })
+      expect(recovered).toMatchObject({
+        status: importStatus,
+        completedItems: 1,
+        failedItems: 1,
+        errorCode: 'WORKER_LEASE_EXPIRED',
+        errorMessage: 'The archive worker lease expired before completion.'
+      })
+      expect(recovered.finishedAt).toEqual(retentionDays === null ? null : clock.now())
+      expect(recovered.retainUntil).toEqual(
+        retentionDays === null ? null : new Date(clock.now().getTime() + retentionDays * 24 * 60 * 60 * 1_000)
+      )
+      expect(
+        await client().archiveImportItem.findMany({
+          where: { archiveImportId },
+          orderBy: { pageIndex: 'asc' },
+          select: { status: true, startedAt: true, finishedAt: true }
+        })
+      ).toEqual([
+        expect.objectContaining({ status: 'COMPLETED' }),
+        expect.objectContaining({ status: 'FAILED' }),
+        { status: 'PENDING', startedAt: null, finishedAt: null },
+        { status: 'PENDING', startedAt: null, finishedAt: null }
+      ])
+    }
+  )
+
+  it.each([
     ['RUNNING', 1, 'FAILED'],
     ['CANCELLING', 3, 'CANCELLED']
   ] as const)(
@@ -1695,6 +1764,22 @@ async function seedArchiveImport(systemJobId: string, input: { cleanupRequestedA
     }
   })
   return id
+}
+
+function archiveImportItem(
+  archiveImportId: string,
+  pageIndex: number,
+  status: 'PENDING' | 'DOWNLOADING' | 'COMPLETED' | 'FAILED'
+) {
+  return {
+    id: `${testPrefix}-archive-item-${randomUUID()}`,
+    archiveImportId,
+    pageIndex,
+    sourcePageUrl: `https://example.test/${archiveImportId}/${pageIndex}`,
+    locator: {},
+    expectedFilename: `${pageIndex}.webp`,
+    status
+  }
 }
 
 function clockDate(): Date {

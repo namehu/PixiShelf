@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { lookupMock, requestMock } = vi.hoisted(() => ({
@@ -18,7 +19,24 @@ vi.mock('node:https', async () => {
   }
 })
 
-import { assertSafeResolvedAddresses, resolveArchiveProxyUrl, SafeHttpClient } from '../safe-http.js'
+import {
+  assertSafeResolvedAddresses,
+  destroyArchiveConnectionsWithoutUnhandledErrors,
+  resolveArchiveProxyUrl,
+  SafeHttpClient
+} from '../safe-http.js'
+
+class SyntheticConnection extends EventEmitter {
+  constructor(private readonly onDestroy?: () => void) {
+    super()
+  }
+
+  destroy(error?: Error): this {
+    this.onDestroy?.()
+    if (error) this.emit('error', error)
+    return this
+  }
+}
 
 describe('archive safe HTTP network policy', () => {
   it('allows Mihomo IPv4 and IPv6 fake IPs only when an HTTP proxy is configured', () => {
@@ -55,5 +73,29 @@ describe('archive safe HTTP cancellation', () => {
       client.request('https://example.test/media.webp', { signal: controller.signal })
     ).rejects.toMatchObject({ code: 'CANCELLED', recoverable: true })
     expect(requestMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('archive safe HTTP connection cleanup', () => {
+  it('absorbs a cleanup error after the primary once listener has been consumed', () => {
+    const connection = new SyntheticConnection()
+    connection.once('error', () => undefined)
+    connection.emit('error', Object.assign(new Error('socket reset'), { code: 'ECONNRESET' }))
+
+    expect(() =>
+      destroyArchiveConnectionsWithoutUnhandledErrors([{ connection, error: new Error('classified failure') }])
+    ).not.toThrow()
+  })
+
+  it('guards sibling connections before destroying any connection', () => {
+    const sibling = new SyntheticConnection()
+    const primary = new SyntheticConnection(() => sibling.emit('error', new Error('propagated reset')))
+
+    expect(() =>
+      destroyArchiveConnectionsWithoutUnhandledErrors([
+        { connection: primary, error: new Error('primary failure') },
+        { connection: sibling }
+      ])
+    ).not.toThrow()
   })
 })
