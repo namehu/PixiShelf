@@ -303,13 +303,6 @@ describePostgres('PostgresQueueRepository integration', () => {
         jobId,
         status: jobStatus
       })
-      expect(await client().systemJob.findUniqueOrThrow({ where: { id: jobId }, select: { message: true } })).toEqual({
-        message:
-          jobStatus === 'RETRY_WAIT'
-            ? 'Retry scheduled after worker lease expiry'
-            : 'Job failed after final worker lease expired'
-      })
-
       const recovered = await client().archiveImport.findUniqueOrThrow({ where: { id: archiveImportId } })
       expect(recovered).toMatchObject({
         status: importStatus,

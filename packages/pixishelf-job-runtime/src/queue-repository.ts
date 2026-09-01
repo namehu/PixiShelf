@@ -1408,12 +1408,6 @@ export class PostgresQueueRepository {
              THEN 'The previous worker execution lease expired before completion.'
            ELSE NULL
          END,
-         "message" = CASE
-           WHEN $6 = 'RETRY_WAIT' THEN 'Retry scheduled after worker lease expiry'
-           WHEN $6 = 'FAILED' THEN 'Job failed after final worker lease expired'
-           WHEN $6 = 'PAUSED' THEN 'Pause confirmed after worker lease expiry'
-           ELSE 'Cancellation confirmed after worker lease expiry'
-         END,
          "updatedAt" = $5
        WHERE "id" = $1
          AND "workerId" IS NOT DISTINCT FROM $2
