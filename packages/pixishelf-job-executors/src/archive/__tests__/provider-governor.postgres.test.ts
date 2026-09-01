@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { PrismaClient } from '@pixishelf/db'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { PostgresArchiveProviderGovernor } from '../provider-governor.js'
 
 const databaseUrl =
@@ -32,11 +32,23 @@ describePostgres('Postgres archive provider governor', () => {
     const attempts = controllers.map((controller, index) =>
       governors[index % governors.length]!.acquire(providerKey, 'DOWNLOAD', controller.signal)
     )
-    const abortTimer = setTimeout(() => {
+    const settledAttempts = Promise.allSettled(attempts)
+    let capacityObservationError: unknown
+    try {
+      await vi.waitFor(
+        async () => {
+          expect(
+            await prisma!.archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'DOWNLOAD' } })
+          ).toBe(2)
+        },
+        { timeout: 5_000, interval: 25 }
+      )
+    } catch (error) {
+      capacityObservationError = error
+    } finally {
       for (const controller of controllers) controller.abort(new Error('bounded concurrency probe finished'))
-    }, 200)
-    const results = await Promise.allSettled(attempts)
-    clearTimeout(abortTimer)
+    }
+    const results = await settledAttempts
     const permits = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
     const failures = results.flatMap((result) =>
       result.status === 'rejected'
@@ -45,6 +57,7 @@ describePostgres('Postgres archive provider governor', () => {
     )
 
     expect(permits, failures.join('\n')).toHaveLength(2)
+    if (capacityObservationError) throw capacityObservationError
     expect(await prisma!.archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'DOWNLOAD' } })).toBe(
       2
     )
@@ -56,7 +69,7 @@ describePostgres('Postgres archive provider governor', () => {
     expect(await prisma!.archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'RESOLVE' } })).toBe(0)
 
     await Promise.all(permits.map((permit, index) => governors[index % governors.length]!.release(permit)))
-  })
+  }, 10_000)
 
   it('persists a penalty so another client cannot immediately acquire the provider budget', async () => {
     const blocked = new Error('penalty-wait')
