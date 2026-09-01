@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前本地运行、生产 Compose 拓扑、升级顺序、验证与回滚入口
-last-verified: 2026-08-28
+last-verified: 2026-09-01
 sources:
   - build/docker-compose.dev.yml
   - build/docker-compose.deploy.yml
@@ -38,6 +38,8 @@ sources:
 
 生产 Compose 不再包含旧 `archive-worker`、旧镜像或兼容 profile。一个 `worker` 容器同时托管固定并发为 1 的 `ARCHIVE_RESOLVE` 和 `BACKGROUND_WRITER`；最多一项解析和一项 writer 工作可以同时推进，所有媒体写仍在 writer lane 全局串行。
 
+归档媒体内部并发不是环境变量。它保存在 PostgreSQL `Setting` 中，由管理后台以 1–8 显式保存；缺失时默认 2。发布、Compose 和 `.env.example` 不需要增加对应键。恢复数据库会同时恢复该设置；Worker 在每次归档启动、恢复或重试时读取并冻结。
+
 ## 环境文件边界
 
 | 场景           | 文件                            | 数据库地址                             |
@@ -56,6 +58,7 @@ sources:
 - `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 当前不参与自动初始化，遗留 `JWT_SECRET` 也不负责当前浏览器会话；
 - `CENTRAL_DISPATCHER_CUTOVER_ENABLED` 与 `WORKER_DISPATCH_ENABLED` 始终成对切换；
 - 生产反向代理使用 HTTPS，清除外部 `x-user-session`/`x-pathname`，并将 `NEXT_PUBLIC_IMGPROXY_URL` 限制在受信网络或等效保护路径。
+- 反向代理对 `/api/jobs/events` 禁用响应缓冲和转换，保留长连接；应用已发送 `X-Accel-Buffering: no` 与 `Cache-Control: no-cache, no-transform`，代理仍需允许至少 15 秒心跳穿过。
 
 不要提交 `build/.env`、`.env.local`、数据库备份、访问令牌或生产路径。
 

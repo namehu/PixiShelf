@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前 workspace、运行组件、依赖方向、数据边界和关键调用链
-last-verified: 2026-08-28
+last-verified: 2026-09-01
 sources:
   - package.json
   - pnpm-workspace.yaml
@@ -214,6 +214,8 @@ sequenceDiagram
 
 归档收件箱位于 `/admin/archive/inbox`。一次提交可以包含最多 100 个 URL，活动收件项目上限为 1000；链接持久化后按 FIFO 在 `ARCHIVE_RESOLVE` 中逐条解析。已就绪项目可以在其余项目解析期间多选入队，每个作品创建或复用一个独立 `ARCHIVE_IMPORT`。`/admin/archive` 提供任务分页、筛选、明细和当前页批量控制。完整流程见[归档收件箱](../features/archive-intake.md)。
 
+`ARCHIVE_IMPORT` 启动时在 fenced transaction 内读取数据库系统设置并冻结 1–8 的媒体并发，默认 2；同一值控制媒体 worker 与 Provider Governor，writer lane 本身仍固定并发 1。admin layout 维护每标签页唯一的 `/api/jobs/events` SSE，使用持久 `SystemJobEvent.id` 追赶全部后台任务事件。当前归档页消费实时传输遥测，断线时回退轮询；事件 transport 的决策边界见 ADR-0006 和 ADR-0007。
+
 一个 Worker host 运行两个 Dispatcher loop：
 
 | Lane                | 固定并发 | 工作范围                                                  |
@@ -287,6 +289,8 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 - [ADR-0002：持久 Worker 与原子归档发布](../adr/0002-use-a-durable-worker-and-atomic-archive-publication.md)
 - [ADR-0003：统一后台任务 Worker](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)
 - [ADR-0004：归档解析独立资源通道](../adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)
+- [ADR-0006：数据库配置并冻结归档媒体并发](../adr/0006-freeze-database-configured-archive-media-concurrency.md)
+- [ADR-0007：持久游标上的通用 Worker SSE](../adr/0007-stream-worker-job-events-over-a-persistent-cursor.md)
 - [ADR-0005：退役破坏性全量重扫](../adr/0005-retire-destructive-full-rescan.md)
 - [归档收件箱](../features/archive-intake.md)
 - [后台任务业务链路](./background-job-business-flows.md)

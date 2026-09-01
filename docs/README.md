@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-08-28（历史归档默认标签补全）
+最后核验：2026-09-01（归档下载配置与通用 Worker SSE）
 
 ## 状态约定
 
@@ -94,6 +94,8 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [ADR-0003](./adr/0003-unify-background-jobs-under-a-durable-single-worker.md) | `accepted` | PostgreSQL 队列上的单通用 Worker |
 | [ADR-0004](./adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)    | `accepted` | 单 Worker 内双资源执行通道       |
 | [ADR-0005](./adr/0005-retire-destructive-full-rescan.md)                      | `accepted` | 退役破坏性全量重扫并拆分来源维护 |
+| [ADR-0006](./adr/0006-freeze-database-configured-archive-media-concurrency.md) | `accepted` | 数据库配置并冻结归档媒体并发     |
+| [ADR-0007](./adr/0007-stream-worker-job-events-over-a-persistent-cursor.md)    | `accepted` | 持久游标上的通用 Worker SSE      |
 
 ## 部署、发布与历史记录
 

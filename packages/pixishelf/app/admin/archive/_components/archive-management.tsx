@@ -1,10 +1,10 @@
 'use client'
-
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
+import type { ArchiveTransferTelemetry } from '@pixishelf/job-contracts'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import {
@@ -42,7 +42,6 @@ import {
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -55,6 +54,8 @@ import { ArchiveBulkResultDialog } from './archive-bulk-result-dialog'
 import { ArchiveItemDrawer } from './archive-item-drawer'
 import { ArchivePublishedMediaPreview } from './archive-published-media-preview'
 import { ArchiveSubmissionBadge } from './archive-submission-badge'
+import { useArchiveLiveEvents } from './archive-live-events'
+import { ArchiveImageCounts, TaskProgress } from './archive-task-progress'
 import {
   archiveLaneStatusLabel,
   archiveMaintenanceRetryAction,
@@ -75,13 +76,16 @@ import {
   type ArchiveTaskBulkAction,
   type ArchiveTaskCursorState
 } from './archive-task-view-state'
-
+export { ArchiveImageCounts, ArchiveTransferStatus } from './archive-task-progress'
 const PAGE_SIZE = 50
 const ACTIVE_STATUSES = new Set(['PENDING', 'RUNNING', 'RETRY_WAIT', 'CANCELLING'])
 const EMPTY_TASK_IDS = new Set<string>()
-
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type ArchiveTaskOutput = RouterOutputs['archive']['listTasks']['items'][number]
+type ArchiveTaskView = ArchiveTaskOutput & {
+  liveTransfer?: ArchiveTransferTelemetry | null
+  liveNow?: number
+}
 type ArchiveBulkOperation = NonNullable<RouterOutputs['archive']['actionMany']>
 type ArchiveTaskStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 type ArchiveTaskKind = 'NEW' | 'UPDATE'
@@ -99,14 +103,12 @@ interface TaskFilters {
   submissionId: string
   search: string
 }
-
 interface ArchivePublishedMediaTaskLike {
   publishedArtwork?: {
     archiveLifecycleState?: string | null
     deletedAt?: unknown
   } | null
 }
-
 export function canExpandArchivePublishedMedia(task: ArchivePublishedMediaTaskLike) {
   return Boolean(
     task.publishedArtwork &&
@@ -136,6 +138,8 @@ export function ArchiveManagement() {
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set())
   const [detailTask, setDetailTask] = useState<ArchiveTaskOutput | null>(null)
   const [detailRefreshVersion, setDetailRefreshVersion] = useState(0)
+  const liveEvents = useArchiveLiveEvents(detailTask?.systemJobId)
+  const { liveJobById, liveNow, realtimeConnected } = liveEvents
   const [bulkOperation, setBulkOperation] = useState<ArchiveBulkOperation | null>(null)
   const [pendingSingleActions, setPendingSingleActions] = useState<Set<string>>(new Set())
   const bulkIdempotencyKeys = useRef(new Map<string, string>())
@@ -152,7 +156,7 @@ export function ArchiveManagement() {
         search: filters.search || undefined
       },
       {
-        refetchInterval: (query) => archiveTaskPollingInterval(query.state.data?.items ?? [])
+        refetchInterval: (query) => archiveTaskPollingInterval(query.state.data?.items ?? [], realtimeConnected)
       }
     )
   )
@@ -162,12 +166,14 @@ export function ArchiveManagement() {
       {
         enabled: Boolean(requestedTaskId),
         retry: false,
-        refetchInterval: (query) =>
-          detailTask?.id === requestedTaskId &&
-          query.state.data?.items[0] &&
-          ACTIVE_STATUSES.has(archiveTaskDisplayStatus(query.state.data.items[0]))
+        refetchInterval: (query) => {
+          if (realtimeConnected) return false
+          return detailTask?.id === requestedTaskId &&
+            query.state.data?.items[0] &&
+            ACTIVE_STATUSES.has(archiveTaskDisplayStatus(query.state.data.items[0]))
             ? 1_500
             : false
+        }
       }
     )
   )
@@ -175,11 +181,41 @@ export function ArchiveManagement() {
     trpc.job.backgroundDashboard.queryOptions(undefined, {
       refetchInterval: (query) => {
         const dashboard = query.state.data
+        if (realtimeConnected) {
+          return dashboard && (dashboard.activeCount > 0 || dashboard.queuedCount > 0) ? 30_000 : 60_000
+        }
         return dashboard && (dashboard.activeCount > 0 || dashboard.queuedCount > 0) ? 1_500 : 8_000
       }
     })
   )
-  const tasks = tasksQuery.data?.items ?? []
+  const tasks = useMemo<ArchiveTaskView[]>(
+    () =>
+      (tasksQuery.data?.items ?? []).map((task) => {
+        const live = liveJobById.get(task.systemJobId)
+        const transfer = live?.transfer ?? null
+        return {
+          ...task,
+          ...(live
+            ? {
+                progress: live.item.job.progress,
+                message: live.item.job.message,
+                systemJobStatus: live.item.job.status,
+                attempt: live.item.job.attempt
+              }
+            : {}),
+          ...(transfer
+            ? {
+                completedItems: transfer.completedItems,
+                failedItems: transfer.failedItems,
+                totalItems: transfer.totalItems
+              }
+            : {}),
+          liveTransfer: transfer,
+          liveNow
+        }
+      }),
+    [liveJobById, liveNow, tasksQuery.data?.items]
+  )
   const currentPageIds = useMemo(() => tasks.map((task) => task.id), [tasks])
   const selectionState = currentPageSelectionState(selectedTaskIds, currentPageIds)
   const toggleTaskExpanded = (taskId: string) => {
@@ -212,6 +248,14 @@ export function ArchiveManagement() {
   const refreshPage = async () => {
     await Promise.all([tasksQuery.refetch(), dashboardQuery.refetch()])
   }
+  useEffect(() => {
+    if (liveEvents.lifecycleVersion > 0) void refreshPage()
+  }, [liveEvents.lifecycleVersion])
+  useEffect(() => {
+    if (liveEvents.readyVersion > 0) {
+      void Promise.all([refreshPage(), requestedTaskId ? deepLinkedTaskQuery.refetch() : null])
+    }
+  }, [liveEvents.readyVersion])
   const resetBrowseState = () => {
     setCursorState(resetArchiveTaskBrowseState())
     setSelectedTaskIds(new Set())
@@ -497,6 +541,8 @@ export function ArchiveManagement() {
         key={`${detailTask?.id ?? 'archive-item-drawer'}:${detailRefreshVersion}`}
         open={Boolean(detailTask)}
         task={detailTask}
+        realtimeConnected={realtimeConnected}
+        liveRefreshVersion={liveEvents.detailRefreshVersion}
         onOpenChange={(open) => {
           if (!open) {
             setDetailTask(null)
@@ -696,7 +742,7 @@ export function ArchiveTaskTable({
   onViewItems,
   onAction
 }: {
-  tasks: ArchiveTaskOutput[]
+  tasks: ArchiveTaskView[]
   selectedTaskIds: ReadonlySet<string>
   expandedTaskIds: ReadonlySet<string>
   selectionState: boolean | 'indeterminate'
@@ -721,7 +767,7 @@ export function ArchiveTaskTable({
           </TableHead>
           <TableHead>作品 / 来源</TableHead>
           <TableHead>状态 / 质量</TableHead>
-          <TableHead className="w-32 min-w-32">进度</TableHead>
+          <TableHead className="w-56 min-w-56">进度</TableHead>
           <TableHead>
             <span aria-label="图片数量，顺序为成功、失败、总数">成功 / 失败 / 总数</span>
           </TableHead>
@@ -764,7 +810,7 @@ export function ArchiveTaskTable({
                 <TableCell>
                   <TaskStatus task={task} />
                 </TableCell>
-                <TableCell className="w-32">
+                <TableCell className="w-56">
                   <TaskProgress task={task} compact />
                 </TableCell>
                 <TableCell>
@@ -805,7 +851,7 @@ export function ArchiveTaskCard({
   onViewItems,
   onAction
 }: {
-  task: ArchiveTaskOutput
+  task: ArchiveTaskView
   selected: boolean
   expanded: boolean
   pendingActions: ReadonlySet<string>
@@ -899,51 +945,6 @@ function TaskStatus({ task }: { task: ArchiveTaskOutput }) {
       {lifecycleState === 'RESTORING' && <span className="text-xs text-warning">正在从回收站恢复</span>}
       {lifecycleState === 'TRASHED' && <span className="text-xs text-muted-foreground">作品已在回收站</span>}
       <span className="text-xs text-muted-foreground">尝试 {task.attempt}</span>
-    </div>
-  )
-}
-
-export function ArchiveImageCounts({
-  task
-}: {
-  task: Pick<ArchiveTaskOutput, 'completedItems' | 'failedItems' | 'totalItems'>
-}) {
-  return (
-    <span
-      className="inline-flex items-center gap-1 whitespace-nowrap text-xs tabular-nums"
-      aria-label={`图片数量：成功 ${task.completedItems}，失败 ${task.failedItems}，总数 ${task.totalItems}`}
-    >
-      <span>{task.completedItems}</span>
-      <span aria-hidden="true" className="text-muted-foreground">
-        /
-      </span>
-      <span className="text-destructive">{task.failedItems}</span>
-      <span aria-hidden="true" className="text-muted-foreground">
-        /
-      </span>
-      <span>{task.totalItems}</span>
-    </span>
-  )
-}
-
-function TaskProgress({ task, compact = false }: { task: ArchiveTaskOutput; compact?: boolean }) {
-  const displayStatus = archiveTaskDisplayStatus(task)
-  return (
-    <div className={compact ? 'flex w-32 min-w-0 flex-col gap-1.5' : 'flex w-full min-w-0 flex-col gap-1.5'}>
-      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span className={compact ? 'max-w-20 min-w-0 flex-1 truncate' : 'min-w-0 flex-1 truncate'}>
-          {task.message || archiveTaskStatusLabel(displayStatus, task.errorCode)}
-        </span>
-        <span className="tabular-nums">{task.progress}%</span>
-      </div>
-      <Progress value={task.progress} aria-label={`${task.title || task.externalId} 完成 ${task.progress}%`} />
-      {task.warning && <p className="line-clamp-2 whitespace-pre-wrap text-xs text-warning">{task.warning}</p>}
-      {task.errorMessage && (
-        <p className="line-clamp-2 whitespace-pre-wrap text-xs text-destructive">{task.errorMessage}</p>
-      )}
-      {task.retainUntil && task.status !== 'COMPLETED' && (
-        <p className="text-xs text-muted-foreground">暂存保留至 {formatTaskTime(task.retainUntil)}</p>
-      )}
     </div>
   )
 }

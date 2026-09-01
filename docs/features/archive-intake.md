@@ -1,7 +1,7 @@
 ---
 status: current
 scope: URL 归档收件箱、持久解析、批量入队、任务控制、维护与保留策略
-last-verified: 2026-08-28
+last-verified: 2026-09-01
 sources:
   - packages/pixishelf/app/admin/archive/
   - packages/pixishelf/server/routers/archive-inbox.ts
@@ -54,7 +54,7 @@ sources:
 | `ARCHIVE_RESOLVE`   | `ARCHIVE_RESOLVE_ITEM`       | 1        |
 | `BACKGROUND_WRITER` | 其余 25 类任务，包括归档下载 | 1        |
 
-两个 lane 可以各推进一个任务；同一 lane 内不能并行。网络、数据库、文件流、Sharp/libvips 与 FFmpeg 子进程在等待时让出 Node.js 事件循环，因此链接解析可以在一个 writer 工作期间继续。该模型不承诺纯 JavaScript CPU 并行，也不开放可配置并发。
+两个 lane 可以各推进一个任务；同一 lane 内不能并行。网络、数据库、文件流、Sharp/libvips 与 FFmpeg 子进程在等待时让出 Node.js 事件循环，因此链接解析可以在一个 writer 工作期间继续。该模型不承诺纯 JavaScript CPU 并行，也不开放 lane 并发。单个归档作品内部的媒体流并发可在系统设置中选择 1–8，并在每次启动、恢复或重试时冻结；运行中不能修改。
 
 所有原媒体、派生媒体、staging、发布、扫描、迁移、替换和维护写操作都在 `BACKGROUND_WRITER` 全局串行。`ARCHIVE_RESOLVE` 的 Executor 契约只访问解析所需的远端数据和数据库，不执行媒体目录写入；两个 lane 仍共用同一 Worker 进程和 `rw` 挂载，因此这是队列/capability 边界，不是操作系统权限隔离。数据库按 lane 的执行态唯一索引与 `lane/archive-resolve`、`lane/background-writer` 资源租约共同防止滚动部署或误启动第二个 Worker 时出现同 lane 双执行。
 
@@ -78,6 +78,8 @@ type/version 组合，并同时校验 job type、definition version 和 lane。R
 
 默认启用的 `archive_intake_retention_cleanup` 页面默认显示时间是 `02:15`，同样按中央统一窗口和优先级执行。终态收件项目、已完成批量操作、无项目的旧 submission 和过期 `ArchivePreviewSession` 保留 30 天后分批清理。它只删除操作历史和冻结预览，不删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision`、`Image` 或任何媒体文件。
 
+归档任务页通过 admin layout 中唯一的通用 Worker SSE 连接接收生命周期与 `archive.transfer@v1` 遥测。速度由 Worker 在媒体流写盘时累计 chunk 长度并按最近 5 秒采样，不保存 chunk、也不回读磁盘。SSE 正常时列表只做 30/60 秒一致性校准，图片明细在计数或状态变化时定向刷新；连接异常自动回退原有高频轮询。
+
 ## 权限与敏感数据
 
 两个页面都需要 Better Auth Session。`archiveInbox` 和 `archive` 的读取使用 `authProcedure`，创建、暂停/恢复、取消、重试、批量入队和任务控制使用 `adminProcedure`；当前单一信任域中二者运行能力相同，但敏感写操作保留显式管理员语义。
@@ -87,7 +89,7 @@ type/version 组合，并同时校验 job type、definition version 和 lane。R
 ## 运维不变量
 
 1. 生产只有一个通用 Worker 服务，但允许一项解析与一项 writer 工作同时推进。
-2. 任意时刻最多一个 resolver、最多一个 writer；不得增加第二个 writer 或通过配置提高并发。
+2. 任意时刻最多一个 resolver、最多一个 writer；媒体并发配置只作用于当前 writer 内的单个归档作品，不得增加第二个 writer。
 3. lane migration 是旧 Worker 的回滚边界；迁移后不得启动不理解 lane 的消费者。
 4. 切换前必须停止调度和写入者、通过专用只读 audit，并建立数据库、原媒体、派生媒体、配置和镜像 digest 的一致性检查点。
 5. 迁移后的应用级隔离使用兼容双 lane schema 的 App/Worker 与 `false/false`；启动旧消费者只能通过恢复完整的切换前检查点。
@@ -103,4 +105,6 @@ type/version 组合，并同时校验 job type、definition version 和 lane。R
 - [备份与恢复](../operations/backup-and-recovery.md)
 - [ADR-0002](../adr/0002-use-a-durable-worker-and-atomic-archive-publication.md)
 - [ADR-0004](../adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)
+- [ADR-0006](../adr/0006-freeze-database-configured-archive-media-concurrency.md)
+- [ADR-0007](../adr/0007-stream-worker-job-events-over-a-persistent-cursor.md)
 - [实现设计归档](../design/archive-intake-queue.md)

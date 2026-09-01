@@ -1,7 +1,11 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import {
+  ARCHIVE_MEDIA_CONCURRENCY_ADVISORY_LOCK_KEY,
+  ARCHIVE_MEDIA_CONCURRENCY_DEFAULT,
+  ARCHIVE_MEDIA_CONCURRENCY_SETTING_KEY,
   ARCHIVE_IMPORT_DEFINITION_VERSION,
   archiveImportPayloadSchema,
+  archiveMediaConcurrencySchema,
   archiveImportV2PayloadSchema,
   type ArchiveImportV2Payload,
   type JobErrorCode
@@ -15,6 +19,7 @@ import type {
   JobExecutionOutcome
 } from '@pixishelf/job-runtime'
 import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
+import { ArchiveTransferMeter, startArchiveTransferReporter } from './transfer-meter.ts'
 import { publishArchiveImportInTransaction } from './publisher.ts'
 import {
   buildArchiveStoragePaths,
@@ -35,7 +40,6 @@ import type {
 
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const PARTIAL_FAILED_STAGING_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
-const DEFAULT_MEDIA_CONCURRENCY = 2
 const DEFAULT_MAX_MEDIA_ATTEMPTS = 3
 
 type ArchiveImportPayload = ArchiveImportV2Payload
@@ -85,14 +89,13 @@ export async function executeArchiveImport(
   const now = dependencies.now ?? (() => new Date())
   const sleep = dependencies.sleep ?? abortableDelay
   const random = dependencies.random ?? Math.random
-  const mediaConcurrency = dependencies.config.mediaConcurrency ?? DEFAULT_MEDIA_CONCURRENCY
   const maxMediaAttempts = dependencies.config.maxMediaAttempts ?? DEFAULT_MAX_MEDIA_ATTEMPTS
   let finalizationStarted = false
   const archiveImportId = context.payload.archiveImportId
 
   try {
     throwIfAborted(context.signal)
-    const archiveImport = await startArchiveImport(context, dependencies, now())
+    const { archiveImport, mediaConcurrency } = await startArchiveImport(context, dependencies, now())
     const paths = buildArchiveStoragePaths({
       scanRoot: dependencies.config.scanRoot,
       archiveImportId,
@@ -111,6 +114,34 @@ export async function executeArchiveImport(
       : await prepareArchiveStagingDirectory(dependencies.config.scanRoot, archiveImport.stagingPath)
     const provider = dependencies.providers.get(archiveImport.providerKey)
     const controller = linkedAbortController(context.signal)
+    const transferMeter = new ArchiveTransferMeter(archiveImport.id, mediaConcurrency, archiveImport.totalItems, {
+      completedBytes: archiveImport.items.reduce(
+        (sum, item) => sum + (item.status === 'COMPLETED' ? (item.byteCount ?? 0n) : 0n),
+        0n
+      ),
+      completedItems: archiveImport.completedItems,
+      failedItems: archiveImport.failedItems
+    })
+    const transferReporter = startArchiveTransferReporter({
+      meter: transferMeter,
+      controller,
+      now,
+      report: (telemetry) =>
+        context.progress({
+          progress: archiveProgress(telemetry.completedItems, telemetry.totalItems),
+          message: `Downloaded ${telemetry.completedItems}/${telemetry.totalItems}`,
+          data: telemetry,
+          persistenceMode: 'REALTIME'
+        }),
+      flush: (telemetry) =>
+        context.progress({
+          progress: archiveProgress(telemetry.completedItems, telemetry.totalItems),
+          message: `Downloaded ${telemetry.completedItems}/${telemetry.totalItems}`,
+          data: telemetry,
+          persistenceMode: 'REALTIME',
+          forcePersistence: true
+        })
+    })
 
     try {
       let roundItems = archiveImport.items
@@ -130,6 +161,8 @@ export async function executeArchiveImport(
               provider,
               stagingDirectory,
               signal: controller.signal,
+              mediaConcurrency,
+              transferMeter,
               maxMediaAttempts,
               now
             })
@@ -157,7 +190,11 @@ export async function executeArchiveImport(
         round += 1
       }
     } finally {
-      controller.dispose()
+      try {
+        await transferReporter.stop()
+      } finally {
+        controller.dispose()
+      }
     }
 
     throwIfAborted(context.signal)
@@ -216,8 +253,12 @@ async function startArchiveImport(
   context: ArchiveExecutorContext,
   dependencies: ArchiveExecutorDependencies,
   startedAt: Date
-): Promise<LoadedArchiveImport> {
-  return context.mutateInTransaction<ArchiveTransaction, LoadedArchiveImport>(async (transaction) => {
+): Promise<{ archiveImport: LoadedArchiveImport; mediaConcurrency: number }> {
+  return context.mutateInTransaction<
+    ArchiveTransaction,
+    { archiveImport: LoadedArchiveImport; mediaConcurrency: number }
+  >(async (transaction) => {
+    const mediaConcurrency = await freezeArchiveMediaConcurrency(transaction, dependencies.config.mediaConcurrency)
     const archiveImport = await transaction.archiveImport.findUnique({
       where: { id: context.payload.archiveImportId },
       include: { items: { orderBy: { pageIndex: 'asc' } } }
@@ -262,7 +303,7 @@ async function startArchiveImport(
       throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import start state changed')
     }
     dependencies.logger?.info('archive.execution_started', { archiveImportId: archiveImport.id, jobId: context.job.id })
-    return {
+    const startedArchiveImport: LoadedArchiveImport = {
       ...archiveImport,
       status: 'RUNNING',
       completedItems,
@@ -273,7 +314,27 @@ async function startArchiveImport(
           : item
       )
     }
+    return { archiveImport: startedArchiveImport, mediaConcurrency }
   })
+}
+
+export async function freezeArchiveMediaConcurrency(
+  transaction: ArchiveTransaction,
+  configuredMediaConcurrency?: number
+): Promise<number> {
+  if (configuredMediaConcurrency !== undefined) {
+    return archiveMediaConcurrencySchema.parse(configuredMediaConcurrency)
+  }
+  await transaction.$queryRawUnsafe(
+    'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
+    ARCHIVE_MEDIA_CONCURRENCY_ADVISORY_LOCK_KEY
+  )
+  const setting = await transaction.setting.findUnique({
+    where: { key: ARCHIVE_MEDIA_CONCURRENCY_SETTING_KEY },
+    select: { value: true }
+  })
+  const parsed = archiveMediaConcurrencySchema.safeParse(setting?.value ?? ARCHIVE_MEDIA_CONCURRENCY_DEFAULT)
+  return parsed.success ? parsed.data : ARCHIVE_MEDIA_CONCURRENCY_DEFAULT
 }
 
 async function releaseArchiveImportForCleanup(
@@ -311,6 +372,8 @@ async function downloadArchiveItem(input: {
   stagingDirectory: string
   signal: AbortSignal
   maxMediaAttempts: number
+  mediaConcurrency: number
+  transferMeter: ArchiveTransferMeter
   now: () => Date
 }): Promise<ItemAttemptResult> {
   throwIfAborted(input.signal)
@@ -341,8 +404,18 @@ async function downloadArchiveItem(input: {
   try {
     const remote = await input.provider.openMedia(toProviderMediaItem(input.item), {
       quality: input.archiveImport.selectedQuality,
-      signal: input.signal
+      signal: input.signal,
+      maxConcurrentDownloads: input.mediaConcurrency
     })
+    input.transferMeter.begin(input.item.id)
+    const abortRemoteStream = () =>
+      remote.stream.destroy(
+        input.signal.reason instanceof Error
+          ? input.signal.reason
+          : new ArchiveExecutorError('CANCELLED', 'Archive execution was cancelled')
+      )
+    if (input.signal.aborted) abortRemoteStream()
+    else input.signal.addEventListener('abort', abortRemoteStream, { once: true })
     let stored
     try {
       stored = await storeArchiveRemoteMedia({
@@ -354,9 +427,11 @@ async function downloadArchiveItem(input: {
         ...(input.dependencies.config.maxMediaBytes === undefined
           ? {}
           : { maxBytes: input.dependencies.config.maxMediaBytes }),
-        partialKey: input.context.job.executionToken
+        partialKey: input.context.job.executionToken,
+        onChunk: (byteLength) => input.transferMeter.addChunk(input.item.id, byteLength)
       })
     } finally {
+      input.signal.removeEventListener('abort', abortRemoteStream)
       if (!remote.stream.destroyed) remote.stream.destroy()
     }
     mediaStored = true
@@ -392,6 +467,7 @@ async function downloadArchiveItem(input: {
       })
       return aggregate.completedItems
     })
+    input.transferMeter.complete(input.item.id, stored.byteCount)
     await input.context.progress({
       progress: archiveProgress(completedItems, input.archiveImport.totalItems),
       stage: 'DOWNLOADING',
@@ -400,9 +476,13 @@ async function downloadArchiveItem(input: {
     return { kind: 'COMPLETED' }
   } catch (error) {
     const classified = toArchiveExecutorError(error)
-    if (mediaStored || input.signal.aborted) throw classified
+    if (mediaStored || input.signal.aborted) {
+      input.transferMeter.fail(input.item.id, false)
+      throw input.signal.aborted ? (input.signal.reason ?? classified) : classified
+    }
     const retry = isRetryableItemFailure(classified) && attempt < input.maxMediaAttempts
     const terminalItemFailure = !retry && !classified.pause
+    input.transferMeter.fail(input.item.id, terminalItemFailure)
     await input.context.mutateInTransaction<ArchiveTransaction>(async (transaction) => {
       const updated = await transaction.archiveImportItem.updateMany({
         where: {

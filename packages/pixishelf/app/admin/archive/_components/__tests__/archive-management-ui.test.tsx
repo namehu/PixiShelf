@@ -4,6 +4,7 @@ import {
   ArchiveImageCounts,
   ArchiveTaskCard,
   ArchiveTaskTable,
+  ArchiveTransferStatus,
   WorkerLaneStrip,
   canExpandArchivePublishedMedia
 } from '../archive-management'
@@ -133,7 +134,7 @@ describe('archive management UI', () => {
       'text-destructive'
     )
     expect(screen.getByTestId('published-media').textContent).toBe('published-42')
-    expect(screen.getAllByLabelText(/完成 100%/)[0]!.parentElement?.className).toContain('w-32')
+    expect(screen.getAllByLabelText(/完成 100%/)[0]!.parentElement?.className).toContain('w-56')
     expect(screen.getAllByRole('button', { name: /已发布媒体/ })).toHaveLength(1)
     expect(screen.queryByRole('button', { name: '查看图片明细' })).toBeNull()
     expect(screen.getAllByText('图片明细')).toHaveLength(4)
@@ -197,5 +198,34 @@ describe('archive management UI', () => {
     const counts = screen.getByLabelText('图片数量：成功 3，失败 1，总数 4')
     expect(counts.textContent?.replace(/\s/g, '')).toBe('3/1/4')
     expect(counts.children[2]!.className).toContain('text-destructive')
+  })
+
+  it('renders live transfer speed, waiting state, and stale speed accessibly', () => {
+    const telemetry = {
+      version: 1 as const,
+      kind: 'archive.transfer' as const,
+      archiveImportId: 'archive-1',
+      downloadedBytes: String(318 * 1024 * 1024),
+      bytesPerSecond: 13_000_000,
+      activeDownloads: 2,
+      concurrencyLimit: 4,
+      completedItems: 3,
+      failedItems: 0,
+      totalItems: 10,
+      sampledAt: '2026-09-01T00:00:00.000Z'
+    }
+    const view = render(<ArchiveTransferStatus telemetry={telemetry} now={Date.parse(telemetry.sampledAt) + 1_000} />)
+    expect(screen.getByLabelText(/12.4 MB\/s · 有效已下载 318 MB · 2\/4 路/)).toBeTruthy()
+
+    view.rerender(
+      <ArchiveTransferStatus
+        telemetry={{ ...telemetry, activeDownloads: 0 }}
+        now={Date.parse(telemetry.sampledAt) + 1_000}
+      />
+    )
+    expect(screen.getByLabelText(/等待远端响应/)).toBeTruthy()
+
+    view.rerender(<ArchiveTransferStatus telemetry={telemetry} now={Date.parse(telemetry.sampledAt) + 6_000} />)
+    expect(screen.getByLabelText(/速度 —/)).toBeTruthy()
   })
 })

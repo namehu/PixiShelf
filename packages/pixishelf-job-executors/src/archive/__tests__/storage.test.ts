@@ -1,12 +1,14 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { Readable } from 'node:stream'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildArchiveStoragePaths,
   pathExists,
   prepareArchiveRevisionDirectory,
-  prepareArchiveStagingDirectory
+  prepareArchiveStagingDirectory,
+  storeArchiveRemoteMedia
 } from '../storage.js'
 
 const temporaryDirectories: string[] = []
@@ -37,6 +39,37 @@ describe('archive executor storage safety', () => {
     await mkdir(path.join(root, '.archive-staging'), { recursive: true })
 
     await expect(prepareArchiveStagingDirectory(root, '../outside')).rejects.toThrow('escapes')
+  })
+
+  it('reports streamed byte counts without retaining or rereading media chunks', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-archive-storage-'))
+    temporaryDirectories.push(root)
+    await mkdir(path.join(root, 'media'))
+    const image = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64'
+    )
+    const onChunk = vi.fn()
+
+    const stored = await storeArchiveRemoteMedia({
+      remote: {
+        stream: Readable.from([image.subarray(0, 20), image.subarray(20)]),
+        contentLength: image.length,
+        mimeType: 'image/png',
+        originalFilename: 'one.png',
+        quality: 'ORIGINAL',
+        remoteHost: 'example.test'
+      },
+      stagingDirectory: root,
+      index: 0,
+      expectedFilename: 'one.png',
+      signal: new AbortController().signal,
+      partialKey: 'attempt-1',
+      onChunk
+    })
+
+    expect(onChunk.mock.calls.map(([byteLength]) => byteLength)).toEqual([20, image.length - 20])
+    expect(stored.byteCount).toBe(BigInt(image.length))
   })
 
   it('publishes a new revision when its source hierarchy does not exist yet', async () => {

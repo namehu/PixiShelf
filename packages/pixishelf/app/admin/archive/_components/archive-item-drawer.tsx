@@ -39,18 +39,24 @@ export function ArchiveItemDrawer({
   open,
   task,
   onOpenChange,
-  onTaskChanged
+  onTaskChanged,
+  realtimeConnected = false,
+  liveRefreshVersion = 0
 }: {
   open: boolean
   task: ArchiveTask | null
   onOpenChange: (open: boolean) => void
   onTaskChanged: () => void | Promise<unknown>
+  realtimeConnected?: boolean
+  liveRefreshVersion?: number
 }) {
   const trpc = useTRPC()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [filter, setFilter] = useState<ArchiveItemFilter>('ALL')
   const partialFailure = Boolean(task?.status === 'FAILED' && task.errorCode === 'PARTIAL_FAILURE')
-  const polling = archiveItemPollingIntervals(task?.status ?? '')
+  const polling = realtimeConnected
+    ? { counts: false as const, items: false as const }
+    : archiveItemPollingIntervals(task?.status ?? '')
 
   useEffect(() => {
     if (!open || !task) return
@@ -89,6 +95,11 @@ export function ArchiveItemDrawer({
       onError: (error) => toast.error(archiveClientErrorMessage(error, '图片重试失败，请稍后再试。'))
     })
   )
+
+  useEffect(() => {
+    if (!open || !task || !realtimeConnected || liveRefreshVersion === 0) return
+    void Promise.all([countsQuery.refetch(), itemsQuery.refetch()])
+  }, [liveRefreshVersion, open, realtimeConnected, task?.id])
   const items = useMemo(() => itemsQuery.data?.pages.flatMap((batch) => batch.items) ?? [], [itemsQuery.data])
   const totalItems = countsQuery.data?.all ?? task?.totalItems ?? 0
   const filteredItems = filterCount(filter, countsQuery.data, task)

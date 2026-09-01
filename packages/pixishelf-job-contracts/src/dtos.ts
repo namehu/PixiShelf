@@ -68,6 +68,37 @@ export const jobEventDtoSchema = z.object({
 })
 export type JobEventDto = z.infer<typeof jobEventDtoSchema>
 
+export const jobLiveSummarySchema = z.object({
+  id: z.string().min(1),
+  type: jobTypeSchema,
+  executionLane: executionLaneSchema,
+  status: jobStatusSchema,
+  progress: z.number().int().min(0).max(100),
+  stage: z.string().nullable(),
+  message: z.string().nullable(),
+  errorCode: z.string().nullable(),
+  attempt: z.number().int().nonnegative(),
+  parentJobId: z.string().nullable(),
+  heartbeatAt: isoDateTimeSchema.nullable(),
+  startedAt: isoDateTimeSchema.nullable(),
+  finishedAt: isoDateTimeSchema.nullable(),
+  updatedAt: isoDateTimeSchema
+})
+export type JobLiveSummary = z.infer<typeof jobLiveSummarySchema>
+
+export const jobEventStreamItemSchema = z.object({
+  event: jobEventDtoSchema,
+  job: jobLiveSummarySchema
+})
+export type JobEventStreamItem = z.infer<typeof jobEventStreamItemSchema>
+
+export const jobEventStreamBatchSchema = z.object({
+  version: z.literal(1),
+  cursor: bigintStringSchema,
+  items: z.array(jobEventStreamItemSchema).max(200)
+})
+export type JobEventStreamBatch = z.infer<typeof jobEventStreamBatchSchema>
+
 export const WORKER_PRESENCE_STATUS_VALUES = ['STARTING', 'READY', 'DEGRADED', 'STOPPING'] as const
 export const workerPresenceStatusSchema = z.enum(WORKER_PRESENCE_STATUS_VALUES)
 export type WorkerPresenceStatus = z.infer<typeof workerPresenceStatusSchema>

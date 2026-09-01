@@ -13,7 +13,7 @@ export function PreferenceItem({ title, description, children }: PreferenceItemP
         <h2 className="text-sm font-semibold text-foreground">{title}</h2>
         <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">{description}</p>
       </div>
-      <div className="min-w-0 sm:justify-self-end sm:self-start">{children}</div>
+      <div className="w-full min-w-0 sm:justify-self-end sm:self-start">{children}</div>
     </section>
   )
 }

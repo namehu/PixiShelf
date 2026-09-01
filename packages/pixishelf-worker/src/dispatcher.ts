@@ -693,7 +693,8 @@ function createExecutionLogger(logger: WorkerLogger, job: ClaimedJob) {
 }
 
 function createProgressReporter(queue: DispatcherQueuePort, fence: ExecutionFence, timing: DispatcherTiming) {
-  let lastPersisted: { progress: number; stage?: string | null; at: number } | null = null
+  let lastStandard: { progress: number; stage?: string | null; at: number } | null = null
+  let lastRealtimeAt: number | null = null
   return async (update: ExecutionProgressUpdate) => {
     const now = timing.now().getTime()
     const isWarning =
@@ -701,17 +702,40 @@ function createProgressReporter(queue: DispatcherQueuePort, fence: ExecutionFenc
       update.data !== null &&
       'level' in update.data &&
       (update.data as { level?: unknown }).level === 'WARN'
-    const stageChanged = update.stage !== undefined && (!lastPersisted || update.stage !== lastPersisted.stage)
+    const stageChanged = update.stage !== undefined && (!lastStandard || update.stage !== lastStandard.stage)
     const percentageReady =
-      !lastPersisted || (Math.abs(update.progress - lastPersisted.progress) >= 5 && now - lastPersisted.at >= 30_000)
-    if (!lastPersisted || update.progress === 100 || stageChanged || isWarning || percentageReady) {
+      !lastStandard || (Math.abs(update.progress - lastStandard.progress) >= 5 && now - lastStandard.at >= 30_000)
+    const realtimeReady = lastRealtimeAt === null || now - lastRealtimeAt >= 2_000
+    if (update.forcePersistence) {
       await queue.updateProgress({ ...fence, ...update })
-      lastPersisted = {
+      if (update.persistenceMode === 'REALTIME') lastRealtimeAt = now
+      else {
+        lastStandard = {
+          progress: update.progress,
+          ...(update.stage === undefined
+            ? lastStandard?.stage === undefined
+              ? {}
+              : { stage: lastStandard.stage }
+            : { stage: update.stage }),
+          at: now
+        }
+      }
+      return
+    }
+    if (update.persistenceMode === 'REALTIME' && !stageChanged && !isWarning && update.progress !== 100) {
+      if (!realtimeReady) return
+      await queue.updateProgress({ ...fence, ...update })
+      lastRealtimeAt = now
+      return
+    }
+    if (!lastStandard || update.progress === 100 || stageChanged || isWarning || percentageReady) {
+      await queue.updateProgress({ ...fence, ...update })
+      lastStandard = {
         progress: update.progress,
         ...(update.stage === undefined
-          ? lastPersisted?.stage === undefined
+          ? lastStandard?.stage === undefined
             ? {}
-            : { stage: lastPersisted.stage }
+            : { stage: lastStandard.stage }
           : { stage: update.stage }),
         at: now
       }

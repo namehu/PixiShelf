@@ -370,6 +370,67 @@ describe('CentralDispatcher', () => {
     expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([0, 5, 6, 7, 100])
   })
 
+  it('limits realtime progress independently without delaying standard events', async () => {
+    let now = 0
+    const queue = createQueue([claimedJob('job-realtime-progress')])
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      execute: async ({ progress }) => {
+        await progress({ progress: 1, data: { sample: 1 }, persistenceMode: 'REALTIME' })
+        now += 1_000
+        await progress({ progress: 2, data: { sample: 2 }, persistenceMode: 'REALTIME' })
+        await progress({ progress: 2, stage: 'VERIFYING' })
+        now += 1_000
+        await progress({ progress: 3, data: { sample: 3 }, persistenceMode: 'REALTIME' })
+        await progress({ progress: 4, data: { level: 'WARN' } })
+        return { kind: 'completed' }
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry, {
+      timing: { now: () => new Date(now), sleep: (_milliseconds, signal) => aborted(signal) }
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
+    await dispatcher.stop()
+
+    expect(queue.updateProgress.mock.calls.map(([update]) => [update.progress, update.persistenceMode])).toEqual([
+      [1, 'REALTIME'],
+      [2, undefined],
+      [3, 'REALTIME'],
+      [4, undefined]
+    ])
+  })
+
+  it('persists a forced realtime final sample inside the normal throttle window', async () => {
+    let now = 0
+    const queue = createQueue([claimedJob('job-realtime-flush')])
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      execute: async ({ progress }) => {
+        await progress({ progress: 10, persistenceMode: 'REALTIME' })
+        now += 100
+        await progress({ progress: 11, persistenceMode: 'REALTIME' })
+        await progress({ progress: 11, persistenceMode: 'REALTIME', forcePersistence: true })
+        return { kind: 'completed' }
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry, {
+      timing: { now: () => new Date(now), sleep: (_milliseconds, signal) => aborted(signal) }
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
+    await dispatcher.stop()
+
+    expect(queue.updateProgress.mock.calls.map(([update]) => [update.progress, update.forcePersistence])).toEqual([
+      [10, undefined],
+      [11, true]
+    ])
+  })
+
   it('aborts and acknowledges cancellation with the canonical outcome', async () => {
     const queue = createQueue([claimedJob('job-cancel')])
     queue.readExecutionControl.mockResolvedValue({

@@ -436,6 +436,7 @@ function serializeTask(task: ArchiveTaskWire) {
       : archiveWireErrorMessage(task.errorCode, task.systemJob.message)
   return {
     id: task.id,
+    systemJobId: task.systemJob.id,
     providerKey: task.providerKey,
     externalId: task.externalId,
     submittedUrl: redactArchiveUrl(task.submittedUrl),

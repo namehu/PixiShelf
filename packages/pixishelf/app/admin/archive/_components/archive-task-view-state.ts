@@ -58,7 +58,12 @@ export function archiveMaintenanceRetryAction(lifecycleState?: string | null): A
   return null
 }
 
-export function archiveTaskPollingInterval(tasks: readonly ArchiveTaskStateLike[]): number {
+export function archiveTaskPollingInterval(tasks: readonly ArchiveTaskStateLike[], realtimeConnected = false): number {
+  if (realtimeConnected) {
+    return tasks.some((task) => ARCHIVE_TASK_ACTIVE_STATUSES.includes(archiveTaskDisplayStatus(task) as never))
+      ? 30_000
+      : 60_000
+  }
   return tasks.some((task) => ARCHIVE_TASK_ACTIVE_STATUSES.includes(archiveTaskDisplayStatus(task) as never))
     ? 1_500
     : 8_000

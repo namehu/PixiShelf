@@ -7,6 +7,7 @@ import {
   workerHealthDtoSchema,
   type JobDto,
   type JobEventDto,
+  type JobLiveSummary,
   type JsonValue,
   type WorkerHealthDto
 } from '@pixishelf/job-contracts'
@@ -67,6 +68,23 @@ export const systemJobEventWireSelect = {
   job: { select: { type: true } }
 } satisfies Prisma.SystemJobEventSelect
 
+export const systemJobLiveSummarySelect = {
+  id: true,
+  type: true,
+  executionLane: true,
+  status: true,
+  progress: true,
+  stage: true,
+  message: true,
+  errorCode: true,
+  attempt: true,
+  parentJobId: true,
+  heartbeatAt: true,
+  startedAt: true,
+  finishedAt: true,
+  updatedAt: true
+} satisfies Prisma.SystemJobSelect
+
 export const workerInstanceWireSelect = {
   workerId: true,
   status: true,
@@ -82,6 +100,7 @@ export const workerInstanceWireSelect = {
 
 export type SystemJobWireRecord = Prisma.SystemJobGetPayload<{ select: typeof systemJobWireSelect }>
 export type SystemJobEventWireRecord = Prisma.SystemJobEventGetPayload<{ select: typeof systemJobEventWireSelect }>
+export type SystemJobLiveSummaryRecord = Prisma.SystemJobGetPayload<{ select: typeof systemJobLiveSummarySelect }>
 export type WorkerInstanceWireRecord = Prisma.WorkerInstanceGetPayload<{ select: typeof workerInstanceWireSelect }>
 
 function iso(value: Date | null) {
@@ -119,6 +138,18 @@ export function toJobEventDto(record: SystemJobEventWireRecord): JobEventDto {
     data: sanitizeJsonValue(record.data, redactText),
     createdAt: record.createdAt.toISOString()
   })
+}
+
+export function toJobLiveSummary(record: SystemJobLiveSummaryRecord): JobLiveSummary {
+  return {
+    ...record,
+    type: jobTypeSchema.parse(record.type),
+    message: wireTextRedactor(record.type)(record.message),
+    heartbeatAt: iso(record.heartbeatAt),
+    startedAt: iso(record.startedAt),
+    finishedAt: iso(record.finishedAt),
+    updatedAt: record.updatedAt.toISOString()
+  }
 }
 
 function wireTextRedactor(jobType: string): WireTextRedactor {

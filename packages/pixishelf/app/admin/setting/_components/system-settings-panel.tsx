@@ -7,6 +7,7 @@ import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { PreferenceItem } from '@/app/settings/_components/preference-item'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { ArchiveDefaultTagBackfillControl } from './archive-default-tag-backfill-control'
+import { ArchiveDownloadConcurrencySetting } from './archive-download-concurrency-setting'
 
 export function SystemSettingsPanel() {
   const trpc = useTRPC()
@@ -151,6 +152,8 @@ export function SystemSettingsPanel() {
           <h2 className="text-lg font-semibold text-foreground">系统设置</h2>
           <p className="mt-1 text-sm text-muted-foreground">配置对所有用户和后台流程生效的系统级选项。</p>
         </div>
+
+        <ArchiveDownloadConcurrencySetting />
 
         <PreferenceItem
           title="作品全量替换默认标签"

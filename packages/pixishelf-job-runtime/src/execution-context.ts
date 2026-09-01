@@ -5,6 +5,8 @@ export interface ExecutionProgressUpdate {
   stage?: string | null
   message?: string | null
   data?: unknown
+  persistenceMode?: 'STANDARD' | 'REALTIME'
+  forcePersistence?: boolean
 }
 
 export interface ChildJobRequest<TPayload = unknown> {

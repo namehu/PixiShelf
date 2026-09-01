@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 任务计划、中央 Worker、扫描、本地导入、归档及派生媒体任务的当前业务链路与状态边界
-last-verified: 2026-08-28
+last-verified: 2026-09-01
 sources:
   - packages/pixishelf/app/api/internal/scheduler/tick/route.ts
   - packages/pixishelf/services/background-task/
@@ -441,7 +441,8 @@ flowchart TD
   READY --> SELECT[管理员选择 ORIGINAL 或 DISPLAY 并入队]
   SELECT --> IMPORT[事务创建/复用 ARCHIVE_IMPORT\n冻结 import items]
   IMPORT --> WRITER[writer lane 领取]
-  WRITER --> STAGING[确定性 staging；每项内部下载并发 2\n逐文件流式下载、大小/类型/hash/尺寸校验]
+  WRITER --> CONFIG[同一 advisory lock 读取后台设置\n冻结本次媒体并发 1-8]
+  CONFIG --> STAGING[确定性 staging；按冻结并发流式下载\n大小/类型/hash/尺寸校验和实时字节计量]
   STAGING --> ALL{所有媒体校验通过?}
   ALL -->|否| KEEP[保留检查点和 staging\n重试或失败后由维护清理]
   ALL -->|是| MANIFEST[Worker 写 manifest.json]
@@ -459,6 +460,8 @@ flowchart TD
 - “归档默认标签”在 App 创建 `ARCHIVE_IMPORT@v2` 时冻结 ID；Worker 发布归档作品时保留来源标签，并把仍存在的默认标签以 `MANUAL` provenance 幂等追加。旧 `ARCHIVE_IMPORT@v1` 继续按空默认标签执行，避免历史队列失效。
 - 归档 `manifest.json` 是 Worker 在归档 staging/revision 中生成的发布清单。它不会出现在普通 `local-imports` 发现链路中，也不会触发本地导入默认标签。
 - 网络下载和 FFmpeg/文件流不放进长数据库事务。最终领域发布使用短 fenced transaction，避免失去 lease 的旧执行者发布结果。
+- 归档媒体并发从 `Setting.archive_media_concurrency` 读取，默认 2；Executor worker 数和 Provider permit 容量使用同一冻结值。`BACKGROUND_WRITER` 仍只有一个任务执行槽。
+- `ExecutionProgressUpdate` 的实时模式最多每两秒持久化一条传输事件，不延迟阶段、警告、控制和终态事件。管理端使用全局 `SystemJobEvent.id` 通过 `/api/jobs/events` 追赶；SSE 断线不改变 PostgreSQL 事实源。
 
 ### 归档维护
 

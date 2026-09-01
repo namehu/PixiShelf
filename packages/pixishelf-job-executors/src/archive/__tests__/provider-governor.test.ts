@@ -161,11 +161,16 @@ describe('GovernedArchiveProviderRegistry', () => {
 
     const remote = await governed.openMedia(mediaItem(), {
       quality: 'ORIGINAL',
-      signal: new AbortController().signal
+      signal: new AbortController().signal,
+      maxConcurrentDownloads: 4
     })
 
     expect(governor.acquire).toHaveBeenCalledTimes(2)
     expect(governor.acquire.mock.calls.map((call) => call[1])).toEqual(['DOWNLOAD', 'DOWNLOAD'])
+    expect(governor.acquire.mock.calls.map((call) => call[3])).toEqual([
+      { maxConcurrentDownloads: 4 },
+      { maxConcurrentDownloads: 4 }
+    ])
     expect(governor.release).toHaveBeenCalledOnce()
     remote.stream.resume()
     stream.end()
@@ -287,8 +292,13 @@ function createPermit(requestClass: 'RESOLVE' | 'DOWNLOAD', renewAfterMs = 1_000
 
 function createGovernor(options: { renewAfterMs?: number } = {}) {
   return {
-    acquire: vi.fn(async (_providerKey: string, requestClass: 'RESOLVE' | 'DOWNLOAD') =>
-      createPermit(requestClass, options.renewAfterMs)
+    acquire: vi.fn(
+      async (
+        _providerKey: string,
+        requestClass: 'RESOLVE' | 'DOWNLOAD',
+        _signal: AbortSignal,
+        _options?: { yieldToDownloads?: boolean; maxConcurrentDownloads?: number }
+      ) => createPermit(requestClass, options.renewAfterMs)
     ),
     renew: vi.fn(async (_permit: ArchiveProviderPermit) => undefined),
     release: vi.fn(async (_permit: ArchiveProviderPermit) => undefined),

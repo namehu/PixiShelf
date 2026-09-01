@@ -41,6 +41,13 @@ vi.mock('@/lib/trpc', () => ({
         queryOptions: () => ({ queryKey: ['setting', 'getSystemSettings'] }),
         queryKey: () => ['setting', 'getSystemSettings']
       },
+      getArchiveDownloadSettings: {
+        queryOptions: () => ({ queryKey: ['setting', 'getArchiveDownloadSettings'] }),
+        queryKey: () => ['setting', 'getArchiveDownloadSettings']
+      },
+      updateArchiveDownloadSettings: {
+        mutationOptions: (options: any) => ({ ...options, kind: 'updateArchiveDownloadSettings' })
+      },
       updateSystemSettings: {
         mutationOptions: (options: any) => ({ ...options, kind: 'updateSystemSettings' })
       }
@@ -67,7 +74,19 @@ vi.mock('@tanstack/react-query', () => ({
   useQuery: (options: any) => {
     const queryKey = options?.queryKey ?? []
 
-    if (queryKey[0] === 'setting') {
+    if (queryKey[1] === 'getArchiveDownloadSettings') {
+      return {
+        data: {
+          mediaConcurrency: 2,
+          canUpdate: true,
+          blockingArchiveImportId: null
+        },
+        isLoading: false,
+        refetch: vi.fn()
+      }
+    }
+
+    if (queryKey[1] === 'getSystemSettings') {
       return {
         data: {
           settings: {
@@ -118,6 +137,7 @@ describe('SystemSettingsPanel', () => {
   it('renders saved default tags and saves changed tag ids', () => {
     render(<SystemSettingsPanel />)
 
+    expect(screen.getByText('归档下载并发')).toBeTruthy()
     expect(screen.getByText('tag-a')).toBeTruthy()
     expect(screen.getByText('tag-b')).toBeTruthy()
     expect(screen.getByText('tag-local')).toBeTruthy()

@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前调用者、页面、HTTP、tRPC、Server Action、服务网络和存储权限边界
-last-verified: 2026-08-27
+last-verified: 2026-09-01
 sources:
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/lib/auth/
@@ -117,6 +117,7 @@ sources:
 | `POST /api/scan/stream`                         | Session（双层，`requireAdminRequest`）                  | 入队或执行目录发现/列表扫描；拒绝全目录强制刷新                                                                 | 高，数据库和原媒体目录读取                                      |
 | `POST /api/scan/rescan`                         | Session（双层，`requireAdminRequest`）                  | 重扫一个 Artwork，更新目录与审计                                                                                | 高，数据库和文件关系变化                                        |
 | `POST /api/migration/stream`                    | Session（双层，`requireAdminRequest`）                  | 入队或执行迁移、复制/移动/清理                                                                                  | 最高，可能修改原媒体                                            |
+| `GET /api/jobs/events`                          | Session（双层，`requireAdminRequest`）                  | 只读 definition v1+ 的脱敏 Job 事件和实时摘要；不含 payload/result/lease token                                 | 中；长连接可观察全部后台任务状态                                |
 | `POST /api/artwork/[id]/replace`                | Session（代理）                                         | 初始化、提交或回滚媒体替换会话                                                                                  | 最高，数据库与原媒体写入                                        |
 | `GET/POST /api/artwork/upload-chunk`            | Session（代理）                                         | 查询上传状态、写入媒体分块                                                                                      | 高，原媒体写入                                                  |
 | `POST /api/artwork/media-chapters/upload`       | Session（代理）                                         | 上传章节 manifest                                                                                               | 高，数据库/派生或媒体侧写入                                     |
@@ -149,7 +150,7 @@ Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态
 | `search`         | 搜索建议                                                                  | 无                                                                                      | `authProcedure`                                                                                   |
 | `tag`            | 查询、管理列表与 Pixiv 补全状态                                           | 创建、修改、删除、批量补全与单标签重试                                                  | 普通管理为 `authProcedure`；Pixiv 补全读写为 `adminProcedure`                                     |
 | `series`         | `list`、`get`、Pixiv 系列核对汇总                                         | 创建、修改、删除、成员增删与排序、Pixiv 系列核对/取消/重试                              | 普通读取为 `publicProcedure`、普通写入为 `authProcedure`；Pixiv 任务控制为 `adminProcedure`       |
-| `setting`        | 健康、扫描路径、系统设置、历史归档标签补全状态                            | 修改扫描路径/系统设置；预览、启动和取消历史归档标签补全                                 | 既有设置读写为 `authProcedure`；补全状态读取为 `authProcedure`，预览与控制为 `adminProcedure`     |
+| `setting`        | 健康、扫描路径、系统设置、归档下载并发、历史归档标签补全状态                | 修改扫描路径/系统设置/归档下载并发；预览、启动和取消历史归档标签补全                    | 归档下载并发读写和补全控制为 `adminProcedure`；其余既有设置边界保持不变                           |
 | `user`           | 全部账户                                                                  | 创建、删除其他账户                                                                      | 全部 `authProcedure`；新增账户拥有同等管理员能力                                                  |
 | `userSetting`    | 当前账户设置                                                              | 写入主要通过 Server Action                                                              | `authProcedure`，以 `userId` 限定当前账户                                                         |
 | `scanRun`        | 扫描历史、详情                                                            | 无                                                                                      | `authProcedure`                                                                                   |

@@ -5,9 +5,10 @@ import {
   TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME,
   type EnqueuedChildJob,
   type ExecutionContext,
+  type ExecutionProgressUpdate,
   type FencedExecutionTransaction
 } from '@pixishelf/job-runtime'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { publishMock, storageMocks } = vi.hoisted(() => ({
   publishMock: vi.fn(),
@@ -120,6 +121,8 @@ describe('archive executor', () => {
     publishMock.mockResolvedValue({ artworkId: 42, revisionId: 'import-1', archivePath: 'sources/test/42' })
   })
 
+  afterEach(() => vi.useRealTimers())
+
   it('registers backward-compatible ARCHIVE_IMPORT v1 and frozen-default-tag v2 executors', () => {
     const registrations = createArchiveExecutorRegistrations(dependencies(createTransaction()))
     expect(registrations).toHaveLength(2)
@@ -134,6 +137,30 @@ describe('archive executor', () => {
       defaultTagIds: [2, 5]
     })
     expect(() => registrations[0]!.parsePayload?.({ archiveImportId: '' })).toThrow()
+  })
+
+  it('reads and freezes database media concurrency under the shared advisory lock', async () => {
+    const transaction = createTransaction()
+    const context = createContext(transaction)
+    const base = dependencies(transaction)
+    const executorDependencies = {
+      ...base,
+      config: { scanRoot: base.config.scanRoot, maxMediaAttempts: base.config.maxMediaAttempts }
+    }
+
+    await executeArchiveImport(context, executorDependencies)
+
+    expect(transaction.$queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('pg_advisory_xact_lock(hashtextextended'),
+      'pixishelf:archive-media-concurrency'
+    )
+    expect(transaction.setting.findUnique).toHaveBeenCalledWith({
+      where: { key: 'archive_media_concurrency' },
+      select: { value: true }
+    })
+    expect(transaction.$queryRawUnsafe.mock.invocationCallOrder[0]).toBeLessThan(
+      transaction.setting.findUnique.mock.invocationCallOrder[0]!
+    )
   })
 
   it('publishes domain state and completes the queue in the same fenced transaction callback', async () => {
@@ -465,6 +492,52 @@ describe('archive executor', () => {
     await vi.waitFor(() => expect(governor.release).toHaveBeenCalledWith(permit))
   })
 
+  it('aborts an in-flight remote stream when realtime progress loses its execution fence', async () => {
+    vi.useFakeTimers()
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({
+      ...archiveImport,
+      totalItems: 1,
+      items: [archiveItem]
+    })
+    transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    const stream = new PassThrough()
+    stream.on('error', () => undefined)
+    const executorDependencies = dependencies(transaction)
+    executorDependencies.providers = new DefaultArchiveMediaProviderRegistry([
+      {
+        key: 'test',
+        openMedia: vi.fn(async () => ({
+          stream,
+          mimeType: 'image/jpeg',
+          contentLength: null,
+          originalFilename: '001.jpg',
+          quality: 'ORIGINAL' as const,
+          remoteHost: 'example.test'
+        }))
+      }
+    ])
+    storageMocks.storeArchiveRemoteMedia.mockImplementationOnce(
+      async ({ signal }: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+    )
+    const context = createContext(transaction)
+    const fenceFailure = new JobExecutionFenceError('job-1')
+    context.progress.mockImplementation(async (update) => {
+      if (update.persistenceMode === 'REALTIME') throw fenceFailure
+    })
+
+    const execution = executeArchiveImport(context, executorDependencies)
+    await vi.waitFor(() => expect(storageMocks.storeArchiveRemoteMedia).toHaveBeenCalledOnce())
+    await vi.advanceTimersByTimeAsync(1_000)
+    await execution.catch(() => undefined)
+
+    expect(stream.destroyed).toBe(true)
+    expect(context.progress).toHaveBeenCalledWith(expect.objectContaining({ persistenceMode: 'REALTIME' }))
+  })
+
   it('performs no domain callback or terminal settlement after the execution fence is lost', async () => {
     const transaction = createTransaction()
     const context = createContext(transaction)
@@ -499,6 +572,10 @@ function dependencies(transaction: ReturnType<typeof createTransaction>) {
 
 function createTransaction() {
   return {
+    $queryRawUnsafe: vi.fn(async () => [{ lock: null }]),
+    setting: {
+      findUnique: vi.fn(async () => ({ value: '4' }))
+    },
     archiveImport: {
       findUnique: vi.fn(async () => archiveImport),
       updateMany: vi.fn(async () => ({ count: 1 })),
@@ -511,6 +588,8 @@ function createTransaction() {
       count: vi.fn(async () => 0)
     }
   } as unknown as Prisma.TransactionClient & {
+    $queryRawUnsafe: ReturnType<typeof vi.fn>
+    setting: { findUnique: ReturnType<typeof vi.fn> }
     archiveImport: {
       findUnique: ReturnType<typeof vi.fn>
       updateMany: ReturnType<typeof vi.fn>
@@ -593,6 +672,7 @@ function createContext(
     EnqueuedChildJob
   > & {
     finalizeInTransaction: ReturnType<typeof vi.fn>
+    progress: ReturnType<typeof vi.fn<(update: ExecutionProgressUpdate) => Promise<void>>>
     __scope: typeof scope
   }
 }

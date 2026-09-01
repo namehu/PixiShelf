@@ -13,9 +13,12 @@ import {
   TERMINAL_JOB_STATUSES,
   VIDEO_FILE_EXTENSIONS,
   archiveImportV2PayloadSchema,
+  archiveMediaConcurrencySchema,
+  archiveTransferTelemetrySchema,
   bigintStringSchema,
   canonicalizeAuditApplyInputs,
   jobEventDtoSchema,
+  jobEventStreamBatchSchema,
   parseJobPayload,
   scanV2PayloadSchema,
   scanV3PayloadSchema,
@@ -529,6 +532,30 @@ describe('job wire contracts', () => {
     }
     expect(jobEventDtoSchema.parse(event)).toEqual(event)
     expect(() => jobEventDtoSchema.parse({ ...event, createdAt: new Date() })).toThrow()
+  })
+
+  it('bounds archive transfer settings and publishes versioned telemetry batches', () => {
+    expect(archiveMediaConcurrencySchema.parse('1')).toBe(1)
+    expect(archiveMediaConcurrencySchema.parse(8)).toBe(8)
+    expect(() => archiveMediaConcurrencySchema.parse(0)).toThrow()
+    expect(() => archiveMediaConcurrencySchema.parse(9)).toThrow()
+
+    const telemetry = {
+      version: 1,
+      kind: 'archive.transfer',
+      archiveImportId: 'archive-1',
+      downloadedBytes: '318000000',
+      bytesPerSecond: 13_000_000,
+      activeDownloads: 2,
+      concurrencyLimit: 4,
+      completedItems: 10,
+      failedItems: 1,
+      totalItems: 20,
+      sampledAt: '2026-08-14T10:00:00.000Z'
+    }
+    expect(archiveTransferTelemetrySchema.parse(telemetry)).toEqual(telemetry)
+    expect(() => archiveTransferTelemetrySchema.parse({ ...telemetry, downloadedBytes: -1 })).toThrow()
+    expect(() => jobEventStreamBatchSchema.parse({ version: 1, cursor: '0', items: Array(201).fill({}) })).toThrow()
   })
 
   it('validates the WorkerInstance wire shape without Date values', () => {

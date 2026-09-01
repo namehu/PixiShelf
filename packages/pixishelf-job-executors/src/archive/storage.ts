@@ -66,6 +66,7 @@ export async function storeArchiveRemoteMedia(input: {
   signal: AbortSignal
   maxBytes?: number
   partialKey: string
+  onChunk?: (byteLength: number) => void
 }): Promise<StoredArchiveMedia> {
   throwIfAborted(input.signal)
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_MEDIA_BYTES
@@ -106,6 +107,7 @@ export async function storeArchiveRemoteMedia(input: {
       throwIfAborted(input.signal)
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
       byteCount += buffer.length
+      input.onChunk?.(buffer.length)
       if (byteCount > maxBytes) {
         throw new ArchiveExecutorError('DOWNLOAD_TOO_LARGE', `Archive media exceeds ${maxBytes} bytes`, {
           stage: 'MEDIA_STREAM',

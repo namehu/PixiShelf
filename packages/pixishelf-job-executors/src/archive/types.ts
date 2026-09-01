@@ -79,16 +79,14 @@ export interface ArchiveProviderContext {
 
 export interface ArchiveDownloadContext extends ArchiveProviderContext {
   quality: ArchiveQuality
+  maxConcurrentDownloads?: number
   runDownloadRequest?<T>(operation: () => Promise<T>): Promise<T>
   runDownloadStreamRequest?<T extends { stream: Readable }>(operation: () => Promise<T>): Promise<T>
 }
 
 export interface ArchiveMediaProvider {
   readonly key: string
-  openMedia(
-    item: ArchiveProviderMediaItem,
-    context: { quality: ArchiveQuality; signal: AbortSignal }
-  ): Promise<ArchiveRemoteMedia>
+  openMedia(item: ArchiveProviderMediaItem, context: ArchiveDownloadContext): Promise<ArchiveRemoteMedia>
 }
 
 export interface ArchiveProvider extends ArchiveMediaProvider {

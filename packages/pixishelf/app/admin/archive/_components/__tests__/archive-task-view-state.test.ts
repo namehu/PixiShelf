@@ -123,6 +123,8 @@ describe('polling and labels', () => {
     expect(archiveTaskPollingInterval([{ status: 'PENDING', systemJobStatus: 'RETRY_WAIT' }])).toBe(1_500)
     expect(archiveTaskPollingInterval([{ status: 'COMPLETED' }])).toBe(8_000)
     expect(archiveTaskPollingInterval([{ status: 'RUNNING', systemJobStatus: 'PAUSED' }])).toBe(8_000)
+    expect(archiveTaskPollingInterval([{ status: 'RUNNING' }], true)).toBe(30_000)
+    expect(archiveTaskPollingInterval([{ status: 'COMPLETED' }], true)).toBe(60_000)
   })
 
   it('maps partial failures and lane states to user-facing labels', () => {

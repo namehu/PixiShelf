@@ -10,6 +10,15 @@ import {
   startArchiveDefaultTagBackfill
 } from '@/services/archive-default-tag-backfill-service'
 import z from 'zod'
+import {
+  ARCHIVE_MEDIA_CONCURRENCY_MAX,
+  ARCHIVE_MEDIA_CONCURRENCY_MIN
+} from '@pixishelf/job-contracts'
+import {
+  ArchiveDownloadSettingsConflictError,
+  getArchiveDownloadSettings,
+  updateArchiveDownloadSettings
+} from '@/services/archive/archive-download-settings-service'
 
 export const settingRouter = router({
   /**
@@ -45,6 +54,38 @@ export const settingRouter = router({
     const settings = await upsertSystemSettings(input)
     return systemSettingsResponseDTO.parse({ settings })
   }),
+
+  getArchiveDownloadSettings: adminProcedure.query(() => getArchiveDownloadSettings()),
+
+  updateArchiveDownloadSettings: adminProcedure
+    .input(
+      z
+        .object({
+          mediaConcurrency: z
+            .number()
+            .int()
+            .min(ARCHIVE_MEDIA_CONCURRENCY_MIN)
+            .max(ARCHIVE_MEDIA_CONCURRENCY_MAX)
+        })
+        .strict()
+    )
+    .mutation(async ({ input }) => {
+      try {
+        return await updateArchiveDownloadSettings(input.mediaConcurrency)
+      } catch (error) {
+        if (error instanceof ArchiveDownloadSettingsConflictError) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: error.message,
+            cause: {
+              blockingSystemJobId: error.blockingSystemJobId,
+              blockingArchiveImportId: error.blockingArchiveImportId
+            }
+          })
+        }
+        throw error
+      }
+    }),
 
   getArchiveDefaultTagBackfillStatus: authProcedure.query(() => getArchiveDefaultTagBackfillStatus()),
 

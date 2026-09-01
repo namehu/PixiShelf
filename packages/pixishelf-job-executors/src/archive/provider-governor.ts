@@ -15,6 +15,7 @@ export interface ArchiveProviderPermit {
 
 export interface ArchiveProviderAcquireOptions {
   yieldToDownloads?: boolean
+  maxConcurrentDownloads?: number
 }
 
 export interface ArchiveProviderGovernor {
@@ -65,6 +66,8 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
     options: ArchiveProviderAcquireOptions = {}
   ): Promise<ArchiveProviderPermit> {
     const providerKey = normalizeProviderKey(providerKeyInput)
+    const maxConcurrentDownloads = options.maxConcurrentDownloads ?? this.maxConcurrentDownloads
+    assertPositiveInteger('maxConcurrentDownloads', maxConcurrentDownloads)
     // The throttle row is locked inside a serializable transaction so separate
     // workers cannot observe the same interval/capacity and both issue a request.
     while (true) {
@@ -107,7 +110,7 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
             if (requestClass === 'RESOLVE' && activeDownloads.length > 0) {
               return { waitUntil: activeDownloads[0]!.expiresAt, reason: 'DOWNLOAD_ACTIVE' as const }
             }
-            if (requestClass === 'DOWNLOAD' && activeDownloads.length >= this.maxConcurrentDownloads) {
+            if (requestClass === 'DOWNLOAD' && activeDownloads.length >= maxConcurrentDownloads) {
               return { waitUntil: activeDownloads[0]!.expiresAt, reason: 'DOWNLOAD_CAPACITY' as const }
             }
 
@@ -277,13 +280,23 @@ class GovernedArchiveProvider implements ArchiveProvider {
     const signal = context.signal ?? new AbortController().signal
     const linked = linkedAbortController(signal)
     const governedStream: { value: Readable | null } = { value: null }
+    const acquireOptions =
+      context.maxConcurrentDownloads === undefined
+        ? {}
+        : { maxConcurrentDownloads: context.maxConcurrentDownloads }
     try {
       const remote = await this.delegate.openMedia(item, {
         ...context,
         signal: linked.controller.signal,
-        runDownloadRequest: (operation) => this.runWithPermit('DOWNLOAD', linked.controller, operation),
+        runDownloadRequest: (operation) =>
+          this.runWithPermit('DOWNLOAD', linked.controller, operation, acquireOptions),
         runDownloadStreamRequest: async (operation) => {
-          const response = await this.runWithStreamPermit(linked.controller, operation, linked.dispose)
+          const response = await this.runWithStreamPermit(
+            linked.controller,
+            operation,
+            linked.dispose,
+            acquireOptions
+          )
           governedStream.value = response.stream
           return response
         }
@@ -328,9 +341,10 @@ class GovernedArchiveProvider implements ArchiveProvider {
   private async runWithStreamPermit<T extends { stream: Readable }>(
     controller: AbortController,
     operation: () => Promise<T>,
-    onSettlement: () => void
+    onSettlement: () => void,
+    options: ArchiveProviderAcquireOptions
   ): Promise<T> {
-    const permit = await this.governor.acquire(this.key, 'DOWNLOAD', controller.signal)
+    const permit = await this.governor.acquire(this.key, 'DOWNLOAD', controller.signal, options)
     let response: T | null = null
     const stopRenewal = startPermitRenewal(this.governor, permit, (error) => {
       controller.abort(error)

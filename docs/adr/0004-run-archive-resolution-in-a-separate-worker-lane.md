@@ -5,6 +5,7 @@ scope: 单通用 Worker 内的归档解析与媒体写入资源通道
 last-verified: 2026-08-19
 supersedes-in-part: ./0003-unify-background-jobs-under-a-durable-single-worker.md
 implementation: ../features/archive-intake.md
+superseded-in-part-by: ./0006-freeze-database-configured-archive-media-concurrency.md
 ---
 
 # Run archive resolution in a separate worker lane
@@ -70,7 +71,7 @@ Dispatcher 在 `await` 时会把事件循环交给另一个 lane，因此同一 
 1. `ARCHIVE_RESOLVE` 不获得原媒体或派生媒体写能力。
 2. 任意时刻最多一个 writer job 处于有效执行状态。
 3. 任意时刻最多一个 archive resolve job 处于有效执行状态。
-4. 单个 `ARCHIVE_IMPORT` 内部最多 2 个媒体请求的领域并发保持不变。
+4. 单个 `ARCHIVE_IMPORT` 的媒体请求并发由数据库后台设置决定，并在每次执行启动时冻结；见 ADR-0006。
 5. 解析和下载共享 Provider 级请求预算；下载优先，解析在限流时退避。
 6. 网络、FFmpeg 和文件复制不得放入长数据库事务。
 7. 一个 lane 的不可恢复基础设施错误终止整个 Worker，避免半存活 READY 进程。
@@ -131,7 +132,7 @@ Rejected for this change. 其他任务的目录、数据库和 CPU 资源关系�
 ### Accepted trade-off
 
 PixiShelf 接受最多两个不同资源类别的后台任务同时推进，以换取收件解析与媒体写入互不饥饿。产品不接受
-第二个 writer、多个解析消费者或任意任务并行。简单运维仍优先于吞吐量，因此并发数不暴露为环境变量。
+第二个 writer、多个解析消费者或任意任务并行。简单运维仍优先于吞吐量，因此 lane 并发不开放配置，媒体内部并发也不暴露为环境变量；后者按 ADR-0006 作为数据库后台设置管理。
 
 ## Rollout
 
