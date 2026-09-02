@@ -54,7 +54,7 @@ describe('ArchiveAddDialog', () => {
     expect(mocks.mutate).not.toHaveBeenCalled()
   })
 
-  it('keeps manual paste available when clipboard permission is denied', async () => {
+  it('focuses the input and accepts the next system paste when clipboard permission is denied', async () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { readText: vi.fn().mockRejectedValue(new DOMException('Denied', 'NotAllowedError')) }
@@ -64,8 +64,19 @@ describe('ArchiveAddDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: '添加链接' }))
     fireEvent.click(screen.getByRole('button', { name: '从剪贴板粘贴' }))
 
-    expect(await screen.findByText('浏览器未允许读取剪贴板，请在输入框内手动粘贴。')).toBeTruthy()
-    expect(screen.getByLabelText('作品链接').hasAttribute('disabled')).toBe(false)
+    const input = screen.getByLabelText('作品链接') as HTMLTextAreaElement
+    expect(
+      await screen.findByText('浏览器未允许一键读取剪贴板；已定位输入框，请按 Ctrl+V 或使用系统粘贴。')
+    ).toBeTruthy()
+    expect(document.activeElement).toBe(input)
+    expect(input.hasAttribute('disabled')).toBe(false)
+
+    fireEvent.paste(input, {
+      clipboardData: { getData: () => 'https://e-hentai.org/g/7654321/fallback-token/' }
+    })
+
+    expect(input.value).toBe('https://e-hentai.org/g/7654321/fallback-token/')
+    expect(screen.getByText('已粘贴 · 1 条链接可加入')).toBeTruthy()
     expect(mocks.mutate).not.toHaveBeenCalled()
   })
 })

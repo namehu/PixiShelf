@@ -32,6 +32,7 @@ import {
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
 import { ArchiveReplaceDialog } from '@/app/admin/archive/_components/archive-replace-dialog'
 import { ArchiveSubmissionBadge } from '@/app/admin/archive/_components/archive-submission-badge'
+import { ArchiveIntakeItemActions, ArchiveIntakeRetryActions } from './archive-intake-item-actions'
 import {
   archiveIntakePollingInterval,
   archiveIntakeItemHref,
@@ -266,6 +267,10 @@ export function ArchiveInbox() {
     if (!itemIds.length) return
     retryMutation.mutate({ idempotencyKey: idempotencyKeyFor('RETRY', itemIds), itemIds })
   }
+  const retryItem = (itemId: string) => {
+    const itemIds = [itemId]
+    retryMutation.mutate({ idempotencyKey: idempotencyKeyFor('RETRY', itemIds), itemIds })
+  }
   const cancelSelected = () => {
     const itemIds = selectedForStatus(new Set(['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE']))
       .slice(0, 100)
@@ -477,12 +482,18 @@ export function ArchiveInbox() {
                   items={items}
                   selection={selection}
                   onSelectionChange={setSelection}
+                  actionsPending={anyMutationPending}
+                  retryingItemIds={new Set(retryMutation.isPending ? retryMutation.variables?.itemIds : [])}
+                  onRetry={retryItem}
                   onReplace={setReplacementItemId}
                 />
                 <MobileIntakeList
                   items={items}
                   selection={selection}
                   onSelectionChange={setSelection}
+                  actionsPending={anyMutationPending}
+                  retryingItemIds={new Set(retryMutation.isPending ? retryMutation.variables?.itemIds : [])}
+                  onRetry={retryItem}
                   onReplace={setReplacementItemId}
                 />
               </>
@@ -574,6 +585,14 @@ export function ArchiveInbox() {
         item={locatedItemQuery.data?.items[0] ?? null}
         loading={locatedItemQuery.isPending}
         error={locatedItemQuery.isError}
+        actionPending={anyMutationPending}
+        retrying={Boolean(
+          retryMutation.isPending && locatedItemId && retryMutation.variables?.itemIds.includes(locatedItemId)
+        )}
+        onRetry={(itemId) => {
+          router.replace(clearArchiveIntakeItemHref(searchParams.toString()), { scroll: false })
+          retryItem(itemId)
+        }}
         onReplace={(itemId) => setReplacementItemId(itemId)}
         onClose={() => router.replace(clearArchiveIntakeItemHref(searchParams.toString()), { scroll: false })}
       />
@@ -586,6 +605,9 @@ function LocatedIntakeItemDialog({
   item,
   loading,
   error,
+  actionPending,
+  retrying,
+  onRetry,
   onReplace,
   onClose
 }: {
@@ -593,6 +615,9 @@ function LocatedIntakeItemDialog({
   item: IntakeItem | null
   loading: boolean
   error: boolean
+  actionPending: boolean
+  retrying: boolean
+  onRetry: (itemId: string) => void
   onReplace: (itemId: string) => void
   onClose: () => void
 }) {
@@ -635,19 +660,16 @@ function LocatedIntakeItemDialog({
               <QueueDatum label="页面数" value={item.pageCount ?? '—'} />
             </dl>
             <div className="flex flex-wrap gap-2">
-              {item.status === 'FAILED' ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    onClose()
-                    onReplace(item.id)
-                  }}
-                >
-                  <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
-                  修改并重试
-                </Button>
-              ) : null}
+              <ArchiveIntakeRetryActions
+                item={item}
+                actionPending={actionPending}
+                retrying={retrying}
+                onRetry={onRetry}
+                onReplace={(itemId) => {
+                  onClose()
+                  onReplace(itemId)
+                }}
+              />
               {item.activeArchiveImportId || item.archiveImportId ? (
                 <Button variant="outline" size="sm" asChild>
                   <Link href={archiveTaskHref(item.activeArchiveImportId || item.archiveImportId!)}>
@@ -880,11 +902,17 @@ function DesktopIntakeTable({
   items,
   selection,
   onSelectionChange,
+  actionsPending,
+  retryingItemIds,
+  onRetry,
   onReplace
 }: {
   items: IntakeItem[]
   selection: ArchiveIntakeSelectionState
   onSelectionChange: React.Dispatch<React.SetStateAction<ArchiveIntakeSelectionState>>
+  actionsPending: boolean
+  retryingItemIds: ReadonlySet<string>
+  onRetry: (itemId: string) => void
   onReplace: (itemId: string) => void
 }) {
   return (
@@ -933,10 +961,13 @@ function DesktopIntakeTable({
                 </div>
               </TableCell>
               <TableCell>
-                <ItemQualityAndLink
+                <ArchiveIntakeItemActions
                   item={item}
                   selection={selection}
                   onSelectionChange={onSelectionChange}
+                  actionPending={actionsPending}
+                  retrying={retryingItemIds.has(item.id)}
+                  onRetry={onRetry}
                   onReplace={onReplace}
                 />
               </TableCell>
@@ -952,11 +983,17 @@ function MobileIntakeList({
   items,
   selection,
   onSelectionChange,
+  actionsPending,
+  retryingItemIds,
+  onRetry,
   onReplace
 }: {
   items: IntakeItem[]
   selection: ArchiveIntakeSelectionState
   onSelectionChange: React.Dispatch<React.SetStateAction<ArchiveIntakeSelectionState>>
+  actionsPending: boolean
+  retryingItemIds: ReadonlySet<string>
+  onRetry: (itemId: string) => void
   onReplace: (itemId: string) => void
 }) {
   return (
@@ -985,10 +1022,13 @@ function MobileIntakeList({
               <StatusBadge status={item.status} />
               <span className="font-mono text-xs text-muted-foreground tabular-nums">{formatDuration(item)}</span>
             </div>
-            <ItemQualityAndLink
+            <ArchiveIntakeItemActions
               item={item}
               selection={selection}
               onSelectionChange={onSelectionChange}
+              actionPending={actionsPending}
+              retrying={retryingItemIds.has(item.id)}
+              onRetry={onRetry}
               onReplace={onReplace}
             />
           </div>
@@ -1023,67 +1063,6 @@ function ItemIdentity({ item }: { item: IntakeItem }) {
         <ArchiveSubmissionBadge submissionId={item.submissionId} />
       </div>
       {item.errorMessage ? <p className="mt-1 line-clamp-2 text-xs text-destructive">{item.errorMessage}</p> : null}
-    </div>
-  )
-}
-
-function ItemQualityAndLink({
-  item,
-  selection,
-  onSelectionChange,
-  onReplace
-}: {
-  item: IntakeItem
-  selection: ArchiveIntakeSelectionState
-  onSelectionChange: React.Dispatch<React.SetStateAction<ArchiveIntakeSelectionState>>
-  onReplace: (itemId: string) => void
-}) {
-  const canEnqueue = item.status === 'READY' && ['NEW', 'UPDATE', 'UNCHANGED'].includes(item.resolutionKind ?? '')
-  const relatedTaskId = item.activeArchiveImportId || item.archiveImportId
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {item.status === 'FAILED' ? (
-        <Button variant="outline" size="sm" onClick={() => onReplace(item.id)}>
-          <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
-          修改并重试
-        </Button>
-      ) : null}
-      {canEnqueue ? (
-        <Select
-          value={selection.qualityById.get(item.id) ?? 'ORIGINAL'}
-          onValueChange={(quality) =>
-            onSelectionChange((current) => ({
-              ...current,
-              qualityById: new Map(current.qualityById).set(item.id, quality as ArchiveQuality)
-            }))
-          }
-        >
-          <SelectTrigger size="sm" aria-label={`队列项目 ${item.queueOrder} 的归档质量`}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="ORIGINAL">原图</SelectItem>
-              <SelectItem value="DISPLAY">展示图</SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      ) : null}
-      {relatedTaskId ? (
-        <Button variant="link" size="sm" asChild>
-          <Link href={archiveTaskHref(relatedTaskId)}>
-            打开任务
-            <ExternalLinkIcon data-icon="inline-end" />
-          </Link>
-        </Button>
-      ) : item.duplicateOfItemId ? (
-        <Button variant="link" size="sm" asChild>
-          <Link href={archiveIntakeItemHref(item.duplicateOfItemId)}>
-            打开首次项目
-            <ExternalLinkIcon data-icon="inline-end" />
-          </Link>
-        </Button>
-      ) : null}
     </div>
   )
 }

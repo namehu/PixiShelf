@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
 import { ClipboardPasteIcon, PlusIcon } from 'lucide-react'
@@ -38,9 +38,11 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState('')
   const valueRef = useRef('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [clipboardPending, setClipboardPending] = useState(false)
   const [clipboardFeedback, setClipboardFeedback] = useState<string | null>(null)
   const clipboardRequestId = useRef(0)
+  const manualPasteRequested = useRef(false)
   const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey)
   const analysis = useMemo(() => analyzeArchiveUrlInput(value), [value])
   const tooMany = analysis.nonEmptyCount > 100
@@ -53,6 +55,7 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
         })
         setOpen(false)
         clipboardRequestId.current += 1
+        manualPasteRequested.current = false
         valueRef.current = ''
         setClipboardPending(false)
         setClipboardFeedback(null)
@@ -72,10 +75,34 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
   )
 
   const updateValue = (nextValue: string) => {
+    manualPasteRequested.current = false
     valueRef.current = nextValue
     setValue(nextValue)
     setClipboardFeedback(null)
     setIdempotencyKey(createIdempotencyKey())
+  }
+
+  const applyClipboardText = (clipboardText: string) => {
+    if (!clipboardText.trim()) {
+      setClipboardFeedback('剪贴板里没有文字，请复制链接后重试。')
+      return false
+    }
+
+    manualPasteRequested.current = false
+    const nextValue = appendClipboardText(valueRef.current, clipboardText)
+    valueRef.current = nextValue
+    setValue(nextValue)
+    setIdempotencyKey(createIdempotencyKey())
+    setClipboardFeedback(`已粘贴 · ${archiveUrlInputSummary(analyzeArchiveUrlInput(nextValue))}`)
+    return true
+  }
+
+  const prepareManualPaste = () => {
+    manualPasteRequested.current = true
+    const feedback = clipboardFallbackMessage()
+    setClipboardFeedback(feedback)
+    textareaRef.current?.focus()
+    toast.info('无法一键读取剪贴板', { description: feedback })
   }
 
   const pasteFromClipboard = async () => {
@@ -87,28 +114,28 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
       if (!navigator.clipboard?.readText) throw new Error('Clipboard API is unavailable')
       const clipboardText = await navigator.clipboard.readText()
       if (requestId !== clipboardRequestId.current) return
-      if (!clipboardText.trim()) {
-        setClipboardFeedback('剪贴板里没有文字，请复制链接后重试。')
-        return
-      }
-
-      const nextValue = appendClipboardText(valueRef.current, clipboardText)
-      valueRef.current = nextValue
-      setValue(nextValue)
-      setIdempotencyKey(createIdempotencyKey())
-      setClipboardFeedback(`已粘贴 · ${archiveUrlInputSummary(analyzeArchiveUrlInput(nextValue))}`)
+      applyClipboardText(clipboardText)
     } catch {
       if (requestId !== clipboardRequestId.current) return
-      setClipboardFeedback('浏览器未允许读取剪贴板，请在输入框内手动粘贴。')
+      prepareManualPaste()
     } finally {
       if (requestId === clipboardRequestId.current) setClipboardPending(false)
     }
+  }
+
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!manualPasteRequested.current) return
+    const clipboardText = event.clipboardData.getData('text/plain')
+    if (!clipboardText.trim()) return
+    event.preventDefault()
+    applyClipboardText(clipboardText)
   }
 
   const changeOpen = (nextOpen: boolean) => {
     setOpen(nextOpen)
     if (!nextOpen && !createMutation.isPending) {
       clipboardRequestId.current += 1
+      manualPasteRequested.current = false
       setClipboardPending(false)
       setClipboardFeedback(null)
       valueRef.current = ''
@@ -149,6 +176,7 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
               <FieldLabel htmlFor="archive-intake-urls">作品链接</FieldLabel>
               <InputGroup>
                 <InputGroupTextarea
+                  ref={textareaRef}
                   id="archive-intake-urls"
                   name="archive-intake-urls"
                   aria-invalid={tooMany || undefined}
@@ -156,6 +184,7 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
                   maxLength={204_800}
                   value={value}
                   onChange={(event) => updateValue(event.target.value)}
+                  onPaste={handlePaste}
                   placeholder="粘贴 E-Hentai 画廊页或图片页链接"
                   autoComplete="off"
                   spellCheck={false}
@@ -239,4 +268,10 @@ function archiveUrlInputSummary(analysis: ReturnType<typeof analyzeArchiveUrlInp
   return issues.length
     ? `${analysis.nonEmptyCount} 条链接 · ${issues.join(' · ')}`
     : `${analysis.nonEmptyCount} 条链接可加入`
+}
+
+function clipboardFallbackMessage() {
+  const reason =
+    window.isSecureContext === false ? '当前访问地址不是安全连接，无法一键读取剪贴板' : '浏览器未允许一键读取剪贴板'
+  return `${reason}；已定位输入框，请按 Ctrl+V 或使用系统粘贴。`
 }
