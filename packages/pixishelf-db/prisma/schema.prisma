@@ -863,17 +863,18 @@ model ArchiveUploaderSource {
   createdAt                 DateTime                    @default(now())
   updatedAt                 DateTime                    @updatedAt
   runs                      ArchiveUploaderScanRun[]
+  ignoredItems              ArchiveUploaderIgnoredItem[] @relation("ArchiveUploaderIgnoredSource")
 
-  @@unique([providerKey, identityKind, normalizedIdentity])
-  @@index([status, updatedAt(sort: Desc)])
-  @@index([lastRunId])
+  @@unique([providerKey, identityKind, normalizedIdentity], map: "archive_uploader_sources_provider_identity_key")
+  @@index([status, updatedAt(sort: Desc)], map: "archive_uploader_sources_status_updated_idx")
+  @@index([lastRunId], map: "archive_uploader_sources_last_run_idx")
   @@map("archive_uploader_sources")
 }
 
 model ArchiveUploaderScanRun {
   id                  String                       @id @default(cuid())
   sourceId            String
-  systemJobId         String                       @unique
+  systemJobId         String                       @unique(map: "archive_uploader_scan_runs_system_job_key")
   mode                ArchiveUploaderScanMode
   status              ArchiveUploaderScanRunStatus @default(PENDING)
   cursorBefore        String?                      @db.Text
@@ -890,12 +891,12 @@ model ArchiveUploaderScanRun {
   errorMessage        String?                      @db.Text
   createdAt           DateTime                     @default(now())
   updatedAt           DateTime                     @updatedAt
-  source              ArchiveUploaderSource        @relation(fields: [sourceId], references: [id], onDelete: Cascade)
-  systemJob           SystemJob                    @relation(fields: [systemJobId], references: [id], onDelete: Cascade)
+  source              ArchiveUploaderSource        @relation(fields: [sourceId], references: [id], onDelete: Cascade, map: "archive_uploader_scan_runs_source_fkey")
+  systemJob           SystemJob                    @relation(fields: [systemJobId], references: [id], onDelete: Cascade, map: "archive_uploader_scan_runs_system_job_fkey")
   items               ArchiveUploaderScanItem[]
 
-  @@index([sourceId, createdAt(sort: Desc)])
-  @@index([status, createdAt])
+  @@index([sourceId, createdAt(sort: Desc)], map: "archive_uploader_scan_runs_source_created_idx")
+  @@index([status, createdAt], map: "archive_uploader_scan_runs_status_created_idx")
   @@map("archive_uploader_scan_runs")
 }
 
@@ -912,15 +913,36 @@ model ArchiveUploaderScanItem {
   metadataFingerprint String                            @db.VarChar(64)
   relationships       Json
   classification      ArchiveUploaderScanClassification
-  intakeItemId        String?                           @unique
+  intakeItemId        String?                           @unique(map: "archive_uploader_scan_items_intake_item_key")
   createdAt           DateTime                          @default(now())
-  run                 ArchiveUploaderScanRun            @relation(fields: [runId], references: [id], onDelete: Cascade)
-  intakeItem          ArchiveIntakeItem?                @relation("ArchiveUploaderScanIntakeItem", fields: [intakeItemId], references: [id], onDelete: SetNull)
+  run                 ArchiveUploaderScanRun            @relation(fields: [runId], references: [id], onDelete: Cascade, map: "archive_uploader_scan_items_run_fkey")
+  intakeItem          ArchiveIntakeItem?                @relation("ArchiveUploaderScanIntakeItem", fields: [intakeItemId], references: [id], onDelete: SetNull, map: "archive_uploader_scan_items_intake_item_fkey")
 
-  @@unique([runId, providerKey, externalId])
-  @@index([runId, classification, postedAt(sort: Desc)])
-  @@index([providerKey, externalId])
+  @@unique([runId, providerKey, externalId], map: "archive_uploader_scan_items_run_provider_external_key")
+  @@index([runId, classification, postedAt(sort: Desc)], map: "archive_uploader_scan_items_run_classification_posted_idx")
+  @@index([providerKey, externalId], map: "archive_uploader_scan_items_provider_external_idx")
   @@map("archive_uploader_scan_items")
+}
+
+model ArchiveUploaderIgnoredItem {
+  id                String                 @id @default(cuid())
+  providerKey       String                 @db.VarChar(50)
+  externalId        String                 @db.VarChar(120)
+  sourceId          String?
+  sourceDisplayName String                 @db.VarChar(180)
+  title             String                 @db.Text
+  thumbnailUrl      String?                @db.Text
+  uploaderName      String?                @db.VarChar(180)
+  postedAt          DateTime?
+  ignoredByUserId   String?
+  ignoredAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  source            ArchiveUploaderSource? @relation("ArchiveUploaderIgnoredSource", fields: [sourceId], references: [id], onDelete: SetNull, map: "archive_uploader_ignored_items_source_fkey")
+
+  @@unique([providerKey, externalId], map: "archive_uploader_ignored_items_provider_external_key")
+  @@index([ignoredAt(sort: Desc), id(sort: Desc)], map: "archive_uploader_ignored_items_ignored_id_idx")
+  @@index([sourceId, ignoredAt(sort: Desc)], map: "archive_uploader_ignored_items_source_ignored_idx")
+  @@map("archive_uploader_ignored_items")
 }
 
 model ArchiveBulkOperationItem {

@@ -1,10 +1,13 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   cancelScan: vi.fn(),
+  ignoreItems: vi.fn(),
+  restoreIgnoredItems: vi.fn(),
   infiniteQueryOptions: vi.fn(() => ({ kind: 'items' })),
-  invalidateQueries: vi.fn()
+  invalidateQueries: vi.fn(),
+  setQueriesData: vi.fn()
 }))
 
 const source = {
@@ -68,6 +71,7 @@ const itemsData = {
           externalId: '302',
           displayUrl: 'https://e-hentai.org/g/302/[redacted]/',
           title: 'Gallery 302',
+          thumbnailUrl: 'https://ehgt.org/thumb-302.jpg',
           uploaderName: 'Uploader',
           postedAt: new Date('2026-09-02T10:30:00.000Z'),
           classification: 'NEW',
@@ -79,15 +83,35 @@ const itemsData = {
     }
   ]
 }
+const ignoredItemsData = {
+  pages: [
+    {
+      items: [
+        {
+          id: 'ignored-item-1',
+          providerKey: 'e-hentai',
+          externalId: '301',
+          sourceDisplayName: 'UID 123',
+          title: 'Ignored Gallery 301',
+          thumbnailUrl: 'https://ehgt.org/thumb-301.jpg',
+          uploaderName: 'Uploader',
+          postedAt: new Date('2026-09-01T10:30:00.000Z'),
+          ignoredAt: new Date('2026-09-02T11:20:00.000Z')
+        }
+      ],
+      nextCursor: null
+    }
+  ]
+}
 
 vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
+  useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries, setQueriesData: mocks.setQueriesData }),
   useQuery: (options: { kind?: string }) =>
     options.kind === 'sources'
       ? { data: sourcesData, isPending: false, isError: false }
       : { data: detailData, isPending: false, isError: false },
-  useInfiniteQuery: () => ({
-    data: itemsData,
+  useInfiniteQuery: (options: { kind?: string }) => ({
+    data: options.kind === 'ignored' ? ignoredItemsData : itemsData,
     isLoading: false,
     isError: false,
     hasNextPage: false,
@@ -95,9 +119,33 @@ vi.mock('@tanstack/react-query', () => ({
     fetchNextPage: vi.fn(),
     refetch: vi.fn()
   }),
-  useMutation: (options: { kind?: string }) => ({
+  useMutation: (options: {
+    kind?: string
+    onSuccess?: (result: Record<string, unknown>, variables: Record<string, unknown>) => unknown
+  }) => ({
     isPending: false,
-    mutate: options.kind === 'cancel' ? mocks.cancelScan : vi.fn()
+    mutate:
+      options.kind === 'cancel'
+        ? mocks.cancelScan
+        : options.kind === 'ignore'
+          ? (variables: { sourceId: string; itemIds: string[] }) => {
+              mocks.ignoreItems(variables)
+              void options.onSuccess?.(
+                {
+                  ignoredItemIds: ['ignored-item-new'],
+                  ignoredCount: variables.itemIds.length,
+                  createdCount: variables.itemIds.length,
+                  reusedCount: 0
+                },
+                variables
+              )
+            }
+          : options.kind === 'restore'
+            ? (variables: { ignoredItemIds: string[] }) => {
+                mocks.restoreIgnoredItems(variables)
+                void options.onSuccess?.({ restoredCount: variables.ignoredItemIds.length }, variables)
+              }
+            : vi.fn()
   })
 }))
 
@@ -116,12 +164,18 @@ vi.mock('@/lib/trpc', () => ({
       getSource: { queryOptions: () => ({ kind: 'detail' }), queryKey: () => ['detail'] },
       listItems: {
         infiniteQueryOptions: mocks.infiniteQueryOptions,
-        queryKey: () => ['items']
+        infiniteQueryKey: () => ['items-infinite']
+      },
+      listIgnoredItems: {
+        infiniteQueryOptions: () => ({ kind: 'ignored' }),
+        infiniteQueryKey: () => ['ignored-items-infinite']
       },
       triggerScan: { mutationOptions: () => ({ kind: 'scan' }) },
       cancelScan: { mutationOptions: () => ({ kind: 'cancel' }) },
       setArchived: { mutationOptions: () => ({ kind: 'archive' }) },
       addToInbox: { mutationOptions: () => ({ kind: 'add' }) },
+      ignoreItems: { mutationOptions: (options: object) => ({ kind: 'ignore', ...options }) },
+      restoreIgnoredItems: { mutationOptions: (options: object) => ({ kind: 'restore', ...options }) },
       createSource: { mutationOptions: () => ({ kind: 'create' }) }
     },
     archiveInbox: {
@@ -132,11 +186,16 @@ vi.mock('@/lib/trpc', () => ({
 }))
 
 import { ArchiveUploaderSources } from '../archive-uploader-sources'
+import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 
 afterEach(cleanup)
 
 describe('ArchiveUploaderSources', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    useAdminPreferencesStore.setState({ archiveUploaderResultView: 'list' })
+  })
 
   it('offers direct cancellation for the active scan', () => {
     render(<ArchiveUploaderSources />)
@@ -156,5 +215,40 @@ describe('ArchiveUploaderSources', () => {
       expect.objectContaining({ sourceId: 'source-1', limit: 50 }),
       expect.objectContaining({ initialCursor: null })
     )
+  })
+
+  it('defaults to a pure list and loads the stored thumbnail only after switching view modes', () => {
+    render(<ArchiveUploaderSources />)
+
+    expect(screen.queryByRole('button', { name: '预览 Gallery 302 的首图' })).toBeNull()
+
+    fireEvent.click(screen.getByLabelText('显示首图预览'))
+
+    fireEvent.click(screen.getByRole('button', { name: '预览 Gallery 302 的首图' }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Gallery 302 的首图预览' }).getAttribute('src')).toBe(
+      'https://ehgt.org/thumb-302.jpg'
+    )
+  })
+
+  it('removes ignored items from the infinite cache and refreshes both result feeds', async () => {
+    render(<ArchiveUploaderSources />)
+
+    fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
+    expect(mocks.ignoreItems).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['scan-item-1'] })
+    await waitFor(() => {
+      expect(mocks.setQueriesData).toHaveBeenCalledWith({ queryKey: ['items-infinite'] }, expect.any(Function))
+      expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+      expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ignored-items-infinite'] })
+    })
+    const removeItems = mocks.setQueriesData.mock.calls.find(
+      ([filter]) => filter.queryKey[0] === 'items-infinite'
+    )?.[1] as (data: typeof itemsData) => typeof itemsData
+    expect(removeItems(itemsData).pages[0]?.items).toEqual([])
+
+    fireEvent.click(screen.getByLabelText('查看全局已忽略画廊'))
+    expect(screen.getByRole('heading', { level: 2, name: '全局已忽略' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '恢复 Ignored Gallery 301' }))
+    expect(mocks.restoreIgnoredItems).toHaveBeenCalledWith({ ignoredItemIds: ['ignored-item-1'] })
   })
 })

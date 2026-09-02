@@ -92,17 +92,17 @@ sources:
 
 ## 页面矩阵
 
-| 路径                                                     | 代理层       | 页面内额外角色校验                     | 当前结果                                 |
-| -------------------------------------------------------- | ------------ | -------------------------------------- | ---------------------------------------- |
-| `/`                                                      | 公共         | 无                                     | 立即跳转 `/dashboard`，后者需要 Session  |
-| `/login`                                                 | 公共         | 已有 Session 时代理重定向 `/dashboard` | 登录；无账户时显示首次初始化             |
-| `/dashboard`、作品、艺术家、标签、系列、viewer、settings | Session      | 无                                     | 任一有效账户可浏览和使用对应操作         |
-| `/admin/*`                                               | Session      | Admin Layout 无角色判断                | 任一有效账户可进入全部管理页面           |
-| `/admin/scan-history/[id]/source-audit`                  | Session      | 写操作由 `adminProcedure` 复核         | 查看核对；管理员可提交选定来源同步       |
-| `/admin/archive/inbox`                                   | Session      | 写操作由 `adminProcedure` 复核         | 持久添加、上传者人工扫描、来源管理、解析控制、重试、取消与批量入队 |
-| `/admin/archive`                                         | Session      | 写操作由 `adminProcedure` 复核         | 归档任务查询、单项及当前页批量控制       |
-| `/change-password`                                       | Session      | `authActionClient` 复核 Session        | 只能修改当前会话账户密码                 |
-| `_next/static`、`_next/image`、`favicon.ico`             | matcher 排除 | 由 Next.js/静态服务器处理              | 不应包含私有原媒体文件                   |
+| 路径                                                     | 代理层       | 页面内额外角色校验                     | 当前结果                                                                                    |
+| -------------------------------------------------------- | ------------ | -------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `/`                                                      | 公共         | 无                                     | 立即跳转 `/dashboard`，后者需要 Session                                                     |
+| `/login`                                                 | 公共         | 已有 Session 时代理重定向 `/dashboard` | 登录；无账户时显示首次初始化                                                                |
+| `/dashboard`、作品、艺术家、标签、系列、viewer、settings | Session      | 无                                     | 任一有效账户可浏览和使用对应操作                                                            |
+| `/admin/*`                                               | Session      | Admin Layout 无角色判断                | 任一有效账户可进入全部管理页面                                                              |
+| `/admin/scan-history/[id]/source-audit`                  | Session      | 写操作由 `adminProcedure` 复核         | 查看核对；管理员可提交选定来源同步                                                          |
+| `/admin/archive/inbox`                                   | Session      | 写操作由 `adminProcedure` 复核         | 持久添加、上传者人工扫描、来源管理、全局忽略/恢复、首图预览、解析控制、重试、取消与批量入队 |
+| `/admin/archive`                                         | Session      | 写操作由 `adminProcedure` 复核         | 归档任务查询、单项及当前页批量控制                                                          |
+| `/change-password`                                       | Session      | `authActionClient` 复核 Session        | 只能修改当前会话账户密码                                                                    |
+| `_next/static`、`_next/image`、`favicon.ico`             | matcher 排除 | 由 Next.js/静态服务器处理              | 不应包含私有原媒体文件                                                                      |
 
 ## HTTP Route 矩阵
 
@@ -117,7 +117,7 @@ sources:
 | `POST /api/scan/stream`                         | Session（双层，`requireAdminRequest`）                  | 入队或执行目录发现/列表扫描；拒绝全目录强制刷新                                                                 | 高，数据库和原媒体目录读取                                      |
 | `POST /api/scan/rescan`                         | Session（双层，`requireAdminRequest`）                  | 重扫一个 Artwork，更新目录与审计                                                                                | 高，数据库和文件关系变化                                        |
 | `POST /api/migration/stream`                    | Session（双层，`requireAdminRequest`）                  | 入队或执行迁移、复制/移动/清理                                                                                  | 最高，可能修改原媒体                                            |
-| `GET /api/jobs/events`                          | Session（双层，`requireAdminRequest`）                  | 只读 definition v1+ 的脱敏 Job 事件和实时摘要；不含 payload/result/lease token                                 | 中；长连接可观察全部后台任务状态                                |
+| `GET /api/jobs/events`                          | Session（双层，`requireAdminRequest`）                  | 只读 definition v1+ 的脱敏 Job 事件和实时摘要；不含 payload/result/lease token                                  | 中；长连接可观察全部后台任务状态                                |
 | `POST /api/artwork/[id]/replace`                | Session（代理）                                         | 初始化、提交或回滚媒体替换会话                                                                                  | 最高，数据库与原媒体写入                                        |
 | `GET/POST /api/artwork/upload-chunk`            | Session（代理）                                         | 查询上传状态、写入媒体分块                                                                                      | 高，原媒体写入                                                  |
 | `POST /api/artwork/media-chapters/upload`       | Session（代理）                                         | 上传章节 manifest                                                                                               | 高，数据库/派生或媒体侧写入                                     |
@@ -142,25 +142,26 @@ Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态
 
 所有标准 HTTP tRPC 调用先经过 Session 代理门禁。下表记录 procedure 自己使用的边界。
 
-| Router           | 读取                                                                      | 修改/控制                                                                               | 当前 procedure 边界                                                                               |
-| ---------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `auth`           | 当前账户 `me`                                                             | 无                                                                                      | `authProcedure`                                                                                   |
-| `artist`         | 详情、分页                                                                | 创建、修改、收藏、删除、Pixiv 补全/取消/重试、采用来源姓名                              | 既有读写为 `authProcedure`；Pixiv 任务控制与采用来源姓名为 `adminProcedure`                       |
-| `artwork`        | 详情、feed、相邻、随机、推荐、上传路径、Pixiv 同步汇总与受控报告/快照读取 | 创建、修改、删除、媒体增删与排序、Pixiv 同步/取消/重试                                  | 大多为 `authProcedure`；作品删除、视频重新探测、Pixiv 任务控制及报告 JSON 读取为 `adminProcedure` |
-| `search`         | 搜索建议                                                                  | 无                                                                                      | `authProcedure`                                                                                   |
-| `tag`            | 查询、管理列表与 Pixiv 补全状态                                           | 创建、修改、删除、批量补全与单标签重试                                                  | 普通管理为 `authProcedure`；Pixiv 补全读写为 `adminProcedure`                                     |
-| `series`         | `list`、`get`、Pixiv 系列核对汇总                                         | 创建、修改、删除、成员增删与排序、Pixiv 系列核对/取消/重试                              | 普通读取为 `publicProcedure`、普通写入为 `authProcedure`；Pixiv 任务控制为 `adminProcedure`       |
-| `setting`        | 健康、扫描路径、系统设置、归档下载并发、历史归档标签补全状态                | 修改扫描路径/系统设置/归档下载并发；预览、启动和取消历史归档标签补全                    | 归档下载并发读写和补全控制为 `adminProcedure`；其余既有设置边界保持不变                           |
-| `user`           | 全部账户                                                                  | 创建、删除其他账户                                                                      | 全部 `authProcedure`；新增账户拥有同等管理员能力                                                  |
-| `userSetting`    | 当前账户设置                                                              | 写入主要通过 Server Action                                                              | `authProcedure`，以 `userId` 限定当前账户                                                         |
-| `scanRun`        | 扫描历史、详情                                                            | 无                                                                                      | `authProcedure`                                                                                   |
-| `sourceAudit`    | `availability/get/listItems/getApplyOverview/getApplyOperation`           | `start`、`startApply`（1–50 个 NEW/CHANGED）                                            | 所有读取为 `authProcedure`；两个 mutation 为 `adminProcedure`                                     |
-| `migration`      | precheck、失败项                                                          | pause/resume/cancel 等控制                                                              | 读取 `authProcedure`，控制 `adminProcedure`                                                       |
-| `localImport`    | preview、status                                                           | 保存映射、启动、取消                                                                    | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
-| `archiveInbox`   | 持久收件列表与汇总                                                        | 创建/修正、暂停/恢复、重试/取消、批量归档入队                                           | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
-| `archive`        | 分页任务、项目、统计和批量结果                                            | 单项操作、重试和 `PAUSE/RESUME/CANCEL/RETRY` 批量控制                                   | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
-| `pendingReplace` | 预览与状态                                                                | 绑定、排序、执行、取消、恢复、清理备份                                                  | 全部 `adminProcedure`                                                                             |
-| `job`            | 多类状态、待处理失败、队列与 Pixiv AI 校准状态读取                        | 创建、取消、重试、逐条确认失败提醒、优先级、scheduler、Pixiv AI 预检/回填与中央任务控制 | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`                               |
+| Router            | 读取                                                                      | 修改/控制                                                                               | 当前 procedure 边界                                                                               |
+| ----------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `auth`            | 当前账户 `me`                                                             | 无                                                                                      | `authProcedure`                                                                                   |
+| `artist`          | 详情、分页                                                                | 创建、修改、收藏、删除、Pixiv 补全/取消/重试、采用来源姓名                              | 既有读写为 `authProcedure`；Pixiv 任务控制与采用来源姓名为 `adminProcedure`                       |
+| `artwork`         | 详情、feed、相邻、随机、推荐、上传路径、Pixiv 同步汇总与受控报告/快照读取 | 创建、修改、删除、媒体增删与排序、Pixiv 同步/取消/重试                                  | 大多为 `authProcedure`；作品删除、视频重新探测、Pixiv 任务控制及报告 JSON 读取为 `adminProcedure` |
+| `search`          | 搜索建议                                                                  | 无                                                                                      | `authProcedure`                                                                                   |
+| `tag`             | 查询、管理列表与 Pixiv 补全状态                                           | 创建、修改、删除、批量补全与单标签重试                                                  | 普通管理为 `authProcedure`；Pixiv 补全读写为 `adminProcedure`                                     |
+| `series`          | `list`、`get`、Pixiv 系列核对汇总                                         | 创建、修改、删除、成员增删与排序、Pixiv 系列核对/取消/重试                              | 普通读取为 `publicProcedure`、普通写入为 `authProcedure`；Pixiv 任务控制为 `adminProcedure`       |
+| `setting`         | 健康、扫描路径、系统设置、归档下载并发、历史归档标签补全状态              | 修改扫描路径/系统设置/归档下载并发；预览、启动和取消历史归档标签补全                    | 归档下载并发读写和补全控制为 `adminProcedure`；其余既有设置边界保持不变                           |
+| `user`            | 全部账户                                                                  | 创建、删除其他账户                                                                      | 全部 `authProcedure`；新增账户拥有同等管理员能力                                                  |
+| `userSetting`     | 当前账户设置                                                              | 写入主要通过 Server Action                                                              | `authProcedure`，以 `userId` 限定当前账户                                                         |
+| `scanRun`         | 扫描历史、详情                                                            | 无                                                                                      | `authProcedure`                                                                                   |
+| `sourceAudit`     | `availability/get/listItems/getApplyOverview/getApplyOperation`           | `start`、`startApply`（1–50 个 NEW/CHANGED）                                            | 所有读取为 `authProcedure`；两个 mutation 为 `adminProcedure`                                     |
+| `migration`       | precheck、失败项                                                          | pause/resume/cancel 等控制                                                              | 读取 `authProcedure`，控制 `adminProcedure`                                                       |
+| `localImport`     | preview、status                                                           | 保存映射、启动、取消                                                                    | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
+| `archiveInbox`    | 持久收件列表与汇总                                                        | 创建/修正、暂停/恢复、重试/取消、批量归档入队                                           | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
+| `archiveUploader` | 来源、扫描摘要、发现结果与全局已忽略列表                                  | 创建/归档来源、扫描/取消、加入收件箱、忽略/恢复画廊                                     | 读取为 `authProcedure`；来源、任务与处置写入为 `adminProcedure`                                   |
+| `archive`         | 分页任务、项目、统计和批量结果                                            | 单项操作、重试和 `PAUSE/RESUME/CANCEL/RETRY` 批量控制                                   | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
+| `pendingReplace`  | 预览与状态                                                                | 绑定、排序、执行、取消、恢复、清理备份                                                  | 全部 `adminProcedure`                                                                             |
+| `job`             | 多类状态、待处理失败、队列与 Pixiv AI 校准状态读取                        | 创建、取消、重试、逐条确认失败提醒、优先级、scheduler、Pixiv AI 预检/回填与中央任务控制 | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`                               |
 
 由于当前所有账户等权，`authProcedure` 与 `adminProcedure` 的运行时能力相同。任何未来角色分离都必须先审查表中使用 `authProcedure` 的用户管理、系统设置、目录写入和删除操作，不能只给 `adminProcedure` 增加角色判断后宣布完成。
 
@@ -200,6 +201,8 @@ ImgProxy Compose 没有配置签名 Key/Salt，且默认发布宿主机端口。
 Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，lane 是执行资源和 capability 边界，不是操作系统级权限隔离。`ARCHIVE_RESOLVE_ITEM` 的 Executor 不执行媒体写入，所有归档下载、回收、恢复、永久清理和其他文件操作仍由 writer lane 执行并经过根目录/符号链接边界校验。
 
 归档任务 payload、结果、事件、错误与普通日志统一脱敏。不得记录 Cookie、Authorization、完整 Provider locator、token，或 URL 路径中的敏感段；列表和批量结果只返回完成管理操作所需的脱敏值。
+
+上传者发现结果只返回经过专用缩略图校验器处理的远端 URL：协议必须为 HTTPS，不得包含凭据或非标准端口，主机必须精确属于 `e-hentai.org`、`ehgt.org`、`hath.network` 或其子域，并在返回前移除 query/hash。纯列表不挂载图片元素；首图模式仅由浏览器懒加载虚拟列表可视行，使用 `Referrer-Policy: no-referrer`，不把 gallery canonical URL 或 token 发送给图片主机。该能力不新增公共 Route，仍由 `/admin/archive/inbox` 的 Session 门禁保护。
 
 ## 凭据与信任头
 

@@ -5,10 +5,13 @@ const mocks = vi.hoisted(() => ({
   listSources: vi.fn(),
   getSource: vi.fn(),
   listItems: vi.fn(),
+  listIgnoredItems: vi.fn(),
   setArchived: vi.fn(),
   triggerScan: vi.fn(),
   cancelScan: vi.fn(),
-  addToInbox: vi.fn()
+  addToInbox: vi.fn(),
+  ignoreItems: vi.fn(),
+  restoreIgnoredItems: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
@@ -19,10 +22,13 @@ vi.mock('@/services/archive-uploader/archive-uploader-service', async (importOri
   listArchiveUploaderSources: mocks.listSources,
   getArchiveUploaderSource: mocks.getSource,
   listArchiveUploaderScanItems: mocks.listItems,
+  listArchiveUploaderIgnoredItems: mocks.listIgnoredItems,
   setArchiveUploaderSourceArchived: mocks.setArchived,
   triggerArchiveUploaderScan: mocks.triggerScan,
   cancelArchiveUploaderScan: mocks.cancelScan,
-  addArchiveUploaderScanItems: mocks.addToInbox
+  addArchiveUploaderScanItems: mocks.addToInbox,
+  ignoreArchiveUploaderScanItems: mocks.ignoreItems,
+  restoreArchiveUploaderIgnoredItems: mocks.restoreIgnoredItems
 }))
 
 import { archiveUploaderRouter } from '../archive-uploader'
@@ -41,6 +47,7 @@ describe('archive uploader authorization boundary', () => {
     mocks.listSources.mockResolvedValue([])
     mocks.getSource.mockResolvedValue({ source: {}, runs: [] })
     mocks.listItems.mockResolvedValue({ items: [], nextCursor: null })
+    mocks.listIgnoredItems.mockResolvedValue({ items: [], nextCursor: null })
   })
 
   it.each([
@@ -77,6 +84,18 @@ describe('archive uploader authorization boundary', () => {
           itemIds: ['item-1']
         }),
       service: mocks.addToInbox
+    },
+    {
+      name: 'ignoreItems',
+      invoke: () =>
+        archiveUploaderRouter.createCaller(unauthorized).ignoreItems({ sourceId: 'source-1', itemIds: ['item-1'] }),
+      service: mocks.ignoreItems
+    },
+    {
+      name: 'restoreIgnoredItems',
+      invoke: () =>
+        archiveUploaderRouter.createCaller(unauthorized).restoreIgnoredItems({ ignoredItemIds: ['ignored-1'] }),
+      service: mocks.restoreIgnoredItems
     }
   ])('rejects unauthenticated $name writes before the service boundary', async ({ invoke, service }) => {
     await expect(invoke()).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
@@ -93,15 +112,21 @@ describe('archive uploader authorization boundary', () => {
     await expect(
       archiveUploaderRouter.createCaller(unauthorized).listItems({ sourceId: 'source-1', limit: 50 })
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    await expect(
+      archiveUploaderRouter.createCaller(unauthorized).listIgnoredItems({ limit: 50 })
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     expect(mocks.listSources).not.toHaveBeenCalled()
     expect(mocks.getSource).not.toHaveBeenCalled()
     expect(mocks.listItems).not.toHaveBeenCalled()
+    expect(mocks.listIgnoredItems).not.toHaveBeenCalled()
   })
 
-  it('passes the authenticated user id only to scan and intake-producing writes', async () => {
+  it('passes the authenticated user id only to writes that record an actor', async () => {
     mocks.triggerScan.mockResolvedValue({ id: 'run-1' })
     mocks.cancelScan.mockResolvedValue({ id: 'run-1', status: 'CANCELLING' })
     mocks.addToInbox.mockResolvedValue({ id: 'submission-1' })
+    mocks.ignoreItems.mockResolvedValue({ ignoredItemIds: ['ignored-1'] })
+    mocks.restoreIgnoredItems.mockResolvedValue({ restoredCount: 1 })
 
     await archiveUploaderRouter.createCaller(authorized).triggerScan({ sourceId: 'source-1', mode: 'LATEST' })
     await archiveUploaderRouter.createCaller(authorized).cancelScan({ sourceId: 'source-1', runId: 'run-1' })
@@ -109,6 +134,13 @@ describe('archive uploader authorization boundary', () => {
       sourceId: 'source-1',
       submissionAttemptId: '00000000-0000-4000-8000-000000000001',
       itemIds: ['item-1']
+    })
+    await archiveUploaderRouter.createCaller(authorized).ignoreItems({
+      sourceId: 'source-1',
+      itemIds: ['item-1']
+    })
+    await archiveUploaderRouter.createCaller(authorized).restoreIgnoredItems({
+      ignoredItemIds: ['ignored-1']
     })
 
     expect(mocks.triggerScan).toHaveBeenCalledWith({ sourceId: 'source-1', mode: 'LATEST' }, 'admin-1')
@@ -121,5 +153,7 @@ describe('archive uploader authorization boundary', () => {
       },
       'admin-1'
     )
+    expect(mocks.ignoreItems).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['item-1'] }, 'admin-1')
+    expect(mocks.restoreIgnoredItems).toHaveBeenCalledWith({ ignoredItemIds: ['ignored-1'] })
   })
 })

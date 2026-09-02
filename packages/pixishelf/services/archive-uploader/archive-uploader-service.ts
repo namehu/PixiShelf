@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ArchiveError } from '@/services/archive/errors'
 import { archiveWireErrorMessage, redactArchiveUrl } from '@/services/archive/archive-redaction'
-import { createArchiveIntakeSubmission } from '@/services/archive-intake/archive-intake-service'
+import { createArchiveIntakeSubmissionInTransaction } from '@/services/archive-intake/archive-intake-service'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 import { cancelJobCommand } from '@/services/background-task/job-command-service'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
@@ -15,6 +15,8 @@ const ACTIVE_RUN_STATUSES = ['PENDING', 'RUNNING', 'RETRY_WAIT', 'PAUSED'] as co
 const ACTIONABLE_CLASSIFICATIONS = ['NEW', 'POSSIBLE_UPDATE', 'REPLACEMENT'] as const
 const SCAN_RESULT_LIMIT = 100
 const SOURCE_LOCK_NAMESPACE = 20_260_902
+const DISPOSITION_LOCK_NAMESPACE = 20_260_903
+const THUMBNAIL_HOST_SUFFIXES = ['e-hentai.org', 'ehgt.org', 'hath.network'] as const
 
 const sourceIdSchema = z.string().trim().min(1).max(128)
 const runIdSchema = z.string().trim().min(1).max(128)
@@ -25,6 +27,17 @@ const scanItemCursorSchema = z
     id: z.string().trim().min(1).max(128)
   })
   .strict()
+const ignoredItemCursorSchema = z
+  .object({
+    ignoredAt: z.coerce.date(),
+    id: z.string().trim().min(1).max(128)
+  })
+  .strict()
+const scanItemIdsSchema = z
+  .array(z.string().trim().min(1).max(128))
+  .min(1)
+  .max(SCAN_RESULT_LIMIT)
+  .transform((values) => [...new Set(values)])
 
 export const createArchiveUploaderSourceSchema = z
   .object({
@@ -46,6 +59,14 @@ export const listArchiveUploaderScanItemsSchema = z
   })
   .strict()
 
+export const listArchiveUploaderIgnoredItemsSchema = z
+  .object({
+    cursor: ignoredItemCursorSchema.nullish(),
+    limit: z.number().int().min(1).max(SCAN_RESULT_LIMIT).default(50),
+    direction: z.literal('forward').optional()
+  })
+  .strict()
+
 export const setArchiveUploaderSourceArchivedSchema = z
   .object({ sourceId: sourceIdSchema, archived: z.boolean() })
   .strict()
@@ -60,13 +81,15 @@ export const addArchiveUploaderScanItemsSchema = z
   .object({
     sourceId: sourceIdSchema,
     submissionAttemptId: z.string().uuid(),
-    itemIds: z
-      .array(z.string().trim().min(1).max(128))
-      .min(1)
-      .max(SCAN_RESULT_LIMIT)
-      .transform((values) => [...new Set(values)])
+    itemIds: scanItemIdsSchema
   })
   .strict()
+
+export const ignoreArchiveUploaderScanItemsSchema = z
+  .object({ sourceId: sourceIdSchema, itemIds: scanItemIdsSchema })
+  .strict()
+
+export const restoreArchiveUploaderIgnoredItemsSchema = z.object({ ignoredItemIds: scanItemIdsSchema }).strict()
 
 export interface ArchiveUploaderServiceDependencies {
   database?: PrismaClient
@@ -171,6 +194,7 @@ export async function listArchiveUploaderScanItems(
         item."externalId",
         item."canonicalUrl",
         item."title",
+        item."thumbnailUrl",
         item."uploaderName",
         item."postedAt",
         item."classification",
@@ -179,8 +203,12 @@ export async function listArchiveUploaderScanItems(
         COALESCE(item."postedAt", item."createdAt") AS "sortAt"
       FROM "archive_uploader_scan_items" AS item
       INNER JOIN "archive_uploader_scan_runs" AS run ON run."id" = item."runId"
+      LEFT JOIN "archive_uploader_ignored_items" AS ignored
+        ON ignored."providerKey" = item."providerKey"
+        AND ignored."externalId" = item."externalId"
       WHERE run."sourceId" = ${parsed.sourceId}
         AND run."status" = 'COMPLETED'::"ArchiveUploaderScanRunStatus"
+        AND ignored."id" IS NULL
       ORDER BY item."providerKey", item."externalId", item."createdAt" DESC, item."id" DESC
     )
     SELECT
@@ -188,6 +216,7 @@ export async function listArchiveUploaderScanItems(
       "externalId",
       "canonicalUrl",
       "title",
+      "thumbnailUrl",
       "uploaderName",
       "postedAt",
       "classification",
@@ -205,6 +234,33 @@ export async function listArchiveUploaderScanItems(
   return {
     items: visible.map(serializeAggregatedScanItem),
     nextCursor: hasMore && last ? { sortAt: last.sortAt, createdAt: last.createdAt, id: last.id } : null
+  }
+}
+
+export async function listArchiveUploaderIgnoredItems(
+  input: z.input<typeof listArchiveUploaderIgnoredItemsSchema>,
+  dependencies: ArchiveUploaderServiceDependencies = {}
+) {
+  const parsed = listArchiveUploaderIgnoredItemsSchema.parse(input)
+  const rows = await getDatabase(dependencies).archiveUploaderIgnoredItem.findMany({
+    where: parsed.cursor
+      ? {
+          OR: [
+            { ignoredAt: { lt: parsed.cursor.ignoredAt } },
+            { ignoredAt: parsed.cursor.ignoredAt, id: { lt: parsed.cursor.id } }
+          ]
+        }
+      : undefined,
+    orderBy: [{ ignoredAt: 'desc' }, { id: 'desc' }],
+    take: parsed.limit + 1,
+    select: ignoredItemWireSelect
+  })
+  const hasMore = rows.length > parsed.limit
+  const visible = hasMore ? rows.slice(0, parsed.limit) : rows
+  const last = visible.at(-1)
+  return {
+    items: visible.map(serializeIgnoredItem),
+    nextCursor: hasMore && last ? { ignoredAt: last.ignoredAt, id: last.id } : null
   }
 }
 
@@ -331,6 +387,98 @@ export async function cancelArchiveUploaderScan(
   }
 }
 
+export async function ignoreArchiveUploaderScanItems(
+  input: z.input<typeof ignoreArchiveUploaderScanItemsSchema>,
+  ignoredByUserId: string,
+  dependencies: ArchiveUploaderServiceDependencies = {}
+) {
+  const parsed = ignoreArchiveUploaderScanItemsSchema.parse(input)
+  const database = getDatabase(dependencies)
+  return database.$transaction(async (transaction) => {
+    const source = await transaction.archiveUploaderSource.findUnique({
+      where: { id: parsed.sourceId },
+      select: { id: true, displayName: true }
+    })
+    if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
+
+    const candidates = await transaction.archiveUploaderScanItem.findMany({
+      where: {
+        id: { in: parsed.itemIds },
+        run: { sourceId: source.id, status: 'COMPLETED' }
+      },
+      orderBy: { id: 'asc' },
+      select: dispositionScanItemSelect
+    })
+    assertAllDispositionItemsFound(candidates, parsed.itemIds)
+    await lockDispositionItems(transaction, candidates)
+    const items = await transaction.archiveUploaderScanItem.findMany({
+      where: {
+        id: { in: parsed.itemIds },
+        run: { sourceId: source.id, status: 'COMPLETED' }
+      },
+      orderBy: { id: 'asc' },
+      select: dispositionScanItemSelect
+    })
+    assertAllDispositionItemsFound(items, parsed.itemIds)
+    const unavailable = items.find(
+      (item) => item.intakeItemId || !ACTIONABLE_CLASSIFICATIONS.includes(item.classification as never)
+    )
+    if (unavailable) {
+      throw new ArchiveError('STATE_CONFLICT', '只能忽略尚未处理的新归档、可能更新或替代版本')
+    }
+
+    const uniqueItems = [...new Map(items.map((item) => [dispositionKey(item), item] as const)).values()]
+    const globallyLinkedItem = await transaction.archiveUploaderScanItem.findFirst({
+      where: {
+        intakeItemId: { not: null },
+        OR: uniqueItems.map((item) => ({ providerKey: item.providerKey, externalId: item.externalId }))
+      },
+      select: { id: true }
+    })
+    if (globallyLinkedItem) {
+      throw new ArchiveError('STATE_CONFLICT', '所选画廊已从其他扫描记录加入收件箱，不能再全局忽略')
+    }
+    const created = await transaction.archiveUploaderIgnoredItem.createMany({
+      data: uniqueItems.map((item) => ({
+        providerKey: item.providerKey,
+        externalId: item.externalId,
+        sourceId: source.id,
+        sourceDisplayName: source.displayName,
+        title: item.title,
+        thumbnailUrl: item.thumbnailUrl,
+        uploaderName: item.uploaderName,
+        postedAt: item.postedAt,
+        ignoredByUserId
+      })),
+      skipDuplicates: true
+    })
+    const ignoredItems = await transaction.archiveUploaderIgnoredItem.findMany({
+      where: {
+        OR: uniqueItems.map((item) => ({ providerKey: item.providerKey, externalId: item.externalId }))
+      },
+      orderBy: { id: 'asc' },
+      select: { id: true }
+    })
+    return {
+      ignoredItemIds: ignoredItems.map(({ id }) => id),
+      ignoredCount: uniqueItems.length,
+      createdCount: created.count,
+      reusedCount: uniqueItems.length - created.count
+    }
+  })
+}
+
+export async function restoreArchiveUploaderIgnoredItems(
+  input: z.input<typeof restoreArchiveUploaderIgnoredItemsSchema>,
+  dependencies: ArchiveUploaderServiceDependencies = {}
+) {
+  const parsed = restoreArchiveUploaderIgnoredItemsSchema.parse(input)
+  const deleted = await getDatabase(dependencies).archiveUploaderIgnoredItem.deleteMany({
+    where: { id: { in: parsed.ignoredItemIds } }
+  })
+  return { restoredCount: deleted.count }
+}
+
 export async function addArchiveUploaderScanItems(
   input: z.input<typeof addArchiveUploaderScanItemsSchema>,
   requestedByUserId: string,
@@ -338,59 +486,93 @@ export async function addArchiveUploaderScanItems(
 ) {
   const parsed = addArchiveUploaderScanItemsSchema.parse(input)
   const database = getDatabase(dependencies)
-  const items = await database.archiveUploaderScanItem.findMany({
-    where: {
-      id: { in: parsed.itemIds },
-      run: { sourceId: parsed.sourceId, status: 'COMPLETED' }
-    },
-    orderBy: { id: 'asc' },
-    select: { id: true, canonicalUrl: true, classification: true, intakeItemId: true }
+  return database.$transaction(async (transaction) => {
+    const candidates = await transaction.archiveUploaderScanItem.findMany({
+      where: {
+        id: { in: parsed.itemIds },
+        run: { sourceId: parsed.sourceId, status: 'COMPLETED' }
+      },
+      orderBy: { id: 'asc' },
+      select: dispositionScanItemSelect
+    })
+    assertAllDispositionItemsFound(candidates, parsed.itemIds)
+    await lockDispositionItems(transaction, candidates)
+    const items = await transaction.archiveUploaderScanItem.findMany({
+      where: {
+        id: { in: parsed.itemIds },
+        run: { sourceId: parsed.sourceId, status: 'COMPLETED' }
+      },
+      orderBy: { id: 'asc' },
+      select: dispositionScanItemSelect
+    })
+    assertAllDispositionItemsFound(items, parsed.itemIds)
+
+    const digest = createHash('sha256')
+      .update(`${parsed.sourceId}\n${[...parsed.itemIds].sort().join('\n')}`)
+      .digest('hex')
+    const idempotencyKey = `uploader-scan:${digest}:${parsed.submissionAttemptId}`
+    const existingAttempt = await transaction.archiveIntakeSubmission.findUnique({
+      where: { idempotencyKey },
+      select: { id: true }
+    })
+    const unavailable = items.find(
+      (item) =>
+        (!existingAttempt && item.intakeItemId) || !ACTIONABLE_CLASSIFICATIONS.includes(item.classification as never)
+    )
+    if (unavailable) throw new ArchiveError('STATE_CONFLICT', '只能添加尚未处理的新归档、可能更新或替代版本')
+    if (!existingAttempt) {
+      const ignoredItem = await transaction.archiveUploaderIgnoredItem.findFirst({
+        where: {
+          OR: items.map((item) => ({ providerKey: item.providerKey, externalId: item.externalId }))
+        },
+        select: { id: true }
+      })
+      if (ignoredItem) throw new ArchiveError('STATE_CONFLICT', '所选扫描结果已被忽略，请先从全局已忽略中恢复')
+    }
+
+    const submission = await createArchiveIntakeSubmissionInTransaction(
+      {
+        idempotencyKey,
+        urls: items.map(({ canonicalUrl }) => canonicalUrl)
+      },
+      requestedByUserId,
+      transaction,
+      { now: dependencies.now, uuid: dependencies.uuid }
+    )
+    const intakeItems = await transaction.archiveIntakeItem.findMany({
+      where: { submissionId: submission.id },
+      select: { id: true, submittedUrl: true }
+    })
+    const intakeByUrl = new Map(intakeItems.map((item) => [item.submittedUrl, item.id]))
+    for (const item of items) {
+      const intakeItemId = intakeByUrl.get(item.canonicalUrl)
+      if (!intakeItemId) continue
+      await transaction.archiveUploaderScanItem.updateMany({
+        where: { id: item.id, intakeItemId: null },
+        data: { intakeItemId }
+      })
+    }
+    return submission
   })
-  if (items.length !== parsed.itemIds.length) {
+}
+
+function assertAllDispositionItemsFound(items: DispositionScanItem[], itemIds: string[]) {
+  if (items.length !== itemIds.length) {
     throw new ArchiveError('STATE_CONFLICT', '部分扫描结果不存在或不属于该上传者来源')
   }
-  const digest = createHash('sha256')
-    .update(`${parsed.sourceId}\n${[...parsed.itemIds].sort().join('\n')}`)
-    .digest('hex')
-  const idempotencyKey = `uploader-scan:${digest}:${parsed.submissionAttemptId}`
-  const existingAttempt = await database.archiveIntakeSubmission.findUnique({
-    where: { idempotencyKey },
-    select: { id: true }
-  })
-  const unavailable = items.find(
-    (item) =>
-      (!existingAttempt && item.intakeItemId) || !ACTIONABLE_CLASSIFICATIONS.includes(item.classification as never)
-  )
-  if (unavailable) throw new ArchiveError('STATE_CONFLICT', '只能添加尚未处理的新归档、可能更新或替代版本')
+}
 
-  const submission = await createArchiveIntakeSubmission(
-    {
-      idempotencyKey,
-      urls: items.map(({ canonicalUrl }) => canonicalUrl)
-    },
-    requestedByUserId,
-    { database, now: dependencies.now, uuid: dependencies.uuid }
-  )
-  const intakeItems = await database.archiveIntakeItem.findMany({
-    where: { submissionId: submission.id },
-    select: { id: true, submittedUrl: true }
-  })
-  const intakeByUrl = new Map(intakeItems.map((item) => [item.submittedUrl, item.id]))
-  const linkedItems = items.flatMap((item) => {
-    const intakeItemId = intakeByUrl.get(item.canonicalUrl)
-    return intakeItemId ? [{ scanItemId: item.id, intakeItemId }] : []
-  })
-  if (linkedItems.length > 0) {
-    await database.$transaction(
-      linkedItems.map(({ scanItemId, intakeItemId }) =>
-        database.archiveUploaderScanItem.updateMany({
-          where: { id: scanItemId, intakeItemId: null },
-          data: { intakeItemId }
-        })
-      )
+async function lockDispositionItems(transaction: Prisma.TransactionClient, items: DispositionScanItem[]) {
+  const keys = [...new Set(items.map(dispositionKey))].sort()
+  for (const key of keys) {
+    await transaction.$queryRaw<{ lock: string }[]>(
+      Prisma.sql`SELECT pg_advisory_xact_lock(${DISPOSITION_LOCK_NAMESPACE}::integer, hashtext(${key}::text))::text AS "lock"`
     )
   }
-  return submission
+}
+
+function dispositionKey(item: Pick<DispositionScanItem, 'providerKey' | 'externalId'>) {
+  return `${item.providerKey}\n${item.externalId}`
 }
 
 function normalizeUploaderIdentity(kind: 'NAME' | 'UID', input: string) {
@@ -449,6 +631,7 @@ const scanItemWireSelect = {
   externalId: true,
   canonicalUrl: true,
   title: true,
+  thumbnailUrl: true,
   uploaderName: true,
   postedAt: true,
   classification: true,
@@ -456,9 +639,36 @@ const scanItemWireSelect = {
   createdAt: true
 } satisfies Prisma.ArchiveUploaderScanItemSelect
 
+const dispositionScanItemSelect = {
+  id: true,
+  providerKey: true,
+  externalId: true,
+  canonicalUrl: true,
+  title: true,
+  thumbnailUrl: true,
+  uploaderName: true,
+  postedAt: true,
+  classification: true,
+  intakeItemId: true
+} satisfies Prisma.ArchiveUploaderScanItemSelect
+
+const ignoredItemWireSelect = {
+  id: true,
+  providerKey: true,
+  externalId: true,
+  sourceDisplayName: true,
+  title: true,
+  thumbnailUrl: true,
+  uploaderName: true,
+  postedAt: true,
+  ignoredAt: true
+} satisfies Prisma.ArchiveUploaderIgnoredItemSelect
+
 type SourceWire = Prisma.ArchiveUploaderSourceGetPayload<{ select: typeof sourceWireSelect }>
 type ScanItemWire = Prisma.ArchiveUploaderScanItemGetPayload<{ select: typeof scanItemWireSelect }>
+type DispositionScanItem = Prisma.ArchiveUploaderScanItemGetPayload<{ select: typeof dispositionScanItemSelect }>
 type AggregatedScanItemWire = ScanItemWire & { sortAt: Date }
+type IgnoredItemWire = Prisma.ArchiveUploaderIgnoredItemGetPayload<{ select: typeof ignoredItemWireSelect }>
 type RunSummaryWire = Prisma.ArchiveUploaderScanRunGetPayload<{ select: typeof runSummarySelect }>
 
 function serializeSource(source: SourceWire) {
@@ -472,8 +682,12 @@ function serializeSource(source: SourceWire) {
 }
 
 function serializeScanItem(item: ScanItemWire) {
-  const { canonicalUrl, ...rest } = item
-  return { ...rest, displayUrl: redactArchiveUrl(canonicalUrl) }
+  const { canonicalUrl, thumbnailUrl, ...rest } = item
+  return {
+    ...rest,
+    thumbnailUrl: safeArchiveUploaderThumbnailUrl(thumbnailUrl),
+    displayUrl: redactArchiveUrl(canonicalUrl)
+  }
 }
 
 function serializeAggregatedScanItem(item: AggregatedScanItemWire) {
@@ -482,12 +696,39 @@ function serializeAggregatedScanItem(item: AggregatedScanItemWire) {
     externalId: item.externalId,
     canonicalUrl: item.canonicalUrl,
     title: item.title,
+    thumbnailUrl: item.thumbnailUrl,
     uploaderName: item.uploaderName,
     postedAt: item.postedAt,
     classification: item.classification,
     intakeItemId: item.intakeItemId,
     createdAt: item.createdAt
   })
+}
+
+function serializeIgnoredItem(item: IgnoredItemWire) {
+  return { ...item, thumbnailUrl: safeArchiveUploaderThumbnailUrl(item.thumbnailUrl) }
+}
+
+export function safeArchiveUploaderThumbnailUrl(input: string | null): string | null {
+  if (!input) return null
+  try {
+    const url = new URL(input)
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
+    if (
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      url.port ||
+      !THUMBNAIL_HOST_SUFFIXES.some((suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`))
+    ) {
+      return null
+    }
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return null
+  }
 }
 
 function serializeRunSummary(run: RunSummaryWire) {

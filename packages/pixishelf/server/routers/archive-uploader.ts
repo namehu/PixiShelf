@@ -8,10 +8,16 @@ import {
   createArchiveUploaderSourceSchema,
   getArchiveUploaderSource,
   getArchiveUploaderSourceSchema,
+  ignoreArchiveUploaderScanItems,
+  ignoreArchiveUploaderScanItemsSchema,
   listArchiveUploaderSources,
   listArchiveUploaderSourcesSchema,
+  listArchiveUploaderIgnoredItems,
+  listArchiveUploaderIgnoredItemsSchema,
   listArchiveUploaderScanItems,
   listArchiveUploaderScanItemsSchema,
+  restoreArchiveUploaderIgnoredItems,
+  restoreArchiveUploaderIgnoredItemsSchema,
   setArchiveUploaderSourceArchived,
   setArchiveUploaderSourceArchivedSchema,
   triggerArchiveUploaderScan,
@@ -36,6 +42,10 @@ export const archiveUploaderRouter = router({
     .input(listArchiveUploaderScanItemsSchema)
     .query(({ input }) => runArchiveOperation(() => listArchiveUploaderScanItems(input))),
 
+  listIgnoredItems: authProcedure
+    .input(listArchiveUploaderIgnoredItemsSchema)
+    .query(({ input }) => runArchiveOperation(() => listArchiveUploaderIgnoredItems(input))),
+
   setArchived: adminProcedure
     .input(setArchiveUploaderSourceArchivedSchema)
     .mutation(({ input }) => runArchiveOperation(() => setArchiveUploaderSourceArchived(input))),
@@ -50,5 +60,13 @@ export const archiveUploaderRouter = router({
 
   addToInbox: adminProcedure
     .input(addArchiveUploaderScanItemsSchema)
-    .mutation(({ input, ctx }) => runArchiveOperation(() => addArchiveUploaderScanItems(input, ctx.userId)))
+    .mutation(({ input, ctx }) => runArchiveOperation(() => addArchiveUploaderScanItems(input, ctx.userId))),
+
+  ignoreItems: adminProcedure
+    .input(ignoreArchiveUploaderScanItemsSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => ignoreArchiveUploaderScanItems(input, ctx.userId))),
+
+  restoreIgnoredItems: adminProcedure
+    .input(restoreArchiveUploaderIgnoredItemsSchema)
+    .mutation(({ input }) => runArchiveOperation(() => restoreArchiveUploaderIgnoredItems(input)))
 })

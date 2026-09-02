@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('server-only', () => ({}))
 vi.mock('@/services/archive-intake/archive-intake-service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/archive-intake/archive-intake-service')>()),
-  createArchiveIntakeSubmission: mocks.createIntake
+  createArchiveIntakeSubmissionInTransaction: mocks.createIntake
 }))
 vi.mock('@/services/background-task/job-event-service', () => ({ writeJobEvent: mocks.writeJobEvent }))
 vi.mock('@/services/background-task/job-command-service', () => ({ cancelJobCommand: mocks.cancelJob }))
@@ -18,7 +18,11 @@ import {
   addArchiveUploaderScanItems,
   cancelArchiveUploaderScan,
   createArchiveUploaderSource,
+  ignoreArchiveUploaderScanItems,
+  listArchiveUploaderIgnoredItems,
   listArchiveUploaderScanItems,
+  restoreArchiveUploaderIgnoredItems,
+  safeArchiveUploaderThumbnailUrl,
   triggerArchiveUploaderScan
 } from '../archive-uploader-service'
 
@@ -137,6 +141,7 @@ describe('archive uploader service', () => {
           externalId: '302',
           canonicalUrl: 'https://e-hentai.org/g/302/token302/',
           title: 'Gallery 302',
+          thumbnailUrl: 'https://ehgt.org/thumb-302.jpg?token=private#fragment',
           uploaderName: 'Uploader',
           postedAt: firstCreatedAt,
           classification: 'NEW',
@@ -149,6 +154,7 @@ describe('archive uploader service', () => {
           externalId: '301',
           canonicalUrl: 'https://e-hentai.org/g/301/token301/',
           title: 'Gallery 301',
+          thumbnailUrl: 'https://untrusted.example/thumb-301.jpg',
           uploaderName: 'Uploader',
           postedAt: secondCreatedAt,
           classification: 'ARCHIVED',
@@ -165,7 +171,11 @@ describe('archive uploader service', () => {
     )
 
     expect(result.items).toHaveLength(1)
-    expect(result.items[0]).toMatchObject({ id: 'scan-item-2', externalId: '302' })
+    expect(result.items[0]).toMatchObject({
+      id: 'scan-item-2',
+      externalId: '302',
+      thumbnailUrl: 'https://ehgt.org/thumb-302.jpg'
+    })
     expect(result.items[0]).not.toHaveProperty('canonicalUrl')
     expect(result.items[0]?.displayUrl).not.toContain('token302')
     expect(result.nextCursor).toEqual({ sortAt: firstCreatedAt, createdAt: firstCreatedAt, id: 'scan-item-2' })
@@ -185,27 +195,171 @@ describe('archive uploader service', () => {
     expect(mocks.cancelJob).toHaveBeenCalledWith({ jobId: 'job-1' }, database)
   })
 
+  it('accepts only redacted HTTPS thumbnail URLs from provider-owned hosts', () => {
+    expect(safeArchiveUploaderThumbnailUrl('https://ehgt.org/thumb.jpg?token=private#fragment')).toBe(
+      'https://ehgt.org/thumb.jpg'
+    )
+    expect(safeArchiveUploaderThumbnailUrl('https://cdn.hath.network/thumb.jpg')).toBe(
+      'https://cdn.hath.network/thumb.jpg'
+    )
+    expect(safeArchiveUploaderThumbnailUrl('http://ehgt.org/thumb.jpg')).toBeNull()
+    expect(safeArchiveUploaderThumbnailUrl('https://ehgt.org.example/thumb.jpg')).toBeNull()
+    expect(safeArchiveUploaderThumbnailUrl('https://user:secret@ehgt.org/thumb.jpg')).toBeNull()
+  })
+
+  it('stores a durable globally unique ignored-gallery snapshot without its canonical token', async () => {
+    const createMany = vi.fn(async (input: unknown) => {
+      void input
+      return { count: 1 }
+    })
+    const database = transactionalDatabase({
+      archiveUploaderSource: {
+        findUnique: vi.fn(async () => ({ id: 'source-1', displayName: 'Uploader' }))
+      },
+      archiveUploaderScanItem: {
+        findMany: vi.fn(async () => [
+          {
+            id: 'scan-item-1',
+            providerKey: 'e-hentai',
+            externalId: '300',
+            title: 'Gallery 300',
+            thumbnailUrl: 'https://ehgt.org/thumb.jpg',
+            uploaderName: 'Uploader',
+            postedAt: new Date('2026-09-02T00:00:00.000Z'),
+            classification: 'NEW',
+            intakeItemId: null
+          }
+        ]),
+        findFirst: vi.fn(async () => null)
+      },
+      archiveUploaderIgnoredItem: {
+        createMany,
+        findMany: vi.fn(async () => [{ id: 'ignored-1' }])
+      }
+    })
+
+    await expect(
+      ignoreArchiveUploaderScanItems({ sourceId: 'source-1', itemIds: ['scan-item-1'] }, 'admin-1', {
+        database: database as never
+      })
+    ).resolves.toEqual({ ignoredItemIds: ['ignored-1'], ignoredCount: 1, createdCount: 1, reusedCount: 0 })
+    expect(createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          providerKey: 'e-hentai',
+          externalId: '300',
+          sourceDisplayName: 'Uploader',
+          ignoredByUserId: 'admin-1'
+        })
+      ],
+      skipDuplicates: true
+    })
+    const createInput = createMany.mock.calls[0]?.[0] as { data: Array<Record<string, unknown>> }
+    expect(createInput.data[0]).not.toHaveProperty('canonicalUrl')
+  })
+
+  it('rejects a global ignore when another scan record for the Provider/GID is already linked', async () => {
+    const createMany = vi.fn()
+    const database = transactionalDatabase({
+      archiveUploaderSource: {
+        findUnique: vi.fn(async () => ({ id: 'source-1', displayName: 'Uploader' }))
+      },
+      archiveUploaderScanItem: {
+        findMany: vi.fn(async () => [
+          {
+            id: 'scan-item-1',
+            providerKey: 'e-hentai',
+            externalId: '300',
+            title: 'Gallery 300',
+            thumbnailUrl: null,
+            uploaderName: 'Uploader',
+            postedAt: null,
+            classification: 'NEW',
+            intakeItemId: null
+          }
+        ]),
+        findFirst: vi.fn(async () => ({ id: 'scan-item-other-source' }))
+      },
+      archiveUploaderIgnoredItem: { createMany }
+    })
+
+    await expect(
+      ignoreArchiveUploaderScanItems({ sourceId: 'source-1', itemIds: ['scan-item-1'] }, 'admin-1', {
+        database: database as never
+      })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    expect(createMany).not.toHaveBeenCalled()
+  })
+
+  it('paginates global ignored galleries and restores them idempotently', async () => {
+    const ignoredAt = new Date('2026-09-02T02:00:00.000Z')
+    const deleteMany = vi.fn(async () => ({ count: 1 }))
+    const database = {
+      archiveUploaderIgnoredItem: {
+        findMany: vi.fn(async () => [
+          {
+            id: 'ignored-2',
+            providerKey: 'e-hentai',
+            externalId: '302',
+            sourceDisplayName: 'Uploader',
+            title: 'Gallery 302',
+            thumbnailUrl: 'https://ehgt.org/thumb.jpg?secret=1',
+            uploaderName: 'Uploader',
+            postedAt: ignoredAt,
+            ignoredAt
+          },
+          {
+            id: 'ignored-1',
+            providerKey: 'e-hentai',
+            externalId: '301',
+            sourceDisplayName: 'Uploader',
+            title: 'Gallery 301',
+            thumbnailUrl: null,
+            uploaderName: 'Uploader',
+            postedAt: ignoredAt,
+            ignoredAt
+          }
+        ]),
+        deleteMany
+      }
+    }
+
+    const result = await listArchiveUploaderIgnoredItems(
+      { limit: 1, direction: 'forward' },
+      { database: database as never }
+    )
+    expect(result.items[0]).toMatchObject({ id: 'ignored-2', thumbnailUrl: 'https://ehgt.org/thumb.jpg' })
+    expect(result.nextCursor).toEqual({ ignoredAt, id: 'ignored-2' })
+
+    await expect(
+      restoreArchiveUploaderIgnoredItems({ ignoredItemIds: ['ignored-2'] }, { database: database as never })
+    ).resolves.toEqual({ restoredCount: 1 })
+    expect(deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['ignored-2'] } } })
+  })
+
   it('adds only actionable results to the existing intake workflow and links its durable items', async () => {
     const scanItems = [
       {
         id: 'scan-item-1',
+        providerKey: 'e-hentai',
+        externalId: '300',
         canonicalUrl: 'https://e-hentai.org/g/300/token300/',
         classification: 'NEW',
         intakeItemId: null
       }
     ]
     const linkUpdate = vi.fn(async () => ({ count: 1 }))
-    const database = {
+    const database = transactionalDatabase({
       archiveUploaderScanItem: {
         findMany: vi.fn(async () => scanItems),
         updateMany: linkUpdate
       },
       archiveIntakeSubmission: { findUnique: vi.fn(async () => null) },
+      archiveUploaderIgnoredItem: { findFirst: vi.fn(async () => null) },
       archiveIntakeItem: {
         findMany: vi.fn(async () => [{ id: 'intake-item-1', submittedUrl: 'https://e-hentai.org/g/300/token300/' }])
-      },
-      $transaction: (operations: Array<Promise<unknown>>) => Promise.all(operations)
-    }
+      }
+    })
     mocks.createIntake.mockResolvedValue({
       id: 'submission-1',
       acceptedCount: 1,
@@ -226,7 +380,8 @@ describe('archive uploader service', () => {
     expect(mocks.createIntake).toHaveBeenCalledWith(
       expect.objectContaining({ urls: ['https://e-hentai.org/g/300/token300/'] }),
       'admin-1',
-      expect.objectContaining({ database })
+      database,
+      expect.objectContaining({ now: undefined, uuid: undefined })
     )
     expect(linkUpdate).toHaveBeenCalledWith({
       where: { id: 'scan-item-1', intakeItemId: null },
@@ -241,15 +396,24 @@ describe('archive uploader service', () => {
       .fn()
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 'intake-item-2', submittedUrl: canonicalUrl }])
-    const database = {
+    const database = transactionalDatabase({
       archiveUploaderScanItem: {
-        findMany: vi.fn(async () => [{ id: 'scan-item-1', canonicalUrl, classification: 'NEW', intakeItemId: null }]),
+        findMany: vi.fn(async () => [
+          {
+            id: 'scan-item-1',
+            providerKey: 'e-hentai',
+            externalId: '300',
+            canonicalUrl,
+            classification: 'NEW',
+            intakeItemId: null
+          }
+        ]),
         updateMany: linkUpdate
       },
       archiveIntakeSubmission: { findUnique: vi.fn(async () => null) },
-      archiveIntakeItem: { findMany: intakeFindMany },
-      $transaction: (operations: Array<Promise<unknown>>) => Promise.all(operations)
-    }
+      archiveUploaderIgnoredItem: { findFirst: vi.fn(async () => null) },
+      archiveIntakeItem: { findMany: intakeFindMany }
+    })
     mocks.createIntake
       .mockResolvedValueOnce({
         id: 'submission-rejected',
@@ -299,19 +463,25 @@ describe('archive uploader service', () => {
 
   it('replays the same submission attempt after its scan item has already been linked', async () => {
     const canonicalUrl = 'https://e-hentai.org/g/300/token300/'
-    const database = {
+    const database = transactionalDatabase({
       archiveUploaderScanItem: {
         findMany: vi.fn(async () => [
-          { id: 'scan-item-1', canonicalUrl, classification: 'NEW', intakeItemId: 'intake-item-1' }
+          {
+            id: 'scan-item-1',
+            providerKey: 'e-hentai',
+            externalId: '300',
+            canonicalUrl,
+            classification: 'NEW',
+            intakeItemId: 'intake-item-1'
+          }
         ]),
         updateMany: vi.fn(async () => ({ count: 0 }))
       },
       archiveIntakeSubmission: { findUnique: vi.fn(async () => ({ id: 'submission-1' })) },
       archiveIntakeItem: {
         findMany: vi.fn(async () => [{ id: 'intake-item-1', submittedUrl: canonicalUrl }])
-      },
-      $transaction: (operations: Array<Promise<unknown>>) => Promise.all(operations)
-    }
+      }
+    })
     mocks.createIntake.mockResolvedValue({
       id: 'submission-1',
       acceptedCount: 1,
@@ -334,11 +504,13 @@ describe('archive uploader service', () => {
   })
 
   it('rejects a new submission attempt after its scan item has already been linked', async () => {
-    const database = {
+    const database = transactionalDatabase({
       archiveUploaderScanItem: {
         findMany: vi.fn(async () => [
           {
             id: 'scan-item-1',
+            providerKey: 'e-hentai',
+            externalId: '300',
             canonicalUrl: 'https://e-hentai.org/g/300/token300/',
             classification: 'NEW',
             intakeItemId: 'intake-item-1'
@@ -346,7 +518,39 @@ describe('archive uploader service', () => {
         ])
       },
       archiveIntakeSubmission: { findUnique: vi.fn(async () => null) }
-    }
+    })
+
+    await expect(
+      addArchiveUploaderScanItems(
+        {
+          sourceId: 'source-1',
+          submissionAttemptId: '00000000-0000-4000-8000-000000000002',
+          itemIds: ['scan-item-1']
+        },
+        'admin-1',
+        { database: database as never }
+      )
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    expect(mocks.createIntake).not.toHaveBeenCalled()
+  })
+
+  it('rejects a new intake attempt for a globally ignored gallery', async () => {
+    const database = transactionalDatabase({
+      archiveUploaderScanItem: {
+        findMany: vi.fn(async () => [
+          {
+            id: 'scan-item-1',
+            providerKey: 'e-hentai',
+            externalId: '300',
+            canonicalUrl: 'https://e-hentai.org/g/300/token300/',
+            classification: 'NEW',
+            intakeItemId: null
+          }
+        ])
+      },
+      archiveIntakeSubmission: { findUnique: vi.fn(async () => null) },
+      archiveUploaderIgnoredItem: { findFirst: vi.fn(async () => ({ id: 'ignored-1' })) }
+    })
 
     await expect(
       addArchiveUploaderScanItems(
@@ -362,3 +566,12 @@ describe('archive uploader service', () => {
     expect(mocks.createIntake).not.toHaveBeenCalled()
   })
 })
+
+function transactionalDatabase<T extends object>(delegates: T) {
+  const transaction = Object.assign(delegates, {
+    $queryRaw: vi.fn(async () => [{ lock: '' }])
+  })
+  return Object.assign(transaction, {
+    $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)
+  })
+}

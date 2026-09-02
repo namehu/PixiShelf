@@ -84,8 +84,19 @@ export async function createArchiveIntakeSubmission(
   requestedByUserId: string,
   dependencies: ArchiveIntakeServiceDependencies = {}
 ) {
-  const parsed = createArchiveIntakeSchema.parse(input)
   const database = getDatabase(dependencies)
+  return database.$transaction((transaction) =>
+    createArchiveIntakeSubmissionInTransaction(input, requestedByUserId, transaction, dependencies)
+  )
+}
+
+export async function createArchiveIntakeSubmissionInTransaction(
+  input: z.input<typeof createArchiveIntakeSchema>,
+  requestedByUserId: string,
+  transaction: Prisma.TransactionClient,
+  dependencies: Pick<ArchiveIntakeServiceDependencies, 'now' | 'uuid' | 'validateUrl'> = {}
+) {
+  const parsed = createArchiveIntakeSchema.parse(input)
   const now = dependencies.now ?? (() => new Date())
   const uuid = dependencies.uuid ?? randomUUID
   const rawUrls = parsed.urls.map((url) => url.trim()).filter(Boolean)
@@ -93,107 +104,105 @@ export async function createArchiveIntakeSubmission(
   const requestHash = archiveRequestFingerprint({ urls: rawUrls })
 
   // 并发场景下先锁幂等键，再锁容量队列，避免重复重放和容量竞争带来的“双重可见项目”。
-  return database.$transaction(async (transaction) => {
-    await lockKey(transaction, INTAKE_IDEMPOTENCY_LOCK_NAMESPACE, parsed.idempotencyKey)
-    const existing = await transaction.archiveIntakeSubmission.findUnique({
-      where: { idempotencyKey: parsed.idempotencyKey }
-    })
-    if (existing) {
-      if (existing.requestHash !== requestHash || existing.requestedByUserId !== requestedByUserId) {
-        throw new ArchiveError('STATE_CONFLICT', '该幂等键已绑定到不同的归档链接提交')
-      }
-      return serializeSubmission(transaction, existing.id)
+  await lockKey(transaction, INTAKE_IDEMPOTENCY_LOCK_NAMESPACE, parsed.idempotencyKey)
+  const existing = await transaction.archiveIntakeSubmission.findUnique({
+    where: { idempotencyKey: parsed.idempotencyKey }
+  })
+  if (existing) {
+    if (existing.requestHash !== requestHash || existing.requestedByUserId !== requestedByUserId) {
+      throw new ArchiveError('STATE_CONFLICT', '该幂等键已绑定到不同的归档链接提交')
+    }
+    return serializeSubmission(transaction, existing.id)
+  }
+
+  await lockKey(transaction, INTAKE_CAPACITY_LOCK_NAMESPACE, RESOLVE_QUEUE_ID)
+  let remainingCapacity =
+    INTAKE_CAPACITY -
+    (await transaction.archiveIntakeItem.count({ where: { status: { in: [...ACTIVE_INTAKE_STATUSES] } } }))
+  const timestamp = now()
+  const submission = await transaction.archiveIntakeSubmission.create({
+    data: {
+      id: uuid(),
+      idempotencyKey: parsed.idempotencyKey,
+      requestHash,
+      requestedByUserId,
+      rawCount: rawUrls.length,
+      acceptedCount: 0,
+      invalidCount: 0,
+      duplicateCount: 0,
+      rejectedCount: 0,
+      createdAt: timestamp
+    }
+  })
+
+  let acceptedCount = 0
+  let invalidCount = 0
+  let duplicateCount = 0
+  let rejectedCount = 0
+  // firstSeen 去重仅用于“本次提交体”内的重复 URL；全局去重由 normalizedUrlHash + 活跃状态查询负责。
+  const firstSeen = new Map<string, string | null>()
+
+  for (const submittedUrl of rawUrls) {
+    if (firstSeen.has(submittedUrl)) {
+      duplicateCount += 1
+      continue
+    }
+    firstSeen.set(submittedUrl, null)
+
+    try {
+      validateSubmittedUrl(submittedUrl, dependencies.validateUrl)
+    } catch {
+      invalidCount += 1
+      continue
     }
 
-    await lockKey(transaction, INTAKE_CAPACITY_LOCK_NAMESPACE, RESOLVE_QUEUE_ID)
-    let remainingCapacity =
-      INTAKE_CAPACITY -
-      (await transaction.archiveIntakeItem.count({ where: { status: { in: [...ACTIVE_INTAKE_STATUSES] } } }))
-    const timestamp = now()
-    const submission = await transaction.archiveIntakeSubmission.create({
-      data: {
-        id: uuid(),
-        idempotencyKey: parsed.idempotencyKey,
-        requestHash,
-        requestedByUserId,
-        rawCount: rawUrls.length,
-        acceptedCount: 0,
-        invalidCount: 0,
-        duplicateCount: 0,
-        rejectedCount: 0,
-        createdAt: timestamp
-      }
-    })
-
-    let acceptedCount = 0
-    let invalidCount = 0
-    let duplicateCount = 0
-    let rejectedCount = 0
-    // firstSeen 去重仅用于“本次提交体”内的重复 URL；全局去重由 normalizedUrlHash + 活跃状态查询负责。
-    const firstSeen = new Map<string, string | null>()
-
-    for (const submittedUrl of rawUrls) {
-      if (firstSeen.has(submittedUrl)) {
-        duplicateCount += 1
-        continue
-      }
-      firstSeen.set(submittedUrl, null)
-
-      try {
-        validateSubmittedUrl(submittedUrl, dependencies.validateUrl)
-      } catch {
-        invalidCount += 1
-        continue
-      }
-
-      const normalizedUrlHash = hashSubmittedUrl(submittedUrl)
-      const duplicate = await findActiveUrlDuplicate(transaction, submittedUrl, normalizedUrlHash)
-      if (duplicate?.submittedUrl === submittedUrl) {
-        const duplicateId = uuid()
-        await createDuplicateAuditItem(transaction, {
-          id: duplicateId,
-          submissionId: submission.id,
-          submittedUrl,
-          normalizedUrlHash,
-          duplicateOfItemId: duplicate.id,
-          timestamp
-        })
-        firstSeen.set(submittedUrl, duplicateId)
-        duplicateCount += 1
-        continue
-      }
-
-      if (remainingCapacity <= 0) {
-        rejectedCount += 1
-        continue
-      }
-
-      const itemId = uuid()
-      const jobId = uuid()
-      await createQueuedIntakeItem(transaction, {
-        itemId,
-        jobId,
+    const normalizedUrlHash = hashSubmittedUrl(submittedUrl)
+    const duplicate = await findActiveUrlDuplicate(transaction, submittedUrl, normalizedUrlHash)
+    if (duplicate?.submittedUrl === submittedUrl) {
+      const duplicateId = uuid()
+      await createDuplicateAuditItem(transaction, {
+        id: duplicateId,
         submissionId: submission.id,
         submittedUrl,
         normalizedUrlHash,
-        requestedByUserId,
-        timestamp,
-        triggerSource: 'MANUAL'
+        duplicateOfItemId: duplicate.id,
+        timestamp
       })
-      firstSeen.set(submittedUrl, itemId)
-      acceptedCount += 1
-      remainingCapacity -= 1
+      firstSeen.set(submittedUrl, duplicateId)
+      duplicateCount += 1
+      continue
     }
 
-    if (rawUrls.length !== acceptedCount + invalidCount + duplicateCount + rejectedCount) {
-      throw new ArchiveError('INTERNAL', '归档链接提交计数不一致')
+    if (remainingCapacity <= 0) {
+      rejectedCount += 1
+      continue
     }
-    await transaction.archiveIntakeSubmission.update({
-      where: { id: submission.id },
-      data: { acceptedCount, invalidCount, duplicateCount, rejectedCount }
+
+    const itemId = uuid()
+    const jobId = uuid()
+    await createQueuedIntakeItem(transaction, {
+      itemId,
+      jobId,
+      submissionId: submission.id,
+      submittedUrl,
+      normalizedUrlHash,
+      requestedByUserId,
+      timestamp,
+      triggerSource: 'MANUAL'
     })
-    return serializeSubmission(transaction, submission.id)
+    firstSeen.set(submittedUrl, itemId)
+    acceptedCount += 1
+    remainingCapacity -= 1
+  }
+
+  if (rawUrls.length !== acceptedCount + invalidCount + duplicateCount + rejectedCount) {
+    throw new ArchiveError('INTERNAL', '归档链接提交计数不一致')
+  }
+  await transaction.archiveIntakeSubmission.update({
+    where: { id: submission.id },
+    data: { acceptedCount, invalidCount, duplicateCount, rejectedCount }
   })
+  return serializeSubmission(transaction, submission.id)
 }
 
 export async function replaceArchiveIntakeItem(
